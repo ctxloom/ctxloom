@@ -442,7 +442,10 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 		return pub, nil
 	}
 
-	path := expandHome(value)
+	path, err := expandHome(value)
+	if err != nil {
+		return nil, err
+	}
 
 	// U135-F02: user.signingkey conventionally names the PRIVATE key path in
 	// some real setups, with the public key living alongside it as
@@ -475,14 +478,22 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 	return pub, nil
 }
 
-func expandHome(path string) string {
+// expandHome resolves a leading "~" against the user's home directory.
+//
+// A tilde that cannot be expanded is an ERROR, never a literal path segment.
+// Leaving it in place makes every downstream step read a path that exists
+// under no name, so "$HOME is not defined" surfaces as a missing key file and
+// sends the user hunting for a key they already have. A path with no leading
+// tilde is returned untouched.
+func expandHome(path string) (string, error) {
 	if path == "~" || strings.HasPrefix(path, "~/") {
 		home, err := os.UserHomeDir()
-		if err == nil {
-			return filepath.Join(home, strings.TrimPrefix(path, "~"))
+		if err != nil {
+			return "", fmt.Errorf("cannot expand %q: %w", path, err)
 		}
+		return filepath.Join(home, strings.TrimPrefix(path, "~")), nil
 	}
-	return path
+	return path, nil
 }
 
 func findByFingerprint(ag agent.Agent, fingerprint, source string) (*Discovered, error) {

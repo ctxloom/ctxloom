@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,289** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,290** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 123 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 168 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **523** |
+| `open` | no commit names this ID | **522** |
 
-**Totals: 2268 findings across 162 units — 1,289 resolved, 523 still open, 456 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,290 resolved, 522 still open, 456 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 457 | 290 | 69 | 79 | 104 |
+| MED | 999 | 458 | 289 | 69 | 79 | 104 |
 | LOW | 871 | 475 | 221 | 39 | 81 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1039,7 +1039,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U014-F12 | open | **`server.go:1077-1271`** | COHESION | Eight functions in `server.go` (`promptText`, `mediaPlaceholderLine`, `binaryResourcePlaceholder`, `embeddedResourceText`, `resourceLinkText`, `contentBlocksFromACP`, `mcpServersFromACP`, `httpHead... | U014.md |
 | U014-F15 | **REFUTED** `46daceaa` | `announce.go:38-53` | SILENTNOOP | The ISO3/ISO4 session-initialization summary — which the doc says carries the agent-not-found **warning** and the MCP status that "must be a message no conformant client can silently drop" (announc... | U014.md |
 | U014-F22 | **PARTIAL** `d6cc0fdb` | `l0_conformance_test.go:212-261` | CORRECTNESS | The L0 suite's frame-to-label mapping is positional (`labels[i]`), and the length gate is `GreaterOrEqual(len(turnUpdates), 5)` while seven labels are expected. If an emitter drops or reorders a fr... | U014.md |
-| U014-F23 | open | `l0_conformance_test.go:287-293 vs server.go:471-475` | CORRECTNESS | `session/load`'s response body is asserted **nowhere**. The L0 capture validates it against `$defs/LoadSessionResponse`, which has **no `required` array at all** — `{}` passes. `TestServe_SessionLo... | U014.md |
+| U014-F23 | **RESOLVED** `08b0c7cb` | `l0_conformance_test.go:287-293 vs server.go:471-475` | CORRECTNESS | `session/load`'s response body is asserted **nowhere**. The L0 capture validates it against `$defs/LoadSessionResponse`, which has **no `required` array at all** — `{}` passes. `TestServe_SessionLo... | U014.md |
 | U014-F24 | open | `internal/acptest/acp-schema-v1.json (all 142 `$defs`)` | CORRECTNESS | L0 can detect a **missing required** field but can never detect an **extra or misnamed** one: zero of the schema's 142 `$defs` set `additionalProperties: false`. Concretely, the non-spec `models` f... | U014.md |
 | U015-F01 | open | **`schema.go:66-67` vs `:78`, `:85`** | CORRECTNESS | The doc comment promises "**Safe for concurrent use after construction**", but `def` performs an unsynchronised read-then-write on `v.cache` and calls `v.compiler.Compile` concurrently. The promise... | U015.md |
 | U016-F07 | open | `coordination.proto:1163` | CORRECTNESS | `MESSAGE_CHANNEL_UNSPECIFIED` (0) is read with opposite meaning in two packages. | U016.md |

@@ -58,17 +58,34 @@ func (e *ParseError) Unwrap() error { return e.Err }
 // more, which is the fail-closed property this package guarantees.
 //
 // Parse returns a non-nil error only when reading r itself fails (an I/O
-// error, not a content error).
+// error, not a content error). An over-long line is content: it is reported
+// as a ParseError like any other unusable line — see maxLineBytes.
 func Parse(r io.Reader) (*Store, []*ParseError, error) {
 	var entries []Entry
 	var perrs []*ParseError
 
-	scanner := bufio.NewScanner(r)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	br := bufio.NewReaderSize(r, readBufBytes)
 	lineNo := 0
-	for scanner.Scan() {
+	for {
+		raw, tooLong, err := readLine(br)
+		if err != nil && err != io.EOF {
+			return nil, perrs, err
+		}
+		if err == io.EOF && raw == "" && !tooLong {
+			break
+		}
 		lineNo++
-		raw := scanner.Text()
+		if tooLong {
+			// A line this long cannot be an entry, but discarding the FILE
+			// over it revokes every signer in it — see maxLineBytes. readLine
+			// kept only a bounded prefix; the ellipsis says so, because
+			// pe.Error() is rendered to a terminal.
+			perrs = append(perrs, &ParseError{Line: lineNo, Text: raw + "\u2026", Err: errLineTooLong})
+			if err == io.EOF {
+				break
+			}
+			continue
+		}
 		// A UTF-8 BOM is NOT Unicode whitespace, so TrimSpace leaves it in
 		// place and it is absorbed into the first PRINCIPAL — an entry that
 		// still grants trust (TrustedForNamespace matches on the key) under an
@@ -80,24 +97,82 @@ func Parse(r io.Reader) (*Store, []*ParseError, error) {
 		// MORE-trust direction (see the package doc).
 		body, hasBOM := strings.CutPrefix(raw, "\ufeff")
 		trimmed := strings.TrimSpace(body)
-		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if hasBOM {
+		switch {
+		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
+		case hasBOM:
 			perrs = append(perrs, &ParseError{Line: lineNo, Text: raw, Err: errByteOrderMark})
-			continue
+		default:
+			entry, perr := parseLine(trimmed, lineNo)
+			if perr != nil {
+				perrs = append(perrs, &ParseError{Line: lineNo, Text: raw, Err: perr})
+				break
+			}
+			entries = append(entries, *entry)
 		}
-		entry, err := parseLine(trimmed, lineNo)
-		if err != nil {
-			perrs = append(perrs, &ParseError{Line: lineNo, Text: raw, Err: err})
-			continue
+		if err == io.EOF {
+			break
 		}
-		entries = append(entries, *entry)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, perrs, err
 	}
 	return &Store{entries: entries, parseErrors: perrs}, perrs, nil
+}
+
+const (
+	// readBufBytes is the read buffer; lines longer than it are assembled
+	// across reads up to maxLineBytes.
+	readBufBytes = 64 * 1024
+	// maxLineBytes bounds one line. Beyond it the line is reported as a
+	// ParseError and SKIPPED — not turned into Parse's error return.
+	//
+	// It used to be bufio.Scanner's token limit, which makes an over-long line
+	// an I/O-shaped failure of the whole read: Parse returned a nil *Store and
+	// every caller discarded the entire location, so one oversized junk line
+	// revoked every signer in the file. Measured against real ssh-keygen
+	// (OpenSSH_10.0p2): an allowed_signers whose first line is 2,000,004 bytes
+	// of garbage still verifies against the good entry on line 2. The limit
+	// stays — an unbounded line is a memory hazard on a file this package is
+	// pointed at by configuration — but overrunning it costs that line only.
+	maxLineBytes = 1 << 20
+	// diagnosticTextBytes bounds ParseError.Text for an over-long line.
+	// pe.Error() is rendered to a terminal by `signer list` and carried in the
+	// SignerListing.Unreadable field, so the verbatim line would be the
+	// diagnostic's own denial of service.
+	diagnosticTextBytes = 256
+)
+
+// readLine reads one line, without its trailing newline (and without a CRLF's
+// '\r', matching bufio.ScanLines, which this replaced).
+//
+// tooLong reports a line past maxLineBytes: the line is consumed and DISCARDED
+// — only its first diagnosticTextBytes are kept, so a pathological line cannot
+// be held in memory whole. err is io.EOF on the last line, which may still
+// carry content when the file has no final newline.
+func readLine(br *bufio.Reader) (line string, tooLong bool, err error) {
+	var b []byte
+	for {
+		chunk, rerr := br.ReadSlice('\n')
+		if rerr != nil && rerr != bufio.ErrBufferFull && rerr != io.EOF {
+			return "", false, rerr
+		}
+		switch {
+		case tooLong || len(b)+len(chunk) > maxLineBytes:
+			if !tooLong {
+				tooLong = true
+				b = b[:min(len(b), diagnosticTextBytes)]
+			}
+			if len(b) < diagnosticTextBytes {
+				b = append(b, chunk[:min(len(chunk), diagnosticTextBytes-len(b))]...)
+			}
+		default:
+			b = append(b, chunk...)
+		}
+		if rerr == bufio.ErrBufferFull {
+			continue
+		}
+		if rerr == io.EOF {
+			err = io.EOF
+		}
+		return strings.TrimSuffix(strings.TrimSuffix(string(b), "\n"), "\r"), tooLong, err
+	}
 }
 
 // ParseFile is a convenience wrapper around Parse for a path on disk.

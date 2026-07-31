@@ -198,7 +198,21 @@ func TestConvert_RealFieldsSurvive(t *testing.T) {
 			case "tool_use":
 				assert.Equal(t, "exec_command", r.Entry.ToolName)
 				assert.Equal(t, "call_OfxrXuWLSfik7ZgLtgbOViU6", r.Entry.ToolCallID)
-				assert.Contains(t, string(r.Entry.ToolInput), "echo HELLO_FROM_TOOL_CALL_42")
+				// Decoded, not substring-matched. codex's `arguments` is a
+				// JSON-ENCODED STRING that argumentsToRaw must unwrap into an
+				// object; its defensive fallback instead wraps the whole thing
+				// as a JSON string literal. A Contains check cannot tell those
+				// two apart — the expected text is present either way — so it
+				// passed against a ToolInput that had silently become a quoted
+				// blob no consumer could read as arguments. This is also the
+				// one property whose only other guard is a golden file the
+				// adapter itself regenerates, which is precisely what this
+				// hand-written backstop exists to be independent of.
+				var toolInput map[string]any
+				require.NoError(t, json.Unmarshal(r.Entry.ToolInput, &toolInput),
+					"arguments must reach ToolInput as a JSON OBJECT, not as an escaped string literal: %s", r.Entry.ToolInput)
+				assert.Equal(t, "echo HELLO_FROM_TOOL_CALL_42", toolInput["cmd"])
+				assert.Equal(t, "/tmp/ctxloom-acp-verify", toolInput["workdir"])
 				sawToolUse = true
 			case "tool_result":
 				assert.Equal(t, "call_OfxrXuWLSfik7ZgLtgbOViU6", r.Entry.ToolCallID)

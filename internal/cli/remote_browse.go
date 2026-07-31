@@ -80,6 +80,10 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 func init() {
 	remoteCmd.AddCommand(remoteBrowseCmd)
 
+	// Recursion is the default because bundles live in subdirectories of a
+	// remote (bundles/<name>); a top-level-only listing would surface almost
+	// nothing. The usage says so, so that -r does not read as the switch that
+	// turns it on.
 	remoteBrowseCmd.Flags().BoolVarP(&browseRecursive, "recursive", "r", true,
-		"List items in subdirectories")
+		"Descend into subdirectories; pass --recursive=false to list only the top level")
 }

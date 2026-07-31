@@ -58,3 +58,28 @@ func TestPrintProfileCreated_WritesToTheGivenWriter(t *testing.T) {
 	assert.Contains(t, out.String(), "/tmp/developer.yaml", "and so must where it was saved")
 	assert.Contains(t, out.String(), "base", "and the parents it was created with")
 }
+
+// `remote browse --recursive` DEFAULTS TO TRUE, AND THE HELP MUST SAY SO.
+//
+// The help text read "List items in subdirectories", which describes an
+// opt-in — so `-r` looks like the way to turn recursion on when it is already
+// on, and nothing said that `--recursive=false` is the only lever that
+// changes anything.
+//
+// The default is deliberately true and is NOT changed here: bundles live in
+// subdirectories of a remote (bundles/<name>), so a non-recursive browse of a
+// bundle repository would surface almost nothing. Flipping it would change
+// what `ctxloom remote browse <remote>` returns, which is a contract call.
+//
+// This pins the two together: if someone flips the default, the text
+// asserting it no longer matches and this fails, rather than the help
+// quietly going stale again.
+func TestRemoteBrowseRecursive_HelpMatchesTheActualDefault(t *testing.T) {
+	f := remoteBrowseCmd.Flags().Lookup("recursive")
+	require.NotNil(t, f, "the --recursive flag must exist")
+
+	assert.Equal(t, "true", f.DefValue,
+		"recursion is on by default; bundles live in subdirectories, so a non-recursive browse would surface almost nothing")
+	assert.Contains(t, f.Usage, "--recursive=false",
+		"the help must name the only form that actually changes behaviour; cobra renders the \"(default true)\" part itself, so the usage text must not repeat it")
+}

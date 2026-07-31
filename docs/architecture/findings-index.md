@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,424** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,425** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 165 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 190 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 194 |
-| `open` | no commit names this ID | **295** |
+| `open` | no commit names this ID | **294** |
 
-**Totals: 2268 findings across 162 units — 1,424 resolved, 295 still open, 549 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,425 resolved, 294 still open, 549 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 529 | 162 | 95 | 87 | 126 |
-| LOW | 871 | 538 | 122 | 54 | 95 | 62 |
+| LOW | 871 | 539 | 121 | 54 | 95 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2474,7 +2474,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U082-F15 | **RESOLVED** `8f714f3c` | **`bundles.go:903-910`** | DEAD | **[routed #2 — CONFIRMED]** `RequireSafeBundlePath` has **zero callers anywhere in the repo, including tests**. Its doc names a CLI `bundle edit` path that no longer exists. | U082.md |
 | U082-F17 | **RESOLVED** `5f42178d` | **`bundles.go:320`** | COUPLING | `ListBundles` manufactures `context.Background()`, severing cancellation for the whole remote-aware listing path, while every sibling read op takes a `ctx`. | U082.md |
 | U082-F18 | **RESOLVED** `12f375ce` | `context.go:759` | TRIVIAL | `referencesVariable` is a single boolean expression with one call site and no invariant. | U082.md |
-| U082-F19 | open | `context.go:169-178` | COUPLING | Connascence of *execution order*: `missingRequested` **must** be computed before `appendBuiltinFragments` mutates `loadedNames`, enforced only by a comment. | U082.md |
+| U082-F19 | **RESOLVED** `a42d92b9` | `context.go:169-178` | COUPLING | Connascence of *execution order*: `missingRequested` **must** be computed before `appendBuiltinFragments` mutates `loadedNames`, enforced only by a comment. | U082.md |
 | U082-F20 | **RESOLVED** `017e9d32` | **`bundles.go:160-162`** | CORRECTNESS | `CreateBundle`'s "bundle already exists" check is a TOCTOU: `os.Stat` then `Save` with no exclusive create. | U082.md |
 | U083-F18 | **RESOLVED** `a6a82145` | `engine_session.go:251-255` | CORRECTNESS | A failed `AssignSession` degrades to `harp == ""`, which silently disables **three** things at once — session recording/resumability, `CTXLOOM_SESSION_HARP` for the engine and its hooks, and the wh... | U083.md |
 | U083-F19 | **RESOLVED** `38b64b17` | `delegate.go:561`, `:994`(→`engine_session.go`), `depgraph.go:373` | TRIVIAL | Three single-expression pass-throughs with one call site each. | U083.md |

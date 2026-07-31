@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -289,6 +290,14 @@ func TestFormatDebtCommands_AreTrackedAndRefuseNonTextLoudly(t *testing.T) {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
 		rootCmd.SetArgs(nil)
+		// rootCmd's --format is a process-wide PersistentFlags() value that
+		// pflag does NOT reset between Execute() calls on the same tree, and
+		// its PersistentPreRun flips the process-wide structured-diagnostics
+		// channel to match. Leaving either set reroutes every later test's
+		// warnings through the JSON renderer (test-order hazard, not a product
+		// bug — one CLI process handles exactly one invocation).
+		_ = rootCmd.PersistentFlags().Set("format", formatText)
+		clidiag.SetStructured(false)
 	})
 
 	err := rootCmd.Execute()

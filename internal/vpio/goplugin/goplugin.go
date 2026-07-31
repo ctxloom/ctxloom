@@ -61,7 +61,7 @@ type runResult struct {
 // refusing to attach — see dockerexec.Session's TestStart_FailsWhenBinaryMissing).
 func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Session, error) {
 	resizeCh := make(chan *pb.WindowSize, 1)
-	s := &Session{resize: resizeCh, result: make(chan runResult, 1)}
+	s := &Session{resize: resizeCh, result: make(chan runResult, 1), done: make(chan struct{})}
 
 	// The resize channel must eventually close so client.Run's internal
 	// resize-pump goroutine (internal/lm/grpc's RunWithModelInfo, unchanged)
@@ -83,13 +83,25 @@ func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Sessi
 	// Fixing this properly needs an explicit "no resize" signal from the
 	// caller (e.g. a new vpio.ProcessSpec field, threaded from run.go's own
 	// nil-resize local), which is outside the files this fix is scoped to.
+	// The watcher retires on EITHER edge: an early abort (ctx) or the turn
+	// simply ending (s.done, closed by stop). Waiting only on ctx.Done() tied
+	// the goroutine to the CALLER's context, so a completed session left it
+	// parked for as long as that context lived — one goroutine and one open
+	// channel per turn for a caller holding one context across several turns,
+	// which internal/cli/run.go does.
 	go func() {
-		<-ctx.Done()
-		s.stop()
+		select {
+		case <-ctx.Done():
+			s.stop()
+		case <-s.done:
+		}
 	}()
 
 	go func() {
 		code, err := l.client.Run(ctx, l.req, spec.Stdin, spec.Stdout, spec.Stderr, resizeCh)
+		// Release BEFORE the result becomes observable: Wait returning must
+		// mean the session is done, not that it is about to be.
+		s.stop()
 		s.result <- runResult{code: code, err: err}
 	}()
 
@@ -102,6 +114,9 @@ type Session struct {
 	resize chan *pb.WindowSize
 	closed bool
 	result chan runResult
+	// done closes when the session has been released, so the ctx watcher can
+	// retire on the session's own lifetime rather than the caller's context.
+	done chan struct{}
 
 	waitOnce sync.Once
 	status   vpio.ExitStatus
@@ -154,7 +169,8 @@ func (s *Session) Wait() (vpio.ExitStatus, error) {
 }
 
 // stop marks the session closed and closes the resize channel, exactly
-// once, race-free against a concurrent Resize call.
+// once, race-free against a concurrent Resize call. Reached from either edge
+// of the session's life: an early ctx abort, or client.Run returning.
 func (s *Session) stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -163,4 +179,5 @@ func (s *Session) stop() {
 	}
 	s.closed = true
 	close(s.resize)
+	close(s.done)
 }

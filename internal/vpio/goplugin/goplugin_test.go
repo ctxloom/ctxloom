@@ -117,7 +117,12 @@ func TestLauncher_StartDoesNotBlockOnRun(t *testing.T) {
 }
 
 func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
-	fc := &fakeClient{resizeDone: make(chan struct{})}
+	// Run is held open so the resizes happen against a LIVE session, which is
+	// the only state in which a relay is meaningful — a session whose Run has
+	// already returned releases itself (U153-F02) and drops resizes by design.
+	// Without the hold, whether a resize relays would depend on whether the
+	// test goroutine beat the Run goroutine, which is not a property to assert.
+	fc := &fakeClient{resizeDone: make(chan struct{}), block: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
@@ -128,6 +133,7 @@ func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
 	sess.Resize(24, 80)
 	sess.Resize(30, 100) // latest-wins coalescing may drop the first
 
+	close(fc.block) // let the turn end
 	if _, err := sess.Wait(); err != nil {
 		t.Fatalf("Wait: %v", err)
 	}

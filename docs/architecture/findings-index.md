@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,281** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,282** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 123 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 168 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **531** |
+| `open` | no commit names this ID | **530** |
 
-**Totals: 2268 findings across 162 units — 1,281 resolved, 531 still open, 456 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,282 resolved, 530 still open, 456 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 452 | 295 | 69 | 79 | 104 |
+| MED | 999 | 453 | 294 | 69 | 79 | 104 |
 | LOW | 871 | 472 | 224 | 39 | 81 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1024,7 +1024,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U012-F21 | open | **`session.go:691–759`** | COHESION | The permission and terminal brokers are the same algorithm implemented twice — 6 methods, 2 mutexes, 2 maps, 2 sequence counters, 2 `noInput` flags — and `inputClosed` has to remember to walk both | U012.md |
 | U013-F04 | **RESOLVED** `84fad3dd` | `jsonrpc.go:296` | CORRECTNESS | `ch <- m` in `routeResponse` runs on the read-loop goroutine **outside** `pendingMu` against a cap-1 buffer, and can block the read loop **permanently**. A peer that sends two responses for one id,... | U013.md |
 | U013-F05 | **PARTIAL** `07767e88` | `jsonrpc.go:283-288` | CORRECTNESS | A response frame with `"id": null` — the form the JSON-RPC 2.0 spec **mandates** for reporting an error that cannot be attributed to a request id (Parse error `-32700`, Invalid Request `-32600`) — ... | U013.md |
-| U013-F06 | open | `jsonrpc.go:241-245` vs `:20-21` | CORRECTNESS | The package doc claims "it warns and continues on a malformed frame rather than tearing the session down." **It does not.** Any decode error ends the read loop, fails every parked caller, and kills... | U013.md |
+| U013-F06 | **RESOLVED** `1ff888c3` | `jsonrpc.go:241-245` vs `:20-21` | CORRECTNESS | The package doc claims "it warns and continues on a malformed frame rather than tearing the session down." **It does not.** Any decode error ends the read loop, fails every parked caller, and kills... | U013.md |
 | U013-F07 | open | `jsonrpc.go:220-229` | COUPLING | `Close`'s doc — "tears down the transport and unblocks any parked reader/caller" — holds only if the caller supplies a closer that happens to unblock the *reader*. Nothing in the type expresses tha... | U013.md |
 | U013-F08 | open | `jsonrpc.go:154`, `:237` | ERRHANDLING | `readLoop` accepts a `ctx` but never selects on it. Cancelling the ctx passed to `Start` does not stop the read loop — the connection's lifetime is governed **solely** by the reader reaching EOF/er... | U013.md |
 | U013-F09 | open | `jsonrpc.go:207`, `:309-314` | ERRHANDLING | Errors surfaced to a `Call` caller carry no RPC context — no method name, no id. A caller sees bare `"context deadline exceeded"` or a raw transport error and cannot tell which RPC died. | U013.md |

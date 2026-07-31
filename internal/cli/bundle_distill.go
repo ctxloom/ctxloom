@@ -5,9 +5,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -320,32 +322,36 @@ func firstLineTruncated(s string) string {
 }
 
 // appendSiblingFragments lists the bundle's fragments (excluding excludeName)
-// with a one-line content preview.
+// with a one-line content preview, in NAME order. The listing is part of the
+// message handed to the distiller, so map order here would make the model's
+// input — and therefore the distilled bytes — differ run to run.
 func appendSiblingFragments(ctx *strings.Builder, bundle *bundles.Bundle, excludeName string) {
 	if !hasSiblingsOfType(len(bundle.Fragments), excludeName, "fragments/") {
 		return
 	}
 	ctx.WriteString("Sibling fragments:\n")
-	for name, frag := range bundle.Fragments {
+	for _, name := range slices.Sorted(maps.Keys(bundle.Fragments)) {
 		if "fragments/"+name == excludeName {
 			continue
 		}
-		fmt.Fprintf(ctx, "- %s: %s\n", name, firstLineTruncated(frag.Content))
+		fmt.Fprintf(ctx, "- %s: %s\n", name, firstLineTruncated(bundle.Fragments[name].Content))
 	}
 	ctx.WriteString("\n")
 }
 
-// appendSiblingPrompts lists the bundle's prompts (excluding excludeName),
+// appendSiblingPrompts lists the bundle's prompts (excluding excludeName) in
+// NAME order (see appendSiblingFragments on why order is load-bearing),
 // preferring each prompt's Description over a content preview.
 func appendSiblingPrompts(ctx *strings.Builder, bundle *bundles.Bundle, excludeName string) {
 	if !hasSiblingsOfType(len(bundle.Commands), excludeName, "commands/") {
 		return
 	}
 	ctx.WriteString("Sibling commands:\n")
-	for name, prompt := range bundle.Commands {
+	for _, name := range slices.Sorted(maps.Keys(bundle.Commands)) {
 		if "commands/"+name == excludeName {
 			continue
 		}
+		prompt := bundle.Commands[name]
 		desc := prompt.Description
 		if desc == "" {
 			desc = firstLineTruncated(prompt.Content)

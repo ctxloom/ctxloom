@@ -322,3 +322,43 @@ func TestResolveReviewSigner_HonoursSignKeyConfig(t *testing.T) {
 		assert.True(t, unsigned, "no explicit key + ambiguous agent still degrades to the unsigned path")
 	})
 }
+
+// TestPrintReviewItem_UnchangedUpdateSaysSo pins the reachable half of
+// U040-F14: an UPDATE whose diff comes out EMPTY silently fell through to the
+// full-content display with no explanation at all. That is not a corner case —
+// operations.buildReviewItem labels an item UPDATE whenever a PRIOR approve
+// entry exists, including when the bytes are identical and the item is pending
+// only because its approval record was superseded (a countersign-contract
+// bump). The reviewer is then shown the entire body of something they already
+// approved, with nothing saying why. Every other fall-through to full content
+// in this function names its reason; this one must too.
+func TestPrintReviewItem_UnchangedUpdateSaysSo(t *testing.T) {
+	const body = "line one\nline two\n"
+	var out bytes.Buffer
+	printReviewItem(&out, 1, 1, operations.ReviewItem{
+		Ref: "b#fragments/x", Kind: "fragments", Name: "x",
+		Status:          operations.ReviewStatusUpdate,
+		PreviousContent: body,
+		CurrentContent:  body,
+	})
+	got := out.String()
+	assert.Contains(t, got, "unchanged since it was approved",
+		"an update with no delta must say why the full content is being shown")
+	assert.Contains(t, got, "line one", "the content itself is still shown")
+}
+
+// TestPrintReviewItem_ChangedUpdateStillDiffs is the discriminator: a real
+// delta must still render as a diff and must NOT carry the unchanged notice.
+func TestPrintReviewItem_ChangedUpdateStillDiffs(t *testing.T) {
+	var out bytes.Buffer
+	printReviewItem(&out, 1, 1, operations.ReviewItem{
+		Ref: "b#fragments/x", Kind: "fragments", Name: "x",
+		Status:          operations.ReviewStatusUpdate,
+		PreviousContent: "line one\nline two\n",
+		CurrentContent:  "line one\nline TWO\n",
+	})
+	got := out.String()
+	assert.Contains(t, got, "--- accepted", "a real delta renders as a unified diff")
+	assert.Contains(t, got, "+line TWO")
+	assert.NotContains(t, got, "unchanged since it was approved")
+}

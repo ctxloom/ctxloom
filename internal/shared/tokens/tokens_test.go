@@ -39,3 +39,20 @@ func TestEstimate_CountsBytesNotCharacters(t *testing.T) {
 			fourCJKChars, got, want, BytesPerToken, BytesPerToken)
 	}
 }
+
+// TestEstimate_NonEmptyTextIsNeverZeroTokens pins the rounding. Integer
+// division returned 0 for anything shorter than BytesPerToken, so a non-empty
+// string estimated at zero tokens — a trap for every caller that gates on the
+// result: a budget check that concludes there is nothing to send, a "does this
+// need chunking" test, a ratio with the estimate in the denominator. Only
+// genuinely empty text may estimate at zero.
+func TestEstimate_NonEmptyTextIsNeverZeroTokens(t *testing.T) {
+	if got := Estimate(""); got != 0 {
+		t.Errorf("Estimate(%q) = %d, want 0 — empty text is the ONE case that may be zero", "", got)
+	}
+	for _, in := range []string{"a", "ab", "abc", "abcd", "世"} {
+		if got := Estimate(in); got < 1 {
+			t.Errorf("Estimate(%q) = %d, want at least 1: non-empty text must never estimate at zero", in, got)
+		}
+	}
+}

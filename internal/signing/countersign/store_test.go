@@ -691,3 +691,43 @@ func TestStore_WriteNamespaceIsDerivedFromTheAssertion(t *testing.T) {
 		assert.False(t, ok, "it must NOT verify under a root trusting only the approve namespace")
 	})
 }
+
+// TestStore_DirectoryWithGlobMetacharacters_StillFindsRejections is the
+// fail-open candidates' swallowed Glob error actually produces.
+//
+// candidates built a PATTERN by joining s.dir with the index hash, so every
+// metacharacter in the store's own path was interpreted rather than matched.
+// An unterminated '[' anywhere in it makes filepath.Match return ErrBadPattern
+// and candidates return nil — for every query, forever.
+//
+// On the approve path that leaves items pending, which is safe. On the REJECT
+// path nil candidates is indistinguishable from "nothing rejected", so a
+// rejection a human recorded silently stops applying. Readable() cannot catch
+// it: it lists the directory by its literal name, so it reports a perfectly
+// healthy store while every lookup into it comes back empty.
+func TestStore_DirectoryWithGlobMetacharacters_StillFindsRejections(t *testing.T) {
+	signer, pub := testSigner(t)
+	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove, signing.NamespaceReject)
+	now := time.Now()
+	payload := []byte("refused bytes")
+
+	for _, dir := range []string{
+		"/home/u/proj[wip/.ctxloom/approvals", // unterminated '[' — ErrBadPattern
+		"/home/u/proj[ab]/.ctxloom/approvals", // a valid class that matches a DIFFERENT directory
+		`/home/u/pro\j/.ctxloom/approvals`,    // backslash is an escape to Match, not a literal
+	} {
+		t.Run(dir, func(t *testing.T) {
+			s := NewStore(dir, afero.NewMemMapFs())
+			require.NoError(t, s.WriteRefReject("bundle:evil", signer))
+			require.NoError(t, s.WriteContentReject(signing.AttestFragmentRaw, payload, signer))
+
+			require.NoError(t, s.Readable(), "the store is physically fine, so nothing warns")
+
+			_, ok := s.VerifiedRefReject("bundle:evil", root, now)
+			assert.True(t, ok, "a recorded ref rejection must still be found")
+
+			_, ok = s.VerifiedContentReject(signing.AttestFragmentRaw, payload, root, now)
+			assert.True(t, ok, "a recorded content rejection must still be found")
+		})
+	}
+}

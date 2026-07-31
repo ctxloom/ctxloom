@@ -254,16 +254,25 @@ func (s *Session) Wait() (vpio.ExitStatus, error) {
 	return s.result, s.waitErr
 }
 
-func (s *Session) dockerLevelError(code int32) error {
+// withOutputTail attaches whatever the ring captured to a docker-level failure,
+// under ONE label: the same bytes must read the same way (and grep the same
+// way) whichever failure produced them. base is wrapped, so an underlying
+// error stays reachable through errors.Is/As.
+func (s *Session) withOutputTail(base error) error {
 	if tail := s.ring.Tail(); tail != "" {
-		return fmt.Errorf("container exec failed (code %d — the runtime, not the engine): %s", code, tail)
+		return fmt.Errorf("%w (output tail: %s)", base, tail)
 	}
-	return fmt.Errorf("container exec failed (code %d — the runtime, not the engine)", code)
+	return base
 }
 
+// dockerLevelError renders a runtime-level exec failure code (see
+// isDockerLevelExit) with the captured output tail.
+func (s *Session) dockerLevelError(code int32) error {
+	return s.withOutputTail(fmt.Errorf("container exec failed (code %d — the runtime, not the engine)", code))
+}
+
+// dockerLevelErrorWrap renders a non-exit failure — the CLI process itself
+// could not run or be reaped — with the captured output tail.
 func (s *Session) dockerLevelErrorWrap(err error) error {
-	if tail := s.ring.Tail(); tail != "" {
-		return fmt.Errorf("container exec failed: %w (output tail: %s)", err, tail)
-	}
-	return fmt.Errorf("container exec failed: %w", err)
+	return s.withOutputTail(fmt.Errorf("container exec failed: %w", err))
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // U048-F21: strandedAuthoredBundles discarded the afero.Walk error and its
@@ -79,4 +80,82 @@ func TestStrandedAuthoredBundles_RemotePullArtifactsAreStillCache(t *testing.T) 
 		[]byte("name: pulled\n_source:\n  sha: deadbeef\n"), 0o644))
 
 	assert.Empty(t, strandedAuthoredBundles(mem, cacheBundles))
+}
+
+// countingFs counts Open calls, which is what afero.Walk uses to enumerate a
+// directory (readDirNames). It is how the pin below distinguishes "the scan
+// ran" from "the scan was skipped".
+type countingFs struct {
+	afero.Fs
+	opens int
+}
+
+func (f *countingFs) Open(name string) (afero.File, error) {
+	f.opens++
+	return f.Fs.Open(name)
+}
+
+// U048-F07 claimed GetBundleDirs — "called many times per process (every loader
+// build)" by its own doc — runs a full afero.Walk of cache/bundles with a
+// ReadFile plus yaml.Unmarshal per YAML on EVERY call.
+//
+// MEASURED, and the "every call" is conditional in a way that changes the
+// verdict: strandedAuthoredBundles opens with fs.Stat(cacheBundles) and returns
+// immediately when the directory is absent or is not a directory. cache/bundles
+// is a PRE-content-tree migration artifact — nothing in the current codebase
+// creates it — so on a current install every GetBundleDirs call costs one Stat
+// and walks nothing at all.
+//
+// Where it does exist, the repetition is required rather than wasteful. The
+// signpost reports through strictness.FailOnce, whose finding dedup is scoped
+// to the recording goroutine's CURRENT checkpoint window precisely so a fault
+// re-fired in a LATER window records again — "a session refused over it and
+// retried unfixed opens silently on broken context", per FailOnce's own doc.
+// Memoizing the scan would silently defeat that, which makes the obvious remedy
+// inadmissible: it would trade a cost paid only by users mid-migration for a
+// contract this codebase names and relies on.
+//
+// So the pin is on the guard, which is the part that must not regress: moving
+// the walk ahead of the Stat, or dropping the Stat, would make the row's claim
+// true for everyone.
+func TestGetBundleDirs_DoesNotWalkWhenNoLegacyCacheExists(t *testing.T) {
+	mem := afero.NewMemMapFs()
+	appPath := "/app"
+	require.NoError(t, mem.MkdirAll(paths.LocalBundlesPath(appPath), 0o755))
+	counting := &countingFs{Fs: mem}
+
+	cfg := NewFixture(Fixture{AppPaths: []string{appPath}})
+	cfg.SetFS(counting)
+
+	for range 5 {
+		require.Equal(t, []string{paths.LocalBundlesPath(appPath)}, cfg.GetBundleDirs())
+	}
+
+	assert.Zero(t, counting.opens,
+		"with no legacy cache/bundles there is nothing to scan, so repeated loader builds must cost stats and no directory enumeration at all")
+}
+
+// TestGetBundleDirs_ScansOnlyWhenTheLegacyCacheIsPresent is the other half: the
+// scan is not dead, it is guarded. Without this the assertion above could pass
+// because the signpost stopped working.
+func TestGetBundleDirs_ScansOnlyWhenTheLegacyCacheIsPresent(t *testing.T) {
+	resetStrictness(t)
+	mem := afero.NewMemMapFs()
+	appPath := "/app"
+	require.NoError(t, mem.MkdirAll(paths.LocalBundlesPath(appPath), 0o755))
+	require.NoError(t, afero.WriteFile(mem, filepath.Join(paths.CacheBundlesPath(appPath), "authored.yaml"),
+		[]byte("name: authored\n"), 0o644))
+	counting := &countingFs{Fs: mem}
+
+	cfg := NewFixture(Fixture{AppPaths: []string{appPath}})
+	cfg.SetFS(counting)
+
+	mark := strictness.Checkpoint()
+	cfg.GetBundleDirs()
+
+	assert.Positive(t, counting.opens, "a legacy cache/bundles tree must actually be scanned")
+	findings := strictness.Since(mark)
+	require.Len(t, findings, 1, "a stranded authored bundle must be reported, not silently skipped")
+	assert.Equal(t, strictness.ClassMigration, findings[0].Class)
+	assert.Contains(t, findings[0].Message, "authored.yaml")
 }

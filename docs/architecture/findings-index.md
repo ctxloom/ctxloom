@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,338** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 147 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 178 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **428** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 179 |
+| `open` | no commit names this ID | **426** |
 
-**Totals: 2268 findings across 162 units — 1,338 resolved, 428 still open, 502 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,338 resolved, 426 still open, 504 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 485 | 236 | 83 | 81 | 114 |
+| MED | 999 | 485 | 234 | 83 | 81 | 116 |
 | LOW | 871 | 496 | 180 | 49 | 89 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1294,8 +1294,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U048-F05 | **ESCALATED** `cdf64839` | **`config.go:772-789 vs `internal/operations/profiles.go:507-522`** | DUPLICATE / CORRECTNESS | `operations.profileLoader` is a copy of `GetProfileLoader` that **omits `profiles.WithFS(c.fs)`**. It passes `cfg.FS()` to `GetProfileDirs` (discovery) but not to the loader (reads), so under an in... | U048.md |
 | U048-F06 | **ESCALATED** `cdf64839` | **`config.go:1037→1103→1106→1515→1554`** | COMPLEXITY / NOPAY | The ambient memo's "cheap identity" is not cheap: every `Load()` — **including a memo hit** — calls `ambientStamp` → `findAppDir`, which walks every ancestor of cwd doing an `fs.Stat` per level *pl... | U048.md |
 | U048-F07 | **PARTIAL** `6d1e9fb1` | **`config.go:1636,1661,1677-1707`** | COMPLEXITY | `GetBundleDirs` — by its own doc "called many times per process (every loader build)" — runs a full `afero.Walk` of `cache/bundles` with a `ReadFile` + `yaml.Unmarshal` per YAML on **every** call. ... | U048.md |
-| U048-F08 | open | **`config.go:71-287`** | COHESION | `Config` is at least three types: the persisted document (21 fields, 20 value readers), a resolved-workspace handle (`appPaths/appRoot/appDir/fs/injectedFS/source`), and a content-loader factory (`... | U048.md |
-| U048-F09 | open | **`config.go:20-33`** | COUPLING | Dependency direction: `internal/config` — which every other package imports — itself imports `internal/bundles`, `internal/remote`, `internal/profiles`, `internal/signing`, `internal/agents`, `inte... | U048.md |
+| U048-F08 | **ESCALATED** `PENDING01` | **`config.go:71-287`** | COHESION | `Config` is at least three types: the persisted document (21 fields, 20 value readers), a resolved-workspace handle (`appPaths/appRoot/appDir/fs/injectedFS/source`), and a content-loader factory (`... | U048.md |
+| U048-F09 | **ESCALATED** `PENDING02` | **`config.go:20-33`** | COUPLING | Dependency direction: `internal/config` — which every other package imports — itself imports `internal/bundles`, `internal/remote`, `internal/profiles`, `internal/signing`, `internal/agents`, `inte... | U048.md |
 | U048-F10 | **PARTIAL** `bd51cddf` | **`config.go:581,591,605,661,393 vs 560,569,609,676,701,772,…`** | CORRECTNESS / COUPLING | Inconsistent nil-receiver contract. Five methods explicitly guard `c == nil`; the other ~35 methods on `*Config` panic on nil. Callers cannot know which contract applies, and the nil-safe ones adve... | U048.md |
 | U048-F17 | **REFUTED** `556f7258` | **`config.go:528-530, 1158-1162, 1230-1232`** | ERRHANDLING | Three initialization errors are handled three *different* ways in the same file: `InstallOverridesFromFlags` discards the validator error entirely (no log), `loadUncached` `zap.L().Warn`s it, and `... | U048.md |
 | U048-F20 | **RESOLVED** `b42ca97d` | **`config.go:1355 (CCN 12), 1515 (CCN 11)`** | COMPLEXITY | Two functions exceed the repo's own enforcing complexity gate. | U048.md |

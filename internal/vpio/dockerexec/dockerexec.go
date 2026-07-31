@@ -212,6 +212,9 @@ type Session struct {
 	ring    *stderrtail.Ring
 	outDone chan struct{}
 
+	mu           sync.Mutex
+	masterClosed bool
+
 	waitOnce sync.Once
 	result   vpio.ExitStatus
 	waitErr  error
@@ -244,9 +247,14 @@ func (s *Session) Wait() (vpio.ExitStatus, error) {
 		select {
 		case <-s.outDone:
 		case <-time.After(outputDrainGrace):
-			_ = s.master.Close()
+			s.closeMaster()
 			<-s.outDone
 		}
+		// The session is over, so its fd goes with it. Closing here — not only
+		// on the backstop arm above — is what stops a frontend driving several
+		// container turns under one long-lived context from leaking one master
+		// per turn.
+		s.closeMaster()
 
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
@@ -267,6 +275,19 @@ func (s *Session) Wait() (vpio.ExitStatus, error) {
 		s.result = vpio.ExitStatus{Code: 0}
 	})
 	return s.result, s.waitErr
+}
+
+// closeMaster closes the host pty master exactly once and records that the
+// session's fd is gone, so a later Resize can tell "the ioctl failed" from
+// "there is no session left to resize".
+func (s *Session) closeMaster() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.masterClosed {
+		return
+	}
+	s.masterClosed = true
+	_ = s.master.Close()
 }
 
 // withOutputTail attaches whatever the ring captured to a docker-level failure,

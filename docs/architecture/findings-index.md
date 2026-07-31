@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,484** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,485** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 175 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 201 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 201 |
-| `open` | no commit names this ID | **207** |
+| `open` | no commit names this ID | **206** |
 
-**Totals: 2268 findings across 162 units — 1,484 resolved, 207 still open, 577 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,485 resolved, 206 still open, 577 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 551 | 122 | 101 | 92 | 133 |
+| MED | 999 | 552 | 121 | 101 | 92 | 133 |
 | LOW | 871 | 574 | 76 | 58 | 101 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1686,7 +1686,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U100-F06 | **RESOLVED** `5e0883b2` | `approach.go:79, 103, 117, 131, 148` | DEAD | All five per-surface `String()` methods are test-only; `SkillsWrite.String` has no caller at all (it is the unit's sole `deadcode` entry). ~15 lines + 5 doc comments with no production consumer. | U100.md |
 | U100-F07 | **RESOLVED** `5e0883b2` | `cells.go:296-312, 586-590` | NOPAY | `DirectoryIsolatedCell` and `ProcessIsolatedCell` are behaviourally identical — both are `isolatedCell{dir}` with no added field or method — and the only consumer picks between them through an anon... | U100.md |
 | U100-F08 | **PARTIAL** `2933697d` | **`backend.go:40-48`** | NOPAY | Six of `Fragment`'s seven fields are write-only across the whole system: only `Content` is ever read. `Installation` is never even populated. Each dead field costs a proto field plus two converter ... | U100.md |
-| U100-F09 | open | `base_context.go:30-37` | ERRHANDLING | `Clear` discards the removal error and always returns nil, while unconditionally clearing `contextHash` — so a failed cleanup is invisible **and** unrecoverable (the hash needed to retry is gone). ... | U100.md |
+| U100-F09 | **RESOLVED** `4be36929` | `base_context.go:30-37` | ERRHANDLING | `Clear` discards the removal error and always returns nil, while unconditionally clearing `contextHash` — so a failed cleanup is invisible **and** unrecoverable (the hash needed to retry is gone). ... | U100.md |
 | U100-F10 | open | `context_hooks.go:91-93` | ERRHANDLING | `MergeHooksConfig` returns silently when `dest` is nil, dropping the entire source hook set with no error and no warning — the signature gives it no way to report the loss. | U100.md |
 | U100-F12 | open | `chat_mcp.go:28-64` | COMPLEXITY | `ComposeChatMCPServers` measures CCN 11, above the repo's own enforcing gate of CCN 10. | U100.md |
 | U100-F13 | **ESCALATED** `39535937` | `base.go:169 vs contextfile.go:82` | DUPLICATE | Two assemblers produce "the assembled context", documented as required not to diverge — and they do diverge: `assembleDedupedContext` dedups by content hash and emits the oversize warning; `Assembl... | U100.md |

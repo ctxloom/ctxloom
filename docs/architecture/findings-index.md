@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,471** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 173 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 196 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 197 |
-| `open` | no commit names this ID | **231** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,477** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 175 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 201 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 201 |
+| `open` | no commit names this ID | **214** |
 
-**Totals: 2268 findings across 162 units — 1,471 resolved, 231 still open, 566 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,477 resolved, 214 still open, 577 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 548 | 131 | 100 | 91 | 129 |
-| LOW | 871 | 564 | 91 | 57 | 97 | 62 |
+| MED | 999 | 549 | 124 | 101 | 92 | 133 |
+| LOW | 871 | 569 | 81 | 58 | 101 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1460,15 +1460,15 @@ Full evidence and the suggested action for any row live in its source review at 
 | U070-F03 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `pwsh.go:46-49`, `:81-84`, `:114` | NOPAY | The `lit`/`param`/`dyn` element classification is computed in PowerShell, serialized, decoded into `psElem.K` — and never read. Every element is flattened to `el.V` regardless. | U070.md |
 | U070-F04 | **PARTIAL** `0ad25ef7` | `pwsh.go:38-54` | COUPLING | The embedded PowerShell program is a second language with a hand-maintained JSON contract, and **no test executes it**. Every test injects a fake `run` (`pwsh_test.go` fixtures), so `parseScript` i... | U070.md |
 | U071-F02 | **RESOLVED** `51232e54` | `shell.go:99`, `:179`, `:293`, `:378-384` | NOPAY | `ir.SimpleCommand.Raw`, and the entire `printer`/`render` machinery that fills it, have **zero readers in the repo — production or test**. A full `syntax.Printer` pretty-print runs for every simple... | U071.md |
-| U071-F04 | open | `shell.go:283-287` | ERRHANDLING | An `expand.Fields` failure silently downgrades to a guessed argv; nothing records that the argv the rules matched against is a guess. | U071.md |
-| U071-F05 | open | `shell.go:353-364` + `:368-376` | CORRECTNESS | `literalFallback` handles only `*syntax.Lit` and `*syntax.SglQuoted`; a `*syntax.DblQuoted` word yields `""`, and `argvFallback` then **drops that argument entirely**. On the fallback path a quoted... | U071.md |
-| U072-F02 | open | `ir.go:17-32` | COHESION | The `Shell` enum and the command graph are two unrelated contracts in one package; 4 of 9 importers use only `Shell`. | U072.md |
+| U071-F04 | **ESCALATED** `ddc46fb7` | `shell.go:283-287` | ERRHANDLING | An `expand.Fields` failure silently downgrades to a guessed argv; nothing records that the argv the rules matched against is a guess. | U071.md |
+| U071-F05 | **RESOLVED** `160e0ba8` | `shell.go:353-364` + `:368-376` | CORRECTNESS | `literalFallback` handles only `*syntax.Lit` and `*syntax.SglQuoted`; a `*syntax.DblQuoted` word yields `""`, and `argvFallback` then **drops that argument entirely**. On the fallback path a quoted... | U071.md |
+| U072-F02 | **REFUTED** `5a01a9cb` | `ir.go:17-32` | COHESION | The `Shell` enum and the command graph are two unrelated contracts in one package; 4 of 9 importers use only `Shell`. | U072.md |
 | U072-F03 | **PARTIAL** `51232e54` | `ir.go:52-54`, `ir.go:60,62,64` | NOPAY | Six IR fields are write-only in production: `Pipeline.{Connector,Background,Negated}` and `SimpleCommand.{Assignments,Redirects,Raw}`. They cost lowering code in three frontends and buy nothing. | U072.md |
-| U072-F04 | open | `ir.go:62` | CORRECTNESS | A bare-redirect command (`> /etc/passwd`, no program word) is **structurally unmatchable**: the IR faithfully records it, but `Match` has no redirect predicate and `matchCommand` bails on empty argv. | U072.md |
-| U072-F05 | open | `ir.go:61` | CORRECTNESS | The IR has no representation for an **unresolvable** word, so argv is silently truncated and the rule engine cannot tell a fully-resolved command from a partially-erased one. | U072.md |
+| U072-F04 | **ESCALATED** `77e26638` | `ir.go:62` | CORRECTNESS | A bare-redirect command (`> /etc/passwd`, no program word) is **structurally unmatchable**: the IR faithfully records it, but `Match` has no redirect predicate and `matchCommand` bails on empty argv. | U072.md |
+| U072-F05 | **PARTIAL** `af584a3d` | `ir.go:61` | CORRECTNESS | The IR has no representation for an **unresolvable** word, so argv is silently truncated and the rule engine cannot tell a fully-resolved command from a partially-erased one. | U072.md |
 | U073-F05 | **RESOLVED** `55edc2ab` | `rules.go:360-382` + `rules.go:349` | SILENTNOOP | `ExpandSubmodules` injects patterns into `Match.Path` **after** `Parse` validated it, and `globMatch` swallows the resulting error — so a submodule whose path contains a glob metacharacter is silen... | U073.md |
-| U073-F07 | open | `rules.go:170-291` | COHESION | `Match` is two types wearing one name; `mixesCommandAndPath` exists only to enforce at runtime what a type split enforces at compile time. | U073.md |
-| U073-F08 | open | `rules.go:307-311` | CORRECTNESS | `hasConstraint` accepts `shells:`-only and `unless:`-only rules, each of which is an unconditional catch-all deny — the exact accident the type's own doc says it prevents. | U073.md |
+| U073-F07 | **ESCALATED** `9f64d770` | `rules.go:170-291` | COHESION | `Match` is two types wearing one name; `mixesCommandAndPath` exists only to enforce at runtime what a type split enforces at compile time. | U073.md |
+| U073-F08 | **ESCALATED** `267141bc` | `rules.go:307-311` | CORRECTNESS | `hasConstraint` accepts `shells:`-only and `unless:`-only rules, each of which is an unconditional catch-all deny — the exact accident the type's own doc says it prevents. | U073.md |
 | U073-F09 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `rules.go:33` | DEAD | `Config.Version` is decoded and never read; the `version:` key every doc and the shipped sample write is decorative. | U073.md |
 | U074-F02 | **RESOLVED** `ef6cf3f1` | `submodules.go:44-57` | CORRECTNESS | The parser is stanza-blind: it accepts a `path = …` key from **any** section, so a `path` key under `[core]`, `[remote "x"]`, or any non-`[submodule …]` stanza is emitted as a submodule path. | U074.md |
 | U075-F01 | **ESCALATED** `3ceeb8e1` | **`shellenv.go:31-32`** | CORRECTNESS | An **unrecognized** `$SHELL` is indistinguishable from an **unset** one — both yield `""` — so a user whose login shell is fish, nu, tcsh, csh, elvish or xonsh silently has their commands parsed as... | U075.md |
@@ -2418,19 +2418,19 @@ Full evidence and the suggested action for any row live in its source review at 
 | U070-F05 | **RESOLVED** `1b85da63` | `pwsh.go:151-152`, `:161-163` | ERRHANDLING | A 5-second timeout is indistinguishable from any other exec failure in the returned error, so an operator seeing intermittent denials (or, worse, intermittent *allows* via F01) has nothing to go on. | U070.md |
 | U070-F06 | **PARTIAL** `2be0c94a` | `pwsh.go:157` | CORRECTNESS | The command text is passed via the environment; a command longer than the platform's `ARG_MAX`/env limit makes `exec` fail, which under F01 becomes a silent allow rather than a diagnosable error. | U070.md |
 | U070-F07 | **RESOLVED** `c97d520d` | `pwsh.go:128-131` | COHESION | Package-level `binOnce`/`binPath` are mutable global state behind an instance method; no owner, not resettable. | U070.md |
-| U071-F03 | open | `shell.go:130-162` | COMPLEXITY | `lowerCmd` is CCN 12, above the project's own CI gate of 10 (per the brief's baseline). | U071.md |
-| U071-F06 | open | `shell.go:347-349` | CORRECTNESS | `addNested` reuses the same `lowerer`, so `vars` is a single flat scope: an assignment inside `$(…)` leaks into the enclosing script, contrary to shell semantics and to the package doc's "assignmen... | U071.md |
-| U071-F07 | open | `shell.go:270-303` | COUPLING | `expandConfig(&sc)` aliases a local that is later returned **by value** (`shell.go:303`); the config outlives the address it captured in any future refactor that stores or reuses it. Connascence of... | U071.md |
-| U071-F08 | open | `shell.go:41` | COUPLING | The process environment is snapshotted at `New` time, not `Parse` time — connascence of **timing** between composition-root construction and the environment the guarded command will actually see. | U071.md |
+| U071-F03 | **REFUTED** `e35df4a4` | `shell.go:130-162` | COMPLEXITY | `lowerCmd` is CCN 12, above the project's own CI gate of 10 (per the brief's baseline). | U071.md |
+| U071-F06 | **RESOLVED** `1c6b738b` | `shell.go:347-349` | CORRECTNESS | `addNested` reuses the same `lowerer`, so `vars` is a single flat scope: an assignment inside `$(…)` leaks into the enclosing script, contrary to shell semantics and to the package doc's "assignmen... | U071.md |
+| U071-F07 | **REFUTED** `e61f72f9` | `shell.go:270-303` | COUPLING | `expandConfig(&sc)` aliases a local that is later returned **by value** (`shell.go:303`); the config outlives the address it captured in any future refactor that stores or reuses it. Connascence of... | U071.md |
+| U071-F08 | **REFUTED** `d9036651` | `shell.go:41` | COUPLING | The process environment is snapshotted at `New` time, not `Parse` time — connascence of **timing** between composition-root construction and the environment the guarded command will actually see. | U071.md |
 | U072-F07 | **REFUTED** (cross-package/product decision; see wave-2 report) | `ir.go:68` | DEAD | `SimpleCommand.Program()` has zero production call sites and duplicates logic production writes inline. | U072.md |
 | U072-F08 | **REFUTED** (cross-package/product decision; see wave-2 report) | `ir.go:119` | DEAD | `Script.Commands()` has zero production call sites in ltk. | U072.md |
-| U072-F09 | open | `ir.go:29` | COUPLING | `KnownShells` is an exported **mutable** package-level slice that `Valid()` — the sole validation gate for user-supplied shells — reads at call time. Any importer can append to or reorder it. | U072.md |
-| U072-F10 | open | `ir.go:63`, `ir.go:98` | CORRECTNESS | `Nested []*Script` makes the graph a pointer graph with no cycle guard, and `Walk` recurses unbounded. A producer that ever aliases an existing `*Script` into `Nested` yields infinite recursion on ... | U072.md |
+| U072-F09 | **RESOLVED** `ccaa88d6` | `ir.go:29` | COUPLING | `KnownShells` is an exported **mutable** package-level slice that `Valid()` — the sole validation gate for user-supplied shells — reads at call time. Any importer can append to or reorder it. | U072.md |
+| U072-F10 | **REFUTED** `a5d0239e` | `ir.go:63`, `ir.go:98` | CORRECTNESS | `Nested []*Script` makes the graph a pointer graph with no cycle guard, and `Walk` recurses unbounded. A producer that ever aliases an existing `*Script` into `Nested` yields infinite recursion on ... | U072.md |
 | U073-F06 | **RESOLVED** `55edc2ab` | `rules.go:360` | SILENTNOOP | With no submodule paths the sentinel is dropped and the rule is left with zero patterns, matching nothing — indistinguishable from an unreadable `.gitmodules`. | U073.md |
-| U073-F11 | open | `eval.go:29`, `eval.go:80` | ERRHANDLING | Both evaluators guard `script == nil` / empty path but not `cfg == nil`, which panics on `cfg.Rules`. | U073.md |
-| U073-F12 | open | `rules.go:389`, `rules.go:644` | COMPLEXITY | `Match.matches` and `validateRule` are both at CCN 11, above the project's own gate. | U073.md |
-| U073-F13 | open | `rules.go:262` | CORRECTNESS | `match.command` tokens are literal — no glob, no regex — while `match.path` tokens in the same file *are* full globs, and nothing warns when a user writes a metacharacter in `command:`. | U073.md |
-| U073-F14 | open | `eval.go:25-28` | CORRECTNESS | The doc comment says "the first matching deny rule wins", but command order dominates rule order — an earlier *command* matching a later *rule* beats a later command matching an earlier rule. | U073.md |
+| U073-F11 | **RESOLVED** `5033892f` | `eval.go:29`, `eval.go:80` | ERRHANDLING | Both evaluators guard `script == nil` / empty path but not `cfg == nil`, which panics on `cfg.Rules`. | U073.md |
+| U073-F12 | **RESOLVED** `9a4e578b` | `rules.go:389`, `rules.go:644` | COMPLEXITY | `Match.matches` and `validateRule` are both at CCN 11, above the project's own gate. | U073.md |
+| U073-F13 | **PARTIAL** `9d612953` | `rules.go:262` | CORRECTNESS | `match.command` tokens are literal — no glob, no regex — while `match.path` tokens in the same file *are* full globs, and nothing warns when a user writes a metacharacter in `command:`. | U073.md |
+| U073-F14 | **RESOLVED** `ed4454a2` | `eval.go:25-28` | CORRECTNESS | The doc comment says "the first matching deny rule wins", but command order dominates rule order — an earlier *command* matching a later *rule* beats a later command matching an earlier rule. | U073.md |
 | U073-F15 | **RESOLVED** `100f543d` | `eval.go:13`, `eval.go:11` | DEAD | `Decision.Command` is written and never read anywhere in the repo; `Decision.Rule` is read only by this package's own tests. | U073.md |
 | U074-F03 | **RESOLVED** `95169bce` | `submodules.go:48-54` | CORRECTNESS | Trailing inline comments and quoted values are not handled: `path = libs/foo ; note` yields the path `libs/foo ; note`, and git-config's quoted form `path = "libs/foo"` yields `"libs/foo"` with the... | U074.md |
 | U074-F04 | **RESOLVED** `1f705f5b` | `submodules.go:23-24` | ERRHANDLING | An empty `startDir` is silently accepted: `filepath.Clean("")` is `"."`, `filepath.Dir(".")` is `"."`, so the loop terminates on its first iteration and returns `nil` — the fail-open outcome again,... | U074.md |

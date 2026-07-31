@@ -195,8 +195,9 @@ type Match struct {
 	//
 	// ltk's rule list is evaluated the way a packet-filter ruleset is (iptables/
 	// nftables `-j ACCEPT/DROP` chains, OpenBSD pf, cloud security groups):
-	// rules are walked IN ORDER and the first one that matches wins (see
-	// Evaluate) — there is no "most specific rule wins" reranking. That
+	// rules are walked IN ORDER and, for one command, the first that matches
+	// wins (see Evaluate, which also documents how that nests inside the
+	// command walk) — there is no "most specific rule wins" reranking. That
 	// ordering discipline was already correct here; what was missing is the
 	// other firewall-rule principle: a firewall matches on STRUCTURED fields
 	// (source IP, port, protocol) with an EXPLICIT operator per field — exact
@@ -259,6 +260,19 @@ type Match struct {
 	// a separate, deliberate design choice ["a guardrail against reflexive
 	// mistakes, not a security boundary" — see docs/ltk] and is unchanged here;
 	// only the PER-RULE matching operator adopts firewall discipline.)
+	//
+	// # Tokens are LITERAL — no globs, no regular expressions
+	//
+	// Every token here is compared for exact string equality (the program token
+	// additionally by basename). This is the opposite of match.Path below, whose
+	// patterns ARE full doublestar globs, and the asymmetry is the trap: a rule
+	// written `command: [git, "push*"]` does not mean "any push subcommand", it
+	// means an argument spelled literally `push*`, so it silently never fires.
+	// Argv reaches the matcher un-globbed (the frontends expand variables but do
+	// not do filename expansion), which is why the equality is right for what
+	// this field matches and also why a metacharacter cannot be reinterpreted
+	// here without changing what an existing literal rule catches. Use several
+	// rules, or args_any/args_all, where a pattern is wanted.
 	Command CommandPattern `yaml:"command"`
 	// ArgsAny / ArgsAll are program-agnostic refinements on the arguments
 	// (beyond the Command prefix); bundled short options are expanded first.
@@ -425,7 +439,14 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	if len(m.Command) > 0 && !matchCommand(m.Command, c.Argv, argShell, strictPrefix) {
 		return false
 	}
-	args := expandShortClusters(c.Args(), argShell)
+	return m.matchesArgs(expandShortClusters(c.Args(), argShell))
+}
+
+// matchesArgs applies the program-agnostic argument conditions — args_all,
+// args_any and the unless exception list — to a command's already
+// cluster-expanded arguments. They are position-insensitive set-membership
+// tests, unlike the Command prefix, which is why they factor out cleanly.
+func (m Match) matchesArgs(args []string) bool {
 	for _, a := range m.ArgsAll {
 		if !slices.Contains(args, a) {
 			return false
@@ -437,10 +458,7 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	}
 	// unless: any listed token present means this invocation is an exception
 	// (e.g. a read-only `--list`/`--dry-run` form), so the rule does not match.
-	if slices.ContainsFunc(m.Unless, func(a string) bool { return slices.Contains(args, a) }) {
-		return false
-	}
-	return true
+	return !slices.ContainsFunc(m.Unless, func(a string) bool { return slices.Contains(args, a) })
 }
 
 // shellForProgram maps program (a command's argv[0]) to the shell it itself
@@ -733,8 +751,22 @@ func validateConfirm(r *Rule, d Defaults) error {
 	return nil
 }
 
-// validateRule checks one rule and records its id in seen.
+// validateRule checks one rule and records its id in seen. The three stages
+// are ordered: nothing downstream may report an error against a rule whose id
+// is not yet known to be usable in that message.
 func validateRule(r *Rule, index int, seen map[string]bool) error {
+	if err := validateRuleIdentity(r, index, seen); err != nil {
+		return err
+	}
+	if err := validateMatchShape(r); err != nil {
+		return err
+	}
+	return validateDenyIsExplained(r)
+}
+
+// validateRuleIdentity checks the fields that name a rule and select its
+// behaviour — id (present and unique), action, mode — and records the id.
+func validateRuleIdentity(r *Rule, index int, seen map[string]bool) error {
 	if r.ID == "" {
 		return fmt.Errorf("rule #%d: missing id", index)
 	}
@@ -748,10 +780,16 @@ func validateRule(r *Rule, index int, seen map[string]bool) error {
 	if err := validMode(r.mode()); err != nil {
 		return fmt.Errorf("rule %q: %w", r.ID, err)
 	}
+	return nil
+}
+
+// validateMatchShape checks that the rule's match is a well-formed instance of
+// exactly one of the two kinds a Match can be — a command rule or a file-edit
+// (path) rule — and that each condition it does carry is usable.
+func validateMatchShape(r *Rule) error {
 	if !r.Match.hasConstraint() {
 		return fmt.Errorf("rule %q: match has no conditions", r.ID)
 	}
-	// A rule is either a command rule or a file-edit (path) rule, not both.
 	if r.Match.mixesCommandAndPath() {
 		return fmt.Errorf("rule %q: match.path cannot be combined with command/args/shells", r.ID)
 	}
@@ -766,14 +804,19 @@ func validateRule(r *Rule, index int, seen map[string]bool) error {
 			return fmt.Errorf("rule %q: unknown shell %q in match.shells", r.ID, sh)
 		}
 	}
-	// A denial with nothing to say is a guard that fires and communicates
-	// nothing: engine.Response.Message() returns "" when both are empty, so the
-	// hook response carries no permissionDecisionReason at all and the agent
-	// cannot tell the user why it was blocked or what to do instead — it just
-	// sees "deny" and retries. `suggest` alone is enough (it renders as
-	// "Use instead: …"). Only rules that can actually deny are held to this:
-	// an allow rule explains nothing by design, and a `mode: disable` rule never
-	// fires (enabling it is the loud moment, and this check fires then).
+	return nil
+}
+
+// validateDenyIsExplained rejects a denial with nothing to say. Such a rule is
+// a guard that fires and communicates nothing: engine.Response.Message()
+// returns "" when both are empty, so the hook response carries no
+// permissionDecisionReason at all and the agent cannot tell the user why it was
+// blocked or what to do instead — it just sees "deny" and retries. `suggest`
+// alone is enough (it renders as "Use instead: …"). Only rules that can
+// actually deny are held to this: an allow rule explains nothing by design, and
+// a `mode: disable` rule never fires (enabling it is the loud moment, and this
+// check fires then).
+func validateDenyIsExplained(r *Rule) error {
 	if r.isEnabled() && r.action() == ActionDeny &&
 		strings.TrimSpace(r.Message) == "" && strings.TrimSpace(r.Suggest) == "" {
 		return fmt.Errorf("rule %q: a deny rule needs a message (or a suggest) — without one the agent is told %q with no reason and no alternative", r.ID, "deny")

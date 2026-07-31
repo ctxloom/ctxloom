@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 
@@ -151,7 +152,7 @@ func (l *lowerer) lowerCmd(cmd syntax.Command, st *syntax.Stmt, conn ir.Connecto
 		if c == nil {
 			return nil
 		}
-		return l.lowerGroup(c.Stmts, st, conn)
+		return l.subshell().lowerGroup(c.Stmts, st, conn)
 	default:
 		return l.lowerCompound(cmd)
 	}
@@ -333,22 +334,60 @@ func (l *lowerer) literal(cfg *expand.Config, w *syntax.Word) string {
 }
 
 func (l *lowerer) addNested(sc *ir.SimpleCommand, stmts []*syntax.Stmt) {
-	sc.Nested = append(sc.Nested, &ir.Script{Shell: l.shell, Pipelines: l.lowerStmts(stmts)})
+	sc.Nested = append(sc.Nested, &ir.Script{Shell: l.shell, Pipelines: l.subshell().lowerStmts(stmts)})
+}
+
+// subshell returns a lowerer for a nested scope that a real shell runs in its
+// own process — `$(…)`, its backtick spelling, `<(…)`, and `( … )`. Such a
+// scope INHERITS
+// the assignments seen so far but its own assignments do not escape back out.
+//
+// Sharing one flat map across the whole lowering is not merely imprecise, it
+// is a rule miss: an inner assignment SHADOWS the outer value, so `x=git; echo
+// $(x=echo); $x push --force` resolved `$x` to `echo` and the `git push
+// --force` the shell actually runs was never in the IR for a rule to match. A
+// `{ …; }` brace group is deliberately NOT a subshell and keeps sharing the
+// enclosing scope, because a real shell does too.
+func (l *lowerer) subshell() *lowerer {
+	vars := make(map[string]string, len(l.vars))
+	maps.Copy(vars, l.vars)
+	return &lowerer{shell: l.shell, base: l.base, vars: vars}
 }
 
 // literalFallback concatenates the literal parts of a word, used only when
 // expansion errors.
+//
+// A double-quoted part contributes its own literal parts: `"push"` is one word
+// whose text is `push`, exactly as `push` and `'push'` are. Rendering it as ""
+// instead does not merely lose quoting — argvFallback drops empty words, so the
+// argument disappears from argv and every rule written against it stops
+// matching, silently, on a command line the operator did write a rule for.
 func literalFallback(w *syntax.Word) string {
+	if w == nil {
+		return ""
+	}
 	var b strings.Builder
-	for _, part := range w.Parts {
+	writeLiteralParts(&b, w.Parts)
+	return b.String()
+}
+
+// writeLiteralParts appends the literal text of parts to b, descending into
+// double quotes. Parts whose value cannot be known without expanding
+// (parameters, substitutions, arithmetic) contribute nothing — the same
+// erasure the successful expansion path performs for them.
+func writeLiteralParts(b *strings.Builder, parts []syntax.WordPart) {
+	for _, part := range parts {
 		switch p := part.(type) {
 		case *syntax.Lit:
 			b.WriteString(p.Value)
 		case *syntax.SglQuoted:
 			b.WriteString(p.Value)
+		case *syntax.DblQuoted:
+			if p != nil {
+				writeLiteralParts(b, p.Parts)
+			}
 		}
 	}
-	return b.String()
 }
 
 // argvFallback builds argv from literal word text when field expansion errors,

@@ -27,11 +27,26 @@ type Decision struct {
 }
 
 // Evaluate matches every command in the script (nested included) against the
-// rules in order. The first matching deny rule wins. A matching allow rule
-// clears the current command without denying it; if nothing denies, the command
-// is allowed.
+// rules. A matching allow rule clears the current command without denying it;
+// if nothing denies, the command is allowed.
+//
+// The two orders nest, and COMMAND order is the outer one. Commands are
+// visited in walk order; for each, the rule list is scanned in file order and
+// the first rule that matches decides that command. The first DENY reached
+// ends the whole walk. So when two different commands on one line would each
+// trip a different deny rule, the denial reported is the earlier COMMAND's,
+// whatever the rules' order in the file: `git push --force && rm x` reports
+// the force-push rule even if the rm rule is written first. Either way the
+// line is denied — what the order picks is the Reason and Suggest the operator
+// actually sees. Rule order decides only WITHIN a single command, which is
+// where an allow carve-out placed above a broad deny does its work.
+//
+// A nil cfg carries no rules and so denies nothing, exactly as Empty() does.
+// Both evaluators accept one rather than panicking: a panic here is ltk
+// failing to analyze a command nobody wrote a rule against, which is strictly
+// worse than any rule miss.
 func Evaluate(cfg *Config, script *ir.Script) Decision {
-	if script == nil {
+	if cfg == nil || script == nil {
 		return Decision{Allowed: true}
 	}
 
@@ -87,7 +102,7 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 // here, just as path rules are ignored by Evaluate. mode/confirm/message/suggest
 // behave exactly as for command rules.
 func EvaluatePath(cfg *Config, filePath string) Decision {
-	if strings.TrimSpace(filePath) == "" {
+	if cfg == nil || strings.TrimSpace(filePath) == "" {
 		return Decision{Allowed: true}
 	}
 	for i := range cfg.Rules {

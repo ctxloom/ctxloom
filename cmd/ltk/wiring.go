@@ -76,10 +76,11 @@ func expandSubmodules(cfg *rules.Config, getwd func() (string, error)) error {
 	return cfg.ExpandSubmodules(subs)
 }
 
-// knownShells renders ir.KnownShells for a diagnostic message.
+// knownShells renders ir.KnownShells() for a diagnostic message.
 func knownShells() string {
-	names := make([]string, len(ir.KnownShells))
-	for i, s := range ir.KnownShells {
+	shells := ir.KnownShells()
+	names := make([]string, len(shells))
+	for i, s := range shells {
 		names[i] = string(s)
 	}
 	return strings.Join(names, ", ")

@@ -458,3 +458,31 @@ func TestStart_RefusesAnIncompleteTurn(t *testing.T) {
 		})
 	}
 }
+
+// TestStartPTYCommand_SessionStderrMergesIntoStdout pins what this transport
+// can and cannot separate, which is what vpio.ProcessSpec.Stderr's doc comment
+// now says: the turn runs on ONE pty, and a pty has a single stream, so the
+// session's own stderr is interleaved into spec.Stdout by the kernel and never
+// reaches spec.Stderr. spec.Stderr carries this transport's own diagnostics
+// (Session.warn) and nothing else.
+//
+// This is a property of the pty, not a shortcut: if a future change ever does
+// route the session's stderr separately, this test fails and the seam's
+// documented contract has to be revisited rather than quietly drifting.
+func TestStartPTYCommand_SessionStderrMergesIntoStdout(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var out, errs syncBuf
+	sess, err := startPTYCommand(ctx,
+		exec.CommandContext(ctx, "sh", "-c", "echo on-stdout; echo on-stderr 1>&2"),
+		vpio.ProcessSpec{Stdout: &out, Stderr: &errs})
+	require.NoError(t, err)
+	_, _ = sess.Wait()
+
+	assert.Contains(t, out.String(), "on-stdout")
+	assert.Contains(t, out.String(), "on-stderr",
+		"a pty carries one stream: the session's stderr must arrive interleaved on Stdout")
+	assert.NotContains(t, errs.String(), "on-stderr",
+		"spec.Stderr is the transport's own diagnostic channel, not the session's stderr")
+}

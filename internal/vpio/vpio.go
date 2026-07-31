@@ -42,9 +42,22 @@ type ProcessSpec struct {
 	// Stdin is the frontend's keystroke source. nil for a non-interactive
 	// (oneshot) turn — the Launcher must not block trying to read it.
 	Stdin io.Reader
-	// Stdout receives the session's output.
+	// Stdout receives the session's output. On a transport that carries the
+	// turn over a single stream, that includes the session's stderr — see
+	// Stderr.
 	Stdout io.Writer
-	// Stderr receives the session's diagnostic output.
+	// Stderr receives DIAGNOSTICS ABOUT the session. Whether it also receives
+	// the session's own stderr depends on what the transport can separate, and
+	// a caller must not assume it does:
+	//
+	//   - goplugin carries stdout and stderr as distinct wire frames, so the
+	//     engine's stderr arrives here.
+	//   - dockerexec runs the turn on a pty, which has ONE stream, so the
+	//     kernel interleaves the session's stderr into Stdout and only this
+	//     transport's own warnings arrive here.
+	//
+	// A caller that must see everything the session emitted therefore reads
+	// Stdout; Stderr is where the transport explains itself.
 	Stderr io.Writer
 }
 

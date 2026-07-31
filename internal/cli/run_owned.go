@@ -145,10 +145,16 @@ func runStructuredREPLViaCoord(ctx context.Context, sess *ownedRunSession, forma
 		scanDone <- scanner.Err()
 	}()
 
-	// The StartRun first turn is already in flight (pending=1); each stdin line
-	// adds one, each turn boundary retires one. At EOF we return once every
-	// issued turn has reached its boundary.
-	pending := 1
+	// Each stdin line adds a turn, each turn boundary retires one; at EOF we
+	// return once every ISSUED turn has reached its boundary. The opening
+	// count is the run's own lead turn — if there was one. A structured run
+	// may legitimately open with no lead (see ownedRunSession.leadTurnIssued),
+	// and counting a turn that was never issued parks this loop at EOF waiting
+	// for a boundary that cannot arrive.
+	pending := 0
+	if sess.leadTurnIssued {
+		pending = 1
+	}
 	stdinOpen := true
 	for {
 		if !stdinOpen && pending <= 0 {

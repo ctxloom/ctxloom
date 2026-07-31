@@ -1777,3 +1777,44 @@ func TestParseBundle_AcceptsAVersionOnlySkeleton(t *testing.T) {
 	require.NotNil(t, b)
 	assert.Len(t, b.Fragments, 1)
 }
+
+// TestLoader_IsDistilled_HonoursNoDistill pins U030-F08: IsDistilled describes
+// the BYTES that were served, so it must be derived from the same decision that
+// chose them (resolveEffective's ContentForm), never re-derived from a subset of
+// its terms.
+//
+// The `no_distill: true` item is exactly where the two predicates part company:
+// resolveEffective refuses the distilled form and serves the raw content, while
+// `preferDistilled && Distilled != ""` still reports true. A consumer is then
+// told it received a distillation it did not receive — and IsDistilled travels
+// off this package, through internal/lm/grpc, to whoever is deciding whether the
+// full text is still available.
+func TestLoader_IsDistilled_HonoursNoDistill(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundleYAML := `
+version: "1.0"
+fragments:
+  pinned-raw:
+    content: Original fragment
+    distilled: Distilled fragment
+    no_distill: true
+commands:
+  pinned-raw-cmd:
+    content: Original command
+    distilled: Distilled command
+    no_distill: true
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "bundle.yaml"), []byte(bundleYAML), 0644))
+
+	loader := NewLoader([]string{tmpDir}, true)
+
+	frag, err := loader.GetFragment("pinned-raw")
+	require.NoError(t, err)
+	assert.Equal(t, "Original fragment", frag.Content, "no_distill must serve the raw content")
+	assert.False(t, frag.IsDistilled, "the flag must describe the bytes actually served")
+
+	cmd, err := loader.GetCommand("pinned-raw-cmd")
+	require.NoError(t, err)
+	assert.Equal(t, "Original command", cmd.Content, "no_distill must serve the raw content")
+	assert.False(t, cmd.IsDistilled, "the flag must describe the bytes actually served")
+}

@@ -137,13 +137,23 @@ func (l *lexer) run() []tok {
 	return l.toks
 }
 
-// lexCaret handles ^: the next character is taken literally.
+// lexCaret handles ^: the next character is taken literally, except at end of
+// line, where cmd reads `^` as a LINE CONTINUATION — the caret and the line
+// break both disappear and the word carries on. Escaping the newline into the
+// word instead makes `git^<nl> push` lower to argv[0] "git\n", which no rule
+// targeting `git push` matches even though cmd.exe joins the lines and runs
+// it. A `^` with nothing after it has nothing to escape and produces nothing.
 func (l *lexer) lexCaret() {
-	if l.i+1 < len(l.s) {
+	switch {
+	case l.i+1 >= len(l.s):
+		l.i++
+	case l.s[l.i+1] == '\n':
+		l.i += 2
+	case l.s[l.i+1] == '\r' && l.i+2 < len(l.s) && l.s[l.i+2] == '\n':
+		l.i += 3
+	default:
 		l.add(l.s[l.i+1])
 		l.i += 2
-	} else {
-		l.i++
 	}
 }
 

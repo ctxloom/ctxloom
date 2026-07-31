@@ -465,3 +465,44 @@ func TestRunConfigWrite_VerifyFailureOnExistingFile_StillNamesTheBackup(t *testi
 	assert.Contains(t, err.Error(), result.Backup)
 	assert.NotContains(t, err.Error(), "no backup")
 }
+
+// config-write's documented contract (rule 2) is ONE backup per call, named
+// "<file>.bak.<UTC-timestamp>". Routing the write through the shared
+// settings-writer left a SECOND copy — "<file>.ctxloom.bak" — in the user's
+// third-party config directory: unadvertised, ctxloom-branded, single-slot
+// (silently overwritten by the next write, unlike the timestamped one), and a
+// byte-for-byte duplicate of a backup config-write had already taken two
+// statements earlier. A user restoring from the wrong one gets a different
+// generation than the command's own report named.
+func TestRunConfigWrite_LeavesExactlyOneBackup(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	original := []byte(`{"foreign_setting":"keep-me"}`)
+	require.NoError(t, afero.WriteFile(fs, path, original, 0644))
+
+	cmd, _ := configWriteTestCmd(`{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`)
+	result, err := runConfigWrite(fs, cmd, path, "")
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Backup)
+
+	shadow, err := afero.Exists(fs, path+".ctxloom.bak")
+	require.NoError(t, err)
+	assert.False(t, shadow,
+		"config-write already took its own timestamped backup; a second ctxloom-branded copy is undocumented litter in a third-party config dir")
+
+	// The one backup the command DID advertise must still be the real
+	// pre-edit bytes — this is not a licence to skip backing up.
+	kept, err := afero.ReadFile(fs, result.Backup)
+	require.NoError(t, err)
+	assert.Equal(t, string(original), string(kept))
+
+	entries, err := afero.ReadDir(fs, "/home/user/.config/zed")
+	require.NoError(t, err)
+	var names []string
+	for _, e := range entries {
+		if strings.Contains(e.Name(), ".bak") {
+			names = append(names, e.Name())
+		}
+	}
+	assert.Len(t, names, 1, "exactly one backup generation per call: %v", names)
+}

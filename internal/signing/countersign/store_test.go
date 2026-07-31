@@ -775,3 +775,51 @@ func TestStore_UnsignedRejectMarker_IsNotErasedByAStatFailure(t *testing.T) {
 	assert.True(t, blind.HasUnsignedRefReject("bundle:evil"),
 		"a recorded unsigned rejection must not be erased by a stat failure")
 }
+
+// TestStore_LatestApprove_OrdersByInstantNotByBytes pins the ordering rule
+// LatestApprove needs to answer the question it is asked.
+//
+// It compared ReviewedAt with `>` — a byte comparison of an unparsed free-text
+// YAML field. That is correct only while every stamp is UTC Z-suffixed
+// RFC3339, which is true of the single writer today and of nothing else: the
+// index is a plain YAML file a human may edit, and its doc requires it to
+// outlive contract bumps, so it is expected to accumulate records this build
+// did not write.
+//
+// The consequence is not cosmetic. LatestApprove supplies the DIFF BASE and
+// decides whether an item is labelled UPDATE or NEW, which is what a reviewer
+// looks at to notice substituted bytes.
+func TestStore_LatestApprove_OrdersByInstantNotByBytes(t *testing.T) {
+	entry := func(stamp, hash string) IndexEntry {
+		return IndexEntry{
+			Ref: "bundle:a", Kind: "fragment", Form: "raw",
+			Assertion:   string(signing.AssertionApprove),
+			PayloadHash: hash, ReviewedAt: stamp,
+		}
+	}
+
+	t.Run("an offset-suffixed stamp does not out-sort a later UTC one", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		// 13:00+01:00 is 12:00Z — EARLIER than 12:30Z — but sorts later by bytes.
+		require.NoError(t, s.AppendIndex(entry("2026-01-01T12:30:00Z", "sha256:actually-latest")))
+		require.NoError(t, s.AppendIndex(entry("2026-01-01T13:00:00+01:00", "sha256:earlier")))
+
+		got, ok, err := s.LatestApprove("bundle:a", signing.FormRaw)
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, "sha256:actually-latest", got.PayloadHash)
+	})
+
+	t.Run("an unreadable stamp does not win by sorting high", func(t *testing.T) {
+		s := NewStore("/store", afero.NewMemMapFs())
+		require.NoError(t, s.AppendIndex(entry("2026-06-01T00:00:00Z", "sha256:actually-latest")))
+		// 'y' sorts above every digit, so this used to beat any real stamp.
+		require.NoError(t, s.AppendIndex(entry("yesterday-ish", "sha256:unreadable")))
+
+		got, ok, err := s.LatestApprove("bundle:a", signing.FormRaw)
+		require.NoError(t, err)
+		require.True(t, ok)
+		assert.Equal(t, "sha256:actually-latest", got.PayloadHash,
+			"a stamp that reads must beat one that does not")
+	})
+}

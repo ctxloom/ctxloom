@@ -307,3 +307,46 @@ func TestGroups_ReturnsSortedNamesOnEveryCall(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerateName_UnsatisfiableMaxElementLengthStaysRandom pins the
+// degradation for a cap no word in the group can meet. pickWord used to retry
+// 1000 times and then return words[0], which makes every generated name the
+// SAME CONSTANT — `harp --max-len 2 -n 5` printed one name five times — and
+// takes UniqueFrom with it: an allocator that generates until it finds an
+// unused id cannot possibly succeed when its generator has exactly one
+// output.
+//
+// The shortest word in every shipped list is 3 characters, so maxLen 2 is
+// unsatisfiable by construction; the loop below asserts that from the code
+// under test's own vantage point rather than trusting the word lists to stay
+// as they are.
+func TestGenerateName_UnsatisfiableMaxElementLengthStaysRandom(t *testing.T) {
+	const maxLen = 2
+	g := groups[DefaultGroup]
+	for _, w := range append(append([]string{}, g.adjectives...), g.nouns...) {
+		if len(w) <= maxLen {
+			t.Fatalf("fixture is not hostile: %q already satisfies maxLen=%d, so nothing here tests the unsatisfiable path", w, maxLen)
+		}
+	}
+
+	gen := func() string { return GenerateNameWithOptions(Options{MaxElementLength: maxLen}) }
+
+	seen := map[string]bool{}
+	for range 30 {
+		seen[gen()] = true
+	}
+	if len(seen) < 2 {
+		t.Fatalf("an unsatisfiable cap must degrade to a random name, not a constant: 30 draws produced %d distinct name(s) %v", len(seen), seen)
+	}
+
+	// The downstream consequence the library's own UniqueFrom doc depends on:
+	// a generator that can only emit one value makes allocation impossible.
+	used := map[string]struct{}{gen(): {}}
+	id, err := UniqueFrom(used, gen)
+	if err != nil {
+		t.Fatalf("UniqueFrom must still be able to allocate under an unsatisfiable cap: %v", err)
+	}
+	if id == "" {
+		t.Fatal("UniqueFrom returned an empty id with no error")
+	}
+}

@@ -267,17 +267,35 @@ func GenerateNameWithOptions(opts Options) string {
 	return strings.Join(parts, opts.Separator)
 }
 
-// pickWord returns a uniformly random entry from words, retrying until
-// MaxElementLength is satisfied. The 1000-attempt cap is a safety net
-// against pathological inputs (e.g. maxLen smaller than every word).
+// pickWord returns a uniformly random entry from words no longer than maxLen
+// (maxLen <= 0 disables the cap).
+//
+// An UNSATISFIABLE cap — one shorter than every word in the list — drops the
+// cap and draws from the full list. It never collapses to a fixed word: a
+// generator with exactly one possible output makes every name that same
+// constant, and takes UniqueFrom down with it, since an allocator that
+// generates until it finds an unused id can never find one. A cap that cannot
+// be honoured has to degrade to something; degrading to a random name is
+// strictly better than degrading to a predictable one.
+//
+// Selecting from the eligible words directly, rather than rejection-sampling
+// the whole list, also means a cap that IS satisfiable is always honoured. A
+// bounded retry loop could exhaust its attempts on a cap only a handful of
+// words meet and hand back a word that VIOLATES it.
 func pickWord(words []string, maxLen int) string {
-	for range 1000 {
-		w := words[randIndex(len(words))]
-		if maxLen <= 0 || len(w) <= maxLen {
-			return w
+	if maxLen <= 0 {
+		return words[randIndex(len(words))]
+	}
+	eligible := make([]string, 0, len(words))
+	for _, w := range words {
+		if len(w) <= maxLen {
+			eligible = append(eligible, w)
 		}
 	}
-	return words[0]
+	if len(eligible) == 0 {
+		eligible = words
+	}
+	return eligible[randIndex(len(eligible))]
 }
 
 // randIndex returns a uniform random integer in [0, n). Rejection-sampled

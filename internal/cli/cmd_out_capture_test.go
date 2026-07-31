@@ -1,0 +1,60 @@
+package cli
+
+import (
+	"bytes"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/testsupport"
+)
+
+// A COMMAND'S OWN OUTPUT MUST GO THROUGH ITS COMMAND, NOT THE PACKAGE'S
+// STDOUT.
+//
+// `remote`, `profile` and `remote browse` reported their results with
+// package-level fmt.Printf/fmt.Println straight to os.Stdout. That writes the
+// right bytes in production and is untestable everywhere else: cmd.SetOut is
+// ignored, so nothing can capture what the command said, and the writer a
+// frontend or a wrapping command installs is bypassed.
+//
+// `remote default --clear` stands for the class: it needs no network and no
+// remote fixture, so it exercises the writer decision and nothing else.
+func TestRemoteDefaultClear_WritesThroughTheCommandsWriter(t *testing.T) {
+	testsupport.ProjectDir(t)
+
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&bytes.Buffer{})
+	rootCmd.SetArgs([]string{"remote", "default", "--clear"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+		remoteDefaultClear = false // BoolVar only Set()s when the flag is parsed
+	})
+
+	require.NoError(t, rootCmd.Execute())
+	assert.Contains(t, out.String(), "Cleared default remote.",
+		"the command's own result line must reach cmd.OutOrStdout(), not os.Stdout directly")
+}
+
+// printProfileCreated is the `profile create` result. Pinned directly because
+// it is the one write in that path with no cobra.Command in scope — it took
+// none, so it could only ever have gone to os.Stdout.
+func TestPrintProfileCreated_WritesToTheGivenWriter(t *testing.T) {
+	t.Cleanup(func() {
+		profileCreateParents = nil
+		profileCreateBundles = nil
+	})
+	profileCreateParents = []string{"base"}
+	profileCreateBundles = nil
+
+	var out bytes.Buffer
+	printProfileCreated(&out, "developer", "/tmp/developer.yaml")
+
+	assert.Contains(t, out.String(), "developer", "the created profile must be named on the caller's writer")
+	assert.Contains(t, out.String(), "/tmp/developer.yaml", "and so must where it was saved")
+	assert.Contains(t, out.String(), "base", "and the parents it was created with")
+}

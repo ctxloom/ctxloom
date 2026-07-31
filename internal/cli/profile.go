@@ -173,7 +173,7 @@ func runProfileCreate(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	printProfileCreated(name, res.Path)
+	printProfileCreated(cmd.OutOrStdout(), name, res.Path)
 	return nil
 }
 
@@ -206,7 +206,7 @@ func profileLoaderFSOptions(cfg *config.Config) []profiles.LoaderOption {
 }
 
 // printProfileCreated reports a newly-created profile's parents/bundles and path.
-func printProfileCreated(name, path string) {
+func printProfileCreated(w io.Writer, name, path string) {
 	var parts []string
 	if len(profileCreateParents) > 0 {
 		parts = append(parts, fmt.Sprintf("parents: %s", strings.Join(profileCreateParents, ", ")))

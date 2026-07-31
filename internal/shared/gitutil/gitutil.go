@@ -1,4 +1,34 @@
-// Package gitutil provides git repository utilities.
+// Package gitutil is the IN-PROCESS git layer: it answers questions about a
+// repository by reading it with go-git, without running the git binary.
+//
+// WHICH LAYER TO REACH FOR. ctxloom has two, and they are not interchangeable:
+//
+//   - internal/git EXECUTES the git binary. Use it to DO things — commit,
+//     fetch, diff, list worktrees — and for anything whose answer must match
+//     what git itself would say, because it is git saying it. It inherits
+//     git's own repository discovery and its config (including whatever the
+//     user has configured), which is a feature and a variable.
+//   - gitutil (here) resolves the repository IN PROCESS with go-git. Use it
+//     for the small, hot, read-only questions on ctxloom's startup path —
+//     where is the repo root, what is origin's URL — where spawning a
+//     subprocess per call would be the dominant cost. It sees only what go-git
+//     implements.
+//
+// The two do NOT resolve "the repository" by the same rules, and are not
+// guaranteed to agree on the same directory. That is a real, measured
+// difference, not a theoretical one: this package had to be told
+// EnableDotGitCommonDir explicitly before it would resolve a linked worktree
+// the way the git binary always had. Do not treat one layer's answer as a
+// substitute for the other's, and do not add write operations here — a mutation
+// that git and go-git disagree about is not a mutation anyone can review.
+//
+// ENVIRONMENT SANITIZATION. Both layers depend on this package for one thing
+// in common: RepoLocationEnvVars and SanitizedEnviron are the single home of
+// the environment variables that override WHICH repository git operates on.
+// internal/git and internal/remote build every git child process's environment
+// from SanitizedEnviron so that cmd.Dir is the only thing selecting a
+// repository. That list lives here, in the layer that spawns nothing, so there
+// is exactly one of it.
 package gitutil
 
 import (

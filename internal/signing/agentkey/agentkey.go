@@ -219,7 +219,14 @@ func execGitConfig(ctx context.Context, dir, key string) (string, bool, error) {
 			// simply unset — not a failure, just "not configured".
 			return "", false, nil
 		}
-		return "", false, fmt.Errorf("%s: %w", strings.TrimSpace(stderr.String()), err)
+		// git contributes stderr only when it actually ran. A failure on
+		// ctxloom's side of exec (unrunnable binary, bad cwd) leaves it
+		// empty, so the message must stand on its own rather than being
+		// prefixed with nothing.
+		if msg := strings.TrimSpace(stderr.String()); msg != "" {
+			return "", false, fmt.Errorf("git config --get %s: %s: %w", key, msg, err)
+		}
+		return "", false, fmt.Errorf("git config --get %s: %w", key, err)
 	}
 	value := strings.TrimSpace(out.String())
 	return value, value != "", nil

@@ -275,8 +275,11 @@ func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFra
 		Tags:         slices.Concat(bundle.Tags, frag.Tags),
 		Content:      content,
 		Installation: frag.Installation,
-		IsDistilled:  l.preferDistilled && frag.Distilled != "",
-		DistilledBy:  frag.DistilledBy,
+		// From the form resolveEffective actually chose, never re-derived:
+		// a re-derivation drops terms (no_distill) and describes bytes that
+		// were never served.
+		IsDistilled: form == FormDistilled,
+		DistilledBy: frag.DistilledBy,
 	}
 }
 
@@ -393,9 +396,10 @@ func (l *Loader) commandContent(bundle *Bundle, promptName string, prompt Bundle
 		Tags:         slices.Concat(bundle.Tags, prompt.Tags),
 		Content:      content,
 		Installation: prompt.Installation,
-		IsDistilled:  l.preferDistilled && prompt.Distilled != "",
-		DistilledBy:  prompt.DistilledBy,
-		LLM:          prompt.LLM,
+		// See fragmentContent: the served form is the only honest source.
+		IsDistilled: form == FormDistilled,
+		DistilledBy: prompt.DistilledBy,
+		LLM:         prompt.LLM,
 	}
 }
 

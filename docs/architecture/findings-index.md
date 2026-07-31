@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,402** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,403** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 158 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 187 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 186 |
-| `open` | no commit names this ID | **335** |
+| `open` | no commit names this ID | **334** |
 
-**Totals: 2268 findings across 162 units — 1,402 resolved, 335 still open, 531 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,403 resolved, 334 still open, 531 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 518 | 186 | 89 | 86 | 120 |
-| LOW | 871 | 525 | 140 | 53 | 93 | 60 |
+| LOW | 871 | 526 | 139 | 53 | 93 | 60 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2548,7 +2548,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U090-F06 | open | **`paths.go:165, 175, 185, 195, 205, 215, 226, 247, 259, 283, 320, 336, 372, 392, 417`** | ERRHANDLING | Every home-rooted resolver returns `os.UserHomeDir()`'s error verbatim with **no wrapping and no operation context**. The user sees `$HOME is not defined` with no clue which of 15 resolvers produce... | U090.md |
 | U090-F10 | open | **`paths.go:338, 493`** | COUPLING | Two path segments are inline string literals while all 24 of their peers are named constants — `"triggers"` and `"objects"`. The package's whole contract is "no scattered literals"; these are scatt... | U090.md |
 | U090-F11 | **RESOLVED** `9f84aa35` | **`paths.go:343`** | TRIVIAL | `GetCacheDir` is the only `Get`-prefixed function in a 37-function package of `…Path`/`…Dir` names — a gratuitous inconsistency in the most-imported leaf package in the tree. | U090.md |
-| U090-F12 | open | **`paths.go:358`** | CORRECTNESS | `ApprovalsPath`'s doc says the approvals dir sits "next to allowed_signers.yaml". That file does not exist — `AllowedSignersFileName` is `"allowed_signers"` with **no extension**, and the constant'... | U090.md |
+| U090-F12 | **RESOLVED** `2d2ed084` | **`paths.go:358`** | CORRECTNESS | `ApprovalsPath`'s doc says the approvals dir sits "next to allowed_signers.yaml". That file does not exist — `AllowedSignersFileName` is `"allowed_signers"` with **no extension**, and the constant'... | U090.md |
 | U090-F16 | open | **`paths.go:146 vs `internal/sessions/index.go:332`** | COUPLING | `CanonicalTranscriptFileName` has **zero production users** — the one place that writes a file by that name uses a bare literal, and for a *different* file (a symlink one directory up from the cano... | U090.md |
 | U091-F11 | **RESOLVED** `350fca25` | **`profiles.go:721-723`** | TRIVIAL | `toLocalProfileName` is the identity function — `return name` — carrying 8 lines of historical comment and 1 line of code | U091.md |
 | U091-F13 | **RESOLVED** `8fdbcb0a` | **`profiles.go:401-403`** | ERRHANDLING | `CommitUpgrade(nil)` returns `nil` — reports success for a write that never happened; `p.Data` is written with no length guard, so a zero-length `Data` would truncate the user's profile file to not... | U091.md |

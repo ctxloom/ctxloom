@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 	"io"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -237,8 +239,10 @@ func renderBundleMCPEntry(w *iox.ErrWriter, name string, mcp bundles.BundleMCP) 
 	}
 	if len(mcp.Env) > 0 {
 		w.Println("      Env:")
-		for k, v := range mcp.Env {
-			w.Printf("        %s=%s\n", k, v)
+		// Sorted: `bundle show` is diffed and scripted against, so two runs
+		// over an unchanged bundle must produce identical bytes.
+		for _, k := range slices.Sorted(maps.Keys(mcp.Env)) {
+			w.Printf("        %s=%s\n", k, mcp.Env[k])
 		}
 	}
 	if mcp.Notes != "" {

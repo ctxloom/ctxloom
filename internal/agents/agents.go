@@ -255,7 +255,15 @@ func (l *Loader) List() ([]*Agent, error) {
 
 	for _, dir := range l.dirs {
 		exists, err := afero.DirExists(l.fs, dir)
-		if err != nil || !exists {
+		if err != nil {
+			// A directory that exists but cannot be statted (permissions, a
+			// dead mount) is skipped like an absent one, but it is NOT the
+			// same thing: silence here makes "no agents configured" and
+			// "your agents directory is unreadable" indistinguishable.
+			clidiag.Warn("ctxloom", "skipping agents directory %s: %v", dir, err)
+			continue
+		}
+		if !exists {
 			continue
 		}
 		err = afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
@@ -321,7 +329,16 @@ func GetAgentDirs(fs afero.Fs, scmPaths []string) []string {
 	var dirs []string
 	for _, scmPath := range scmPaths {
 		dir := paths.AgentsPath(scmPath)
-		if isDir, err := afero.DirExists(fs, dir); err == nil && isDir {
+		isDir, err := afero.DirExists(fs, dir)
+		if err != nil {
+			// Same reason as Loader.List: an absent directory is the ordinary
+			// case and stays quiet, but a stat FAILURE dropped in silence
+			// hides an unreadable directory behind "no agents configured" one
+			// layer before the loader is ever asked.
+			clidiag.Warn("ctxloom", "skipping agents directory %s: %v", dir, err)
+			continue
+		}
+		if isDir {
 			dirs = append(dirs, dir)
 		}
 	}

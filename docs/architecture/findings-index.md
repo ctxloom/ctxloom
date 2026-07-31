@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,408** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,409** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 159 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 188 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 192 |
-| `open` | no commit names this ID | **321** |
+| `open` | no commit names this ID | **320** |
 
-**Totals: 2268 findings across 162 units — 1,408 resolved, 321 still open, 539 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,409 resolved, 320 still open, 539 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 520 | 180 | 89 | 86 | 124 |
-| LOW | 871 | 531 | 130 | 54 | 94 | 62 |
+| LOW | 871 | 532 | 129 | 54 | 94 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2464,7 +2464,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U080-F17 | **RESOLVED** `7825ce17` | **`settings.go:656-660`** | ERRHANDLING | `readLedger` maps *any* read error to `nil`, so a permission-denied or truncated ledger is indistinguishable from an absent one; the caller then strips nothing and reports success. | U080.md |
 | U080-F18 | **RESOLVED** `6e623b37` | **`capabilities.go:103`** | DEAD | `opencodeListEntry.ProjectID` is declared and never read. | U080.md |
 | U080-F19 | **ESCALATED** (gn/vital-deaf-stunt) | **`settings.go:94-102, 195-223, 358-395, 401-430`** | NOPAY | The `skills.paths` registration is documented by its own author as not load-bearing — opencode auto-discovers `.opencode/skill` with no config entry — yet it costs ~95 lines (the `applyManaged` ski... | U080.md |
-| U081-F12 | open | `bundle_move.go:113` | CORRECTNESS | The destination switch uses `default:` for the path case, so a third `moveDestKind` would silently take the local-copy branch instead of failing | U081.md |
+| U081-F12 | **RESOLVED** `dc71355a` | `bundle_move.go:113` | CORRECTNESS | The destination switch uses `default:` for the path case, so a third `moveDestKind` would silently take the local-copy branch instead of failing | U081.md |
 | U081-F13 | **RESOLVED** `ef5a496f` | `bundle_list_remote.go:70` | ERRHANDLING | A lockfile load failure yields zero remote URLs, so `ListDeleted` returns nothing and `bundle list` silently stops showing removed-upstream markers. No warning is emitted anywhere on this path | U081.md |
 | U081-F14 | **RESOLVED** `8eca8c8c` | `bundle_read.go:45, bundle_transfer.go:66` | DUPLICATE | These pass the raw, possibly-nil `req.FS` to `canonicalizeBundleArg` while using the defaulted `fs` everywhere else in the same function; `bundle_move.go:139` passes the defaulted `fs`. Behaviour i... | U081.md |
 | U081-F16 | **RESOLVED** `1a788b3e` | `bundle_refs.go:67` | ERRHANDLING | `AnalyzeBundleReferences` panics on `req.Lockfile == nil` | U081.md |

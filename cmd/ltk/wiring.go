@@ -45,10 +45,10 @@ var configSearch = []string{
 // host-shell inference in one place is what makes that structural rather than
 // a convention two call sites have to remember.
 func newDecider(cfg *rules.Config, forceShell ir.Shell) *app.App {
-	a := app.New(cfg)
-	a.ForceShell = forceShell
-	a.HostShell = shellenv.ShellFromPath(os.Getenv("SHELL"))
-	return a
+	return app.New(cfg, app.Shells{
+		Force: forceShell,
+		Host:  shellenv.ShellFromPath(os.Getenv("SHELL")),
+	})
 }
 
 // expandSubmodules resolves the `@submodules` path sentinel against this

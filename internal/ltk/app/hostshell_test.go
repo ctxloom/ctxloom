@@ -32,8 +32,8 @@ func TestUnrecognizedHostShellIsAnalyzedAsBashWithNoTrace(t *testing.T) {
 	// The fixture must be hostile from resolveShell's vantage point: nothing
 	// else in the precedence chain may supply a dialect, or the fallback under
 	// test is never reached.
-	a.ForceShell = ""
-	a.HostShell = "" // what $SHELL=/usr/bin/fish resolves to
+	a.forceShell = ""
+	a.hostShell = "" // what $SHELL=/usr/bin/fish resolves to
 	if a.Config.Defaults.Shell != "" {
 		t.Fatalf("fixture is not hostile: defaults.shell = %q pre-empts the fallback", a.Config.Defaults.Shell)
 	}
@@ -65,14 +65,14 @@ func TestUnrecognizedHostShellIsAnalyzedAsBashWithNoTrace(t *testing.T) {
 // bash is the safe home for ksh93 rather than a guess.
 func TestKsh93ConstructsAreStillAnalyzed(t *testing.T) {
 	a := newApp(t, cfg)
-	a.HostShell = shellenv.ShellFromPath("/bin/ksh93")
+	a.hostShell = shellenv.ShellFromPath("/bin/ksh93")
 
 	// The fixture must be hostile: the mapping under test is what supplies the
 	// dialect, so nothing else in the precedence chain may pre-empt it.
-	if a.ForceShell != "" || a.Config.Defaults.Shell != "" {
+	if a.forceShell != "" || a.Config.Defaults.Shell != "" {
 		t.Fatal("fixture is not hostile: another signal pre-empts HostShell")
 	}
-	if a.HostShell == "" {
+	if a.hostShell == "" {
 		t.Fatal("fixture is not hostile: ksh93 resolved to no shell at all")
 	}
 

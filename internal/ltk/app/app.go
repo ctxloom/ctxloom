@@ -24,13 +24,10 @@ import (
 type App struct {
 	Config   *rules.Config
 	Registry *frontend.Registry
-	// ForceShell, when set (from a --shell flag), overrides every other signal.
-	ForceShell ir.Shell
-	// HostShell is the user's default login shell (from $SHELL). It is the right
-	// dialect for engines that run commands in the user's shell — notably Claude
-	// Code's Bash tool. main populates it; engines that force a fixed shell
-	// (Codex/Antigravity) emit a strong hint that bypasses it.
-	HostShell ir.Shell
+	// forceShell and hostShell come from Shells at construction; see that type
+	// for what each means and why neither is assignable afterwards.
+	forceShell ir.Shell
+	hostShell  ir.Shell
 	// DefaultShell is the final fallback when nothing else resolves a shell.
 	DefaultShell ir.Shell
 	// Warn receives one-line diagnostics about ltk's own failures — today, a
@@ -55,21 +52,46 @@ type App struct {
 	Warn io.Writer
 }
 
+// Shells carries the dialect signals only the caller can know, and is a
+// REQUIRED argument to New rather than a pair of fields assigned afterwards.
+// Both feed resolveShell's precedence chain, and omitting Host is silent: the
+// command is still analyzed, just as the wrong dialect, so a rule written
+// against a construct the substituted dialect cannot parse simply stops
+// firing. A caller that forgets must therefore fail to compile, not to guard.
+type Shells struct {
+	// Force overrides every other signal (the --shell flag). Empty — meaning
+	// "no override" — is the ordinary case.
+	Force ir.Shell
+	// Host is the user's login shell, from $SHELL. It is the right dialect for
+	// engines that run commands in that shell (notably Claude Code's Bash
+	// tool); engines that force a fixed shell (Codex/Antigravity) emit a
+	// strong hint that bypasses it. Empty means "unknown", which falls through
+	// to the default rather than guessing.
+	Host ir.Shell
+}
+
 // New builds an App with all frontends registered.
-func New(cfg *rules.Config) *App {
+func New(cfg *rules.Config, shells Shells) *App {
 	reg := frontend.NewRegistry()
 	reg.Register(shell.New()) // sh, bash, zsh, mksh
 	reg.Register(pwsh.New())  // pwsh (defers to PowerShell's own parser)
 	reg.Register(cmd.New())   // cmd.exe
-	return &App{Config: cfg, Registry: reg, DefaultShell: ir.ShellBash, Warn: os.Stderr}
+	return &App{
+		Config:       cfg,
+		Registry:     reg,
+		forceShell:   shells.Force,
+		hostShell:    shells.Host,
+		DefaultShell: ir.ShellBash,
+		Warn:         os.Stderr,
+	}
 }
 
 // resolveShell picks the shell to parse with, in precedence order:
-//  1. ForceShell — operator override (--shell)
+//  1. Shells.Force — operator override (--shell)
 //  2. hint — the adapter's per-call, tool-derived shell (authoritative; e.g.
 //     Claude's PowerShell tool → pwsh, or a future Codex adapter → bash)
 //  3. defaults.shell — explicit operator config
-//  4. HostShell — the user's $SHELL (Claude's Bash tool runs in the login shell)
+//  4. Shells.Host — the user's $SHELL (Claude's Bash tool runs in the login shell)
 //  5. DefaultShell — final fallback (bash)
 //
 // A content-sniff step belongs between (4) and (5) but is deliberately omitted:
@@ -78,14 +100,14 @@ func New(cfg *rules.Config) *App {
 // pwsh) is not trusted.
 func (a *App) resolveShell(hint ir.Shell) ir.Shell {
 	switch {
-	case a.ForceShell != "":
-		return a.ForceShell
+	case a.forceShell != "":
+		return a.forceShell
 	case hint != "":
 		return hint
 	case a.config().Defaults.Shell != "":
 		return a.config().Defaults.Shell
-	case a.HostShell != "":
-		return a.HostShell
+	case a.hostShell != "":
+		return a.hostShell
 	default:
 		return a.DefaultShell
 	}

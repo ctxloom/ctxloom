@@ -26,7 +26,7 @@ func TestDecide_NilConfigIsAllowAllNotAnInternalError(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var warn strings.Builder
-			a := New(nil)
+			a := New(nil, Shells{})
 			a.Warn = &warn
 
 			resp := a.Decide(context.Background(), tc.req)
@@ -48,7 +48,7 @@ func TestDecide_NilConfigIsAllowAllNotAnInternalError(t *testing.T) {
 // hold when it is cleared after construction, not only when New is handed nil.
 func TestDecide_ConfigClearedAfterConstruction(t *testing.T) {
 	var warn strings.Builder
-	a := New(nil)
+	a := New(nil, Shells{})
 	a.Warn = &warn
 	a.Config = nil
 
@@ -61,14 +61,14 @@ func TestDecide_ConfigClearedAfterConstruction(t *testing.T) {
 // resolveShell is the reader the panic actually came from; pin it directly so
 // the guard cannot be removed there while decide keeps its own.
 func TestResolveShell_NilConfigFallsThroughToTheDefaults(t *testing.T) {
-	a := New(nil)
+	a := New(nil, Shells{})
 	a.Config = nil
-	a.HostShell = ""
+	a.hostShell = ""
 	if got := a.resolveShell(""); got != a.DefaultShell {
 		t.Errorf("resolveShell with a nil Config = %q, want the default %q", got, a.DefaultShell)
 	}
-	a.HostShell = "zsh"
-	if got := a.resolveShell(""); got != a.HostShell {
-		t.Errorf("resolveShell with a nil Config = %q, want the host shell %q", got, a.HostShell)
+	a.hostShell = "zsh"
+	if got := a.resolveShell(""); got != a.hostShell {
+		t.Errorf("resolveShell with a nil Config = %q, want the host shell %q", got, a.hostShell)
 	}
 }

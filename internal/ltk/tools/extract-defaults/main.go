@@ -13,12 +13,19 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
 
 const (
+	// source and generated are MODULE-ROOT-RELATIVE. They are resolved against
+	// the module root that moduleRoot finds, never against the working
+	// directory: as bare relative paths they made "which directory you ran
+	// this from" part of the tool's correctness, an unwritten precondition
+	// that `just defaults` happens to satisfy and a developer in any
+	// subdirectory does not.
 	source    = "docs/ltk/DEFAULTS.md"
 	generated = "cmd/ltk/sample.ltk.yaml"
 	// header is prepended to the generated file. It is written verbatim into a
@@ -148,25 +155,48 @@ func checkDrift(have []byte, readErr error, want []byte) error {
 // edits do not trip it, and well above zero so a gutted doc does.
 const minDefaultRules = 8
 
+// moduleRoot returns the nearest ancestor of start (start included) that
+// contains a go.mod, so the tool's paths mean the same thing from any
+// directory inside the repository.
+func moduleRoot(start string) (string, error) {
+	for dir := filepath.Clean(start); ; {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("no go.mod at or above %s: run this from inside the repository", start)
+		}
+		dir = parent
+	}
+}
+
 func main() {
 	check := flag.Bool("check", false, "verify the generated file is in sync; non-zero exit on drift")
 	flag.Parse()
 
-	md, err := os.ReadFile(source)
+	wd, err := os.Getwd()
+	must(err)
+	root, err := moduleRoot(wd)
+	must(err)
+	sourcePath := filepath.Join(root, source)
+	generatedPath := filepath.Join(root, generated)
+
+	md, err := os.ReadFile(sourcePath)
 	must(err)
 
 	out, err := assemble(md, minDefaultRules)
 	must(err)
 
 	if *check {
-		have, readErr := os.ReadFile(generated)
+		have, readErr := os.ReadFile(generatedPath)
 		if err := checkDrift(have, readErr, out); err != nil {
 			fail("%v", err)
 		}
 		fmt.Printf("%s is in sync with %s\n", generated, source)
 		return
 	}
-	must(os.WriteFile(generated, out, 0o644))
+	must(os.WriteFile(generatedPath, out, 0o644))
 	fmt.Printf("wrote %s\n", generated)
 }
 

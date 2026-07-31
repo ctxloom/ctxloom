@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -190,4 +192,54 @@ func TestCheckDriftSeparatesUnreadableFromDrifted(t *testing.T) {
 			t.Fatalf("the underlying read failure was dropped: %v", err)
 		}
 	})
+}
+
+// source and generated are module-root-relative, and the tool used to hand
+// them straight to os.ReadFile — so "which directory you ran this from" was
+// part of its correctness, an unwritten precondition that `just defaults`
+// satisfies and a developer standing in any subdirectory does not. Resolving
+// them against the module root removes the precondition instead of documenting
+// it.
+//
+// This pins the resolution itself; main's own use of it ends in os.Exit and is
+// not observable from a test.
+func TestModuleRootIsFoundFromAnySubdirectory(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(root, "internal", "ltk", "tools", "extract-defaults")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	// The fixture must be hostile: the nested directory must NOT itself carry
+	// a go.mod, or the walk never happens.
+	if _, err := os.Stat(filepath.Join(nested, "go.mod")); err == nil {
+		t.Fatal("fixture is not hostile: the nested dir has its own go.mod")
+	}
+
+	for _, start := range []string{root, nested} {
+		got, err := moduleRoot(start)
+		if err != nil {
+			t.Fatalf("moduleRoot(%q): %v", start, err)
+		}
+		// t.TempDir can hand back a symlinked path (/tmp -> /private/tmp on
+		// darwin), so compare what the walk actually traversed.
+		if filepath.Clean(got) != filepath.Clean(root) {
+			t.Errorf("moduleRoot(%q) = %q, want %q", start, got, root)
+		}
+	}
+}
+
+// Outside a module the tool must say so, not read whatever happens to sit in
+// the working directory.
+func TestModuleRootReportsWhenThereIsNoModule(t *testing.T) {
+	_, err := moduleRoot(t.TempDir())
+	if err == nil {
+		t.Fatal("a directory with no go.mod above it was accepted")
+	}
+	if !strings.Contains(err.Error(), "go.mod") {
+		t.Fatalf("the error does not name what is missing: %v", err)
+	}
 }

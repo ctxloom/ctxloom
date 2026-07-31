@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,322** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 135 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 175 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **468** |
+| `open` | no commit names this ID | **467** |
 
-**Totals: 2268 findings across 162 units — 1,322 resolved, 468 still open, 478 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,322 resolved, 467 still open, 479 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 475 | 263 | 73 | 80 | 108 |
+| MED | 999 | 475 | 262 | 74 | 80 | 108 |
 | LOW | 871 | 490 | 193 | 46 | 87 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1228,7 +1228,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U040-F16 | open | **`root.go:86`** | COUPLING | Four process-wide behaviours depend on an unenforced global invariant asserted only in a comment. | U040.md |
 | U040-F17 | open | `remote_discover.go:47-95`, `remote_update.go:*`, `remote_upgrade.go:37-49` | COUPLING | Three of the four commands in this unit write with `fmt.Printf` to `os.Stdout` and completely ignore the global `--format` flag. | U040.md |
 | U041-F07 | **RESOLVED** `8af7f8c8` | `run_owned.go:251-262 vs run_structured.go:105-123` | CORRECTNESS | The same `--format` value behaves differently on the two structured arms: unknown formats are rejected on go-plugin, silently rendered as raw text on container | U041.md |
-| U041-F08 | open | `run_owned.go:235-278` | CORRECTNESS | The container structured arm emits only `entry` events, silently dropping the `complete` and `session` halves of the documented NDJSON contract | U041.md |
+| U041-F08 | **PARTIAL** `4c948e46` | `run_owned.go:235-278` | CORRECTNESS | The container structured arm emits only `entry` events, silently dropping the `complete` and `session` halves of the documented NDJSON contract | U041.md |
 | U041-F09 | open | **`run.go:367-1300`** | COHESION + COMPLEXITY | The command body is a ~930-line closure doing ≥20 unrelated jobs, and it is **invisible to the CI complexity gate** | U041.md |
 | U041-F10 | **RESOLVED** `e2c37ccd` | `run_terminal.go:29-32` | ERRHANDLING | A `term.MakeRaw` failure yields an interactive session the user **cannot type into**, with no diagnostic | U041.md |
 | U041-F11 | **RESOLVED** `5376b446` | `run_owned.go:117,142-168,264-269` | CORRECTNESS | The structured REPL's `pending` counter is coupled to non-blocking channel timing and to an unverified "the first turn always yields a boundary" assumption | U041.md |

@@ -77,55 +77,62 @@ func Parse(r io.Reader) (*Store, []*ParseError, error) {
 	var perrs []*ParseError
 
 	br := bufio.NewReaderSize(r, readBufBytes)
-	lineNo := 0
-	for {
+	for lineNo := 1; ; lineNo++ {
 		raw, tooLong, err := readLine(br)
 		if err != nil && err != io.EOF {
 			return nil, perrs, err
 		}
-		if err == io.EOF && raw == "" && !tooLong {
+		last := err == io.EOF
+		if last && raw == "" && !tooLong {
 			break
 		}
-		lineNo++
-		if tooLong {
-			// A line this long cannot be an entry, but discarding the FILE
-			// over it revokes every signer in it — see maxLineBytes. readLine
-			// kept only a bounded prefix; the ellipsis says so, because
-			// pe.Error() is rendered to a terminal.
-			perrs = append(perrs, &ParseError{Line: lineNo, Text: raw + "\u2026", Err: errLineTooLong})
-			if err == io.EOF {
-				break
-			}
-			continue
-		}
-		// A UTF-8 BOM is NOT Unicode whitespace, so TrimSpace leaves it in
-		// place and it is absorbed into the first PRINCIPAL — an entry that
-		// still grants trust (TrustedForNamespace matches on the key) under an
-		// identity nothing can name: TrustedAs never matches it and `signer
-		// remove`, which compares principals literally, cannot revoke it. It
-		// is cut here only to classify the line; an entry line carrying one is
-		// then reported, never silently repaired, because matching a principal
-		// real ssh-keygen would refuse to match is a divergence in the
-		// MORE-trust direction (see the package doc).
-		body, hasBOM := strings.CutPrefix(raw, "\ufeff")
-		trimmed := strings.TrimSpace(body)
+		entry, perr := classifyLine(raw, lineNo, tooLong)
 		switch {
-		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
-		case hasBOM:
-			perrs = append(perrs, &ParseError{Line: lineNo, Text: raw, Err: errByteOrderMark})
-		default:
-			entry, perr := parseLine(trimmed, lineNo)
-			if perr != nil {
-				perrs = append(perrs, &ParseError{Line: lineNo, Text: raw, Err: perr})
-				break
-			}
+		case perr != nil:
+			perrs = append(perrs, perr)
+		case entry != nil:
 			entries = append(entries, *entry)
 		}
-		if err == io.EOF {
+		if last {
 			break
 		}
 	}
 	return &Store{entries: entries, parseErrors: perrs}, perrs, nil
+}
+
+// classifyLine turns one raw line into exactly one of: an Entry, a ParseError,
+// or neither (a blank line or a comment). Nothing else is representable, which
+// is the fail-closed property stated in Parse's doc — a line the reader cannot
+// turn into an Entry contributes none, and says so.
+func classifyLine(raw string, lineNo int, tooLong bool) (*Entry, *ParseError) {
+	if tooLong {
+		// A line this long cannot be an entry, but discarding the FILE over it
+		// revokes every signer in it — see maxLineBytes. readLine kept only a
+		// bounded prefix; the ellipsis says so, because pe.Error() is rendered
+		// to a terminal.
+		return nil, &ParseError{Line: lineNo, Text: raw + "…", Err: errLineTooLong}
+	}
+	// A UTF-8 BOM is NOT Unicode whitespace, so TrimSpace leaves it in place
+	// and it is absorbed into the first PRINCIPAL — an entry that still grants
+	// trust (TrustedForNamespace matches on the key) under an identity nothing
+	// can name: TrustedAs never matches it and `signer remove`, which compares
+	// principals literally, cannot revoke it. It is cut here only to classify
+	// the line; an entry line carrying one is then reported, never silently
+	// repaired, because matching a principal real ssh-keygen would refuse to
+	// match is a divergence in the MORE-trust direction (see the package doc).
+	body, hasBOM := strings.CutPrefix(raw, "\ufeff")
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+		return nil, nil
+	}
+	if hasBOM {
+		return nil, &ParseError{Line: lineNo, Text: raw, Err: errByteOrderMark}
+	}
+	entry, err := parseLine(trimmed, lineNo)
+	if err != nil {
+		return nil, &ParseError{Line: lineNo, Text: raw, Err: err}
+	}
+	return entry, nil
 }
 
 const (
@@ -165,18 +172,7 @@ func readLine(br *bufio.Reader) (line string, tooLong bool, err error) {
 		if rerr != nil && rerr != bufio.ErrBufferFull && rerr != io.EOF {
 			return "", false, rerr
 		}
-		switch {
-		case tooLong || len(b)+len(chunk) > maxLineBytes:
-			if !tooLong {
-				tooLong = true
-				b = b[:min(len(b), diagnosticTextBytes)]
-			}
-			if len(b) < diagnosticTextBytes {
-				b = append(b, chunk[:min(len(chunk), diagnosticTextBytes-len(b))]...)
-			}
-		default:
-			b = append(b, chunk...)
-		}
+		b, tooLong = appendBounded(b, chunk, tooLong)
 		if rerr == bufio.ErrBufferFull {
 			continue
 		}
@@ -185,6 +181,22 @@ func readLine(br *bufio.Reader) (line string, tooLong bool, err error) {
 		}
 		return strings.TrimSuffix(strings.TrimSuffix(string(b), "\n"), "\r"), tooLong, err
 	}
+}
+
+// appendBounded accumulates one line, and stops accumulating once it passes
+// maxLineBytes: past that point only a diagnosticTextBytes prefix is kept, so a
+// pathological line is never held whole.
+func appendBounded(b, chunk []byte, tooLong bool) ([]byte, bool) {
+	if !tooLong && len(b)+len(chunk) <= maxLineBytes {
+		return append(b, chunk...), false
+	}
+	if !tooLong {
+		b = b[:min(len(b), diagnosticTextBytes)]
+	}
+	if len(b) < diagnosticTextBytes {
+		b = append(b, chunk[:min(len(chunk), diagnosticTextBytes-len(b))]...)
+	}
+	return b, true
 }
 
 // ParseFile is a convenience wrapper around Parse for a path on disk.
@@ -293,51 +305,63 @@ func applyOptions(entry *Entry, rawOptions []string) error {
 			return fmt.Errorf("%w: %q", errDuplicateOption, key)
 		}
 		seen[lkey] = true
-
-		switch lkey {
-		case "cert-authority":
-			if hasValue {
-				return fmt.Errorf("%w: cert-authority takes no value", errUnknownOption)
-			}
-			entry.CertAuthority = true
-
-		case "namespaces":
-			v, err := requireQuotedValue(key, rawValue, hasValue)
-			if err != nil {
-				return err
-			}
-			entry.Namespaces = splitPatternList(v)
-
-		case "valid-after":
-			v, err := requireQuotedValue(key, rawValue, hasValue)
-			if err != nil {
-				return err
-			}
-			t, err := parseTimestamp(v)
-			if err != nil {
-				return fmt.Errorf("%w: %v", errBadTimestamp, err)
-			}
-			entry.ValidAfter = &t
-
-		case "valid-before":
-			v, err := requireQuotedValue(key, rawValue, hasValue)
-			if err != nil {
-				return err
-			}
-			t, err := parseTimestamp(v)
-			if err != nil {
-				return fmt.Errorf("%w: %v", errBadTimestamp, err)
-			}
-			entry.ValidBefore = &t
-
-		default:
-			// Verified against real ssh-keygen ("bad options: unknown key
-			// option"): an unrecognized option invalidates the whole
-			// entry. We deliberately match this rather than adopting a
-			// more lenient "ignore unknown options" forward-compat
-			// posture — see package doc, "Fail-closed decisions".
-			return fmt.Errorf("%w: %q", errUnknownOption, key)
+		if err := applyOption(entry, lkey, key, rawValue, hasValue); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// applyOption populates entry from ONE recognized option. lkey is the
+// lowercased keyword the switch dispatches on; key is the spelling as written,
+// which is what an error message must echo back.
+func applyOption(entry *Entry, lkey, key, rawValue string, hasValue bool) error {
+	switch lkey {
+	case "cert-authority":
+		if hasValue {
+			return fmt.Errorf("%w: cert-authority takes no value", errUnknownOption)
+		}
+		entry.CertAuthority = true
+		return nil
+
+	case "namespaces":
+		v, err := requireQuotedValue(key, rawValue, hasValue)
+		if err != nil {
+			return err
+		}
+		entry.Namespaces = splitPatternList(v)
+		return nil
+
+	case "valid-after", "valid-before":
+		return applyValidityBound(entry, lkey, key, rawValue, hasValue)
+
+	default:
+		// Verified against real ssh-keygen ("bad options: unknown key
+		// option"): an unrecognized option invalidates the whole
+		// entry. We deliberately match this rather than adopting a
+		// more lenient "ignore unknown options" forward-compat
+		// posture — see package doc, "Fail-closed decisions".
+		return fmt.Errorf("%w: %q", errUnknownOption, key)
+	}
+}
+
+// applyValidityBound handles valid-after= and valid-before=, which differ only
+// in which field they land on. Sharing one body is what keeps them from
+// drifting — a bound parsed one way and rejected the other is a validity
+// window nobody wrote.
+func applyValidityBound(entry *Entry, lkey, key, rawValue string, hasValue bool) error {
+	v, err := requireQuotedValue(key, rawValue, hasValue)
+	if err != nil {
+		return err
+	}
+	t, err := parseTimestamp(v)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errBadTimestamp, err)
+	}
+	if lkey == "valid-after" {
+		entry.ValidAfter = &t
+	} else {
+		entry.ValidBefore = &t
 	}
 	return nil
 }

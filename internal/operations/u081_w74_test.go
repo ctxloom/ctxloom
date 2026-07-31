@@ -3,8 +3,10 @@ package operations
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -252,4 +254,79 @@ func TestMoveByDest_KnownKindsStillRoute(t *testing.T) {
 	require.Error(t, rerr)
 	assert.NotContains(t, rerr.Error(), "destination is the bundle's own directory",
 		"a remote destination must not be answered by the local-copy branch")
+}
+
+// ---------------------------------------------------------------------------
+// U081-F09 — a move that fully happened must not read as a move that did not.
+// ---------------------------------------------------------------------------
+
+// failRemoveFs fails Remove for paths matching a predicate — a disk that will
+// not let the last cleanup step of a move complete.
+type failRemoveFs struct {
+	afero.Fs
+	fail func(name string) bool
+}
+
+func (f *failRemoveFs) Remove(name string) error {
+	if f.fail(name) {
+		return errors.New("permission denied")
+	}
+	return f.Fs.Remove(name)
+}
+
+// TestMoveBundle_StraySourceSignature_ErrorNamesDestinationAndForbidsRetry is
+// the worst-shaped outcome this command has: the bundle IS at the destination
+// and the source YAML IS gone, so the move happened — only the source .sig
+// survived. The old message said "bundle moved, but its source signature could
+// not be removed", named no destination, and left the user with an exit code
+// that invites a re-run. Re-running cannot work: there is no source left.
+func TestMoveBundle_StraySourceSignature_ErrorNamesDestinationAndForbidsRetry(t *testing.T) {
+	base, cfg := memMoveFS(t, true)
+	require.NoError(t, base.MkdirAll("/out", 0755)) // resolveMoveDest requires an EXISTING dir
+	src := srcBundlePath(cfg)
+	fs := &failRemoveFs{Fs: base, fail: func(name string) bool { return strings.HasSuffix(name, sigSuffix) }}
+
+	// The fixture must be hostile in exactly one place: the .sig removal, and
+	// nothing else. Prove that before asserting on the message.
+	require.Error(t, fs.Remove(src+sigSuffix), "fixture is not broken")
+	ok, _ := afero.Exists(fs, src)
+	require.True(t, ok, "the source bundle must still be removable for the move to reach the .sig step")
+
+	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
+	require.Error(t, err)
+
+	// The payload: the destination the bundle actually reached, and the fact
+	// that a retry is not the remedy.
+	assert.Contains(t, err.Error(), filepath.Join("/out", "seed.yaml"),
+		"the failure must name where the bundle actually went")
+	assert.Contains(t, err.Error(), "re-running the move will not work",
+		"the failure must stop the retry it would otherwise invite")
+
+	// And the state the message describes is the real one.
+	moved, _ := afero.Exists(fs, filepath.Join("/out", "seed.yaml"))
+	assert.True(t, moved, "the bundle did land at the destination")
+	srcGone, _ := afero.Exists(fs, src)
+	assert.False(t, srcGone, "the source YAML was removed — the move happened")
+}
+
+// TestMoveBundle_UnremovableSourceYAML_ErrorSaysBothPlaces is the other half:
+// here the bundle exists in TWO places and re-running (or deleting the
+// duplicate) IS the remedy, so the message must not be interchangeable with the
+// one above.
+func TestMoveBundle_UnremovableSourceYAML_ErrorSaysBothPlaces(t *testing.T) {
+	base, cfg := memMoveFS(t, false)
+	require.NoError(t, base.MkdirAll("/out", 0755))
+	src := srcBundlePath(cfg)
+	fs := &failRemoveFs{Fs: base, fail: func(name string) bool { return name == src }}
+
+	require.Error(t, fs.Remove(src), "fixture is not broken")
+
+	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "both places")
+	assert.Contains(t, err.Error(), filepath.Join("/out", "seed.yaml"))
+	assert.NotContains(t, err.Error(), "re-running the move will not work")
+
+	stillThere, _ := afero.Exists(fs, src)
+	assert.True(t, stillThere)
 }

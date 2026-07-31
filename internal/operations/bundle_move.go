@@ -125,7 +125,7 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 	}
 
 	// Destination write succeeded — and only now is the source removed.
-	if err := removeMoveSource(fs, src); err != nil {
+	if err := removeMoveSource(fs, src, result.Dest); err != nil {
 		return nil, err
 	}
 	return result, nil
@@ -322,12 +322,23 @@ func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req Move
 // The YAML goes first: if that removal fails we abort with the signed pair still
 // intact and internally consistent, rather than a bundle stripped of its
 // signature.
-func removeMoveSource(fs afero.Fs, src string) error {
+//
+// Both failures name the DESTINATION, because the two states they leave behind
+// need opposite responses and the user cannot tell them apart otherwise:
+//   - the YAML is still here — the bundle now exists in two places, and the move
+//     can be re-run or the duplicate deleted;
+//   - the YAML is gone and only the orphan .sig remains — the move HAPPENED.
+//     Re-running it cannot work (there is no source left to move) and the only
+//     remaining action is deleting the stray signature by hand. Saying so is the
+//     difference between a user cleaning up and a user retrying a command that
+//     will now tell them the bundle does not exist.
+func removeMoveSource(fs afero.Fs, src, dest string) error {
 	if err := fs.Remove(src); err != nil {
-		return fmt.Errorf("destination write succeeded but the source could not be removed: %w", err)
+		return fmt.Errorf("the bundle was written to %s but the source %s could not be removed — it now exists in both places: %w", dest, src, err)
 	}
 	if err := removeIfExists(fs, src+sigSuffix); err != nil {
-		return fmt.Errorf("bundle moved, but its source signature %s could not be removed: %w", src+sigSuffix, err)
+		return fmt.Errorf("the bundle was moved to %s and the source is gone, but the stray source signature %s could not be removed — delete it by hand; re-running the move will not work: %w",
+			dest, src+sigSuffix, err)
 	}
 	return nil
 }

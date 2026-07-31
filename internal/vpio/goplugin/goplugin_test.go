@@ -174,7 +174,6 @@ func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
 // early-abort path — not the only path. This test starts a session, lets it
 // finish, calls Wait, and — WITHOUT ever cancelling ctx — requires the
 // session to already be stopped.
-//
 func TestSession_WaitAloneReleasesResourcesWithoutCtxCancellation(t *testing.T) {
 	fc := &fakeClient{}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -286,4 +285,36 @@ func TestSession_WaitIsIdempotent(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("a second Wait blocked forever — the result channel was drained by the first")
 	}
+}
+
+// TestSession_ResizeCoalescesLatestWins characterizes every arm of the
+// latest-wins relay before it is simplified: an empty buffer takes the size
+// directly, a full buffer has its stale size evicted and replaced, the buffer
+// never grows past one, and a released session drops the size instead of
+// panicking on a closed channel. Green before and after — collapsing three
+// sequential selects into evict-then-send is a pure complexity reduction, so
+// no test can discriminate the change (template §4 class 2); what these pin is
+// that the behaviour it preserves is actually the behaviour.
+func TestSession_ResizeCoalescesLatestWins(t *testing.T) {
+	s := &Session{resize: make(chan *pb.WindowSize, 1), done: make(chan struct{})}
+
+	s.Resize(1, 1) // empty buffer
+	if len(s.resize) != 1 {
+		t.Fatalf("buffered %d sizes after one Resize, want 1", len(s.resize))
+	}
+
+	s.Resize(2, 2) // full buffer: evict the stale size
+	s.Resize(3, 3) // and again, from full
+	if len(s.resize) != 1 {
+		t.Fatalf("buffered %d sizes, want 1 — the relay must coalesce, never queue", len(s.resize))
+	}
+
+	got := <-s.resize
+	if got.Rows != 3 || got.Cols != 3 {
+		t.Errorf("relayed %+v, want the LATEST {Rows:3 Cols:3}", got)
+	}
+
+	// A released session drops rather than sending on a closed channel.
+	s.stop()
+	s.Resize(4, 4)
 }

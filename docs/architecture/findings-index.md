@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,498** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,499** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 176 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **183** |
+| `open` | no commit names this ID | **182** |
 
-**Totals: 2268 findings across 162 units — 1,498 resolved, 183 still open, 587 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,499 resolved, 182 still open, 587 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 561 | 107 | 101 | 95 | 135 |
+| MED | 999 | 562 | 106 | 101 | 95 | 135 |
 | LOW | 871 | 578 | 67 | 59 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1730,7 +1730,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U106-F01 | **RESOLVED** `cac52a3e` `127539ad` | `sorted_keys.go:9-16` | NOPAY | `SortedKeys` is a strictly worse re-implementation of `slices.Sorted(maps.Keys(m))`: it is restricted to `~string` keys for no reason, and uses the reflect-based `sort.Slice` instead of the generic... | U106.md |
 | U106-F02 | **RESOLVED** `d2ff894f` | `set.go:31` (doc) vs `set.go:49,54` and `internal/operations/items.go:223` | CORRECTNESS | The doc "The zero value is not usable" is false for reads and understates the risk for writes. `Has`/`Items`/`Clone` work fine on a nil `Set`; `Add`/`AddAll` panic. A caller in the tree already dec... | U106.md |
 | U106-F03 | **REFUTED** `67c5c7fe` | `set.go:35,49,54,68,77` | NOPAY | Five of `Set`'s seven functions are single-expression or single-loop wrappers over a map operation or a stdlib call, adding no invariant. `NewSet` is `make`. `Add` is `s[v]=struct{}{}`. `Items` is ... | U106.md |
-| U107-F03 | open | `cli.go:30-34` | CORRECTNESS | The package doc on `NewCommand` states a fact about the system that is **false**, and it is the kind of false that invites someone to delete the `sig` seam as speculative. | U107.md |
+| U107-F03 | **RESOLVED** `bea1ae8e` | `cli.go:30-34` | CORRECTNESS | The package doc on `NewCommand` states a fact about the system that is **false**, and it is the kind of false that invites someone to delete the `sig` seam as speculative. | U107.md |
 | U107-F04 | **ESCALATED** `cdf64839` | `cli.go:82` | NOPAY | `Emit` hardcodes `signer` to `""`, so the envelope's advisory `signer` field is **never populated by any production caller**, and no code anywhere reads it. The parameter and the struct field are w... | U107.md |
 | U108-F03 | **RESOLVED** `ce9649c1` | `confload.go:249-265` + `:222-243` | ERRHANDLING | Four distinct states — layer not configured, file missing, file empty, file comment-only — all collapse to `(nil, nil)`, so `Load` cannot tell "you have no config" from "your config is being ignored". | U108.md |
 | U108-F04 | open | **`overlay.go:96,110-111`** | ERRHANDLING | `GetStringArray`'s error is interpreted as exactly one cause ("no flag registered") when it has two, and the other cause silently discards **every** CLI override. | U108.md |

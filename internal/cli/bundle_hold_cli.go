@@ -31,24 +31,33 @@ exact version pin in the manifest.)`,
 		if err != nil {
 			return err
 		}
-		_, err = holdItem(cfg, args[0], cmd.OutOrStdout())
-		return err
+		return holdItem(cfg, args[0], cmd.OutOrStdout())
 	},
 }
 
 // holdItem sets the hold flag on name's active lockfile entry and reports the
-// outcome to out. Returns whether a hold was placed.
-func holdItem(cfg *config.Config, name string, out io.Writer) (bool, error) {
+// outcome to out.
+//
+// An item that is not in the active lockfile is a FAILURE, not a quiet note: no
+// entry was flipped and nothing was persisted, so a caller told "nothing to
+// hold" on stdout with exit 0 walks away believing a dependency is frozen when
+// it is not. The error names the recovery.
+func holdItem(cfg *config.Config, name string, out io.Writer) error {
 	found, err := operations.SetItemPin(cfg, name, true)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if !found {
-		fmt.Fprintf(out, "%q is not in the active lockfile; nothing to hold.\n", name)
-		return false, nil
+		return notInLockfileError(name, "held")
 	}
 	fmt.Fprintf(out, "Held %q at its locked SHA.\n", name)
-	return true, nil
+	return nil
+}
+
+// notInLockfileError is the shared refusal for hold/unhold against an item the
+// active lockfile does not carry. `remote pull` is what puts a bundle there.
+func notInLockfileError(name, verb string) error {
+	return fmt.Errorf("%q is not in the active lockfile, so nothing was %s — run `ctxloom remote pull` to lock it, or `ctxloom bundle list` to check the name", name, verb)
 }
 
 var bundleUnholdCmd = &cobra.Command{
@@ -65,12 +74,12 @@ var bundleUnholdCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		out := cmd.OutOrStdout()
+		// See holdItem: an item the lockfile does not carry was not unheld, so
+		// this must not report success.
 		if !found {
-			fmt.Fprintf(out, "%q is not in the active lockfile; nothing to unhold.\n", args[0])
-			return nil
+			return notInLockfileError(args[0], "unheld")
 		}
-		fmt.Fprintf(out, "Released hold on %q; the next 'remote upgrade' may advance it.\n", args[0])
+		fmt.Fprintf(cmd.OutOrStdout(), "Released hold on %q; the next 'remote upgrade' may advance it.\n", args[0])
 		return nil
 	},
 }

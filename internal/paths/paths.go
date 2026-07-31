@@ -2,6 +2,9 @@
 package paths
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -265,6 +268,10 @@ func HarpCanonicalTranscriptPath(harp string) (string, error) {
 // "not captured yet" against the canonical, current name (matching
 // HarpCanonicalTranscriptPath's existing no-file contract).
 //
+// A stat that fails for any reason OTHER than absence errors instead. Absence
+// is a fact this function is entitled to act on; an unanswerable stat is not,
+// and returning a path for it would report a guess in the shape of a result.
+//
 // Unlike every other function in this file, this one does I/O (a stat per
 // candidate) — it is reserved for read paths that need "does a captured
 // transcript exist, and where" (transcript.CanonicalHistory.GetSession,
@@ -280,12 +287,28 @@ func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
 		return "", err
 	}
 	current := filepath.Join(dir, CanonicalTranscriptFileName)
-	if _, statErr := os.Stat(current); statErr == nil {
+	legacy := filepath.Join(dir, legacyCanonicalTranscriptFileName)
+
+	// Only PLAIN ABSENCE licenses moving on. The fallback's whole precondition
+	// is "the current name is not there", and an ELOOP or EACCES does not
+	// establish that — it says the question could not be answered. Treating
+	// the two alike hands back the pre-rename transcript, with a nil error,
+	// while a current one sits on disk unread: the caller cannot tell a
+	// resolution from a guess, because both look like a path.
+	switch _, statErr := os.Stat(current); {
+	case statErr == nil:
 		return current, nil
+	case !errors.Is(statErr, fs.ErrNotExist):
+		return "", fmt.Errorf("stat canonical transcript %s: %w", current, statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, legacyCanonicalTranscriptFileName)); statErr == nil {
-		return filepath.Join(dir, legacyCanonicalTranscriptFileName), nil
+
+	switch _, statErr := os.Stat(legacy); {
+	case statErr == nil:
+		return legacy, nil
+	case !errors.Is(statErr, fs.ErrNotExist):
+		return "", fmt.Errorf("stat pre-rename canonical transcript %s: %w", legacy, statErr)
 	}
+
 	return current, nil
 }
 

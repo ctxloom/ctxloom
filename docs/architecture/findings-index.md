@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,610** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,611** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 199 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 212 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 214 |
-| `open` | no commit names this ID | **33** |
+| `open` | no commit names this ID | **32** |
 
-**Totals: 2268 findings across 162 units — 1,610 resolved, 33 still open, 625 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,611 resolved, 32 still open, 625 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 620 | 24 | 116 | 97 | 142 |
+| MED | 999 | 621 | 23 | 116 | 97 | 142 |
 | LOW | 871 | 626 | 9 | 66 | 105 | 65 |
 | (unparsed) | 22 | 12 | 0 | 5 | 4 | 1 |
 
@@ -1908,7 +1908,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U149-F04 | **RESOLVED** `c4b6bfdb` | **`store.go:38`** | CORRECTNESS | `"file:"+dbPath+"?mode=ro"` builds a SQLite URI with no escaping. A db path containing `#` or `?` silently **drops the read-only guarantee**, opens a different (phantom) file, and creates a new fil... | U149.md |
 | U149-F05 | open | `kiro.go:120-135` | DUPLICATE | `Convert`'s tail hand-reimplements `importer.ConvertJSONLLines` line for line — the shared driver every other adapter uses. | U149.md |
 | U149-F06 | open | `kiro.go:94-136` | COMPLEXITY | `Convert` is CCN 11, exceeding the project's own enforcing CI gate of 10. | U149.md |
-| U149-F11 | open | `operations/vendorimport_kiro.go:97` | ERRHANDLING | The sole production caller of `EnumerateConversations` discards every error it carefully wraps, collapsing "the db is corrupt / the table is gone" into "nothing to import". | U149.md |
+| U149-F11 | **RESOLVED** `2e06a89d` | `operations/vendorimport_kiro.go:97` | ERRHANDLING | The sole production caller of `EnumerateConversations` discards every error it carefully wraps, collapsing "the db is corrupt / the table is gone" into "nothing to import". | U149.md |
 | U150-F06 | **RESOLVED** `f33e692d` | `internal/trust/trust.go:180-182` | CORRECTNESS | The `IsLocal` field comment is **backwards** on a security-relevant point: "Local content (fragment/prompt) is auto-allowed; local executables (mcp) are not." Local MCP servers and hooks **are** au... | U150.md |
 | U150-F07 | **REFUTED** `5074750d` | `internal/operations/trust.go:151-160` | COHESION | `State()` is a lossy 7→3 projection that **misreports two things to the user**: a publisher *retraction* renders as `rejected` (a vocabulary this package defines as "a human COUNTERSIGNED this"), a... | U150.md |
 | U150-F08 | **ESCALATED** `68676dc7` | `internal/operations/trust.go:244,349` | ERRHANDLING | `EffectiveTrust`'s `error` return is **structurally always nil** — all 9 return statements return `nil`. Callers' error handling is dead code, and the signature falsely implies faults propagate. | U150.md |

@@ -284,7 +284,7 @@ func (s *ctxServer) applyStartupHooks(ctx context.Context) {
 	// "all": the server doesn't know which agent hosts it, and every backend
 	// with settings must see the same regenerated context/hooks/commands —
 	// refreshing only one leaves the others serving stale managed sets.
-	if _, err := operations.ApplyHooks(ctx, s.cfg, operations.ApplyHooksRequest{
+	if _, err := operations.ApplyHooks(ctx, operations.ApplyHooksRequest{
 		Backend:           "all",
 		RegenerateContext: true,
 	}); err != nil && !errors.Is(err, context.Canceled) {

@@ -51,7 +51,16 @@ type ApplyHooksResult struct {
 }
 
 // ApplyHooks applies ctxloom hooks to backend configuration files.
-func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) (*ApplyHooksResult, error) {
+//
+// It deliberately takes NO *config.Config. U084-F04: it used to accept one and
+// never read it — every caller handed over a Config it had just built and had
+// it silently discarded, because ApplyHooks reloads from disk via
+// resolveHookConfig. That reload is correct and load-bearing (`manage install`
+// writes config.yaml immediately before calling, so a Config captured earlier
+// is stale by construction), so the parameter was the thing that was wrong,
+// not the reload. Tests and any caller needing a different config inject it
+// through ApplyHooksRequest.ConfigLoader, which is the one honoured seam.
+func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, error) {
 	backend := req.Backend
 	if backend == "" {
 		backend = "all"

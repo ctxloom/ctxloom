@@ -342,7 +342,7 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -382,7 +382,7 @@ func TestApplyHooks_AntigravityOnly(t *testing.T) {
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "antigravity",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -417,7 +417,7 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "all",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -466,7 +466,7 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 		return &config.Config{}, nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "", // empty should default to "all"
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -485,7 +485,7 @@ func TestApplyHooks_ConfigLoadError(t *testing.T) {
 		return nil, fmt.Errorf("config file not found")
 	}
 
-	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -514,7 +514,7 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -561,7 +561,7 @@ func TestApplyHooks_RefusesHomeCollision(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
-	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -586,7 +586,7 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 	var result *ApplyHooksResult
 	stderr := captureStderr(t, func() {
 		var err error
-		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
 			Backend:      "claude-code",
 			FS:           fs,
 			ConfigLoader: mockConfigLoader,
@@ -614,7 +614,7 @@ func TestApplyHooks_RefusesCodexHomeCollision(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
-	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "codex",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -638,7 +638,7 @@ func TestApplyHooks_ForceOverridesCodexHomeCollision(t *testing.T) {
 	var result *ApplyHooksResult
 	stderr := captureStderr(t, func() {
 		var err error
-		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
 			Backend:      "codex",
 			FS:           fs,
 			ConfigLoader: mockConfigLoader,
@@ -673,7 +673,7 @@ func TestApplyHooks_RefusesKiroHomeCollision(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
-	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "kiro",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -697,7 +697,7 @@ func TestApplyHooks_ForceOverridesKiroHomeCollision(t *testing.T) {
 	var result *ApplyHooksResult
 	stderr := captureStderr(t, func() {
 		var err error
-		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
 			Backend:      "kiro",
 			FS:           fs,
 			ConfigLoader: mockConfigLoader,
@@ -748,7 +748,7 @@ func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) 
 	)
 	t.Cleanup(func() { backends.UnregisterForTesting(fakeBackend) })
 
-	_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      fakeBackend,
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -771,7 +771,7 @@ func TestApplyHooks_SubdirOfHomeIsNotACollision(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -798,7 +798,7 @@ func TestApplyHooks_WarnsWhenNotInAGitRepository(t *testing.T) {
 	mockConfigLoader := func() (*config.Config, error) { return &config.Config{}, nil }
 
 	stderr := captureStderr(t, func() {
-		_, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		_, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 			Backend:      "claude-code",
 			FS:           fs,
 			ConfigLoader: mockConfigLoader,
@@ -827,7 +827,7 @@ func TestApplyHooks_RegenerateContextEmpty(t *testing.T) {
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
@@ -883,7 +883,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
@@ -914,7 +914,7 @@ func TestApplyHooks_ClaudeCode_NoNativeContextFile(t *testing.T) {
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,
@@ -945,7 +945,7 @@ func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
 		return &config.Config{}, nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "codex",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -1034,7 +1034,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "antigravity",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
@@ -1105,7 +1105,7 @@ fragments:
 	agentsMDPath := filepath.Join(tmpDir, ".agents", "AGENTS.md")
 
 	// First apply: succeeds, installs real managed context.
-	result1, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result1, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "antigravity",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
@@ -1126,7 +1126,7 @@ fragments:
 	require.NoError(t, os.RemoveAll(filepath.Join(appDir, "cache")))
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "cache"), []byte("blocking file"), 0644))
 
-	result2, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result2, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "antigravity",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
@@ -1173,7 +1173,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
@@ -1235,7 +1235,7 @@ fragments:
 	var result *ApplyHooksResult
 	stderr := captureStderr(t, func() {
 		var err error
-		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
 			Backend:           "claude-code",
 			RegenerateContext: true,
 			ConfigLoader:      mockConfigLoader,
@@ -1294,7 +1294,7 @@ fragments:
 	var result *ApplyHooksResult
 	stderr := captureStderr(t, func() {
 		var err error
-		result, err = ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+		result, err = ApplyHooks(context.Background(), ApplyHooksRequest{
 			Backend:           "claude-code",
 			RegenerateContext: true,
 			ConfigLoader:      mockConfigLoader,
@@ -1344,7 +1344,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
@@ -1398,7 +1398,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
@@ -1456,7 +1456,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
@@ -1478,7 +1478,7 @@ func TestApplyHooks_NoWorkDir(t *testing.T) {
 	}
 
 	// Call without WorkDir - exercises the gitutil.FindRoot fallback path
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
 		ConfigLoader: mockConfigLoader,
@@ -1508,7 +1508,7 @@ func TestApplyHooks_RegenerateContextNoFragments(t *testing.T) {
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		FS:                fs,

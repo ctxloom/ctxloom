@@ -277,7 +277,7 @@ func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           readOnly,
 		ConfigLoader: loader,
@@ -315,7 +315,7 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:      "claude-code",
 		FS:           fs,
 		ConfigLoader: loader,

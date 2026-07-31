@@ -1449,7 +1449,7 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 		lockCalls++
 		return &LockDependenciesResult{}, nil
 	}
-	syncHooksStep = func(context.Context, *config.Config, ApplyHooksRequest) (*ApplyHooksResult, error) {
+	syncHooksStep = func(context.Context, ApplyHooksRequest) (*ApplyHooksResult, error) {
 		hookCalls++
 		return &ApplyHooksResult{}, nil
 	}

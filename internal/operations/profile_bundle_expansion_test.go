@@ -90,7 +90,7 @@ func TestApplyHooks_DirectoryProfileWithBundles_WritesContextAndSessionStartHook
 	cfg := fixtureConfig(tmpDir)
 	mockLoader := func() (*config.Config, error) { return cfg, nil }
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		ConfigLoader:      mockLoader,

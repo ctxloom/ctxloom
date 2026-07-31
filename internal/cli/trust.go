@@ -220,7 +220,7 @@ func refreshManagedArtifacts(ctx context.Context, cfg *config.Config) {
 	if !harnessApplied(ctx, cfg) {
 		return
 	}
-	if _, err := operations.ApplyHooks(ctx, cfg, operations.ApplyHooksRequest{
+	if _, err := operations.ApplyHooks(ctx, operations.ApplyHooksRequest{
 		Backend:           "all",
 		RegenerateContext: true,
 	}); err != nil {

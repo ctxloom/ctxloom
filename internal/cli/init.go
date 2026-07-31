@@ -385,14 +385,18 @@ var applyHooksFn = operations.ApplyHooks
 // ctxloom reachable from a session at all, so "applied to nothing" must never
 // render as a success line with an empty payload.
 func applyInitHooks(cmd *cobra.Command, appDir string) {
-	cfg, err := config.Load(config.WithAppDir(appDir))
-	if err != nil {
-		clidiag.Warn("ctxloom", "failed to load config: %v", err)
-		return
-	}
-	result, applyErr := applyHooksFn(context.Background(), cfg, operations.ApplyHooksRequest{
+	// U084-F04: ApplyHooks used to take a *config.Config and never read it, so
+	// the appDir-scoped config init had just built was silently discarded and
+	// ApplyHooks re-discovered one by walking up from cwd — the wrong project
+	// whenever `init` targeted a directory other than the working one.
+	// ConfigLoader is the seam ApplyHooks actually honours, so the appDir goes
+	// there. A load failure now surfaces through applyErr below.
+	result, applyErr := applyHooksFn(context.Background(), operations.ApplyHooksRequest{
 		Backend:           "all",
 		RegenerateContext: false,
+		ConfigLoader: func() (*config.Config, error) {
+			return config.Load(config.WithAppDir(appDir))
+		},
 	})
 	if applyErr != nil {
 		clidiag.Warn("ctxloom", "failed to apply hooks: %v", applyErr)

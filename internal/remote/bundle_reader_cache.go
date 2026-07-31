@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -122,21 +123,37 @@ func (c *CachingBundleReader) readThrough(
 	return data, nil
 }
 
+// ErrNoSignatureSurface reports that the wrapped source cannot serve detached
+// signatures at all, as distinct from a source that can and found none.
+//
+// The two are the same OUTCOME — unsigned content — and errors carrying this
+// also wrap errs.ErrRemoteContentNotFound so every caller keeps behaving
+// identically. They are not the same FACT. An absent .sig is ordinary and
+// legal (spec §4.1, §10.1); a source with no signature surface is a wiring
+// mistake, since every production source implements BundleSignatureSource, and
+// it silently means nothing under this reader can ever be signed. Without a
+// name for it, that mistake presented as a repository full of unsigned
+// bundles.
+var ErrNoSignatureSurface = errors.New("this source cannot serve detached signatures")
+
 // ReadBundleSignature forwards to the inner source when it can serve detached
 // signatures, memoizing successes by (name, sha, sig) exactly like the bytes.
 //
 // An inner source that does NOT implement BundleSignatureSource reports
 // not-found rather than erroring: a source with no signature surface serves
-// unsigned content, which is legal and ordinary (spec §10.1). Failures — the
-// not-found included — are never cached, so they cost one tree lookup each and
-// can never pin a bundle to "unsigned" for the life of the process.
+// unsigned content, which is legal and ordinary (spec §10.1). It additionally
+// wraps ErrNoSignatureSurface so the capability gap remains distinguishable
+// from ordinary unsigned content. Failures — the not-found included — are
+// never cached, so they cost one tree lookup each and can never pin a bundle
+// to "unsigned" for the life of the process.
 func (c *CachingBundleReader) ReadBundleSignature(ctx context.Context, name string) ([]byte, error) {
 	if c == nil || c.inner == nil {
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, name)
 	}
 	src, ok := c.inner.(BundleSignatureSource)
 	if !ok {
-		return nil, fmt.Errorf("no signature for %s: %w", name, errs.ErrRemoteContentNotFound)
+		return nil, fmt.Errorf("%w for %s: the wrapped source (%T) serves bytes only, so nothing here can be signed: %w",
+			ErrNoSignatureSurface, name, c.inner, errs.ErrRemoteContentNotFound)
 	}
 	if !c.inner.HasBundle(name) {
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, name)

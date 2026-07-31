@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/acp/jsonrpc"
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
 // dialAndCallFsUpstream stands in for internal/acp's dialFsUpstream +
@@ -142,4 +143,54 @@ func TestFsUpstream_CloseRemovesTheTempDir(t *testing.T) {
 	_, err := os.Stat(dir)
 	assert.True(t, os.IsNotExist(err),
 		"Close must remove the temp DIRECTORY it created, not just the socket inside it; %s still exists", dir)
+}
+
+// TestOpenSessionWithFsUpstream_ListenerAttachedBeforePublication pins
+// U014-F08. openSession publishes the session into s.sessions — and starts
+// its child-watch goroutine — while sess.fsUpstream is still unset;
+// openSessionWithFsUpstream assigns that field only AFTER openSession
+// returns, under no lock at all. closeAllSessions reads the same field from
+// another goroutine (it takes sess.mu only for `closed`), so the two are an
+// unsynchronized write/read pair on a published object.
+//
+// Two consequences, one bug: the race detector's, and a socket leak — a
+// teardown that lands in the window reads nil, closes nothing, and the unix
+// socket plus its temp directory survive the session forever.
+//
+// The child-watch callback is the seam that makes the overlap real rather
+// than hoped for: engine.WatchChildren is invoked from the goroutine
+// openSession spawns immediately before returning, which is exactly the
+// window in question.
+func TestOpenSessionWithFsUpstream_ListenerAttachedBeforePublication(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		ctx, cancel := context.WithCancel(context.Background())
+		s := &Server{ctx: ctx, sessions: make(map[api.SessionId]*session)}
+		s.setClientFs(api.FileSystemCapabilities{ReadTextFile: true})
+
+		eng := newFakeEngine()
+		go eng.pump()
+		torndown := make(chan struct{})
+		s.open = func(context.Context, OpenRequest) (*EngineChat, error) {
+			chat := eng.chat("")
+			chat.WatchChildren = func(context.Context) (<-chan operations.ChildUpdate, func()) {
+				// Runs on openSession's own goroutine, after the session is
+				// published and before openSessionWithFsUpstream attaches the
+				// listener.
+				s.closeAllSessions()
+				close(torndown)
+				return nil, func() {}
+			}
+			return chat, nil
+		}
+
+		sess, rerr := s.openSessionWithFsUpstream(OpenRequest{}, "")
+		require.Nil(t, rerr)
+		require.NotNil(t, sess)
+		<-torndown
+		sockPath := sess.fsUpstream.Addr()
+		cancel()
+
+		assert.NoFileExists(t, sockPath,
+			"a teardown racing the listener's attachment must still close it; the socket outlived its session")
+	}
 }

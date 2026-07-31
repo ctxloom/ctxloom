@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,535** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,546** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **138** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 207 |
+| `open` | no commit names this ID | **125** |
 
-**Totals: 2268 findings across 162 units — 1,535 resolved, 138 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,546 resolved, 125 still open, 597 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 581 | 81 | 105 | 96 | 136 |
-| LOW | 871 | 591 | 53 | 60 | 104 | 63 |
+| MED | 999 | 588 | 73 | 105 | 96 | 137 |
+| LOW | 871 | 595 | 48 | 61 | 104 | 63 |
 | (unparsed) | 22 | 11 | 4 | 4 | 2 | 1 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1895,16 +1895,16 @@ Full evidence and the suggested action for any row live in its source review at 
 | U145-F03 | open | `entries.go:9-18` | CORRECTNESS | `NonEmptyRaw`'s doc comment states a factually false rationale: an empty-but-non-nil `json.RawMessage` does NOT "round-trip to a literal `null`" on the canonical write path. With `omitempty` (which... | U145.md |
 | U145-F04 | open | `driver.go:29` | DUPLICATE | `ConvertJSONLLines` is presented (`driver.go:11-13`, "the pattern every JSONL-per-session engine's Convert copies") as the shared driver, but only 2 of the 4 adapters call it; the other 2 re-implem... | U145.md |
 | U145-F08 | open | `driver.go:29` | COUPLING | `ConvertJSONLLines` takes 7 parameters, two of which (`rec`, `vendor`) duplicate state its callers have already combined: both call sites build `importer.RecordFunc(rec, "<vendor>")` and *also* pas... | U145.md |
-| U146-F04 | open | **`antigravity.go:8-10`** | CORRECTNESS | The package doc's stated premise is factually false: it claims "antigravity has no StructuredChat capability at all (no `internal/antigravity/chat.go`)". That file exists and asserts the capability. | U146.md |
-| U146-F05 | open | `brain.go:64-84` | DUPLICATE | `convertLines` hand-rolls the exact loop + `ctx.Err()` check that `importer.ConvertJSONLLines` exists to provide, while codex and claude both delegate to it — and the shared helper's own doc names ... | U146.md |
-| U146-F06 | open | `brain.go:99-101` | CORRECTNESS | `ERROR_MESSAGE` steps are dropped silently, so an antigravity session that *failed* imports as a clean transcript with no trace of the failure. The canonical vocabulary has a slot for it. | U146.md |
+| U146-F04 | **RESOLVED** `d549469b` | **`antigravity.go:8-10`** | CORRECTNESS | The package doc's stated premise is factually false: it claims "antigravity has no StructuredChat capability at all (no `internal/antigravity/chat.go`)". That file exists and asserts the capability. | U146.md |
+| U146-F05 | **RESOLVED** `ef2e1c7c` | `brain.go:64-84` | DUPLICATE | `convertLines` hand-rolls the exact loop + `ctx.Err()` check that `importer.ConvertJSONLLines` exists to provide, while codex and claude both delegate to it — and the shared helper's own doc names ... | U146.md |
+| U146-F06 | **RESOLVED** `e328da84` | `brain.go:99-101` | CORRECTNESS | `ERROR_MESSAGE` steps are dropped silently, so an antigravity session that *failed* imports as a clean transcript with no trace of the failure. The canonical vocabulary has a slot for it. | U146.md |
 | U146-F07 | **ESCALATED** (cross-package; see wave-2 report) | **`antigravity.go:14-34`** | NOPAY | Real captured data is discarded on a docs-alignment argument, not a capability one: the `thinking` field on real `PLANNER_RESPONSE` steps has a canonical slot that goes unused. | U146.md |
-| U146-F08 | open | `brain.go:26,71-72` | CORRECTNESS | `Content string` conflates vendor *shape drift* with *byte corruption*: if `content` becomes a structured object, `json.Unmarshal` errors and the line is discarded through the identical `continue` ... | U146.md |
+| U146-F08 | **RESOLVED** `f9576bc3` | `brain.go:26,71-72` | CORRECTNESS | `Content string` conflates vendor *shape drift* with *byte corruption*: if `content` becomes a structured object, `json.Unmarshal` errors and the line is discarded through the identical `continue` ... | U146.md |
 | U147-F03 | **RESOLVED** `21259031` | **`session.go:169-174`, `:338-342`, `:361-363`** | SILENTNOOP | Three silent-drop sites discard vendor content with no counter, no diagnostic, and no way for an operator to learn anything was dropped. | U147.md |
-| U147-F04 | open | **`session.go:262-275`** | CORRECTNESS | An assistant line carrying `usage` but an empty `message.id` **silently discards** the previously-pending turn boundary instead of flushing it — losing a `Complete` record with no error. | U147.md |
-| U147-F05 | open | `claude_test.go:56`, `:127` vs `operations/vendorimport.go:135` + `config/config_types.go:50` vs `docs/transcript.schema.json:26` | CORRECTNESS | **Confirmed from my side, with the exact mechanism.** Every real claude import writes `"engine":"claude-code"`, which the shipped schema's enum forbids. The schema test in this package cannot catch... | U147.md |
-| U148-F03 | open | `rollout.go:148-186` | COMPLEXITY | `scanSessionInfo` is CCN 12, over the repo's declared CCN ≤ 10 CI gate | U148.md |
-| U148-F04 | open | `rollout.go:328-336` | DUPLICATE | `joinContentText` is a behaviourally exact reimplementation of `importer.JoinNonEmptyFunc`, kept non-normalized **to dodge a duplicate-detection gate** — a workaround with the root cause documented... | U148.md |
+| U147-F04 | **RESOLVED** `5d146e5b` | **`session.go:262-275`** | CORRECTNESS | An assistant line carrying `usage` but an empty `message.id` **silently discards** the previously-pending turn boundary instead of flushing it — losing a `Complete` record with no error. | U147.md |
+| U147-F05 | **ESCALATED** `061bd0af` | `claude_test.go:56`, `:127` vs `operations/vendorimport.go:135` + `config/config_types.go:50` vs `docs/transcript.schema.json:26` | CORRECTNESS | **Confirmed from my side, with the exact mechanism.** Every real claude import writes `"engine":"claude-code"`, which the shipped schema's enum forbids. The schema test in this package cannot catch... | U147.md |
+| U148-F03 | **RESOLVED** `126652ab` | `rollout.go:148-186` | COMPLEXITY | `scanSessionInfo` is CCN 12, over the repo's declared CCN ≤ 10 CI gate | U148.md |
+| U148-F04 | **RESOLVED** `96381243` | `rollout.go:328-336` | DUPLICATE | `joinContentText` is a behaviourally exact reimplementation of `importer.JoinNonEmptyFunc`, kept non-normalized **to dodge a duplicate-detection gate** — a workaround with the root cause documented... | U148.md |
 | U149-F04 | open | **`store.go:38`** | CORRECTNESS | `"file:"+dbPath+"?mode=ro"` builds a SQLite URI with no escaping. A db path containing `#` or `?` silently **drops the read-only guarantee**, opens a different (phantom) file, and creates a new fil... | U149.md |
 | U149-F05 | open | `kiro.go:120-135` | DUPLICATE | `Convert`'s tail hand-reimplements `importer.ConvertJSONLLines` line for line — the shared driver every other adapter uses. | U149.md |
 | U149-F06 | open | `kiro.go:94-136` | COMPLEXITY | `Convert` is CCN 11, exceeding the project's own enforcing CI gate of 10. | U149.md |
@@ -2773,14 +2773,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U147-F06 | **RESOLVED** `7e395761` | **`session.go:60`** | DEAD | `message.Role` is decoded on every message and never read. | U147.md |
 | U147-F07 | **RESOLVED** `a4f1a039` | **`claude.go:46`** | TRIVIAL | `New()` is a pure-expression constructor for a zero-size struct with no invariant, and is not a test seam. | U147.md |
 | U147-F08 | **RESOLVED** `c3345bbf` | **`session.go:309`** | TRIVIAL | The `role == "user"` half of `messageEntries`'s isMeta guard is unreachable-as-written. | U147.md |
-| U147-F09 | open | **`session.go:183-199` + `:158-175`** | COMPLEXITY | Every line of the transcript is `json.Unmarshal`ed twice into the same `line` struct, and the whole file is held in memory as `[][]byte`. | U147.md |
+| U147-F09 | **PARTIAL** `ce5385b0` | **`session.go:183-199` + `:158-175`** | COMPLEXITY | Every line of the transcript is `json.Unmarshal`ed twice into the same `line` struct, and the whole file is held in memory as `[][]byte`. | U147.md |
 | U148-F05 | **RESOLVED** `9276cc6d` | `rollout.go:394-397` | DEAD | The `json.Marshal` error branch in `argumentsToRaw` is unreachable | U148.md |
 | U148-F06 | **REFUTED** `3ed8638a` | `rollout.go:41-44`, `161-164` | DEAD | The `session_id` fallback is unreachable on every observed capture and is exercised by nothing | U148.md |
 | U148-F07 | **RESOLVED** `0341d003` | `rollout.go:219-221` vs `:289` | TRIVIAL | Two spellings of the same flush in one file: `flushPending` (a 1-line wrapper, used once as a func value) and a direct `importer.FlushComplete(&c.pending, c.record)` call in `handleEventMsg` | U148.md |
-| U148-F08 | open | `rollout.go:119`, `148` | ERRHANDLING | Context cancellation is not observed until after the whole file is read into memory **and** fully scanned once | U148.md |
-| U148-F09 | open | `rollout.go:278` | CORRECTNESS | `c.pending.ContextWindow = p.Info.ModelContextWindow` overwrites unconditionally, so a later `token_count` that omits `model_context_window` zeroes an already-good value | U148.md |
-| U148-F10 | open | `codex_test.go:201` | CORRECTNESS | The hand-pinned backstop cannot distinguish `argumentsToRaw`'s correct object pass-through from its escaped-string fallback — the one property whose only other guard is a machine-regenerated golden | U148.md |
-| U148-F11 | open | `codex_test.go:1-11` | CORRECTNESS | The suite header claims the package validates codex "against a fresh rollout file"; the documented command validates against a frozen 2026-07-16 fixture | U148.md |
+| U148-F08 | **RESOLVED** `d549cc83` | `rollout.go:119`, `148` | ERRHANDLING | Context cancellation is not observed until after the whole file is read into memory **and** fully scanned once | U148.md |
+| U148-F09 | **RESOLVED** `dc593332` | `rollout.go:278` | CORRECTNESS | `c.pending.ContextWindow = p.Info.ModelContextWindow` overwrites unconditionally, so a later `token_count` that omits `model_context_window` zeroes an already-good value | U148.md |
+| U148-F10 | **RESOLVED** `44ae42e7` | `codex_test.go:201` | CORRECTNESS | The hand-pinned backstop cannot distinguish `argumentsToRaw`'s correct object pass-through from its escaped-string fallback — the one property whose only other guard is a machine-regenerated golden | U148.md |
+| U148-F11 | **RESOLVED** `b260ef00` | `codex_test.go:1-11` | CORRECTNESS | The suite header claims the package validates codex "against a fresh rollout file"; the documented command validates against a frozen 2026-07-16 fixture | U148.md |
 | U148-F12 | **RESOLVED** `a4f1a039` | `codex.go:37` | NOPAY | `New()` is a one-expression constructor for a zero-size struct, with one production call site, whose own comment concedes `Adapter{}` works identically | U148.md |
 | U149-F07 | **REFUTED** `b2cedeec` | **`mapping.go:16-18`** | NOPAY | `converter` is a one-field struct with one method and one construction site; the type buys nothing. | U149.md |
 | U149-F08 | **RESOLVED** `f8b484eb` | **`mapping.go:96-98`** | TRIVIAL | `joinToolResultText` is a single-expression pass-through to `importer.JoinNonEmptyFunc` with one production call site and no invariant of its own. | U149.md |

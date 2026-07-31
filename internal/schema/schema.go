@@ -161,9 +161,20 @@ func resolveSchemaRef(s *jsonschema.Schema) *jsonschema.Schema {
 	return s
 }
 
+// anyKeySchema is the walker's stand-in for a location that constrains no key
+// name at all, reached from `additionalProperties: true`. It is compared by
+// IDENTITY, never by content: schemaChild returns it for every key, so the
+// whole subtree below such a location resolves as known. It carries no
+// keywords of its own and must never be handed to the validator -- it exists
+// only to answer KnownPath/KnownKeys.
+var anyKeySchema = &jsonschema.Schema{}
+
 // schemaChild returns the sub-schema key names within s, or nil if s does not
 // recognize key at all. See KnownPath's doc for the resolution order.
 func schemaChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
+	if s == anyKeySchema {
+		return anyKeySchema
+	}
 	s = resolveSchemaRef(s)
 	if s == nil {
 		return nil
@@ -176,8 +187,22 @@ func schemaChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
 			return resolveSchemaRef(sub)
 		}
 	}
-	if sub, ok := s.AdditionalProperties.(*jsonschema.Schema); ok {
-		return resolveSchemaRef(sub)
+	switch addl := s.AdditionalProperties.(type) {
+	case *jsonschema.Schema:
+		return resolveSchemaRef(addl)
+	case bool:
+		// `additionalProperties: true` says every key name here is permitted
+		// and constrains the value not at all, so every segment below it is
+		// permitted too. `false` says the declared names are the whole set,
+		// and an ABSENT keyword is treated the same way: this walker answers
+		// "does the schema NAME this location", and an author who listed
+		// properties and said nothing else named exactly those. (Both in-repo
+		// schemas are authored additionalProperties:false throughout, so
+		// reading silence as permissive would make every typo resolve.)
+		if addl {
+			return anyKeySchema
+		}
+		return nil
 	}
 	if child := arrayChild(s, key); child != nil {
 		return child

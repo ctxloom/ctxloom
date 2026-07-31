@@ -45,16 +45,41 @@ func SanitizedEnviron() []string {
 	return out
 }
 
-// GetRemoteURL returns the URL of the named remote in the git repository
-// enclosing the given path. Returns an error if the path is not in a git repo
-// or if the remote is not configured.
-func GetRemoteURL(startPath, remoteName string) (string, error) {
+// resolveStartDir turns a caller's starting path into the absolute DIRECTORY
+// to open a repository from: a file resolves to its parent, a directory is
+// used as-is.
+//
+// A path that cannot be stat'd is an ERROR, not something to carry on with.
+// Both entry points below open the repository with DetectDotGit, which walks
+// UP from whatever it is given — so a typo'd or deleted path does not fail,
+// it answers from some ANCESTOR repository instead. "the remote of a path
+// that does not exist" then comes back as a real URL, which is worse than no
+// answer: a missing answer is visibly missing, and a wrong one is not.
+//
+// This is one function because it is one question. It was answered twice,
+// thirty lines apart, with opposite policies.
+func resolveStartDir(startPath string) (string, error) {
 	absPath, err := filepath.Abs(startPath)
 	if err != nil {
 		return "", fmt.Errorf("resolve path: %w", err)
 	}
-	if info, err := os.Stat(absPath); err == nil && !info.IsDir() {
-		absPath = filepath.Dir(absPath)
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return "", fmt.Errorf("stat path: %w", err)
+	}
+	if !info.IsDir() {
+		return filepath.Dir(absPath), nil
+	}
+	return absPath, nil
+}
+
+// GetRemoteURL returns the URL of the named remote in the git repository
+// enclosing the given path. Returns an error if the path is not in a git repo
+// or if the remote is not configured.
+func GetRemoteURL(startPath, remoteName string) (string, error) {
+	absPath, err := resolveStartDir(startPath)
+	if err != nil {
+		return "", err
 	}
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{
@@ -85,18 +110,9 @@ func GetRemoteURL(startPath, remoteName string) (string, error) {
 // It walks up the directory tree until it finds a .git directory.
 // Returns the absolute path to the repository root, or an error if not in a git repo.
 func FindRoot(startPath string) (string, error) {
-	absPath, err := filepath.Abs(startPath)
+	absPath, err := resolveStartDir(startPath)
 	if err != nil {
-		return "", fmt.Errorf("resolve path: %w", err)
-	}
-
-	// Check if startPath is a file, use its directory
-	info, err := os.Stat(absPath)
-	if err != nil {
-		return "", fmt.Errorf("stat path: %w", err)
-	}
-	if !info.IsDir() {
-		absPath = filepath.Dir(absPath)
+		return "", err
 	}
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{

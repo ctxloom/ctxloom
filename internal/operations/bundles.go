@@ -352,8 +352,12 @@ func loadBundleForUpdate(store bundles.Store, cfg *config.Config, name string) (
 // named canonically via the Resolver/VCS seam, and bundles removed upstream
 // (flagged Deleted). See listBundleInfos for how the three sources are merged
 // without double-listing.
-func ListBundles(cfg *config.Config) ([]*bundles.BundleInfo, error) {
-	return listBundleInfos(context.Background(), cfg)
+//
+// ctx is threaded rather than manufactured: the removed-upstream pass walks git
+// history over every installed clone, which is the slow part of a listing and
+// the part a user interrupting `bundle list` means to stop.
+func ListBundles(ctx context.Context, cfg *config.Config) ([]*bundles.BundleInfo, error) {
+	return listBundleInfos(ctx, cfg)
 }
 
 // GetBundle loads a single bundle by name. This is a READ path, so it goes

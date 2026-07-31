@@ -34,7 +34,7 @@ func runBundleList(cmd *cobra.Command, args []string) error {
 	bundleDirs := cfg.GetBundleDirs()
 	var bundleInfos []*bundles.BundleInfo
 	if len(bundleDirs) > 0 {
-		bundleInfos, err = operations.ListBundles(cfg)
+		bundleInfos, err = operations.ListBundles(cmd.Context(), cfg)
 		if err != nil {
 			return fmt.Errorf("failed to list bundles: %w", err)
 		}

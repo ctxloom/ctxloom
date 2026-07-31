@@ -704,3 +704,38 @@ func TestMustacheTagClassification(t *testing.T) {
 			"a variable nested inside a section must be reached")
 	})
 }
+
+// TestListBundles_ThreadsTheCallersContext pins U082-F17. ListBundles used to
+// manufacture context.Background(), severing cancellation for the whole
+// remote-aware listing path — including the removed-upstream pass, which walks
+// git history across every installed clone and is the slow part a user
+// interrupting `bundle list` means to stop. Both CLI callers had cmd.Context()
+// in hand.
+//
+// This is a missing-seam row (brief §4 class 1): the defect WAS the absent
+// parameter, so an honest pre-fix pin does not compile rather than going red.
+// What is pinned here is the contract the threading must not break — listing
+// stays fault-tolerant, so a dead context still returns the locally-authored
+// bundles rather than failing the whole listing.
+func TestListBundles_ThreadsTheCallersContext(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "local-one"})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	// §11k: the fixture is only hostile if the context is genuinely dead by
+	// the time ListBundles is called.
+	require.ErrorIs(t, ctx.Err(), context.Canceled)
+
+	infos, err := ListBundles(ctx, cfg)
+	require.NoError(t, err, "a cancelled context must not fail the whole listing")
+
+	names := make([]string, 0, len(infos))
+	for _, b := range infos {
+		names = append(names, b.Name)
+	}
+	assert.Contains(t, names, "local-one",
+		"locally-authored bundles do not depend on the cancellable remote pass")
+}

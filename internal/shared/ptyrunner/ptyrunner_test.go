@@ -56,7 +56,7 @@ func TestRunInteractive_SimpleCommand(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -97,7 +97,7 @@ func TestRunInteractive_ExitCode(t *testing.T) {
 			ctx := context.Background()
 			cmd := exec.Command(tt.command, tt.args...)
 
-			exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
+			exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
 
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedCode, exitCode)
@@ -125,7 +125,7 @@ func TestRunInteractive_ContextCancellation(t *testing.T) {
 		err      error
 	})
 	go func() {
-		exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
 		resultCh <- struct {
 			exitCode int
 			err      error
@@ -162,7 +162,7 @@ func TestRunInteractive_ContextTimeout(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 30")
 
 	start := time.Now()
-	exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, nil, nil)
 	elapsed := time.Since(start)
 
 	// Should complete quickly (within ~500ms, not 30 seconds)
@@ -205,7 +205,7 @@ func TestRunInteractive_SizesPTYBeforeChildStarts(t *testing.T) {
 	}()
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, resize)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, resize)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 	assert.Contains(t, strings.TrimSpace(stdout.String()), "55 111",
@@ -240,7 +240,7 @@ func TestRunInteractive_SignalThroughPTY(t *testing.T) {
 		err      error
 	})
 	go func() {
-		exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
+		exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
 		resultCh <- struct {
 			exitCode int
 			err      error
@@ -279,7 +279,7 @@ func TestRunInteractive_CapturesOutput(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "echo line1; echo line2; echo line3")
 
 	var stdout bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &stdout, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
@@ -326,7 +326,7 @@ func TestRunInteractive_StdoutWriteFailureReportsError(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'hello world\\n'; sleep 0.1")
 
 	dst := &failingWriter{n: 0, err: errors.New("simulated broken pipe")}
-	exitCode, err := RunInteractive(ctx, cmd, nil, dst, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, dst, nil)
 
 	require.Error(t, err, "a stdout delivery failure must not be reported as success")
 	assert.Contains(t, err.Error(), "output delivery failed")
@@ -345,7 +345,7 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "sleep 0.1")
 
 	stdinR, stdinW := io.Pipe()
-	exitCode, err := RunInteractive(ctx, cmd, stdinR, nil, nil, nil)
+	exitCode, err := RunInteractive(ctx, cmd, stdinR, nil, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
 
@@ -385,13 +385,10 @@ func TestRunInteractive_ChildStderrArrivesOnStdoutWriter(t *testing.T) {
 	cmd := exec.Command("sh", "-c", "printf 'to-stdout\\n'; printf 'to-stderr\\n' 1>&2; sleep 0.1")
 
 	var out bytes.Buffer
-	var neverWritten bytes.Buffer
-	exitCode, err := RunInteractive(ctx, cmd, nil, &out, &neverWritten, nil)
+	exitCode, err := RunInteractive(ctx, cmd, nil, &out, nil)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, exitCode)
-	assert.Empty(t, neverWritten.String(),
-		"the stderr writer is accepted and never written: a pty cannot separate the streams")
 	assert.Contains(t, out.String(), "to-stdout")
 	assert.Contains(t, out.String(), "to-stderr",
 		"a pty merges the child's fd 2 into the single master stream; the caller's "+

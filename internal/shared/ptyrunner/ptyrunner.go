@@ -97,10 +97,17 @@ func drainPTY(ptty pty.Pty, copyDone <-chan struct{}) {
 // The frontend owns the terminal: raw mode, reading keystrokes, and SIGWINCH all
 // happen there, arriving here over the bidi Run stream as the injected stdin
 // reader and resize channel. This runner copies stdin into the pty, applies
-// resize events, and streams the pty's output to stdout — it never touches the
+// resize events, and streams the pty's output to out — it never touches the
 // controller's own os.Stdin/os.Stdout, so it works for a remote controller.
 // stdin and resize may be nil for a non-tty caller.
-func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (int, error) {
+//
+// out receives the child's ENTIRE output, stdout and stderr interleaved:
+// a pty gives the child one stream (fd 1 and fd 2 are both the slave), so
+// there is no separation left at the master to route to a second writer.
+// A caller that needs the two streams apart must not use a pty — see
+// internal/lm/backends' non-interactive branch, which wires cmd.Stdout and
+// cmd.Stderr directly.
+func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, out io.Writer, resize <-chan agent.WindowSize) (int, error) {
 	// Create PTY (cross-platform: Unix PTY or Windows ConPTY)
 	ptty, err := pty.New()
 	if err != nil {
@@ -206,13 +213,13 @@ func RunInteractive(ctx context.Context, cmd *exec.Cmd, stdin io.Reader, stdout,
 		}()
 	}
 
-	// Copy PTY output to the caller's stdout writer (the gRPC stream). The
+	// Copy PTY output to the caller's writer (the gRPC stream). The
 	// controller does not echo to its own os.Stdout — the frontend renders.
 	// With no writer the pty is still drained, or the child would block on a
 	// full pty buffer.
 	dst := io.Discard
-	if stdout != nil {
-		dst = stdout
+	if out != nil {
+		dst = out
 	}
 	// U116-F02: io.Copy's error used to be discarded outright (`_, _ =`), so
 	// a write failure on dst (the caller's stdout writer — a gRPC stream,

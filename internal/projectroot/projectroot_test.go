@@ -235,24 +235,36 @@ func pkgSourceDir(t *testing.T) string {
 func TestPackageDocNamesEveryExportedSurface(t *testing.T) {
 	dir := pkgSourceDir(t)
 
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, parser.ParseComments)
+	// Parsed file by file rather than with parser.ParseDir, which is deprecated
+	// because it associates files with packages without consulting build tags.
+	// This package has none, but the per-file walk is exact either way: it
+	// admits only non-test files that actually declare package projectroot.
+	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 
-	pkg, ok := pkgs["projectroot"]
-	require.True(t, ok, "scan root %s does not contain package projectroot -- the gate is looking at the wrong directory", dir)
+	fset := token.NewFileSet()
+	var files []*ast.File
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, parser.ParseComments)
+		require.NoError(t, err)
+		if f.Name.Name == "projectroot" {
+			files = append(files, f)
+		}
+	}
 
 	// The scan is only meaningful if it actually read this package's files
 	// (§11m): an empty or near-empty parse would satisfy every assertion below
 	// vacuously.
-	require.GreaterOrEqual(t, len(pkg.Files), 3,
-		"scan root %s yielded %d non-test files; expected the whole package", dir, len(pkg.Files))
+	require.GreaterOrEqual(t, len(files), 3,
+		"scan root %s yielded %d non-test files; expected the whole package", dir, len(files))
 
 	var packageDoc string
 	var exported []string
-	for _, f := range pkg.Files {
+	for _, f := range files {
 		if f.Doc != nil && strings.TrimSpace(f.Doc.Text()) != "" {
 			packageDoc = f.Doc.Text()
 		}

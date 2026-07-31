@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // withUnresolvableCwd puts the process in a working directory that no longer
@@ -24,20 +25,15 @@ import (
 func withUnresolvableCwd(t *testing.T) {
 	t.Helper()
 
-	orig, err := os.Getwd()
-	require.NoError(t, err, "need a resolvable cwd to restore afterwards")
-
 	doomed, err := os.MkdirTemp("", "ctxloom-gone-*")
 	require.NoError(t, err)
 
-	require.NoError(t, os.Chdir(doomed))
-	t.Cleanup(func() {
-		// Restore FIRST: every later test in this package resolves paths
-		// against the process cwd, and leaving it unresolvable would fail them
-		// for a reason that has nothing to do with what they assert.
-		_ = os.Chdir(orig)
-		_ = os.RemoveAll(doomed)
-	})
+	// ChangeDir registers the restore to the original cwd first, so it runs
+	// LAST: every later test in this package resolves paths against the
+	// process cwd, and leaving it unresolvable would fail them for reasons
+	// that have nothing to do with what they assert.
+	testsupport.ChangeDir(t, doomed)
+	t.Cleanup(func() { _ = os.RemoveAll(doomed) })
 
 	require.NoError(t, os.RemoveAll(doomed))
 

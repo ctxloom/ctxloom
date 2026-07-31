@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,467** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,468** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 171 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 195 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 197 |
-| `open` | no commit names this ID | **238** |
+| `open` | no commit names this ID | **237** |
 
-**Totals: 2268 findings across 162 units — 1,467 resolved, 238 still open, 563 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,468 resolved, 237 still open, 563 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 547 | 133 | 99 | 91 | 129 |
-| LOW | 871 | 561 | 96 | 56 | 96 | 62 |
+| LOW | 871 | 562 | 95 | 56 | 96 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2443,7 +2443,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U076-F05 | open | `confirm.go:54-67` | COHESION | ~350 characters of LLM behavioural instruction ("STOP and re-evaluate… a repeat is a deliberate, logged override, not a retry button…") live inside the persistence package. Tuning the prompt means ... | U076.md |
 | U076-F06 | open | `state.go:41` | COUPLING | `Pending` is exported solely to satisfy `encoding/json`, which leaks a mutable map into the package API and lets any caller construct a band that bypasses `Arm`'s `now.Add(delay)/now.Add(window)` i... | U076.md |
 | U076-F07 | **RESOLVED** `59b8efef` | `confirm.go:39` | NOPAY | The too-early branch calls `Save` although nothing changed, so every over-eager repeat performs a temp-file write, an `fsync`, and a rename for no state delta. | U076.md |
-| U077-F04 | open | **`main.go:64-67`** | ERRHANDLING | `-check` conflates "cannot read the generated file" with "the generated file drifted", so a missing or permission-denied `sample.ltk.yaml` is reported as drift and the operator is told to run `just... | U077.md |
+| U077-F04 | **RESOLVED** `fe74822f` | **`main.go:64-67`** | ERRHANDLING | `-check` conflates "cannot read the generated file" with "the generated file drifted", so a missing or permission-denied `sample.ltk.yaml` is reported as drift and the operator is told to run `just... | U077.md |
 | U077-F05 | open | **`main.go:19-20`** | COUPLING | `source` and `generated` are module-root-relative, so the tool is only correct when invoked from the repository root — an unwritten precondition (connascence of **execution context**). | U077.md |
 | U077-F06 | **RESOLVED** `0a211a71` | `docs/ltk/DEFAULTS.md:6`, `docs/ltk/README.md:336` | CORRECTNESS | The docs point at a path this package no longer occupies: `tools/extract-defaults` and `../tools/extract-defaults`, whereas it lives at `internal/ltk/tools/extract-defaults`. The DEFAULTS.md link i... | U077.md |
 | U078-F10 | **RESOLVED** `93f292c5` | `compactor.go:89` | DEAD | `CompactionResult.Error string` is never assigned and never read. | U078.md |

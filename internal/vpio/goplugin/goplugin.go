@@ -69,20 +69,15 @@ func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Sessi
 	// SIGWINCH-sourced channel itself closed on ctx.Done() (see
 	// internal/cli/run_resize_unix.go).
 	//
-	// NOTE (DEFECT T2, deliberately NOT fixed here): a run.go caller whose
-	// interactive turn has no real tty passes a nil ProcessSpec.Stdin, and
-	// above-the-seam's pumpResize is then a no-op — so in that case nothing
-	// will ever call Session.Resize below, and this resizeCh sits live,
-	// unfed, and open until ctx.Done() (i.e. the whole run), forcing
-	// ptyrunner's pre-Start wait to always run its full initialResizeWait.
-	// Deciding "no resize is coming" from spec.Stdin here was tried and
-	// reverted: it broke TestSession_ResizeRelaysOntoTheWire, which
-	// deliberately calls Resize with a nil-Stdin ProcessSpec and expects it
-	// to relay — Session.Resize is documented as independent of Stdin, so a
-	// Launcher cannot infer "no resize ever" from Stdin's nilness alone.
-	// Fixing this properly needs an explicit "no resize" signal from the
-	// caller (e.g. a new vpio.ProcessSpec field, threaded from run.go's own
-	// nil-resize local), which is outside the files this fix is scoped to.
+	// INVARIANT: Session.Resize is independent of ProcessSpec.Stdin, so a
+	// Launcher may NOT infer "no resize is ever coming" from a nil Stdin —
+	// pinned by TestSession_ResizeRelaysOntoTheWire, which resizes a nil-Stdin
+	// session and requires the relay. Consequence, tracked as taskloom
+	// `trim-viper`: an interactive turn with no real tty leaves this channel
+	// open and unfed until ctx.Done(), so ptyrunner always waits out its full
+	// initialResizeWait. Ending that wait needs an explicit "no resize" signal
+	// on vpio.ProcessSpec, threaded from the caller that knows.
+	//
 	// The watcher retires on EITHER edge: an early abort (ctx) or the turn
 	// simply ending (s.done, closed by stop). Waiting only on ctx.Done() tied
 	// the goroutine to the CALLER's context, so a completed session left it

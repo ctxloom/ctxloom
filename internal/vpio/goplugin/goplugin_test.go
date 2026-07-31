@@ -116,6 +116,14 @@ func TestLauncher_StartDoesNotBlockOnRun(t *testing.T) {
 	}
 }
 
+// TestSession_ResizeRelaysOntoTheWire is also the pin on the invariant Start's
+// doc states: Session.Resize is INDEPENDENT of ProcessSpec.Stdin. The spec here
+// carries a nil Stdin and the relay is still required, which is precisely why a
+// Launcher may not infer "no resize is ever coming" from a nil Stdin — the
+// shortcut that would otherwise close the resize channel early and end
+// ptyrunner's initialResizeWait (taskloom `trim-viper`). Verified to bite:
+// applying that shortcut (s.stop() when spec.Stdin == nil) fails this test with
+// "expected at least one resize event to reach the transport".
 func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
 	// Run is held open so the resizes happen against a LIVE session, which is
 	// the only state in which a relay is meaningful — a session whose Run has

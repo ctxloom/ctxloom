@@ -124,6 +124,15 @@ type Conn struct {
 // handler receives inbound requests and notifications. The read loop does
 // NOT start until Start is called (see its doc) — call Start once
 // construction is complete.
+//
+// closer is the connection's ONLY teardown lever, and it carries a
+// requirement the type cannot check: it must end the stream r reads from, so
+// that a Read parked in the read loop returns. A closer that shuts the
+// transport's write end (or the socket) satisfies this; one that merely
+// releases bookkeeping does not. Pass nil only when this side is not meant to
+// be able to tear the connection down — the read loop will then run until the
+// peer ends the stream, and neither Close nor cancelling Start's ctx can stop
+// it.
 func NewConn(r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn {
 	return &Conn{
 		dec:     json.NewDecoder(r),
@@ -258,7 +267,12 @@ func (c *Conn) Notify(method string, params any) error {
 	return c.writeFrame(rpcMessage{Method: method, Params: rawParams})
 }
 
-// Close tears down the transport and unblocks any parked reader/caller.
+// Close runs the closer given to NewConn, once. Whether that unblocks the read
+// loop and the parked callers is the CLOSER's property, not this type's: a Conn
+// owns neither the reader nor the writer and has no way to interrupt a Read in
+// progress. With a closer that ends the stream, Close is a full teardown; with
+// a nil closer there is nothing to run and Close reports success having stopped
+// nothing, which is the caller's choice to make and not a failure to report.
 func (c *Conn) Close() error {
 	var err error
 	c.closeOnce.Do(func() {

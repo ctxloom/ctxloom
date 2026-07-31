@@ -382,3 +382,43 @@ func TestGo_AllocatesIdsFromOne(t *testing.T) {
 	}
 	assert.Equal(t, []int64{1, 2}, ids)
 }
+
+// TestClose_TearsDownThroughTheCloser pins the half of U013-F07 that is true:
+// Close unblocks a parked reader and every parked caller EXACTLY when the
+// closer it was given ends the stream. That is the contract NewConn's closer
+// parameter now states, and this is what it buys.
+func TestClose_TearsDownThroughTheCloser(t *testing.T) {
+	pr, pw := io.Pipe() // a connected peer that has not spoken
+	conn := NewConn(pr, &lockedBuffer{}, CloserFunc(pw.Close), &mockHandler{})
+	conn.Start(context.Background())
+
+	await, err := conn.Go("session/prompt", nil)
+	require.NoError(t, err)
+	require.NoError(t, conn.Close())
+
+	waitDone(t, conn)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	assert.ErrorIs(t, await(ctx, nil), ErrConnClosed, "the parked caller must be released by the teardown")
+}
+
+// TestClose_WithoutACloserCannotStopTheReadLoop pins the LIMIT that U013-F07
+// reported was undocumented: nothing in the type gives a Conn the power to
+// unblock a reader it does not own, so a Conn built with a nil closer reports
+// a successful Close and tears down nothing. That is a real property of the
+// type, not a bug to be fixed inside it — the caller chose it — but the doc
+// used to promise the opposite, so it is pinned here. If this ever starts
+// passing, the correction belongs in the doc, not in a deletion of this test.
+func TestClose_WithoutACloserCannotStopTheReadLoop(t *testing.T) {
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	conn := NewConn(pr, &lockedBuffer{}, nil, &mockHandler{})
+	conn.Start(context.Background())
+
+	require.NoError(t, conn.Close(), "with nothing to close, Close has nothing to report")
+	select {
+	case <-conn.Done():
+		t.Fatal("a Conn with no closer stopped its own read loop: the documented contract is now wrong")
+	case <-time.After(250 * time.Millisecond):
+	}
+}

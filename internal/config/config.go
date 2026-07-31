@@ -1451,19 +1451,31 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 		return nil
 	}
 
+	return decodeMergedLayers(cfg, layers, product, overrides)
+}
+
+// decodeMergedLayers is loadLayeredConfig's second half: merge the file layers,
+// resolve overrides against the result, and decode it into cfg. Split out
+// because the two halves fail differently and that distinction is the whole
+// contract here — a layer that cannot be READ is fatal and returns an error
+// (the caller must not proceed on a config it could not see), while everything
+// from the merge onward degrades to a warning on cfg.warnings, because by then
+// the files have been read and validated and the remaining steps are ours, not
+// the user's.
+func decodeMergedLayers(cfg *Config, layers []map[string]any, product confload.Product, overrides confload.Overrides) error {
 	merged, mergeErr := confload.Merge(layers...)
 	if mergeErr != nil {
 		return fmt.Errorf("merging config layers: %w", mergeErr)
 	}
 	merged, overrideErr := product.ApplyOverrides(merged, overrides)
 	if overrideErr != nil {
-		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("config override resolution: %v", overrideErr)})
+		cfg.warn(WarnKindParse, "config override resolution: %v", overrideErr)
 		zap.L().Warn("config_override_warning", zap.Error(overrideErr))
 	}
 
 	mergedYAML, err := yaml.Marshal(merged)
 	if err != nil {
-		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to remarshal layered config: %v", err)})
+		cfg.warn(WarnKindParse, "failed to remarshal layered config: %v", err)
 		zap.L().Warn("config_layer_remarshal_warning", zap.Error(err))
 		return nil
 	}
@@ -1478,10 +1490,18 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 	// confload, backed by yaml.Unmarshal file reads) rather than any
 	// viper-driven decode of the config document itself.
 	if err := yaml.Unmarshal(mergedYAML, cfg); err != nil {
-		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindParse, Text: fmt.Sprintf("failed to parse layered config: %v", err)})
+		cfg.warn(WarnKindParse, "failed to parse layered config: %v", err)
 		zap.L().Warn("config_parse_warning", zap.Error(err))
 	}
 	return nil
+}
+
+// warn appends a formatted warning of kind k. Every load-path degradation in
+// this file records one, and the strict-startup gate keys exclusively on this
+// slice, so having one spelling of "record and continue" is what keeps a new
+// degradation from being written as a zap-only line nothing can see.
+func (c *Config) warn(k WarningKind, format string, args ...any) {
+	c.warnings = append(c.warnings, Warning{Kind: k, Text: fmt.Sprintf(format, args...)})
 }
 
 // loadConfigLayer reads and processes ONE config.yaml layer — upgrade
@@ -1612,41 +1632,8 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 	// Try to find project .ctxloom by walking up from cwd
 	pwd, err := os.Getwd()
 	if err == nil {
-		// Walk up the directory tree looking for .ctxloom
-		dir := pwd
-		// Loop condition (not an if/break at the top): reached the shared OS
-		// temp root without finding a project .ctxloom anywhere beneath it —
-		// stop here rather than resolving to whatever (if anything) lives at
-		// tempRoot itself, and fall through to the home fallback below.
-		for filepath.Clean(dir) != tempRoot {
-			appPath := filepath.Join(dir, AppDirName)
-			if info, err := fs.Stat(appPath); err == nil && info.IsDir() {
-				return appPath, SourceProject
-			}
-
-			// dir has no .ctxloom of its own. If dir is the root of a LINKED
-			// git worktree, that is a signpost, not a silent walk-past:
-			// resolving straight through to some unrelated ancestor's (or
-			// home's) .ctxloom would silently land the session on the wrong
-			// project — empty config, no profiles, no agents (task
-			// brown-canal, 2026-07-09: an earlier revision had linked
-			// worktrees INHERIT the main worktree's project identity; that
-			// inheritance design was withdrawn in favor of this signpost).
-			// worktreeSignpost records a fatal finding through strictness and
-			// the walk continues exactly as it always has — the choke owners
-			// (`ctxloom run`/`mcp`/`acp`) abort on it pre-launch unless
-			// --degraded; management commands surface the stderr warning and
-			// proceed on the fallback. The main worktree (.git is a
-			// directory) and every non-worktree ancestor pass through
-			// untouched.
-			worktreeSignpost(fs, dir)
-
-			parent := filepath.Dir(dir)
-			if parent == dir {
-				// Reached root
-				break
-			}
-			dir = parent
+		if appPath, ok := walkUpForAppDir(fs, pwd, tempRoot); ok {
+			return appPath, SourceProject
 		}
 	}
 
@@ -1654,25 +1641,7 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		zap.L().Warn("failed to get home directory", zap.Error(err))
-		// Last resort: cwd. Resolved ABSOLUTELY and created, matching the two
-		// returns above. loadUncached derives appRoot as filepath.Dir of this,
-		// so a relative result would resolve the whole project to "." and make
-		// every path built from it — bundles, agents, sessions, the config file
-		// — depend on whatever cwd the process holds when it is used. This is
-		// the branch reached when the environment is already degraded; it must
-		// not degrade the answer further.
-		appPath := filepath.Join(pwd, AppDirName)
-		if pwd == "" {
-			if abs, aerr := filepath.Abs(AppDirName); aerr == nil {
-				appPath = abs
-			} else {
-				appPath = AppDirName
-			}
-		}
-		if err := fs.MkdirAll(appPath, 0755); err != nil {
-			zap.L().Warn("failed to create fallback .ctxloom directory", zap.String("path", appPath), zap.Error(err))
-		}
-		return appPath, SourceProject
+		return lastResortAppDir(fs, pwd), SourceProject
 	}
 
 	homeApp := filepath.Join(home, AppDirName)
@@ -1683,6 +1652,73 @@ func findAppDir(fs afero.Fs) (string, ConfigSource) {
 	}
 
 	return homeApp, SourceHome
+}
+
+// walkUpForAppDir walks from dir toward the filesystem root looking for a
+// directory that carries its own .ctxloom, reporting the first one found.
+//
+// It stops at tempRoot — see findAppDir's boundary note — and signposts any
+// linked git worktree it passes through on the way.
+func walkUpForAppDir(fs afero.Fs, dir, tempRoot string) (string, bool) {
+	// Loop condition (not an if/break at the top): reached the shared OS
+	// temp root without finding a project .ctxloom anywhere beneath it —
+	// stop here rather than resolving to whatever (if anything) lives at
+	// tempRoot itself, and let the caller fall through to its home
+	// fallback.
+	for filepath.Clean(dir) != tempRoot {
+		appPath := filepath.Join(dir, AppDirName)
+		if info, err := fs.Stat(appPath); err == nil && info.IsDir() {
+			return appPath, true
+		}
+
+		// dir has no .ctxloom of its own. If dir is the root of a LINKED
+		// git worktree, that is a signpost, not a silent walk-past:
+		// resolving straight through to some unrelated ancestor's (or
+		// home's) .ctxloom would silently land the session on the wrong
+		// project — empty config, no profiles, no agents (task
+		// brown-canal, 2026-07-09: an earlier revision had linked
+		// worktrees INHERIT the main worktree's project identity; that
+		// inheritance design was withdrawn in favor of this signpost).
+		// worktreeSignpost records a fatal finding through strictness and
+		// the walk continues exactly as it always has — the choke owners
+		// (`ctxloom run`/`mcp`/`acp`) abort on it pre-launch unless
+		// --degraded; management commands surface the stderr warning and
+		// proceed on the fallback. The main worktree (.git is a
+		// directory) and every non-worktree ancestor pass through
+		// untouched.
+		worktreeSignpost(fs, dir)
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			// Reached root
+			break
+		}
+		dir = parent
+	}
+	return "", false
+}
+
+// lastResortAppDir answers when the home directory itself is unresolvable: the
+// cwd's .ctxloom, resolved ABSOLUTELY and created, matching both of findAppDir's
+// other returns. loadUncached derives appRoot as filepath.Dir of this, so a
+// relative result would resolve the whole project to "." and make every path
+// built from it — bundles, agents, sessions, the config file — depend on
+// whatever cwd the process holds when it is used. This is the branch reached
+// when the environment is already degraded; it must not degrade the answer
+// further. pwd is "" when os.Getwd() failed too.
+func lastResortAppDir(fs afero.Fs, pwd string) string {
+	appPath := filepath.Join(pwd, AppDirName)
+	if pwd == "" {
+		if abs, aerr := filepath.Abs(AppDirName); aerr == nil {
+			appPath = abs
+		} else {
+			appPath = AppDirName
+		}
+	}
+	if err := fs.MkdirAll(appPath, 0755); err != nil {
+		zap.L().Warn("failed to create fallback .ctxloom directory", zap.String("path", appPath), zap.Error(err))
+	}
+	return appPath
 }
 
 // worktreeSignpost records a fatal ClassConfig finding when dir is the root of
@@ -1789,36 +1825,10 @@ func strandedAuthoredBundles(fs afero.Fs, cacheBundles string) []string {
 		return filepath.ToSlash(r)
 	}
 	walkErr := afero.Walk(fs, cacheBundles, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			// An entry we cannot even read is the strongest case of "cannot
-			// prove this is regenerable cache", so it counts — the bias stated
-			// above, applied to the one case that used to escape it. A
-			// directory we cannot enumerate hides an unknown number of
-			// authored bundles, and naming the directory is the only honest
-			// thing left to say about it. Anything that is neither a directory
-			// nor a YAML was never a bundle, so it stays out.
-			if (info != nil && info.IsDir()) || strings.HasSuffix(path, ".yaml") {
-				stranded = append(stranded, rel(path))
-			}
-			return nil //nolint:nilerr // one unreadable entry never aborts the scan
+		if strandedCacheEntry(fs, path, info, err) {
+			stranded = append(stranded, rel(path))
 		}
-		if info == nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
-			return nil
-		}
-		if data, rerr := afero.ReadFile(fs, path); rerr == nil {
-			// Legacy remote-pull artifacts embed a `_source` block; a non-empty
-			// SHA there unambiguously marks one (mirrors PurgeExtractedBundles).
-			var meta struct {
-				Source struct {
-					SHA string `yaml:"sha"`
-				} `yaml:"_source"`
-			}
-			if yaml.Unmarshal(data, &meta) == nil && meta.Source.SHA != "" {
-				return nil
-			}
-		}
-		stranded = append(stranded, rel(path))
-		return nil
+		return nil //nolint:nilerr // one unreadable entry never aborts the scan
 	})
 	if walkErr != nil {
 		// The callback never returns an error, so this is defence against a
@@ -1829,6 +1839,36 @@ func strandedAuthoredBundles(fs afero.Fs, cacheBundles string) []string {
 	}
 	sort.Strings(stranded)
 	return stranded
+}
+
+// strandedCacheEntry decides whether one walked entry under a legacy
+// cache/bundles tree is authored work rather than regenerable cache.
+//
+// The bias is stated in strandedAuthoredBundles' doc and this is where it lives:
+// anything we cannot PROVE is regenerable counts. An entry we could not even
+// read is the strongest such case — a directory we cannot enumerate hides an
+// unknown number of authored bundles, and naming it is the only honest thing
+// left to say — while anything that is neither a directory nor a YAML was never
+// a bundle and stays out.
+func strandedCacheEntry(fs afero.Fs, path string, info os.FileInfo, err error) bool {
+	if err != nil {
+		return (info != nil && info.IsDir()) || strings.HasSuffix(path, ".yaml")
+	}
+	if info == nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
+		return false
+	}
+	data, rerr := afero.ReadFile(fs, path)
+	if rerr != nil {
+		return true // unreadable: cannot be shown to be cache, so it is authored
+	}
+	// Legacy remote-pull artifacts embed a `_source` block; a non-empty SHA
+	// there unambiguously marks one (mirrors PurgeExtractedBundles).
+	var meta struct {
+		Source struct {
+			SHA string `yaml:"sha"`
+		} `yaml:"_source"`
+	}
+	return yaml.Unmarshal(data, &meta) != nil || meta.Source.SHA == ""
 }
 
 // SeededBundleLoader returns a bundles.Loader that sees fs-installed local

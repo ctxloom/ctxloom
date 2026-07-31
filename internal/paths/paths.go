@@ -2,9 +2,13 @@
 package paths
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	harpid "github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
@@ -86,6 +90,17 @@ const (
 	// ReposCacheDir is the subdirectory for cached git repo clones.
 	ReposCacheDir = "repos"
 
+	// TriggersDir is the cache/ subdirectory holding ctxloom's cached
+	// revive-trigger verdicts, one file per project (see TriggerCacheDir).
+	TriggersDir = "triggers"
+
+	// TrustObjectsDir is the leaf directory, under the TrustFileName segment,
+	// holding content-addressed copies of the bytes a human approved at review
+	// (see TrustObjectsPath). Named separately from TrustFileName because the
+	// two segments are independently meaningful: "trust" groups the store,
+	// "objects" says the store is content-addressed.
+	TrustObjectsDir = "objects"
+
 	// SessionsDir is the subdirectory for per-session state (index, harp dirs).
 	SessionsDir = "sessions"
 
@@ -155,7 +170,7 @@ const (
 func HomeSessionsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the home sessions root ~/%s/%s: %w", AppDirName, SessionsDir, err)
 	}
 	return filepath.Join(home, AppDirName, SessionsDir), nil
 }
@@ -264,6 +279,10 @@ func HarpCanonicalTranscriptPath(harp string) (string, error) {
 // "not captured yet" against the canonical, current name (matching
 // HarpCanonicalTranscriptPath's existing no-file contract).
 //
+// A stat that fails for any reason OTHER than absence errors instead. Absence
+// is a fact this function is entitled to act on; an unanswerable stat is not,
+// and returning a path for it would report a guess in the shape of a result.
+//
 // Unlike every other function in this file, this one does I/O (a stat per
 // candidate) — it is reserved for read paths that need "does a captured
 // transcript exist, and where" (transcript.CanonicalHistory.GetSession,
@@ -279,12 +298,28 @@ func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
 		return "", err
 	}
 	current := filepath.Join(dir, CanonicalTranscriptFileName)
-	if _, statErr := os.Stat(current); statErr == nil {
+	legacy := filepath.Join(dir, legacyCanonicalTranscriptFileName)
+
+	// Only PLAIN ABSENCE licenses moving on. The fallback's whole precondition
+	// is "the current name is not there", and an ELOOP or EACCES does not
+	// establish that — it says the question could not be answered. Treating
+	// the two alike hands back the pre-rename transcript, with a nil error,
+	// while a current one sits on disk unread: the caller cannot tell a
+	// resolution from a guess, because both look like a path.
+	switch _, statErr := os.Stat(current); {
+	case statErr == nil:
 		return current, nil
+	case !errors.Is(statErr, fs.ErrNotExist):
+		return "", fmt.Errorf("stat canonical transcript %s: %w", current, statErr)
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, legacyCanonicalTranscriptFileName)); statErr == nil {
-		return filepath.Join(dir, legacyCanonicalTranscriptFileName), nil
+
+	switch _, statErr := os.Stat(legacy); {
+	case statErr == nil:
+		return legacy, nil
+	case !errors.Is(statErr, fs.ErrNotExist):
+		return "", fmt.Errorf("stat pre-rename canonical transcript %s: %w", legacy, statErr)
 	}
+
 	return current, nil
 }
 
@@ -293,14 +328,26 @@ func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
 // is per-project state under the app dir. Resolution prefers the configured app
 // dir, then <cwd>/.ctxloom/sessions, then a bare relative .ctxloom/sessions when
 // even the working directory can't be resolved.
+//
+// The first two results are ANCHORED — absolute, fixed at the moment of the
+// call. The last is not: a relative path is resolved by whoever uses it,
+// against whatever the working directory is then, so a caller that changes
+// directory between this call and its read or write addresses somewhere else
+// entirely. Nothing downstream can tell the two kinds of answer apart from the
+// string, which is why the degradation is announced here rather than inferred
+// there. It stays a warning, not an error: an unanchorable sessions dir must
+// not block startup.
 func ProjectSessionsDir(appDir string) string {
 	if appDir != "" {
 		return filepath.Join(appDir, SessionsDir)
 	}
-	if wd, err := os.Getwd(); err == nil {
+	wd, err := os.Getwd()
+	if err == nil {
 		return filepath.Join(wd, AppDirName, SessionsDir)
 	}
-	return filepath.Join(AppDirName, SessionsDir)
+	relative := filepath.Join(AppDirName, SessionsDir)
+	clidiag.Warn("ctxloom", "cannot resolve the working directory (%v); the project sessions directory falls back to the relative %s, which resolves against the caller's current directory", err, relative)
+	return relative
 }
 
 // TriggerCacheDir returns ~/.ctxloom/cache/triggers — the home-rooted
@@ -314,9 +361,9 @@ func ProjectSessionsDir(appDir string) string {
 func TriggerCacheDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the trigger verdict cache ~/%s/%s/%s: %w", AppDirName, CacheDir, TriggersDir, err)
 	}
-	return filepath.Join(home, AppDirName, CacheDir, "triggers"), nil
+	return filepath.Join(home, AppDirName, CacheDir, TriggersDir), nil
 }
 
 // CachePath returns the cache subdirectory path for the given app path.
@@ -336,7 +383,9 @@ func RemotesPath(appPath string) string {
 }
 
 // ApprovalsPath returns the path to the PROJECT (committable) countersignature
-// store directory, at appPath root next to allowed_signers.yaml. "Our team's
+// store directory, at appPath root next to the extensionless allowed_signers
+// trust root (AllowedSignersFileName — OpenSSH's format, not ctxloom's, so it
+// carries no .yaml suffix). "Our team's
 // approvals": a lead reviews, commits the signatures here, and every developer
 // / CI run who trusts the lead's key (via the project allowed_signers)
 // inherits the approval without re-reviewing (spec §9.2).
@@ -350,7 +399,7 @@ func ApprovalsPath(appPath string) string {
 func HomeApprovalsPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the user countersignature store ~/%s/%s: %w", AppDirName, ApprovalsDirName, err)
 	}
 	return filepath.Join(home, AppDirName, ApprovalsDirName), nil
 }
@@ -370,7 +419,7 @@ func AllowedSignersPath(appPath string) string {
 func HomeAllowedSignersPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the user trust root ~/%s/%s: %w", AppDirName, AllowedSignersFileName, err)
 	}
 	return filepath.Join(home, AppDirName, AllowedSignersFileName), nil
 }
@@ -395,7 +444,7 @@ func DistrustedSignersPath(appPath string) string {
 func HomeDistrustedSignersPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the user distrust record ~/%s/%s: %w", AppDirName, DistrustedSignersFileName, err)
 	}
 	return filepath.Join(home, AppDirName, DistrustedSignersFileName), nil
 }
@@ -456,7 +505,7 @@ func ReposCachePath(appPath string) string {
 // Pure cache: deleting it only degrades update review from a diff to a
 // full-content display (the countersignature stores stay authoritative).
 func TrustObjectsPath(appPath string) string {
-	return filepath.Join(CachePath(appPath), TrustFileName, "objects")
+	return filepath.Join(CachePath(appPath), TrustFileName, TrustObjectsDir)
 }
 
 // DefaultRemotesPath returns the default remotes path relative to current directory.

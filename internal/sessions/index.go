@@ -338,7 +338,7 @@ func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
 		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return
 	}
-	link := filepath.Join(dir, "transcript.jsonl")
+	link := filepath.Join(dir, paths.CanonicalTranscriptFileName)
 	_ = os.Remove(link) // replace any stale link; ignore absence
 	if err := os.Symlink(transcriptPath, link); err != nil {
 		clidiag.Warn("ctxloom", "transcript link: %v", err)

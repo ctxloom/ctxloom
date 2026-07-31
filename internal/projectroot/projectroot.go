@@ -1,19 +1,49 @@
-// Package projectroot resolves the authoritative project root, honoring the
-// CTXLOOM_ROOT override above git-root detection and cwd traversal.
+// Package projectroot answers "which directory is this project rooted at?" for
+// every consumer that needs a stable answer. It carries three responsibilities,
+// and a reader should be able to find all three from here.
+//
+// # Root resolution
+//
+// WorkDir resolves the project work root through CTXLOOM_ROOT -> git root ->
+// cwd. WorkDirWithBoundary is the same chain, additionally reporting whether
+// the answer came from a real boundary (override or git repo) rather than the
+// bare cwd; RootFromFallback exposes just that boolean, which `ctxloom run`
+// warns on because a cwd-keyed project identity neither follows the directory
+// nor resumes from one level up. FromEnv is the CTXLOOM_ROOT step alone, for
+// callers (config) that thread their own afero.Fs.
+//
+// # Git worktree classification
+//
+// DetectWorktree inspects a directory's `.git` entry and reports, as a
+// WorktreeInfo, whether it is the root of a LINKED worktree, and if so where
+// its primary checkout is and whether that checkout still exists. It reads the
+// repository layout directly rather than shelling out to git, which is what
+// lets it tell a linked worktree apart from a submodule.
+//
+// # Task-store redirect
+//
+// TaskStoreRoot is a deliberately narrower seam than WorkDir: it redirects a
+// LINKED worktree's task-store identity to the primary checkout, so a finding
+// filed by an agent in an ephemeral worktree is still visible to a coordinator
+// running from the main tree. Root resolution stays worktree-DISTINCT; this one
+// exception exists because "tasks aren't context", and it is applied nowhere
+// else. See its own doc for the opt-out and the stale-pointer hard error.
+//
+// # The CTXLOOM_ROOT override
 //
 // CTXLOOM_ROOT is purely an override at the top of ctxloom's existing
 // resolution chain (git root -> cwd walk-up -> home). When the variable is
 // unset it changes nothing and the prior mechanisms apply byte-for-byte. When
 // set and valid it short-circuits discovery. When set but invalid (missing path
-// or not a directory) it warns once per process and falls through as if unset,
-// per the fault-tolerance philosophy — a bad override never blocks startup.
+// or not a directory) it warns once per offending VALUE and falls through as if
+// unset, per the fault-tolerance philosophy — a bad override never blocks
+// startup.
 package projectroot
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/spf13/afero"
 
@@ -25,8 +55,6 @@ import (
 // and listed in testsupport.EnvKeys so test isolation clears it.
 const EnvVar = "CTXLOOM_ROOT"
 
-var warnOnce sync.Once
-
 // resolve is the pure resolution of CTXLOOM_ROOT, with no side effects:
 //   - unset/empty           -> ("", false, "")
 //   - set but invalid       -> ("", false, raw)   raw is the offending value
@@ -36,6 +64,15 @@ var warnOnce sync.Once
 // uses for the rest of resolution — production passes the OS fs, tests pass an
 // afero mem fs and stay off real disk. A relative value is anchored to the
 // launching cwd via filepath.Abs so the override resolves predictably.
+//
+// Those are deliberately two different filesystems, and the split is the
+// contract rather than an oversight: fs decides whether the root EXISTS, while
+// the anchor for a relative value is always the launching process's cwd, never
+// the injected fs's root. CTXLOOM_ROOT is operator-facing, so its relative form
+// can only mean "relative to where ctxloom was launched" — reading it against
+// an injected fs would make one value name different directories in-process
+// and out. filepath.Abs consults the process cwd, not the filesystem, so a mem
+// fs caller still reads no bytes from disk.
 func resolve(fs afero.Fs) (root string, ok bool, rawInvalid string) {
 	raw, set := os.LookupEnv(EnvVar)
 	if !set || raw == "" {
@@ -54,16 +91,21 @@ func resolve(fs afero.Fs) (root string, ok bool, rawInvalid string) {
 
 // FromEnv returns (root, true) when CTXLOOM_ROOT is set and names an existing
 // directory on fs, where root is its cleaned absolute path. When the variable
-// is set but invalid it warns to stderr once per process and returns
+// is set but invalid it warns to stderr once per OFFENDING VALUE and returns
 // ("", false). When unset it returns ("", false) with no warning. Callers that
 // thread an afero fs (e.g. config) pass it so validation shares their fs;
 // process-level callers pass afero.NewOsFs().
+//
+// The suppression is per-message (clidiag.WarnOnce), not per-process: config
+// resolution runs many times in one invocation and dozens more in a long-lived
+// server, so an unchanged bad value must collapse to a single line — but a
+// DIFFERENT bad value is a different fault and must still be reported. A latch
+// keyed on nothing mutes every fault after the first, and nobody is ever told
+// about the misconfiguration again.
 func FromEnv(fs afero.Fs) (string, bool) {
 	root, ok, rawInvalid := resolve(fs)
 	if rawInvalid != "" {
-		warnOnce.Do(func() {
-			clidiag.Warn("ctxloom", "%s=%q is not a valid directory; ignoring it and falling back to git root / current directory", EnvVar, rawInvalid)
-		})
+		clidiag.WarnOnce("ctxloom", "%s=%q is not a valid directory; ignoring it and falling back to git root / current directory", EnvVar, rawInvalid)
 	}
 	return root, ok
 }

@@ -186,7 +186,7 @@ func warnWeaveFailures(result *operations.WeaveResult, weaveErr error) {
 }
 
 // weaveOutput resolves what the run prints, warning when that is not the
-// synthesis the user asked for, and enforces the output floor (U043-F02): a run
+// synthesis the user asked for, and enforces the output floor: a run
 // that produced neither a synthesis nor a single part has nothing to say, and
 // printing one blank line with exit 0 says it succeeded. The floor is enforced
 // here rather than at emit so --format json fails too.

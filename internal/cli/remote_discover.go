@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -135,8 +134,13 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 // interactiveAdd prompts the user to add a discovered repo as a remote. It
 // reuses the cfg already loaded by the caller — a second GetConfig() here would
 // re-run config.Load and re-print any config warnings to the user.
+//
+// Input comes from the process-wide stdinReader (run.go), never a fresh reader:
+// a second buffered reader over os.Stdin discards whatever the first one
+// buffered past its line, so type-ahead answered to an earlier prompt would
+// vanish here — and the lines this loop reads would vanish from later prompts.
 func interactiveAdd(cmd *cobra.Command, cfg *config.Config, repos []operations.RepoEntry) error {
-	reader := bufio.NewReader(os.Stdin)
+	reader := stdinReader
 	for {
 		num, quit := readRepoChoice(reader, len(repos))
 		if quit {

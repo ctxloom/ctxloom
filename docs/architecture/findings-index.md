@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,488** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 175 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 204 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 202 |
-| `open` | no commit names this ID | **199** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,498** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 176 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
+| `open` | no commit names this ID | **183** |
 
-**Totals: 2268 findings across 162 units — 1,488 resolved, 199 still open, 581 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,498 resolved, 183 still open, 587 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 554 | 117 | 101 | 93 | 134 |
-| LOW | 871 | 575 | 73 | 58 | 103 | 62 |
+| MED | 999 | 561 | 107 | 101 | 95 | 135 |
+| LOW | 871 | 578 | 67 | 59 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1670,17 +1670,17 @@ Full evidence and the suggested action for any row live in its source review at 
 | U096-F12 | **RESOLVED** `298c6f72` | **`schema.go:52`** | SILENTNOOP | `ValidateBytes` never checks for empty input; empty-file rejection is inherited from the schema's root `"type"`, not enforced here — so it is a property of the two embedded schemas, not of the API. | U096.md |
 | U097-F03 | **RESOLVED** `d5a9f680` | `schemagen.go:47` | CORRECTNESS | The `sort.Slice(targets, …)` call **buys no determinism** — each target writes to its own independent file, so write *order* cannot affect the bytes on disk — and it **mutates the caller's slice in... | U097.md |
 | U097-F04 | **PARTIAL** `89bd9d93` | `schemagen.go:76-81` | CORRECTNESS | The derived-name fallback makes a **published `$id` depend on a Go type name**, so an ordinary Go rename silently republishes a schema under a different URL. And `reflect.Type.Name()` is `""` for a... | U097.md |
-| U098-F02 | open | `selfexec.go:20-36` | COUPLING | Exported test-only mutable global in a production package, with no synchronization, read from production spawn paths. | U098.md |
+| U098-F02 | **RESOLVED** `a9808f5b` | `selfexec.go:20-36` | COUPLING | Exported test-only mutable global in a production package, with no synchronization, read from production spawn paths. | U098.md |
 | U098-F03 | **REFUTED** `b11a209b` | `selfexec.go:51` vs `internal/shared/agent/symlink.go:25` vs `internal/lm/isolation/imagebuild.go:1044` | DUPLICATE | The repo has **three** different answers to "where is the running binary", with three different semantics, and nothing reconciles them. | U098.md |
-| U098-F05 | open | `selfexec.go:32` / `internal/operations/hooks.go:65` | CORRECTNESS | A second, unrelated `…ForTesting` mutator is reachable from a **production** entry point and mutates an unsynchronized global cache — latent only because no production caller populates the field. | U098.md |
-| U098-F06 | open | `internal/lm/isolation/imagebuild.go:599-604`, `1013-1016`, `713-719` | ERRHANDLING | The image-build path treats "I cannot resolve a usable self-exe" three different ways, one of which is silent — and on macOS/Windows that silent branch is the *default*, not the exception. | U098.md |
-| U099-F02 | open | `index.go:35-37` | CORRECTNESS | The `Entry` doc asserts "the json tags mirror the yaml keys so `ctxloom session list --format json` and any frontend reading it (the VSCode companion) share the same snake_case contract as the on-d... | U099.md |
-| U099-F05 | open | **`memstore.go:12-17`** | CORRECTNESS | `MemStore`'s doc says it mirrors `*Manager` "without touching disk" and that "Filesystem side effects of the real index … are intentionally absent". Both claims are false. | U099.md |
-| U099-F06 | open | `index.go:547-554, memstore.go:63-68, memstore.go:84-89` | DUPLICATE | The activity-time sort comparator (activity desc, `StartedAt` tiebreak) is copy-pasted three times. | U099.md |
-| U099-F07 | open | `index.go:775-783` | DUPLICATE | `generateUniqueHarp` is a verbatim reimplementation of the shared `harp.UniqueFrom`. | U099.md |
-| U099-F08 | open | `index.go:691-723` | CORRECTNESS | `Reconcile` is the only entry-returning method that never calls `fillCanonicalTranscript`, so its `isDead` predicate always sees `CanonicalTranscriptPath == ""`. A session whose legacy engine trans... | U099.md |
-| U099-F09 | open | `index_upgrade.go:71-78` | CORRECTNESS | An unparseable timestamp is degraded to `time.Now()`. Because the upgrade is applied **in memory on every load** and persisted only on explicit `CommitUpgrade`, such an entry gets a *different* val... | U099.md |
-| U099-F10 | open | `index.go:360-390` | COMPLEXITY | The anonymous `fs.WalkDirFunc` inside `LocateTranscript` is CCN 11, one over the enforced CI gate. | U099.md |
+| U098-F05 | **REFUTED** `8f18316c` | `selfexec.go:32` / `internal/operations/hooks.go:65` | CORRECTNESS | A second, unrelated `…ForTesting` mutator is reachable from a **production** entry point and mutates an unsynchronized global cache — latent only because no production caller populates the field. | U098.md |
+| U098-F06 | **RESOLVED** `386b1dca` | `internal/lm/isolation/imagebuild.go:599-604`, `1013-1016`, `713-719` | ERRHANDLING | The image-build path treats "I cannot resolve a usable self-exe" three different ways, one of which is silent — and on macOS/Windows that silent branch is the *default*, not the exception. | U098.md |
+| U099-F02 | **RESOLVED** `70cd9f7b` | `index.go:35-37` | CORRECTNESS | The `Entry` doc asserts "the json tags mirror the yaml keys so `ctxloom session list --format json` and any frontend reading it (the VSCode companion) share the same snake_case contract as the on-d... | U099.md |
+| U099-F05 | **RESOLVED** `ceaaeccf` | **`memstore.go:12-17`** | CORRECTNESS | `MemStore`'s doc says it mirrors `*Manager` "without touching disk" and that "Filesystem side effects of the real index … are intentionally absent". Both claims are false. | U099.md |
+| U099-F06 | **RESOLVED** `5fd1d387` | `index.go:547-554, memstore.go:63-68, memstore.go:84-89` | DUPLICATE | The activity-time sort comparator (activity desc, `StartedAt` tiebreak) is copy-pasted three times. | U099.md |
+| U099-F07 | **REFUTED** `7907870a` | `index.go:775-783` | DUPLICATE | `generateUniqueHarp` is a verbatim reimplementation of the shared `harp.UniqueFrom`. | U099.md |
+| U099-F08 | **RESOLVED** `32b2f78e` | `index.go:691-723` | CORRECTNESS | `Reconcile` is the only entry-returning method that never calls `fillCanonicalTranscript`, so its `isDead` predicate always sees `CanonicalTranscriptPath == ""`. A session whose legacy engine trans... | U099.md |
+| U099-F09 | **ESCALATED** `4c18b518` | `index_upgrade.go:71-78` | CORRECTNESS | An unparseable timestamp is degraded to `time.Now()`. Because the upgrade is applied **in memory on every load** and persisted only on explicit `CommitUpgrade`, such an entry gets a *different* val... | U099.md |
+| U099-F10 | **RESOLVED** `14c19d48` | `index.go:360-390` | COMPLEXITY | The anonymous `fs.WalkDirFunc` inside `LocateTranscript` is CCN 11, one over the enforced CI gate. | U099.md |
 | U100-F04 | **REFUTED** `5e0883b2` | `cells.go:541` | DEAD | `ResolvedSelection.DeliverShared` has **zero** production call sites — 11 hits, all in `_test.go`. The production shared-cwd path calls `deliverOneShared` directly. | U100.md |
 | U100-F05 | **ESCALATED** `80dc8184` | `cells.go:571-584` | COUPLING | `deliverOneShared` ignores `rs.approach` entirely: `SharedRealization` wins unconditionally. On claude a caller naming `ContextWriteUnsafeFile` (asking for CLAUDE.md) silently gets the out-of-cwd s... | U100.md |
 | U100-F06 | **RESOLVED** `5e0883b2` | `approach.go:79, 103, 117, 131, 148` | DEAD | All five per-surface `String()` methods are test-only; `SkillsWrite.String` has no caller at all (it is the unit's sole `deadcode` entry). ~15 lines + 5 doc comments with no production consumer. | U100.md |
@@ -2595,12 +2595,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U098-F07 | **RESOLVED** `cb2b8396` `127539ad` | `internal/cli/run.go:285-291` | TRIVIAL | `resolveSelfExecutable` is a one-line pure pass-through to `selfexec.Path()` with one caller. | U098.md |
 | U099-F11 | **RESOLVED** `a3c89bcb` | `index.go:131` | DEAD | `(*Manager).Path()` has exactly one call site in the entire repo, and it is a test in this same package. | U099.md |
 | U099-F12 | **REFUTED** `1007a823` | `index.go:350` | DEAD | `LocateTranscript` is exported but has zero external call sites. | U099.md |
-| U099-F13 | open | `index.go:313-337` | ERRHANDLING | Three defects in the symlink helper: `_ = os.Remove(link)` (:333) swallows every error, not just ENOENT; `transcriptPath` is never stat'd, so a stale path yields a dangling symlink that later reads... | U099.md |
-| U099-F14 | open | `index.go:332` | DUPLICATE | The link leaf name is the bare literal `"transcript.jsonl"` — the same string as `paths.CanonicalTranscriptFileName` but a **different file**: this one is a symlink to the engine's native transcrip... | U099.md |
-| U099-F15 | open | `index.go:194,232,272,601,632,665,695,736` | DUPLICATE | `filelock.Lock(m.path + ".lock")` with the identical `lock: %w` wrap appears eight times. Connascence of meaning on the `".lock"` suffix across eight sites. | U099.md |
-| U099-F16 | open | `index.go:102-111, :142` | COHESION | `Manager` carries two responsibilities, and the schema-upgrade one is mutated as a hidden side effect of every **read**. `loadLocked`:142 unconditionally nils `pendingUpgrade`, so a concurrent `Fin... | U099.md |
-| U099-F17 | open | `index.go:707` | CORRECTNESS | `Reconcile` invokes the caller-supplied `isDead` predicate while holding **both** `m.mu` and the blocking flock. A predicate that reaches back into the session index deadlocks the process. | U099.md |
-| U099-F18 | open | `index_upgrade.go:83` | ERRHANDLING | `if err := n.Encode(t); err != nil { return false }` discards the error and reports the node as *unchanged*, conflating "already canonical" with "re-encode failed". | U099.md |
+| U099-F13 | **PARTIAL** `674e0b03` | `index.go:313-337` | ERRHANDLING | Three defects in the symlink helper: `_ = os.Remove(link)` (:333) swallows every error, not just ENOENT; `transcriptPath` is never stat'd, so a stale path yields a dangling symlink that later reads... | U099.md |
+| U099-F14 | **REFUTED** `dea06622` | `index.go:332` | DUPLICATE | The link leaf name is the bare literal `"transcript.jsonl"` — the same string as `paths.CanonicalTranscriptFileName` but a **different file**: this one is a symlink to the engine's native transcrip... | U099.md |
+| U099-F15 | **RESOLVED** `5b045276` | `index.go:194,232,272,601,632,665,695,736` | DUPLICATE | `filelock.Lock(m.path + ".lock")` with the identical `lock: %w` wrap appears eight times. Connascence of meaning on the `".lock"` suffix across eight sites. | U099.md |
+| U099-F16 | **ESCALATED** `be69f44f` | `index.go:102-111, :142` | COHESION | `Manager` carries two responsibilities, and the schema-upgrade one is mutated as a hidden side effect of every **read**. `loadLocked`:142 unconditionally nils `pendingUpgrade`, so a concurrent `Fin... | U099.md |
+| U099-F17 | **RESOLVED** `c70c0f79` | `index.go:707` | CORRECTNESS | `Reconcile` invokes the caller-supplied `isDead` predicate while holding **both** `m.mu` and the blocking flock. A predicate that reaches back into the session index deadlocks the process. | U099.md |
+| U099-F18 | **RESOLVED** `5c529efd` | `index_upgrade.go:83` | ERRHANDLING | `if err := n.Encode(t); err != nil { return false }` discards the error and reports the node as *unchanged*, conflating "already canonical" with "re-encode failed". | U099.md |
 | U099-F21 | **RESOLVED** `07abd892` | `index.go:758` | SILENTNOOP | `saveLocked(nil)` would marshal to the literal `null` and atomically overwrite the index with it — a total silent wipe. No caller passes nil today. | U099.md |
 | U100-F11 | **RESOLVED** `73fcea46` | `cells.go:242` | CORRECTNESS | `EmptySurfaceSet.SurfaceFor` returns `(nil, nil)` — a nil `Delivery` with no error — directly contradicting the interface contract it implements. | U100.md |
 | U100-F14 | **RESOLVED** `040f3ef2` | `approach.go:52-55, cells.go:272-274` | CORRECTNESS | `Approach.String` and `CellKind.String` render the zero value from a `default:` arm, so any out-of-range value silently prints as `"unsafe-file"` / `"shared"` — the *least safe* option in both enum... | U100.md |

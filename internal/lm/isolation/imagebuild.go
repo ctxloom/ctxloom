@@ -602,13 +602,21 @@ func baseContent(baseContainerfile string) ([]byte, error) {
 // tagged by name so an added/removed/renamed companion changes the digest even
 // when two binaries share content. Any read failure yields "" — an untrustable
 // digest disables the check rather than forcing a wrong rebuild.
+//
+// That degrade is ANNOUNCED, because it is not rare: imageRunsAsIs turns the
+// staleness comparison off entirely on an empty digest, selfLinuxExe rejects
+// every non-linux host, and `ctxloom container provenance` prints the empty
+// digest and exits 0. A check that silently stops checking is indistinguishable
+// from one that passed.
 func computeProvenanceDigest() string {
 	selfExe, err := resolveSelfExe()
 	if err != nil {
+		warnProvenanceDisabled(err)
 		return ""
 	}
 	h := sha256.New()
 	if err := hashFileTagged(h, "ctxloom", selfExe); err != nil {
+		warnProvenanceDisabled(err)
 		return ""
 	}
 	for _, name := range companionBinaries {
@@ -617,10 +625,18 @@ func computeProvenanceDigest() string {
 			continue // absent on host → not baked → not part of the digest
 		}
 		if err := hashFileTagged(h, name, p); err != nil {
+			warnProvenanceDisabled(err)
 			return ""
 		}
 	}
 	return hex.EncodeToString(h.Sum(nil))
+}
+
+// warnProvenanceDisabled names the capability lost when the digest cannot be
+// computed. Emitted at most once per process in production (the only caller
+// runs under provenanceOnce).
+func warnProvenanceDisabled(err error) {
+	clidiag.Warn("ctxloom", "cannot compute this host's container image provenance digest (%v); the image-staleness check is DISABLED, so an agent image built from older ctxloom/companion binaries will be run as-is", err)
 }
 
 // hashFileTagged folds a NUL-terminated name tag then the file's full content

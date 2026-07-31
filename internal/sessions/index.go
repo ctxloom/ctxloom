@@ -32,9 +32,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// Entry is one row in index.yaml. The json tags mirror the yaml keys so
-// `ctxloom session list --format json` and any frontend reading it (the VSCode
-// companion) share the same snake_case contract as the on-disk index.
+// Entry is one row in index.yaml. The YAML keys are the on-disk contract; the
+// json tags mirror them field-for-field so that any future direct JSON
+// projection of an Entry is snake_case-identical to the file.
+//
+// No frontend reads this type as JSON today, and none should be assumed to:
+// `ctxloom session list --format json` renders a separate rendering-time
+// projection (internal/cli.SessionRow — harp/summary/start/end/essence_path),
+// the list_sessions MCP tool renders its own sessionSummary, and the
+// ctxloom://sessions/recent resource builds its own YAML row type. The json
+// tags are therefore a shape guarantee, not a wire in use.
+//
+// The one deliberate asymmetry is CanonicalTranscriptPath: computed on read, so
+// yaml:"-", but json-visible for a projection that wants capture presence.
 type Entry struct {
 	HarpName       string     `yaml:"harp_name" json:"harp_name"`
 	SessionID      string     `yaml:"session_id,omitempty" json:"session_id,omitempty"` // empty until backend binds on initialize
@@ -179,9 +189,9 @@ func (m *Manager) CommitUpgrade() error {
 		return nil
 	}
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -223,9 +233,9 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return Entry{}, fmt.Errorf("lock: %w", err)
+		return Entry{}, err
 	}
 	defer unlock()
 
@@ -278,9 +288,9 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -338,8 +348,21 @@ func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
 		rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return
 	}
+	// A binding whose target is not on disk still gets its link: BindSession
+	// runs on MCP initialize and an engine may not have flushed its transcript
+	// yet, so refusing would discard a link that becomes valid moments later.
+	// But a dangling link is indistinguishable from a missing one at every
+	// later read, so the stale binding is named here, where the cause is known.
+	if _, serr := os.Stat(transcriptPath); serr != nil {
+		clidiag.Warn("ctxloom", "transcript link: bound transcript %s does not resolve (%v); linking it anyway, but reads through the session dir will fail until it appears", transcriptPath, serr)
+	}
 	link := filepath.Join(dir, paths.CanonicalTranscriptFileName)
-	_ = os.Remove(link) // replace any stale link; ignore absence
+	// Only ABSENCE licenses moving on. Any other removal failure is reported
+	// where it happened: the Symlink below then fails with EEXIST, which names
+	// the symptom and hides the cause.
+	if err := os.Remove(link); err != nil && !errors.Is(err, os.ErrNotExist) {
+		clidiag.Warn("ctxloom", "transcript link: could not replace the existing %s (%v)", link, err)
+	}
 	if err := os.Symlink(transcriptPath, link); err != nil {
 		clidiag.Warn("ctxloom", "transcript link: %v", err)
 	}
@@ -387,13 +410,9 @@ func LocateTranscript(harpName string) (string, bool) {
 		}
 		switch filepath.Ext(p) {
 		case ".jsonl":
-			if bestJSONL == "" || info.ModTime().After(tJSONL) {
-				bestJSONL, tJSONL = p, info.ModTime()
-			}
+			keepNewest(&bestJSONL, &tJSONL, p, info.ModTime())
 		case ".json":
-			if bestJSON == "" || info.ModTime().After(tJSON) {
-				bestJSON, tJSON = p, info.ModTime()
-			}
+			keepNewest(&bestJSON, &tJSON, p, info.ModTime())
 		}
 		return nil
 	})
@@ -404,6 +423,17 @@ func LocateTranscript(harpName string) (string, bool) {
 		return bestJSON, true
 	}
 	return "", false
+}
+
+// keepNewest records path/modTime as the running winner when nothing has been
+// chosen yet or this candidate is newer. The two extension arms of
+// LocateTranscript's walk ran identical bookkeeping over different variables;
+// naming it once means "newest wins" is defined in one place rather than
+// re-agreed per file type.
+func keepNewest(best *string, bestTime *time.Time, path string, modTime time.Time) {
+	if *best == "" || modTime.After(*bestTime) {
+		*best, *bestTime = path, modTime
+	}
 }
 
 // fillTranscriptByLocation resolves a missing (or dangling) transcript binding
@@ -607,9 +637,9 @@ func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -644,9 +674,9 @@ func (m *Manager) Rename(oldName, newName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -677,9 +707,9 @@ func (m *Manager) Forget(harpName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -703,13 +733,27 @@ func (m *Manager) Forget(harpName string) error {
 // with no distilled essence to fall back on — never reaches a frontend; the
 // removal is silent because such an entry is already unactionable. One atomic
 // load+save under the lock, and a no-op write when nothing is dead.
+//
+// CONTRACT ON isDead: it is called while this Manager holds BOTH its mutex and
+// the index file lock, so it must not reach back into the session index by any
+// route. Calling a method on this Manager self-deadlocks on the non-reentrant
+// mutex; opening a second Manager over the same file and calling a locking
+// method of ITS own blocks forever on the flock, which is exclusive and
+// blocking even within one process. Neither fails — the process hangs with no
+// error and no output. Judge only the Entry passed in, plus the filesystem
+// (the production predicate, operations.isUnrecoverable, stats transcript
+// files and nothing else).
+//
+// The predicate must stay inside the lock: the whole point is that the load,
+// the judgement and the pruning save are one atomic sequence, so an entry
+// cannot be judged against an index another writer has since changed.
 func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return nil, fmt.Errorf("lock: %w", err)
+		return nil, err
 	}
 	defer unlock()
 
@@ -741,11 +785,17 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 			return nil, err
 		}
 	}
-	// Fill AFTER the save decision so the located path is computed-on-read
+	// Fill AFTER the save decision so the computed paths are computed-on-read
 	// only, never persisted. (The canonical-transcript fill above is on a
-	// throwaway copy for exactly the same reason.)
+	// throwaway copy for exactly the same reason.) The RETURNED entries get
+	// both fills, so Reconcile's entries mean the same thing as Find's and
+	// ListForProject's: an entry whose CanonicalTranscriptPath is empty must
+	// mean no capture exists, not that this method skipped the stat —
+	// SourceStale reads that field to decide which file the staleness
+	// fingerprint is even about.
 	for i := range survivors {
 		fillTranscriptByLocation(&survivors[i])
+		fillCanonicalTranscript(&survivors[i])
 	}
 	return survivors, nil
 }
@@ -772,9 +822,9 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSi
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -792,6 +842,24 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSi
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found: %q", harpName)
+}
+
+// lockPath is the single home of the index's cooperative lock-file name. The
+// ".lock" suffix is connascent across every mutating method: they must all name
+// the same file or they silently stop excluding one another — no error, no
+// warning, just two writers in one index.
+func (m *Manager) lockPath() string { return m.path + ".lock" }
+
+// lock takes the index's exclusive file lock and returns its release func,
+// already wrapped for return. Every mutating method acquires through here, so
+// the lock's identity and the error's shape are decided once rather than
+// re-agreed at each call site.
+func (m *Manager) lock() (func(), error) {
+	unlock, err := filelock.Lock(m.lockPath())
+	if err != nil {
+		return nil, fmt.Errorf("lock: %w", err)
+	}
+	return unlock, nil
 }
 
 // saveLocked atomically replaces the index file with idx.

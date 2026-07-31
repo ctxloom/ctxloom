@@ -5,6 +5,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
@@ -61,8 +62,10 @@ func (tsNormalizeUpgrade) Apply(root *yaml.Node) (changed bool) {
 // returning whether it changed. It re-encodes from the parsed time.Time so yaml
 // emits its own native (unquoted) timestamp scalar, guaranteeing the value
 // round-trips cleanly back into a time.Time on the next load. An unparseable
-// value degrades to the zero time so the plain decoder never chokes on it
-// (fault tolerance). A nil, empty, or already-canonical node is left untouched.
+// value degrades to NOW — see the branch below for why not the zero time — so
+// the plain decoder never chokes on it (fault tolerance). A nil, empty, or
+// already-canonical node is left untouched, and so is one that cannot be
+// re-encoded, which is warned about rather than passed off as unchanged.
 func normalizeTimestampNode(n *yaml.Node) bool {
 	if n == nil || n.Kind != yaml.ScalarNode || n.Value == "" {
 		return false
@@ -80,11 +83,22 @@ func normalizeTimestampNode(n *yaml.Node) bool {
 	if n.Value == t.Format(time.RFC3339Nano) {
 		return false
 	}
-	if err := n.Encode(t); err != nil {
+	if err := encodeTimestampNode(n, t); err != nil {
+		// The node genuinely did not change, so "false" is the honest answer
+		// for the caller's changed-tracking. What must not also happen is
+		// silence: an un-encodable timestamp leaves a value the plain decoder
+		// rejects, and the failure then surfaces as "parse index" from
+		// loadLocked, pointing at the file rather than at the value.
+		clidiag.Warn("ctxloom", "session index: could not canonicalize the timestamp %q (%v); leaving it as-is, which may fail the index parse", n.Value, err)
 		return false
 	}
 	return true
 }
+
+// encodeTimestampNode is the seam over yaml.Node.Encode. Encoding a time.Time
+// does not fail in practice, so the error path is only reachable — and so only
+// assertable — through here.
+var encodeTimestampNode = func(n *yaml.Node, t time.Time) error { return n.Encode(t) }
 
 // parseTimestamp tries each known layout, returning the parsed time and whether
 // any matched.

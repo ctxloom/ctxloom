@@ -2,7 +2,6 @@ package sessions
 
 import (
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -12,10 +11,22 @@ import (
 
 // MemStore is an in-memory sessions Store adapter. It mirrors *Manager's
 // observable behavior (harp minting, first-bind-wins, reconcile-by-predicate)
-// without touching disk, so the operations layer's storage-agnosticism is
-// demonstrable (ADR 0026) and tests get a filesystem-free index. Filesystem
-// side effects of the real index — the per-harp transcript symlink, schema
-// upgrades — are intentionally absent; PendingUpgrade always reports "current".
+// so the operations layer's storage-agnosticism is demonstrable (ADR 0026) and
+// tests get a filesystem-free INDEX.
+//
+// Filesystem-free names the index and the index only: no index.yaml, no file
+// lock, no atomic rewrite, and none of the real store's write side effects —
+// BindSession drops no per-harp transcript symlink and PendingUpgrade always
+// reports "current".
+//
+// It does NOT mean disk-free, and callers must not assume it. Find,
+// ListForProject and ListAll run the same computed-on-read enrichment as
+// *Manager — fillCanonicalTranscript and ActivityTime — which stat the harp's
+// real HOME-rooted transcript files. That sharing is deliberate: a fake that
+// skipped it would report a different CanonicalTranscriptPath and a different
+// activity ordering than the store it stands in for, which is exactly how a
+// defect stays invisible (see Rename). A test that needs those stats contained
+// must isolate HOME.
 type MemStore struct {
 	mu       sync.Mutex
 	sessions []Entry
@@ -56,18 +67,10 @@ func (m *MemStore) ListForProject(projectDir string) ([]Entry, error) {
 	var out []Entry
 	for _, e := range m.sessions {
 		if e.ProjectDir == projectDir {
-			fillCanonicalTranscript(&e)
-			e.LastActivity = ActivityTime(e)
 			out = append(out, e)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].LastActivity.Equal(out[j].LastActivity) {
-			return out[i].LastActivity.After(out[j].LastActivity)
-		}
-		return out[i].StartedAt.After(out[j].StartedAt)
-	})
-	return out, nil
+	return enrichAndSortByActivity(out), nil
 }
 
 // ListAll returns every entry, most-recent-first by last-worked time (see
@@ -76,19 +79,7 @@ func (m *MemStore) ListForProject(projectDir string) ([]Entry, error) {
 func (m *MemStore) ListAll() ([]Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]Entry, 0, len(m.sessions))
-	for _, e := range m.sessions {
-		fillCanonicalTranscript(&e)
-		e.LastActivity = ActivityTime(e)
-		out = append(out, e)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].LastActivity.Equal(out[j].LastActivity) {
-			return out[i].LastActivity.After(out[j].LastActivity)
-		}
-		return out[i].StartedAt.After(out[j].StartedAt)
-	})
-	return out, nil
+	return enrichAndSortByActivity(append([]Entry(nil), m.sessions...)), nil
 }
 
 // Find returns a copy of the entry for harpName, or nil if absent. Enriches

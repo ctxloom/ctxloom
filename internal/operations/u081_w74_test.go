@@ -330,3 +330,74 @@ func TestMoveBundle_UnremovableSourceYAML_ErrorSaysBothPlaces(t *testing.T) {
 	stillThere, _ := afero.Exists(fs, src)
 	assert.True(t, stillThere)
 }
+
+// ---------------------------------------------------------------------------
+// U081-F05 — a distill run where everything failed must not rewrite the file.
+// ---------------------------------------------------------------------------
+
+// TestDistillBundleFile_AllFailuresLeaveTheFileByteIdentical is the payload
+// assertion, not an exit-code one: with every distill attempt failing there is
+// nothing new to persist, so the author's document — comments, key order and
+// all — must come back unchanged. The old gate was "was there at least one
+// TARGET", which rewrote the file after a run that accomplished nothing, losing
+// the comments to a re-marshal and (via Store.Save's stale-signature check)
+// deleting any detached publisher signature over the original bytes.
+func TestDistillBundleFile_AllFailuresLeaveTheFileByteIdentical(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.yaml")
+	bundleYAML := `# an author comment that a re-marshal would silently drop
+version: 1.0.0
+fragments:
+  rules:
+    content: "fresh content the stale distillation no longer matches"
+    distilled: "stale distilled text"
+    distilled_by: "stale-model"
+    content_hash: "0000000000000000000000000000000000000000000000000000000000000000"
+`
+	require.NoError(t, os.WriteFile(path, []byte(bundleYAML), 0o644))
+
+	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{
+		Path:      path,
+		Distiller: errDistiller{},
+	})
+	require.NoError(t, err)
+
+	// The fixture is only meaningful if the run really did have a target and
+	// really did fail it — otherwise this would pass for the wrong reason.
+	require.Len(t, res.Items, 1)
+	require.Equal(t, "distill_failed", res.Items[0].Reason,
+		"fixture is not hostile: the distill was expected to fail")
+
+	assert.False(t, res.Saved, "nothing was distilled, so nothing may be written")
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, bundleYAML, string(after),
+		"a run that distilled nothing must leave the author's file byte-identical")
+}
+
+// TestDistillBundleFile_PartialSuccessStillSaves keeps the new gate honest: one
+// success among failures still has something to persist, and must still write.
+func TestDistillBundleFile_PartialSuccessStillSaves(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bundle.yaml")
+	bundleYAML := `version: 1.0.0
+fragments:
+  rules:
+    content: "needs distilling"
+`
+	require.NoError(t, os.WriteFile(path, []byte(bundleYAML), 0o644))
+
+	res, err := DistillBundleFile(context.Background(), DistillBundleFileRequest{
+		Path:      path,
+		Distiller: okDistiller{body: "distilled body"},
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Items, 1)
+	require.Equal(t, DistillStatusDistilled, res.Items[0].Status)
+	assert.True(t, res.Saved, "a successful distillation must still be persisted")
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(after), "distilled body")
+}

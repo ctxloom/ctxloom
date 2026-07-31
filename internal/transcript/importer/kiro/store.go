@@ -3,6 +3,7 @@ package kiro
 import (
 	"context"
 	"database/sql"
+	"net/url"
 
 	// modernc.org/sqlite is a pure-Go, CGo-free port of SQLite3 — registered
 	// under database/sql as driver "sqlite" (NOT "sqlite3": that name is
@@ -22,6 +23,23 @@ import (
 // ctxloom does not control and must match exactly.
 const sqlDriverName = "sqlite"
 
+// readOnlyURI renders dbPath as the SQLite "file:" URI openReadOnly connects
+// with. The path is URL-ESCAPED rather than concatenated: a db path is an
+// arbitrary POSIX filename, and '#', '?' and '%' are all legal in one while
+// being structural in a URI — '#' truncates the path at a fragment, '?'
+// captures the query string (which is where mode=ro itself lives), and '%'
+// introduces an escape SQLite decodes. Concatenating any of them silently
+// addresses a DIFFERENT file and/or drops mode=ro, which is precisely the
+// guarantee this URI exists to make.
+//
+// The authority is omitted ("file:<path>", never "file://<path>"): an empty
+// authority would make a RELATIVE dbPath parse as a host, which SQLite
+// rejects.
+func readOnlyURI(dbPath string) string {
+	u := url.URL{Scheme: "file", OmitHost: true, Path: dbPath, RawQuery: "mode=ro"}
+	return u.String()
+}
+
 // openReadOnly opens the kiro-cli sqlite db at dbPath using SQLite's own
 // read-only URI mode (mode=ro), not a plain-path open: a plain-path
 // connection can still cause SQLite to create or touch a -wal/-shm sidecar
@@ -35,7 +53,7 @@ const sqlDriverName = "sqlite"
 // right here — the same "structural failure, no further progress possible"
 // case codex.Adapter.Convert's os.Open gets for free from being eager.
 func openReadOnly(dbPath string) (*sql.DB, error) {
-	db, err := sql.Open(sqlDriverName, "file:"+dbPath+"?mode=ro")
+	db, err := sql.Open(sqlDriverName, readOnlyURI(dbPath))
 	if err != nil {
 		return nil, err
 	}

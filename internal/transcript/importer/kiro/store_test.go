@@ -31,8 +31,17 @@ func TestOpenReadOnly_PathWithURIMetacharacters(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			dir := t.TempDir()
 			dbPath := filepath.Join(dir, name)
-			db := mustOpenAndCreateTable(t, dbPath)
+
+			// Seed under a boring name and RENAME into place: the driver's own
+			// DSN parsing splits a plain path on '?' too, so building the
+			// fixture through it would create the db somewhere other than
+			// dbPath and the subtest would measure the wrong file (a fixture
+			// that is not hostile is not a fixture).
+			seed := filepath.Join(dir, "seed")
+			db := mustOpenAndCreateTable(t, seed)
 			require.NoError(t, db.Close())
+			require.NoError(t, os.Rename(seed, dbPath))
+			require.FileExists(t, dbPath)
 
 			ro, err := openReadOnly(dbPath)
 			require.NoError(t, err, "openReadOnly must resolve the real file")

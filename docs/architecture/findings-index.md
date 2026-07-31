@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,522** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,523** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 180 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **153** |
+| `open` | no commit names this ID | **152** |
 
-**Totals: 2268 findings across 162 units — 1,522 resolved, 153 still open, 593 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,523 resolved, 152 still open, 593 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 572 | 91 | 104 | 96 | 136 |
+| MED | 999 | 573 | 90 | 104 | 96 | 136 |
 | LOW | 871 | 589 | 55 | 60 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1854,7 +1854,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U136-F06 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `entry.go:48`, `parse.go:124`, `write.go:57-60` | NOPAY | `Entry.KeyType` is a derived duplicate that can never disagree with `PublicKey.Type()` on any parsed entry — which is precisely why F05 goes unnoticed. It carries no information and costs a field, ... | U136.md |
 | U136-F07 | **RESOLVED** `78e0eb48` | `parse_test.go:234-239` | CORRECTNESS | `TestParse_UnrecognizedKeyTypeIsMalformed` is vacuous: it passes for a reason unrelated to its name, and asserts an invariant that does not hold. | U136.md |
 | U136-F08 | open | **`store.go:105`, `:134`, `:48`, `:20`** | CORRECTNESS | `Decision.Entry` is `&s.entries[i]` — a live, writable pointer into the Store's own backing array — and `Entries()`/`NewStore`/`Union` copy only the slice header, so `Principals`, `Namespaces`, `Pu... | U136.md |
-| U136-F09 | open | **`parse.go:63`, `:79-81`** | CORRECTNESS | A single line over the 1 MiB scanner limit makes `Parse` return `(nil, perrs, bufio.ErrTooLong)` — disarming the **entire** file, contradicting the fail-closed contract stated three times (`parse.g... | U136.md |
+| U136-F09 | **RESOLVED** `33ff2142` | **`parse.go:63`, `:79-81`** | CORRECTNESS | A single line over the 1 MiB scanner limit makes `Parse` return `(nil, perrs, bufio.ErrTooLong)` — disarming the **entire** file, contradicting the fail-closed contract stated three times (`parse.g... | U136.md |
 | U136-F10 | open | **`parse.go:152`, `pattern.go:44`, `store.go:100`** | COMPLEXITY | Three functions in this package exceed the enforcing CI complexity gate. Either the CI lint job is currently red, or the gate is not doing what it documents. | U136.md |
 | U136-F11 | open | `entry.go:57-59` | COUPLING | `Entry.Line` is documented "for diagnostics" but is used across a package boundary as a load-bearing 1-based index that decides which physical lines of the trust root get **deleted**. The correctne... | U136.md |
 | U136-F12 | open | **`parse.go:14-24`** | ERRHANDLING | The doc tells callers to use `errors.Is` against the sentinel causes "rather than matching `ParseError.Error()`'s text" — but all six sentinels are unexported, so no caller outside this package can... | U136.md |

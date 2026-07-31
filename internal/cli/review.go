@@ -410,13 +410,23 @@ func printReviewItem(w io.Writer, idx, count int, item operations.ReviewItem) {
 		fmt.Fprintf(w, "  --- %s form (exposed now) ---\n", item.CurrentForm)
 	}
 
-	shown := false
-	if item.Status == operations.ReviewStatusUpdate && item.PreviousContent != "" {
-		diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent)
-		switch {
+	printReviewItemBody(w, item)
+	printReviewAlternateForm(w, item)
+}
+
+// printReviewItemBody renders the bytes under an item's header: a unified diff
+// against the previously-accepted snapshot when one exists and the content
+// moved, the full content otherwise. Every fall-through to full content names
+// its reason — an unexplained wall of content is indistinguishable from a
+// change the reviewer failed to spot.
+func printReviewItemBody(w io.Writer, item operations.ReviewItem) {
+	isUpdate := item.Status == operations.ReviewStatusUpdate
+	switch {
+	case isUpdate && item.PreviousContent != "":
+		switch diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent); {
 		case diff != "":
 			fmt.Fprint(w, indentBlock(diff))
-			shown = true
+			return
 		case item.PreviousContent == item.CurrentContent:
 			// An item is labelled UPDATE whenever a prior approval exists, not
 			// only when the bytes moved — a superseded approval record (e.g. a
@@ -427,14 +437,12 @@ func printReviewItem(w io.Writer, idx, count int, item operations.ReviewItem) {
 		default:
 			fmt.Fprintln(w, "  (no differences could be rendered against the approved content — showing the incoming content in full)")
 		}
+	case isUpdate && !item.Executable:
+		// No snapshot to diff against (e.g. a migrated grant). Executables are
+		// exempt: mcp/hooks always render as what they run, never as a diff.
+		fmt.Fprintln(w, "  (no snapshot of the previously accepted content — showing it in full)")
 	}
-	if !shown {
-		if item.Status == operations.ReviewStatusUpdate && item.PreviousContent == "" && !item.Executable {
-			fmt.Fprintln(w, "  (no snapshot of the previously accepted content — showing it in full)")
-		}
-		fmt.Fprint(w, indentBlock(item.CurrentContent))
-	}
-	printReviewAlternateForm(w, item)
+	fmt.Fprint(w, indentBlock(item.CurrentContent))
 }
 
 // printReviewAlternateForm shows the item's OTHER form when it has one.

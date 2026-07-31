@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,382** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 154 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 155 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 184 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 186 |
-| `open` | no commit names this ID | **362** |
+| `open` | no commit names this ID | **361** |
 
-**Totals: 2268 findings across 162 units — 1,382 resolved, 362 still open, 524 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,382 resolved, 361 still open, 525 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 508 | 201 | 87 | 83 | 120 |
-| LOW | 871 | 517 | 150 | 51 | 93 | 60 |
+| LOW | 871 | 517 | 149 | 52 | 93 | 60 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2368,7 +2368,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U059-F19 | **RESOLVED** `4f4c7891` | `client.go:25` | COUPLING | `ContainerRunnerFunc` is a type **alias** (`=`), so it provides a name but no type distinction — the stated goal ("callers name the contract without importing go-plugin's exact signature") is only ... | U059.md |
 | U059-F21 | **PARTIAL** `3d09dfa3` | `canonical_source.go:50` | COUPLING | `RetiredScraperBackends` is an exported **mutable** package-level map; every consumer only ever does a membership test, and each must independently remember to consult it before choosing `legacy=nil`. | U059.md |
 | U060-F06 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `llm.proto:388` | NOPAY | `LLMInfo.supported_modes` is written but never read in production | U060.md |
-| U060-F07 | open | `llm.pb.go:3391` | CORRECTNESS | Generated getter `GetAutoRegisterCtxloom()` collapses the unset/true/false tri-state the field exists to preserve; latent, not live | U060.md |
+| U060-F07 | **PARTIAL** `a219bd27` | `llm.pb.go:3391` | CORRECTNESS | Generated getter `GetAutoRegisterCtxloom()` collapses the unset/true/false tri-state the field exists to preserve; latent, not live | U060.md |
 | U060-F08 | open | `llm.proto:383` | DUPLICATE | Local `Empty` duplicates the `google.protobuf.Empty` well-known type | U060.md |
 | U060-F10 | open | `llm.proto:277,286` | COMPLEXITY | `ChatEvent.terminal = 6` sits inside the oneof while `raw = 5` sits outside it — numerically interleaved, which reads as an error | U060.md |
 | U061-F11 | **RESOLVED** `9e855eeb` | **`managed.go:97; sessionhistory.go:65, 218; sessionwatch.go:73-74`** | ERRHANDLING | Four unchecked `int → int32` narrowings on the wire. Each silently wraps rather than failing. | U061.md |

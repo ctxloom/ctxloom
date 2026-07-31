@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,500** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,501** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 179 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **178** |
+| `open` | no commit names this ID | **177** |
 
-**Totals: 2268 findings across 162 units — 1,500 resolved, 178 still open, 590 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,501 resolved, 177 still open, 590 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 562 | 104 | 103 | 95 | 135 |
+| MED | 999 | 563 | 103 | 103 | 95 | 135 |
 | LOW | 871 | 579 | 65 | 60 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1762,7 +1762,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U114-F05 | **RESOLVED** `bde4a3e2` | **`pidalive_windows.go:12`** | ERRHANDLING | The `*os.Process` returned by `os.FindProcess` is discarded, so its OS handle is released only when the GC finalizer runs. The heaviest consumer is a watchdog that polls on a timer, so this is a st... | U114.md |
 | U115-F03 | open | **`plans.go:87-94`** | ERRHANDLING | A per-file `os.ReadFile` failure is swallowed; the plan is still emitted, but with `Title` silently falling back to the filename and `Sessions` silently `nil`. The consumer cannot distinguish "this... | U115.md |
 | U115-F04 | open | **`plans.go:157-165` (reader) vs `internal/memory/stamp.go:87-99` (writer)`** | CORRECTNESS | The reader and its paired writer disagree on the `sessions:` encoding. `ParseFrontmatter` only understands a **block** sequence (`- item`); `StampPlanFile` round-trips through `yaml.Node`, which **... | U115.md |
-| U115-F05 | open | **`plans.go:159` (vs `:169`)`** | CORRECTNESS | Session list items are never unquoted. `unquote` is applied to the `title` scalar but not to sequence items, so a quoted entry yields a harp name with literal quote characters embedded — a value th... | U115.md |
+| U115-F05 | **RESOLVED** `b4cb4ee8` | **`plans.go:159` (vs `:169`)`** | CORRECTNESS | Session list items are never unquoted. `unquote` is applied to the `title` scalar but not to sequence items, so a quoted entry yields a harp name with literal quote characters embedded — a value th... | U115.md |
 | U115-F06 | **PARTIAL** `19d72034` | **`plans.go:19-20`, `:40-46`** | DUPLICATE | The package re-declares vocabulary `internal/paths` already owns: `sessionsDirName = "sessions"` duplicates `paths.SessionsDir` (`internal/paths/paths.go:97`), `planExt = ".plan.md"` duplicates `pa... | U115.md |
 | U116-F03 | open | `ptyrunner.go:104` | CORRECTNESS | **The `stderr io.Writer` parameter is accepted and never read.** A caller passing distinct stdout/stderr writers gets everything merged onto stdout and nothing at all on stderr, with no indication. | U116.md |
 | U116-F04 | open | `ptyrunner.go:132`, `:156` | ERRHANDLING | Both `ptty.Resize` errors are discarded — including the **initial** one, whose entire purpose is to fix a documented defect. If the initial resize fails, the 300ms wait bought nothing, the child pa... | U116.md |

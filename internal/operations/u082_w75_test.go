@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // setupHeadingTestFS builds a bundle whose commands lead with each of the
@@ -283,4 +286,91 @@ func TestCreateBundle_ConcurrentCreateIsNotClobbered(t *testing.T) {
 
 	require.Error(t, err, "creating over a bundle that appeared mid-flight must refuse")
 	assert.Contains(t, err.Error(), "already exists")
+}
+
+// TestConstraintResolver_SkipWarningNamesTheCause pins U082-F07. When a
+// dependency drops out of the lockfile the user gets one line, and it is the
+// only signal that anything went wrong — the walk continues and the build
+// proceeds without the item. Three unrelated failures reached that line with
+// their errors discarded: no fetcher could be built for the URL, the URL was
+// not parseable as owner/repo, and the constraint did not resolve against the
+// repo's version space. "could not resolve X@Y; skipping" is the same sentence
+// for an auth problem, a typo'd URL, and a tag that does not exist yet, and it
+// tells the user nothing they can act on.
+func TestConstraintResolver_SkipWarningNamesTheCause(t *testing.T) {
+	// badURL must be a URL the fetcher factory happily accepts but
+	// ParseOwnerRepo rejects; asserted below so the case cannot silently
+	// degenerate into the resolve-failure case.
+	const badURL = "::not-a-repo-url::"
+
+	cases := []struct {
+		name     string
+		factory  remote.FetcherFactory
+		ref      *remote.Reference
+		precheck func(t *testing.T)
+		want     string
+	}{
+		{
+			name: "no fetcher for the URL",
+			factory: func(string, remote.AuthConfig) (remote.Fetcher, error) {
+				return nil, errors.New("no credentials for host")
+			},
+			ref:  mustRef(t, "feature-x"),
+			want: "no credentials for host",
+		},
+		{
+			name: "URL is not parseable as owner/repo",
+			factory: func(string, remote.AuthConfig) (remote.Fetcher, error) {
+				return remote.NewMockFetcher(), nil
+			},
+			ref: &remote.Reference{
+				Path:           "bundles/x",
+				URL:            badURL,
+				ContentVersion: "feature-x",
+				ItemType:       remote.ItemTypeBundle,
+			},
+			precheck: func(t *testing.T) {
+				_, _, err := remote.ParseOwnerRepo(badURL)
+				require.Error(t, err, "fixture is not hostile: this URL parses fine")
+			},
+			// Deliberately NOT the URL itself: the URL already appears in the
+			// existing message via the ref identity, so asserting on it would
+			// pass against the unfixed code and prove nothing.
+			want: "unparseable repository URL",
+		},
+		{
+			name: "constraint does not resolve",
+			factory: func(string, remote.AuthConfig) (remote.Fetcher, error) {
+				m := remote.NewMockFetcher()
+				m.ResolveRefErr = errors.New("no tag matches ^9.0")
+				return m, nil
+			},
+			ref:  mustRef(t, "^9.0"),
+			want: "no tag matches ^9.0",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.precheck != nil {
+				tc.precheck(t)
+			}
+			var sink strings.Builder
+			restore := clidiag.SetSink(&sink)
+			defer restore()
+
+			resolve := newConstraintResolver(context.Background(), nil, tc.factory, remote.AuthConfig{}, false)
+			_, _, _, ok := resolve(tc.ref)
+
+			// §11k: the fixture is only hostile if the resolver actually took
+			// the skip path — otherwise there is no warning to inspect.
+			require.False(t, ok, "this fixture must reach the skip-with-warning path")
+			require.NotEmpty(t, sink.String(), "the skip path must warn")
+
+			assert.Contains(t, sink.String(), "could not resolve",
+				"the existing skip wording must survive")
+			assert.Contains(t, sink.String(), tc.want,
+				"the warning must name which of the three failures happened")
+		})
+	}
 }

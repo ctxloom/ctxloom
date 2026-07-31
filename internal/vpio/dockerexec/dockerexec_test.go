@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
@@ -324,4 +325,21 @@ func TestStartPTYCommand_CancellationIsGraceful(t *testing.T) {
 	cancel()
 	_, _ = sess.Wait()
 	require.FileExists(t, marker, "the subprocess was killed with zero grace instead of being asked to stop")
+}
+
+// TestSession_WaitClosesThePtyMaster pins U152-F03: the host pty master was
+// closed ONLY on Wait's drain-timeout backstop arm. On the normal exit path —
+// every healthy turn — the fd stayed open for the life of the process, so a
+// frontend driving several container turns under one long-lived context leaked
+// one master fd per turn. Wait returning means the session is over; its fd goes
+// with it. A second Close reporting os.ErrClosed is how the fd's state is
+// observable from outside.
+func TestSession_WaitClosesThePtyMaster(t *testing.T) {
+	ctx := context.Background()
+	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "sh", "-c", "exit 0"), vpio.ProcessSpec{Stdout: io.Discard})
+	require.NoError(t, err)
+	_, werr := sess.Wait()
+	require.NoError(t, werr)
+
+	require.ErrorIs(t, sess.master.Close(), os.ErrClosed, "the pty master must be closed once Wait returns")
 }

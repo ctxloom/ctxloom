@@ -394,3 +394,48 @@ func TestRunInteractive_ChildStderrArrivesOnStdoutWriter(t *testing.T) {
 		"a pty merges the child's fd 2 into the single master stream; the caller's "+
 			"one writer receives both, which is why a second writer cannot be honoured")
 }
+
+// TestRunInteractive_HandBuiltCmdWithoutArgsRuns pins the nil-Args crash:
+// os/exec defaults an empty Args to a one-element slice containing Path, but
+// it does that inside exec.Cmd.Start, which RunInteractive never calls — it
+// re-derives the argv for go-pty's own Cmd instead. So a hand-built
+// &exec.Cmd{Path: ...} (legal, and the shape any caller assembling a spec
+// rather than calling exec.Command produces) still carries a nil Args when it
+// arrives here, and slicing it at [1:] panics.
+func TestRunInteractive_HandBuiltCmdWithoutArgsRuns(t *testing.T) {
+	truePath, err := exec.LookPath("true")
+	require.NoError(t, err)
+
+	// Args deliberately left nil — that is the whole fixture.
+	cmd := &exec.Cmd{Path: truePath}
+	require.Nil(t, cmd.Args, "the fixture is only hostile while Args is nil")
+
+	var exitCode int
+	var runErr error
+	require.NotPanics(t, func() {
+		exitCode, runErr = RunInteractive(context.Background(), cmd, nil, nil, nil)
+	}, "a *exec.Cmd with no Args must not panic the runner")
+	require.NoError(t, runErr)
+	assert.Equal(t, 0, exitCode)
+}
+
+// TestRunInteractive_Argv0ComesFromPath characterizes a limitation of the
+// underlying pty library rather than a choice made here: go-pty's Cmd.start
+// rebuilds the child's argv as exec.Command(c.Path, c.Args[1:]...), so argv[0]
+// is ALWAYS the resolved Path and a caller's own Args[0] can never survive.
+// exec.Command itself sets Args[0] to the name as written ("sh"), so the two
+// already differ for every ordinary caller. Pinned so that a future change of
+// pty library — the only way to honour a custom argv[0] — is a deliberate,
+// visible decision rather than a silent behaviour change.
+func TestRunInteractive_Argv0ComesFromPath(t *testing.T) {
+	cmd := exec.Command("sh", "-c", `printf 'argv0=%s\n' "$0"; sleep 0.1`)
+	require.Equal(t, "sh", cmd.Args[0], "exec.Command sets argv[0] to the name as written")
+	require.NotEqual(t, cmd.Args[0], cmd.Path, "the fixture needs Path and Args[0] to differ")
+
+	var out bytes.Buffer
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, &out, nil)
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Contains(t, out.String(), "argv0="+cmd.Path,
+		"go-pty derives argv[0] from Path; the caller's Args[0] is not reachable from here")
+}

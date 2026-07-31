@@ -144,12 +144,15 @@ func TestRestoreDir_ReportsAFailedRestore(t *testing.T) {
 // TestRestoreDir_SilentOnSuccess is the negative case: the ordinary restore
 // must stay quiet, or every test using ChangeDir would fail.
 func TestRestoreDir_SilentOnSuccess(t *testing.T) {
-	orig, err := os.Getwd()
+	// Restore to where the process already is: a successful no-op chdir, so
+	// this test cannot disturb the working directory every other test in the
+	// binary shares (and does not need the os.Chdir the linter forbids in
+	// tests for exactly that reason).
+	here, err := os.Getwd()
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.Chdir(orig) })
 
 	var rep recordingReporter
-	restoreDir(&rep, t.TempDir(), "unused")
+	restoreDir(&rep, here, "unused")
 	assert.Empty(t, rep.msgs)
 }
 

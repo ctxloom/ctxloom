@@ -220,9 +220,9 @@ Examples:
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
-		bundleName, skillName := args[0], ""
-		if b, n, ok := strings.Cut(args[0], "#skills/"); ok {
-			bundleName, skillName = b, n
+		bundleName, skillName, err := splitSkillSyncRef(args[0])
+		if err != nil {
+			return err
 		}
 		res, err := operations.SyncSkill(context.Background(), cfg, operations.SyncSkillRequest{
 			Bundle: bundleName,
@@ -244,6 +244,17 @@ Examples:
 			return nil
 		})
 	},
+}
+
+// splitSkillSyncRef splits `skill sync`'s single argument into the bundle and
+// the optional skill name: a bare bundle name selects every skill the bundle
+// ships, "<bundle>#skills/<name>" selects exactly one.
+func splitSkillSyncRef(arg string) (bundle, name string, err error) {
+	b, n, ok := strings.Cut(arg, "#skills/")
+	if !ok {
+		return arg, "", nil
+	}
+	return b, n, nil
 }
 
 var skillExportOut string

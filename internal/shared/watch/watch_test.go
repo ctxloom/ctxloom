@@ -81,3 +81,33 @@ func TestWatch_Recursive_Subdir(t *testing.T) {
 		t.Fatalf("event path = %q, want %q", ev.Path, plan)
 	}
 }
+
+// TestClose_IsIdempotent pins U132-F05: Close closed w.done unconditionally, so
+// a SECOND call panicked with "close of closed channel". A watcher is handed to
+// a caller that defers Close and to a stream that may also want to stop it, and
+// neither can ask whether the other already did — an idempotent Close is the
+// only shape under which "stop this watcher" is a safe thing for two owners to
+// say. Close must also mean the pump has actually stopped: returning while the
+// goroutine still forwards events reports a shutdown that has not happened.
+func TestClose_IsIdempotent(t *testing.T) {
+	w, err := New(t.TempDir(), false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("first Close: %v", err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatalf("second Close: %v", err)
+	}
+	// Close returned, so the pump is stopped and the event channel is closed —
+	// a receive must not block.
+	select {
+	case _, ok := <-w.Events():
+		if ok {
+			t.Fatal("Events() delivered an event after Close returned")
+		}
+	default:
+		t.Fatal("Events() still open after Close returned: the pump had not stopped")
+	}
+}

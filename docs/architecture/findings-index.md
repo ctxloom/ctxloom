@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,526** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,527** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **147** |
+| `open` | no commit names this ID | **146** |
 
-**Totals: 2268 findings across 162 units — 1,526 resolved, 147 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,527 resolved, 146 still open, 595 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 576 | 86 | 104 | 96 | 137 |
-| LOW | 871 | 589 | 54 | 61 | 104 | 63 |
+| LOW | 871 | 590 | 53 | 61 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2777,7 +2777,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U148-F05 | **RESOLVED** `9276cc6d` | `rollout.go:394-397` | DEAD | The `json.Marshal` error branch in `argumentsToRaw` is unreachable | U148.md |
 | U148-F06 | **REFUTED** `3ed8638a` | `rollout.go:41-44`, `161-164` | DEAD | The `session_id` fallback is unreachable on every observed capture and is exercised by nothing | U148.md |
 | U148-F07 | **RESOLVED** `0341d003` | `rollout.go:219-221` vs `:289` | TRIVIAL | Two spellings of the same flush in one file: `flushPending` (a 1-line wrapper, used once as a func value) and a direct `importer.FlushComplete(&c.pending, c.record)` call in `handleEventMsg` | U148.md |
-| U148-F08 | open | `rollout.go:119`, `148` | ERRHANDLING | Context cancellation is not observed until after the whole file is read into memory **and** fully scanned once | U148.md |
+| U148-F08 | **RESOLVED** `d549cc83` | `rollout.go:119`, `148` | ERRHANDLING | Context cancellation is not observed until after the whole file is read into memory **and** fully scanned once | U148.md |
 | U148-F09 | **RESOLVED** `dc593332` | `rollout.go:278` | CORRECTNESS | `c.pending.ContextWindow = p.Info.ModelContextWindow` overwrites unconditionally, so a later `token_count` that omits `model_context_window` zeroes an already-good value | U148.md |
 | U148-F10 | open | `codex_test.go:201` | CORRECTNESS | The hand-pinned backstop cannot distinguish `argumentsToRaw`'s correct object pass-through from its escaped-string fallback — the one property whose only other guard is a machine-regenerated golden | U148.md |
 | U148-F11 | open | `codex_test.go:1-11` | CORRECTNESS | The suite header claims the package validates codex "against a fresh rollout file"; the documented command validates against a frozen 2026-07-16 fixture | U148.md |

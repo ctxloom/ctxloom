@@ -55,7 +55,8 @@ rejecting countersigns a permanent refusal, both by ref and by content.
 of your personal one (~/.ctxloom/approvals), so a team/CI can inherit the
 decision via the project's allowed_signers. It REQUIRES a signing key.
 
-Non-interactive (piped, or --list): print the pending table and exit.
+Non-interactive (piped, --list, or any --format but text): print the pending
+table and exit.
 
 The scriptable plumbing under this porcelain:
   ctxloom trust <ref>       accept one item
@@ -77,13 +78,14 @@ func init() {
 }
 
 // runReview enumerates the pending set and dispatches: the interactive walk on
-// a TTY, the pending table otherwise.
+// a TTY with no machine-readable --format asked for, the pending table
+// otherwise (see reviewWantsListing).
 func runReview(cmd *cobra.Command, cfg *config.Config) error {
 	res, err := operations.PendingReview(cfg, operations.PendingReviewRequest{})
 	if err != nil {
 		return err
 	}
-	if reviewListFlag || !isInteractiveTerminal() {
+	if reviewWantsListing(cmd, reviewListFlag, isInteractiveTerminal()) {
 		return emit(cmd, res, func() error {
 			renderReviewList(cmd.OutOrStdout(), res)
 			return nil
@@ -408,20 +410,39 @@ func printReviewItem(w io.Writer, idx, count int, item operations.ReviewItem) {
 		fmt.Fprintf(w, "  --- %s form (exposed now) ---\n", item.CurrentForm)
 	}
 
-	shown := false
-	if item.Status == operations.ReviewStatusUpdate && item.PreviousContent != "" {
-		if diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent); diff != "" {
-			fmt.Fprint(w, indentBlock(diff))
-			shown = true
-		}
-	}
-	if !shown {
-		if item.Status == operations.ReviewStatusUpdate && item.PreviousContent == "" && !item.Executable {
-			fmt.Fprintln(w, "  (no snapshot of the previously accepted content — showing it in full)")
-		}
-		fmt.Fprint(w, indentBlock(item.CurrentContent))
-	}
+	printReviewItemBody(w, item)
 	printReviewAlternateForm(w, item)
+}
+
+// printReviewItemBody renders the bytes under an item's header: a unified diff
+// against the previously-accepted snapshot when one exists and the content
+// moved, the full content otherwise. Every fall-through to full content names
+// its reason — an unexplained wall of content is indistinguishable from a
+// change the reviewer failed to spot.
+func printReviewItemBody(w io.Writer, item operations.ReviewItem) {
+	isUpdate := item.Status == operations.ReviewStatusUpdate
+	switch {
+	case isUpdate && item.PreviousContent != "":
+		switch diff := unifiedReviewDiff(item.PreviousContent, item.CurrentContent); {
+		case diff != "":
+			fmt.Fprint(w, indentBlock(diff))
+			return
+		case item.PreviousContent == item.CurrentContent:
+			// An item is labelled UPDATE whenever a prior approval exists, not
+			// only when the bytes moved — a superseded approval record (e.g. a
+			// countersign-contract bump) re-gates identical content. Full
+			// content below is then the whole story, and saying so is the
+			// difference between a re-read and a re-audit.
+			fmt.Fprintln(w, "  (unchanged since it was approved — it is pending again because the earlier approval no longer applies; showing it in full)")
+		default:
+			fmt.Fprintln(w, "  (no differences could be rendered against the approved content — showing the incoming content in full)")
+		}
+	case isUpdate && !item.Executable:
+		// No snapshot to diff against (e.g. a migrated grant). Executables are
+		// exempt: mcp/hooks always render as what they run, never as a diff.
+		fmt.Fprintln(w, "  (no snapshot of the previously accepted content — showing it in full)")
+	}
+	fmt.Fprint(w, indentBlock(item.CurrentContent))
 }
 
 // printReviewAlternateForm shows the item's OTHER form when it has one.
@@ -439,8 +460,13 @@ func printReviewAlternateForm(w io.Writer, item operations.ReviewItem) {
 }
 
 // unifiedReviewDiff renders a unified diff of the accepted vs incoming
-// content. Returns "" on failure or an empty delta so the caller falls back
-// to the full-content display.
+// content. Returns "" for an empty delta, on which the caller falls back to
+// the full-content display and says why.
+//
+// The error is discarded because it cannot occur: GetUnifiedDiffString renders
+// into a bytes.Buffer of its own, and bytes.Buffer writes never return an
+// error (an over-large buffer panics instead). There is no failure mode here
+// to distinguish from an empty delta.
 func unifiedReviewDiff(previous, current string) string {
 	text, err := difflib.GetUnifiedDiffString(difflib.UnifiedDiff{
 		A:        difflib.SplitLines(previous),

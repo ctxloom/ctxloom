@@ -24,9 +24,10 @@ func TestRunStructuredREPLViaCoord_EOFAfterLeadTurnReturnsCleanly(t *testing.T) 
 	ch := make(chan *agentcoordpb.AgentEvent, 1)
 	ch <- ownedTurnIdle()
 	sess := &ownedRunSession{
-		outcome: &coord.RunOutcome{RunID: ownedTestRunID},
-		events:  ch,
-		cancel:  func() {},
+		outcome:        &coord.RunOutcome{RunID: ownedTestRunID},
+		events:         ch,
+		cancel:         func() {},
+		leadTurnIssued: true,
 	}
 
 	done := make(chan error, 1)

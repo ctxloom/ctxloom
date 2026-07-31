@@ -71,7 +71,7 @@ func loadWithWarnings(load func(...config.LoadOption) (*config.Config, error)) (
 	if err != nil {
 		return nil, err
 	}
-	printConfigWarnings(os.Stderr, cfg.GetWarnings())
+	printAndRecordConfigWarnings(os.Stderr, cfg.GetWarnings())
 	return cfg, nil
 }
 
@@ -86,7 +86,12 @@ var rootCmd = &cobra.Command{
 	// Apply the parsed --degraded flag before any subcommand runs. The
 	// CTXLOOM_DEGRADED env was already applied pre-dispatch (cmd/ctxloom/
 	// main.go); an explicitly set flag wins over it in either direction.
-	// No subcommand defines its own PersistentPreRun, so this runs for all.
+	// Cobra runs the CLOSEST persistent hook it finds walking up from the
+	// invoked command, never all of them: a subcommand declaring its own would
+	// silently switch off everything below for that command. No subcommand
+	// does, and TestNoSubcommandDefinesPersistentHooks (root_test.go) fails if
+	// one ever starts to — per-command setup belongs in PreRun(E), which cobra
+	// runs IN ADDITION to this.
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		// U104-F01's runtime guard (format.go): clear the per-invocation
 		// "did this command honor --format" tracker before anything can set
@@ -129,8 +134,8 @@ var rootCmd = &cobra.Command{
 	// RunE (cobra skips it on error, and skips it entirely for
 	// --help/--version/completion), turning a non-text --format that no
 	// command ever honored into a loud error instead of a silent exit 0.
-	// No subcommand defines its own PersistentPostRun(E), so — symmetrically
-	// with PersistentPreRun above — this runs for all of them.
+	// Symmetrically with PersistentPreRun above, and enforced by the same test:
+	// no subcommand defines its own PersistentPostRun(E), so this runs for all.
 	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
 		return checkFormatWasHonored(cmd)
 	},

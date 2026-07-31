@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -188,4 +191,55 @@ func TestWorktreeRemoved_UnreadableIsNotGone(t *testing.T) {
 	assert.False(t, worktreeRemoved(wtDir), "a readable, still-present tree was not removed")
 	require.NoError(t, os.RemoveAll(wtDir))
 	assert.True(t, worktreeRemoved(wtDir), "an absent tree WAS removed")
+}
+
+// A reaper that could not act on ANY candidate is NOT silent, and that is the
+// whole point: a clean sweep says nothing, so every line the sweep does print
+// is a candidate it declined to remove and why. This pins the diagnostic
+// surface itself — the register claim that the failure surface is "discarded
+// entirely" rests on WorktreeReapResult carrying no error count, but the
+// counts were never the reporting channel.
+//
+// Driven through the CommonDir failure because it is the one arm that can be
+// forced without a real repo: a candidate whose owning repo cannot be
+// resolved is left in place, forever, and the user has to be told which one.
+func TestReapOrphanedWorktrees_UnresolvableCandidateIsReportedNotSwallowed(t *testing.T) {
+	testsupport.Isolate(t)
+
+	sessionsRoot, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	ephemeral := filepath.Join(sessionsRoot, "reap-warn-harp", "ephemeral")
+	require.NoError(t, os.MkdirAll(ephemeral, 0o755))
+	// A candidate that matches the sweep's prefix but is not a git worktree at
+	// all, so CommonDir fails on it.
+	wtDir := filepath.Join(ephemeral, worktreeCandidatePrefix+"orphan-abc")
+	require.NoError(t, os.MkdirAll(wtDir, 0o755))
+	setWorktreeOwnerForTest(t, wtDir, deadPid)
+
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	result := ReapOrphanedWorktrees(context.Background(), git.NewExec())
+
+	assert.Equal(t, WorktreeReapResult{Skipped: 1}, result)
+	out := sink.String()
+	assert.Contains(t, out, wtDir, "the candidate the sweep could not act on must be named")
+	assert.Contains(t, out, "leaving it in place",
+		"and the sweep must say what it did about it")
+}
+
+// The contrast that makes the line above informative: a sweep with nothing to
+// do prints nothing at all, so any output IS the failure report.
+func TestReapOrphanedWorktrees_CleanSweepIsSilent(t *testing.T) {
+	testsupport.Isolate(t)
+
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	result := ReapOrphanedWorktrees(context.Background(), git.NewExec())
+
+	assert.Equal(t, WorktreeReapResult{}, result)
+	assert.Empty(t, sink.String(), "a clean sweep is silent — that is what makes a warning a signal")
 }

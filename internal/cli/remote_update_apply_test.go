@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -37,7 +38,7 @@ func bundleUpd(ref string) updateInfo {
 func TestApplyUpdates_AllSucceed(t *testing.T) {
 	var out bytes.Buffer
 	p := &recordingPuller{}
-	updated, failed, removed := applyUpdates(context.Background(), &out, p,
+	updated, failed, removed := applyUpdates(context.Background(), &out, p, false,
 		[]updateInfo{bundleUpd("bob/tools")})
 
 	if updated != 1 || failed != 0 {
@@ -54,7 +55,7 @@ func TestApplyUpdates_AllSucceed(t *testing.T) {
 func TestApplyUpdates_PullsAtPinnedSHA(t *testing.T) {
 	var out bytes.Buffer
 	p := &recordingPuller{}
-	applyUpdates(context.Background(), &out, p, []updateInfo{bundleUpd("bob/tools")})
+	applyUpdates(context.Background(), &out, p, false, []updateInfo{bundleUpd("bob/tools")})
 
 	// Each bundle is pulled at its exact constraint-bounded LatestSHA (a
 	// "<ref>@<sha>" pin), not the bare ref.
@@ -72,7 +73,7 @@ func TestApplyUpdates_PinsSHAButPreservesConstraint(t *testing.T) {
 	var out bytes.Buffer
 	p := &recordingPuller{}
 	u := updateInfo{Type: remote.ItemTypeBundle, Ref: "bob/tools", LatestSHA: "bbbbbbb", RequestedVersion: "^1.2"}
-	applyUpdates(context.Background(), &out, p, []updateInfo{u})
+	applyUpdates(context.Background(), &out, p, false, []updateInfo{u})
 
 	if len(p.calls) != 1 || p.calls[0] != "bob/tools@bbbbbbb" {
 		t.Fatalf("expected a single pinned pull bob/tools@bbbbbbb, got %v", p.calls)
@@ -92,7 +93,7 @@ func TestApplyUpdates_ClassifiesErrors(t *testing.T) {
 		"x/gone@ddddddd":   fmt.Errorf("wrap: %w", errs.ErrRemoteContentNotFound),
 		"x/broken@ddddddd": fmt.Errorf("boom"),
 	}}
-	updated, failed, removed := applyUpdates(context.Background(), &out, p,
+	updated, failed, removed := applyUpdates(context.Background(), &out, p, false,
 		[]updateInfo{bundleUpd("x/skip"), bundleUpd("x/gone"), bundleUpd("x/broken"), bundleUpd("x/ok")})
 
 	if updated != 1 {
@@ -109,7 +110,7 @@ func TestApplyUpdates_ClassifiesErrors(t *testing.T) {
 func TestApplyUpdates_EmptyIsNoop(t *testing.T) {
 	var out bytes.Buffer
 	p := &recordingPuller{}
-	updated, failed, removed := applyUpdates(context.Background(), &out, p, nil)
+	updated, failed, removed := applyUpdates(context.Background(), &out, p, false, nil)
 	if updated != 0 || failed != 0 || removed != nil {
 		t.Fatalf("got %d/%d/%v, want 0/0/nil", updated, failed, removed)
 	}
@@ -156,23 +157,22 @@ func TestPrintAvailableUpdates_OmitsEmptySection(t *testing.T) {
 
 func TestReportMissingDefaults(t *testing.T) {
 	var out bytes.Buffer
-	reportMissingDefaults(&out, []string{"ghost"})
+	reportMissingDefaults(&out, []string{"ghost"}, nil)
 	if got := out.String(); !strings.Contains(got, "ghost") || !strings.Contains(got, "Nonexistent default profiles") {
 		t.Errorf("unexpected output:\n%s", got)
 	}
 
 	out.Reset()
-	reportMissingDefaults(&out, nil)
+	reportMissingDefaults(&out, nil, nil)
 	if out.Len() != 0 {
 		t.Errorf("expected no output for empty input, got %q", out.String())
 	}
 }
 
 func TestReportRemovedFromRemote_HintsWhenNoCleanup(t *testing.T) {
-	// updateCleanup defaults to false, so this exercises the no-cleanup branch
-	// (which touches no filesystem).
+	// cleanup=false: the no-cleanup branch, which touches no filesystem.
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, afero.NewMemMapFs(), ".ctxloom", []updateInfo{bundleUpd("acme/gone")}, nil, nil, true)
+	reportRemovedFromRemote(&out, afero.NewMemMapFs(), ".ctxloom", []updateInfo{bundleUpd("acme/gone")}, nil, nil, false, true)
 	got := out.String()
 	if !strings.Contains(got, "acme/gone") || !strings.Contains(got, "--cleanup") {
 		t.Errorf("expected removed listing + cleanup hint:\n%s", got)
@@ -184,10 +184,6 @@ func TestReportRemovedFromRemote_SkipsCleanupWhenReloadFailed(t *testing.T) {
 	// (cleanupAllowed=false), so the destructive RemoveLocalItems/Save is
 	// skipped: the seeded file survives and the lockfile entry is NOT pruned,
 	// preventing a stale snapshot from reverting the just-applied SHAs.
-	prev := updateCleanup
-	updateCleanup = true
-	t.Cleanup(func() { updateCleanup = prev })
-
 	fs := afero.NewMemMapFs()
 	appDir := ".ctxloom"
 	const goneRef = "https://github.com/acme/repo@bundles/gone"
@@ -207,7 +203,7 @@ func TestReportRemovedFromRemote_SkipsCleanupWhenReloadFailed(t *testing.T) {
 	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, fs, appDir, []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, false)
+	reportRemovedFromRemote(&out, fs, appDir, []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, true, false)
 
 	if exists, _ := afero.Exists(fs, bundlePath); !exists {
 		t.Errorf("expected %s to survive when cleanup is gated off", bundlePath)
@@ -223,7 +219,7 @@ func TestReportRemovedFromRemote_SkipsCleanupWhenReloadFailed(t *testing.T) {
 
 func TestReportRemovedFromRemote_EmptyIsSilent(t *testing.T) {
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, afero.NewMemMapFs(), ".ctxloom", nil, nil, nil, true)
+	reportRemovedFromRemote(&out, afero.NewMemMapFs(), ".ctxloom", nil, nil, nil, false, true)
 	if out.Len() != 0 {
 		t.Errorf("expected no output, got %q", out.String())
 	}
@@ -232,10 +228,6 @@ func TestReportRemovedFromRemote_EmptyIsSilent(t *testing.T) {
 func TestReportRemovedFromRemote_CleanupDeletesFileAndPrunesLockfile(t *testing.T) {
 	// --cleanup branch: deletes the local file off the seam'd fs and removes
 	// the entry from the lockfile, persisting via the manager's own fs seam.
-	prev := updateCleanup
-	updateCleanup = true
-	t.Cleanup(func() { updateCleanup = prev })
-
 	fs := afero.NewMemMapFs()
 	appDir := ".ctxloom"
 	const goneRef = "https://github.com/acme/repo@bundles/gone"
@@ -255,7 +247,7 @@ func TestReportRemovedFromRemote_CleanupDeletesFileAndPrunesLockfile(t *testing.
 	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, fs, appDir, []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, true)
+	reportRemovedFromRemote(&out, fs, appDir, []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, true, true)
 
 	if exists, _ := afero.Exists(fs, bundlePath); exists {
 		t.Errorf("expected %s to be deleted", bundlePath)
@@ -286,10 +278,6 @@ func TestReportRemovedFromRemote_CleanupToleratesMissingFile(t *testing.T) {
 	// (nothing is materialized to disk): no warning, the lockfile entry is
 	// pruned, and the pruned lockfile is persisted — the save is gated on
 	// entries pruned, never on files deleted.
-	prev := updateCleanup
-	updateCleanup = true
-	t.Cleanup(func() { updateCleanup = prev })
-
 	fs := afero.NewMemMapFs() // empty: the target file does not exist
 	const goneRef = "https://github.com/acme/repo@bundles/gone"
 	lockManager := remote.NewLockfileManager(".ctxloom", remote.WithLockfileFS(fs))
@@ -299,7 +287,7 @@ func TestReportRemovedFromRemote_CleanupToleratesMissingFile(t *testing.T) {
 	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
 
 	var out bytes.Buffer
-	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, true)
+	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, true, true)
 
 	got := out.String()
 	if strings.Contains(got, "Warning: failed to remove") {
@@ -330,4 +318,85 @@ func equalStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestReportRemovedFromRemote_CleanupFailureIsReported pins the invariant
+// U040-F04 reached for: a destructive --cleanup that cannot persist the pruned
+// lockfile must SAY SO. It is pinned at the user-visible seam because the
+// operations call's error return is not the channel that carries it —
+// RemoveLocalItems reports every per-item and per-save failure through
+// res.Warnings, which this function prints. Drop that print loop and this test
+// goes red; that is what makes it a pin on the reporting, not on the plumbing.
+func TestReportRemovedFromRemote_CleanupFailureIsReported(t *testing.T) {
+	// A read-only filesystem: the lockfile Save is refused, which is the
+	// failure a user most needs to hear about — the entry looks pruned in
+	// memory while the on-disk lock still names it.
+	fs := afero.NewReadOnlyFs(afero.NewMemMapFs())
+	const goneRef = "https://github.com/acme/repo@bundles/gone"
+	lockManager := remote.NewLockfileManager(".ctxloom", remote.WithLockfileFS(fs))
+	lockfile := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
+	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
+
+	var out bytes.Buffer
+	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, true, true)
+
+	got := out.String()
+	if !strings.Contains(got, "failed to update lockfile") {
+		t.Errorf("a cleanup that could not persist the lockfile must be reported:\n%s", got)
+	}
+	if strings.Contains(got, "Updated lockfile") {
+		t.Errorf("a failed save must not claim the lockfile was updated:\n%s", got)
+	}
+}
+
+// TestCheckDefaultProfiles_UnloadableConfigIsNotAnAllClear pins U040-F20.
+// checkDefaultProfiles returned a bare nil slice when the config would not
+// load, which reportMissingDefaults renders identically to "every configured
+// default profile exists" — printing nothing at all. `remote update --apply`
+// therefore ended a run on a broken config claiming a clean bill of health for
+// a check it never performed.
+func TestCheckDefaultProfiles_UnloadableConfigIsNotAnAllClear(t *testing.T) {
+	missing, err := checkDefaultProfiles(func(...config.LoadOption) (*config.Config, error) {
+		return nil, fmt.Errorf("config.yaml: yaml: line 3: mapping values are not allowed")
+	})
+	if err == nil {
+		t.Fatal("a config that would not load must be reported, not read as 'nothing missing'")
+	}
+	if missing != nil {
+		t.Errorf("no check was performed, so there is no result: %v", missing)
+	}
+
+	var out bytes.Buffer
+	reportMissingDefaults(&out, missing, err)
+	got := out.String()
+	if !strings.Contains(got, "could not") {
+		t.Errorf("the user must be told the check did not run:\n%q", got)
+	}
+	if strings.Contains(got, "Nonexistent default profiles") {
+		t.Errorf("a check that never ran must not name missing profiles:\n%q", got)
+	}
+}
+
+// TestApplyUpdates_CarriesTheForceDecision characterizes the --force arm of
+// applyUpdateBatch, which nothing covered before U040-F03 went near it: the
+// caller's force decision must reach every Pull as PullOptions.Force, and must
+// not be set when it was not asked for. The decision is a PARAMETER — a
+// function that already accepts its writer and its pull runner must not reach
+// back to a package-global for the one input that changes what it does.
+func TestApplyUpdates_CarriesTheForceDecision(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		var out bytes.Buffer
+		p := &recordingPuller{}
+		applyUpdates(context.Background(), &out, p, force,
+			[]updateInfo{bundleUpd("bob/tools"), bundleUpd("bob/other")})
+
+		if len(p.opts) != 2 {
+			t.Fatalf("force=%v: expected 2 pulls, got %d", force, len(p.opts))
+		}
+		for i, o := range p.opts {
+			if o.Force != force {
+				t.Errorf("force=%v: pull %d got Force=%v", force, i, o.Force)
+			}
+		}
+	}
 }

@@ -63,8 +63,7 @@ ctxloom weave [flags] [task...]
       --concurrency int     Max members to run at once (default 4)
   -h, --help                help for weave
   -l, --llm string          Override the LLM for every member (synthesizer keeps its own llm:)
-      --map-only            Alias for --no-synthesize: emit the labeled parts only, skip synthesis
-      --no-synthesize       Emit the labeled parts only; skip synthesis
+      --no-synthesize       Emit the labeled parts only; skip synthesis (alias: --map-only)
       --part stringArray    Inject NAME=FILE as a part to synthesize (repeatable)
       --parts-from string   Inject every file in this directory as a part to synthesize
   -p, --profile strings     Bare profile member, default-engine sugar (repeatable)

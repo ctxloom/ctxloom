@@ -12,7 +12,7 @@ import (
 
 // TestLoadStartupConfig_ReportsAFailedLoadExactlyOnce pins U038-F12: a config
 // that fails to load must be reported ONCE. The fallback fixture already
-// carries the failure as a config.Warning — which printConfigWarnings both
+// carries the failure as a config.Warning — which printAndRecordConfigWarnings both
 // prints AND records as a strictness finding — so an additional direct warn is
 // not a second piece of information, it is the same sentence twice. Duplicated
 // diagnostics train a reader to treat repetition as noise, which is exactly how

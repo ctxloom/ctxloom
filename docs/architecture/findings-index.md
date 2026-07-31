@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,338** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 147 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 178 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 179 |
-| `open` | no commit names this ID | **426** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,364** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 153 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 182 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 181 |
+| `open` | no commit names this ID | **388** |
 
-**Totals: 2268 findings across 162 units — 1,338 resolved, 426 still open, 504 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,364 resolved, 388 still open, 516 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -331,9 +331,9 @@ which also asserts each row's columns sum to its section size.
 
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
-| HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 485 | 234 | 83 | 81 | 116 |
-| LOW | 871 | 496 | 180 | 49 | 89 | 57 |
+| HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
+| MED | 999 | 498 | 214 | 87 | 82 | 118 |
+| LOW | 871 | 509 | 163 | 50 | 92 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -689,7 +689,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F02 | **RESOLVED** `e329f9d4` | `session_backfill.go:65-68` | SILENTNOOP | `session backfill` returns exit 0 even when every entry failed. | U042.md |
 | U042-F03 | **RESOLVED** `91a6e7a2` | `session_cmd.go:300-302` | SILENTNOOP | A malformed SessionStart hook payload silently skips the harp→session_id bind, and nothing reports it — not even the caller's warning, because the function returns `nil`. | U042.md |
 | U042-F04 | **RESOLVED** `91a6e7a2` | `session_cmd.go:454-466` | CORRECTNESS | In `distillMissingOrStale`, an entry with an empty `ProjectDir` inherits the **previous** entry's chdir'd cwd, so `config.Load()` at `:462` loads the wrong project's config and the cwd-bound legacy... | U042.md |
-| U043-F01 | open | `startup_helpers.go:59-62` | CORRECTNESS | Config warnings are re-printed AND re-recorded as *new* fatal findings on every `GetConfig()` call, inflating the strict-startup abort block with duplicates of one problem. | U043.md |
+| U043-F01 | **PARTIAL** `920a39dd` | `startup_helpers.go:59-62` | CORRECTNESS | Config warnings are re-printed AND re-recorded as *new* fatal findings on every `GetConfig()` call, inflating the strict-startup abort block with duplicates of one problem. | U043.md |
 | U043-F02 | **RESOLVED** `749b1a85` | `weave.go:145` | SILENTNOOP | A synthesis that returns empty output prints one blank line and exits 0 — the characteristic bug. | U043.md |
 | U043-F03 | **RESOLVED** `749b1a85` | `weave.go:77` | SILENTNOOP | The "nothing to weave" guard tests the *flags*, not the *resolved parts*, so `--parts-from <empty-or-all-dirs>` passes the guard and synthesizes zero parts. | U043.md |
 | U044-F01 | **RESOLVED** `cfea9f18` | `export.go:75, :31, :63; model.go:464, :482` | SILENTNOOP | Transcript export writes a 0-byte file and reports `saved <path>` | U044.md |
@@ -1218,24 +1218,24 @@ Full evidence and the suggested action for any row live in its source review at 
 | U039-F11 | **RESOLVED** `beea968d` | `format_coverage_test.go:294, 213, 216` | CORRECTNESS | The `--format` coverage gate's skip registry states facts that are false, so it silently exempts a command it could actually exercise. | U039.md |
 | U039-F12 | **RESOLVED** `6f6fae76` | `mcp_tools_memory.go:322-328` | ERRHANDLING | Any `os.ReadFile` failure on the essence — permissions, a truncated/locked file, an I/O error — is reported to the agent as "No distilled essence for %s yet", sending it to re-run a compaction that... | U039.md |
 | U039-F20 | **RESOLVED** `63ec1b77` | `memory.go:23-370` | NOPAY | The whole `memory` command group is a documented duplicate of `ctxloom session list/show/distill` and has been marked deprecated for at least a release — ~250 lines of CLI carrying no capability. *... | U039.md |
-| U040-F03 | open | `remote_update.go:449`, `:491` | COUPLING | Two functions that carefully accept `out`/`fs`/`appDir` as injectable seams then reach out to package-global flag variables for their decisive branch. | U040.md |
-| U040-F04 | open | `remote_update.go:509` | ERRHANDLING | The error return of the destructive cleanup call is discarded with `_`. | U040.md |
+| U040-F03 | **RESOLVED** `c9891504` | `remote_update.go:449`, `:491` | COUPLING | Two functions that carefully accept `out`/`fs`/`appDir` as injectable seams then reach out to package-global flag variables for their decisive branch. | U040.md |
+| U040-F04 | **PARTIAL** `e85e2ddd` | `remote_update.go:509` | ERRHANDLING | The error return of the destructive cleanup call is discarded with `_`. | U040.md |
 | U040-F05 | **RESOLVED** `8a0043a0` | `remote_update.go:529` | DEAD | `reportBundleIssues` (29 lines) has **zero production call sites**. | U040.md |
 | U040-F06 | **RESOLVED** `b2cb918d` | `remote_update.go:172-179` vs `:319-343` | DUPLICATE | `refreshRemoteClone` is `refreshRemoteRepos` specialised to one URL; the two share the whole body. | U040.md |
-| U040-F09 | open | `remote_discover.go:110` | CORRECTNESS | `interactiveAdd` opens its **own** `bufio.NewReader(os.Stdin)`, violating an invariant the codebase explicitly documents. | U040.md |
-| U040-F13 | open | **`review.go:81`** | COMPLEXITY | `runReview` is CCN 11 against a gate that fails above 10 — the complexity gate should currently be red for this file. | U040.md |
-| U040-F14 | open | **`review.go:412-423`, `:444-456`** | ERRHANDLING | A failed diff render is indistinguishable from an empty delta, and the reviewer is told nothing about why they are looking at full content. | U040.md |
-| U040-F16 | open | **`root.go:86`** | COUPLING | Four process-wide behaviours depend on an unenforced global invariant asserted only in a comment. | U040.md |
-| U040-F17 | open | `remote_discover.go:47-95`, `remote_update.go:*`, `remote_upgrade.go:37-49` | COUPLING | Three of the four commands in this unit write with `fmt.Printf` to `os.Stdout` and completely ignore the global `--format` flag. | U040.md |
-| U041-F07 | open | `run_owned.go:251-262 vs run_structured.go:105-123` | CORRECTNESS | The same `--format` value behaves differently on the two structured arms: unknown formats are rejected on go-plugin, silently rendered as raw text on container | U041.md |
-| U041-F08 | open | `run_owned.go:235-278` | CORRECTNESS | The container structured arm emits only `entry` events, silently dropping the `complete` and `session` halves of the documented NDJSON contract | U041.md |
-| U041-F09 | open | **`run.go:367-1300`** | COHESION + COMPLEXITY | The command body is a ~930-line closure doing ≥20 unrelated jobs, and it is **invisible to the CI complexity gate** | U041.md |
-| U041-F10 | open | `run_terminal.go:29-32` | ERRHANDLING | A `term.MakeRaw` failure yields an interactive session the user **cannot type into**, with no diagnostic | U041.md |
-| U041-F11 | open | `run_owned.go:117,142-168,264-269` | CORRECTNESS | The structured REPL's `pending` counter is coupled to non-blocking channel timing and to an unverified "the first turn always yields a boundary" assumption | U041.md |
-| U041-F12 | open | **`run.go:889-902,1119,1405-1412`** | COUPLING | When coordinator hosting fails or the harp is blank, the docker-exec interactive arm **silently** loses agent-delegation reach-back, while the owned-run arm fails loudly | U041.md |
-| U041-F13 | open | **`run.go:1692-1723,1771-1776`** | COHESION | Cross-command primitives live in `run.go`: `stdinReader`, `promptLine`, `promptYesNo`, `plural` | U041.md |
+| U040-F09 | **RESOLVED** `00a55542` | `remote_discover.go:110` | CORRECTNESS | `interactiveAdd` opens its **own** `bufio.NewReader(os.Stdin)`, violating an invariant the codebase explicitly documents. | U040.md |
+| U040-F13 | **RESOLVED** `09db715e` | **`review.go:81`** | COMPLEXITY | `runReview` is CCN 11 against a gate that fails above 10 — the complexity gate should currently be red for this file. | U040.md |
+| U040-F14 | **PARTIAL** `2736fac2` | **`review.go:412-423`, `:444-456`** | ERRHANDLING | A failed diff render is indistinguishable from an empty delta, and the reviewer is told nothing about why they are looking at full content. | U040.md |
+| U040-F16 | **RESOLVED** `2df24f17` | **`root.go:86`** | COUPLING | Four process-wide behaviours depend on an unenforced global invariant asserted only in a comment. | U040.md |
+| U040-F17 | **ESCALATED** `74d2931d` | `remote_discover.go:47-95`, `remote_update.go:*`, `remote_upgrade.go:37-49` | COUPLING | Three of the four commands in this unit write with `fmt.Printf` to `os.Stdout` and completely ignore the global `--format` flag. | U040.md |
+| U041-F07 | **RESOLVED** `8af7f8c8` | `run_owned.go:251-262 vs run_structured.go:105-123` | CORRECTNESS | The same `--format` value behaves differently on the two structured arms: unknown formats are rejected on go-plugin, silently rendered as raw text on container | U041.md |
+| U041-F08 | **PARTIAL** `4c948e46` | `run_owned.go:235-278` | CORRECTNESS | The container structured arm emits only `entry` events, silently dropping the `complete` and `session` halves of the documented NDJSON contract | U041.md |
+| U041-F09 | **ESCALATED** `44b2cdde` | **`run.go:367-1300`** | COHESION + COMPLEXITY | The command body is a ~930-line closure doing ≥20 unrelated jobs, and it is **invisible to the CI complexity gate** | U041.md |
+| U041-F10 | **RESOLVED** `e2c37ccd` | `run_terminal.go:29-32` | ERRHANDLING | A `term.MakeRaw` failure yields an interactive session the user **cannot type into**, with no diagnostic | U041.md |
+| U041-F11 | **RESOLVED** `5376b446` | `run_owned.go:117,142-168,264-269` | CORRECTNESS | The structured REPL's `pending` counter is coupled to non-blocking channel timing and to an unverified "the first turn always yields a boundary" assumption | U041.md |
+| U041-F12 | **REFUTED** `fe434997` | **`run.go:889-902,1119,1405-1412`** | COUPLING | When coordinator hosting fails or the harp is blank, the docker-exec interactive arm **silently** loses agent-delegation reach-back, while the owned-run arm fails loudly | U041.md |
+| U041-F13 | **RESOLVED** `665dcb08` | **`run.go:1692-1723,1771-1776`** | COHESION | Cross-command primitives live in `run.go`: `stdinReader`, `promptLine`, `promptYesNo`, `plural` | U041.md |
 | U041-F20 | **REFUTED** `7b4382f9` | `run_owned.go (whole file)` | NOPAY | The entire Phase 2a-B host path — 283 lines including the unit's most complex function — has **zero** tests | U041.md |
-| U041-F22 | open | `run_owned.go:61` | COMPLEXITY | `startContainerOwnedRun` takes **14** positional parameters, three of which are `string` in a row | U041.md |
+| U041-F22 | **RESOLVED** `32f57009` | `run_owned.go:61` | COMPLEXITY | `startContainerOwnedRun` takes **14** positional parameters, three of which are `string` in a row | U041.md |
 | U041-F23 | **RESOLVED** `f4f8eb25` | **`run.go:1366-1368 + run_owned.go:46-51 + run.go:1137`** | DUPLICATE + COUPLING | The transport-arm decision is spread across two files as two predicates plus an implicit `else`, over the same three inputs | U041.md |
 | U042-F05 | **REFUTED** `696c5f3f` | `session_watch.go:155-173, 107-121` | ERRHANDLING | Every write error on the text `session watch` path is silently discarded: `writeWatchText` builds an `iox.ErrWriter` and never calls `Err()`, and `streamWatchEvents` ignores its (absent) return. A ... | U042.md |
 | U042-F06 | **RESOLVED** `ba297344` | `session_cmd.go:146, 170; session_query.go:126` | DUPLICATE | Three functions independently implement the same two-step essence resolution (harp-dir first, then legacy `<sessionsDir>/<sessionID>.md`), kept in sync only by comments. | U042.md |
@@ -1247,13 +1247,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F17 | **RESOLVED** `71200c49` | `session_cmd.go:268-281` | SILENTNOOP | `emitHarpMarker` writes zero bytes and reports nothing when `harp == ""` — the SessionStart hook exits 0 having injected no harp self-id marker. Since the marker is the documented index-independent... | U042.md |
 | U042-F20 | **RESOLVED** `552f6a71` | `session_cmd.go (whole file, 611 lines)` | COHESION | `session_cmd.go` is four unrelated things in one file: (a) the `session` command tree; (b) the essence/compaction helper cluster that four *other* files depend on; (c) the `hook session-bind` machi... | U042.md |
 | U042-F26 | **RESOLVED** `5cd9bf90` | **`sign.go:140-145`** | SILENTNOOP | `ctxloom sign --all` over a project whose bundle dirs resolve to an empty/absent location prints "no local bundles to sign" and exits **0** — signing nothing looks the same as having nothing to sig... | U042.md |
-| U043-F04 | open | `util_config_write.go:299` | CORRECTNESS | The backup filename has 1-second resolution, so two calls within the same second silently overwrite the earlier backup — directly contradicting the doc's central promise. | U043.md |
+| U043-F04 | **RESOLVED** `27363602` | `util_config_write.go:299` | CORRECTNESS | The backup filename has 1-second resolution, so two calls within the same second silently overwrite the earlier backup — directly contradicting the doc's central promise. | U043.md |
 | U043-F05 | **RESOLVED** `749b1a85` | `weave.go:203-218` | SILENTNOOP | `saveParts` (a) returns `nil` after writing zero files when `parts` is empty, and (b) silently overwrites when two parts sanitize to the same filename — losing one member's entire output. | U043.md |
-| U043-F06 | open | `util_config_write.go:168` | CORRECTNESS | Writing a third-party config leaves a **second**, undocumented, ctxloom-branded backup in the user's config directory, and that backup's own write error is discarded. | U043.md |
-| U043-F07 | open | `trust_interactive.go:88,107,109-119,139,188,190` | COUPLING | The interactive trust surface writes to `os.Stderr` directly instead of `cmd.ErrOrStderr()`, defeating cobra's output injection and making the whole surface untestable from a command harness — whil... | U043.md |
+| U043-F06 | **RESOLVED** `18e4ad05` | `util_config_write.go:168` | CORRECTNESS | Writing a third-party config leaves a **second**, undocumented, ctxloom-branded backup in the user's config directory, and that backup's own write error is discarded. | U043.md |
+| U043-F07 | **RESOLVED** `1e3e75d6` | `trust_interactive.go:88,107,109-119,139,188,190` | COUPLING | The interactive trust surface writes to `os.Stderr` directly instead of `cmd.ErrOrStderr()`, defeating cobra's output injection and making the whole surface untestable from a command harness — whil... | U043.md |
 | U043-F08 | **RESOLVED** `749b1a85` | `weave.go:89-94` | ERRHANDLING / SILENTNOOP | The task is never validated non-empty, and a stdin read error is silently swallowed leaving an empty task — so `ctxloom weave` will fan real agents out over nothing. | U043.md |
-| U043-F09 | open | `weave.go:84-87` | COUPLING | `weave` launches engine processes but never calls `failOnFindings`, so it launches agents on a config that `ctxloom run`/`ctxloom mcp` would refuse to start on. | U043.md |
-| U043-F14 | open | `startup_helpers.go` (whole file)` | COHESION | Two functions named `print*`/`write*` also mutate process-wide strictness state — a side effect their names actively disclaim — and the file bundles five unrelated startup concerns. | U043.md |
+| U043-F09 | **RESOLVED** `17da6f13` | `weave.go:84-87` | COUPLING | `weave` launches engine processes but never calls `failOnFindings`, so it launches agents on a config that `ctxloom run`/`ctxloom mcp` would refuse to start on. | U043.md |
+| U043-F14 | **PARTIAL** `a1c22832` | `startup_helpers.go` (whole file)` | COHESION | Two functions named `print*`/`write*` also mutate process-wide strictness state — a side effect their names actively disclaim — and the file bundles five unrelated startup concerns. | U043.md |
 | U044-F03 | **RESOLVED** `349c7c13` | `model.go:53, :520` | DEAD | `Model.firstLines` is written and never read | U044.md |
 | U044-F05 | **RESOLVED** `6cb1acba` | `model.go:215, :436, :451` | CORRECTNESS | Feed-switch state reset rides on **unspecified** Go evaluation order | U044.md |
 | U044-F06 | **RESOLVED** `6f000455` | `model.go:130, :131, :548-606` | CORRECTNESS | `View`'s "renders exactly `totalHeight` lines" contract breaks on small geometry, painting over the engine | U044.md |
@@ -2221,21 +2221,21 @@ Full evidence and the suggested action for any row live in its source review at 
 | U039-F19 | **REFUTED** `7706103e` | `mcp_tools_memory.go:255, :279` | COMPLEXITY | With `distill_missing=true`, `sessionEssenceInfo` (which stats up to two files) is called twice per entry, and the whole entry list is re-read from disk (`:247`). | U039.md |
 | U040-F07 | **RESOLVED** `cb748ad4` | `remote_update.go:69-77` and `:132-135` | DUPLICATE | The same reference string is parsed and URL-checked twice, one call apart, with two different error messages. | U040.md |
 | U040-F08 | **RESOLVED** `24e4e92e` | `remote_update.go:194-208` | TRIVIAL | `reportUpdateStatus` takes `itemType` and returns it unchanged from all three branches. | U040.md |
-| U040-F10 | open | `remote_discover.go:151` | ERRHANDLING | `nameInput, _ := reader.ReadString('\n')` — an EOF or read error is silently converted into "user accepted the default remote name". | U040.md |
+| U040-F10 | **RESOLVED** `4fb71ae2` | `remote_discover.go:151` | ERRHANDLING | `nameInput, _ := reader.ReadString('\n')` — an EOF or read error is silently converted into "user accepted the default remote name". | U040.md |
 | U040-F11 | **RESOLVED** `5f97fdd8` | `remote_update.go:573` | DUPLICATE | A third copy of `shortSHA` in the repo. | U040.md |
 | U040-F15 | **RESOLVED** `b5f87279` | **`root.go:50-57` and `:66-73`** | DUPLICATE | `GetConfig` and `GetConfigForUpdate` have identical bodies apart from `config.Load` vs `config.LoadFresh`. | U040.md |
-| U040-F18 | open | **`review.go:86`** | CORRECTNESS | `ctxloom review --format json` on a TTY silently ignores `--format` and starts the interactive walk. | U040.md |
-| U040-F19 | open | `remote_discover.go:98` | CORRECTNESS | The interactive add-loop is entered unconditionally, with no TTY check. | U040.md |
-| U040-F20 | open | `remote_update.go:613` | ERRHANDLING | `checkDefaultProfiles` reports "no missing profiles" when the config cannot be loaded at all. | U040.md |
+| U040-F18 | **RESOLVED** `d92a6435` | **`review.go:86`** | CORRECTNESS | `ctxloom review --format json` on a TTY silently ignores `--format` and starts the interactive walk. | U040.md |
+| U040-F19 | **RESOLVED** `04405bfb` | `remote_discover.go:98` | CORRECTNESS | The interactive add-loop is entered unconditionally, with no TTY check. | U040.md |
+| U040-F20 | **RESOLVED** `0b78e51e` | `remote_update.go:613` | ERRHANDLING | `checkDefaultProfiles` reports "no missing profiles" when the config cannot be loaded at all. | U040.md |
 | U040-F21 | **RESOLVED** `5fdf8767` | `remote_update.go:580-586` | NOPAY | The `pullOutcome` doc comment describes an implementation that no longer exists and actively argues against the current one. | U040.md |
-| U040-F22 | open | `remote_discover.go:47` | LOW | `fmt.Printf("Searching repositories...")` has no newline, so an error return from `DiscoverRemotes` (`:56`) leaves the error text appended to a dangling progress line. | U040.md |
+| U040-F22 | **RESOLVED** `2c5af760` | `remote_discover.go:47` | LOW | `fmt.Printf("Searching repositories...")` has no newline, so an error return from `DiscoverRemotes` (`:56`) leaves the error text appended to a dangling progress line. | U040.md |
 | U041-F14 | **RESOLVED** `cb2b8396` `127539ad` | **`run.go:289-291`** | TRIVIAL | `resolveSelfExecutable` is a pure pass-through to `selfexec.Path()` | U041.md |
 | U041-F15 | **RESOLVED** `24e4e92e` | **`run.go:161-163`** | TRIVIAL | `shouldDistillOnExit` is a single boolean expression with one production caller | U041.md |
-| U041-F16 | open | `run_owned.go:227,237-239` | CORRECTNESS | `final` grows without bound for the life of a structured session | U041.md |
-| U041-F17 | open | **`run.go:1734`** | ERRHANDLING | A profile that fails to resolve during upgrade harvesting is swallowed entirely | U041.md |
-| U041-F18 | open | `run_resize_unix.go:27 / run_resize_windows.go:18` | ERRHANDLING | A `term.GetSize` failure silently means the pty never learns the terminal size | U041.md |
-| U041-F19 | open | **`run.go:220`** | CORRECTNESS | The distill-timeout message tells the user something that never happens | U041.md |
-| U041-F21 | open | **`run.go:43-81,129`** | COUPLING | 20 mutable package-level flag globals plus a rebindable `execCommand` var give the command connascence of execution order with `init()` and cross-test pollution | U041.md |
+| U041-F16 | **RESOLVED** `b5c52f7f` | `run_owned.go:227,237-239` | CORRECTNESS | `final` grows without bound for the life of a structured session | U041.md |
+| U041-F17 | **REFUTED** `fe434997` | **`run.go:1734`** | ERRHANDLING | A profile that fails to resolve during upgrade harvesting is swallowed entirely | U041.md |
+| U041-F18 | **RESOLVED** `e83d01b7` | `run_resize_unix.go:27 / run_resize_windows.go:18` | ERRHANDLING | A `term.GetSize` failure silently means the pty never learns the terminal size | U041.md |
+| U041-F19 | **RESOLVED** `b6183f8e` | **`run.go:220`** | CORRECTNESS | The distill-timeout message tells the user something that never happens | U041.md |
+| U041-F21 | **REFUTED** `67ed057c` | **`run.go:43-81,129`** | COUPLING | 20 mutable package-level flag globals plus a rebindable `execCommand` var give the command connascence of execution order with `init()` and cross-test pollution | U041.md |
 | U041-F24 | **RESOLVED** `c482871e` | `run_structured.go:232,243,262 + run_owned.go:253` | DUPLICATE | The NDJSON type discriminators `"entry"`/`"complete"`/`"session"` are re-typed as literals in two files | U041.md |
 | U042-F12 | **RESOLVED** `71457906` | **`signer.go:159-166, 172-181`** | DUPLICATE | `signerRoleWord` and `signerConsequenceText` each open-code the same "is `publish` among these namespaces" scan. Adding a third publish-conditional means a third copy. | U042.md |
 | U042-F13 | **PARTIAL** `26a08ce7` | `session_cmd.go:183-187` | DUPLICATE | `fileExists` is triplicated across three packages with a near-identical doc comment. | U042.md |
@@ -2249,14 +2249,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F23 | **RESOLVED** `24e4e92e` | `run_terminal_ui.go:136-146` | TRIVIAL | `surroundRoster` declares an `error` return that is provably always `nil` on both paths, forcing every caller into a dead `if err != nil`. | U042.md |
 | U042-F24 | **RESOLVED** `24e4e92e` | `session_cmd.go:477-482` | TRIVIAL | `compactionModelFor` has exactly **one** production call site, so its stated rationale — "Shared so every distill path resolves it identically" — is not realised; `compactEntry` is already the sing... | U042.md |
 | U042-F25 | **RESOLVED** `ae84959a` `b08b5f0f` | **`signer.go:150`** | COUPLING | `confirmSignerAdd` prints the trust-consequence prompt to `os.Stderr` directly rather than `cmd.ErrOrStderr()`, so the single most consequential confirmation in the product cannot be captured by a ... | U042.md |
-| U043-F10 | open | `trust_interactive.go:90-92, 143-145` | ERRHANDLING | A genuine terminal read failure is indistinguishable from the user pressing Ctrl-D: both `return nil` and the caller reports success. In `offerBundleHookTrust` this abandons every remaining hook af... | U043.md |
-| U043-F11 | open | `skill_cmd.go:212-215` | CORRECTNESS | `ctxloom skill sync 'my-bundle#skills/'` silently widens to a whole-bundle sync instead of erroring on the empty name. | U043.md |
-| U043-F12 | open | `startup_helpers.go:140-149` | ERRHANDLING | The worktree reaper's failure surface is discarded entirely — only `result.Reaped` is read, so a reaper that failed on every candidate is indistinguishable from a clean sweep. | U043.md |
-| U043-F13 | open | `util_config_write.go:179,183,186` | ERRHANDLING | Verify-failure errors interpolate an empty `result.Backup`, producing "original backed up to " / "restore from backup " with nothing after it — precisely when the user most needs an actionable mess... | U043.md |
+| U043-F10 | **RESOLVED** `391517aa` | `trust_interactive.go:90-92, 143-145` | ERRHANDLING | A genuine terminal read failure is indistinguishable from the user pressing Ctrl-D: both `return nil` and the caller reports success. In `offerBundleHookTrust` this abandons every remaining hook af... | U043.md |
+| U043-F11 | **RESOLVED** `b2bb35b3` | `skill_cmd.go:212-215` | CORRECTNESS | `ctxloom skill sync 'my-bundle#skills/'` silently widens to a whole-bundle sync instead of erroring on the empty name. | U043.md |
+| U043-F12 | **REFUTED** `31b0e203` | `startup_helpers.go:140-149` | ERRHANDLING | The worktree reaper's failure surface is discarded entirely — only `result.Reaped` is read, so a reaper that failed on every candidate is indistinguishable from a clean sweep. | U043.md |
+| U043-F13 | **RESOLVED** `c7e03509` | `util_config_write.go:179,183,186` | ERRHANDLING | Verify-failure errors interpolate an empty `result.Backup`, producing "original backed up to " / "restore from backup " with nothing after it — precisely when the user most needs an actionable mess... | U043.md |
 | U043-F15 | **RESOLVED** `ed3bd3dd` | `util_config_write.go:325-328` | TRIVIAL | `asConfigMap` is a bare two-line type assertion with no invariant. | U043.md |
-| U043-F16 | open | `weave.go:232-234` | COUPLING | `--map-only` and `--no-synthesize` are registered as two independent bool flags bound to the same pointer — an undeclared alias that appears twice in `--help` and twice in shell completion, with no... | U043.md |
-| U043-F17 | open | `weave.go:75-148`, `util_config_write.go:111-191` | COMPLEXITY | Both functions exceed the project's CCN-10 CI gate (19 and 18). | U043.md |
-| U043-F18 | open | `skill_cmd.go:54,120,170,216,278,326` | COUPLING | Six of seven skill subcommands use `context.Background()` instead of `cmd.Context()`, so Ctrl-C and any parent deadline do not reach the operations layer. | U043.md |
+| U043-F16 | **RESOLVED** `7099fdd4` | `weave.go:232-234` | COUPLING | `--map-only` and `--no-synthesize` are registered as two independent bool flags bound to the same pointer — an undeclared alias that appears twice in `--help` and twice in shell completion, with no... | U043.md |
+| U043-F17 | **RESOLVED** `71a33ca4` | `weave.go:75-148`, `util_config_write.go:111-191` | COMPLEXITY | Both functions exceed the project's CCN-10 CI gate (19 and 18). | U043.md |
+| U043-F18 | **PARTIAL** `927d011b` | `skill_cmd.go:54,120,170,216,278,326` | COUPLING | Six of seven skill subcommands use `context.Background()` instead of `cmd.Context()`, so Ctrl-C and any parent deadline do not reach the operations layer. | U043.md |
 | U043-F19 | **RESOLVED** `ab18012c` | `skill_cmd.go:59-67` + `:77-79` | NOPAY | With `--bundle` naming a bundle that has no skills (or a typo), the output is "No skills found. / Create one with: ctxloom skill create <bundle> <name>" — misleading, since skills do exist, just no... | U043.md |
 | U044-F04 | **RESOLVED** `349c7c13` | `sources.go:48; roster.go:30` | DEAD | `RosterRow.Self` has no production reader | U044.md |
 | U044-F17 | **RESOLVED** `f7fffc74` | **`render.go:82, :129`** | CORRECTNESS | The expanded tool-result view tells the user to press the key they just pressed | U044.md |

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,327** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,328** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 136 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **462** |
+| `open` | no commit names this ID | **461** |
 
-**Totals: 2268 findings across 162 units — 1,327 resolved, 462 still open, 479 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,328 resolved, 461 still open, 479 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 478 | 259 | 73 | 81 | 108 |
-| LOW | 871 | 492 | 191 | 48 | 85 | 55 |
+| LOW | 871 | 493 | 190 | 48 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2168,7 +2168,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U034-F13 | **RESOLVED** `4f001a2a` | `internal/cli/acp_children.go:55-110` | COMPLEXITY | `adaptChildWatch` is CCN 16 (over the project's stated CCN-10 gate) and silently drops 13 of the 16 `AgentEvent` payload variants with no default case and no comment saying so | U034.md |
 | U034-F14 | **RESOLVED** `d00d793f` | `internal/cli/agent.go:140-184` | COMPLEXITY | `renderAgentShow` is CCN 11 — over the stated CI gate — from nine sequential optional-field `if`s | U034.md |
 | U034-F15 | **PARTIAL** `a0901668` | `internal/cli/acp_agents_cmd.go:140-141` | ERRHANDLING | Both `json.Marshal` errors are discarded in the Zed paste block | U034.md |
-| U034-F16 | open | `internal/cli/bundle.go:58-87` | COHESION | `bundle.go`'s `init()` registers flags for commands defined in eight other files, creating connascence of position across file boundaries | U034.md |
+| U034-F16 | **RESOLVED** `4b7a3172` | `internal/cli/bundle.go:58-87` | COHESION | `bundle.go`'s `init()` registers flags for commands defined in eight other files, creating connascence of position across file boundaries | U034.md |
 | U034-F17 | **RESOLVED** `99113b9d` | `internal/cli/bundle_distill.go:289-291,307,323` | COUPLING | "is the item being distilled of this kind?" is encoded as a string-prefix test, with the `"fragments/"`/`"commands/"` literals duplicated across two files | U034.md |
 | U034-F18 | **RESOLVED** `36468ae0` | `internal/cli/bundle_move.go:77` | COUPLING | `printMoveResult` compares `r.DestKind` against the hard-coded literal `"remote"` because the producing constant is unexported | U034.md |
 | U035-F10 | **RESOLVED** `c4109ec8` | `container_cmd.go:137-139` | NOPAY | `var containerDiagnose = isolation.Diagnose` exists, per its own comment, "so the CLI rendering is testable with an injected report" — but **no test ever assigns it**. The tests inject a `Diagnosis... | U035.md |

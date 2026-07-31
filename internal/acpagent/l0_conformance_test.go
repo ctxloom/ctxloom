@@ -215,8 +215,15 @@ func TestL0_AgentEmittedFrames(t *testing.T) { //nolint:gocyclo // one linear sc
 	resp, turnUpdates := c.waitResponse(id)
 	require.Nil(t, resp.Error)
 	capture("session/prompt response", "PromptResponse", resp.Result)
-	require.GreaterOrEqual(t, len(turnUpdates), 5, "session_info_update(_meta), thinking, assistant, tool_call, tool_call_update, plan, usage_update")
+	// labels maps each captured frame to the emission that produced it, and
+	// the mapping is POSITIONAL — so the count must be exact, not a floor.
+	// Measured with a floor of 5: dropping one emitted frame sailed past the
+	// gate and surfaced six frames later as "a usage_update does not contain
+	// a plan", which names the wrong frame and the wrong problem. An exact
+	// length fails at the drop, saying what was expected and what arrived.
 	labels := []string{"session_info_update (ctxloom _meta)", "agent_thought_chunk", "agent_message_chunk", "tool_call", "tool_call_update", "plan", "usage_update"}
+	require.Equal(t, len(labels), len(turnUpdates),
+		"every scripted emission must produce exactly one captured frame, in order: %v", labels)
 	var planUpdateIdx = -1
 	for i, u := range turnUpdates {
 		label := "session/update"

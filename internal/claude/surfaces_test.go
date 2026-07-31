@@ -650,3 +650,34 @@ func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
 	// And flagArgs, the buildArgs consumer, emits no flag for any of them.
 	assert.Empty(t, s.flagArgs(), "no launch flag may name a file that was not written")
 }
+
+// claude enumerates its five surfaces in three places that must agree: the
+// typed struct fields (which flagArgs and SharedRealization read by name), the
+// kind-keyed dispatch map SurfaceFor resolves against, and the declared
+// claudeApproaches table Build() validates against. None can be derived from
+// the others without losing the typed accessors, so the agreement is pinned
+// instead: a surface added to one and missed in another fails here rather than
+// silently resolving to nothing at launch.
+func TestSurfaces_TableDispatchAndFieldsEnumerateTheSameSurfaces(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+
+	byKind := map[agent.SurfaceKind]agent.Delivery{
+		agent.SurfaceContext:  s.Context,
+		agent.SurfaceMCP:      s.MCP,
+		agent.SurfaceSettings: s.Settings,
+		agent.SurfaceCommands: s.Commands,
+		agent.SurfaceSkills:   s.Skills,
+	}
+	assert.Len(t, byKind, len(claudeApproaches),
+		"every kind in the declared approach table needs a typed field here (and vice versa)")
+
+	for kind, field := range byKind {
+		approaches, ok := claudeApproaches[kind]
+		require.True(t, ok, "%s is a struct field with no entry in the approach table", kind)
+		require.NotEmpty(t, approaches)
+
+		d, err := s.SurfaceFor(kind, agent.ApproachUnsafeFile)
+		require.NoError(t, err, "%s must resolve at its native approach", kind)
+		assert.Same(t, field, d, "%s must resolve to the SAME instance the struct field holds", kind)
+	}
+}

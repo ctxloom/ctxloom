@@ -116,7 +116,15 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 
 	fmt.Println()
 
-	// Interactive add
+	// The add-loop is a prompt/answer conversation, so it is only offered on a
+	// terminal — off one it would write a question nobody can answer into the
+	// caller's own output and then quit on the resulting EOF. Say how to get
+	// it rather than skipping silently.
+	if !isInteractiveTerminal() {
+		fmt.Println("Run 'ctxloom remote discover' in a terminal to add one of these interactively,")
+		fmt.Println("or add it directly: ctxloom remote add <name> <url>")
+		return nil
+	}
 	if err := interactiveAdd(cmd, cfg, result.Repositories); err != nil {
 		return err
 	}

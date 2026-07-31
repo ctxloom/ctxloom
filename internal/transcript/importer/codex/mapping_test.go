@@ -9,6 +9,7 @@
 package codex
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -94,7 +95,8 @@ func TestFunctionCallOutputEvents_NeverGuessesIsError(t *testing.T) {
 // says to keep and cover, not delete.
 func TestScanSessionInfo_FallsBackToSessionIDOnOlderBuilds(t *testing.T) {
 	line := []byte(`{"type":"session_meta","payload":{"session_id":"legacy-only-id"}}`)
-	info := scanSessionInfo([][]byte{line})
+	info, err := scanSessionInfo(context.Background(), [][]byte{line})
+	require.NoError(t, err)
 	require.NotNil(t, info, "a session_meta line, even id-less, must latch SOME session info")
 	assert.Equal(t, "legacy-only-id", info.SessionID, "id-less session_meta must fall back to the legacy session_id key")
 }

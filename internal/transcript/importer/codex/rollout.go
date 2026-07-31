@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript"
@@ -117,7 +116,19 @@ type taskCompletePayload struct {
 // second pass in the file's own order for every entry/accounting event.
 func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
 	c := &converter{record: importer.RecordFunc(rec, "codex")}
-	err := importer.ConvertJSONLLines(ctx, rec, lines, "codex", scanSessionInfo(lines),
+	// scanSessionInfo is a full pass over the file in its own right, and it
+	// runs as an ARGUMENT to ConvertJSONLLines — i.e. entirely before the
+	// per-line ctx check inside it. It therefore takes ctx itself, and is
+	// preceded by a check of its own so that a cancelled import with nothing
+	// to dispatch still reports the cancellation instead of returning nil.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	info, err := scanSessionInfo(ctx, lines)
+	if err != nil {
+		return err
+	}
+	err = importer.ConvertJSONLLines(ctx, rec, lines, "codex", info,
 		func(line []byte) error {
 			var env rolloutLine
 			if jsonErr := json.Unmarshal(line, &env); jsonErr != nil {
@@ -170,46 +181,86 @@ func (c *converter) checkFloor(total int) error {
 // envelope types that contribute session-level metadata, latching each field
 // onto its FIRST occurrence only via importer.SessionInfoBuilder (mirrors
 // Recorder.Record's own "latch onto the first KindSession line" discipline
-// in recorder.go). Returns nil if the file contained none of them at all
+// in recorder.go). Returns nil info if the file contained none of them at all
 // (nothing to record).
-func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
+//
+// It observes ctx per line, exactly as the streaming pass does. This pass is
+// a full walk of the file on its own, and it completes before the streaming
+// pass begins — so without a check here a cancelled import runs the entire
+// scan out first, which on a large rollout is most of the work.
+func scanSessionInfo(ctx context.Context, lines [][]byte) (*agent.ChatSessionInfo, error) {
 	var b importer.SessionInfoBuilder
 	for _, line := range lines {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var env rolloutLine
 		if err := json.Unmarshal(line, &env); err != nil {
 			continue
 		}
-		switch env.Type {
-		case "session_meta":
-			var p sessionMetaPayload
-			if err := json.Unmarshal(env.Payload, &p); err != nil {
-				continue
-			}
-			id := p.ID
-			if id == "" {
-				id = p.SessionID
-			}
-			b.SetSessionID(id)
-		case "event_msg":
-			var head eventMsgHead
-			if err := json.Unmarshal(env.Payload, &head); err != nil || head.Type != "task_started" {
-				continue
-			}
-			var p taskStartedPayload
-			if err := json.Unmarshal(env.Payload, &p); err != nil {
-				continue
-			}
-			b.SetContextWindow(p.ModelContextWindow)
-		case "turn_context":
-			var p turnContextPayload
-			if err := json.Unmarshal(env.Payload, &p); err != nil {
-				continue
-			}
-			b.SetModel(p.Model)
-			b.SetPermissionMode(p.ApprovalPolicy)
-		}
+		scanSessionLine(&b, env)
 	}
-	return b.Build()
+	return b.Build(), nil
+}
+
+// scanSessionLine feeds one already-unwrapped envelope's session-level fields
+// into b. Every payload here is decoded a SECOND time, per envelope type,
+// because rolloutLine only carries the payload as raw bytes — that is codex's
+// format, not a choice this adapter makes. A payload that fails to decode
+// contributes nothing and is not an error: an envelope whose inner shape has
+// drifted still leaves the rest of the file readable (importer.VendorAdapter's
+// degrade-to-partial contract).
+func scanSessionLine(b *importer.SessionInfoBuilder, env rolloutLine) {
+	switch env.Type {
+	case "session_meta":
+		scanSessionMeta(b, env.Payload)
+	case "event_msg":
+		scanTaskStarted(b, env.Payload)
+	case "turn_context":
+		scanTurnContext(b, env.Payload)
+	}
+	// response_item / world_state carry no session-level metadata.
+}
+
+// scanSessionMeta latches the session id, falling back to the legacy
+// "session_id" key on older codex builds that carried it instead of "id"
+// (see sessionMetaPayload's doc comment).
+func scanSessionMeta(b *importer.SessionInfoBuilder, raw json.RawMessage) {
+	var p sessionMetaPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return
+	}
+	id := p.ID
+	if id == "" {
+		id = p.SessionID
+	}
+	b.SetSessionID(id)
+}
+
+// scanTaskStarted latches the model's context window. event_msg is a family of
+// payloads sharing one envelope type, so the nested discriminator is checked
+// first: task_started is the only variant that carries this.
+func scanTaskStarted(b *importer.SessionInfoBuilder, raw json.RawMessage) {
+	var head eventMsgHead
+	if err := json.Unmarshal(raw, &head); err != nil || head.Type != "task_started" {
+		return
+	}
+	var p taskStartedPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return
+	}
+	b.SetContextWindow(p.ModelContextWindow)
+}
+
+// scanTurnContext latches the resolved model and approval policy for the turn
+// that follows it.
+func scanTurnContext(b *importer.SessionInfoBuilder, raw json.RawMessage) {
+	var p turnContextPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return
+	}
+	b.SetModel(p.Model)
+	b.SetPermissionMode(p.ApprovalPolicy)
 }
 
 // converter carries the streamed second pass's only piece of cross-line
@@ -314,7 +365,18 @@ func (c *converter) handleEventMsg(raw json.RawMessage) error {
 		c.pending.InputTokens = p.Info.LastTokenUsage.InputTokens
 		c.pending.OutputTokens = p.Info.LastTokenUsage.OutputTokens
 		c.pending.CacheReadTokens = p.Info.LastTokenUsage.CachedInputTokens
-		c.pending.ContextWindow = p.Info.ModelContextWindow
+		// Absent is not zero. The token fields above DO overwrite — each
+		// last_token_usage is per-call, and only the last one before
+		// task_complete belongs to the boundary (tokenCountPayload's doc
+		// comment) — but the context window is a property of the model, not of
+		// the call, and codex does not repeat it on every token_count. Writing
+		// the decoded zero from an event that simply omitted it would erase a
+		// window an earlier event already reported, leaving the Complete
+		// record claiming a context window no codex build ever emits. A
+		// genuinely new non-zero window still wins.
+		if p.Info.ModelContextWindow != 0 {
+			c.pending.ContextWindow = p.Info.ModelContextWindow
+		}
 		return nil
 	case "task_complete":
 		var p taskCompletePayload
@@ -355,23 +417,17 @@ func messageEvents(p responseItemPayload) []agent.ChatEvent {
 // this message" and codex has not been observed emitting a non-text block in
 // a message response_item on this box).
 //
-// Deliberately NOT delegating to importer.JoinNonEmpty (the join primitive
-// joinSummaryText below and every other engine's adapter use): doing so
-// makes this function's normalized shape match an unrelated,
-// pre-existing near-duplicate outside this package — internal/operations/
-// resume.go's JoinLeadBlocks, a resume-prompt helper with nothing to do with
-// vendor-transcript import — which reprise's check flags as an inconsistent
-// partial update the moment either side is touched. Fixing that properly
-// means changing internal/operations, out of scope for a change confined to
-// internal/transcript/importer/*.
+// The blocks-to-strings projection is all that lives here; the join itself is
+// importer.JoinNonEmpty, the one primitive joinSummaryText below and every
+// other engine's adapter use — kiro's assistantContentEvents writes the same
+// two lines. There is nothing about "visible text in a codex message" that
+// wants its own filter-and-join.
 func joinContentText(blocks []contentBlock) string {
-	var parts []string
-	for _, b := range blocks {
-		if b.Text != "" {
-			parts = append(parts, b.Text)
-		}
+	texts := make([]string, len(blocks))
+	for i, b := range blocks {
+		texts[i] = b.Text
 	}
-	return strings.Join(parts, "\n\n")
+	return importer.JoinNonEmpty(texts)
 }
 
 // reasoningEvents maps a "reasoning" response_item to zero or one thinking

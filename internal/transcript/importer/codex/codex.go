@@ -36,6 +36,12 @@ var _ importer.VendorAdapter = Adapter{}
 // doc comment for the general contract (malformed lines skipped, not fatal;
 // a rec.Record failure or ctx cancellation IS fatal).
 func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string) error {
+	// Cancellation is checked before anything expensive happens. Reading a
+	// multi-megabyte rollout fully into memory and then discovering the caller
+	// gave up is the whole cost of the import, paid for nothing.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	lines, err := importer.OpenAndReadJSONLLines("codex", src)
 	if err != nil {
 		return err

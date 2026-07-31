@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,316** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,317** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **477** |
+| `open` | no commit names this ID | **476** |
 
-**Totals: 2268 findings across 162 units — 1,316 resolved, 477 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,317 resolved, 476 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 472 | 267 | 73 | 79 | 108 |
+| MED | 999 | 473 | 266 | 73 | 79 | 108 |
 | LOW | 871 | 487 | 198 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1122,7 +1122,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U028-F04 | **RESOLVED** `3571b16d` | **`agents.go:263-273`** | CORRECTNESS | A **failed** load still claims the name, so a corrupt agent file in the first directory shadows a perfectly valid same-named agent in a later directory — the user sees only a skip warning and no ag... | U028.md |
 | U028-F05 | **RESOLVED** `1776a16c` | **`agents.go:249-252`, `:312`** | ERRHANDLING | A directory that exists but cannot be statted is skipped in **silence**, in both the loader and the directory-discovery helper — so "no agents configured" is indistinguishable from "your agents dir... | U028.md |
 | U028-F06 | open | **`agents.go:164-168`; `operations/agents.go:157-172`; `coord/spawner.go:349`** | COHESION | The record's invariants are enforced by **three other packages at three different phases**, and cover one of six user-settable fields. `Agent` has no `Validate()` of its own. | U028.md |
-| U028-F07 | open | **`agents.go:62-65`; `operations/agents.go:148`, `:240`** | COUPLING | `Source` is documented "Diagnostic only" but is a **control-flow discriminator**, compared against a magic string across a package boundary. | U028.md |
+| U028-F07 | **RESOLVED** `43c2c262` | **`agents.go:62-65`; `operations/agents.go:148`, `:240`** | COUPLING | `Source` is documented "Diagnostic only" but is a **control-flow discriminator**, compared against a magic string across a package boundary. | U028.md |
 | U028-F08 | open | **`agents.go:182-199`** | CORRECTNESS | `EscalationRung` — a safety control — is four untyped strings whose enums exist only in comments, validated one package away and one runtime phase later than every other axis. | U028.md |
 | U029-F02 | **RESOLVED** `758c200e` | **`capabilities.go:26,31 + backend.go:49`** | DEAD | `AntigravityCommands` and `RegisterFromContent` are never invoked in production. The `agent.ContentCommands` value is stored in `LaunchBackend.commands` and that field is never read anywhere in the... | U029.md |
 | U029-F03 | **RESOLVED** `2d4c4e03` | **`hooks_wire.go:21-23, 34-35, 42, 77`** | DEAD | Eight wire declarations have zero readers anywhere in the repo, including tests | U029.md |

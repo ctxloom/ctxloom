@@ -3,12 +3,13 @@ package grpc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"math"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // This file carries the session-history transport: the backend (plugin) is
@@ -259,7 +260,7 @@ func sessionMetaFromProto(p *SessionMeta) agent.SessionMeta {
 func (s *GRPCServer) GetSession(ctx context.Context, req *GetSessionRequest) (*SessionData, error) {
 	hist := s.Impl.History()
 	if hist == nil {
-		return nil, fmt.Errorf("backend %s has no session history", s.Impl.Name())
+		return nil, status.Errorf(codes.Unimplemented, "backend %s has no session history", s.Impl.Name())
 	}
 	sess, err := hist.GetSession(projectroot.WorkDir(), req.GetSessionId())
 	if err != nil {
@@ -271,7 +272,7 @@ func (s *GRPCServer) GetSession(ctx context.Context, req *GetSessionRequest) (*S
 	// session that genuinely exists and has produced no turns yet. Report the
 	// absence instead, so the two answers stay apart.
 	if sess == nil {
-		return nil, fmt.Errorf("backend %s has no session %q", s.Impl.Name(), req.GetSessionId())
+		return nil, status.Errorf(codes.NotFound, "backend %s has no session %q", s.Impl.Name(), req.GetSessionId())
 	}
 	return sessionToProto(sess), nil
 }
@@ -281,7 +282,7 @@ func (s *GRPCServer) GetSession(ctx context.Context, req *GetSessionRequest) (*S
 func (s *GRPCServer) ListSessions(ctx context.Context, req *ListSessionsRequest) (*SessionList, error) {
 	hist := s.Impl.History()
 	if hist == nil {
-		return nil, fmt.Errorf("backend %s has no session history", s.Impl.Name())
+		return nil, status.Errorf(codes.Unimplemented, "backend %s has no session history", s.Impl.Name())
 	}
 	metas, err := hist.ListSessions(projectroot.WorkDir())
 	if err != nil {

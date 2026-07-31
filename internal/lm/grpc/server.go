@@ -11,6 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // LLMGRPCPlugin is the implementation of plugin.GRPCPlugin for AI backends.
@@ -72,7 +74,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	}
 	req := first.GetStart()
 	if req == nil {
-		return fmt.Errorf("first Run message must carry start")
+		return status.Error(codes.InvalidArgument, "first Run message must carry start")
 	}
 
 	// Create writers that send output over the stream. os/exec copies

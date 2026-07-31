@@ -88,3 +88,17 @@ func TestGetSession_AbsentSessionIsNotFound(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, codes.NotFound, status.Code(err))
 }
+
+// A first Run frame that carries no start is the CLIENT's protocol violation,
+// exactly as it is on Chat (chat.go answers that with codes.InvalidArgument
+// under U059-F04). Reported as codes.Unknown it is indistinguishable from the
+// transport dying mid-handshake.
+func TestRun_FirstMessageMustCarryStart_IsInvalidArgument(t *testing.T) {
+	srv := &GRPCServer{Impl: &fakeBackend{name: "claude-code"}}
+	stream := newFakeRunServer()
+	stream.recv = []*RunInput{{Input: &RunInput_Stdin{Stdin: []byte("no start")}}}
+
+	err := srv.Run(stream)
+	require.Error(t, err)
+	assert.Equal(t, codes.InvalidArgument, status.Code(err))
+}

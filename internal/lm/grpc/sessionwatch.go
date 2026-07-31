@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"time"
 
@@ -10,6 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/transcript"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // This file carries the WatchSession transport: a structured, turn-based view of
@@ -117,7 +118,7 @@ func (s *GRPCServer) watchPollInterval() time.Duration {
 func (s *GRPCServer) WatchSession(req *WatchSessionRequest, stream LLM_WatchSessionServer) error {
 	hist := s.Impl.History()
 	if hist == nil {
-		return fmt.Errorf("backend %s has no session history", s.Impl.Name())
+		return status.Errorf(codes.Unimplemented, "backend %s has no session history", s.Impl.Name())
 	}
 
 	ctx := stream.Context()

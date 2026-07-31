@@ -271,7 +271,6 @@ func (l *Loader) List() ([]*Agent, error) {
 			if seen[subName] {
 				return nil
 			}
-			seen[subName] = true
 			sub, lerr := l.loadFile(path)
 			if lerr != nil {
 				// Degrade, but say so: a corrupt agent silently vanishing is
@@ -279,6 +278,11 @@ func (l *Loader) List() ([]*Agent, error) {
 				clidiag.Warn("ctxloom", "skipping agent %s: %v", path, lerr)
 				return nil
 			}
+			// The name is claimed only by a definition that RESOLVED. A file
+			// that failed to load has not defined this agent, so it must not
+			// shadow a valid same-named definition in a later directory —
+			// first-directory-wins ranks working definitions, not filenames.
+			seen[subName] = true
 			sub.Name = subName
 			out = append(out, sub)
 			return nil

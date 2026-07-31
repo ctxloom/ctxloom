@@ -430,3 +430,31 @@ func TestSession_ResizeAfterTheSessionEndsIsSilent(t *testing.T) {
 	sess.Resize(24, 80)
 	assert.Empty(t, diag.String(), "a resize after the session ended is dropped, not reported")
 }
+
+// TestStart_RefusesAnIncompleteTurn pins U152-F07: nothing validated the
+// Launcher's own inputs, so an empty Backend, StartPath or container name still
+// rendered a WELL-FORMED command — `docker exec -i -t "" ctxloom llm turn
+// --start ""` — and the first thing that noticed was the runtime, or the
+// in-container ctxloom, with a message about argv rather than about the field
+// the caller left blank. The transport knows exactly which field is missing;
+// it should say so before it spawns anything.
+func TestStart_RefusesAnIncompleteTurn(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		container string
+		turn      TurnSpec
+		wants     string
+	}{
+		{"no container", "", TurnSpec{Backend: "mock", StartPath: "/p"}, "container"},
+		{"no backend", "c", TurnSpec{StartPath: "/p"}, "backend"},
+		{"no start path", "c", TurnSpec{Backend: "mock"}, "start"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// missingBinRuntime so a pre-fix run cannot spawn anything real.
+			_, err := NewLauncher(missingBinRuntime{}, tc.container, tc.turn).
+				Start(context.Background(), vpio.ProcessSpec{Stdout: io.Discard})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wants, "the error names the field the caller left blank")
+		})
+	}
+}

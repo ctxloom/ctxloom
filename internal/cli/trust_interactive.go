@@ -24,7 +24,7 @@ import (
 //
 // The actual mutations reuse the single plumbing path (runItemTrust /
 // runBlacklist → operations.Set*), and the interactive read reuses the single
-// shared stdin reader via promptLine / promptYesNo (run.go) — no second
+// shared stdin reader via promptLine / promptYesNo (prompt.go) — no second
 // bufio.Reader is created (ctxloom-code-08-002).
 
 // itemTrustChoice is the parsed decision from the `[t]rust / [b]lacklist / skip`

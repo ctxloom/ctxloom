@@ -72,6 +72,27 @@ func TestQuotedArgument(t *testing.T) {
 	}
 }
 
+// TestUnterminatedQuoteKeepsRestOfLineLiteral pins the behaviour U069-F03
+// reads as a defect: an unterminated `"` swallows the rest of the line into
+// one word, so `del` is not surfaced as a further command.
+//
+// That is what cmd.exe itself does. Its parser tracks quote state across the
+// whole line, and `&` `|` `(` `)` `<` `>` are not special while that state is
+// open, so an odd number of quotes leaves the remainder literal and no second
+// command ever runs. Splitting here would make ltk match rules against a
+// command cmd.exe will not execute — a false denial invented by ltk's own
+// parser. Do not "fix" this by re-lexing the tail; see U069-F03.
+func TestUnterminatedQuoteKeepsRestOfLineLiteral(t *testing.T) {
+	s := parse(t, `echo "hi & del /f /q important-file`)
+	if got := programs(s); !reflect.DeepEqual(got, []string{"echo"}) {
+		t.Fatalf("programs = %v, want [echo]: the unterminated quote keeps the tail literal in cmd.exe too", got)
+	}
+	c := s.Pipelines[0].Commands[0]
+	if !reflect.DeepEqual(c.Argv, []string{"echo", "hi & del /f /q important-file"}) {
+		t.Errorf("argv = %v, want the whole tail as one word", c.Argv)
+	}
+}
+
 func TestCaretEscapeNotAnOperator(t *testing.T) {
 	s := parse(t, "echo a^&b")
 	c := s.Pipelines[0].Commands[0]

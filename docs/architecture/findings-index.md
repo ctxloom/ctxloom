@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,534** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,535** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 183 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 207 |
-| `open` | no commit names this ID | **135** |
+| `open` | no commit names this ID | **134** |
 
-**Totals: 2268 findings across 162 units — 1,534 resolved, 135 still open, 599 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,535 resolved, 134 still open, 599 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 578 | 82 | 105 | 96 | 138 |
+| MED | 999 | 579 | 81 | 105 | 96 | 138 |
 | LOW | 871 | 595 | 46 | 62 | 105 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1892,7 +1892,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U144-F09 | **RESOLVED** `71cb25a2` | `recorder.go:116-178` | COMPLEXITY | `fileRecorder.Record` has CCN 12 against a CI gate that fails above 10 (brief baseline; the only such function in the unit) | U144.md |
 | U144-F10 | **RESOLVED** `e7631e88` | `record.go:308-414 ↔ history.go:215-285` | DUPLICATE | Eight hand-written mirror converters plus ten mirror structs mean each new `agent` field must be edited in four places with nothing enforcing parity — F01 and F02 are proof it has already silently ... | U144.md |
 | U144-F11 | open | `coordinated.go:74-77, 100-106` | CORRECTNESS | `Submit` after the final `ProducerDone` — or any construction with `producers == 0` — panics with "send on closed channel" **inside the live chat's goroutine**, the exact thing this package's contr... | U144.md |
-| U145-F03 | open | `entries.go:9-18` | CORRECTNESS | `NonEmptyRaw`'s doc comment states a factually false rationale: an empty-but-non-nil `json.RawMessage` does NOT "round-trip to a literal `null`" on the canonical write path. With `omitempty` (which... | U145.md |
+| U145-F03 | **RESOLVED** `6dfd58e0` | `entries.go:9-18` | CORRECTNESS | `NonEmptyRaw`'s doc comment states a factually false rationale: an empty-but-non-nil `json.RawMessage` does NOT "round-trip to a literal `null`" on the canonical write path. With `omitempty` (which... | U145.md |
 | U145-F04 | open | `driver.go:29` | DUPLICATE | `ConvertJSONLLines` is presented (`driver.go:11-13`, "the pattern every JSONL-per-session engine's Convert copies") as the shared driver, but only 2 of the 4 adapters call it; the other 2 re-implem... | U145.md |
 | U145-F08 | open | `driver.go:29` | COUPLING | `ConvertJSONLLines` takes 7 parameters, two of which (`rec`, `vendor`) duplicate state its callers have already combined: both call sites build `importer.RecordFunc(rec, "<vendor>")` and *also* pas... | U145.md |
 | U146-F04 | **RESOLVED** `d549469b` | **`antigravity.go:8-10`** | CORRECTNESS | The package doc's stated premise is factually false: it claims "antigravity has no StructuredChat capability at all (no `internal/antigravity/chat.go`)". That file exists and asserts the capability. | U146.md |

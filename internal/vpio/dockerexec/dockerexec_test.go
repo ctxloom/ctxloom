@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -196,4 +197,29 @@ func (b *syncBuf) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
+}
+
+// TestSession_OutputTailIsBoundedAtTheSharedBudget pins the BEHAVIOUR the
+// shared-ring consolidation was for, which its own type assertion above cannot
+// observe: `sess.ring` is statically *stderrtail.Ring, so IsType is a tautology
+// that no regression can make fail. The property that actually distinguishes
+// the shared ring from a re-grown private one is the budget it is built with —
+// stderrtail.DefaultBytes, the single standard tail budget — and that a tail is
+// the LAST bytes of the stream, not the first. A private ring with its own
+// constant would fail here.
+func TestSession_OutputTailIsBoundedAtTheSharedBudget(t *testing.T) {
+	ctx := context.Background()
+	// One byte-run longer than the budget, no newlines (nothing for the pty's
+	// output processing to rewrite), ending in a docker-level code so Wait
+	// renders the tail into its error.
+	const over = stderrtail.DefaultBytes + 512
+	script := "head -c " + strconv.Itoa(over) + " /dev/zero | tr '\\0' 'x'; printf END; exit 126"
+	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "sh", "-c", script), vpio.ProcessSpec{Stdout: io.Discard})
+	require.NoError(t, err)
+	_, werr := sess.Wait()
+	require.Error(t, werr)
+
+	tail := sess.ring.Tail()
+	assert.Len(t, tail, stderrtail.DefaultBytes, "the tail is bounded at the ONE shared budget, not a per-package constant")
+	assert.True(t, strings.HasSuffix(tail, "END"), "a tail keeps the LAST bytes of the stream")
 }

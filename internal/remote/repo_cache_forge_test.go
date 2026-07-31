@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,4 +73,94 @@ func TestRepoCache_RepoDirForURL(t *testing.T) {
 	got, err := cache.RepoDirForURL("https://github.com/owner/repo")
 	require.NoError(t, err)
 	assert.Equal(t, "/tmp/cache/github.com/owner/repo", got)
+}
+
+// TestRepoCache_cloneToken_AmbientTokenIsScopedToCloneHost pins the boundary an
+// UNNAMED github credential must not cross: the ambient token (GITHUB_TOKEN /
+// GH_TOKEN, and the per-type token_env default that is the same variable) is a
+// github.com credential, so it may only be sent to github.com.
+//
+// The two tests above look like they defend the ambient fallback, but both
+// clone from github.com — the favourable input. Neither distinguishes
+// github.com from an enterprise host, so neither would have caught the
+// github.com PAT being handed to github.corp.example on every clone and fetch.
+// This is the pin they never provided.
+func TestRepoCache_cloneToken_AmbientTokenIsScopedToCloneHost(t *testing.T) {
+	const (
+		enterpriseURL = "https://github.corp.example/owner/repo.git"
+		dotComURL     = "https://github.com/owner/repo.git"
+		ambientPAT    = "pat-for-github-dot-com"
+	)
+	corpForges := func(body map[string]any) map[string]ForgeConfig {
+		return MergeForges(map[string]ForgeConfig{"corp": {Type: string(ForgeGitHub), Body: body}})
+	}
+	cacheFor := func(forges map[string]ForgeConfig) *RepoCache {
+		return NewRepoCache("", AuthConfig{GitHub: ambientPAT},
+			WithForgeResolver(func(u string) ResolvedForge { return ResolveForgeForURLWith(u, "", forges) }))
+	}
+
+	t.Run("no token_env: the ambient token does not reach an enterprise host", func(t *testing.T) {
+		testsupport.Isolate(t)
+		t.Setenv(DefaultGitHubTokenEnv, ambientPAT)
+		cache := cacheFor(corpForges(map[string]any{"base_url": "https://github.corp.example"}))
+
+		assert.False(t, emitsAuthHeader(cache.authEnv(enterpriseURL, ForgeGitHub)),
+			"an ordinary `forges: {corp: {type: github, base_url: https://github.corp.example}}` "+
+				"must not put the github.com credential on the wire to github.corp.example")
+	})
+
+	t.Run("no token_env: the ambient token still reaches github.com", func(t *testing.T) {
+		testsupport.Isolate(t)
+		t.Setenv(DefaultGitHubTokenEnv, ambientPAT)
+		cache := cacheFor(corpForges(map[string]any{"base_url": "https://github.corp.example"}))
+
+		env := envMap(t, cache.authEnv(dotComURL, ForgeGitHub))
+		assert.Equal(t, "http.https://github.com/.extraheader", env["GIT_CONFIG_KEY_0"])
+		want := base64.StdEncoding.EncodeToString([]byte("x-access-token:" + ambientPAT))
+		assert.Equal(t, "AUTHORIZATION: basic "+want, env["GIT_CONFIG_VALUE_0"],
+			"scoping the ambient credential must not stop it reaching the host it belongs to")
+	})
+
+	t.Run("an explicit token_env still reaches an enterprise host", func(t *testing.T) {
+		// The thing this scoping must not break: a per-forge credential the user
+		// NAMED is not the github.com credential, and travels wherever its forge
+		// points. Protected by a test rather than by hope.
+		testsupport.Isolate(t)
+		t.Setenv(DefaultGitHubTokenEnv, ambientPAT)
+		t.Setenv("CORP_TOKEN", "corp-scoped-token")
+		cache := cacheFor(corpForges(map[string]any{
+			"base_url":  "https://github.corp.example",
+			"token_env": "CORP_TOKEN",
+		}))
+
+		env := envMap(t, cache.authEnv(enterpriseURL, ForgeGitHub))
+		assert.Equal(t, "http.https://github.corp.example/.extraheader", env["GIT_CONFIG_KEY_0"])
+		want := base64.StdEncoding.EncodeToString([]byte("x-access-token:corp-scoped-token"))
+		assert.Equal(t, "AUTHORIZATION: basic "+want, env["GIT_CONFIG_VALUE_0"])
+	})
+
+	t.Run("with no resolver at all the ambient token is scoped the same way", func(t *testing.T) {
+		// NewRepoCache without WithForgeResolver is a real construction (see the
+		// registry-read failure path in operations.NewRepoCache), and it reaches
+		// AuthConfig.GitHub directly.
+		testsupport.Isolate(t)
+		cache := NewRepoCache("", AuthConfig{GitHub: ambientPAT})
+
+		assert.False(t, emitsAuthHeader(cache.authEnv(enterpriseURL, ForgeGitHub)),
+			"the resolver-less path carries the same github.com credential and needs the same scope")
+		assert.True(t, emitsAuthHeader(cache.authEnv(dotComURL, ForgeGitHub)))
+	})
+}
+
+// emitsAuthHeader reports whether authEnv output carries an Authorization
+// header. It returns a bool rather than handing the entries to an assertion
+// because a failed assertion PRINTS its argument, and an environment dump in a
+// test log is how credentials escape (same reason envMap exists).
+func emitsAuthHeader(entries []string) bool {
+	for _, e := range entries {
+		if strings.HasPrefix(e, "GIT_CONFIG_VALUE_") && strings.Contains(e, "AUTHORIZATION:") {
+			return true
+		}
+	}
+	return false
 }

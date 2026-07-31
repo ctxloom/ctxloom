@@ -1,7 +1,6 @@
 package remote
 
 import (
-	"encoding/base64"
 	"strings"
 	"testing"
 
@@ -11,26 +10,30 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// U093-F12 is CHARACTERIZED here, not fixed: the decision it turns on is a
-// human's, and the escalation is recorded in the findings index.
+// The leak this file characterized is FIXED, and the fix is scoped at the
+// clone URL — so most of what is described below still HAPPENS at the source
+// and is pinned here on purpose, unchanged.
 //
-// The claim is that a github.com personal access token is sent to a
-// non-github.com host — a GitHub Enterprise forge whose token_env is unset
-// receives GITHUB_TOKEN. It is accurate, and it is reachable in production:
-// operations.NewRepoCache wires ResolveForgeForURLWith in as the cache's forge
-// resolver, so RepoCache.cloneToken calls ResolvedForge.Token for every clone
-// and fetch, and authEnv turns the result into an Authorization header scoped
-// to the CLONE host.
+// The defect: a github.com personal access token was sent to a non-github.com
+// host — a GitHub Enterprise forge whose token_env is unset received
+// GITHUB_TOKEN. operations.NewRepoCache wires ResolveForgeForURLWith in as the
+// clone cache's forge resolver, so RepoCache.cloneToken calls
+// ResolvedForge.Token for every clone and fetch, and authEnv turned the result
+// into an Authorization header scoped to the CLONE host.
 //
-// There are two independent routes to the same outcome, which is why a fix has
-// to touch both. resolvedFromConfig defaults TokenEnv to GITHUB_TOKEN for
-// every github-TYPED forge regardless of its host; and if that variable is
-// unset, Token falls back to AuthConfig.GitHub, which LoadAuth fills from
-// GITHUB_TOKEN or GH_TOKEN.
+// Two independent routes reach the same value: resolvedFromConfig defaults
+// TokenEnv to GITHUB_TOKEN for every github-TYPED forge regardless of its
+// host; and if that variable is unset, Token falls back to AuthConfig.GitHub,
+// which LoadAuth fills from GITHUB_TOKEN or GH_TOKEN. Both still do that — the
+// subtests below assert it — because the decision "may this credential go to
+// THIS host" belongs where the destination is known, not where the value is
+// read. That decision now lives in RepoCache.cloneToken, and the subtest at the
+// bottom of this function is the one that changed: the token no longer reaches
+// the wire for an enterprise host.
 //
-// These tests describe today's behaviour so it is visible rather than implied.
-// They are expected to be INVERTED when the decision lands — do not read them
-// as endorsing what they assert.
+// So: subtests naming the SOURCE describe behaviour that is deliberately still
+// there. Do not read them as a licence to hand rf.Token's result to a network
+// destination without asking which host it is.
 func TestResolvedForge_TokenScope_Characterization(t *testing.T) {
 	enterprise := MergeForges(map[string]ForgeConfig{
 		"corp": {Type: string(ForgeGitHub), Body: map[string]any{
@@ -62,17 +65,17 @@ func TestResolvedForge_TokenScope_Characterization(t *testing.T) {
 			"an explicitly-named token_env that is UNSET still falls through to the ambient token")
 	})
 
-	t.Run("the token reaches the wire as an Authorization header for that host", func(t *testing.T) {
+	t.Run("but the token does not reach the wire for that host", func(t *testing.T) {
 		// The consequence, not just the mechanism: what authEnv hands to git.
+		// Both routes above still produce the github.com PAT; cloneToken is
+		// where it stops. See TestRepoCache_cloneToken_AmbientTokenIsScopedToCloneHost
+		// for the full boundary, including the positive cases.
 		testsupport.Isolate(t)
+		t.Setenv(DefaultGitHubTokenEnv, "pat-for-github-dot-com")
 		cache := NewRepoCache("", AuthConfig{GitHub: "pat-for-github-dot-com"}, WithForgeResolver(resolveFor))
 
-		env := envMap(t, cache.authEnv("https://github.corp.example/owner/repo", ForgeGitHub))
-		assert.Equal(t, "http.https://github.corp.example/.extraheader", env["GIT_CONFIG_KEY_0"],
-			"the header is scoped to the enterprise host")
-
-		want := base64.StdEncoding.EncodeToString([]byte("x-access-token:pat-for-github-dot-com"))
-		assert.Equal(t, "AUTHORIZATION: basic "+want, env["GIT_CONFIG_VALUE_0"])
+		assert.False(t, emitsAuthHeader(cache.authEnv("https://github.corp.example/owner/repo", ForgeGitHub)),
+			"no Authorization header may be emitted for a host the ambient credential does not belong to")
 	})
 
 	t.Run("an explicit token_env is honoured, which is the documented opt-in", func(t *testing.T) {

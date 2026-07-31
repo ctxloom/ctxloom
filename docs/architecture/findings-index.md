@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,483** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,484** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 175 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 201 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 201 |
-| `open` | no commit names this ID | **208** |
+| `open` | no commit names this ID | **207** |
 
-**Totals: 2268 findings across 162 units — 1,483 resolved, 208 still open, 577 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,484 resolved, 207 still open, 577 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 550 | 123 | 101 | 92 | 133 |
+| MED | 999 | 551 | 122 | 101 | 92 | 133 |
 | LOW | 871 | 574 | 76 | 58 | 101 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1728,7 +1728,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U105-F02 | **REFUTED** `25e2565e` | `cliversion.go:25-27` | SILENTNOOP | The `text`/`""` branch of `Render` prints a bare newline for an unstamped `Version` and returns nil. Empty in, zero-payload out, exit 0. | U105.md |
 | U105-F03 | **RESOLVED** `36cdc8f3` | `cliversion.go:14-18` vs `internal/config/companions.go:152-166` | COUPLING | The package doc claims `Info` is "the single source of truth rather than being re-declared per binary", but the *reader* of the contract does not use it. `companionVersion` re-implements the decode... | U105.md |
 | U106-F01 | **RESOLVED** `cac52a3e` `127539ad` | `sorted_keys.go:9-16` | NOPAY | `SortedKeys` is a strictly worse re-implementation of `slices.Sorted(maps.Keys(m))`: it is restricted to `~string` keys for no reason, and uses the reflect-based `sort.Slice` instead of the generic... | U106.md |
-| U106-F02 | open | `set.go:31` (doc) vs `set.go:49,54` and `internal/operations/items.go:223` | CORRECTNESS | The doc "The zero value is not usable" is false for reads and understates the risk for writes. `Has`/`Items`/`Clone` work fine on a nil `Set`; `Add`/`AddAll` panic. A caller in the tree already dec... | U106.md |
+| U106-F02 | **RESOLVED** `d2ff894f` | `set.go:31` (doc) vs `set.go:49,54` and `internal/operations/items.go:223` | CORRECTNESS | The doc "The zero value is not usable" is false for reads and understates the risk for writes. `Has`/`Items`/`Clone` work fine on a nil `Set`; `Add`/`AddAll` panic. A caller in the tree already dec... | U106.md |
 | U106-F03 | **REFUTED** `67c5c7fe` | `set.go:35,49,54,68,77` | NOPAY | Five of `Set`'s seven functions are single-expression or single-loop wrappers over a map operation or a stdlib call, adding no invariant. `NewSet` is `make`. `Add` is `s[v]=struct{}{}`. `Items` is ... | U106.md |
 | U107-F03 | open | `cli.go:30-34` | CORRECTNESS | The package doc on `NewCommand` states a fact about the system that is **false**, and it is the kind of false that invites someone to delete the `sig` seam as speculative. | U107.md |
 | U107-F04 | **ESCALATED** `cdf64839` | `cli.go:82` | NOPAY | `Emit` hardcodes `signer` to `""`, so the envelope's advisory `signer` field is **never populated by any production caller**, and no code anywhere reads it. The parameter and the struct field are w... | U107.md |

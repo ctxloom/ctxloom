@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,532** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,533** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **141** |
+| `open` | no commit names this ID | **140** |
 
-**Totals: 2268 findings across 162 units — 1,532 resolved, 141 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,533 resolved, 140 still open, 595 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 579 | 83 | 104 | 96 | 137 |
+| MED | 999 | 580 | 82 | 104 | 96 | 137 |
 | LOW | 871 | 592 | 51 | 61 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1833,7 +1833,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U132-F02 | open | **`watch.go:94-104`** | CORRECTNESS | **`addTree` applies no filter — it watches every directory under the root**, including ephemeral agent worktrees. On this machine that is **3,333 inotify watches to observe 184 files**, growing mon... | U132.md |
 | U132-F04 | **RESOLVED** `285a0eb7` | **`watch.go:19-35`, `:127`, `:143-157`** | DEAD | The `Op` type, its five constants, the `Event.Op` field, and the entire `normalize` function exist to deliver a value **neither consumer reads**. The doc justifies the vocabulary as being "for the ... | U132.md |
 | U132-F05 | **RESOLVED** `a7b5784e` | **`watch.go:87-90`** | ERRHANDLING | `Close` is **not idempotent**: a second call panics on `close of closed channel`. It also returns an error that both consumers discard, and it has no way to report that `pump` has actually stopped. | U132.md |
-| U132-F06 | open | **`watch.go:131-138`** | ERRHANDLING | Watch errors are dropped on the floor beyond the first: `errs` is buffered at 1 and the send is non-blocking with a bare `default:`. If a consumer never selects on `Errors()`, **every** error is di... | U132.md |
+| U132-F06 | **RESOLVED** `c3935d0e` | **`watch.go:131-138`** | ERRHANDLING | Watch errors are dropped on the floor beyond the first: `errs` is buffered at 1 and the send is non-blocking with a bare `default:`. If a consumer never selects on `Errors()`, **every** error is di... | U132.md |
 | U132-F07 | open | **`watch.go:108-141`** | COMPLEXITY | `pump` is CCN 16 against a CI gate that fails above 10, with no `nolint` and no exclusion. | U132.md |
 | U133-F02 | **RESOLVED** `e459008e` | **`mcp.go:84`** | DUPLICATE | The deep-copy semantics this package owns are re-implemented byte-for-byte in `internal/config`, and re-implemented a third time as proto converters — three copies with no compiler link | U133.md |
 | U133-F03 | open | **`hooks.go:79`** | COHESION | The hooks half of this vocabulary has no merge primitive in `wire`; the primitive lives in an outer package and duplicates `Append` verbatim | U133.md |

@@ -189,9 +189,9 @@ func (m *Manager) CommitUpgrade() error {
 		return nil
 	}
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -233,9 +233,9 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return Entry{}, fmt.Errorf("lock: %w", err)
+		return Entry{}, err
 	}
 	defer unlock()
 
@@ -288,9 +288,9 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -630,9 +630,9 @@ func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -667,9 +667,9 @@ func (m *Manager) Rename(oldName, newName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -700,9 +700,9 @@ func (m *Manager) Forget(harpName string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -744,9 +744,9 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return nil, fmt.Errorf("lock: %w", err)
+		return nil, err
 	}
 	defer unlock()
 
@@ -815,9 +815,9 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSi
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := m.lock()
 	if err != nil {
-		return fmt.Errorf("lock: %w", err)
+		return err
 	}
 	defer unlock()
 
@@ -835,6 +835,24 @@ func (m *Manager) SetSummary(harpName, summary string, detail []string, sourceSi
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found: %q", harpName)
+}
+
+// lockPath is the single home of the index's cooperative lock-file name. The
+// ".lock" suffix is connascent across every mutating method: they must all name
+// the same file or they silently stop excluding one another — no error, no
+// warning, just two writers in one index.
+func (m *Manager) lockPath() string { return m.path + ".lock" }
+
+// lock takes the index's exclusive file lock and returns its release func,
+// already wrapped for return. Every mutating method acquires through here, so
+// the lock's identity and the error's shape are decided once rather than
+// re-agreed at each call site.
+func (m *Manager) lock() (func(), error) {
+	unlock, err := filelock.Lock(m.lockPath())
+	if err != nil {
+		return nil, fmt.Errorf("lock: %w", err)
+	}
+	return unlock, nil
 }
 
 // saveLocked atomically replaces the index file with idx.

@@ -130,69 +130,114 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 		return result, err
 	}
 
-	exists, err := afero.Exists(fs, file)
+	base, backup, existed, err := readAndBackupExisting(fs, file, ft)
+	result.Created = !existed
+	result.Backup = backup
 	if err != nil {
-		return result, fmt.Errorf("config-write: stat %s: %w", file, err)
-	}
-	result.Created = !exists
-
-	base := map[string]any{}
-	if exists {
-		data, err := afero.ReadFile(fs, file)
-		if err != nil {
-			return result, fmt.Errorf("config-write: read %s: %w", file, err)
-		}
-		base, err = decodeConfigFile(data, ft)
-		if err != nil {
-			return result, fmt.Errorf("config-write: %s is not valid %s — refusing to overwrite a file this command couldn't parse (fix or remove it by hand, then retry): %w", file, ft, err)
-		}
-
-		backupPath, err := backupBeforeEdit(fs, file, data)
-		if err != nil {
-			return result, fmt.Errorf("config-write: backup %s before editing: %w", file, err)
-		}
-		result.Backup = backupPath
+		return result, err
 	}
 
-	merged := deepMergeConfigMaps(base, patch)
-	out, err := encodeConfigFile(merged, ft)
+	out, err := encodeConfigFile(deepMergeConfigMaps(base, patch), ft)
 	if err != nil {
 		return result, fmt.Errorf("config-write: encode %s: %w", file, err)
 	}
+	if err := writeConfigFile(fs, file, out); err != nil {
+		return result, err
+	}
+	result.Merged = sortedKeys(patch)
 
-	if dir := filepath.Dir(file); dir != "." {
-		if err := fs.MkdirAll(dir, 0755); err != nil {
-			return result, fmt.Errorf("config-write: create directory for %s: %w", file, err)
-		}
-	}
-	// CallerOwnsBackup: backupBeforeEdit above already kept a timestamped copy
-	// of these exact bytes, and this is a THIRD-PARTY config directory — a
-	// second, ctxloom-branded ".ctxloom.bak" sibling there is undocumented
-	// (rule 2 promises one name) and single-slot, so it contradicts the
-	// per-call generation the command reports.
-	if err := agent.AtomicWriteFile(fs, file, out, filepath.Base(file), agent.CallerOwnsBackup()); err != nil {
-		return result, fmt.Errorf("config-write: write %s: %w", file, err)
-	}
-
-	for k := range patch {
-		result.Merged = append(result.Merged, k)
-	}
-	sort.Strings(result.Merged)
-
-	reread, err := afero.ReadFile(fs, file)
-	if err != nil {
-		return result, fmt.Errorf("config-write: re-read %s after writing (verify failed) — %s: %w", file, backupClause(result.Backup), err)
-	}
-	verifyData, err := decodeConfigFile(reread, ft)
-	if err != nil {
-		return result, fmt.Errorf("config-write: %s is malformed after writing (verify failed) — %s: %w", file, backupClause(result.Backup), err)
-	}
-	if !containsConfigPatch(verifyData, patch) {
-		return result, fmt.Errorf("config-write: %s does not contain the merged content after writing (verify failed) — %s", file, backupClause(result.Backup))
+	if err := verifyConfigWrite(fs, file, ft, patch, result.Backup); err != nil {
+		return result, err
 	}
 	result.Verified = true
 
 	return result, nil
+}
+
+// readAndBackupExisting implements rules 2 and 4 for a target that may or may
+// not exist: parse what is there (rule 4 — an unparseable file STOPS the
+// command and is never overwritten) and only then take the backup (rule 2),
+// since a file that could not be read is a file with nothing to preserve. A
+// missing target yields an empty base, no backup, and existed=false.
+//
+// The backup path is returned even alongside an error so the caller can report
+// it: once the copy exists, the user needs to know where it is regardless of
+// what failed next.
+func readAndBackupExisting(fs afero.Fs, file, ft string) (base map[string]any, backup string, existed bool, err error) {
+	base = map[string]any{}
+
+	existed, err = afero.Exists(fs, file)
+	if err != nil {
+		return base, "", false, fmt.Errorf("config-write: stat %s: %w", file, err)
+	}
+	if !existed {
+		return base, "", false, nil
+	}
+
+	data, err := afero.ReadFile(fs, file)
+	if err != nil {
+		return base, "", true, fmt.Errorf("config-write: read %s: %w", file, err)
+	}
+	base, err = decodeConfigFile(data, ft)
+	if err != nil {
+		return map[string]any{}, "", true, fmt.Errorf("config-write: %s is not valid %s — refusing to overwrite a file this command couldn't parse (fix or remove it by hand, then retry): %w", file, ft, err)
+	}
+	backup, err = backupBeforeEdit(fs, file, data)
+	if err != nil {
+		return base, "", true, fmt.Errorf("config-write: backup %s before editing: %w", file, err)
+	}
+	return base, backup, true, nil
+}
+
+// writeConfigFile creates the target's directory if needed and writes out
+// atomically.
+//
+// CallerOwnsBackup: readAndBackupExisting already kept a timestamped copy of
+// the pre-edit bytes, and this is a THIRD-PARTY config directory — a second,
+// ctxloom-branded ".ctxloom.bak" sibling there is undocumented (rule 2 promises
+// one name) and single-slot, so it would contradict the per-call generation the
+// command reports.
+func writeConfigFile(fs afero.Fs, file string, out []byte) error {
+	if dir := filepath.Dir(file); dir != "." {
+		if err := fs.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("config-write: create directory for %s: %w", file, err)
+		}
+	}
+	if err := agent.AtomicWriteFile(fs, file, out, filepath.Base(file), agent.CallerOwnsBackup()); err != nil {
+		return fmt.Errorf("config-write: write %s: %w", file, err)
+	}
+	return nil
+}
+
+// verifyConfigWrite implements rule 5: re-read the file, re-parse it, and
+// confirm the patched content is actually present — payload verification, not a
+// clean exit code. Every failure names what the user can recover from
+// (backupClause), because this is the one moment the message has to be
+// actionable.
+func verifyConfigWrite(fs afero.Fs, file, ft string, patch map[string]any, backup string) error {
+	reread, err := afero.ReadFile(fs, file)
+	if err != nil {
+		return fmt.Errorf("config-write: re-read %s after writing (verify failed) — %s: %w", file, backupClause(backup), err)
+	}
+	verifyData, err := decodeConfigFile(reread, ft)
+	if err != nil {
+		return fmt.Errorf("config-write: %s is malformed after writing (verify failed) — %s: %w", file, backupClause(backup), err)
+	}
+	if !containsConfigPatch(verifyData, patch) {
+		return fmt.Errorf("config-write: %s does not contain the merged content after writing (verify failed) — %s", file, backupClause(backup))
+	}
+	return nil
+}
+
+// sortedKeys returns m's top-level keys in a stable order, so the report names
+// the merged keys the same way on every run.
+func sortedKeys(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // backupClause names what the user can recover from when a verify step fails —

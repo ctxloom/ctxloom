@@ -161,6 +161,9 @@ func wrappedCommand(argv []string, outer ir.Shell) (string, ir.Shell, bool) {
 	prog := strings.ToLower(argvBase(argv[0]))
 	sh := shellenv.ShellFromPath(prog)
 	args := argv[1:]
+	if inner, ok := envSplitString(prog, args); ok {
+		return inner, outer, true
+	}
 	for _, rule := range wrapperRules {
 		if !rule.matches(prog, sh) {
 			continue
@@ -172,6 +175,47 @@ func wrappedCommand(argv []string, outer ir.Shell) (string, ir.Shell, bool) {
 		return inner, innerShell(prog, outer), true
 	}
 	return "", "", false
+}
+
+// envSplitString returns the command string of `env -S STRING` (GNU env's
+// --split-string), if that is what args carries. -S makes env an INTERPRETER
+// wrapper, not a prefix one: its inner command arrives as a single STRING that
+// env itself splits into words, so it must be re-parsed like `sh -c`'s
+// argument. Treating -S as merely another option whose argument is stepped
+// over left the inner command out of the IR entirely — `env -S "git commit
+// --no-verify"` yielded no nested command at all, so no rule could match it.
+//
+// The string is re-parsed in the SURROUNDING dialect: env does its own
+// word-splitting rather than invoking a shell, and shell tokenization is the
+// closest available approximation for the purpose of naming the program and
+// its arguments.
+func envSplitString(prog string, args []string) (string, bool) {
+	if prog != "env" {
+		return "", false
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-S" || a == "--split-string":
+			if i+1 < len(args) {
+				return args[i+1], true
+			}
+			return "", false
+		case strings.HasPrefix(a, "--split-string="):
+			return strings.TrimPrefix(a, "--split-string="), true
+		case strings.HasPrefix(a, "-S"): // glued form: env -S'git push'
+			return a[2:], true
+		case isEnvAssignment(a):
+			continue
+		case a == "-u" || a == "--unset" || a == "-C" || a == "--chdir":
+			i++ // these consume the following token as their argument
+			continue
+		case isPosixOption(a):
+			continue
+		}
+		return "", false // first operand reached: this is a prefix invocation
+	}
+	return "", false
 }
 
 // extract pulls the inner command string out of a wrapper's arguments.
@@ -444,12 +488,17 @@ func prefixWrapped(argv []string) ([]string, bool) {
 
 // skipEnv locates the inner command after `env`'s leading KEY=VAL assignment
 // tokens and options: -i/--ignore-environment and -0/--null take no argument;
-// -u/--unset, -C/--chdir, -S/--split-string each consume the following token
-// as their argument (or, in `--opt=val` form, none). The first token that is
-// neither an assignment nor a recognized option begins the inner command. An
-// unrecognized option token is conservatively skipped by itself (bias toward
-// stripping more, per the package doc above) rather than treated as the
-// inner command's program name.
+// -u/--unset and -C/--chdir each consume the following token as their argument
+// (or, in `--opt=val` form, none). The first token that is neither an
+// assignment nor a recognized option begins the inner command. An unrecognized
+// option token is conservatively skipped by itself (bias toward stripping
+// more, per the package doc above) rather than treated as the inner command's
+// program name.
+//
+// -S/--split-string is deliberately NOT among the step-over options: it makes
+// env an interpreter wrapper whose inner command is a STRING to re-parse, and
+// envSplitString handles it. Reporting no prefix-style inner command here
+// keeps the same invocation from being expanded down both paths.
 func skipEnv(args []string) (int, bool) {
 	i := 0
 	for i < len(args) {
@@ -458,13 +507,15 @@ func skipEnv(args []string) (int, bool) {
 		case isEnvAssignment(a):
 			i++
 			continue
+		case a == "-S" || a == "--split-string" || strings.HasPrefix(a, "--split-string=") || strings.HasPrefix(a, "-S"):
+			return 0, false // interpreter form: see envSplitString
 		case a == "-i" || a == "--ignore-environment" || a == "-0" || a == "--null":
 			i++
 			continue
-		case a == "-u" || a == "--unset" || a == "-C" || a == "--chdir" || a == "-S" || a == "--split-string":
+		case a == "-u" || a == "--unset" || a == "-C" || a == "--chdir":
 			i += 2
 			continue
-		case strings.HasPrefix(a, "--unset=") || strings.HasPrefix(a, "--chdir=") || strings.HasPrefix(a, "--split-string="):
+		case strings.HasPrefix(a, "--unset=") || strings.HasPrefix(a, "--chdir="):
 			i++
 			continue
 		case isPosixOption(a):

@@ -102,6 +102,10 @@ type Session struct {
 	resize chan *pb.WindowSize
 	closed bool
 	result chan runResult
+
+	waitOnce sync.Once
+	status   vpio.ExitStatus
+	waitErr  error
 }
 
 var _ vpio.Session = (*Session)(nil)
@@ -135,10 +139,18 @@ func (s *Session) Resize(rows, cols uint32) {
 	}
 }
 
-// Wait blocks for client.Run's terminal result.
+// Wait blocks for client.Run's terminal result. Idempotent: the result is
+// delivered once and cached, so every later call returns it again instead of
+// parking on a channel nothing will write to a second time. The sibling
+// transport (dockerexec.Session) makes the same promise, so a caller writing
+// the natural `defer session.Wait()` behaves the same behind either one.
 func (s *Session) Wait() (vpio.ExitStatus, error) {
-	r := <-s.result
-	return vpio.ExitStatus{Code: r.code}, r.err
+	s.waitOnce.Do(func() {
+		r := <-s.result
+		s.status = vpio.ExitStatus{Code: r.code}
+		s.waitErr = r.err
+	})
+	return s.status, s.waitErr
 }
 
 // stop marks the session closed and closes the resize channel, exactly

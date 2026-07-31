@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,292** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,293** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 123 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 168 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 166 |
-| `open` | no commit names this ID | **519** |
+| `open` | no commit names this ID | **518** |
 
-**Totals: 2268 findings across 162 units — 1,292 resolved, 519 still open, 457 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,293 resolved, 518 still open, 457 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 458 | 288 | 69 | 79 | 105 |
+| MED | 999 | 459 | 287 | 69 | 79 | 105 |
 | LOW | 871 | 477 | 219 | 39 | 81 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1036,7 +1036,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U014-F08 | **RESOLVED** `f22c8e37` | `fsupstream.go:185-193, server.go:983-1002` | CORRECTNESS | Data race and socket leak on `sess.fsUpstream`. `openSession` publishes the session into `s.sessions` (server.go:513) *before* `openSessionWithFsUpstream` assigns `sess.fsUpstream` (fsupstream.go:1... | U014.md |
 | U014-F10 | **RESOLVED** `ceb3bef1` | `fsupstream.go:90-91, 151-162` | CORRECTNESS | The reach-back socket is gated **only** on the editor's `ReadTextFile` capability, but the handler also relays `fs/write_text_file`. `clientFs.WriteTextFile` is read nowhere in the repo (verified: ... | U014.md |
 | U014-F11 | **RESOLVED** `7428ca1b` | `wire.go:43-99` | NOPAY | `modelState`/`modelWire`/`modelStateWire` and the `models` field on both response bodies emit a shape the current spec does not define (its own doc says so at wire.go:60-63), duplicating data `conf... | U014.md |
-| U014-F12 | open | **`server.go:1077-1271`** | COHESION | Eight functions in `server.go` (`promptText`, `mediaPlaceholderLine`, `binaryResourcePlaceholder`, `embeddedResourceText`, `resourceLinkText`, `contentBlocksFromACP`, `mcpServersFromACP`, `httpHead... | U014.md |
+| U014-F12 | **RESOLVED** `2aa9d321` | **`server.go:1077-1271`** | COHESION | Eight functions in `server.go` (`promptText`, `mediaPlaceholderLine`, `binaryResourcePlaceholder`, `embeddedResourceText`, `resourceLinkText`, `contentBlocksFromACP`, `mcpServersFromACP`, `httpHead... | U014.md |
 | U014-F15 | **REFUTED** `46daceaa` | `announce.go:38-53` | SILENTNOOP | The ISO3/ISO4 session-initialization summary — which the doc says carries the agent-not-found **warning** and the MCP status that "must be a message no conformant client can silently drop" (announc... | U014.md |
 | U014-F22 | **PARTIAL** `d6cc0fdb` | `l0_conformance_test.go:212-261` | CORRECTNESS | The L0 suite's frame-to-label mapping is positional (`labels[i]`), and the length gate is `GreaterOrEqual(len(turnUpdates), 5)` while seven labels are expected. If an emitter drops or reorders a fr... | U014.md |
 | U014-F23 | **RESOLVED** `08b0c7cb` | `l0_conformance_test.go:287-293 vs server.go:471-475` | CORRECTNESS | `session/load`'s response body is asserted **nowhere**. The L0 capture validates it against `$defs/LoadSessionResponse`, which has **no `required` array at all** — `{}` passes. `TestServe_SessionLo... | U014.md |

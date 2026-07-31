@@ -244,3 +244,49 @@ func TestSession_WaitReturnsExitCodeAndError(t *testing.T) {
 		t.Errorf("Wait code = %d, want 3", status.Code)
 	}
 }
+
+// TestSession_WaitIsIdempotent pins U153-F01: Wait read the single-slot result
+// channel directly, so the FIRST call drained it and every later call blocked
+// forever. The sibling implementation of the same vpio.Session method
+// (dockerexec.Session) guards its Wait with a sync.Once and returns the cached
+// result, so the two transports behind one interface disagreed about whether
+// calling Wait twice is legal. A caller writing the natural
+// `defer session.Wait()` next to an explicit Wait deadlocks on one transport
+// and not the other, and no signature says which.
+//
+// Bounded (template §11j): the failure mode here is a PARK, not an assertion,
+// so the second Wait runs on its own goroutine under a short deadline —
+// otherwise the red burns the whole test timeout instead of failing.
+func TestSession_WaitIsIdempotent(t *testing.T) {
+	fc := &fakeClient{exitCode: 5}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	first, err := sess.Wait()
+	if err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+
+	type outcome struct {
+		status vpio.ExitStatus
+		err    error
+	}
+	again := make(chan outcome, 1)
+	go func() {
+		s, e := sess.Wait()
+		again <- outcome{s, e}
+	}()
+
+	select {
+	case got := <-again:
+		if got.status != first || got.err != nil {
+			t.Errorf("second Wait = %+v, %v; want the cached %+v, nil", got.status, got.err, first)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a second Wait blocked forever — the result channel was drained by the first")
+	}
+}

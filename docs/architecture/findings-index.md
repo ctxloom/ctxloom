@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,461** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,462** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 171 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 195 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 196 |
-| `open` | no commit names this ID | **245** |
+| `open` | no commit names this ID | **244** |
 
-**Totals: 2268 findings across 162 units — 1,461 resolved, 245 still open, 562 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,462 resolved, 244 still open, 562 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 545 | 136 | 99 | 91 | 128 |
-| LOW | 871 | 557 | 100 | 56 | 96 | 62 |
+| LOW | 871 | 558 | 99 | 56 | 96 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2433,7 +2433,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U073-F14 | open | `eval.go:25-28` | CORRECTNESS | The doc comment says "the first matching deny rule wins", but command order dominates rule order — an earlier *command* matching a later *rule* beats a later command matching an earlier rule. | U073.md |
 | U073-F15 | **RESOLVED** `100f543d` | `eval.go:13`, `eval.go:11` | DEAD | `Decision.Command` is written and never read anywhere in the repo; `Decision.Rule` is read only by this package's own tests. | U073.md |
 | U074-F03 | **RESOLVED** `95169bce` | `submodules.go:48-54` | CORRECTNESS | Trailing inline comments and quoted values are not handled: `path = libs/foo ; note` yields the path `libs/foo ; note`, and git-config's quoted form `path = "libs/foo"` yields `"libs/foo"` with the... | U074.md |
-| U074-F04 | open | `submodules.go:23-24` | ERRHANDLING | An empty `startDir` is silently accepted: `filepath.Clean("")` is `"."`, `filepath.Dir(".")` is `"."`, so the loop terminates on its first iteration and returns `nil` — the fail-open outcome again,... | U074.md |
+| U074-F04 | **RESOLVED** `1f705f5b` | `submodules.go:23-24` | ERRHANDLING | An empty `startDir` is silently accepted: `filepath.Clean("")` is `"."`, `filepath.Dir(".")` is `"."`, so the loop terminates on its first iteration and returns `nil` — the fail-open outcome again,... | U074.md |
 | U074-F05 | **RESOLVED** `9f835efd` | `submodules.go:30-32` | CORRECTNESS | The repo-boundary check tests only for `.git` **existence**, not that the current directory is a plausible repo root; a stray file named `.git` anywhere above the start directory silently truncates... | U074.md |
 | U075-F02 | **RESOLVED** `12f375ce` | **`shellenv.go:38-43`** | TRIVIAL | `FromEnv` is a pure pass-through to `ShellFromPath` whose sole added statement is dead: `ShellFromPath("")` already returns `""`. | U075.md |
 | U075-F03 | open | **`shellenv.go:16`** | CORRECTNESS | `filepath.Base` is OS-dependent: on a Linux/macOS build it does **not** split on `\`, so a Windows-style `C:\Windows\System32\cmd.exe` normalises to `c:\windows\system32\cmd` and falls through to `... | U075.md |

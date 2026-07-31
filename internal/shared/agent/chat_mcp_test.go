@@ -160,3 +160,57 @@ func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
 	assert.Equal(t, MCPServerName, got[0].Name)
 	assert.Equal(t, "taskloom", got[1].Name)
 }
+
+// CHARACTERIZATION for U100-F12's complexity split: the arms the existing tests
+// leave uncovered, so the decomposition is provably behaviour-preserving rather
+// than merely green on the paths that were already exercised. A pure complexity
+// reduction changes no behaviour by definition, so no test can go red for it —
+// these are the "green before and after" half of that contract.
+func TestComposeChatMCPServers_UncoveredArms(t *testing.T) {
+	off := false
+
+	t.Run("nil mcp with bundle servers still composes", func(t *testing.T) {
+		// mcp is nil while bundleMCP is not: the guard lets this through and the
+		// auto-register probe runs on a nil *wire.MCPConfig (nil-safe by
+		// contract — wire.MCPConfig.ShouldAutoRegisterCtxloom returns true).
+		got := ComposeChatMCPServers("claude", "", nil,
+			map[string]wire.MCPServer{"bundled": {Command: "b", Args: []string{"x"}}}, nil)
+		require.Len(t, got, 2, "the auto-registered ctxloom server plus the bundle server")
+		assert.Equal(t, "bundled", got[0].Name, "the result is name-sorted")
+		assert.Equal(t, MCPServerName, got[1].Name)
+	})
+
+	t.Run("empty merged set returns nil, not an empty slice", func(t *testing.T) {
+		got := ComposeChatMCPServers("claude", "",
+			&wire.MCPConfig{AutoRegisterCtxloom: &off}, map[string]wire.MCPServer{}, nil)
+		assert.Nil(t, got, "nothing to inject must be nil, matching the no-payload return")
+	})
+
+	t.Run("existing entries can empty the set completely", func(t *testing.T) {
+		got := ComposeChatMCPServers("claude", "", &wire.MCPConfig{}, nil,
+			[]ChatMCPServer{{Name: MCPServerName}})
+		assert.Nil(t, got, "the caller's own entry wins and nothing is left to add")
+	})
+
+	t.Run("plugin servers for a DIFFERENT engine key are ignored", func(t *testing.T) {
+		got := ComposeChatMCPServers("claude", "", &wire.MCPConfig{
+			AutoRegisterCtxloom: &off,
+			Plugins: map[string]map[string]wire.MCPServer{
+				"codex": {"codex-only": {Command: "c"}},
+			},
+		}, nil, nil)
+		assert.Nil(t, got, "another engine's passthrough servers are not this engine's")
+	})
+
+	t.Run("plugin servers override unified servers of the same name", func(t *testing.T) {
+		got := ComposeChatMCPServers("claude", "", &wire.MCPConfig{
+			AutoRegisterCtxloom: &off,
+			Servers:             map[string]wire.MCPServer{"dup": {Command: "unified"}},
+			Plugins: map[string]map[string]wire.MCPServer{
+				"claude": {"dup": {Command: "plugin"}},
+			},
+		}, nil, nil)
+		require.Len(t, got, 1)
+		assert.Equal(t, "plugin", got[0].Command, "the engine's own passthrough wins, as documented")
+	})
+}

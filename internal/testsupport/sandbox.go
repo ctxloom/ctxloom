@@ -16,6 +16,11 @@ import (
 // run any test at all rather than letting the binary loose on the real home.
 const SandboxOffEnv = "CTXLOOM_TEST_SANDBOX_OFF"
 
+// sandboxRootEnv marks "this process is already inside a test sandbox", so a
+// re-exec'd child adopts the parent's rather than minting its own. See
+// SandboxedMain for why it sits outside the CTXLOOM_* namespace.
+const sandboxRootEnv = "GOTEST_CTXLOOM_SANDBOX_ROOT"
+
 // SandboxedMain is the TestMain body for any package whose tests drive code
 // that resolves ctxloom's app directory (config.Load / cli.GetConfig and every
 // operation reached through them). Use it as:
@@ -44,7 +49,18 @@ const SandboxOffEnv = "CTXLOOM_TEST_SANDBOX_OFF"
 // returns a nonzero exit with a loud message if it does not hold. A guard that
 // silently does nothing when it is bypassed is worth less than no guard.
 func SandboxedMain(m *testing.M) int {
-	if os.Getenv(SandboxOffEnv) == "" {
+	// sandboxRootEnv already set: this process was spawned BY a sandboxed test
+	// (internal/cli has commands that re-exec os.Executable(), which under
+	// test is the test binary itself). It inherited that sandbox's HOME and
+	// cwd, so it is already isolated — minting a second one would only leave a
+	// directory behind, since such a child is routinely killed by its parent's
+	// context before any deferred cleanup could run.
+	//
+	// The variable is deliberately NOT in the CTXLOOM_* namespace: EnvKeys
+	// covers that namespace and Isolate clears every key in it, which would
+	// hide the parent's sandbox from any child spawned after the first
+	// Isolate call — the exact case this exists to handle.
+	if os.Getenv(SandboxOffEnv) == "" && os.Getenv(sandboxRootEnv) == "" {
 		cleanup, err := enterSandbox()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "test sandbox: could not establish an isolated HOME/cwd: %v\n", err)
@@ -151,6 +167,10 @@ const appDirName = ".ctxloom"
 // there is no *testing.T at TestMain time). The returned func restores the
 // working directory and removes the sandbox.
 func enterSandbox() (func(), error) {
+	realHome, err := os.UserHomeDir() // BEFORE the redirect below
+	if err != nil {
+		return nil, err
+	}
 	root, err := os.MkdirTemp("", "ctxloom-test-sandbox-")
 	if err != nil {
 		return nil, err
@@ -161,6 +181,12 @@ func enterSandbox() (func(), error) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
 		}
+	}
+	if err := pinGoToolchainDirs(realHome); err != nil {
+		return nil, err
+	}
+	if err := os.Setenv(sandboxRootEnv, root); err != nil {
+		return nil, err
 	}
 	if err := os.Setenv("HOME", home); err != nil {
 		return nil, err
@@ -182,8 +208,71 @@ func enterSandbox() (func(), error) {
 	}
 	return func() {
 		_ = os.Chdir(prev)
-		_ = os.RemoveAll(root)
+		_ = os.Unsetenv(sandboxRootEnv)
+		removeAllForced(root)
 	}, nil
+}
+
+// pinGoToolchainDirs resolves the Go toolchain's HOME-derived directories to
+// their pre-sandbox values and sets them explicitly, so redirecting HOME does
+// not also redirect them.
+//
+// HOME is overloaded: it is where ctxloom finds ~/.ctxloom AND where the go
+// command finds its module cache, build cache and env file. A test that shells
+// out to `go build` (internal/cli's MCP wire-protocol test does) inherits the
+// sandbox HOME, so without this the toolchain treats every run as a cold
+// machine and re-downloads the entire module cache into the sandbox —
+// measured at 596 MB, per run, over the network. It also makes the sandbox
+// unremovable, because the module cache is deliberately read-only.
+//
+// Nothing here weakens the isolation: these name Go's caches, not ctxloom's
+// app dir, and AppDirIsolationError still governs everything findAppDir
+// consults. An explicitly-set value always wins — this only supplies the
+// default the toolchain would have derived from HOME itself.
+func pinGoToolchainDirs(realHome string) error {
+	cacheHome := os.Getenv("XDG_CACHE_HOME")
+	if cacheHome == "" {
+		cacheHome = filepath.Join(realHome, ".cache")
+	}
+	configHome := os.Getenv("XDG_CONFIG_HOME")
+	if configHome == "" {
+		configHome = filepath.Join(realHome, ".config")
+	}
+	gopath := os.Getenv("GOPATH")
+	if gopath == "" {
+		gopath = filepath.Join(realHome, "go")
+	}
+	for k, v := range map[string]string{
+		"GOPATH":     gopath,
+		"GOMODCACHE": filepath.Join(gopath, "pkg", "mod"),
+		"GOCACHE":    filepath.Join(cacheHome, "go-build"),
+		"GOENV":      filepath.Join(configHome, "go", "env"),
+	} {
+		if os.Getenv(k) != "" {
+			continue
+		}
+		if err := os.Setenv(k, v); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// removeAllForced deletes root, retrying once with write permission restored
+// on every directory beneath it. A plain RemoveAll gives up on a read-only
+// tree, and leaving multi-hundred-megabyte sandboxes behind in /tmp on every
+// test run is its own kind of damage.
+func removeAllForced(root string) {
+	if err := os.RemoveAll(root); err == nil {
+		return
+	}
+	_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			_ = os.Chmod(path, 0o755)
+		}
+		return nil
+	})
+	_ = os.RemoveAll(root)
 }
 
 // underRoot reports whether path is root itself or lives beneath it, comparing

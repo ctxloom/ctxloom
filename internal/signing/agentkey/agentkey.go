@@ -534,12 +534,24 @@ func findByPublicKey(ag agent.Agent, pub ssh.PublicKey, source string) (*Discove
 // signal (agent.Agent.List returns key blob + comment, nothing else) and
 // must be self-attested by the user, never inferred (spec §9.1.2: "I looked
 // for another honest signal and there is none").
+// An identity held as an OpenSSH CERTIFICATE reports the certificate's
+// algorithm name, not the wrapped key's, so the posture must be read from the
+// key the certificate is over: the token holds that key's private half either
+// way. The reverse never holds — a certificate over a software key is still
+// software.
 func IsHardwareBacked(pub ssh.PublicKey) bool {
 	if pub == nil {
 		return false
 	}
+	if cert, ok := pub.(*ssh.Certificate); ok && cert.Key != nil {
+		return IsHardwareBacked(cert.Key)
+	}
 	switch pub.Type() {
-	case ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256:
+	case ssh.KeyAlgoSKED25519, ssh.KeyAlgoSKECDSA256,
+		// A caller may hand us any ssh.PublicKey implementation, so the
+		// certificate algorithm names are matched by name too rather than
+		// relying on the concrete type alone.
+		ssh.CertAlgoSKED25519v01, ssh.CertAlgoSKECDSA256v01:
 		return true
 	default:
 		return false

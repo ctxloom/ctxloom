@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
@@ -159,4 +160,91 @@ func TestAgentShow_JSONOmitsTheErrorKeyWhenResolutionSucceeded(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotContains(t, string(payload), "resolution_error")
+}
+
+// renderAgentShow is nine sequential optional-field arms plus a resolution
+// branch. This drives EVERY arm — each optional field present in one case and
+// absent in the other — so the rendering can be split up without changing a
+// byte of what `agent show` prints.
+func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
+	t.Run("everything declared and resolved", func(t *testing.T) {
+		def := &operations.AgentEntry{
+			Name:        "full",
+			Source:      ".ctxloom/agents/full.yaml",
+			Engine:      "claude-code",
+			Profiles:    []string{"p1", "p2"},
+			Runtime:     "container",
+			Permissions: "acceptEdits",
+			Coordinator: true,
+			Driving:     "oneshot",
+			Escalation: []agents.EscalationRung{
+				{Kinds: []string{"COMMAND_EXECUTION", "FILE_CHANGE"}, Action: "surface_to_human"},
+				{Action: "auto_accept"},
+			},
+		}
+		resolved := &operations.ResolvedAgent{
+			Label: "claude-code", Backend: "claude", Model: "opus",
+			EffectivePermissions: "bypass",
+			Fragments:            []string{"a", "b", "c"},
+		}
+
+		var buf bytes.Buffer
+		require.NoError(t, renderAgentShow(&buf, def, resolved, nil))
+		out := buf.String()
+
+		for _, want := range []string{
+			"Agent: full\n",
+			"Source: .ctxloom/agents/full.yaml\n",
+			"Engine (declared): claude-code\n",
+			"Runtime: container\n",
+			"Permissions: acceptEdits\n",
+			"Coordinator: true\n",
+			"Driving: oneshot\n",
+			"Escalation: 2 rung(s)\n",
+			"  - COMMAND_EXECUTION,FILE_CHANGE: surface_to_human\n",
+			"  - all kinds: auto_accept\n",
+			"Resolved engine: claude-code (backend: claude, model: opus)\n",
+			"Resolved permissions: bypass\n",
+			"Composed fragments: 3\n",
+		} {
+			assert.Contains(t, out, want)
+		}
+	})
+
+	t.Run("nothing optional declared, minimal resolution", func(t *testing.T) {
+		var buf bytes.Buffer
+		require.NoError(t, renderAgentShow(&buf, &operations.AgentEntry{Name: "bare"},
+			&operations.ResolvedAgent{Label: "default"}, nil))
+		out := buf.String()
+
+		assert.Contains(t, out, "Agent: bare\n")
+		assert.Contains(t, out, "Engine (declared): (project default)\n")
+		assert.Contains(t, out, "Resolved engine: default\n")
+		assert.Contains(t, out, "Composed fragments: 0\n")
+		for _, unwanted := range []string{"Source:", "Runtime:", "Permissions:", "Coordinator:", "Driving:", "Escalation:", "backend:", "Resolved permissions:"} {
+			assert.NotContains(t, out, unwanted)
+		}
+	})
+
+	t.Run("a backend without a model omits the model clause", func(t *testing.T) {
+		var buf bytes.Buffer
+		require.NoError(t, renderAgentShow(&buf, &operations.AgentEntry{Name: "b"},
+			&operations.ResolvedAgent{Label: "l", Backend: "mock"}, nil))
+		assert.Contains(t, buf.String(), "Resolved engine: l (backend: mock)\n")
+	})
+
+	t.Run("a failed resolution stops after the declaration", func(t *testing.T) {
+		var buf bytes.Buffer
+		require.NoError(t, renderAgentShow(&buf, &operations.AgentEntry{Name: "x", Profiles: []string{"p"}},
+			nil, errors.New("boom")))
+		out := buf.String()
+		assert.Contains(t, out, "Resolved engine: unavailable (boom)\n")
+		assert.NotContains(t, out, "Composed fragments:")
+	})
+
+	t.Run("a write failure is reported, not swallowed", func(t *testing.T) {
+		err := renderAgentShow(&failingWriter{err: errWriteRefused}, &operations.AgentEntry{Name: "x"},
+			&operations.ResolvedAgent{Label: "l"}, nil)
+		assert.ErrorIs(t, err, errWriteRefused)
+	})
 }

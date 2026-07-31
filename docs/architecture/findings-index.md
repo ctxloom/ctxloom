@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,453** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,454** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 173 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 196 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 199 |
-| `open` | no commit names this ID | **247** |
+| `open` | no commit names this ID | **246** |
 
-**Totals: 2268 findings across 162 units — 1,453 resolved, 247 still open, 568 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,454 resolved, 246 still open, 568 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 540 | 138 | 100 | 90 | 131 |
-| LOW | 871 | 554 | 100 | 57 | 98 | 62 |
+| LOW | 871 | 555 | 99 | 57 | 98 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2424,7 +2424,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U071-F08 | **REFUTED** `d9036651` | `shell.go:41` | COUPLING | The process environment is snapshotted at `New` time, not `Parse` time — connascence of **timing** between composition-root construction and the environment the guarded command will actually see. | U071.md |
 | U072-F07 | **REFUTED** (cross-package/product decision; see wave-2 report) | `ir.go:68` | DEAD | `SimpleCommand.Program()` has zero production call sites and duplicates logic production writes inline. | U072.md |
 | U072-F08 | **REFUTED** (cross-package/product decision; see wave-2 report) | `ir.go:119` | DEAD | `Script.Commands()` has zero production call sites in ltk. | U072.md |
-| U072-F09 | open | `ir.go:29` | COUPLING | `KnownShells` is an exported **mutable** package-level slice that `Valid()` — the sole validation gate for user-supplied shells — reads at call time. Any importer can append to or reorder it. | U072.md |
+| U072-F09 | **RESOLVED** `ccaa88d6` | `ir.go:29` | COUPLING | `KnownShells` is an exported **mutable** package-level slice that `Valid()` — the sole validation gate for user-supplied shells — reads at call time. Any importer can append to or reorder it. | U072.md |
 | U072-F10 | **REFUTED** `a5d0239e` | `ir.go:63`, `ir.go:98` | CORRECTNESS | `Nested []*Script` makes the graph a pointer graph with no cycle guard, and `Walk` recurses unbounded. A producer that ever aliases an existing `*Script` into `Nested` yields infinite recursion on ... | U072.md |
 | U073-F06 | **RESOLVED** `55edc2ab` | `rules.go:360` | SILENTNOOP | With no submodule paths the sentinel is dropped and the rule is left with zero patterns, matching nothing — indistinguishable from an unreadable `.gitmodules`. | U073.md |
 | U073-F11 | **RESOLVED** `5033892f` | `eval.go:29`, `eval.go:80` | ERRHANDLING | Both evaluators guard `script == nil` / empty path but not `cfg == nil`, which panics on `cfg.Rules`. | U073.md |

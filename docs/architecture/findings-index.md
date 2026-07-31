@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,539** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 185 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 210 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 208 |
-| `open` | no commit names this ID | **126** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 209 |
+| `open` | no commit names this ID | **125** |
 
-**Totals: 2268 findings across 162 units — 1,539 resolved, 126 still open, 603 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,539 resolved, 125 still open, 604 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 581 | 76 | 106 | 97 | 139 |
+| MED | 999 | 581 | 75 | 106 | 97 | 140 |
 | LOW | 871 | 597 | 43 | 63 | 105 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1885,7 +1885,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U141-F20 | **ESCALATED** (gn/vital-deaf-stunt) | `vtguard.go:267, 124; interceptor.go:99; prefixkey.go:13; surround.go:155` | COMPLEXITY | Five production functions in this package exceed the project's own enforcing CI gate (CCN ≤ 10). I ran the gate's exact tool locally: it exits 1 on this package. `finishCSI` at CCN 27 is 2.7× the c... | U141.md |
 | U143-F02 | **ESCALATED** (cross-package Prober/leaf-function refactor touching 5 packages; deferred to its own pass) | `dockergate.go:26-29, 51-56` | CORRECTNESS | The package refuses to probe for docker "because a probing dockergate would import isolation and close a cycle" — so **every one of the 19 call sites re-derives the probe by hand**, and one of them... | U143.md |
 | U143-F03 | **ESCALATED** (feature gap, not an active defect — needs a new named-capability + opt-in floor design, mirroring `CTXLOOM_LIVE_REQUIRE`) | `dockergate.go:83-87` | CORRECTNESS | `SkipCapability` takes only a free-text `reason` and is **never promoted to a failure under any condition**, so a capability that CI genuinely *does* provide can silently degrade to a skip forever.... | U143.md |
-| U144-F05 | open | `record.go:81-86; recorder.go:79` | CORRECTNESS | `Record.Engine` is written unvalidated from the **registered backend name**, which for claude is `"claude-code"` — a value the published JSON Schema's `engine` enum rejects. Every real claude trans... | U144.md |
+| U144-F05 | **ESCALATED** `PENDING01` | `record.go:81-86; recorder.go:79` | CORRECTNESS | `Record.Engine` is written unvalidated from the **registered backend name**, which for claude is `"claude-code"` — a value the published JSON Schema's `engine` enum rejects. Every real claude trans... | U144.md |
 | U144-F06 | **ESCALATED** (cross-package; see wave-2 report) | `record.go:260-306; recorder.go:46-58` | NOPAY | The entire `RawPolicy` / `RecorderOption` / `WithRawPolicy` apparatus (~55 lines + a `ChatRequest` field + a proto field) has no production reachability: nothing ever sets `agent.ChatRequest.Transc... | U144.md |
 | U144-F07 | **RESOLVED** `fcfb5964` | `history.go:139-144` | CORRECTNESS | `CurrentSession` returns the **first** candidate's `GetSession` error rather than skipping to the next, so one stale index entry (file pruned by retention reap, permissions change) makes "current s... | U144.md |
 | U144-F08 | **PARTIAL** `b03926d8` | `history.go:185-187` | COUPLING | The fail-loud schema-version contract has no teeth end to end: three of the four consumers swallow the hard error | U144.md |

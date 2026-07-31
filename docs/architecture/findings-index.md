@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,534** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **139** |
+| `open` | no commit names this ID | **138** |
 
-**Totals: 2268 findings across 162 units — 1,534 resolved, 139 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,534 resolved, 138 still open, 596 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 580 | 82 | 104 | 96 | 137 |
+| MED | 999 | 580 | 81 | 105 | 96 | 137 |
 | LOW | 871 | 592 | 51 | 61 | 104 | 63 |
 | (unparsed) | 22 | 10 | 6 | 4 | 2 | 0 |
 
@@ -1830,7 +1830,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U131-F03 | **PARTIAL** `4ed49e01` | **`upgrade.go:86`** | ERRHANDLING | `_ = enc.Close()` swallows the error and `buf.Bytes()` is returned as authoritative upgraded bytes regardless — a truncated buffer would be persisted verbatim. | U131.md |
 | U131-F05 | **PARTIAL** `571a063d` | **`upgrade.go:124-152`** | CORRECTNESS | The three mapping helpers' `i+1 < len(m.Content)` guard silently tolerates a corrupt odd-length mapping instead of detecting it, and all three act on only the **first** matching key — so a duplicat... | U131.md |
 | U131-F06 | **RESOLVED** `607b9792` | **`upgrade.go:94-98`** | CORRECTNESS | `Pending` carries no invariant and its writer enforces none, so any byte-loss defect upstream becomes silent file truncation. | U131.md |
-| U132-F02 | open | **`watch.go:94-104`** | CORRECTNESS | **`addTree` applies no filter — it watches every directory under the root**, including ephemeral agent worktrees. On this machine that is **3,333 inotify watches to observe 184 files**, growing mon... | U132.md |
+| U132-F02 | **PARTIAL** `a54bd1fe` | **`watch.go:94-104`** | CORRECTNESS | **`addTree` applies no filter — it watches every directory under the root**, including ephemeral agent worktrees. On this machine that is **3,333 inotify watches to observe 184 files**, growing mon... | U132.md |
 | U132-F04 | **RESOLVED** `285a0eb7` | **`watch.go:19-35`, `:127`, `:143-157`** | DEAD | The `Op` type, its five constants, the `Event.Op` field, and the entire `normalize` function exist to deliver a value **neither consumer reads**. The doc justifies the vocabulary as being "for the ... | U132.md |
 | U132-F05 | **RESOLVED** `a7b5784e` | **`watch.go:87-90`** | ERRHANDLING | `Close` is **not idempotent**: a second call panics on `close of closed channel`. It also returns an error that both consumers discard, and it has no way to report that `pump` has actually stopped. | U132.md |
 | U132-F06 | **RESOLVED** `c3935d0e` | **`watch.go:131-138`** | ERRHANDLING | Watch errors are dropped on the floor beyond the first: `errs` is buffered at 1 and the send is non-blocking with a bare `default:`. If a consumer never selects on `Errors()`, **every** error is di... | U132.md |

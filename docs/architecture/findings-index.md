@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,285** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 124 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 125 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 168 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 166 |
-| `open` | no commit names this ID | **525** |
+| `open` | no commit names this ID | **524** |
 
-**Totals: 2268 findings across 162 units — 1,285 resolved, 525 still open, 458 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,285 resolved, 524 still open, 459 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 455 | 291 | 69 | 79 | 105 |
-| LOW | 871 | 473 | 222 | 40 | 81 | 55 |
+| LOW | 871 | 473 | 221 | 41 | 81 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2028,7 +2028,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U013-F11 | **PARTIAL** `571f7f04` | `jsonrpc.go:39-43`, `:246-255` | CORRECTNESS | Spec gaps, in a package whose whole job is a precisely-specified protocol: (a) the inbound `jsonrpc` version member is never validated — the spec requires it be exactly `"2.0"`; (b) `-32700` (Parse... | U013.md |
 | U013-F12 | **RESOLVED** `7bdc39c1` | `jsonrpc.go:104-110`, `:174` | CORRECTNESS | `atomic.AddInt64(&c.nextID, 1)` operates on a struct field that is not the first word; 64-bit atomics require 8-byte alignment, which Go guarantees only for the first word of an allocated struct on... | U013.md |
 | U013-F13 | **RESOLVED** `b73ae134` | `jsonrpc.go:310` | ERRHANDLING | `*p != io.EOF` misses a wrapped EOF, so a clean end-of-stream that arrives wrapped is reported to callers as a hard transport failure instead of `ErrConnClosed`. | U013.md |
-| U013-F14 | open | `jsonrpc.go:172` | COUPLING | `Go`'s contract — "Exactly one await call must follow a successful Go (it owns the pending slot's cleanup)" — is unenforced connascence of execution. A caller that drops the returned closure leaks ... | U013.md |
+| U013-F14 | **PARTIAL** `93888bbb` | `jsonrpc.go:172` | COUPLING | `Go`'s contract — "Exactly one await call must follow a successful Go (it owns the pending slot's cleanup)" — is unenforced connascence of execution. A caller that drops the returned closure leaks ... | U013.md |
 | U013-F15 | **RESOLVED** `29cc340c` | `jsonrpc.go:285-287` | CORRECTNESS | Response ids are integer-only. The spec permits String ids, and a peer that echoes our numeric id back stringified (`"1"`) has its response dropped — the caller then hangs to its ctx deadline rathe... | U013.md |
 | U014-F09 | open | `fsupstream.go:60-80, 94-107` | CORRECTNESS | Every fs-upstream session leaks an empty temp directory: `startFsUpstream` creates one with `os.MkdirTemp` (94) but `Close` removes only the socket file (78). The failure paths correctly use `os.Re... | U014.md |
 | U014-F13 | **RESOLVED** `e7e6c776` | **`children.go:24; server.go:66,70; wire.go:32`** | DEAD | Four alias/const re-exports have no production consumer. `ChildUpdateKind` (children.go:24) has **zero** references anywhere in the repo outside its own declaration. `LLMInfo` (server.go:66), `Comm... | U014.md |

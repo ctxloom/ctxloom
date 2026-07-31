@@ -17,7 +17,8 @@ import (
 )
 
 // idBase is the published $id prefix; matches the hand-maintained input schemas
-// (schema/input/{config,fragment}-schema.json) under the same host.
+// (resources/schema/input/{config,fragment,taskloom-config}-schema.json) under
+// the same host.
 const idBase = "https://ctxloom.dev/schemas/"
 
 // draft is the JSON Schema dialect every generated schema declares.
@@ -25,8 +26,14 @@ const draft = "https://json-schema.org/draft/2020-12/schema"
 
 // Target names one JSON output struct to publish a schema for. Name is the file
 // base (without the "-schema.json" suffix) and the $id stem; if empty it is
-// derived from the Go type name. Nested types reused inside a Target are inlined
-// by the reflector — only top-level output shapes need their own Target.
+// derived from the Go type name, which must therefore be non-empty — Generate
+// refuses a target whose name cannot be derived. Nested types reused inside a
+// Target are inlined by the reflector — only top-level output shapes need their
+// own Target.
+//
+// An omitted Name binds the published $id to the Go identifier: renaming the
+// type renames the schema's URL. Set Name explicitly on any target whose $id is
+// meant to outlive Go-side refactoring.
 type Target struct {
 	Type reflect.Type
 	Name string
@@ -60,6 +67,9 @@ func Generate(dir string, targets []Target) (int, error) {
 	if len(targets) == 0 {
 		return 0, errors.New("schemagen: no targets — refusing to report success having generated nothing")
 	}
+	if err := rejectUnderivableNames(targets); err != nil {
+		return 0, err
+	}
 	// Two targets resolving to the same file base would write one $id with two
 	// different shapes, last writer wins — a lying contract, and one no count of
 	// TARGETS can ever disclose. Refuse before anything reaches disk.
@@ -69,10 +79,17 @@ func Generate(dir string, targets []Target) (int, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return 0, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	sort.Slice(targets, func(i, j int) bool { return name(targets[i]) < name(targets[j]) })
+	// Ordered on a COPY. The order does not affect any file's bytes — each
+	// target writes its own independent file — but it does fix which files
+	// exist after a mid-run failure, so a failing run leaves the same partial
+	// state every time. Sorting the argument itself would export that ordering
+	// as a silent side effect on a slice the caller still owns.
+	ordered := make([]Target, len(targets))
+	copy(ordered, targets)
+	sort.Slice(ordered, func(i, j int) bool { return name(ordered[i]) < name(ordered[j]) })
 
 	written := 0
-	for _, t := range targets {
+	for _, t := range ordered {
 		n := name(t)
 		schema, err := jsonschema.ForType(t.Type, nil)
 		if err != nil {
@@ -96,6 +113,23 @@ func Generate(dir string, targets []Target) (int, error) {
 		written++
 	}
 	return written, nil
+}
+
+// rejectUnderivableNames reports an error for any target whose schema name
+// resolves to the empty string. reflect.Type.Name() is "" for every unnamed
+// type — an anonymous struct, a pointer, a slice, a map — so a target that
+// relies on the derived name for one of those would otherwise be published as
+// the file "-schema.json" under the $id "<idBase>.json": a contract whose URL
+// identifies nothing. The name is the schema's identity; it cannot be blank.
+func rejectUnderivableNames(targets []Target) error {
+	for _, t := range targets {
+		if name(t) != "" {
+			continue
+		}
+		return fmt.Errorf(
+			"schemagen: cannot derive a schema name for %s (unnamed types have no reflect name) — give the target an explicit Name", t.Type)
+	}
+	return nil
 }
 
 // rejectNameCollisions reports an error when two targets resolve to the same

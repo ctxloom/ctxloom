@@ -1,7 +1,9 @@
 package projectroot
 
 import (
+	"errors"
 	"fmt"
+	iofs "io/fs"
 	"path/filepath"
 
 	"github.com/spf13/afero"
@@ -32,11 +34,23 @@ import (
 // error, never a silent fallback to dir itself: minting or using a task
 // store keyed on an orphaned worktree is exactly the silent-no-op failure
 // mode this codebase works hardest to avoid — the store would work fine and
-// nobody would ever read it again.
+// nobody would ever read it again. An empty dir is a hard error for the same
+// reason (errNoDir): it would key the store on wherever the process was
+// launched.
 func TaskStoreRoot(fs afero.Fs, dir string) (string, error) {
+	if dir == "" {
+		return "", fmt.Errorf("resolve task-store root: %w", errNoDir)
+	}
 	ownAppDir := filepath.Join(dir, paths.AppDirName)
-	if info, err := fs.Stat(ownAppDir); err == nil && info.IsDir() {
+	ownInfo, ownErr := fs.Stat(ownAppDir)
+	switch {
+	case ownErr == nil && ownInfo.IsDir():
 		return dir, nil // opt-out: dir is a deliberately separate project
+	case ownErr != nil && !errors.Is(ownErr, iofs.ErrNotExist):
+		// Only plain absence means "no opt-out here". A permission or I/O
+		// fault that read as absence would silently redirect this project's
+		// task store elsewhere, discarding an opt-out that may well exist.
+		return "", fmt.Errorf("resolve task-store root for %s: stat %s: %w", dir, ownAppDir, ownErr)
 	}
 
 	info, err := DetectWorktree(fs, dir)

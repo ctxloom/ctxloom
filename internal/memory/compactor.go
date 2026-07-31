@@ -30,6 +30,20 @@ const (
 	DefaultChunkTokens = 8000
 	// ChunkOverlapTokens is the overlap between chunks for context continuity.
 	ChunkOverlapTokens = 500
+	// MinOverlappingChunkTokens is derived from ChunkOverlapTokens rather than
+	// chosen, and it bounds one specific hazard: chunkText advances by
+	// (chunk - overlap) per step, so a chunk size only a little larger than the
+	// overlap advances by almost nothing and one transcript explodes into orders
+	// of magnitude more chunks — each spawning its own LLM plugin subprocess.
+	// At twice the overlap the advance is at least half a chunk, which bounds
+	// the chunk count at roughly twice the ideal.
+	//
+	// The hazard is confined to the open band (ChunkOverlapTokens,
+	// MinOverlappingChunkTokens). At or below the overlap the advance goes
+	// non-positive and chunkText already degrades to no overlap at all, which is
+	// safe — small chunk sizes are legitimate and are left exactly as
+	// configured. Only the band is corrected.
+	MinOverlappingChunkTokens = ChunkOverlapTokens * 2
 	// CharsPerToken is the chars-per-token ratio, owned by internal/tokens so the
 	// distillation estimate and the dry-run preview agree on one heuristic.
 	CharsPerToken = tokens.CharsPerToken
@@ -66,7 +80,7 @@ type CompactionConfig struct {
 	ChunkSize       int              // Target tokens per chunk
 	SessionID       string           // Session to compact (empty = most recent)
 	WorkDir         string           // Working directory for the session
-	OutputDir       string           // Directory to save distilled output (defaults to .ctxloom/ephemeral/memory)
+	OutputDir       string           // Directory holding the sessionID-keyed distilled mirrors. Empty resolves through paths.ProjectSessionsDir — see legacySessionsDir.
 	HarpName        string           // Harp name for harp-dir layout writes. Empty falls back to CTXLOOM_SESSION_HARP env var so the in-LLM compact_session path still works without explicit plumbing.
 	ClientFactory   pb.ClientFactory // Factory for creating LLM clients (default: pb.DefaultClientFactory())
 	BackendOverride agent.Backend    // Optional: inject backend directly for testing (bypasses registry)
@@ -112,6 +126,11 @@ type Compactor struct {
 	source        pb.SessionSource
 	plans         func(context.Context, string) ([]agent.PlanFile, error)
 	clientFactory pb.ClientFactory
+	// sourceErr records why source is nil, when the reason is a failure rather
+	// than an unsupported backend. Without it every nil source reads as "this
+	// backend has no session history", which for the retired-scraper backends
+	// -- the default one included -- is both wrong and unactionable.
+	sourceErr error
 }
 
 // memoryHistorySource adapts an in-process SessionHistory to pb.SessionSource.
@@ -137,6 +156,19 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	if config.ChunkSize <= 0 {
 		config.ChunkSize = DefaultChunkTokens
 	}
+	// config.compaction_chunks is user-settable and is the only input the fixed
+	// ChunkOverlapTokens is ever weighed against. A value inside the band is a
+	// cost bomb rather than a small chunk: see MinOverlappingChunkTokens. Raise
+	// it and say so, rather than silently spawning thousands of plugin
+	// subprocesses for one session.
+	if config.ChunkSize > ChunkOverlapTokens && config.ChunkSize < MinOverlappingChunkTokens {
+		if config.Progress != nil {
+			clidiag.Fwarn(config.Progress, "ctxloom",
+				"compaction chunk size %d sits just above the %d-token chunk overlap, which would split one session into thousands of near-duplicate chunks; using %d",
+				config.ChunkSize, ChunkOverlapTokens, MinOverlappingChunkTokens)
+		}
+		config.ChunkSize = MinOverlappingChunkTokens
+	}
 	if config.Backend == "" {
 		config.Backend = "claude-code"
 	}
@@ -152,8 +184,9 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 	// ctxloom never parses backend files in-process. Tests inject a backend whose
 	// in-process SessionHistory is adapted to the same SessionSource contract.
 	var (
-		source pb.SessionSource
-		plans  func(context.Context, string) ([]agent.PlanFile, error)
+		source    pb.SessionSource
+		sourceErr error
+		plans     func(context.Context, string) ([]agent.PlanFile, error)
 	)
 	if config.BackendOverride != nil {
 		if h := config.BackendOverride.History(); h != nil {
@@ -187,14 +220,21 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		if !pb.IsRetiredScraperBackend(config.Backend) {
 			legacy = reader
 		}
-		if store, sErr := sessions.Open(""); sErr == nil {
+		store, sErr := sessions.Open("")
+		switch {
+		case sErr == nil:
 			source = pb.NewCanonicalFallbackSource(legacy, config.WorkDir, store)
-		} else if legacy != nil {
+		case legacy != nil:
 			source = legacy
+		default:
+			// A retired-scraper backend has no legacy leg, so the canonical
+			// layer is the ONLY transcript source and its index failing to open
+			// is the whole reason there is nothing to read. Carry that reason:
+			// the alternative is telling the user their backend does not support
+			// session history, which is a different problem with a different
+			// remedy and is not what happened.
+			sourceErr = fmt.Errorf("session index unavailable: %w", sErr)
 		}
-		// legacy == nil and the index failed to open: source stays nil, and
-		// loadSessionToCompact reports "no history" — the same degradation the
-		// BackendOverride h==nil branch above already documents.
 	}
 
 	return &Compactor{
@@ -202,6 +242,7 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		source:        source,
 		plans:         plans,
 		clientFactory: config.ClientFactory,
+		sourceErr:     sourceErr,
 	}, nil
 }
 
@@ -243,12 +284,12 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// floor) is the bright line. Skip the whole chunk/map/reduce pipeline
 	// (no plugin subprocess spawned at all) and persist a trivial dump
 	// instead, so the picker/resume flow still finds a valid essence.
-	if isEmptySession(session.Entries) {
+	if isEmptySession(session.Entries) || rendersToNothing(logText) {
 		return c.dumpEmptySession(session, harpName, sourceSize, plans, result, start)
 	}
 
 	// Chunk the log, distill each chunk, then optionally re-compress.
-	chunks := c.chunkText(logText, c.config.ChunkSize)
+	chunks := chunkText(logText, c.config.ChunkSize)
 	result.ChunksCreated = len(chunks)
 
 	distilled, failedChunks := c.distillChunks(ctx, chunks)
@@ -328,6 +369,23 @@ func isEmptySession(entries []agent.SessionEntry) bool {
 	return len(entries) == 0
 }
 
+// rendersToNothing reports whether the text sessionToText produced for the
+// session is empty — the same "nothing was ever said" state isEmptySession
+// describes, reached with entries present.
+//
+// This is NOT the byte/token floor isEmptySession argues against, and the
+// distinction is the whole point: a floor would have to guess how small a real
+// conversation can be, while this is exact. Entries can render to nothing for
+// reasons that have nothing to do with how much was said — a session whose only
+// main-thread entries are `thinking`, which appendEntryText suppresses by
+// policy (proud-heap), or entries carrying a type this renderer has no case
+// for. Without this check the pipeline chunks the empty string into one chunk
+// and spawns an LLM plugin subprocess to summarize a transcript containing
+// nothing, then writes whatever the model invents over the session's essence.
+func rendersToNothing(logText string) bool {
+	return strings.TrimSpace(logText) == ""
+}
+
 // emptySessionPlaceholder is the body written for a session with zero
 // main-thread entries, so the saved essence is never a literal empty string
 // (a blank file would look indistinguishable from a write failure to a
@@ -374,6 +432,22 @@ func (c *Compactor) dumpEmptySession(session *agent.Session, harpName string, so
 	return c.finishDistill(session, harpName, sourceSize, plans, result, "", emptySessionPlaceholder, start)
 }
 
+// legacySessionsDir resolves the project-rooted directory holding the
+// sessionID-keyed distilled mirrors, honouring the caller's OutputDir when it
+// set one. The default is anchored at resolve time rather than left as a bare
+// relative path: distilled paths are returned to callers and printed, and every
+// CLI distill path chdirs into the session's own project dir and back out
+// again, so a relative path names a different file once the cwd moves — and the
+// MkdirAll on it would mint a stray .ctxloom the app-dir walk later adopts.
+// paths.ProjectSessionsDir is the repo's one resolver for this directory; every
+// reader of these mirrors already goes through it.
+func (c *Compactor) legacySessionsDir() string {
+	if c.config.OutputDir != "" {
+		return c.config.OutputDir
+	}
+	return paths.ProjectSessionsDir("")
+}
+
 // existingEssence reports whether a distilled essence already exists for this
 // session, checking the harp-dir layout first (the primary write target) and
 // then the legacy sessionID-keyed path, mirroring saveDistilled's own
@@ -387,11 +461,7 @@ func (c *Compactor) existingEssence(sessionID, harpName string) (string, bool) {
 			}
 		}
 	}
-	outputDir := c.config.OutputDir
-	if outputDir == "" {
-		outputDir = ".ctxloom/sessions"
-	}
-	legacyPath := filepath.Join(outputDir, sessionID+".md")
+	legacyPath := filepath.Join(c.legacySessionsDir(), sessionID+".md")
 	if st, err := os.Stat(legacyPath); err == nil && st.Size() > 0 {
 		return legacyPath, true
 	}
@@ -444,6 +514,9 @@ func (c *Compactor) finishDistill(session *agent.Session, harpName string, sourc
 // isEmptySession, not a lookup failure.
 func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, error) {
 	if c.source == nil {
+		if c.sourceErr != nil {
+			return nil, c.sourceErr
+		}
 		return nil, fmt.Errorf("backend %q does not support session history", c.config.Backend)
 	}
 
@@ -677,7 +750,23 @@ func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, deta
 	if err != nil {
 		return
 	}
-	if entry, _ := mgr.Find(harpName); entry != nil && entry.SessionID == "" {
+	// The bind goes to sessions.Manager rather than operations.BindSession
+	// deliberately: routing it through the operations façade would make this
+	// domain package depend on the orchestration layer above it (and on
+	// everything that layer pulls in). Manager.BindSession re-checks
+	// first-bind-wins under the index file lock, so the façade's caller-side
+	// guards are defence in depth here, not the thing preventing a clobber.
+	// The ONE guard that is not redundant is the read failure below.
+	entry, ferr := mgr.Find(harpName)
+	switch {
+	case ferr != nil:
+		// A transient index-read failure is otherwise indistinguishable from
+		// "no entry for this harp", and both fall through to no bind at all.
+		// The bind is first-bind-wins and is never retried, so a harp that
+		// misses it has no session id for the rest of its life and every later
+		// distill/resume fails with "no session bound".
+		c.warnf("read session index for %s: %v (session id not recorded)", harpName, ferr)
+	case entry != nil && entry.SessionID == "":
 		if err := mgr.BindSession(harpName, sessionID, ""); err != nil {
 			c.warnf("index bind failed: %v", err)
 		}
@@ -853,8 +942,11 @@ func appendEntryText(builder *strings.Builder, entry agent.SessionEntry, include
 }
 
 // chunkText splits text into chunks of approximately targetTokens size.
-// It tries to break at natural boundaries (## headers).
-func (c *Compactor) chunkText(text string, targetTokens int) []string {
+// It tries to break at natural boundaries (## headers). Both inputs arrive as
+// parameters and no compactor state is consulted, so this is a package
+// function rather than a method: nothing about a chunking decision depends on
+// which Compactor asked for it.
+func chunkText(text string, targetTokens int) []string {
 	targetChars := targetTokens * CharsPerToken
 	overlapChars := ChunkOverlapTokens * CharsPerToken
 
@@ -1108,10 +1200,7 @@ func (c *Compactor) saveDistilled(sessionID, body string, meta distilledMeta) (s
 	docBytes := []byte(doc.String())
 
 	// Legacy outputDir for sessionID lookups (load_session, etc.).
-	outputDir := c.config.OutputDir
-	if outputDir == "" {
-		outputDir = ".ctxloom/sessions"
-	}
+	outputDir := c.legacySessionsDir()
 	if err := os.MkdirAll(outputDir, 0o755); err != nil {
 		return "", err
 	}

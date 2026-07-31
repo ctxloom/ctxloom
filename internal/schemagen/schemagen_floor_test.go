@@ -3,9 +3,11 @@
 package schemagen
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -135,5 +137,126 @@ func TestGenerate_DoesNotPruneStaleSchemas(t *testing.T) {
 	}
 	if _, err := os.Stat(stale); err != nil {
 		t.Errorf("the generator started pruning: %v — that is a deliberate change, not a silent one", err)
+	}
+}
+
+// TestGenerate_DoesNotReorderTheCallersSlice pins U097-F03: Generate sorted the
+// targets slice it was handed, and sort.Slice sorts the caller's backing array
+// in place. A caller that builds a target list, hands it over, and then reads
+// it back (to report on it, to diff it, to hand the same slice to a second
+// generator) silently observes a DIFFERENT order than it constructed — an
+// undocumented side effect on an argument the signature gives no hint is
+// mutable. Generate's own deterministic processing order is worth keeping, so
+// the ordering happens on a copy; only the mutation is the defect.
+func TestGenerate_DoesNotReorderTheCallersSlice(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gen")
+	type sample struct {
+		A string `json:"a"`
+	}
+	// Deliberately supplied in reverse of the order Generate processes them.
+	targets := []Target{
+		{Type: reflect.TypeOf(sample{}), Name: "zulu"},
+		{Type: reflect.TypeOf(sample{}), Name: "alpha"},
+	}
+	want := []string{"zulu", "alpha"}
+
+	if _, err := Generate(dir, targets); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert the fixture reached the code under test at all: if Generate had
+	// bailed before the ordering step, the slice would be untouched for a
+	// reason that has nothing to do with the defect (§11k).
+	for _, n := range want {
+		if _, err := os.Stat(filepath.Join(dir, n+"-schema.json")); err != nil {
+			t.Fatalf("%s-schema.json was not written, so this test never reached the ordering step: %v", n, err)
+		}
+	}
+
+	for i, n := range want {
+		if targets[i].Name != n {
+			t.Fatalf("Generate reordered the caller's slice: position %d is %q, want %q", i, targets[i].Name, n)
+		}
+	}
+}
+
+// TestGenerate_UnderivableNameIsRefused pins U097-F04's concrete half: when a
+// target carries no explicit Name, the file base and the published $id are
+// derived from reflect.Type.Name() — and that is the empty string for every
+// unnamed type (an anonymous struct, a pointer, a slice, a map). The derivation
+// then produced a file literally named "-schema.json" carrying
+// $id "https://ctxloom.dev/schemas/.json": a schema published under a URL that
+// names nothing, written without a word of complaint. A target whose identity
+// cannot be derived is a caller mistake and must be refused before anything
+// reaches disk, naming the offending Go type.
+func TestGenerate_UnderivableNameIsRefused(t *testing.T) {
+	type sample struct {
+		A string `json:"a"`
+	}
+	cases := map[string]reflect.Type{
+		"anonymous struct": reflect.TypeOf(struct {
+			A string `json:"a"`
+		}{}),
+		"pointer": reflect.TypeOf(&sample{}),
+		"slice":   reflect.TypeOf([]sample{}),
+	}
+	for label, typ := range cases {
+		t.Run(label, func(t *testing.T) {
+			// The fixture is only hostile if the type really has no name —
+			// assert that from the code-under-test's own vantage point before
+			// asserting anything about Generate (§11k).
+			if typ.Name() != "" {
+				t.Fatalf("fixture is not underivable: %s has name %q", typ, typ.Name())
+			}
+			dir := filepath.Join(t.TempDir(), "gen")
+			n, err := Generate(dir, []Target{{Type: typ}})
+			if err == nil {
+				t.Fatal("a target with no derivable schema name must be refused, not published under an empty $id")
+			}
+			if n != 0 {
+				t.Errorf("a refused run reported %d schemas written", n)
+			}
+			if _, statErr := os.Stat(filepath.Join(dir, "-schema.json")); statErr == nil {
+				t.Error("a refused run wrote a file named \"-schema.json\"")
+			}
+		})
+	}
+}
+
+// pkgSourceDir resolves this package's directory from the COMPILED-IN source
+// path of this file rather than from the test binary's working directory, so a
+// test that walks the repo cannot silently walk the wrong tree and find
+// nothing (which would read as a clean pass).
+func pkgSourceDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve this test's own source path")
+	}
+	return filepath.Dir(file)
+}
+
+// TestIDBase_MatchesTheHandMaintainedInputSchemas pins the invariant idBase's
+// doc comment asserts: the generated schemas and the hand-maintained input
+// schemas are published under ONE host, and those input schemas live at
+// resources/schema/input. Moving or renaming that directory, or changing either
+// side's host, turns the doc comment back into a claim nobody checks.
+func TestIDBase_MatchesTheHandMaintainedInputSchemas(t *testing.T) {
+	inputDir := filepath.Join(pkgSourceDir(t), "..", "..", "resources", "schema", "input")
+	for _, base := range []string{"config-schema.json", "fragment-schema.json"} {
+		path := filepath.Join(inputDir, base)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("input schema not where idBase's doc comment says it is: %v", err)
+		}
+		var doc struct {
+			ID string `json:"$id"`
+		}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatalf("%s: %v", base, err)
+		}
+		if !strings.HasPrefix(doc.ID, idBase) {
+			t.Errorf("%s declares $id %q, which is not under idBase %q", base, doc.ID, idBase)
+		}
 	}
 }

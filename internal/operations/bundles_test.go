@@ -48,7 +48,7 @@ func TestListBundles_IncludesLocallyCreatedBundle(t *testing.T) {
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "demo"})
 	require.NoError(t, err)
 
-	infos, err := ListBundles(cfg)
+	infos, err := ListBundles(context.Background(), cfg)
 	require.NoError(t, err)
 
 	names := make([]string, 0, len(infos))

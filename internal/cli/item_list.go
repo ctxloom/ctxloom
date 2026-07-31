@@ -216,7 +216,7 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 	// failure to enumerate leaves the listing alone rather than inventing a
 	// verdict.
 	if len(filtered) == 0 && bundleFilter != "" {
-		if infos, lerr := operations.ListBundles(cfg); lerr == nil {
+		if infos, lerr := operations.ListBundles(cmd.Context(), cfg); lerr == nil {
 			known := make([]string, 0, len(infos))
 			for _, b := range infos {
 				known = append(known, b.Name)

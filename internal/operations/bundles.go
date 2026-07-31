@@ -9,10 +9,13 @@ package operations
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -158,6 +161,11 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
 	}
+	// Fail fast on a bundle that already exists, before distillation spends an
+	// LLM round trip per item on a create that cannot land. This check is an
+	// economy, NOT the decision: it is racy by construction, and the window it
+	// opens is as long as distillation takes. reserveNewBundlePath below is
+	// what actually decides.
 	if _, err := os.Stat(path); err == nil {
 		return nil, fmt.Errorf("bundle already exists: %s", path)
 	}
@@ -181,7 +189,13 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
 	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Commands), req.Distiller)
 
+	if err := reserveNewBundlePath(path); err != nil {
+		return nil, err
+	}
 	if err := bundleStore(cfg, req.Store).Save(bundle); err != nil {
+		// The reservation is a zero-byte placeholder nobody can use. Drop it so
+		// it neither reads as a bundle nor blocks the retry.
+		_ = os.Remove(path)
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 
@@ -190,6 +204,27 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		Name:   req.Name,
 		Path:   path,
 	}, nil
+}
+
+// reserveNewBundlePath claims path for a brand-new bundle, atomically. Creation
+// is "write only if absent", and a plain Stat-then-Save cannot express that:
+// anything appearing at the path in between — a concurrent `bundle create`, a
+// pull, another author on a shared checkout — is silently overwritten, and what
+// is destroyed is authored content nobody has a copy of. O_CREATE|O_EXCL makes
+// the existence test and the claim one operation, so a loser of the race gets
+// the same "already exists" refusal as a serial caller.
+//
+// The placeholder it leaves is zero bytes; Save writes the real content over it
+// immediately, and the caller removes it if Save fails.
+func reserveNewBundlePath(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("bundle already exists: %s", path)
+		}
+		return fmt.Errorf("failed to create bundle file: %w", err)
+	}
+	return f.Close()
 }
 
 // UpdateBundleRequest is the input for UpdateBundle. Pointer fields
@@ -317,8 +352,12 @@ func loadBundleForUpdate(store bundles.Store, cfg *config.Config, name string) (
 // named canonically via the Resolver/VCS seam, and bundles removed upstream
 // (flagged Deleted). See listBundleInfos for how the three sources are merged
 // without double-listing.
-func ListBundles(cfg *config.Config) ([]*bundles.BundleInfo, error) {
-	return listBundleInfos(context.Background(), cfg)
+//
+// ctx is threaded rather than manufactured: the removed-upstream pass walks git
+// history over every installed clone, which is the slow part of a listing and
+// the part a user interrupting `bundle list` means to stop.
+func ListBundles(ctx context.Context, cfg *config.Config) ([]*bundles.BundleInfo, error) {
+	return listBundleInfos(ctx, cfg)
 }
 
 // GetBundle loads a single bundle by name. This is a READ path, so it goes
@@ -377,7 +416,10 @@ func runUpdateDistill(ctx context.Context, bundle *bundles.Bundle, req UpdateBun
 }
 
 // applyFragmentEdits merges set inputs into the bundle's fragments and applies
-// removals, appending a change line per mutation. It returns the names that need
+// removals, appending a change line per mutation. A set input that merges to an
+// entry identical to the existing one is NOT a mutation and reports nothing:
+// UpdateBundle's "no_changes" status is defined as "the request produced no
+// diff", so a re-applied identical edit must not claim one. It returns the names that need
 // (re)distillation: a fragment is queued when it is new or its content actually
 // changed (unless NoDistill). A metadata-only edit (same content) updates
 // tags/notes/installation but preserves the cached Distilled/DistilledBy/
@@ -402,6 +444,9 @@ func applyFragmentEdits(bundle *bundles.Bundle, set map[string]BundleFragmentInp
 			if !in.NoDistill {
 				distillTargets = append(distillTargets, name)
 			}
+		}
+		if hadExisting && reflect.DeepEqual(merged, existing) {
+			continue
 		}
 		bundle.Fragments[name] = merged
 		changes = append(changes, "set fragment: "+name)
@@ -438,6 +483,9 @@ func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundleCommandInput,
 				distillTargets = append(distillTargets, name)
 			}
 		}
+		if hadExisting && reflect.DeepEqual(merged, existing) {
+			continue
+		}
 		bundle.Commands[name] = merged
 		changes = append(changes, "set prompt: "+name)
 	}
@@ -468,20 +516,25 @@ func onlyNewKeys[V, E any](in map[string]V, existing map[string]E) map[string]V 
 }
 
 // applyMCPEdits merges set inputs into the bundle's MCP servers and applies
-// removals, appending a change line per mutation. MCP servers carry no distilled
-// content, so there are no distill targets to return.
+// removals, appending a change line per mutation — a merge identical to the
+// existing entry is not one, per applyFragmentEdits. MCP servers carry no
+// distilled content, so there are no distill targets to return.
 func applyMCPEdits(bundle *bundles.Bundle, set map[string]BundleMCPInput, remove []string, changes []string) []string {
 	for name, in := range set {
 		if bundle.MCP == nil {
 			bundle.MCP = make(map[string]bundles.BundleMCP)
 		}
-		existing := bundle.MCP[name]
-		existing.Command = in.Command
-		existing.Args = in.Args
-		existing.Env = in.Env
-		existing.Notes = in.Notes
-		existing.Installation = in.Installation
-		bundle.MCP[name] = existing
+		existing, hadExisting := bundle.MCP[name]
+		merged := existing
+		merged.Command = in.Command
+		merged.Args = in.Args
+		merged.Env = in.Env
+		merged.Notes = in.Notes
+		merged.Installation = in.Installation
+		if hadExisting && reflect.DeepEqual(merged, existing) {
+			continue
+		}
+		bundle.MCP[name] = merged
 		changes = append(changes, "set mcp: "+name)
 	}
 	for _, name := range remove {
@@ -1008,36 +1061,37 @@ func matchRemoteByURL(registry *remote.Registry, url string) string {
 	return ""
 }
 
-// applyFragmentInputs writes fragment inputs into the bundle's Fragments map.
-// Distillation is left to the caller (CreateBundle/UpdateBundle invoke the
-// distiller after this).
-func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
+// applyInputs writes converted inputs into one of the bundle's item maps,
+// allocating it on first use. Distillation is left to the caller
+// (CreateBundle/UpdateBundle invoke the distiller after this). conv is the only
+// per-kind part: it maps one input DTO to its stored entry.
+func applyInputs[I, E any](dst *map[string]E, in map[string]I, conv func(I) E) {
 	if len(in) == 0 {
 		return
 	}
-	if b.Fragments == nil {
-		b.Fragments = make(map[string]bundles.BundleFragment, len(in))
+	if *dst == nil {
+		*dst = make(map[string]E, len(in))
 	}
-	for name, frag := range in {
-		b.Fragments[name] = bundles.BundleFragment{
+	for name, item := range in {
+		(*dst)[name] = conv(item)
+	}
+}
+
+func applyFragmentInputs(b *bundles.Bundle, in map[string]BundleFragmentInput) {
+	applyInputs(&b.Fragments, in, func(frag BundleFragmentInput) bundles.BundleFragment {
+		return bundles.BundleFragment{
 			Tags:         frag.Tags,
 			Notes:        frag.Notes,
 			Installation: frag.Installation,
 			Content:      frag.Content,
 			NoDistill:    frag.NoDistill,
 		}
-	}
+	})
 }
 
 func applyPromptInputs(b *bundles.Bundle, in map[string]BundleCommandInput) {
-	if len(in) == 0 {
-		return
-	}
-	if b.Commands == nil {
-		b.Commands = make(map[string]bundles.BundleCommand, len(in))
-	}
-	for name, p := range in {
-		b.Commands[name] = bundles.BundleCommand{
+	applyInputs(&b.Commands, in, func(p BundleCommandInput) bundles.BundleCommand {
+		return bundles.BundleCommand{
 			Description:  p.Description,
 			Tags:         p.Tags,
 			Notes:        p.Notes,
@@ -1045,72 +1099,63 @@ func applyPromptInputs(b *bundles.Bundle, in map[string]BundleCommandInput) {
 			Content:      p.Content,
 			NoDistill:    p.NoDistill,
 		}
-	}
+	})
 }
 
 func applyMCPInputs(b *bundles.Bundle, in map[string]BundleMCPInput) {
-	if len(in) == 0 {
-		return
-	}
-	if b.MCP == nil {
-		b.MCP = make(map[string]bundles.BundleMCP, len(in))
-	}
-	for name, m := range in {
-		b.MCP[name] = bundles.BundleMCP{
+	applyInputs(&b.MCP, in, func(m BundleMCPInput) bundles.BundleMCP {
+		return bundles.BundleMCP{
 			Command:      m.Command,
 			Args:         m.Args,
 			Env:          m.Env,
 			Notes:        m.Notes,
 			Installation: m.Installation,
 		}
-	}
+	})
 }
 
-// namesNeedingFragmentDistill picks fragment names whose NoDistill is unset
-// and that landed in the bundle. Deterministic order keeps tests stable.
+// namesNeedingDistill picks the input names that should be (re)distilled: those
+// whose NoDistill is unset AND that actually landed in the bundle (present).
+// Deterministic order keeps tests stable and distillation reproducible.
+func namesNeedingDistill[I, E any](present map[string]E, in map[string]I, noDistill func(I) bool) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(in))
+	for name, item := range in {
+		if noDistill(item) {
+			continue
+		}
+		if _, ok := present[name]; !ok {
+			continue
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 func namesNeedingFragmentDistill(b *bundles.Bundle, in map[string]BundleFragmentInput) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(in))
-	for name, frag := range in {
-		if frag.NoDistill {
-			continue
-		}
-		if _, ok := b.Fragments[name]; !ok {
-			continue
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return namesNeedingDistill(b.Fragments, in, func(f BundleFragmentInput) bool { return f.NoDistill })
 }
 
-// namesNeedingPromptDistill is the prompt counterpart.
 func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundleCommandInput) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(in))
-	for name, p := range in {
-		if p.NoDistill {
-			continue
-		}
-		if _, ok := b.Commands[name]; !ok {
-			continue
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
+	return namesNeedingDistill(b.Commands, in, func(p BundleCommandInput) bool { return p.NoDistill })
 }
 
 // distillFragments invokes the Distiller for each named fragment, populating
 // Distilled / DistilledBy / ContentHash on success. Distill errors are warned
 // but non-fatal: the bundle still saves with the raw content (fault-tolerance
 // philosophy in CLAUDE.md). A nil Distiller is a no-op. The returned set names
-// the items whose attempt FAILED — a re-distill failure leaves the old
-// Distilled/DistilledBy intact, so post-state alone cannot reveal it.
+// the items whose attempt FAILED, and is the ONLY reliable signal of failure:
+// post-state cannot be read as one, because what a failure leaves behind
+// differs by caller. On the DistillBundleFile path the item is read straight
+// off disk, so a failed re-distill leaves the previous Distilled/DistilledBy
+// standing. On the CreateBundle/UpdateBundle path it does not: applyFragment
+// Edits has already blanked Distilled/DistilledBy/ContentHash for every item
+// whose content changed (a summary of superseded content is worse than none),
+// so a failure there saves the item with raw content and no distillation at
+// all. Callers must branch on the returned set, never on the fields.
 // Distillation floor (U082-F01): distillFragments/distillPrompts previously
 // stamped ANY non-empty Distiller result as accepted — no length, ratio, or
 // sanity floor — so a 16-byte distillation of a 1,428-byte fragment (a
@@ -1140,21 +1185,40 @@ func distillTooShort(original, distilled string) bool {
 	return float64(len(distilled))/float64(len(original)) < minDistillRatio
 }
 
-func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
+// distillItems is the one implementation of the distillation policy, shared by
+// distillFragments and distillPrompts. Only the item type differs between them,
+// and the policy — what counts as a failed attempt, what is written on success —
+// is safety-relevant enough that a second copy is a liability: the two copies
+// had already drifted in their explanatory comments, which is how they drift in
+// behaviour next.
+//
+// get returns the named entry and its raw content; put applies an ACCEPTED
+// result. Neither is called for a rejected one, so no rejection path can stamp
+// a hash.
+func distillItems[E any](
+	ctx context.Context,
+	b *bundles.Bundle,
+	names []string,
+	d Distiller,
+	kind DistillKind,
+	noun string,
+	get func(name string) (entry E, content string),
+	put func(name string, entry E, res DistillResult),
+) collections.Set[string] {
 	failed := collections.NewSet[string]()
 	if d == nil || len(names) == 0 {
 		return failed
 	}
 	for _, name := range names {
-		frag := b.Fragments[name]
+		entry, content := get(name)
 		res, err := d.Distill(ctx, DistillRequest{
-			Kind:    DistillKindFragment,
+			Kind:    kind,
 			Name:    name,
-			Content: frag.Content,
+			Content: content,
 			Bundle:  b,
 		})
 		if err != nil {
-			clidiag.Warn("ctxloom", "distill of fragment %q failed: %v", name, err)
+			clidiag.Warn("ctxloom", "distill of %s %q failed: %v", noun, name, err)
 			failed.Add(name)
 			continue
 		}
@@ -1163,59 +1227,48 @@ func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d 
 			// one that happened to be empty. Assigning it would overwrite a
 			// previously-good distillation with "" and let distillOutcome
 			// report "distilled" for content nobody can use (U081-F04).
-			clidiag.Warn("ctxloom", "distill of fragment %q produced no content; keeping the previous distillation", name)
+			clidiag.Warn("ctxloom", "distill of %s %q produced no content; keeping the previous distillation", noun, name)
 			failed.Add(name)
 			continue
 		}
-		if distillTooShort(frag.Content, res.Distilled) {
-			// U082-F01: non-empty but implausibly short (truncated/degenerate)
-			// is the same class of failure as empty — treat it the same way,
-			// and do NOT stamp ContentHash for a rejected result.
-			clidiag.Warn("ctxloom", "distill of fragment %q produced only %d bytes from %d — rejecting as truncated, keeping the previous distillation", name, len(res.Distilled), len(frag.Content))
+		if distillTooShort(content, res.Distilled) {
+			// Non-empty but implausibly short (truncated/degenerate) is the same
+			// class of failure as empty — treat it the same way, and do NOT stamp
+			// ContentHash for a rejected result.
+			clidiag.Warn("ctxloom", "distill of %s %q produced only %d bytes from %d — rejecting as truncated, keeping the previous distillation", noun, name, len(res.Distilled), len(content))
 			failed.Add(name)
 			continue
 		}
-		frag.Distilled = res.Distilled
-		frag.DistilledBy = res.ModelID
-		frag.ContentHash = frag.ComputeContentHash()
-		b.Fragments[name] = frag
+		put(name, entry, res)
 	}
 	return failed
 }
 
+func distillFragments(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
+	return distillItems(ctx, b, names, d, DistillKindFragment, "fragment",
+		func(name string) (bundles.BundleFragment, string) {
+			frag := b.Fragments[name]
+			return frag, frag.Content
+		},
+		func(name string, frag bundles.BundleFragment, res DistillResult) {
+			frag.Distilled = res.Distilled
+			frag.DistilledBy = res.ModelID
+			frag.ContentHash = frag.ComputeContentHash()
+			b.Fragments[name] = frag
+		})
+}
+
 // distillPrompts mirrors distillFragments for prompts.
 func distillPrompts(ctx context.Context, b *bundles.Bundle, names []string, d Distiller) collections.Set[string] {
-	failed := collections.NewSet[string]()
-	if d == nil || len(names) == 0 {
-		return failed
-	}
-	for _, name := range names {
-		p := b.Commands[name]
-		res, err := d.Distill(ctx, DistillRequest{
-			Kind:    DistillKindCommand,
-			Name:    name,
-			Content: p.Content,
-			Bundle:  b,
+	return distillItems(ctx, b, names, d, DistillKindCommand, "prompt",
+		func(name string) (bundles.BundleCommand, string) {
+			p := b.Commands[name]
+			return p, p.Content
+		},
+		func(name string, p bundles.BundleCommand, res DistillResult) {
+			p.Distilled = res.Distilled
+			p.DistilledBy = res.ModelID
+			p.ContentHash = p.ComputeContentHash()
+			b.Commands[name] = p
 		})
-		if err != nil {
-			clidiag.Warn("ctxloom", "distill of prompt %q failed: %v", name, err)
-			failed.Add(name)
-			continue
-		}
-		if res.Distilled == "" {
-			clidiag.Warn("ctxloom", "distill of prompt %q produced no content; keeping the previous distillation", name)
-			failed.Add(name)
-			continue
-		}
-		if distillTooShort(p.Content, res.Distilled) {
-			clidiag.Warn("ctxloom", "distill of prompt %q produced only %d bytes from %d — rejecting as truncated, keeping the previous distillation", name, len(res.Distilled), len(p.Content))
-			failed.Add(name)
-			continue
-		}
-		p.Distilled = res.Distilled
-		p.DistilledBy = res.ModelID
-		p.ContentHash = p.ComputeContentHash()
-		b.Commands[name] = p
-	}
-	return failed
 }

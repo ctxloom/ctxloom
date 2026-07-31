@@ -32,8 +32,13 @@ import (
 // error, never a silent fallback to dir itself: minting or using a task
 // store keyed on an orphaned worktree is exactly the silent-no-op failure
 // mode this codebase works hardest to avoid — the store would work fine and
-// nobody would ever read it again.
+// nobody would ever read it again. An empty dir is a hard error for the same
+// reason (errNoDir): it would key the store on wherever the process was
+// launched.
 func TaskStoreRoot(fs afero.Fs, dir string) (string, error) {
+	if dir == "" {
+		return "", fmt.Errorf("resolve task-store root: %w", errNoDir)
+	}
 	ownAppDir := filepath.Join(dir, paths.AppDirName)
 	if info, err := fs.Stat(ownAppDir); err == nil && info.IsDir() {
 		return dir, nil // opt-out: dir is a deliberately separate project

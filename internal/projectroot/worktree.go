@@ -1,6 +1,7 @@
 package projectroot
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -19,6 +20,14 @@ import (
 // -- no "worktrees" segment -- which is what lets DetectWorktree tell a
 // linked worktree apart from a submodule without shelling out to git.
 const worktreesDirName = "worktrees"
+
+// errNoDir is returned when a caller names no directory at all. An empty dir
+// is not "the current directory": filepath.Join("", x) yields the bare
+// relative x, so an unnamed directory silently becomes whichever working
+// directory the process happens to hold, and the answer changes with the
+// launch cwd. Every function here exists to pin a project root down, so
+// guessing at one is the opposite of the contract.
+var errNoDir = errors.New("projectroot: no directory named (empty dir)")
 
 // WorktreeInfo describes what dir's `.git` entry resolved to.
 type WorktreeInfo struct {
@@ -53,10 +62,14 @@ type WorktreeInfo struct {
 // feature must leave unaffected (see internal/config's findAppDir /
 // worktreeSignpost, the sole caller as of this writing).
 //
-// It returns a non-nil error only when dir has a `.git` FILE that exists but
-// cannot be read (permission denied, I/O error) -- a distinct fault from "not
-// a linked worktree," which callers surface rather than silently swallow.
+// It returns a non-nil error when dir is empty (see errNoDir), and when dir
+// has a `.git` FILE that exists but cannot be read (permission denied, I/O
+// error) -- both distinct faults from "not a linked worktree," which callers
+// surface rather than silently swallow.
 func DetectWorktree(fs afero.Fs, dir string) (WorktreeInfo, error) {
+	if dir == "" {
+		return WorktreeInfo{}, errNoDir
+	}
 	dotGit := filepath.Join(dir, ".git")
 	fi, statErr := fs.Stat(dotGit)
 	if statErr != nil {

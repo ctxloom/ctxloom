@@ -1881,3 +1881,40 @@ func TestUpdateSessionIndex_WarnsWhenTheIndexCannotBeRead(t *testing.T) {
 	assert.Contains(t, sink.String(), "lively-index-harp",
 		"an unreadable index must be reported, not silently taken for an absent entry")
 }
+
+// Distillation is headless: there is no human to answer an engine that stops to
+// ask, so the request must leave here in ONESHOT with a posture that cannot
+// block. The gRPC server floors a ONESHOT whose posture would block, so this is
+// the SECOND altitude of that invariant and the public behaviour is identical
+// either way — the point is that the request the compactor SENDS says so. The
+// sibling one-shot call in the trigger-triage path spells this differently and
+// relies on the floor alone; anything that unifies the two must not quietly
+// take this with it.
+func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
+	testsupport.Isolate(t)
+
+	var sawOpts *pb.RunOptions
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			sawOpts = req.Options
+			_, _ = stdout.Write([]byte("distilled"))
+			return 0, nil
+		},
+	}
+
+	c := &Compactor{
+		config:        CompactionConfig{LLM: "mock", Model: "haiku"},
+		clientFactory: pb.MockClientFactory(mockClient),
+	}
+	out, err := c.runDistill(context.Background(), "instructions", "transcript")
+	require.NoError(t, err)
+	require.Equal(t, "distilled", out)
+
+	require.NotNil(t, sawOpts, "the pin is worthless unless the request actually reached the client")
+	assert.Equal(t, pb.ExecutionMode_ONESHOT, sawOpts.Mode)
+	assert.True(t, sawOpts.SkipSetup, "distillation must stay in minimal mode")
+	mode, ok := agent.ParsePermissionMode(sawOpts.PermissionMode)
+	require.True(t, ok, "the request must name a parseable permission posture, got %q", sawOpts.PermissionMode)
+	assert.True(t, mode.SafeHeadless(),
+		"a headless distillation must not send a posture that would stop to ask, got %q", mode)
+}

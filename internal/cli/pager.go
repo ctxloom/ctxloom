@@ -76,9 +76,16 @@ func pagerWriter(out io.Writer) (io.Writer, func() error) {
 	if !shouldPage(out) {
 		return out, func() error { return nil }
 	}
-	w, cleanup, err := startPager(resolvePagerCommand(), out)
+	return startPagerOrFallback(resolvePagerCommand(), out)
+}
+
+// startPagerOrFallback starts argv as a pager writing to dst, degrading to dst
+// unpaged when it cannot start. Content is never lost either way; the pager is
+// a presentation convenience, not a delivery path.
+func startPagerOrFallback(argv []string, dst io.Writer) (io.Writer, func() error) {
+	w, cleanup, err := startPager(argv, dst)
 	if err != nil {
-		return out, func() error { return nil }
+		return dst, func() error { return nil }
 	}
 	return w, cleanup
 }

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // GitHubFetcher implements Fetcher for GitHub repositories.
@@ -163,10 +164,16 @@ func is401Error(resp *github.Response, err error) bool {
 }
 
 // shouldRetry401 checks if a 401 error occurred and we have a fallback client.
-// If so, it prints a warning and returns true.
+// If so, it warns and returns true.
+//
+// The warning goes through clidiag, like every other warning this package
+// raises: os.Stderr is not always a safe destination (under `ctxloom run` it
+// is the terminal the TUI paints on, and a session that owns the terminal
+// redirects the sink for its lifetime), and clidiag also owns the structured
+// wire shape for --format json.
 func (f *GitHubFetcher) shouldRetry401(resp *github.Response, err error) bool {
 	if is401Error(resp, err) && f.fallback != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		clidiag.Warn("ctxloom", "GitHub token invalid, retrying without authentication")
 		return true
 	}
 	return false

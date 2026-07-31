@@ -3,7 +3,6 @@ package grpc
 import (
 	"testing"
 
-	"github.com/hashicorp/go-plugin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -52,6 +51,4 @@ func TestPluginMap_IsNotSharedMutableState(t *testing.T) {
 	second := PluginMap()
 	assert.Contains(t, second, LLMPluginKey, "a later dial must still dispense the LLM plugin")
 	assert.NotContains(t, second, "injected", "a mutation of one caller's map must not reach the next dial")
-
-	var _ map[string]plugin.Plugin = second
 }

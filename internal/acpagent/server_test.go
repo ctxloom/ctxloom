@@ -1315,3 +1315,60 @@ func TestSetAgentVersion_EmptyKeepsTheDefault(t *testing.T) {
 	SetAgentVersion("")
 	assert.Equal(t, "v1.2.3", agentVersion)
 }
+
+// TestServe_SessionLoad_ResponseBodyCarriesTheSessionState pins U014-F23:
+// session/load's response BODY was asserted nowhere. TestServe_SessionLoad
+// checked only that resp.Error was nil and then moved on to the replay
+// notifications; TestL1_SessionLoad_ReplaysBeforeResponse discards the raw
+// result entirely; and the L0 capture validates it against
+// $defs/LoadSessionResponse, which declares no `required` array at all — so
+// `{}` is a schema-VALID load response. A regression that stopped populating
+// modes, models or configOptions would therefore have passed every gate: the
+// resumed session would silently lose its profile switcher and model
+// selector in the editor's UI, with a green suite.
+func TestServe_SessionLoad_ResponseBodyCarriesTheSessionState(t *testing.T) {
+	eng := newFakeEngine()
+	eng.replay = []agent.SessionEntry{{Type: agent.EntryTypeAssistant, Content: "earlier answer"}}
+	eng.modes = &SessionModes{
+		Current:   operations.DefaultModeID,
+		Available: []SessionMode{{ID: operations.DefaultModeID, Name: "default"}, {ID: "review", Name: "review"}},
+	}
+	eng.assembleMode = func(context.Context, SessionMode) (string, error) { return "REVIEW CTX", nil }
+	eng.llms = &SessionLLMs{Current: "primary", Available: []operations.LLMInfo{{ID: "primary", Name: "primary"}}}
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat("RESUME"), nil })
+
+	c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+	resp, _ := c.waitResponse(c.send("session/load", `{"sessionId":"tidy-old-harp","cwd":"/proj","mcpServers":[]}`))
+	require.Nil(t, resp.Error)
+
+	var got struct {
+		Modes *struct {
+			CurrentModeId  string `json:"currentModeId"`
+			AvailableModes []struct {
+				Id string `json:"id"`
+			} `json:"availableModes"`
+		} `json:"modes"`
+		Models *struct {
+			CurrentModelId string `json:"currentModelId"`
+		} `json:"models"`
+		ConfigOptions []struct {
+			Id       string `json:"id"`
+			Category string `json:"category"`
+		} `json:"configOptions"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Result, &got))
+
+	require.NotNil(t, got.Modes, "a resumed session must report its mode state, or the editor loses the profile switcher")
+	assert.Equal(t, operations.DefaultModeID, got.Modes.CurrentModeId)
+	assert.Len(t, got.Modes.AvailableModes, 2)
+
+	require.NotNil(t, got.Models, "a resumed session must report its model state")
+	assert.Equal(t, "primary", got.Models.CurrentModelId)
+
+	var categories []string
+	for _, o := range got.ConfigOptions {
+		categories = append(categories, o.Category)
+	}
+	assert.Contains(t, categories, "model", "CO1's spec-general model selector must ride the load response too")
+}

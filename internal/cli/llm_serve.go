@@ -25,7 +25,7 @@ var llmServeCmd = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		// Fail-loudly gate (U037-F03): checkpoint before standUpRunner's config
 		// load, so a fatal-class finding it records (a corrupted/malformed
-		// config.yaml, via printConfigWarnings) aborts this process-owning
+		// config.yaml, via printAndRecordConfigWarnings) aborts this process-owning
 		// entry point below instead of silently serving an empty/partial
 		// context. Degraded mode (--degraded / CTXLOOM_DEGRADED=1) is the
 		// escape hatch, same as `ctxloom run`/`ctxloom mcp`.

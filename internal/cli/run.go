@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -214,7 +213,7 @@ func distillSessionOnExit(activeHarp string, interactive bool, essenceFn func(st
 		}
 		fmt.Fprintf(out, "ctxloom: distilled session %s\n", activeHarp)
 	case <-ctx.Done():
-		fmt.Fprintf(out, "ctxloom: distillation timed out; it will complete on next startup\n")
+		fmt.Fprintf(out, "ctxloom: distillation timed out; run \"ctxloom session distill %s\" to finish it\n", activeHarp)
 	}
 }
 
@@ -378,7 +377,7 @@ Examples:
 		// config.Load downgrades unreadable/malformed/schema-invalid files to
 		// warnings (CLAUDE.md fault tolerance) — surface them so a corrupted
 		// config.yaml never silently launches an empty-context session.
-		printConfigWarnings(os.Stderr, cfg.GetWarnings())
+		printAndRecordConfigWarnings(os.Stderr, cfg.GetWarnings())
 		// If loading upgraded an older config schema in memory, offer to persist
 		// it (interactive + consented only; never a silent rewrite).
 		confirmUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)
@@ -448,7 +447,7 @@ Examples:
 					strictness.Fail(strictness.ClassSync, "check the remote/network, or pass --degraded to launch anyway", "sync failed: %v", syncErr)
 				}
 			} else {
-				writeSyncSummary(os.Stderr, result)
+				writeAndRecordSyncSummary(os.Stderr, result)
 			}
 		}
 
@@ -1138,7 +1137,22 @@ Examples:
 			// (an `llm host` runner WITH the run-id trio → EngineHost); the
 			// host watches it via WatchRuns. No go-plugin client; no
 			// in-container listener.
-			handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, policy, ws, req, backendName, label, runVerbosity, activeHarp, ctxResult.Context, prompt, managed.ChatMCPServers(backendName, req.Options.Env[agent.MCPCommandOverrideEnv]), permMode, mode, runStructured, runnerSpawnEnv)
+			handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, ownedRunLaunch{
+				Policy:      policy,
+				Workspace:   ws,
+				Req:         req,
+				BackendName: backendName,
+				Label:       label,
+				Verbosity:   runVerbosity,
+				Harp:        activeHarp,
+				ContextText: ctxResult.Context,
+				Prompt:      prompt,
+				MCPServers:  managed.ChatMCPServers(backendName, req.Options.Env[agent.MCPCommandOverrideEnv]),
+				Permission:  permMode,
+				Mode:        mode,
+				Structured:  runStructured,
+				RunnerEnv:   runnerSpawnEnv,
+			})
 			// Assign BEFORE checking oerr (U041-F05): startContainerOwnedRun
 			// can return a non-nil handle ALONGSIDE a non-nil error (the
 			// container started; a later step in StartOwnedRun failed) — if
@@ -1750,39 +1764,6 @@ func confirmUpgrade(p *upgrade.Pending, commit func() error) {
 	}
 }
 
-// stdinReader is the single buffered reader over os.Stdin shared by every
-// interactive y/N prompt. A fresh bufio.Reader per prompt would silently discard
-// any bytes a previous reader buffered past its line (type-ahead / paste between
-// back-to-back confirmations), so all prompts read through this one reader.
-var stdinReader = bufio.NewReader(os.Stdin)
-
-// promptLine writes prompt to stderr and reads one trimmed line from the shared
-// stdin reader, returning the read error (e.g. EOF) so callers can apply their
-// own fallback. It is the single read primitive every interactive prompt funnels
-// through (promptYesNo and the TR4 trust menus) so a line buffered past one
-// prompt is not discarded before the next (ctxloom-code-08-002).
-func promptLine(prompt string) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
-	line, err := stdinReader.ReadString('\n')
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(line), nil
-}
-
-// promptYesNo writes prompt to stderr and reads one line from the shared stdin
-// reader, reporting whether the answer was affirmative ("y"/"yes",
-// case-insensitive). The read error (e.g. EOF) is returned so each caller can
-// apply its own fallback; anything that is not an explicit yes is a no.
-func promptYesNo(prompt string) (bool, error) {
-	line, err := promptLine(prompt)
-	if err != nil {
-		return false, err
-	}
-	answer := strings.ToLower(line)
-	return answer == "y" || answer == "yes", nil
-}
-
 // confirmProfileUpgrades offers to persist any older-schema rewrites that loading
 // the configured profiles applied in memory (e.g. bare bundle refs qualified with
 // their remote). It resolves each of the default agent's composed profiles through
@@ -1827,11 +1808,4 @@ func confirmSyncInstall(ctx context.Context, cfg *config.Config) bool {
 		return false
 	}
 	return true
-}
-
-func plural(n int, singular, plural string) string {
-	if n == 1 {
-		return singular
-	}
-	return plural
 }

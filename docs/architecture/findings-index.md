@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,369** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 153 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 154 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 182 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 181 |
-| `open` | no commit names this ID | **383** |
+| `open` | no commit names this ID | **382** |
 
-**Totals: 2268 findings across 162 units — 1,369 resolved, 383 still open, 516 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,369 resolved, 382 still open, 517 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 500 | 212 | 87 | 82 | 118 |
+| MED | 999 | 500 | 211 | 88 | 82 | 118 |
 | LOW | 871 | 512 | 160 | 50 | 92 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1316,7 +1316,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U050-F05 | open | `unknown_keys.go:200-216` | CORRECTNESS | `knownKeysAt`'s raw JSON-pointer walk asserts `node[seg].(map[string]any)` for every segment, so any **array** segment (`anyOf/0`, `oneOf/1`, `allOf/0`) aborts the walk. Result: the `llm.configs.*`... | U050.md |
 | U050-F06 | **RESOLVED** `f16b4588` | `unknown_keys.go:164-227` | DUPLICATE / COUPLING | `configSchemaDocument` + `knownKeysAt` are a second, weaker, independently-cached parse and walk of the same config schema that `internal/schema` already compiles and walks. Two schema representati... | U050.md |
 | U050-F07 | **RESOLVED** `b208c002` | `warnings.go:5-8`; `cli/startup_helpers.go:52` | CORRECTNESS | `warnings.go`'s stated contract — "All four kinds are fatal-class in strict mode" — and `printConfigWarnings`' doc — "`ctxloom run` / `ctxloom mcp` / `ctxloom acp` abort on the recorded findings" —... | U050.md |
-| U050-F13 | open | `trustroot.go:215,218-220` | ERRHANDLING | Trust-root degradations are reported with a bare `clidiag.Warn` and never recorded as a strictness finding, even though `strictness.ClassTrust` exists and is documented as "a corrupt/unreadable tru... | U050.md |
+| U050-F13 | **PARTIAL** `d0d2a4af` | `trustroot.go:215,218-220` | ERRHANDLING | Trust-root degradations are reported with a bare `clidiag.Warn` and never recorded as a strictness finding, even though `strictness.ClassTrust` exists and is documented as "a corrupt/unreadable tru... | U050.md |
 | U051-F03 | **ESCALATED** (gn/vital-deaf-stunt) | **`config.go:137`, `command.go:32`, `config.go:220`** | COMPLEXITY | Three production functions exceed the repo's CI complexity gate; the gate must currently be failing (or is not reaching this package). | U051.md |
 | U051-F05 | **ESCALATED** (gn/vital-deaf-stunt) | `docsgen.go:73-75`, `config.go:46-48` | COUPLING | `envPrefix()` and `dotDir` **reconstruct** values that each product already declares as its own constant, rather than being handed them. Connascence of algorithm across three packages, checkable on... | U051.md |
 | U051-F07 | **ESCALATED** (gn/vital-deaf-stunt) | `docsgen.go:101`, `docsgen.go:118` | CORRECTNESS | `GenMan`/`GenMarkdown` delete the existing generated pages **before** generating replacements, with no post-condition on what was written. A generator error after the sweep leaves the docs tree emp... | U051.md |

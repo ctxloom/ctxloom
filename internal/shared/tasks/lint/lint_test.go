@@ -290,3 +290,33 @@ func TestLint_ArityOnlySchemaChecksZeroTargets(t *testing.T) {
 	assert.Empty(t, result.Violations)
 	assert.Equal(t, 0, result.CheckedTargets)
 }
+
+// TestLint_MalformedEnumDeclarationIsAReturnedError pins the CONSUMER half of
+// the empty-but-present enum defect. tagschema.Enum reports a declaration with
+// no usable member as an error (its own pins cover that); the property that
+// matters here is what Lint does with it. Swallowing it leaves an empty member
+// list, which is indistinguishable at this layer from a closed set that admits
+// nothing — so every value on the target is flagged, every task in the project
+// sprouts a violation, and nothing anywhere can say the DECLARATION is what is
+// broken. The malformed range declaration above is already held to exactly
+// this standard; enum must match it.
+func TestLint_MalformedEnumDeclarationIsAReturnedError(t *testing.T) {
+	for _, decl := range []string{
+		`tagma.enum:"triage:type"=","`,
+		`tagma.enum:"triage:type"=""`,
+	} {
+		t.Run(decl, func(t *testing.T) {
+			schema := mustSchema(t, decl)
+			all := []tasks.Task{
+				{HarpID: "aaa", Tags: []string{"triage:type=correctness"}},
+				{HarpID: "bbb", Tags: []string{"triage:type=security"}},
+			}
+
+			result, err := Lint(all, schema)
+			require.Error(t, err, "a declaration with no usable member is a config defect Lint must report")
+			assert.Contains(t, err.Error(), "triage:type", "the error must name the offending target")
+			assert.Empty(t, result.Violations,
+				"the tasks are not at fault; blaming their values hides the broken declaration")
+		})
+	}
+}

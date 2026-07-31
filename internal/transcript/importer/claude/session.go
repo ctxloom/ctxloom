@@ -372,7 +372,15 @@ func (c *converter) handleAssistant(l line) error {
 	if l.Message.Usage == nil {
 		return nil
 	}
-	if l.Message.ID != "" && c.pendingID != "" && l.Message.ID != c.pendingID {
+	// A pending boundary is closed whenever the incoming line's identity is
+	// not the pending one's — INCLUDING when either id is absent. Requiring
+	// both to be non-empty made an id-less usage line fall through to the
+	// unconditional overwrite below, discarding a Complete record that had
+	// already been fully assembled, with no error and nothing said.
+	// Comparing the ids (rather than flushing on every usage line) is what
+	// keeps the several lines of ONE response folding into ONE boundary — see
+	// converter's doc comment.
+	if c.pending != nil && l.Message.ID != c.pendingID {
 		if err := c.flushPending(); err != nil {
 			return err
 		}

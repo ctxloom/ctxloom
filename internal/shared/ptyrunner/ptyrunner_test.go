@@ -369,3 +369,31 @@ func TestRunInteractive_ClosesPipeReaderWhenCopierExits(t *testing.T) {
 		t.Fatal("stdinW.Write still blocked after the run ended; the stdin reader was not closed")
 	}
 }
+
+// TestRunInteractive_ChildStderrArrivesOnStdoutWriter pins the invariant that
+// makes a separate stderr writer meaningless here: a pty gives the child ONE
+// stream. The child's fd 1 and fd 2 are both the pty slave, so the master
+// hands back a single interleaved byte stream and there is no separation left
+// to route anywhere. Any caller wanting split streams must not use a pty at
+// all (see internal/lm/backends' non-interactive branch, which wires
+// cmd.Stdout/cmd.Stderr directly). This is a characterization pin, green
+// before and after the parameter's removal — its job is to keep the claim the
+// signature now makes ("output" not "stdout") true if the copy path is ever
+// reworked.
+func TestRunInteractive_ChildStderrArrivesOnStdoutWriter(t *testing.T) {
+	ctx := context.Background()
+	cmd := exec.Command("sh", "-c", "printf 'to-stdout\\n'; printf 'to-stderr\\n' 1>&2; sleep 0.1")
+
+	var out bytes.Buffer
+	var neverWritten bytes.Buffer
+	exitCode, err := RunInteractive(ctx, cmd, nil, &out, &neverWritten, nil)
+
+	require.NoError(t, err)
+	assert.Equal(t, 0, exitCode)
+	assert.Empty(t, neverWritten.String(),
+		"the stderr writer is accepted and never written: a pty cannot separate the streams")
+	assert.Contains(t, out.String(), "to-stdout")
+	assert.Contains(t, out.String(), "to-stderr",
+		"a pty merges the child's fd 2 into the single master stream; the caller's "+
+			"one writer receives both, which is why a second writer cannot be honoured")
+}

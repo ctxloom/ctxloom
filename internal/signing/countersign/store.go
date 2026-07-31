@@ -203,9 +203,18 @@ func pinsBytes(header signing.CountersignHeader, payload []byte) error {
 	return fmt.Errorf("countersign approve %s %s: refusing to record an empty payload — an approval that pinned nothing can never be honoured", header.Form, header.Ref)
 }
 
-// write signs header+payload with signer under namespace and persists the
-// resulting armored signature under this store's directory.
-func (s *Store) write(header signing.CountersignHeader, payload []byte, signer ssh.Signer, namespace string) error {
+// write signs header+payload with signer and persists the resulting armored
+// signature under this store's directory.
+//
+// The signing namespace is DERIVED from header.Assertion, through the same
+// function the verifier uses (signing.NamespaceForAssertion). It used to be a
+// parameter independent of the assertion, hand-re-encoded at each of the
+// assertion wrappers below — three chances to write a record under a namespace
+// the verifier will never look in. Such a record is written, reported to the
+// user with a key fingerprint against it, and then verifies for nobody; on the
+// REJECT path that is a fail-open, because an unverifiable rejection reads as
+// "nothing rejected" and silently un-rejects the item.
+func (s *Store) write(header signing.CountersignHeader, payload []byte, signer ssh.Signer) error {
 	if err := s.configured(); err != nil {
 		return err
 	}
@@ -218,7 +227,7 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 	if err := pinsBytes(header, payload); err != nil {
 		return err
 	}
-	armored, err := signing.Sign(signing.CountersignPreimage(header, payload), signer, namespace)
+	armored, err := signing.Sign(signing.CountersignPreimage(header, payload), signer, signing.NamespaceForAssertion(header.Assertion))
 	if err != nil {
 		return err
 	}
@@ -236,7 +245,7 @@ func (s *Store) write(header signing.CountersignHeader, payload []byte, signer s
 // An EMPTY payload is refused — see pinsBytes.
 func (s *Store) WriteApprove(ref string, form signing.AttestationForm, payload []byte, signer ssh.Signer) error {
 	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: ref, Form: form}
-	return s.write(h, payload, signer, signing.NamespaceApprove)
+	return s.write(h, payload, signer)
 }
 
 // WriteContentReject signs and stores a REF-OMITTED reject countersignature
@@ -245,7 +254,7 @@ func (s *Store) WriteApprove(ref string, form signing.AttestationForm, payload [
 // distilled), mirroring the deleted denylist's two-hash rejection.
 func (s *Store) WriteContentReject(form signing.AttestationForm, payload []byte, signer ssh.Signer) error {
 	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: "", Form: form}
-	return s.write(h, payload, signer, signing.NamespaceReject)
+	return s.write(h, payload, signer)
 }
 
 // WriteRefReject signs and stores the STICKY ref-level block (spec §5.3):
@@ -253,7 +262,7 @@ func (s *Store) WriteContentReject(form signing.AttestationForm, payload []byte,
 // ref regardless of what its content becomes.
 func (s *Store) WriteRefReject(ref string, signer ssh.Signer) error {
 	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: ref, Form: signing.AttestNone}
-	return s.write(h, nil, signer, signing.NamespaceReject)
+	return s.write(h, nil, signer)
 }
 
 // headerInvalid reports a header the closed vocabulary rejects, on the READ

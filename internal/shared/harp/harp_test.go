@@ -350,3 +350,32 @@ func TestGenerateName_UnsatisfiableMaxElementLengthStaysRandom(t *testing.T) {
 		t.Fatal("UniqueFrom returned an empty id with no error")
 	}
 }
+
+// TestRandIndex_RefusesAnEmptyRange pins the caller-bug path. [0, n) is empty
+// for n < 1, so there is no value randIndex can honestly return; it used to
+// return 0, which is a perfectly plausible index and which the only caller
+// then used to index the very slice whose emptiness produced it. The failure
+// surfaced as "index out of range [0] with length 0" a frame away from the
+// real fault, naming neither the group nor the cause.
+func TestRandIndex_RefusesAnEmptyRange(t *testing.T) {
+	for _, n := range []int{0, -1} {
+		func() {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("randIndex(%d) must refuse an empty range, not return a plausible index", n)
+				}
+				if msg, ok := r.(string); !ok || !strings.Contains(msg, "randIndex") {
+					t.Errorf("the panic must name what was called and why, got %v", r)
+				}
+			}()
+			_ = randIndex(n)
+		}()
+	}
+
+	// A single-element range is the smallest LEGAL one and must still work,
+	// or the guard is off by one and every two-word group breaks.
+	if got := randIndex(1); got != 0 {
+		t.Errorf("randIndex(1) must be 0, got %d", got)
+	}
+}

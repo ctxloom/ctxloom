@@ -301,9 +301,17 @@ func pickWord(words []string, maxLen int) string {
 // randIndex returns a uniform random integer in [0, n). Rejection-sampled
 // to avoid the modulo bias that a naive `binary.Uint32 % n` would have for
 // non-power-of-two n.
+//
+// n < 1 is a CALLER BUG and panics rather than returning a value. [0, n) is
+// empty for such an n, so there is no correct answer to give — and the
+// previous `return 0` gave a perfectly plausible one, which the caller then
+// used to index the very slice whose emptiness caused it. The observable
+// failure was an "index out of range [0] with length 0" one frame away from
+// the real fault (an empty word list, i.e. embedded lists missing or a group
+// with nothing usable in it), naming neither the group nor the cause.
 func randIndex(n int) int {
-	if n <= 0 {
-		return 0
+	if n < 1 {
+		panic(fmt.Sprintf("harp: randIndex(%d): n must be at least 1 — the word list drawn from is empty", n))
 	}
 	max := ^uint32(0)
 	limit := max - (max % uint32(n))

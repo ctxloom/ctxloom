@@ -378,3 +378,42 @@ func TestLint_DuplicateTagDoesNotProduceDuplicateViolations(t *testing.T) {
 	require.Len(t, result.Violations, 1)
 	assert.Contains(t, result.Violations[0].Reason, "not one of the declared enum values")
 }
+
+// TestLint_RepeatedBadPlaceholderIsReportedOnce pins the surviving source of
+// exactly-duplicate Violation rows. A formula may reference the same
+// placeholder more than once — that is ordinary arithmetic, not a mistake —
+// and formulaEnumRefViolations walks every occurrence, so one broken enum
+// reference produced one violation per mention. The final sort orders
+// violations; it has never deduped them, so the repeats survived to the
+// caller.
+//
+// This matters because `taskloom lint` is positioned as a CI gate: a count of
+// violations that scales with how often a formula happens to mention a
+// placeholder is not a count of anything, and the operator reading the output
+// sees the identical line twice with nothing to distinguish the two.
+func TestLint_RepeatedBadPlaceholderIsReportedOnce(t *testing.T) {
+	schema := mustSchema(t,
+		`tagma.enum:"triage:impact"="correctness,security"`,
+		`tagma.decay_fn:"triage:severity"="{{triage:impact=nonexistent}} + {{triage:impact=nonexistent}}"`,
+	)
+
+	result, err := Lint(nil, schema)
+	require.NoError(t, err)
+	require.Len(t, result.Violations, 1, "one broken reference is one violation, however often it is mentioned")
+	assert.Equal(t, SchemaViolationHarpID, result.Violations[0].HarpID)
+	assert.Contains(t, result.Violations[0].Reason, "nonexistent")
+}
+
+// TestLint_DistinctViolationsOnOneTaskAreAllKept guards the dedupe against
+// swallowing real findings: two different broken values on the same task are
+// two violations, not one.
+func TestLint_DistinctViolationsOnOneTaskAreAllKept(t *testing.T) {
+	schema := tripleSchema(t)
+	all := []tasks.Task{
+		{HarpID: "aaa", Tags: []string{`triage:type=nope`, `triage:impact=99`}},
+	}
+
+	result, err := Lint(all, schema)
+	require.NoError(t, err)
+	assert.Len(t, result.Violations, 2)
+}

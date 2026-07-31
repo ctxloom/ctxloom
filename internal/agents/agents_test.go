@@ -317,3 +317,49 @@ func TestAgent_FromConfig(t *testing.T) {
 	assert.False(t, Agent{Source: "/proj/.ctxloom/agents/config.yaml"}.FromConfig())
 	assert.False(t, Agent{}.FromConfig(), "an unsourced binding is not config-owned")
 }
+
+// TestParseAgent_ValidationBoundary pins U028-F06's answer: which of an
+// agent's user-settable fields THIS package validates, and which it
+// deliberately leaves to a later phase. The split is a decision, not an
+// oversight, and it is invisible in the code because it is spread across four
+// packages — so it is recorded here.
+//
+// Owned here, at parse time, because a wrong value changes what runs:
+//   - profiles: at least one (a binding that composes nothing is a typo)
+//   - driving:  a closed enum (it decides whether a child's engine process
+//     survives a turn boundary)
+//
+// Deliberately NOT rejected here, because an unknown value degrades to a
+// documented default rather than changing semantics; internal/operations warns
+// at WRITE time instead:
+//   - runtime, permissions
+//
+// Escalation is validated later still, by the coordinator that builds the
+// ladder. If a consolidating Agent.Validate() ever lands, this test is what
+// stops the two parse-time rejections from being quietly lost in the move.
+func TestParseAgent_ValidationBoundary(t *testing.T) {
+	rejected := map[string]string{
+		"no profiles":     "engine: fast\n",
+		"unknown driving": "profiles: [p]\ndriving: warm\n",
+	}
+	for name, body := range rejected {
+		t.Run("rejects "+name, func(t *testing.T) {
+			_, err := ParseAgent([]byte(body))
+			assert.Error(t, err)
+		})
+	}
+
+	accepted := map[string]string{
+		"unknown runtime":     "profiles: [p]\nruntime: submarine\n",
+		"unknown permissions": "profiles: [p]\npermissions: whatever\n",
+		"unvalidated escalation rung": "profiles: [p]\nescalation:\n" +
+			"  - action: auto_acept\n    kinds: [NOT_A_KIND]\n",
+	}
+	for name, body := range accepted {
+		t.Run("accepts "+name, func(t *testing.T) {
+			a, err := ParseAgent([]byte(body))
+			require.NoError(t, err)
+			require.NotNil(t, a)
+		})
+	}
+}

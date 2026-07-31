@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/fsnotify/fsnotify"
 )
@@ -34,6 +35,11 @@ type Watcher struct {
 	events    chan Event
 	errs      chan error
 	done      chan struct{}
+	// pumped closes when the pump goroutine has returned, so Close can mean
+	// "stopped" rather than "asked to stop".
+	pumped    chan struct{}
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // New starts watching root. When recursive, every existing subdirectory — and
@@ -67,6 +73,7 @@ func New(root string, recursive bool, filter func(path string) bool) (*Watcher, 
 		events:    make(chan Event),
 		errs:      make(chan error, 1),
 		done:      make(chan struct{}),
+		pumped:    make(chan struct{}),
 	}
 	if recursive {
 		if err := w.addTree(root); err != nil {
@@ -99,10 +106,21 @@ func (w *Watcher) stopped() bool {
 	}
 }
 
-// Close stops watching and releases the underlying resources.
+// Close stops watching, waits for the pump to stop, and releases the underlying
+// resources. It is idempotent and safe to call from more than one owner: a
+// watcher is routinely held by both the caller that deferred a Close and the
+// stream driving it, and neither can ask whether the other has already stopped
+// it. Every call returns the same error the first one produced.
+//
+// Close returns only once the pump goroutine has returned, so "Close returned"
+// means the watcher has stopped rather than been asked to.
 func (w *Watcher) Close() error {
-	close(w.done)
-	return w.fsw.Close()
+	w.closeOnce.Do(func() {
+		close(w.done)
+		w.closeErr = w.fsw.Close()
+		<-w.pumped
+	})
+	return w.closeErr
 }
 
 // addTree watches dir and every subdirectory beneath it. Unreadable entries are
@@ -122,6 +140,7 @@ func (w *Watcher) addTree(dir string) error {
 // pump forwards fsnotify events through the filter, adding watches for new
 // directories when recursive so nested changes are caught without a restart.
 func (w *Watcher) pump() {
+	defer close(w.pumped)
 	defer close(w.events)
 	for {
 		select {

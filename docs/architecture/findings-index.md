@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,369** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 154 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 182 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 181 |
-| `open` | no commit names this ID | **382** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 182 |
+| `open` | no commit names this ID | **381** |
 
-**Totals: 2268 findings across 162 units — 1,369 resolved, 382 still open, 517 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,369 resolved, 381 still open, 518 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 500 | 211 | 88 | 82 | 118 |
-| LOW | 871 | 512 | 160 | 50 | 92 | 57 |
+| LOW | 871 | 512 | 159 | 50 | 92 | 58 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2306,7 +2306,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U050-F09 | **RESOLVED** `ab9c7acb` | `trustroot.go:64-67`, `trustroot.go:129-132` | DUPLICATE / TRIVIAL | Two copies of the `if c.fs == nil { fs = afero.NewOsFs() }` dance, when `Config` already has exactly that helper. | U050.md |
 | U050-F10 | **RESOLVED** `1e7b8b49` | `trustroot.go:145-157` vs `trustroot.go:187-199` | DUPLICATE | `distrustedSignersPaths` and `allowedSignersPaths` are structurally identical (12 lines each) differing only in the two `paths.*` functions called; the comment on the first even says "the exact mir... | U050.md |
 | U050-F11 | **RESOLVED** `12f375ce` | `trustroot.go:46-48` | TRIVIAL | `EmbeddedSigners` is a pure pass-through to `embeddedSigners`, and the 12-line doc's justification for the pair — "this returns a Store VALUE, never a handle anything could write through" — describ... | U050.md |
-| U050-F12 | open | `trustroot.go:104-110` | CORRECTNESS | `filterSuppressedPrincipals` drops an entry if **any** of its principals is suppressed. An embedded entry listing two principals loses both grants when the user distrusts one. Latent today, and it ... | U050.md |
+| U050-F12 | **ESCALATED** `PENDING01` | `trustroot.go:104-110` | CORRECTNESS | `filterSuppressedPrincipals` drops an entry if **any** of its principals is suppressed. An embedded entry listing two principals loses both grants when the user distrusts one. Latent today, and it ... | U050.md |
 | U050-F14 | **RESOLVED** `b86f81fb` | **`upgrade.go:10-16`** | COUPLING | The pipeline's slice order carries connascence of **meaning + order** with two things in a different file: the literal version each stage stamps (`config_migrate.go:107,146,353,478,538` → 2,3,4,5,6... | U050.md |
 | U050-F15 | **RESOLVED** `b86f81fb` | `upgrade.go` (whole file)` | NOPAY | A 16-line file whose entire content is one 5-element slice literal, consumed at exactly one place, whose every member is declared in `config_migrate.go`. | U050.md |
 | U051-F04 | **RESOLVED** `2008f73f` | **`mcp.go:109-120`** | CORRECTNESS | `enumerateMCPSurface` reads exactly one page of each listing and silently ignores `NextCursor`, so a surface larger than the server page limit would be documented truncated, with no error. | U051.md |

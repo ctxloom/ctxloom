@@ -1818,3 +1818,52 @@ commands:
 	assert.Equal(t, "Original command", cmd.Content, "no_distill must serve the raw content")
 	assert.False(t, cmd.IsDistilled, "the flag must describe the bytes actually served")
 }
+
+// TestExpandBundleRef_TargetedSelectorGrammar pins U030-F17: the ':' selector
+// aliases expandBundleRef actually recognises. The inline comment claimed
+// "{fragments|prompts|mcp}", but the ':' marker list was rewritten to
+// ":commands/" by the prompt→command item-kind rename and ":prompts/" was
+// deliberately NOT carried as a shim.
+//
+// The consequence of the stale name is not cosmetic: an unrecognised ':'
+// selector is not an error — it falls through to the whole-bundle branch, where
+// the ENTIRE string is taken as a bundle name. "b:prompts/x" therefore looks up
+// a bundle literally called "b:prompts/x". This test is what makes the retired
+// alias visible if someone re-adds it, or renames the live one again.
+func TestExpandBundleRef_TargetedSelectorGrammar(t *testing.T) {
+	tmpDir := t.TempDir()
+	bundleYAML := `
+version: "1.0"
+fragments:
+  f1:
+    content: one
+commands:
+  c1:
+    content: two
+`
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "b.yaml"), []byte(bundleYAML), 0644))
+	l := NewLoader([]string{tmpDir}, false)
+
+	// Recognised, fragment-targeted: expands to exactly that item.
+	for _, ref := range []string{"b:fragments/f1", "b#fragments/f1"} {
+		got := l.expandBundleRef(ref)
+		require.Len(t, got, 1, "ref %q", ref)
+		assert.Equal(t, "ctxloom:local@bundles/b#fragments/f1", got[0].Name, "ref %q", ref)
+	}
+
+	// Recognised, NOT fragment-targeted: yields nothing (and must not be
+	// mistaken for a whole-bundle expansion).
+	for _, ref := range []string{"b:commands/c1", "b#commands/c1", "b:mcp/srv", "b#prompts/c1"} {
+		assert.Empty(t, l.expandBundleRef(ref), "ref %q", ref)
+	}
+
+	// The retired ':prompts/' alias is not a selector at all. It reaches the
+	// whole-bundle branch, where the whole string is the bundle name — which
+	// resolves to no bundle, hence nothing.
+	assert.Empty(t, l.expandBundleRef("b:prompts/c1"))
+
+	// Whole-bundle ref still enumerates every fragment.
+	whole := l.expandBundleRef("b")
+	require.Len(t, whole, 1)
+	assert.Equal(t, "ctxloom:local@bundles/b#fragments/f1", whole[0].Name)
+}

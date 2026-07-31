@@ -565,7 +565,11 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 		return nil
 	}
 
-	// Targeted ref: bundle{:|#}{fragments|prompts|mcp}/...
+	// Targeted ref: bundle#<anything>/... or bundle:{fragments|commands|mcp}/...
+	// The ':' alias set is exactly the marker list below — ":prompts/" is not
+	// in it and is not a shim for ":commands/". An unrecognised ':' selector
+	// is not rejected here; it falls through to the whole-bundle branch, which
+	// then fails to find a bundle by that whole name.
 	// Locate the item selector WITHOUT tripping on a source's scheme colon.
 	// '#' is the canonical separator and is unambiguous — a ref never contains
 	// '#' except to introduce a selector (canonical URLs included). The ':'

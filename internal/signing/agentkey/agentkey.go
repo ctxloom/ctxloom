@@ -164,7 +164,7 @@ func (e *NoKeyError) Error() string {
 	b.WriteString("\n  ssh-add ~/.ssh/id_ed25519            # load a key you already have\n")
 	b.WriteString("  ssh-keygen -t ed25519-sk             # or a hardware key (recommended)\n\n")
 	b.WriteString("Publishing unsigned means every user of this bundle must review it by hand.\n")
-	b.WriteString("To publish unsigned anyway: ctxloom fragment push my-frag --no-sign\n")
+	b.WriteString("To publish unsigned anyway: ctxloom bundle push <bundle> --no-sign\n")
 	return b.String()
 }
 

@@ -94,7 +94,7 @@ func TestAgentKeyRemedies_NameRealCommands(t *testing.T) {
 			if cmd.Runnable() {
 				continue
 			}
-			t.Errorf("%s: suggests `ctxloom %s`, but `ctxloom %s` is a command GROUP, not something a user can run — %q is not one of its subcommands",
+			t.Errorf("%s: suggests `ctxloom %s`, but `%s` is a command GROUP, not something a user can run — %q is not one of its subcommands",
 				name, strings.Join(tokens, " "), cmd.CommandPath(), strings.Join(rest, " "))
 		}
 	}

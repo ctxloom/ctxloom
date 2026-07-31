@@ -45,6 +45,9 @@ func WriteFileAtomicFs(fs afero.Fs, path string, data []byte, perm os.FileMode) 
 		_ = fs.Remove(tmpName)
 		return err
 	}
+	// perm is applied exactly: Chmod is not masked by the umask, unlike the
+	// create call afero.WriteFile/os.WriteFile route perm through. See
+	// WriteFileAtomic's doc — this is the contract, not an oversight.
 	if err := fs.Chmod(tmpName, perm); err != nil {
 		_ = fs.Remove(tmpName)
 		return err

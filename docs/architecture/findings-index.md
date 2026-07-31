@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,396** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 157 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 158 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 186 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 185 |
-| `open` | no commit names this ID | **344** |
+| `open` | no commit names this ID | **343** |
 
-**Totals: 2268 findings across 162 units — 1,396 resolved, 344 still open, 528 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,396 resolved, 343 still open, 529 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 516 | 191 | 88 | 85 | 119 |
+| MED | 999 | 516 | 190 | 89 | 85 | 119 |
 | LOW | 871 | 523 | 142 | 53 | 93 | 60 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1669,7 +1669,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U096-F08 | **RESOLVED** `e479306b` | `cmd/validate/main.go:20-45` | SILENTNOOP | The pre-build schema gate **exits 0 having validated nothing**, and on CI it always does. | U096.md |
 | U096-F12 | **RESOLVED** `298c6f72` | **`schema.go:52`** | SILENTNOOP | `ValidateBytes` never checks for empty input; empty-file rejection is inherited from the schema's root `"type"`, not enforced here — so it is a property of the two embedded schemas, not of the API. | U096.md |
 | U097-F03 | **RESOLVED** `d5a9f680` | `schemagen.go:47` | CORRECTNESS | The `sort.Slice(targets, …)` call **buys no determinism** — each target writes to its own independent file, so write *order* cannot affect the bytes on disk — and it **mutates the caller's slice in... | U097.md |
-| U097-F04 | open | `schemagen.go:76-81` | CORRECTNESS | The derived-name fallback makes a **published `$id` depend on a Go type name**, so an ordinary Go rename silently republishes a schema under a different URL. And `reflect.Type.Name()` is `""` for a... | U097.md |
+| U097-F04 | **PARTIAL** `89bd9d93` | `schemagen.go:76-81` | CORRECTNESS | The derived-name fallback makes a **published `$id` depend on a Go type name**, so an ordinary Go rename silently republishes a schema under a different URL. And `reflect.Type.Name()` is `""` for a... | U097.md |
 | U098-F02 | open | `selfexec.go:20-36` | COUPLING | Exported test-only mutable global in a production package, with no synchronization, read from production spawn paths. | U098.md |
 | U098-F03 | **REFUTED** `b11a209b` | `selfexec.go:51` vs `internal/shared/agent/symlink.go:25` vs `internal/lm/isolation/imagebuild.go:1044` | DUPLICATE | The repo has **three** different answers to "where is the running binary", with three different semantics, and nothing reconciles them. | U098.md |
 | U098-F05 | open | `selfexec.go:32` / `internal/operations/hooks.go:65` | CORRECTNESS | A second, unrelated `…ForTesting` mutator is reachable from a **production** entry point and mutates an unsynchronized global cache — latent only because no production caller populates the field. | U098.md |

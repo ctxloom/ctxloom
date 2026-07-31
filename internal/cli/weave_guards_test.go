@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -242,4 +244,32 @@ func TestRunWeave_DegradedModeStillWeaves(t *testing.T) {
 	cmd, out := testCmd()
 	require.NoError(t, runWeave(cmd, nil), "degraded mode must not abort")
 	assert.Contains(t, out.String(), "a part", "the parts must still be emitted")
+}
+
+// Characterization for the --save-parts arm of runWeave, taken BEFORE the
+// complexity split so the split is provably behaviour-preserving: a save that
+// fails warns and the run still emits its parts (partial success is success).
+func TestRunWeave_SavePartsFailureWarnsButStillEmits(t *testing.T) {
+	resetStrictness(t)
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".ctxloom"), 0o755))
+	t.Setenv(projectroot.EnvVar, root)
+	t.Chdir(root)
+	weaveOnlyInjectedParts(t)
+
+	// A regular FILE where the save dir should be: MkdirAll cannot create it.
+	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	require.NoError(t, os.WriteFile(blocker, []byte("x"), 0o644))
+	prev := weaveSaveParts
+	weaveSaveParts = blocker
+	t.Cleanup(func() { weaveSaveParts = prev })
+
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	cmd, out := testCmd()
+	require.NoError(t, runWeave(cmd, nil), "a failed --save-parts must not fail the run")
+	assert.Contains(t, sink.String(), "saving parts failed")
+	assert.Contains(t, out.String(), "a part", "the parts are still emitted")
 }

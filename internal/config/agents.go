@@ -60,7 +60,12 @@ func (c *Config) LoadAgents() []agents.Agent {
 	}
 	for _, sub := range list {
 		if _, clash := merged[sub.Name]; clash {
-			clidiag.Warn("ctxloom",
+			// WarnOnce, not Warn: this states a fact about the user's config,
+			// not an event. Agent(name) re-runs this whole merge per lookup and
+			// one command reaches it several times (ResolveAgent,
+			// DefaultAgentProfiles, `agent show`), so a per-call Warn printed
+			// the same unactionable line once per lookup.
+			clidiag.WarnOnce("ctxloom",
 				"agent %q is defined in both config.yaml and %s; using the config.yaml definition",
 				sub.Name, sub.Source)
 			continue

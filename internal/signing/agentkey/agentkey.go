@@ -33,6 +33,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -245,11 +246,49 @@ func (d *Discoverer) dialAgent() (agent.Agent, error) {
 	return dialEnvAgent()
 }
 
-func (d *Discoverer) readFile(path string) ([]byte, error) {
-	if d.ReadFile != nil {
-		return d.ReadFile(path)
+// maxPublicKeyBytes bounds what will be read from a path named by a key value.
+//
+// That path is not necessarily one the user chose. Step 2 of the chain honours
+// `git config user.signingkey`, and `git config --get` consults the
+// REPOSITORY's .git/config, so cloning a repository is enough to name the file
+// ctxloom opens. An unbounded read of a path someone else named is a hang
+// waiting to happen: /dev/zero reports size 0 and never reaches EOF, so
+// os.ReadFile grows its buffer until the process dies.
+//
+// Nothing legitimate comes close. The largest value that parses here is a
+// single authorized-keys line, and an RSA-4096 entry with a comment is under
+// 1 KiB.
+const maxPublicKeyBytes = 64 << 10
+
+// readPublicKeyFile is the default Discoverer.ReadFile. It reads one byte past
+// the ceiling so an oversized file is REPORTED by readFile rather than
+// silently truncated into an unparseable key.
+func readPublicKeyFile(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
 	}
-	return os.ReadFile(path)
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(io.LimitReader(f, maxPublicKeyBytes+1))
+}
+
+func (d *Discoverer) readFile(path string) ([]byte, error) {
+	read := readPublicKeyFile
+	if d.ReadFile != nil {
+		read = d.ReadFile
+	}
+	data, err := read(path)
+	if err != nil {
+		return nil, err
+	}
+	// The ceiling is enforced here so it holds for an injected ReadFile too.
+	// Only the default can prevent the oversized read from happening at all;
+	// an injected one has already returned the bytes by this point.
+	if len(data) > maxPublicKeyBytes {
+		return nil, fmt.Errorf("%s is over %d bytes — too large to be a public key file",
+			displayKeyValue(path), maxPublicKeyBytes)
+	}
+	return data, nil
 }
 
 // NewDiscoverer returns a Discoverer wired to the real git binary and the
@@ -260,7 +299,7 @@ func NewDiscoverer() *Discoverer {
 	return &Discoverer{
 		GitConfig: execGitConfig,
 		DialAgent: dialEnvAgent,
-		ReadFile:  os.ReadFile,
+		ReadFile:  readPublicKeyFile,
 	}
 }
 

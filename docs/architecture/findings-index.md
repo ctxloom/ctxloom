@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,439** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,440** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 169 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 191 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 195 |
-| `open` | no commit names this ID | **274** |
+| `open` | no commit names this ID | **273** |
 
-**Totals: 2268 findings across 162 units — 1,439 resolved, 274 still open, 555 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,440 resolved, 273 still open, 555 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 535 | 151 | 98 | 88 | 127 |
-| LOW | 871 | 545 | 114 | 55 | 95 | 62 |
+| LOW | 871 | 546 | 113 | 55 | 95 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2490,7 +2490,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U084-F12 | open | `fragments.go:60-62` | ERRHANDLING | `ListFragments` returns the loader's error verbatim with no context — the caller cannot tell whether tag-listing or full-listing failed. | U084.md |
 | U084-F13 | **RESOLVED** `5388ced4` | `fragments.go:148-172`, `fragments.go:138` | CORRECTNESS | `sortContentInfos` silently returns the input **unsorted** for any `sortBy` other than `"name"`/`"source"`; `containsTag` has an undocumented "caller must lowercase `query`" precondition. | U084.md |
 | U084-F14 | **RESOLVED** `c2c669f1` | **`items.go:425,441,457`** | DUPLICATE | Three helpers each re-implement the same fragment-vs-command switch to pull a different field group; a third `ItemKind` means editing eight `switch` statements with no compiler help. | U084.md |
-| U084-F15 | open | **`hooks.go:399,408` via `backends.BackendsWithSettings`** | CORRECTNESS | `ApplyHooksResult.Backends` is in map-iteration order, so `ctxloom manage hooks install` prints a different backend order on every run and JSON output is unstable. | U084.md |
+| U084-F15 | **RESOLVED** `eeb21f62` | **`hooks.go:399,408` via `backends.BackendsWithSettings`** | CORRECTNESS | `ApplyHooksResult.Backends` is in map-iteration order, so `ctxloom manage hooks install` prints a different backend order on every run and JSON output is unstable. | U084.md |
 | U084-F17 | open | **`init.go:217-220`** | ERRHANDLING | `mustResource` is named for a contract it does not implement: it discards the error and returns nil, so a broken embed yields an empty config that `BuildInitialConfig` writes to disk as a project's... | U084.md |
 | U084-F18 | open | `legacy_cleanup.go:35,79-88` | CORRECTNESS | The empty-directory prune only removes **one level**, and an unreadable bundles root is silently treated as "nothing to do". | U084.md |
 | U085-F18 | **RESOLVED** `cb92d8b4` | **`profiles.go:20-33`** | DEAD | `LocalProfileNameFromPath` is exported but test-only. | U085.md |

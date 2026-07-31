@@ -1851,3 +1851,33 @@ func TestSaveDistilled_DefaultOutputDirIsAnchored(t *testing.T) {
 	assert.True(t, ok, "existingEssence must find the essence saveDistilled just wrote")
 	assert.Equal(t, path, found)
 }
+
+// An unreadable session index must not be indistinguishable from "this harp has
+// no entry". The bind is first-bind-wins and is never retried, so a harp that
+// misses it here has no session id for the rest of its life and every later
+// `session distill`/resume fails with "no session bound" — with nothing on the
+// record saying why. The lookup failure is a degradation and the compactor
+// already has a sink for degradations.
+func TestUpdateSessionIndex_WarnsWhenTheIndexCannotBeRead(t *testing.T) {
+	home := testsupport.Isolate(t)
+	indexPath := filepath.Join(home, ".ctxloom", "sessions", "index.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(indexPath), 0o755))
+	require.NoError(t, os.WriteFile(indexPath, []byte("sessions: [not: a list of entries\n"), 0o644))
+
+	// The bind arm is reached only through Find, so assert the fixture is
+	// hostile from updateSessionIndex's own vantage point before asserting
+	// anything about what it reports.
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	_, ferr := mgr.Find("lively-index-harp")
+	require.Error(t, ferr, "the fixture index must be unreadable, or this pin proves nothing")
+
+	var sink bytes.Buffer
+	c := &Compactor{config: CompactionConfig{Progress: &sink}}
+	// An empty summary skips the SetSummary arm, so the lookup failure is the
+	// only thing that can put anything in the sink.
+	c.updateSessionIndex("lively-index-harp", "sess-1", "", nil, 0)
+
+	assert.Contains(t, sink.String(), "lively-index-harp",
+		"an unreadable index must be reported, not silently taken for an absent entry")
+}

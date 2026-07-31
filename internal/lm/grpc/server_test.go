@@ -126,6 +126,7 @@ type fakeBackend struct {
 	version        string
 	modes          []agent.ExecutionMode
 	setupCalled    bool
+	setupErr       error
 	executeResult  *agent.ExecuteResult
 	executeErr     error
 	cleanupCalled  bool
@@ -149,7 +150,7 @@ func (f *fakeBackend) History() agent.SessionHistory         { return f.history 
 func (f *fakeBackend) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	f.setupCalled = true
 	f.capturedSetupCell = req.CellKind
-	return nil
+	return f.setupErr
 }
 
 func (f *fakeBackend) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {

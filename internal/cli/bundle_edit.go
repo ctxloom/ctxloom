@@ -24,10 +24,11 @@ Creates a skeleton bundle YAML file that you can edit to add content.`,
 }
 
 func runBundleCreate(cmd *cobra.Command, args []string) error {
+	// No help shortcut here: `bundle create help` is an explicit, unambiguous
+	// request to create a bundle named "help", and the shortcut made that
+	// impossible while reporting success and creating nothing. Cobra's --help
+	// and `ctxloom help bundle create` are the ways to ask for help.
 	name := args[0]
-	if shown, err := helpShortcut(cmd, name); shown {
-		return err
-	}
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -92,9 +93,6 @@ Examples:
 
 func runBundleEdit(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if shown, err := helpShortcut(cmd, name); shown {
-		return err
-	}
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -124,6 +122,11 @@ func runBundleEdit(cmd *cobra.Command, args []string) error {
 
 	res, err := operations.UpdateBundle(cmd.Context(), cfg, req)
 	if err != nil {
+		// See runBundleShow: the courtesy shortcut only fires when nothing of
+		// that name exists, so a bundle named "help" stays editable.
+		if name == helpArgName {
+			return cmd.Help()
+		}
 		return err
 	}
 
@@ -245,4 +248,29 @@ func stdinConfirmer(in io.Reader) confirmFn {
 		_, _ = fmt.Fscanln(in, &answer)
 		return answer == "y" || answer == "Y"
 	}
+}
+
+// registerBundleCreateFlags defines `bundle create`'s flags.
+func registerBundleCreateFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
+}
+
+// registerBundleDeleteFlags defines `bundle delete`'s flags.
+func registerBundleDeleteFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")
+}
+
+// registerBundleEditFlags defines `bundle edit`'s add/remove flag pairs and the
+// metadata setters.
+func registerBundleEditFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&bundleEditDesc, "description", "d", "", "New description")
+	cmd.Flags().StringVar(&bundleEditVersion, "version", "", "New version")
+	cmd.Flags().StringSliceVar(&bundleEditAddTags, "add-tag", nil, "Tag(s) to add")
+	cmd.Flags().StringSliceVar(&bundleEditRemoveTags, "remove-tag", nil, "Tag(s) to remove")
+	cmd.Flags().StringSliceVar(&bundleEditAddFragment, "add-fragment", nil, "Fragment(s) to add")
+	cmd.Flags().StringSliceVar(&bundleEditRemoveFragment, "remove-fragment", nil, "Fragment(s) to remove")
+	cmd.Flags().StringSliceVar(&bundleEditAddPrompt, "add-prompt", nil, "Prompt(s) to add")
+	cmd.Flags().StringSliceVar(&bundleEditRemovePrompt, "remove-prompt", nil, "Prompt(s) to remove")
+	cmd.Flags().StringSliceVar(&bundleEditAddMCP, "add-mcp", nil, "MCP server(s) to add")
+	cmd.Flags().StringSliceVar(&bundleEditRemoveMCP, "remove-mcp", nil, "MCP server(s) to remove")
 }

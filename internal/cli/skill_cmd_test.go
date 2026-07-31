@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -110,7 +111,11 @@ func TestSplitSkillSyncRef(t *testing.T) {
 // once the operations layer starts honoring its ctx, this file must already be
 // passing the right one.
 func TestSkillCommands_UseCobraContextNotBackground(t *testing.T) {
-	src, err := os.ReadFile("skill_cmd.go")
+	// Absolute, from this package's compiled-in source path — not a bare
+	// "skill_cmd.go" relative read: TestMain sandboxes the test binary into a
+	// temp cwd (so nothing here can reach the real ~/.ctxloom), where a
+	// relative read fails outright.
+	src, err := os.ReadFile(filepath.Join(pkgSourceDir(t), "skill_cmd.go"))
 	require.NoError(t, err)
 	var offending []string
 	for i, line := range strings.Split(string(src), "\n") {

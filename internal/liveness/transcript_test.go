@@ -220,3 +220,56 @@ func TestNewestMTime_FindsNewestFileAndSkipsGit(t *testing.T) {
 	assert.True(t, newest.Before(future.Add(-time.Minute)), "the .git tree must be skipped, got %s", newest)
 	assert.True(t, newest.After(old.Add(time.Minute)), "b.go should be the newest, got %s", newest)
 }
+
+// detectRedelivery's doc promises a "stable, test-assertable answer", but its
+// tie-break only ordered by entry TYPE — so two groups of the same type that
+// repeated the same number of times differed only in CONTENT, and which one
+// won was decided by Go's randomised map iteration. A monitor whose reason
+// text changes between two reads of an unchanged file is one nobody can argue
+// with from the record (U056-F16).
+func TestReadTranscript_RedeliveryTieBreakIsDeterministic(t *testing.T) {
+	base := time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC)
+	var lines []map[string]any
+	for i := 0; i < 4; i++ {
+		at := base.Add(time.Duration(i) * 5 * time.Second)
+		lines = append(lines, userLine(0, at, "aaa-first-loop-body"), userLine(0, at, "zzz-second-loop-body"))
+	}
+	path := writeJSONL(t, lines)
+
+	seen := map[string]int{}
+	for i := 0; i < 50; i++ {
+		st, err := liveness.ReadTranscript(path)
+		require.NoError(t, err)
+		require.NotNil(t, st.Redelivery)
+		require.Equal(t, 4, st.Redelivery.Repeats)
+		seen[st.Redelivery.Sample]++
+	}
+	assert.Len(t, seen, 1, "the same file must yield the same redelivery verdict every time; got %v", seen)
+	assert.Contains(t, seen, "aaa-first-loop-body", "ties resolve on content, lowest first")
+}
+
+// Zero is Thresholds' UNSET sentinel, and RedeliveryJitterRatio is the one
+// field where that costs a caller something real: 0 is a meaningful tolerance
+// (exact cadence only) and cannot be asked for, because normalize() reads it
+// as "unset" and substitutes 0.25. The surprise is now written down on the
+// field; this pins the behaviour the prose asserts, so the two cannot drift
+// (U056-F14). Exact matching remains expressible via a ratio too small for any
+// integer-nanosecond deviation to clear.
+func TestReadTranscriptWith_ZeroJitterRatioMeansTheDefaultNotExactCadence(t *testing.T) {
+	base := time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC)
+	// Gaps of 4.0s / 5.0s / 4.0s: median 4s, max deviation 1s = 25% — inside
+	// the default tolerance, outside an exact one.
+	var lines []map[string]any
+	for _, g := range []time.Duration{0, 4 * time.Second, 9 * time.Second, 13 * time.Second} {
+		lines = append(lines, userLine(0, base.Add(g), composedContext))
+	}
+	path := writeJSONL(t, lines)
+
+	zero, err := liveness.ReadTranscriptWith(path, liveness.Thresholds{RedeliveryJitterRatio: 0})
+	require.NoError(t, err)
+	require.NotNil(t, zero.Redelivery, "a zero ratio is the unset sentinel, so the default 0.25 applies")
+
+	exact, err := liveness.ReadTranscriptWith(path, liveness.Thresholds{RedeliveryJitterRatio: 1e-20})
+	require.NoError(t, err)
+	assert.Nil(t, exact.Redelivery, "an effectively-exact tolerance is how a caller asks for exact-cadence-only")
+}

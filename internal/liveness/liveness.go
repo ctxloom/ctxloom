@@ -155,7 +155,10 @@ type Report struct {
 	State    State    `json:"state"`
 	Reason   string   `json:"reason"`
 	Evidence Evidence `json:"evidence"`
-	At       time.Time
+	// At is when the verdict was reached. Tagged like every sibling: the
+	// evidence trail exists so a disagreement is arguable from the record, and
+	// a record with one odd-cased key is one every consumer must special-case.
+	At time.Time `json:"at"`
 }
 
 // Firing is Report.State.Firing.

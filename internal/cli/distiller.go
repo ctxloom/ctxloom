@@ -73,9 +73,9 @@ func (d *llmDistiller) Distill(ctx context.Context, req operations.DistillReques
 	var excludeName string
 	switch req.Kind {
 	case operations.DistillKindFragment:
-		excludeName = "fragments/" + req.Name
+		excludeName = itemRefPrefix(ItemTypeFragment) + req.Name
 	case operations.DistillKindCommand:
-		excludeName = "commands/" + req.Name
+		excludeName = itemRefPrefix(ItemTypeCommand) + req.Name
 	}
 	var siblingCtx string
 	if req.Bundle != nil {

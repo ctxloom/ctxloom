@@ -33,7 +33,10 @@ var lowerCamelConstructorRef = regexp.MustCompile(`\bnew[A-Z][A-Za-z0-9_]*\b`)
 // `newCtxServerForIdentity`, which the runner-terminated MCP rework deleted.
 func TestDocComments_NameOnlyConstructorsThatExist(t *testing.T) {
 	fset := token.NewFileSet()
-	pkgDir := "."
+	// Absolute, from this package's compiled-in source path: TestMain sandboxes
+	// the binary into a temp cwd, where a "." scan would find no Go files at
+	// all and report a clean sweep (see pkgSourceDir).
+	pkgDir := pkgSourceDir(t)
 	entries, err := os.ReadDir(pkgDir)
 	require.NoError(t, err)
 

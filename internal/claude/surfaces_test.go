@@ -2,12 +2,14 @@ package claude
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -543,4 +545,139 @@ func TestNewSurfaces_ThreadsEverySurfaceScopedInput(t *testing.T) {
 	settingsData, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
 	require.NoError(t, err)
 	assert.Contains(t, string(settingsData), "Task", "DenyTools must reach permissions.deny")
+}
+
+// A SHARED-cwd delivery of context resolved at ApproachHook must write NOTHING:
+// the context rides the settings-carried SessionStart inject hook, so an
+// out-of-cwd scratch write here would hand claude --append-system-prompt-file
+// alongside the hook and DOUBLE the delivered context — the exact outcome
+// noopContextDelivery exists to prevent. The shared-cwd conversion is keyed on
+// SurfaceKind alone, so it must not be applied to a surface the selection
+// resolved to the no-op.
+func TestDeliverShared_ContextHook_DoesNotWriteSyspromptScratch(t *testing.T) {
+	isolated := t.TempDir()
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: isolated}, nil)
+
+	// Settings must ride along: the hook approach is carried by the settings
+	// surface, and Build() enforces that pairing.
+	resolved, err := agent.Select(s).
+		WithContext(agent.ContextWriteHook).
+		WithSettings(agent.SettingsWriteUnsafeFile).
+		Build()
+	require.NoError(t, err)
+
+	live := t.TempDir()
+	_, _, errs := resolved.DeliverShared(live)
+	require.Empty(t, errs)
+
+	assert.Empty(t, s.Context.Path(), "no --append-system-prompt-file scratch for a hook-carried context")
+	entries, err := os.ReadDir(isolated)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.False(t, strings.HasSuffix(e.Name(), agent.SCMFramedContextSuffix),
+			"hook-carried context must not also land an out-of-cwd sysprompt file (%s)", e.Name())
+	}
+	assert.NoFileExists(t, filepath.Join(live, "CLAUDE.md"), "and no native file either")
+}
+
+// armedFailFs fails every write once armed, so a test can let one delivery
+// succeed and then force the NEXT one to fail on the same surface instance.
+type armedFailFs struct {
+	afero.Fs
+	armed *bool
+}
+
+var errArmedWrite = errors.New("armed write failure")
+
+func (f armedFailFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	if *f.armed && flag&os.O_CREATE != 0 {
+		return nil, errArmedWrite
+	}
+	return f.Fs.OpenFile(name, flag, perm)
+}
+
+func (f armedFailFs) Create(name string) (afero.File, error) {
+	if *f.armed {
+		return nil, errArmedWrite
+	}
+	return f.Fs.Create(name)
+}
+
+func (f armedFailFs) Rename(oldname, newname string) error {
+	if *f.armed {
+		return errArmedWrite
+	}
+	return f.Fs.Rename(oldname, newname)
+}
+
+func (f armedFailFs) MkdirAll(path string, perm os.FileMode) error {
+	if *f.armed {
+		return errArmedWrite
+	}
+	return f.Fs.MkdirAll(path, perm)
+}
+
+// Path() documents itself as "" before delivery, and buildArgs relies on that:
+// flagArgs must never hand claude --mcp-config / --settings naming a file that
+// was not written. A FAILED DeliverIsolated therefore has to leave Path()
+// reporting nothing, not the path recorded by an earlier successful call.
+func TestSurfaces_FailedDeliverIsolated_ClearsPath(t *testing.T) {
+	var armed bool
+	fs := armedFailFs{Fs: afero.NewMemMapFs(), armed: &armed}
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: "/iso"}, fs)
+
+	for _, tc := range []struct {
+		name    string
+		deliver func() (agent.Delivered, error)
+		path    func() string
+	}{
+		{"mcp", s.MCP.DeliverIsolated, s.MCP.Path},
+		{"settings", s.Settings.DeliverIsolated, s.Settings.Path},
+		{"context", s.Context.DeliverIsolated, s.Context.Path},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			armed = false
+			_, err := tc.deliver()
+			require.NoError(t, err)
+			require.NotEmpty(t, tc.path(), "the successful delivery records its path")
+
+			armed = true
+			_, err = tc.deliver()
+			require.Error(t, err, "the armed fs must fail the second delivery")
+			assert.Empty(t, tc.path(), "a failed delivery must not leave a path naming a file that was not written")
+		})
+	}
+	// And flagArgs, the buildArgs consumer, emits no flag for any of them.
+	assert.Empty(t, s.flagArgs(), "no launch flag may name a file that was not written")
+}
+
+// claude enumerates its five surfaces in three places that must agree: the
+// typed struct fields (which flagArgs and SharedRealization read by name), the
+// kind-keyed dispatch map SurfaceFor resolves against, and the declared
+// claudeApproaches table Build() validates against. None can be derived from
+// the others without losing the typed accessors, so the agreement is pinned
+// instead: a surface added to one and missed in another fails here rather than
+// silently resolving to nothing at launch.
+func TestSurfaces_TableDispatchAndFieldsEnumerateTheSameSurfaces(t *testing.T) {
+	s := NewSurfaces(sampleInputs(), fakePlacement{dir: t.TempDir()}, nil)
+
+	byKind := map[agent.SurfaceKind]agent.Delivery{
+		agent.SurfaceContext:  s.Context,
+		agent.SurfaceMCP:      s.MCP,
+		agent.SurfaceSettings: s.Settings,
+		agent.SurfaceCommands: s.Commands,
+		agent.SurfaceSkills:   s.Skills,
+	}
+	assert.Len(t, byKind, len(claudeApproaches),
+		"every kind in the declared approach table needs a typed field here (and vice versa)")
+
+	for kind, field := range byKind {
+		approaches, ok := claudeApproaches[kind]
+		require.True(t, ok, "%s is a struct field with no entry in the approach table", kind)
+		require.NotEmpty(t, approaches)
+
+		d, err := s.SurfaceFor(kind, agent.ApproachUnsafeFile)
+		require.NoError(t, err, "%s must resolve at its native approach", kind)
+		assert.Same(t, field, d, "%s must resolve to the SAME instance the struct field holds", kind)
+	}
 }

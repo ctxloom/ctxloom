@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // itemEditSpyDistiller is a minimal operations.Distiller used only to SEED a
@@ -59,13 +60,18 @@ func seedDistilledItem(t *testing.T, cfg *config.Config, kind operations.ItemKin
 // setupEditProject wires a fresh project dir (fixture cfg + chdir, mirroring
 // TestShowItem_NonInteractiveStdoutUnchanged) so editItem's own GetConfig()
 // call resolves the same bundle the fixture cfg seeded.
+//
+// testsupport.ProjectDir, NOT a bare t.TempDir + t.Chdir: a fixture cfg
+// governs only the config value this test holds, never the package-level
+// GetConfig() that editItem itself calls. That one resolves the real app dir,
+// and t.Chdir alone leaves HOME pointing at the developer's home — so
+// findAppDir's ~/.ctxloom fallback landed editItem's writes in the user's real
+// home. ProjectDir isolates the environment as well as the working directory.
 func setupEditProject(t *testing.T) *config.Config {
 	t.Helper()
-	root := t.TempDir()
+	root := testsupport.ProjectDir(t)
 	appDir := filepath.Join(root, ".ctxloom")
-	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
-	t.Chdir(root)
-	return cfg
+	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
 // TestEditItem_NoDistillClearsDistilledAndWarns is the RED-then-GREEN case for

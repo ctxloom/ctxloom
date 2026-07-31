@@ -2,7 +2,6 @@ package grpc
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"time"
 
@@ -10,6 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/transcript"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // This file carries the WatchSession transport: a structured, turn-based view of
@@ -55,6 +56,20 @@ func (w *sessionWatcher) step(sess *agent.Session) []*WatchEvent {
 		n = len(sess.Entries)
 	}
 
+	// A transcript that was rewritten, compacted or rotated comes back SHORTER
+	// than the high-water mark. Both marks index into the transcript, so they
+	// must be clamped to what it actually holds now — otherwise a boundary
+	// names entries the consumer cannot slice, and every mark stays permanently
+	// ahead of the entry count, so no later growth is ever recognized as new.
+	// Clamping (rather than replaying from zero) keeps the emitted indices
+	// valid without duplicating entries on a stream that has no reset event.
+	if n < w.sent {
+		w.sent = n
+		if w.lastBoundary > n {
+			w.lastBoundary = n
+		}
+	}
+
 	if n > w.sent {
 		events := make([]*WatchEvent, 0, n-w.sent)
 		for _, e := range sess.Entries[w.sent:n] {
@@ -70,8 +85,8 @@ func (w *sessionWatcher) step(sess *agent.Session) []*WatchEvent {
 		// Material accumulated since the last boundary and growth stalled: the
 		// just-completed response is entries[lastBoundary, sent).
 		boundary := &WatchEvent{Event: &WatchEvent_Boundary{Boundary: &ResponseBoundary{
-			FromIndex: int32(w.lastBoundary),
-			ToIndex:   int32(w.sent),
+			FromIndex: int32Clamped(w.lastBoundary),
+			ToIndex:   int32Clamped(w.sent),
 		}}}
 		w.lastBoundary = w.sent
 		w.idleTicks = 0
@@ -103,7 +118,7 @@ func (s *GRPCServer) watchPollInterval() time.Duration {
 func (s *GRPCServer) WatchSession(req *WatchSessionRequest, stream LLM_WatchSessionServer) error {
 	hist := s.Impl.History()
 	if hist == nil {
-		return fmt.Errorf("backend %s has no session history", s.Impl.Name())
+		return status.Errorf(codes.Unimplemented, "backend %s has no session history", s.Impl.Name())
 	}
 
 	ctx := stream.Context()

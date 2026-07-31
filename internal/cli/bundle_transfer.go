@@ -145,3 +145,13 @@ func runBundleImport(cmd *cobra.Command, args []string) error {
 		return w.Err()
 	})
 }
+
+// registerBundleImportFlags defines `bundle import`'s flags.
+func registerBundleImportFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVarP(&bundleImportForce, "force", "f", false, "Overwrite existing bundle")
+}
+
+// registerBundleExportFlags defines `bundle export`'s flags.
+func registerBundleExportFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Output file path")
+}

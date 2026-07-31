@@ -566,6 +566,17 @@ func (r *ResolvedSelection) DeliverShared(dir string) (delivered []Delivered, ki
 	return delivered, kinds, errs
 }
 
+// isolatedDelivery is optionally implemented by a concrete surface Delivery that
+// can write its content OUT of the shared cwd (claude's context/MCP/settings
+// scratch files, consumed via a launch flag). It is the structural proof that a
+// backend's kind-keyed SharedRealization belongs to THIS resolved surface: the
+// realization closure is a method value bound to the very instance that carries
+// the method, so a resolved delivery lacking it is a different object and must
+// not be converted.
+type isolatedDelivery interface {
+	DeliverIsolated() (Delivered, error)
+}
+
 // unsafeNamed is optionally implemented by a concrete surface Delivery to
 // self-describe for the DeliverShared warning (e.g. "claude/commands"). A surface
 // without it (the shared codex/antigravity/kiro ManagedCommandsDelivery) falls back
@@ -585,8 +596,18 @@ func (r *ResolvedSelection) deliverOneShared(rs resolvedSurface, dir string) (De
 	if rs.delivery == nil {
 		return nil, nil
 	}
-	if realize, ok := r.set.SharedRealization(rs.kind); ok {
-		return realize()
+	// SharedRealization is keyed on kind ALONE, but a kind can resolve to
+	// DIFFERENT deliveries per approach — claude's context resolves to the
+	// dual-capable contextSurface at UnsafeFile/SystemPrompt and to a documented
+	// no-op at Hook. Requiring the RESOLVED delivery to carry the isolated path
+	// is what keeps the kind-keyed lookup from converting a surface the caller
+	// asked not to write: running the scratch writer for a hook-carried context
+	// would emit --append-system-prompt-file alongside the inject hook and
+	// DOUBLE the context.
+	if _, isolatable := rs.delivery.(isolatedDelivery); isolatable {
+		if realize, ok := r.set.SharedRealization(rs.kind); ok {
+			return realize()
+		}
 	}
 	info := rs.kind.String()
 	if n, ok := rs.delivery.(unsafeNamed); ok {

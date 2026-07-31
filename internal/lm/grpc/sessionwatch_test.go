@@ -487,3 +487,30 @@ func TestWatchers_NonPositivePollUsesTheDefault(t *testing.T) {
 	require.NoError(t, <-byPathErrs)
 	require.NoError(t, <-canonErrs)
 }
+
+// TestSessionWatcher_ShrunkTranscriptResyncsInsteadOfWedging: a transcript that
+// gets rewritten, compacted or rotated comes back SHORTER than the high-water
+// mark. Two things must survive that: no boundary may name indices the
+// transcript no longer has (a consumer slices entries[from:to] on them), and
+// subsequent growth must still stream. Before this was handled the marks stayed
+// at the old high-water mark, so the watcher emitted an out-of-range boundary
+// once and then heartbeated forever while the transcript grew underneath it.
+func TestSessionWatcher_ShrunkTranscriptResyncsInsteadOfWedging(t *testing.T) {
+	w := &sessionWatcher{heartbeatEvery: watchHeartbeatEvery}
+
+	require.Len(t, w.step(sessionWith("a", "b", "c")), 3)
+
+	// The transcript is rewritten down to a single entry.
+	for _, ev := range w.step(sessionWith("x")) {
+		if b := ev.GetBoundary(); b != nil {
+			assert.LessOrEqual(t, b.GetToIndex(), int32(1),
+				"boundary must not name entries the shrunken transcript no longer has")
+		}
+	}
+
+	// It then grows again. The new entry must stream rather than being
+	// swallowed because the stale high-water mark is still ahead of it.
+	grown := w.step(sessionWith("x", "y"))
+	require.Len(t, grown, 1, "growth after a shrink must still stream")
+	assert.Equal(t, "y", grown[0].GetEntry().GetContent())
+}

@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,323** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 135 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 173 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **469** |
+| `open` | no commit names this ID | **468** |
 
-**Totals: 2268 findings across 162 units — 1,323 resolved, 469 still open, 476 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,323 resolved, 468 still open, 477 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 476 | 263 | 73 | 79 | 108 |
+| MED | 999 | 476 | 262 | 73 | 80 | 108 |
 | LOW | 871 | 490 | 194 | 47 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1170,7 +1170,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U034-F07 | **RESOLVED** `5873fa72` | `internal/cli/bundle_distill.go:311,327` | CORRECTNESS | The sibling context sent to the distiller is in Go map order, making distillation nondeterministic run-to-run | U034.md |
 | U034-F08 | **RESOLVED** `da0c165f` | `internal/cli/bundle_list.go:240-242` | CORRECTNESS | `bundle show` prints an MCP entry's `Env` lines in random order | U034.md |
 | U034-F09 | **RESOLVED** `2b75adec` | `internal/cli/bundle_hold_cli.go:41-52,69-72` | CORRECTNESS | `bundle hold`/`unhold` on an item that is not in the lockfile prints a message to **stdout** and exits 0 | U034.md |
-| U034-F10 | open | `internal/cli/bundle_distill.go:247-261` | ERRHANDLING | `loadDistillPrompt` swallows the config-load error and can never return a non-nil error, so its caller's error branch is unreachable | U034.md |
+| U034-F10 | **REFUTED** `3d3d0f7a` | `internal/cli/bundle_distill.go:247-261` | ERRHANDLING | `loadDistillPrompt` swallows the config-load error and can never return a non-nil error, so its caller's error branch is unreachable | U034.md |
 | U034-F11 | **RESOLVED** `02aeb906` | `internal/cli/bundle_distill.go:127-139,151-162,186-193,226-240` | ERRHANDLING | `bundle distill`'s entire text path uses unchecked `fmt.Fprintf` and always returns nil, unlike the `iox.ErrWriter` used in all eleven other renderers in this unit; errors go to `os.Stderr` rather ... | U034.md |
 | U034-F12 | **RESOLVED** `3dbfb155` | `internal/cli/bundle_items.go:75,98` | ERRHANDLING | `bundle mcp edit` writes user-facing output with package-level `fmt.Println`/`fmt.Printf` instead of `cmd.OutOrStdout()` | U034.md |
 | U035-F01 | **RESOLVED** `9ca81437` | `exitcode_unix.go:15`, `exitcode_windows.go:10` | DEAD | `childExitCode` has **zero production call sites** on either platform; two build-tagged files and a dedicated test file exist for a function nothing calls. Worse, the capability it names — shell-co... | U035.md |

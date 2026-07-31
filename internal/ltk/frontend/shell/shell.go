@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"strings"
 
@@ -151,7 +152,7 @@ func (l *lowerer) lowerCmd(cmd syntax.Command, st *syntax.Stmt, conn ir.Connecto
 		if c == nil {
 			return nil
 		}
-		return l.lowerGroup(c.Stmts, st, conn)
+		return l.subshell().lowerGroup(c.Stmts, st, conn)
 	default:
 		return l.lowerCompound(cmd)
 	}
@@ -333,7 +334,23 @@ func (l *lowerer) literal(cfg *expand.Config, w *syntax.Word) string {
 }
 
 func (l *lowerer) addNested(sc *ir.SimpleCommand, stmts []*syntax.Stmt) {
-	sc.Nested = append(sc.Nested, &ir.Script{Shell: l.shell, Pipelines: l.lowerStmts(stmts)})
+	sc.Nested = append(sc.Nested, &ir.Script{Shell: l.shell, Pipelines: l.subshell().lowerStmts(stmts)})
+}
+
+// subshell returns a lowerer for a nested scope that a real shell runs in its
+// own process — `$(…)`, `` `…` ``, `<(…)`, and `( … )`. Such a scope INHERITS
+// the assignments seen so far but its own assignments do not escape back out.
+//
+// Sharing one flat map across the whole lowering is not merely imprecise, it
+// is a rule miss: an inner assignment SHADOWS the outer value, so `x=git; echo
+// $(x=echo); $x push --force` resolved `$x` to `echo` and the `git push
+// --force` the shell actually runs was never in the IR for a rule to match. A
+// `{ …; }` brace group is deliberately NOT a subshell and keeps sharing the
+// enclosing scope, because a real shell does too.
+func (l *lowerer) subshell() *lowerer {
+	vars := make(map[string]string, len(l.vars))
+	maps.Copy(vars, l.vars)
+	return &lowerer{shell: l.shell, base: l.base, vars: vars}
 }
 
 // literalFallback concatenates the literal parts of a word, used only when

@@ -2,6 +2,8 @@ package cli
 
 import (
 	"bytes"
+	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -192,4 +194,45 @@ func TestSiblingContext_ExcludesTheDistillingItemByRefPrefix(t *testing.T) {
 	assert.Contains(t, cmd, "- keep-cmd:")
 	assert.NotContains(t, cmd, "- drop-cmd:")
 	assert.Contains(t, cmd, "- drop-frag:")
+}
+
+// errWriteRefused is the failure the shared failingWriter (session_watch_test.go)
+// is armed with here: a renderer that ignores its writer's errors is
+// indistinguishable from one that succeeded.
+var errWriteRefused = errors.New("write refused")
+
+// `bundle distill`'s text renderer is the only one in this unit that wrote
+// through bare fmt.Fprintf and returned nil unconditionally: a broken stdout
+// (closed pipe, full disk) produced a silent success. And its per-file load
+// failures went to the process's os.Stderr rather than the writer cobra was
+// given, so they were unassertable and unredirectable.
+func TestRunBundleDistill_TextPathReportsWriteFailuresAndUsesCommandWriters(t *testing.T) {
+	root := t.TempDir()
+	appDir := filepath.Join(root, ".ctxloom")
+	_ = config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	t.Chdir(root)
+
+	broken := filepath.Join(root, "broken.yaml")
+	require.NoError(t, os.WriteFile(broken, []byte(":::not valid yaml:::\n\tbad indent\n"), 0o644))
+
+	t.Run("per-file errors go to the command's error writer", func(t *testing.T) {
+		var out, errBuf bytes.Buffer
+		cmd := &cobra.Command{}
+		cmd.SetOut(&out)
+		cmd.SetErr(&errBuf)
+		require.Error(t, runBundleDistill(cmd, []string{broken}))
+		assert.Contains(t, errBuf.String(), "broken.yaml", "the per-file failure must reach cmd.ErrOrStderr()")
+	})
+
+	t.Run("a failing stdout is reported, not swallowed", func(t *testing.T) {
+		good := filepath.Join(root, "good.yaml")
+		require.NoError(t, os.WriteFile(good, []byte("name: good\ndescription: a bundle\n"), 0o644))
+
+		cmd := &cobra.Command{}
+		cmd.SetOut(&failingWriter{err: errWriteRefused})
+		cmd.SetErr(io.Discard)
+		err := runBundleDistill(cmd, []string{good})
+		require.Error(t, err, "a write failure on the text path must not be reported as success")
+		assert.ErrorIs(t, err, errWriteRefused)
+	})
 }

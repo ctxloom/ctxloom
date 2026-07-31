@@ -3,6 +3,7 @@ package bundles
 import (
 	"bytes"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -426,4 +427,47 @@ func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	out := sink.String()
 	assert.Contains(t, out, "ghost", "the withheld skill must be named")
 	assert.NotEmpty(t, out, "no withhold in skillContent may be silent")
+}
+
+// TestLoadFile_ConcurrencyContract pins what U030-F10's corrected doc now
+// asserts, in the two halves the old one-liner ("safe for concurrent use")
+// blurred together.
+//
+// Half one: the CALL is safe. Concurrent LoadFile of the same and different
+// paths is race-clean — this runs under -race, so a lock regression around the
+// cache fails here rather than intermittently in some caller.
+//
+// Half two: the RESULT is SHARED, not copied. Identical pointers are exactly
+// why the read-only rule is load-bearing; if LoadFile ever started returning
+// copies, the caution in its doc would become misleading in the other
+// direction, and this is what notices.
+func TestLoadFile_ConcurrencyContract(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	bundlesDir := "/bundles"
+	for _, n := range []string{"a", "b", "c"} {
+		require.NoError(t, afero.WriteFile(fsys, bundlesDir+"/"+n+".yaml",
+			[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: "+n+"\n"), 0644))
+	}
+	l := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+
+	var wg sync.WaitGroup
+	results := make([]*Bundle, 24)
+	for i := range results {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			name := []string{"a", "b", "c"}[i%3]
+			b, err := l.LoadFile(bundlesDir + "/" + name + ".yaml")
+			assert.NoError(t, err)
+			results[i] = b
+		}(i)
+	}
+	wg.Wait()
+
+	for i := range results {
+		require.NotNil(t, results[i])
+		assert.Same(t, results[i%3], results[i],
+			"every caller of the same path shares one *Bundle — the reason it must be treated as read-only")
+	}
+	assert.NotSame(t, results[0], results[1], "different bundles stay distinct")
 }

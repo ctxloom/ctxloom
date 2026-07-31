@@ -72,11 +72,14 @@ func locateKiroConversation(ctx context.Context, e sessions.Entry) (string, bool
 //
 // One candidate is answered without touching sqlite at all: with nothing to
 // choose between, the bound id IS the answer and reading the db would only add
-// a way to fail. A db that cannot be enumerated is skipped rather than
-// reported, since the next candidate may still hold the conversation; when no
-// candidate does (a db written since the index entry was bound, an id from a
-// store that has since been removed), the first candidate is returned so the
-// resulting Convert failure names the db the caller would have read anyway.
+// a way to fail. A db that cannot be enumerated is skipped and SAID: the next
+// candidate may still hold the conversation, so one unreadable store must not
+// end the search — but "I cannot read this store" is a different fact from
+// "the conversation is not in it", and a silent skip makes the two
+// indistinguishable when the search then fails. When no candidate holds the id
+// (a db written since the index entry was bound, an id from a store that has
+// since been removed), the first candidate is returned so the resulting Convert
+// failure names the db the caller would have read anyway.
 func kiroDBHoldingConversation(ctx context.Context, dbs []string, conversationID string) string {
 	if len(dbs) == 1 {
 		return dbs[0]
@@ -84,6 +87,7 @@ func kiroDBHoldingConversation(ctx context.Context, dbs []string, conversationID
 	for _, dbPath := range dbs {
 		refs, err := kiroimporter.EnumerateConversations(ctx, dbPath)
 		if err != nil {
+			clidiag.Warn("ctxloom", "kiro conversation store %s is unreadable (%v); it was skipped while looking for conversation %s", dbPath, err, conversationID)
 			continue
 		}
 		for i := range refs {

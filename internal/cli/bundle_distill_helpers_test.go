@@ -161,3 +161,35 @@ func TestBuildSiblingContext_IsDeterministic(t *testing.T) {
 	assert.Less(t, strings.Index(first, "- victor:"), strings.Index(first, "- whiskey:"))
 	assert.Less(t, strings.Index(first, "- whiskey:"), strings.Index(first, "- xray:"))
 }
+
+// The "is this the item being distilled?" test and the sibling-listing guard
+// both key off an item's REF PREFIX, and item_kind.go's itemRefPrefix is the
+// one producer of that prefix. Pin the values and the exclusion behaviour for
+// both kinds, so routing the distill helpers through itemRefPrefix cannot
+// change what is excluded.
+func TestSiblingContext_ExcludesTheDistillingItemByRefPrefix(t *testing.T) {
+	assert.Equal(t, "fragments/", itemRefPrefix(ItemTypeFragment))
+	assert.Equal(t, "commands/", itemRefPrefix(ItemTypeCommand))
+
+	b := &bundles.Bundle{
+		Description: "two of each",
+		Fragments: map[string]bundles.BundleFragment{
+			"keep-frag": {Content: "keep"},
+			"drop-frag": {Content: "drop"},
+		},
+		Commands: map[string]bundles.BundleCommand{
+			"keep-cmd": {Description: "keep"},
+			"drop-cmd": {Description: "drop"},
+		},
+	}
+
+	frag := buildSiblingContext(b, itemRefPrefix(ItemTypeFragment)+"drop-frag")
+	assert.Contains(t, frag, "- keep-frag:")
+	assert.NotContains(t, frag, "- drop-frag:")
+	assert.Contains(t, frag, "- drop-cmd:", "a fragment exclusion must not hide a same-named command")
+
+	cmd := buildSiblingContext(b, itemRefPrefix(ItemTypeCommand)+"drop-cmd")
+	assert.Contains(t, cmd, "- keep-cmd:")
+	assert.NotContains(t, cmd, "- drop-cmd:")
+	assert.Contains(t, cmd, "- drop-frag:")
+}

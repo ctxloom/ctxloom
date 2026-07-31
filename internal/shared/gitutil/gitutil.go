@@ -103,9 +103,17 @@ func resolveStartDir(startPath string) (string, error) {
 	return absPath, nil
 }
 
-// GetRemoteURL returns the URL of the named remote in the git repository
+// GetRemoteURL returns the FETCH URL of the named remote in the git repository
 // enclosing the given path. Returns an error if the path is not in a git repo
 // or if the remote is not configured.
+//
+// A remote can carry several URLs — git fetches from the first `url` and
+// pushes to all of them, or to `pushurl` when one is set — and go-git presents
+// them as one slice, `url` entries first, `pushurl` entries after. The first
+// element is therefore the fetch URL, and that is deliberately the one
+// returned: this answers "which configured remote is this checkout", and a
+// remote's identity is where it is read FROM. Returning a push URL would give
+// the same remote a second name and defeat the matching this exists for.
 func GetRemoteURL(startPath, remoteName string) (string, error) {
 	absPath, err := resolveStartDir(startPath)
 	if err != nil {

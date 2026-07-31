@@ -34,6 +34,15 @@ const EnvVar = "CTXLOOM_ROOT"
 // uses for the rest of resolution — production passes the OS fs, tests pass an
 // afero mem fs and stay off real disk. A relative value is anchored to the
 // launching cwd via filepath.Abs so the override resolves predictably.
+//
+// Those are deliberately two different filesystems, and the split is the
+// contract rather than an oversight: fs decides whether the root EXISTS, while
+// the anchor for a relative value is always the launching process's cwd, never
+// the injected fs's root. CTXLOOM_ROOT is operator-facing, so its relative form
+// can only mean "relative to where ctxloom was launched" — reading it against
+// an injected fs would make one value name different directories in-process
+// and out. filepath.Abs consults the process cwd, not the filesystem, so a mem
+// fs caller still reads no bytes from disk.
 func resolve(fs afero.Fs) (root string, ok bool, rawInvalid string) {
 	raw, set := os.LookupEnv(EnvVar)
 	if !set || raw == "" {

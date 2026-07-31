@@ -72,6 +72,49 @@ func TestResolve(t *testing.T) {
 	})
 }
 
+// TestResolve_RelativeAnchorsToProcessCwdNotInjectedFs pins the deliberate
+// split that U092-F05 read as an accident: the injected afero.Fs decides
+// whether the resolved root EXISTS, but a relative CTXLOOM_ROOT is anchored to
+// the launching process's cwd via filepath.Abs — never to the injected fs's
+// own root. The two are different filesystems on purpose. CTXLOOM_ROOT is an
+// operator-facing environment variable whose relative form can only sensibly
+// mean "relative to where the user launched ctxloom"; an fs-rooted reading
+// would make the same value mean different directories in-process and
+// out-of-process.
+//
+// The discriminator: the directory exists on the injected fs under its
+// RELATIVE name and does not exist at the cwd-anchored absolute path. An
+// fs-rooted resolution therefore accepts it and a cwd-anchored one rejects it,
+// so this test can only pass under one of the two readings.
+func TestResolve_RelativeAnchorsToProcessCwdNotInjectedFs(t *testing.T) {
+	testsupport.ProjectDir(t) // isolate env + chdir to a fresh temp dir
+
+	const rel = "relroot"
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(rel, 0o755))
+
+	// Fixture hostility, from resolve's point of view (§11k): the relative name
+	// must be a real directory ON THE INJECTED FS, or an fs-rooted resolution
+	// would reject it too and the test would pass for the wrong reason.
+	info, err := fs.Stat(rel)
+	require.NoError(t, err, "fixture is not hostile: %q is not present on the injected fs", rel)
+	require.True(t, info.IsDir(), "fixture is not hostile: %q is not a directory on the injected fs", rel)
+
+	// ...and the cwd-anchored form must NOT exist, or both readings would agree.
+	abs, err := filepath.Abs(rel)
+	require.NoError(t, err)
+	_, err = fs.Stat(abs)
+	require.Error(t, err, "fixture is not hostile: %q also exists on the injected fs", abs)
+
+	t.Setenv(EnvVar, rel)
+	root, ok, invalid := resolve(fs)
+	assert.False(t, ok,
+		"a relative override is anchored to the process cwd, so a directory that "+
+			"exists only at the injected fs's root does not satisfy it")
+	assert.Equal(t, "", root)
+	assert.Equal(t, rel, invalid, "the raw offending value is reported unmodified")
+}
+
 func TestFromEnv(t *testing.T) {
 	testsupport.Isolate(t)
 

@@ -3,6 +3,7 @@ package dockerexec
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os/exec"
 	"strconv"
@@ -258,4 +259,36 @@ func TestSession_WaitClassifiesEveryDockerLevelCode(t *testing.T) {
 			assert.Equal(t, int32(tc.code), status.Code)
 		})
 	}
+}
+
+// TestDockerLevelError_ParityAcrossBothRenderings is the parity test across the
+// two copies of the "attach the captured output tail to a docker-level failure"
+// helper (dockerLevelError and dockerLevelErrorWrap) taken BEFORE collapsing
+// them. They agree on the branch (tail present / tail empty) but NOT on how the
+// tail is rendered: one appends `: <tail>`, the other ` (output tail: <tail>)`.
+// The same captured bytes are therefore labelled two different ways depending
+// on which docker-level failure a user hits, and only one of the two labels is
+// greppable. That divergence is the defect the duplication was hiding.
+func TestDockerLevelError_ParityAcrossBothRenderings(t *testing.T) {
+	withTail := &Session{ring: stderrtail.New(stderrtail.DefaultBytes)}
+	_, _ = withTail.ring.Write([]byte("boom-tail"))
+	empty := &Session{ring: stderrtail.New(stderrtail.DefaultBytes)}
+
+	// Branch parity: both include the tail when there is one and omit any tail
+	// clause when there is not.
+	assert.Contains(t, withTail.dockerLevelError(exitCannotInvoke).Error(), "boom-tail")
+	assert.Contains(t, withTail.dockerLevelErrorWrap(errors.New("signal: killed")).Error(), "boom-tail")
+	assert.NotContains(t, empty.dockerLevelError(exitCannotInvoke).Error(), "tail")
+	assert.NotContains(t, empty.dockerLevelErrorWrap(errors.New("signal: killed")).Error(), "tail")
+
+	// Rendering parity: the same captured bytes must be labelled the same way
+	// whichever docker-level failure produced them.
+	suffixOf := func(err error) string {
+		s := err.Error()
+		return s[strings.Index(s, "boom-tail")-len(" (output tail: "):]
+	}
+	assert.Equal(t,
+		suffixOf(withTail.dockerLevelErrorWrap(errors.New("signal: killed"))),
+		suffixOf(withTail.dockerLevelError(exitCannotInvoke)),
+		"one tail, one rendering — a reader (or a grep) must not have to know which failure fired")
 }

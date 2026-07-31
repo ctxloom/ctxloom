@@ -27,9 +27,19 @@ type Decision struct {
 }
 
 // Evaluate matches every command in the script (nested included) against the
-// rules in order. The first matching deny rule wins. A matching allow rule
-// clears the current command without denying it; if nothing denies, the command
-// is allowed.
+// rules. A matching allow rule clears the current command without denying it;
+// if nothing denies, the command is allowed.
+//
+// The two orders nest, and COMMAND order is the outer one. Commands are
+// visited in walk order; for each, the rule list is scanned in file order and
+// the first rule that matches decides that command. The first DENY reached
+// ends the whole walk. So when two different commands on one line would each
+// trip a different deny rule, the denial reported is the earlier COMMAND's,
+// whatever the rules' order in the file: `git push --force && rm x` reports
+// the force-push rule even if the rm rule is written first. Either way the
+// line is denied — what the order picks is the Reason and Suggest the operator
+// actually sees. Rule order decides only WITHIN a single command, which is
+// where an allow carve-out placed above a broad deny does its work.
 func Evaluate(cfg *Config, script *ir.Script) Decision {
 	if script == nil {
 		return Decision{Allowed: true}

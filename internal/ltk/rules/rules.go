@@ -195,8 +195,9 @@ type Match struct {
 	//
 	// ltk's rule list is evaluated the way a packet-filter ruleset is (iptables/
 	// nftables `-j ACCEPT/DROP` chains, OpenBSD pf, cloud security groups):
-	// rules are walked IN ORDER and the first one that matches wins (see
-	// Evaluate) — there is no "most specific rule wins" reranking. That
+	// rules are walked IN ORDER and, for one command, the first that matches
+	// wins (see Evaluate, which also documents how that nests inside the
+	// command walk) — there is no "most specific rule wins" reranking. That
 	// ordering discipline was already correct here; what was missing is the
 	// other firewall-rule principle: a firewall matches on STRUCTURED fields
 	// (source IP, port, protocol) with an EXPLICIT operator per field — exact

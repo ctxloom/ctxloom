@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,466** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,467** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 173 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 201 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 200 |
-| `open` | no commit names this ID | **228** |
+| `open` | no commit names this ID | **227** |
 
-**Totals: 2268 findings across 162 units — 1,466 resolved, 228 still open, 574 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,467 resolved, 227 still open, 574 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 547 | 127 | 100 | 93 | 132 |
+| MED | 999 | 548 | 126 | 100 | 93 | 132 |
 | LOW | 871 | 560 | 92 | 57 | 100 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1675,7 +1675,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U098-F05 | **REFUTED** `8f18316c` | `selfexec.go:32` / `internal/operations/hooks.go:65` | CORRECTNESS | A second, unrelated `…ForTesting` mutator is reachable from a **production** entry point and mutates an unsynchronized global cache — latent only because no production caller populates the field. | U098.md |
 | U098-F06 | **RESOLVED** `386b1dca` | `internal/lm/isolation/imagebuild.go:599-604`, `1013-1016`, `713-719` | ERRHANDLING | The image-build path treats "I cannot resolve a usable self-exe" three different ways, one of which is silent — and on macOS/Windows that silent branch is the *default*, not the exception. | U098.md |
 | U099-F02 | **RESOLVED** `70cd9f7b` | `index.go:35-37` | CORRECTNESS | The `Entry` doc asserts "the json tags mirror the yaml keys so `ctxloom session list --format json` and any frontend reading it (the VSCode companion) share the same snake_case contract as the on-d... | U099.md |
-| U099-F05 | open | **`memstore.go:12-17`** | CORRECTNESS | `MemStore`'s doc says it mirrors `*Manager` "without touching disk" and that "Filesystem side effects of the real index … are intentionally absent". Both claims are false. | U099.md |
+| U099-F05 | **RESOLVED** `ceaaeccf` | **`memstore.go:12-17`** | CORRECTNESS | `MemStore`'s doc says it mirrors `*Manager` "without touching disk" and that "Filesystem side effects of the real index … are intentionally absent". Both claims are false. | U099.md |
 | U099-F06 | open | `index.go:547-554, memstore.go:63-68, memstore.go:84-89` | DUPLICATE | The activity-time sort comparator (activity desc, `StartedAt` tiebreak) is copy-pasted three times. | U099.md |
 | U099-F07 | open | `index.go:775-783` | DUPLICATE | `generateUniqueHarp` is a verbatim reimplementation of the shared `harp.UniqueFrom`. | U099.md |
 | U099-F08 | open | `index.go:691-723` | CORRECTNESS | `Reconcile` is the only entry-returning method that never calls `fillCanonicalTranscript`, so its `isDead` predicate always sees `CanonicalTranscriptPath == ""`. A session whose legacy engine trans... | U099.md |

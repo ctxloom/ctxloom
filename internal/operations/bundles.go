@@ -9,7 +9,9 @@ package operations
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -159,6 +161,11 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return nil, fmt.Errorf("failed to create bundles directory: %w", err)
 	}
+	// Fail fast on a bundle that already exists, before distillation spends an
+	// LLM round trip per item on a create that cannot land. This check is an
+	// economy, NOT the decision: it is racy by construction, and the window it
+	// opens is as long as distillation takes. reserveNewBundlePath below is
+	// what actually decides.
 	if _, err := os.Stat(path); err == nil {
 		return nil, fmt.Errorf("bundle already exists: %s", path)
 	}
@@ -182,7 +189,13 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 	distillFragments(ctx, bundle, namesNeedingFragmentDistill(bundle, req.Fragments), req.Distiller)
 	distillPrompts(ctx, bundle, namesNeedingPromptDistill(bundle, req.Commands), req.Distiller)
 
+	if err := reserveNewBundlePath(path); err != nil {
+		return nil, err
+	}
 	if err := bundleStore(cfg, req.Store).Save(bundle); err != nil {
+		// The reservation is a zero-byte placeholder nobody can use. Drop it so
+		// it neither reads as a bundle nor blocks the retry.
+		_ = os.Remove(path)
 		return nil, fmt.Errorf("failed to save bundle: %w", err)
 	}
 
@@ -191,6 +204,27 @@ func CreateBundle(ctx context.Context, cfg *config.Config, req CreateBundleReque
 		Name:   req.Name,
 		Path:   path,
 	}, nil
+}
+
+// reserveNewBundlePath claims path for a brand-new bundle, atomically. Creation
+// is "write only if absent", and a plain Stat-then-Save cannot express that:
+// anything appearing at the path in between — a concurrent `bundle create`, a
+// pull, another author on a shared checkout — is silently overwritten, and what
+// is destroyed is authored content nobody has a copy of. O_CREATE|O_EXCL makes
+// the existence test and the claim one operation, so a loser of the race gets
+// the same "already exists" refusal as a serial caller.
+//
+// The placeholder it leaves is zero bytes; Save writes the real content over it
+// immediately, and the caller removes it if Save fails.
+func reserveNewBundlePath(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("bundle already exists: %s", path)
+		}
+		return fmt.Errorf("failed to create bundle file: %w", err)
+	}
+	return f.Close()
 }
 
 // UpdateBundleRequest is the input for UpdateBundle. Pointer fields

@@ -3,6 +3,7 @@ package app
 import (
 	"bytes"
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -183,6 +184,42 @@ func TestOnOpaqueIsGone(t *testing.T) {
 	// The opacity knob was removed; configuring it is now an unknown-field error.
 	if _, err := rules.Parse([]byte("version: 1\ndefaults: { on_opaque: deny }\nrules: []\n")); err == nil {
 		t.Error("defaults.on_opaque should now be rejected as an unknown field")
+	}
+}
+
+// runFailFrontend stands in for a frontend whose external parser could not be
+// EXECUTED at all — the shape the pwsh frontend takes when the exec itself
+// fails (oversized environment, missing binary, resource limit). It honours
+// the Frontend contract: a non-nil Script alongside the error.
+type runFailFrontend struct{ err error }
+
+func (f runFailFrontend) Shells() []ir.Shell { return []ir.Shell{ir.ShellPwsh} }
+
+func (f runFailFrontend) Parse(context.Context, ir.Shell, string) (*ir.Script, error) {
+	return &ir.Script{Shell: ir.ShellPwsh}, f.err
+}
+
+// TestExecFailureIsAnUnanalyzedAllowNotASilentOne pins that a frontend whose
+// parser could not be run does not produce a decision that looks byte-identical
+// to "the rules were checked and nothing matched". Under the default
+// on_parse_error the command is allowed, but the Response says so: Unanalyzed
+// is set and ParseError carries the exec failure, so a caller can report it.
+func TestExecFailureIsAnUnanalyzedAllowNotASilentOne(t *testing.T) {
+	a := newApp(t, cfg)
+	a.Registry.Register(runFailFrontend{
+		err: errors.New("fork/exec /usr/bin/pwsh: argument list too long"),
+	})
+	r := a.Decide(context.Background(), engine.Request{
+		ToolName: "Bash", Command: "Get-ChildItem", Shell: ir.ShellPwsh,
+	})
+	if !r.Allow {
+		t.Fatalf("default on_parse_error is allow, got deny: %q", r.Reason)
+	}
+	if !r.Unanalyzed {
+		t.Error("an allow reached without parsing anything must be flagged Unanalyzed")
+	}
+	if !strings.Contains(r.ParseError, "argument list too long") {
+		t.Errorf("ParseError = %q, want the exec failure so an operator can diagnose it", r.ParseError)
 	}
 }
 

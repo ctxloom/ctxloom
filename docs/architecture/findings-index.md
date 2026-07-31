@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,368** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,369** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 153 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 182 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 181 |
-| `open` | no commit names this ID | **384** |
+| `open` | no commit names this ID | **383** |
 
-**Totals: 2268 findings across 162 units — 1,368 resolved, 384 still open, 516 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,369 resolved, 383 still open, 516 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 499 | 213 | 87 | 82 | 118 |
+| MED | 999 | 500 | 212 | 87 | 82 | 118 |
 | LOW | 871 | 512 | 160 | 50 | 92 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1311,7 +1311,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U049-F18 | open | `config_migrate.go:322-324` | ERRHANDLING | The v3→v4 migration deletes the user-set `binary_path`, `trust_workspace` and `approval_mode` keys without a lossy-migration warning, unlike the v2→v3 migration in the same file | U049.md |
 | U049-F19 | open | `config_types.go:94` | SILENTNOOP | A null/empty YAML scalar in a `fragments:` list produces `FragmentRef{Name: ""}` — an empty-named fragment that flows through the whole resolver and yields nothing, with no error | U049.md |
 | U049-F20 | **RESOLVED** `73c86ad1` | `fixture.go:18` | DUPLICATE | Every persisted config field must be declared in **four** hand-maintained places — `Config`, `configDoc`, `Fixture`, `applyConfigSections` — and this quadruple is the demonstrated root cause of thr... | U049.md |
-| U050-F03 | open | `trustroot.go:173-181` | CORRECTNESS / ERRHANDLING | `readPrincipalLines` never checks `sc.Err()`. A read error or a line over `bufio.Scanner`'s 64 KiB token limit truncates the suppression set silently — and this degradation is fail-**open**: a prin... | U050.md |
+| U050-F03 | **RESOLVED** `fc03db7e` | `trustroot.go:173-181` | CORRECTNESS / ERRHANDLING | `readPrincipalLines` never checks `sc.Err()`. A read error or a line over `bufio.Scanner`'s 64 KiB token limit truncates the suppression set silently — and this degradation is fail-**open**: a prin... | U050.md |
 | U050-F04 | open | `unknown_keys.go:75-84` | CORRECTNESS | `classifyValidationError` does not deduplicate by (instance location, key), and its `other` flag misfires on `anyOf` branch noise. One typo inside an `llm.configs.<label>` block produces **7 identi... | U050.md |
 | U050-F05 | open | `unknown_keys.go:200-216` | CORRECTNESS | `knownKeysAt`'s raw JSON-pointer walk asserts `node[seg].(map[string]any)` for every segment, so any **array** segment (`anyOf/0`, `oneOf/1`, `allOf/0`) aborts the walk. Result: the `llm.configs.*`... | U050.md |
 | U050-F06 | **RESOLVED** `f16b4588` | `unknown_keys.go:164-227` | DUPLICATE / COUPLING | `configSchemaDocument` + `knownKeysAt` are a second, weaker, independently-cached parse and walk of the same config schema that `internal/schema` already compiles and walks. Two schema representati... | U050.md |

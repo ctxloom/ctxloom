@@ -34,10 +34,33 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// Store is one physical countersignature store: a directory of individual
-// .sig files. It offers exactly two capabilities — write one signature, and
-// find + verify CANDIDATE signatures for a (header, payload) query. It never
-// answers "is X approved" on the strength of a filename alone.
+// Store is one physical countersignature store: a directory holding THREE
+// kinds of record, with three different authority models. They share a
+// directory and a type; they do not share a trust story, and a reader who
+// takes one for another gets the security of the weakest.
+//
+//  1. SIGNED records (.sig). Cryptographic authority. Write one with the
+//     assertion wrappers; ask about one with the Verified* wrappers, which
+//     re-verify every candidate against the reconstructed payload under a
+//     trust root. A filename proves nothing here — see verified.
+//
+//  2. UNSIGNED markers (.unsigned), the degraded path of spec §9.5.
+//     EXISTENCE IS THE ENTIRE RECORD: HasUnsignedApprove answers "is X
+//     approved" from a filename and nothing else, so anything that can write
+//     this directory can forge one. That is not a defect, it is the documented
+//     cost of "signing must never become a barrier to plain local use" — and
+//     it is why callers must NEVER route an unsigned write to the committable
+//     PROJECT store (spec §9.5: "a shareable approval with no signature is a
+//     forgery primitive with a friendly name").
+//
+//  3. The sidecar index (index.yaml). NO authority whatsoever — display
+//     metadata, never an input to a trust decision. It exists so `ctxloom
+//     review` can label an item UPDATE vs NEW and offer a diff base.
+//
+// This doc used to say the type offered "exactly two capabilities" and "never
+// answers 'is X approved' on the strength of a filename alone". The second
+// sentence is false of (2) by design, which is exactly the thing a reader most
+// needs to know.
 type Store struct {
 	dir string
 	fs  afero.Fs

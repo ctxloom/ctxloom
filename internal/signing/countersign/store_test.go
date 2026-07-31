@@ -823,3 +823,45 @@ func TestStore_LatestApprove_OrdersByInstantNotByBytes(t *testing.T) {
 			"a stamp that reads must beat one that does not")
 	})
 }
+
+// TestStore_ThreeRecordKindsHaveThreeAuthorityModels pins the taxonomy the
+// Store doc now states, in the one direction nothing else covers: that an
+// unsigned marker really is honoured on FILENAME EXISTENCE alone, and a signed
+// record really is not.
+//
+// The doc used to claim the type "never answers 'is X approved' on the
+// strength of a filename alone", which is false of the §9.5 degraded path by
+// design. Its forgeability is the reason unsigned writes must never reach the
+// committable project store, so it has to be stated rather than implied — and
+// a later "hardening" of the marker path that silently made this test fail
+// would be changing a documented security property, not fixing a bug.
+func TestStore_ThreeRecordKindsHaveThreeAuthorityModels(t *testing.T) {
+	_, pub := testSigner(t)
+	root := rootTrusting("ben@abbitt.me", pub, signing.NamespaceApprove, signing.NamespaceReject)
+	fs := afero.NewMemMapFs()
+	s := NewStore("/store", fs)
+	payload := []byte("bytes nobody signed")
+
+	h := signing.CountersignHeader{Assertion: signing.AssertionApprove, Ref: "bundle:a", Form: signing.AttestFragmentRaw}
+
+	// (2) Unsigned marker: a file this package's writer never produced, planted
+	// directly, is honoured — existence IS the record.
+	require.NoError(t, afero.WriteFile(fs, filepath.Join("/store", unsignedFilename(h, payload)), []byte("unsigned\n"), 0o644))
+	assert.True(t, s.HasUnsignedApprove("bundle:a", signing.AttestFragmentRaw, payload),
+		"an unsigned marker is honoured on filename existence alone (spec §9.5)")
+
+	// (1) Signed record: a planted file at the very same index hash proves
+	// nothing, because every candidate is re-verified.
+	require.NoError(t, afero.WriteFile(fs, filepath.Join("/store", filename(h, payload, pub)), []byte("not a signature\n"), 0o644))
+	_, ok := s.VerifiedApprove("bundle:a", signing.AttestFragmentRaw, payload, root, time.Now())
+	assert.False(t, ok, "a signed record is never honoured on filename alone")
+
+	// (3) Sidecar index: still no approval, whatever it says.
+	require.NoError(t, s.AppendIndex(IndexEntry{
+		Ref: "bundle:a", Kind: "fragment", Form: "raw",
+		Assertion:   string(signing.AssertionApprove),
+		PayloadHash: "sha256:whatever", ReviewedAt: "2026-01-01T00:00:00Z",
+	}))
+	_, ok = s.VerifiedApprove("bundle:a", signing.AttestFragmentRaw, payload, root, time.Now())
+	assert.False(t, ok, "the display index is never an input to a trust decision")
+}

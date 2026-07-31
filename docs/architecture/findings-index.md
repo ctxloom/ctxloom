@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,403** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,404** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 159 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 187 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 186 |
-| `open` | no commit names this ID | **333** |
+| `open` | no commit names this ID | **332** |
 
-**Totals: 2268 findings across 162 units — 1,403 resolved, 333 still open, 532 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,404 resolved, 332 still open, 532 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 518 | 185 | 90 | 86 | 120 |
+| MED | 999 | 519 | 184 | 90 | 86 | 120 |
 | LOW | 871 | 526 | 139 | 53 | 93 | 60 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1598,7 +1598,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U089-F11 | **REFUTED** `74762ea1` | `trust_gate.go:26-51` | COHESION | `contentGate` is two types: a trust gate and a withheld-item ledger. | U089.md |
 | U089-F12 | **ESCALATED** `a3fb4212` | `trust.go:791-812` | CORRECTNESS | `looksLikeSourceRef` is a **deny-list guarding a fail-open default** — it recognises three "this was meant to be a source ref" markers and treats everything else as a locally-authored, auto-trusted... | U089.md |
 | U090-F02 | **PARTIAL** `d8550cfb` | **`paths.go:343,348,353,362,382,407,423,428,434,447,454,463,468,473,478,483,492`** | CORRECTNESS | The entire `appPath`-family silently resolves to **cwd-relative** paths when `appPath == ""`; nothing errors. A caller that fails to resolve an app dir writes `config.yaml`/`lock.yaml`/`cache/` int... | U090.md |
-| U090-F03 | open | **`paths.go:307-310`** | ERRHANDLING | `ProjectSessionsDir` swallows the `os.Getwd()` error and returns the bare relative `".ctxloom/sessions"`, so a caller that later `Chdir`s or resolves it from a different cwd reads/writes a differen... | U090.md |
+| U090-F03 | **RESOLVED** `be6681ad` | **`paths.go:307-310`** | ERRHANDLING | `ProjectSessionsDir` swallows the `os.Getwd()` error and returns the bare relative `".ctxloom/sessions"`, so a caller that later `Chdir`s or resolves it from a different cwd reads/writes a differen... | U090.md |
 | U090-F04 | open | **`paths.go:285,292`** | ERRHANDLING | `ResolveHarpCanonicalTranscriptPath` treats **every** `os.Stat` failure as "file absent", not just `IsNotExist`. A permission error or a broken symlink on the current-name file silently promotes th... | U090.md |
 | U090-F07 | **RESOLVED** `44b60e4a` | **`paths.go:317, 468, 473, 478, 507, 512, 497`** | DEAD | Seven functions have **zero production call sites** repo-wide: `HarpPlanPath`, `VendorPath`, `ContextPath`, `MemoryPath`, `DefaultLockPath`, `DefaultVendorPath`, `DefaultAppDir`. Five are test-only... | U090.md |
 | U090-F08 | **RESOLVED** `676a07e5` | **`paths.go:423 vs `internal/remote/lockfile.go:20,60-62`** | DUPLICATE | `LockPath` is production-dead because `internal/remote` re-implements it inline. Two independent constructions of the same path is exactly the drift this package exists to prevent. | U090.md |

@@ -2,7 +2,6 @@ package sessions
 
 import (
 	"fmt"
-	"sort"
 	"sync"
 	"time"
 
@@ -68,18 +67,10 @@ func (m *MemStore) ListForProject(projectDir string) ([]Entry, error) {
 	var out []Entry
 	for _, e := range m.sessions {
 		if e.ProjectDir == projectDir {
-			fillCanonicalTranscript(&e)
-			e.LastActivity = ActivityTime(e)
 			out = append(out, e)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].LastActivity.Equal(out[j].LastActivity) {
-			return out[i].LastActivity.After(out[j].LastActivity)
-		}
-		return out[i].StartedAt.After(out[j].StartedAt)
-	})
-	return out, nil
+	return enrichAndSortByActivity(out), nil
 }
 
 // ListAll returns every entry, most-recent-first by last-worked time (see
@@ -88,19 +79,7 @@ func (m *MemStore) ListForProject(projectDir string) ([]Entry, error) {
 func (m *MemStore) ListAll() ([]Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	out := make([]Entry, 0, len(m.sessions))
-	for _, e := range m.sessions {
-		fillCanonicalTranscript(&e)
-		e.LastActivity = ActivityTime(e)
-		out = append(out, e)
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if !out[i].LastActivity.Equal(out[j].LastActivity) {
-			return out[i].LastActivity.After(out[j].LastActivity)
-		}
-		return out[i].StartedAt.After(out[j].StartedAt)
-	})
-	return out, nil
+	return enrichAndSortByActivity(append([]Entry(nil), m.sessions...)), nil
 }
 
 // Find returns a copy of the entry for harpName, or nil if absent. Enriches

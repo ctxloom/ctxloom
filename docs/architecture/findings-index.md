@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,506** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,507** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 179 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **172** |
+| `open` | no commit names this ID | **171** |
 
-**Totals: 2268 findings across 162 units — 1,506 resolved, 172 still open, 590 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,507 resolved, 171 still open, 590 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -334,7 +334,7 @@ which also asserts each row's columns sum to its section size.
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 565 | 101 | 103 | 95 | 135 |
 | LOW | 871 | 581 | 63 | 60 | 104 | 63 |
-| (unparsed) | 22 | 8 | 8 | 4 | 2 | 0 |
+| (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
 HIGH rows across U037/U104/U119/U141/U154 fixed (U037-F02/F03/F05, U104-F01,
@@ -2860,7 +2860,7 @@ Rows whose severity column did not parse — listed so nothing is silently lost.
 | U112-F07 | **PARTIAL** `063f546b` | `marker.go:81-86` | LOW | CORRECTNESS | The nested re-decode has no depth bound. It terminates in practice (each JSON-decode round strips a quoting layer, so the string strictly shrinks) but the input is an untrusted transcript line and ... | U112.md |
 | U112-F08 | **RESOLVED** `453031f4` | `marker.go:6-8` and `marker.go:29` | LOW | COUPLING | The doc explains that the self-closing form is "deliberately distinct from the `<ctxloom-context>…</ctxloom-context>` content wrapper", implying the shape does the separating. It does not: `<ctxloo... | U112.md |
 | U114-F06 | **RESOLVED** `13f0f558` | `pidalive_unix.go:25` | LOW | ERRHANDLING | `err == syscall.EPERM` uses `==` rather than `errors.Is`. It happens to work today because Go returns the bare `syscall.Errno` — `convertESRCH(unix.PidFDSendSignal(...))` on the pidfd path (`$GOROO... | U114.md |
-| U114-F07 | open | `pidalive_unix.go:19` | LOW | CORRECTNESS | A negative pid other than `-1` is silently reinterpreted as a **process group**. `Alive(-5)` probes group 5 and can return `true` for something that is not the target at all. Not reachable today — ... | U114.md |
+| U114-F07 | **RESOLVED** `26100355` | `pidalive_unix.go:19` | LOW | CORRECTNESS | A negative pid other than `-1` is silently reinterpreted as a **process group**. `Alive(-5)` probes group 5 and can return `true` for something that is not the target at all. Not reachable today — ... | U114.md |
 | U116-F08 | open | `ptyrunner.go:110` and `:234` | LOW | ERRHANDLING | `ptty.Close()` is called twice on the normal path — once explicitly, once by the deferred closure — and both results are discarded. Correctness rests on go-pty's `Close` being idempotent, which is ... | U116.md |
 | U116-F10 | open | `ptyrunner.go:242-244` | LOW | CORRECTNESS | A child killed by a signal yields `exitErr.ExitCode() == -1`, which is propagated verbatim as the run's exit code. `-1` is not a valid POSIX exit status and is indistinguishable from a runner-inter... | U116.md |
 | U117-F06 | **PARTIAL** `4d03134b` | `shellenv.go:117-128` | LOW | CORRECTNESS | A single transient probe failure — a fork failure under load, a 10s timeout from a momentarily slow rc file — permanently disables the entire feature for the life of the process. For a long-lived `... | U117.md |

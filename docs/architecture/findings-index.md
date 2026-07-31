@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,617** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 200 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 212 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 213 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 214 |
-| `open` | no commit names this ID | **25** |
+| `open` | no commit names this ID | **24** |
 
-**Totals: 2268 findings across 162 units — 1,617 resolved, 25 still open, 626 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,617 resolved, 24 still open, 627 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 626 | 17 | 117 | 97 | 142 |
+| MED | 999 | 626 | 16 | 117 | 98 | 142 |
 | LOW | 871 | 627 | 8 | 66 | 105 | 65 |
 | (unparsed) | 22 | 12 | 0 | 5 | 4 | 1 |
 
@@ -1401,7 +1401,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U062-F08 | **RESOLVED** `2f48c079` | `container.go:531-535` | ERRHANDLING | `gitdirMirrorMount` conflates a **stat error** with "`.git` is a directory, no mirror needed", so an unreadable `.git` silently yields no mount and the container gets a broken git. | U062.md |
 | U062-F09 | **RESOLVED** `87563a3a` | **`auth.go:865-868`** | ERRHANDLING | `hostCredentialSeed` discards `os.UserHomeDir`'s error and reports the result as `seedNoSource`, so a real environment fault is surfaced to the user as "no credentials found". | U062.md |
 | U062-F10 | **RESOLVED** `87563a3a` | **`auth.go:391-397, 459-465`** | ERRHANDLING | The credential-copy mount builders collapse "no host credential exists" and "we had the credential but the copy failed" into the same `ok=false`, producing an actively false diagnostic. | U062.md |
-| U062-F11 | open | `container.go:70-119, 164-183` | COHESION | `Container` carries five image-build fields that form a disjoint method partition, and `ImageConfig` already names exactly that group. | U062.md |
+| U062-F11 | **REFUTED** `4aa8d0da` | `container.go:70-119, 164-183` | COHESION | `Container` carries five image-build fields that form a disjoint method partition, and `ImageConfig` already names exactly that group. | U062.md |
 | U062-F12 | **RESOLVED** `18bdf149` | `container.go:361-364` | CORRECTNESS | `WithImage` swaps in a caller-supplied image **without** nilling the profile's build recipe, so `runAsIs()` stays false and `checkRunAsIsIdentity` never runs on it — the exact inverse of `container... | U062.md |
 | U062-F13 | **PARTIAL** `0bd71ddb` | `curatedhome.go:58-65` | CORRECTNESS | The curated-HOME allowlist includes the whole of `~/.ssh` (every private key) while the same comment excludes `.netrc`/`.npmrc`/`.gnupg` on the stated grounds that they "carry plaintext tokens/keys... | U062.md |
 | U062-F14 | **PARTIAL** `bdd78213` | `curatedhome.go:12-56; auth.go:596-609; profile.go:474-499` | DUPLICATE | The same antigravity measurement narrative (HOME relocates config/session state, the D-Bus keyring escapes it, `agy -p` ignores the launch cwd) is written out three times in three files, each with ... | U062.md |

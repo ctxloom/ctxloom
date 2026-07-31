@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,316** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,317** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **477** |
+| `open` | no commit names this ID | **476** |
 
-**Totals: 2268 findings across 162 units — 1,316 resolved, 477 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,317 resolved, 476 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 471 | 268 | 73 | 79 | 108 |
+| MED | 999 | 472 | 267 | 73 | 79 | 108 |
 | LOW | 871 | 488 | 197 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1209,7 +1209,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U038-F09 | **RESOLVED** `6ad30a10` | `mcp_resources.go:169` | CORRECTNESS / ERRHANDLING | `ctxloom://sessions/recent` reads the **process** cwd (with the error swallowed) instead of the caller's identity, so on the runner it can list the wrong project's sessions and on failure lists not... | U038.md |
 | U038-F10 | **RESOLVED** `6ad30a10` | `mcp_resources.go:221-227` | CORRECTNESS | `handleResourceSessionsAll`'s doc claims parity with `ctxloom session list --all`, but it uses the unsorted lister while the CLI and every other cross-project consumer use the sorted one. | U038.md |
 | U038-F11 | **RESOLVED** `3630daf4` | `mcp_runner.go:646-657` | SILENTNOOP | Plan auto-stamping fails silently and invisibly: `agent_report` then returns `journaled: true, artifact_ids: []` having delivered no plans. | U038.md |
-| U039-F05 | open | `mcp_tools_memory.go:200, 285` | CORRECTNESS | The `DistillBudget` backstop is applied by only two of the four host-relay paths that spend LLM time, so `compact_session` and `list_sessions{distill_missing:true}` run **unbounded** in the session... | U039.md |
+| U039-F05 | **RESOLVED** `ceb5a72e` | `mcp_tools_memory.go:200, 285` | CORRECTNESS | The `DistillBudget` backstop is applied by only two of the four host-relay paths that spend LLM time, so `compact_session` and `list_sessions{distill_missing:true}` run **unbounded** in the session... | U039.md |
 | U039-F06 | open | `mcp_tools_memory.go:164-213` | DUPLICATE | `handleCompactSession` bypasses `singleflightDistill`, so an explicit `compact_session` runs a full second distillation concurrently with an in-flight `recover_session`/`load_session` of the same s... | U039.md |
 | U039-F07 | open | `mcp_tools_memory.go:286, :467; memory.go:212` | ERRHANDLING | Three functions on the host-relay path write warnings to the session owner's stderr, which `distillSession` (same file, same path) documents as forbidden because that stderr is the terminal the eng... | U039.md |
 | U039-F08 | open | **`profile.go:206-207,231,443,479; remote.go:86,109,184,199,226; remote_browse.go:61-83; memory.go:175-178 + printSessionTable:237`** | COUPLING | 12+ user-visible writes go to package-level `fmt.Printf`/`os.Stdout` instead of `cmd.OutOrStdout()`, so they ignore `cmd.SetOut`, cannot be captured in tests, bypass the `--format` seam, and bypass... | U039.md |

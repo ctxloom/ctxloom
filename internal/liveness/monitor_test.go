@@ -605,3 +605,50 @@ func TestReport_MarshalsEveryFieldSnakeCase(t *testing.T) {
 	sort.Strings(keys)
 	assert.Contains(t, keys, "at", "Report.At must marshal as \"at\"")
 }
+
+// Target.StartedAt's contract is that ZERO disables every age-gated rule —
+// "the monitor will not invent an age it does not know". The quiet ladder read
+// it the other way round: `!StartedAt.IsZero() && age < grace` makes an unknown
+// age NOT-young, which ENABLES the age-gated content clauses on exactly the
+// targets whose age nobody could supply (U056-F06).
+func TestMonitor_UnknownStartTimeDoesNotEnableTheAgeGatedRules(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	quiet := now.Add(-20 * time.Minute)
+	path := writeJSONL(t, []map[string]any{
+		userLine(1, quiet, "a"), userLine(2, quiet, "b"), userLine(3, quiet, "c"),
+	})
+	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{aliveNoCPU}})
+
+	rep := m.Assess(context.Background(), liveness.Target{Harp: "no-start", TranscriptPath: path})
+
+	assert.Equal(t, liveness.StateUnknown, rep.State,
+		"with no start time the launch grace cannot be applied, so no absence verdict is available: %s", rep.Reason)
+	assert.False(t, rep.Firing(), "an unknown age must never be condemned")
+}
+
+// StartGrace is documented as "how long after StartedAt the monitor refuses to
+// reach any ABSENCE-based verdict". The quiet ladder's terminal rung condemned
+// regardless of age — the `young` guard only skipped the content clauses and
+// then fell through to StateStalled anyway, so the launch grace protected
+// nothing (U056-F06; at census this fell through to the since-deleted cpuRung,
+// which had the same hole).
+func TestMonitor_LaunchGraceSuppressesTheQuietStall(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	quiet := now.Add(-20 * time.Minute)
+	path := writeJSONL(t, []map[string]any{
+		userLine(1, quiet, "a"), userLine(2, quiet, "b"), userLine(3, quiet, "c"),
+	})
+	m := liveness.New(liveness.Options{
+		Now:        func() time.Time { return now },
+		Thresholds: liveness.Thresholds{StartGrace: 30 * time.Minute},
+		Probes:     []liveness.Probe{aliveNoCPU},
+	})
+
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: "still-launching", StartedAt: quiet, TranscriptPath: path,
+	})
+
+	assert.Equal(t, liveness.StateStarting, rep.State,
+		"inside the launch grace absence proves nothing, on the quiet clocks as much as on the missing transcript: %s", rep.Reason)
+	assert.False(t, rep.Firing())
+}

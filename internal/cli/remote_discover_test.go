@@ -25,6 +25,37 @@ func discoverOneRepo() *remote.MockFetcher {
 	return f
 }
 
+// TestPromptRemoteName_UnreadableInputIsNotAnAcceptedDefault pins U040-F10.
+// `nameInput, _ := reader.ReadString('\n')` turned an EOF or read error into
+// the empty string, which the very next line reads as "the user pressed Enter
+// to accept the default" — and the caller then registers a remote under a name
+// nobody supplied. Answering "" is consent to the default; failing to answer is
+// not, and they must not produce the same value.
+func TestPromptRemoteName_UnreadableInputIsNotAnAcceptedDefault(t *testing.T) {
+	name, ok := promptRemoteName(bufio.NewReader(strings.NewReader("")), "alice")
+	assert.False(t, ok, "input that ended before an answer is not an accepted default")
+	assert.Empty(t, name)
+}
+
+// TestPromptRemoteName_AnswersAreStillAnswers is the discriminator for the pin
+// above: an explicit empty line still means the default, a typed name still
+// means itself, and a final line WITHOUT a trailing newline (which ReadString
+// reports with io.EOF) is an answer too, not a read failure.
+func TestPromptRemoteName_AnswersAreStillAnswers(t *testing.T) {
+	for _, tc := range []struct {
+		input, want string
+	}{
+		{"\n", "alice"},
+		{"mine\n", "mine"},
+		{"  mine  \n", "mine"},
+		{"mine", "mine"},
+	} {
+		name, ok := promptRemoteName(bufio.NewReader(strings.NewReader(tc.input)), "alice")
+		assert.True(t, ok, "input %q is an answer", tc.input)
+		assert.Equal(t, tc.want, name, "input %q", tc.input)
+	}
+}
+
 // TestInteractiveAdd_ReadsThroughTheSharedStdinReader pins U040-F09. run.go
 // documents one invariant for interactive input: every prompt reads through
 // the single package-level stdinReader, because a fresh bufio.Reader silently

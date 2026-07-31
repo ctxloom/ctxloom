@@ -151,7 +151,13 @@ func interactiveAdd(cmd *cobra.Command, cfg *config.Config, repos []operations.R
 		}
 
 		repo := repos[num-1]
-		name := promptRemoteName(reader, repo.Owner)
+		name, ok := promptRemoteName(reader, repo.Owner)
+		if !ok {
+			// Input ended between choosing a repo and naming it. Adding one
+			// under the default name here would register a remote the user
+			// never confirmed, so stop instead.
+			return nil
+		}
 		addDiscoveredRemote(cmd, cfg, name, repo.URL)
 	}
 }
@@ -177,16 +183,20 @@ func readRepoChoice(reader *bufio.Reader, count int) (num int, quit bool) {
 	return n, false
 }
 
-// promptRemoteName asks for a remote name, defaulting to defaultName on empty
-// input.
-func promptRemoteName(reader *bufio.Reader, defaultName string) string {
+// promptRemoteName asks for a remote name, defaulting to defaultName when the
+// user answers with an empty line. ok is false when the line could not be read
+// at all (EOF, closed stdin): an ANSWER of "" is consent to the default, a
+// failure to read one is not, and the two must not collapse into the same
+// value — the caller registers a remote off the result.
+func promptRemoteName(reader *bufio.Reader, defaultName string) (name string, ok bool) {
 	fmt.Printf("Name for remote [%s]: ", defaultName)
-	nameInput, _ := reader.ReadString('\n')
-	name := strings.TrimSpace(nameInput)
+	nameInput, err := reader.ReadString('\n')
+	_ = err
+	name = strings.TrimSpace(nameInput)
 	if name == "" {
-		return defaultName
+		return defaultName, true
 	}
-	return name
+	return name, true
 }
 
 // addDiscoveredRemote adds a remote and reports the outcome (errors and

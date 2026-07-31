@@ -50,12 +50,27 @@ func main() {
 		config.SetCompanionsDisabled(true)
 	}
 
-	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1)
-	logger := buildLogger(loggerConstructor(os.Getenv("CTXLOOM_VERBOSE") == "1"), os.Stderr)
-	zap.ReplaceGlobals(logger)
-	defer func() { _ = logger.Sync() }()
+	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1), dispatch, flush,
+	// exit — in that order, and with the exit as the LAST thing this process
+	// does. See runCLI for why the flush cannot be a defer.
+	os.Exit(runCLI(loggerConstructor(os.Getenv("CTXLOOM_VERBOSE") == "1"), cli.Run, os.Stderr))
+}
 
-	cli.Execute()
+// runCLI installs the process-wide logger, dispatches, then flushes the
+// logger's sinks and returns the exit code.
+//
+// The flush is a plain statement on the return path, never a defer: main's
+// last act is os.Exit, which runs no deferred functions, so a deferred flush
+// is skipped on every non-zero exit — precisely the runs whose diagnostics
+// matter. That is also why dispatch RETURNS a code instead of exiting: the
+// exit and the teardown have to live in the same frame or the teardown is
+// decorative.
+func runCLI(construct func() (*zap.Logger, error), dispatch func() int, warn io.Writer) int {
+	logger := buildLogger(construct, warn)
+	zap.ReplaceGlobals(logger)
+	code := dispatch()
+	_ = logger.Sync()
+	return code
 }
 
 // loggerConstructor picks the process logger's build recipe: a development

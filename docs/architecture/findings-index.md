@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,463** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,464** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 171 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 195 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 197 |
-| `open` | no commit names this ID | **242** |
+| `open` | no commit names this ID | **241** |
 
-**Totals: 2268 findings across 162 units — 1,463 resolved, 242 still open, 563 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,464 resolved, 241 still open, 563 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 545 | 135 | 99 | 91 | 129 |
-| LOW | 871 | 559 | 98 | 56 | 96 | 62 |
+| LOW | 871 | 560 | 97 | 56 | 96 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2438,7 +2438,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U075-F02 | **RESOLVED** `12f375ce` | **`shellenv.go:38-43`** | TRIVIAL | `FromEnv` is a pure pass-through to `ShellFromPath` whose sole added statement is dead: `ShellFromPath("")` already returns `""`. | U075.md |
 | U075-F03 | **RESOLVED** `be7767ae` | **`shellenv.go:16`** | CORRECTNESS | `filepath.Base` is OS-dependent: on a Linux/macOS build it does **not** split on `\`, so a Windows-style `C:\Windows\System32\cmd.exe` normalises to `c:\windows\system32\cmd` and falls through to `... | U075.md |
 | U075-F04 | open | **`shellenv.go:4` (vs `internal/shared/shellenv/shellenv.go:1`)`** | COUPLING | Two packages in this module are both named `shellenv`, in overlapping problem space, with different jobs. Any file needing both must alias one, and a reader seeing `shellenv.` at a call site cannot... | U075.md |
-| U075-F05 | open | **`shellenv.go:25-26`** | CORRECTNESS | `ksh` and `ksh93` are mapped to `ir.ShellMksh`, which `shell.variantFor` turns into `syntax.LangMirBSDKorn` (`frontend/shell/shell.go:52-53`) — the *MirBSD* Korn shell. AT&T ksh93 is a materially d... | U075.md |
+| U075-F05 | **RESOLVED** `85a90956` | **`shellenv.go:25-26`** | CORRECTNESS | `ksh` and `ksh93` are mapped to `ir.ShellMksh`, which `shell.variantFor` turns into `syntax.LangMirBSDKorn` (`frontend/shell/shell.go:52-53`) — the *MirBSD* Korn shell. AT&T ksh93 is a materially d... | U075.md |
 | U076-F04 | open | `state.go:52-53` | ERRHANDLING | A corrupt state file silently discards **every** live override, not just the corrupt one, because `Open` falls back to an empty map and the next `Save` overwrites the file wholesale. | U076.md |
 | U076-F05 | open | `confirm.go:54-67` | COHESION | ~350 characters of LLM behavioural instruction ("STOP and re-evaluate… a repeat is a deliberate, logged override, not a retry button…") live inside the persistence package. Tuning the prompt means ... | U076.md |
 | U076-F06 | open | `state.go:41` | COUPLING | `Pending` is exported solely to satisfy `encoding/json`, which leaks a mutable map into the package API and lets any caller construct a band that bypasses `Arm`'s `now.Add(delay)/now.Add(window)` i... | U076.md |

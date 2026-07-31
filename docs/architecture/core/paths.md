@@ -166,16 +166,20 @@ Dead in production: `HarpPlanPath` (`:317`), `VendorPath` (`:468`), `ContextPath
 ## Where documented and real behavior diverge
 
 - The layout vocabulary is **not exclusive**. Four places re-derive paths this package owns:
-  `internal/shared/tasks/paths` declares a rival `AppDirName`/`IndexFileName`;
+  `internal/shared/tasks/paths` aliases `AppDirName` onto this package but declares its own
+  `IndexFileName` — which is NOT a duplication to collapse, since the two name different files
+  (`sessions/index.yaml` versus `projects/index.yaml`) that independently took the conventional
+  name for an index;
   `internal/shared/plans` re-declares the sessions dir and `.plan.md`;
   `internal/remote/lockfile.go:20,62` re-implements `LockPath`; and
   `internal/shared/agent/contextfile.go:21` hardcodes `".ctxloom/cache/context"` rather than calling
   `ContextPath`. `internal/remote/reference.go:501` re-derives `CacheBundlesPath` by hand.
-- `TrustFileName`'s doc comment (`paths.go:32-36`) describes a per-item trust store file at the
-  `.ctxloom` root; no function builds that path. `trust.yaml` was deleted, and the constant now
-  serves only as the `trust` *directory* segment inside `TrustObjectsPath` (`paths.go:493`).
-- `ApprovalsPath`'s doc says it sits next to `allowed_signers.yaml`; that file has no extension.
-- `ResolveHarpCanonicalTranscriptPath` (`:280`) treats any non-`IsNotExist` stat error (EACCES,
-  ELOOP) as "absent".
-- `ProjectSessionsDir` (`:303`) returns a **relative** path when `os.Getwd()` fails.
-- All home-root functions return `os.UserHomeDir`'s error unwrapped, with no operation context.
+- `ProjectSessionsDir` still returns a **relative** path when `os.Getwd()` fails — degrading is
+  correct, since an unanchorable sessions dir must not block startup — but the fallback is no
+  longer silent: it warns that the path it returned is resolved by the caller's working directory
+  rather than anchored.
+- Every function still accepts an empty `appPath` and composes a cwd-relative path from it (see
+  invariant 5). No production caller can currently reach that: `config.findAppDir` and
+  `cli.resolveAppDir` cannot return an empty string, and the three callers that accept one
+  substitute `AppDirName` themselves (`operations.getBaseDir`, `remote.NewLockfileManager`,
+  `cli.projectConfigPath`) — a default duplicated at each site and owned by none of them.

@@ -595,6 +595,63 @@ func TestChat_CancelTurnKeepsConversation(t *testing.T) {
 	assert.Equal(t, []string{"still here"}, texts)
 }
 
+// U012-F20: chatSession.caps is assigned AFTER conn.Start has already launched
+// the read loop, so "never mutated afterward" cannot be what makes it safe to
+// read — a reader that started before the write is racing it regardless of what
+// happens later. What actually makes it safe is narrower: the write and every
+// read happen on Chat's own loop goroutine, and no read-loop handler touches
+// caps at all.
+//
+// This test holds that narrower invariant. The agent floods session/update
+// notifications the instant session/new is answered, so the read loop is
+// actively running handlers in the window where Chat assigns sess.caps; the
+// turn that follows then exercises the capability gate. Under -race, any future
+// read of caps from a notification or request handler is a reported data race
+// here rather than a production heisenbug.
+func TestChat_CapsAreNotReadFromTheReadLoop(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	go func() {
+		initReq := <-h.fa.requests
+		require.Equal(t, "initialize", initReq.Method)
+		require.NoError(t, h.fa.respond(initReq.ID, map[string]any{
+			"protocolVersion":   1,
+			"agentCapabilities": map[string]any{"promptCapabilities": map[string]any{"image": true}},
+		}))
+
+		newReq := <-h.fa.requests
+		require.Equal(t, "session/new", newReq.Method)
+		require.NoError(t, h.fa.respond(newReq.ID, map[string]any{"sessionId": "sess-1"}))
+
+		// Overlap window: these run on the read loop while Chat is assigning
+		// sess.caps from setup's return.
+		for i := 0; i < 64; i++ {
+			_ = h.fa.sessionUpdate("sess-1", `{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"x"}}`)
+		}
+
+		promptReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	// A block whose delivery is decided by caps.Prompt.Image, so the read side
+	// of the field is genuinely exercised.
+	h.in <- agent.ChatMessage{
+		Text:          "look",
+		ContentBlocks: []agent.ContentBlock{{Kind: "image", Raw: json.RawMessage(`{"type":"image","data":"aGVsbG8=","mimeType":"image/png"}`)}},
+	}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+
+	var complete int
+	for _, ev := range events() {
+		if ev.Complete != nil {
+			complete++
+		}
+	}
+	assert.Equal(t, 1, complete, "the conversation must complete normally while the read loop was busy")
+}
+
 // U012-F17: a CancelTurn that arrives with no turn in flight used to be
 // dropped on the floor — no session/cancel, no event, no diagnostic. That is
 // a genuine race for any client driving this over the gRPC or ACP door: the

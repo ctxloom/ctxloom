@@ -345,8 +345,9 @@ func TestConstraintResolver_SkipWarningNamesTheCause(t *testing.T) {
 				m.ResolveRefErr = errors.New("no tag matches ^9.0")
 				return m, nil
 			},
-			ref:  mustRef(t, "^9.0"),
-			want: "no tag matches ^9.0",
+			ref: mustRef(t, "^9.0"),
+			// ResolveConstraint's own diagnosis, which the skip line discarded.
+			want: "no tag satisfies version constraint",
 		},
 	}
 

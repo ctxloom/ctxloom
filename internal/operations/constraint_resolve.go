@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -22,7 +23,10 @@ import (
 //  4. Fault-tolerant fallback — if resolution fails (offline, no matching tag),
 //     fall back to the last locked SHA when one exists; otherwise skip the item
 //     with a warning rather than pin an empty SHA (CLAUDE.md: degrade, never
-//     fabricate).
+//     fabricate). Skipping drops a dependency out of the lockfile silently
+//     apart from that one line, so it carries the CAUSE — an unusable fetcher,
+//     an unparseable repository URL and an unsatisfiable constraint need
+//     different remedies and used to be indistinguishable.
 //
 // reResolve selects the mode: false (lock) carries an unchanged-constraint entry
 // forward for stability; true (upgrade) re-resolves it to the newest commit the
@@ -37,20 +41,36 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 	}
 	cache := map[string]resolved{}
 	failed := map[string]bool{} // negative cache: don't re-resolve (or re-warn) a known failure
-	rvByURL := map[string]remote.RepoVersions{}
 
-	repoVersions := func(url string) remote.RepoVersions {
-		if rv, ok := rvByURL[url]; ok {
-			return rv
+	// A skipped dependency is reported by exactly one warning line, and the walk
+	// then continues without the item — so that line is the user's only signal
+	// and has to distinguish the causes. Cache the cause alongside the (nil)
+	// RepoVersions rather than discarding it.
+	type repoLookup struct {
+		rv    remote.RepoVersions
+		cause error
+	}
+	rvByURL := map[string]repoLookup{}
+
+	repoVersions := func(url string) (remote.RepoVersions, error) {
+		if e, ok := rvByURL[url]; ok {
+			return e.rv, e.cause
 		}
-		var rv remote.RepoVersions
-		if f, err := factory(url, auth); err == nil {
-			if owner, repo, perr := remote.ParseOwnerRepo(url); perr == nil {
-				rv = remote.NewFetcherRepoVersions(f, owner, repo)
+		var e repoLookup
+		f, err := factory(url, auth)
+		switch {
+		case err != nil:
+			e.cause = fmt.Errorf("no fetcher for %s: %w", url, err)
+		default:
+			owner, repo, perr := remote.ParseOwnerRepo(url)
+			if perr != nil {
+				e.cause = fmt.Errorf("unparseable repository URL %q: %w", url, perr)
+			} else {
+				e.rv = remote.NewFetcherRepoVersions(f, owner, repo)
 			}
 		}
-		rvByURL[url] = rv // cache the failure (nil) too — don't retry per ref
-		return rv
+		rvByURL[url] = e // cache the failure too — don't retry per ref
+		return e.rv, e.cause
 	}
 
 	lockEntry := func(ref *remote.Reference) (remote.LockEntry, bool) {
@@ -91,17 +111,23 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 			return store(expr, "", remote.SelectorSHA)
 		}
 		// 3. Resolve the constraint against the repo's version space.
-		if rv := repoVersions(ref.URL); rv != nil {
-			if res, err := remote.ResolveConstraint(ctx, expr, rv); err == nil {
+		rv, cause := repoVersions(ref.URL)
+		if cause == nil && rv == nil {
+			cause = fmt.Errorf("no version space for %s", ref.URL)
+		}
+		if cause == nil {
+			res, err := remote.ResolveConstraint(ctx, expr, rv)
+			if err == nil {
 				return store(res.SHA, res.Version, res.Kind)
 			}
+			cause = err
 		}
 		// 4. Fault tolerant: keep the last locked SHA, else skip.
 		if e, ok := lockEntry(ref); ok && e.SHA != "" {
 			return store(e.SHA, e.Version, e.SelectorKind())
 		}
 		failed[key] = true
-		clidiag.Warn("ctxloom", "could not resolve %s@%s; skipping", identity, expr)
+		clidiag.Warn("ctxloom", "could not resolve %s@%s; skipping: %v", identity, expr, cause)
 		return "", "", "", false
 	}
 }

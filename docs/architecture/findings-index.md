@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,530** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,531** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **143** |
+| `open` | no commit names this ID | **142** |
 
-**Totals: 2268 findings across 162 units — 1,530 resolved, 143 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,531 resolved, 142 still open, 595 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 578 | 84 | 104 | 96 | 137 |
-| LOW | 871 | 591 | 52 | 61 | 104 | 63 |
+| LOW | 871 | 592 | 51 | 61 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2780,7 +2780,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U148-F08 | **RESOLVED** `d549cc83` | `rollout.go:119`, `148` | ERRHANDLING | Context cancellation is not observed until after the whole file is read into memory **and** fully scanned once | U148.md |
 | U148-F09 | **RESOLVED** `dc593332` | `rollout.go:278` | CORRECTNESS | `c.pending.ContextWindow = p.Info.ModelContextWindow` overwrites unconditionally, so a later `token_count` that omits `model_context_window` zeroes an already-good value | U148.md |
 | U148-F10 | **RESOLVED** `44ae42e7` | `codex_test.go:201` | CORRECTNESS | The hand-pinned backstop cannot distinguish `argumentsToRaw`'s correct object pass-through from its escaped-string fallback — the one property whose only other guard is a machine-regenerated golden | U148.md |
-| U148-F11 | open | `codex_test.go:1-11` | CORRECTNESS | The suite header claims the package validates codex "against a fresh rollout file"; the documented command validates against a frozen 2026-07-16 fixture | U148.md |
+| U148-F11 | **RESOLVED** `b260ef00` | `codex_test.go:1-11` | CORRECTNESS | The suite header claims the package validates codex "against a fresh rollout file"; the documented command validates against a frozen 2026-07-16 fixture | U148.md |
 | U148-F12 | **RESOLVED** `a4f1a039` | `codex.go:37` | NOPAY | `New()` is a one-expression constructor for a zero-size struct, with one production call site, whose own comment concedes `Adapter{}` works identically | U148.md |
 | U149-F07 | **REFUTED** `b2cedeec` | **`mapping.go:16-18`** | NOPAY | `converter` is a one-field struct with one method and one construction site; the type buys nothing. | U149.md |
 | U149-F08 | **RESOLVED** `f8b484eb` | **`mapping.go:96-98`** | TRIVIAL | `joinToolResultText` is a single-expression pass-through to `importer.JoinNonEmptyFunc` with one production call site and no invariant of its own. | U149.md |

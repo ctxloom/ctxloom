@@ -1,7 +1,9 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -140,4 +143,44 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 		"a session distilled by this very call must be reported distilled; a cached pre-distill probe would say false")
 	assert.Equal(t, "distilled just now", out.Sessions[0].Title,
 		"the re-read exists so freshly-written summaries reach the returned rows")
+}
+
+// THE HOST-RELAY WARNINGS ARE REDIRECTABLE, NOT RAW STDERR.
+//
+// distillSession's doc says progress is deliberately NOT written to stderr:
+// on the host-relay path it runs inside the session-owning process, whose
+// stderr is the terminal the harness draws its TUI on. The per-entry failure
+// warnings in this file satisfy that constraint by going through the clidiag
+// SINK rather than os.Stderr — and under `ctxloom run` the session repoints
+// that sink at its own diagnostics log for its whole lifetime
+// (redirectDiagnosticsForTUI), so nothing lands on the TUI's terminal.
+//
+// This pins the property the constraint actually needs (U039-F07, refuted:
+// the row read clidiag.Warn as a raw stderr write). Writing these warnings to
+// os.Stderr directly — or to any writer clidiag does not own — would leave
+// the buffer empty and fail here.
+func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testing.T) {
+	testsupport.Isolate(t)
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+
+	proj := t.TempDir()
+	e, err := mgr.AssignHarp(proj, "claude-code")
+	require.NoError(t, err)
+
+	prev := compactEntryFn
+	compactEntryFn = func(context.Context, *sessions.Entry, *config.Config, string, io.Writer) (*memory.CompactionResult, error) {
+		return nil, errors.New("legacy session needs a cwd-bound reader")
+	}
+	defer func() { compactEntryFn = prev }()
+
+	var diagnostics bytes.Buffer
+	restore := clidiag.SetSink(&diagnostics)
+	defer restore()
+
+	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	s.distillMissingForList(context.Background(), []sessions.Entry{{HarpName: e.HarpName, Backend: "claude-code"}})
+
+	assert.Contains(t, diagnostics.String(), e.HarpName,
+		"a per-entry distill failure must be reported through the clidiag sink the session can redirect, never straight to the harness's terminal")
 }

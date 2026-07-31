@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,285** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,286** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 122 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 168 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **528** |
+| `open` | no commit names this ID | **527** |
 
-**Totals: 2268 findings across 162 units — 1,285 resolved, 528 still open, 455 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,286 resolved, 527 still open, 455 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 455 | 293 | 68 | 79 | 104 |
+| MED | 999 | 456 | 292 | 68 | 79 | 104 |
 | LOW | 871 | 473 | 223 | 39 | 81 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1032,7 +1032,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U014-F04 | **RESOLVED** `c048459f` | **`server.go:403-415, 452-469`** | CORRECTNESS | A failure *after* the session is registered replies with an error while leaving the session in `s.sessions` with a live engine subprocess. For `session/load` this permanently occupies the harp id: ... | U014.md |
 | U014-F05 | **RESOLVED** `168263b9` | **`server.go:482-501`** | CORRECTNESS | The duplicate-session check for a fixed (`session/load`) id is a TOCTOU, and its fallback is wrong: on a lost race the session is silently registered under a *generated* `ctxloom-N` id instead of t... | U014.md |
 | U014-F06 | **RESOLVED** `f7977d2c` | **`server.go:643-650`** | CORRECTNESS | `reply(nil, engineError(<-sess.engine.Errs))` is an unguarded blocking receive. It is only safe because the production producer closes `Errs` and `Events` together (internal/lm/grpc/chat.go:410-411... | U014.md |
-| U014-F07 | open | **`server.go:887-893`** | ERRHANDLING | `switchProfile` warns-and-continues when either notification fails, then returns nil, so `session/set_mode` and `session/set_config_option` reply **success** to a client that received neither the `... | U014.md |
+| U014-F07 | **RESOLVED** `889435f9` | **`server.go:887-893`** | ERRHANDLING | `switchProfile` warns-and-continues when either notification fails, then returns nil, so `session/set_mode` and `session/set_config_option` reply **success** to a client that received neither the `... | U014.md |
 | U014-F08 | **RESOLVED** `f22c8e37` | `fsupstream.go:185-193, server.go:983-1002` | CORRECTNESS | Data race and socket leak on `sess.fsUpstream`. `openSession` publishes the session into `s.sessions` (server.go:513) *before* `openSessionWithFsUpstream` assigns `sess.fsUpstream` (fsupstream.go:1... | U014.md |
 | U014-F10 | open | `fsupstream.go:90-91, 151-162` | CORRECTNESS | The reach-back socket is gated **only** on the editor's `ReadTextFile` capability, but the handler also relays `fs/write_text_file`. `clientFs.WriteTextFile` is read nowhere in the repo (verified: ... | U014.md |
 | U014-F11 | **RESOLVED** `7428ca1b` | `wire.go:43-99` | NOPAY | `modelState`/`modelWire`/`modelStateWire` and the `models` field on both response bodies emit a shape the current spec does not define (its own doc says so at wire.go:60-63), duplicating data `conf... | U014.md |

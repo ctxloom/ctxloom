@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,535** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **137** |
+| `open` | no commit names this ID | **136** |
 
-**Totals: 2268 findings across 162 units — 1,535 resolved, 137 still open, 596 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,535 resolved, 136 still open, 597 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -334,7 +334,7 @@ which also asserts each row's columns sum to its section size.
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 581 | 80 | 105 | 96 | 137 |
 | LOW | 871 | 592 | 51 | 61 | 104 | 63 |
-| (unparsed) | 22 | 10 | 6 | 4 | 2 | 0 |
+| (unparsed) | 22 | 10 | 5 | 4 | 3 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
 HIGH rows across U037/U104/U119/U141/U154 fixed (U037-F02/F03/F05, U104-F01,
@@ -2871,5 +2871,5 @@ Rows whose severity column did not parse — listed so nothing is silently lost.
 | U129-F05 | **RESOLVED** `cb384e6a` | `textutil.go:22-29` | LOW | CORRECTNESS | For input that is not valid UTF-8, the strip loop can consume the entire prefix and return `""` — a zero-payload success — and it does so one byte per iteration, O(k) in the invalid-run length. | U129.md |
 | U129-F06 | **PARTIAL** `94a270fa` | `textutil.go:1-2` | LOW | COHESION | The package is named and documented as a grab-bag ("small string helpers shared across ctxloom packages") while containing exactly one function with one clear invariant. Grab-bag names are how unre... | U129.md |
 | U130-F04 | open | `tokens.go:13` | LOW | CORRECTNESS | Integer division makes `Estimate` return `0` for any text of 1-3 bytes. A non-empty string estimated at zero tokens is a latent trap for any caller that gates on the result. | U130.md |
-| U132-F08 | open | `watch.go:144-157` | LOW | CORRECTNESS | `normalize`'s `default` arm returns `OpChmod`, so an unrecognised or empty fsnotify op is reported as a **confident** "chmod" rather than as unknown. Same absence-vs-evidence collapse as F06. | U132.md |
+| U132-F08 | **REFUTED** `a818b51f` | `watch.go:144-157` | LOW | CORRECTNESS | `normalize`'s `default` arm returns `OpChmod`, so an unrecognised or empty fsnotify op is reported as a **confident** "chmod" rather than as unknown. Same absence-vs-evidence collapse as F06. | U132.md |
 | U132-F09 | **RESOLVED** `f99938f8` | `watch.go:118-122` | LOW | CORRECTNESS | The recursive-add is inherently racy: files created inside a new directory between the `mkdir` and `fsw.Add` are missed with no rescan. Unfixable with fsnotify alone, but currently undocumented. | U132.md |

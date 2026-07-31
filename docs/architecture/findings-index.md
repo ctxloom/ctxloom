@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,501** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,502** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 176 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **180** |
+| `open` | no commit names this ID | **179** |
 
-**Totals: 2268 findings across 162 units — 1,501 resolved, 180 still open, 587 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,502 resolved, 179 still open, 587 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 564 | 104 | 101 | 95 | 135 |
-| LOW | 871 | 578 | 67 | 59 | 104 | 63 |
+| LOW | 871 | 579 | 66 | 59 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2649,7 +2649,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U109-F06 | **ESCALATED** `6c89e42f` | `filelock_windows.go:11-20,52-88` | DUPLICATE | The `LazyDLL`/`LazyProc` binding to `LockFileEx`/`UnlockFileEx` re-implements what `golang.org/x/sys/windows` already exports as typed functions, and the module already depends on `golang.org/x/sys... | U109.md |
 | U110-F05 | open | `gitutil.go:1` | COUPLING | The package doc is "Package gitutil provides git repository utilities." — a name restatement. It does not say which of the two git layers a reader should reach for, that it is deliberately environm... | U110.md |
 | U111-F08 | open | `harp.go:225-227` | ERRHANDLING | `randIndex(n)` returns `0` for `n <= 0`, converting a caller bug into a plausible value. | U111.md |
-| U111-F09 | open | `harp.go:108-114` | CORRECTNESS | `Groups()` returns names in Go map-iteration order, i.e. randomized per process. | U111.md |
+| U111-F09 | **RESOLVED** `fd4d5fb8` | `harp.go:108-114` | CORRECTNESS | `Groups()` returns names in Go map-iteration order, i.e. randomized per process. | U111.md |
 | U113-F04 | **RESOLVED** `5ff9c4ab` | `internal/shared/iox/errwriter.go:62-67` vs `:73-80` | DUPLICATE | `WriteRaw` re-implements `Write`'s body instead of delegating; the short-circuit guard now exists in two places on the same field | U113.md |
 | U113-F05 | open | `internal/shared/iox/atomicwrite.go:20,26,34,38,42,46` and `internal/shared/iox/atomicwrite_fs.go:19,25,33,37,41,46` | ERRHANDLING | Both writers return bare stdlib errors with no context; the most likely one (`CreateTemp`) names the *temp* file, not the target the caller asked to write, and several callers do not wrap either | U113.md |
 | U113-F07 | open | `internal/shared/iox/atomicwrite.go:40`, `internal/shared/iox/atomicwrite_fs.go:40` | CORRECTNESS | `perm` is applied via `Chmod`, which **ignores umask**, unlike `os.WriteFile`/`afero.WriteFile`, which mask it. A caller migrating from `os.WriteFile` silently gets a wider mode than before under a... | U113.md |

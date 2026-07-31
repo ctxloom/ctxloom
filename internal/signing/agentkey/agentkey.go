@@ -424,6 +424,19 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 	return d.resolveSoleAgentIdentity([]string{"git config user.signingkey", "ssh-agent identities"})
 }
 
+// noKeyFrom classifies a non-ambiguous resolution failure.
+//
+// Discover fails in exactly two shapes, and which one a caller gets must
+// depend on WHAT went wrong, never on which step of the chain was running:
+// *AmbiguousKeyError / *AmbiguousKeyNameError mean candidates exist and the
+// user must choose, and *NoKeyError means nothing usable resolved. NoKeyError
+// tells callers they MUST treat it as a hard failure to sign, which is only
+// actionable if the type covers every such failure. cause is kept both as the
+// displayed Detail and, via Err, as something errors.Is/As can still reach.
+func noKeyFrom(looked []string, cause error) *NoKeyError {
+	return &NoKeyError{Looked: looked, Detail: cause.Error(), Err: cause}
+}
+
 // resolveExplicit resolves --key/sign.key in fallback order: (a) a SHA256
 // fingerprint, (b) a key line/literal/path to a public key, (c) — only when
 // (b) fails to produce a key at all — a case-insensitive substring match
@@ -433,25 +446,29 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 // fingerprint or resolves as a file must never be reinterpreted as a name
 // just because it happens to also resemble one.
 func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (result *Discovered, err error) {
+	looked := []string{"--key/sign.key " + displayKeyValue(explicitKey)}
+
 	ag, err := d.dialAgent()
 	if err != nil {
-		return nil, &NoKeyError{
-			Looked: []string{"--key/sign.key " + displayKeyValue(explicitKey)},
-			Detail: err.Error(),
-			Err:    err,
-		}
+		return nil, noKeyFrom(looked, err)
 	}
 	defer releaseUnlessRetained(ag, &result)
 
 	if strings.HasPrefix(explicitKey, "SHA256:") {
 		d2, ferr := findByFingerprint(ag, explicitKey, "--key")
-		return retain(d2, ag), ferr
+		if ferr != nil {
+			return nil, noKeyFrom(looked, ferr)
+		}
+		return retain(d2, ag), nil
 	}
 
 	pub, pubErr := d.resolvePublicKey(explicitKey)
 	if pubErr == nil {
 		d2, ferr := findByPublicKey(ag, pub, "--key")
-		return retain(d2, ag), ferr
+		if ferr != nil {
+			return nil, noKeyFrom(looked, ferr)
+		}
+		return retain(d2, ag), nil
 	}
 
 	discovered, nameErr := d.resolveByComment(ag, explicitKey)
@@ -471,7 +488,7 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (r
 	// dropped here in favor of pubErr alone, so an agent RPC failure was
 	// reported as "not a recognized fingerprint, public key, or ssh-agent key
 	// name" — true but misleading about WHY. Chain nameErr too.
-	return nil, fmt.Errorf("--key %s: not a recognized fingerprint or public key (%v); and %w", displayKeyValue(explicitKey), pubErr, nameErr)
+	return nil, noKeyFrom(looked, fmt.Errorf("not a recognized fingerprint or public key (%v); and %w", pubErr, nameErr))
 }
 
 // resolveByComment is the last resort of resolveExplicit's fallback chain:
@@ -529,18 +546,16 @@ func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Disc
 // ctx cancellation was honored here. Dropped rather than left lying; wiring
 // real cancellation into DialAgent is a separate, larger change.
 func (d *Discoverer) resolveGitSigningKey(value string) (result *Discovered, err error) {
+	gitLooked := []string{"git config user.signingkey"}
+
 	pub, err := d.resolvePublicKey(value)
 	if err != nil {
-		return nil, fmt.Errorf("git config user.signingkey %s: %w", displayKeyValue(value), err)
+		return nil, noKeyFrom(gitLooked, fmt.Errorf("git names %s, but %w", displayKeyValue(value), err))
 	}
 
 	ag, err := d.dialAgent()
 	if err != nil {
-		return nil, &NoKeyError{
-			Looked: []string{"git config user.signingkey"},
-			Detail: fmt.Sprintf("git names %s, but %s", ssh.FingerprintSHA256(pub), err),
-			Err:    err,
-		}
+		return nil, noKeyFrom(gitLooked, fmt.Errorf("git names %s, but %w", ssh.FingerprintSHA256(pub), err))
 	}
 	defer releaseUnlessRetained(ag, &result)
 
@@ -552,11 +567,7 @@ func (d *Discoverer) resolveGitSigningKey(value string) (result *Discovered, err
 		// and the second one is not fixed by "ssh-add it": the key IS loaded,
 		// the agent just could not be asked. Surface findByPublicKey's own
 		// message (and chain its cause via Err) instead of guessing.
-		return nil, &NoKeyError{
-			Looked: []string{"git config user.signingkey"},
-			Detail: fmt.Sprintf("git names %s, but %v", ssh.FingerprintSHA256(pub), err),
-			Err:    err,
-		}
+		return nil, noKeyFrom(gitLooked, fmt.Errorf("git names %s, but %w", ssh.FingerprintSHA256(pub), err))
 	}
 	return retain(d2, ag), nil
 }
@@ -568,7 +579,7 @@ func (d *Discoverer) resolveGitSigningKey(value string) (result *Discovered, err
 func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (result *Discovered, err error) {
 	ag, err := d.dialAgent()
 	if err != nil {
-		return nil, &NoKeyError{Looked: looked, Detail: err.Error(), Err: err}
+		return nil, noKeyFrom(looked, err)
 	}
 	defer releaseUnlessRetained(ag, &result)
 
@@ -578,7 +589,7 @@ func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (result *Discover
 		// is a different fact than "the agent holds no identities" — chain
 		// the real cause via Err so a caller can errors.Is/As it, not just
 		// read a flattened string.
-		return nil, &NoKeyError{Looked: looked, Detail: fmt.Sprintf("listing ssh-agent identities: %v", err), Err: err}
+		return nil, noKeyFrom(looked, fmt.Errorf("listing ssh-agent identities: %w", err))
 	}
 	if len(signers) == 0 {
 		return nil, &NoKeyError{Looked: looked}

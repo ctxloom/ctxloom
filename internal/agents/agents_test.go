@@ -183,3 +183,43 @@ func TestGetAgentDirs(t *testing.T) {
 	// No agents dir → no entry.
 	assert.Empty(t, GetAgentDirs(nil, []string{filepath.Join(root, "absent")}))
 }
+
+// TestLoader_CorruptFileDoesNotShadowLaterValidAgent pins U028-F04: the
+// first-directory-wins rule is about a NAME that RESOLVED, not a name that was
+// merely encountered. A file that fails to parse is skipped with a warning, so
+// it must not also claim the name — otherwise a corrupt agent in an
+// earlier-searched directory makes a perfectly valid same-named agent in a
+// later directory disappear, and the user is told only "skipping agent …",
+// never that a real definition was suppressed.
+func TestLoader_CorruptFileDoesNotShadowLaterValidAgent(t *testing.T) {
+	first := t.TempDir()
+	second := t.TempDir()
+	writeAgentFile(t, first, "reviewer.yaml", "profiles: [\n")
+	writeAgentFile(t, second, "reviewer.yaml", "engine: fast\nprofiles:\n  - review\n")
+
+	l := NewLoader([]string{first, second}, nil)
+	got, err := l.List()
+	require.NoError(t, err)
+
+	require.Len(t, got, 1, "the valid definition in the second directory must survive")
+	assert.Equal(t, "reviewer", got[0].Name)
+	assert.Equal(t, "fast", got[0].Engine)
+	assert.Equal(t, []string{"review"}, got[0].Profiles)
+}
+
+// TestLoader_ValidFileStillWinsOverLaterDuplicate pins the other half of the
+// same rule, so the U028-F04 fix cannot be "stop deduplicating": a SUCCESSFUL
+// load in the first directory still shadows a later same-named agent.
+func TestLoader_ValidFileStillWinsOverLaterDuplicate(t *testing.T) {
+	first := t.TempDir()
+	second := t.TempDir()
+	writeAgentFile(t, first, "reviewer.yaml", "engine: first\nprofiles:\n  - a\n")
+	writeAgentFile(t, second, "reviewer.yaml", "engine: second\nprofiles:\n  - b\n")
+
+	l := NewLoader([]string{first, second}, nil)
+	got, err := l.List()
+	require.NoError(t, err)
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "first", got[0].Engine)
+}

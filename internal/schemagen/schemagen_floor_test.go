@@ -137,3 +137,43 @@ func TestGenerate_DoesNotPruneStaleSchemas(t *testing.T) {
 		t.Errorf("the generator started pruning: %v — that is a deliberate change, not a silent one", err)
 	}
 }
+
+// TestGenerate_DoesNotReorderTheCallersSlice pins U097-F03: Generate sorted the
+// targets slice it was handed, and sort.Slice sorts the caller's backing array
+// in place. A caller that builds a target list, hands it over, and then reads
+// it back (to report on it, to diff it, to hand the same slice to a second
+// generator) silently observes a DIFFERENT order than it constructed — an
+// undocumented side effect on an argument the signature gives no hint is
+// mutable. Generate's own deterministic processing order is worth keeping, so
+// the ordering happens on a copy; only the mutation is the defect.
+func TestGenerate_DoesNotReorderTheCallersSlice(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "gen")
+	type sample struct {
+		A string `json:"a"`
+	}
+	// Deliberately supplied in reverse of the order Generate processes them.
+	targets := []Target{
+		{Type: reflect.TypeOf(sample{}), Name: "zulu"},
+		{Type: reflect.TypeOf(sample{}), Name: "alpha"},
+	}
+	want := []string{"zulu", "alpha"}
+
+	if _, err := Generate(dir, targets); err != nil {
+		t.Fatal(err)
+	}
+
+	// Assert the fixture reached the code under test at all: if Generate had
+	// bailed before the ordering step, the slice would be untouched for a
+	// reason that has nothing to do with the defect (§11k).
+	for _, n := range want {
+		if _, err := os.Stat(filepath.Join(dir, n+"-schema.json")); err != nil {
+			t.Fatalf("%s-schema.json was not written, so this test never reached the ordering step: %v", n, err)
+		}
+	}
+
+	for i, n := range want {
+		if targets[i].Name != n {
+			t.Fatalf("Generate reordered the caller's slice: position %d is %q, want %q", i, targets[i].Name, n)
+		}
+	}
+}

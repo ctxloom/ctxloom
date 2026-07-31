@@ -54,13 +54,29 @@ func SubmodulePaths(fsys afero.Fs, startDir string) ([]string, error) {
 	}
 }
 
-// parseSubmodulePaths extracts the `path = …` values from a .gitmodules document.
-// .gitmodules is git-config (INI) format; each [submodule "name"] stanza carries
-// a `path` key. We read only those keys, which is all the rule expansion needs.
+// parseSubmodulePaths extracts the `submodule.<name>.path` values from a
+// .gitmodules document. .gitmodules is git-config (INI) format, and a `path`
+// key means "submodule path" ONLY inside a `[submodule …]` stanza — git itself
+// reads no other section here. A stanza-blind scan would promote any other
+// section's `path` key into a submodule, and `@submodules` expansion turns each
+// one into a deny pattern, so the rule would guard directories the operator
+// never declared.
+//
+// Section names are case-insensitive in git-config, and a variable may follow
+// its section header on the same line ("[submodule \"x\"] path = x" is one
+// legal stanza), so both forms are handled.
 func parseSubmodulePaths(content string) []string {
 	var paths []string
+	inSubmodule := false
 	for line := range strings.SplitSeq(content, "\n") {
 		line = strings.TrimSpace(line)
+		if name, rest, ok := sectionHeader(line); ok {
+			inSubmodule = name == "submodule"
+			line = rest
+		}
+		if !inSubmodule {
+			continue
+		}
 		key, val, ok := strings.Cut(line, "=")
 		if !ok || strings.TrimSpace(key) != "path" {
 			continue
@@ -70,4 +86,25 @@ func parseSubmodulePaths(content string) []string {
 		}
 	}
 	return paths
+}
+
+// sectionHeader splits a git-config section header off the front of line. It
+// returns the lowercased section name (git-config section names are
+// case-insensitive), whatever follows the closing bracket, and whether line
+// started a header at all. Both subsection spellings are covered: the quoted
+// `[submodule "name"]` form git writes, and the deprecated `[submodule.name]`
+// dotted form.
+func sectionHeader(line string) (name, rest string, ok bool) {
+	if !strings.HasPrefix(line, "[") {
+		return "", "", false
+	}
+	end := strings.IndexByte(line, ']')
+	if end < 0 {
+		return "", "", false
+	}
+	inner := line[1:end]
+	if i := strings.IndexAny(inner, " \t."); i >= 0 {
+		inner = inner[:i]
+	}
+	return strings.ToLower(strings.TrimSpace(inner)), strings.TrimSpace(line[end+1:]), true
 }

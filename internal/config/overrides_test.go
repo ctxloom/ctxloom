@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -163,4 +165,48 @@ func TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "from-flag", cfg.defaultAgent, "--config-set must beat env")
 	assert.Equal(t, "host", cfg.runtime, "the --runtime BUSINESS flag must never be scanned as a config override")
+}
+
+// U048-F17 claimed three initialization errors in this file are handled three
+// DIFFERENT ways: InstallOverridesFromFlags discards the validator error
+// entirely with no log, loadUncached zap-warns it, and mergeDefaultConfig
+// returns silently.
+//
+// The first limb is no longer true. U096-F01 changed both validator sites: this
+// one now zap-warns with a stated rationale, and loadUncached escalates to a
+// fatal-class cfg.warnings entry. The remaining divergence is therefore
+// deliberate and carries its reasoning in the code at each site — a compile
+// failure DURING A LOAD disables validation for every config in the process
+// (fatal-class), the same failure during override RESOLUTION only degrades
+// KnownPath to "nothing recognized" (a warning), and an unreadable embedded
+// default is fault tolerance by design ("a malformed/unreadable default never
+// blocks startup"). Three different consequences, three different responses.
+//
+// loadUncached's half is pinned by TestLoad_SchemaCompileFailureProducesWarning.
+// This is the half that had nothing, so a future "consistency" pass that
+// silences it, or that promotes it to a hard failure, fails here instead of
+// changing startup behaviour unobserved.
+func TestInstallOverridesFromFlags_SchemaCompileFailureDegradesNotFails(t *testing.T) {
+	testsupport.Isolate(t)
+	orig := newConfigValidatorFn
+	newConfigValidatorFn = func() (*schema.ConfigValidator, error) {
+		return nil, errors.New("simulated schema compile failure")
+	}
+	defer func() { newConfigValidatorFn = orig }()
+
+	appDir := t.TempDir()
+	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\n"), 0o644))
+
+	fs := pflag.NewFlagSet("test", pflag.ContinueOnError)
+	fs.StringArray(confload.ConfigSetFlagName, nil, "")
+	require.NoError(t, fs.Set(confload.ConfigSetFlagName, "default_agent=from-flag"))
+
+	require.NoError(t, InstallOverridesFromFlags(fs),
+		"a schema-compile failure must degrade override resolution, never fail the invocation")
+	t.Cleanup(ResetOverrides)
+
+	cfg, err := Load(WithAppDir(appDir))
+	require.NoError(t, err)
+	assert.Equal(t, "from-flag", cfg.defaultAgent,
+		"the override must still be installed and applied with no schema knowledge — degrading KnownPath is not the same as dropping the override")
 }

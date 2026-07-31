@@ -3,7 +3,6 @@ package cli
 import (
 	"bufio"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -68,6 +67,10 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 		GitHubFetcher: fetcher,
 	})
 	if err != nil {
+		// The progress line above is deliberately newline-less so the result
+		// count can be appended to it. Nothing appends on this path, so close
+		// it here — otherwise the error prints as a continuation of it.
+		fmt.Println()
 		return err
 	}
 
@@ -112,7 +115,15 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 
 	fmt.Println()
 
-	// Interactive add
+	// The add-loop is a prompt/answer conversation, so it is only offered on a
+	// terminal — off one it would write a question nobody can answer into the
+	// caller's own output and then quit on the resulting EOF. Say how to get
+	// it rather than skipping silently.
+	if !isInteractiveTerminal() {
+		fmt.Println("Run 'ctxloom remote discover' in a terminal to add one of these interactively,")
+		fmt.Println("or add it directly: ctxloom remote add <name> <url>")
+		return nil
+	}
 	if err := interactiveAdd(cmd, cfg, result.Repositories); err != nil {
 		return err
 	}
@@ -123,8 +134,13 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 // interactiveAdd prompts the user to add a discovered repo as a remote. It
 // reuses the cfg already loaded by the caller — a second GetConfig() here would
 // re-run config.Load and re-print any config warnings to the user.
+//
+// Input comes from the process-wide stdinReader (run.go), never a fresh reader:
+// a second buffered reader over os.Stdin discards whatever the first one
+// buffered past its line, so type-ahead answered to an earlier prompt would
+// vanish here — and the lines this loop reads would vanish from later prompts.
 func interactiveAdd(cmd *cobra.Command, cfg *config.Config, repos []operations.RepoEntry) error {
-	reader := bufio.NewReader(os.Stdin)
+	reader := stdinReader
 	for {
 		num, quit := readRepoChoice(reader, len(repos))
 		if quit {
@@ -135,7 +151,13 @@ func interactiveAdd(cmd *cobra.Command, cfg *config.Config, repos []operations.R
 		}
 
 		repo := repos[num-1]
-		name := promptRemoteName(reader, repo.Owner)
+		name, ok := promptRemoteName(reader, repo.Owner)
+		if !ok {
+			// Input ended between choosing a repo and naming it. Adding one
+			// under the default name here would register a remote the user
+			// never confirmed, so stop instead.
+			return nil
+		}
 		addDiscoveredRemote(cmd, cfg, name, repo.URL)
 	}
 }
@@ -161,16 +183,25 @@ func readRepoChoice(reader *bufio.Reader, count int) (num int, quit bool) {
 	return n, false
 }
 
-// promptRemoteName asks for a remote name, defaulting to defaultName on empty
-// input.
-func promptRemoteName(reader *bufio.Reader, defaultName string) string {
+// promptRemoteName asks for a remote name, defaulting to defaultName when the
+// user answers with an empty line. ok is false when the line could not be read
+// at all (EOF, closed stdin): an ANSWER of "" is consent to the default, a
+// failure to read one is not, and the two must not collapse into the same
+// value — the caller registers a remote off the result.
+func promptRemoteName(reader *bufio.Reader, defaultName string) (name string, ok bool) {
 	fmt.Printf("Name for remote [%s]: ", defaultName)
-	nameInput, _ := reader.ReadString('\n')
-	name := strings.TrimSpace(nameInput)
-	if name == "" {
-		return defaultName
+	nameInput, err := reader.ReadString('\n')
+	name = strings.TrimSpace(nameInput)
+	// ReadString reports io.EOF alongside a final line that carries no
+	// trailing newline, so bytes read ARE an answer whatever the terminator;
+	// only a read that produced none is a failure to answer.
+	if err != nil && name == "" {
+		return "", false
 	}
-	return name
+	if name == "" {
+		return defaultName, true
+	}
+	return name, true
 }
 
 // addDiscoveredRemote adds a remote and reports the outcome (errors and

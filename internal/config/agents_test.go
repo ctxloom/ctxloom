@@ -3,14 +3,19 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -203,4 +208,149 @@ func TestAgentDirLoader_NeverNil(t *testing.T) {
 	list, err := loader.List()
 	require.NoError(t, err)
 	assert.Empty(t, list)
+}
+
+// U047-F05: LoadAgents folded the `agents:` config-key entries into its merged
+// map with a plain struct copy, so every returned Agent's Profiles and
+// Escalation slices still pointed at the shared Config's storage. That bypasses
+// the copy-on-read policy accessors.go exists to enforce — and the package
+// already owns the right helper (cloneAgent), it simply was not on this path.
+//
+// It matters more than an ordinary aliasing hole: Agent.Escalation is the
+// permission ladder a delegated child runs under, and Agent.Profiles decides
+// which context that child is given. A caller that filters or reorders either
+// in place would be rewriting them for every other holder of the ambient
+// Config, silently.
+
+// TestLoadAgents_NeverAliasesConfigContainers is the class gate — a slice field
+// added to agents.Agent tomorrow and not cloned fails here.
+func TestLoadAgents_NeverAliasesConfigContainers(t *testing.T) {
+	cfg := NewFixture(aliasProbeFixture())
+
+	list := cfg.LoadAgents()
+	require.NotEmpty(t, list, "the probe fixture must define an agent, or this gate proves nothing")
+
+	assertNoSharedContainers(t, reflect.ValueOf(cfg).Elem(), reflect.ValueOf(list), "Config", "LoadAgents")
+}
+
+// TestLoadAgents_MutationDoesNotReachConfig states it as behaviour, on the two
+// fields F05 named.
+func TestLoadAgents_MutationDoesNotReachConfig(t *testing.T) {
+	cfg := NewFixture(aliasProbeFixture())
+
+	for _, a := range cfg.LoadAgents() {
+		require.NotEmpty(t, a.Profiles)
+		require.NotEmpty(t, a.Escalation)
+		a.Profiles[0] = "MUTATED"
+		a.Escalation[0].Kinds[0] = "MUTATED"
+		a.Escalation[0].Action = "MUTATED"
+	}
+
+	worker := cfg.GetConfiguredAgents()["worker"]
+	assert.Equal(t, []string{"p"}, worker.Profiles,
+		"LoadAgents must hand back an owned copy of Profiles")
+	assert.Equal(t, []string{"TOOL_USE"}, worker.Escalation[0].Kinds,
+		"LoadAgents must hand back an owned copy of each rung's Kinds")
+	assert.Equal(t, "auto_accept", worker.Escalation[0].Action,
+		"LoadAgents must hand back an owned copy of the Escalation slice itself")
+}
+
+// TestAgent_MutationDoesNotReachConfig covers the single-name lookup, which is
+// the path operations.ResolveAgent and DefaultAgentProfiles actually take.
+func TestAgent_MutationDoesNotReachConfig(t *testing.T) {
+	cfg := NewFixture(aliasProbeFixture())
+
+	got, ok := cfg.Agent("worker")
+	require.True(t, ok)
+	require.NotEmpty(t, got.Profiles)
+	got.Profiles[0] = "MUTATED"
+
+	assert.Equal(t, []string{"p"}, cfg.GetConfiguredAgents()["worker"].Profiles,
+		"Agent must hand back an owned copy of Profiles")
+}
+
+// U047-F09: LoadAgents warned on a directory-scan failure and then used the nil
+// result as if it were a successful EMPTY scan, so the caller got a merged set
+// silently missing every on-disk agent — and `run --agent dev` reported "no
+// such agent" for an agent that is defined and merely unreadable.
+//
+// The row located the swallow one level too high. `agents.Loader.List`'s
+// afero.Walk callback returned nil on EVERY error, so Walk (List's only error
+// source) could never return non-nil and the config-side guard was unreachable
+// by construction. The observable defect the row describes was real all the
+// same; it just came out of List as (nil, nil) rather than as an error. Both
+// halves are fixed: List distinguishes an unreadable DIRECTORY (whose whole
+// subtree is invisible — reported) from an unreadable single ENTRY (warned and
+// skipped, unchanged), and LoadAgents raises the result as a fatal-class
+// finding the startup choke can abort on rather than a stderr line the run
+// walks straight past.
+func TestLoadAgents_UnreadableAgentsDirectoryIsAFinding(t *testing.T) {
+	resetStrictness(t)
+	mem := afero.NewMemMapFs()
+	appPath := "/app"
+	agentsDir := paths.AgentsPath(appPath)
+	require.NoError(t, mem.MkdirAll(agentsDir, 0o755))
+	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, "dev.yaml"),
+		[]byte("engine: claude-code\nprofiles: [go-developer]\n"), 0o644))
+
+	// Sanity: with a readable directory the agent is found. Without this the
+	// assertion below could pass because the fixture never defined an agent.
+	readable := NewFixture(Fixture{AppPaths: []string{appPath}})
+	readable.SetFS(mem)
+	require.Len(t, readable.LoadAgents(), 1, "the fixture must define one on-disk agent")
+
+	cfg := NewFixture(Fixture{AppPaths: []string{appPath}})
+	cfg.SetFS(denyOpenFs{Fs: mem, deny: agentsDir})
+
+	mark := strictness.Checkpoint()
+	got := cfg.LoadAgents()
+
+	assert.Empty(t, got, "the unreadable directory still yields no agents — that half is fault tolerance")
+	findings := strictness.Since(mark)
+	require.Len(t, findings, 1,
+		"an unreadable agents directory must be indistinguishable from neither an absent one nor an empty one: it must record a finding")
+	assert.Equal(t, strictness.ClassConfig, findings[0].Class)
+	assert.Contains(t, findings[0].Message, agentsDir, "the finding names the directory it could not read")
+}
+
+// U047-F08: Agent(name) re-runs LoadAgents' full two-source merge on every
+// lookup, and LoadAgents re-emitted its shadowing warning each time. Config's
+// Agent() sits on the path operations.ResolveAgent, DefaultAgentProfiles and
+// `agent show` all take, so one command reaches it several times and a single
+// shadowed agent printed the same line once per lookup.
+//
+// The warning is a one-per-process statement of fact about the user's config,
+// not a per-lookup event, so it collapses to WarnOnce — the same treatment
+// every other repeat-from-independent-callers diagnostic in this codebase gets
+// (see FwarnOnce's doc, written for exactly this shape).
+func TestLoadAgents_ShadowWarningIsEmittedOncePerProcess(t *testing.T) {
+	mem := afero.NewMemMapFs()
+	appPath := "/shadowprobe"
+	agentsDir := paths.AgentsPath(appPath)
+	require.NoError(t, mem.MkdirAll(agentsDir, 0o755))
+	// A name unique to this test: WarnOnce keys on the rendered line and has
+	// no process-wide reset, so a shared name could be pre-consumed by another
+	// test and make this pass vacuously.
+	const name = "u047f08probe"
+	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, name+".yaml"),
+		[]byte("engine: claude-code\nprofiles: [from-disk]\n"), 0o644))
+
+	cfg := NewFixture(Fixture{
+		AppPaths: []string{appPath},
+		Agents:   map[string]agents.Agent{name: {Engine: "claude-code", Profiles: []string{"from-config"}}},
+	})
+	cfg.SetFS(mem)
+
+	var sink strings.Builder
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	for range 3 {
+		got, ok := cfg.Agent(name)
+		require.True(t, ok)
+		require.Equal(t, []string{"from-config"}, got.Profiles, "the config key must still win the collision")
+	}
+
+	assert.Equal(t, 1, strings.Count(sink.String(), name+"\" is defined in both"),
+		"the shadowing warning states a fact about the config once; repeating it per lookup is noise the user cannot act on")
 }

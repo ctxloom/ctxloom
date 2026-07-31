@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"golang.org/x/term"
 )
 
@@ -24,21 +25,30 @@ func watchResize(ctx context.Context, f *os.File) <-chan *pb.WindowSize {
 	signal.Notify(sig, syscall.SIGWINCH)
 
 	emit := func() {
-		if w, h, err := term.GetSize(int(f.Fd())); err == nil {
-			ws := &pb.WindowSize{Rows: uint32(h), Cols: uint32(w)}
-			// Latest-wins coalescing: a pending size is STALE, not "as good as
-			// the latest" — after a resize burst the pty would settle on an
-			// out-of-date size until the next SIGWINCH. Sole producer, so the
-			// retry send cannot block.
+		w, h, err := term.GetSize(int(f.Fd()))
+		if err != nil {
+			// Nothing downstream can tell "no size event" from "the terminal
+			// is unchanged", so the pty silently keeps whatever geometry it
+			// was created with and the agent renders into the wrong width for
+			// the rest of the session. WarnOnce because this closure also runs
+			// on every SIGWINCH — a persistently unreadable terminal must not
+			// stream the same line into the user's session.
+			clidiag.WarnOnce("ctxloom", "could not read the terminal size: %v — the agent's pty keeps its default geometry", err)
+			return
+		}
+		ws := &pb.WindowSize{Rows: uint32(h), Cols: uint32(w)}
+		// Latest-wins coalescing: a pending size is STALE, not "as good as
+		// the latest" — after a resize burst the pty would settle on an
+		// out-of-date size until the next SIGWINCH. Sole producer, so the
+		// retry send cannot block.
+		select {
+		case ch <- ws:
+		default:
 			select {
-			case ch <- ws:
+			case <-ch:
 			default:
-				select {
-				case <-ch:
-				default:
-				}
-				ch <- ws
 			}
+			ch <- ws
 		}
 	}
 	emit() // initial size so the pty matches the terminal immediately

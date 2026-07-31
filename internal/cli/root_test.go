@@ -144,3 +144,44 @@ func TestExecuteErrorPath_FormatResolvesFromRootAndNoJSONShorthandExists(t *test
 	assert.Equal(t, fromSub, fromRoot,
 		"root-scoped and command-scoped resolution must not diverge for --format")
 }
+
+// TestNoSubcommandDefinesPersistentHooks enforces the invariant U040-F16 found
+// asserted only in a comment on rootCmd. Cobra runs the CLOSEST
+// PersistentPreRun/PersistentPostRun(E) it finds walking up from the invoked
+// command, not every one in the chain — so a single subcommand declaring its
+// own would silently switch OFF everything rootCmd's hooks do, for that
+// command only, with nothing failing:
+//
+//	PersistentPreRun    resetFormatGuard, --degraded, --no-companions,
+//	                    and the config-override funnel (InstallOverridesFromFlags)
+//	PersistentPostRunE  the --format-was-honored guard
+//
+// Four process-wide behaviours plus the guard that catches a silently ignored
+// --format. If a command genuinely needs per-command setup it belongs in that
+// command's own PreRun/PreRunE (which cobra runs IN ADDITION to the inherited
+// persistent hook), or rootCmd's hook must dispatch to it — not here.
+func TestNoSubcommandDefinesPersistentHooks(t *testing.T) {
+	var walk func(cmd *cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		for _, c := range cmd.Commands() {
+			if c.PersistentPreRun != nil || c.PersistentPreRunE != nil {
+				t.Errorf("%q defines its own PersistentPreRun(E): that REPLACES rootCmd's, "+
+					"disabling --degraded, --no-companions, the config-override funnel and the "+
+					"--format guard for this command. Use PreRun(E) instead.", c.CommandPath())
+			}
+			if c.PersistentPostRun != nil || c.PersistentPostRunE != nil {
+				t.Errorf("%q defines its own PersistentPostRun(E): that REPLACES rootCmd's, "+
+					"disabling the --format-was-honored guard for this command. Use PostRun(E) instead.",
+					c.CommandPath())
+			}
+			walk(c)
+		}
+	}
+	walk(rootCmd)
+
+	// The invariant only holds because cobra resolves ONE persistent hook per
+	// invocation. If this is ever flipped on, the "closest wins" reasoning
+	// above stops applying and the comment on rootCmd needs rewriting too.
+	assert.False(t, cobra.EnableTraverseRunHooks,
+		"rootCmd's persistent hooks are documented as the only ones; traverse-run-hooks changes that contract")
+}

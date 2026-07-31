@@ -421,6 +421,22 @@ func Record(class Class, fixit, format string, args ...any) {
 	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), false)
 }
 
+// RecordOnce is Record with FailOnce's recording dedup: for a choke that owns
+// its own reporting AND can be re-entered within one window, where the extra
+// findings are copies of one problem rather than news. A config load is the
+// case that motivated it — memoized, re-consulted from ~80 call sites, and
+// re-reporting the same broken file each time, which turns one bad key into an
+// abort block that lists it N times with N identical fix-its.
+//
+// The dedup is scoped exactly as FailOnce's is — to the recording goroutine's
+// current checkpoint window, keyed on class AND message — so a fault that is
+// still unfixed re-fires in the NEXT window. A process-wide dedup here would
+// let a long-lived server refuse one session over a broken config and then open
+// the next one silently on the same config.
+func RecordOnce(class Class, fixit, format string, args ...any) {
+	record(class, fixit, detailOr(class, fmt.Sprintf(format, args...)), true)
+}
+
 // detailOr substitutes a statement of what is known for a message that
 // formatted to nothing. Every renderer of a Finding — FindingsError here,
 // cli.formatFindings, operations.isolationGateErr — writes the message into a

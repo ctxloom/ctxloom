@@ -226,13 +226,13 @@ func loadStartupConfigWith(load func(...config.LoadOption) (*config.Config, erro
 	if err != nil {
 		cfg = fallbackConfigForLoadFailure(err)
 	}
-	printConfigWarnings(os.Stderr, cfg.GetWarnings())
+	printAndRecordConfigWarnings(os.Stderr, cfg.GetWarnings())
 	return cfg
 }
 
 // fallbackConfigForLoadFailure builds the minimal config a failed load degrades
 // to. The failure rides as the config's single Warning, which is the ONE report
-// of it: printConfigWarnings both prints that warning and records it as a
+// of it: printAndRecordConfigWarnings both prints that warning and records it as a
 // strictness finding, so warning about it here too would put the identical
 // sentence on stderr twice.
 func fallbackConfigForLoadFailure(err error) *config.Config {
@@ -274,7 +274,7 @@ func runStartupSync(ctx context.Context, cfg *config.Config) {
 		}
 		return
 	}
-	writeSyncSummary(os.Stderr, result)
+	writeAndRecordSyncSummary(os.Stderr, result)
 }
 
 // applyStartupHooks runs the ApplyHooks startup phase against the active

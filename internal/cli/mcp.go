@@ -368,7 +368,7 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 	// (first-party, no SetItemTrust ref path), so the surface reviews the
 	// posture rather than offering a t/b action — see reviewLocalMCPTrust.
 	if mcpShowInteractive && outputFormatOf(cmd) != formatJSON && isInteractiveTerminal() {
-		reviewLocalMCPTrust(cfg, result.Entries)
+		reviewLocalMCPTrust(cmd, cfg, result.Entries)
 	}
 	return nil
 }

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,422** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,423** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 165 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 190 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 194 |
-| `open` | no commit names this ID | **297** |
+| `open` | no commit names this ID | **296** |
 
-**Totals: 2268 findings across 162 units — 1,422 resolved, 297 still open, 549 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,423 resolved, 296 still open, 549 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 528 | 163 | 95 | 87 | 126 |
+| MED | 999 | 529 | 162 | 95 | 87 | 126 |
 | LOW | 871 | 537 | 123 | 54 | 95 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1511,7 +1511,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U081-F09 | **PARTIAL** `e2780b75` | `bundle_move.go:303` | CORRECTNESS | If the source `.sig` cannot be removed after a successful move, `MoveBundle` returns `nil, err` — so the CLI reports the move as **failed** even though the bundle was published/copied and the sourc... | U081.md |
 | U081-F11 | **RESOLVED** `f03a03fc` | `bundle_move.go:185,213; bundle_transfer.go:222` | ERRHANDLING | Three `afero` stat errors are discarded with `_`, and in each case the error path degrades to the *permissive* answer | U081.md |
 | U081-F15 | **ESCALATED** `3f15944e` | `bundle_transfer.go:51, bundle_distill.go:73, agents.go:133, bundle_transfer.go:200, bundle_move.go:91` | COMPLEXITY | Five functions in this unit are at or above the CI gate of CCN 10: `ExportBundle` 16, `DistillBundleFile` 14, `SetAgent` 12, `ImportBundle` 12, `MoveBundle` 10 | U081.md |
-| U082-F05 | open | `context.go:59-63` | COUPLING | The mustache `TagType` enum is **re-declared as bare untyped integers** even though `cbroglie/mustache` exports the real constants. This is connascence of *value* with a third-party library — and i... | U082.md |
+| U082-F05 | **RESOLVED** `b89002c2` | `context.go:59-63` | COUPLING | The mustache `TagType` enum is **re-declared as bare untyped integers** even though `cbroglie/mustache` exports the real constants. This is connascence of *value* with a third-party library — and i... | U082.md |
 | U082-F06 | **RESOLVED** `22933254` | `countersign_records.go:36, :64` | DEAD | `countersignRecords.now` and `timeNow()` are a test seam **no test uses**. | U082.md |
 | U082-F07 | **RESOLVED** `f7a83ba6` | `constraint_resolve.go:46-53, :104` | ERRHANDLING | Three distinct failure causes are collapsed into one unactionable warning. A dependency silently drops out of the lockfile and the user is told only "could not resolve". | U082.md |
 | U082-F08 | **RESOLVED** `4b2ebf0a` | `context.go:571` | ERRHANDLING | `resolveProfile` discards `config.ResolveProfile`'s error to trigger the directory fallback, so a **syntactically broken inline profile** in `config.yaml` is indistinguishable from "this name is no... | U082.md |

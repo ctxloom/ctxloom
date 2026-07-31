@@ -800,3 +800,59 @@ func TestProcessOverrides_MapsAreNotSharedWithCallers(t *testing.T) {
 	assert.Nil(t, zero.Flags)
 	assert.Equal(t, Overrides{}.Stamp(), zero.Stamp())
 }
+
+// TestResolvePath_SchemaMatchPrefersTheTypedCase characterizes resolvePath's
+// preserveTypedCase arm, which nothing else reached: a --config-set path whose
+// ORIGINAL casing the schema recognizes must be returned as typed, without a
+// warning, rather than lower-cased first.
+func TestResolvePath_SchemaMatchPrefersTheTypedCase(t *testing.T) {
+	fs := configSetFlagSet(t, "agents.MyCoder.runtime=container")
+
+	p := testProduct("agents.MyCoder.runtime")
+	o, err := p.ReadOverrides(fs)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	out, err := p.ApplyOverrides(map[string]any{}, o)
+	require.NoError(t, err)
+
+	agents, ok := out["agents"].(map[string]any)
+	require.True(t, ok)
+	entry, ok := agents["MyCoder"].(map[string]any)
+	require.True(t, ok, "the schema recognized the typed case, so it must be preserved: %#v", agents)
+	assert.Equal(t, "container", entry["runtime"])
+	assert.Empty(t, buf.String(), "a schema-recognized path is case 3 and must not warn")
+}
+
+// TestResolvePath_NoSchemaFallsStraightToCaseFour characterizes the
+// KnownPath == nil arm — the "no schema knowledge available" degradation
+// confload's Product doc describes. Every override that base does not already
+// hold is treated as unrecognized, warned about, and applied anyway.
+func TestResolvePath_NoSchemaFallsStraightToCaseFour(t *testing.T) {
+	t.Setenv("TESTPROD_CONFIG_DEFAULT_AGENT", "mycoder")
+
+	p := testProduct() // no knownPaths at all
+	p.KnownPath = nil
+
+	o, err := p.ReadOverrides(nil)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	out, err := p.ApplyOverrides(map[string]any{}, o)
+	require.NoError(t, err)
+
+	// Case 4 is ONE SEGMENT PER TOKEN, so the two-word variable nests rather
+	// than producing a single "DEFAULT_AGENT" key -- with no schema there is
+	// nothing that could tell it the two words belong to one field name.
+	level, ok := out["DEFAULT"].(map[string]any)
+	require.True(t, ok, "case 4 splits every token into its own level: %#v", out)
+	assert.Equal(t, "mycoder", level["AGENT"],
+		"the override is still applied, in the token's own (un-lowercased) case")
+	assert.Contains(t, buf.String(), "does not match any known config key")
+}

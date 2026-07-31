@@ -585,8 +585,14 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 }
 
 // reportMissingDefaults warns about configured default profiles that don't
-// exist. Silent when there are none.
+// exist. Silent when there are none — but never silent when err says the check
+// could not be made: an unperformed check has no clean result to report, and
+// printing nothing is indistinguishable from "they all exist".
 func reportMissingDefaults(out io.Writer, missing []string, err error) {
+	if err != nil {
+		fmt.Fprintf(out, "\nWarning: could not check the default profiles: %v\n", err)
+		return
+	}
 	if len(missing) == 0 {
 		return
 	}

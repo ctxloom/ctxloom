@@ -1564,6 +1564,151 @@ func TestChat_ForwardedTerminal_InputClosed(t *testing.T) {
 	}
 }
 
+// U012-F21: input close must resolve EVERY parked forwarded request, of every
+// kind, in one pass. The permission and terminal brokers are the same algorithm
+// twice over, so the close half has to remember to walk both maps — and every
+// other input-closed test parks exactly ONE kind, which means a version that
+// walked only one of them would still be green across the whole suite while
+// hanging a real engine on the other.
+//
+// This test parks both at once. It sits at the seam ABOVE the two brokers (the
+// engine's own JSON-RPC callbacks in, the replies out), so it is unchanged by
+// any collapse of the duplication underneath it and red only if the shared
+// behaviour actually diverges.
+func TestChat_InputClosedResolvesBothBrokersAtOnce(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{ForwardPermissions: true, ForwardTerminal: true})
+
+	permResp := make(chan rpcMessage, 1)
+	termResp := make(chan rpcMessage, 1)
+	go func() {
+		sid := h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		p := make(chan rpcMessage, 1)
+		tr := make(chan rpcMessage, 1)
+		go func() { p <- h.fa.requestPermission(sid, permTestOptions) }()
+		go func() {
+			tr <- l0CallClient(h.fa, "terminal/create", map[string]any{"sessionId": sid, "command": "bash"})
+		}()
+		// The turn stays in flight until both callbacks are answered, so
+		// teardown cannot close the transport out from under either reply.
+		pv, tv := <-p, <-tr
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+		permResp <- pv
+		termResp <- tv
+	}()
+
+	h.in <- agent.ChatMessage{Text: "do both"}
+
+	// Drain until BOTH are parked upstream, so the close below has two
+	// different kinds of pending request to resolve.
+	var sawPerm, sawTerm bool
+	for ev := range h.out {
+		if ev.Permission != nil {
+			sawPerm = true
+		}
+		if ev.Terminal != nil {
+			sawTerm = true
+		}
+		if sawPerm && sawTerm {
+			break
+		}
+	}
+	require.True(t, sawPerm && sawTerm, "out closed before both requests were forwarded")
+
+	close(h.in)
+
+	// Each kind resolves in its own shape — that asymmetry is deliberate and is
+	// the part a collapse must NOT flatten: a permission resolves as a
+	// cancelled OUTCOME (neither approving nor remembering a rejection), a
+	// terminal resolves as a JSON-RPC ERROR (an engine parked on terminal/create
+	// must be told, not quietly told "ok").
+	presp := <-permResp
+	require.Nil(t, presp.Error, "a permission must not resolve as a protocol error")
+	var body permissionResult
+	require.NoError(t, json.Unmarshal(presp.Result, &body))
+	assert.Equal(t, outcomeCancelled, body.Outcome.Outcome)
+
+	tresp := <-termResp
+	require.NotNil(t, tresp.Error, "a terminal request must not resolve as a silent success")
+	assert.Contains(t, tresp.Error.Message, "input closed")
+
+	require.NoError(t, <-h.chatErr)
+	for range h.out {
+	}
+}
+
+// U012-F21: both brokers hand out sequential ids under their own kind's
+// prefix, and an answer naming an id neither of them knows is dropped with a
+// warning that says which kind it was. Pinned at the seam so it survives the
+// two brokers being collapsed into one.
+func TestChat_UnknownAnswerIdsAreReportedPerKind(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChat(t, agent.ChatRequest{ForwardPermissions: true, ForwardTerminal: true})
+
+	gotPerm := make(chan *agent.PermissionRequest, 1)
+	gotTerm := make(chan *agent.TerminalRequest, 1)
+	permResp := make(chan rpcMessage, 1)
+	termResp := make(chan rpcMessage, 1)
+	go func() {
+		sid := h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		p := make(chan rpcMessage, 1)
+		tr := make(chan rpcMessage, 1)
+		go func() { p <- h.fa.requestPermission(sid, permTestOptions) }()
+		go func() {
+			tr <- l0CallClient(h.fa, "terminal/create", map[string]any{"sessionId": sid, "command": "bash"})
+		}()
+		pv, tv := <-p, <-tr
+		_ = h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"})
+		permResp <- pv
+		termResp <- tv
+	}()
+
+	h.in <- agent.ChatMessage{Text: "do both"}
+	go func() {
+		var p *agent.PermissionRequest
+		var tr *agent.TerminalRequest
+		for ev := range h.out {
+			if ev.Permission != nil {
+				p = ev.Permission
+			}
+			if ev.Terminal != nil {
+				tr = ev.Terminal
+			}
+			if p != nil && tr != nil {
+				break
+			}
+		}
+		gotPerm <- p
+		gotTerm <- tr
+	}()
+
+	perm := <-gotPerm
+	term := <-gotTerm
+	require.NotNil(t, perm)
+	require.NotNil(t, term)
+	assert.Equal(t, "perm-1", perm.ID, "permission ids are sequential under their own kind's prefix")
+	assert.Equal(t, "term-1", term.ID, "terminal ids are sequential under their own kind's prefix")
+
+	// Answers naming ids neither broker issued.
+	h.in <- agent.ChatMessage{Permission: &agent.PermissionAnswer{ID: "perm-999", OptionID: "allow"}}
+	h.in <- agent.ChatMessage{Terminal: &agent.TerminalResponse{ID: "term-999"}}
+	close(h.in)
+
+	<-permResp
+	<-termResp
+	require.NoError(t, <-h.chatErr)
+	for range h.out {
+	}
+
+	got := warnings.String()
+	assert.Contains(t, got, `permission answer for unknown request "perm-999"`)
+	assert.Contains(t, got, `terminal answer for unknown request "term-999"`)
+}
+
 // TestChat_TransportError surfaces a spawn failure as a Chat error (and still
 // closes out per the contract).
 func TestChat_TransportError(t *testing.T) {

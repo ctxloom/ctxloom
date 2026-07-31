@@ -192,3 +192,46 @@ func TestWatch_Recursive_NewDirArrivesPopulated(t *testing.T) {
 		t.Fatalf("event path = %q, want %q", ev.Path, want)
 	}
 }
+
+// watchedSet returns the directories the underlying fsnotify watcher currently
+// holds, as a set, so a test can assert membership by name rather than over a
+// dump (order and count are both incidental).
+func watchedSet(w *Watcher) map[string]bool {
+	set := map[string]bool{}
+	for _, d := range w.fsw.WatchList() {
+		set[d] = true
+	}
+	return set
+}
+
+// TestAddTree_WatchesEverySubdirectoryByDefault characterizes U132-F02's
+// premise: a recursive watch descends unconditionally, so every directory under
+// the root costs an inotify watch whether or not anything the caller asked for
+// can appear in it. Measured on this machine for `ctxloom plan watch`'s root:
+// 4,614 watched directories to observe 232 *.plan.md files. This is the
+// baseline the SkipDir seam exists to let a caller change; it must stay true
+// when no SkipDir is given, because descending everywhere is the correct
+// default for a watcher that is told nothing.
+func TestAddTree_WatchesEverySubdirectoryByDefault(t *testing.T) {
+	root := t.TempDir()
+	kept := filepath.Join(root, "harp")
+	noise := filepath.Join(root, "ephemeral", "agent-worktree")
+	for _, d := range []string{kept, noise} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	w, err := New(root, true, func(p string) bool { return strings.HasSuffix(p, ".plan.md") })
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = w.Close() }()
+
+	watched := watchedSet(w)
+	for _, d := range []string{root, kept, filepath.Dir(noise), noise} {
+		if !watched[d] {
+			t.Fatalf("%q is not watched; a default recursive watch descends everywhere", d)
+		}
+	}
+}

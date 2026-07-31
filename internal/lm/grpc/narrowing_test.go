@@ -39,4 +39,12 @@ func TestWireNarrowing_SaturatesInsteadOfWrapping(t *testing.T) {
 		assert.Positive(t, got, "an entry count past int32 must not cross the wire negative")
 	})
 
+	t.Run("response boundary indices", func(t *testing.T) {
+		// The watcher's marks are transcript lengths, so this site cannot be
+		// driven through step() without materializing 2^31 entries. The
+		// narrowing itself is what must hold.
+		assert.Equal(t, int32(math.MaxInt32), int32Clamped(overflowing))
+		assert.Equal(t, int32(math.MinInt32), int32Clamped(-overflowing))
+		assert.Equal(t, int32(7), int32Clamped(7))
+	})
 }

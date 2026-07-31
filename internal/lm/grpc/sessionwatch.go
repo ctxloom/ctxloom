@@ -84,8 +84,8 @@ func (w *sessionWatcher) step(sess *agent.Session) []*WatchEvent {
 		// Material accumulated since the last boundary and growth stalled: the
 		// just-completed response is entries[lastBoundary, sent).
 		boundary := &WatchEvent{Event: &WatchEvent_Boundary{Boundary: &ResponseBoundary{
-			FromIndex: int32(w.lastBoundary),
-			ToIndex:   int32(w.sent),
+			FromIndex: int32Clamped(w.lastBoundary),
+			ToIndex:   int32Clamped(w.sent),
 		}}}
 		w.lastBoundary = w.sent
 		w.idleTicks = 0

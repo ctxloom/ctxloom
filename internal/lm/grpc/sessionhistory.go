@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/projectroot"
@@ -30,6 +31,21 @@ func unixToTime(u int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(u, 0).UTC()
+}
+
+// int32Clamped narrows a Go int onto one of this wire's int32 fields without
+// wrapping. Every such field is a count, an index, a line number or a timeout,
+// and each is read downstream as a non-negative quantity; a bare int32(v) of an
+// out-of-range value silently WRAPS, turning a large value into a large
+// negative one. Saturating keeps it monotone and in range instead.
+func int32Clamped(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(v)
 }
 
 // EntryToProto converts one normalized turn to its proto form. Shared by
@@ -62,7 +78,7 @@ func locationsToProto(locs []agent.ToolLocation) []*ToolLocation {
 	}
 	out := make([]*ToolLocation, 0, len(locs))
 	for _, l := range locs {
-		out = append(out, &ToolLocation{Path: l.Path, Line: int32(l.Line)})
+		out = append(out, &ToolLocation{Path: l.Path, Line: int32Clamped(l.Line)})
 	}
 	return out
 }
@@ -215,7 +231,7 @@ func sessionMetaToProto(m agent.SessionMeta) *SessionMeta {
 		Id:         m.ID,
 		StartUnix:  timeToUnix(m.StartTime),
 		EndUnix:    timeToUnix(m.EndTime),
-		EntryCount: int32(m.EntryCount),
+		EntryCount: int32Clamped(m.EntryCount),
 		Path:       m.Path,
 	}
 }

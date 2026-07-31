@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,520** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,521** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 180 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **155** |
+| `open` | no commit names this ID | **154** |
 
-**Totals: 2268 findings across 162 units — 1,520 resolved, 155 still open, 593 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,521 resolved, 154 still open, 593 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 571 | 92 | 104 | 96 | 136 |
+| MED | 999 | 572 | 91 | 104 | 96 | 136 |
 | LOW | 871 | 588 | 56 | 60 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1895,7 +1895,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U145-F03 | open | `entries.go:9-18` | CORRECTNESS | `NonEmptyRaw`'s doc comment states a factually false rationale: an empty-but-non-nil `json.RawMessage` does NOT "round-trip to a literal `null`" on the canonical write path. With `omitempty` (which... | U145.md |
 | U145-F04 | open | `driver.go:29` | DUPLICATE | `ConvertJSONLLines` is presented (`driver.go:11-13`, "the pattern every JSONL-per-session engine's Convert copies") as the shared driver, but only 2 of the 4 adapters call it; the other 2 re-implem... | U145.md |
 | U145-F08 | open | `driver.go:29` | COUPLING | `ConvertJSONLLines` takes 7 parameters, two of which (`rec`, `vendor`) duplicate state its callers have already combined: both call sites build `importer.RecordFunc(rec, "<vendor>")` and *also* pas... | U145.md |
-| U146-F04 | open | **`antigravity.go:8-10`** | CORRECTNESS | The package doc's stated premise is factually false: it claims "antigravity has no StructuredChat capability at all (no `internal/antigravity/chat.go`)". That file exists and asserts the capability. | U146.md |
+| U146-F04 | **RESOLVED** `d549469b` | **`antigravity.go:8-10`** | CORRECTNESS | The package doc's stated premise is factually false: it claims "antigravity has no StructuredChat capability at all (no `internal/antigravity/chat.go`)". That file exists and asserts the capability. | U146.md |
 | U146-F05 | open | `brain.go:64-84` | DUPLICATE | `convertLines` hand-rolls the exact loop + `ctx.Err()` check that `importer.ConvertJSONLLines` exists to provide, while codex and claude both delegate to it — and the shared helper's own doc names ... | U146.md |
 | U146-F06 | open | `brain.go:99-101` | CORRECTNESS | `ERROR_MESSAGE` steps are dropped silently, so an antigravity session that *failed* imports as a clean transcript with no trace of the failure. The canonical vocabulary has a slot for it. | U146.md |
 | U146-F07 | **ESCALATED** (cross-package; see wave-2 report) | **`antigravity.go:14-34`** | NOPAY | Real captured data is discarded on a docs-alignment argument, not a capability one: the `thinking` field on real `PLANNER_RESPONSE` steps has a canonical slot that goes unused. | U146.md |

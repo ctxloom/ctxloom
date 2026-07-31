@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,479** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,480** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 175 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 201 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 201 |
-| `open` | no commit names this ID | **212** |
+| `open` | no commit names this ID | **211** |
 
-**Totals: 2268 findings across 162 units — 1,479 resolved, 212 still open, 577 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,480 resolved, 211 still open, 577 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 549 | 124 | 101 | 92 | 133 |
-| LOW | 871 | 571 | 79 | 58 | 101 | 62 |
+| LOW | 871 | 572 | 78 | 58 | 101 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2605,7 +2605,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U100-F11 | **RESOLVED** `73fcea46` | `cells.go:242` | CORRECTNESS | `EmptySurfaceSet.SurfaceFor` returns `(nil, nil)` — a nil `Delivery` with no error — directly contradicting the interface contract it implements. | U100.md |
 | U100-F14 | **RESOLVED** `040f3ef2` | `approach.go:52-55, cells.go:272-274` | CORRECTNESS | `Approach.String` and `CellKind.String` render the zero value from a `default:` arm, so any out-of-range value silently prints as `"unsafe-file"` / `"shared"` — the *least safe* option in both enum... | U100.md |
 | U100-F15 | **RESOLVED** `5fdf8767` | `chat_mcp.go:27, base_lifecycle.go (doc)` | NOPAY | Two doc comments direct the reader to `BaseLifecycle.Flush`, which does not exist anywhere in the repo. Stale pointers cost the next reader a search. | U100.md |
-| U100-F18 | open | `cells.go:203-210` | CORRECTNESS | `CellDelivery.ContextHook` documents "Requires RawContext (the hook reads the cache file)" but nothing validates the pair — `{ContextHook: true, RawContext: false}` compiles and installs a hook key... | U100.md |
+| U100-F18 | **RESOLVED** `e4ab5a07` | `cells.go:203-210` | CORRECTNESS | `CellDelivery.ContextHook` documents "Requires RawContext (the hook reads the cache file)" but nothing validates the pair — `{ContextHook: true, RawContext: false}` compiles and installs a hook key... | U100.md |
 | U101-F15 | **RESOLVED** `731881bd` | `contextfile.go:19; enginecli.go:123` | DEAD | `SCMContextDir` and `PromptNone` are never referenced | U101.md |
 | U101-F16 | **PARTIAL** `731881bd` | `delivery.go:100-107; enginecli.go:162,278,332` | DEAD | Four symbols are reachable only from tests: `cwdPlacement`+`Dir`, `ProbeKindOf`, `EngineCLI.Validate`, `ParsedArgv.Has` | U101.md |
 | U101-F17 | **RESOLVED** `731881bd` | `managedcontext.go:99-104` | TRIVIAL | `ifNonEmptySuffix` is a two-line helper with one call site, and its one use tests the *untrimmed* prefix | U101.md |

@@ -64,6 +64,23 @@ func TestParenGroupFlattened(t *testing.T) {
 	}
 }
 
+// TestGroupKeepsItsOwnConnector pins that flattening a ( … ) group carries the
+// connector that joined the GROUP to what came before onto the group's first
+// inner pipeline, exactly as the shell frontend's lowerGroup does. Without it
+// the `&&` in `echo a && ( … )` is dropped from the IR entirely and the
+// flattened commands read as an unconditional sequence.
+func TestGroupKeepsItsOwnConnector(t *testing.T) {
+	s := parse(t, "echo a && (echo b & echo c)")
+	var conns []ir.Connector
+	for _, p := range s.Pipelines {
+		conns = append(conns, p.Connector)
+	}
+	want := []ir.Connector{ir.ConnNone, ir.ConnAnd, ir.ConnSeq}
+	if !reflect.DeepEqual(conns, want) {
+		t.Errorf("connectors = %v, want %v", conns, want)
+	}
+}
+
 func TestQuotedArgument(t *testing.T) {
 	s := parse(t, `cmd /c "git tag v1"`)
 	c := s.Pipelines[0].Commands[0]

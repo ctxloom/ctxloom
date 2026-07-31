@@ -35,6 +35,13 @@ type ownedRunSession struct {
 	outcome *coord.RunOutcome
 	events  <-chan *agentcoordpb.AgentEvent
 	cancel  func()
+	// leadTurnIssued records whether the run actually opened with a turn.
+	// StartOwnedRun refuses an empty prompt only for a ONE-SHOT run; a
+	// structured run legitimately opens with no lead, and issueStartRun then
+	// attaches no Input, so no opening turn exists and no boundary for one
+	// will ever be signalled. Consumers that count turn boundaries must take
+	// their opening count from here rather than assuming one.
+	leadTurnIssued bool
 }
 
 // startContainerOwnedRun is the Phase 2a-B launch: subscribe to the coordinator
@@ -96,7 +103,10 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy is
 		return handle, nil, err
 	}
 	narrow(outcome.RunID)
-	return handle, &ownedRunSession{coord: c, outcome: outcome, events: events, cancel: cancel}, nil
+	// Same condition issueStartRun applies to decide whether to attach Input
+	// at all, so this records what the run WAS started with, not what it was
+	// asked for.
+	return handle, &ownedRunSession{coord: c, outcome: outcome, events: events, cancel: cancel, leadTurnIssued: lead != ""}, nil
 }
 
 // runStructuredREPLViaCoord is the Transport 2 counterpart of runStructuredREPL

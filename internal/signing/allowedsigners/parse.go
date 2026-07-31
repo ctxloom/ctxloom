@@ -12,9 +12,21 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-// Sentinel causes wrapped by ParseError.Err. Callers that want to
-// distinguish a cause programmatically should use errors.Is against
-// these rather than matching ParseError.Error()'s text.
+// Sentinel causes wrapped by ParseError.Err, for errors.Is INSIDE this
+// package. They are deliberately unexported, and callers outside it get no
+// way to tell one cause from another.
+//
+// That is the contract, not an oversight: every one of these means the same
+// thing to a caller — this line contributes no Entry and grants no trust —
+// and there is no decision downstream that turns on WHICH of them fired.
+// Widening the cause into public API would invite exactly the thing this
+// package must not have: a caller branching on a parse failure and doing
+// something other than withholding trust.
+//
+// What a caller may rely on is the pairing: every ParseError names a line and
+// carries a cause that renders, and ParseErrors() is the complete list of the
+// lines the file lost. Matching ParseError.Error()'s TEXT is not supported —
+// it is a diagnostic string, not an interface.
 var (
 	errNoPrincipals    = errors.New("missing or empty principals field")
 	errNoKey           = errors.New("no recognizable key type/blob")

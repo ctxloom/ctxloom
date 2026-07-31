@@ -1,6 +1,7 @@
 package allowedsigners
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -254,6 +255,58 @@ func TestParse_OverlongLineGrantsNoTrust(t *testing.T) {
 	require.Len(t, perrs, 1)
 	assert.ErrorIs(t, perrs[0].Err, errLineTooLong)
 	assert.Empty(t, store.Entries())
+}
+
+// TestParseError_EveryCauseIsOneOfThePackageSentinels pins the invariant the
+// sentinel block's doc now asserts.
+//
+// It used to tell CALLERS to use errors.Is against these "rather than matching
+// ParseError.Error()'s text" — advice no caller outside the package can take,
+// because every sentinel is unexported. The doc now says the opposite: the
+// causes are internal, every one of them means "this line grants no trust",
+// and the only public facts are the line number and a cause that renders.
+//
+// This test is what keeps that true. A new failure mode that returns a bare
+// fmt.Errorf instead of wrapping a sentinel would make the block's claim false
+// without touching it, and would be the first step toward callers matching on
+// text.
+func TestParseError_EveryCauseIsOneOfThePackageSentinels(t *testing.T) {
+	sentinels := []error{
+		errNoPrincipals, errNoKey, errUnknownOption, errDuplicateOption,
+		errUnquotedValue, errBadTimestamp, errKeyTypeMismatch,
+		errByteOrderMark, errLineTooLong,
+	}
+	_, blob, _ := strings.Cut(testEd25519Key, " ")
+
+	src := strings.Join([]string{
+		"nokeyhere",                                           // errNoKey
+		"a@x ssh-ed25519 not-valid-base64!!!",                 // errNoKey (wrapped)
+		",bad@example.com " + testEd25519Key,                  // errNoPrincipals
+		"a@x nosuchoption " + testEd25519Key,                  // errUnknownOption
+		`a@x namespaces="p",namespaces="q" ` + testEd25519Key, // errDuplicateOption
+		"a@x namespaces=unquoted " + testEd25519Key,           // errUnquotedValue
+		`a@x valid-after="notadate" ` + testEd25519Key,        // errBadTimestamp
+		"a@x not-a-real-keytype " + blob,                      // errKeyTypeMismatch
+		"\ufeffa@x " + testEd25519Key,                         // errByteOrderMark
+		"junk" + strings.Repeat("x", 2<<20),                   // errLineTooLong
+	}, "\n") + "\n"
+
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	require.Len(t, perrs, 10, "every seeded line must be reported")
+	assert.Empty(t, store.Entries(), "no reported line may contribute an entry")
+
+	for _, pe := range perrs {
+		matched := 0
+		for _, s := range sentinels {
+			if errors.Is(pe.Err, s) {
+				matched++
+			}
+		}
+		assert.Equal(t, 1, matched,
+			"line %d's cause must unwrap to exactly one package sentinel, got %v", pe.Line, pe.Err)
+		assert.NotEmpty(t, pe.Err.Error(), "line %d: a cause must render", pe.Line)
+	}
 }
 
 // --- fail-closed: malformed lines never produce an Entry ---

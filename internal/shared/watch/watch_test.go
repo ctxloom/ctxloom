@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -290,5 +291,31 @@ func TestSkipDir_PrunesSubtree(t *testing.T) {
 	}
 	if watchedSet(w)[late] {
 		t.Fatalf("%q is watched: SkipDir was not consulted for a directory created after the watch started", late)
+	}
+}
+
+// TestEvent_ReportsNoOperationKind pins U132-F08's subject after the fact.
+//
+// The row claimed normalize's `default` arm collapsed an unrecognised or empty
+// fsnotify op into a confident "chmod" — absence reported as evidence. That
+// function, the Op type and Event.Op are all gone: U132-F04 removed the whole
+// vocabulary because neither consumer ever read it. Nothing pinned that
+// removal, so the misreport could return unannounced with the field.
+//
+// The invariant the Event doc now asserts is that this watcher reports WHERE a
+// change happened and says nothing about WHAT KIND it was — an fsnotify bitmask
+// cannot be collapsed into one honest verb, which is why the collapse was
+// wrong. Re-introducing an operation field re-opens exactly that question, and
+// this test is what makes it a decision rather than an accident.
+func TestEvent_ReportsNoOperationKind(t *testing.T) {
+	rt := reflect.TypeFor[Event]()
+	var names []string
+	for i := 0; i < rt.NumField(); i++ {
+		names = append(names, rt.Field(i).Name)
+	}
+	if len(names) != 1 || names[0] != "Path" {
+		t.Fatalf("Event fields = %v, want exactly [Path]: an operation kind is back on the "+
+			"event without a consumer that reads it, and no collapse of fsnotify's bitmask "+
+			"into a single verb can report an unrecognised op honestly", names)
 	}
 }

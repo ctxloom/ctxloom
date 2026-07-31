@@ -158,7 +158,7 @@ func (m *Manager) mutate(fn func(reg *registry) error) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	unlock, err := filelock.Lock(m.path + ".lock")
+	unlock, err := filelock.Lock(filelock.PathFor(m.path))
 	if err != nil {
 		return fmt.Errorf("lock: %w", err)
 	}

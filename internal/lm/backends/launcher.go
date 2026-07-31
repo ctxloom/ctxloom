@@ -33,7 +33,12 @@ func RunLaunchSpec(ctx context.Context, spec agent.LaunchSpec, stdin io.Reader, 
 	cmd.Env = spec.Env
 
 	if spec.Interactive {
-		exitCode, err := ptyrunner.RunInteractive(ctx, cmd, stdin, stdout, stderr, resize)
+		// The pty merges the child's stdout and stderr into one stream, so the
+		// interactive branch has a single destination: stderr is unreachable
+		// here by construction and is not passed on (ptyrunner.RunInteractive
+		// takes one writer). Only the non-interactive branch below can keep
+		// the two apart.
+		exitCode, err := ptyrunner.RunInteractive(ctx, cmd, stdin, stdout, resize)
 		if err != nil {
 			return 1, fmt.Errorf("failed to run %s: %w", spec.BinaryPath, err)
 		}

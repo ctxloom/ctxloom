@@ -1,6 +1,7 @@
 package allowedsigners
 
 import (
+	"slices"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -54,9 +55,60 @@ type Entry struct {
 	// for any trust decision.
 	Comment string
 
-	// Line is the 1-based source line number this entry was parsed from,
-	// for diagnostics.
+	// Line is the 1-based index of the line this entry was parsed from,
+	// within the exact byte stream handed to Parse.
+	//
+	// It is LOAD-BEARING, not merely diagnostic. operations.RemoveSigner
+	// re-parses the file it just read and then deletes the physical lines the
+	// surviving entries name, so this number decides which bytes of the trust
+	// root disappear. A number that is off by one revokes the wrong signer and
+	// leaves the intended one trusted, and nothing downstream can detect that:
+	// both outcomes are a well-formed file.
+	//
+	// The invariant that makes it usable that way, and that
+	// TestParse_LineNumbersIndexTheSourceStream pins: EVERY line of the input
+	// is counted — blank lines, comments, and lines that produced a ParseError
+	// included — so Line is an index into the caller's own lines, never a
+	// count of entries.
 	Line int
+}
+
+// clone returns a copy sharing nothing writable with e.
+//
+// An Entry is a value, but four of its fields are not: Principals and
+// Namespaces are slices, and ValidAfter/ValidBefore are pointers. A plain
+// assignment therefore leaves the copy holding the ORIGINAL's grant, so
+// mutating the copy re-decides trust for whoever holds the original — the
+// widening Store's accessors exist to prevent.
+//
+// PublicKey is deliberately not cloned: ssh.PublicKey is an interface over an
+// immutable marshalled blob, there is no general way to deep-copy one, and
+// keysEqual compares Marshal() bytes rather than identity.
+func (e Entry) clone() Entry {
+	out := e
+	out.Principals = slices.Clone(e.Principals)
+	out.Namespaces = slices.Clone(e.Namespaces)
+	if e.ValidAfter != nil {
+		t := *e.ValidAfter
+		out.ValidAfter = &t
+	}
+	if e.ValidBefore != nil {
+		t := *e.ValidBefore
+		out.ValidBefore = &t
+	}
+	return out
+}
+
+// cloneEntries is clone over a slice, preserving a nil slice as nil.
+func cloneEntries(entries []Entry) []Entry {
+	if entries == nil {
+		return nil
+	}
+	out := make([]Entry, len(entries))
+	for i, e := range entries {
+		out[i] = e.clone()
+	}
+	return out
 }
 
 // MatchesPrincipal reports whether identity matches this entry's

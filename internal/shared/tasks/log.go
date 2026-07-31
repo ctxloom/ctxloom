@@ -453,9 +453,15 @@ func appendLine(f *os.File, line []byte) error {
 	return nil
 }
 
+// lockPath is the single home of this log's lock-file name. Every acquisition
+// — the exclusive write lock and all three shared read locks — goes through
+// here, so they cannot name different files and quietly stop excluding one
+// another.
+func (l *eventLog) lockPath() string { return filelock.PathFor(l.path) }
+
 func (l *eventLog) lock() (func(), error) {
 	l.mu.Lock()
-	unlock, err := filelock.Lock(l.path + ".lock")
+	unlock, err := filelock.Lock(l.lockPath())
 	if err != nil {
 		l.mu.Unlock()
 		return nil, fmt.Errorf("lock: %w", err)
@@ -676,7 +682,7 @@ func (l *eventLog) removeTags(harpID string, tags []string) (Task, error) {
 func (l *eventLog) currentTags(harpID string) ([]string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {
+	if unlock, err := filelock.LockShared(l.lockPath()); err == nil {
 		defer unlock()
 	}
 	f, err := l.foldChecked()
@@ -701,7 +707,7 @@ func (l *eventLog) snapshot() ([]Task, error) {
 	// one silently missing task. Best-effort: a lock failure falls back to
 	// an unlocked read rather than failing, since reads must never block (the
 	// in-process mu still serializes same-process access).
-	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {
+	if unlock, err := filelock.LockShared(l.lockPath()); err == nil {
 		defer unlock()
 	}
 	f, err := l.foldChecked()
@@ -718,7 +724,7 @@ func (l *eventLog) snapshot() ([]Task, error) {
 func (l *eventLog) deferredSince() (map[string]time.Time, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if unlock, err := filelock.LockShared(l.path + ".lock"); err == nil {
+	if unlock, err := filelock.LockShared(l.lockPath()); err == nil {
 		defer unlock()
 	}
 	f, err := l.foldChecked()

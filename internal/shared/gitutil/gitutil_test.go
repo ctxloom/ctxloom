@@ -193,3 +193,100 @@ func TestAbbrevSHA_NeverSlicesPastTheEnd(t *testing.T) {
 	assert.Equal(t, "", ShortSHA(""))
 	assert.Equal(t, "abc", AbbrevSHA("abc", 10))
 }
+
+// Both entry points answer the same precondition — "is startPath a file or a
+// directory?" — and used to answer it with opposite error policies thirty
+// lines apart: FindRoot reported the stat failure, GetRemoteURL discarded it
+// and carried the unresolvable path into go-git anyway. That is the worse
+// direction for a nonexistent path: DetectDotGit walks UP from it, so a typo'd
+// or deleted path silently answers with some ANCESTOR repository's remote,
+// which is a confident wrong answer rather than an error.
+func TestStartPathResolution_BothEntryPointsReportAnUnstatablePath(t *testing.T) {
+	// Inside a real repo, so an ancestor IS resolvable and the walk-up would
+	// otherwise succeed — that is what makes this fixture hostile.
+	repo := initTempRepo(t)
+	addRemote(t, repo, "origin", "https://github.com/example/repo.git")
+	missing := filepath.Join(repo, "no", "such", "path")
+
+	_, rootErr := FindRoot(missing)
+	require.Error(t, rootErr, "FindRoot must report a path it cannot stat")
+
+	url, urlErr := GetRemoteURL(missing, "origin")
+	require.Error(t, urlErr, "GetRemoteURL must report a path it cannot stat, not answer from an ancestor")
+	assert.Empty(t, url, "an unresolvable path must not yield an ancestor repo's remote")
+
+	// Same policy, so the same wording: one shared step, not two.
+	assert.Contains(t, rootErr.Error(), "stat path")
+	assert.Contains(t, urlErr.Error(), "stat path")
+}
+
+// The resolution still has to do its actual job for paths that DO exist: a
+// file resolves to its directory, a directory is used as-is.
+func TestStartPathResolution_FileResolvesToItsDirectory(t *testing.T) {
+	repo := initTempRepo(t)
+	addRemote(t, repo, "origin", "https://github.com/example/repo.git")
+	file := filepath.Join(repo, "README.md")
+	require.NoError(t, os.WriteFile(file, []byte("hi"), 0o644))
+
+	fromFile, err := FindRoot(file)
+	require.NoError(t, err)
+	fromDir, err := FindRoot(repo)
+	require.NoError(t, err)
+	assert.Equal(t, fromDir, fromFile)
+}
+
+// gitInRepo runs a git command in dir, failing the test on error.
+func gitInRepo(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, out)
+	}
+}
+
+// urls[0] is not an arbitrary pick out of N. go-git populates RemoteConfig.URLs
+// as the remote's `url` entries followed by its `pushurl` entries, and
+// documents the first as the one fetch uses — so element zero is the FETCH
+// URL, which is the remote's identity. That is the right answer for what this
+// function is for (deciding which configured remote a checkout belongs to);
+// returning a push URL would identify the same remote under a second name and
+// break that matching.
+func TestGetRemoteURL_ReturnsTheFetchURLNotThePushURL(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; this pin needs real git config semantics")
+	}
+	repo := t.TempDir()
+	gitInRepo(t, repo, "init", "-q")
+	gitInRepo(t, repo, "remote", "add", "origin", "https://fetch.example.com/repo.git")
+	gitInRepo(t, repo, "remote", "set-url", "--push", "origin", "https://push.example.com/repo.git")
+
+	// The fixture is only hostile if git really did record a distinct pushurl.
+	cfg, err := os.ReadFile(filepath.Join(repo, ".git", "config"))
+	require.NoError(t, err)
+	require.Contains(t, string(cfg), "pushurl", "fixture is not hostile: no distinct push URL was configured")
+
+	url, err := GetRemoteURL(repo, "origin")
+	require.NoError(t, err)
+	assert.Equal(t, "https://fetch.example.com/repo.git", url)
+}
+
+// Several `url =` entries on one remote: git fetches from the first and pushes
+// to all, so the first remains the identity.
+func TestGetRemoteURL_MultipleFetchURLsReturnsTheFirst(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; this pin needs real git config semantics")
+	}
+	repo := t.TempDir()
+	gitInRepo(t, repo, "init", "-q")
+	gitInRepo(t, repo, "remote", "add", "origin", "https://first.example.com/repo.git")
+	gitInRepo(t, repo, "remote", "set-url", "--add", "origin", "https://second.example.com/repo.git")
+
+	cfg, err := os.ReadFile(filepath.Join(repo, ".git", "config"))
+	require.NoError(t, err)
+	require.Contains(t, string(cfg), "second.example.com", "fixture is not hostile: only one URL was configured")
+
+	url, err := GetRemoteURL(repo, "origin")
+	require.NoError(t, err)
+	assert.Equal(t, "https://first.example.com/repo.git", url)
+}

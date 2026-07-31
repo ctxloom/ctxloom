@@ -87,6 +87,14 @@ var EnvKeys = []string{
 	// it once at package init, precisely so a test that isolates before it
 	// gates cannot silently demote itself back to skipping.
 	"CTXLOOM_REQUIRE_DOCKER",
+	// Also not production state, and listed for the identical reason as
+	// CTXLOOM_REQUIRE_DOCKER above: testsupport/sandbox.go is a non-_test.go
+	// file under internal/, so TestEnvKeysCoversProductionReads sweeps it and
+	// an exception carved for one file is how the next real variable goes
+	// missing. It is testsupport.SandboxOffEnv, read ONCE in TestMain (before
+	// any test, and therefore before any Isolate) by the self-test that proves
+	// the sandbox guard can go red — clearing it here is harmless.
+	"CTXLOOM_TEST_SANDBOX_OFF",
 	"GITHUB_TOKEN",
 	"GH_TOKEN",
 	"CODEX_HOME",

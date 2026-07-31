@@ -9,7 +9,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // listBundleInfos returns every bundle a `bundle list` should show, from the two
@@ -67,7 +69,18 @@ func bundleListDeletedResolver(cfg *config.Config) *remote.Resolver {
 	baseDir := getBaseDir(cfg)
 
 	var urls []string
-	if lock, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(afero.NewOsFs())).Load(); err == nil {
+	lock, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(afero.NewOsFs())).Load()
+	if err != nil {
+		// An UNREADABLE lockfile is not an empty one. Every remote source this
+		// resolver walks comes from here, so swallowing the error leaves it with
+		// nothing to walk and `bundle list` quietly stops flagging bundles that
+		// vanished upstream — the listing looks complete and healthy. Degrading
+		// to a partial listing is right (CLAUDE.md: listing what IS present must
+		// survive a bad lockfile); doing it silently is not.
+		clidiag.Warn("ctxloom",
+			"cannot read %s: %v — bundles removed upstream will not be flagged in this listing",
+			paths.LockPath(baseDir), err)
+	} else {
 		seen := map[string]bool{}
 		for _, entry := range lock.Bundles {
 			if entry.URL == "" || seen[entry.URL] {

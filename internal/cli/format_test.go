@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -256,4 +257,51 @@ func TestStreamingFormatVocabularyAgreesWithClifmt(t *testing.T) {
 		assert.Contains(t, err.Error(), string(f),
 			"a format outside the streaming pair must be named in its own rejection")
 	}
+}
+
+// U034-F06 reads the six commands that accept the global --format and never
+// read it as "so `--format json` silently returns text". They do not read it —
+// that part is accurate and all six are TRACKED as debt in
+// formatDebtAllowlist — but the outcome is no longer silent: U104-F01's
+// PersistentPostRunE guard turns the accepted-and-ignored case into a loud
+// error and a non-zero exit. This pins both halves.
+func TestFormatDebtCommands_AreTrackedAndRefuseNonTextLoudly(t *testing.T) {
+	for _, path := range []string{
+		"bundle hold", "bundle unhold", "bundle delete", "bundle mcp edit",
+		"agent remove", "agent default",
+	} {
+		_, ok := formatDebtAllowlist[path]
+		assert.True(t, ok, "%q must stay in formatDebtAllowlist: the debt is tracked, not forgotten", path)
+	}
+
+	// End-to-end on one of them. `agent default` with no argument succeeds on
+	// an empty project (it reports that no default agent is set), so RunE
+	// returns nil and the guard's window — "exited 0 having silently ignored
+	// --format" — is exactly what is reached.
+	testsupport.ProjectDir(t)
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
+
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs([]string{"agent", "default", "--format", "json"})
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		rootCmd.SetArgs(nil)
+		// rootCmd's --format is a process-wide PersistentFlags() value that
+		// pflag does NOT reset between Execute() calls on the same tree, and
+		// its PersistentPreRun flips the process-wide structured-diagnostics
+		// channel to match. Leaving either set reroutes every later test's
+		// warnings through the JSON renderer (test-order hazard, not a product
+		// bug — one CLI process handles exactly one invocation).
+		_ = rootCmd.PersistentFlags().Set("format", formatText)
+		clidiag.SetStructured(false)
+	})
+
+	err := rootCmd.Execute()
+	require.Error(t, err, "--format json on an unwired command must not exit 0 pretending to have honored it")
+	assert.Contains(t, err.Error(), "does not support it yet")
+	assert.Contains(t, err.Error(), "formatDebtAllowlist", "the error names where the tracked fix lives")
 }

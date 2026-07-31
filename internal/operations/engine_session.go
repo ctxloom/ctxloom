@@ -701,7 +701,27 @@ func assembleModeFunc(cfg *config.Config, sessionLabel string) func(ctx context.
 // cwd, which need not be this server process's cwd): it walks dir upward for a
 // .ctxloom directory and pins config loading to it; absent one, the default
 // discovery (process cwd, then home) applies.
+//
+// config.Load downgrades an unreadable, malformed, schema-invalid or lossily
+// migrated config file to kind-tagged Warnings and returns a nil error, so the
+// load succeeding says nothing about the config being intact. Every consumer
+// must therefore surface those warnings itself — reported to stderr AND
+// recorded as fatal-class findings — or a corrupted config.yaml opens a
+// session on empty context while the client is told the open succeeded. The
+// caller's strictness window turns the recording into a session refusal in
+// strict mode; in degraded mode the warnings still print and the session opens.
 func loadConfigForDir(dir string) (*config.Config, error) {
+	cfg, err := loadConfigForDirRaw(dir)
+	if err != nil {
+		return nil, err
+	}
+	config.RecordWarnings(cfg.GetWarnings())
+	return cfg, nil
+}
+
+// loadConfigForDirRaw is the discovery half: which .ctxloom directory a given
+// cwd resolves to, and the load pinned to it.
+func loadConfigForDirRaw(dir string) (*config.Config, error) {
 	for d := dir; ; {
 		appDir := filepath.Join(d, config.AppDirName)
 		if info, err := os.Stat(appDir); err == nil && info.IsDir() {

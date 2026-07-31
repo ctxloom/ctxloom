@@ -76,6 +76,18 @@ type dualStub struct{}
 func (dualStub) Deliver(string) (Delivered, error)   { return stubHandle{}, nil }
 func (dualStub) DeliverIsolated() (Delivered, error) { return stubHandle{}, nil }
 
+// dualRecordingDelivery is a recordingDelivery that ALSO carries the isolated
+// path, the shape every real surface with a SharedRealization has (claude's
+// context/MCP/settings). deliverOneShared only converts a resolved surface that
+// carries DeliverIsolated, since the realization closure is a method value bound
+// to that very instance — so a double meant to exercise the conversion has to
+// carry it too.
+type dualRecordingDelivery struct {
+	recordingDelivery
+}
+
+func (dualRecordingDelivery) DeliverIsolated() (Delivered, error) { return stubHandle{}, nil }
+
 // ---- compile-time guarantees ----------------------------------------------
 
 // The type-level contracts the seam depends on. That these assignments COMPILE
@@ -153,7 +165,7 @@ func TestDeliverOneShared_PrefersSharedRealization(t *testing.T) {
 		return stubHandle{}, nil
 	}
 	r := &ResolvedSelection{set: fakeSharedSet{realize: realize}}
-	surface := recordingDelivery{got: &wellKnownCalled, handle: stubHandle{}}
+	surface := dualRecordingDelivery{recordingDelivery{got: &wellKnownCalled, handle: stubHandle{}}}
 
 	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, delivery: surface}, "/live")
 	require.NoError(t, err)
@@ -253,4 +265,30 @@ func TestDeliverOneShared_Degraded_WarnsWithoutRecording(t *testing.T) {
 	assert.True(t, call.called, "delivery still proceeds in degraded mode")
 	assert.Equal(t, "/w", call.dir)
 	assert.Empty(t, strictness.All(), "degraded mode records no finding (warn-and-continue)")
+}
+
+// A kind-keyed SharedRealization must NOT be applied to a resolved surface that
+// does not carry the isolated path. A kind can resolve to different deliveries
+// per approach (claude's context: the dual-capable surface at UnsafeFile /
+// SystemPrompt, a documented no-op at Hook), and the realization closure is a
+// method value bound to the dual-capable instance — so converting the no-op
+// would run a write the caller explicitly did not select, doubling the content
+// the hook already carries.
+func TestDeliverOneShared_SkipsRealizationForNonIsolatableSurface(t *testing.T) {
+	resetStrictness(t)
+
+	var realizeCalled bool
+	var wellKnown deliveryCall
+	realize := func() (Delivered, error) {
+		realizeCalled = true
+		return stubHandle{}, nil
+	}
+	r := &ResolvedSelection{set: fakeSharedSet{realize: realize}}
+	// A plain Delivery — no DeliverIsolated, exactly like claude's Hook no-op.
+	surface := recordingDelivery{got: &wellKnown, handle: nil, info: "engine/context"}
+
+	d, err := r.deliverOneShared(resolvedSurface{kind: SurfaceContext, approach: ApproachHook, delivery: surface}, "/live")
+	require.NoError(t, err)
+	assert.Nil(t, d, "the no-op wrote nothing, so there is no cleanup handle")
+	assert.False(t, realizeCalled, "the kind-keyed realization belongs to a DIFFERENT surface instance")
 }

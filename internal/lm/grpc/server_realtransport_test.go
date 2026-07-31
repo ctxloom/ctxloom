@@ -144,7 +144,7 @@ func TestGRPCServer_Run_RealTransport_ConcurrentSends(t *testing.T) {
 // if that ever stops being true — for instance if the LLM service were moved
 // onto a plain grpc.NewServer of our own.
 func TestPluginTransport_ServesHealthAndReflection(t *testing.T) {
-	client, _ := plugin.TestPluginGRPCConn(t, false, PluginMap)
+	client, _ := plugin.TestPluginGRPCConn(t, false, PluginMap())
 	// Close() is the ONLY teardown call here, and the omission is load-bearing.
 	// go-plugin's GRPCServer.Stop is not safe to call concurrently with itself:
 	// it reads s.broker, closes it, then writes s.broker = nil, with no lock

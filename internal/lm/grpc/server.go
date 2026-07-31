@@ -11,11 +11,17 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // LLMGRPCPlugin is the implementation of plugin.GRPCPlugin for AI backends.
 type LLMGRPCPlugin struct {
-	plugin.Plugin
+	// This plugin speaks gRPC only. Embedding NetRPCUnsupportedPlugin rather
+	// than the bare plugin.Plugin interface satisfies that interface with
+	// methods that REFUSE net/rpc: a net/rpc dial then fails diagnosably
+	// instead of dereferencing a nil embedded interface inside the host.
+	plugin.NetRPCUnsupportedPlugin
 	// Impl is the concrete backend implementation.
 	// This is only set on the server (plugin) side.
 	Impl agent.Backend
@@ -68,7 +74,7 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 	}
 	req := first.GetStart()
 	if req == nil {
-		return fmt.Errorf("first Run message must carry start")
+		return status.Error(codes.InvalidArgument, "first Run message must carry start")
 	}
 
 	// Create writers that send output over the stream. os/exec copies
@@ -151,108 +157,16 @@ func (s *GRPCServer) Run(stream LLM_RunServer) error {
 // be nil for a non-interactive turn; resize may be nil when no SIGWINCH source
 // exists.
 func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Reader, stdout, stderr io.Writer, resize <-chan agent.WindowSize) (*agent.ExecuteResult, error) {
-	// Build setup request from RunStart. Treat nil Options as
-	// fully-default so callers using proto-zero-values don't crash —
-	// use the generated Get* accessors throughout (they're nil-safe).
-	opts := req.GetOptions()
-	workDir := opts.GetWorkDir()
-	env := opts.GetEnv()
-	verbosity := opts.GetVerbosity()
+	// Treat nil Options as fully-default so callers using proto-zero-values
+	// don't crash — the generated Get* accessors are nil-safe throughout.
+	env := req.GetOptions().GetEnv()
 	if env == nil {
 		env = make(map[string]string)
 	}
 
-	// dire-petal (SILENT NO-OP, now fixed at the seam): Fragments are converted
-	// +delivered to the backend by Setup — the SkipSetup Execute path (built
-	// further down as execReq) carries no Fragments field at all. Confirmed
-	// live: operations/oneshot.go's runResolvedAgent (the "none"-isolation
-	// fan-out/weave member path) sets BOTH SkipSetup:true and
-	// Fragments:[{Content: composedContext}] so the shared project cwd is
-	// never touched with per-member config — and until this fix, that
-	// composed context was silently discarded: the member ran context-free,
-	// reported exit 0, and produced plausible output with zero context
-	// delivered (prim-bluff had only made the drop visible via clidiag.Warn,
-	// not fixed it — see the removed warning this replaces).
-	//
-	// Fixed by smuggling the fragments into the prompt itself — the one
-	// channel a SkipSetup run still has — framed with the EXACT SAME envelope
-	// (agent.FrameProjectContext) claude's --append-system-prompt-file
-	// delivery already uses for a full-setup run, so a SkipSetup run's
-	// content reads identically to what a full-setup run would have written.
-	// Every current SkipSetup+Fragments caller (today, only the fan-out/weave
-	// "none" member) now gets its content delivered instead of dropped; a
-	// caller that only ever meant the bare prompt never sets Fragments in the
-	// first place, so this is a strict improvement with no new requirement on
-	// anyone. promptContent feeds execReq.Prompt below.
-	promptContent := req.GetPrompt().GetContent()
-	if opts.GetSkipSetup() {
-		if framed := agent.FrameProjectContext(agent.AssembleContext(convertFragments(req.Fragments))); framed != "" {
-			promptContent = framed + "\n\n" + promptContent
-		}
-	}
-
-	// Setup the backend (skip for distillation/minimal mode)
-	if !opts.GetSkipSetup() {
-		setupReq := &agent.SetupRequest{
-			WorkDir:   workDir,
-			Fragments: convertFragments(req.Fragments),
-			Env:       env,
-			Verbosity: verbosity,
-			// Host-assembled config/bundle setup payload (nil when the host
-			// sent none, e.g. skip_setup). Converted from proto back to the
-			// wire-typed Go form the agent's Setup consumes.
-			Managed: managedConfigFromProto(req.GetManagedConfig()),
-			// Resolved isolation cell, decided host-side and carried on the wire.
-			// Setup does not consume it yet (plan S4b) — plumbed for a later slice.
-			CellKind: cellKindFromProto(opts.GetCellKind()),
-		}
-		if err := impl.Setup(ctx, setupReq); err != nil {
-			// Fault tolerance (CLAUDE.md): the user must reach their LLM "even
-			// through most misconfigurations." Setup now does load-bearing-but-
-			// non-essential work — context provision, command registration, settings
-			// + hook flush — any of which can fail on a bad write without making the
-			// agent unlaunchable. Warn and proceed to Execute rather than aborting,
-			// matching the documented startup sequence ("apply hooks: warn on
-			// errors, continue" / "always respond with initialized").
-			clidiag.Warn("ctxloom", "backend setup failed (launching anyway): %v", err)
-		}
-	}
-
-	// Build execute request from RunStart. execPrompt carries promptContent
-	// (the original prompt, prefixed with any smuggled Fragments above) rather
-	// than the raw req.Prompt, but keeps req.Prompt's other fields (Name,
-	// Tags, ...) intact when a prompt was actually sent; a nil req.Prompt with
-	// smuggled content still needs a Fragment to carry it.
-	execPrompt := convertFragment(req.Prompt)
-	if promptContent != req.GetPrompt().GetContent() {
-		if execPrompt == nil {
-			execPrompt = &agent.Fragment{}
-		}
-		execPrompt.Content = promptContent
-	}
-	execReq := &agent.ExecuteRequest{
-		Prompt:      execPrompt,
-		WorkDir:     workDir,
-		Mode:        agent.ExecutionMode(opts.GetMode()),
-		Model:       opts.GetModel(),
-		Env:         env,
-		Verbosity:   verbosity,
-		DryRun:      opts.GetDryRun(),
-		Permissions: agent.WireMode(opts.GetPermissionMode()),
-		Temperature: opts.GetTemperature(),
-		SkipSetup:   opts.GetSkipSetup(),
-		CellKind:    cellKindFromProto(opts.GetCellKind()),
-		Stdin:       stdin,
-		Resize:      resize,
-	}
-
-	// Defense in depth: a ONESHOT has no human to answer the engine, so a
-	// would-block posture (default/acceptEdits) must not reach the backend and
-	// hang. The CLI resolver already floors this, but a direct gRPC caller might
-	// not, so enforce the "headless can't hang" invariant at the decode boundary.
-	if execReq.Mode == agent.ModeOneshot && !execReq.Permissions.SafeHeadless() {
-		execReq.Permissions = agent.PermissionBypass
-	}
+	promptContent := turnPromptContent(req)
+	runTurnSetup(ctx, impl, req, env)
+	execReq := turnExecuteRequest(req, promptContent, env, stdin, resize)
 
 	// Make cwd reach the child on EVERY path. Setup calls SetWorkDir, but the
 	// SkipSetup fan-out (oneshot/map/weave) skips Setup — so without this the
@@ -273,7 +187,7 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 	// result: after a successful run it would report a completed session as
 	// "AI plugin failed" (partial success is success, CLAUDE.md), and after a
 	// failed one it would bury the real error. Warn and carry on, matching how
-	// Setup degrades above.
+	// Setup degrades.
 	if cerr := impl.Cleanup(ctx); cerr != nil {
 		clidiag.Warn("ctxloom", "backend cleanup failed: %v", cerr)
 	}
@@ -289,6 +203,112 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 	}
 
 	return result, nil
+}
+
+// turnPromptContent is the prompt text Execute will receive: the sent prompt,
+// prefixed with this turn's Fragments when Setup is being skipped.
+//
+// dire-petal (SILENT NO-OP, fixed at the seam): Fragments are converted and
+// delivered to the backend by Setup — the SkipSetup Execute path carries no
+// Fragments field at all. Confirmed live: operations/oneshot.go's
+// runResolvedAgent (the "none"-isolation fan-out/weave member path) sets BOTH
+// SkipSetup:true and Fragments:[{Content: composedContext}] so the shared
+// project cwd is never touched with per-member config — and that composed
+// context was silently discarded: the member ran context-free, reported exit 0,
+// and produced plausible output with zero context delivered.
+//
+// The fragments are smuggled into the prompt itself — the one channel a
+// SkipSetup run still has — framed with the EXACT SAME envelope
+// (agent.FrameProjectContext) claude's --append-system-prompt-file delivery
+// already uses for a full-setup run, so a SkipSetup run's content reads
+// identically to what a full-setup run would have written. A caller that only
+// ever meant the bare prompt never sets Fragments in the first place.
+func turnPromptContent(req *RunStart) string {
+	content := req.GetPrompt().GetContent()
+	if !req.GetOptions().GetSkipSetup() {
+		return content
+	}
+	if framed := agent.FrameProjectContext(agent.AssembleContext(convertFragments(req.Fragments))); framed != "" {
+		return framed + "\n\n" + content
+	}
+	return content
+}
+
+// runTurnSetup runs the backend's Setup for this turn, unless the turn asked to
+// skip it (distillation/minimal mode).
+//
+// Fault tolerance (CLAUDE.md): the user must reach their LLM "even through most
+// misconfigurations." Setup does load-bearing-but-non-essential work — context
+// provision, command registration, settings + hook flush — any of which can
+// fail on a bad write without making the agent unlaunchable. A failure is
+// warned and the turn proceeds to Execute, matching the documented startup
+// sequence ("apply hooks: warn on errors, continue" / "always respond with
+// initialized"). It is therefore not an error the caller can act on.
+func runTurnSetup(ctx context.Context, impl agent.Backend, req *RunStart, env map[string]string) {
+	opts := req.GetOptions()
+	if opts.GetSkipSetup() {
+		return
+	}
+	setupReq := &agent.SetupRequest{
+		WorkDir:   opts.GetWorkDir(),
+		Fragments: convertFragments(req.Fragments),
+		Env:       env,
+		Verbosity: opts.GetVerbosity(),
+		// Host-assembled config/bundle setup payload (nil when the host
+		// sent none, e.g. skip_setup). Converted from proto back to the
+		// wire-typed Go form the agent's Setup consumes.
+		Managed: managedConfigFromProto(req.GetManagedConfig()),
+		// Resolved isolation cell, decided host-side and carried on the wire.
+		// Setup does not consume it yet (plan S4b) — plumbed for a later slice.
+		CellKind: cellKindFromProto(opts.GetCellKind()),
+	}
+	if err := impl.Setup(ctx, setupReq); err != nil {
+		clidiag.Warn("ctxloom", "backend setup failed (launching anyway): %v", err)
+	}
+}
+
+// turnExecuteRequest decodes a RunStart into the backend's ExecuteRequest. It
+// is the whole decode boundary for a turn: pure, so every field the wire
+// carries is translated in one place.
+//
+// execPrompt carries promptContent (the sent prompt, prefixed with any smuggled
+// Fragments — see turnPromptContent) rather than the raw req.Prompt, but keeps
+// req.Prompt's other fields (Name, Tags, ...) intact when a prompt was actually
+// sent; a nil req.Prompt with smuggled content still needs a Fragment to carry
+// it.
+func turnExecuteRequest(req *RunStart, promptContent string, env map[string]string, stdin io.Reader, resize <-chan agent.WindowSize) *agent.ExecuteRequest {
+	opts := req.GetOptions()
+	execPrompt := convertFragment(req.Prompt)
+	if promptContent != req.GetPrompt().GetContent() {
+		if execPrompt == nil {
+			execPrompt = &agent.Fragment{}
+		}
+		execPrompt.Content = promptContent
+	}
+	execReq := &agent.ExecuteRequest{
+		Prompt:      execPrompt,
+		WorkDir:     opts.GetWorkDir(),
+		Mode:        agent.ExecutionMode(opts.GetMode()),
+		Model:       opts.GetModel(),
+		Env:         env,
+		Verbosity:   opts.GetVerbosity(),
+		DryRun:      opts.GetDryRun(),
+		Permissions: agent.WireMode(opts.GetPermissionMode()),
+		Temperature: opts.GetTemperature(),
+		SkipSetup:   opts.GetSkipSetup(),
+		CellKind:    cellKindFromProto(opts.GetCellKind()),
+		Stdin:       stdin,
+		Resize:      resize,
+	}
+
+	// Defense in depth: a ONESHOT has no human to answer the engine, so a
+	// would-block posture (default/acceptEdits) must not reach the backend and
+	// hang. The CLI resolver already floors this, but a direct gRPC caller might
+	// not, so enforce the "headless can't hang" invariant at the decode boundary.
+	if execReq.Mode == agent.ModeOneshot && !execReq.Permissions.SafeHeadless() {
+		execReq.Permissions = agent.PermissionBypass
+	}
+	return execReq
 }
 
 // CellKindToProto maps a host-side agent.CellKind to the wire CellKind enum for

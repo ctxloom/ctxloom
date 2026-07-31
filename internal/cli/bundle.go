@@ -55,31 +55,17 @@ func init() {
 	// flags registered in sign.go alongside its shared RunE).
 	bundleCmd.AddCommand(bundleSignCmd)
 
-	bundleCreateCmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
-	bundleDeleteCmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")
+	// Each command's flags are defined ALONGSIDE the command, in its own file
+	// (the shape registerPushFlags already had); this is only the wiring, so
+	// adding a flag never means editing a file the command does not live in.
+	registerBundleCreateFlags(bundleCreateCmd)
+	registerBundleDeleteFlags(bundleDeleteCmd)
+	registerBundleEditFlags(bundleEditCmd)
 	registerPushFlags(bundlePushCmd)
-	bundleImportCmd.Flags().BoolVarP(&bundleImportForce, "force", "f", false, "Overwrite existing bundle")
-	bundleExportCmd.Flags().StringVarP(&bundleExportOutput, "output", "o", "", "Output file path")
-	bundleMoveCmd.Flags().StringVar(&bundleMoveTo, "to", "", "Destination: a configured remote name, or a local directory / ctxloom project checkout (a remote name wins)")
-	bundleMoveCmd.Flags().BoolVarP(&bundleMoveForce, "force", "f", false, "Overwrite an existing bundle at a local destination")
-	bundleMoveCmd.Flags().StringVarP(&bundleMoveMessage, "message", "m", "", "Commit message (remote destination only)")
-	_ = bundleMoveCmd.MarkFlagRequired("to")
-	bundleViewCmd.Flags().BoolVarP(&bundleViewDistilled, "distilled", "d", false, "Show distilled version if available")
-	bundleShowCmd.Flags().BoolVarP(&bundleShowInteractive, "interactive", "i", false, "Review per-item effective trust and trust/blacklist individual hooks (interactive terminal only)")
-
-	// bundleEditCmd flags
-	bundleEditCmd.Flags().StringVarP(&bundleEditDesc, "description", "d", "", "New description")
-	bundleEditCmd.Flags().StringVar(&bundleEditVersion, "version", "", "New version")
-	bundleEditCmd.Flags().StringSliceVar(&bundleEditAddTags, "add-tag", nil, "Tag(s) to add")
-	bundleEditCmd.Flags().StringSliceVar(&bundleEditRemoveTags, "remove-tag", nil, "Tag(s) to remove")
-	bundleEditCmd.Flags().StringSliceVar(&bundleEditAddFragment, "add-fragment", nil, "Fragment(s) to add")
-	bundleEditCmd.Flags().StringSliceVar(&bundleEditRemoveFragment, "remove-fragment", nil, "Fragment(s) to remove")
-	bundleEditCmd.Flags().StringSliceVar(&bundleEditAddPrompt, "add-prompt", nil, "Prompt(s) to add")
-	bundleEditCmd.Flags().StringSliceVar(&bundleEditRemovePrompt, "remove-prompt", nil, "Prompt(s) to remove")
-	bundleEditCmd.Flags().StringSliceVar(&bundleEditAddMCP, "add-mcp", nil, "MCP server(s) to add")
-	bundleEditCmd.Flags().StringSliceVar(&bundleEditRemoveMCP, "remove-mcp", nil, "MCP server(s) to remove")
-
-	bundleDistillCmd.Flags().BoolVarP(&bundleDistillForce, "force", "f", false, "Re-distill even if unchanged")
-	bundleDistillCmd.Flags().BoolVarP(&bundleDistillDryRun, "dry-run", "n", false, "Preview what would be distilled")
-	bundleDistillCmd.Flags().StringVarP(&bundleDistillLLM, "llm", "l", "", "config label to use (e.g. claude-code, claude-fast, antigravity); overrides the configured default")
+	registerBundleImportFlags(bundleImportCmd)
+	registerBundleExportFlags(bundleExportCmd)
+	registerBundleMoveFlags(bundleMoveCmd)
+	registerBundleViewFlags(bundleViewCmd)
+	registerBundleShowFlags(bundleShowCmd)
+	registerBundleDistillFlags(bundleDistillCmd)
 }

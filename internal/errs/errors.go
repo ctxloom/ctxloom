@@ -49,7 +49,11 @@ var (
 	// ErrRemoteContentNotFound indicates a file, directory, or ref does not
 	// exist on a remote (forge 404). Fetchers wrap it so callers can detect
 	// "content removed on remote" via errors.Is instead of matching error text.
-	ErrRemoteContentNotFound = errors.New("not found")
+	// Its message names its subject, like every other sentinel here: a wrap
+	// renders the sentinel's own text last, so a bare "not found" ended every
+	// message in this family with a word that says nothing about what was
+	// looked for.
+	ErrRemoteContentNotFound = errors.New("remote content not found")
 
 	// ErrRemoteNotMaterialized indicates a configured remote has no local clone
 	// yet, so read-only operations that refuse to fetch on demand (list, search,

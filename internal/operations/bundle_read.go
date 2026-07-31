@@ -42,7 +42,7 @@ func ReadBundle(_ context.Context, cfg *config.Config, req ReadBundleRequest) (*
 	}
 	// Accept a per-remote short "<remote>/<bundle>" name (decision E: a local file
 	// of the same spelling still wins); bare/canonical names pass through.
-	name := canonicalizeBundleArg(cfg, req.Name, dirs, req.FS)
+	name := canonicalizeBundleArg(cfg, req.Name, dirs, fs)
 	bundle, err := bundles.NewLoader(dirs, false, bundles.WithFS(fs)).Load(name)
 	if err != nil {
 		return nil, fmt.Errorf("bundle %q not found: %w", req.Name, err)

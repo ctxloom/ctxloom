@@ -2,13 +2,25 @@ package cli
 
 import "github.com/spf13/cobra"
 
-// helpArgName is the name-position help shortcut: `ctxloom profile show help`
-// renders the command's help rather than looking for an item called "help".
+// helpArgName is the one positional value some commands read as "the caller
+// fumbled for help" rather than as a resource name. The literal lives here
+// once: spread across eleven call sites it was connascence of MEANING, with
+// nothing tying the copies together.
 //
-// Every `<verb> <name>` command in this package honours it, so the literal
-// lives here once. Spread across eleven call sites it was connascence of
-// MEANING — nothing tied the copies together, and changing what the shortcut
-// is would have meant finding all of them.
+// IT IS A FALLBACK, NOT A GUARD. A bundle of help docs or an agent called
+// "help" is a legal resource, so a command consults this only after the named
+// resource turns out not to exist — or, for the create/set commands, not at
+// all, since naming the thing to create is unambiguous. Guarding on the
+// literal made every such resource UNADDRESSABLE and turned a genuine request
+// into "print help, exit 0": `bundle create help` reported success and created
+// nothing. Cobra's own --help and `ctxloom help <path>` are the unambiguous
+// ways to ask, and are unaffected.
+//
+// THE PACKAGE IS MID-MIGRATION AND THE TWO READINGS COEXIST. `agent`,
+// `bundle edit` and `bundle list` consult it as the fallback described above.
+// `profile.go` still calls helpShortcut below, which is the older pre-config
+// GUARD — so a profile literally named "help" remains unaddressable. Fixing
+// those four sites is tracked; do not "unify" them by reverting the fallback.
 const helpArgName = "help"
 
 // helpShortcut renders cmd's help when name is the help shortcut, reporting

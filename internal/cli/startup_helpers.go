@@ -77,30 +77,14 @@ func printAndRecordConfigWarnings(w io.Writer, warnings []config.Warning) {
 	}
 }
 
-// configWarningClass maps a config warning kind to its strictness class.
-func configWarningClass(kind config.WarningKind) strictness.Class {
-	if kind == config.WarnKindMigrationLossy {
-		return strictness.ClassMigration
-	}
-	return strictness.ClassConfig
-}
+// configWarningClass maps a config warning kind to its strictness class. The
+// table lives beside the kinds themselves (config.WarningKind) so the CLI and
+// the ACP session opener classify the same degradation identically.
+func configWarningClass(kind config.WarningKind) strictness.Class { return kind.StrictnessClass() }
 
 // configWarningFixIt names the fix for a config warning kind (the finding's
 // message already carries the path and error detail).
-func configWarningFixIt(kind config.WarningKind) string {
-	switch kind {
-	case config.WarnKindRead:
-		return "make the config file readable, or remove it"
-	case config.WarnKindMigrationLossy:
-		return "re-add the dropped setting in its new home (ctxloom manage config edit)"
-	case config.WarnKindUnknownKey:
-		// The message already names the key and (when known) its replacement, so
-		// the fix-it only has to say where to make the edit.
-		return "remove or rename the key in config.yaml (ctxloom manage config edit)"
-	default: // parse / validate
-		return "fix the config file (ctxloom manage config edit)"
-	}
-}
+func configWarningFixIt(kind config.WarningKind) string { return kind.FixIt() }
 
 // failOnFindings is the strict startup gate for process-owning entry points
 // (`ctxloom run`, `ctxloom mcp`): when strict mode collected fatal findings

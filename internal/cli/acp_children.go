@@ -58,54 +58,81 @@ func adaptChildWatch(ctx context.Context, snapshot *agentcoordpb.ListRunsResult,
 	for _, r := range snapshot.GetRuns() {
 		harpByRun[r.GetRunId()] = r.GetAgent().GetAgentId()
 	}
-	send := func(u acpagent.ChildUpdate) bool {
-		select {
-		case out <- u:
-			return true
-		case <-ctx.Done():
-			return false
-		}
-	}
 	for {
 		select {
 		case ev, ok := <-events:
 			if !ok {
 				return
 			}
-			runID := ev.GetRunId()
-			switch p := ev.GetPayload().(type) {
-			case *agentcoordpb.AgentEvent_RunStarted:
-				harp := p.RunStarted.GetAgent().GetAgentId()
-				if harp == "" {
-					harp = harpByRun[runID]
-				}
-				harpByRun[runID] = harp
-				text := p.RunStarted.GetAgent().GetRole()
-				if text == "" {
-					text = "delegated task"
-				}
-				if !send(acpagent.ChildUpdate{Harp: harp, Kind: acpagent.ChildUpdateStarted, Text: text}) {
-					return
-				}
-			case *agentcoordpb.AgentEvent_MessageDelta:
-				if txt := p.MessageDelta.GetText(); txt != "" {
-					if !send(acpagent.ChildUpdate{Harp: harpByRun[runID], Kind: acpagent.ChildUpdateMessage, Text: txt}) {
-						return
-					}
-				}
-			case *agentcoordpb.AgentEvent_RunCompleted:
-				harp := harpByRun[runID]
-				delete(harpByRun, runID)
-				text := p.RunCompleted.GetResult().GetText()
-				if text == "" {
-					text = strings.ToLower(strings.TrimPrefix(p.RunCompleted.GetResult().GetStatus().String(), "RUN_STATUS_"))
-				}
-				if !send(acpagent.ChildUpdate{Harp: harp, Kind: acpagent.ChildUpdateCompleted, Text: text}) {
-					return
-				}
+			u, ok := childUpdateFor(ev, harpByRun)
+			if !ok {
+				continue
+			}
+			select {
+			case out <- u:
+			case <-ctx.Done():
+				return
 			}
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+// childUpdateFor maps ONE AgentEvent onto the child update an ACP client sees,
+// maintaining the run→harp table as it goes. ok is false when the event
+// contributes nothing.
+//
+// Three of AgentEvent's sixteen payload variants are surfaced, and the silence
+// on the other thirteen is a decision, not an omission: an ACP client's child
+// pane is start / streamed text / completion. Step and status transitions,
+// message start/stop framing, the whole tool-call family, interaction echoes,
+// artifacts, summaries and the raw/custom escape hatches have no place in it,
+// and forwarding them would mean inventing a ChildUpdate kind per variant.
+// TestAdaptChildWatch_UnsurfacedVariantsEmitNothing pins that.
+func childUpdateFor(ev *agentcoordpb.AgentEvent, harpByRun map[string]string) (acpagent.ChildUpdate, bool) {
+	runID := ev.GetRunId()
+	switch p := ev.GetPayload().(type) {
+	case *agentcoordpb.AgentEvent_RunStarted:
+		return startedUpdate(p.RunStarted, runID, harpByRun), true
+	case *agentcoordpb.AgentEvent_MessageDelta:
+		txt := p.MessageDelta.GetText()
+		if txt == "" {
+			return acpagent.ChildUpdate{}, false
+		}
+		return acpagent.ChildUpdate{Harp: harpByRun[runID], Kind: acpagent.ChildUpdateMessage, Text: txt}, true
+	case *agentcoordpb.AgentEvent_RunCompleted:
+		return completedUpdate(p.RunCompleted, runID, harpByRun), true
+	default:
+		return acpagent.ChildUpdate{}, false
+	}
+}
+
+// startedUpdate records the run's harp (falling back to the snapshot's, for a
+// start event that omits the identity) and labels the child by its role.
+func startedUpdate(started *agentcoordpb.RunStarted, runID string, harpByRun map[string]string) acpagent.ChildUpdate {
+	harp := started.GetAgent().GetAgentId()
+	if harp == "" {
+		harp = harpByRun[runID]
+	}
+	harpByRun[runID] = harp
+
+	text := started.GetAgent().GetRole()
+	if text == "" {
+		text = "delegated task"
+	}
+	return acpagent.ChildUpdate{Harp: harp, Kind: acpagent.ChildUpdateStarted, Text: text}
+}
+
+// completedUpdate forgets the run's harp and reports the result text, falling
+// back to the terminal status when the run produced none.
+func completedUpdate(completed *agentcoordpb.RunCompleted, runID string, harpByRun map[string]string) acpagent.ChildUpdate {
+	harp := harpByRun[runID]
+	delete(harpByRun, runID)
+
+	text := completed.GetResult().GetText()
+	if text == "" {
+		text = strings.ToLower(strings.TrimPrefix(completed.GetResult().GetStatus().String(), "RUN_STATUS_"))
+	}
+	return acpagent.ChildUpdate{Harp: harp, Kind: acpagent.ChildUpdateCompleted, Text: text}
 }

@@ -89,7 +89,8 @@ func (s *contextSurface) DeliverIsolated() (agent.Delivered, error) {
 }
 
 // Path returns the framed <hash>.sysprompt.md written by DeliverIsolated (for
-// --append-system-prompt-file), or "" before delivery / for empty context.
+// --append-system-prompt-file), or "" whenever no file stands behind it: before
+// delivery, for empty context, and after a FAILED delivery.
 func (s *contextSurface) Path() string { return s.appendD.Path() }
 
 // mcpSurface is claude's MCP surface.
@@ -124,11 +125,14 @@ func (s *mcpSurface) deliver(dir string) (agent.Delivered, error) {
 func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) { return s.deliver(dir) }
 
 // DeliverIsolated writes the merged .mcp.json into the out-of-cwd placement and
-// records its path for --mcp-config.
+// records its path for --mcp-config. A FAILED write clears that path: Path()
+// promises "" for a file that does not exist, and flagArgs must never hand
+// claude --mcp-config naming one.
 func (s *mcpSurface) DeliverIsolated() (agent.Delivered, error) {
 	dir := s.isolated.Dir()
 	handle, err := s.deliver(dir)
 	if err != nil {
+		s.path = ""
 		return nil, err
 	}
 	s.path = (&ClaudeCodeHookWriter{FS: s.fs}).MCPConfigPath(dir)
@@ -136,7 +140,7 @@ func (s *mcpSurface) DeliverIsolated() (agent.Delivered, error) {
 }
 
 // Path returns the out-of-cwd .mcp.json written by DeliverIsolated (for
-// --mcp-config <file>), or "" before delivery.
+// --mcp-config <file>), or "" before delivery and after a FAILED one.
 func (s *mcpSurface) Path() string { return s.path }
 
 // settingsSurface is claude's settings surface (hooks + statusline; claude keeps
@@ -176,11 +180,14 @@ func (s *settingsSurface) deliver(dir string) (agent.Delivered, error) {
 func (s *settingsSurface) Deliver(dir string) (agent.Delivered, error) { return s.deliver(dir) }
 
 // DeliverIsolated writes the settings JSON (incl. hooks) into the out-of-cwd
-// placement and records its path for --settings.
+// placement and records its path for --settings. A FAILED write clears that
+// path, for the same reason mcpSurface's does: no --settings flag may name a
+// file that was not written.
 func (s *settingsSurface) DeliverIsolated() (agent.Delivered, error) {
 	dir := s.isolated.Dir()
 	handle, err := s.deliver(dir)
 	if err != nil {
+		s.path = ""
 		return nil, err
 	}
 	s.path = (&ClaudeCodeHookWriter{FS: s.fs}).SettingsPath(dir)
@@ -188,7 +195,7 @@ func (s *settingsSurface) DeliverIsolated() (agent.Delivered, error) {
 }
 
 // Path returns the out-of-cwd settings.json written by DeliverIsolated (for
-// --settings <file>), or "" before delivery.
+// --settings <file>), or "" before delivery and after a FAILED one.
 func (s *settingsSurface) Path() string { return s.path }
 
 // commandsSurface is claude's commands surface: the slash-command exports under

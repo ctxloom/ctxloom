@@ -15,12 +15,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
+// MoveDestRemote and MoveDestPath are the two values MoveBundleResult.DestKind
+// takes. They are exported because DestKind is part of this result's contract:
+// a frontend branching on the outcome (the CLI's printMoveResult annotates a
+// remote destination with the remote's name) would otherwise have to spell the
+// literal itself, with nothing tying the two spellings together.
+const (
+	MoveDestRemote = "remote"
+	MoveDestPath   = "path"
+)
+
 // moveDestKind distinguishes the two destinations a bundle can move to.
 type moveDestKind string
 
 const (
-	moveDestRemote moveDestKind = "remote"
-	moveDestPath   moveDestKind = "path"
+	moveDestRemote moveDestKind = MoveDestRemote
+	moveDestPath   moveDestKind = MoveDestPath
 )
 
 // moveDest is a resolved `--to`: exactly one of Remote (a configured registry
@@ -109,22 +119,36 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 		return nil, err
 	}
 
-	var result *MoveBundleResult
-	switch dest.Kind {
-	case moveDestRemote:
-		result, err = moveToRemote(ctx, cfg, fs, req, name, src, dest.Remote)
-	default:
-		result, err = moveToPath(ctx, cfg, fs, req, name, src, dest.Dir)
-	}
+	result, err := moveByDest(ctx, cfg, fs, req, name, src, dest)
 	if err != nil {
 		return nil, err
 	}
 
 	// Destination write succeeded — and only now is the source removed.
-	if err := removeMoveSource(fs, src); err != nil {
+	if err := removeMoveSource(fs, src, result.Dest); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// moveByDest routes a resolved destination to the writer that services it.
+//
+// The switch is EXHAUSTIVE over moveDestKind, and an unrecognised kind is an
+// error rather than the local-copy branch. That matters more here than it looks:
+// MoveBundle deletes the source the moment this returns without an error, so a
+// kind that fell through to the local copy would be handed whatever Dir happened
+// to be set — "" for any destination that does not populate it — and the source
+// would be removed behind a write that went somewhere nobody chose. A
+// destination this function does not understand must stop the move.
+func moveByDest(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBundleRequest, name, src string, dest moveDest) (*MoveBundleResult, error) {
+	switch dest.Kind {
+	case moveDestRemote:
+		return moveToRemote(ctx, cfg, fs, req, name, src, dest.Remote)
+	case moveDestPath:
+		return moveToPath(ctx, cfg, fs, req, name, src, dest.Dir)
+	default:
+		return nil, fmt.Errorf("unsupported move destination kind %q", dest.Kind)
+	}
 }
 
 // loadMoveSource resolves the authored bundle to move, returning its canonical
@@ -298,12 +322,23 @@ func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req Move
 // The YAML goes first: if that removal fails we abort with the signed pair still
 // intact and internally consistent, rather than a bundle stripped of its
 // signature.
-func removeMoveSource(fs afero.Fs, src string) error {
+//
+// Both failures name the DESTINATION, because the two states they leave behind
+// need opposite responses and the user cannot tell them apart otherwise:
+//   - the YAML is still here — the bundle now exists in two places, and the move
+//     can be re-run or the duplicate deleted;
+//   - the YAML is gone and only the orphan .sig remains — the move HAPPENED.
+//     Re-running it cannot work (there is no source left to move) and the only
+//     remaining action is deleting the stray signature by hand. Saying so is the
+//     difference between a user cleaning up and a user retrying a command that
+//     will now tell them the bundle does not exist.
+func removeMoveSource(fs afero.Fs, src, dest string) error {
 	if err := fs.Remove(src); err != nil {
-		return fmt.Errorf("destination write succeeded but the source could not be removed: %w", err)
+		return fmt.Errorf("the bundle was written to %s but the source %s could not be removed — it now exists in both places: %w", dest, src, err)
 	}
 	if err := removeIfExists(fs, src+sigSuffix); err != nil {
-		return fmt.Errorf("bundle moved, but its source signature %s could not be removed: %w", src+sigSuffix, err)
+		return fmt.Errorf("the bundle was moved to %s and the source is gone, but the stray source signature %s could not be removed — delete it by hand; re-running the move will not work: %w",
+			dest, src+sigSuffix, err)
 	}
 	return nil
 }

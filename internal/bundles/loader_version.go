@@ -119,7 +119,7 @@ func (l *Loader) GetFragmentAtVersion(ref, commit string) (*LoadedContent, error
 	}
 	frag, ok := bundle.Fragments[fragName]
 	if !ok {
-		return nil, fmt.Errorf("fragment %q not found in bundle %q", fragName, bundle.Name)
+		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundle.Name)
 	}
 	lc := l.fragmentContent(bundle, fragName, frag)
 	if lc == nil {
@@ -145,7 +145,7 @@ func (l *Loader) GetPromptAtVersion(ref, commit string) (*LoadedContent, error) 
 	}
 	prompt, ok := bundle.Commands[promptName]
 	if !ok {
-		return nil, fmt.Errorf("command %q not found in bundle %q", promptName, bundle.Name)
+		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundle.Name)
 	}
 	lc := l.commandContent(bundle, promptName, prompt)
 	if lc == nil {

@@ -123,7 +123,7 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 		res.Items = append(res.Items, distillOutcome(ItemKindCommand, n, bundle.Commands[n].Distilled, bundle.Commands[n].DistilledBy, failedPrompts.Has(n)))
 	}
 
-	if len(fragTargets)+len(promptTargets) > 0 {
+	if anyDistilled(res.Items) {
 		store := req.Store
 		if store == nil {
 			store = bundles.NewFSStore(nil, false)
@@ -135,6 +135,28 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 		res.Invalidated = invalidatedByDistill(req.Cfg, bundle.Name, res.Items)
 	}
 	return res, nil
+}
+
+// anyDistilled reports whether this run produced new distilled bytes for at
+// least one item — the only condition under which the file has anything new to
+// hold, and therefore the only condition under which it may be rewritten.
+//
+// Having TARGETS is not that condition. distillFragments/distillPrompts leave
+// the bundle completely untouched on a per-item failure (they warn and skip, so
+// a failed re-distill keeps its previous distillation), so a run where every
+// attempt failed has nothing to persist. Saving anyway is not a harmless
+// no-op: Store.Save re-marshals the document, which loses the author's comments
+// and key order, and the re-marshalled bytes no longer match any detached
+// publisher signature — so invalidateStaleSignature then DELETES the author's
+// signature. An offline LLM would have cost them their comments and their
+// signature, in exchange for nothing.
+func anyDistilled(items []DistillBundleItem) bool {
+	for _, it := range items {
+		if it.Status == DistillStatusDistilled {
+			return true
+		}
+	}
+	return false
 }
 
 // invalidatedByDistill checks each successfully-DISTILLED item against the

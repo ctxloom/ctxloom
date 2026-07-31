@@ -7,6 +7,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSentinelErrors_ErrorsIs(t *testing.T) {
@@ -76,6 +77,7 @@ func TestSentinelErrors_ErrorMessages(t *testing.T) {
 		{errs.ErrCommandNotFound, "command not found"},
 		{errs.ErrProfileNotFound, "profile not found"},
 		{errs.ErrRemoteNotFound, "remote not found"},
+		{errs.ErrRemoteContentNotFound, "remote content not found"},
 		{errs.ErrCircularInheritance, "circular profile inheritance detected"},
 		{errs.ErrProfileDepthExceeded, "profile inheritance depth exceeds maximum"},
 	}
@@ -97,4 +99,30 @@ func TestSentinelErrors_DeepWrapping(t *testing.T) {
 	assert.True(t, errors.Is(wrapped3, errs.ErrBundleNotFound))
 	assert.Contains(t, wrapped3.Error(), "layer 3")
 	assert.Contains(t, wrapped3.Error(), "bundle not found")
+}
+
+// A sentinel is rendered LAST when a producer wraps it, so its own message is
+// the final clause a user reads. A message that names only the outcome and not
+// its subject therefore ends every error in that family with a word that says
+// nothing: "file not found: acme/tools/x.md: not found". Every sentinel here
+// must name what it is about.
+func TestSentinelErrors_EveryMessageNamesItsSubject(t *testing.T) {
+	generic := map[string]bool{
+		"not found": true, "error": true, "failed": true, "invalid": true,
+		"missing": true, "unavailable": true, "withheld": true,
+	}
+	sentinels := []error{
+		errs.ErrBundleNotFound, errs.ErrFragmentNotFound, errs.ErrCommandNotFound,
+		errs.ErrSkillNotFound, errs.ErrProfileNotFound,
+		errs.ErrFragmentWithheld, errs.ErrCommandWithheld, errs.ErrSkillWithheld,
+		errs.ErrNoVersionResolver,
+		errs.ErrRemoteNotFound, errs.ErrRemoteContentNotFound, errs.ErrRemoteNotMaterialized,
+		errs.ErrCircularInheritance, errs.ErrProfileDepthExceeded, errs.ErrCancelled,
+	}
+	for _, sentinel := range sentinels {
+		msg := sentinel.Error()
+		require.NotEmpty(t, msg)
+		assert.False(t, generic[msg],
+			"sentinel message %q names an outcome but no subject; it reads as the last clause of every error that wraps it", msg)
+	}
 }

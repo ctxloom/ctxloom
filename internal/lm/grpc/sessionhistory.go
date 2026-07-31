@@ -3,11 +3,13 @@ package grpc
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"math"
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // This file carries the session-history transport: the backend (plugin) is
@@ -30,6 +32,21 @@ func unixToTime(u int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(u, 0).UTC()
+}
+
+// int32Clamped narrows a Go int onto one of this wire's int32 fields without
+// wrapping. Every such field is a count, an index, a line number or a timeout,
+// and each is read downstream as a non-negative quantity; a bare int32(v) of an
+// out-of-range value silently WRAPS, turning a large value into a large
+// negative one. Saturating keeps it monotone and in range instead.
+func int32Clamped(v int) int32 {
+	if v > math.MaxInt32 {
+		return math.MaxInt32
+	}
+	if v < math.MinInt32 {
+		return math.MinInt32
+	}
+	return int32(v)
 }
 
 // EntryToProto converts one normalized turn to its proto form. Shared by
@@ -62,7 +79,7 @@ func locationsToProto(locs []agent.ToolLocation) []*ToolLocation {
 	}
 	out := make([]*ToolLocation, 0, len(locs))
 	for _, l := range locs {
-		out = append(out, &ToolLocation{Path: l.Path, Line: int32(l.Line)})
+		out = append(out, &ToolLocation{Path: l.Path, Line: int32Clamped(l.Line)})
 	}
 	return out
 }
@@ -215,7 +232,7 @@ func sessionMetaToProto(m agent.SessionMeta) *SessionMeta {
 		Id:         m.ID,
 		StartUnix:  timeToUnix(m.StartTime),
 		EndUnix:    timeToUnix(m.EndTime),
-		EntryCount: int32(m.EntryCount),
+		EntryCount: int32Clamped(m.EntryCount),
 		Path:       m.Path,
 	}
 }
@@ -243,11 +260,19 @@ func sessionMetaFromProto(p *SessionMeta) agent.SessionMeta {
 func (s *GRPCServer) GetSession(ctx context.Context, req *GetSessionRequest) (*SessionData, error) {
 	hist := s.Impl.History()
 	if hist == nil {
-		return nil, fmt.Errorf("backend %s has no session history", s.Impl.Name())
+		return nil, status.Errorf(codes.Unimplemented, "backend %s has no session history", s.Impl.Name())
 	}
 	sess, err := hist.GetSession(projectroot.WorkDir(), req.GetSessionId())
 	if err != nil {
 		return nil, err
+	}
+	// "No such session" (a nil session with no error) cannot cross this wire as
+	// itself: a nil message is serialized as an EMPTY one, so the host would
+	// decode a non-nil, zero-entry agent.Session — indistinguishable from a
+	// session that genuinely exists and has produced no turns yet. Report the
+	// absence instead, so the two answers stay apart.
+	if sess == nil {
+		return nil, status.Errorf(codes.NotFound, "backend %s has no session %q", s.Impl.Name(), req.GetSessionId())
 	}
 	return sessionToProto(sess), nil
 }
@@ -257,7 +282,7 @@ func (s *GRPCServer) GetSession(ctx context.Context, req *GetSessionRequest) (*S
 func (s *GRPCServer) ListSessions(ctx context.Context, req *ListSessionsRequest) (*SessionList, error) {
 	hist := s.Impl.History()
 	if hist == nil {
-		return nil, fmt.Errorf("backend %s has no session history", s.Impl.Name())
+		return nil, status.Errorf(codes.Unimplemented, "backend %s has no session history", s.Impl.Name())
 	}
 	metas, err := hist.ListSessions(projectroot.WorkDir())
 	if err != nil {

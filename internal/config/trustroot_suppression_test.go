@@ -158,3 +158,40 @@ func TestTrustRoot_SuppressedEmbeddedPrincipal_NoLongerTrusted(t *testing.T) {
 	assert.True(t, suppressed["ben+ctxloom@abbitt.me"])
 	assert.False(t, suppressed[""])
 }
+
+// An allowed_signers entry may name SEVERAL principals on one line (the
+// principals pattern-list is comma-separated). filterSuppressedPrincipals
+// removes the WHOLE ENTRY when any one of them is suppressed, so suppressing
+// one identity also revokes the grants the same line made to the others.
+//
+// This test states that semantics rather than endorsing it. Which of the two
+// readings is right — "distrusting a principal revokes the LINE" versus
+// "distrusting a principal revokes only THAT principal's grant" — decides who
+// may grant what after a partial suppression, and that is a trust-model
+// decision, not something a sweep settles. Until it is decided, the behaviour
+// must at least be visible and stable: changing it here fails this test, which
+// is the intended forcing function.
+//
+// It is latent today (the compiled-in trust root ships one entry naming one
+// principal) and reachable the moment a second principal is added to a line.
+func TestFilterSuppressedPrincipals_MultiPrincipalEntry_DropsEveryGrantOnTheLine(t *testing.T) {
+	_, pub := newSuppressionTestSigner(t)
+	entry := allowedsigners.Entry{
+		Principals: []string{"vendor@example.com", "partner@example.com"},
+		Namespaces: []string{signing.NamespacePublish},
+		PublicKey:  pub,
+	}
+	store := allowedsigners.NewStore(entry)
+
+	// The fixture must actually be trusted for BOTH identities before the
+	// suppression, or the assertion below proves nothing.
+	require.True(t, store.TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted,
+		"the multi-principal entry must grant trust before anything is suppressed")
+
+	filtered := filterSuppressedPrincipals(store, map[string]bool{"vendor@example.com": true})
+
+	assert.Empty(t, filtered.Entries(),
+		"suppressing ONE principal drops the whole line, taking partner@example.com's grant with it")
+	assert.False(t, filtered.TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted,
+		"the un-suppressed principal on the same line no longer grants trust either")
+}

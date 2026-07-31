@@ -28,6 +28,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	api "github.com/coder/acp-go-sdk"
 
@@ -731,7 +732,7 @@ func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock
 				if sess.wasCancelled() {
 					reply(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
 				} else {
-					reply(nil, engineError(<-sess.engine.Errs))
+					reply(nil, engineError(sess.finalEngineErr()))
 				}
 				return
 			}
@@ -1153,6 +1154,30 @@ func (s *Server) emitUpdate(sess *session, update any) *jsonrpc.Error {
 		return &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "notify: " + err.Error()}
 	}
 	return nil
+}
+
+// engineErrGrace bounds how long a turn waits for the engine's fatal error
+// after its Events channel has already closed. See finalEngineErr.
+const engineErrGrace = 2 * time.Second
+
+// finalEngineErr collects the engine's conversation-fatal error once Events
+// has closed, and returns nil if none is forthcoming.
+//
+// EngineChat documents Events as "closed when the conversation ends" and says
+// nothing about Errs, so a producer may legitimately close one without the
+// other: internal/lm/grpc's pumpChatEvents closes both from a single defer,
+// but cmd/acpl1harness's engine closes Events and never touches Errs. A bare
+// receive here parks the turn forever against the second shape, so the
+// session/prompt request never resolves at all and its runner leaks — a
+// strictly worse outcome than reporting the conversation ended without a
+// specific cause, which is what engineError already says for a nil error.
+func (sess *session) finalEngineErr() error {
+	select {
+	case err := <-sess.engine.Errs:
+		return err
+	case <-time.After(engineErrGrace):
+		return nil
+	}
 }
 
 // engineError renders a conversation-fatal engine error as a JSON-RPC error

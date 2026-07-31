@@ -123,3 +123,44 @@ func TestFrontendProducedGraphsAreAcyclic(t *testing.T) {
 		t.Error("the nested command must be reachable from the outer script")
 	}
 }
+
+// TestShellIsPartOfTheGraphContract is the pin for U072-F02, which measures
+// (correctly — 4 of the 9 importing packages use only Shell) that the Shell
+// enum and the command graph have different audiences, and concludes they are
+// "two unrelated contracts in one package".
+//
+// The measurement holds; the conclusion does not. Shell is a FIELD of Script,
+// and Walk's contract is specifically that the visitor receives the script
+// that OWNS each command because a nested script may carry a different
+// dialect — which is what lets a `shells: [cmd]` rule fire on a cmd.exe
+// payload nested inside a bash wrapper. That makes the enum part of the
+// graph's own contract rather than a lodger in its package. Package ir also
+// imports nothing but "slices", so a Shell-only importer pays no dependency
+// weight for the co-location.
+//
+// No red is available for this row: its remedy is a package move, which a test
+// follows rather than fails. This pins the coupling that makes the two
+// inseparable instead.
+func TestShellIsPartOfTheGraphContract(t *testing.T) {
+	nested := &Script{Shell: ShellCmd, Pipelines: []Pipeline{
+		{Commands: []SimpleCommand{{Argv: []string{"del", "/f", "x"}}}},
+	}}
+	outer := &Script{Shell: ShellBash, Pipelines: []Pipeline{
+		{Commands: []SimpleCommand{{Argv: []string{"cmd.exe", "/c", "del /f x"}, Nested: []*Script{nested}}}},
+	}}
+
+	var owners []Shell
+	outer.Walk(func(owner *Script, _ SimpleCommand) bool {
+		owners = append(owners, owner.Shell)
+		return true
+	})
+	if len(owners) != 2 {
+		t.Fatalf("visited %d commands, want 2", len(owners))
+	}
+	if owners[0] != ShellBash {
+		t.Errorf("outer command's owner shell = %q, want bash", owners[0])
+	}
+	if owners[1] != ShellCmd {
+		t.Errorf("nested command's owner shell = %q, want cmd: Walk must report the OWNING script's dialect, not the top-level one", owners[1])
+	}
+}

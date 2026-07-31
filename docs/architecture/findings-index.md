@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,315** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,316** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **478** |
+| `open` | no commit names this ID | **477** |
 
-**Totals: 2268 findings across 162 units — 1,315 resolved, 478 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,316 resolved, 477 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 471 | 268 | 73 | 79 | 108 |
-| LOW | 871 | 487 | 198 | 46 | 85 | 55 |
+| LOW | 871 | 488 | 197 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2163,7 +2163,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U032-F22 | **RESOLVED** `69802f97` | **`claude.go:556-559`** | LOW | `removeCtxloomHooks`'s doc describes a detection rule the code does not implement: *"It identifies ctxloom hooks by command pattern: containing "ctxloom" AND "inject-context""*. The code uses `agen... | U032.md |
 | U033-F07 | **RESOLVED** `c97a0e90` | **`surfaces.go:358-367`** | DUPLICATE | `SupportedApproaches` and `DefaultApproach` are byte-identical across all five backends modulo the table variable name — ten methods that only name a table | U033.md |
 | U033-F08 | **RESOLVED** `5fdf8767` | **`surfaces.go:247-248`** | NOPAY | Stale doc comment describes a plan state two slices out of date: "S1 only defines and fills it in tests; Phase 2 (S4) feeds it from Setup" | U033.md |
-| U033-F09 | open | **`surfaces.go:131-136`, `surfaces.go:182-187`** | ERRHANDLING | On a failed `DeliverIsolated`, `s.path` retains its prior value rather than being cleared, so `Path()` can report a path for a delivery that did not happen — contradicting its own doc (`"" before d... | U033.md |
+| U033-F09 | **RESOLVED** `89120853` | **`surfaces.go:131-136`, `surfaces.go:182-187`** | ERRHANDLING | On a failed `DeliverIsolated`, `s.path` retains its prior value rather than being cleared, so `Path()` can report a path for a delivery that did not happen — contradicting its own doc (`"" before d... | U033.md |
 | U033-F10 | open | **`surfaces.go:280-326`** | COUPLING | The five surfaces are enumerated twice by hand — once as the `dispatch` map (`311-317`) and once as the `Deliveries()` slice (`325`) — plus the struct fields, the approach table, and the assertion ... | U033.md |
 | U034-F13 | open | `internal/cli/acp_children.go:55-110` | COMPLEXITY | `adaptChildWatch` is CCN 16 (over the project's stated CCN-10 gate) and silently drops 13 of the 16 `AgentEvent` payload variants with no default case and no comment saying so | U034.md |
 | U034-F14 | open | `internal/cli/agent.go:140-184` | COMPLEXITY | `renderAgentShow` is CCN 11 — over the stated CI gate — from nine sequential optional-field `if`s | U034.md |

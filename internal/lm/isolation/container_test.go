@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -498,4 +499,53 @@ func TestGitCommonDirMount_WholeCommonDirReadWrite(t *testing.T) {
 	assert.Equal(t, common, m.Container, "identical-path, so a `gitdir:` pointer file resolves in-container")
 	assert.False(t, m.ReadOnly,
 		"read-write by design: a linked checkout writes its own admin files under <common>/worktrees/<name>")
+}
+
+// TestContainerFor_PropagatesEveryImageConfigField pins the field-by-field
+// copy containerFor performs, and — via the reflective guard at the end —
+// makes that copy IMPOSSIBLE to under-do silently: a field added to
+// ImageConfig fails this test until it is both propagated and asserted here.
+//
+// Without that guard the omission is invisible in the worst way this project
+// knows: the user sets a config key, the run succeeds, and the setting was
+// never carried into the policy that was supposed to honour it.
+//
+// Image takes a different route from the other five and is checked separately:
+// an override runs AS-IS (the user owns that image), so it also clears the
+// local-build recipe rather than being layered onto a base.
+func TestContainerFor_PropagatesEveryImageConfigField(t *testing.T) {
+	rt := fakeRuntime{name: "docker", available: true}
+
+	img := ImageConfig{
+		BaseContainerfile:   "/base/Containerfile",
+		AppRoot:             "/some/project",
+		NoDevcontainerBase:  true,
+		DevcontainerService: "devservice",
+		Engines:             []string{"claude-code", "kiro"},
+	}
+	c := containerFor(rt, "claude-code", img)
+	assert.Equal(t, img.BaseContainerfile, c.baseContainerfile)
+	assert.Equal(t, img.AppRoot, c.appRoot)
+	assert.Equal(t, img.NoDevcontainerBase, c.noDevcontainerBase)
+	assert.Equal(t, img.DevcontainerService, c.devcontainerService)
+	assert.Equal(t, img.Engines, c.engines)
+
+	over := containerFor(rt, "claude-code", ImageConfig{Image: "user/agent:1"})
+	assert.Equal(t, "user/agent:1", over.image)
+	assert.Nil(t, over.profile.engineInstall,
+		"an image the user owns is run as-is, never layered onto by a local build")
+
+	assert.Equal(t,
+		[]string{"Image", "BaseContainerfile", "AppRoot", "NoDevcontainerBase", "DevcontainerService", "Engines"},
+		imageConfigFieldNames(),
+		"ImageConfig grew or lost a field: propagate it in containerFor and assert it above")
+}
+
+func imageConfigFieldNames() []string {
+	tp := reflect.TypeOf(ImageConfig{})
+	names := make([]string, 0, tp.NumField())
+	for i := range tp.NumField() {
+		names = append(names, tp.Field(i).Name)
+	}
+	return names
 }

@@ -193,3 +193,44 @@ func TestAbbrevSHA_NeverSlicesPastTheEnd(t *testing.T) {
 	assert.Equal(t, "", ShortSHA(""))
 	assert.Equal(t, "abc", AbbrevSHA("abc", 10))
 }
+
+// Both entry points answer the same precondition — "is startPath a file or a
+// directory?" — and used to answer it with opposite error policies thirty
+// lines apart: FindRoot reported the stat failure, GetRemoteURL discarded it
+// and carried the unresolvable path into go-git anyway. That is the worse
+// direction for a nonexistent path: DetectDotGit walks UP from it, so a typo'd
+// or deleted path silently answers with some ANCESTOR repository's remote,
+// which is a confident wrong answer rather than an error.
+func TestStartPathResolution_BothEntryPointsReportAnUnstatablePath(t *testing.T) {
+	// Inside a real repo, so an ancestor IS resolvable and the walk-up would
+	// otherwise succeed — that is what makes this fixture hostile.
+	repo := initTempRepo(t)
+	addRemote(t, repo, "origin", "https://github.com/example/repo.git")
+	missing := filepath.Join(repo, "no", "such", "path")
+
+	_, rootErr := FindRoot(missing)
+	require.Error(t, rootErr, "FindRoot must report a path it cannot stat")
+
+	url, urlErr := GetRemoteURL(missing, "origin")
+	require.Error(t, urlErr, "GetRemoteURL must report a path it cannot stat, not answer from an ancestor")
+	assert.Empty(t, url, "an unresolvable path must not yield an ancestor repo's remote")
+
+	// Same policy, so the same wording: one shared step, not two.
+	assert.Contains(t, rootErr.Error(), "stat path")
+	assert.Contains(t, urlErr.Error(), "stat path")
+}
+
+// The resolution still has to do its actual job for paths that DO exist: a
+// file resolves to its directory, a directory is used as-is.
+func TestStartPathResolution_FileResolvesToItsDirectory(t *testing.T) {
+	repo := initTempRepo(t)
+	addRemote(t, repo, "origin", "https://github.com/example/repo.git")
+	file := filepath.Join(repo, "README.md")
+	require.NoError(t, os.WriteFile(file, []byte("hi"), 0o644))
+
+	fromFile, err := FindRoot(file)
+	require.NoError(t, err)
+	fromDir, err := FindRoot(repo)
+	require.NoError(t, err)
+	assert.Equal(t, fromDir, fromFile)
+}

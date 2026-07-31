@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,455** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 173 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 197 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 198 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 199 |
-| `open` | no commit names this ID | **244** |
+| `open` | no commit names this ID | **243** |
 
-**Totals: 2268 findings across 162 units — 1,455 resolved, 244 still open, 569 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,455 resolved, 243 still open, 570 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 540 | 138 | 100 | 90 | 131 |
+| MED | 999 | 540 | 137 | 100 | 91 | 131 |
 | LOW | 871 | 556 | 97 | 57 | 99 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1462,7 +1462,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U071-F02 | **RESOLVED** `51232e54` | `shell.go:99`, `:179`, `:293`, `:378-384` | NOPAY | `ir.SimpleCommand.Raw`, and the entire `printer`/`render` machinery that fills it, have **zero readers in the repo — production or test**. A full `syntax.Printer` pretty-print runs for every simple... | U071.md |
 | U071-F04 | **ESCALATED** `ddc46fb7` | `shell.go:283-287` | ERRHANDLING | An `expand.Fields` failure silently downgrades to a guessed argv; nothing records that the argv the rules matched against is a guess. | U071.md |
 | U071-F05 | **RESOLVED** `160e0ba8` | `shell.go:353-364` + `:368-376` | CORRECTNESS | `literalFallback` handles only `*syntax.Lit` and `*syntax.SglQuoted`; a `*syntax.DblQuoted` word yields `""`, and `argvFallback` then **drops that argument entirely**. On the fallback path a quoted... | U071.md |
-| U072-F02 | open | `ir.go:17-32` | COHESION | The `Shell` enum and the command graph are two unrelated contracts in one package; 4 of 9 importers use only `Shell`. | U072.md |
+| U072-F02 | **REFUTED** `5a01a9cb` | `ir.go:17-32` | COHESION | The `Shell` enum and the command graph are two unrelated contracts in one package; 4 of 9 importers use only `Shell`. | U072.md |
 | U072-F03 | **PARTIAL** `51232e54` | `ir.go:52-54`, `ir.go:60,62,64` | NOPAY | Six IR fields are write-only in production: `Pipeline.{Connector,Background,Negated}` and `SimpleCommand.{Assignments,Redirects,Raw}`. They cost lowering code in three frontends and buy nothing. | U072.md |
 | U072-F04 | **ESCALATED** `77e26638` | `ir.go:62` | CORRECTNESS | A bare-redirect command (`> /etc/passwd`, no program word) is **structurally unmatchable**: the IR faithfully records it, but `Match` has no redirect predicate and `matchCommand` bails on empty argv. | U072.md |
 | U072-F05 | **PARTIAL** `af584a3d` | `ir.go:61` | CORRECTNESS | The IR has no representation for an **unresolvable** word, so argv is silently truncated and the rule engine cannot tell a fully-resolved command from a partially-erased one. | U072.md |

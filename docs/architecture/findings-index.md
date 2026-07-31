@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,537** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 183 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 184 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 210 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 208 |
-| `open` | no commit names this ID | **130** |
+| `open` | no commit names this ID | **129** |
 
-**Totals: 2268 findings across 162 units — 1,537 resolved, 130 still open, 601 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,537 resolved, 129 still open, 602 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 580 | 78 | 105 | 97 | 139 |
-| LOW | 871 | 596 | 45 | 62 | 105 | 63 |
+| LOW | 871 | 596 | 44 | 63 | 105 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2763,7 +2763,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U144-F13 | **REFUTED** `b4454212` | `recorder.go:233` | NOPAY | `Tee` is exported but has zero external callers; only `TeeAndClose` (same file) and in-package tests use it, and every capture seam needs the Close half anyway | U144.md |
 | U144-F14 | open | `recorder.go:173-177` | CORRECTNESS | A short/partial `Write` leaves a truncated JSON fragment on disk **and** leaves `seq` unadvanced, so the next successful record reuses the same seq — breaking the "monotonic, no gaps" invariant rea... | U144.md |
 | U144-F15 | **RESOLVED** `e28fa43e` | **`oneshot.go:44-46`** | SILENTNOOP | `RecordOneshot` returns `nil` when `harp == ""`, so a run that failed to mint a harp reports full success with zero captured bytes; callers check only the error | U144.md |
-| U144-F16 | open | `recorder.go:231, 240` | ERRHANDLING | `Tee`'s doc asserts the contract is "never blocks", but the goroutine blocks unboundedly on `out <- ev` with no context. A consumer that stops reading leaks the goroutine and — via `TeeAndClose` — ... | U144.md |
+| U144-F16 | **PARTIAL** `0a257dc5` | `recorder.go:231, 240` | ERRHANDLING | `Tee`'s doc asserts the contract is "never blocks", but the goroutine blocks unboundedly on `out <- ev` with no context. A consumer that stops reading leaks the goroutine and — via `TeeAndClose` — ... | U144.md |
 | U145-F05 | **REFUTED** `91f9fbf7` | `lines.go:31` | NOPAY | `ReadJSONLLines` is exported but has zero production callers outside its own file; every adapter goes through `OpenAndReadJSONLLines` | U145.md |
 | U145-F06 | **RESOLVED** `27e45c63` | **`text.go:30`** | TRIVIAL | `JoinNonEmptyFunc` is a 5-line generic wrapper with exactly one production call site, and the one other candidate caller deliberately declines to use it | U145.md |
 | U145-F07 | **REFUTED** `3f1cd04e` | `entries.go:19` | TRIVIAL | `NonEmptyRaw` is exported but its only production caller is `ToolUseEvent` 26 lines below in the same file | U145.md |

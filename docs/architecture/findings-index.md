@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,316** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,317** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **477** |
+| `open` | no commit names this ID | **476** |
 
-**Totals: 2268 findings across 162 units — 1,316 resolved, 477 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,317 resolved, 476 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 470 | 269 | 73 | 79 | 108 |
+| MED | 999 | 471 | 268 | 73 | 79 | 108 |
 | LOW | 871 | 489 | 196 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1231,7 +1231,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U041-F08 | open | `run_owned.go:235-278` | CORRECTNESS | The container structured arm emits only `entry` events, silently dropping the `complete` and `session` halves of the documented NDJSON contract | U041.md |
 | U041-F09 | open | **`run.go:367-1300`** | COHESION + COMPLEXITY | The command body is a ~930-line closure doing ≥20 unrelated jobs, and it is **invisible to the CI complexity gate** | U041.md |
 | U041-F10 | open | `run_terminal.go:29-32` | ERRHANDLING | A `term.MakeRaw` failure yields an interactive session the user **cannot type into**, with no diagnostic | U041.md |
-| U041-F11 | open | `run_owned.go:117,142-168,264-269` | CORRECTNESS | The structured REPL's `pending` counter is coupled to non-blocking channel timing and to an unverified "the first turn always yields a boundary" assumption | U041.md |
+| U041-F11 | **RESOLVED** `5376b446` | `run_owned.go:117,142-168,264-269` | CORRECTNESS | The structured REPL's `pending` counter is coupled to non-blocking channel timing and to an unverified "the first turn always yields a boundary" assumption | U041.md |
 | U041-F12 | open | **`run.go:889-902,1119,1405-1412`** | COUPLING | When coordinator hosting fails or the harp is blank, the docker-exec interactive arm **silently** loses agent-delegation reach-back, while the owned-run arm fails loudly | U041.md |
 | U041-F13 | open | **`run.go:1692-1723,1771-1776`** | COHESION | Cross-command primitives live in `run.go`: `stdinReader`, `promptLine`, `promptYesNo`, `plural` | U041.md |
 | U041-F20 | **REFUTED** `7b4382f9` | `run_owned.go (whole file)` | NOPAY | The entire Phase 2a-B host path — 283 lines including the unit's most complex function — has **zero** tests | U041.md |

@@ -5,15 +5,15 @@
 // resolution chain (git root -> cwd walk-up -> home). When the variable is
 // unset it changes nothing and the prior mechanisms apply byte-for-byte. When
 // set and valid it short-circuits discovery. When set but invalid (missing path
-// or not a directory) it warns once per process and falls through as if unset,
-// per the fault-tolerance philosophy — a bad override never blocks startup.
+// or not a directory) it warns once per offending VALUE and falls through as if
+// unset, per the fault-tolerance philosophy — a bad override never blocks
+// startup.
 package projectroot
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/spf13/afero"
 
@@ -24,8 +24,6 @@ import (
 // EnvVar is the project-root override variable. Documented in docs/environment.md
 // and listed in testsupport.EnvKeys so test isolation clears it.
 const EnvVar = "CTXLOOM_ROOT"
-
-var warnOnce sync.Once
 
 // resolve is the pure resolution of CTXLOOM_ROOT, with no side effects:
 //   - unset/empty           -> ("", false, "")
@@ -54,16 +52,21 @@ func resolve(fs afero.Fs) (root string, ok bool, rawInvalid string) {
 
 // FromEnv returns (root, true) when CTXLOOM_ROOT is set and names an existing
 // directory on fs, where root is its cleaned absolute path. When the variable
-// is set but invalid it warns to stderr once per process and returns
+// is set but invalid it warns to stderr once per OFFENDING VALUE and returns
 // ("", false). When unset it returns ("", false) with no warning. Callers that
 // thread an afero fs (e.g. config) pass it so validation shares their fs;
 // process-level callers pass afero.NewOsFs().
+//
+// The suppression is per-message (clidiag.WarnOnce), not per-process: config
+// resolution runs many times in one invocation and dozens more in a long-lived
+// server, so an unchanged bad value must collapse to a single line — but a
+// DIFFERENT bad value is a different fault and must still be reported. A latch
+// keyed on nothing mutes every fault after the first, and nobody is ever told
+// about the misconfiguration again.
 func FromEnv(fs afero.Fs) (string, bool) {
 	root, ok, rawInvalid := resolve(fs)
 	if rawInvalid != "" {
-		warnOnce.Do(func() {
-			clidiag.Warn("ctxloom", "%s=%q is not a valid directory; ignoring it and falling back to git root / current directory", EnvVar, rawInvalid)
-		})
+		clidiag.WarnOnce("ctxloom", "%s=%q is not a valid directory; ignoring it and falling back to git root / current directory", EnvVar, rawInvalid)
 	}
 	return root, ok
 }

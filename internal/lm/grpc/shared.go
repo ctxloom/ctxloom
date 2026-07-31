@@ -21,7 +21,12 @@ var HandshakeConfig = plugin.HandshakeConfig{
 // LLMPluginKey is the name used in the plugin map.
 const LLMPluginKey = "ai_plugin"
 
-// PluginMap is the map of plugins the host can dispense.
-var PluginMap = map[string]plugin.Plugin{
-	LLMPluginKey: &LLMGRPCPlugin{},
+// PluginMap returns the set of plugins the host can dispense, freshly built on
+// every call. go-plugin takes ownership of the map it is handed, and this one is
+// consulted at every dial, so a single shared package-level map would let any
+// mutation by one caller silently change what every later dial dispenses.
+func PluginMap() map[string]plugin.Plugin {
+	return map[string]plugin.Plugin{
+		LLMPluginKey: &LLMGRPCPlugin{},
+	}
 }

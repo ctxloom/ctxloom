@@ -96,10 +96,21 @@ func killSessionExcept(sid, except int) {
 		if pid == except {
 			continue
 		}
+		// Pin the process BEFORE deciding about it. procSessionID and the kill
+		// are two separate steps, and a pid is not a stable identity across
+		// them — the target can exit in between and the kernel can hand its
+		// number to an unrelated process, which would then take the SIGKILL.
+		// The handle names the process that existed at this instant (see
+		// procHandle), so a signal can only ever reach that one.
+		h, ok := pinProcess(pid)
+		if !ok {
+			continue // already gone: nothing left to kill
+		}
 		if procSessionID(pid) != sid {
+			h.close()
 			continue
 		}
-		_ = syscall.Kill(pid, syscall.SIGKILL)
+		h.kill()
 	}
 }
 

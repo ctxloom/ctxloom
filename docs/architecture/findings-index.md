@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,386** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,395** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 157 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 185 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 183 |
-| `open` | no commit names this ID | **357** |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 186 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 185 |
+| `open` | no commit names this ID | **345** |
 
-**Totals: 2268 findings across 162 units — 1,386 resolved, 357 still open, 525 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,395 resolved, 345 still open, 528 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 510 | 198 | 88 | 85 | 118 |
-| LOW | 871 | 519 | 148 | 53 | 92 | 59 |
+| MED | 999 | 515 | 192 | 88 | 85 | 119 |
+| LOW | 871 | 523 | 142 | 53 | 93 | 60 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1386,13 +1386,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U060-F09 | open | `llm.proto:92,110,123,131,143,236,303,313` | COUPLING | Eight string fields carry closed vocabularies enforced only by comments — connascence of **meaning** across a process boundary | U060.md |
 | U060-F11 | open | `llm.proto` (whole)` | DUPLICATE | The schema is a third parallel type hierarchy: ~20 messages exist solely as hand-maintained mirrors of `internal/shared/agent` and `internal/shared/wire`, synced by hand-written converters | U060.md |
 | U060-F12 | open | `llm.proto` (whole)` | CORRECTNESS | Only 1 of ~120 scalar fields uses proto3 `optional`, so absent and zero are indistinguishable everywhere else — an empty/truncated message decodes as a valid, permissive request | U060.md |
-| U061-F04 | open | **`server.go:153-292`** | COMPLEXITY | `RunTurn` is CCN 14 against the project's own CI gate of 10 — the gate is red on this package today, not merely close. | U061.md |
+| U061-F04 | **RESOLVED** `ec42fada` | **`server.go:153-292`** | COMPLEXITY | `RunTurn` is CCN 14 against the project's own CI gate of 10 — the gate is red on this package today, not merely close. | U061.md |
 | U061-F05 | **RESOLVED** `36dbf051` | `sessionwatch.go:150-183, 196-229` | DUPLICATE | `WatchHistoryByPath` and `WatchCanonicalTranscript` are ~90% byte-identical: same poll-default guard, same two channels, same goroutine, same ticker, same `w.step` fan-out, same ctx select, same wa... | U061.md |
-| U061-F06 | open | `sessionwatch.go:155, 201; 117-120, 163-165, 209-211` | ERRHANDLING | The `errs` channel returned by `WatchHistoryByPath` and `WatchCanonicalTranscript` is **never written to** — it is created, deferred-closed, and returned. A *permanent* read failure therefore warns... | U061.md |
-| U061-F07 | open | **`server.go:49, 236`** | COUPLING | `ExecutionMode` crosses the wire by **raw numeric cast** in both directions, making the proto enum and the Go enum connascent by *value* across two files with no mapping and no pinning test — while... | U061.md |
-| U061-F08 | open | `sessionhistory.go:246, 250, 260, 264; sessionwatch.go:106; plans.go:88; server.go:71, 134` | ERRHANDLING | No hand-written server handler or client method uses `google.golang.org/grpc/status`. Every error crosses the wire as `codes.Unknown` with a flattened string, so a caller cannot distinguish "this b... | U061.md |
-| U061-F09 | open | `mock_client.go:44-51, 59, 80, 89, 132` | CORRECTNESS | `MockClient`'s mutex guards 3 of its 7 counters. `RunCalls`, `WatchSessionCalls` and `KillCalls` take `m.mu`; `InfoCalls`, `RunWithModelInfoCalls`, `GetSessionCalls` and `ListSessionsCalls` do not.... | U061.md |
-| U061-F10 | open | `sessionwatch.go:52-87` | CORRECTNESS | `sessionWatcher.step` assumes the transcript never shrinks. If a poll returns fewer entries than the high-water mark (a rewritten/compacted/rotated transcript), the watcher silently wedges: `n > w.... | U061.md |
+| U061-F06 | **ESCALATED** `a79c11b3` | `sessionwatch.go:155, 201; 117-120, 163-165, 209-211` | ERRHANDLING | The `errs` channel returned by `WatchHistoryByPath` and `WatchCanonicalTranscript` is **never written to** — it is created, deferred-closed, and returned. A *permanent* read failure therefore warns... | U061.md |
+| U061-F07 | **RESOLVED** `fd69a143` | **`server.go:49, 236`** | COUPLING | `ExecutionMode` crosses the wire by **raw numeric cast** in both directions, making the proto enum and the Go enum connascent by *value* across two files with no mapping and no pinning test — while... | U061.md |
+| U061-F08 | **RESOLVED** `426f8404` | `sessionhistory.go:246, 250, 260, 264; sessionwatch.go:106; plans.go:88; server.go:71, 134` | ERRHANDLING | No hand-written server handler or client method uses `google.golang.org/grpc/status`. Every error crosses the wire as `codes.Unknown` with a flattened string, so a caller cannot distinguish "this b... | U061.md |
+| U061-F09 | **RESOLVED** `6836b1f5` | `mock_client.go:44-51, 59, 80, 89, 132` | CORRECTNESS | `MockClient`'s mutex guards 3 of its 7 counters. `RunCalls`, `WatchSessionCalls` and `KillCalls` take `m.mu`; `InfoCalls`, `RunWithModelInfoCalls`, `GetSessionCalls` and `ListSessionsCalls` do not.... | U061.md |
+| U061-F10 | **RESOLVED** `c777f0e6` | `sessionwatch.go:52-87` | CORRECTNESS | `sessionWatcher.step` assumes the transcript never shrinks. If a poll returns fewer entries than the high-water mark (a rewritten/compacted/rotated transcript), the watcher silently wedges: `n > w.... | U061.md |
 | U062-F02 | **RESOLVED** `87563a3a` | **`auth.go:876, auth.go:909`** | CORRECTNESS | The documented "copies src to dst at **0600** (owner-only)" and `MkdirAll(destDir, 0o700)` guarantees are **not enforced on a pre-existing destination** — Go applies the perm argument only at creat... | U062.md |
 | U062-F04 | **RESOLVED** `f0758025` | `attach.go:51-55` | CORRECTNESS | `interactiveRunArgs` panics with index-out-of-range on an empty slice, and the invariant its own comment asserts is **false**. | U062.md |
 | U062-F05 | **PARTIAL** `a357cd06` | `attach.go:39, 95-109` | ERRHANDLING | `AttachedContainer.Close` returns a non-nil error on essentially **every normal teardown**, so the caller cannot distinguish a clean shutdown from a failure. | U062.md |
@@ -2371,13 +2371,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U060-F07 | open | `llm.pb.go:3391` | CORRECTNESS | Generated getter `GetAutoRegisterCtxloom()` collapses the unset/true/false tri-state the field exists to preserve; latent, not live | U060.md |
 | U060-F08 | open | `llm.proto:383` | DUPLICATE | Local `Empty` duplicates the `google.protobuf.Empty` well-known type | U060.md |
 | U060-F10 | open | `llm.proto:277,286` | COMPLEXITY | `ChatEvent.terminal = 6` sits inside the oneof while `raw = 5` sits outside it — numerically interleaved, which reads as an error | U060.md |
-| U061-F11 | open | **`managed.go:97; sessionhistory.go:65, 218; sessionwatch.go:73-74`** | ERRHANDLING | Four unchecked `int → int32` narrowings on the wire. Each silently wraps rather than failing. | U061.md |
-| U061-F12 | open | `sessionhistory.go:21-33` | CORRECTNESS | The unix-seconds wire representation uses `0` as the "zero time" sentinel and drops sub-second precision. A genuine `1970-01-01T00:00:00Z` timestamp round-trips to `time.Time{}`, and two entries wr... | U061.md |
-| U061-F13 | open | **`server.go:39-41; sessionwatch.go:91-96`** | COHESION | `GRPCServer.watchPoll` is a production struct field whose only writers are tests. | U061.md |
-| U061-F14 | open | `shared.go:25-27; server.go:18` | COUPLING | `PluginMap` is an exported package-level **mutable** map consulted at every dial, and the `&LLMGRPCPlugin{}` it holds embeds a nil `plugin.Plugin` interface, so the promoted net/rpc `Server()`/`Cli... | U061.md |
+| U061-F11 | **RESOLVED** `9e855eeb` | **`managed.go:97; sessionhistory.go:65, 218; sessionwatch.go:73-74`** | ERRHANDLING | Four unchecked `int → int32` narrowings on the wire. Each silently wraps rather than failing. | U061.md |
+| U061-F12 | **ESCALATED** `1080e96e` | `sessionhistory.go:21-33` | CORRECTNESS | The unix-seconds wire representation uses `0` as the "zero time" sentinel and drops sub-second precision. A genuine `1970-01-01T00:00:00Z` timestamp round-trips to `time.Time{}`, and two entries wr... | U061.md |
+| U061-F13 | **REFUTED** `ee67d0dc` | **`server.go:39-41; sessionwatch.go:91-96`** | COHESION | `GRPCServer.watchPoll` is a production struct field whose only writers are tests. | U061.md |
+| U061-F14 | **RESOLVED** `24902f7e` | `shared.go:25-27; server.go:18` | COUPLING | `PluginMap` is an exported package-level **mutable** map consulted at every dial, and the `&LLMGRPCPlugin{}` it holds embeds a nil `plugin.Plugin` interface, so the promoted net/rpc `Server()`/`Cli... | U061.md |
 | U061-F15 | **RESOLVED** `a814a093` | **`managed.go:119 vs :130; :49 vs :68; :234 vs :245`** | DUPLICATE | Nil-guard style is inconsistent across paired converters — `hs == nil` in `hooksToProto` (:119) but `len(hs) == 0` in `hooksFromProto` (:130); `in == nil` in `commandExportsToProto` (:49) but the s... | U061.md |
-| U061-F16 | open | `sessionhistory.go:155-158, 243-252` | CORRECTNESS | `GRPCServer.GetSession` returns a typed-nil `*SessionData` when the backend returns `(nil, nil)`; the client decodes an empty non-nil message into a non-nil empty `agent.Session`. Nil does not surv... | U061.md |
-| U061-F17 | open | `procsession_unix.go:86-104` | CORRECTNESS | `killSessionExcept` has a pid-reuse TOCTOU: between `procSessionID(pid)` (:99) and `syscall.Kill(pid, SIGKILL)` (:102) the target can exit and its pid be reused by an unrelated process, which then ... | U061.md |
+| U061-F16 | **RESOLVED** `fc9599aa` | `sessionhistory.go:155-158, 243-252` | CORRECTNESS | `GRPCServer.GetSession` returns a typed-nil `*SessionData` when the backend returns `(nil, nil)`; the client decodes an empty non-nil message into a non-nil empty `agent.Session`. Nil does not surv... | U061.md |
+| U061-F17 | **RESOLVED** `62781b76` | `procsession_unix.go:86-104` | CORRECTNESS | `killSessionExcept` has a pid-reuse TOCTOU: between `procSessionID(pid)` (:99) and `syscall.Kill(pid, SIGKILL)` (:102) the target can exit and its pid be reused by an unrelated process, which then ... | U061.md |
 | U061-F18 | **RESOLVED** `12f375ce` | `mock_client.go:158-160` | TRIVIAL | `NewMockClient` is a one-expression constructor (`return &MockClient{}`) used only by tests, and only two of them. | U061.md |
 | U062-F16 | **RESOLVED** `a57b2533` | `container.go:999-1006` | DUPLICATE | `containerName` re-implements `sanitizeAgentID` verbatim rather than calling it. | U062.md |
 | U062-F17 | **REFUTED** `4929fd9d` | `container.go:217-222 vs 259` | CORRECTNESS | `Name()` defends against a nil `base` that `PrepareWorkspace` would panic on — the guard is in the harmless method and absent from the dangerous one. | U062.md |

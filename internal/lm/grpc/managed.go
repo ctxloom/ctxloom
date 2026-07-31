@@ -181,7 +181,7 @@ func hookToProto(h wire.Hook) *Hook {
 		Command:         h.Command,
 		Type:            h.Type,
 		Prompt:          h.Prompt,
-		Timeout:         int32(h.Timeout),
+		Timeout:         int32Clamped(h.Timeout),
 		Async:           h.Async,
 		Scm:             h.SCM,
 		PreToolFallback: h.PreToolFallback,

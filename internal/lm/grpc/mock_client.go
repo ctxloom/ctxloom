@@ -38,9 +38,11 @@ type MockClient struct {
 	// KillFunc is called when Kill is invoked.
 	KillFunc func()
 
-	// Call tracking. Guarded by mu because the compactor distills chunks
-	// concurrently through a single shared mock (MockClientFactory hands the
-	// same instance to every clientFactory call), so Run/Kill race otherwise.
+	// Call tracking. Every counter is guarded by mu: MockClientFactory hands
+	// the SAME instance to every clientFactory call, so any caller that fans
+	// out (the compactor distills chunks concurrently) drives several of these
+	// methods at once. An unguarded increment both races and loses updates,
+	// which turns a call-count assertion into a coin flip.
 	mu                    sync.Mutex
 	InfoCalls             int
 	RunCalls              int
@@ -56,7 +58,9 @@ var _ Client = (*MockClient)(nil)
 
 // Info returns metadata about the plugin.
 func (m *MockClient) Info(ctx context.Context) (*LLMInfo, error) {
+	m.mu.Lock()
 	m.InfoCalls++
+	m.mu.Unlock()
 	if m.InfoFunc != nil {
 		return m.InfoFunc(ctx)
 	}
@@ -77,7 +81,9 @@ func (m *MockClient) Run(ctx context.Context, req *RunStart, _ io.Reader, stdout
 
 // RunWithModelInfo executes the plugin and returns both exit code and model info.
 func (m *MockClient) RunWithModelInfo(ctx context.Context, req *RunStart, _ io.Reader, stdout, stderr io.Writer, _ <-chan *WindowSize) (*RunResult, error) {
+	m.mu.Lock()
 	m.RunWithModelInfoCalls++
+	m.mu.Unlock()
 	if m.RunWithModelInfoFunc != nil {
 		return m.RunWithModelInfoFunc(ctx, req, stdout, stderr)
 	}
@@ -86,7 +92,9 @@ func (m *MockClient) RunWithModelInfo(ctx context.Context, req *RunStart, _ io.R
 
 // GetSession returns a normalized session, defaulting to an empty one.
 func (m *MockClient) GetSession(ctx context.Context, sessionID string) (*agent.Session, error) {
+	m.mu.Lock()
 	m.GetSessionCalls++
+	m.mu.Unlock()
 	if m.GetSessionFunc != nil {
 		return m.GetSessionFunc(ctx, sessionID)
 	}
@@ -129,7 +137,9 @@ func (m *MockClient) Chat(ctx context.Context, req agent.ChatRequest) (chan<- ag
 
 // ListSessions returns transcript metadata, defaulting to none.
 func (m *MockClient) ListSessions(ctx context.Context) ([]agent.SessionMeta, error) {
+	m.mu.Lock()
 	m.ListSessionsCalls++
+	m.mu.Unlock()
 	if m.ListSessionsFunc != nil {
 		return m.ListSessionsFunc(ctx)
 	}

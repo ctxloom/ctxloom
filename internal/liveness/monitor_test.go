@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -594,11 +595,13 @@ func TestReport_MarshalsEveryFieldSnakeCase(t *testing.T) {
 		Harp: "h", State: liveness.StateHealthy, Reason: "r", At: time.Unix(1, 0).UTC(),
 	})
 	require.NoError(t, err)
-	var keys map[string]json.RawMessage
-	require.NoError(t, json.Unmarshal(raw, &keys))
-	for k := range keys {
+	var obj map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &obj))
+	keys := make([]string, 0, len(obj))
+	for k := range obj {
+		keys = append(keys, k)
 		assert.Equal(t, strings.ToLower(k), k, "Report key %q is not snake_case", k)
 	}
-	_, ok := keys["at"]
-	assert.True(t, ok, "Report.At must marshal as \"at\"; keys were %v", keys)
+	sort.Strings(keys)
+	assert.Contains(t, keys, "at", "Report.At must marshal as \"at\"")
 }

@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,498** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 176 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 177 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **183** |
+| `open` | no commit names this ID | **182** |
 
-**Totals: 2268 findings across 162 units — 1,498 resolved, 183 still open, 587 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,498 resolved, 182 still open, 588 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 561 | 107 | 101 | 95 | 135 |
+| MED | 999 | 561 | 106 | 102 | 95 | 135 |
 | LOW | 871 | 578 | 67 | 59 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1755,7 +1755,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U112-F05 | **PARTIAL** `588ff41f` | **`marker.go:73-101`** | COMPLEXITY | `findInValue` has CCN 12 against a CI gate that fails above 10, with no `nolint` and no exclusion. Either the gate is not being run or it is failing. | U112.md |
 | U112-F06 | **RESOLVED** `0b34e54d` | **`marker.go:87-92`** | CORRECTNESS | `findInValue` iterates `map[string]any` in Go's randomized order. A line containing two harp markers under different object keys resolves to an **arbitrary one, differing between runs of the same i... | U112.md |
 | U113-F01 | **RESOLVED** `5ff9c4ab` | `internal/shared/iox/atomicwrite.go:16` and `internal/shared/iox/atomicwrite_fs.go:15` | DUPLICATE | The two atomic writers are the same 34-line algorithm written twice with no shared code and no compiler-enforced link — connascence of algorithm across two files. They are already not identical | U113.md |
-| U113-F02 | open | `internal/shared/iox/atomicwrite.go:44` and `internal/shared/iox/atomicwrite_fs.go:13,44` | CORRECTNESS | Neither function fsyncs the parent directory after `Rename`, so the *rename* is not durable across power loss — only the temp file's contents are. `atomicwrite_fs.go`'s doc claims otherwise | U113.md |
+| U113-F02 | **PARTIAL** `a43e3038` | `internal/shared/iox/atomicwrite.go:44` and `internal/shared/iox/atomicwrite_fs.go:13,44` | CORRECTNESS | Neither function fsyncs the parent directory after `Rename`, so the *rename* is not durable across power loss — only the temp file's contents are. `atomicwrite_fs.go`'s doc claims otherwise | U113.md |
 | U113-F06 | **RESOLVED** `67a26a8f` | `internal/shared/agent/settings_io.go:136`, `internal/agentcoord/coord/checkpoint.go:54`, `internal/cli/mcp_discovery.go:107` | DUPLICATE | Three more hand-rolled temp+rename writers bypass `iox` and violate the exact invariant `iox.WriteFileAtomic` documents itself as existing to protect | U113.md |
 | U114-F03 | **RESOLVED** `54bb73b8` | **`pidalive_unix.go:20-22`** | DEAD | The `os.FindProcess` error branch is unreachable on Unix: `findProcess` never returns a non-nil error. Worse than merely dead — it makes the function *look* like it handles probe failure, which is ... | U114.md |
 | U114-F04 | open | **`pidalive_unix.go:19`, `pidalive_windows.go:11`** | CORRECTNESS | **No PID-reuse protection.** `Alive` answers "is *a* process alive at this pid", never "is *my* process alive". On Linux, pids recycle within `kernel.pid_max`; a recycled pid makes a long-dead chil... | U114.md |

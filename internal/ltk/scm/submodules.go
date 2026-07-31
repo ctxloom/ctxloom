@@ -31,6 +31,14 @@ import (
 // its submodules (see cmd/ltk.configSearchDirs): rules should be inherited
 // downward, submodule PATHS must not.
 func SubmodulePaths(fsys afero.Fs, startDir string) ([]string, error) {
+	// An empty startDir is a caller that does not know where it is.
+	// filepath.Clean("") is ".", whose parent is itself, so the walk would end
+	// on its first iteration and answer nil — "this repository declares no
+	// submodules" — which is exactly the answer this function must never
+	// invent. Say "I could not find out" instead.
+	if strings.TrimSpace(startDir) == "" {
+		return nil, errors.New("submodule lookup needs a start directory; got an empty path")
+	}
 	dir := filepath.Clean(startDir)
 	for {
 		modules := filepath.Join(dir, ".gitmodules")

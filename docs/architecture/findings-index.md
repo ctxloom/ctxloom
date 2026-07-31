@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,532** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,533** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **142** |
+| `open` | no commit names this ID | **141** |
 
-**Totals: 2268 findings across 162 units — 1,532 resolved, 142 still open, 594 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,533 resolved, 141 still open, 594 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 579 | 84 | 104 | 96 | 136 |
-| LOW | 871 | 592 | 51 | 61 | 104 | 63 |
+| LOW | 871 | 593 | 50 | 61 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2729,7 +2729,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U136-F18 | **RESOLVED** `965abfb4` | `pattern.go:40-42` | TRIVIAL | `globMatch` is a single-expression pass-through whose only work is two `[]byte` conversions, with one caller. It is not an interface seam and is not tested independently of `matchPatternList`. | U136.md |
 | U136-F19 | **RESOLVED** `80c290c1` | **`store.go:100`, `:120`** | COUPLING | `decide(identity *string, …)` uses a nil pointer as the sentinel for "skip the identity check" — connascence of meaning on a pointer's nilness, in the single most security-critical function of the ... | U136.md |
 | U137-F11 | **RESOLVED** `0e47a8ef` | **`store.go:218`** | NOPAY | `Verified` is exported but has no caller outside the three wrappers in its own file — exported surface that widens the API without a user, and it is the one entry point that lets a caller bypass th... | U137.md |
-| U137-F12 | open | **`store.go:275-281`** | ERRHANDLING | `hasUnsigned` returns `err == nil && exists`, folding a stat error into "absent". On the *reject* marker paths (`HasUnsignedContentReject`, `HasUnsignedRefReject`) that is a fail-open: a permission... | U137.md |
+| U137-F12 | **RESOLVED** `52cc867e` | **`store.go:275-281`** | ERRHANDLING | `hasUnsigned` returns `err == nil && exists`, folding a stat error into "absent". On the *reject* marker paths (`HasUnsignedContentReject`, `HasUnsignedRefReject`) that is a fail-open: a permission... | U137.md |
 | U137-F13 | **REFUTED** `0e47a8ef` | **`store.go:322-330`** | NOPAY | The sidecar index's documented justification is `ctxloom approvals list` — **a command that does not exist**. Relatedly, the fail-closed gate instructs the user to "fix or remove the corrupted appr... | U137.md |
 | U137-F14 | open | **`store.go:142-144`** | LOW | `filename` is the only function in the file with no doc comment, in a file where every other declaration carries a carefully-argued one — and it encodes the naming contract `candidates`' glob depen... | U137.md |
 | U138-F05 | **RESOLVED** `e5a39b30` | `:64`, `:81`, `:238`, `:247`, `:257` | DEAD | Five exported symbols have no consumer outside this package (or outside its own test) | U138.md |

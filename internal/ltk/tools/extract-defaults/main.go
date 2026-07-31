@@ -8,15 +8,24 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
-	"regexp"
+	"path/filepath"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
 
 const (
+	// source and generated are MODULE-ROOT-RELATIVE. They are resolved against
+	// the module root that moduleRoot finds, never against the working
+	// directory: as bare relative paths they made "which directory you ran
+	// this from" part of the tool's correctness, an unwritten precondition
+	// that `just defaults` happens to satisfy and a developer in any
+	// subdirectory does not.
 	source    = "docs/ltk/DEFAULTS.md"
 	generated = "cmd/ltk/sample.ltk.yaml"
 	// header is prepended to the generated file. It is written verbatim into a
@@ -26,22 +35,69 @@ const (
 		"# Rule model: https://github.com/ctxloom/ctxloom/blob/main/docs/ltk/RULES.md\n"
 )
 
-// blockRe captures the body of each ```yaml fenced block.
-var blockRe = regexp.MustCompile("(?s)```yaml\n(.*?)```")
+// yamlBlocks returns the body of every fenced block in md, and refuses any
+// fence that does not open with exactly "```yaml".
+//
+// Every fenced block in the source document is a rule block — it is the source
+// of truth for the shipped guard, not a mixed tutorial — so a fence spelled
+// ```yml, ```YAML, ```yaml title="…" or left bare is an authoring slip, and
+// SKIPPING it drops a rule out of the binary ltk installs into a user's
+// project. Nothing downstream would catch that: the rule-count floor only
+// fires on a large loss, and -check cannot fire at all, because it compares
+// the generated file against a re-extraction of the same document by this same
+// reader — both sides lose the same block and agree perfectly on a rule set
+// that is missing one. An unterminated block is the same loss by another
+// route.
+func yamlBlocks(md []byte) ([][]byte, error) {
+	var (
+		blocks  [][]byte
+		body    []string
+		open    bool
+		openLn  int
+		lineNum int
+	)
+	for _, line := range strings.Split(string(md), "\n") {
+		lineNum++
+		if !strings.HasPrefix(line, "```") {
+			if open {
+				body = append(body, line)
+			}
+			continue
+		}
+		if open {
+			blocks = append(blocks, []byte(strings.Join(body, "\n")))
+			body, open = nil, false
+			continue
+		}
+		if info := strings.TrimPrefix(line, "```"); info != "yaml" {
+			return nil, fmt.Errorf(
+				"%s:%d: fenced block opens with ```%s — every fenced block in this document is a rule block and must open with ```yaml exactly, or its rules are silently dropped from the shipped defaults",
+				source, lineNum, info)
+		}
+		open, openLn = true, lineNum
+	}
+	if open {
+		return nil, fmt.Errorf("%s:%d: ```yaml block is never closed; its rules would be dropped from the shipped defaults", source, openLn)
+	}
+	return blocks, nil
+}
 
 // assemble concatenates the bodies of every ```yaml block in md (in order),
 // under the generated-file header, and returns the bytes. It errors if md has no
 // yaml blocks, if the result is not a valid rule set, or if it carries fewer
 // than minRules rules. It is pure (no I/O) so it can be tested directly.
 func assemble(md []byte, minRules int) ([]byte, error) {
-	matches := blockRe.FindAllSubmatch(md, -1)
+	matches, err := yamlBlocks(md)
+	if err != nil {
+		return nil, err
+	}
 	if len(matches) == 0 {
 		return nil, fmt.Errorf("no ```yaml blocks found")
 	}
 	var b bytes.Buffer
 	b.WriteString(header)
 	for _, m := range matches {
-		b.Write(bytes.TrimRight(m[1], "\n"))
+		b.Write(bytes.TrimRight(m, "\n"))
 		b.WriteByte('\n')
 	}
 	out := b.Bytes()
@@ -68,30 +124,79 @@ func assemble(md []byte, minRules int) ([]byte, error) {
 	return out, nil
 }
 
+// checkDrift classifies a -check run: readErr and have are whatever reading the
+// generated file produced, want is what the document assembles to. It returns
+// nil when they agree.
+//
+// The three failures are kept distinct because they need different actions and
+// only one of them is drift. "I could not read the file" was previously
+// reported as "the file is out of sync — run `just defaults`", which is a wrong
+// diagnosis (nothing drifted) attached to advice that cannot help: regenerating
+// does not fix a permissions problem, and the operator is sent to edit a
+// document that was never the cause. It is separated from the absent case too,
+// because THAT one really is fixed by regenerating.
+//
+// It is a separate function so it can be tested: main's own branch ends in
+// os.Exit, which no test can observe.
+func checkDrift(have []byte, readErr error, want []byte) error {
+	switch {
+	case errors.Is(readErr, fs.ErrNotExist):
+		return fmt.Errorf("%s does not exist — run `just defaults` to generate it from %s", generated, source)
+	case readErr != nil:
+		return fmt.Errorf("could not read %s (so whether it drifted is unknown): %w", generated, readErr)
+	case !bytes.Equal(have, want):
+		return fmt.Errorf("%s is out of sync with %s — run `just defaults`", generated, source)
+	}
+	return nil
+}
+
 // minDefaultRules is the floor the shipped default rule set must clear. The doc
 // currently assembles to 16; this is deliberately well below that so ordinary
 // edits do not trip it, and well above zero so a gutted doc does.
 const minDefaultRules = 8
 
+// moduleRoot returns the nearest ancestor of start (start included) that
+// contains a go.mod, so the tool's paths mean the same thing from any
+// directory inside the repository.
+func moduleRoot(start string) (string, error) {
+	for dir := filepath.Clean(start); ; {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir, nil
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("no go.mod at or above %s: run this from inside the repository", start)
+		}
+		dir = parent
+	}
+}
+
 func main() {
 	check := flag.Bool("check", false, "verify the generated file is in sync; non-zero exit on drift")
 	flag.Parse()
 
-	md, err := os.ReadFile(source)
+	wd, err := os.Getwd()
+	must(err)
+	root, err := moduleRoot(wd)
+	must(err)
+	sourcePath := filepath.Join(root, source)
+	generatedPath := filepath.Join(root, generated)
+
+	md, err := os.ReadFile(sourcePath)
 	must(err)
 
 	out, err := assemble(md, minDefaultRules)
 	must(err)
 
 	if *check {
-		have, err := os.ReadFile(generated)
-		if err != nil || !bytes.Equal(have, out) {
-			fail("%s is out of sync with %s — run `just defaults`", generated, source)
+		have, readErr := os.ReadFile(generatedPath)
+		if err := checkDrift(have, readErr, out); err != nil {
+			fail("%v", err)
 		}
 		fmt.Printf("%s is in sync with %s\n", generated, source)
 		return
 	}
-	must(os.WriteFile(generated, out, 0o644))
+	must(os.WriteFile(generatedPath, out, 0o644))
 	fmt.Printf("wrote %s\n", generated)
 }
 

@@ -49,11 +49,13 @@ func confirmByRepeat(resp engine.Response, command, stateFile string, delay, win
 		fmt.Fprintln(os.Stderr, progName+": command repeated within the override window — allowing.")
 	}
 	if err != nil {
-		// U076-F01: a persistence failure here previously vanished silently —
-		// the override would then never arm (or never clear), so every future
-		// identical repeat kept getting denied with a message promising a
-		// repeat WOULD work. Diagnostic only; the decision above is unchanged.
-		fmt.Fprintf(os.Stderr, "%s: could not persist confirm-by-repeat state (%v) — the override may not take effect\n", progName, err)
+		// A read or persistence failure here used to vanish silently. Either
+		// way the override never survives to the next invocation, so every
+		// future identical repeat keeps getting denied with a message
+		// promising a repeat WOULD work — or, on the read side, the operator's
+		// live overrides evaporate with nothing to look at. Diagnostic only;
+		// the decision above is unchanged.
+		fmt.Fprintf(os.Stderr, "%s: could not read or persist confirm-by-repeat state (%v) — the override may not take effect\n", progName, err)
 	}
 	return out
 }

@@ -130,3 +130,46 @@ func TestOpenMissingFileIsEmpty(t *testing.T) {
 		t.Error("missing file must yield an empty store")
 	}
 }
+
+// Store's map is unexported, so no caller can write a band directly and
+// bypass Arm — the only place [now+delay, now+window] is established. There is
+// no red to show for that: a test against the removed field would fail to
+// COMPILE, not fail. What can go wrong is the ON-DISK FORMAT, since the field
+// was exported to satisfy encoding/json in the first place, so that is what
+// this pins — exact bytes out, and an old file still read back in.
+func TestPersistedFormatIsUnchangedByTheUnexportedMap(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const path = "/p/.ltk/state.json"
+	now := time.Unix(1_700_000_000, 0)
+
+	s := Open(fs, path)
+	s.Arm("git push --force", now, 0, time.Minute)
+	if err := s.Save(now); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	const want = `{
+  "pending": {
+    "git push --force": {
+      "not_before": 1700000000,
+      "expiry": 1700000060
+    }
+  }
+}`
+	got, err := afero.ReadFile(fs, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != want {
+		t.Errorf("on-disk format changed:\ngot:\n%s\nwant:\n%s", got, want)
+	}
+
+	// A file written by an earlier build must still load.
+	reopened := Open(fs, path)
+	if reopened.LoadError() != nil {
+		t.Fatalf("reading back the file we just wrote failed: %v", reopened.LoadError())
+	}
+	if !reopened.Ready("git push --force", now) {
+		t.Fatal("the round-tripped override is not consumable")
+	}
+}

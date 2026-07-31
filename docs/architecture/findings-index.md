@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,474** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 174 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 203 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 202 |
-| `open` | no commit names this ID | **215** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,487** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 176 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 204 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 203 |
+| `open` | no commit names this ID | **198** |
 
-**Totals: 2268 findings across 162 units — 1,474 resolved, 215 still open, 579 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,487 resolved, 198 still open, 583 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 552 | 120 | 100 | 94 | 133 |
-| LOW | 871 | 563 | 86 | 58 | 101 | 63 |
+| MED | 999 | 556 | 114 | 101 | 94 | 134 |
+| LOW | 871 | 572 | 75 | 59 | 102 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1470,12 +1470,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U073-F07 | **ESCALATED** `9f64d770` | `rules.go:170-291` | COHESION | `Match` is two types wearing one name; `mixesCommandAndPath` exists only to enforce at runtime what a type split enforces at compile time. | U073.md |
 | U073-F08 | **ESCALATED** `267141bc` | `rules.go:307-311` | CORRECTNESS | `hasConstraint` accepts `shells:`-only and `unless:`-only rules, each of which is an unconditional catch-all deny — the exact accident the type's own doc says it prevents. | U073.md |
 | U073-F09 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `rules.go:33` | DEAD | `Config.Version` is decoded and never read; the `version:` key every doc and the shipped sample write is decorative. | U073.md |
-| U074-F02 | open | `submodules.go:44-57` | CORRECTNESS | The parser is stanza-blind: it accepts a `path = …` key from **any** section, so a `path` key under `[core]`, `[remote "x"]`, or any non-`[submodule …]` stanza is emitted as a submodule path. | U074.md |
-| U075-F01 | open | **`shellenv.go:31-32`** | CORRECTNESS | An **unrecognized** `$SHELL` is indistinguishable from an **unset** one — both yield `""` — so a user whose login shell is fish, nu, tcsh, csh, elvish or xonsh silently has their commands parsed as... | U075.md |
-| U076-F02 | open | `state.go:64`, `:71`, `:78` vs `:28-31` | COHESION | `pending` has zero methods while three `Store` methods do nothing but look up a `pending` and evaluate its band — textbook feature envy, and it spreads the unix-second convention across four files'... | U076.md |
-| U076-F03 | open | `state.go:33-37` (doc) vs `confirm.go:30-36` | CORRECTNESS | The documented race analysis is incomplete in the unsafe direction. `Store`'s comment says a lost read-modify-write "fails safe — the denial just repeats and re-arms". That is true for a lost **Arm... | U076.md |
-| U077-F02 | open | **`main.go:4-5`, `:54`, `:63-70`** | DEAD | The `-check` flag has **no invoker anywhere in the repository**, yet three places assert that a pre-commit hook runs it. The documented drift gate does not exist. | U077.md |
-| U077-F03 | open | **`main.go:29`** | CORRECTNESS | The fence regex silently skips any block whose info-string is not exactly `yaml`, so rules can disappear from the shipped defaults with no diagnostic — and the drift test cannot detect it, because ... | U077.md |
+| U074-F02 | **RESOLVED** `ef6cf3f1` | `submodules.go:44-57` | CORRECTNESS | The parser is stanza-blind: it accepts a `path = …` key from **any** section, so a `path` key under `[core]`, `[remote "x"]`, or any non-`[submodule …]` stanza is emitted as a submodule path. | U074.md |
+| U075-F01 | **ESCALATED** `3ceeb8e1` | **`shellenv.go:31-32`** | CORRECTNESS | An **unrecognized** `$SHELL` is indistinguishable from an **unset** one — both yield `""` — so a user whose login shell is fish, nu, tcsh, csh, elvish or xonsh silently has their commands parsed as... | U075.md |
+| U076-F02 | **RESOLVED** `ac84222d` | `state.go:64`, `:71`, `:78` vs `:28-31` | COHESION | `pending` has zero methods while three `Store` methods do nothing but look up a `pending` and evaluate its band — textbook feature envy, and it spreads the unix-second convention across four files'... | U076.md |
+| U076-F03 | **RESOLVED** `4b25b74a` | `state.go:33-37` (doc) vs `confirm.go:30-36` | CORRECTNESS | The documented race analysis is incomplete in the unsafe direction. `Store`'s comment says a lost read-modify-write "fails safe — the denial just repeats and re-arms". That is true for a lost **Arm... | U076.md |
+| U077-F02 | **PARTIAL** `9d7eca6a` | **`main.go:4-5`, `:54`, `:63-70`** | DEAD | The `-check` flag has **no invoker anywhere in the repository**, yet three places assert that a pre-commit hook runs it. The documented drift gate does not exist. | U077.md |
+| U077-F03 | **RESOLVED** `0b696733` | **`main.go:29`** | CORRECTNESS | The fence regex silently skips any block whose info-string is not exactly `yaml`, so rules can disappear from the shipped defaults with no diagnostic — and the drift test cannot detect it, because ... | U077.md |
 | U078-F04 | **PARTIAL** `b40ee029` | `compactor.go:569-573` | COUPLING | **Confirmed: the compactor calls `sessions.Manager.BindSession` directly, bypassing `operations.BindSession`'s guards** — but the data-loss impact is nil, so the sibling reviewer's severity should ... | U078.md |
 | U078-F05 | **RESOLVED** `4563d72c` | `compactor.go:173-181, :367` | ERRHANDLING | A `sessions.Open` failure in `NewCompactor` for a retired-scraper backend leaves `source == nil`, which surfaces to the user as the **wrong, unactionable** error. | U078.md |
 | U078-F06 | **RESOLVED** `b0f02837` | `compactor.go:698-736, :290-292` | CORRECTNESS | A session with entries that all render to nothing produces an empty distill input, and `isEmptySession` does not catch it. | U078.md |
@@ -2432,19 +2432,19 @@ Full evidence and the suggested action for any row live in its source review at 
 | U073-F13 | **PARTIAL** `9d612953` | `rules.go:262` | CORRECTNESS | `match.command` tokens are literal — no glob, no regex — while `match.path` tokens in the same file *are* full globs, and nothing warns when a user writes a metacharacter in `command:`. | U073.md |
 | U073-F14 | **RESOLVED** `ed4454a2` | `eval.go:25-28` | CORRECTNESS | The doc comment says "the first matching deny rule wins", but command order dominates rule order — an earlier *command* matching a later *rule* beats a later command matching an earlier rule. | U073.md |
 | U073-F15 | **RESOLVED** `100f543d` | `eval.go:13`, `eval.go:11` | DEAD | `Decision.Command` is written and never read anywhere in the repo; `Decision.Rule` is read only by this package's own tests. | U073.md |
-| U074-F03 | open | `submodules.go:48-54` | CORRECTNESS | Trailing inline comments and quoted values are not handled: `path = libs/foo ; note` yields the path `libs/foo ; note`, and git-config's quoted form `path = "libs/foo"` yields `"libs/foo"` with the... | U074.md |
-| U074-F04 | open | `submodules.go:23-24` | ERRHANDLING | An empty `startDir` is silently accepted: `filepath.Clean("")` is `"."`, `filepath.Dir(".")` is `"."`, so the loop terminates on its first iteration and returns `nil` — the fail-open outcome again,... | U074.md |
-| U074-F05 | open | `submodules.go:30-32` | CORRECTNESS | The repo-boundary check tests only for `.git` **existence**, not that the current directory is a plausible repo root; a stray file named `.git` anywhere above the start directory silently truncates... | U074.md |
+| U074-F03 | **RESOLVED** `95169bce` | `submodules.go:48-54` | CORRECTNESS | Trailing inline comments and quoted values are not handled: `path = libs/foo ; note` yields the path `libs/foo ; note`, and git-config's quoted form `path = "libs/foo"` yields `"libs/foo"` with the... | U074.md |
+| U074-F04 | **RESOLVED** `1f705f5b` | `submodules.go:23-24` | ERRHANDLING | An empty `startDir` is silently accepted: `filepath.Clean("")` is `"."`, `filepath.Dir(".")` is `"."`, so the loop terminates on its first iteration and returns `nil` — the fail-open outcome again,... | U074.md |
+| U074-F05 | **RESOLVED** `9f835efd` | `submodules.go:30-32` | CORRECTNESS | The repo-boundary check tests only for `.git` **existence**, not that the current directory is a plausible repo root; a stray file named `.git` anywhere above the start directory silently truncates... | U074.md |
 | U075-F02 | **RESOLVED** `12f375ce` | **`shellenv.go:38-43`** | TRIVIAL | `FromEnv` is a pure pass-through to `ShellFromPath` whose sole added statement is dead: `ShellFromPath("")` already returns `""`. | U075.md |
-| U075-F03 | open | **`shellenv.go:16`** | CORRECTNESS | `filepath.Base` is OS-dependent: on a Linux/macOS build it does **not** split on `\`, so a Windows-style `C:\Windows\System32\cmd.exe` normalises to `c:\windows\system32\cmd` and falls through to `... | U075.md |
-| U075-F04 | open | **`shellenv.go:4` (vs `internal/shared/shellenv/shellenv.go:1`)`** | COUPLING | Two packages in this module are both named `shellenv`, in overlapping problem space, with different jobs. Any file needing both must alias one, and a reader seeing `shellenv.` at a call site cannot... | U075.md |
-| U075-F05 | open | **`shellenv.go:25-26`** | CORRECTNESS | `ksh` and `ksh93` are mapped to `ir.ShellMksh`, which `shell.variantFor` turns into `syntax.LangMirBSDKorn` (`frontend/shell/shell.go:52-53`) — the *MirBSD* Korn shell. AT&T ksh93 is a materially d... | U075.md |
-| U076-F04 | open | `state.go:52-53` | ERRHANDLING | A corrupt state file silently discards **every** live override, not just the corrupt one, because `Open` falls back to an empty map and the next `Save` overwrites the file wholesale. | U076.md |
-| U076-F05 | open | `confirm.go:54-67` | COHESION | ~350 characters of LLM behavioural instruction ("STOP and re-evaluate… a repeat is a deliberate, logged override, not a retry button…") live inside the persistence package. Tuning the prompt means ... | U076.md |
-| U076-F06 | open | `state.go:41` | COUPLING | `Pending` is exported solely to satisfy `encoding/json`, which leaks a mutable map into the package API and lets any caller construct a band that bypasses `Arm`'s `now.Add(delay)/now.Add(window)` i... | U076.md |
+| U075-F03 | **RESOLVED** `be7767ae` | **`shellenv.go:16`** | CORRECTNESS | `filepath.Base` is OS-dependent: on a Linux/macOS build it does **not** split on `\`, so a Windows-style `C:\Windows\System32\cmd.exe` normalises to `c:\windows\system32\cmd` and falls through to `... | U075.md |
+| U075-F04 | **PARTIAL** `6e2341fa` | **`shellenv.go:4` (vs `internal/shared/shellenv/shellenv.go:1`)`** | COUPLING | Two packages in this module are both named `shellenv`, in overlapping problem space, with different jobs. Any file needing both must alias one, and a reader seeing `shellenv.` at a call site cannot... | U075.md |
+| U075-F05 | **RESOLVED** `85a90956` | **`shellenv.go:25-26`** | CORRECTNESS | `ksh` and `ksh93` are mapped to `ir.ShellMksh`, which `shell.variantFor` turns into `syntax.LangMirBSDKorn` (`frontend/shell/shell.go:52-53`) — the *MirBSD* Korn shell. AT&T ksh93 is a materially d... | U075.md |
+| U076-F04 | **RESOLVED** `796ad970` | `state.go:52-53` | ERRHANDLING | A corrupt state file silently discards **every** live override, not just the corrupt one, because `Open` falls back to an empty map and the next `Save` overwrites the file wholesale. | U076.md |
+| U076-F05 | **REFUTED** `2594cefd` | `confirm.go:54-67` | COHESION | ~350 characters of LLM behavioural instruction ("STOP and re-evaluate… a repeat is a deliberate, logged override, not a retry button…") live inside the persistence package. Tuning the prompt means ... | U076.md |
+| U076-F06 | **RESOLVED** `15f9ed5a` | `state.go:41` | COUPLING | `Pending` is exported solely to satisfy `encoding/json`, which leaks a mutable map into the package API and lets any caller construct a band that bypasses `Arm`'s `now.Add(delay)/now.Add(window)` i... | U076.md |
 | U076-F07 | **RESOLVED** `59b8efef` | `confirm.go:39` | NOPAY | The too-early branch calls `Save` although nothing changed, so every over-eager repeat performs a temp-file write, an `fsync`, and a rename for no state delta. | U076.md |
-| U077-F04 | open | **`main.go:64-67`** | ERRHANDLING | `-check` conflates "cannot read the generated file" with "the generated file drifted", so a missing or permission-denied `sample.ltk.yaml` is reported as drift and the operator is told to run `just... | U077.md |
-| U077-F05 | open | **`main.go:19-20`** | COUPLING | `source` and `generated` are module-root-relative, so the tool is only correct when invoked from the repository root — an unwritten precondition (connascence of **execution context**). | U077.md |
+| U077-F04 | **RESOLVED** `fe74822f` | **`main.go:64-67`** | ERRHANDLING | `-check` conflates "cannot read the generated file" with "the generated file drifted", so a missing or permission-denied `sample.ltk.yaml` is reported as drift and the operator is told to run `just... | U077.md |
+| U077-F05 | **RESOLVED** `c9f92d0e` | **`main.go:19-20`** | COUPLING | `source` and `generated` are module-root-relative, so the tool is only correct when invoked from the repository root — an unwritten precondition (connascence of **execution context**). | U077.md |
 | U077-F06 | **RESOLVED** `0a211a71` | `docs/ltk/DEFAULTS.md:6`, `docs/ltk/README.md:336` | CORRECTNESS | The docs point at a path this package no longer occupies: `tools/extract-defaults` and `../tools/extract-defaults`, whereas it lives at `internal/ltk/tools/extract-defaults`. The DEFAULTS.md link i... | U077.md |
 | U078-F10 | **RESOLVED** `93f292c5` | `compactor.go:89` | DEAD | `CompactionResult.Error string` is never assigned and never read. | U078.md |
 | U078-F13 | **RESOLVED** `42b923cb` | `compactor.go:740` | COHESION | `chunkText` is declared as a method on `*Compactor` but never references the receiver — both inputs arrive as parameters. | U078.md |

@@ -122,3 +122,102 @@ func TestConfirmByRepeatTooEarlyDoesNotWrite(t *testing.T) {
 		t.Fatalf("a too-early repeat changes nothing and must not attempt a write, got: %v", err)
 	}
 }
+
+// A state file that does not decode discards EVERY live override, not just a
+// damaged one, and the next Save overwrites the file so the evidence is gone
+// too. That is the safe direction for the DECISION — a lost override merely
+// means the denial repeats — but it was completely silent, so an operator
+// whose confirmations kept evaporating had nothing to look at. Report it on
+// the channel Save failures already ride.
+func TestConfirmByRepeatReportsAnUndecodableStateFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const path = "/p/.ltk/state.json"
+	now := time.Unix(1_700_000_000, 0)
+
+	// A file that LOOKS like a live override for this very command, so the
+	// loss is a loss rather than an absence — but is truncated mid-object.
+	const corrupt = `{"pending":{"git push --force":{"not_before":1700000000,"expiry":179`
+	if err := afero.WriteFile(fs, path, []byte(corrupt), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The fixture must be hostile from Store's vantage point: the file is
+	// non-empty, names the command, and still yields nothing.
+	st := Open(fs, path)
+	if st.LoadError() == nil {
+		t.Fatal("fixture is not hostile: the corrupt file decoded cleanly")
+	}
+	if st.Armed("git push --force", now) {
+		t.Fatal("fixture is not hostile: the override survived the corruption")
+	}
+
+	resp, overridden, err := ConfirmByRepeat(fs, engine.Response{Reason: "no"}, "git push --force", path, now, 0, time.Minute)
+	if overridden {
+		t.Fatal("a corrupt store must not admit an override")
+	}
+	if resp.Allow {
+		t.Fatal("the denial must stand")
+	}
+	if err == nil {
+		t.Fatal("the undecodable state file was reported nowhere")
+	}
+	if !strings.Contains(err.Error(), path) {
+		t.Fatalf("error does not name the state file: %v", err)
+	}
+}
+
+// An absent state file is the ordinary first run, not a failure to report.
+func TestConfirmByRepeatDoesNotReportAMissingStateFile(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	_, _, err := ConfirmByRepeat(fs, engine.Response{Reason: "no"}, "x", "/p/.ltk/state.json",
+		time.Unix(1_700_000_000, 0), 0, time.Minute)
+	if err != nil {
+		t.Fatalf("first run reported an error: %v", err)
+	}
+}
+
+// The override text is not decoration sitting in a persistence package: which
+// of the two variants an agent sees is decided by the SAME branch that decides
+// whether to allow, arm, or push back. This pins that coupling, so a later
+// attempt to move the words somewhere else has to confront the fact that a
+// package boundary would run through one decision.
+//
+// It also pins what each variant must say, which is the part a reader can
+// actually check: the first denial has to explain how to override, and the
+// too-early rebuke has to say how much longer to wait — the arm message's
+// promise is the thing an over-eager repeat is being measured against.
+func TestTheTwoRebukesAreChosenByTheSameBranch(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const path = "/p/.ltk/state.json"
+	now := time.Unix(1_700_000_000, 0)
+	const cmd = "git push --force"
+
+	arm, overridden, err := ConfirmByRepeat(fs, engine.Response{Reason: "denied"}, cmd, path, now, 30*time.Second, time.Minute)
+	if err != nil || overridden || arm.Allow {
+		t.Fatalf("first denial: allow=%v overridden=%v err=%v", arm.Allow, overridden, err)
+	}
+	if !strings.Contains(arm.Reason, "run the exact same command again") {
+		t.Fatalf("the arm message does not say how to override: %q", arm.Reason)
+	}
+
+	early, overridden, err := ConfirmByRepeat(fs, engine.Response{Reason: "denied"}, cmd, path, now.Add(5*time.Second), 30*time.Second, time.Minute)
+	if err != nil || overridden || early.Allow {
+		t.Fatalf("too-early repeat: allow=%v overridden=%v err=%v", early.Allow, overridden, err)
+	}
+	if !strings.Contains(early.Reason, "wait 25s more") {
+		t.Fatalf("the too-early rebuke does not carry the remaining delay: %q", early.Reason)
+	}
+	if early.Reason == arm.Reason {
+		t.Fatal("both branches produced the same text; the two rebukes are not distinguishable")
+	}
+
+	ok, overridden, err := ConfirmByRepeat(fs, engine.Response{Reason: "denied"}, cmd, path, now.Add(40*time.Second), 30*time.Second, time.Minute)
+	if err != nil {
+		t.Fatalf("consuming repeat: %v", err)
+	}
+	if !overridden || !ok.Allow {
+		t.Fatalf("the repeat inside the band was not honoured: allow=%v overridden=%v", ok.Allow, overridden)
+	}
+	if ok.Reason != "" {
+		t.Fatalf("an allowed override still carries a rebuke: %q", ok.Reason)
+	}
+}

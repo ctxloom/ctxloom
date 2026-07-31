@@ -270,6 +270,14 @@ func (c *Conn) readLoop(ctx context.Context) {
 			c.failPending()
 			return
 		}
+		// The spec makes this member MUST-be-exactly-"2.0". A mismatch means the
+		// peer is not speaking the protocol we are, which is worth saying out
+		// loud on the first frame that shows it — but not worth dropping the
+		// peer's traffic over, since everything else about the frame may still
+		// be serviceable.
+		if m.JSONRPC != jsonrpcVersion {
+			warnf("acp: peer frame declares jsonrpc %q, not %q", m.JSONRPC, jsonrpcVersion)
+		}
 		switch {
 		case m.Method != "" && len(m.ID) > 0:
 			c.serveRequest(ctx, m)

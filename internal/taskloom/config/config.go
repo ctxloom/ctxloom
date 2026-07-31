@@ -215,18 +215,22 @@ func (c Config) ParsedTagSchema() (*tagschema.Schema, error) {
 }
 
 // product builds the confload.Product describing taskloom's own on-disk/env
-// conventions, exactly mirroring internal/config's ctxloomProduct. validator
-// may be nil (schema failed to load) — schema.ConfigValidator.KnownPath is
-// nil-receiver-safe, degrading to "nothing recognized" rather than panicking,
-// matching ctxloom's own fault tolerance.
+// conventions, exactly mirroring internal/config's ctxloomProduct — including
+// leaving KnownPath NIL when validator is nil (schema failed to load), which
+// is confload's own documented "no schema knowledge available" degradation.
+// See ctxloomProduct's doc for why a method value on a nil pointer would
+// defeat that path rather than take it.
 func product(validator *schema.ConfigValidator) confload.Product {
-	return confload.Product{
+	p := confload.Product{
 		Name:      "taskloom",
 		DirName:   DirName,
 		FileName:  FileName,
 		EnvPrefix: envPrefix,
-		KnownPath: validator.KnownPath,
 	}
+	if validator != nil {
+		p.KnownPath = validator.KnownPath
+	}
+	return p
 }
 
 // newValidator returns taskloom's own embedded config JSON Schema

@@ -2481,3 +2481,22 @@ func TestTestOnlyMutators_CannotReachTheSharedInstance(t *testing.T) {
 	require.NoError(t, err)
 	assert.Same(t, shared, again, "the ambient memo must still serve the instance it built")
 }
+
+// TestCtxloomProduct_NilValidatorLeavesKnownPathNil pins the degradation
+// confload's Product doc describes: "Nil is treated as 'no schema knowledge
+// available'". That branch is guarded by `if p.KnownPath != nil`, and a
+// METHOD VALUE on a nil pointer is never a nil func — so passing
+// validator.KnownPath unconditionally made the documented path unreachable
+// from this product, no matter how the schema failed. The resolved config is
+// the same either way (a predicate answering false for everything and an
+// absent predicate both land on case 4), which is exactly why nothing else
+// would ever notice.
+func TestCtxloomProduct_NilValidatorLeavesKnownPathNil(t *testing.T) {
+	assert.Nil(t, ctxloomProduct(nil).KnownPath,
+		"no schema means no schema knowledge — confload's nil branch must be reachable")
+
+	validator, err := newConfigValidatorFn()
+	require.NoError(t, err, "the real embedded schema must compile, or the other half of this test proves nothing")
+	assert.NotNil(t, ctxloomProduct(validator).KnownPath,
+		"a compiled schema must still be handed through, or the nil case above is vacuous")
+}

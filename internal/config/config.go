@@ -535,8 +535,17 @@ func ResetOverrides() {
 // (CTXLOOM_ROOT, CTXLOOM_PROJECT_ID, CTXLOOM_SESSION_HARP, CTXLOOM_DEGRADED,
 // CTXLOOM_VERBOSE, ...) that select WHICH config is read rather than being a
 // value inside it. validator may be nil (schema failed to load — Load's own
-// fault-tolerant fallback); ConfigValidator.KnownPath is nil-receiver-safe,
-// so KnownPath degrades to "nothing recognized" rather than panicking.
+// fault-tolerant fallback), and a nil validator leaves Product.KnownPath NIL,
+// which is confload's own documented "no schema knowledge available"
+// degradation. Passing validator.KnownPath unconditionally would defeat that
+// path entirely: a method value on a nil pointer is never a nil func, so
+// confload's `if p.KnownPath != nil` guard would always be taken and the
+// branch its doc describes would be unreachable from either product. The
+// resolved outcome is identical either way — a predicate that answers false
+// for everything and an absent predicate both land on resolvePath's case
+// 4 — but only the nil form skips enumerating every partition of the name to
+// ask a question that has no answer. ConfigValidator.KnownPath stays
+// nil-receiver-safe regardless, so a caller that does pass it cannot panic.
 // newConfigValidatorFn is a test seam over schema.NewConfigValidator: the
 // embedded schema it compiles is a fixed build artifact, so there is no other
 // way to exercise the "schema failed to compile" fallback below (U096-F01)
@@ -545,13 +554,16 @@ func ResetOverrides() {
 var newConfigValidatorFn = schema.NewConfigValidator
 
 func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
-	return confload.Product{
+	p := confload.Product{
 		Name:      "ctxloom",
 		DirName:   AppDirName,
 		FileName:  ConfigFileName,
 		EnvPrefix: "CTXLOOM_CONFIG_",
-		KnownPath: validator.KnownPath,
 	}
+	if validator != nil {
+		p.KnownPath = validator.KnownPath
+	}
+	return p
 }
 
 // InstallOverridesFromFlags is the CLI's own hook into the override chain:

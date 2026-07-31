@@ -427,3 +427,18 @@ func TestResolveMode_RejectsUnknownValue(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "alsobogus")
 }
+
+// TestProduct_NilValidatorLeavesKnownPathNil mirrors internal/config's own
+// pin: taskloom builds its confload.Product the same way, so it inherits the
+// same trap. A method value on a nil *schema.ConfigValidator is a non-nil
+// func, which silently converts confload's documented "no schema knowledge"
+// branch into an unreachable one.
+func TestProduct_NilValidatorLeavesKnownPathNil(t *testing.T) {
+	assert.Nil(t, product(nil).KnownPath,
+		"no schema means no schema knowledge — confload's nil branch must be reachable")
+
+	validator, err := newValidator()
+	require.NoError(t, err, "the real embedded schema must compile, or the other half of this test proves nothing")
+	assert.NotNil(t, product(validator).KnownPath,
+		"a compiled schema must still be handed through, or the nil case above is vacuous")
+}

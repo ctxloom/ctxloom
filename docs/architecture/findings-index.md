@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,486** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,487** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 175 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 203 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 202 |
-| `open` | no commit names this ID | **202** |
+| `open` | no commit names this ID | **201** |
 
-**Totals: 2268 findings across 162 units — 1,486 resolved, 202 still open, 580 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,487 resolved, 201 still open, 580 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 553 | 118 | 101 | 93 | 134 |
-| LOW | 871 | 574 | 75 | 58 | 102 | 62 |
+| LOW | 871 | 575 | 74 | 58 | 102 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2639,7 +2639,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U105-F04 | **REFUTED** `b78a268e` | `cliversion.go:24` | COUPLING | The format vocabulary (`""`, `"text"`, `"json"`) is a bare string switch duplicating the format enum `clifmt` already owns (`formatJSON`/`formatText` constants exist in `internal/cli`). Connascence... | U105.md |
 | U106-F04 | **RESOLVED** `67c5c7fe` | `set.go:1-28` | NOPAY | 27 of the file's 84 lines are a doc comment advertising two third-party set libraries and listing five "switch triggers" for adopting one. This is design-deliberation notes shipped as source; it is... | U106.md |
 | U106-F05 | open | `set.go:1` / `sorted_keys.go:1` | COHESION | The package holds two unrelated concerns: a set type and a map-key sorter. They share no type, no state, and no caller pattern — `SortedKeys` is never called on a `Set`. The package name ("collecti... | U106.md |
-| U106-F06 | open | `set.go:68` | COUPLING | `Items` returns map-iteration order, which Go deliberately randomizes. The doc says so ("Order is not guaranteed"), but three of its six call sites feed the result into config output — `config_reso... | U106.md |
+| U106-F06 | **RESOLVED** `00396a53` | `set.go:68` | COUPLING | `Items` returns map-iteration order, which Go deliberately randomizes. The doc says so ("Order is not guaranteed"), but three of its six call sites feed the result into config output — `config_reso... | U106.md |
 | U107-F05 | open | `cli.go:65-71` | ERRHANDLING | `ReadEmbeddedSig` cannot distinguish "no `.sig` committed" (intended) from "`.sig` committed but zero bytes" (a half-failed signing run), and both silently produce an **unsigned** build. | U107.md |
 | U107-F06 | open | `cli.go:79` vs `cli.go:89` | ERRHANDLING | The two output branches differ in trailing-newline behaviour with no comment explaining why, so the asymmetry reads as an oversight when it is in fact load-bearing. | U107.md |
 | U108-F09 | **RESOLVED** `c78f69fe` | `confload.go:182-184` | DEAD | `Product.HomeConfigPath` — and with it the `DirName`/`FileName` fields' only reader — has no production caller. | U108.md |

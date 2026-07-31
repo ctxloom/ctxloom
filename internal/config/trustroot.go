@@ -64,10 +64,7 @@ func EmbeddedSigners() *allowedsigners.Store {
 // safe; degrading toward fewer keys INVISIBLY is how a revoked-looking signer
 // gets diagnosed as a publishing bug.
 func (c *Config) TrustRoot() *allowedsigners.Store {
-	fs := c.fs
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := c.getFS()
 	stores := []*allowedsigners.Store{c.embeddedSignersTrusted()}
 	for _, path := range c.allowedSignersPaths() {
 		stores = append(stores, c.parseAllowedSigners(fs, path))
@@ -129,10 +126,7 @@ func filterSuppressedPrincipals(store *allowedsigners.Store, suppressed map[stri
 // boundary, ADR 0024); this method is the READ side TrustRoot() and
 // ListSigners/ShowSigner both consult.
 func (c *Config) SuppressedEmbeddedPrincipals() map[string]bool {
-	fs := c.fs
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := c.getFS()
 	out := map[string]bool{}
 	for _, path := range c.distrustedSignersPaths() {
 		for principal := range readPrincipalLines(fs, path) {

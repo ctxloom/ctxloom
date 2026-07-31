@@ -183,3 +183,38 @@ func TestSuppressedEmbeddedPrincipals_UnreadableStore_IsLoud(t *testing.T) {
 	assert.Contains(t, buf.String(), "distrusted_signers",
 		"an unreadable suppression file re-trusts a key the operator removed; that must be reported")
 }
+
+// --- shared-behaviour pin for the trust-root filesystem resolution ----------
+
+// TrustRoot and SuppressedEmbeddedPrincipals both resolve their filesystem
+// before touching disk. A Config built without an injected filesystem (the
+// production shape) must still resolve to the OS filesystem rather than
+// dereferencing a nil afero.Fs, and an INJECTED filesystem must be the only
+// one either method reads. Both properties are what the resolution step buys;
+// pinning them here keeps a single shared resolver honest.
+func TestTrustRootFilesystemResolution_NilFSFallsBackAndInjectedFSIsHonored(t *testing.T) {
+	t.Run("nil filesystem does not panic", func(t *testing.T) {
+		cfg := &Config{appPaths: []string{"/nonexistent-ctxloom-project/.ctxloom"}}
+		require.Nil(t, cfg.fs, "the fixture must exercise the nil-filesystem path")
+		assert.NotPanics(t, func() {
+			assert.NotNil(t, cfg.TrustRoot())
+			assert.Empty(t, cfg.SuppressedEmbeddedPrincipals())
+		})
+	})
+
+	t.Run("injected filesystem is the one read", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		_, line := newTestKey(t)
+		require.NoError(t, afero.WriteFile(fs,
+			paths.AllowedSignersPath(".ctxloom"),
+			[]byte("pinned@example.com namespaces=\"ctxloom\" "+line+"\n"), 0o644))
+		require.NoError(t, afero.WriteFile(fs,
+			paths.DistrustedSignersPath(".ctxloom"),
+			[]byte("suppressed@example.com\n"), 0o644))
+
+		cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+		assert.NotEmpty(t, cfg.TrustRoot().Entries(), "the injected allowed_signers must be read")
+		assert.True(t, cfg.SuppressedEmbeddedPrincipals()["suppressed@example.com"],
+			"the injected distrusted_signers must be read")
+	})
+}

@@ -24,6 +24,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/spf13/afero"
@@ -276,13 +277,31 @@ func (s *Store) headerInvalid(header signing.CountersignHeader) bool {
 
 // candidates returns the armored signature blobs found under header+payload's
 // index hash. Finding one proves NOTHING — see verified.
+//
+// The directory is LISTED and the index hash matched as a literal prefix,
+// never globbed. Globbing joined s.dir into a PATTERN, so every metacharacter
+// in the store's own path was interpreted rather than matched: an unterminated
+// '[' anywhere in it made filepath.Match return ErrBadPattern, and a
+// well-formed class like [ab] matched a different directory. Both made every
+// query into the store come back empty, forever, with Readable() — which lists
+// the directory by its literal name — reporting it perfectly healthy. On the
+// REJECT path "no candidates" is indistinguishable from "nothing rejected", so
+// that silently un-rejected everything a human had refused.
+//
+// The remaining dropped errors are droppable HERE, and only because something
+// else catches them: a directory that cannot be listed and a record that
+// cannot be read both fail Store.Readable, which walks every file in the store
+// and gates EffectiveTrust's fail-closed preamble. This function answers one
+// query and cannot tell "no record" from "a record I could not see"; Readable
+// is the pass that can. Do not silence an error here without checking that
+// Readable still sees it.
 func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][]byte {
 	if s == nil {
 		return nil
 	}
 	if s.configured() != nil {
-		// Not "no candidates here" but "there is no here" — globbing an
-		// unconfigured store would glob the working directory.
+		// Not "no candidates here" but "there is no here" — listing an
+		// unconfigured store would list the working directory.
 		return nil
 	}
 	// Fail CLOSED on a header outside the closed vocabulary: an unrecognized
@@ -290,17 +309,23 @@ func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][
 	if s.headerInvalid(header) {
 		return nil
 	}
-	pattern := filepath.Join(s.dir, indexHash(header, payload)+".*.sig")
-	matches, err := afero.Glob(s.fs, pattern)
+	entries, err := afero.ReadDir(s.fs, s.dir)
 	if err != nil {
-		return nil
+		return nil // see Readable
 	}
-	sort.Strings(matches)
-	out := make([][]byte, 0, len(matches))
-	for _, m := range matches {
-		data, rerr := afero.ReadFile(s.fs, m)
+	prefix := indexHash(header, payload) + "."
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		if n := e.Name(); !e.IsDir() && strings.HasPrefix(n, prefix) && strings.HasSuffix(n, ".sig") {
+			names = append(names, n)
+		}
+	}
+	sort.Strings(names)
+	out := make([][]byte, 0, len(names))
+	for _, n := range names {
+		data, rerr := afero.ReadFile(s.fs, filepath.Join(s.dir, n))
 		if rerr != nil {
-			continue
+			continue // see Readable
 		}
 		out = append(out, data)
 	}

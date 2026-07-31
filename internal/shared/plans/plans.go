@@ -190,11 +190,67 @@ func ParseFrontmatter(content string) (title string, sessions []string) {
 		switch {
 		case strings.HasPrefix(line, "title:"):
 			title = unquote(strings.TrimSpace(line[len("title:"):]))
-		case strings.TrimSpace(line) == "sessions:":
-			inSessions = true
+		case strings.HasPrefix(line, "sessions:"):
+			// YAML writes a sequence two ways and the paired writer emits
+			// both: it round-trips through yaml.Node so that an author's
+			// FLOW list (`sessions: [a, b]`) keeps its style and is merely
+			// extended in place. A parser that understood only the block form
+			// reported no sessions at all for a file it had just stamped.
+			rest := strings.TrimSpace(line[len("sessions:"):])
+			if rest == "" {
+				inSessions = true
+				continue
+			}
+			sessions = append(sessions, parseFlowSequence(rest)...)
 		}
 	}
 	return title, sessions
+}
+
+// parseFlowSequence reads a single-line YAML flow sequence — `[a, b, "c"]` —
+// into its items. Anything that is not bracketed yields nothing: a plain
+// scalar or an anchor is not a list of sessions, and inventing one entry from
+// it would be worse than reporting none. Commas inside quotes do not separate
+// items, so a quoted value survives intact.
+func parseFlowSequence(s string) []string {
+	if !strings.HasPrefix(s, "[") || !strings.HasSuffix(s, "]") {
+		return nil
+	}
+	inner := s[1 : len(s)-1]
+
+	var items []string
+	var cur strings.Builder
+	var quote byte
+	for i := 0; i < len(inner); i++ {
+		c := inner[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+			cur.WriteByte(c)
+		case c == '"' || c == '\'':
+			quote = c
+			cur.WriteByte(c)
+		case c == ',':
+			items = append(items, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	items = append(items, cur.String())
+
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if v := unquote(strings.TrimSpace(item)); v != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // unquote strips a single pair of matching surrounding quotes, if present.

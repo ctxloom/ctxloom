@@ -46,9 +46,9 @@ func NewManager(opts ...LoadOption) *Manager {
 }
 
 // Update runs fn as ONE serialized write transaction: it acquires an advisory
-// file lock (configPath+".lock"), re-reads the config FRESH from disk while
-// holding it, hands fn a Draft built from that fresh read, applies whatever
-// fn changed, and persists via saveLocked — all before releasing the lock.
+// file lock (filelock.PathFor(configPath)), re-reads the config FRESH from
+// disk while holding it, hands fn a Draft built from that fresh read, applies
+// whatever fn changed, and persists via saveLocked — all before releasing it.
 // This is what closes the lost-update window a bare Load-mutate-write
 // sequence does not: the state fn mutates is never older than the moment
 // this call acquired the lock, so two concurrent Update calls (same process
@@ -86,7 +86,7 @@ func (m *Manager) Update(fn func(*Draft) error) error {
 	// it discards the read-modify-write serialization this method exists to
 	// provide, silently, on every subsequent Update call. Fail closed.
 	if !injectedFS {
-		unlock, lerr := filelock.Lock(configPath + ".lock")
+		unlock, lerr := filelock.Lock(filelock.PathFor(configPath))
 		if lerr != nil {
 			return fmt.Errorf("config: acquiring update lock for %s: %w", configPath, lerr)
 		}

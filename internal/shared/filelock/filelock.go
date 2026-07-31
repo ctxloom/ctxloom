@@ -57,6 +57,19 @@ func releaseOrNoop(unlock func(), err error) (func(), error) {
 	return unlock, err
 }
 
+// lockSuffix is appended to a protected path to name its lock file. It is the
+// package's real invariant and its most breakable one: two writers of the same
+// resource that name the lock file differently do not exclude each other, and
+// nothing reports it — no error, no warning, just two writers where there was
+// meant to be one. Spelling the suffix at each call site is what allowed that
+// to be a typo away, in four packages at once.
+const lockSuffix = ".lock"
+
+// PathFor returns the lock file that guards the given protected path. Callers
+// pass the file they are protecting, not a lock name, so the convention lives
+// here rather than being re-agreed at every acquisition.
+func PathFor(protected string) string { return protected + lockSuffix }
+
 // lockFileMode and lockDirMode are the modes a lock file and its parent
 // directory are CREATED with, before umask. They are the conventional file /
 // directory pair — a directory needs the execute bit to be traversable at all,

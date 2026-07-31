@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,315** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,316** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **478** |
+| `open` | no commit names this ID | **477** |
 
-**Totals: 2268 findings across 162 units — 1,315 resolved, 478 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,316 resolved, 477 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 470 | 269 | 73 | 79 | 108 |
-| LOW | 871 | 488 | 197 | 46 | 85 | 55 |
+| LOW | 871 | 489 | 196 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2231,7 +2231,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U040-F22 | open | `remote_discover.go:47` | LOW | `fmt.Printf("Searching repositories...")` has no newline, so an error return from `DiscoverRemotes` (`:56`) leaves the error text appended to a dangling progress line. | U040.md |
 | U041-F14 | **RESOLVED** `cb2b8396` `127539ad` | **`run.go:289-291`** | TRIVIAL | `resolveSelfExecutable` is a pure pass-through to `selfexec.Path()` | U041.md |
 | U041-F15 | **RESOLVED** `24e4e92e` | **`run.go:161-163`** | TRIVIAL | `shouldDistillOnExit` is a single boolean expression with one production caller | U041.md |
-| U041-F16 | open | `run_owned.go:227,237-239` | CORRECTNESS | `final` grows without bound for the life of a structured session | U041.md |
+| U041-F16 | **RESOLVED** `b5c52f7f` | `run_owned.go:227,237-239` | CORRECTNESS | `final` grows without bound for the life of a structured session | U041.md |
 | U041-F17 | open | **`run.go:1734`** | ERRHANDLING | A profile that fails to resolve during upgrade harvesting is swallowed entirely | U041.md |
 | U041-F18 | open | `run_resize_unix.go:27 / run_resize_windows.go:18` | ERRHANDLING | A `term.GetSize` failure silently means the pty never learns the terminal size | U041.md |
 | U041-F19 | **RESOLVED** `b6183f8e` | **`run.go:220`** | CORRECTNESS | The distill-timeout message tells the user something that never happens | U041.md |

@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,560** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 187 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 188 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 208 |
-| `open` | no commit names this ID | **104** |
+| `open` | no commit names this ID | **103** |
 
-**Totals: 2268 findings across 162 units — 1,560 resolved, 104 still open, 604 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,560 resolved, 103 still open, 605 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 595 | 61 | 109 | 96 | 138 |
+| MED | 999 | 595 | 60 | 110 | 96 | 138 |
 | LOW | 871 | 602 | 41 | 61 | 104 | 63 |
 | (unparsed) | 22 | 11 | 2 | 5 | 3 | 1 |
 
@@ -1921,7 +1921,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U151-F06 | open | `vpio.go:62-81` | COUPLING | `Session` has no `Close`/`Release`, so a caller cannot tell a session to free its resources; each implementation invents its own lifecycle, and one of them leaks. | U151.md |
 | U152-F02 | **RESOLVED** `8d4f3e77` | `dockerexec.go:119` | CORRECTNESS | The exec subprocess is built with `exec.CommandContext` but sets neither `cmd.Cancel` nor `cmd.WaitDelay`, so on context cancellation the `docker exec` CLI is **SIGKILLed with zero grace** — the sa... | U152.md |
 | U152-F03 | **RESOLVED** `dc390c93` | `dockerexec.go:209-214` | CORRECTNESS | The pty master file descriptor is **never closed on the normal exit path** — one leaked fd per interactive container turn. | U152.md |
-| U152-F04 | open | `dockerexec.go:148-150` | CORRECTNESS | The stdin-copy goroutine is never cancelled and never observed: with a real `os.Stdin` it parks in `Read` forever, outliving the session, holding a reference to the leaked master, and writing into ... | U152.md |
+| U152-F04 | **PARTIAL** `1cad74b8` | `dockerexec.go:148-150` | CORRECTNESS | The stdin-copy goroutine is never cancelled and never observed: with a real `os.Stdin` it parks in `Read` forever, outliving the session, holding a reference to the leaked master, and writing into ... | U152.md |
 | U152-F05 | **RESOLVED** `d55496c5` | `dockerexec.go:44`, `dockerexec.go:251-277` | DUPLICATE | `tailRing` is a third independent copy of a bounded-tail ring buffer, in a repo that created `internal/shared/stderrtail` **specifically to stop the second copy from becoming a third**. The constan... | U152.md |
 | U153-F01 | open | `goplugin.go:148-151` | CORRECTNESS | `Wait` is not idempotent — a second call blocks forever — while the sibling implementation of the same interface method *is* idempotent. A caller writing the natural `defer session.Wait()` hangs on... | U153.md |
 | U153-F02 | open | `goplugin.go:86-89`, `goplugin.go:148` | CORRECTNESS | The ctx-done watcher goroutine and the resize channel are tied to the **caller's context**, not to the session's lifetime, so both outlive a completed session — and each leaks for the whole remaini... | U153.md |

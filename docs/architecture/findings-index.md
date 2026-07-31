@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,337** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,338** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 146 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 178 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **430** |
+| `open` | no commit names this ID | **429** |
 
-**Totals: 2268 findings across 162 units — 1,337 resolved, 430 still open, 501 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,338 resolved, 429 still open, 501 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 484 | 238 | 82 | 81 | 114 |
+| MED | 999 | 485 | 237 | 82 | 81 | 114 |
 | LOW | 871 | 496 | 180 | 49 | 89 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1298,7 +1298,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U048-F09 | open | **`config.go:20-33`** | COUPLING | Dependency direction: `internal/config` — which every other package imports — itself imports `internal/bundles`, `internal/remote`, `internal/profiles`, `internal/signing`, `internal/agents`, `inte... | U048.md |
 | U048-F10 | **PARTIAL** `bd51cddf` | **`config.go:581,591,605,661,393 vs 560,569,609,676,701,772,…`** | CORRECTNESS / COUPLING | Inconsistent nil-receiver contract. Five methods explicitly guard `c == nil`; the other ~35 methods on `*Config` panic on nil. Callers cannot know which contract applies, and the nil-safe ones adve... | U048.md |
 | U048-F17 | **REFUTED** `556f7258` | **`config.go:528-530, 1158-1162, 1230-1232`** | ERRHANDLING | Three initialization errors are handled three *different* ways in the same file: `InstallOverridesFromFlags` discards the validator error entirely (no log), `loadUncached` `zap.L().Warn`s it, and `... | U048.md |
-| U048-F20 | open | **`config.go:1355 (CCN 12), 1515 (CCN 11)`** | COMPLEXITY | Two functions exceed the repo's own enforcing complexity gate. | U048.md |
+| U048-F20 | **RESOLVED** `b42ca97d` | **`config.go:1355 (CCN 12), 1515 (CCN 11)`** | COMPLEXITY | Two functions exceed the repo's own enforcing complexity gate. | U048.md |
 | U049-F09 | **RESOLVED** `f012188f` | `config_save.go:84` | NOPAY | `Config.Save()` has **zero production call sites** — its entire remaining purpose is a 24-line doc comment explaining why callers should use `Manager.Update` instead | U049.md |
 | U049-F10 | **RESOLVED** `c3891cc6` | `config_manager.go:29, :43, :20` | DEAD | `Current()`, `Reload()` and the `Snapshot` alias are unused "Phase-4 target names": `Current`/`Reload` are **test-only**, `Snapshot` has **zero** uses outside its own definition | U049.md |
 | U049-F11 | open | `config_bundles.go:200, :450, :526` | DUPLICATE | The "list builtin bundles → read → unmarshal → warn+skip" loop is written out **three times**, and the four `ResolveBundle*` profile-scope loops are written out **four times** with three different ... | U049.md |

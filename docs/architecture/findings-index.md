@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,285** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 124 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,292** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 127 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 170 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **524** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 166 |
+| `open` | no commit names this ID | **513** |
 
-**Totals: 2268 findings across 162 units — 1,285 resolved, 524 still open, 459 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,292 resolved, 513 still open, 463 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 454 | 293 | 69 | 79 | 104 |
-| LOW | 871 | 474 | 219 | 40 | 83 | 55 |
+| MED | 999 | 458 | 287 | 70 | 79 | 105 |
+| LOW | 871 | 477 | 214 | 42 | 83 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1022,12 +1022,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U012-F11 | **PARTIAL** `8740e8e7` | **`session.go:860–867`** | CORRECTNESS | Cumulative session figures are reported as per-turn figures: `TurnMeta.CostUSD` gets the *cumulative session cost* and `TurnMeta.InputTokens` gets *tokens currently in context* | U012.md |
 | U012-F12 | **RESOLVED** `ce46fbc3` | **`session.go:665–668 (via 610–629)`** | CORRECTNESS | The flatten placeholder tells the model and the user a *false reason*: when the engine DID advertise the capability but `decodeACPBlock` failed, the message still says "the connected engine does no... | U012.md |
 | U012-F21 | **RESOLVED** `9781e93e` | **`session.go:691–759`** | COHESION | The permission and terminal brokers are the same algorithm implemented twice — 6 methods, 2 mutexes, 2 maps, 2 sequence counters, 2 `noInput` flags — and `inputClosed` has to remember to walk both | U012.md |
-| U013-F04 | open | `jsonrpc.go:296` | CORRECTNESS | `ch <- m` in `routeResponse` runs on the read-loop goroutine **outside** `pendingMu` against a cap-1 buffer, and can block the read loop **permanently**. A peer that sends two responses for one id,... | U013.md |
-| U013-F05 | open | `jsonrpc.go:283-288` | CORRECTNESS | A response frame with `"id": null` — the form the JSON-RPC 2.0 spec **mandates** for reporting an error that cannot be attributed to a request id (Parse error `-32700`, Invalid Request `-32600`) — ... | U013.md |
-| U013-F06 | open | `jsonrpc.go:241-245` vs `:20-21` | CORRECTNESS | The package doc claims "it warns and continues on a malformed frame rather than tearing the session down." **It does not.** Any decode error ends the read loop, fails every parked caller, and kills... | U013.md |
-| U013-F07 | open | `jsonrpc.go:220-229` | COUPLING | `Close`'s doc — "tears down the transport and unblocks any parked reader/caller" — holds only if the caller supplies a closer that happens to unblock the *reader*. Nothing in the type expresses tha... | U013.md |
-| U013-F08 | open | `jsonrpc.go:154`, `:237` | ERRHANDLING | `readLoop` accepts a `ctx` but never selects on it. Cancelling the ctx passed to `Start` does not stop the read loop — the connection's lifetime is governed **solely** by the reader reaching EOF/er... | U013.md |
-| U013-F09 | open | `jsonrpc.go:207`, `:309-314` | ERRHANDLING | Errors surfaced to a `Call` caller carry no RPC context — no method name, no id. A caller sees bare `"context deadline exceeded"` or a raw transport error and cannot tell which RPC died. | U013.md |
+| U013-F04 | **RESOLVED** `84fad3dd` | `jsonrpc.go:296` | CORRECTNESS | `ch <- m` in `routeResponse` runs on the read-loop goroutine **outside** `pendingMu` against a cap-1 buffer, and can block the read loop **permanently**. A peer that sends two responses for one id,... | U013.md |
+| U013-F05 | **PARTIAL** `07767e88` | `jsonrpc.go:283-288` | CORRECTNESS | A response frame with `"id": null` — the form the JSON-RPC 2.0 spec **mandates** for reporting an error that cannot be attributed to a request id (Parse error `-32700`, Invalid Request `-32600`) — ... | U013.md |
+| U013-F06 | **RESOLVED** `1ff888c3` | `jsonrpc.go:241-245` vs `:20-21` | CORRECTNESS | The package doc claims "it warns and continues on a malformed frame rather than tearing the session down." **It does not.** Any decode error ends the read loop, fails every parked caller, and kills... | U013.md |
+| U013-F07 | **RESOLVED** `3c1bd9f0` | `jsonrpc.go:220-229` | COUPLING | `Close`'s doc — "tears down the transport and unblocks any parked reader/caller" — holds only if the caller supplies a closer that happens to unblock the *reader*. Nothing in the type expresses tha... | U013.md |
+| U013-F08 | **ESCALATED** `ba724967` | `jsonrpc.go:154`, `:237` | ERRHANDLING | `readLoop` accepts a `ctx` but never selects on it. Cancelling the ctx passed to `Start` does not stop the read loop — the connection's lifetime is governed **solely** by the reader reaching EOF/er... | U013.md |
+| U013-F09 | **RESOLVED** `32651c47` | `jsonrpc.go:207`, `:309-314` | ERRHANDLING | Errors surfaced to a `Call` caller carry no RPC context — no method name, no id. A caller sees bare `"context deadline exceeded"` or a raw transport error and cannot tell which RPC died. | U013.md |
 | U013-F17 | **RESOLVED** `39c3bcad` | `jsonrpc.go:216`, `:317` | SILENTNOOP | `Notify("")` / a `Go` with an empty method succeed and emit `{"jsonrpc":"2.0"}` — a frame with no method and no id, which the receiving peer must drop as garbage. Nothing validates the method. | U013.md |
 | U014-F04 | open | **`server.go:403-415, 452-469`** | CORRECTNESS | A failure *after* the session is registered replies with an error while leaving the session in `s.sessions` with a live engine subprocess. For `session/load` this permanently occupies the harp id: ... | U014.md |
 | U014-F05 | open | **`server.go:482-501`** | CORRECTNESS | The duplicate-session check for a fixed (`session/load`) id is a TOCTOU, and its fallback is wrong: on a lost race the session is silently registered under a *generated* `ctxloom-N` id instead of t... | U014.md |
@@ -2025,11 +2025,11 @@ Full evidence and the suggested action for any row live in its source review at 
 | U012-F20 | **RESOLVED** `181e1f4a` | **`session.go:110, 117 vs 89–90`** | COUPLING | `sess.caps` and `sess.engineConfigOptions` are written *after* `conn.Start(ctx)` has already launched the read loop; the field doc's justification ("read once … never mutated afterward") is not the... | U012.md |
 | U012-F22 | **RESOLVED** `c3d787d4` | **`surfaces.go:1–44`** | NOPAY | A source file containing zero code — 44 lines of comment recording an opt-out | U012.md |
 | U013-F10 | **RESOLVED** `72f7f6bf` | `jsonrpc.go:117` | TRIVIAL | `NewConn`'s first parameter `ctx context.Context` is **never used** — not stored, not read. Every one of the 9 call sites passes a ctx that goes nowhere. | U013.md |
-| U013-F11 | open | `jsonrpc.go:39-43`, `:246-255` | CORRECTNESS | Spec gaps, in a package whose whole job is a precisely-specified protocol: (a) the inbound `jsonrpc` version member is never validated — the spec requires it be exactly `"2.0"`; (b) `-32700` (Parse... | U013.md |
-| U013-F12 | open | `jsonrpc.go:104-110`, `:174` | CORRECTNESS | `atomic.AddInt64(&c.nextID, 1)` operates on a struct field that is not the first word; 64-bit atomics require 8-byte alignment, which Go guarantees only for the first word of an allocated struct on... | U013.md |
-| U013-F13 | open | `jsonrpc.go:310` | ERRHANDLING | `*p != io.EOF` misses a wrapped EOF, so a clean end-of-stream that arrives wrapped is reported to callers as a hard transport failure instead of `ErrConnClosed`. | U013.md |
-| U013-F14 | open | `jsonrpc.go:172` | COUPLING | `Go`'s contract — "Exactly one await call must follow a successful Go (it owns the pending slot's cleanup)" — is unenforced connascence of execution. A caller that drops the returned closure leaks ... | U013.md |
-| U013-F15 | open | `jsonrpc.go:285-287` | CORRECTNESS | Response ids are integer-only. The spec permits String ids, and a peer that echoes our numeric id back stringified (`"1"`) has its response dropped — the caller then hangs to its ctx deadline rathe... | U013.md |
+| U013-F11 | **PARTIAL** `571f7f04` | `jsonrpc.go:39-43`, `:246-255` | CORRECTNESS | Spec gaps, in a package whose whole job is a precisely-specified protocol: (a) the inbound `jsonrpc` version member is never validated — the spec requires it be exactly `"2.0"`; (b) `-32700` (Parse... | U013.md |
+| U013-F12 | **RESOLVED** `7bdc39c1` | `jsonrpc.go:104-110`, `:174` | CORRECTNESS | `atomic.AddInt64(&c.nextID, 1)` operates on a struct field that is not the first word; 64-bit atomics require 8-byte alignment, which Go guarantees only for the first word of an allocated struct on... | U013.md |
+| U013-F13 | **RESOLVED** `b73ae134` | `jsonrpc.go:310` | ERRHANDLING | `*p != io.EOF` misses a wrapped EOF, so a clean end-of-stream that arrives wrapped is reported to callers as a hard transport failure instead of `ErrConnClosed`. | U013.md |
+| U013-F14 | **PARTIAL** `93888bbb` | `jsonrpc.go:172` | COUPLING | `Go`'s contract — "Exactly one await call must follow a successful Go (it owns the pending slot's cleanup)" — is unenforced connascence of execution. A caller that drops the returned closure leaks ... | U013.md |
+| U013-F15 | **RESOLVED** `29cc340c` | `jsonrpc.go:285-287` | CORRECTNESS | Response ids are integer-only. The spec permits String ids, and a peer that echoes our numeric id back stringified (`"1"`) has its response dropped — the caller then hangs to its ctx deadline rathe... | U013.md |
 | U014-F09 | open | `fsupstream.go:60-80, 94-107` | CORRECTNESS | Every fs-upstream session leaks an empty temp directory: `startFsUpstream` creates one with `os.MkdirTemp` (94) but `Close` removes only the socket file (78). The failure paths correctly use `os.Re... | U014.md |
 | U014-F13 | **RESOLVED** `e7e6c776` | **`children.go:24; server.go:66,70; wire.go:32`** | DEAD | Four alias/const re-exports have no production consumer. `ChildUpdateKind` (children.go:24) has **zero** references anywhere in the repo outside its own declaration. `LLMInfo` (server.go:66), `Comm... | U014.md |
 | U014-F14 | open | **`mapping.go:428-437`** | CORRECTNESS | A turn that reports only cost (`InputTokens == 0`, `ContextWindow == 0`, `CostUSD != 0`) passes the guard at 429 and emits `{"used":0,"size":0,"cost":{...}}`. `used`/`size` have no `omitempty` in t... | U014.md |

@@ -325,3 +325,62 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 	require.NotEmpty(t, result.Backends, "control fixture must have at least one backend succeed")
 	assert.Equal(t, "applied", result.Status)
 }
+
+// U084-F12 — REFUTED, and this pin is the refutation.
+//
+// The row says ListFragments "returns the loader's error verbatim with no
+// context — the caller cannot tell whether tag-listing or full-listing
+// failed". Measured against the code, that consequence cannot occur:
+//
+//  1. bundles.Loader.List() has exactly one non-callback return statement,
+//     `return bundles, nil`. It structurally cannot return a non-nil error.
+//     Every read fault (unreadable bundles root, un-walkable directory,
+//     corrupt bundle file) is reported through strictness.Fail, which streams
+//     a diagnostic to stderr in BOTH modes and records a fatal-class finding
+//     in strict mode. So the information the row says is lost is delivered —
+//     just on a different channel than the return value.
+//  2. ListAllFragments and ListByTags each propagate only that error, so both
+//     are equally incapable of failing; ListByTags is IMPLEMENTED as a filter
+//     over ListAllFragments, so even a hypothetical error would be the same
+//     error from the same origin. The distinction the row asks ListFragments
+//     to draw does not exist below it.
+//
+// The `if err != nil` at fragments.go:60 is therefore an unreachable branch,
+// not a lossy one. Wrapping it would add context to an error that is never
+// constructed — and no pin could drive that wrapping red, because
+// ListFragments takes a CONCRETE *bundles.Loader with no failure seam.
+//
+// What this test holds instead: a genuinely unreadable bundles root produces
+// a nil error AND a loud stderr line, which is the behaviour the row assumed
+// was missing.
+func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores the 0000 mode bit, so the fixture cannot be made hostile")
+	}
+	root := t.TempDir()
+	bundlesDir := filepath.Join(root, "bundles")
+	require.NoError(t, os.MkdirAll(bundlesDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "b.yaml"),
+		[]byte("version: \"1.0\"\nfragments:\n  hidden:\n    content: hi\n"), 0o644))
+	require.NoError(t, os.Chmod(bundlesDir, 0o000))
+	t.Cleanup(func() { _ = os.Chmod(bundlesDir, 0o755) })
+
+	// §11k hostility: the directory must genuinely be unreadable from the
+	// process's vantage point, or "nil error" below proves nothing.
+	_, readErr := os.ReadDir(bundlesDir)
+	require.Error(t, readErr, "fixture is not hostile: the bundles dir is still readable")
+
+	loader := bundles.NewLoader([]string{bundlesDir}, false)
+
+	var res *ListFragmentsResult
+	var err error
+	stderr := captureStderr(t, func() {
+		res, err = ListFragments(context.Background(), nil, ListFragmentsRequest{Loader: loader})
+	})
+
+	require.NoError(t, err, "the loader cannot return an error here — the branch U084-F12 targets is unreachable")
+	require.NotNil(t, res)
+	assert.Zero(t, res.Count, "nothing could be read, so nothing is listed")
+	assert.Contains(t, stderr, bundlesDir,
+		"the fault is reported on the diagnostic channel, naming the directory — it is not lost")
+}

@@ -55,7 +55,8 @@ rejecting countersigns a permanent refusal, both by ref and by content.
 of your personal one (~/.ctxloom/approvals), so a team/CI can inherit the
 decision via the project's allowed_signers. It REQUIRES a signing key.
 
-Non-interactive (piped, or --list): print the pending table and exit.
+Non-interactive (piped, --list, or any --format but text): print the pending
+table and exit.
 
 The scriptable plumbing under this porcelain:
   ctxloom trust <ref>       accept one item
@@ -77,7 +78,8 @@ func init() {
 }
 
 // runReview enumerates the pending set and dispatches: the interactive walk on
-// a TTY, the pending table otherwise.
+// a TTY with no machine-readable --format asked for, the pending table
+// otherwise (see reviewWantsListing).
 func runReview(cmd *cobra.Command, cfg *config.Config) error {
 	res, err := operations.PendingReview(cfg, operations.PendingReviewRequest{})
 	if err != nil {

@@ -83,7 +83,8 @@ func reviewWantsListing(cmd *cobra.Command, listFlag, interactive bool) bool {
 	if listFlag || !interactive {
 		return true
 	}
-	return false
+	format, err := cliemit.Resolve(cmd)
+	return err != nil || format != clifmt.FormatText
 }
 
 // formatWasHonored is the runtime half of U104-F01 ("--format is registered

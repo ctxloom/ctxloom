@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,471** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 174 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 201 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 202 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 201 |
-| `open` | no commit names this ID | **221** |
+| `open` | no commit names this ID | **220** |
 
-**Totals: 2268 findings across 162 units — 1,471 resolved, 221 still open, 576 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,471 resolved, 220 still open, 577 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 549 | 124 | 100 | 93 | 133 |
+| MED | 999 | 549 | 123 | 100 | 94 | 133 |
 | LOW | 871 | 563 | 88 | 58 | 100 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1677,7 +1677,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U099-F02 | **RESOLVED** `70cd9f7b` | `index.go:35-37` | CORRECTNESS | The `Entry` doc asserts "the json tags mirror the yaml keys so `ctxloom session list --format json` and any frontend reading it (the VSCode companion) share the same snake_case contract as the on-d... | U099.md |
 | U099-F05 | **RESOLVED** `ceaaeccf` | **`memstore.go:12-17`** | CORRECTNESS | `MemStore`'s doc says it mirrors `*Manager` "without touching disk" and that "Filesystem side effects of the real index … are intentionally absent". Both claims are false. | U099.md |
 | U099-F06 | open | `index.go:547-554, memstore.go:63-68, memstore.go:84-89` | DUPLICATE | The activity-time sort comparator (activity desc, `StartedAt` tiebreak) is copy-pasted three times. | U099.md |
-| U099-F07 | open | `index.go:775-783` | DUPLICATE | `generateUniqueHarp` is a verbatim reimplementation of the shared `harp.UniqueFrom`. | U099.md |
+| U099-F07 | **REFUTED** `0000000` | `index.go:775-783` | DUPLICATE | `generateUniqueHarp` is a verbatim reimplementation of the shared `harp.UniqueFrom`. | U099.md |
 | U099-F08 | **RESOLVED** `32b2f78e` | `index.go:691-723` | CORRECTNESS | `Reconcile` is the only entry-returning method that never calls `fillCanonicalTranscript`, so its `isDead` predicate always sees `CanonicalTranscriptPath == ""`. A session whose legacy engine trans... | U099.md |
 | U099-F09 | **ESCALATED** `4c18b518` | `index_upgrade.go:71-78` | CORRECTNESS | An unparseable timestamp is degraded to `time.Now()`. Because the upgrade is applied **in memory on every load** and persisted only on explicit `CommitUpgrade`, such an entry gets a *different* val... | U099.md |
 | U099-F10 | open | `index.go:360-390` | COMPLEXITY | The anonymous `fs.WalkDirFunc` inside `LocateTranscript` is CCN 11, one over the enforced CI gate. | U099.md |

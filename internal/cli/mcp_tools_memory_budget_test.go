@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/memory"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -93,4 +95,49 @@ func TestDistillMissingForList_BoundsTheWorkWhenTheHostContextIsUnbounded(t *tes
 		"distill_missing spends LLM time; it must not inherit an unbounded host context")
 	assert.InDelta(t, mcpschema.DistillBudget.Seconds(), budget.Seconds(), 60,
 		"the bound must be the relay's DistillBudget")
+}
+
+// THE SECOND sessionEssenceInfo CALL IS THE POINT, NOT WASTE.
+//
+// With distill_missing=true, list_sessions probes each entry's essence twice:
+// once in distillMissingForList to decide whether the entry needs compacting,
+// and again when building the returned rows. Those two probes read DIFFERENT
+// states — before and after the distillation — and the entry list is re-read
+// between them for the same reason. Caching the first probe's answer and
+// reusing it would report a session that was just distilled as Distilled:false
+// and Title:"", i.e. list_sessions would deny having done the work it was
+// asked to do.
+func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.T) {
+	testsupport.Isolate(t)
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+
+	proj := t.TempDir()
+	e, err := mgr.AssignHarp(proj, "claude-code")
+	require.NoError(t, err)
+
+	// Stand in for a successful compaction: write the essence the real
+	// compactor would have written, so the SECOND probe sees a distilled
+	// session where the first saw none.
+	prev := compactEntryFn
+	compactEntryFn = func(_ context.Context, entry *sessions.Entry, _ *config.Config, _ string, _ io.Writer) (*memory.CompactionResult, error) {
+		p, perr := paths.HarpEssencePath(entry.HarpName)
+		require.NoError(t, perr)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte("# essence\n"), 0o644))
+		require.NoError(t, mgr.SetSummary(entry.HarpName, "distilled just now", nil, 0))
+		return &memory.CompactionResult{SessionID: entry.SessionID}, nil
+	}
+	defer func() { compactEntryFn = prev }()
+
+	s := &ctxServer{cfg: config.NewFixture(config.Fixture{AppDir: filepath.Join(proj, ".ctxloom")})}
+	_, out, err := s.handleListSessions(context.Background(), nil, listSessionsInput{AllProjects: true, DistillMissing: true})
+	require.NoError(t, err)
+	require.Len(t, out.Sessions, 1)
+	require.Equal(t, e.HarpName, out.Sessions[0].Harp)
+
+	assert.True(t, out.Sessions[0].Distilled,
+		"a session distilled by this very call must be reported distilled; a cached pre-distill probe would say false")
+	assert.Equal(t, "distilled just now", out.Sessions[0].Title,
+		"the re-read exists so freshly-written summaries reach the returned rows")
 }

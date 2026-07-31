@@ -69,6 +69,21 @@ const (
 // exported-field mirror with the same tags, so every existing
 // yaml.Marshal(cfg)/yaml.Unmarshal(data, cfg) call site keeps working
 // unchanged.
+//
+// NIL RECEIVERS: a *Config method is NOT nil-safe unless its own doc says so.
+// The type has 93 methods (73 of them exported) and exactly five tolerate a nil
+// receiver —
+// MarshalYAML, IsolationImageFor, IsolationBaseContainerfilePath,
+// IsolationDevcontainerBaseEnabled and DefaultAgentProfiles. That set is
+// deliberate and closed, not the start of a migration: a nil *Config means
+// "config was never loaded", which is a caller bug everywhere except where a
+// zero-valued answer is genuinely the right one (an unmarshaler handed a nil
+// pointer; the isolation-image accessors, whose composite
+// operations.IsolationImageConfig already guards nil one level up; the default
+// agent set, which is legitimately empty before any config exists). Making the
+// other 88 nil-tolerant would convert those caller bugs into silently empty
+// behaviour, which is this codebase's characteristic failure. The closed set is
+// pinned by TestConfig_NilReceiverContract.
 type Config struct {
 	version  int              // config schema version (integer; distinct from app version)
 	lm       LMConfig         //

@@ -200,3 +200,103 @@ func TestReviewLocalMCPTrust_RendersThroughTheCommandsErrWriter(t *testing.T) {
 	assert.Contains(t, out, "Effective trust (claude scope):")
 	assert.Contains(t, out, "ctxloom trust|blacklist <bundle>#mcp/<name>")
 }
+
+// withFailingStdin points the shared prompt reader at a terminal whose reads
+// FAULT rather than end (weave_guards_test.go's failingReader returns
+// assert.AnError, never io.EOF). It is precisely the case a user pressing
+// Ctrl-D is not.
+func withFailingStdin(t *testing.T) {
+	t.Helper()
+	orig := stdinReader
+	stdinReader = bufio.NewReader(failingReader{})
+	t.Cleanup(func() { stdinReader = orig })
+}
+
+func hookedBundle() *bundles.Bundle {
+	return &bundles.Bundle{Hooks: bundles.BundleHooks{
+		PreTool: []bundles.BundleHook{
+			{Command: "echo one", Type: "command"},
+			{Command: "echo two", Type: "command"},
+			{Command: "echo three", Type: "command"},
+		},
+	}}
+}
+
+// A terminal read that FAULTS and a user pressing Ctrl-D produced the exact
+// same outcome: return nil, caller reports success, not one word said. The
+// trust posture is right either way — viewing never trusts — but the user is
+// entitled to know their answer was never read. Ctrl-D is deliberate and stays
+// silent; an I/O fault is not, and must say so.
+func TestOfferItemTrust_ReadFaultIsReportedButStillTrustsNothing(t *testing.T) {
+	appDir := t.TempDir()
+	neutralizeRefresh(t)
+	noAgentEnv(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	seedLocalFragment(t, cfg, "demo", "x", "body")
+	withFailingStdin(t)
+
+	cmd, errBuf := errCapturingCmd()
+	require.NoError(t, offerItemTrust(cmd, cfg, "demo#fragments/x"),
+		"a read fault must not become an error: viewing never trusts, and it never fails either")
+	assert.Contains(t, errBuf.String(), assert.AnError.Error(),
+		"a read that faulted must not be silently reported as a skip the user chose")
+
+	store := userApprovalsStore(t)
+	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "x", IsLocal: true}
+	assert.False(t, store.HasUnsignedApprove(countersignRefFor(ref), signing.AttestFragmentRaw, []byte("body")),
+		"a faulted prompt must never be read as consent")
+}
+
+// Ctrl-D is an answer — "stop asking me" — so it must NOT be dressed up as a
+// fault. This is the guard that stops the fix above becoming noise.
+func TestOfferItemTrust_EOFStaysSilent(t *testing.T) {
+	appDir := t.TempDir()
+	neutralizeRefresh(t)
+	noAgentEnv(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	seedLocalFragment(t, cfg, "demo", "x", "body")
+	withEmptyStdin(t)
+
+	cmd, errBuf := errCapturingCmd()
+	require.NoError(t, offerItemTrust(cmd, cfg, "demo#fragments/x"))
+	assert.NotContains(t, errBuf.String(), "warning",
+		"an intentional Ctrl-D is not a fault and must not warn")
+}
+
+// The hook walk is where the silence costs most: a read fault at hook 1 of 3
+// abandons hooks 2 and 3 and returns nil, so a user who asked to review every
+// executable surface in a bundle reviewed one and was told the review
+// completed. Every unreviewed hook stays withheld — the posture is right — but
+// the count must be said out loud.
+func TestOfferBundleHookTrust_ReadFaultNamesTheHooksItNeverAsked(t *testing.T) {
+	appDir := t.TempDir()
+	neutralizeRefresh(t)
+	noAgentEnv(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	withFailingStdin(t)
+
+	cmd, errBuf := errCapturingCmd()
+	require.NoError(t, offerBundleHookTrust(cmd, cfg, "demo", hookedBundle()))
+
+	out := errBuf.String()
+	assert.Contains(t, out, assert.AnError.Error())
+	assert.Contains(t, out, "3 hook(s) not reviewed",
+		"the abandoned remainder must be counted, not implied by silence")
+}
+
+// Ctrl-D partway through the hook walk is deliberate, so it does not warn —
+// but the user still has to be told how much of the bundle went unreviewed.
+func TestOfferBundleHookTrust_EOFStillReportsTheUnreviewedRemainder(t *testing.T) {
+	appDir := t.TempDir()
+	neutralizeRefresh(t)
+	noAgentEnv(t)
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	withEmptyStdin(t)
+
+	cmd, errBuf := errCapturingCmd()
+	require.NoError(t, offerBundleHookTrust(cmd, cfg, "demo", hookedBundle()))
+
+	out := errBuf.String()
+	assert.NotContains(t, out, "warning")
+	assert.Contains(t, out, "3 hook(s) not reviewed")
+}

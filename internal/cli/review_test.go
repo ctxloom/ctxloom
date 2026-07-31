@@ -402,3 +402,61 @@ func TestReviewWantsListing(t *testing.T) {
 		})
 	}
 }
+
+// TestPrintReviewItem_AllArms characterizes every arm of printReviewItem's
+// body rendering before it is split, so the split is provably
+// behaviour-preserving (U040-F13 is a pure complexity reduction: nothing here
+// can go red by definition).
+func TestPrintReviewItem_AllArms(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		item    operations.ReviewItem
+		want    []string
+		notWant []string
+	}{
+		{
+			name: "new item shows full content",
+			item: operations.ReviewItem{Kind: "fragments", Name: "x", Status: operations.ReviewStatusNew, CurrentContent: "brand new body"},
+			want: []string{"(NEW)", "brand new body"},
+			notWant: []string{"--- accepted", "no snapshot of the previously accepted content",
+				"unchanged since it was approved", "no differences could be rendered"},
+		},
+		{
+			name:    "update with a delta diffs",
+			item:    operations.ReviewItem{Kind: "fragments", Name: "x", Status: operations.ReviewStatusUpdate, PreviousContent: "a\n", CurrentContent: "b\n"},
+			want:    []string{"UPDATE", "--- accepted", "+++ incoming", "+b"},
+			notWant: []string{"unchanged since it was approved", "no snapshot of the previously accepted content"},
+		},
+		{
+			name:    "update with no snapshot says so",
+			item:    operations.ReviewItem{Kind: "fragments", Name: "x", Status: operations.ReviewStatusUpdate, CurrentContent: "full body"},
+			want:    []string{"no snapshot of the previously accepted content", "full body"},
+			notWant: []string{"--- accepted"},
+		},
+		{
+			name:    "executable update with no snapshot stays quiet",
+			item:    operations.ReviewItem{Kind: "mcp", Name: "srv", Status: operations.ReviewStatusUpdate, Executable: true, CurrentContent: "npx thing"},
+			want:    []string{"npx thing"},
+			notWant: []string{"no snapshot of the previously accepted content", "--- accepted"},
+		},
+		{
+			name:    "empty content renders the empty marker",
+			item:    operations.ReviewItem{Kind: "fragments", Name: "x", Status: operations.ReviewStatusNew},
+			want:    []string{"(empty)"},
+			notWant: []string{"--- accepted"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			printReviewItem(&out, 2, 7, tc.item)
+			got := out.String()
+			assert.Contains(t, got, "[2/7]")
+			for _, w := range tc.want {
+				assert.Contains(t, got, w)
+			}
+			for _, n := range tc.notWant {
+				assert.NotContains(t, got, n)
+			}
+		})
+	}
+}

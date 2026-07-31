@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"testing"
 
@@ -81,4 +82,22 @@ func TestRunBundleMCPEdit_ValidEditSucceeds(t *testing.T) {
 	after, gerr := operations.GetBundleMCP(context.Background(), cfg, operations.GetBundleMCPRequest{Bundle: "demo", Name: "srv"})
 	require.NoError(t, gerr)
 	assert.Equal(t, "new-mcp-server", after.MCP.Command)
+}
+
+// `bundle mcp edit`'s success line is the command's primary output, so it must
+// go to cmd.OutOrStdout() like every other command's — a package-level
+// fmt.Printf bypasses the writer cobra was given, which is why the message was
+// unassertable and invisible to any caller that redirected output.
+func TestRunBundleMCPEdit_WritesToTheCommandsOutWriter(t *testing.T) {
+	cfg := setupEditProject(t)
+	seedBundleMCP(t, cfg, "srv")
+	setFakeEditor(t, "command: new-mcp-server\nargs:\n  - --new-flag\n")
+
+	var out bytes.Buffer
+	cmd := &cobra.Command{}
+	cmd.SetOut(&out)
+	require.NoError(t, runBundleMCPEdit(cmd, []string{"demo", "srv"}))
+
+	assert.Contains(t, out.String(), `Updated MCP server "srv" in bundle "demo"`,
+		"the success line must reach the writer cobra was given")
 }

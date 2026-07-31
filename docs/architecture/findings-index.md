@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,329** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,330** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 144 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 176 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **442** |
+| `open` | no commit names this ID | **441** |
 
-**Totals: 2268 findings across 162 units — 1,329 resolved, 442 still open, 497 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,330 resolved, 441 still open, 497 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 480 | 244 | 81 | 80 | 114 |
-| LOW | 871 | 492 | 186 | 48 | 88 | 57 |
+| LOW | 871 | 493 | 185 | 48 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2338,7 +2338,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U055-F11 | **PARTIAL** `f40391fe` | **`backend.go:100-104`** | ERRHANDLING | `Configure` **silently ignores a wrong config type**: `c, ok := cfg.(*KiroConfig); if !ok { return }`. Every override — binary path, args, env, effort, agent, agent-engine — is dropped and the run ... | U055.md |
 | U055-F12 | **PARTIAL** `2ec3383e` | **`mcp_registrar.go:31-40, :86-89`** | ERRHANDLING | `Present` reports `false` for **three distinct conditions**: kiro absent, `$HOME` unresolvable (:35), and `os.Stat` failing for any reason including EACCES (`pathExistsKiro`, :86-88). A caller cann... | U055.md |
 | U056-F12 | **PARTIAL** `5ae03068` | `transcript.go:135-137; monitor.go:184; probe.go:91-100` | DEAD | Three exported symbols have no production caller: `ReadTranscript`, `Monitor.Thresholds`, `UnobservableProbe` (+ its two methods). | U056.md |
-| U056-F13 | open | `probe.go:104-109` | COUPLING | `ProbeFunc.Name` is returned from `Runtime()` and matched against `Target.Runtime`; the name says "identifier", the semantics say "runtime axis, where empty means universal". | U056.md |
+| U056-F13 | **RESOLVED** `24ae56aa` | `probe.go:104-109` | COUPLING | `ProbeFunc.Name` is returned from `Runtime()` and matched against `Target.Runtime`; the name says "identifier", the semantics say "runtime axis, where empty means universal". | U056.md |
 | U056-F14 | open | `monitor.go:86-104` | CORRECTNESS | `normalize` uses `<= 0`, so `0` is unrepresentable for `RedeliveryJitterRatio` and `CPUBurnFloor` — a caller asking for exact-cadence-only matching, or for "any CPU at all counts as burning", silen... | U056.md |
 | U056-F15 | **REFUTED** (cross-package/product decision; see wave-2 report) | **`liveness.go:163; monitor.go:451-456 vs coord/liveness.go:224-229`** | TRIVIAL | `Report.Firing` is a pure pass-through; `orUnknown` and `coord.orDash` are the same three-line function with different placeholders. | U056.md |
 | U056-F16 | open | `transcript.go:334-347` | CORRECTNESS | `worse`'s tie-break is non-deterministic when two groups share both `Repeats` and `EntryType` (different content), because `detectRedelivery` iterates a Go map — contradicting its doc's *"stable, t... | U056.md |

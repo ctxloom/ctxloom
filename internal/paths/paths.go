@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	harpid "github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
@@ -293,14 +294,26 @@ func ResolveHarpCanonicalTranscriptPath(harp string) (string, error) {
 // is per-project state under the app dir. Resolution prefers the configured app
 // dir, then <cwd>/.ctxloom/sessions, then a bare relative .ctxloom/sessions when
 // even the working directory can't be resolved.
+//
+// The first two results are ANCHORED — absolute, fixed at the moment of the
+// call. The last is not: a relative path is resolved by whoever uses it,
+// against whatever the working directory is then, so a caller that changes
+// directory between this call and its read or write addresses somewhere else
+// entirely. Nothing downstream can tell the two kinds of answer apart from the
+// string, which is why the degradation is announced here rather than inferred
+// there. It stays a warning, not an error: an unanchorable sessions dir must
+// not block startup.
 func ProjectSessionsDir(appDir string) string {
 	if appDir != "" {
 		return filepath.Join(appDir, SessionsDir)
 	}
-	if wd, err := os.Getwd(); err == nil {
+	wd, err := os.Getwd()
+	if err == nil {
 		return filepath.Join(wd, AppDirName, SessionsDir)
 	}
-	return filepath.Join(AppDirName, SessionsDir)
+	relative := filepath.Join(AppDirName, SessionsDir)
+	clidiag.Warn("ctxloom", "cannot resolve the working directory (%v); the project sessions directory falls back to the relative %s, which resolves against the caller's current directory", err, relative)
+	return relative
 }
 
 // TriggerCacheDir returns ~/.ctxloom/cache/triggers — the home-rooted

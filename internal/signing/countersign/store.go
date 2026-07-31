@@ -521,6 +521,39 @@ type IndexEntry struct {
 	ReviewedAt  string `yaml:"reviewed_at"`
 }
 
+// IsAfter reports whether e was reviewed after other.
+//
+// ReviewedAt is free text in a YAML file: it is compared as an INSTANT when
+// both stamps parse as RFC3339, and a stamp that parses beats one that does
+// not. Neither rule is fussiness. Byte comparison — what this used to be — is
+// correct only while every stamp is UTC and Z-suffixed, which holds for the
+// single writer today and for nothing else: the index is a plain file a human
+// may edit, and its own doc requires it to outlive contract bumps, so records
+// this build did not write are expected. An offset-suffixed stamp for an
+// earlier instant out-sorts a later UTC one, and a stamp that is not a
+// timestamp at all beats every real one, because 'y' sorts above every digit.
+//
+// Getting it wrong picks the wrong DIFF BASE and can relabel an UPDATE as NEW
+// — precisely the reading a reviewer relies on to notice substituted bytes.
+// When neither stamp reads, the bytes are all that is left.
+func (e IndexEntry) IsAfter(other IndexEntry) bool {
+	et, eok := e.reviewedAt()
+	ot, ook := other.reviewedAt()
+	switch {
+	case eok && ook:
+		return et.After(ot)
+	case eok != ook:
+		return eok
+	default:
+		return e.ReviewedAt > other.ReviewedAt
+	}
+}
+
+func (e IndexEntry) reviewedAt() (time.Time, bool) {
+	t, err := time.Parse(time.RFC3339, e.ReviewedAt)
+	return t, err == nil
+}
+
 func (s *Store) indexPath() string {
 	return filepath.Join(s.dir, "index.yaml")
 }
@@ -635,7 +668,7 @@ func (s *Store) LatestApprove(ref string, layout signing.Form) (IndexEntry, bool
 			e.Ref != ref || e.Form != string(layout) {
 			continue
 		}
-		if !found || e.ReviewedAt > latest.ReviewedAt {
+		if !found || e.IsAfter(latest) {
 			latest = e
 			found = true
 		}

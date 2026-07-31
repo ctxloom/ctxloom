@@ -220,3 +220,30 @@ func TestNewestMTime_FindsNewestFileAndSkipsGit(t *testing.T) {
 	assert.True(t, newest.Before(future.Add(-time.Minute)), "the .git tree must be skipped, got %s", newest)
 	assert.True(t, newest.After(old.Add(time.Minute)), "b.go should be the newest, got %s", newest)
 }
+
+// detectRedelivery's doc promises a "stable, test-assertable answer", but its
+// tie-break only ordered by entry TYPE — so two groups of the same type that
+// repeated the same number of times differed only in CONTENT, and which one
+// won was decided by Go's randomised map iteration. A monitor whose reason
+// text changes between two reads of an unchanged file is one nobody can argue
+// with from the record (U056-F16).
+func TestReadTranscript_RedeliveryTieBreakIsDeterministic(t *testing.T) {
+	base := time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC)
+	var lines []map[string]any
+	for i := 0; i < 4; i++ {
+		at := base.Add(time.Duration(i) * 5 * time.Second)
+		lines = append(lines, userLine(0, at, "aaa-first-loop-body"), userLine(0, at, "zzz-second-loop-body"))
+	}
+	path := writeJSONL(t, lines)
+
+	seen := map[string]int{}
+	for i := 0; i < 50; i++ {
+		st, err := liveness.ReadTranscript(path)
+		require.NoError(t, err)
+		require.NotNil(t, st.Redelivery)
+		require.Equal(t, 4, st.Redelivery.Repeats)
+		seen[st.Redelivery.Sample]++
+	}
+	assert.Len(t, seen, 1, "the same file must yield the same redelivery verdict every time; got %v", seen)
+	assert.Contains(t, seen, "aaa-first-loop-body", "ties resolve on content, lowest first")
+}

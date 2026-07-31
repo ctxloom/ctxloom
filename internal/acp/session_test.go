@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strconv"
 	"sync/atomic"
@@ -38,6 +39,15 @@ func startChat(t *testing.T, req agent.ChatRequest) *chatHarness {
 // assert self-measured timing (the fixed default keeps stamps deterministic).
 func startChatWithClock(t *testing.T, req agent.ChatRequest, now func() time.Time) *chatHarness {
 	t.Helper()
+	return startChatWithExit(t, req, now, nil)
+}
+
+// startChatWithExit is startChatWithClock with the transport's teardown result
+// under the test's control — the seam that stands in for a spawned engine's
+// process exit status, which is exactly what transport.close returns in
+// production (spawnHostTransport's cmd.Wait error). nil is the healthy engine.
+func startChatWithExit(t *testing.T, req agent.ChatRequest, now func() time.Time, exit error) *chatHarness {
+	t.Helper()
 	c2aR, c2aW := io.Pipe() // client → agent
 	a2cR, a2cW := io.Pipe() // agent → client
 
@@ -50,7 +60,7 @@ func startChatWithClock(t *testing.T, req agent.ChatRequest, now func() time.Tim
 			close: func() error {
 				_ = c2aW.Close()
 				_ = a2cR.Close()
-				return nil
+				return exit
 			},
 		}, nil
 	}
@@ -643,6 +653,65 @@ func TestChat_CancelTurnKeepsConversation(t *testing.T) {
 	}
 	assert.Equal(t, []string{"cancelled", "end_turn"}, stops)
 	assert.Equal(t, []string{"still here"}, texts)
+}
+
+// U012-F10: the spawned engine's exit status is captured — spawnHostTransport's
+// close returns cmd.Wait's error — and then thrown away by teardown's
+// `_ = conn.Close()`. An ACP agent that dies non-zero after a conversation was
+// reported as an unqualified success, with the one piece of evidence about why
+// discarded on the way out.
+//
+// The conversation itself still succeeds: its turns were delivered, and failing
+// a good conversation on a shutdown status would be the wrong trade. What must
+// not happen is silence.
+func TestChat_EngineExitStatusIsNotDiscarded(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChatWithExit(t, agent.ChatRequest{}, func() time.Time { return time.Unix(1700000000, 0) },
+		errors.New("exit status 3"))
+	events := collect(h.out)
+
+	go func() {
+		_ = h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hello"}
+	close(h.in)
+
+	assert.NoError(t, <-h.chatErr, "a delivered conversation is still a success")
+	for range events() {
+	}
+
+	assert.Contains(t, warnings.String(), "exit status 3",
+		"the engine's own exit status must reach the operator, not be dropped by teardown")
+}
+
+// A healthy engine — teardown reporting no error — stays silent.
+func TestChat_CleanEngineExitIsSilent(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	go func() {
+		_ = h.fa.serveHandshake(t)
+		promptReq := <-h.fa.requests
+		require.NoError(t, h.fa.respond(promptReq.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{Text: "hello"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range events() {
+	}
+
+	assert.Empty(t, warnings.String(), "a clean shutdown must not warn")
 }
 
 // U012-F20: chatSession.caps is assigned AFTER conn.Start has already launched

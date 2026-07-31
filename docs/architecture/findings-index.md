@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,353** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,354** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 147 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 180 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 181 |
-| `open` | no commit names this ID | **407** |
+| `open` | no commit names this ID | **406** |
 
-**Totals: 2268 findings across 162 units — 1,353 resolved, 407 still open, 508 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,354 resolved, 406 still open, 508 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 493 | 224 | 84 | 81 | 117 |
+| MED | 999 | 494 | 223 | 84 | 81 | 117 |
 | LOW | 871 | 503 | 171 | 48 | 91 | 58 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1386,7 +1386,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U060-F09 | open | `llm.proto:92,110,123,131,143,236,303,313` | COUPLING | Eight string fields carry closed vocabularies enforced only by comments — connascence of **meaning** across a process boundary | U060.md |
 | U060-F11 | open | `llm.proto` (whole)` | DUPLICATE | The schema is a third parallel type hierarchy: ~20 messages exist solely as hand-maintained mirrors of `internal/shared/agent` and `internal/shared/wire`, synced by hand-written converters | U060.md |
 | U060-F12 | open | `llm.proto` (whole)` | CORRECTNESS | Only 1 of ~120 scalar fields uses proto3 `optional`, so absent and zero are indistinguishable everywhere else — an empty/truncated message decodes as a valid, permissive request | U060.md |
-| U061-F04 | open | **`server.go:153-292`** | COMPLEXITY | `RunTurn` is CCN 14 against the project's own CI gate of 10 — the gate is red on this package today, not merely close. | U061.md |
+| U061-F04 | **RESOLVED** `ec42fada` | **`server.go:153-292`** | COMPLEXITY | `RunTurn` is CCN 14 against the project's own CI gate of 10 — the gate is red on this package today, not merely close. | U061.md |
 | U061-F05 | **RESOLVED** `36dbf051` | `sessionwatch.go:150-183, 196-229` | DUPLICATE | `WatchHistoryByPath` and `WatchCanonicalTranscript` are ~90% byte-identical: same poll-default guard, same two channels, same goroutine, same ticker, same `w.step` fan-out, same ctx select, same wa... | U061.md |
 | U061-F06 | **ESCALATED** `a79c11b3` | `sessionwatch.go:155, 201; 117-120, 163-165, 209-211` | ERRHANDLING | The `errs` channel returned by `WatchHistoryByPath` and `WatchCanonicalTranscript` is **never written to** — it is created, deferred-closed, and returned. A *permanent* read failure therefore warns... | U061.md |
 | U061-F07 | **RESOLVED** `fd69a143` | **`server.go:49, 236`** | COUPLING | `ExecutionMode` crosses the wire by **raw numeric cast** in both directions, making the proto enum and the Go enum connascent by *value* across two files with no mapping and no pinning test — while... | U061.md |

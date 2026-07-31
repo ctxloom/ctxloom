@@ -410,13 +410,9 @@ func LocateTranscript(harpName string) (string, bool) {
 		}
 		switch filepath.Ext(p) {
 		case ".jsonl":
-			if bestJSONL == "" || info.ModTime().After(tJSONL) {
-				bestJSONL, tJSONL = p, info.ModTime()
-			}
+			keepNewest(&bestJSONL, &tJSONL, p, info.ModTime())
 		case ".json":
-			if bestJSON == "" || info.ModTime().After(tJSON) {
-				bestJSON, tJSON = p, info.ModTime()
-			}
+			keepNewest(&bestJSON, &tJSON, p, info.ModTime())
 		}
 		return nil
 	})
@@ -427,6 +423,17 @@ func LocateTranscript(harpName string) (string, bool) {
 		return bestJSON, true
 	}
 	return "", false
+}
+
+// keepNewest records path/modTime as the running winner when nothing has been
+// chosen yet or this candidate is newer. The two extension arms of
+// LocateTranscript's walk ran identical bookkeeping over different variables;
+// naming it once means "newest wins" is defined in one place rather than
+// re-agreed per file type.
+func keepNewest(best *string, bestTime *time.Time, path string, modTime time.Time) {
+	if *best == "" || modTime.After(*bestTime) {
+		*best, *bestTime = path, modTime
+	}
 }
 
 // fillTranscriptByLocation resolves a missing (or dangling) transcript binding

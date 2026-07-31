@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,283** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 122 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 123 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 170 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **528** |
+| `open` | no commit names this ID | **527** |
 
-**Totals: 2268 findings across 162 units — 1,283 resolved, 528 still open, 457 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,283 resolved, 527 still open, 458 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 452 | 296 | 68 | 79 | 104 |
+| MED | 999 | 452 | 295 | 69 | 79 | 104 |
 | LOW | 871 | 474 | 220 | 39 | 83 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1019,7 +1019,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U012-F08 | **RESOLVED** `eccb130f` | **`session.go:117, 744–758`** | NOPAY | `chatSession.engineConfigOptions` is written once and read nowhere; 15 lines of comment defend a field that carries no capability | U012.md |
 | U012-F09 | **RESOLVED** `eccb130f` | **`session.go:275–276`** | DEAD | `engineCapabilities.Session` and `.Auth` are write-only | U012.md |
 | U012-F10 | open | **`session.go:98, 190–191`** | ERRHANDLING | The engine's process exit status is captured and then discarded at every site: an ACP agent that exits non-zero after a conversation is reported as a clean success | U012.md |
-| U012-F11 | open | **`session.go:860–867`** | CORRECTNESS | Cumulative session figures are reported as per-turn figures: `TurnMeta.CostUSD` gets the *cumulative session cost* and `TurnMeta.InputTokens` gets *tokens currently in context* | U012.md |
+| U012-F11 | **PARTIAL** `8740e8e7` | **`session.go:860–867`** | CORRECTNESS | Cumulative session figures are reported as per-turn figures: `TurnMeta.CostUSD` gets the *cumulative session cost* and `TurnMeta.InputTokens` gets *tokens currently in context* | U012.md |
 | U012-F12 | **RESOLVED** `ce46fbc3` | **`session.go:665–668 (via 610–629)`** | CORRECTNESS | The flatten placeholder tells the model and the user a *false reason*: when the engine DID advertise the capability but `decodeACPBlock` failed, the message still says "the connected engine does no... | U012.md |
 | U012-F21 | open | **`session.go:691–759`** | COHESION | The permission and terminal brokers are the same algorithm implemented twice — 6 methods, 2 mutexes, 2 maps, 2 sequence counters, 2 `noInput` flags — and `inputClosed` has to remember to walk both | U012.md |
 | U013-F04 | open | `jsonrpc.go:296` | CORRECTNESS | `ch <- m` in `routeResponse` runs on the read-loop goroutine **outside** `pendingMu` against a cap-1 buffer, and can block the read loop **permanently**. A peer that sends two responses for one id,... | U013.md |

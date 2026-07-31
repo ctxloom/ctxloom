@@ -17,15 +17,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // Lock acquires an exclusive (write) lock on the specified file.
 // The file is created if it doesn't exist.
 // Returns an unlock function that must be called to release the lock.
-// The lock is blocking - it will wait until the lock can be acquired.
+// The lock is blocking - it will wait until the lock can be acquired. A wait
+// that runs long reports itself to stderr and keeps waiting: see noteWaiting.
 //
 // unlock is NEVER nil, including on error: see releaseOrNoop.
 func Lock(path string) (unlock func(), err error) {
+	stop := noteWaiting(path)
+	defer stop()
 	return releaseOrNoop(lockFile(path, false))
 }
 
@@ -36,7 +40,51 @@ func Lock(path string) (unlock func(), err error) {
 //
 // unlock is NEVER nil, including on error: see releaseOrNoop.
 func LockShared(path string) (unlock func(), err error) {
+	stop := noteWaiting(path)
+	defer stop()
 	return releaseOrNoop(lockFile(path, true))
+}
+
+// waitNoticeAfter is how long an acquisition may block before it says so. Long
+// enough that ordinary contention — one writer appending a line — never
+// prints, short enough that a human who has just run a command and is watching
+// it sit there gets the notice while they are still watching.
+const waitNoticeAfter = 3 * time.Second
+
+// noteWaiting starts the watchdog that makes a blocked acquisition VISIBLE,
+// and returns the function that stands it down.
+//
+// Acquisition here is unconditionally blocking (flock(2) with no LOCK_NB;
+// LockFileEx with no fail-immediately flag), so a holder that never releases
+// parks the caller forever — `taskloom status` reaches this on its exclusive
+// write path and simply never returns. Whether that wait should instead FAIL
+// is a per-call-site policy question, and this package cannot answer it alone:
+// its callers disagree today about whether a failure to acquire means "stop"
+// or "proceed unlocked". So the wait stays unbounded. What it no longer is is
+// silent — the difference between an unexplained hang and one an operator can
+// diagnose and end, which is the half of the harm that needs no decision.
+//
+// Only the watchdog goroutine reports; the caller stays parked in the syscall,
+// so nothing about the acquisition itself changes. The returned stop waits for
+// the watchdog to finish, so no notice can surface after the acquisition has
+// already returned.
+func noteWaiting(path string) (stop func()) {
+	settled := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		timer := time.NewTimer(waitNoticeAfter)
+		defer timer.Stop()
+		select {
+		case <-settled:
+		case <-timer.C:
+			fmt.Fprintf(os.Stderr, "filelock: still waiting for lock on %s\n", path)
+		}
+	}()
+	return func() {
+		close(settled)
+		<-finished
+	}
 }
 
 // releaseOrNoop guarantees the returned release function is callable whatever

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,535** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,536** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **136** |
+| `open` | no commit names this ID | **135** |
 
-**Totals: 2268 findings across 162 units — 1,535 resolved, 136 still open, 597 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,536 resolved, 135 still open, 597 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 581 | 80 | 105 | 96 | 137 |
-| LOW | 871 | 592 | 51 | 61 | 104 | 63 |
+| LOW | 871 | 593 | 50 | 61 | 104 | 63 |
 | (unparsed) | 22 | 10 | 5 | 4 | 3 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2705,7 +2705,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U131-F07 | **RESOLVED** `339754cb` | **`upgrade.go:103-113`** | CORRECTNESS | `Version` collapses "key absent" and "key present but unparseable" into the same `0`, so `version: banana` silently re-runs every migration from generation 0 over a document that is probably corrupt. | U131.md |
 | U131-F08 | **RESOLVED** `2291df39` | **`upgrade.go:41`, `upgrade.go:46-53`** | NOPAY | `Pipeline.Name` and `Pipeline.Apply` exist solely so pipelines can nest, and **nothing in production nests a pipeline**. Both are test-only. | U131.md |
 | U131-F09 | **ESCALATED** `cabcd078` | **`upgrade.go:100-168`** | COHESION | Two responsibilities in one package: the upgrade protocol (`Upgrader`/`Pipeline`/`Pending`) and a general `yaml.Node` DOM helper library (`MapValue`/`MapSet`/`MapDelete`/`EnsureMap`/`ScalarNode`). ... | U131.md |
-| U133-F06 | open | **`mcp.go:45-48,56`** | CORRECTNESS | The doc comment promises "dest is independent of src", but `AutoRegisterCtxloom` is copied as a shared `*bool` | U133.md |
+| U133-F06 | **RESOLVED** `1f617f3d` | **`mcp.go:45-48,56`** | CORRECTNESS | The doc comment promises "dest is independent of src", but `AutoRegisterCtxloom` is copied as a shared `*bool` | U133.md |
 | U133-F07 | open | **`mcp.go:60-70`** | CORRECTNESS | `dest.Servers`/`dest.Plugins` are allocated unconditionally, so merging an empty src converts "nil = nothing declared" into "empty map = declared, empty" | U133.md |
 | U133-F08 | open | **`mcp.go:16`** | CORRECTNESS | `MCPServer.SCM` serializes as `_ctxloom`, but the hand-authored input schema's `mcpServer` def is `additionalProperties:false` and does not list `_ctxloom` — while its `hook` def is `additionalProp... | U133.md |
 | U133-F09 | open | **`hooks.go:42-55`, `mcp.go:20-31`** | COUPLING | Tag sets are inconsistent: `Hook` and `MCPServer` carry `json` tags, but `UnifiedHooks`, `HooksConfig`, `BackendHooks` and `MCPConfig` carry none — so any `json.Marshal` of a container emits Go fie... | U133.md |

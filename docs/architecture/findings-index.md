@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,320** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 139 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,322** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 142 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 172 |
-| `open` | no commit names this ID | **463** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 176 |
+| `open` | no commit names this ID | **454** |
 
-**Totals: 2268 findings across 162 units — 1,320 resolved, 463 still open, 485 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,322 resolved, 454 still open, 492 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 474 | 258 | 78 | 79 | 110 |
-| LOW | 871 | 489 | 193 | 46 | 87 | 56 |
+| MED | 999 | 476 | 251 | 80 | 79 | 113 |
+| LOW | 871 | 489 | 191 | 47 | 87 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1041,19 +1041,19 @@ Full evidence and the suggested action for any row live in its source review at 
 | U014-F22 | **PARTIAL** `d6cc0fdb` | `l0_conformance_test.go:212-261` | CORRECTNESS | The L0 suite's frame-to-label mapping is positional (`labels[i]`), and the length gate is `GreaterOrEqual(len(turnUpdates), 5)` while seven labels are expected. If an emitter drops or reorders a fr... | U014.md |
 | U014-F23 | **RESOLVED** `08b0c7cb` | `l0_conformance_test.go:287-293 vs server.go:471-475` | CORRECTNESS | `session/load`'s response body is asserted **nowhere**. The L0 capture validates it against `$defs/LoadSessionResponse`, which has **no `required` array at all** — `{}` passes. `TestServe_SessionLo... | U014.md |
 | U014-F24 | **ESCALATED** `701f56fa` | `internal/acptest/acp-schema-v1.json (all 142 `$defs`)` | CORRECTNESS | L0 can detect a **missing required** field but can never detect an **extra or misnamed** one: zero of the schema's 142 `$defs` set `additionalProperties: false`. Concretely, the non-spec `models` f... | U014.md |
-| U015-F01 | open | **`schema.go:66-67` vs `:78`, `:85`** | CORRECTNESS | The doc comment promises "**Safe for concurrent use after construction**", but `def` performs an unsynchronised read-then-write on `v.cache` and calls `v.compiler.Compile` concurrently. The promise... | U015.md |
-| U016-F07 | open | `coordination.proto:1163` | CORRECTNESS | `MESSAGE_CHANNEL_UNSPECIFIED` (0) is read with opposite meaning in two packages. | U016.md |
-| U016-F09 | open | `coordination.proto:266-268,269,295` | CORRECTNESS | Two MUST-level runner invariants ride fields nobody reads. "Runtime MUST NOT StartRun a harness the runner didn't advertise" (`RunnerHello.harnesses`) and "RESOURCE_EXHAUSTED when at capacity" (`Ru... | U016.md |
+| U015-F01 | **RESOLVED** `d4c2bbaa` | **`schema.go:66-67` vs `:78`, `:85`** | CORRECTNESS | The doc comment promises "**Safe for concurrent use after construction**", but `def` performs an unsynchronised read-then-write on `v.cache` and calls `v.compiler.Compile` concurrently. The promise... | U015.md |
+| U016-F07 | **PARTIAL** `cb659252` | `coordination.proto:1163` | CORRECTNESS | `MESSAGE_CHANNEL_UNSPECIFIED` (0) is read with opposite meaning in two packages. | U016.md |
+| U016-F09 | **ESCALATED** `07445684` | `coordination.proto:266-268,269,295` | CORRECTNESS | Two MUST-level runner invariants ride fields nobody reads. "Runtime MUST NOT StartRun a harness the runner didn't advertise" (`RunnerHello.harnesses`) and "RESOURCE_EXHAUSTED when at capacity" (`Ru... | U016.md |
 | U016-F11 | **ESCALATED** `8ad8145a` | `coordination.proto:818-904, 652-656, 921-930, 1040-1073, 607-616, 1319-1322, 393-395, 799-809` | DEAD | 23 of 82 messages have zero references outside generated code, including the entire coordinator→agent request direction of plane 2. | U016.md |
 | U016-F12 | **ESCALATED** `8ad8145a` | `coordination.proto:1048,1060,1863,644` | DEAD | Four enums have no value ever referenced anywhere: `StepCompleted.Outcome`, `StatusChanged.Phase`, `SteerResult.Applied`, `SpawnAgentRequest.NotifyOn`. `ArtifactKind` uses 3 of 10 values in product... | U016.md |
 | U016-F13 | **ESCALATED** `8ad8145a` | `coordination.proto:468-476, 1032` | DEAD | `AgentIdentity`: 5 of 7 fields never populated, which makes `RunStarted`'s stated purpose false. | U016.md |
 | U016-F14 | **ESCALATED** `8ad8145a` | `coordination.proto:1115,1116,1123,1124,1130,1147` | DEAD | `Result`: `structured_output`, `output_schema_id`, `retryable`, `wall_time`, `artifact_ids` have zero producers and zero consumers. `Usage.per_model` likewise. | U016.md |
 | U016-F15 | **ESCALATED** `8ad8145a` | `coordination.proto:962,974,977,979` | DEAD | `AgentEvent.task_id`, `turn_id`, `parent_item_id`, `traceparent` are all unreferenced. `task_id` in particular is a first-class identity axis threaded through 6 messages with no producer or consume... | U016.md |
 | U016-F16 | **ESCALATED** `8ad8145a` | `artifacts.proto:117,118,135` | DEAD | `ArtifactUploadHeader.name` and `media_type` are written and never read; `ArtifactReceipt.stored_at` is written and never read. | U016.md |
-| U016-F17 | open | `artifacts.proto:149-152` | CORRECTNESS | `ArtifactDownloadRequest.offset` has no producer and is structurally incompatible with the file's own MANDATORY integrity rule. | U016.md |
-| U016-F19 | open | `coordination.proto:457` | COUPLING | `Hello.protocol_version` ("this file: 1") is written and never checked; 11 documented revisions later it is still 1, so no version seam exists. | U016.md |
-| U016-F22 | open | `coordination.proto:363-374` | COHESION | `StopRun` is one message serving two directions with different contracts, and its LLM-facing tool description now sits on the runner-control message. | U016.md |
-| U016-F23 | open | `coordination.proto:278,480` | ERRHANDLING | Both `reject_reason` fields — `google.rpc.Status`, added specifically so a rejection is actionable — are discarded by the only clients. | U016.md |
+| U016-F17 | **PARTIAL** `db764e7c` | `artifacts.proto:149-152` | CORRECTNESS | `ArtifactDownloadRequest.offset` has no producer and is structurally incompatible with the file's own MANDATORY integrity rule. | U016.md |
+| U016-F19 | **ESCALATED** `c3bbf8f5` | `coordination.proto:457` | COUPLING | `Hello.protocol_version` ("this file: 1") is written and never checked; 11 documented revisions later it is still 1, so no version seam exists. | U016.md |
+| U016-F22 | **ESCALATED** `f0b31d95` | `coordination.proto:363-374` | COHESION | `StopRun` is one message serving two directions with different contracts, and its LLM-facing tool description now sits on the runner-control message. | U016.md |
+| U016-F23 | **RESOLVED** `a56a6f03` | `coordination.proto:278,480` | ERRHANDLING | Both `reject_reason` fields — `google.rpc.Status`, added specifically so a rejection is actionable — are discarded by the only clients. | U016.md |
 | U019-F03 | **RESOLVED** `2e1e1c54` | `artifacts.go:163–170` | ERRHANDLING | The handler waits on `<-chunkErrCh` unconditionally even when `writeAtomic` has already failed. If the store errored early (temp-file create at artifactstore.go:69, write/disk-full at :80, fsync at... | U019.md |
 | U019-F04 | **REFUTED** `377169bf` | `approval.go:117–119` | CORRECTNESS | A decided approval can be blocked indefinitely by peer slot contention. `onRolePark` releases the child's execution slot (children.go:1735–1742); after the human/parent answers, `onRoleUnpark` does... | U019.md |
 | U019-F05 | **ESCALATED** `1f81ed63` | `approval.go:187–196, 132–135` | ERRHANDLING | The audit journal records `"resolution": "timed_out"` for three failures that are not timeouts: a missing `rec.ParentHarp` (:189), a structured-payload encode failure (:194), and a mail-queue failu... | U019.md |
@@ -2041,8 +2041,8 @@ Full evidence and the suggested action for any row live in its source review at 
 | U014-F21 | **REFUTED** `fd07429a` | `l0_conformance_test.go:66, 77-88, 305-314` | NOPAY | The L0 known-divergence machinery guards an empty map. `l0KnownDivergences` is `map[string]string{}`, so `checkL0`'s entire known branch (80-86) is unreachable and `TestL0_KnownDivergenceSubstrings... | U014.md |
 | U015-F02 | **RESOLVED** `6f2ba39d` | **`schema.go:45-49`** | DEAD | `SchemaSourceURL`, `SchemaCommit`, `SchemaVersion` and `SchemaVendoredAt` are exported constants with **zero readers anywhere in the repo**, including this package's own tests. | U015.md |
 | U015-F03 | **RESOLVED** `cac52a3e` `127539ad` | **`schema.go:70`** | TRIVIAL | `strings.NewReader(string(schemaJSON))` copies the entire embedded schema (142 `$defs`) into a fresh string purely to get an `io.Reader`. | U015.md |
-| U015-F04 | open | **`schema.go:20-23`, `:26-28`** | COUPLING | The re-vendor instructions and the pinned-provenance constants can drift apart silently: the documented `curl` command fetches `main` (`schema.go:28`), while `SchemaSourceURL` (`:46`) pins the comm... | U015.md |
-| U016-F20 | open | `coordination.proto:83-101, 1218-1219` | CORRECTNESS | Historical field renumbering left no `reserved` tombstones, and the safety argument for that is not recorded in the file. | U016.md |
+| U015-F04 | **PARTIAL** `02d788fe` | **`schema.go:20-23`, `:26-28`** | COUPLING | The re-vendor instructions and the pinned-provenance constants can drift apart silently: the documented `curl` command fetches `main` (`schema.go:28`), while `SchemaSourceURL` (`:46`) pins the comm... | U015.md |
+| U016-F20 | **ESCALATED** `45c3f42b` | `coordination.proto:83-101, 1218-1219` | CORRECTNESS | Historical field renumbering left no `reserved` tombstones, and the safety argument for that is not recorded in the file. | U016.md |
 | U016-F21 | **ESCALATED** `8ad8145a` | `coordination.proto:232` | NOPAY | `CoordinatorService.PublishEvents` is served but has no non-test client. | U016.md |
 | U019-F11 | **RESOLVED** `aa6d4ff1` | `checkpoint.go:71–74` | ERRHANDLING | `loadItemsSnapshot` treats **every** `os.ReadFile` error as the normal "no checkpoint yet" case, silently. A permission error, an EISDIR, or an I/O error is indistinguishable from a missing file an... | U019.md |
 | U019-F12 | **PARTIAL** `82f4ba0d` | `artifactstore.go:20–24` | CORRECTNESS | The store's doc claims a corrupt read is *"caught before any download places them (artifacts.go)"*. `artifacts.go`'s `DownloadArtifact` hashes **nothing** — it sends `rec.SHA256` in the header and ... | U019.md |

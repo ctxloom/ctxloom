@@ -69,10 +69,17 @@ func Generate(dir string, targets []Target) (int, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return 0, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
-	sort.Slice(targets, func(i, j int) bool { return name(targets[i]) < name(targets[j]) })
+	// Ordered on a COPY. The order does not affect any file's bytes — each
+	// target writes its own independent file — but it does fix which files
+	// exist after a mid-run failure, so a failing run leaves the same partial
+	// state every time. Sorting the argument itself would export that ordering
+	// as a silent side effect on a slice the caller still owns.
+	ordered := make([]Target, len(targets))
+	copy(ordered, targets)
+	sort.Slice(ordered, func(i, j int) bool { return name(ordered[i]) < name(ordered[j]) })
 
 	written := 0
-	for _, t := range targets {
+	for _, t := range ordered {
 		n := name(t)
 		schema, err := jsonschema.ForType(t.Type, nil)
 		if err != nil {

@@ -121,7 +121,7 @@ type Decision struct {
 // now is supplied by the caller and is never read from the system clock
 // by this package — see Entry.ValidAt's doc for why that matters here.
 func (s *Store) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time) Decision {
-	return s.decide(nil, key, ns, now)
+	return s.decide(principalCheck{}, key, ns, now)
 }
 
 // TrustedAs additionally requires that identity match the matching
@@ -131,47 +131,73 @@ func (s *Store) TrustedForNamespace(key ssh.PublicKey, ns string, now time.Time)
 // loadout envelope) needs to be corroborated against the trust root
 // rather than taken at face value.
 func (s *Store) TrustedAs(identity string, key ssh.PublicKey, ns string, now time.Time) Decision {
-	return s.decide(&identity, key, ns, now)
+	return s.decide(principalCheck{required: true, identity: identity}, key, ns, now)
 }
 
-func (s *Store) decide(identity *string, key ssh.PublicKey, ns string, now time.Time) Decision {
+// principalCheck is decide's "must the entry also corroborate a claimed
+// identity, and which one" argument.
+//
+// It is a named two-field value rather than an *string whose NILNESS carried
+// that meaning. In the package's single most security-critical function, a
+// reader had to know that a nil pointer meant "skip the principal check" — so
+// the difference between TrustedForNamespace and TrustedAs, which is the
+// difference between "this key may sign here" and "this key may sign here AS
+// this identity", was encoded in something a stray nil would silently satisfy.
+// required is false for the zero value, so the SKIP is what you get by
+// accident and the check is what you must ask for.
+type principalCheck struct {
+	required bool
+	identity string
+}
+
+func (s *Store) decide(check principalCheck, key ssh.PublicKey, ns string, now time.Time) Decision {
 	if s == nil || key == nil {
 		return Decision{}
 	}
 	for i := range s.entries {
 		e := &s.entries[i]
-
-		// cert-authority entries are recognized but never grant trust
-		// through a direct key match: this package implements no SSH
-		// certificate verification, and no certificate is ever presented
-		// to it (see Entry.CertAuthority doc, and the package doc's
-		// fail-closed decisions). Verified against real ssh-keygen: a
-		// cert-authority-flagged entry refuses to verify a plain
-		// signature even when every other field matches.
-		if e.CertAuthority {
+		if !entryGrants(e, check, key, ns, now) {
 			continue
-		}
-		if !keysEqual(e.PublicKey, key) {
-			continue
-		}
-		if identity != nil && !e.MatchesPrincipal(*identity) {
-			continue
-		}
-		if !e.MatchesNamespace(ns) {
-			continue
-		}
-		if !e.ValidAt(now) {
-			continue
-		}
-
-		principal := ""
-		if len(e.Principals) > 0 {
-			principal = e.Principals[0]
 		}
 		matched := e.clone()
-		return Decision{Trusted: true, Principal: principal, Entry: &matched}
+		return Decision{Trusted: true, Principal: firstPrincipal(e), Entry: &matched}
 	}
 	return Decision{}
+}
+
+// entryGrants is the whole of one entry's trust test, in the order the
+// signature-envelope spec states it. Every arm withholds; there is no arm that
+// grants, which is what makes "no entry matched" the only default.
+func entryGrants(e *Entry, check principalCheck, key ssh.PublicKey, ns string, now time.Time) bool {
+	// cert-authority entries are recognized but never grant trust
+	// through a direct key match: this package implements no SSH
+	// certificate verification, and no certificate is ever presented
+	// to it (see Entry.CertAuthority doc, and the package doc's
+	// fail-closed decisions). Verified against real ssh-keygen: a
+	// cert-authority-flagged entry refuses to verify a plain
+	// signature even when every other field matches.
+	if e.CertAuthority {
+		return false
+	}
+	if !keysEqual(e.PublicKey, key) {
+		return false
+	}
+	if check.required && !e.MatchesPrincipal(check.identity) {
+		return false
+	}
+	if !e.MatchesNamespace(ns) {
+		return false
+	}
+	return e.ValidAt(now)
+}
+
+// firstPrincipal is the identity a Decision reports for a matched entry — by
+// convention the first one written in the file. See Decision.Principal.
+func firstPrincipal(e *Entry) string {
+	if len(e.Principals) == 0 {
+		return ""
+	}
+	return e.Principals[0]
 }
 
 func keysEqual(a, b ssh.PublicKey) bool {

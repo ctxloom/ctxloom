@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,320** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 135 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 136 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 170 |
-| `open` | no commit names this ID | **469** |
+| `open` | no commit names this ID | **468** |
 
-**Totals: 2268 findings across 162 units — 1,320 resolved, 469 still open, 479 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,320 resolved, 468 still open, 480 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 474 | 263 | 74 | 79 | 109 |
+| MED | 999 | 474 | 262 | 75 | 79 | 109 |
 | LOW | 871 | 489 | 194 | 46 | 87 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1135,7 +1135,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U029-F18 | **PARTIAL** `05b205cb` | **`antigravity.go:8, 42, 73-75; hooks_wire.go:10, 19; mcp_registrar.go:12-15; capabilities.go (throughout)`** | CORRECTNESS | The package's normative claims are pinned to "verified agy v1.0.7" while the verified installed version is 1.1.2, and at least one v1.0.7 claim in this area has already been proven false | U029.md |
 | U030-F05 | open | **`bundles.go:552-583`** | CORRECTNESS | The MCP preimage is **not stable across encodings**: `Args`/`Env` are emitted without `omitempty`, so a nil value hashes as `"args":null,"env":null` while an empty-but-present value hashes as `"arg... | U030.md |
 | U030-F08 | **RESOLVED** `5b793305` | `loader_content.go:278, 396` | CORRECTNESS | `LoadedContent.IsDistilled` is re-derived with a **different predicate** than the bytes it claims to describe: `l.preferDistilled && frag.Distilled != ""` omits the `!NoDistill` term. An item with ... | U030.md |
-| U030-F09 | open | `loader_skills.go:87-88, bundles.go:271/284` | CORRECTNESS | Two comments that justify trust-relevant behaviour are **false**. (a) loader_skills.go:87-88 excuses the unverified manifest-less path with "no `ctxloom skill sync` has run — that CLI is Part B6" —... | U030.md |
+| U030-F09 | **PARTIAL** `e4555ab8` | `loader_skills.go:87-88, bundles.go:271/284` | CORRECTNESS | Two comments that justify trust-relevant behaviour are **false**. (a) loader_skills.go:87-88 excuses the unverified manifest-less path with "no `ctxloom skill sync` has run — that CLI is Part B6" —... | U030.md |
 | U030-F10 | open | `loader.go:104-125, 322-371` | COUPLING | `LoadFile` documents itself "safe for concurrent use", but only the cache **map** is mutex-protected; the `*Bundle` it returns is shared and mutated by callers and by the loader's own options. `Wit... | U030.md |
 | U030-F11 | **PARTIAL** `17b5f8ee` | `multiple` | DEAD | Six symbols have no production call site. `Bundle.SkillCount` (bundles.go:531) has **zero** references repo-wide including tests. `Bundle.AllTags` (708), `Bundle.HasProfiles` (693), `Loader.LoadMul... | U030.md |
 | U030-F19 | open | `loader_content.go:192, 266, 384, loader_skills.go:94` | COUPLING | The trust-ref kind directories are hard-coded string literals in this package (`"fragments"`, `"prompts"`, `"skills"`, and `"hooks"`/`"mcp"` in `config`) while `internal/trust.ItemKind.Dir()` is th... | U030.md |

@@ -4,11 +4,21 @@
 // tokenizer can replace the heuristic here without touching call sites.
 package tokens
 
-// CharsPerToken is the rough characters-per-token ratio. A crude heuristic, but
-// a single owned constant beats scattered magic numbers.
-const CharsPerToken = 4
+// BytesPerToken is the rough bytes-per-token ratio. A crude heuristic, but a
+// single owned constant beats scattered magic numbers.
+//
+// BYTES, not characters — the name says so because the arithmetic does. Go's
+// len() over a string counts bytes, and for non-ASCII text the two diverge by
+// 2-4x (a CJK rune is three bytes in UTF-8, an emoji four), so a constant
+// named for characters but applied to bytes silently means something other
+// than what every consumer reads it as. The byte reading is also the one the
+// chunker needs: it slices by byte offset (see internal/memory's chunkText and
+// its use of textutil.TruncateBytes), so a character-based budget compared
+// against a byte length would under-chunk exactly the text that is already
+// hardest to fit.
+const BytesPerToken = 4
 
 // Estimate returns a rough token count for text.
 func Estimate(text string) int {
-	return len(text) / CharsPerToken
+	return len(text) / BytesPerToken
 }

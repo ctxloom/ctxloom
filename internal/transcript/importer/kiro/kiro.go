@@ -38,7 +38,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/importer"
 )
@@ -122,28 +121,22 @@ func (Adapter) Convert(ctx context.Context, rec transcript.Recorder, src string)
 		return fmt.Errorf("kiro: decode conversation %s from %s: %w", conversationID, dbPath, err)
 	}
 
-	if info := sessionInfo(conversationID, &doc); info != nil {
-		if err := rec.Record(agent.ChatEvent{Session: info}); err != nil {
-			return fmt.Errorf("kiro: record session: %w", err)
-		}
-	}
-
 	c := &converter{record: importer.RecordFunc(rec, "kiro")}
-	for _, turnRaw := range doc.History {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if err := c.handleTurn(turnRaw, doc.ModelInfo); err != nil {
-			return err
-		}
+	return importer.ConvertJSONLLines(ctx, rec, rawTurns(&doc), "kiro", sessionInfo(conversationID, &doc),
+		func(turn []byte) error { return c.handleTurn(turn, doc.ModelInfo) },
+		func() error { return c.checkFloor(conversationID, len(doc.History)) },
+	)
+}
+
+// rawTurns adapts a decoded document's history to the [][]byte the shared
+// driver streams. kiro's unit of iteration is a history TURN rather than a
+// JSONL line — the whole conversation is one document — but the driver's
+// contract is over opaque per-item bytes, which is exactly what a turn is
+// here.
+func rawTurns(doc *conversationDoc) [][]byte {
+	turns := make([][]byte, len(doc.History))
+	for i := range doc.History {
+		turns[i] = doc.History[i]
 	}
-	// U149-F01/F02: a conversation with real history turns that converts to
-	// zero canonical entries (every turn's user/assistant content union
-	// unrecognized) must not report success — see converter.entries' doc
-	// comment for why the per-turn Complete boundary doesn't count. Mirrors
-	// claude/codex/antigravity's identically-motivated checkFloor.
-	if len(doc.History) > 0 && c.entries == 0 {
-		return fmt.Errorf("kiro: conversation %s has %d history turn(s) but converted ZERO transcript entries — the vendor format this build parses no longer matches the document", conversationID, len(doc.History))
-	}
-	return nil
+	return turns
 }

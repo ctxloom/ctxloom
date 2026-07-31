@@ -2,6 +2,7 @@ package kiro
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/transcript/importer"
@@ -20,10 +21,25 @@ type converter struct {
 
 	// entries counts real conversation ChatEvents recorded by handleTurn —
 	// NOT the per-turn Complete boundary, which is accounting metadata every
-	// turn emits regardless of content. checkFloor (kiro.go) uses this to
-	// tell "a conversation with real turns but zero recognizable content"
-	// (U149-F01/F02) apart from a genuinely turn-less conversation.
+	// turn emits regardless of content. checkFloor uses this to tell "a
+	// conversation with real turns but zero recognizable content" apart from
+	// a genuinely turn-less conversation.
 	entries int
+}
+
+// checkFloor is the shared driver's flush step for kiro: a conversation with
+// real history turns that converted to zero canonical entries (every turn's
+// user/assistant content union unrecognized) must not report success — the
+// vendor format this build parses no longer matches the document, and a
+// silently empty transcript would permanently block a later, better import.
+// The per-turn Complete boundary deliberately does not count toward the floor;
+// see converter.entries above. Mirrors claude/codex/antigravity's
+// identically-motivated floor check.
+func (c *converter) checkFloor(conversationID string, turns int) error {
+	if turns > 0 && c.entries == 0 {
+		return fmt.Errorf("kiro: conversation %s has %d history turn(s) but converted ZERO transcript entries — the vendor format this build parses no longer matches the document", conversationID, turns)
+	}
+	return nil
 }
 
 // handleTurn maps one historyTurn (raw JSON, from conversationDoc.History)

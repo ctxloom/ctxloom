@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,417** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,418** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 160 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 189 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 194 |
-| `open` | no commit names this ID | **308** |
+| `open` | no commit names this ID | **307** |
 
-**Totals: 2268 findings across 162 units — 1,417 resolved, 308 still open, 543 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,418 resolved, 307 still open, 543 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 525 | 171 | 90 | 87 | 126 |
-| LOW | 871 | 535 | 126 | 54 | 94 | 62 |
+| LOW | 871 | 536 | 125 | 54 | 94 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2411,7 +2411,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U068-F11 | **RESOLVED** `b7a7ab39` | `wrap.go:335` | NOPAY | `prefixWrapped`'s `ir.Shell` parameter is unused and documented as speculative | U068.md |
 | U068-F12 | **RESOLVED** `a1fca2fa` | `wrap.go:349` | CORRECTNESS | The nested command's `Argv` aliases the parent's backing array | U068.md |
 | U069-F05 | **RESOLVED** `eec5be7f` | `cmd.go:258-266` | CORRECTNESS | Group flattening drops the group's own connector for all but the first inner pipeline and drops nothing else — but a group whose `)` is missing swallows the rest of the input via F02. Listed separa... | U069.md |
-| U069-F07 | open | `cmd.go:132-134` | CORRECTNESS | A trailing `^` is consumed and produces nothing; in real cmd it is a line-continuation. Harmless today (single-line input) but silent. | U069.md |
+| U069-F07 | **RESOLVED** `4ca9e727` | `cmd.go:132-134` | CORRECTNESS | A trailing `^` is consumed and produces nothing; in real cmd it is a line-continuation. Harmless today (single-line input) but silent. | U069.md |
 | U069-F08 | open | `cmd.go:181-183` | CORRECTNESS | The fd-prefix heuristic discards the whole pending word when it is all digits, so a legitimate all-digit argument immediately followed by a redirect is lost from argv (`foo 123>out` ⇒ argv `[foo]`). | U069.md |
 | U069-F09 | **RESOLVED** `12f375ce` | `cmd.go:61-64` | TRIVIAL | `lex` is a one-expression pass-through with one caller and no test of its own. | U069.md |
 | U070-F02 | **RESOLVED** `c9e5c81e` | `pwsh.go:30-31`, `:149` | DEAD | `ErrUnavailable` is an exported sentinel with **zero** `errors.Is`/comparison sites anywhere in the repo, tests included. | U070.md |

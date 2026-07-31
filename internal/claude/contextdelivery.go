@@ -23,7 +23,8 @@ type appendFlagDelivery struct {
 	place agent.Placement
 	fs    afero.Fs
 	// path is the absolute path of the framed file DeliverContext wrote, or ""
-	// before delivery (or when the context was empty and nothing was written).
+	// whenever no file stands behind it: before delivery, when the context was
+	// empty, and after a delivery that FAILED.
 	path string
 }
 
@@ -35,9 +36,11 @@ func newAppendFlagDelivery(place agent.Placement, fs afero.Fs) *appendFlagDelive
 }
 
 // Path returns the absolute path of the framed context file DeliverContext
-// wrote, or "" before delivery (or when the framed context was empty). This is
-// how a later slice's buildArgs reads the file for --append-system-prompt-file;
-// the Delivered return stays Cleanup-only by design.
+// wrote, or "" whenever no file stands behind it — before delivery, when the
+// framed context was empty, and after a FAILED delivery. This is how a later
+// slice's buildArgs reads the file for --append-system-prompt-file, so the
+// empty case is load-bearing: claude must never be handed a flag naming a file
+// that was not written. The Delivered return stays Cleanup-only by design.
 func (d *appendFlagDelivery) Path() string { return d.path }
 
 // DeliverContext frames context in the ctxloom envelope
@@ -56,6 +59,7 @@ func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, er
 
 	dir := d.place.Dir()
 	if err := d.fs.MkdirAll(dir, 0o755); err != nil {
+		d.path = ""
 		return nil, fmt.Errorf("create context delivery dir: %w", err)
 	}
 
@@ -65,6 +69,7 @@ func (d *appendFlagDelivery) DeliverContext(context string) (agent.Delivered, er
 	path := filepath.Join(dir, name)
 
 	if err := afero.WriteFile(d.fs, path, []byte(framed), 0o644); err != nil {
+		d.path = ""
 		return nil, fmt.Errorf("write framed context file: %w", err)
 	}
 	d.path = path

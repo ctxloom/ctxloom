@@ -128,12 +128,37 @@ func List(root string) ([]Plan, error) {
 	return out, nil
 }
 
-// Show returns a plan file's content. The path must end in .plan.md and resolve
-// inside ~/.ctxloom/sessions, so a crafted path can't read arbitrary files.
+// Show returns a plan file's content. The path must end in .plan.md, must
+// resolve — after every symlink is followed — inside ~/.ctxloom/sessions, and
+// must name a regular file.
+//
+// Containment is checked on the RESOLVED path, not the lexical one. A lexical
+// check answers "does this string sit under the root", which a symlink placed
+// in the sessions directory defeats trivially: `notes.plan.md -> /etc/shadow`
+// passes every string test and then hands back the target. The regular-file
+// check closes the other half — a FIFO named `x.plan.md` is a lexically
+// perfect plan path on which os.ReadFile blocks until something opens the
+// other end, turning `plan show` into a hang.
 func Show(path string) (string, error) {
 	if !strings.HasSuffix(path, paths.PlanFileExt) {
 		return "", fmt.Errorf("not a plan file: %s", path)
 	}
+	real, err := resolveContainedPlanPath(path)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(real)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// resolveContainedPlanPath follows every symlink in path and returns the real
+// path, or an error if that path is not a regular file inside the sessions
+// root. It is the whole of Show's safety check, kept apart from the read so
+// the two cannot drift.
+func resolveContainedPlanPath(path string) (string, error) {
 	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		return "", err
@@ -142,54 +167,156 @@ func Show(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The root itself may sit behind a symlink (a symlinked home, /var on
+	// macOS). Resolve it too, or every resolved path would fail containment.
+	if resolved, rerr := filepath.EvalSymlinks(rootAbs); rerr == nil {
+		rootAbs = resolved
+	}
 	abs, err := filepath.Abs(path)
 	if err != nil {
 		return "", err
 	}
-	if !strings.HasPrefix(abs, rootAbs+string(filepath.Separator)) {
-		return "", fmt.Errorf("plan path is outside the sessions directory: %s", path)
-	}
-	data, err := os.ReadFile(abs)
+	real, err := filepath.EvalSymlinks(abs)
 	if err != nil {
 		return "", err
 	}
-	return string(data), nil
+	if !strings.HasPrefix(real, rootAbs+string(filepath.Separator)) {
+		return "", fmt.Errorf("plan path is outside the sessions directory: %s", path)
+	}
+	info, err := os.Stat(real)
+	if err != nil {
+		return "", err
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("not a regular file: %s", path)
+	}
+	return real, nil
 }
 
-// ParseFrontmatter extracts the `title` scalar and the `sessions:` block-list
-// from a plan's leading YAML frontmatter (the `---` … `---` block). It is
-// tolerant and dependency-free — only those two fields are read; a document with
-// no frontmatter yields ("", nil).
+// ParseFrontmatter extracts the `title` scalar and the `sessions:` list from a
+// plan's leading YAML frontmatter. It is tolerant and dependency-free — only
+// those two fields are read; a document with no frontmatter yields ("", nil).
+//
+// BOTH delimiters are required. An opening `---` that is never closed is not
+// frontmatter: it is a document whose author did something else, and scanning
+// it to EOF makes any body line shaped like `title:` — a heading in a fenced
+// YAML example, a quoted snippet — silently become the plan's title. The
+// paired writer refuses such a document outright rather than guess where the
+// block ends, so accepting it here would have the two halves of one format
+// disagreeing about which files even have frontmatter.
 func ParseFrontmatter(content string) (title string, sessions []string) {
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return "", nil
 	}
+	closed := false
 	inSessions := false
 	for _, raw := range lines[1:] {
 		line := strings.TrimRight(raw, "\r")
 		if strings.TrimSpace(line) == "---" {
+			closed = true
 			break
 		}
 		if inSessions {
-			item := strings.TrimSpace(line)
-			if strings.HasPrefix(item, "- ") {
-				sessions = append(sessions, strings.TrimSpace(item[2:]))
+			item, isItem, stillOpen := sessionsBlockLine(line)
+			inSessions = stillOpen
+			if isItem {
+				sessions = append(sessions, item)
 				continue
-			}
-			// A non-item line that isn't indented ends the sessions block.
-			if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-				inSessions = false
 			}
 		}
 		switch {
 		case strings.HasPrefix(line, "title:"):
 			title = unquote(strings.TrimSpace(line[len("title:"):]))
-		case strings.TrimSpace(line) == "sessions:":
-			inSessions = true
+		case strings.HasPrefix(line, "sessions:"):
+			flow, blockFollows := sessionsKeyLine(line)
+			sessions = append(sessions, flow...)
+			inSessions = blockFollows
 		}
 	}
+	if !closed {
+		return "", nil
+	}
 	return title, sessions
+}
+
+// sessionsBlockLine interprets one line while a `sessions:` block is open. It
+// reports the item that line contributes (already unquoted, for the same
+// reason `title` is: a harp is the value, not its YAML spelling, and a quoted
+// entry that kept its quotes would match no harp anywhere else), whether the
+// line was an item at all, and whether the block is still open afterwards — a
+// non-item line that is not indented has left the block.
+func sessionsBlockLine(line string) (item string, isItem, stillOpen bool) {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "- ") {
+		return unquote(strings.TrimSpace(trimmed[2:])), true, true
+	}
+	indented := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
+	return "", false, indented
+}
+
+// sessionsKeyLine interprets the `sessions:` key itself. YAML writes a
+// sequence two ways and the paired writer emits both: it round-trips through
+// yaml.Node so an author's FLOW list (`sessions: [a, b]`) keeps its style and
+// is merely extended in place. A bare key means a block list follows on the
+// lines after it.
+func sessionsKeyLine(line string) (flow []string, blockFollows bool) {
+	rest := strings.TrimSpace(line[len("sessions:"):])
+	if rest == "" {
+		return nil, true
+	}
+	return parseFlowSequence(rest), false
+}
+
+// parseFlowSequence reads a single-line YAML flow sequence — `[a, b, "c"]` —
+// into its items. Anything that is not bracketed yields nothing: a plain
+// scalar or an anchor is not a list of sessions, and inventing one entry from
+// it would be worse than reporting none. Commas inside quotes do not separate
+// items, so a quoted value survives intact.
+func parseFlowSequence(s string) []string {
+	if !strings.HasPrefix(s, "[") || !strings.HasSuffix(s, "]") {
+		return nil
+	}
+	items := splitOutsideQuotes(s[1 : len(s)-1])
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if v := unquote(strings.TrimSpace(item)); v != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// splitOutsideQuotes splits on commas that are not inside a quoted run, so a
+// value containing a comma survives as one item. Quotes are kept: unquoting is
+// the caller's step, and stripping them here would lose the information that
+// the comma was protected.
+func splitOutsideQuotes(s string) []string {
+	var items []string
+	var cur strings.Builder
+	var quote byte
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+			cur.WriteByte(c)
+		case c == '"' || c == '\'':
+			quote = c
+			cur.WriteByte(c)
+		case c == ',':
+			items = append(items, cur.String())
+			cur.Reset()
+		default:
+			cur.WriteByte(c)
+		}
+	}
+	return append(items, cur.String())
 }
 
 // unquote strips a single pair of matching surrounding quotes, if present.

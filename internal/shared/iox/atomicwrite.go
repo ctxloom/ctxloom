@@ -12,8 +12,17 @@ import (
 // lock — from clobbering another writer's in-flight temp before the rename, so a
 // reader never observes a half-written file or a truncated peer temp. The temp
 // file is fsynced before the rename so a power loss cannot persist the rename
-// ahead of the data. The parent directory must already exist. perm is applied
-// to the final file.
+// ahead of the data. The parent directory is NOT fsynced afterwards, so the
+// replacement is atomically VISIBLE but not durable: after a power loss the
+// directory entry may still name the previous file. The parent directory must
+// already exist.
+//
+// perm is applied to the final file EXACTLY, via an explicit Chmod on the temp
+// file — the process umask does not narrow it. This deliberately differs from
+// os.WriteFile/afero.WriteFile, which pass perm to the create call where the
+// kernel masks it, so a caller migrating from os.WriteFile under a restrictive
+// umask gets a wider mode here than it used to. Pass the mode you actually
+// want; do not rely on the umask to tighten it.
 //
 // There is ONE algorithm; this is its OS-filesystem entry point. A second,
 // hand-copied transcription of WriteFileAtomicFs's steps would share no code

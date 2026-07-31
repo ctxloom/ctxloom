@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,510** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 177 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,520** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 180 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **168** |
+| `open` | no commit names this ID | **155** |
 
-**Totals: 2268 findings across 162 units — 1,510 resolved, 168 still open, 590 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,520 resolved, 155 still open, 593 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,9 +332,9 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 567 | 98 | 102 | 96 | 136 |
-| LOW | 871 | 584 | 61 | 59 | 104 | 63 |
-| (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
+| MED | 999 | 571 | 92 | 104 | 96 | 136 |
+| LOW | 871 | 588 | 56 | 60 | 104 | 63 |
+| (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
 HIGH rows across U037/U104/U119/U141/U154 fixed (U037-F02/F03/F05, U104-F01,
@@ -1755,14 +1755,14 @@ Full evidence and the suggested action for any row live in its source review at 
 | U112-F05 | **PARTIAL** `588ff41f` | **`marker.go:73-101`** | COMPLEXITY | `findInValue` has CCN 12 against a CI gate that fails above 10, with no `nolint` and no exclusion. Either the gate is not being run or it is failing. | U112.md |
 | U112-F06 | **RESOLVED** `0b34e54d` | **`marker.go:87-92`** | CORRECTNESS | `findInValue` iterates `map[string]any` in Go's randomized order. A line containing two harp markers under different object keys resolves to an **arbitrary one, differing between runs of the same i... | U112.md |
 | U113-F01 | **RESOLVED** `5ff9c4ab` | `internal/shared/iox/atomicwrite.go:16` and `internal/shared/iox/atomicwrite_fs.go:15` | DUPLICATE | The two atomic writers are the same 34-line algorithm written twice with no shared code and no compiler-enforced link — connascence of algorithm across two files. They are already not identical | U113.md |
-| U113-F02 | open | `internal/shared/iox/atomicwrite.go:44` and `internal/shared/iox/atomicwrite_fs.go:13,44` | CORRECTNESS | Neither function fsyncs the parent directory after `Rename`, so the *rename* is not durable across power loss — only the temp file's contents are. `atomicwrite_fs.go`'s doc claims otherwise | U113.md |
+| U113-F02 | **PARTIAL** `a43e3038` | `internal/shared/iox/atomicwrite.go:44` and `internal/shared/iox/atomicwrite_fs.go:13,44` | CORRECTNESS | Neither function fsyncs the parent directory after `Rename`, so the *rename* is not durable across power loss — only the temp file's contents are. `atomicwrite_fs.go`'s doc claims otherwise | U113.md |
 | U113-F06 | **RESOLVED** `67a26a8f` | `internal/shared/agent/settings_io.go:136`, `internal/agentcoord/coord/checkpoint.go:54`, `internal/cli/mcp_discovery.go:107` | DUPLICATE | Three more hand-rolled temp+rename writers bypass `iox` and violate the exact invariant `iox.WriteFileAtomic` documents itself as existing to protect | U113.md |
 | U114-F03 | **RESOLVED** `54bb73b8` | **`pidalive_unix.go:20-22`** | DEAD | The `os.FindProcess` error branch is unreachable on Unix: `findProcess` never returns a non-nil error. Worse than merely dead — it makes the function *look* like it handles probe failure, which is ... | U114.md |
-| U114-F04 | open | **`pidalive_unix.go:19`, `pidalive_windows.go:11`** | CORRECTNESS | **No PID-reuse protection.** `Alive` answers "is *a* process alive at this pid", never "is *my* process alive". On Linux, pids recycle within `kernel.pid_max`; a recycled pid makes a long-dead chil... | U114.md |
-| U114-F05 | open | **`pidalive_windows.go:12`** | ERRHANDLING | The `*os.Process` returned by `os.FindProcess` is discarded, so its OS handle is released only when the GC finalizer runs. The heaviest consumer is a watchdog that polls on a timer, so this is a st... | U114.md |
-| U115-F03 | open | **`plans.go:87-94`** | ERRHANDLING | A per-file `os.ReadFile` failure is swallowed; the plan is still emitted, but with `Title` silently falling back to the filename and `Sessions` silently `nil`. The consumer cannot distinguish "this... | U115.md |
-| U115-F04 | open | **`plans.go:157-165` (reader) vs `internal/memory/stamp.go:87-99` (writer)`** | CORRECTNESS | The reader and its paired writer disagree on the `sessions:` encoding. `ParseFrontmatter` only understands a **block** sequence (`- item`); `StampPlanFile` round-trips through `yaml.Node`, which **... | U115.md |
-| U115-F05 | open | **`plans.go:159` (vs `:169`)`** | CORRECTNESS | Session list items are never unquoted. `unquote` is applied to the `title` scalar but not to sequence items, so a quoted entry yields a harp name with literal quote characters embedded — a value th... | U115.md |
+| U114-F04 | **PARTIAL** `d3de4a19` | **`pidalive_unix.go:19`, `pidalive_windows.go:11`** | CORRECTNESS | **No PID-reuse protection.** `Alive` answers "is *a* process alive at this pid", never "is *my* process alive". On Linux, pids recycle within `kernel.pid_max`; a recycled pid makes a long-dead chil... | U114.md |
+| U114-F05 | **RESOLVED** `bde4a3e2` | **`pidalive_windows.go:12`** | ERRHANDLING | The `*os.Process` returned by `os.FindProcess` is discarded, so its OS handle is released only when the GC finalizer runs. The heaviest consumer is a watchdog that polls on a timer, so this is a st... | U114.md |
+| U115-F03 | **RESOLVED** `789d7678` | **`plans.go:87-94`** | ERRHANDLING | A per-file `os.ReadFile` failure is swallowed; the plan is still emitted, but with `Title` silently falling back to the filename and `Sessions` silently `nil`. The consumer cannot distinguish "this... | U115.md |
+| U115-F04 | **RESOLVED** `a2885889` | **`plans.go:157-165` (reader) vs `internal/memory/stamp.go:87-99` (writer)`** | CORRECTNESS | The reader and its paired writer disagree on the `sessions:` encoding. `ParseFrontmatter` only understands a **block** sequence (`- item`); `StampPlanFile` round-trips through `yaml.Node`, which **... | U115.md |
+| U115-F05 | **RESOLVED** `b4cb4ee8` | **`plans.go:159` (vs `:169`)`** | CORRECTNESS | Session list items are never unquoted. `unquote` is applied to the `title` scalar but not to sequence items, so a quoted entry yields a harp name with literal quote characters embedded — a value th... | U115.md |
 | U115-F06 | **PARTIAL** `19d72034` | **`plans.go:19-20`, `:40-46`** | DUPLICATE | The package re-declares vocabulary `internal/paths` already owns: `sessionsDirName = "sessions"` duplicates `paths.SessionsDir` (`internal/paths/paths.go:97`), `planExt = ".plan.md"` duplicates `pa... | U115.md |
 | U116-F03 | open | `ptyrunner.go:104` | CORRECTNESS | **The `stderr io.Writer` parameter is accepted and never read.** A caller passing distinct stdout/stderr writers gets everything merged onto stdout and nothing at all on stderr, with no indication. | U116.md |
 | U116-F04 | open | `ptyrunner.go:132`, `:156` | ERRHANDLING | Both `ptty.Resize` errors are discarded — including the **initial** one, whose entire purpose is to fix a documented defect. If the initial resize fails, the 300ms wait bought nothing, the child pa... | U116.md |
@@ -2651,16 +2651,16 @@ Full evidence and the suggested action for any row live in its source review at 
 | U111-F08 | **RESOLVED** `29603919` | `harp.go:225-227` | ERRHANDLING | `randIndex(n)` returns `0` for `n <= 0`, converting a caller bug into a plausible value. | U111.md |
 | U111-F09 | **RESOLVED** `fd4d5fb8` | `harp.go:108-114` | CORRECTNESS | `Groups()` returns names in Go map-iteration order, i.e. randomized per process. | U111.md |
 | U113-F04 | **RESOLVED** `5ff9c4ab` | `internal/shared/iox/errwriter.go:62-67` vs `:73-80` | DUPLICATE | `WriteRaw` re-implements `Write`'s body instead of delegating; the short-circuit guard now exists in two places on the same field | U113.md |
-| U113-F05 | open | `internal/shared/iox/atomicwrite.go:20,26,34,38,42,46` and `internal/shared/iox/atomicwrite_fs.go:19,25,33,37,41,46` | ERRHANDLING | Both writers return bare stdlib errors with no context; the most likely one (`CreateTemp`) names the *temp* file, not the target the caller asked to write, and several callers do not wrap either | U113.md |
-| U113-F07 | open | `internal/shared/iox/atomicwrite.go:40`, `internal/shared/iox/atomicwrite_fs.go:40` | CORRECTNESS | `perm` is applied via `Chmod`, which **ignores umask**, unlike `os.WriteFile`/`afero.WriteFile`, which mask it. A caller migrating from `os.WriteFile` silently gets a wider mode than before under a... | U113.md |
+| U113-F05 | **RESOLVED** `883f759e` | `internal/shared/iox/atomicwrite.go:20,26,34,38,42,46` and `internal/shared/iox/atomicwrite_fs.go:19,25,33,37,41,46` | ERRHANDLING | Both writers return bare stdlib errors with no context; the most likely one (`CreateTemp`) names the *temp* file, not the target the caller asked to write, and several callers do not wrap either | U113.md |
+| U113-F07 | **PARTIAL** `faf79c01` | `internal/shared/iox/atomicwrite.go:40`, `internal/shared/iox/atomicwrite_fs.go:40` | CORRECTNESS | `perm` is applied via `Chmod`, which **ignores umask**, unlike `os.WriteFile`/`afero.WriteFile`, which mask it. A caller migrating from `os.WriteFile` silently gets a wider mode than before under a... | U113.md |
 | U114-F08 | **RESOLVED** `72f7f6bf` | `internal/agentcoord/coord/pidalive_unix.go:9`, `internal/lm/isolation/pidalive_unix.go:12` (+ `_windows` twins)` | TRIVIAL | Four one-line wrapper functions across two packages, in four build-tagged files, exist solely to re-export `pidalive.Alive` under a local name. The build tags are pure ceremony — the wrappers are p... | U114.md |
 | U115-F07 | **RESOLVED** `19d72034` | `internal/cli/plan_watch.go:58` | DUPLICATE | The `.plan.md` extension is hardcoded a further time in the watcher, in the same repo as two constants that define it. Adjacent to my unit and caused by `planExt` being unexported here. | U115.md |
-| U115-F08 | open | **`plans.go:145-175` (vs `internal/memory/stamp.go:69-72`)`** | CORRECTNESS | Reader and writer disagree on what counts as frontmatter. `ParseFrontmatter` never requires a **closing** `---`: a document opening with `---` and never closing it is scanned to EOF, so `title:`-sh... | U115.md |
+| U115-F08 | **RESOLVED** `ab8a41f2` | **`plans.go:145-175` (vs `internal/memory/stamp.go:69-72`)`** | CORRECTNESS | Reader and writer disagree on what counts as frontmatter. `ParseFrontmatter` never requires a **closing** `---`: a document opening with `---` and never closing it is scanned to EOF, so `title:`-sh... | U115.md |
 | U115-F09 | **RESOLVED** `f1f34e6d` | **`plans.go:131`** | TRIVIAL | The `abs != rootAbs` disjunct is unreachable. For `abs == rootAbs` to hold, `rootAbs` would have to end in `.plan.md` (the suffix check at `:116` already returned otherwise), but `rootAbs` is alway... | U115.md |
-| U115-F10 | open | **`plans.go:113-114`, `:134`** | CORRECTNESS | `Show`'s doc comment promises "a crafted path can't read arbitrary files", but containment is checked on the lexical path only — no `filepath.EvalSymlinks`, and no regular-file check. A symlink nam... | U115.md |
+| U115-F10 | **RESOLVED** `a26b27f7` | **`plans.go:113-114`, `:134`** | CORRECTNESS | `Show`'s doc comment promises "a crafted path can't read arbitrary files", but containment is checked on the lexical path only — no `filepath.EvalSymlinks`, and no regular-file check. A symlink nam... | U115.md |
 | U115-F11 | **RESOLVED** `c8a5c201` | `cmd/taskloom/plan.go:60` | COUPLING | The text-mode listing prints `Session\tName\tTitle` and omits `Path` — the only value `plan show` accepts. A human using `taskloom plan list` cannot feed its output to `taskloom plan show` without ... | U115.md |
 | U115-F12 | **RESOLVED** `7fe028f2` | **`plans.go:35`, `:88`** | NOPAY | `Plan.Sessions` — the entire reason `ParseFrontmatter` parses sequences at all — has **no in-repo consumer**. Its only possible reader is the out-of-repo VS Code extension. Roughly half this packag... | U115.md |
-| U115-F13 | open | **`plans.go:88`** | COMPLEXITY | The guard `if t, ss := ParseFrontmatter(...); t != "" \ | U115.md |
+| U115-F13 | **RESOLVED** `a22c198e` | **`plans.go:88`** | COMPLEXITY | The guard `if t, ss := ParseFrontmatter(...); t != "" \ | U115.md |
 | U115-F14 | **RESOLVED** `9a283b1c` | **`plans.go:40`, `:49`** | TRIVIAL | `HomeSessionsDir` and `ListHome` are both single-expression wrappers with no interface obligation, no test seam, and no concept not already named by their callee. | U115.md |
 | U116-F09 | **RESOLVED** `9d8f12f0` | `ptyrunner.go:91-93`, `:239`, `:253` | TRIVIAL | `Result` is a one-`int` struct returned by pointer, obliging the caller to nil-check something that is never nil on the success path. | U116.md |
 | U117-F05 | **RESOLVED** `ae534072` | **`shellenv.go:109-115`** | CORRECTNESS | `isExecutableFile` tests raw mode bits (`Mode()&0o111 != 0`), so it can select a file the *current user* cannot execute — diverging from `exec.LookPath`, whose Unix implementation uses `unix.Eacces... | U117.md |
@@ -2859,8 +2859,8 @@ Rows whose severity column did not parse — listed so nothing is silently lost.
 | U110-F06 | open | `gitutil.go:41-45` | LOW | CORRECTNESS | `urls[0]` silently picks the first of N configured URLs for a remote. Git treats multiple `url =` entries as fetch-from-first / push-to-all, so for a remote with a distinct push URL this returns th... | U110.md |
 | U112-F07 | **PARTIAL** `063f546b` | `marker.go:81-86` | LOW | CORRECTNESS | The nested re-decode has no depth bound. It terminates in practice (each JSON-decode round strips a quoting layer, so the string strictly shrinks) but the input is an untrusted transcript line and ... | U112.md |
 | U112-F08 | **RESOLVED** `453031f4` | `marker.go:6-8` and `marker.go:29` | LOW | COUPLING | The doc explains that the self-closing form is "deliberately distinct from the `<ctxloom-context>…</ctxloom-context>` content wrapper", implying the shape does the separating. It does not: `<ctxloo... | U112.md |
-| U114-F06 | open | `pidalive_unix.go:25` | LOW | ERRHANDLING | `err == syscall.EPERM` uses `==` rather than `errors.Is`. It happens to work today because Go returns the bare `syscall.Errno` — `convertESRCH(unix.PidFDSendSignal(...))` on the pidfd path (`$GOROO... | U114.md |
-| U114-F07 | open | `pidalive_unix.go:19` | LOW | CORRECTNESS | A negative pid other than `-1` is silently reinterpreted as a **process group**. `Alive(-5)` probes group 5 and can return `true` for something that is not the target at all. Not reachable today — ... | U114.md |
+| U114-F06 | **RESOLVED** `13f0f558` | `pidalive_unix.go:25` | LOW | ERRHANDLING | `err == syscall.EPERM` uses `==` rather than `errors.Is`. It happens to work today because Go returns the bare `syscall.Errno` — `convertESRCH(unix.PidFDSendSignal(...))` on the pidfd path (`$GOROO... | U114.md |
+| U114-F07 | **RESOLVED** `26100355` | `pidalive_unix.go:19` | LOW | CORRECTNESS | A negative pid other than `-1` is silently reinterpreted as a **process group**. `Alive(-5)` probes group 5 and can return `true` for something that is not the target at all. Not reachable today — ... | U114.md |
 | U116-F08 | open | `ptyrunner.go:110` and `:234` | LOW | ERRHANDLING | `ptty.Close()` is called twice on the normal path — once explicitly, once by the deferred closure — and both results are discarded. Correctness rests on go-pty's `Close` being idempotent, which is ... | U116.md |
 | U116-F10 | open | `ptyrunner.go:242-244` | LOW | CORRECTNESS | A child killed by a signal yields `exitErr.ExitCode() == -1`, which is propagated verbatim as the run's exit code. `-1` is not a valid POSIX exit status and is indistinguishable from a runner-inter... | U116.md |
 | U117-F06 | **PARTIAL** `4d03134b` | `shellenv.go:117-128` | LOW | CORRECTNESS | A single transient probe failure — a fork failure under load, a 10s timeout from a momentarily slow rc file — permanently disables the entire feature for the life of the process. For a long-lived `... | U117.md |

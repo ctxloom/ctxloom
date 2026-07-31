@@ -26,13 +26,31 @@ func Probe(pid int) State {
 	// succeeds..."), so an error-return branch here was provably unreachable
 	// dead code — and worse, it read as if this probe handled a FindProcess
 	// failure it can never actually receive (U114-F03).
+	if !pidNamesOneProcess(pid) {
+		return Unsure
+	}
 	p, _ := os.FindProcess(pid)
-	switch serr := p.Signal(syscall.Signal(0)); {
-	case serr == nil:
+	return classifySignalErr(p.Signal(syscall.Signal(0)))
+}
+
+// classifySignalErr turns a signal-0 outcome into a verdict.
+//
+// Every comparison is errors.Is, not ==. The runtime happens to hand back a
+// bare syscall.Errno today, so == would work, but that is a property of the
+// standard library's internals rather than a documented contract: os.Signal
+// already routes both the pidfd and the classic kill(2) path through
+// convertESRCH, so the shape of what arrives here is chosen elsewhere and can
+// change under us. An == comparison against a wrapped errno silently falls
+// through to Unsure, and Unsure means "err toward alive" — a live-looking
+// verdict for a process that is confidently gone, which is how a stale lock or
+// an orphaned worktree becomes permanently unreclaimable.
+func classifySignalErr(err error) State {
+	switch {
+	case err == nil:
 		return Alive
-	case serr == syscall.EPERM:
+	case errors.Is(err, syscall.EPERM):
 		return Alive
-	case serr == syscall.ESRCH, errors.Is(serr, os.ErrProcessDone):
+	case errors.Is(err, syscall.ESRCH), errors.Is(err, os.ErrProcessDone):
 		return Dead
 	default:
 		return Unsure

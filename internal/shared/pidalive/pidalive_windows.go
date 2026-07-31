@@ -27,8 +27,18 @@ import (
 // internal/shared/ptyrunner/prepare_windows.go) carries the named errno
 // constants the standard syscall package for windows does not expose.
 func Probe(pid int) State {
-	_, err := os.FindProcess(pid)
+	if !pidNamesOneProcess(pid) {
+		return Unsure
+	}
+	p, err := os.FindProcess(pid)
 	if err == nil {
+		// os.FindProcess is a real OpenProcess here, so a successful probe
+		// hands back an OS handle. Dropping the *os.Process on the floor
+		// leaves that handle open until the GC finalizer happens to run, and
+		// the heaviest caller polls on a timer — a steady handle leak for the
+		// life of a long-running watchdog. Release it as soon as the answer is
+		// known; nothing else here needs the process.
+		_ = p.Release()
 		return Alive
 	}
 	if errors.Is(err, windows.ERROR_ACCESS_DENIED) {

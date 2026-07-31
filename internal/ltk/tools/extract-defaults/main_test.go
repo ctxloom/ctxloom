@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"errors"
+	"io/fs"
 	"strings"
 	"testing"
 )
@@ -140,4 +142,52 @@ func TestAssembleRejectsAnUnterminatedBlock(t *testing.T) {
 	if _, err := assemble(md, 1); err == nil {
 		t.Fatal("an unterminated ```yaml block was accepted")
 	}
+}
+
+// -check answered "out of sync — run `just defaults`" for every failure,
+// including ones where nothing had drifted at all. A permission-denied read is
+// not drift: regenerating cannot fix it, and the operator is sent to edit a
+// document that was never the cause. An ABSENT file is different again — that
+// one really is fixed by regenerating — so all three are kept apart.
+func TestCheckDriftSeparatesUnreadableFromDrifted(t *testing.T) {
+	want := []byte("a\n")
+
+	t.Run("in sync", func(t *testing.T) {
+		if err := checkDrift(want, nil, want); err != nil {
+			t.Fatalf("identical bytes reported a problem: %v", err)
+		}
+	})
+
+	t.Run("genuinely drifted", func(t *testing.T) {
+		err := checkDrift([]byte("b\n"), nil, want)
+		if err == nil || !strings.Contains(err.Error(), "out of sync") {
+			t.Fatalf("drift not reported as drift: %v", err)
+		}
+	})
+
+	t.Run("absent", func(t *testing.T) {
+		err := checkDrift(nil, fs.ErrNotExist, want)
+		if err == nil {
+			t.Fatal("a missing generated file was accepted as in sync")
+		}
+		if strings.Contains(err.Error(), "out of sync") {
+			t.Fatalf("a missing file was diagnosed as drift: %v", err)
+		}
+		if !strings.Contains(err.Error(), "does not exist") {
+			t.Fatalf("the absence is not named: %v", err)
+		}
+	})
+
+	t.Run("unreadable", func(t *testing.T) {
+		err := checkDrift(nil, fs.ErrPermission, want)
+		if err == nil {
+			t.Fatal("an unreadable generated file was accepted as in sync")
+		}
+		if strings.Contains(err.Error(), "out of sync") {
+			t.Fatalf("an unreadable file was diagnosed as drift: %v", err)
+		}
+		if !errors.Is(err, fs.ErrPermission) {
+			t.Fatalf("the underlying read failure was dropped: %v", err)
+		}
+	})
 }

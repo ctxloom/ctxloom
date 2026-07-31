@@ -8,8 +8,10 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
@@ -115,6 +117,32 @@ func assemble(md []byte, minRules int) ([]byte, error) {
 	return out, nil
 }
 
+// checkDrift classifies a -check run: readErr and have are whatever reading the
+// generated file produced, want is what the document assembles to. It returns
+// nil when they agree.
+//
+// The three failures are kept distinct because they need different actions and
+// only one of them is drift. "I could not read the file" was previously
+// reported as "the file is out of sync — run `just defaults`", which is a wrong
+// diagnosis (nothing drifted) attached to advice that cannot help: regenerating
+// does not fix a permissions problem, and the operator is sent to edit a
+// document that was never the cause. It is separated from the absent case too,
+// because THAT one really is fixed by regenerating.
+//
+// It is a separate function so it can be tested: main's own branch ends in
+// os.Exit, which no test can observe.
+func checkDrift(have []byte, readErr error, want []byte) error {
+	switch {
+	case errors.Is(readErr, fs.ErrNotExist):
+		return fmt.Errorf("%s does not exist — run `just defaults` to generate it from %s", generated, source)
+	case readErr != nil:
+		return fmt.Errorf("could not read %s (so whether it drifted is unknown): %w", generated, readErr)
+	case !bytes.Equal(have, want):
+		return fmt.Errorf("%s is out of sync with %s — run `just defaults`", generated, source)
+	}
+	return nil
+}
+
 // minDefaultRules is the floor the shipped default rule set must clear. The doc
 // currently assembles to 16; this is deliberately well below that so ordinary
 // edits do not trip it, and well above zero so a gutted doc does.
@@ -131,9 +159,9 @@ func main() {
 	must(err)
 
 	if *check {
-		have, err := os.ReadFile(generated)
-		if err != nil || !bytes.Equal(have, out) {
-			fail("%s is out of sync with %s — run `just defaults`", generated, source)
+		have, readErr := os.ReadFile(generated)
+		if err := checkDrift(have, readErr, out); err != nil {
+			fail("%v", err)
 		}
 		fmt.Printf("%s is in sync with %s\n", generated, source)
 		return

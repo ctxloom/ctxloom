@@ -462,8 +462,14 @@ func shellForProgram(program string) ir.Shell {
 		return ir.ShellSh
 	case "zsh":
 		return ir.ShellZsh
-	case "ksh", "mksh":
+	case "mksh":
 		return ir.ShellMksh
+	// `ksh` is AT&T ksh93 on most hosts, whose process substitution and
+	// C-style `for ((;;))` the MirBSDKorn variant rejects outright — and a
+	// rejected inner command is one no rule ever sees. Same reasoning, and the
+	// same measurement, as shellenv.ShellFromPath.
+	case "ksh", "ksh93":
+		return ir.ShellBash
 	case "pwsh", "powershell":
 		return ir.ShellPwsh
 	case "cmd":

@@ -31,8 +31,20 @@ func ShellFromPath(shellPath string) ir.Shell {
 		return ir.ShellZsh
 	case "sh", "dash", "ash", "busybox":
 		return ir.ShellSh
-	case "ksh", "ksh93", "mksh", "loksh", "oksh", "pdksh":
+	case "mksh", "loksh", "oksh", "pdksh":
 		return ir.ShellMksh
+	// AT&T ksh93 — what `ksh` is on macOS, RHEL and most commercial unices —
+	// is not mksh. It has process substitution and C-style `for ((;;))`; mksh
+	// has neither, and the parser's MirBSDKorn variant REJECTS both. Under the
+	// shipped on_parse_error: allow a rejection means no rule ever sees the
+	// command, so a denied program inside one of those constructs runs while
+	// ltk reports a clean allow. There is no ksh93 dialect to choose, and of
+	// the two that exist bash accepts a strict superset of what mksh does:
+	// across a twelve-construct sweep the two agreed everywhere mksh parsed at
+	// all, and differed only where mksh refused. Route ksh to the superset, so
+	// the failure mode is a dialect mismatch rather than a silent bypass.
+	case "ksh", "ksh93":
+		return ir.ShellBash
 	case "pwsh", "powershell":
 		return ir.ShellPwsh
 	case "cmd":

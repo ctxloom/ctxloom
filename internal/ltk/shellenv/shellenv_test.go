@@ -14,7 +14,12 @@ func TestShellFromPath(t *testing.T) {
 		"/bin/sh":                 ir.ShellSh,
 		"/usr/bin/dash":           ir.ShellSh,
 		"/usr/bin/mksh":           ir.ShellMksh,
-		"/usr/bin/ksh":            ir.ShellMksh,
+		// AT&T ksh93, not mksh: the MirBSDKorn variant rejects ksh93's process
+		// substitution and C-style for, and a rejected command is one no rule
+		// sees (app.TestKsh93ConstructsAreStillAnalyzed measures it).
+		"/usr/bin/ksh":            ir.ShellBash,
+		"/usr/bin/ksh93":          ir.ShellBash,
+		"/usr/bin/oksh":           ir.ShellMksh,
 		"/usr/bin/pwsh":           ir.ShellPwsh,
 		"cmd.exe":                 ir.ShellCmd, // .exe stripped
 		"/usr/local/bin/pwsh.exe": ir.ShellPwsh,

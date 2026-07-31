@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,508** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,509** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 177 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **171** |
+| `open` | no commit names this ID | **170** |
 
-**Totals: 2268 findings across 162 units — 1,508 resolved, 171 still open, 589 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,509 resolved, 170 still open, 589 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 566 | 100 | 102 | 96 | 135 |
-| LOW | 871 | 583 | 62 | 59 | 104 | 63 |
+| LOW | 871 | 584 | 61 | 59 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2643,7 +2643,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U107-F05 | **RESOLVED** `4f4f73bd` | `cli.go:65-71` | ERRHANDLING | `ReadEmbeddedSig` cannot distinguish "no `.sig` committed" (intended) from "`.sig` committed but zero bytes" (a half-failed signing run), and both silently produce an **unsigned** build. | U107.md |
 | U107-F06 | **RESOLVED** `34b78d29` | `cli.go:79` vs `cli.go:89` | ERRHANDLING | The two output branches differ in trailing-newline behaviour with no comment explaining why, so the asymmetry reads as an oversight when it is in fact load-bearing. | U107.md |
 | U108-F09 | **RESOLVED** `c78f69fe` | `confload.go:182-184` | DEAD | `Product.HomeConfigPath` — and with it the `DirName`/`FileName` fields' only reader — has no production caller. | U108.md |
-| U108-F11 | open | `process.go:23-43` | COUPLING | The mutex protects the struct header only; `ProcessOverrides()` hands out the live maps, so the synchronization is partial in a way the code does not say. | U108.md |
+| U108-F11 | **RESOLVED** `71358194` | `process.go:23-43` | COUPLING | The mutex protects the struct header only; `ProcessOverrides()` hands out the live maps, so the synchronization is partial in a way the code does not say. | U108.md |
 | U108-F13 | **RESOLVED** `4f73fe9f` | `confload.go:155-165` | ERRHANDLING | The `EnvPrefix` invariant the package doc spends 11 lines on ("must carry a `_CONFIG_` segment or bootstrap vars leak into the config chain") is checkable in one line, and the doc explicitly declin... | U108.md |
 | U109-F05 | open | `filelock.go:43`; `filelock_unix.go:13,18,28`; `filelock_windows.go:25,30,41` | ERRHANDLING | Every error out of this package is returned bare, with no wrapping. The caller receives `mkdir /home/u/.ctxloom: read-only file system` or `bad file descriptor` with nothing identifying it as a *lo... | U109.md |
 | U109-F06 | **ESCALATED** `6c89e42f` | `filelock_windows.go:11-20,52-88` | DUPLICATE | The `LazyDLL`/`LazyProc` binding to `LockFileEx`/`UnlockFileEx` re-implements what `golang.org/x/sys/windows` already exports as typed functions, and the module already depends on `golang.org/x/sys... | U109.md |

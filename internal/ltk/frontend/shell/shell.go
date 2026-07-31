@@ -338,7 +338,8 @@ func (l *lowerer) addNested(sc *ir.SimpleCommand, stmts []*syntax.Stmt) {
 }
 
 // subshell returns a lowerer for a nested scope that a real shell runs in its
-// own process — `$(…)`, `` `…` ``, `<(…)`, and `( … )`. Such a scope INHERITS
+// own process — `$(…)`, its backtick spelling, `<(…)`, and `( … )`. Such a
+// scope INHERITS
 // the assignments seen so far but its own assignments do not escape back out.
 //
 // Sharing one flat map across the whole lowering is not merely imprecise, it

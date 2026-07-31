@@ -558,13 +558,20 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 	for i, item := range removed {
 		items[i] = operations.RemovedItem{Type: item.Type, Ref: item.Ref}
 	}
-	res, _ := operations.RemoveLocalItems(operations.RemoveLocalItemsRequest{
+	// Per-item and per-save failures come back in res.Warnings and are printed
+	// below; the error return is reserved for a whole-call refusal, on which
+	// there is no result to report at all.
+	res, err := operations.RemoveLocalItems(operations.RemoveLocalItemsRequest{
 		AppDir:      appDir,
 		Items:       items,
 		Lockfile:    lockfile,
 		LockManager: lockManager,
 		FS:          fs,
 	})
+	if err != nil {
+		fmt.Fprintf(out, "  Error: cleanup failed: %v\n", err)
+		return
+	}
 	for _, p := range res.Removed {
 		fmt.Fprintf(out, "  Removed: %s\n", p)
 	}

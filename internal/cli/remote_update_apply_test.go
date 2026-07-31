@@ -331,3 +331,36 @@ func equalStrings(a, b []string) bool {
 	}
 	return true
 }
+
+// TestReportRemovedFromRemote_CleanupFailureIsReported pins the invariant
+// U040-F04 reached for: a destructive --cleanup that cannot persist the pruned
+// lockfile must SAY SO. It is pinned at the user-visible seam because the
+// operations call's error return is not the channel that carries it —
+// RemoveLocalItems reports every per-item and per-save failure through
+// res.Warnings, which this function prints. Drop that print loop and this test
+// goes red; that is what makes it a pin on the reporting, not on the plumbing.
+func TestReportRemovedFromRemote_CleanupFailureIsReported(t *testing.T) {
+	prev := updateCleanup
+	updateCleanup = true
+	t.Cleanup(func() { updateCleanup = prev })
+
+	// A read-only filesystem: the lockfile Save is refused, which is the
+	// failure a user most needs to hear about — the entry looks pruned in
+	// memory while the on-disk lock still names it.
+	fs := afero.NewReadOnlyFs(afero.NewMemMapFs())
+	const goneRef = "https://github.com/acme/repo@bundles/gone"
+	lockManager := remote.NewLockfileManager(".ctxloom", remote.WithLockfileFS(fs))
+	lockfile := &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
+	lockfile.AddEntry(remote.ItemTypeBundle, goneRef, remote.LockEntry{SHA: "deadbee"})
+
+	var out bytes.Buffer
+	reportRemovedFromRemote(&out, fs, ".ctxloom", []updateInfo{bundleUpd(goneRef)}, lockfile, lockManager, true)
+
+	got := out.String()
+	if !strings.Contains(got, "failed to update lockfile") {
+		t.Errorf("a cleanup that could not persist the lockfile must be reported:\n%s", got)
+	}
+	if strings.Contains(got, "Updated lockfile") {
+		t.Errorf("a failed save must not claim the lockfile was updated:\n%s", got)
+	}
+}

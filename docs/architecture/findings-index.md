@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,318** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,319** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 135 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **474** |
+| `open` | no commit names this ID | **473** |
 
-**Totals: 2268 findings across 162 units — 1,318 resolved, 474 still open, 476 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,319 resolved, 473 still open, 476 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 471 | 267 | 74 | 79 | 108 |
-| LOW | 871 | 490 | 195 | 46 | 85 | 55 |
+| LOW | 871 | 491 | 194 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2226,7 +2226,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U040-F15 | **RESOLVED** `b5f87279` | **`root.go:50-57` and `:66-73`** | DUPLICATE | `GetConfig` and `GetConfigForUpdate` have identical bodies apart from `config.Load` vs `config.LoadFresh`. | U040.md |
 | U040-F18 | open | **`review.go:86`** | CORRECTNESS | `ctxloom review --format json` on a TTY silently ignores `--format` and starts the interactive walk. | U040.md |
 | U040-F19 | **RESOLVED** `04405bfb` | `remote_discover.go:98` | CORRECTNESS | The interactive add-loop is entered unconditionally, with no TTY check. | U040.md |
-| U040-F20 | open | `remote_update.go:613` | ERRHANDLING | `checkDefaultProfiles` reports "no missing profiles" when the config cannot be loaded at all. | U040.md |
+| U040-F20 | **RESOLVED** `0b78e51e` | `remote_update.go:613` | ERRHANDLING | `checkDefaultProfiles` reports "no missing profiles" when the config cannot be loaded at all. | U040.md |
 | U040-F21 | **RESOLVED** `5fdf8767` | `remote_update.go:580-586` | NOPAY | The `pullOutcome` doc comment describes an implementation that no longer exists and actively argues against the current one. | U040.md |
 | U040-F22 | **RESOLVED** `2c5af760` | `remote_discover.go:47` | LOW | `fmt.Printf("Searching repositories...")` has no newline, so an error return from `DiscoverRemotes` (`:56`) leaves the error text appended to a dangling progress line. | U040.md |
 | U041-F14 | **RESOLVED** `cb2b8396` `127539ad` | **`run.go:289-291`** | TRIVIAL | `resolveSelfExecutable` is a pure pass-through to `selfexec.Path()` | U041.md |

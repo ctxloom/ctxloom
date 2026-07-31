@@ -266,7 +266,12 @@ func (p *parser) parseSequence() []ir.Pipeline {
 }
 
 // parsePipeline parses one pipeline (commands joined by |) or a ( … ) group,
-// which is flattened into its inner pipelines.
+// which is flattened into its inner pipelines. The connector that joined the
+// GROUP to the preceding statement belongs to the first pipeline the group
+// contributes — parseSequence starts a fresh sequence and stamps that one
+// ConnNone — so it is re-applied here. The shell frontend's lowerGroup does
+// the same; without it `echo a && (…)` loses its `&&` from the IR entirely and
+// the group reads as unconditional.
 func (p *parser) parsePipeline(conn ir.Connector) []ir.Pipeline {
 	if t, ok := p.peek(); ok && t.kind == tLParen {
 		p.pos++ // (
@@ -275,6 +280,9 @@ func (p *parser) parsePipeline(conn ir.Connector) []ir.Pipeline {
 			p.pos++
 		}
 		p.skipRedirs() // trailing redirs on the group, e.g. (...) > file
+		if len(inner) > 0 {
+			inner[0].Connector = conn
+		}
 		return inner
 	}
 

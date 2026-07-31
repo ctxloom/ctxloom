@@ -671,6 +671,40 @@ func TestExpandWrappers_NestedArgvDoesNotAliasParent(t *testing.T) {
 	}
 }
 
+// TestExpandWrappers_DependsOnTheRegistrysDispatchTable refutes U068-F08's
+// premise that the wrapper-expansion algorithm "touches none of Registry's
+// fields". It reaches the dispatch table through Registry.Parse — the type's
+// own API rather than its field, which is what a method is for — and the
+// table's CONTENTS decide the outcome: the same command, run through the same
+// algorithm, is re-parsed when a frontend for the inner dialect is registered
+// and reported unanalyzed when it is not. Detaching expansion from Registry
+// takes that away; doing so breaks 38 tests in this package.
+func TestExpandWrappers_DependsOnTheRegistrysDispatchTable(t *testing.T) {
+	const hidden = "git tag v1"
+	src := func() *ir.Script { return cmdScript(ir.ShellBash, "cmd.exe", "/c", hidden) }
+
+	// Inner dialect NOT in the table: nothing can re-parse the wrapper body.
+	bashOnly := &fakeFrontend{shells: []ir.Shell{ir.ShellBash}}
+	if _, unanalyzed := newReg(bashOnly).ExpandWrappers(context.Background(), src()); !unanalyzed {
+		t.Fatal("with no cmd frontend registered the wrapper body cannot be parsed, so unanalyzed must be true")
+	}
+	for _, seen := range bashOnly.seen {
+		if strings.Contains(seen, hidden) {
+			t.Fatalf("fixture is not hostile: the body was re-parsed anyway (%q)", seen)
+		}
+	}
+
+	// Same command, same algorithm, cmd now in the table.
+	both := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellCmd}}
+	s := src()
+	if _, unanalyzed := newReg(both).ExpandWrappers(context.Background(), s); unanalyzed {
+		t.Error("with a cmd frontend registered the wrapper body is parseable; unanalyzed must be false")
+	}
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Errorf("inner `git` not surfaced; programs=%v seen=%v", got, both.seen)
+	}
+}
+
 // nestScripts builds a script whose single command carries depth levels of
 // ALREADY-PRESENT nested scripts — the shape a frontend produces for stacked
 // command substitutions, `$(echo $(echo …))`. innermost is the argv of the

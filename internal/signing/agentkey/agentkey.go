@@ -127,15 +127,40 @@ type AmbiguousKeyError struct {
 	Candidates []Candidate
 }
 
+// AmbiguousKeyHeader names the event "ssh-agent holds several identities and
+// nothing chose between them". Exported so a surface that wraps the listing in
+// its own prose still describes the same event in the same words.
+const AmbiguousKeyHeader = "ctxloom: multiple keys in ssh-agent — which should sign?"
+
+// candidateLines renders the ambiguous-choice listing: one line per identity,
+// fingerprint, key type, and the agent comment when there is one.
+//
+// The comment is the IDENTIFYING part. Two ed25519 keys are otherwise
+// indistinguishable to the human being asked to choose, and the comment is
+// what they must then type. A surface that re-renders the candidates by hand
+// loses precisely what makes the listing worth printing.
+func candidateLines(candidates []Candidate) []string {
+	lines := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		line := fmt.Sprintf("  %s  %s", c.Fingerprint, c.Type)
+		if c.Comment != "" {
+			line += fmt.Sprintf("  (%s)", c.Comment)
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// CandidateLines is the one authoring of the ambiguous-choice listing, for
+// callers that supply their own surrounding prose. See candidateLines for why
+// re-rendering it by hand is a mistake.
+func (e *AmbiguousKeyError) CandidateLines() []string { return candidateLines(e.Candidates) }
+
 func (e *AmbiguousKeyError) Error() string {
 	var b strings.Builder
-	b.WriteString("ctxloom: multiple keys in ssh-agent — which should sign?\n\n")
-	for _, c := range e.Candidates {
-		fmt.Fprintf(&b, "  %s  %s", c.Fingerprint, c.Type)
-		if c.Comment != "" {
-			fmt.Fprintf(&b, "  (%s)", c.Comment)
-		}
-		b.WriteString("\n")
+	b.WriteString(AmbiguousKeyHeader + "\n\n")
+	for _, line := range e.CandidateLines() {
+		b.WriteString(line + "\n")
 	}
 	b.WriteString("\nPick one, and make it stick:\n")
 	if len(e.Candidates) > 0 {
@@ -166,15 +191,16 @@ type AmbiguousKeyNameError struct {
 	Candidates []Candidate
 }
 
+// CandidateLines is the one authoring of the ambiguous-choice listing, shared
+// with AmbiguousKeyError: the two describe different reasons for the same
+// situation, and must describe the candidates identically.
+func (e *AmbiguousKeyNameError) CandidateLines() []string { return candidateLines(e.Candidates) }
+
 func (e *AmbiguousKeyNameError) Error() string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "ctxloom: --key %s matches %d keys in ssh-agent.\n\n", displayKeyValue(e.Name), len(e.Candidates))
-	for _, c := range e.Candidates {
-		fmt.Fprintf(&b, "  %s  %s", c.Fingerprint, c.Type)
-		if c.Comment != "" {
-			fmt.Fprintf(&b, "  (%s)", c.Comment)
-		}
-		b.WriteString("\n")
+	for _, line := range e.CandidateLines() {
+		b.WriteString(line + "\n")
 	}
 	b.WriteString("\nNarrow the name, or disambiguate with the fingerprint:\n")
 	if len(e.Candidates) > 0 {

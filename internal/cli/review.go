@@ -157,9 +157,15 @@ func resolveReviewSigner(ctx context.Context, discoverer *agentkey.Discoverer, e
 	}
 	var ambiguous *agentkey.AmbiguousKeyError
 	if errors.As(agentErr, &ambiguous) {
-		fmt.Fprintln(os.Stderr, "ctxloom: multiple keys in ssh-agent — which should sign?")
-		for _, c := range ambiguous.Candidates {
-			fmt.Fprintf(os.Stderr, "  %s  %s\n", c.Fingerprint, c.Type)
+		// The event and the candidate listing belong to agentkey, which owns
+		// both the error and what identifies a candidate. Re-authoring the
+		// loop here is how this surface came to print fingerprint and key type
+		// only, leaving a reviewer to choose between two ed25519 keys with
+		// nothing to tell them apart. Only the closing line is review's own:
+		// it is the surface that offers the unsigned path.
+		fmt.Fprintln(os.Stderr, agentkey.AmbiguousKeyHeader)
+		for _, line := range ambiguous.CandidateLines() {
+			fmt.Fprintln(os.Stderr, line)
 		}
 		fmt.Fprintln(os.Stderr, "Pick one and re-run with SSH_AUTH_SOCK pointed at a single-identity agent, or continue unsigned below.")
 	}

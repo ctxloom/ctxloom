@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -124,4 +125,48 @@ func TestSaveParts_CollidingNamesDoNotOverwrite(t *testing.T) {
 	}
 	assert.ElementsMatch(t, []string{"first member", "second member"}, bodies,
 		"neither member's output may be overwritten by the other")
+}
+
+// --map-only is documented as an ALIAS for --no-synthesize, but it was
+// registered as a second, independent BoolVar aimed at the same pointer. Two
+// flags sharing one variable is a latent correctness hazard, not just untidy
+// help: registration order silently decides the value (each BoolVar writes its
+// own default into the shared pointer as it registers), pflag marks only the
+// flag the user actually typed as Changed, and the alias shows up as a
+// separate feature in --help and in shell completion.
+//
+// A real alias is one flag with a normalized second spelling: one default, one
+// Changed bit, one help line, and --map-only still works.
+func TestWeaveMapOnly_IsOneFlagNotTwo(t *testing.T) {
+	orig := weaveNoSynth
+	t.Cleanup(func() { weaveNoSynth = orig })
+
+	flags := weaveCmd.Flags()
+	noSynth := flags.Lookup("no-synthesize")
+	require.NotNil(t, noSynth)
+
+	assert.Same(t, noSynth, flags.Lookup("map-only"),
+		"--map-only must resolve to the SAME flag as --no-synthesize, not a twin bound to the same pointer")
+
+	var listed []string
+	flags.VisitAll(func(f *pflag.Flag) {
+		if f.Name == "no-synthesize" || f.Name == "map-only" {
+			listed = append(listed, f.Name)
+		}
+	})
+	assert.Equal(t, []string{"no-synthesize"}, listed,
+		"the alias must not appear as its own entry in --help or in shell completion")
+}
+
+// The alias must keep WORKING — this is the guard that stops the fix above
+// from quietly deleting a documented spelling.
+func TestWeaveMapOnly_StillSetsNoSynthesize(t *testing.T) {
+	orig := weaveNoSynth
+	t.Cleanup(func() { weaveNoSynth = orig })
+
+	weaveNoSynth = false
+	require.NoError(t, weaveCmd.Flags().Parse([]string{"--map-only"}))
+	assert.True(t, weaveNoSynth, "--map-only must still skip synthesis")
+	assert.True(t, weaveCmd.Flags().Changed("no-synthesize"),
+		"passing the alias must mark the one flag it aliases as Changed")
 }

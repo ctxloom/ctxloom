@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
@@ -99,6 +100,43 @@ func TestRunnerErrorPropagates(t *testing.T) {
 func TestShells(t *testing.T) {
 	if got := New().Shells(); len(got) != 1 || got[0] != ir.ShellPwsh {
 		t.Errorf("Shells() = %v", got)
+	}
+}
+
+// TestRunErrIdentifiesTheDeadline pins that a parse killed by parseTimeout is
+// distinguishable from any other exec failure. The context kills the child, so
+// cmd.Run reports "signal: killed" and nothing else — the same text an OOM
+// kill produces, which is why TestIntegrationRealParser below has to SKIP on
+// it. Both the message and errors.Is must name the deadline.
+func TestRunErrIdentifiesTheDeadline(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	<-ctx.Done()
+	// The fixture is only hostile if the context really is past its deadline
+	// from runErr's point of view.
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		t.Fatalf("fixture is not hostile: ctx.Err() = %v, want DeadlineExceeded", ctx.Err())
+	}
+
+	err := runErr(ctx, errors.New("signal: killed"), "")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("a timed-out parse must be identifiable with errors.Is, got %v", err)
+	}
+	if !strings.Contains(err.Error(), parseTimeout.String()) {
+		t.Errorf("the error should name the %s limit, got %v", parseTimeout, err)
+	}
+}
+
+// TestRunErrPassesThroughOtherFailures pins the other direction: an ordinary
+// failure must NOT be reported as a timeout, and must still carry the child's
+// stderr.
+func TestRunErrPassesThroughOtherFailures(t *testing.T) {
+	err := runErr(context.Background(), errors.New("exit status 1"), "Parser.ParseInput blew up")
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		t.Errorf("an ordinary failure was reported as a context failure: %v", err)
+	}
+	if !strings.Contains(err.Error(), "Parser.ParseInput blew up") {
+		t.Errorf("the child's stderr should ride in the error, got %v", err)
 	}
 }
 

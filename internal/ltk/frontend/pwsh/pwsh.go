@@ -165,7 +165,25 @@ func runPowerShell(ctx context.Context, src string) ([]byte, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("pwsh parse failed: %w: %s", err, strings.TrimSpace(errb.String()))
+		return nil, runErr(ctx, err, strings.TrimSpace(errb.String()))
 	}
 	return out.Bytes(), nil
+}
+
+// runErr says WHICH failure a failed child run was. When the parse overruns
+// parseTimeout the context kills the process, so cmd.Run reports only "signal:
+// killed" — the same thing an OOM kill or any other external signal reports.
+// An operator watching intermittent denials (or intermittent unanalyzed
+// allows) then has nothing to act on, and cannot tell "PowerShell is slow
+// here, raise the limit" from "something is killing the process". Wrapping the
+// context's own error also makes the case testable with errors.Is instead of
+// by matching on message text.
+func runErr(ctx context.Context, err error, stderr string) error {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return fmt.Errorf("pwsh parse exceeded its %s deadline and was killed (%v): %w", parseTimeout, err, context.DeadlineExceeded)
+	case errors.Is(ctx.Err(), context.Canceled):
+		return fmt.Errorf("pwsh parse was canceled (%v): %w", err, context.Canceled)
+	}
+	return fmt.Errorf("pwsh parse failed: %w: %s", err, stderr)
 }

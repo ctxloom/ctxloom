@@ -7,11 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -263,4 +266,48 @@ func TestAgent_MutationDoesNotReachConfig(t *testing.T) {
 
 	assert.Equal(t, []string{"p"}, cfg.GetConfiguredAgents()["worker"].Profiles,
 		"Agent must hand back an owned copy of Profiles")
+}
+
+// U047-F09: LoadAgents warned on a directory-scan failure and then used the nil
+// result as if it were a successful EMPTY scan, so the caller got a merged set
+// silently missing every on-disk agent — and `run --agent dev` reported "no
+// such agent" for an agent that is defined and merely unreadable.
+//
+// The row located the swallow one level too high. `agents.Loader.List`'s
+// afero.Walk callback returned nil on EVERY error, so Walk (List's only error
+// source) could never return non-nil and the config-side guard was unreachable
+// by construction. The observable defect the row describes was real all the
+// same; it just came out of List as (nil, nil) rather than as an error. Both
+// halves are fixed: List distinguishes an unreadable DIRECTORY (whose whole
+// subtree is invisible — reported) from an unreadable single ENTRY (warned and
+// skipped, unchanged), and LoadAgents raises the result as a fatal-class
+// finding the startup choke can abort on rather than a stderr line the run
+// walks straight past.
+func TestLoadAgents_UnreadableAgentsDirectoryIsAFinding(t *testing.T) {
+	resetStrictness(t)
+	mem := afero.NewMemMapFs()
+	appPath := "/app"
+	agentsDir := paths.AgentsPath(appPath)
+	require.NoError(t, mem.MkdirAll(agentsDir, 0o755))
+	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, "dev.yaml"),
+		[]byte("engine: claude-code\nprofiles: [go-developer]\n"), 0o644))
+
+	// Sanity: with a readable directory the agent is found. Without this the
+	// assertion below could pass because the fixture never defined an agent.
+	readable := NewFixture(Fixture{AppPaths: []string{appPath}})
+	readable.SetFS(mem)
+	require.Len(t, readable.LoadAgents(), 1, "the fixture must define one on-disk agent")
+
+	cfg := NewFixture(Fixture{AppPaths: []string{appPath}})
+	cfg.SetFS(denyOpenFs{Fs: mem, deny: agentsDir})
+
+	mark := strictness.Checkpoint()
+	got := cfg.LoadAgents()
+
+	assert.Empty(t, got, "the unreadable directory still yields no agents — that half is fault tolerance")
+	findings := strictness.Since(mark)
+	require.Len(t, findings, 1,
+		"an unreadable agents directory must be indistinguishable from neither an absent one nor an empty one: it must record a finding")
+	assert.Equal(t, strictness.ClassConfig, findings[0].Class)
+	assert.Contains(t, findings[0].Message, agentsDir, "the finding names the directory it could not read")
 }

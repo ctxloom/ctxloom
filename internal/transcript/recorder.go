@@ -3,6 +3,7 @@ package transcript
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -38,8 +39,15 @@ type fileRecorder struct {
 	now    func() time.Time
 	policy RawPolicy
 
+	// open creates/appends the transcript file. A seam, not a strategy: the
+	// only production implementation is openAppendFile, and it exists so a
+	// test can drive the partial-write path — a Write that delivers SOME
+	// bytes and then fails — which a real *os.File on a healthy filesystem
+	// will not produce on demand.
+	open func(path string) (io.WriteCloser, error)
+
 	mu        sync.Mutex
-	file      *os.File // nil until the first successful Record call
+	file      io.WriteCloser // nil until the first successful Record call
 	seq       int
 	sessionID string // latched from the first KindSession line seen
 
@@ -107,6 +115,7 @@ func NewRecorder(harp, engine string, opts ...RecorderOption) (Recorder, error) 
 		path:   p,
 		now:    func() time.Time { return time.Now().UTC() },
 		policy: DefaultRawPolicy,
+		open:   openAppendFile,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -152,6 +161,11 @@ func (r *fileRecorder) noteFailure(err error) {
 	}
 }
 
+// openAppendFile is the production opener: create-if-absent, append-only.
+func openAppendFile(path string) (io.WriteCloser, error) {
+	return os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+}
+
 // ensureFile lazily creates the persist dir and opens the append-only file.
 // Extracted from record so the write path stays under the project's
 // complexity gate (U144-F09).
@@ -162,7 +176,7 @@ func (r *fileRecorder) ensureFile() error {
 	if err := os.MkdirAll(filepath.Dir(r.path), 0o755); err != nil {
 		return fmt.Errorf("transcript: create persist dir: %w", err)
 	}
-	f, err := os.OpenFile(r.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := r.open(r.path)
 	if err != nil {
 		return fmt.Errorf("transcript: open %s: %w", r.path, err)
 	}
@@ -220,11 +234,39 @@ func (r *fileRecorder) record(ev agent.ChatEvent) error {
 		return err
 	}
 
-	if _, err := r.file.Write(line); err != nil {
-		return fmt.Errorf("transcript: write %s: %w", r.path, err)
+	n, werr := r.file.Write(line)
+	if werr != nil {
+		if n > 0 {
+			r.salvagePartialLine()
+		}
+		return fmt.Errorf("transcript: write %s: %w", r.path, werr)
 	}
 	r.seq++
 	return nil
+}
+
+// salvagePartialLine handles a write that delivered SOME of a line and then
+// failed. Two things have to happen, and neither is optional.
+//
+// First the fragment is terminated with a newline: it has no trailing one of
+// its own, so the next record's bytes would otherwise be appended to it and
+// the two would collapse into a single unparseable line — losing a record
+// that was written perfectly, on top of the one that was not. Bounding the
+// damage to one line is what makes the reader's degrade-to-partial contract
+// mean anything here.
+//
+// Then seq advances past the lost record. Seq's documented purpose is that a
+// reader can detect truncation by a discontinuity; reusing the seq would put
+// the fragment and its successor at the SAME ordering key, leaving the file
+// looking continuous at precisely the moment it is not. The gap is the
+// evidence.
+//
+// The terminating write is best-effort: if the filesystem is refusing bytes,
+// it will refuse this one too, and there is nothing further to be done about
+// a fragment that cannot be closed off.
+func (r *fileRecorder) salvagePartialLine() {
+	_, _ = r.file.Write([]byte("\n"))
+	r.seq++
 }
 
 // Close implements Recorder.

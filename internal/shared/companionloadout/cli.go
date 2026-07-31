@@ -168,6 +168,25 @@ func Emit(w io.Writer, format string, bundleYAML, sig []byte) error {
 	if sig != nil && len(sig) == 0 {
 		return fmt.Errorf("empty loadout signature: loadout.yaml.sig is present but zero bytes — a half-completed signing run; re-run `just sign-loadouts`, or delete the file to emit unsigned deliberately")
 	}
+	// THE TWO BRANCHES DELIBERATELY DIFFER ON THE TRAILING NEWLINE, and the
+	// asymmetry is load-bearing in one direction only.
+	//
+	// yaml writes bundleYAML with nothing added. These are the exact bytes a
+	// detached publish signature covers, and the exact bytes --format json
+	// base64s, so `<bin> loadout` piped to a file has to reproduce the signed
+	// payload byte for byte (spec §3.0). A trailing newline appended for
+	// tidiness would be a byte the signature does not cover, and whether it
+	// looked harmless would depend entirely on whether the committed
+	// loadout.yaml happened to end in one already.
+	//
+	// json terminates its object with a newline because it is a whole-stdout
+	// emission a human may also read; the JSON object itself carries the
+	// bundle base64-encoded, so nothing signed passes through this branch
+	// unencoded and a line terminator cannot corrupt it. ctxloom's own probe
+	// reads the whole of stdout and unmarshals it, and encoding/json ignores
+	// trailing whitespace, so the newline is convention rather than contract
+	// on the consuming side — but removing it would still break any
+	// line-oriented reader.
 	switch format {
 	case "yaml":
 		_, err := w.Write(bundleYAML)

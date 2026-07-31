@@ -152,3 +152,36 @@ func TestEmit_EmptyButPresentSignatureErrorsInBothFormats(t *testing.T) {
 		})
 	}
 }
+
+// TestEmit_TrailingNewlineAsymmetryIsDeliberate pins the difference between
+// the two output branches, which reads as an oversight and is not one.
+//
+// yaml must add NOTHING: its bytes are the signed payload and the bytes
+// --format json base64s, so an appended newline is a byte no detached
+// signature covers. The bundle here deliberately does NOT end in a newline,
+// because with one it is impossible to tell "wrote the bytes verbatim" from
+// "appended a newline that happened to match".
+//
+// json must end with exactly one newline: it is a whole-stdout emission a
+// human may also read, and nothing signed passes through it unencoded.
+func TestEmit_TrailingNewlineAsymmetryIsDeliberate(t *testing.T) {
+	bundle := []byte("version: \"1.0.0\"\nfragments:\n  x:\n    content: hi")
+	require.False(t, bytes.HasSuffix(bundle, []byte("\n")),
+		"the fixture only distinguishes the two behaviours if it does NOT already end in a newline")
+
+	var yamlOut bytes.Buffer
+	require.NoError(t, Emit(&yamlOut, "yaml", bundle, nil))
+	assert.Equal(t, bundle, yamlOut.Bytes(),
+		"--format yaml must emit the signed payload byte for byte, adding no terminator")
+
+	var jsonOut bytes.Buffer
+	require.NoError(t, Emit(&jsonOut, FormatJSON, bundle, nil))
+	assert.True(t, bytes.HasSuffix(jsonOut.Bytes(), []byte("\n")),
+		"--format json must terminate its object with a newline")
+	assert.False(t, bytes.HasSuffix(jsonOut.Bytes(), []byte("\n\n")),
+		"exactly one newline, not a blank line")
+
+	var env signing.LoadoutEnvelope
+	require.NoError(t, json.Unmarshal(jsonOut.Bytes(), &env),
+		"the newline must not make the emission unparseable")
+}

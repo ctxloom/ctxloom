@@ -174,3 +174,50 @@ func TestConfirmByRepeatDoesNotReportAMissingStateFile(t *testing.T) {
 		t.Fatalf("first run reported an error: %v", err)
 	}
 }
+
+// The override text is not decoration sitting in a persistence package: which
+// of the two variants an agent sees is decided by the SAME branch that decides
+// whether to allow, arm, or push back. This pins that coupling, so a later
+// attempt to move the words somewhere else has to confront the fact that a
+// package boundary would run through one decision.
+//
+// It also pins what each variant must say, which is the part a reader can
+// actually check: the first denial has to explain how to override, and the
+// too-early rebuke has to say how much longer to wait — the arm message's
+// promise is the thing an over-eager repeat is being measured against.
+func TestTheTwoRebukesAreChosenByTheSameBranch(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	const path = "/p/.ltk/state.json"
+	now := time.Unix(1_700_000_000, 0)
+	const cmd = "git push --force"
+
+	arm, overridden, err := ConfirmByRepeat(fs, engine.Response{Reason: "denied"}, cmd, path, now, 30*time.Second, time.Minute)
+	if err != nil || overridden || arm.Allow {
+		t.Fatalf("first denial: allow=%v overridden=%v err=%v", arm.Allow, overridden, err)
+	}
+	if !strings.Contains(arm.Reason, "run the exact same command again") {
+		t.Fatalf("the arm message does not say how to override: %q", arm.Reason)
+	}
+
+	early, overridden, err := ConfirmByRepeat(fs, engine.Response{Reason: "denied"}, cmd, path, now.Add(5*time.Second), 30*time.Second, time.Minute)
+	if err != nil || overridden || early.Allow {
+		t.Fatalf("too-early repeat: allow=%v overridden=%v err=%v", early.Allow, overridden, err)
+	}
+	if !strings.Contains(early.Reason, "wait 25s more") {
+		t.Fatalf("the too-early rebuke does not carry the remaining delay: %q", early.Reason)
+	}
+	if early.Reason == arm.Reason {
+		t.Fatal("both branches produced the same text; the two rebukes are not distinguishable")
+	}
+
+	ok, overridden, err := ConfirmByRepeat(fs, engine.Response{Reason: "denied"}, cmd, path, now.Add(40*time.Second), 30*time.Second, time.Minute)
+	if err != nil {
+		t.Fatalf("consuming repeat: %v", err)
+	}
+	if !overridden || !ok.Allow {
+		t.Fatalf("the repeat inside the band was not honoured: allow=%v overridden=%v", ok.Allow, overridden)
+	}
+	if ok.Reason != "" {
+		t.Fatalf("an allowed override still carries a rebuke: %q", ok.Reason)
+	}
+}

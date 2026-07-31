@@ -24,30 +24,14 @@ import (
 // here. now is injected so callers (and tests) control the clock. This is an
 // escape hatch, not a security control — the delay raises the cost of a reflexive
 // bypass, it does not prevent a determined one.
-// ConfirmByRepeat implements the "run it again to permit" override against the
-// store at stateFile on fs. On the first denial of command it arms a pending
-// entry (confirmable only in the band [now+delay, now+window]) and returns the
-// denial with an added, deliberately stern hint. A later identical re-run is
-// allowed only once the delay has elapsed and before the window closes; an
-// over-eager repeat inside the delay is refused with a sharper rebuke and does
-// NOT reset the timer. The bool reports whether this call consumed a confirmation.
 //
-// The returned error is whatever the underlying Store.Save reported (nil on
-// success). Previously every Save call here discarded its error
-// (`_ = st.Save(...)`, U076-F01): a persistence failure — a read-only
-// .ltk directory, a full disk — silently converted "arm the override" into a
-// no-op, so the agent's very next identical repeat found nothing armed and
-// was denied again, forever, while the message it was shown ("run the exact
-// same command again ... to proceed") promised the opposite. Callers now
-// decide what to do with the failure (cmd/ltk/evaluate.go logs it to
-// stderr); the decision/override behavior for THIS call is unchanged either
-// way — only the caller's ability to notice the persistence is broken.
-//
-// Callers must only invoke this for a *confirmable* denial; an inviolate rule is
-// gated out upstream (engine.Response.Confirmable), so repeating it never reaches
-// here. now is injected so callers (and tests) control the clock. This is an
-// escape hatch, not a security control — the delay raises the cost of a reflexive
-// bypass, it does not prevent a determined one.
+// The returned error is whatever reading or writing the store reported (nil on
+// success). It never changes the decision above; it exists so a caller can
+// notice that persistence is broken. Without it, a failure to arm silently
+// converted "the override is armed" into a no-op, and the very next identical
+// repeat was denied again — forever — while the message the agent had just
+// been shown ("run the exact same command again ... to proceed") promised the
+// opposite.
 func ConfirmByRepeat(fs afero.Fs, resp engine.Response, command, stateFile string, now time.Time, delay, window time.Duration) (engine.Response, bool, error) {
 	key := strings.TrimSpace(command)
 	st := Open(fs, stateFile)

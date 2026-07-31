@@ -1,6 +1,15 @@
-// Package state persists short-lived "confirm by repeating" tokens. When a
-// command is denied, ltk remembers it briefly; running the exact same command
-// again within the window counts as an explicit override and is allowed.
+// Package state owns the "confirm by repeating" override end to end: the
+// short-lived tokens on disk, the policy that decides what a repeat means, and
+// the words the agent is shown when it is told to stop. When a command is
+// denied, ltk remembers it briefly; running the exact same command again within
+// the window counts as an explicit override and is allowed.
+//
+// The three belong together, and the naming is the only thing that ever made
+// them look separate. The rebuke text is not decoration bolted onto a store —
+// it IS the mechanism's output, and which of the two variants an agent sees is
+// decided by the same branch that decides whether to allow, arm, or push back
+// (see ConfirmByRepeat). Splitting the words from that branch would put a
+// package boundary through one decision.
 //
 // This is an escape hatch, not a security control: a determined agent can just
 // repeat the command. It exists so a human (or a deliberate agent) can get past

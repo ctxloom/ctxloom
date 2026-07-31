@@ -24,6 +24,7 @@ var (
 	errBadTimestamp    = errors.New("invalid valid-after/valid-before timestamp")
 	errKeyTypeMismatch = errors.New("declared key type does not match the key blob")
 	errByteOrderMark   = errors.New("line begins with a UTF-8 byte-order mark, which would become part of the first principal")
+	errLineTooLong     = errors.New("line is longer than the 1 MiB limit and was not read")
 )
 
 // ParseError describes one allowed_signers line that could not be used.

@@ -204,6 +204,58 @@ func TestParse_ByteOrderMarkBeforeACommentIsHarmless(t *testing.T) {
 	assert.Equal(t, []string{"ben@abbitt.me"}, store.Entries()[0].Principals)
 }
 
+// TestParse_OverlongLineIsSkippedNotFatal pins the line-oriented contract
+// against the one input that used to break it wholesale.
+//
+// Parse's doc promises three times that a line it cannot use is SKIPPED and
+// reported, so the file degrades toward less trust one line at a time, and
+// that a non-nil error means reading r itself failed. A single line over the
+// scanner's 1 MiB buffer broke all three: bufio.Scanner surfaced
+// bufio.ErrTooLong as Parse's error return, Parse returned a nil *Store, and
+// every caller then discarded the WHOLE location — one oversized junk line
+// anywhere in the file revoked every signer in it.
+//
+// Measured against real ssh-keygen (OpenSSH_10.0p2, this host): an
+// allowed_signers whose FIRST line is 2,000,004 bytes of garbage still
+// verifies a signature against the good entry on line 2, exit 0. Disarming
+// the file is therefore a divergence from ssh-keygen, not a stricter reading
+// of it.
+func TestParse_OverlongLineIsSkippedNotFatal(t *testing.T) {
+	src := "junk" + strings.Repeat("x", 2<<20) + "\nben@abbitt.me " + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err, "an over-long line is a CONTENT error, not an I/O error")
+	require.NotNil(t, store)
+
+	require.Len(t, perrs, 1)
+	assert.ErrorIs(t, perrs[0].Err, errLineTooLong)
+	assert.Equal(t, 1, perrs[0].Line)
+	// ParseError.Text reaches the user through pe.Error() on `signer list`
+	// and `signer remove`; echoing a megabyte of it back is a diagnostic that
+	// destroys the terminal it is trying to inform.
+	assert.Less(t, len(perrs[0].Text), 1024, "the reported text must be truncated, not the whole line")
+
+	// The rest of the file still counts, and line numbering — which
+	// `signer remove` uses to decide which physical lines to DELETE — is
+	// unaffected by the skip.
+	require.Len(t, store.Entries(), 1)
+	assert.Equal(t, []string{"ben@abbitt.me"}, store.Entries()[0].Principals)
+	assert.Equal(t, 2, store.Entries()[0].Line)
+}
+
+// TestParse_OverlongLineGrantsNoTrust is the fail-closed half: skipping the
+// line must not be a way to smuggle one in.
+func TestParse_OverlongLineGrantsNoTrust(t *testing.T) {
+	_, blob, _ := strings.Cut(testEd25519Key, " ")
+	// A line that WOULD have been a perfectly good entry, padded past the
+	// limit by its comment field.
+	src := "ben@abbitt.me ssh-ed25519 " + blob + " " + strings.Repeat("c", 2<<20) + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	require.Len(t, perrs, 1)
+	assert.ErrorIs(t, perrs[0].Err, errLineTooLong)
+	assert.Empty(t, store.Entries())
+}
+
 // --- fail-closed: malformed lines never produce an Entry ---
 
 func TestParse_GarbageLineIsSkippedNotFatal(t *testing.T) {

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,502** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,503** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 179 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **176** |
+| `open` | no commit names this ID | **175** |
 
-**Totals: 2268 findings across 162 units — 1,502 resolved, 176 still open, 590 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,503 resolved, 175 still open, 590 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 564 | 102 | 103 | 95 | 135 |
-| LOW | 871 | 579 | 65 | 60 | 104 | 63 |
+| LOW | 871 | 580 | 64 | 60 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2655,7 +2655,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U113-F07 | **PARTIAL** `faf79c01` | `internal/shared/iox/atomicwrite.go:40`, `internal/shared/iox/atomicwrite_fs.go:40` | CORRECTNESS | `perm` is applied via `Chmod`, which **ignores umask**, unlike `os.WriteFile`/`afero.WriteFile`, which mask it. A caller migrating from `os.WriteFile` silently gets a wider mode than before under a... | U113.md |
 | U114-F08 | **RESOLVED** `72f7f6bf` | `internal/agentcoord/coord/pidalive_unix.go:9`, `internal/lm/isolation/pidalive_unix.go:12` (+ `_windows` twins)` | TRIVIAL | Four one-line wrapper functions across two packages, in four build-tagged files, exist solely to re-export `pidalive.Alive` under a local name. The build tags are pure ceremony — the wrappers are p... | U114.md |
 | U115-F07 | **RESOLVED** `19d72034` | `internal/cli/plan_watch.go:58` | DUPLICATE | The `.plan.md` extension is hardcoded a further time in the watcher, in the same repo as two constants that define it. Adjacent to my unit and caused by `planExt` being unexported here. | U115.md |
-| U115-F08 | open | **`plans.go:145-175` (vs `internal/memory/stamp.go:69-72`)`** | CORRECTNESS | Reader and writer disagree on what counts as frontmatter. `ParseFrontmatter` never requires a **closing** `---`: a document opening with `---` and never closing it is scanned to EOF, so `title:`-sh... | U115.md |
+| U115-F08 | **RESOLVED** `ab8a41f2` | **`plans.go:145-175` (vs `internal/memory/stamp.go:69-72`)`** | CORRECTNESS | Reader and writer disagree on what counts as frontmatter. `ParseFrontmatter` never requires a **closing** `---`: a document opening with `---` and never closing it is scanned to EOF, so `title:`-sh... | U115.md |
 | U115-F09 | **RESOLVED** `f1f34e6d` | **`plans.go:131`** | TRIVIAL | The `abs != rootAbs` disjunct is unreachable. For `abs == rootAbs` to hold, `rootAbs` would have to end in `.plan.md` (the suffix check at `:116` already returned otherwise), but `rootAbs` is alway... | U115.md |
 | U115-F10 | open | **`plans.go:113-114`, `:134`** | CORRECTNESS | `Show`'s doc comment promises "a crafted path can't read arbitrary files", but containment is checked on the lexical path only — no `filepath.EvalSymlinks`, and no regular-file check. A symlink nam... | U115.md |
 | U115-F11 | **RESOLVED** `c8a5c201` | `cmd/taskloom/plan.go:60` | COUPLING | The text-mode listing prints `Session\tName\tTitle` and omits `Path` — the only value `plan show` accepts. A human using `taskloom plan list` cannot feed its output to `taskloom plan show` without ... | U115.md |

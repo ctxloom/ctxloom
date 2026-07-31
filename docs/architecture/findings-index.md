@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,331** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,332** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 144 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 176 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **440** |
+| `open` | no commit names this ID | **439** |
 
-**Totals: 2268 findings across 162 units — 1,331 resolved, 440 still open, 497 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,332 resolved, 439 still open, 497 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 482 | 242 | 81 | 80 | 114 |
-| LOW | 871 | 492 | 186 | 48 | 88 | 57 |
+| LOW | 871 | 493 | 185 | 48 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2283,7 +2283,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U046-F20 | **REFUTED** `a44ff890` | **`package-wide`** | COUPLING | ~70 tree-sitter node-type string literals ("package_clause", "statement_block", "constructor_body", "lexical_declaration", …) are inlined across five files with no named constants and no test that ... | U046.md |
 | U047-F07 | **RESOLVED** `12f375ce` | `internal/config/agents.go:14-21, 44` | TRIVIAL | `agentDirLoader`'s doc is false and the `!= nil` guard it justifies is unreachable. | U047.md |
 | U047-F08 | open | `internal/config/agents.go:70-77` | COMPLEXITY | `Agent(name)` re-runs the full two-source merge — including a filesystem walk and a YAML parse of every `.ctxloom/agents/*.yaml` — on every single lookup, and re-emits the shadowing warning each time. | U047.md |
-| U047-F09 | open | `internal/config/agents.go:45-48` | ERRHANDLING | A directory-scan failure is warned and then the nil result is used as if it were a successful empty scan; the caller receives a merged set that is silently missing every on-disk agent. | U047.md |
+| U047-F09 | **RESOLVED** `576cba9b` | `internal/config/agents.go:45-48` | ERRHANDLING | A directory-scan failure is warned and then the nil result is used as if it were a successful empty scan; the caller receives a merged set that is silently missing every on-disk agent. | U047.md |
 | U047-F10 | **RESOLVED** `5fdf8767` | `internal/config/companions.go:273-321` | TRIVIAL | `ProbeCompanionLoadouts` — the most important exported function in the file — has **no doc comment**; its intended 18-line doc is glued to the `companionsDisabled` var block instead. | U047.md |
 | U047-F13 | **RESOLVED** `d6a8cae0` | `internal/config/accessors.go:120-124` | DUPLICATE | `config.cloneMCPServer` is a verbatim reimplementation of `wire.cloneMCPServer`, in the package that owns the type. | U047.md |
 | U047-F14 | open | `internal/config/companions.go:31-43, 198, 203, 257` | CORRECTNESS | The exec/PATH seams are unsynchronised package vars that are **read from goroutines** while the exported `Set*ForTesting` helpers write them without a lock. | U047.md |

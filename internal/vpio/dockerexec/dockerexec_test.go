@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -291,4 +292,36 @@ func TestDockerLevelError_ParityAcrossBothRenderings(t *testing.T) {
 		suffixOf(withTail.dockerLevelErrorWrap(errors.New("signal: killed"))),
 		suffixOf(withTail.dockerLevelError(exitCannotInvoke)),
 		"one tail, one rendering — a reader (or a grep) must not have to know which failure fired")
+}
+
+// TestStartPTYCommand_CancellationIsGraceful pins U152-F02: the turn subprocess
+// is built with exec.CommandContext and neither cmd.Cancel nor cmd.WaitDelay
+// was set, so os/exec's default cancellation is Process.Kill() — SIGKILL, zero
+// grace. The subprocess here is the `docker exec` CLI attached to a live
+// in-container turn; SIGKILLing it drops the attachment without the CLI ever
+// telling the daemon, so nothing in the container is asked to stop and the
+// session's own teardown never runs. Cancellation must ASK first and kill only
+// as a backstop.
+//
+// The child traps SIGTERM and records that it arrived; under SIGKILL nothing is
+// recorded, because SIGKILL cannot be trapped. Bounded: the child exits on the
+// signal and Wait returns immediately either way.
+func TestStartPTYCommand_CancellationIsGraceful(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "sigterm-arrived")
+	script := "trap 'printf x > " + marker + "; exit 0' TERM; printf ready; while : ; do sleep 0.05; done"
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var out syncBuf
+	sess, err := startPTYCommand(ctx, exec.CommandContext(ctx, "sh", "-c", script), vpio.ProcessSpec{Stdout: &out})
+	require.NoError(t, err)
+
+	// The trap must be installed before we cancel, or the test measures the
+	// race rather than the signal (template §11k: prove the fixture is armed).
+	require.Eventually(t, func() bool { return strings.Contains(out.String(), "ready") },
+		5*time.Second, 20*time.Millisecond, "child never reached its trap")
+
+	cancel()
+	_, _ = sess.Wait()
+	require.FileExists(t, marker, "the subprocess was killed with zero grace instead of being asked to stop")
 }

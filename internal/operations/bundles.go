@@ -1109,8 +1109,15 @@ func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundleCommandInp
 // Distilled / DistilledBy / ContentHash on success. Distill errors are warned
 // but non-fatal: the bundle still saves with the raw content (fault-tolerance
 // philosophy in CLAUDE.md). A nil Distiller is a no-op. The returned set names
-// the items whose attempt FAILED — a re-distill failure leaves the old
-// Distilled/DistilledBy intact, so post-state alone cannot reveal it.
+// the items whose attempt FAILED, and is the ONLY reliable signal of failure:
+// post-state cannot be read as one, because what a failure leaves behind
+// differs by caller. On the DistillBundleFile path the item is read straight
+// off disk, so a failed re-distill leaves the previous Distilled/DistilledBy
+// standing. On the CreateBundle/UpdateBundle path it does not: applyFragment
+// Edits has already blanked Distilled/DistilledBy/ContentHash for every item
+// whose content changed (a summary of superseded content is worse than none),
+// so a failure there saves the item with raw content and no distillation at
+// all. Callers must branch on the returned set, never on the fields.
 // Distillation floor (U082-F01): distillFragments/distillPrompts previously
 // stamped ANY non-empty Distiller result as accepted — no length, ratio, or
 // sanity floor — so a 16-byte distillation of a 1,428-byte fragment (a

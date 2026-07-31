@@ -2,12 +2,15 @@ package operations
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -108,4 +111,65 @@ func TestGetCommand_StripsOnlyAnATXH1(t *testing.T) {
 			assert.Equal(t, tc.want, res.Content)
 		})
 	}
+}
+
+// TestUpdateBundle_FailedRedistillDropsStaleDistillation pins U082-F12: the
+// invariant the corrected distillFragments prose now asserts. On the
+// UpdateBundle path applyFragmentEdits has ALREADY cleared
+// Distilled/DistilledBy/ContentHash for any item whose content changed, so a
+// failed re-distill leaves them EMPTY — the old distillation is not "left
+// intact", and cannot be, because it described the superseded content. The
+// preserve-on-failure behaviour the old comment described belongs to the
+// DistillBundleFile path, which reads the item straight off disk.
+func TestUpdateBundle_FailedRedistillDropsStaleDistillation(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+
+	// Seed a fragment that carries a genuine distillation.
+	seed := &recordingDistiller{returnValue: "OLD DISTILLED SUMMARY", returnModel: "old-model"}
+	created, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+		Name:      "seed",
+		Distiller: seed,
+		Fragments: map[string]BundleFragmentInput{
+			"intro": {Content: "the original fragment body, long enough to distill"},
+		},
+	})
+	require.NoError(t, err)
+
+	// §11k: prove the fixture is hostile — there really IS a prior
+	// distillation on disk for the failed re-distill to be asked to preserve.
+	before := readBundleFile(t, created.Path)
+	require.Equal(t, "OLD DISTILLED SUMMARY", before.Fragments["intro"].Distilled)
+	require.Equal(t, "old-model", before.Fragments["intro"].DistilledBy)
+	require.NotEmpty(t, before.Fragments["intro"].ContentHash)
+
+	// Change the content; the distiller fails.
+	failing := &recordingDistiller{returnErr: fmt.Errorf("llm unavailable")}
+	updated, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
+		Name:      "seed",
+		Distiller: failing,
+		SetFragments: map[string]BundleFragmentInput{
+			"intro": {Content: "a rewritten fragment body the old summary no longer describes"},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, failing.calls, 1, "the content change must have queued a re-distill attempt")
+
+	after := readBundleFile(t, updated.Path)
+	got := after.Fragments["intro"]
+	assert.Equal(t, "a rewritten fragment body the old summary no longer describes", got.Content)
+	assert.Empty(t, got.Distilled,
+		"a failed re-distill must not leave a summary of the superseded content behind")
+	assert.Empty(t, got.DistilledBy)
+	assert.Empty(t, got.ContentHash)
+}
+
+// readBundleFile decodes a saved bundle straight off disk, so assertions see
+// what was persisted rather than the in-memory value.
+func readBundleFile(t *testing.T, path string) bundles.Bundle {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var b bundles.Bundle
+	require.NoError(t, yaml.Unmarshal(data, &b))
+	return b
 }

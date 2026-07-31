@@ -6,17 +6,28 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// nonEmptyRaw normalizes a zero-length json.RawMessage to nil so
-// agent.SessionEntry.ToolInput's omitempty (record.go's EntryPayload.
-// ToolInput) actually omits it, rather than round-tripping an
-// empty-but-non-nil slice that json.RawMessage's own MarshalJSON would
-// otherwise turn into a literal `null`. Every engine that builds a tool_use
-// entry needs this same normalization on its own arguments field, whatever
-// shape that field arrives in vendor-side (codex's is a JSON-encoded
-// STRING wrapping an object; claude's and kiro's are already bare JSON
-// objects) — the vendor-specific unwrap stays in each adapter, only this
-// final "empty means nil" step is shared. Unexported: ToolUseEvent, 26
-// lines below in this same file, is its only caller (U145-F07).
+// nonEmptyRaw normalizes a zero-length json.RawMessage to nil so that "this
+// tool call had no arguments" has exactly ONE in-memory spelling flowing out
+// of the adapters, whichever spelling a vendor's own unwrap happened to
+// produce.
+//
+// It is not rescuing the marshaller. Measured on the canonical write path
+// (entries_rawnorm_test.go): EntryPayload.ToolInput carries omitempty, so a
+// zero-length value — nil or not — is omitted from the line entirely; and a
+// RawMessage renders as the literal `null` only when it is NIL and the field
+// has no omitempty, while an empty-but-non-nil one is not valid JSON at all
+// and makes json.Marshal ERROR. So an empty non-nil slice never becomes a
+// `null` on any path this package writes.
+//
+// What the normalization does buy is comparability upstream of the writer:
+// nil and json.RawMessage{} are not equal, so without it a caller comparing,
+// diffing or switching on ToolInput would see two different values for the
+// same fact. Every engine that builds a tool_use entry needs it on its own
+// arguments field, whatever shape that field arrives in vendor-side (codex's
+// is a JSON-encoded STRING wrapping an object; claude's and kiro's are
+// already bare JSON objects) — the vendor-specific unwrap stays in each
+// adapter, only this final "empty means nil" step is shared. Unexported:
+// ToolUseEvent, 26 lines below in this same file, is its only caller.
 func nonEmptyRaw(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
 		return nil

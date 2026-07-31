@@ -652,3 +652,30 @@ func TestMonitor_LaunchGraceSuppressesTheQuietStall(t *testing.T) {
 		"inside the launch grace absence proves nothing, on the quiet clocks as much as on the missing transcript: %s", rep.Reason)
 	assert.False(t, rep.Firing())
 }
+
+// loopRung is the grace-free half of the ladder: it condemns instantly and on
+// POSITIVE evidence only, which detectRedelivery defines as identical content
+// ON A CADENCE — "both conditions matter", because repetition alone is a user
+// re-sending a short message or a retry ladder re-asking. The zero-median
+// branch emits a Redelivery carrying no cadence at all (same receipt stamp, or
+// records with no usable ts), and loopRung fired on Repeats alone, so a burst
+// of three identical lines was condemned in seconds with a "0s cadence"
+// reason (U056-F07).
+func TestMonitor_ZeroCadenceRepeatsAreNotAGraceFreeLoop(t *testing.T) {
+	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
+	at := now.Add(-time.Second)
+	// Seq advances, so the relaunch signature is absent and the redelivery
+	// rule is the only thing that can speak here.
+	path := writeJSONL(t, []map[string]any{
+		userLine(1, at, "retry please"), userLine(2, at, "retry please"), userLine(3, at, "retry please"),
+	})
+	m := liveness.New(liveness.Options{Now: func() time.Time { return now }, Probes: []liveness.Probe{aliveNoCPU}})
+
+	rep := m.Assess(context.Background(), liveness.Target{
+		Harp: "burst", StartedAt: now.Add(-time.Hour), TranscriptPath: path,
+	})
+
+	require.NotNil(t, rep.Evidence.Transcript.Redelivery, "the repetition is still MEASURED — it is the verdict that needs a cadence")
+	assert.Zero(t, rep.Evidence.Transcript.Redelivery.Cadence)
+	assert.False(t, rep.Firing(), "repetition with no cadence is not the grace-free loop signal: %s", rep.Reason)
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
@@ -310,4 +311,46 @@ func TestLoadAgents_UnreadableAgentsDirectoryIsAFinding(t *testing.T) {
 		"an unreadable agents directory must be indistinguishable from neither an absent one nor an empty one: it must record a finding")
 	assert.Equal(t, strictness.ClassConfig, findings[0].Class)
 	assert.Contains(t, findings[0].Message, agentsDir, "the finding names the directory it could not read")
+}
+
+// U047-F08: Agent(name) re-runs LoadAgents' full two-source merge on every
+// lookup, and LoadAgents re-emitted its shadowing warning each time. Config's
+// Agent() sits on the path operations.ResolveAgent, DefaultAgentProfiles and
+// `agent show` all take, so one command reaches it several times and a single
+// shadowed agent printed the same line once per lookup.
+//
+// The warning is a one-per-process statement of fact about the user's config,
+// not a per-lookup event, so it collapses to WarnOnce — the same treatment
+// every other repeat-from-independent-callers diagnostic in this codebase gets
+// (see FwarnOnce's doc, written for exactly this shape).
+func TestLoadAgents_ShadowWarningIsEmittedOncePerProcess(t *testing.T) {
+	mem := afero.NewMemMapFs()
+	appPath := "/shadowprobe"
+	agentsDir := paths.AgentsPath(appPath)
+	require.NoError(t, mem.MkdirAll(agentsDir, 0o755))
+	// A name unique to this test: WarnOnce keys on the rendered line and has
+	// no process-wide reset, so a shared name could be pre-consumed by another
+	// test and make this pass vacuously.
+	const name = "u047f08probe"
+	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, name+".yaml"),
+		[]byte("engine: claude-code\nprofiles: [from-disk]\n"), 0o644))
+
+	cfg := NewFixture(Fixture{
+		AppPaths: []string{appPath},
+		Agents:   map[string]agents.Agent{name: {Engine: "claude-code", Profiles: []string{"from-config"}}},
+	})
+	cfg.SetFS(mem)
+
+	var sink strings.Builder
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	for range 3 {
+		got, ok := cfg.Agent(name)
+		require.True(t, ok)
+		require.Equal(t, []string{"from-config"}, got.Profiles, "the config key must still win the collision")
+	}
+
+	assert.Equal(t, 1, strings.Count(sink.String(), name+"\" is defined in both"),
+		"the shadowing warning states a fact about the config once; repeating it per lookup is noise the user cannot act on")
 }

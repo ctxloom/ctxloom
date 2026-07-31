@@ -177,3 +177,46 @@ func TestGenerate_DoesNotReorderTheCallersSlice(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerate_UnderivableNameIsRefused pins U097-F04's concrete half: when a
+// target carries no explicit Name, the file base and the published $id are
+// derived from reflect.Type.Name() — and that is the empty string for every
+// unnamed type (an anonymous struct, a pointer, a slice, a map). The derivation
+// then produced a file literally named "-schema.json" carrying
+// $id "https://ctxloom.dev/schemas/.json": a schema published under a URL that
+// names nothing, written without a word of complaint. A target whose identity
+// cannot be derived is a caller mistake and must be refused before anything
+// reaches disk, naming the offending Go type.
+func TestGenerate_UnderivableNameIsRefused(t *testing.T) {
+	type sample struct {
+		A string `json:"a"`
+	}
+	cases := map[string]reflect.Type{
+		"anonymous struct": reflect.TypeOf(struct {
+			A string `json:"a"`
+		}{}),
+		"pointer": reflect.TypeOf(&sample{}),
+		"slice":   reflect.TypeOf([]sample{}),
+	}
+	for label, typ := range cases {
+		t.Run(label, func(t *testing.T) {
+			// The fixture is only hostile if the type really has no name —
+			// assert that from the code-under-test's own vantage point before
+			// asserting anything about Generate (§11k).
+			if typ.Name() != "" {
+				t.Fatalf("fixture is not underivable: %s has name %q", typ, typ.Name())
+			}
+			dir := filepath.Join(t.TempDir(), "gen")
+			n, err := Generate(dir, []Target{{Type: typ}})
+			if err == nil {
+				t.Fatal("a target with no derivable schema name must be refused, not published under an empty $id")
+			}
+			if n != 0 {
+				t.Errorf("a refused run reported %d schemas written", n)
+			}
+			if _, statErr := os.Stat(filepath.Join(dir, "-schema.json")); statErr == nil {
+				t.Error("a refused run wrote a file named \"-schema.json\"")
+			}
+		})
+	}
+}

@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,318** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 135 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **475** |
+| `open` | no commit names this ID | **474** |
 
-**Totals: 2268 findings across 162 units — 1,318 resolved, 475 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,318 resolved, 474 still open, 476 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 471 | 268 | 73 | 79 | 108 |
+| MED | 999 | 471 | 267 | 74 | 79 | 108 |
 | LOW | 871 | 490 | 195 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1219,7 +1219,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U039-F12 | open | `mcp_tools_memory.go:322-328` | ERRHANDLING | Any `os.ReadFile` failure on the essence — permissions, a truncated/locked file, an I/O error — is reported to the agent as "No distilled essence for %s yet", sending it to re-run a compaction that... | U039.md |
 | U039-F20 | **RESOLVED** `63ec1b77` | `memory.go:23-370` | NOPAY | The whole `memory` command group is a documented duplicate of `ctxloom session list/show/distill` and has been marked deprecated for at least a release — ~250 lines of CLI carrying no capability. *... | U039.md |
 | U040-F03 | open | `remote_update.go:449`, `:491` | COUPLING | Two functions that carefully accept `out`/`fs`/`appDir` as injectable seams then reach out to package-global flag variables for their decisive branch. | U040.md |
-| U040-F04 | open | `remote_update.go:509` | ERRHANDLING | The error return of the destructive cleanup call is discarded with `_`. | U040.md |
+| U040-F04 | **PARTIAL** `e85e2ddd` | `remote_update.go:509` | ERRHANDLING | The error return of the destructive cleanup call is discarded with `_`. | U040.md |
 | U040-F05 | **RESOLVED** `8a0043a0` | `remote_update.go:529` | DEAD | `reportBundleIssues` (29 lines) has **zero production call sites**. | U040.md |
 | U040-F06 | **RESOLVED** `b2cb918d` | `remote_update.go:172-179` vs `:319-343` | DUPLICATE | `refreshRemoteClone` is `refreshRemoteRepos` specialised to one URL; the two share the whole body. | U040.md |
 | U040-F09 | **RESOLVED** `00a55542` | `remote_discover.go:110` | CORRECTNESS | `interactiveAdd` opens its **own** `bufio.NewReader(os.Stdin)`, violating an invariant the codebase explicitly documents. | U040.md |

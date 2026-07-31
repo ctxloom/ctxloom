@@ -201,6 +201,32 @@ func TestFileDescriptorRedirNotInArgv(t *testing.T) {
 	}
 }
 
+// TestFileDescriptorPrefixIsOneDigit pins how much of the word before a
+// redirection operator is the file descriptor. cmd reads exactly ONE digit
+// there; everything before it is still an argument. Discarding the whole word
+// whenever it happened to be all digits dropped a real argument out of argv
+// (`foo 123>out` lost the `12` that cmd.exe passes to foo), and keeping the
+// whole word whenever it was not all digits kept a digit that cmd.exe consumed
+// as the handle.
+func TestFileDescriptorPrefixIsOneDigit(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want []string
+	}{
+		{"foo 123>out", []string{"foo", "12"}},
+		{"echo abc1>out", []string{"echo", "abc"}},
+		{"dir 2>&1", []string{"dir"}},
+		{"dir > out.txt", []string{"dir"}},
+	} {
+		t.Run(tc.src, func(t *testing.T) {
+			s := parse(t, tc.src)
+			if got := s.Pipelines[0].Commands[0].Argv; !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("argv = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestShells(t *testing.T) {
 	if got := New().Shells(); len(got) != 1 || got[0] != ir.ShellCmd {
 		t.Errorf("Shells() = %v", got)

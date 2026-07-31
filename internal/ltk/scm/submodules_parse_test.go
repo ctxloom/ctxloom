@@ -131,6 +131,32 @@ func TestSubmodulePaths_CommentOnlyValueIsNotAPath(t *testing.T) {
 	}
 }
 
+// An empty startDir is a caller that does not know where it is. filepath.Clean
+// turns it into ".", whose parent is itself, so the walk ends on its first
+// iteration and answers nil — "this repository declares no submodules" — which
+// is the one answer this function must never invent. It is the same collapse
+// U074-F01 removed from the read path: the caller has to be able to tell an
+// absence from a failure to find out.
+func TestSubmodulePaths_EmptyStartDirIsAnError(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	if err := afero.WriteFile(fs, "/repo/.gitmodules", []byte("[submodule \"x\"]\n\tpath = x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// The fixture must be hostile: this filesystem really does declare a
+	// submodule, so a nil answer is a loss and not an honest absence.
+	if got, err := SubmodulePaths(fs, "/repo"); err != nil || !reflect.DeepEqual(got, []string{"x"}) {
+		t.Fatalf("fixture is not hostile: /repo = %v, %v; want [x], nil", got, err)
+	}
+
+	got, err := SubmodulePaths(fs, "")
+	if err == nil {
+		t.Fatalf("an empty startDir was silently accepted: got %v, want an error", got)
+	}
+	if got != nil {
+		t.Fatalf("paths returned alongside an error: %v", got)
+	}
+}
+
 // The repo boundary is "a .git that git itself would accept", not "an entry
 // called .git exists". A `.git` FILE is a boundary only when it is a gitfile
 // pointer (a submodule working tree or linked worktree); anything else named

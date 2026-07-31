@@ -908,7 +908,6 @@ type chatSession struct {
 	ctx         context.Context
 	out         chan<- agent.ChatEvent
 	autoApprove bool
-	forward     bool // surface permission requests upstream instead of auto-deciding
 	clock       func() time.Time
 
 	// caps is the engine's advertised initialize-time capabilities, assigned in

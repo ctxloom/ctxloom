@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,371** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,372** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 154 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 183 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 182 |
-| `open` | no commit names this ID | **378** |
+| `open` | no commit names this ID | **377** |
 
-**Totals: 2268 findings across 162 units — 1,371 resolved, 378 still open, 519 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,372 resolved, 377 still open, 519 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 502 | 208 | 88 | 83 | 118 |
-| LOW | 871 | 512 | 159 | 50 | 92 | 58 |
+| LOW | 871 | 513 | 158 | 50 | 92 | 58 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2323,7 +2323,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U051-F17 | **ESCALATED** (gn/vital-deaf-stunt) | **`config.go:85`, `:97`, `:131`, `:67`, `:55`** | COUPLING | `renderNode`'s adjacent `heading, path string` parameters carry the same value at 3 of its 4 call sites — connascence of position between two same-typed strings that a transposition would render in... | U051.md |
 | U052-F01 | **RESOLVED** `cae914f6` | `internal/errs/errors.go:73` | DEAD | `ErrInvalidReference` is entirely unused — no producer, no matcher, in any package. | U052.md |
 | U052-F03 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `internal/errs/errors.go:10,19,33,38,44,59` | DEAD | Six sentinels are matched **only by tests**: `ErrBundleNotFound`, `ErrSkillNotFound`, `ErrCommandWithheld`, `ErrSkillWithheld`, `ErrNoVersionResolver`, `ErrRemoteNotMaterialized`. Test-only matchin... | U052.md |
-| U052-F06 | open | `internal/errs/errors.go:52` | COUPLING | `ErrRemoteContentNotFound = errors.New("not found")` has a bare, non-self-describing message — the only one of 16 that does not name its subject — producing stutter in every rendered message. | U052.md |
+| U052-F06 | **RESOLVED** `9588afea` | `internal/errs/errors.go:52` | COUPLING | `ErrRemoteContentNotFound = errors.New("not found")` has a bare, non-self-describing message — the only one of 16 that does not name its subject — producing stutter in every rendered message. | U052.md |
 | U053-F15 | **ESCALATED** `cac52a3e` | `exec.go:437` | TRIVIAL | `cmd.Env = os.Environ()` is **exactly** `exec.Cmd`'s behaviour for a nil `Env`. The line is a no-op that reads as deliberate environment control — actively misleading in a codebase whose central co... | U053.md |
 | U053-F16 | **RESOLVED** `12f375ce` | `fake.go:98` | TRIVIAL | `Fake.record` is a single `append` with 6 call sites and no invariant beyond "caller holds mu" (which it does not enforce). | U053.md |
 | U053-F17 | **RESOLVED** `cb2b8396` `127539ad` | `exec.go:242` | TRIVIAL | `CommitAll` calls `(execGit{}).DiffNameOnly(…)` — constructing a throwaway value rather than naming the receiver. Harmless for an empty struct, but it hard-codes the concrete type inside a method w... | U053.md |

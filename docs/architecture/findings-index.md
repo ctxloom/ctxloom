@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,325** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,326** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 136 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **464** |
+| `open` | no commit names this ID | **463** |
 
-**Totals: 2268 findings across 162 units — 1,325 resolved, 464 still open, 479 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,326 resolved, 463 still open, 479 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 478 | 259 | 73 | 81 | 108 |
-| LOW | 871 | 490 | 193 | 48 | 85 | 55 |
+| LOW | 871 | 491 | 192 | 48 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2165,7 +2165,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U033-F08 | **RESOLVED** `5fdf8767` | **`surfaces.go:247-248`** | NOPAY | Stale doc comment describes a plan state two slices out of date: "S1 only defines and fills it in tests; Phase 2 (S4) feeds it from Setup" | U033.md |
 | U033-F09 | **RESOLVED** `89120853` | **`surfaces.go:131-136`, `surfaces.go:182-187`** | ERRHANDLING | On a failed `DeliverIsolated`, `s.path` retains its prior value rather than being cleared, so `Path()` can report a path for a delivery that did not happen — contradicting its own doc (`"" before d... | U033.md |
 | U033-F10 | **PARTIAL** `d78b0049` | **`surfaces.go:280-326`** | COUPLING | The five surfaces are enumerated twice by hand — once as the `dispatch` map (`311-317`) and once as the `Deliveries()` slice (`325`) — plus the struct fields, the approach table, and the assertion ... | U033.md |
-| U034-F13 | open | `internal/cli/acp_children.go:55-110` | COMPLEXITY | `adaptChildWatch` is CCN 16 (over the project's stated CCN-10 gate) and silently drops 13 of the 16 `AgentEvent` payload variants with no default case and no comment saying so | U034.md |
+| U034-F13 | **RESOLVED** `4f001a2a` | `internal/cli/acp_children.go:55-110` | COMPLEXITY | `adaptChildWatch` is CCN 16 (over the project's stated CCN-10 gate) and silently drops 13 of the 16 `AgentEvent` payload variants with no default case and no comment saying so | U034.md |
 | U034-F14 | open | `internal/cli/agent.go:140-184` | COMPLEXITY | `renderAgentShow` is CCN 11 — over the stated CI gate — from nine sequential optional-field `if`s | U034.md |
 | U034-F15 | **PARTIAL** `a0901668` | `internal/cli/acp_agents_cmd.go:140-141` | ERRHANDLING | Both `json.Marshal` errors are discarded in the Zed paste block | U034.md |
 | U034-F16 | open | `internal/cli/bundle.go:58-87` | COHESION | `bundle.go`'s `init()` registers flags for commands defined in eight other files, creating connascence of position across file boundaries | U034.md |

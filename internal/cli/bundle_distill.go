@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"maps"
 	"os"
 	"path/filepath"
@@ -21,6 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/textutil"
 	"github.com/ctxloom/ctxloom/resources"
 )
@@ -127,17 +127,24 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := emit(cmd, result, func() error {
-		out := cmd.OutOrStdout()
+		// Diagnostics ride the command's ERROR writer (not the process's
+		// os.Stderr), and every line goes through an ErrWriter so a broken
+		// stdout is reported instead of producing a silent success.
+		errw := iox.NewErrWriter(cmd.ErrOrStderr())
 		for _, e := range result.Errors {
-			fmt.Fprintln(os.Stderr, e)
+			errw.Println(e)
 		}
+		w := iox.NewErrWriter(cmd.OutOrStdout())
 		for _, f := range result.Files {
-			fmt.Fprintf(out, "Processing: %s\n", f.Path)
-			printDistillItems(out, f.Items)
+			w.Printf("Processing: %s\n", f.Path)
+			printDistillItems(w, f.Items)
 		}
-		printDistillSummary(out, result.TotalItems, result.TotalFiles, result.TotalSkipped, result.DryRun)
-		printDistillInvalidatedApprovals(out, result.Invalidated)
-		return nil
+		printDistillSummary(w, result.TotalItems, result.TotalFiles, result.TotalSkipped, result.DryRun)
+		printDistillInvalidatedApprovals(w, result.Invalidated)
+		if err := w.Err(); err != nil {
+			return err
+		}
+		return errw.Err()
 	}); err != nil {
 		return err
 	}
@@ -159,22 +166,22 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 // never silently discovered later at the next `ctxloom review`. It explains
 // WHY in one sentence (so a user does not go looking for a way to silence it)
 // and names the exact recovery command.
-func printDistillInvalidatedApprovals(w io.Writer, refs []string) {
+func printDistillInvalidatedApprovals(w *iox.ErrWriter, refs []string) {
 	if len(refs) == 0 {
 		return
 	}
-	fmt.Fprintf(w, "\n⚠ %d approval(s) invalidated.\n\n", len(refs))
-	fmt.Fprintln(w, "  Re-distilling rewrote the DISTILLED form of these items. Your approvals")
-	fmt.Fprintln(w, "  covered the previous bytes — the agent would now see text nobody has")
-	fmt.Fprintln(w, "  reviewed, so they are back to pending and are withheld until you review")
-	fmt.Fprintln(w, "  them.")
-	fmt.Fprintln(w)
+	w.Printf("\n⚠ %d approval(s) invalidated.\n\n", len(refs))
+	w.Println("  Re-distilling rewrote the DISTILLED form of these items. Your approvals")
+	w.Println("  covered the previous bytes — the agent would now see text nobody has")
+	w.Println("  reviewed, so they are back to pending and are withheld until you review")
+	w.Println("  them.")
+	w.Println()
 	for _, ref := range refs {
-		fmt.Fprintf(w, "    %s\n", ref)
+		w.Printf("    %s\n", ref)
 	}
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "  Review them:            ctxloom review")
-	fmt.Fprintln(w, "  (Raw forms are unaffected — their approvals still stand.)")
+	w.Println()
+	w.Println("  Review them:            ctxloom review")
+	w.Println("  (Raw forms are unaffected — their approvals still stand.)")
 }
 
 // countDistillItems tallies distilled/planned items vs. skipped ones for the
@@ -196,15 +203,15 @@ func countDistillItems(items []operations.DistillBundleItem) (processed, skipped
 // of what used to be renderDistillItems, now separated from counting so
 // counting can happen unconditionally (for the structured result) while
 // printing happens only inside emit()'s text closure.
-func printDistillItems(w io.Writer, items []operations.DistillBundleItem) {
+func printDistillItems(w *iox.ErrWriter, items []operations.DistillBundleItem) {
 	for _, it := range items {
 		switch it.Status {
 		case operations.DistillStatusSkipped:
-			fmt.Fprintf(w, "  Skipping %s %s (%s)\n", it.Kind, it.Name, it.Reason)
+			w.Printf("  Skipping %s %s (%s)\n", it.Kind, it.Name, it.Reason)
 		case operations.DistillStatusPlanned:
-			fmt.Fprintf(w, "  Would distill %s: %s\n", it.Kind, it.Name)
+			w.Printf("  Would distill %s: %s\n", it.Kind, it.Name)
 		case operations.DistillStatusDistilled:
-			fmt.Fprintf(w, "  Distilled %s: %s (%s)\n", it.Kind, it.Name, it.ModelID)
+			w.Printf("  Distilled %s: %s (%s)\n", it.Kind, it.Name, it.ModelID)
 		}
 	}
 }
@@ -236,9 +243,9 @@ func expandDistillFiles(patterns []string) ([]string, error) {
 }
 
 // printDistillSummary prints the run summary, branching on dry-run.
-func printDistillSummary(w io.Writer, totalItems, totalFiles, totalSkipped int, dryRun bool) {
+func printDistillSummary(w *iox.ErrWriter, totalItems, totalFiles, totalSkipped int, dryRun bool) {
 	if dryRun {
-		fmt.Fprintf(w, "\nDry run: would distill %d items\n", totalItems)
+		w.Printf("\nDry run: would distill %d items\n", totalItems)
 		return
 	}
 	var parts []string
@@ -249,9 +256,9 @@ func printDistillSummary(w io.Writer, totalItems, totalFiles, totalSkipped int, 
 		parts = append(parts, fmt.Sprintf("skipped %d", totalSkipped))
 	}
 	if len(parts) > 0 {
-		fmt.Fprintf(w, "\n%s\n", strings.Join(parts, ", "))
+		w.Printf("\n%s\n", strings.Join(parts, ", "))
 	} else {
-		fmt.Fprintln(w, "\nNo items to distill.")
+		w.Println("\nNo items to distill.")
 	}
 }
 

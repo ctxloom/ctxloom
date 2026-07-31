@@ -295,8 +295,11 @@ func encodeConfigFile(m map[string]any, ft string) ([]byte, error) {
 // is overwritten on the very next write), so a foreign config file being
 // edited across multiple agent sessions keeps every prior generation
 // recoverable, not just the latest.
+// configWriteNow is time.Now, indirected so a test can freeze the clock.
+var configWriteNow = time.Now
+
 func backupBeforeEdit(fs afero.Fs, path string, data []byte) (string, error) {
-	backupPath := fmt.Sprintf("%s.bak.%s", path, time.Now().UTC().Format("20060102T150405Z"))
+	backupPath := fmt.Sprintf("%s.bak.%s", path, configWriteNow().UTC().Format("20060102T150405Z"))
 	if err := afero.WriteFile(fs, backupPath, data, 0600); err != nil {
 		return "", err
 	}

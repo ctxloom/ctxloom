@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/afero"
@@ -355,4 +356,62 @@ func TestConfigWriteCmd_RunE_EndToEnd(t *testing.T) {
 	backupOnDisk, err := os.ReadFile(got.Backup)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"foreign":"keep"}`, string(backupOnDisk))
+}
+
+// freezeConfigWriteClock pins backupBeforeEdit's timestamp source so the
+// same-second collision case is deterministic rather than a race with the
+// wall clock: two consecutive calls in a real run almost always land in the
+// same second, but "almost always" is exactly the shape of a pin that quietly
+// stops proving anything.
+func freezeConfigWriteClock(t *testing.T) {
+	t.Helper()
+	frozen := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
+	orig := configWriteNow
+	configWriteNow = func() time.Time { return frozen }
+	t.Cleanup(func() { configWriteNow = orig })
+}
+
+// config-write's rule 2 promises "a fresh backup every call — never
+// overwritten by the next run", and that promise is the whole reason the
+// command exists: it is the only copy of the user's pre-edit third-party
+// config. The timestamp has ONE-SECOND resolution, so two edits inside the
+// same second (an agent writing several keys, a retry after a failure) both
+// resolve to one filename and the second call destroys the first backup —
+// losing precisely the generation the user would want back.
+func TestBackupBeforeEdit_SameSecondCallsDoNotOverwrite(t *testing.T) {
+	freezeConfigWriteClock(t)
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+
+	first, err := backupBeforeEdit(fs, path, []byte(`{"gen":1}`))
+	require.NoError(t, err)
+	second, err := backupBeforeEdit(fs, path, []byte(`{"gen":2}`))
+	require.NoError(t, err)
+
+	assert.NotEqual(t, first, second, "a second backup in the same second must get its own name")
+
+	got1, err := afero.ReadFile(fs, first)
+	require.NoError(t, err)
+	assert.Equal(t, `{"gen":1}`, string(got1), "the earlier generation must survive the later backup")
+	got2, err := afero.ReadFile(fs, second)
+	require.NoError(t, err)
+	assert.Equal(t, `{"gen":2}`, string(got2))
+}
+
+// The same hazard across PROCESSES: a backup a previous run already left on
+// disk under this second's name must not be reused either.
+func TestBackupBeforeEdit_DoesNotReuseAnExistingBackupName(t *testing.T) {
+	freezeConfigWriteClock(t)
+	fs := afero.NewMemMapFs()
+	path := "/home/user/.config/zed/settings.json"
+	stale := path + ".bak.20260730T120000Z"
+	require.NoError(t, afero.WriteFile(fs, stale, []byte("from an earlier run"), 0600))
+
+	fresh, err := backupBeforeEdit(fs, path, []byte("now"))
+	require.NoError(t, err)
+	assert.NotEqual(t, stale, fresh)
+
+	kept, err := afero.ReadFile(fs, stale)
+	require.NoError(t, err)
+	assert.Equal(t, "from an earlier run", string(kept))
 }

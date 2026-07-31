@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,453** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 173 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 194 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 195 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 199 |
-| `open` | no commit names this ID | **249** |
+| `open` | no commit names this ID | **248** |
 
-**Totals: 2268 findings across 162 units — 1,453 resolved, 249 still open, 566 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,453 resolved, 248 still open, 567 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 540 | 138 | 100 | 90 | 131 |
-| LOW | 871 | 554 | 102 | 57 | 96 | 62 |
+| LOW | 871 | 554 | 101 | 57 | 97 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2420,7 +2420,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U070-F07 | **RESOLVED** `c97d520d` | `pwsh.go:128-131` | COHESION | Package-level `binOnce`/`binPath` are mutable global state behind an instance method; no owner, not resettable. | U070.md |
 | U071-F03 | open | `shell.go:130-162` | COMPLEXITY | `lowerCmd` is CCN 12, above the project's own CI gate of 10 (per the brief's baseline). | U071.md |
 | U071-F06 | **RESOLVED** `1c6b738b` | `shell.go:347-349` | CORRECTNESS | `addNested` reuses the same `lowerer`, so `vars` is a single flat scope: an assignment inside `$(…)` leaks into the enclosing script, contrary to shell semantics and to the package doc's "assignmen... | U071.md |
-| U071-F07 | open | `shell.go:270-303` | COUPLING | `expandConfig(&sc)` aliases a local that is later returned **by value** (`shell.go:303`); the config outlives the address it captured in any future refactor that stores or reuses it. Connascence of... | U071.md |
+| U071-F07 | **REFUTED** `e61f72f9` | `shell.go:270-303` | COUPLING | `expandConfig(&sc)` aliases a local that is later returned **by value** (`shell.go:303`); the config outlives the address it captured in any future refactor that stores or reuses it. Connascence of... | U071.md |
 | U071-F08 | open | `shell.go:41` | COUPLING | The process environment is snapshotted at `New` time, not `Parse` time — connascence of **timing** between composition-root construction and the environment the guarded command will actually see. | U071.md |
 | U072-F07 | **REFUTED** (cross-package/product decision; see wave-2 report) | `ir.go:68` | DEAD | `SimpleCommand.Program()` has zero production call sites and duplicates logic production writes inline. | U072.md |
 | U072-F08 | **REFUTED** (cross-package/product decision; see wave-2 report) | `ir.go:119` | DEAD | `Script.Commands()` has zero production call sites in ltk. | U072.md |

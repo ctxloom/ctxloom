@@ -97,3 +97,47 @@ func TestAssembleRejectsAnImplausiblyShortRuleSet(t *testing.T) {
 		t.Error("expected an error for a rule set far below the shipped floor")
 	}
 }
+
+// Every fenced block in DEFAULTS.md is a rule block — the doc is the source of
+// truth for the shipped guard, not a mixed tutorial. So a fence that does not
+// open with exactly ```yaml is an authoring slip, and skipping it drops a
+// default rule out of the binary ltk installs into a user's project.
+//
+// Nothing downstream catches that. The rule-count floor only fires on a large
+// loss, and the drift check cannot fire at all: it compares the generated file
+// against a re-extraction of the SAME document with the SAME reader, so both
+// sides drop the same block and agree perfectly on a rule set that is missing
+// one. Refuse instead.
+func TestAssembleRejectsAFenceThatIsNotYaml(t *testing.T) {
+	good := "```yaml\nversion: 1\nrules:\n  - id: a\n    match: { command: [git, push] }\n    action: deny\n    message: m\n```\n"
+	for name, info := range map[string]string{
+		"lowercase yml":      "yml",
+		"uppercase":          "YAML",
+		"info attributes":    "yaml title=\"rules\"",
+		"no info string":     "",
+		"leading whitespace": "  yaml",
+	} {
+		t.Run(name, func(t *testing.T) {
+			md := []byte("# Doc\n\n" + good + "\n```" + info + "\nversion: 1\nrules:\n  - id: b\n    match: { command: [rm] }\n    action: deny\n    message: m\n```\n")
+
+			// The fixture must be hostile: the second block carries a real rule
+			// that the reader is supposed to lose.
+			if !bytes.Contains(md, []byte("id: b")) {
+				t.Fatal("fixture is not hostile: no second rule to drop")
+			}
+			if _, err := assemble(md, 1); err == nil {
+				t.Fatalf("a ```%s fence was silently skipped; the rule in it never reaches the shipped defaults", info)
+			}
+		})
+	}
+}
+
+// An unterminated block is the other way to lose content silently: the reader
+// used to need a closing fence to emit anything at all, so a missing one threw
+// the block away.
+func TestAssembleRejectsAnUnterminatedBlock(t *testing.T) {
+	md := []byte("# Doc\n\n```yaml\nversion: 1\nrules:\n  - id: a\n    match: { command: [git, push] }\n    action: deny\n    message: m\n")
+	if _, err := assemble(md, 1); err == nil {
+		t.Fatal("an unterminated ```yaml block was accepted")
+	}
+}

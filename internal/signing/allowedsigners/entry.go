@@ -1,6 +1,7 @@
 package allowedsigners
 
 import (
+	"slices"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -57,6 +58,44 @@ type Entry struct {
 	// Line is the 1-based source line number this entry was parsed from,
 	// for diagnostics.
 	Line int
+}
+
+// clone returns a copy sharing nothing writable with e.
+//
+// An Entry is a value, but four of its fields are not: Principals and
+// Namespaces are slices, and ValidAfter/ValidBefore are pointers. A plain
+// assignment therefore leaves the copy holding the ORIGINAL's grant, so
+// mutating the copy re-decides trust for whoever holds the original — the
+// widening Store's accessors exist to prevent.
+//
+// PublicKey is deliberately not cloned: ssh.PublicKey is an interface over an
+// immutable marshalled blob, there is no general way to deep-copy one, and
+// keysEqual compares Marshal() bytes rather than identity.
+func (e Entry) clone() Entry {
+	out := e
+	out.Principals = slices.Clone(e.Principals)
+	out.Namespaces = slices.Clone(e.Namespaces)
+	if e.ValidAfter != nil {
+		t := *e.ValidAfter
+		out.ValidAfter = &t
+	}
+	if e.ValidBefore != nil {
+		t := *e.ValidBefore
+		out.ValidBefore = &t
+	}
+	return out
+}
+
+// cloneEntries is clone over a slice, preserving a nil slice as nil.
+func cloneEntries(entries []Entry) []Entry {
+	if entries == nil {
+		return nil
+	}
+	out := make([]Entry, len(entries))
+	for i, e := range entries {
+		out[i] = e.clone()
+	}
+	return out
 }
 
 // MatchesPrincipal reports whether identity matches this entry's

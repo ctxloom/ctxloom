@@ -23,13 +23,12 @@ type Store struct {
 	sources []Source
 }
 
-// NewStore builds a Store directly from entries, without parsing text.
+// NewStore builds a Store directly from entries, without parsing text. The
+// entries are deep-copied, so the caller keeps no handle on what it built.
 // Useful for tests and for callers that construct entries programmatically
 // (e.g. the embedded-defaults store, which never touches disk).
 func NewStore(entries ...Entry) *Store {
-	cp := make([]Entry, len(entries))
-	copy(cp, entries)
-	return &Store{entries: cp}
+	return &Store{entries: cloneEntries(entries)}
 }
 
 // Union combines the entries of several stores into one, preserving the
@@ -51,22 +50,22 @@ func Union(stores ...*Store) *Store {
 		if st == nil {
 			continue
 		}
-		all = append(all, st.entries...)
+		all = append(all, cloneEntries(st.entries)...)
 		perrs = append(perrs, st.parseErrors...)
 		srcs = append(srcs, st.sources...)
 	}
 	return &Store{entries: all, parseErrors: perrs, sources: srcs}
 }
 
-// Entries returns a copy of every successfully parsed entry, in file
-// order. Mutating the returned slice does not affect the Store.
+// Entries returns a DEEP copy of every successfully parsed entry, in file
+// order. Nothing reachable from the result aliases the Store: mutating the
+// slice, an Entry, or the Principals/Namespaces/ValidAfter/ValidBefore inside
+// one cannot re-decide trust for anybody else. See Entry.clone.
 func (s *Store) Entries() []Entry {
 	if s == nil {
 		return nil
 	}
-	out := make([]Entry, len(s.entries))
-	copy(out, s.entries)
-	return out
+	return cloneEntries(s.entries)
 }
 
 // ParseErrors returns the lines that could not be parsed into an entry, in
@@ -102,7 +101,13 @@ type Decision struct {
 	// externally-claimed identity, use TrustedAs and inspect
 	// Decision.Entry.Principals directly with Entry.MatchesPrincipal.
 	Principal string
-	// Entry is the matched entry itself, or nil when Trusted is false.
+	// Entry is a COPY of the matched entry, or nil when Trusted is false.
+	//
+	// A copy, not the entry itself: it used to be &s.entries[i], a writable
+	// pointer into the store's own backing array, so a caller holding a
+	// decision could set Namespaces to nil on it — "accepted for all
+	// namespaces" — and promote the entry to every namespace, including the
+	// reject namespace whose supremacy the design rests on.
 	Entry *Entry
 }
 
@@ -163,7 +168,8 @@ func (s *Store) decide(identity *string, key ssh.PublicKey, ns string, now time.
 		if len(e.Principals) > 0 {
 			principal = e.Principals[0]
 		}
-		return Decision{Trusted: true, Principal: principal, Entry: e}
+		matched := e.clone()
+		return Decision{Trusted: true, Principal: principal, Entry: &matched}
 	}
 	return Decision{}
 }
@@ -208,7 +214,7 @@ func (s *Store) WithSource(path string) *Store {
 	if s == nil {
 		return &Store{sources: []Source{{Path: path, Loaded: true}}}
 	}
-	out := &Store{entries: s.entries, parseErrors: s.parseErrors}
+	out := &Store{entries: cloneEntries(s.entries), parseErrors: s.parseErrors}
 	out.sources = append(append([]Source{}, s.sources...), Source{Path: path, Loaded: true, Count: len(s.entries)})
 	return out
 }

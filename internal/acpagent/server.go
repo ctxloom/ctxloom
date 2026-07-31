@@ -559,18 +559,8 @@ func (s *Server) openSession(req OpenRequest, fixedID api.SessionId, fsUp *fsUps
 		engine.Close()
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "session already active: " + string(fixedID)}
 	}
-	id := fixedID
-	if id == "" && engine.Harp != "" {
-		id = api.SessionId(engine.Harp)
-	}
-	if id == "" || s.sessions[id] != nil {
-		// A GENERATED id has no such contract: session/new's response tells
-		// the client exactly which id it got, so falling back here is safe.
-		s.nextID++
-		id = api.SessionId("ctxloom-" + strconv.FormatInt(s.nextID, 10))
-	}
 	sess := &session{
-		id:           id,
+		id:           s.resolveSessionID(fixedID, engine.Harp),
 		engine:       engine,
 		ctx:          ctx,
 		cancel:       cancel,
@@ -587,6 +577,26 @@ func (s *Server) openSession(req OpenRequest, fixedID api.SessionId, fsUp *fsUps
 		go s.pushChildUpdates(sess)
 	}
 	return sess, nil
+}
+
+// resolveSessionID picks the id a session registers under. Callers hold s.mu:
+// it reads the live registry and advances nextID.
+//
+// A fixed id (session/load) has already been proven free by openSession and is
+// used verbatim. Otherwise the engine's harp is preferred, since that is what
+// makes the session addressable by session/load later, and a connection-local
+// "ctxloom-N" is minted when there is no harp or the harp is already taken.
+// Falling back is safe only here: session/new's response reports the id back,
+// so the client always learns which one it got.
+func (s *Server) resolveSessionID(fixedID api.SessionId, harp string) api.SessionId {
+	if fixedID != "" {
+		return fixedID
+	}
+	if harp != "" && s.sessions[api.SessionId(harp)] == nil {
+		return api.SessionId(harp)
+	}
+	s.nextID++
+	return api.SessionId("ctxloom-" + strconv.FormatInt(s.nextID, 10))
 }
 
 // handlePrompt REGISTERS one turn synchronously on the read loop — a
@@ -647,19 +657,10 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 	// the command name. Only that leading part can hold a "/name ..." anyway,
 	// so nothing is lost by scoping the match to it — and the placeholders
 	// stay exactly where they were in the flattened text the engine receives.
-	lead := ""
-	if len(parts) > 0 {
-		lead = parts[0]
-	}
-	expandedLead, matched, cerr := expandCommand(sess.ctx, sess.commands, lead)
+	text, blocks, cerr := s.expandPromptCommand(sess, parts, text, blocks)
 	if cerr != nil {
 		reply(nil, cerr)
 		return
-	}
-	if matched {
-		parts[0] = expandedLead
-		text = strings.Join(parts, "\n")
-		blocks = expandedCommandBlocks(blocks, text)
 	}
 
 	// U014-F02 (route a): a session/prompt whose blocks are ALL unrecognized
@@ -708,6 +709,33 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 	go s.runTurn(sess, text, blocks, prependsContext, reply)
 }
 
+// expandPromptCommand applies B4's command expansion to a prompt, returning
+// the text and blocks the turn should actually carry (both unchanged when no
+// command matched).
+//
+// The match is against the LEADING part only — the sole place a "/name ..."
+// invocation can be — so that ctxloom's own media placeholder lines, which
+// promptParts interleaves into the same flattened string, never reach the
+// command as arguments. On a match the expansion is written back into that
+// part and the whole re-joined, which keeps every placeholder exactly where
+// it was in the text the engine receives.
+func (s *Server) expandPromptCommand(sess *session, parts []string, text string, blocks []agent.ContentBlock) (string, []agent.ContentBlock, *jsonrpc.Error) {
+	lead := ""
+	if len(parts) > 0 {
+		lead = parts[0]
+	}
+	expandedLead, matched, cerr := expandCommand(sess.ctx, sess.commands, lead)
+	if cerr != nil {
+		return "", nil, cerr
+	}
+	if !matched {
+		return text, blocks, nil
+	}
+	parts[0] = expandedLead
+	expanded := strings.Join(parts, "\n")
+	return expanded, expandedCommandBlocks(blocks, expanded), nil
+}
+
 // runTurn runs ONE registered turn: deliver the message, forward the engine's
 // events as session/update notifications, forward its permission requests to
 // the client, relay a session/cancel to the engine, and reply with the stop
@@ -723,7 +751,35 @@ func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock
 		replyWire(result, rerr)
 	}
 
-	// Send the message; a dead engine (closed conversation) surfaces on Errs.
+	if out := s.deliverTurn(sess, text, blocks, prependsContext); out != nil {
+		reply(out.result, out.err)
+		return
+	}
+	for {
+		if out := s.awaitTurnStep(sess); out != nil {
+			reply(out.result, out.err)
+			return
+		}
+	}
+}
+
+// turnOutcome is how a turn ends: exactly one of result/err is meaningful,
+// and its presence (a non-nil *turnOutcome) is what says the turn is over.
+// The alternative — returning (any, *jsonrpc.Error, bool) from every step —
+// makes "not finished yet" and "finished with a nil result" the same value.
+type turnOutcome struct {
+	result any
+	err    *jsonrpc.Error
+}
+
+func turnEnds(result any, err *jsonrpc.Error) *turnOutcome {
+	return &turnOutcome{result: result, err: err}
+}
+
+// deliverTurn hands the turn's message to the engine, returning nil once the
+// engine has taken it and a *turnOutcome if the turn ended before that — a
+// dead engine (surfaced on Errs), a cancel that beat the send, or shutdown.
+func (s *Server) deliverTurn(sess *session, text string, blocks []agent.ContentBlock, prependsContext bool) *turnOutcome {
 	select {
 	case sess.engine.In <- agent.ChatMessage{Text: text, ContentBlocks: blocks}:
 		// U014-F01: ONLY now, having proven the engine actually received this
@@ -738,90 +794,93 @@ func (s *Server) runTurn(sess *session, text string, blocks []agent.ContentBlock
 			sess.contextSent = true
 			sess.mu.Unlock()
 		}
+		return nil
 	case <-sess.cancelTurnCh:
 		// Cancelled before the engine even received the message: honor the
 		// cancel without running the turn.
-		reply(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
-		return
+		return turnEnds(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
 	case err := <-sess.engine.Errs:
-		reply(nil, engineError(err))
-		return
+		return turnEnds(nil, engineError(err))
 	case <-s.ctx.Done():
-		reply(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
-		return
+		return turnEnds(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
 	}
+}
 
-	for {
-		select {
-		case ev, ok := <-sess.engine.Events:
-			if !ok {
-				// Conversation ended mid-turn: cancelled/torn down, or died.
-				if sess.wasCancelled() {
-					reply(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
-				} else {
-					reply(nil, engineError(sess.finalEngineErr()))
-				}
-				return
-			}
-			if ev.Session != nil {
-				// One-time session metadata (model/mcp): surface it as a
-				// session_info_update so a client can render a model header.
-				if rerr := s.emitUpdate(sess, sessionInfoUpdateWire(ev.Session)); rerr != nil {
-					reply(nil, rerr)
-					return
-				}
-				continue
-			}
-			if ev.Complete != nil {
-				// The turn's accounting rides ahead of the completion as a
-				// usage_update (context gauge + cost), then the turn ends.
-				if rerr := s.emitUpdate(sess, usageUpdateWire(ev.Complete)); rerr != nil {
-					reply(nil, rerr)
-					return
-				}
-				reply(api.PromptResponse{StopReason: sess.stopReason(ev.Complete.StopReason)}, nil)
-				return
-			}
-			if ev.Permission != nil {
-				// Forward to the editor OFF this loop: session/updates must keep
-				// streaming while the human decides.
-				go s.forwardPermission(sess, ev.Permission)
-				continue
-			}
-			if ev.Terminal != nil {
-				// B1 (gap G6): forward to the editor OFF this loop, exactly
-				// like a permission request — session/updates must keep
-				// streaming while the editor answers a terminal/* call.
-				go s.forwardTerminal(sess, ev.Terminal)
-				continue
-			}
-			for _, upd := range sess.mapEvent(ev) {
-				if rerr := s.emitUpdate(sess, upd); rerr != nil {
-					reply(nil, rerr)
-					return
-				}
-			}
-		case <-sess.cancelTurnCh:
-			// Relay the cancel to the engine FROM the turn runner, so it is
-			// ordered after the turn's own message; the engine then completes
-			// the turn with a cancelled stop reason.
-			select {
-			case sess.engine.In <- agent.ChatMessage{CancelTurn: true}:
-			case <-sess.ctx.Done():
-			case <-s.ctx.Done():
-			}
-		case err := <-sess.engine.Errs:
+// awaitTurnStep waits for the next thing to happen to a delivered turn and
+// advances it by one step: nil means the turn continues, a *turnOutcome that
+// it is over.
+func (s *Server) awaitTurnStep(sess *session) *turnOutcome {
+	select {
+	case ev, ok := <-sess.engine.Events:
+		if !ok {
+			// Conversation ended mid-turn: cancelled/torn down, or died.
 			if sess.wasCancelled() {
-				reply(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
-			} else {
-				reply(nil, engineError(err))
+				return turnEnds(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
 			}
-			return
-		case <-s.ctx.Done():
-			reply(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
-			return
+			return turnEnds(nil, engineError(sess.finalEngineErr()))
+		}
+		return s.handleTurnEvent(sess, ev)
+	case <-sess.cancelTurnCh:
+		s.relayCancelToEngine(sess)
+		return nil
+	case err := <-sess.engine.Errs:
+		if sess.wasCancelled() {
+			return turnEnds(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
+		}
+		return turnEnds(nil, engineError(err))
+	case <-s.ctx.Done():
+		return turnEnds(api.PromptResponse{StopReason: api.StopReasonCancelled}, nil)
+	}
+}
+
+// relayCancelToEngine forwards a session/cancel to the engine FROM the turn
+// runner, so it is ordered after the turn's own message; the engine then
+// completes the turn with a cancelled stop reason. Gives up if the session or
+// the server is already going down — there is nothing left to cancel.
+func (s *Server) relayCancelToEngine(sess *session) {
+	select {
+	case sess.engine.In <- agent.ChatMessage{CancelTurn: true}:
+	case <-sess.ctx.Done():
+	case <-s.ctx.Done():
+	}
+}
+
+// handleTurnEvent dispatches ONE engine event: nil to keep the turn running,
+// a *turnOutcome to end it.
+func (s *Server) handleTurnEvent(sess *session, ev agent.ChatEvent) *turnOutcome {
+	switch {
+	case ev.Session != nil:
+		// One-time session metadata (model/mcp): surface it as a
+		// session_info_update so a client can render a model header.
+		if rerr := s.emitUpdate(sess, sessionInfoUpdateWire(ev.Session)); rerr != nil {
+			return turnEnds(nil, rerr)
+		}
+		return nil
+	case ev.Complete != nil:
+		// The turn's accounting rides ahead of the completion as a
+		// usage_update (context gauge + cost), then the turn ends.
+		if rerr := s.emitUpdate(sess, usageUpdateWire(ev.Complete)); rerr != nil {
+			return turnEnds(nil, rerr)
+		}
+		return turnEnds(api.PromptResponse{StopReason: sess.stopReason(ev.Complete.StopReason)}, nil)
+	case ev.Permission != nil:
+		// Forward to the editor OFF this loop: session/updates must keep
+		// streaming while the human decides.
+		go s.forwardPermission(sess, ev.Permission)
+		return nil
+	case ev.Terminal != nil:
+		// B1 (gap G6): forward to the editor OFF this loop, exactly
+		// like a permission request — session/updates must keep
+		// streaming while the editor answers a terminal/* call.
+		go s.forwardTerminal(sess, ev.Terminal)
+		return nil
+	}
+	for _, upd := range sess.mapEvent(ev) {
+		if rerr := s.emitUpdate(sess, upd); rerr != nil {
+			return turnEnds(nil, rerr)
 		}
 	}
+	return nil
 }
 
 // forwardPermission relays one engine permission request to the editor as

@@ -111,81 +111,128 @@ const (
 	userRequestCloseTag = "</USER_REQUEST>"
 )
 
-// convertLines runs a single streamed pass over lines in the file's own
-// order. Unlike codex, there is no separate scanSessionInfo pass: antigravity's
-// native format carries no model/permission-mode/context-window/session-id
-// field anywhere (docs/transcript-schema.md §2c lists "turn accounting" as
-// "(none)" for antigravity-native, and no field in `step` corresponds to
-// ChatSessionInfo at all) — so Convert never emits a KindSession or
-// KindComplete line, matching the existing hand-captured oneshot-regime
-// fixture (internal/transcript/testdata/fixtures/antigravity.transcript.acp.jsonl),
-// which is entry-only too.
-func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
-	record := importer.RecordFunc(rec, "antigravity")
-	var (
-		lineCount   int
-		malformed   int
-		convertible int // lines whose Type is one this adapter maps at all
-		wrongStatus int // convertible lines skipped only for Status != stepDone
-		drifted     int // convertible lines whose `content` is no longer a string
-		entries     int
-	)
-	for _, line := range lines {
-		if err := ctx.Err(); err != nil {
+// converter carries the streamed pass's accounting: how many lines were seen,
+// how many failed to parse at all, how many were a step type this adapter maps
+// (and of those, how many were skipped for a non-final status or an unreadable
+// `content`), and how many canonical entries actually came out. Mirrors
+// claude's and codex's identically-named converter fields — the shape every
+// adapter needs to answer "did this import actually do anything?" once the
+// stream is done.
+type converter struct {
+	record func(agent.ChatEvent) error
+
+	lineCount   int
+	malformed   int
+	convertible int // lines whose Type is one this adapter maps at all
+	wrongStatus int // convertible lines skipped only for Status != stepDone
+	drifted     int // convertible lines whose `content` is no longer a string
+	entries     int
+}
+
+// dispatch decodes and routes one line. Skipping is never fatal — every
+// `return nil` below is a counted skip, and the counts are what checkFloor and
+// reportDrift read afterwards to tell an honestly-empty file from a failed
+// import (see importer.VendorAdapter's degrade-to-partial contract).
+func (c *converter) dispatch(line []byte) error {
+	c.lineCount++
+	var s step
+	if err := json.Unmarshal(line, &s); err != nil {
+		c.malformed++
+		return nil // malformed line: skip, never fatal
+	}
+	mapped, finalized := convertibleStep(s)
+	if !mapped {
+		return nil // administrative/unmapped step type: not this adapter's content
+	}
+	c.convertible++
+	if !finalized {
+		c.wrongStatus++
+		return nil // provisional (e.g. RUNNING): not a finalized turn to record
+	}
+	text, readable := stepText(s.Content)
+	if !readable {
+		c.drifted++
+		return nil // `content` is valid JSON but no longer a string: see stepText
+	}
+	for _, ev := range stepEvent(s.Type, text) {
+		if err := c.record(ev); err != nil {
 			return err
 		}
-		lineCount++
-		var s step
-		if err := json.Unmarshal(line, &s); err != nil {
-			malformed++
-			continue // malformed line: skip, never fatal (see importer.VendorAdapter doc)
-		}
-		mapped, finalized := convertibleStep(s)
-		if !mapped {
-			continue // administrative/unmapped step type: not this adapter's content
-		}
-		convertible++
-		if !finalized {
-			wrongStatus++
-			continue // provisional (e.g. RUNNING): not a finalized turn to record
-		}
-		text, readable := stepText(s.Content)
-		if !readable {
-			drifted++
-			continue // `content` is valid JSON but no longer a string: see stepText
-		}
-		for _, ev := range stepEvent(s.Type, text) {
-			if err := record(ev); err != nil {
-				return err
-			}
-			entries++
-		}
-	}
-	if drifted > 0 {
-		agent.Warn("antigravity transcript import: %d step(s) carried a `content` field that is no longer a JSON string — this build cannot read that shape, and their text was dropped", drifted)
-	}
-	// U146-F01/F02: a file that decodes fine but yields zero entries is
-	// indistinguishable, without this check, from a genuinely empty or
-	// admin-only conversation — and because transcript.Recorder only creates
-	// its file on the first SUCCESSFUL Record (recorder.go's NewRecorder doc),
-	// nothing on disk would ever mark the failure either: the same drifted
-	// file would report "success" again on every future retry. Fail loud only
-	// when there was real convertible content to have converted; an
-	// admin-only file (convertible == 0) stays a legitimate, silent success.
-	if entries == 0 && convertible > 0 {
-		if drifted == convertible {
-			return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps, but every one carried a `content` field that is no longer a JSON string — the lines are valid JSON, this build's content shape is what no longer matches", lineCount, convertible)
-		}
-		if wrongStatus == convertible {
-			return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps, but none had status %q — this build's status vocabulary no longer matches the file", lineCount, convertible, stepDone)
-		}
-		return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps but converted ZERO transcript entries — the vendor format this build parses no longer matches the file", lineCount, convertible)
-	}
-	if entries == 0 && malformed > 0 && malformed == lineCount {
-		return fmt.Errorf("antigravity: all %d line(s) failed to parse as JSON — not a transcript this build can read", lineCount)
+		c.entries++
 	}
 	return nil
 }
+
+// reportDrift tells the operator what vendor content this build could not
+// read. Dropping a step whose `content` shape has moved is the honest outcome;
+// dropping it SILENTLY is not.
+func (c *converter) reportDrift() {
+	if c.drifted == 0 {
+		return
+	}
+	agent.Warn("antigravity transcript import: %d step(s) carried a `content` field that is no longer a JSON string — this build cannot read that shape, and their text was dropped", c.drifted)
+}
+
+// checkFloor answers "can this importer produce zero entries and still report
+// success?" A file that decodes fine but yields nothing is indistinguishable,
+// without this, from a genuinely empty or admin-only conversation — and
+// because transcript.Recorder only creates its file on the first SUCCESSFUL
+// Record (recorder.go's NewRecorder doc), nothing on disk would ever mark the
+// failure either: the same drifted file would report "success" again on every
+// future retry. Fail loud only when there was real convertible content to have
+// converted; an admin-only file (convertible == 0) stays a legitimate, silent
+// success.
+func (c *converter) checkFloor() error {
+	if c.entries > 0 {
+		return nil
+	}
+	if c.convertible > 0 {
+		switch {
+		case c.drifted == c.convertible:
+			return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps, but every one carried a `content` field that is no longer a JSON string — the lines are valid JSON, this build's content shape is what no longer matches", c.lineCount, c.convertible)
+		case c.wrongStatus == c.convertible:
+			return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps, but none had status %q — this build's status vocabulary no longer matches the file", c.lineCount, c.convertible, stepDone)
+		default:
+			return fmt.Errorf("antigravity: read %d line(s) including %d step(s) of a type this adapter maps but converted ZERO transcript entries — the vendor format this build parses no longer matches the file", c.lineCount, c.convertible)
+		}
+	}
+	if c.malformed > 0 && c.malformed == c.lineCount {
+		return fmt.Errorf("antigravity: all %d line(s) failed to parse as JSON — not a transcript this build can read", c.lineCount)
+	}
+	return nil
+}
+
+// convertLines runs the streamed pass through importer.ConvertJSONLLines, the
+// same shell codex and claude delegate to — an in-order walk that checks ctx
+// before every line and calls flush once the file is exhausted. Nothing about
+// that shell is antigravity-specific, and this package used to hand-roll it.
+//
+// The nil session info is the one genuine difference from codex and claude,
+// and it is data rather than control flow: antigravity's native format carries
+// no model/permission-mode/context-window/session-id field anywhere
+// (docs/transcript-schema.md §2c lists "turn accounting" as "(none)" for
+// antigravity-native, and no field in `step` corresponds to ChatSessionInfo at
+// all), so there is no scanSessionInfo pass to run and Convert never emits a
+// KindSession or KindComplete line — matching the hand-captured oneshot-regime
+// fixture (internal/transcript/testdata/fixtures/antigravity.transcript.acp.jsonl),
+// which is entry-only too. flush is likewise a no-op: with no pending
+// turn-boundary to merge there is nothing to close out at end of file.
+//
+// The floor check and drift report run only after the shell returns cleanly.
+// A cancelled or sink-failed import stops where it stopped and returns that
+// error verbatim — it must never be re-reported as a drifted vendor format.
+func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
+	c := &converter{record: importer.RecordFunc(rec, "antigravity")}
+	if err := importer.ConvertJSONLLines(ctx, rec, lines, "antigravity", nil, c.dispatch, noFlush); err != nil {
+		return err
+	}
+	c.reportDrift()
+	return c.checkFloor()
+}
+
+// noFlush is antigravity's end-of-file hook: it has no pending turn boundary
+// to merge, unlike codex's and claude's Complete flush.
+func noFlush() error { return nil }
 
 // stepEvent maps one convertible step to zero or one ChatEvents, per
 // docs/transcript-schema.md §2c's mapping table: USER_INPUT -> "user",

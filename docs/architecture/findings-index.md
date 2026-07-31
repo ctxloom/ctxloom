@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,487** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,488** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 175 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 203 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 202 |
-| `open` | no commit names this ID | **201** |
+| `open` | no commit names this ID | **200** |
 
-**Totals: 2268 findings across 162 units — 1,487 resolved, 201 still open, 580 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,488 resolved, 200 still open, 580 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 553 | 118 | 101 | 93 | 134 |
+| MED | 999 | 554 | 117 | 101 | 93 | 134 |
 | LOW | 871 | 575 | 74 | 58 | 102 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1688,7 +1688,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U100-F08 | **PARTIAL** `2933697d` | **`backend.go:40-48`** | NOPAY | Six of `Fragment`'s seven fields are write-only across the whole system: only `Content` is ever read. `Installation` is never even populated. Each dead field costs a proto field plus two converter ... | U100.md |
 | U100-F09 | **RESOLVED** `4be36929` | `base_context.go:30-37` | ERRHANDLING | `Clear` discards the removal error and always returns nil, while unconditionally clearing `contextHash` — so a failed cleanup is invisible **and** unrecoverable (the hash needed to retry is gone). ... | U100.md |
 | U100-F10 | **RESOLVED** `e11a0a6a` | `context_hooks.go:91-93` | ERRHANDLING | `MergeHooksConfig` returns silently when `dest` is nil, dropping the entire source hook set with no error and no warning — the signature gives it no way to report the loss. | U100.md |
-| U100-F12 | open | `chat_mcp.go:28-64` | COMPLEXITY | `ComposeChatMCPServers` measures CCN 11, above the repo's own enforcing gate of CCN 10. | U100.md |
+| U100-F12 | **RESOLVED** `32fe8caf` | `chat_mcp.go:28-64` | COMPLEXITY | `ComposeChatMCPServers` measures CCN 11, above the repo's own enforcing gate of CCN 10. | U100.md |
 | U100-F13 | **ESCALATED** `39535937` | `base.go:169 vs contextfile.go:82` | DUPLICATE | Two assemblers produce "the assembled context", documented as required not to diverge — and they do diverge: `assembleDedupedContext` dedups by content hash and emits the oversize warning; `Assembl... | U100.md |
 | U101-F06 | **RESOLVED** `5c7d8a90` | `managedcontext.go:90-95` | CORRECTNESS | `WriteManagedContext` documents "content OUTSIDE them is the user's and is preserved byte-for-byte", but user content *after* the end marker is hoisted above the managed section on every rewrite | U101.md |
 | U101-F07 | **RESOLVED** `399e8464` | `launch_backend.go:301` | COUPLING | The context-recovery fallback identifies the context surface by **index 0**, coupling `launch_backend.go` to `cells.go`'s `surfaceOrder` by position | U101.md |

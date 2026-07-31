@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,486** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 175 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 202 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 203 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 202 |
-| `open` | no commit names this ID | **203** |
+| `open` | no commit names this ID | **202** |
 
-**Totals: 2268 findings across 162 units — 1,486 resolved, 203 still open, 579 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,486 resolved, 202 still open, 580 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 553 | 119 | 101 | 92 | 134 |
+| MED | 999 | 553 | 118 | 101 | 93 | 134 |
 | LOW | 871 | 574 | 75 | 58 | 102 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1717,7 +1717,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U103-F02 | **REFUTED** `4df72345` | `clidiag.go:125` | DEAD | `FwarnOnce` is exported but has zero callers outside the package | U103.md |
 | U103-F03 | **RESOLVED** `4df72345` | `clidiag.go:148,152` | DEAD | The `Warner` type and its `Warn` method are entirely test-only | U103.md |
 | U103-F06 | **RESOLVED** `c93e818b` | `clidiag.go:88-96` | CORRECTNESS | `SetSink`'s restore closure does an unconditional `Store(prev)`, which is only correct under strict LIFO nesting; two overlapping redirects restore the wrong sink | U103.md |
-| U103-F09 | open | `clidiag.go:56,108,125,140` | COUPLING | Every warning entry point takes `prog` as its first positional parameter, yet the value is a per-binary constant: **327 of 351 call sites pass the literal `"ctxloom"`**. This is connascence of mean... | U103.md |
+| U103-F09 | **REFUTED** `d36172b7` | `clidiag.go:56,108,125,140` | COUPLING | Every warning entry point takes `prog` as its first positional parameter, yet the value is a per-binary constant: **327 of 351 call sites pass the literal `"ctxloom"`**. This is connascence of mean... | U103.md |
 | U104-F02 | **PARTIAL** `4c58940a` | `cliemit.go:46` | ERRHANDLING | `Resolve` swallows the one error that distinguishes "user asked for text" from "this command has no `--format` flag", and both become `FormatText`. | U104.md |
 | U104-F03 | **RESOLVED** `c1fbb79a` | `internal/cli/format_coverage_test.go:204-207` | CORRECTNESS | The project's own coverage registry misattributes three unwired commands as *fixture* gaps, which permanently hides them from the "not wired to emit()" follow-up list the file's own header promises. | U104.md |
 | U104-F04 | **PARTIAL** `738f2cd6` | `cliemit.go:25` (absence) vs `internal/cli/root.go:187` | COHESION | The package calls itself "the cross-binary `--format` output filter" but implements only the success half; the error half exists in exactly one binary and is not in this package. | U104.md |

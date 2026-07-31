@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,315** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,316** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **478** |
+| `open` | no commit names this ID | **477** |
 
-**Totals: 2268 findings across 162 units — 1,315 resolved, 478 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,316 resolved, 477 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 471 | 268 | 73 | 79 | 108 |
-| LOW | 871 | 487 | 198 | 46 | 85 | 55 |
+| LOW | 871 | 488 | 197 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2212,7 +2212,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U038-F16 | **RESOLVED** `6ad30a10` | `mcp_resources.go:176-179` | CORRECTNESS | `ctxloom://sessions/recent` truncates to 25 rows with no marker in the payload — a client cannot distinguish 25-of-25 from 25-of-500. | U038.md |
 | U038-F17 | **RESOLVED** `31aaacd8` | `mcp_server.go:29-30, mcp_tools_agents.go:192` | COUPLING | Two doc comments direct the reader to `newCtxServerForIdentity`, a function that does not exist. | U038.md |
 | U038-F18 | **RESOLVED** `5edea286` | `mcp_tools_agents.go:279` | ERRHANDLING | The standalone `agent_recv` silently discards a malformed `structured` payload while keeping the body, so an approval request arrives stripped of the very field the coordinator must answer. | U038.md |
-| U039-F13 | open | `pager.go:79-82` | ERRHANDLING | A misconfigured `$PAGER` (missing binary) silently falls back to unpaged output with no diagnostic, so the user never learns their `$PAGER` is broken. | U039.md |
+| U039-F13 | **RESOLVED** `77b17d8c` | `pager.go:79-82` | ERRHANDLING | A misconfigured `$PAGER` (missing binary) silently falls back to unpaged output with no diagnostic, so the user never learns their `$PAGER` is broken. | U039.md |
 | U039-F14 | open | `plan_watch.go:87-102` | CORRECTNESS | The debounce has no maximum wait: a plan file written more often than every 100 ms starves the stream indefinitely (each event `Reset`s the timer). The timer is also never `Stop()`ed on the `ctx.Do... | U039.md |
 | U039-F15 | **RESOLVED** `24e4e92e` | `mcp_tools_memory.go:114-116` | TRIVIAL | `getSessionsDir` is a single-expression pass-through with two call sites and no invariant; the same expression is written inline in `memory.go:224,291,343` and `session_cmd.go`. | U039.md |
 | U039-F16 | **RESOLVED** `5fdf8767` | `mcp_tools_memory.go:295-296, :326` | NOPAY | A comment and a user-facing message hedge on a subcommand that shipped: "(when that subcommand lands)". | U039.md |

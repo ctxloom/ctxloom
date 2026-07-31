@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -581,4 +582,23 @@ func mustJSON(t *testing.T, v any) string {
 		return fmt.Sprintf("<unmarshalable: %v>", err)
 	}
 	return string(b)
+}
+
+// Report is a JSON-serialisable evidence trail whose whole point is that a
+// verdict can be argued from the record. A record whose keys are inconsistent
+// is one a consumer has to special-case, so every field marshals snake_case —
+// including At, which carried no tag at all and marshalled as "At" while every
+// sibling was lower-case (U056-F17).
+func TestReport_MarshalsEveryFieldSnakeCase(t *testing.T) {
+	raw, err := json.Marshal(liveness.Report{
+		Harp: "h", State: liveness.StateHealthy, Reason: "r", At: time.Unix(1, 0).UTC(),
+	})
+	require.NoError(t, err)
+	var keys map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(raw, &keys))
+	for k := range keys {
+		assert.Equal(t, strings.ToLower(k), k, "Report key %q is not snake_case", k)
+	}
+	_, ok := keys["at"]
+	assert.True(t, ok, "Report.At must marshal as \"at\"; keys were %v", keys)
 }

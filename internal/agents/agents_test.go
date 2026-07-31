@@ -305,3 +305,15 @@ func TestGetAgentDirs_AbsentDirectoryIsSilent(t *testing.T) {
 	assert.Empty(t, GetAgentDirs(afero.NewMemMapFs(), []string{"/app"}))
 	assert.Empty(t, sink.String())
 }
+
+// TestAgent_FromConfig pins U028-F07: Source is a control-flow discriminator,
+// not a diagnostic string. Exactly the SourceConfig sentinel means "config.yaml
+// owns this"; every other value is a file path the config-key writer must not
+// claim to own. A file path that merely happens to contain "config" is still a
+// file.
+func TestAgent_FromConfig(t *testing.T) {
+	assert.True(t, Agent{Source: SourceConfig}.FromConfig())
+	assert.False(t, Agent{Source: "/proj/.ctxloom/agents/reviewer.yaml"}.FromConfig())
+	assert.False(t, Agent{Source: "/proj/.ctxloom/agents/config.yaml"}.FromConfig())
+	assert.False(t, Agent{}.FromConfig(), "an unsourced binding is not config-owned")
+}

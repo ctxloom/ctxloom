@@ -63,8 +63,15 @@ type Agent struct {
 	// file's base name (directory source), never encoded in the body.
 	Name string `yaml:"-"`
 	// Source records where the definition came from: SourceConfig for the
-	// config.yaml `agents:` key, otherwise the .yaml file path. Diagnostic
-	// only (never serialized), the agent-side mirror of profiles.Profile.Path.
+	// config.yaml `agents:` key, otherwise the .yaml file path. Never
+	// serialized — the agent-side mirror of profiles.Profile.Path.
+	//
+	// It is NOT diagnostic-only. It is the discriminator that tells the two
+	// sources apart, and the write path branches on it: the config-key writer
+	// warns that a file definition has been shadowed, and the config-key
+	// remover REFUSES to delete a file-sourced agent. Ask that question through
+	// FromConfig rather than comparing this string, so the sentinel stays this
+	// package's to define.
 	Source string `yaml:"-"`
 
 	// Engine is the LLM config label/backend; overrides the profiles' llm.
@@ -119,6 +126,15 @@ type Agent struct {
 	// advisory-only unknown-value handling, so it does not get their lenient
 	// treatment).
 	Driving DrivingMode `yaml:"driving,omitempty"`
+}
+
+// FromConfig reports whether this binding came from config.yaml's `agents:`
+// key rather than a .ctxloom/agents/<name>.yaml file. It is the one place the
+// SourceConfig sentinel is interpreted: the config-key write path can only
+// edit and delete what config.yaml owns, so it must be able to ask which
+// source a binding has without reproducing the sentinel comparison.
+func (a Agent) FromConfig() bool {
+	return a.Source == SourceConfig
 }
 
 // DrivingMode is Agent.Driving's enum: the per-turn execution axis a binding

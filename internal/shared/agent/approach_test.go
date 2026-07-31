@@ -86,3 +86,38 @@ func TestApproachTable_SupportedDefaultAndSurfaceFor(t *testing.T) {
 	_, err = mismatched.SurfaceFor("enginex", map[SurfaceKind]Delivery{}, SurfaceCommands, ApproachUnsafeFile)
 	assert.ErrorContains(t, err, "enginex: no commands surface")
 }
+
+// Approach.String must not render an OUT-OF-RANGE value as the enum's zero
+// value. Both this enum and CellKind spell their zero value as the LEAST safe
+// option — ApproachUnsafeFile ("unsafe-file"), CellKindShared ("shared") — so a
+// default: arm that returns it makes an unrecognised value read as a decided,
+// unsafe choice in the very error text a reader uses to diagnose it
+// ("approach unsafe-file not supported"). SurfaceKind.String, in the same file,
+// already spells the honest answer ("unknown"). (U100-F14.)
+func TestApproachString_UnknownValueIsNotRenderedAsUnsafeFile(t *testing.T) {
+	// (1) every DECLARED value keeps its stable label — the characterization
+	// half, green before and after.
+	assert.Equal(t, "unsafe-file", ApproachUnsafeFile.String())
+	assert.Equal(t, "system-prompt", ApproachSystemPrompt.String())
+	assert.Equal(t, "hook", ApproachHook.String())
+
+	// (2) an undeclared value renders as unknown, not as the zero value.
+	got := Approach(99).String()
+	assert.NotEqual(t, "unsafe-file", got, "an unrecognised approach must not impersonate the unsafe-file choice")
+	assert.Contains(t, got, "unknown")
+	assert.Contains(t, got, "99", "the honest label carries the numeric value a reader needs")
+}
+
+// CellKind.String has the same shape and the same hazard: an unrecognised cell
+// rendering as "shared" reports NO isolation for a run whose isolation is simply
+// unknown to this build. (U100-F14.)
+func TestCellKindString_UnknownValueIsNotRenderedAsShared(t *testing.T) {
+	assert.Equal(t, "shared", CellKindShared.String())
+	assert.Equal(t, "directory-isolated", CellKindDirectoryIsolated.String())
+	assert.Equal(t, "process-isolated", CellKindProcessIsolated.String())
+
+	got := CellKind(99).String()
+	assert.NotEqual(t, "shared", got, "an unrecognised cell must not report the run as un-isolated")
+	assert.Contains(t, got, "unknown")
+	assert.Contains(t, got, "99")
+}

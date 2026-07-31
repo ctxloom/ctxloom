@@ -213,12 +213,18 @@ type OpenRequest struct {
 
 // FsUpstreamEnvVar names the engine-env variable OpenEngineSession uses to
 // forward OpenRequest.FsUpstreamAddr to the engine conversation (B5, gap
-// G14). internal/acp/session.go mirrors this EXACT string literal rather
-// than importing this package (operations sits above internal/acp in the
-// import graph — the ACP client driver must not import back up to it,
-// mirroring how agent.RuntimeContainer/isolation.RuntimeContainer are kept
-// as two literal copies of the same string for the identical reason — see
-// that const's doc in internal/shared/agent/chat.go).
+// G14). internal/acp/fsupstream.go mirrors this EXACT string literal rather
+// than importing this package: internal/acp cannot import operations, because
+// operations pulls in internal/lm/backends, which registers acp.NewACP() and
+// so imports acp back. (agent.RuntimeContainer/isolation.RuntimeContainer are
+// two literal copies of one string for the identical reason — see that const's
+// doc in internal/shared/agent/chat.go.)
+//
+// U084-F10: the copies are NOT unbound. internal/acp/constants_binding_test.go
+// — an external test package, which is outside that cycle and so may import
+// both sides — asserts they are equal (TestFsUpstreamEnvVarMatchesOperations),
+// so a rename on either side fails a test instead of silently serving fs/*
+// from local disk.
 const FsUpstreamEnvVar = "CTXLOOM_ACP_FS_UPSTREAM"
 
 // ChildUpdateKind names what a ChildUpdate reports.

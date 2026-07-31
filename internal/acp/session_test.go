@@ -185,6 +185,56 @@ func TestChat_TurnMetaAccounting(t *testing.T) {
 	assert.Positive(t, meta.DurationMs, "duration is self-measured (ACP carries no timing)")
 }
 
+// U012-F11: ACP's usage_update is CUMULATIVE by specification —
+// api.UsageUpdate types `cost` as "Cumulative session cost" and `used` as
+// "Tokens currently in context" — and TurnMeta.InputTokens/CostUSD carry those
+// values through UNCHANGED. That is deliberate, not an accident of naming, and
+// every reader depends on it: run_structured renders "context used/window",
+// acpagent's usageUpdateWire re-emits a usage_update whose `used`/`cost` must
+// still be cumulative for the editor's own gauge, and agentcoord's
+// usageFromMeta bills the LAST turn's meta as the session total.
+//
+// Turning these into per-turn deltas would silently corrupt all three. This
+// pins the cumulative contract across two turns: turn two reports the latest
+// cumulative figures, not a delta and not a sum.
+func TestChat_TurnMetaCarriesCumulativeUsageAcrossTurns(t *testing.T) {
+	h := startChat(t, agent.ChatRequest{Model: "m"})
+	events := collect(h.out)
+
+	go func() {
+		sid := h.fa.serveHandshake(t)
+
+		req1 := <-h.fa.requests
+		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"usage_update","used":1000,"size":200000,"cost":{"amount":0.010,"currency":"USD"}}`)
+		require.NoError(t, h.fa.respond(req1.ID, map[string]any{"stopReason": "end_turn"}))
+
+		req2 := <-h.fa.requests
+		_ = h.fa.sessionUpdate(sid, `{"sessionUpdate":"usage_update","used":2500,"size":200000,"cost":{"amount":0.030,"currency":"USD"}}`)
+		require.NoError(t, h.fa.respond(req2.ID, map[string]any{"stopReason": "end_turn"}))
+	}()
+
+	h.in <- agent.ChatMessage{Text: "one"}
+	h.in <- agent.ChatMessage{Text: "two"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+
+	var metas []*agent.TurnMeta
+	for _, ev := range events() {
+		if ev.Complete != nil {
+			metas = append(metas, ev.Complete)
+		}
+	}
+	require.Len(t, metas, 2)
+
+	assert.Equal(t, 1000, metas[0].InputTokens)
+	assert.InDelta(t, 0.010, metas[0].CostUSD, 1e-9)
+
+	assert.Equal(t, 2500, metas[1].InputTokens,
+		"the engine's cumulative 'tokens currently in context' rides through — not the 1500 delta, not a 3500 sum")
+	assert.InDelta(t, 0.030, metas[1].CostUSD, 1e-9,
+		"the engine's cumulative session cost rides through — not the 0.020 delta")
+}
+
 // TestChat_ForeignSessionInfoUpdateIgnored: a "session_info_update" frame —
 // whether it's ctxloom's OWN residual PermissionMode/MCPServers `_meta`
 // payload, or a genuinely foreign engine's real title/timestamp update — is

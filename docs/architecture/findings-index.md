@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,407** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 159 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 160 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 187 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 186 |
-| `open` | no commit names this ID | **329** |
+| `open` | no commit names this ID | **328** |
 
-**Totals: 2268 findings across 162 units — 1,407 resolved, 329 still open, 532 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,407 resolved, 328 still open, 533 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 520 | 183 | 90 | 86 | 120 |
+| MED | 999 | 520 | 182 | 91 | 86 | 120 |
 | LOW | 871 | 528 | 137 | 53 | 93 | 60 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1605,7 +1605,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U090-F09 | **RESOLVED** `5fdf8767` | **`paths.go:32-36, 492-494`** | NOPAY | `TrustFileName`'s doc comment describes a file (`.ctxloom/trust.yaml`) that **no longer exists and that no function in this package builds**. The constant survives only as a *directory* segment in ... | U090.md |
 | U090-F13 | **PARTIAL** `3377138e` | **`paths.go:447, 473 vs `internal/shared/agent/contextfile.go:21`, `internal/remote/reference.go:501`** | DUPLICATE | Two consumers rebuild cache paths this package already exposes, which is why `ContextPath` is dead and `CacheBundlesPath` under-used. A layout change here would silently miss both. | U090.md |
 | U090-F14 | **RESOLVED** `714614b8` | **`paths.go:158-168, 108, 317 vs `internal/shared/plans/plans.go:19-20,41-46`** | DUPLICATE | `internal/shared/plans` re-declares this package's sessions-dir and plan-extension vocabulary and re-implements `HomeSessionsDir` — while *already importing* a `paths` package (the tasks one). Two ... | U090.md |
-| U090-F15 | open | **`paths.go:11 vs `internal/shared/tasks/paths/paths.go:22,29`** | COUPLING | There are **two** packages named `paths` in this module, each declaring its own `AppDirName = ".ctxloom"` and its own `IndexFileName = "index.yaml"`. Connascence of *value* across package boundarie... | U090.md |
+| U090-F15 | **PARTIAL** `88e32211` | **`paths.go:11 vs `internal/shared/tasks/paths/paths.go:22,29`** | COUPLING | There are **two** packages named `paths` in this module, each declaring its own `AppDirName = ".ctxloom"` and its own `IndexFileName = "index.yaml"`. Connascence of *value* across package boundarie... | U090.md |
 | U091-F03 | **RESOLVED** `159e370c` | **`profiles.go:76`** | DEAD | `ParseProfile` is unreachable — 0 references repo-wide including tests | U091.md |
 | U091-F04 | **RESOLVED** `8fed60ae` | **`profiles.go:544-549`** | DUPLICATE | `isRemoteProfileRef` is a byte-for-byte reimplementation of `remote.IsCanonicalRef` — same four prefixes, same order — in a file that already imports `remote` and already calls `remote.IsCanonicalR... | U091.md |
 | U091-F05 | **RESOLVED** `237f0cb1` | **`memstore.go:50, memstore.go:79`** | ERRHANDLING | `MemStore.Load`/`Delete` return bare `fmt.Errorf("profile %q not found", name)` while the sibling `*Loader` wraps `errs.ErrProfileNotFound` (profiles.go:511, 539). `errors.Is(err, errs.ErrProfileNo... | U091.md |

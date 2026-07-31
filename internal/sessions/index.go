@@ -713,6 +713,20 @@ func (m *Manager) Forget(harpName string) error {
 // with no distilled essence to fall back on — never reaches a frontend; the
 // removal is silent because such an entry is already unactionable. One atomic
 // load+save under the lock, and a no-op write when nothing is dead.
+//
+// CONTRACT ON isDead: it is called while this Manager holds BOTH its mutex and
+// the index file lock, so it must not reach back into the session index by any
+// route. Calling a method on this Manager self-deadlocks on the non-reentrant
+// mutex; opening a second Manager over the same file and calling a locking
+// method of ITS own blocks forever on the flock, which is exclusive and
+// blocking even within one process. Neither fails — the process hangs with no
+// error and no output. Judge only the Entry passed in, plus the filesystem
+// (the production predicate, operations.isUnrecoverable, stats transcript
+// files and nothing else).
+//
+// The predicate must stay inside the lock: the whole point is that the load,
+// the judgement and the pruning save are one atomic sequence, so an entry
+// cannot be judged against an index another writer has since changed.
 func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

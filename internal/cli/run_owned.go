@@ -286,6 +286,16 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 				if p.MessageStarted.GetChannel() == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_FINAL {
 					final[p.MessageStarted.GetMessageId()] = true
 				}
+			case *agentcoordpb.AgentEvent_MessageCompleted:
+				// The item contract is started -> delta* -> completed, so a
+				// completed id is spent: releasing it keeps this map sized to
+				// the messages currently OPEN rather than to every message the
+				// session has ever produced (a structured REPL is long-lived
+				// and its message ids are monotonic, so nothing here is ever
+				// reused). Mirrors the sibling adapter over this same stream,
+				// internal/operations/sessionfeed.go, which drops its
+				// per-message state at the same point.
+				delete(final, p.MessageCompleted.GetMessageId())
 			case *agentcoordpb.AgentEvent_MessageDelta:
 				if !final[p.MessageDelta.GetMessageId()] {
 					continue

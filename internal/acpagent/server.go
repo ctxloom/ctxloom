@@ -38,11 +38,25 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// agentName/agentVersion identify ctxloom in the initialize response.
-const (
-	agentName    = "ctxloom"
-	agentVersion = "1.0.0"
-)
+// agentName identifies ctxloom in the initialize response.
+const agentName = "ctxloom"
+
+// agentVersion is what initialize reports as agentInfo.version: the running
+// binary's build stamp, so an editor's "which build am I talking to" question
+// gets an answer that actually identifies one. It defaults to the same "dev"
+// an unstamped build carries and is set by internal/cli at startup (see
+// SetAgentVersion), which is where the ldflags-injected Version lives; this
+// package cannot import that one without a cycle. Same shape as
+// internal/lm/isolation.SetBinaryVersion, which exists for the same reason.
+var agentVersion = "dev"
+
+// SetAgentVersion supplies the build stamp reported at initialize. Called once
+// during CLI startup, before any connection is served.
+func SetAgentVersion(v string) {
+	if v != "" {
+		agentVersion = v
+	}
+}
 
 // protocolFloor is the LOWEST ACP protocol version this agent will negotiate.
 // The spec renumbered its versioning scheme from fractional (0.14.0) to

@@ -1270,16 +1270,22 @@ func TestSwitchProfile_FailedModeNotificationFailsTheRequest(t *testing.T) {
 		"the client never got the current_mode_update, so set_mode must not answer success")
 }
 
-// TestInitialize_AgentInfoVersion characterizes U014-F18 before the fix (a
-// MISSING-SEAM row: there is no injection point for the build stamp, so a
-// test against one cannot fail — it fails to COMPILE, which is not a red).
+// TestInitialize_AgentInfoVersionIsTheBuildStamp pins U014-F18. agentVersion
+// used to be the constant "1.0.0", reported to every connected editor as
+// agentInfo.version: not the build stamp internal/cli.Version carries, never
+// bumped, and naming a release ctxloom has never made — so the one field the
+// ACP handshake reserves for "which build am I talking to" answered with a
+// number identifying nothing.
 //
-// agentVersion is the constant "1.0.0", reported to every connected editor as
-// agentInfo.version. It is not the build stamp internal/cli.Version carries,
-// it has never been bumped, and ctxloom has never actually released a 1.0.0 —
-// so the one field the ACP handshake reserves for "which build am I talking
-// to" answers with a number that identifies nothing.
-func TestInitialize_AgentInfoVersion(t *testing.T) {
+// A MISSING-SEAM row (template section 4, class 1): the defect WAS the absent
+// injection point, so the honest test could not go red, only fail to compile.
+// It landed first as a characterization asserting the frozen "1.0.0" and is
+// inverted here now that SetAgentVersion exists.
+func TestInitialize_AgentInfoVersionIsTheBuildStamp(t *testing.T) {
+	restore := agentVersion
+	t.Cleanup(func() { agentVersion = restore })
+	SetAgentVersion("v0.7.0-pre1-abcd1234")
+
 	eng := newFakeEngine()
 	go eng.pump()
 	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
@@ -1295,5 +1301,17 @@ func TestInitialize_AgentInfoVersion(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(resp.Result, &got))
 	assert.Equal(t, "ctxloom", got.AgentInfo.Name)
-	assert.Equal(t, "1.0.0", got.AgentInfo.Version)
+	assert.Equal(t, "v0.7.0-pre1-abcd1234", got.AgentInfo.Version,
+		"the handshake must report the running build, not a frozen literal")
+}
+
+// TestSetAgentVersion_EmptyKeepsTheDefault: an unstamped build passes "" and
+// must not blank the field out — an absent version is less useful than the
+// honest "dev" placeholder, and agentInfo.version is a required string.
+func TestSetAgentVersion_EmptyKeepsTheDefault(t *testing.T) {
+	restore := agentVersion
+	t.Cleanup(func() { agentVersion = restore })
+	SetAgentVersion("v1.2.3")
+	SetAgentVersion("")
+	assert.Equal(t, "v1.2.3", agentVersion)
 }

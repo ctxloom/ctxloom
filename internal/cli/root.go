@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/acpagent"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -209,6 +210,12 @@ func init() {
 	// label) and compares it against present images to rebuild stale ones; it
 	// cannot import this package to read Version itself.
 	isolation.SetBinaryVersion(Version)
+
+	// `ctxloom acp` reports this as agentInfo.version in the ACP initialize
+	// handshake — the field an editor reads to identify the build it is
+	// talking to. Same reason as the line above: that package cannot import
+	// this one to read Version itself.
+	acpagent.SetAgentVersion(Version)
 
 	// --config-set is the ONLY source of CLI-layer config overrides (see
 	// confload.ConfigSetFlagName's doc): a dedicated, repeatable, PERSISTENT flag

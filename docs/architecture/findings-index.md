@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,290** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,291** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 123 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 168 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 166 |
-| `open` | no commit names this ID | **521** |
+| `open` | no commit names this ID | **520** |
 
-**Totals: 2268 findings across 162 units — 1,290 resolved, 521 still open, 457 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,291 resolved, 520 still open, 457 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 458 | 288 | 69 | 79 | 105 |
-| LOW | 871 | 475 | 221 | 39 | 81 | 55 |
+| LOW | 871 | 476 | 220 | 39 | 81 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2033,7 +2033,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U014-F09 | **RESOLVED** `da926572` | `fsupstream.go:60-80, 94-107` | CORRECTNESS | Every fs-upstream session leaks an empty temp directory: `startFsUpstream` creates one with `os.MkdirTemp` (94) but `Close` removes only the socket file (78). The failure paths correctly use `os.Re... | U014.md |
 | U014-F13 | **RESOLVED** `e7e6c776` | **`children.go:24; server.go:66,70; wire.go:32`** | DEAD | Four alias/const re-exports have no production consumer. `ChildUpdateKind` (children.go:24) has **zero** references anywhere in the repo outside its own declaration. `LLMInfo` (server.go:66), `Comm... | U014.md |
 | U014-F14 | **RESOLVED** `49e62e69` | **`mapping.go:428-437`** | CORRECTNESS | A turn that reports only cost (`InputTokens == 0`, `ContextWindow == 0`, `CostUSD != 0`) passes the guard at 429 and emits `{"used":0,"size":0,"cost":{...}}`. `used`/`size` have no `omitempty` in t... | U014.md |
-| U014-F16 | open | **`commands.go:120-130 + server.go:1096-1098`** | CORRECTNESS | When a command invocation arrives alongside an image/audio block, `promptText`'s placeholder line becomes part of `rest`, so the expanded command body ends with `[image content received (mimeType=…... | U014.md |
+| U014-F16 | **RESOLVED** `47e5065f` | **`commands.go:120-130 + server.go:1096-1098`** | CORRECTNESS | When a command invocation arrives alongside an image/audio block, `promptText`'s placeholder line becomes part of `rest`, so the expanded command body ends with `[image content received (mimeType=…... | U014.md |
 | U014-F17 | **RESOLVED** `a8166024` | **`server.go:1204-1207`** | ERRHANDLING | A `json.Marshal` failure in `contentBlocksFromACP` `continue`s, silently dropping the whole block from the structured payload — the drop this function exists to prevent. The comment concedes it is ... | U014.md |
 | U014-F18 | **RESOLVED** `26c76aaf` | **`server.go:43, 308`** | CORRECTNESS | `agentVersion = "1.0.0"` is a hard-coded literal reported to every connected editor as `agentInfo.version`. It is not the build stamp (`internal/cli.Version`, root.go:19-21), has never been bumped,... | U014.md |
 | U014-F19 | **RESOLVED** `aaf10d04` | **`server.go:373-377`** | ERRHANDLING | A `session/cancel` whose params fail to decode returns with no warning, so the user's cancel disappears without trace — while an *unknown method* on the same path does warn (370). | U014.md |

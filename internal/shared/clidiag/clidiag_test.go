@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
@@ -230,3 +231,53 @@ func TestSetSink_TypedNilFallsBackToTheDefault(t *testing.T) {
 type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
+// SetSink's restore closure did an UNCONDITIONAL Store(prev), which is only
+// correct if every redirect is unwound in strict LIFO order. Two overlapping
+// redirects broke it both ways: the earlier owner's restore CLOBBERED a redirect
+// that was still live (warnings escape onto the terminal the later owner is
+// painting — the exact corruption SetSink exists to prevent), and the later
+// owner's restore then RESURRECTED the earlier sink after its owner was gone
+// (in production that writer is an *os.File the owner closes right after
+// restoring, so the warning is written to a closed fd and the error discarded).
+// Restore must remove only its OWN redirect and hand the channel to whichever
+// redirect is still active. (U103-F06.)
+func TestSetSink_OutOfOrderRestoreLeavesTheLiveRedirectAlone(t *testing.T) {
+	var early, late bytes.Buffer
+	restoreEarly := SetSink(&early)
+	restoreLate := SetSink(&late)
+	t.Cleanup(func() { restoreEarly(); restoreLate() })
+
+	// The fixture must actually be overlapping-and-out-of-order from SetSink's
+	// point of view before anything is asserted: `late` owns the channel now.
+	require.Same(t, &late, warnSink(), "the later redirect must own the channel before the out-of-order restore")
+
+	restoreEarly() // the EARLIER owner finishes first
+
+	Warn("ctxloom", "late still owns the terminal")
+	assert.Contains(t, late.String(), "late still owns the terminal",
+		"an out-of-order restore must not steal a redirect that is still live")
+	assert.Empty(t, early.String(), "the restored redirect must receive nothing more")
+
+	restoreLate()
+	assert.Same(t, os.Stderr, warnSink(),
+		"once every redirect is restored the default is back — never a resurrected earlier sink")
+}
+
+// Restore is idempotent: calling it twice must not pop somebody else's redirect.
+// Several tests in this tree both `defer restore()` and register a cleanup that
+// restores again. (U103-F06.)
+func TestSetSink_RestoreIsIdempotent(t *testing.T) {
+	var outer, inner bytes.Buffer
+	restoreOuter := SetSink(&outer)
+	t.Cleanup(restoreOuter)
+
+	restoreInner := SetSink(&inner)
+	restoreInner()
+	restoreInner()
+	restoreInner()
+
+	Warn("ctxloom", "outer still owns the channel")
+	assert.Contains(t, outer.String(), "outer still owns the channel",
+		"repeat restores must be no-ops, not repeated pops")
+}

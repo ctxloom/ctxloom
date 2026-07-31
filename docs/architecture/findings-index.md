@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,382** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 155 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 184 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 185 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 188 |
-| `open` | no commit names this ID | **359** |
+| `open` | no commit names this ID | **358** |
 
-**Totals: 2268 findings across 162 units — 1,382 resolved, 359 still open, 527 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,382 resolved, 358 still open, 528 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 508 | 200 | 87 | 83 | 121 |
-| LOW | 871 | 517 | 148 | 52 | 93 | 61 |
+| LOW | 871 | 517 | 147 | 52 | 94 | 61 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2370,7 +2370,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U060-F06 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `llm.proto:388` | NOPAY | `LLMInfo.supported_modes` is written but never read in production | U060.md |
 | U060-F07 | **PARTIAL** `a219bd27` | `llm.pb.go:3391` | CORRECTNESS | Generated getter `GetAutoRegisterCtxloom()` collapses the unset/true/false tri-state the field exists to preserve; latent, not live | U060.md |
 | U060-F08 | **ESCALATED** `10fd1161` | `llm.proto:383` | DUPLICATE | Local `Empty` duplicates the `google.protobuf.Empty` well-known type | U060.md |
-| U060-F10 | open | `llm.proto:277,286` | COMPLEXITY | `ChatEvent.terminal = 6` sits inside the oneof while `raw = 5` sits outside it — numerically interleaved, which reads as an error | U060.md |
+| U060-F10 | **REFUTED** `bc2f63d7` | `llm.proto:277,286` | COMPLEXITY | `ChatEvent.terminal = 6` sits inside the oneof while `raw = 5` sits outside it — numerically interleaved, which reads as an error | U060.md |
 | U061-F11 | **RESOLVED** `9e855eeb` | **`managed.go:97; sessionhistory.go:65, 218; sessionwatch.go:73-74`** | ERRHANDLING | Four unchecked `int → int32` narrowings on the wire. Each silently wraps rather than failing. | U061.md |
 | U061-F12 | **ESCALATED** `1080e96e` | `sessionhistory.go:21-33` | CORRECTNESS | The unix-seconds wire representation uses `0` as the "zero time" sentinel and drops sub-second precision. A genuine `1970-01-01T00:00:00Z` timestamp round-trips to `time.Time{}`, and two entries wr... | U061.md |
 | U061-F13 | **REFUTED** `ee67d0dc` | **`server.go:39-41; sessionwatch.go:91-96`** | COHESION | `GRPCServer.watchPoll` is a production struct field whose only writers are tests. | U061.md |

@@ -143,6 +143,22 @@ func Show(path string) (string, error) {
 	if !strings.HasSuffix(path, paths.PlanFileExt) {
 		return "", fmt.Errorf("not a plan file: %s", path)
 	}
+	real, err := resolveContainedPlanPath(path)
+	if err != nil {
+		return "", err
+	}
+	data, err := os.ReadFile(real)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// resolveContainedPlanPath follows every symlink in path and returns the real
+// path, or an error if that path is not a regular file inside the sessions
+// root. It is the whole of Show's safety check, kept apart from the read so
+// the two cannot drift.
+func resolveContainedPlanPath(path string) (string, error) {
 	root, err := paths.HomeSessionsDir()
 	if err != nil {
 		return "", err
@@ -174,11 +190,7 @@ func Show(path string) (string, error) {
 	if !info.Mode().IsRegular() {
 		return "", fmt.Errorf("not a regular file: %s", path)
 	}
-	data, err := os.ReadFile(real)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
+	return real, nil
 }
 
 // ParseFrontmatter extracts the `title` scalar and the `sessions:` list from a
@@ -206,42 +218,54 @@ func ParseFrontmatter(content string) (title string, sessions []string) {
 			break
 		}
 		if inSessions {
-			item := strings.TrimSpace(line)
-			if strings.HasPrefix(item, "- ") {
-				// Unquoted for the same reason `title` is: a harp is the
-				// value, not its YAML spelling. A quoted entry that kept its
-				// quotes would never match the harp anywhere else, and the
-				// writer round-trips scalar styles verbatim, so whatever
-				// quoting a plan's author used survives into this parser.
-				sessions = append(sessions, unquote(strings.TrimSpace(item[2:])))
+			item, isItem, stillOpen := sessionsBlockLine(line)
+			inSessions = stillOpen
+			if isItem {
+				sessions = append(sessions, item)
 				continue
-			}
-			// A non-item line that isn't indented ends the sessions block.
-			if !strings.HasPrefix(line, " ") && !strings.HasPrefix(line, "\t") {
-				inSessions = false
 			}
 		}
 		switch {
 		case strings.HasPrefix(line, "title:"):
 			title = unquote(strings.TrimSpace(line[len("title:"):]))
 		case strings.HasPrefix(line, "sessions:"):
-			// YAML writes a sequence two ways and the paired writer emits
-			// both: it round-trips through yaml.Node so that an author's
-			// FLOW list (`sessions: [a, b]`) keeps its style and is merely
-			// extended in place. A parser that understood only the block form
-			// reported no sessions at all for a file it had just stamped.
-			rest := strings.TrimSpace(line[len("sessions:"):])
-			if rest == "" {
-				inSessions = true
-				continue
-			}
-			sessions = append(sessions, parseFlowSequence(rest)...)
+			flow, blockFollows := sessionsKeyLine(line)
+			sessions = append(sessions, flow...)
+			inSessions = blockFollows
 		}
 	}
 	if !closed {
 		return "", nil
 	}
 	return title, sessions
+}
+
+// sessionsBlockLine interprets one line while a `sessions:` block is open. It
+// reports the item that line contributes (already unquoted, for the same
+// reason `title` is: a harp is the value, not its YAML spelling, and a quoted
+// entry that kept its quotes would match no harp anywhere else), whether the
+// line was an item at all, and whether the block is still open afterwards — a
+// non-item line that is not indented has left the block.
+func sessionsBlockLine(line string) (item string, isItem, stillOpen bool) {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "- ") {
+		return unquote(strings.TrimSpace(trimmed[2:])), true, true
+	}
+	indented := strings.HasPrefix(line, " ") || strings.HasPrefix(line, "\t")
+	return "", false, indented
+}
+
+// sessionsKeyLine interprets the `sessions:` key itself. YAML writes a
+// sequence two ways and the paired writer emits both: it round-trips through
+// yaml.Node so an author's FLOW list (`sessions: [a, b]`) keeps its style and
+// is merely extended in place. A bare key means a block list follows on the
+// lines after it.
+func sessionsKeyLine(line string) (flow []string, blockFollows bool) {
+	rest := strings.TrimSpace(line[len("sessions:"):])
+	if rest == "" {
+		return nil, true
+	}
+	return parseFlowSequence(rest), false
 }
 
 // parseFlowSequence reads a single-line YAML flow sequence — `[a, b, "c"]` —
@@ -253,13 +277,29 @@ func parseFlowSequence(s string) []string {
 	if !strings.HasPrefix(s, "[") || !strings.HasSuffix(s, "]") {
 		return nil
 	}
-	inner := s[1 : len(s)-1]
+	items := splitOutsideQuotes(s[1 : len(s)-1])
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if v := unquote(strings.TrimSpace(item)); v != "" {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
 
+// splitOutsideQuotes splits on commas that are not inside a quoted run, so a
+// value containing a comma survives as one item. Quotes are kept: unquoting is
+// the caller's step, and stripping them here would lose the information that
+// the comma was protected.
+func splitOutsideQuotes(s string) []string {
 	var items []string
 	var cur strings.Builder
 	var quote byte
-	for i := 0; i < len(inner); i++ {
-		c := inner[i]
+	for i := 0; i < len(s); i++ {
+		c := s[i]
 		switch {
 		case quote != 0:
 			if c == quote {
@@ -276,18 +316,7 @@ func parseFlowSequence(s string) []string {
 			cur.WriteByte(c)
 		}
 	}
-	items = append(items, cur.String())
-
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		if v := unquote(strings.TrimSpace(item)); v != "" {
-			out = append(out, v)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
+	return append(items, cur.String())
 }
 
 // unquote strips a single pair of matching surrounding quotes, if present.

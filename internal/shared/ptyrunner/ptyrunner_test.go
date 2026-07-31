@@ -594,3 +594,21 @@ func TestRunInteractive_NonBenignCloseFailureIsReported(t *testing.T) {
 		assert.Zero(t, exitCode)
 	})
 }
+
+// TestRunInteractive_SignalKilledChildYieldsMinusOne characterizes the exit
+// code a signal-killed child produces TODAY. It is deliberately an assertion
+// about present behaviour rather than a fix: os/exec reports -1 for a process
+// that died on a signal, and this runner passes it straight through, so
+// internal/cli's ExitError carries -1 into os.Exit, which the OS truncates to
+// 255. That makes a killed engine indistinguishable from an engine that really
+// exited 255 and from a runner-internal failure. Changing it (the POSIX
+// convention is 128+signum) alters a user-visible exit code, which is a
+// decision for a human — this pin exists so that decision has to be taken
+// deliberately, by someone who has to edit this test.
+func TestRunInteractive_SignalKilledChildYieldsMinusOne(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "kill -TERM $$; sleep 5")
+	exitCode, err := RunInteractive(context.Background(), cmd, nil, nil, nil)
+	require.NoError(t, err)
+	assert.Equal(t, -1, exitCode,
+		"a signal-killed child currently reports -1, not the POSIX 128+signum convention")
+}

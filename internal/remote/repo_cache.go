@@ -218,11 +218,53 @@ func (c *RepoCache) authEnv(cloneURL string, forgeType ForgeType) []string {
 
 // cloneToken resolves the github token for a clone URL: the resolved forge's
 // token_env value when a forge resolver is configured, else the ambient token.
+//
+// It is also where a credential is matched to a destination, because this is
+// the layer that knows the destination. The AMBIENT github credential —
+// GITHUB_TOKEN/GH_TOKEN via AuthConfig.GitHub, and the same variable arriving
+// as the per-type token_env default — is a github.com credential and is only
+// sent to github.com. Nothing upstream asks which host it is: resolvedFromConfig
+// applies the GITHUB_TOKEN default to every github-TYPED forge regardless of
+// base_url, and ResolvedForge.Token falls through to AuthConfig.GitHub when the
+// named variable is unset. So an ordinary
+//
+//	forges: {corp: {type: github, base_url: https://github.corp.example}}
+//
+// used to put the github.com personal access token on the wire to
+// github.corp.example on every clone and fetch, as an Authorization header
+// (see authEnv). No attack required.
+//
+// A token_env the user NAMED is a different credential and is not scoped: it
+// travels to whatever host its forge points at, which is the whole point of
+// configuring one. Only the unnamed, inherited value is confined.
 func (c *RepoCache) cloneToken(cloneURL string) string {
-	if c.resolver != nil {
-		return c.resolver(cloneURL).Token(c.auth)
+	if isGitHubDotCom(cloneURL) {
+		if c.resolver != nil {
+			return c.resolver(cloneURL).Token(c.auth)
+		}
+		return c.auth.GitHub
 	}
-	return c.auth.GitHub
+
+	// Off github.com only an explicitly named token_env is spendable, and it
+	// is read directly rather than through Token — Token's ambient fallback is
+	// exactly what must not apply here, and a named variable that is unset
+	// means "no credential for this host", not "use the github.com one".
+	if c.resolver == nil {
+		return ""
+	}
+	rf := c.resolver(cloneURL)
+	if rf.Type != ForgeGitHub || rf.TokenEnv == "" || rf.TokenEnv == DefaultGitHubTokenEnv {
+		return ""
+	}
+	return os.Getenv(rf.TokenEnv)
+}
+
+// isGitHubDotCom reports whether a clone URL addresses github.com itself, the
+// one host the ambient github credential belongs to. It reuses forgeHost so
+// the comparison is on the parsed hostname: case, a port, and a www. prefix
+// must not decide whether a credential is spent.
+func isGitHubDotCom(cloneURL string) bool {
+	return forgeHost(cloneURL) == "github.com"
 }
 
 // runGit invokes the system git binary, capturing stderr into any error and

@@ -47,6 +47,20 @@ func NewForgeFetcher(repoURL string, rf ResolvedForge, auth AuthConfig) (Fetcher
 // Token returns the forge's token: the value of its token_env variable if set,
 // falling back to the ambient auth token (GITHUB_TOKEN/GH_TOKEN). The generic
 // git adapter holds no token here — its auth is ambient git.
+//
+// THIS FUNCTION IS NOT HOST-SCOPED, DELIBERATELY, AND YOU ARE NOT COVERED HERE.
+// The fallback below returns the ambient github.com credential for a forge
+// pointing at ANY host — an enterprise base_url with no token_env included —
+// and rf.TokenEnv is itself defaulted to GITHUB_TOKEN for every github-typed
+// forge regardless of host (resolvedFromConfig). The protection against
+// spending a github.com credential somewhere else lives DOWNSTREAM, at the
+// point a destination is actually known: RepoCache.cloneToken, feeding authEnv.
+// That layering is the ruling, not an oversight — the value is read here, the
+// decision to spend it is made where the host is.
+//
+// The cost is this: a NEW caller that takes Token's result to a network
+// destination bypasses that scoping entirely. If you are writing one, scope it
+// at your own boundary the way cloneToken does; do not assume this call did it.
 func (rf ResolvedForge) Token(auth AuthConfig) string {
 	if rf.Type != ForgeGitHub {
 		return ""

@@ -138,20 +138,15 @@ func (s *Session) Resize(rows, cols uint32) {
 	if s.closed {
 		return
 	}
-	ws := &pb.WindowSize{Rows: rows, Cols: cols}
-	select {
-	case s.resize <- ws:
-		return
-	default:
-	}
+	// Evict, then send. The buffer holds one size; every send happens under
+	// this mutex and the only concurrent party is a READER, so after the evict
+	// the slot is free and the send cannot block. It cannot panic either: the
+	// close happens under the same mutex, behind the s.closed check above.
 	select {
 	case <-s.resize:
 	default:
 	}
-	select {
-	case s.resize <- ws:
-	default:
-	}
+	s.resize <- &pb.WindowSize{Rows: rows, Cols: cols}
 }
 
 // Wait blocks for client.Run's terminal result. Idempotent: the result is

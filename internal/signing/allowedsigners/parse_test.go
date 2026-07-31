@@ -166,6 +166,44 @@ func TestParse_CRLFLineEndingsTolerated(t *testing.T) {
 	assert.NotContains(t, store.Entries()[0].Comment, "\r")
 }
 
+// TestParse_LeadingByteOrderMarkIsMalformed pins the fail-closed handling of a
+// UTF-8 BOM, which several editors prepend when they save a file as "UTF-8".
+//
+// A BOM is not Unicode whitespace, so TrimSpace leaves it in place and it
+// becomes the first byte of the first PRINCIPAL. Nothing downstream survives
+// that: MatchesPrincipal stops matching the identity the operator wrote, so
+// TrustedAs refuses; `signer remove <principal>` compares principals
+// literally, so the entry cannot be revoked; and `signer show` cannot find it.
+// Meanwhile TrustedForNamespace matches on the KEY and keeps granting trust —
+// an entry that is live, unnamed and unrevokable.
+//
+// The remedy is a ParseError, not a silent strip. Stripping would make this
+// package match a principal that real `ssh-keygen -Y verify -I <identity>`
+// refuses to match, and the package doc promises every divergence from
+// ssh-keygen yields strictly LESS trust, never more.
+func TestParse_LeadingByteOrderMarkIsMalformed(t *testing.T) {
+	src := "\ufeffben@abbitt.me " + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	require.Len(t, perrs, 1)
+	assert.ErrorIs(t, perrs[0].Err, errByteOrderMark)
+	assert.Equal(t, 1, perrs[0].Line)
+	// The whole point: no entry, so no invisible unrevokable grant.
+	assert.Empty(t, store.Entries())
+}
+
+// TestParse_ByteOrderMarkBeforeACommentIsHarmless keeps the fix narrow: a BOM
+// in front of a comment or a blank first line contaminates no principal, so it
+// must not be reported. Only a BOM that would be absorbed into an entry is one.
+func TestParse_ByteOrderMarkBeforeACommentIsHarmless(t *testing.T) {
+	src := "\ufeff# my trust root\nben@abbitt.me " + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(src))
+	require.NoError(t, err)
+	assert.Empty(t, perrs)
+	require.Len(t, store.Entries(), 1)
+	assert.Equal(t, []string{"ben@abbitt.me"}, store.Entries()[0].Principals)
+}
+
 // --- fail-closed: malformed lines never produce an Entry ---
 
 func TestParse_GarbageLineIsSkippedNotFatal(t *testing.T) {

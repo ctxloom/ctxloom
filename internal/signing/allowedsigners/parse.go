@@ -23,6 +23,7 @@ var (
 	errUnquotedValue   = errors.New("option value must be double-quoted")
 	errBadTimestamp    = errors.New("invalid valid-after/valid-before timestamp")
 	errKeyTypeMismatch = errors.New("declared key type does not match the key blob")
+	errByteOrderMark   = errors.New("line begins with a UTF-8 byte-order mark, which would become part of the first principal")
 )
 
 // ParseError describes one allowed_signers line that could not be used.

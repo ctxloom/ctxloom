@@ -294,8 +294,11 @@ func (h *Home) runChannelOnce(client agentcoordpb.CoordinatorServiceClient) erro
 		return err
 	}
 	ack := first.GetHelloAck()
-	if ack == nil || !ack.GetAccepted() {
-		return errors.New("run channel Hello rejected")
+	if ack == nil {
+		return errors.New("first CoordinatorFrame was not a HelloAck")
+	}
+	if !ack.GetAccepted() {
+		return rejectedHelloError("run channel Hello", ack.GetRejectReason())
 	}
 
 	// Attach, then REISSUE: unacked events in order, outstanding requests

@@ -22,10 +22,19 @@
 //	         schema evolution AHEAD of the pinned SDK's 2025-09-02 snapshot.
 //	Vendored: 2026-07-16.
 //
-// Re-vendor with:
+// Re-vendor by fetching the branch tip, then RE-RECORDING what you fetched —
+// the fetch alone leaves every line of the block above describing bytes that
+// are no longer here, and the schema file carries no version marker of its
+// own to contradict them:
 //
-//	curl -sL -o internal/acptest/acp-schema-v1.json \
-//	  https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/v1/schema.json
+//  1. curl -sL -o internal/acptest/acp-schema-v1.json \
+//     https://raw.githubusercontent.com/agentclientprotocol/agent-client-protocol/main/schema/v1/schema.json
+//  2. Update Commit / Version / Vendored above from what you actually
+//     fetched: the upstream commit id `main` resolved to, the version at the
+//     head of schema/v1/CHANGELOG.md, and today's date.
+//  3. Update vendoredSchemaSHA256 (schema_provenance_test.go) to the new
+//     content hash. That test fails until you do, which is what stops step 2
+//     from being skipped.
 package acptest
 
 import (
@@ -33,6 +42,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
@@ -62,6 +72,12 @@ const schemaResourceName = "acp-schema-v1.json"
 // the exact ACP type that diverged (e.g. "NewSessionResponse") rather than a
 // generic "no branch of this oneOf matched" from the top-level union.
 type Validator struct {
+	// mu guards BOTH the cache map and the compiler. The compiler needs it
+	// as much as the map does: jsonschema.Compiler mutates its own resource
+	// table inside Compile (findResource) and documents no concurrency
+	// guarantee, so two goroutines compiling different $defs of the same
+	// resource race each other inside the library.
+	mu       sync.Mutex
 	compiler *jsonschema.Compiler
 	cache    map[string]*jsonschema.Schema
 }
@@ -77,7 +93,15 @@ func NewValidator() (*Validator, error) {
 }
 
 // def compiles (or returns the cached compilation of) the named $defs entry.
+//
+// The lock spans the compile, not just the map access, because the compiler
+// itself is shared mutable state (see Validator.mu). Compilation is held once
+// per $defs entry for the process's lifetime, so the serialisation costs at
+// most one compile per name — a conformance run validating many frames
+// concurrently pays it on the first frame of each type and never again.
 func (v *Validator) def(name string) (*jsonschema.Schema, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	if s, ok := v.cache[name]; ok {
 		return s, nil
 	}

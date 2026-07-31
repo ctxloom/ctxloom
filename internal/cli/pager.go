@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // defaultPagerCmd is used whenever $PAGER is unset or blank.
@@ -76,9 +78,23 @@ func pagerWriter(out io.Writer) (io.Writer, func() error) {
 	if !shouldPage(out) {
 		return out, func() error { return nil }
 	}
-	w, cleanup, err := startPager(resolvePagerCommand(), out)
+	return startPagerOrFallback(resolvePagerCommand(), out)
+}
+
+// startPagerOrFallback starts argv as a pager writing to dst, degrading to dst
+// unpaged when it cannot start. Content is never lost either way; the pager is
+// a presentation convenience, not a delivery path.
+//
+// The failure is announced rather than swallowed. Unpaged output is not
+// self-evidently wrong — it looks like a short result — so a $PAGER naming a
+// binary that is missing or not executable stays broken indefinitely unless
+// something says so. The diagnostic goes to the clidiag sink, never to dst,
+// so it cannot contaminate the content being paged.
+func startPagerOrFallback(argv []string, dst io.Writer) (io.Writer, func() error) {
+	w, cleanup, err := startPager(argv, dst)
 	if err != nil {
-		return out, func() error { return nil }
+		clidiag.Warn("ctxloom", "could not start the pager %q (%v); showing unpaged output — check $PAGER", strings.Join(argv, " "), err)
+		return dst, func() error { return nil }
 	}
 	return w, cleanup
 }

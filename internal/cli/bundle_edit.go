@@ -25,8 +25,8 @@ Creates a skeleton bundle YAML file that you can edit to add content.`,
 
 func runBundleCreate(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if name == "help" {
-		return cmd.Help()
+	if shown, err := helpShortcut(cmd, name); shown {
+		return err
 	}
 
 	cfg, err := GetConfig()
@@ -92,8 +92,8 @@ Examples:
 
 func runBundleEdit(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if name == "help" {
-		return cmd.Help()
+	if shown, err := helpShortcut(cmd, name); shown {
+		return err
 	}
 
 	cfg, err := GetConfig()

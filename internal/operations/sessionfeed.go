@@ -247,10 +247,20 @@ type consumerFeedState struct {
 }
 
 // entryTypeFromRoute reverses enginehost.go's messageRouting: role+channel
-// back to the transcript's EntryType. Only ASSISTANT/REASONING and
-// SYSTEM/LOG combinations are ever emitted runner-side (messageRouting's own
-// cases), so this is a closed, small mapping — not a general contract
-// projection.
+// back to the transcript's EntryType. messageRouting emits exactly three
+// combinations — ASSISTANT/FINAL (the answer), ASSISTANT/REASONING
+// (thinking), and SYSTEM/LOG (everything else, including its default arm) —
+// so this is a closed, small mapping, not a general contract projection.
+//
+// The channel is only consulted to separate the first two: anything that is
+// not ASSISTANT/REASONING and carries the ASSISTANT role lands on
+// EntryTypeAssistant. That is deliberate for FINAL and INCIDENTAL for
+// MESSAGE_CHANNEL_UNSPECIFIED, whose meaning the readers of this field do
+// not agree on — coord's accumulateFinalText and cli's owned-run renderer
+// admit FINAL only, so they read 0 as "not the answer" while this mapping
+// reads ASSISTANT plus 0 as the answer. Nothing emits 0 today
+// (TestMessageRouting_NeverEmitsAnUnspecifiedChannel pins that), and what 0
+// ought to mean is a question about the wire enum, not about this function.
 func entryTypeFromRoute(role agentcoordpb.MessageRole, channel agentcoordpb.MessageChannel) agent.SessionEntryType {
 	switch {
 	case role == agentcoordpb.MessageRole_MESSAGE_ROLE_ASSISTANT && channel == agentcoordpb.MessageChannel_MESSAGE_CHANNEL_REASONING:

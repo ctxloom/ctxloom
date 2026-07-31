@@ -169,7 +169,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	// A directory-sourced agent of the same name would be shadowed by this
 	// config-key entry (config wins, see config.LoadAgents). Surface it so the
 	// user knows the file is now inert rather than silently double-defining.
-	if existing, ok := cfg.Agent(name); ok && existing.Source != agents.SourceConfig {
+	if existing, ok := cfg.Agent(name); ok && !existing.FromConfig() {
 		clidiag.Warn("ctxloom",
 			"agent %q is also defined in %s; the config.yaml entry written now takes precedence",
 			name, existing.Source)
@@ -276,7 +276,7 @@ func RemoveAgent(mgr *config.Manager, cfg *config.Config, name string) error {
 		if _, ok := d.Agents[name]; !ok {
 			// Distinguish "defined as a file" from "not defined at all" for a clear
 			// message — the config-key write path cannot delete a file.
-			if existing, found := cfg.Agent(name); found && existing.Source != agents.SourceConfig {
+			if existing, found := cfg.Agent(name); found && !existing.FromConfig() {
 				return fmt.Errorf("agent %q is defined in %s, not config.yaml; delete that file to remove it", name, existing.Source)
 			}
 			return fmt.Errorf("agent %q not found in config.yaml", name)

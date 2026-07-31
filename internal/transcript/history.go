@@ -148,16 +148,42 @@ func (h *CanonicalHistory) ListSessions(_ context.Context) ([]agent.SessionMeta,
 // for this project, or (nil, nil) when none exists — the same "clean no
 // sessions" contract pb.SessionReader.CurrentSession documents, so a caller
 // can present an empty state without special-casing this reader.
+//
+// A candidate that cannot be read is SKIPPED with a warning and the next
+// most-recent one tried, exactly as ListSessions does: the two must survive
+// the same store state, or one stale entry answers "no current session" for a
+// project whose sessions `session list` is happily enumerating. Only when
+// every candidate fails is an error returned — and then it is the first
+// failure, not (nil, nil), because "none of these files could be read" and
+// "this project has no sessions" are different facts and the caller
+// (lm/grpc's CanonicalFallbackSource) routes on the difference. See
+// ParseTranscriptFile's doc for the same discrimination on the read side.
 func (h *CanonicalHistory) CurrentSession(ctx context.Context) (*agent.Session, error) {
 	entries, err := h.store.ListForProject(h.workDir)
 	if err != nil {
 		return nil, fmt.Errorf("transcript: current session for %s: %w", h.workDir, err)
 	}
+	var firstErr error
 	for _, e := range entries { // already most-recent-first
 		if e.CanonicalTranscriptPath == "" {
 			continue
 		}
-		return h.GetSession(ctx, e.HarpName)
+		sess, serr := h.GetSession(ctx, e.HarpName)
+		if serr == nil {
+			return sess, nil
+		}
+		if firstErr == nil {
+			firstErr = serr
+		}
+		clidiag.Warn("ctxloom", "transcript: skip %s (%s): %v", e.HarpName, e.CanonicalTranscriptPath, serr)
+	}
+	// Every candidate failed. That is NOT the clean "no sessions" state: the
+	// project has captured transcripts, none of them could be read, and
+	// reporting (nil, nil) would assert the conversations were empty when all
+	// that is known is that the files were unreadable — the discrimination
+	// ParseTranscriptFile's doc states and lm/grpc's fallback source routes on.
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	return nil, nil
 }

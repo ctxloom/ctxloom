@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,329** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,330** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 144 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 176 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **442** |
+| `open` | no commit names this ID | **441** |
 
-**Totals: 2268 findings across 162 units — 1,329 resolved, 442 still open, 497 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,330 resolved, 441 still open, 497 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 481 | 243 | 81 | 80 | 114 |
-| LOW | 871 | 491 | 187 | 48 | 88 | 57 |
+| LOW | 871 | 492 | 186 | 48 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2296,7 +2296,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U048-F18 | open | **`config.go:1211-1221`** | CORRECTNESS | `ParseConfig` pre-populates both `lm.Configs` and `profiles.Definitions` (1212-1213) but re-guards only `lm.Configs` after unmarshal (1218-1220). An explicit `profiles: null` in the document leaves... | U048.md |
 | U048-F19 | open | **`config.go:1570-1573`** | CORRECTNESS | `findAppDir`'s last resort returns the **relative** path `".ctxloom"` (or `<pwd>/.ctxloom` without creating it) tagged `SourceProject`. `loadUncached:1175` then sets `appRoot = filepath.Dir(".ctxlo... | U048.md |
 | U048-F21 | open | **`config.go:1682`** | ERRHANDLING | `_ = afero.Walk(...)` discards the walk error, and the per-entry callback returns nil on any error. A permission failure inside `cache/bundles` therefore *under*-reports stranded authored bundles —... | U048.md |
-| U048-F22 | open | **`config.go:334-356, 393-398`** | CORRECTNESS | `toDoc` copies map/slice fields (`agents`, `isolationImages`, `isolationEngines`, `lm.Configs`, `profiles.Definitions`) **by reference**, and `MarshalYAML` is exported, so the one public path out o... | U048.md |
+| U048-F22 | **RESOLVED** `91bf8f67` | **`config.go:334-356, 393-398`** | CORRECTNESS | `toDoc` copies map/slice fields (`agents`, `isolationImages`, `isolationEngines`, `lm.Configs`, `profiles.Definitions`) **by reference**, and `MarshalYAML` is exported, so the one public path out o... | U048.md |
 | U049-F21 | **RESOLVED** `c3891cc6` | `config_resolve.go:74-120` | TRIVIAL | Six of the seven `profileBuilder.addX` methods are the identical three-line ordered-set insert over six `(Set, []string)` field pairs | U049.md |
 | U049-F22 | **RESOLVED** `c3891cc6` | `config_resolve.go:163` | TRIVIAL | `profileBuilder.mergeMCP` is a pure one-line pass-through to `wire.MergeMCPConfig` with one call site, no invariant, and no interface to satisfy | U049.md |
 | U049-F23 | **RESOLVED** `506fdab1` | `config_manager.go:78` | DUPLICATE | `DefaultManager()` is exactly `NewManager()` — two exported constructors, 24 lines of doc, one behaviour | U049.md |

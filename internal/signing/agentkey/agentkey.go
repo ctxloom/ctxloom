@@ -88,6 +88,28 @@ type Discovered struct {
 	// "git config user.signingkey", "ssh-agent (sole identity)", "--key",
 	// or "sign.key config".
 	Source string
+
+	// closer owns the transport Signer speaks over, when this package opened
+	// it. Unexported: the connection's lifetime is Close's business, not a
+	// field a caller should reach into.
+	closer io.Closer
+}
+
+// Close releases the ssh-agent connection backing Signer. Signer must not be
+// used afterwards.
+//
+// A resolution that opened a connection hands its ownership to the caller,
+// because Signer signs over it and therefore has to outlive Discover. Close is
+// safe on a nil Discovered, on one whose agent connection this package did not
+// open, and when called more than once — so every caller can defer it
+// unconditionally.
+func (d *Discovered) Close() error {
+	if d == nil || d.closer == nil {
+		return nil
+	}
+	c := d.closer
+	d.closer = nil
+	return c.Close()
 }
 
 // Candidate is one ssh-agent identity, surfaced in an ambiguous-choice

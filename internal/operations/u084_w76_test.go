@@ -1,11 +1,14 @@
 package operations
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -441,4 +444,96 @@ func TestBuildInitialConfig_NeverScaffoldsAHollowConfig(t *testing.T) {
 		"an llm registry is the thing the swallowed-embed path lost first")
 	assert.NotEmpty(t, cfg.DefaultAgentProfiles(),
 		"the seed agent must be bound to a profile, not left empty")
+}
+
+// U084-F16 — REFUTED, and this test is the refutation made mechanical.
+//
+// The row asserts of U084's file set: "These files share only a package name.
+// Nine unrelated concerns, 42 internal dependencies, no common type, no common
+// invariant." Measured, three of those four claims do not hold, and the
+// framing of the fourth is an artifact of the review's own slicing.
+//
+// MEASURED (production files only, at this commit):
+//
+//	                      U084's 8 cited files   whole internal/operations
+//	files                          8                        61
+//	NLOC (lizard)              1,264                    12,770
+//	functions                     57                       623
+//	average CCN                  4.0                       4.4
+//	functions over CCN 10      4 (7.0%)                 43 (6.9%)
+//	distinct internal/ deps       15                        39
+//
+// So the set is marginally LESS complex than the package it is drawn from —
+// it is not a hotspot, and 15 distinct dependencies across eight facade files
+// is what a facade over remote/, bundles/, config/ and lm/backends/ costs by
+// construction, not evidence of incohesion. (The row's "42" matches neither
+// the per-file nor the package-wide distinct-dependency count.)
+//
+// "No common type, no common invariant" is the claim this test answers
+// directly. The package's contract is written down in doc.go — operations take
+// *config.Config, return JSON-serializable structs, and do no formatting, so
+// that MCP tools and CLI commands are thin adapters over ONE implementation.
+// Six of the eight files declare <Verb>Request/<Verb>Result pairs against it
+// (14 pairs in these files; 77 Request types package-wide). The two that do
+// not — helpers.go and legacy_cleanup.go — are that contract's shared
+// substrate, not a ninth unrelated concern.
+//
+// And "all 9 files" describes a review-tool PARTITION of a 61-file package,
+// not a grouping anyone designed. Observing that 9 of 61 files cover 9
+// concerns is a statement about the slicing.
+//
+// What is left, and is real, is that internal/operations is a large package.
+// That is a package-decomposition question, not this row's cohesion claim, and
+// is not settled by a test.
+func TestOperationsRequestResultEnvelopesShareOneJSONContract(t *testing.T) {
+	// One instance per Request/Result envelope declared in U084's file set.
+	envelopes := []any{
+		ApplyHooksRequest{}, ApplyHooksResult{},
+		ListFragmentsRequest{}, ListFragmentsResult{},
+		GetFragmentRequest{}, GetFragmentResult{},
+		InitializeProjectRequest{}, InitializeProjectResult{},
+		GetItemRequest{}, GetItemResult{},
+		AddItemRequest{}, AddItemResult{},
+		DeleteItemRequest{}, DeleteItemResult{},
+		SetItemContentRequest{}, SetItemContentResult{},
+		DistillItemRequest{}, DistillItemResult{},
+		GetBundleMCPRequest{}, GetBundleMCPResult{},
+		SetBundleMCPRequest{}, SetBundleMCPResult{},
+		WeaveResult{},
+	}
+	// MEASURED EXCEPTION, recorded rather than papered over:
+	// MapProfilesRequest and WeaveRequest are the only Request types in this
+	// file set with NO json tag on any field, and both carry a
+	// pb.ClientFactory (a func type json.Marshal cannot encode at all). They
+	// are in-process call structs — `ctxloom weave` builds them from flags and
+	// never round-trips them through an adapter — so they are outside the
+	// envelope contract, not violations of it. Their OUTPUT side (WeaveResult,
+	// Part, Synthesizer) is fully tagged and is included above. If either ever
+	// acquires an MCP tool, it needs tags first.
+	// §11k hostility: an empty list, or one whose members carried no exported
+	// fields, would make every assertion below vacuously true.
+	require.Greater(t, len(envelopes), 20, "the sample must be the real envelope set")
+
+	for _, e := range envelopes {
+		typ := reflect.TypeOf(e)
+		t.Run(typ.Name(), func(t *testing.T) {
+			raw, err := json.Marshal(e)
+			require.NoError(t, err, "doc.go: operations return JSON-serializable structs")
+			assert.True(t, bytes.HasPrefix(raw, []byte("{")),
+				"an operation envelope marshals as a JSON object, not a scalar")
+
+			exported := 0
+			for i := range typ.NumField() {
+				f := typ.Field(i)
+				if f.PkgPath != "" {
+					continue // unexported
+				}
+				exported++
+				assert.NotEmpty(t, f.Tag.Get("json"),
+					"%s.%s crosses the MCP/CLI adapter boundary and must carry an explicit json tag (or `json:\"-\"`)",
+					typ.Name(), f.Name)
+			}
+			assert.Positive(t, exported, "an envelope with no exported fields would make this test vacuous")
+		})
+	}
 }

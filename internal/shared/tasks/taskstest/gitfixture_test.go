@@ -99,3 +99,16 @@ func repoRoot(t *testing.T) string {
 		dir = parent
 	}
 }
+
+// TestRequireGit_DefaultsToRequiring pins the load-bearing half of the git
+// gate: the DEFAULT. A missing git must fail, not skip, because a skip makes
+// all 16 RealGitWorktreeFixture call sites — the only coverage of the
+// linked-worktree redirect logic — evaporate while the suite still reports
+// PASS. The escape hatch exists; it must stay opt-in, since a default that
+// skips is exactly the state this row objected to.
+func TestRequireGit_DefaultsToRequiring(t *testing.T) {
+	assert.False(t, allowMissingGit,
+		"a missing git must be a failure unless %s=1 is set explicitly", EnvAllowMissingGit)
+	assert.Contains(t, EnvKeys, EnvAllowMissingGit,
+		"Isolate must clear the knob, and the production-read sweep must find it declared here")
+}

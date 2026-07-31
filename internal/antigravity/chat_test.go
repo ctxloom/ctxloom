@@ -542,3 +542,22 @@ func TestChat_Live_EchoesContextSentinel(t *testing.T) {
 	}
 	assert.Contains(t, reply, sentinel, "the Chat driver's prose round-trip actually delivered the materialized context to a real agy")
 }
+
+// TestChat_StructuredChatCapabilityIsAdvertised pins the invariant two
+// documents now assert in prose: antigravity DOES offer the optional
+// StructuredChat capability, implemented here as a bespoke prose driver over
+// `agy -p` rather than through internal/acp.NewChatDriver. Both
+// docs/transcript-schema.md §2 and the transcript importer's package doc
+// (internal/transcript/importer/antigravity) previously claimed the opposite
+// — "antigravity has no StructuredChat capability at all (no
+// internal/antigravity/chat.go)" — and reasoned from it. This assertion is
+// what makes the corrected prose maintained rather than merely asserted: if
+// Chat is ever removed, this stops compiling and both claims come back up for
+// review. chat.go's own `var _ agent.StructuredChat` cannot do that job, since
+// it would be deleted along with the file it guards.
+func TestChat_StructuredChatCapabilityIsAdvertised(t *testing.T) {
+	var b any = &Antigravity{}
+	sc, ok := b.(agent.StructuredChat)
+	require.True(t, ok, "antigravity must offer StructuredChat (internal/antigravity/chat.go)")
+	assert.NotNil(t, sc)
+}

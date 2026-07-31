@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
@@ -315,9 +316,18 @@ func init() {
 	weaveCmd.Flags().StringVar(&weaveSaveParts, "save-parts", "", "Directory to write each member's raw output into")
 	weaveCmd.Flags().StringVar(&weavePartsFrom, "parts-from", "", "Inject every file in this directory as a part to synthesize")
 	weaveCmd.Flags().StringArrayVar(&weaveParts, "part", nil, "Inject NAME=FILE as a part to synthesize (repeatable)")
-	weaveCmd.Flags().BoolVar(&weaveNoSynth, "no-synthesize", false, "Emit the labeled parts only; skip synthesis")
-	// --map-only is an alias for --no-synthesize sharing the same bool var.
-	weaveCmd.Flags().BoolVar(&weaveNoSynth, "map-only", false, "Alias for --no-synthesize: emit the labeled parts only, skip synthesis")
+	weaveCmd.Flags().BoolVar(&weaveNoSynth, "no-synthesize", false, "Emit the labeled parts only; skip synthesis (alias: --map-only)")
+	// --map-only is a SPELLING of --no-synthesize, normalized onto it rather
+	// than registered as a second BoolVar over the same pointer. Two flags
+	// sharing one variable means registration order decides the default, only
+	// the typed spelling is marked Changed, and the alias shows up in --help
+	// and in shell completion as if it were a separate feature.
+	weaveCmd.Flags().SetNormalizeFunc(func(_ *pflag.FlagSet, name string) pflag.NormalizedName {
+		if name == "map-only" {
+			name = "no-synthesize"
+		}
+		return pflag.NormalizedName(name)
+	})
 	weaveCmd.Flags().CountVarP(&weaveVerbosity, "verbose", "v", "Increase verbosity (repeatable)")
 
 	_ = weaveCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)

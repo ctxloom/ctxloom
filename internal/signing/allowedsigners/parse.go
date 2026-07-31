@@ -68,8 +68,22 @@ func Parse(r io.Reader) (*Store, []*ParseError, error) {
 	for scanner.Scan() {
 		lineNo++
 		raw := scanner.Text()
-		trimmed := strings.TrimSpace(raw)
+		// A UTF-8 BOM is NOT Unicode whitespace, so TrimSpace leaves it in
+		// place and it is absorbed into the first PRINCIPAL — an entry that
+		// still grants trust (TrustedForNamespace matches on the key) under an
+		// identity nothing can name: TrustedAs never matches it and `signer
+		// remove`, which compares principals literally, cannot revoke it. It
+		// is cut here only to classify the line; an entry line carrying one is
+		// then reported, never silently repaired, because matching a principal
+		// real ssh-keygen would refuse to match is a divergence in the
+		// MORE-trust direction (see the package doc).
+		body, hasBOM := strings.CutPrefix(raw, "\ufeff")
+		trimmed := strings.TrimSpace(body)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		if hasBOM {
+			perrs = append(perrs, &ParseError{Line: lineNo, Text: raw, Err: errByteOrderMark})
 			continue
 		}
 		entry, err := parseLine(trimmed, lineNo)

@@ -601,3 +601,43 @@ func TestExpandWrappers_EnvSplitString(t *testing.T) {
 		})
 	}
 }
+
+// TestPrefixWrapped_GluedShortOptions pins the unrecognized-option fallback on
+// every prefix wrapper that has options at all. Without it, a short option
+// written with its argument glued on (`stdbuf -oL`, `nice -n5`) or a bundled
+// cluster (`setsid -wf`, `command -pv`) matches none of the exact-token cases,
+// the scan stops there, and the OPTION token becomes the inner command's
+// argv[0]. The real program is then never argv[0] of anything and no rule
+// matches it — the redirect silently fails to fire.
+func TestPrefixWrapped_GluedShortOptions(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+	}{
+		{"stdbuf-glued", []string{"stdbuf", "-oL", "git", "push"}},
+		{"nice-glued", []string{"nice", "-n5", "git", "push"}},
+		{"setsid-cluster", []string{"setsid", "-wf", "git", "push"}},
+		{"command-cluster", []string{"command", "-pv", "git", "push"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			inner, ok := prefixWrapped(tc.argv)
+			if !ok {
+				t.Fatalf("prefixWrapped(%v) reported no inner command", tc.argv)
+			}
+			if inner[0] != "git" {
+				t.Errorf("inner = %v, want it to start at `git` (the option token became argv[0])", inner)
+			}
+		})
+	}
+}
+
+// TestPrefixWrapped_GluedOptionDoesNotEatTheProgram is the negative control for
+// the fallback: skipping an unrecognized option by ITSELF must not also swallow
+// the program name, or the wrapper would strip too much.
+func TestPrefixWrapped_GluedOptionDoesNotEatTheProgram(t *testing.T) {
+	inner, ok := prefixWrapped([]string{"nice", "-n", "5", "git", "push"})
+	if !ok || len(inner) != 2 || inner[0] != "git" {
+		t.Fatalf("prefixWrapped(nice -n 5 git push) = %v, %v; want [git push]", inner, ok)
+	}
+}

@@ -103,7 +103,12 @@ type Conn struct {
 	closer io.Closer
 
 	writeMu sync.Mutex // serializes frame writes (Call, Notify, and inbound responses share the writer)
-	nextID  int64
+	// nextID carries its own 64-bit alignment guarantee. A bare int64 reached
+	// with atomic.AddInt64 does not: Go promises 8-byte alignment only for the
+	// first word of an allocated struct on 32-bit platforms, and this field is
+	// several words in, so the add would panic there — and would start or stop
+	// doing so with any future reordering of the fields above it.
+	nextID atomic.Int64
 
 	pendingMu sync.Mutex
 	pending   map[int64]chan rpcMessage
@@ -185,7 +190,7 @@ func (c *Conn) Go(method string, params any) (func(ctx context.Context, result a
 	if perr != nil {
 		return nil, perr
 	}
-	id := atomic.AddInt64(&c.nextID, 1)
+	id := c.nextID.Add(1)
 	ch := make(chan rpcMessage, 1)
 
 	c.pendingMu.Lock()

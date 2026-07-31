@@ -51,17 +51,19 @@ func TestHelpArgShortcut_RendersHelpForEveryNameTakingCommand(t *testing.T) {
 	for _, path := range helpArgCommands {
 		name := path[0] + " " + path[1]
 		t.Run(name, func(t *testing.T) {
-			var out bytes.Buffer
-			rootCmd.SetOut(&out)
-			rootCmd.SetErr(&out)
-			rootCmd.SetArgs(append(append([]string{}, path...), "help"))
-			t.Cleanup(func() {
-				rootCmd.SetArgs(nil)
-				rootCmd.SetOut(nil)
-				rootCmd.SetErr(nil)
-			})
+			// Find() rather than rootCmd.Execute(): Execute() lazily
+			// materialises cobra's built-in `help` command onto the root,
+			// which the --format coverage walk then reports as an
+			// unregistered command. Find is a pure traversal.
+			cmd, _, err := rootCmd.Find(path)
+			require.NoError(t, err)
+			require.NotNil(t, cmd.RunE, "%s must have a RunE to guard", name)
 
-			require.NoError(t, rootCmd.Execute(),
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			t.Cleanup(func() { cmd.SetOut(nil) })
+
+			require.NoError(t, cmd.RunE(cmd, []string{"help"}),
 				"`ctxloom %s help` must render help, not fail looking for an item named \"help\"", name)
 			assert.Contains(t, out.String(), "Usage:", "help output must actually be the help")
 			assert.Contains(t, out.String(), path[1],

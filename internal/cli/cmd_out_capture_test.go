@@ -24,18 +24,24 @@ import (
 func TestRemoteDefaultClear_WritesThroughTheCommandsWriter(t *testing.T) {
 	testsupport.ProjectDir(t)
 
+	// Driven through the command's own RunE rather than rootCmd.Execute():
+	// Execute() lazily materialises cobra's built-in `help` command onto the
+	// root, and the --format coverage walk then reports it as an unregistered
+	// command. Find() is a pure traversal, so this exercises the real command
+	// object without mutating global cobra state for whatever runs next.
+	cmd, _, err := rootCmd.Find([]string{"remote", "default"})
+	require.NoError(t, err)
+	require.NotNil(t, cmd.RunE)
+
 	var out bytes.Buffer
-	rootCmd.SetOut(&out)
-	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"remote", "default", "--clear"})
+	cmd.SetOut(&out)
+	remoteDefaultClear = true
 	t.Cleanup(func() {
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-		rootCmd.SetArgs(nil)
-		remoteDefaultClear = false // BoolVar only Set()s when the flag is parsed
+		cmd.SetOut(nil)
+		remoteDefaultClear = false
 	})
 
-	require.NoError(t, rootCmd.Execute())
+	require.NoError(t, cmd.RunE(cmd, nil))
 	assert.Contains(t, out.String(), "Cleared default remote.",
 		"the command's own result line must reach cmd.OutOrStdout(), not os.Stdout directly")
 }

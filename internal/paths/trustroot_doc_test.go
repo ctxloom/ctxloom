@@ -1,6 +1,7 @@
 package paths
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -60,7 +61,16 @@ func TestPackageDocs_NameNoNonexistentTrustRootFile(t *testing.T) {
 	require.Contains(t, src, "AllowedSignersFileName",
 		"the scan did not read this package's source — every assertion below would pass vacuously")
 
-	assert.NotContains(t, src, AllowedSignersFileName+".yaml",
-		"a doc comment names %s.yaml, which this package never builds; the trust root "+
-			"is extensionless (see AllowedSignersFileName)", AllowedSignersFileName)
+	// Report the OFFENDING LINES, never the whole file: a bare NotContains on
+	// the source dumps every byte of paths.go into the failure output, which
+	// buries the one line at fault.
+	var offenders []string
+	for i, line := range strings.Split(src, "\n") {
+		if strings.Contains(line, AllowedSignersFileName+".yaml") {
+			offenders = append(offenders, fmt.Sprintf("paths.go:%d: %s", i+1, strings.TrimSpace(line)))
+		}
+	}
+	assert.Empty(t, offenders,
+		"these lines name %s.yaml, a path this package never builds; the trust root is "+
+			"extensionless (see AllowedSignersFileName)", AllowedSignersFileName)
 }

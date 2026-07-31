@@ -12,9 +12,9 @@
 package companionloadout
 
 import (
-	"embed"
 	"fmt"
 	"io"
+	"io/fs"
 
 	"github.com/spf13/cobra"
 
@@ -46,9 +46,10 @@ const (
 // binName is used only in help text. bundleYAML is the companion's own
 // embedded (via the go embed directive) loadout bundle bytes. sig is an
 // OPTIONAL detached publish signature over bundleYAML (namespace
-// signing.NamespacePublish), embedded the same way at build time; nil/empty
+// signing.NamespacePublish), embedded the same way at build time. A NIL sig
 // emits unsigned — legal, ordinary, and routes to ctxloom's review path
-// rather than an error (spec §10.1).
+// rather than an error (spec §10.1); a non-nil but EMPTY one is refused, see
+// Emit and ReadEmbeddedSig.
 //
 // The sig seam is LIVE, not speculative. `just sign-loadouts` is the signing
 // pipeline, and both in-repo companions (cmd/ltk, cmd/taskloom) embed a
@@ -113,10 +114,30 @@ func resolveFormat(cmd *cobra.Command, local string) string {
 // build from hard-failing when no .sig has been committed yet: a literal
 // directive requires the named file to exist at compile time, but the .sig
 // is meant to stay optional forever.
-func ReadEmbeddedSig(fs embed.FS) []byte {
-	data, err := fs.ReadFile("loadout.yaml.sig")
+//
+// ABSENT AND EMPTY ARE DIFFERENT STATES and the return distinguishes them:
+// nil means no .sig was committed (intended, and unsigned is legal); a
+// non-nil zero-length slice means one WAS committed and is zero bytes, which
+// is not a pre-signing state at all but a half-completed signing run. Both
+// used to collapse to nil, so a signing run that produced an empty file
+// shipped a silently unsigned build indistinguishable from a deliberately
+// unsigned one. Emit is what acts on the difference; the explicit []byte{}
+// here is what lets it, since a nil return from a zero-byte read is not
+// something the caller can rely on the runtime not to produce.
+//
+// The parameter is fs.ReadFileFS rather than embed.FS purely so the empty
+// case is reachable from a test: embed.FS can only be built by the compiler
+// from files that exist in the embedding package's own directory, so a
+// concrete embed.FS parameter makes "present but empty" untestable without
+// committing a decoy loadout.yaml.sig into this package. Every real caller
+// still passes an embed.FS, which satisfies this interface.
+func ReadEmbeddedSig(files fs.ReadFileFS) []byte {
+	data, err := files.ReadFile("loadout.yaml.sig")
 	if err != nil {
 		return nil
+	}
+	if len(data) == 0 {
+		return []byte{}
 	}
 	return data
 }
@@ -136,6 +157,16 @@ func Emit(w io.Writer, format string, bundleYAML, sig []byte) error {
 	// ctxloom's consumer side.
 	if len(bundleYAML) == 0 {
 		return fmt.Errorf("empty loadout bundle: this companion has no content to contribute (embedded loadout.yaml is empty or missing)")
+	}
+	// The signature's own half of the same principle. nil sig is the ordinary
+	// unsigned build and stays legal; a PRESENT but zero-byte one is a
+	// half-completed signing run, and emitting it as merely "unsigned" makes a
+	// broken signing pipeline byte-for-byte indistinguishable from a build
+	// that was never meant to be signed. Refuse it here, where the companion's
+	// own tests see it, rather than shipping a binary whose trust status is an
+	// accident.
+	if sig != nil && len(sig) == 0 {
+		return fmt.Errorf("empty loadout signature: loadout.yaml.sig is present but zero bytes — a half-completed signing run; re-run `just sign-loadouts`, or delete the file to emit unsigned deliberately")
 	}
 	switch format {
 	case "yaml":

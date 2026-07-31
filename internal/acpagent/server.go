@@ -521,11 +521,26 @@ func (s *Server) openSession(req OpenRequest, fixedID api.SessionId) (*session, 
 	}
 
 	s.mu.Lock()
+	if fixedID != "" && s.sessions[fixedID] != nil {
+		// The id was free when we checked above but was claimed while the
+		// engine was opening. A FIXED id is the caller's own harp and is the
+		// only id session/load's response can be about — that response body
+		// carries no sessionId, so the client will go on addressing the harp
+		// regardless of what we registered. Minting a generated id here would
+		// therefore hand the client a session it can never reach while
+		// answering "success"; refusing is the only honest outcome.
+		s.mu.Unlock()
+		cancel()
+		engine.Close()
+		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "session already active: " + string(fixedID)}
+	}
 	id := fixedID
 	if id == "" && engine.Harp != "" {
 		id = api.SessionId(engine.Harp)
 	}
 	if id == "" || s.sessions[id] != nil {
+		// A GENERATED id has no such contract: session/new's response tells
+		// the client exactly which id it got, so falling back here is safe.
 		s.nextID++
 		id = api.SessionId("ctxloom-" + strconv.FormatInt(s.nextID, 10))
 	}

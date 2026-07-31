@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func writePlanFile(t *testing.T, name, content string) string {
@@ -176,6 +178,49 @@ func TestStampPlanFile_RoundTripPreservesArbitraryFields(t *testing.T) {
 	for _, want := range []string{"status: draft", "owner:", "name: ada", "bold-crimson-thunder", "swift-amber-falcon"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("expected %q in output:\n%s", want, got)
+		}
+	}
+}
+
+// TestEncodeFrontmatter_PartialDocumentIsNeverReturned pins the contract
+// updateFrontmatter depends on: the rendered string is only ever handed on to
+// an atomic write over the user's plan file, so a rendering that did not
+// complete must surface as an error and an EMPTY string, never as the
+// truncated bytes the encoder happened to have buffered.
+//
+// The node below (a document whose child carries no kind) is one the yaml
+// emitter refuses mid-stream: it leaves the buffer empty and puts the emitter
+// in a state where the stream close also fails. Both are checked, so the
+// caller cannot mistake a half-rendered document for a complete one.
+func TestEncodeFrontmatter_PartialDocumentIsNeverReturned(t *testing.T) {
+	broken := &yaml.Node{
+		Kind:    yaml.DocumentNode,
+		Content: []*yaml.Node{{Value: "no-kind"}},
+	}
+	out, err := encodeFrontmatter(broken)
+	if err == nil {
+		t.Fatalf("expected an encode error, got out=%q", out)
+	}
+	if out != "" {
+		t.Fatalf("a failed render must return no bytes at all, got %q", out)
+	}
+}
+
+// TestEncodeFrontmatter_RoundTripsCompleteDocument is the green half: a
+// well-formed frontmatter document renders in full, with nothing left
+// unflushed in the encoder when the string is taken.
+func TestEncodeFrontmatter_RoundTripsCompleteDocument(t *testing.T) {
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte("title: a plan\nsessions:\n  - one\n  - two\n"), &root); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	out, err := encodeFrontmatter(&root)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	for _, want := range []string{"title: a plan", "sessions:", "- one", "- two"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered frontmatter is missing %q:\n%s", want, out)
 		}
 	}
 }

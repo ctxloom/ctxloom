@@ -98,19 +98,35 @@ func updateFrontmatter(path, content, harpName string) error {
 		return nil // already present, no change — a genuine no-op
 	}
 
-	var buf strings.Builder
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(&root); err != nil {
+	rendered, err := encodeFrontmatter(&root)
+	if err != nil {
 		return fmt.Errorf("encode frontmatter: %w", err)
 	}
-	_ = enc.Close()
 
-	newContent := "---\n" + strings.TrimRight(buf.String(), "\n") + "\n---\n"
+	newContent := "---\n" + strings.TrimRight(rendered, "\n") + "\n---\n"
 	if body != "" {
 		newContent += "\n" + body
 	}
 	return iox.WriteFileAtomic(path, []byte(newContent), 0o644)
+}
+
+// encodeFrontmatter renders a parsed frontmatter document back to YAML. Both
+// the document write and the stream close are checked: whatever the encoder
+// leaves in the buffer after either fails is a partial document, and the only
+// use of this string is to be written over the user's plan file. An error here
+// must abort that write, never shorten it.
+func encodeFrontmatter(root *yaml.Node) (string, error) {
+	var buf strings.Builder
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		_ = enc.Close()
+		return "", err
+	}
+	if err := enc.Close(); err != nil {
+		return "", err
+	}
+	return buf.String(), nil
 }
 
 // addHarpToSessionsNode looks for a top-level `sessions:` key in the parsed

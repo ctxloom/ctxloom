@@ -52,10 +52,29 @@ func NewValidatorFromSchema(schemaData []byte) (*ConfigValidator, error) {
 }
 
 // ValidateBytes validates YAML content against the config schema.
+//
+// Input carrying no document at all — no bytes, whitespace, or nothing but
+// comments — is refused here rather than left to the schema. Otherwise the
+// answer is "validated, no problems found" for a file nothing was read from,
+// which is the same shape of success as a gate that checked zero documents.
+// Whether that happens to be caught downstream depends on the CALLER's schema
+// declaring a root type that excludes null; both schemas in this repo do, but
+// NewValidatorFromSchema hands this API to callers who author their own.
+//
+// An explicit `null` is a different fact: it IS a document, and a schema may
+// legitimately permit it, so it is validated normally. That is why the check
+// is on the parsed node rather than on "decoded to nil" — the two are
+// indistinguishable once decoded into an interface{}.
 func (v *ConfigValidator) ValidateBytes(data []byte) error {
 	var yamlData interface{}
 	if err := yaml.Unmarshal(data, &yamlData); err != nil {
 		return fmt.Errorf("YAML parse error: %w", err)
+	}
+	if yamlData == nil {
+		var doc yaml.Node
+		if err := yaml.Unmarshal(data, &doc); err == nil && doc.Kind == 0 {
+			return fmt.Errorf("no YAML document to validate: the input is empty or contains only comments")
+		}
 	}
 
 	jsonData := convertToJSON(yamlData)

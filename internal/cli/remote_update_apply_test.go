@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/afero"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
@@ -156,13 +157,13 @@ func TestPrintAvailableUpdates_OmitsEmptySection(t *testing.T) {
 
 func TestReportMissingDefaults(t *testing.T) {
 	var out bytes.Buffer
-	reportMissingDefaults(&out, []string{"ghost"})
+	reportMissingDefaults(&out, []string{"ghost"}, nil)
 	if got := out.String(); !strings.Contains(got, "ghost") || !strings.Contains(got, "Nonexistent default profiles") {
 		t.Errorf("unexpected output:\n%s", got)
 	}
 
 	out.Reset()
-	reportMissingDefaults(&out, nil)
+	reportMissingDefaults(&out, nil, nil)
 	if out.Len() != 0 {
 		t.Errorf("expected no output for empty input, got %q", out.String())
 	}
@@ -362,5 +363,33 @@ func TestReportRemovedFromRemote_CleanupFailureIsReported(t *testing.T) {
 	}
 	if strings.Contains(got, "Updated lockfile") {
 		t.Errorf("a failed save must not claim the lockfile was updated:\n%s", got)
+	}
+}
+
+// TestCheckDefaultProfiles_UnloadableConfigIsNotAnAllClear pins U040-F20.
+// checkDefaultProfiles returned a bare nil slice when the config would not
+// load, which reportMissingDefaults renders identically to "every configured
+// default profile exists" — printing nothing at all. `remote update --apply`
+// therefore ended a run on a broken config claiming a clean bill of health for
+// a check it never performed.
+func TestCheckDefaultProfiles_UnloadableConfigIsNotAnAllClear(t *testing.T) {
+	missing, err := checkDefaultProfiles(func(...config.LoadOption) (*config.Config, error) {
+		return nil, fmt.Errorf("config.yaml: yaml: line 3: mapping values are not allowed")
+	})
+	if err == nil {
+		t.Fatal("a config that would not load must be reported, not read as 'nothing missing'")
+	}
+	if missing != nil {
+		t.Errorf("no check was performed, so there is no result: %v", missing)
+	}
+
+	var out bytes.Buffer
+	reportMissingDefaults(&out, missing, err)
+	got := out.String()
+	if !strings.Contains(got, "could not") {
+		t.Errorf("the user must be told the check did not run:\n%q", got)
+	}
+	if strings.Contains(got, "Nonexistent default profiles") {
+		t.Errorf("a check that never ran must not name missing profiles:\n%q", got)
 	}
 }

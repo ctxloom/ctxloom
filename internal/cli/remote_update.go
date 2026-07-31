@@ -295,7 +295,8 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 
 	fmt.Printf("\nUpdated: %d, Failed: %d\n", updated, failed)
 
-	reportMissingDefaults(os.Stdout, checkDefaultProfiles())
+	missingDefaults, defaultsErr := checkDefaultProfiles(config.Load)
+	reportMissingDefaults(os.Stdout, missingDefaults, defaultsErr)
 
 	fmt.Println("\nRun 'ctxloom remote pull' to update the lockfile.")
 
@@ -585,7 +586,7 @@ func reportRemovedFromRemote(out io.Writer, fs afero.Fs, appDir string, removed 
 
 // reportMissingDefaults warns about configured default profiles that don't
 // exist. Silent when there are none.
-func reportMissingDefaults(out io.Writer, missing []string) {
+func reportMissingDefaults(out io.Writer, missing []string, err error) {
 	if len(missing) == 0 {
 		return
 	}
@@ -626,15 +627,19 @@ func classifyPullError(err error) pullOutcome {
 
 // checkDefaultProfiles returns names of the default agent's composed profiles
 // that don't exist (profiles.defaults was retired — see DefaultAgentProfiles).
-func checkDefaultProfiles() []string {
-	cfg, err := config.Load()
+// A config that will not load yields an error, never an empty slice: "nothing
+// is missing" and "nothing was checked" are different answers and the caller
+// renders them differently. loadConfig is seam'd for tests; production passes
+// config.Load.
+func checkDefaultProfiles(loadConfig func(...config.LoadOption) (*config.Config, error)) ([]string, error) {
+	cfg, err := loadConfig()
 	if err != nil {
-		return nil // Can't check if config won't load
+		return nil, err
 	}
 
 	defaultProfiles := cfg.DefaultAgentProfiles()
 	if len(defaultProfiles) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var missing []string
@@ -654,7 +659,7 @@ func checkDefaultProfiles() []string {
 		}
 	}
 
-	return missing
+	return missing, nil
 }
 
 func init() {

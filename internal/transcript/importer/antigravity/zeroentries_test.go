@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/importer"
@@ -78,4 +79,39 @@ func TestConvert_UnconvertedStepTypesOnlyIsLegitimatelyEmpty(t *testing.T) {
 	require.NoError(t, lerr)
 	assert.NoError(t, convertLines(context.Background(), rec, lines),
 		"no USER_INPUT/PLANNER_RESPONSE lines at all is 'nothing to import', not a failure")
+}
+
+// TestConvert_ErrorMessageStepIsRecorded is the other half of U146-F06's pin,
+// at the convertLines seam rather than the pure mapper: it proves the
+// type/status gating actually LETS an ERROR_MESSAGE step reach stepEvent.
+// The status is deliberately NOT "DONE" — no ERROR_MESSAGE step exists in any
+// capture on this box, so this adapter has never observed what status one
+// carries, and gating a failure notice on a status vocabulary nobody has
+// verified would silently re-open exactly the drop this row is about.
+func TestConvert_ErrorMessageStepIsRecorded(t *testing.T) {
+	testsupport.Isolate(t)
+	src := writeLines(t, "error-step.jsonl",
+		`{"type":"USER_INPUT","status":"DONE","content":"<USER_REQUEST>go</USER_REQUEST>"}`+"\n"+
+			`{"type":"ERROR_MESSAGE","status":"ERROR","content":"model request failed: 503"}`+"\n")
+
+	rec, err := transcript.NewRecorder(fixtureHarp, "antigravity")
+	require.NoError(t, err)
+
+	lines, lerr := importer.OpenAndReadJSONLLines("antigravity", src)
+	require.NoError(t, lerr)
+	require.NoError(t, convertLines(context.Background(), rec, lines))
+	require.NoError(t, rec.Close())
+
+	path, perr := paths.HarpCanonicalTranscriptPath(fixtureHarp)
+	require.NoError(t, perr)
+	recs := readRecords(t, path)
+
+	var sawError bool
+	for _, r := range recs {
+		if r.Entry != nil && r.Entry.Type == "system" {
+			assert.Equal(t, "model request failed: 503", r.Entry.Content)
+			sawError = true
+		}
+	}
+	assert.True(t, sawError, "an ERROR_MESSAGE step must leave a trace in the canonical transcript, not vanish")
 }

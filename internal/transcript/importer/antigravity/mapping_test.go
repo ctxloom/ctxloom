@@ -72,3 +72,26 @@ func TestStepEvent(t *testing.T) {
 		}
 	})
 }
+
+// TestStepEvent_ErrorMessageBecomesASystemEntry pins U146-F06: an
+// ERROR_MESSAGE step is antigravity's own record that something in the
+// session FAILED. Dropping it silently makes a failed session import as a
+// clean transcript with no trace of the failure anywhere — this project's
+// signature bug shape, a success carrying zero evidence. No vocabulary is
+// invented to fix it: agent.EntryTypeSystem with the default
+// SystemKindNotice ("a freeform system notice with no structured payload")
+// is exactly the slot, and the schema's entry.type enum already lists it.
+func TestStepEvent_ErrorMessageBecomesASystemEntry(t *testing.T) {
+	evs := stepEvent(step{Type: "ERROR_MESSAGE", Status: "DONE", Content: "  Tool call failed: exit status 1  "})
+	require.Len(t, evs, 1)
+	require.NotNil(t, evs[0].Entry)
+	assert.Equal(t, agent.EntryTypeSystem, evs[0].Entry.Type)
+	assert.Equal(t, agent.SystemKindNotice, evs[0].Entry.SystemKind)
+	assert.Equal(t, "Tool call failed: exit status 1", evs[0].Entry.Content)
+}
+
+// An ERROR_MESSAGE step with nothing in it is still nothing to record —
+// TextEntry's "zero or one" discipline, same as every other mapped type.
+func TestStepEvent_EmptyErrorMessageYieldsNothing(t *testing.T) {
+	assert.Empty(t, stepEvent(step{Type: "ERROR_MESSAGE", Status: "DONE", Content: "   "}))
+}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 
 	"go.uber.org/zap"
@@ -49,16 +50,28 @@ func main() {
 	}
 
 	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1)
-	var logger *zap.Logger
-	if os.Getenv("CTXLOOM_VERBOSE") == "1" {
-		logger, _ = zap.NewDevelopment()
-	} else {
-		cfg := zap.NewProductionConfig()
-		cfg.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
-		logger, _ = cfg.Build()
-	}
+	logger := buildLogger(loggerConstructor(os.Getenv("CTXLOOM_VERBOSE") == "1"), os.Stderr)
 	zap.ReplaceGlobals(logger)
 	defer func() { _ = logger.Sync() }()
 
 	cli.Execute()
+}
+
+// loggerConstructor picks the process logger's build recipe: a development
+// logger when verbose, otherwise a production logger raised to warn level.
+func loggerConstructor(verbose bool) func() (*zap.Logger, error) {
+	if verbose {
+		return func() (*zap.Logger, error) { return zap.NewDevelopment() }
+	}
+	return func() (*zap.Logger, error) {
+		cfg := zap.NewProductionConfig()
+		cfg.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
+		return cfg.Build()
+	}
+}
+
+// buildLogger runs a zap constructor.
+func buildLogger(construct func() (*zap.Logger, error), warn io.Writer) *zap.Logger {
+	logger, _ := construct()
+	return logger
 }

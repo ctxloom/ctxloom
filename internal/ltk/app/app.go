@@ -180,15 +180,7 @@ var emptyRules = rules.Empty()
 
 func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 	if req.FilePath != "" {
-		d := rules.EvaluatePath(a.config(), req.FilePath)
-		return engine.Response{
-			Allow:                d.Allowed,
-			Reason:               d.Reason,
-			Suggest:              d.Suggest,
-			Confirmable:          d.Confirmable,
-			ConfirmWindowSeconds: d.ConfirmWindowSeconds,
-			ConfirmDelaySeconds:  d.ConfirmDelaySeconds,
-		}
+		return responseFromDecision(rules.EvaluatePath(a.config(), req.FilePath))
 	}
 	command := strings.TrimSpace(req.Command)
 	if command == "" {
@@ -243,19 +235,26 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 		// nested command was incomplete even though this rule pass allowed it.
 		d := rules.Evaluate(a.config(), script)
 		if !d.Allowed {
-			return engine.Response{
-				Allow:                false,
-				Reason:               d.Reason,
-				Suggest:              d.Suggest,
-				Confirmable:          d.Confirmable,
-				ConfirmWindowSeconds: d.ConfirmWindowSeconds,
-				ConfirmDelaySeconds:  d.ConfirmDelaySeconds,
-			}
+			return responseFromDecision(d)
 		}
 		return engine.Response{Allow: true, Unanalyzed: true, ParseError: msg}
 	}
 
-	d := rules.Evaluate(a.config(), script)
+	return responseFromDecision(rules.Evaluate(a.config(), script))
+}
+
+// responseFromDecision is the ONE Decision -> Response conversion. decide
+// reaches it from three separate return paths, and the mapping used to be
+// written out field for field at each of them: nothing but review stopped a
+// seventh Decision field being wired into one path and silently dropped by the
+// other two, and a dropped Suggest or ConfirmWindowSeconds is invisible — the
+// verdict is still right, the operator just loses the way out of it.
+//
+// Unanalyzed and ParseError are deliberately NOT set here. They do not come
+// from a Decision at all: they record that the command could not be fully
+// PARSED, which is settled before any rule is consulted, so the caller sets
+// them on the response this returns.
+func responseFromDecision(d rules.Decision) engine.Response {
 	return engine.Response{
 		Allow:                d.Allowed,
 		Reason:               d.Reason,

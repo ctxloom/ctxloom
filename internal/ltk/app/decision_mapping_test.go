@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/engine"
+	"github.com/ctxloom/ctxloom/internal/ltk/rules"
 )
 
 // mappingCfg makes every field of a rules.Decision observable at once: a deny
@@ -91,5 +92,36 @@ func TestDecide_AllowCarriesTheDecisionUnchanged(t *testing.T) {
 	if !got.Allow || got.Reason != "" || got.Suggest != "" || got.Confirmable ||
 		got.ConfirmWindowSeconds != 0 || got.ConfirmDelaySeconds != 0 || got.Unanalyzed {
 		t.Errorf("clean allow = %+v, want a zero-valued allow", got)
+	}
+}
+
+// The converter itself, pinned directly: every Decision field with a Response
+// counterpart is carried, and Allow follows Allowed rather than being fixed.
+func TestResponseFromDecision(t *testing.T) {
+	d := rules.Decision{
+		Allowed:              false,
+		RuleID:               "some-rule",
+		Reason:               "because",
+		Suggest:              "try this",
+		Confirmable:          true,
+		ConfirmWindowSeconds: 12,
+		ConfirmDelaySeconds:  3,
+	}
+	got := responseFromDecision(d)
+	want := engine.Response{
+		Allow:                false,
+		Reason:               "because",
+		Suggest:              "try this",
+		Confirmable:          true,
+		ConfirmWindowSeconds: 12,
+		ConfirmDelaySeconds:  3,
+	}
+	if got != want {
+		t.Errorf("responseFromDecision(%+v) = %+v, want %+v", d, got, want)
+	}
+
+	d.Allowed = true
+	if !responseFromDecision(d).Allow {
+		t.Error("Allow does not follow Decision.Allowed")
 	}
 }

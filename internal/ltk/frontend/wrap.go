@@ -24,24 +24,39 @@ const maxWrapDepth = 8
 // trivial way to sneak a denied command past a rule. ExpandWrappers re-parses
 // that inner command so rules match the real thing.
 type wrapperRule struct {
-	programs []string // argv[0] basename (lowercased)
-	flag     string   // flag whose argument(s) are the inner command; "" = eval-style (all args)
-	joinRest bool     // true: inner = all args after the flag joined; false: the single arg after it
-	caseFold bool     // true: flag matches case-insensitively (cmd switches, pwsh parameters); POSIX flags are case-sensitive (-c ≠ -C)
-	cluster  bool     // true: the flag also counts inside a POSIX short-option cluster (`bash -ec …` ≡ `bash -e -c …`)
+	programs []string   // argv[0] basename (lowercased); for wrappers that are not shells
+	shells   []ir.Shell // dialects whose interpreter this rule describes, resolved via shellenv
+	flag     string     // flag whose argument(s) are the inner command; "" = eval-style (all args)
+	joinRest bool       // true: inner = all args after the flag joined; false: the single arg after it
+	caseFold bool       // true: flag matches case-insensitively (cmd switches, pwsh parameters); POSIX flags are case-sensitive (-c ≠ -C)
+	cluster  bool       // true: the flag also counts inside a POSIX short-option cluster (`bash -ec …` ≡ `bash -e -c …`)
 }
 
-// wrapperRules covers the common shell wrappers. Inner-command shell is derived
-// from the program name via innerShell.
+// wrapperRules covers the common shell wrappers.
+//
+// A shell interpreter is identified by the DIALECT shellenv resolves its
+// program name to, not by a second hand-maintained name list: shellenv already
+// owns that mapping (innerShell consults it for the inner command's dialect),
+// and duplicating it here let the two drift — ash, busybox, ksh93, loksh, oksh
+// and pdksh were parseable shells that no wrapper rule recognized, so their
+// `-c` body was never re-parsed and a deny rule never saw the real command.
+// Non-shell wrappers (eval) still match by program name.
 var wrapperRules = []wrapperRule{
-	{programs: []string{"sh", "bash", "zsh", "dash", "ksh", "mksh"}, flag: "-c", joinRest: false, cluster: true},
+	{shells: []ir.Shell{ir.ShellSh, ir.ShellBash, ir.ShellZsh, ir.ShellMksh}, flag: "-c", joinRest: false, cluster: true},
 	{programs: []string{"eval"}, flag: "", joinRest: true},
-	{programs: []string{"cmd", "cmd.exe"}, flag: "/c", joinRest: true, caseFold: true},
-	{programs: []string{"cmd", "cmd.exe"}, flag: "/k", joinRest: true, caseFold: true},
+	{shells: []ir.Shell{ir.ShellCmd}, flag: "/c", joinRest: true, caseFold: true},
+	{shells: []ir.Shell{ir.ShellCmd}, flag: "/k", joinRest: true, caseFold: true},
 	// PowerShell joins everything after -Command into one command line; -c is
 	// its documented shorthand.
-	{programs: []string{"pwsh", "powershell", "pwsh.exe", "powershell.exe"}, flag: "-command", joinRest: true, caseFold: true},
-	{programs: []string{"pwsh", "powershell", "pwsh.exe", "powershell.exe"}, flag: "-c", joinRest: true, caseFold: true},
+	{shells: []ir.Shell{ir.ShellPwsh}, flag: "-command", joinRest: true, caseFold: true},
+	{shells: []ir.Shell{ir.ShellPwsh}, flag: "-c", joinRest: true, caseFold: true},
+}
+
+// matches reports whether prog (an already-lowercased basename) invokes this
+// rule's wrapper: either by exact program name, or by the shell dialect
+// shellenv resolves it to.
+func (rule wrapperRule) matches(prog string, sh ir.Shell) bool {
+	return slices.Contains(rule.programs, prog) || (sh != "" && slices.Contains(rule.shells, sh))
 }
 
 // ExpandWrappers re-parses the inner command of any trivial shell wrapper it
@@ -144,9 +159,10 @@ func wrappedCommand(argv []string, outer ir.Shell) (string, ir.Shell, bool) {
 		return "", "", false
 	}
 	prog := strings.ToLower(argvBase(argv[0]))
+	sh := shellenv.ShellFromPath(prog)
 	args := argv[1:]
 	for _, rule := range wrapperRules {
-		if !slices.Contains(rule.programs, prog) {
+		if !rule.matches(prog, sh) {
 			continue
 		}
 		inner, ok := rule.extract(args)

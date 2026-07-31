@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,284** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 125 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 170 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **524** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 166 |
+| `open` | no commit names this ID | **523** |
 
-**Totals: 2268 findings across 162 units — 1,284 resolved, 524 still open, 460 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,284 resolved, 523 still open, 461 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 454 | 293 | 69 | 79 | 104 |
+| MED | 999 | 454 | 292 | 69 | 79 | 105 |
 | LOW | 871 | 473 | 219 | 41 | 83 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1628,7 +1628,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U093-F08 | **REFUTED** `0fa6306f` | **`bundle_reader.go:203-205`** | SILENTNOOP | `LoadAllBytes(ctx, nil)` returns empty `loaded` **and** empty `failures` with no error: "loaded every bundle, zero failures" when nothing was read. | U093.md |
 | U093-F09 | **RESOLVED** `3ca8d99d` | **`lockfile.go:184,200,255,265,279`** | DEAD | Five `Lockfile` methods totalling ~100 lines — including `GetCanonicalURL`, the **highest-complexity function in this unit at CCN 15** — are test-only. | U093.md |
 | U093-F11 | **RESOLVED** `c7f56b5f` | `detect.go:93-134` | CORRECTNESS | `ParseRepoURL` accepts empty owner or repo segments and reports success. | U093.md |
-| U093-F12 | open | `detect.go:50-60; github.go:54-56` | COUPLING | A github.com personal access token is sent to a non-github.com host: a GitHub Enterprise forge whose `token_env` is unset receives `GITHUB_TOKEN`. | U093.md |
+| U093-F12 | **ESCALATED** `PENDING1` | `detect.go:50-60; github.go:54-56` | COUPLING | A github.com personal access token is sent to a non-github.com host: a GitHub Enterprise forge whose `token_env` is unset receives `GITHUB_TOKEN`. | U093.md |
 | U093-F13 | **RESOLVED** `e1a25d81` | `detect.go:82-85` | CORRECTNESS | `DetectForge` returns success with a meaningless base URL for host-less input. | U093.md |
 | U093-F14 | **RESOLVED** `dcb68007` | `bundle_reader_cache.go:84-87` | CORRECTNESS | The caching decorator imposes a lockfile precondition its own interface says a source need not have: wrapping a legitimate source can make it unreadable. | U093.md |
 | U093-F16 | **PARTIAL** `aa052bcd` | **`lockfile.go:94-98`** | CORRECTNESS | `Load` writes to disk as a side effect of a read, triggered by a raw substring match over the whole file, and the write round-trips through the struct, silently dropping any field a newer schema ad... | U093.md |

@@ -68,12 +68,11 @@ func TestFormatEntry_RoundTripsThroughParse(t *testing.T) {
 func TestFormatEntry_RoundTripsValuesNeedingEscapes(t *testing.T) {
 	pub := testPublicKey(t)
 	for name, ns := range map[string]string{
-		"tab":          "a\tb",
-		"space":        "a b",
-		"backslash":    `a\b`,
-		"quote":        `a"b`,
-		"quoted-comma": `a\,b`,
-		"non-ascii":    "café.example",
+		"tab":       "a\tb",
+		"space":     "a b",
+		"backslash": `a\b`,
+		"quote":     `a"b`,
+		"non-ascii": "café.example",
 	} {
 		t.Run(name, func(t *testing.T) {
 			e := Entry{
@@ -95,13 +94,16 @@ func TestFormatEntry_RoundTripsValuesNeedingEscapes(t *testing.T) {
 	}
 }
 
-// TestFormatEntry_RejectsOptionValueThatBreaksTheOneLineContract is the
-// fail-loud half: an escape alphabet with no \n in it cannot carry a newline,
-// so the value must be refused rather than emitted as a second line — the same
-// rule validComment already enforces for the comment field.
-func TestFormatEntry_RejectsOptionValueThatBreaksTheOneLineContract(t *testing.T) {
+// TestFormatEntry_RejectsNamespaceTheGrammarCannotCarry is the fail-loud half,
+// covering the two characters the quoted-value grammar has no escape for.
+// A newline would be emitted verbatim and split the entry across two lines (the
+// hazard validComment already refuses for the comment field); a comma is the
+// pattern-list SEPARATOR, so one namespace containing it silently becomes two
+// — a WIDER grant than the caller asked for, which is the same widening
+// validPrincipal refuses for the principals field.
+func TestFormatEntry_RejectsNamespaceTheGrammarCannotCarry(t *testing.T) {
 	pub := testPublicKey(t)
-	for _, ns := range []string{"a\nb", "a\rb"} {
+	for _, ns := range []string{"a\nb", "a\rb", "a,b"} {
 		_, err := FormatEntry(Entry{
 			Principals: []string{"releases@ctxloom.dev"},
 			Namespaces: []string{ns},

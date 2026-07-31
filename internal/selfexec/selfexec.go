@@ -8,6 +8,7 @@ package selfexec
 import (
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -19,9 +20,15 @@ var (
 	osStat       = os.Stat
 )
 
-// override, when non-empty, short-circuits Path with a fixed answer. Set
-// only by SetPathForTesting.
-var override string
+// override, when non-empty, short-circuits Path with a fixed answer. Set only
+// by SetPathForTesting and guarded by overrideMu: this package is a dependency
+// of every production spawn path (the MCP server entry, hook command
+// materialization, agent launch), so nothing about the seam confines the read
+// side to one goroutine.
+var (
+	overrideMu sync.RWMutex
+	override   string
+)
 
 // SetPathForTesting makes Path always return path until the returned func is
 // called (wire it to t.Cleanup), for tests OUTSIDE this package. Path's
@@ -32,9 +39,15 @@ var override string
 // in production the running binary always IS named that) use this to get a
 // deterministic, ctxloom-shaped path instead.
 func SetPathForTesting(path string) func() {
+	overrideMu.Lock()
 	prev := override
 	override = path
-	return func() { override = prev }
+	overrideMu.Unlock()
+	return func() {
+		overrideMu.Lock()
+		override = prev
+		overrideMu.Unlock()
+	}
 }
 
 // Path returns the path to use when re-invoking ctxloom from inside a running
@@ -52,8 +65,11 @@ func SetPathForTesting(path string) func() {
 //     use it if the file still exists.
 func Path() string {
 	const fallback = "ctxloom"
-	if override != "" {
-		return override
+	overrideMu.RLock()
+	forced := override
+	overrideMu.RUnlock()
+	if forced != "" {
+		return forced
 	}
 	exe, err := osExecutable()
 	if err != nil {

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // "help" is a legal resource name — a bundle of help docs, an agent called
@@ -22,7 +23,12 @@ import (
 // exists, so the command was going to fail anyway); an explicit creation, and
 // any operation on a resource that DOES exist, must be honoured.
 func TestResourceNamedHelp_IsAddressable(t *testing.T) {
-	setupEditProject(t)
+	// ProjectDir, not setupEditProject: these drive the cobra RunE bodies, and
+	// those call the package-level GetConfig(), which resolves the REAL app
+	// paths (including $HOME/.ctxloom) unless the environment is isolated.
+	testsupport.ProjectDir(t)
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
 
 	t.Run("bundle create help creates a bundle named help", func(t *testing.T) {
 		cmd, _ := formatCmd("text")
@@ -66,7 +72,9 @@ func TestResourceNamedHelp_IsAddressable(t *testing.T) {
 // fires — `bundle show help` prints the command's help and exits 0, exactly as
 // before.
 func TestNameHelp_StillPrintsHelpWhenNoSuchResourceExists(t *testing.T) {
-	setupEditProject(t)
+	testsupport.ProjectDir(t)
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
 
 	cmd, out := formatCmd("text")
 	cmd.Use = "show <name>"
@@ -80,12 +88,11 @@ func TestNameHelp_StillPrintsHelpWhenNoSuchResourceExists(t *testing.T) {
 
 // Agents behave the same way: an agent literally named help is showable.
 func TestAgentNamedHelp_IsShowable(t *testing.T) {
-	root := t.TempDir()
+	root := testsupport.ProjectDir(t)
 	agentsDir := filepath.Join(root, ".ctxloom", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "help.yaml"),
-		[]byte("engine: claude-code\n"), 0o644))
-	t.Chdir(root)
+		[]byte("engine: claude-code\nprofiles: [default]\n"), 0o644))
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
 

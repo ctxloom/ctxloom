@@ -131,9 +131,6 @@ Shows all fragments, commands, and MCP server configuration contained in the bun
 
 func runBundleShow(cmd *cobra.Command, args []string) error {
 	name := args[0]
-	if name == "help" {
-		return cmd.Help()
-	}
 
 	cfg, err := GetConfig()
 	if err != nil {
@@ -142,11 +139,22 @@ func runBundleShow(cmd *cobra.Command, args []string) error {
 
 	bundleDirs := cfg.GetBundleDirs()
 	if len(bundleDirs) == 0 {
+		// No bundles anywhere, so there is no bundle named "help" either —
+		// the courtesy shortcut costs nothing here (see the lookup below).
+		if name == helpArgName {
+			return cmd.Help()
+		}
 		return fmt.Errorf("no bundles directory found")
 	}
 
 	bundle, err := operations.GetBundle(cfg, name)
 	if err != nil {
+		// "help" is a legal bundle name, so the `bundle show help` courtesy
+		// shortcut fires only when there is no such bundle — where the command
+		// was going to fail anyway. A bundle actually named "help" is shown.
+		if name == helpArgName {
+			return cmd.Help()
+		}
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 

@@ -110,9 +110,6 @@ var agentShowCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
-		}
 		cfg, err := GetConfig()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
@@ -120,6 +117,11 @@ var agentShowCmd = &cobra.Command{
 
 		def, err := operations.GetAgent(cfg, name)
 		if err != nil {
+			// "help" is a legal agent name; the courtesy shortcut fires only
+			// when there is no such agent (see runBundleShow).
+			if name == helpArgName {
+				return cmd.Help()
+			}
 			return err
 		}
 		// Resolve the engine/backend (and compose the profiles) so the override
@@ -283,10 +285,9 @@ Examples:
   ctxloom agent set reviewer --profiles cr-correctness-golang   # default engine`,
 	Args: cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		// No help shortcut: `agent set help` names the agent to write, and the
+		// shortcut made an agent called "help" impossible to create.
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
-		}
 		cfg, err := GetConfigForUpdate()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
@@ -385,13 +386,15 @@ Examples:
 		}
 
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
-		}
 		// Advisory only (fault tolerance): warn but don't block when the named
 		// agent isn't defined yet — a bare run degrades gracefully and the user
-		// may define it next.
+		// may define it next. An UNDEFINED agent named "help" is read as the
+		// courtesy help request instead, so `ctxloom agent default help` does
+		// not quietly bind a default nobody asked for; a DEFINED one is bound.
 		if _, ok := cfg.Agent(name); !ok {
+			if name == helpArgName {
+				return cmd.Help()
+			}
 			clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
 		}
 		if err := config.NewManager().Update(func(d *config.Draft) error {
@@ -413,14 +416,15 @@ var agentRemoveCmd = &cobra.Command{
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		if name == "help" {
-			return cmd.Help()
-		}
 		cfg, err := GetConfigForUpdate()
 		if err != nil {
 			return fmt.Errorf("failed to load config: %w", err)
 		}
 		if err := operations.RemoveAgent(config.NewManager(), cfg, name); err != nil {
+			// See agentShowCmd: only an ABSENT "help" is the courtesy request.
+			if name == helpArgName {
+				return cmd.Help()
+			}
 			return err
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())

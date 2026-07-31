@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"io"
 	"os"
 
@@ -70,8 +71,21 @@ func loggerConstructor(verbose bool) func() (*zap.Logger, error) {
 	}
 }
 
-// buildLogger runs a zap constructor.
+// buildLogger runs a zap constructor and NEVER returns nil. zap's
+// constructors return (nil, err) on failure, and the result of this one is
+// handed straight to zap.ReplaceGlobals: a nil there is not inert, it is a
+// process-wide global whose first use — any of the zap.L()/zap.S() call sites,
+// or main's own Sync — dereferences nil. A logger that could not be built is
+// therefore replaced by a no-op logger, and the reason is reported on warn so
+// the degradation is visible rather than silent. A nil warn stream discards
+// the report without changing the fallback.
 func buildLogger(construct func() (*zap.Logger, error), warn io.Writer) *zap.Logger {
-	logger, _ := construct()
+	logger, err := construct()
+	if logger == nil {
+		if warn != nil {
+			fmt.Fprintf(warn, "ctxloom: warning: could not initialize logging (%v); continuing without it\n", err)
+		}
+		return zap.NewNop()
+	}
 	return logger
 }

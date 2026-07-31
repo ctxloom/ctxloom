@@ -477,3 +477,46 @@ func TestParse_DeclaredKeyTypeMatching_StillParses(t *testing.T) {
 	require.Len(t, store.Entries(), 1)
 	assert.Equal(t, "ssh-ed25519", store.Entries()[0].KeyType)
 }
+
+// TestParse_LineNumbersIndexTheSourceStream pins the invariant Entry.Line's
+// doc now states, and that operations.RemoveSigner silently depends on.
+//
+// Line used to be documented "for diagnostics". It is not: RemoveSigner
+// re-parses the file it just read and deletes the PHYSICAL lines the matching
+// entries name, so an off-by-one here revokes the wrong signer and leaves the
+// intended one trusted — and both outcomes are a well-formed file, so nothing
+// downstream can notice.
+//
+// Every line of the input must therefore be counted: blanks, comments, and
+// lines that produced a ParseError alike. Counting only entries, or skipping
+// unusable lines, would still look right in a file with no gaps in it.
+func TestParse_LineNumbersIndexTheSourceStream(t *testing.T) {
+	lines := []string{
+		"# a comment",                            // 1
+		"",                                       // 2
+		"first@example.com " + testEd25519Key,    // 3
+		"   ",                                    // 4
+		"this line is garbage",                   // 5
+		"# another comment",                      // 6
+		"second@example.com " + testSKEd25519Key, // 7
+	}
+	store, perrs, err := Parse(strings.NewReader(strings.Join(lines, "\n")))
+	require.NoError(t, err)
+
+	entries := store.Entries()
+	require.Len(t, entries, 2)
+	assert.Equal(t, 3, entries[0].Line)
+	assert.Equal(t, 7, entries[1].Line, "the last line counts even with no trailing newline")
+
+	require.Len(t, perrs, 1)
+	assert.Equal(t, 5, perrs[0].Line)
+
+	// The property RemoveSigner actually relies on, stated directly: for every
+	// entry, lines[Line-1] is the line it came from.
+	for _, e := range entries {
+		require.GreaterOrEqual(t, e.Line, 1)
+		require.LessOrEqual(t, e.Line, len(lines))
+		assert.Contains(t, lines[e.Line-1], e.Principals[0],
+			"Line must index the caller's own lines slice")
+	}
+}

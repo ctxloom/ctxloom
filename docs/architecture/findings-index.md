@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,534** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,535** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **139** |
+| `open` | no commit names this ID | **138** |
 
-**Totals: 2268 findings across 162 units — 1,534 resolved, 139 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,535 resolved, 138 still open, 595 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 580 | 82 | 105 | 96 | 136 |
+| MED | 999 | 581 | 81 | 105 | 96 | 136 |
 | LOW | 871 | 591 | 53 | 60 | 104 | 63 |
 | (unparsed) | 22 | 11 | 4 | 4 | 2 | 1 |
 
@@ -1826,7 +1826,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U129-F04 | **ESCALATED** `bfe41ec6` | `internal/cli/search.go:315,320`, `remote_discover.go:83,88`, `bundle_list.go:267`, `bundle_distill.go:299` | CORRECTNESS | Six call sites use a **byte** cap to size a **terminal column**. For CJK, emoji, or accented text the two diverge by 2-4x in one direction and 0.5x in the other, so tables misalign for non-ASCII co... | U129.md |
 | U130-F01 | **RESOLVED** `4425b400` | `tokens.go:9,13` | CORRECTNESS | **`len()` counts BYTES, but the constant is named `CharsPerToken` and the doc says "characters".** For non-ASCII the two diverge by 2-4x, and the divergence propagates into a chunker that slices by... | U130.md |
 | U130-F02 | **RESOLVED** `659eab02` | **`internal/memory/compactor.go:33-35`** | DUPLICATE | **The package's sole stated purpose — being "the one place that knows the heuristic" — is undercut by its largest consumer, which re-exports the constant under a second name.** There are now two sp... | U130.md |
-| U130-F03 | open | `tokens.go:3-4` vs `internal/memory/compactor.go:741-742` | COUPLING | The doc promises "a real tokenizer can replace the heuristic here without touching call sites". That holds for `Estimate`'s 3 call sites and **fails for the constant**, which is consumed as a bare ... | U130.md |
+| U130-F03 | **RESOLVED** `0c6b42ec` | `tokens.go:3-4` vs `internal/memory/compactor.go:741-742` | COUPLING | The doc promises "a real tokenizer can replace the heuristic here without touching call sites". That holds for `Estimate`'s 3 call sites and **fails for the constant**, which is consumed as a bare ... | U130.md |
 | U131-F03 | **PARTIAL** `4ed49e01` | **`upgrade.go:86`** | ERRHANDLING | `_ = enc.Close()` swallows the error and `buf.Bytes()` is returned as authoritative upgraded bytes regardless — a truncated buffer would be persisted verbatim. | U131.md |
 | U131-F05 | **PARTIAL** `571a063d` | **`upgrade.go:124-152`** | CORRECTNESS | The three mapping helpers' `i+1 < len(m.Content)` guard silently tolerates a corrupt odd-length mapping instead of detecting it, and all three act on only the **first** matching key — so a duplicat... | U131.md |
 | U131-F06 | **RESOLVED** `607b9792` | **`upgrade.go:94-98`** | CORRECTNESS | `Pending` carries no invariant and its writer enforces none, so any byte-loss defect upstream becomes silent file truncation. | U131.md |

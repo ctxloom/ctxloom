@@ -178,7 +178,30 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) (Result, error) {
 		}
 		return out[i].Reason < out[j].Reason
 	})
-	return Result{Violations: out, CheckedTargets: len(checkedTargets)}, nil
+	return Result{Violations: dedupeViolations(out), CheckedTargets: len(checkedTargets)}, nil
+}
+
+// dedupeViolations drops exactly-equal adjacent violations from a slice
+// already sorted by (HarpID, Reason), so equal rows are neighbours.
+//
+// A Violation is fully described by that pair: two equal ones say the same
+// thing about the same subject and carry no information apart. They arise
+// legitimately -- a formula may mention the same placeholder more than once,
+// which is arithmetic rather than a mistake -- and reporting the count of
+// mentions as a count of violations makes the number meaningless to the CI
+// gate cmd/taskloom positions this as, while an operator sees an identical
+// line twice with nothing to tell the two apart.
+func dedupeViolations(sorted []Violation) []Violation {
+	if len(sorted) < 2 {
+		return sorted
+	}
+	out := sorted[:1]
+	for _, v := range sorted[1:] {
+		if v != out[len(out)-1] {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // formulaEnumRefViolations scans every declared priority_fn/decay_fn formula

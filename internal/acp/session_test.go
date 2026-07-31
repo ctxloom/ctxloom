@@ -655,6 +655,85 @@ func TestChat_CancelTurnKeepsConversation(t *testing.T) {
 	assert.Equal(t, []string{"still here"}, texts)
 }
 
+// U012-F18: messages arriving while a turn is in flight queue with no bound.
+// That is reachable from off-box: a gRPC client streams ChatInput_UserMessage
+// frames (internal/lm/grpc/chat.go's chatMessageFromInput), each able to carry
+// full ContentBlocks including base64 media, and every one lands in `queued`.
+//
+// The loop CANNOT push back by blocking on `in` — Chat's contract is that the
+// input loop keeps draining while a prompt is in flight, which is the only
+// reason a permission answer or a cancel can reach a parked engine at all. So
+// the queue stays unbounded on purpose and the depth is reported instead: a
+// signal, where there was none, without dropping a message or stalling the
+// callbacks.
+func TestChat_UnboundedQueueDepthIsReported(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	release := make(chan struct{})
+	go func() {
+		_ = h.fa.serveHandshake(t)
+		first := <-h.fa.requests
+		<-release // hold turn one open while the rest of the messages pile up
+		require.NoError(t, h.fa.respond(first.ID, map[string]any{"stopReason": "end_turn"}))
+		for {
+			req, ok := <-h.fa.requests
+			if !ok {
+				return
+			}
+			_ = h.fa.respond(req.ID, map[string]any{"stopReason": "end_turn"})
+		}
+	}()
+
+	// One starts the turn; the rest queue behind it.
+	h.in <- agent.ChatMessage{Text: "start the turn"}
+	for i := 0; i < queueDepthWarnAt+1; i++ {
+		h.in <- agent.ChatMessage{Text: "queued " + strconv.Itoa(i)}
+	}
+	close(release)
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range events() {
+	}
+
+	assert.Contains(t, warnings.String(), "queued",
+		"a queue growing without bound must say so — there is no other backpressure signal available")
+}
+
+// A conversation that never backs up stays silent.
+func TestChat_ShallowQueueIsSilent(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	h := startChat(t, agent.ChatRequest{})
+	events := collect(h.out)
+
+	go func() {
+		_ = h.fa.serveHandshake(t)
+		for {
+			req, ok := <-h.fa.requests
+			if !ok {
+				return
+			}
+			_ = h.fa.respond(req.ID, map[string]any{"stopReason": "end_turn"})
+		}
+	}()
+
+	h.in <- agent.ChatMessage{Text: "one"}
+	h.in <- agent.ChatMessage{Text: "two"}
+	close(h.in)
+	require.NoError(t, <-h.chatErr)
+	for range events() {
+	}
+
+	assert.Empty(t, warnings.String(), "an ordinary conversation must not warn about its queue")
+}
+
 // U012-F10: the spawned engine's exit status is captured — spawnHostTransport's
 // close returns cmd.Wait's error — and then thrown away by teardown's
 // `_ = conn.Close()`. An ACP agent that dies non-zero after a conversation was

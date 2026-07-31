@@ -270,6 +270,15 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	}
 }
 
+// queueDepthWarnAt is how deep Chat's pending-message queue may grow before it
+// is reported. The queue is deliberately unbounded — the input loop must keep
+// draining `in` while a turn is in flight, or a permission answer and a turn
+// cancel could never reach a parked engine — so this is the only backpressure
+// signal available: a client streaming faster than the engine can answer is
+// told, once, rather than silently accumulating messages (and their media
+// payloads) for the lifetime of the conversation.
+const queueDepthWarnAt = 64
+
 // envOverlay is the adapter subprocess's env overlay: the caller's env, plus —
 // when the embedding backend configured ModelEnvVar — the requested model
 // under the engine's native env variable (see ACPConfig.ModelEnvVar: the

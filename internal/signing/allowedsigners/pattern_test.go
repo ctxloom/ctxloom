@@ -1,6 +1,7 @@
 package allowedsigners
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -103,4 +104,31 @@ func TestParseTimestamp_Invalid(t *testing.T) {
 
 	_, err = parseTimestamp("20201301Z") // month 13
 	assert.Error(t, err)
+}
+
+// TestGlobMatchBytes_PathologicalPatternDoesNotBacktrack pins the matcher's
+// running time on the input shape its structure invites.
+//
+// The recursive form tried every split point for every '*' independently, so a
+// pattern of n stars separated by literals took exponential time in n against a
+// non-matching subject. The consecutive-star collapse only merged ADJACENT
+// stars, which does nothing for *a*a*a*a*b. Both operands are attacker-shaped
+// in the TrustedAs path — the pattern comes from the trust root's principals
+// field, the subject from an externally claimed identity (a git committer
+// email, a loadout envelope's advisory signer field).
+//
+// Measured on the recursive form: 11 stars against 40 'a's ran for more than
+// 130 seconds. The size here is deliberately one step down from that, so a
+// regression costs the suite a second or two rather than hanging it.
+func TestGlobMatchBytes_PathologicalPatternDoesNotBacktrack(t *testing.T) {
+	pattern := []byte(strings.Repeat("*a", 10) + "*b")
+	subject := []byte(strings.Repeat("a", 40))
+
+	start := time.Now()
+	got := globMatchBytes(pattern, subject)
+	elapsed := time.Since(start)
+
+	assert.False(t, got, "no 'b' in the subject, so this cannot match")
+	t.Logf("elapsed: %s", elapsed)
+	assert.Less(t, elapsed, 100*time.Millisecond, "matching must not backtrack exponentially")
 }

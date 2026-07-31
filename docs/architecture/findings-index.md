@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,537** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,538** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **134** |
+| `open` | no commit names this ID | **133** |
 
-**Totals: 2268 findings across 162 units — 1,537 resolved, 134 still open, 597 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,538 resolved, 133 still open, 597 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 581 | 80 | 105 | 96 | 137 |
+| MED | 999 | 582 | 79 | 105 | 96 | 137 |
 | LOW | 871 | 594 | 49 | 61 | 104 | 63 |
 | (unparsed) | 22 | 10 | 5 | 4 | 3 | 0 |
 
@@ -1836,7 +1836,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U132-F06 | **RESOLVED** `c3935d0e` | **`watch.go:131-138`** | ERRHANDLING | Watch errors are dropped on the floor beyond the first: `errs` is buffered at 1 and the send is non-blocking with a bare `default:`. If a consumer never selects on `Errors()`, **every** error is di... | U132.md |
 | U132-F07 | **RESOLVED** `00fe6609` | **`watch.go:108-141`** | COMPLEXITY | `pump` is CCN 16 against a CI gate that fails above 10, with no `nolint` and no exclusion. | U132.md |
 | U133-F02 | **RESOLVED** `e459008e` | **`mcp.go:84`** | DUPLICATE | The deep-copy semantics this package owns are re-implemented byte-for-byte in `internal/config`, and re-implemented a third time as proto converters — three copies with no compiler link | U133.md |
-| U133-F03 | open | **`hooks.go:79`** | COHESION | The hooks half of this vocabulary has no merge primitive in `wire`; the primitive lives in an outer package and duplicates `Append` verbatim | U133.md |
+| U133-F03 | **RESOLVED** `ff103ad9` | **`hooks.go:79`** | COHESION | The hooks half of this vocabulary has no merge primitive in `wire`; the primitive lives in an outer package and duplicates `Append` verbatim | U133.md |
 | U133-F04 | **RESOLVED** `305af0a1` | **`hooks.go:15-38`, `mcp.go:11-30`** | NOPAY | Every `mapstructure` tag in this unit (~13) is dead metadata — nothing in the repo decodes these types with mapstructure | U133.md |
 | U133-F05 | open | **`mcp.go:50`** | ERRHANDLING | `if src == nil \ | U133.md |
 | U133-F10 | open | **`mcp.go:10-17`** | COUPLING | `MCPServer` can only express a stdio (command) server, so no config-, profile-, or bundle-declared MCP server can be an HTTP/SSE one — even though the codebase supports remote MCP end-to-end throug... | U133.md |

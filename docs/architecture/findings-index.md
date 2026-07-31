@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,560** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,561** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 188 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 209 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 208 |
-| `open` | no commit names this ID | **103** |
+| `open` | no commit names this ID | **102** |
 
-**Totals: 2268 findings across 162 units — 1,560 resolved, 103 still open, 605 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,561 resolved, 102 still open, 605 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 595 | 60 | 110 | 96 | 138 |
-| LOW | 871 | 602 | 41 | 61 | 104 | 63 |
+| LOW | 871 | 603 | 40 | 61 | 104 | 63 |
 | (unparsed) | 22 | 11 | 2 | 5 | 3 | 1 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2794,7 +2794,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U150-F13 | **RESOLVED** `e3096ce1` | `internal/trust/trust.go:226` | NOPAY | The `"www.github.com": true` entry in `knownCaseFoldForges` buys nothing. Its only effect is to lowercase the path of a URL whose host (`www.github.com`) already canonicalizes to a **different key*... | U150.md |
 | U150-F14 | **REFUTED** `84f586b8` | `internal/trust/trust.go:204-219` | SILENTNOOP | A zero-valued `Ref` produces a syntactically valid store address rather than failing: `Ref{}.Key()` = `"#/"`, `Ref{}.CanonicalURL()` = `""`, so `countersignRef(Ref{})` = `"\ | U150.md |
 | U151-F05 | **RESOLVED** `2ccce4df` | `vpio.go:16-30`, `vpio.go:84` | NOPAY | The package doc — which is most of this file's substance — is stale in two places and now actively misdescribes the system. | U151.md |
-| U152-F06 | open | `dockerexec.go:185` | ERRHANDLING | `Resize` discards `pty.Setsize`'s error, so a resize that never reaches the container is invisible — no error, no warning, no log. | U152.md |
+| U152-F06 | **RESOLVED** `aedc3cef` | `dockerexec.go:185` | ERRHANDLING | `Resize` discards `pty.Setsize`'s error, so a resize that never reaches the container is invisible — no error, no warning, no log. | U152.md |
 | U152-F07 | open | `dockerexec.go:77-79`, `dockerexec.go:96-101` | CORRECTNESS | Neither `NewLauncher` nor `buildExecCmd` validates anything, so an empty `Backend`, `StartPath`, or `containerName` renders a well-formed command that is meaningless, and the failure surfaces from ... | U152.md |
 | U152-F08 | **RESOLVED** `fef97ca6` | `dockerexec.go:219` | COMPLEXITY | The docker-level exit codes `125`, `126`, `127` appear as bare literals in a boolean chain, with their meaning only in prose. | U152.md |
 | U152-F09 | **RESOLVED** `b3949146` | `dockerexec.go:237-249` | DUPLICATE | `dockerLevelError` and `dockerLevelErrorWrap` are the same function twice — same structure, same tail-empty branch, one call site each. | U152.md |

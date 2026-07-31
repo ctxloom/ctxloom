@@ -333,3 +333,85 @@ func TestStore_NilProvenance(t *testing.T) {
 	assert.Empty(t, s.Sources())
 	assert.Empty(t, s.LoadErrors())
 }
+
+// --- the trust root must not be writable through anything it hands out ------
+
+// TestStore_HandsOutNoWritablePathIntoItsOwnEntries pins the Store as
+// immutable from the outside.
+//
+// Three routes used to lead straight back into s.entries and its inner
+// slices, and each is a way to WIDEN a grant after the store was built:
+//
+//   - Decision.Entry was literally &s.entries[i]. Setting .Namespaces = nil on
+//     it means "accepted for all namespaces" (see Entry.Namespaces), so a
+//     caller holding a decision for one namespace could promote the entry to
+//     every namespace — including reject, whose supremacy the whole design
+//     rests on.
+//   - Entries() copied the slice but not the slices INSIDE each Entry, so
+//     Entries()[0].Namespaces[0] = "*" rewrote the live trust root.
+//   - NewStore and Union took the caller's/other stores' inner slices by
+//     reference, so the builder retained a handle on what it had built.
+//
+// Nothing in production mutates these today — that is exactly why the aliasing
+// survived. The pin is what keeps it that way.
+func TestStore_HandsOutNoWritablePathIntoItsOwnEntries(t *testing.T) {
+	key := mustParseKey(t, testEd25519Key)
+	newStore := func() *Store {
+		return NewStore(Entry{
+			Principals: []string{"releases@ctxloom.dev"},
+			Namespaces: []string{"publish.v1.ctxloom.dev"},
+			PublicKey:  key,
+		})
+	}
+
+	t.Run("through Decision.Entry", func(t *testing.T) {
+		store := newStore()
+		d := store.TrustedForNamespace(key, "publish.v1.ctxloom.dev", fixedNow())
+		require.True(t, d.Trusted)
+		require.NotNil(t, d.Entry)
+
+		d.Entry.Namespaces = nil // "accepted for all namespaces"
+
+		assert.False(t, store.TrustedForNamespace(key, "reject.v1.ctxloom.dev", fixedNow()).Trusted,
+			"a decision handed back a writable pointer into the store's entries")
+	})
+
+	t.Run("through Entries", func(t *testing.T) {
+		store := newStore()
+		got := store.Entries()
+		require.Len(t, got, 1)
+
+		got[0].Namespaces[0] = "*"
+		got[0].Principals[0] = "attacker@example.com"
+
+		assert.False(t, store.TrustedForNamespace(key, "reject.v1.ctxloom.dev", fixedNow()).Trusted,
+			"Entries() shared the inner namespaces slice with the store")
+		assert.Equal(t, "releases@ctxloom.dev",
+			store.TrustedForNamespace(key, "publish.v1.ctxloom.dev", fixedNow()).Principal,
+			"Entries() shared the inner principals slice with the store")
+	})
+
+	t.Run("through the entries handed to NewStore", func(t *testing.T) {
+		ns := []string{"publish.v1.ctxloom.dev"}
+		store := NewStore(Entry{
+			Principals: []string{"releases@ctxloom.dev"},
+			Namespaces: ns,
+			PublicKey:  key,
+		})
+
+		ns[0] = "*"
+
+		assert.False(t, store.TrustedForNamespace(key, "reject.v1.ctxloom.dev", fixedNow()).Trusted,
+			"NewStore retained the caller's namespaces slice")
+	})
+
+	t.Run("through a store that was unioned", func(t *testing.T) {
+		src := newStore()
+		union := Union(src)
+
+		src.entries[0].Namespaces[0] = "*"
+
+		assert.False(t, union.TrustedForNamespace(key, "reject.v1.ctxloom.dev", fixedNow()).Trusted,
+			"Union shared the contributing store's inner slices")
+	})
+}

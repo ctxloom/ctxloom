@@ -171,3 +171,36 @@ func TestMergeHooksConfig_NilDestWithNothingToLoseStaysSilent(t *testing.T) {
 
 	assert.Empty(t, buf.String(), "a merge that loses nothing must not warn")
 }
+
+// TestMergeHooksConfig_UnifiedHalfMatchesWireAppend is the parity test U133-F03
+// requires across BOTH implementations of the same merge. The hooks vocabulary
+// lives in wire and carries UnifiedHooks.Append; MergeHooksConfig, one layer
+// up, re-spelled the same six appends by hand, and the plugin half had no wire
+// primitive at all. Two spellings of one rule drift in one direction only —
+// a seventh event added to UnifiedHooks reaches Append and is silently dropped
+// by the copy.
+//
+// The two bodies are VERBATIM identical today, so this parity check cannot be
+// red; that is the point of running it BEFORE the collapse. Its job is to pin
+// the shared behaviour so the collapse is provably behaviour-preserving, at the
+// public seam (MergeHooksConfig) that the collapse does not move.
+func TestMergeHooksConfig_UnifiedHalfMatchesWireAppend(t *testing.T) {
+	existing := wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "existing-pre"}}}
+	src := wire.UnifiedHooks{
+		PreTool:      []wire.Hook{{Command: "new-pre"}},
+		PostTool:     []wire.Hook{{Command: "new-post"}},
+		SessionStart: []wire.Hook{{Command: "session-start"}},
+		SessionEnd:   []wire.Hook{{Command: "session-end"}},
+		PreShell:     []wire.Hook{{Command: "pre-shell"}},
+		PostFileEdit: []wire.Hook{{Command: "post-edit"}},
+	}
+
+	viaMerge := &wire.HooksConfig{Unified: existing}
+	MergeHooksConfig(viaMerge, &wire.HooksConfig{Unified: src})
+
+	viaAppend := existing
+	viaAppend.Append(src)
+
+	assert.Equal(t, viaAppend, viaMerge.Unified,
+		"the hand-written unified merge and wire's own Append disagree")
+}

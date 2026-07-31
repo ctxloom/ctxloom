@@ -67,3 +67,39 @@ func TestConvertJSONLLines_ContextCancelledStopsBeforeDispatch(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.False(t, called)
 }
+
+// TestConvertJSONLLines_ContextCancelledMidStreamStopsAtThatLine pins the
+// property a re-implementation of this loop is most likely to lose, and the
+// only one no existing test covers: the cancellation check runs before EVERY
+// line, not once before the first.
+//
+// This is the substance behind U145-F04's "adapters re-implement the shared
+// driver" claim. Hoisting the ctx.Err() check out of the loop is a plausible
+// tidy-up that leaves every other assertion in this file green while turning a
+// cancelled import of a large transcript into one that runs to completion —
+// and cancellation is one of only three conditions VendorAdapter's contract
+// allows to abort a conversion at all.
+func TestConvertJSONLLines_ContextCancelledMidStreamStopsAtThatLine(t *testing.T) {
+	fr := &fakeRecorder{}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	lines := [][]byte{[]byte("a"), []byte("b"), []byte("c"), []byte("d")}
+	var dispatched [][]byte
+	flushed := false
+
+	err := ConvertJSONLLines(ctx, fr, lines, "codex", nil,
+		func(line []byte) error {
+			dispatched = append(dispatched, line)
+			if len(dispatched) == 2 {
+				cancel() // the caller gives up part-way through the file
+			}
+			return nil
+		},
+		func() error { flushed = true; return nil })
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Equal(t, [][]byte{[]byte("a"), []byte("b")}, dispatched,
+		"the check must run before every line, not only before the first")
+	assert.False(t, flushed, "a cancelled conversion must not flush a partial boundary as if it were complete")
+}

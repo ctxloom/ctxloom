@@ -121,6 +121,13 @@ func FromEnv(fs afero.Fs) (string, bool) {
 // which additionally duplicated the env-reading step verbatim, warning
 // string included, so a bad override could warn twice in one process).
 //
+// Only "this directory is not inside a repository" is a silent fall-through.
+// Every other git failure — a .git that exists and cannot be read, a path
+// that will not stat — produces the same cwd fallback but says so first:
+// keying a project's identity on the launch directory is the correct
+// behaviour when there genuinely is no repository, and a fault worth
+// reporting when there is one the process simply could not use.
+//
 // Unlike the three prior copies, a failing os.Getwd is a returned error, not
 // silently treated as "." (U140-F02): "." is a directory name meaning
 // "wherever any future process happens to be", and minting a project
@@ -132,8 +139,12 @@ func WorkDirWithBoundary() (root string, found bool, err error) {
 	if r, ok := FromEnv(afero.NewOsFs()); ok {
 		return r, true, nil
 	}
-	if r, gerr := gitutil.FindRoot("."); gerr == nil {
+	r, ferr := gitutil.FindRoot(".")
+	switch {
+	case ferr == nil:
 		return r, true, nil
+	case !gitutil.IsNoRepository(ferr):
+		clidiag.WarnOnce("ctxloom", "git repository detection failed (%v); continuing from the current directory, so this project's identity — its task log, plans and sessions — is keyed on wherever this was launched instead of on a repository root", ferr)
 	}
 	cwd, gerr := os.Getwd()
 	if gerr != nil {

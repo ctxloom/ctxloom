@@ -127,6 +127,9 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 	if err != nil {
 		return err
 	}
+	// Signer signs over a live ssh-agent connection; release it once every
+	// target has been signed.
+	defer func() { _ = discovered.Close() }()
 
 	targets, err := resolveSignTargets(cfg, ref, all)
 	if err != nil {

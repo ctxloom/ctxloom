@@ -51,6 +51,69 @@ func TestFormatEntry_RoundTripsThroughParse(t *testing.T) {
 	assert.True(t, keysEqual(e.PublicKey, got.PublicKey))
 }
 
+// TestFormatEntry_RoundTripsValuesNeedingEscapes pins the write and read
+// halves onto ONE escape alphabet.
+//
+// FormatEntry quoted option values with Go's %q, whose alphabet includes \n,
+// \t, \x.. and \u...., while unescapeQuoted decodes only \" and \\ and passes
+// every other backslash through literally. So a namespace containing a tab was
+// written as namespaces="a\tb" and read back as the five-character literal
+// a\tb: an entry that grants trust for a namespace nobody asked for and
+// refuses the one the operator was shown, with no error on either side.
+//
+// Reachability, measured: the CLI cannot get here — ResolveSignerNamespaces
+// maps to a closed three-value vocabulary, none of which needs an escape. The
+// exposure is AddSignerRequest.Namespaces, which bypasses that resolver, and
+// FormatEntry itself, whose doc states the round-trip as a guarantee.
+func TestFormatEntry_RoundTripsValuesNeedingEscapes(t *testing.T) {
+	pub := testPublicKey(t)
+	for name, ns := range map[string]string{
+		"tab":       "a\tb",
+		"space":     "a b",
+		"backslash": `a\b`,
+		"quote":     `a"b`,
+		"non-ascii": "café.example",
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := Entry{
+				Principals: []string{"releases@ctxloom.dev"},
+				Namespaces: []string{ns},
+				KeyType:    "ssh-ed25519",
+				PublicKey:  pub,
+			}
+			line, err := FormatEntry(e)
+			require.NoError(t, err)
+
+			store, perrs, err := Parse(strings.NewReader(line + "\n"))
+			require.NoError(t, err)
+			require.Empty(t, perrs, "formatted line must parse cleanly: %q", line)
+			require.Len(t, store.Entries(), 1)
+			assert.Equal(t, []string{ns}, store.Entries()[0].Namespaces,
+				"read back a different namespace than was written: %q", line)
+		})
+	}
+}
+
+// TestFormatEntry_RejectsNamespaceTheGrammarCannotCarry is the fail-loud half,
+// covering the two characters the quoted-value grammar has no escape for.
+// A newline would be emitted verbatim and split the entry across two lines (the
+// hazard validComment already refuses for the comment field); a comma is the
+// pattern-list SEPARATOR, so one namespace containing it silently becomes two
+// — a WIDER grant than the caller asked for, which is the same widening
+// validPrincipal refuses for the principals field.
+func TestFormatEntry_RejectsNamespaceTheGrammarCannotCarry(t *testing.T) {
+	pub := testPublicKey(t)
+	for _, ns := range []string{"a\nb", "a\rb", "a,b"} {
+		_, err := FormatEntry(Entry{
+			Principals: []string{"releases@ctxloom.dev"},
+			Namespaces: []string{ns},
+			KeyType:    "ssh-ed25519",
+			PublicKey:  pub,
+		})
+		require.Error(t, err, "namespace %q must be refused", ns)
+	}
+}
+
 func TestFormatEntry_UnrestrictedWhenNamespacesNil(t *testing.T) {
 	pub := testPublicKey(t)
 	e := Entry{

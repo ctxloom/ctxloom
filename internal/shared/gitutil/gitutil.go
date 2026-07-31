@@ -32,6 +32,7 @@
 package gitutil
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -142,6 +143,18 @@ func GetRemoteURL(startPath, remoteName string) (string, error) {
 		return "", fmt.Errorf("remote %q has no URL", remoteName)
 	}
 	return urls[0], nil
+}
+
+// IsNoRepository reports whether err means "this path is not inside a git
+// repository" — the expected, benign outcome of probing an arbitrary
+// directory — as opposed to any other failure FindRoot can return: an
+// unreadable or corrupt .git, a path that cannot be stat'd, a repository with
+// no worktree. Both arrive as a non-nil error and callers that only check
+// `err != nil` treat a real fault as an ordinary "not here", which is how a
+// broken repository becomes a silent fallback. Classification lives here
+// because this package owns the wrapping that hides go-git's sentinel.
+func IsNoRepository(err error) bool {
+	return errors.Is(err, git.ErrRepositoryNotExists)
 }
 
 // FindRoot finds the git repository root starting from the given path.

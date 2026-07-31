@@ -447,14 +447,20 @@ func TestExpandHome(t *testing.T) {
 		t.Skipf("no home dir in this environment: %v", err)
 	}
 
-	if got := expandHome("~"); got != home {
+	got, err := expandHome("~")
+	require.NoError(t, err)
+	if got != home {
 		t.Errorf("expandHome(%q) = %q, want %q (no trailing separator)", "~", got, home)
 	}
-	if got, want := expandHome("~/.ssh/id_ed25519"), filepath.Join(home, ".ssh/id_ed25519"); got != want {
+	got, err = expandHome("~/.ssh/id_ed25519")
+	require.NoError(t, err)
+	if want := filepath.Join(home, ".ssh/id_ed25519"); got != want {
 		t.Errorf("expandHome(~/.ssh/id_ed25519) = %q, want %q", got, want)
 	}
 	for _, p := range []string{"/abs/path/key", "relative/key", "", "~notauser/key"} {
-		if got := expandHome(p); got != p {
+		got, err := expandHome(p)
+		require.NoError(t, err, "a path with no leading ~ never consults $HOME")
+		if got != p {
 			t.Errorf("expandHome(%q) = %q, want it returned untouched", p, got)
 		}
 	}

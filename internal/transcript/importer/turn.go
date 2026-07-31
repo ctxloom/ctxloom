@@ -3,10 +3,17 @@ package importer
 import "github.com/ctxloom/ctxloom/internal/shared/agent"
 
 // FlushComplete records *pending as a Complete boundary ChatEvent via
-// record, then clears it (sets *pending to nil), if and only if *pending is
-// non-nil. A nil *pending is a normal, silent no-op — most vendor files end
-// cleanly on their own turn-boundary signal, which already flushed and
-// cleared it before end of file.
+// record and clears it (sets *pending to nil) ONLY once record has returned
+// successfully, if and only if *pending is non-nil. A nil *pending is a
+// normal, silent no-op — most vendor files end cleanly on their own
+// turn-boundary signal, which already flushed and cleared it before end of
+// file.
+//
+// The clear-after-success ordering is the contract, not an implementation
+// detail: clearing first would mean a failed flush destroyed the very
+// boundary it failed to write, leaving the caller nothing to retry with and
+// turning any retry into a nil-pending no-op that returns success for zero
+// bytes written.
 //
 // This is the shared shape of codex's and claude's own flushPending methods
 // (each vendor's boundary-DETECTION logic — codex correlates two envelope
@@ -23,7 +30,9 @@ func FlushComplete(pending **agent.TurnMeta, record func(agent.ChatEvent) error)
 	if *pending == nil {
 		return nil
 	}
-	tm := *pending
+	if err := record(agent.ChatEvent{Complete: *pending}); err != nil {
+		return err
+	}
 	*pending = nil
-	return record(agent.ChatEvent{Complete: tm})
+	return nil
 }

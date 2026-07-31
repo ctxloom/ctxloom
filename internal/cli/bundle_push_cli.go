@@ -73,6 +73,7 @@ func pushBundleCfg(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.
 		if err != nil {
 			return err
 		}
+		defer func() { _ = discovered.Close() }()
 		req.Signer = discovered.Signer
 	}
 

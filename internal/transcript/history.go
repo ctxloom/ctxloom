@@ -28,6 +28,7 @@ package transcript
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -74,6 +75,32 @@ type NoCanonicalTranscriptError struct {
 func (e *NoCanonicalTranscriptError) Error() string {
 	return fmt.Sprintf("transcript: no canonical transcript captured for harp %q", e.Harp)
 }
+
+// SchemaVersionError reports that a canonical transcript line carries a
+// schema version this build does not recognize. It is a distinct type (not a
+// bare fmt.Errorf) for the same reason NoCanonicalTranscriptError is: every
+// consumer of ParseTranscriptFile reduces failure to `err != nil` and then
+// handles it exactly like a corrupt file — skipped from a listing, degraded
+// to live-only, retried on the next poll tick. Those responses are defensible
+// for damage; they are actively misleading for version skew, which is not
+// damage at all, will never resolve by retrying, and has one obvious remedy.
+// Telling the two apart has to be possible before any consumer can act on the
+// difference.
+type SchemaVersionError struct {
+	Path  string
+	Found int // the version the file carries
+	Known int // the version this build reads
+}
+
+func (e *SchemaVersionError) Error() string {
+	return fmt.Sprintf("transcript: %s: line carries schema version %d, this reader knows version %d — refusing to guess at an unrecognized shape", e.Path, e.Found, e.Known)
+}
+
+// Newer reports whether the file was written by a LATER build than this one,
+// which is the case with an actionable remedy: upgrade. The reverse (a file
+// older than any version this build still reads) is a different situation and
+// must not be reported with the same advice.
+func (e *SchemaVersionError) Newer() bool { return e.Found > e.Known }
 
 // GetSession materializes harpName's canonical transcript. harpName IS the
 // lookup key — there is no separate backend-native session id to resolve, the
@@ -130,7 +157,7 @@ func (h *CanonicalHistory) ListSessions(_ context.Context) ([]agent.SessionMeta,
 		}
 		sess, perr := ParseTranscriptFile(e.CanonicalTranscriptPath, e.HarpName)
 		if perr != nil {
-			clidiag.Warn("ctxloom", "transcript: skip %s (%s): %v", e.HarpName, e.CanonicalTranscriptPath, perr)
+			warnSkippedTranscript(e.HarpName, e.CanonicalTranscriptPath, perr)
 			continue
 		}
 		metas = append(metas, agent.SessionMeta{
@@ -148,18 +175,59 @@ func (h *CanonicalHistory) ListSessions(_ context.Context) ([]agent.SessionMeta,
 // for this project, or (nil, nil) when none exists — the same "clean no
 // sessions" contract pb.SessionReader.CurrentSession documents, so a caller
 // can present an empty state without special-casing this reader.
+//
+// A candidate that cannot be read is SKIPPED with a warning and the next
+// most-recent one tried, exactly as ListSessions does: the two must survive
+// the same store state, or one stale entry answers "no current session" for a
+// project whose sessions `session list` is happily enumerating. Only when
+// every candidate fails is an error returned — and then it is the first
+// failure, not (nil, nil), because "none of these files could be read" and
+// "this project has no sessions" are different facts and the caller
+// (lm/grpc's CanonicalFallbackSource) routes on the difference. See
+// ParseTranscriptFile's doc for the same discrimination on the read side.
 func (h *CanonicalHistory) CurrentSession(ctx context.Context) (*agent.Session, error) {
 	entries, err := h.store.ListForProject(h.workDir)
 	if err != nil {
 		return nil, fmt.Errorf("transcript: current session for %s: %w", h.workDir, err)
 	}
+	var firstErr error
 	for _, e := range entries { // already most-recent-first
 		if e.CanonicalTranscriptPath == "" {
 			continue
 		}
-		return h.GetSession(ctx, e.HarpName)
+		sess, serr := h.GetSession(ctx, e.HarpName)
+		if serr == nil {
+			return sess, nil
+		}
+		if firstErr == nil {
+			firstErr = serr
+		}
+		warnSkippedTranscript(e.HarpName, e.CanonicalTranscriptPath, serr)
+	}
+	// Every candidate failed. That is NOT the clean "no sessions" state: the
+	// project has captured transcripts, none of them could be read, and
+	// reporting (nil, nil) would assert the conversations were empty when all
+	// that is known is that the files were unreadable — the discrimination
+	// ParseTranscriptFile's doc states and lm/grpc's fallback source routes on.
+	if firstErr != nil {
+		return nil, firstErr
 	}
 	return nil, nil
+}
+
+// warnSkippedTranscript reports one transcript this reader passed over, and
+// is the single place the version case is separated from every other failure.
+// Both are skipped identically — one bad session must not hide the rest — but
+// they are not the same news: "this file is damaged" invites the user to
+// write the session off, while "this file was written by a newer ctxloom"
+// means the session is intact and one upgrade away.
+func warnSkippedTranscript(harp, path string, err error) {
+	var vErr *SchemaVersionError
+	if errors.As(err, &vErr) && vErr.Newer() {
+		clidiag.Warn("ctxloom", "transcript: skip %s (%s): written by a newer ctxloom (schema v%d; this build reads v%d) — the session is intact, upgrade ctxloom to read it", harp, path, vErr.Found, vErr.Known)
+		return
+	}
+	clidiag.Warn("ctxloom", "transcript: skip %s (%s): %v", harp, path, err)
 }
 
 // ParseTranscriptFile reads a canonical transcript.jsonl at path and
@@ -217,7 +285,7 @@ func ParseTranscriptFile(path, id string) (*agent.Session, error) {
 			return nil // corrupt/truncated line: degrade to partial
 		}
 		if rec.V != SchemaVersion {
-			versionErr = fmt.Errorf("transcript: %s: line carries schema version %d, this reader knows version %d — refusing to guess at an unrecognized shape", path, rec.V, SchemaVersion)
+			versionErr = &SchemaVersionError{Path: path, Found: rec.V, Known: SchemaVersion}
 			return nil
 		}
 		if start.IsZero() || rec.TS.Before(start) {

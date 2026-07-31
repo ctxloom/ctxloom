@@ -78,11 +78,21 @@ type Record struct {
 	// forward onto every subsequent line so any single line remains
 	// self-describing.
 	SessionID string `json:"session_id,omitempty"`
-	// Engine names the backend driving this conversation: codex|kiro|claude|
-	// opencode|acp|antigravity. antigravity never reaches this recorder via
-	// the structured tee (it has no StructuredChat capability today) — its
-	// canonical lines, when they exist, come from the oneshot/importer
-	// regimes (plan §2d), which stamp Engine the same way.
+	// Engine carries the driving backend's REGISTERED name verbatim, exactly
+	// as NewRecorder received it: nothing on this path normalizes, allowlists
+	// or refuses a value. That name comes from the backend registry
+	// (internal/lm/backends), which is NOT the vocabulary of the `engine`
+	// enum published in docs/transcript.schema.json, and the two disagree —
+	// claude registers as "claude-code" and the test backend as "mock",
+	// neither of which the enum admits. So a claude line written here does
+	// not validate against the shipped schema. Which vocabulary is canonical
+	// is an open contract decision; it cannot be settled by normalizing here,
+	// because "mock" has no enum member to normalize onto.
+	//
+	// antigravity's lines do not arrive through the structured tee: its
+	// StructuredChat is a bespoke prose driver over `agy -p` rather than
+	// internal/acp.NewChatDriver, so its canonical lines come from the
+	// oneshot/importer regimes (plan §2d), which stamp Engine the same way.
 	Engine string `json:"engine"`
 	// Seq is monotonically increasing per transcript, starting at 0, with NO
 	// gaps — the ordering key. A reader can detect truncation/corruption by a

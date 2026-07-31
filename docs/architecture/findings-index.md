@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,505** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,506** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 177 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **175** |
+| `open` | no commit names this ID | **174** |
 
-**Totals: 2268 findings across 162 units — 1,505 resolved, 175 still open, 588 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,506 resolved, 174 still open, 588 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 565 | 102 | 102 | 95 | 135 |
+| MED | 999 | 566 | 101 | 102 | 95 | 135 |
 | LOW | 871 | 581 | 64 | 59 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1733,7 +1733,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U107-F03 | **RESOLVED** `bea1ae8e` | `cli.go:30-34` | CORRECTNESS | The package doc on `NewCommand` states a fact about the system that is **false**, and it is the kind of false that invites someone to delete the `sig` seam as speculative. | U107.md |
 | U107-F04 | **ESCALATED** `cdf64839` | `cli.go:82` | NOPAY | `Emit` hardcodes `signer` to `""`, so the envelope's advisory `signer` field is **never populated by any production caller**, and no code anywhere reads it. The parameter and the struct field are w... | U107.md |
 | U108-F03 | **RESOLVED** `ce9649c1` | `confload.go:249-265` + `:222-243` | ERRHANDLING | Four distinct states — layer not configured, file missing, file empty, file comment-only — all collapse to `(nil, nil)`, so `Load` cannot tell "you have no config" from "your config is being ignored". | U108.md |
-| U108-F04 | open | **`overlay.go:96,110-111`** | ERRHANDLING | `GetStringArray`'s error is interpreted as exactly one cause ("no flag registered") when it has two, and the other cause silently discards **every** CLI override. | U108.md |
+| U108-F04 | **RESOLVED** `2dae729c` | **`overlay.go:96,110-111`** | ERRHANDLING | `GetStringArray`'s error is interpreted as exactly one cause ("no flag registered") when it has two, and the other cause silently discards **every** CLI override. | U108.md |
 | U108-F05 | open | **`overlay.go:287-290`** | COUPLING | The unknown-key outcome is discharged as a direct stderr write from inside a library, reproducing in miniature the exact bug the package doc says `--config-set` was created to eliminate. | U108.md |
 | U108-F07 | **RESOLVED** `ffe55fad` | **`overlay.go:475`** | CORRECTNESS | A scalar sitting at an intermediate level is silently treated as "absent", and the override then replaces the user's scalar with a map. | U108.md |
 | U108-F08 | open | **`overlay.go:400-454`** | COMPLEXITY | `resolvePath` is CCN 13 against a project gate that fails above 10 — the only such function in the unit, and it is the unit's most correctness-critical one. | U108.md |

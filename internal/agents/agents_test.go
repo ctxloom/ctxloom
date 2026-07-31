@@ -1,12 +1,18 @@
 package agents
 
 import (
+	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 func writeAgentFile(t *testing.T, dir, name, body string) {
@@ -222,4 +228,80 @@ func TestLoader_ValidFileStillWinsOverLaterDuplicate(t *testing.T) {
 
 	require.Len(t, got, 1)
 	assert.Equal(t, "first", got[0].Engine)
+}
+
+// statErrorFs makes Stat on one exact path fail with an error that is NOT
+// os.ErrNotExist — the "the directory is there but I cannot look at it" case
+// (permissions, a dead mount, an unreadable overlay). afero's MemMapFs and the
+// OS filesystem both refuse to produce it on demand, so it is injected here.
+type statErrorFs struct {
+	afero.Fs
+	failPath string
+	err      error
+}
+
+func (f statErrorFs) Stat(name string) (os.FileInfo, error) {
+	if name == f.failPath {
+		return nil, f.err
+	}
+	return f.Fs.Stat(name)
+}
+
+// TestLoader_UnstattableDirectoryWarns pins U028-F05 (loader half): an agents
+// directory that cannot be statted is skipped, and that skip must be VISIBLE.
+// Swallowing the stat error makes "you have no agents configured" and "your
+// agents directory is unreadable" the same observable outcome — an empty list,
+// exit 0, in silence.
+func TestLoader_UnstattableDirectoryWarns(t *testing.T) {
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	fs := statErrorFs{
+		Fs:       afero.NewMemMapFs(),
+		failPath: "/broken/agents",
+		err:      fmt.Errorf("permission denied"),
+	}
+	l := NewLoader([]string{"/broken/agents"}, fs)
+
+	got, err := l.List()
+	require.NoError(t, err, "one unreadable directory must not sink the whole list")
+	assert.Empty(t, got)
+
+	assert.Contains(t, sink.String(), "/broken/agents")
+	assert.Contains(t, sink.String(), "permission denied")
+}
+
+// TestGetAgentDirs_UnstattableDirectoryWarns pins U028-F05 (discovery half).
+// GetAgentDirs drops the directory on a stat error with `err == nil &&`, which
+// is the same silence one layer earlier: discovery reports "no agent
+// directories" and the loader is never even asked.
+func TestGetAgentDirs_UnstattableDirectoryWarns(t *testing.T) {
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	agentsDir := paths.AgentsPath("/app")
+	fs := statErrorFs{
+		Fs:       afero.NewMemMapFs(),
+		failPath: agentsDir,
+		err:      fmt.Errorf("permission denied"),
+	}
+
+	assert.Empty(t, GetAgentDirs(fs, []string{"/app"}))
+	assert.Contains(t, sink.String(), agentsDir)
+	assert.Contains(t, sink.String(), "permission denied")
+}
+
+// TestGetAgentDirs_AbsentDirectoryIsSilent guards the other side of the
+// U028-F05 fix: a directory that simply does not exist is the ordinary case
+// for every project without agents, and must stay quiet. Only a stat FAILURE
+// is worth a warning.
+func TestGetAgentDirs_AbsentDirectoryIsSilent(t *testing.T) {
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	assert.Empty(t, GetAgentDirs(afero.NewMemMapFs(), []string{"/app"}))
+	assert.Empty(t, sink.String())
 }

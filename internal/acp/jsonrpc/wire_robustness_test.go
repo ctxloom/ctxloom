@@ -192,3 +192,49 @@ func TestClosedErr_WrappedEOFIsAClosedConnection(t *testing.T) {
 	require.Error(t, aerr)
 	assert.ErrorIs(t, aerr, ErrConnClosed, "a wrapped EOF is still a closed connection, not a transport failure")
 }
+
+// TestReadLoop_MalformedFrameDoesNotEndTheSession pins U013-F06: the package
+// doc promises "it warns and continues on a malformed frame rather than tearing
+// the session down", and for the malformed frames a stream can actually recover
+// from that promise was false — ANY decode error ended the read loop, failed
+// every parked caller and killed the session. A frame whose members are the
+// wrong JSON type is consumed whole by the decoder, so the stream is still in
+// sync behind it and continuing is both possible and what the doc says we do.
+func TestReadLoop_MalformedFrameDoesNotEndTheSession(t *testing.T) {
+	notified := make(chan string, 4)
+	conn, _ := newScriptedConn([]string{
+		`{"jsonrpc":"2.0","id":1,"method":5}`,
+		`{"jsonrpc":"2.0","method":"session/update"}`,
+	}, notifyRecorder(notified))
+	conn.Start(context.Background())
+
+	select {
+	case m := <-notified:
+		assert.Equal(t, "session/update", m)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the frame after a wrong-typed member was never dispatched: the session was torn down instead")
+	}
+	waitDone(t, conn)
+}
+
+// TestReadLoop_UnrecoverableFrameEndsTheSession is the other half of U013-F06:
+// a SYNTAX error leaves json.Decoder at an undefined position in the byte
+// stream, so there is no honest way to resume — the session must end and every
+// parked caller must be released rather than left hanging. This pins the limit
+// the corrected package doc now states, so that "warns and continues" is never
+// widened to cover a stream we can no longer frame.
+func TestReadLoop_UnrecoverableFrameEndsTheSession(t *testing.T) {
+	conn, _ := newScriptedConn([]string{
+		`{"jsonrpc":"2.0", this is not JSON at all`,
+		`{"jsonrpc":"2.0","method":"session/update"}`,
+	}, &mockHandler{})
+
+	await, err := conn.Go("session/prompt", nil)
+	require.NoError(t, err)
+	conn.Start(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	assert.Error(t, await(ctx, nil), "a parked caller must be released, not left hanging, when the stream cannot be framed")
+	waitDone(t, conn)
+}

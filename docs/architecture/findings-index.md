@@ -22,11 +22,11 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,334** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 145 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 176 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 177 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **436** |
+| `open` | no commit names this ID | **435** |
 
-**Totals: 2268 findings across 162 units — 1,334 resolved, 436 still open, 498 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,334 resolved, 435 still open, 499 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 484 | 240 | 81 | 80 | 114 |
-| LOW | 871 | 493 | 184 | 49 | 88 | 57 |
+| LOW | 871 | 493 | 183 | 49 | 89 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2286,7 +2286,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U047-F09 | **RESOLVED** `576cba9b` | `internal/config/agents.go:45-48` | ERRHANDLING | A directory-scan failure is warned and then the nil result is used as if it were a successful empty scan; the caller receives a merged set that is silently missing every on-disk agent. | U047.md |
 | U047-F10 | **RESOLVED** `5fdf8767` | `internal/config/companions.go:273-321` | TRIVIAL | `ProbeCompanionLoadouts` — the most important exported function in the file — has **no doc comment**; its intended 18-line doc is glued to the `companionsDisabled` var block instead. | U047.md |
 | U047-F13 | **RESOLVED** `d6a8cae0` | `internal/config/accessors.go:120-124` | DUPLICATE | `config.cloneMCPServer` is a verbatim reimplementation of `wire.cloneMCPServer`, in the package that owns the type. | U047.md |
-| U047-F14 | open | `internal/config/companions.go:31-43, 198, 203, 257` | CORRECTNESS | The exec/PATH seams are unsynchronised package vars that are **read from goroutines** while the exported `Set*ForTesting` helpers write them without a lock. | U047.md |
+| U047-F14 | **REFUTED** `b9e66554` | `internal/config/companions.go:31-43, 198, 203, 257` | CORRECTNESS | The exec/PATH seams are unsynchronised package vars that are **read from goroutines** while the exported `Set*ForTesting` helpers write them without a lock. | U047.md |
 | U048-F11 | **RESOLVED** `f012188f` | **`config.go:573-586, 609`** | NOPAY | `GetEditorCommand`'s doc comment is glued to the front of `IsolationImageFor`'s, so `go doc` attributes the editor-resolution policy to the isolation-image accessor, and `GetEditorCommand` (609) ha... | U048.md |
 | U048-F12 | **RESOLVED** `f012188f` | **`config.go:1997-2006`** | DEAD | `SourceName` is test-only. | U048.md |
 | U048-F13 | **PARTIAL** `f012188f` | **`config.go:647-650, 721-724`** | DEAD | `ProfileDefinition` is test-only; `GetDefaultLLMModel` has no non-test caller outside this package. | U048.md |

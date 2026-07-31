@@ -485,8 +485,18 @@ func (p *GitHubPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, p
 		return "", fmt.Errorf("refusing to publish empty content to %s/%s/%s: a 0-byte write would replace the remote file with nothing", owner, repo, path)
 	}
 
-	// Check if file exists to get its SHA
-	existingSHA, _ := p.GetFileSHA(ctx, owner, repo, path, branch)
+	// GetFileSHA separates "the file is not there" (a 404, reported as an
+	// empty SHA and a nil error) from "I could not find out" (any other
+	// failure, reported as an error). Only the first is a fact about the
+	// remote. Dropping the error collapses them, and the empty SHA that
+	// results is what shapes the request: with no SHA the contents API is
+	// asked to CREATE the path, so a transient read failure over an existing
+	// file emits a create for something meant to be updated.
+	existingSHA, err := p.GetFileSHA(ctx, owner, repo, path, branch)
+	if err != nil {
+		return "", fmt.Errorf("cannot tell whether %s/%s/%s already exists, so the write is refused rather than sent as a create: %w",
+			owner, repo, path, err)
+	}
 
 	opts := &github.RepositoryContentFileOptions{
 		Message: github.String(message),

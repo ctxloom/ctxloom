@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,321** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,322** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 134 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 172 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 169 |
-| `open` | no commit names this ID | **472** |
+| `open` | no commit names this ID | **471** |
 
-**Totals: 2268 findings across 162 units — 1,321 resolved, 472 still open, 475 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,322 resolved, 471 still open, 475 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 474 | 265 | 73 | 79 | 108 |
+| MED | 999 | 475 | 264 | 73 | 79 | 108 |
 | LOW | 871 | 490 | 195 | 46 | 85 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1235,7 +1235,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U041-F12 | open | **`run.go:889-902,1119,1405-1412`** | COUPLING | When coordinator hosting fails or the harp is blank, the docker-exec interactive arm **silently** loses agent-delegation reach-back, while the owned-run arm fails loudly | U041.md |
 | U041-F13 | **RESOLVED** `665dcb08` | **`run.go:1692-1723,1771-1776`** | COHESION | Cross-command primitives live in `run.go`: `stdinReader`, `promptLine`, `promptYesNo`, `plural` | U041.md |
 | U041-F20 | **REFUTED** `7b4382f9` | `run_owned.go (whole file)` | NOPAY | The entire Phase 2a-B host path — 283 lines including the unit's most complex function — has **zero** tests | U041.md |
-| U041-F22 | open | `run_owned.go:61` | COMPLEXITY | `startContainerOwnedRun` takes **14** positional parameters, three of which are `string` in a row | U041.md |
+| U041-F22 | **RESOLVED** `32f57009` | `run_owned.go:61` | COMPLEXITY | `startContainerOwnedRun` takes **14** positional parameters, three of which are `string` in a row | U041.md |
 | U041-F23 | **RESOLVED** `f4f8eb25` | **`run.go:1366-1368 + run_owned.go:46-51 + run.go:1137`** | DUPLICATE + COUPLING | The transport-arm decision is spread across two files as two predicates plus an implicit `else`, over the same three inputs | U041.md |
 | U042-F05 | **REFUTED** `696c5f3f` | `session_watch.go:155-173, 107-121` | ERRHANDLING | Every write error on the text `session watch` path is silently discarded: `writeWatchText` builds an `iox.ErrWriter` and never calls `Err()`, and `streamWatchEvents` ignores its (absent) return. A ... | U042.md |
 | U042-F06 | **RESOLVED** `ba297344` | `session_cmd.go:146, 170; session_query.go:126` | DUPLICATE | Three functions independently implement the same two-step essence resolution (harp-dir first, then legacy `<sessionsDir>/<sessionID>.md`), kept in sync only by comments. | U042.md |

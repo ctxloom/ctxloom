@@ -43,6 +43,38 @@ import (
 	"golang.org/x/crypto/ssh/agent"
 )
 
+// withheldKeyValue is what a key value is replaced with when it must not be
+// printed. It still reports the length, which is the only part that helps
+// someone diagnose a mis-paste.
+const withheldKeyValue = "<redacted: %d bytes of key material>"
+
+// mustWithhold reports whether a --key / sign.key / user.signingkey value must
+// never be echoed back to the user.
+//
+// The invariant: ctxloom does not read private key material (package doc, spec
+// §9.1), and it must not PRINT it either. Errors are the one place a value the
+// user typed comes back out, and they are exactly what gets pasted into bug
+// reports, CI logs and chat. A value carrying a private-key header, or one
+// spanning lines, is not any of the things this package accepts — a SHA256
+// fingerprint, a filesystem path, a single authorized-keys line, or an
+// ssh-agent comment are all one line and none says PRIVATE KEY — so nothing
+// legitimate is ever withheld by this rule. A trailing newline alone does not
+// trip it: `--key "$(cat id.pub)"` is a normal thing to type.
+func mustWithhold(value string) bool {
+	return strings.Contains(value, "PRIVATE KEY") ||
+		strings.ContainsAny(strings.TrimSpace(value), "\n\r")
+}
+
+// displayKeyValue renders a key value for an error message: quoted verbatim
+// when it is safe, withheld when it is not. Naming the value back is the whole
+// worth of these errors, so the safe case must stay verbatim.
+func displayKeyValue(value string) string {
+	if mustWithhold(value) {
+		return fmt.Sprintf(withheldKeyValue, len(value))
+	}
+	return fmt.Sprintf("%q", value)
+}
+
 // Discovered is the resolved signing identity.
 type Discovered struct {
 	// Signer signs over the ssh-agent connection. Never backed by key
@@ -113,7 +145,7 @@ type AmbiguousKeyNameError struct {
 
 func (e *AmbiguousKeyNameError) Error() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "ctxloom: --key %q matches %d keys in ssh-agent.\n\n", e.Name, len(e.Candidates))
+	fmt.Fprintf(&b, "ctxloom: --key %s matches %d keys in ssh-agent.\n\n", displayKeyValue(e.Name), len(e.Candidates))
 	for _, c := range e.Candidates {
 		fmt.Fprintf(&b, "  %s  %s", c.Fingerprint, c.Type)
 		if c.Comment != "" {
@@ -305,7 +337,7 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*
 	ag, err := d.dialAgent()
 	if err != nil {
 		return nil, &NoKeyError{
-			Looked: []string{"--key/sign.key " + explicitKey},
+			Looked: []string{"--key/sign.key " + displayKeyValue(explicitKey)},
 			Detail: err.Error(),
 			Err:    err,
 		}
@@ -337,7 +369,7 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*
 	// dropped here in favor of pubErr alone, so an agent RPC failure was
 	// reported as "not a recognized fingerprint, public key, or ssh-agent key
 	// name" — true but misleading about WHY. Chain nameErr too.
-	return nil, fmt.Errorf("--key %q: not a recognized fingerprint or public key (%v); and %w", explicitKey, pubErr, nameErr)
+	return nil, fmt.Errorf("--key %s: not a recognized fingerprint or public key (%v); and %w", displayKeyValue(explicitKey), pubErr, nameErr)
 }
 
 // resolveByComment is the last resort of resolveExplicit's fallback chain:
@@ -369,7 +401,7 @@ func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Disc
 
 	switch len(matched) {
 	case 0:
-		return nil, fmt.Errorf("no ssh-agent identity comment matches %q", explicitKey)
+		return nil, fmt.Errorf("no ssh-agent identity comment matches %s", displayKeyValue(explicitKey))
 	case 1:
 		s := signers[matched[0]]
 		return &Discovered{
@@ -397,7 +429,7 @@ func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Disc
 func (d *Discoverer) resolveGitSigningKey(value string) (*Discovered, error) {
 	pub, err := d.resolvePublicKey(value)
 	if err != nil {
-		return nil, fmt.Errorf("git config user.signingkey %q: %w", value, err)
+		return nil, fmt.Errorf("git config user.signingkey %s: %w", displayKeyValue(value), err)
 	}
 
 	ag, err := d.dialAgent()
@@ -471,6 +503,15 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 		return pub, nil
 	}
 
+	// A value that must be withheld is not a path and must never be USED as
+	// one. os.ReadFile reports the path it failed on, and that *fs.PathError
+	// is wrapped into the message the user is about to read — so treating
+	// pasted private key material as a filename is how the whole key ends up
+	// on stderr, twice.
+	if mustWithhold(value) {
+		return nil, fmt.Errorf("%s is not a public key, and is not read as a file path", displayKeyValue(value))
+	}
+
 	path, err := expandHome(value)
 	if err != nil {
 		return nil, err
@@ -502,7 +543,7 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 	}
 	pub, _, _, _, err := ssh.ParseAuthorizedKey(data)
 	if err != nil {
-		return nil, fmt.Errorf("%s does not contain a parseable SSH public key: %w", path, err)
+		return nil, fmt.Errorf("%s does not contain a parseable SSH public key: %w", displayKeyValue(path), err)
 	}
 	return pub, nil
 }

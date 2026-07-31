@@ -21,17 +21,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// NewCommand builds the `loadout` cobra command for a companion binary.
-//
-// binName is used only in help text. bundleYAML is the companion's own
-// embedded (via the go embed directive) loadout bundle bytes. sig is an
-// OPTIONAL detached publish signature over bundleYAML (namespace
-// signing.NamespacePublish), embedded the same way at release build time;
-// nil/empty emits unsigned — legal,
-// ordinary, and routes to ctxloom's review path rather than an error (spec
-// §10.1). No release signing pipeline exists yet, so every in-repo companion
-// passes nil today; this seam is what a future signed build changes through
-// without touching this function.
 // U107-F02: this trio is a cross-process wire contract — ctxloom's own
 // probe (internal/config/companions.go) execs a companion binary as
 // `<bin> Subcommand --FormatFlag FormatJSON` — previously duplicated as bare
@@ -52,6 +41,22 @@ const (
 	FormatJSON = "json"
 )
 
+// NewCommand builds the `loadout` cobra command for a companion binary.
+//
+// binName is used only in help text. bundleYAML is the companion's own
+// embedded (via the go embed directive) loadout bundle bytes. sig is an
+// OPTIONAL detached publish signature over bundleYAML (namespace
+// signing.NamespacePublish), embedded the same way at build time; nil/empty
+// emits unsigned — legal, ordinary, and routes to ctxloom's review path
+// rather than an error (spec §10.1).
+//
+// The sig seam is LIVE, not speculative. `just sign-loadouts` is the signing
+// pipeline, and both in-repo companions (cmd/ltk, cmd/taskloom) embed a
+// committed loadout.yaml.sig that ReadEmbeddedSig hands straight to this
+// parameter, so each ships a loadout that verifies against the compiled-in
+// ctxloom release key rather than taking the review path. nil stays the
+// contract for a companion that has NOT been signed — a third-party binary,
+// or an in-repo one before its first `just sign-loadouts` run.
 func NewCommand(binName string, bundleYAML, sig []byte) *cobra.Command {
 	var format string
 	cmd := &cobra.Command{

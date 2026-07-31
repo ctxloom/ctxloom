@@ -14,6 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 // Fragment and prompt management under `bundle` was a partial duplicate of the
@@ -72,9 +73,10 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("editor failed: %w", err)
 	}
+	w := iox.NewErrWriter(cmd.OutOrStdout())
 	if newContent == string(mcpYAML) {
-		fmt.Println("No changes made.")
-		return nil
+		w.Println("No changes made.")
+		return w.Err()
 	}
 	// U034-F01: an emptied editor buffer (the user deleted everything and
 	// saved, or the editor exited leaving a blank temp file) still differs
@@ -109,8 +111,8 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	fmt.Printf("Updated MCP server %q in bundle %q\n", mcpName, bundleName)
-	return nil
+	w.Printf("Updated MCP server %q in bundle %q\n", mcpName, bundleName)
+	return w.Err()
 }
 
 // editInEditor opens content in the configured editor and returns the edited

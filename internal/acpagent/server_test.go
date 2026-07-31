@@ -1269,3 +1269,31 @@ func TestSwitchProfile_FailedModeNotificationFailsTheRequest(t *testing.T) {
 	assert.NotNil(t, gotErr,
 		"the client never got the current_mode_update, so set_mode must not answer success")
 }
+
+// TestInitialize_AgentInfoVersion characterizes U014-F18 before the fix (a
+// MISSING-SEAM row: there is no injection point for the build stamp, so a
+// test against one cannot fail — it fails to COMPILE, which is not a red).
+//
+// agentVersion is the constant "1.0.0", reported to every connected editor as
+// agentInfo.version. It is not the build stamp internal/cli.Version carries,
+// it has never been bumped, and ctxloom has never actually released a 1.0.0 —
+// so the one field the ACP handshake reserves for "which build am I talking
+// to" answers with a number that identifies nothing.
+func TestInitialize_AgentInfoVersion(t *testing.T) {
+	eng := newFakeEngine()
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+
+	resp, _ := c.waitResponse(c.send("initialize", `{"protocolVersion":1,"clientCapabilities":{}}`))
+	require.Nil(t, resp.Error)
+
+	var got struct {
+		AgentInfo struct {
+			Name    string `json:"name"`
+			Version string `json:"version"`
+		} `json:"agentInfo"`
+	}
+	require.NoError(t, json.Unmarshal(resp.Result, &got))
+	assert.Equal(t, "ctxloom", got.AgentInfo.Name)
+	assert.Equal(t, "1.0.0", got.AgentInfo.Version)
+}

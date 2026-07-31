@@ -54,11 +54,16 @@ func TestLockfile_AllEntries_EmptyIsEmpty(t *testing.T) {
 // The point of the collapse: the element type can now be named, so a caller
 // can hold or pass one. Pre-fix this did not compile.
 func TestLockfile_AllEntries_ElementTypeIsNameable(t *testing.T) {
-	var entries []LockedEntry = (&Lockfile{Bundles: map[string]LockEntry{"a/b": {SHA: "s"}}}).AllEntries()
+	// This helper is the whole assertion: a function taking one entry cannot
+	// be written at all while the element type is anonymous, which is what
+	// forced every caller to range over the result in place.
+	describe := func(e LockedEntry) (ItemType, string, string) { return e.Type, e.Ref, e.Entry.SHA }
+
+	entries := (&Lockfile{Bundles: map[string]LockEntry{"a/b": {SHA: "s"}}}).AllEntries()
 	require.Len(t, entries, 1)
 
-	var one LockedEntry = entries[0]
-	assert.Equal(t, "a/b", one.Ref)
-	assert.Equal(t, ItemTypeBundle, one.Type)
-	assert.Equal(t, "s", one.Entry.SHA)
+	kind, ref, sha := describe(entries[0])
+	assert.Equal(t, ItemTypeBundle, kind)
+	assert.Equal(t, "a/b", ref)
+	assert.Equal(t, "s", sha)
 }

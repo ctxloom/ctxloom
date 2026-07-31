@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,333** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,334** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 145 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 177 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **436** |
+| `open` | no commit names this ID | **435** |
 
-**Totals: 2268 findings across 162 units — 1,333 resolved, 436 still open, 499 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,334 resolved, 435 still open, 499 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 482 | 241 | 81 | 81 | 114 |
-| LOW | 871 | 494 | 183 | 49 | 88 | 57 |
+| LOW | 871 | 495 | 182 | 49 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2359,7 +2359,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U057-F27 | **RESOLVED** `3fbf4428` | **`surfaces.go:23-28, uninstall.go:26-36`** | ERRHANDLING | An unregistered backend name is indistinguishable from a correctly-registered backend that materializes nothing: `BuildSurfaces("typo")` returns `EmptySurfaceSet{}` and `BackendStatus("typo")` retu... | U057.md |
 | U058-F07 | open | `justfile:346` | CORRECTNESS | The `just` recipe's comment names the wrong agent: "(claude/**gemini**/codex …)". There is no gemini writer; the third agent is `antigravity`. | U058.md |
 | U058-F08 | open | `package location` | COUPLING | The package lives at `internal/lm/conformance` but tests nothing in `internal/lm`: its three subjects are `internal/claude`, `internal/antigravity`, and `internal/codex`. The path implies a contain... | U058.md |
-| U058-F09 | open | `conformance_test.go:44-46` | CORRECTNESS | `asSettingsWriter` converts a compile-time contract into a **runtime panic**: `newWriter(o).(settingsWriter)` panics if a concrete writer stops exposing `SettingsPath`, rather than failing to build. | U058.md |
+| U058-F09 | **RESOLVED** `bb17ec5a` | `conformance_test.go:44-46` | CORRECTNESS | `asSettingsWriter` converts a compile-time contract into a **runtime panic**: `newWriter(o).(settingsWriter)` panics if a concrete writer stops exposing `SettingsPath`, rather than failing to build. | U058.md |
 | U059-F14 | **RESOLVED** `eff34e81` | `client.go:165-166` | CORRECTNESS | The doc comment contradicts the code it documents. | U059.md |
 | U059-F15 | **RESOLVED** `f5b23f4d` | **`chat.go:170-187`** | CORRECTNESS | `turnMetaToProto` performs 8 unchecked `int → int32` narrowings; overflow truncates silently (`DurationMs` wraps past ~24.9 days, token counts past 2.1e9). | U059.md |
 | U059-F16 | **RESOLVED** `12f375ce` | `client.go:341-343` | TRIVIAL | `NewSelfInvokingClient` is a one-line default-argument wrapper with a single production call site, forming a 3-deep ladder (`NewSelfInvokingClient` → `…ForLabel` → `…ForLabelEnv`). | U059.md |

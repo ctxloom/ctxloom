@@ -547,3 +547,27 @@ func TestPrefixWrapped_WindowsPathProgramName(t *testing.T) {
 		t.Errorf("inner = %v, want it to start at `git`", inner)
 	}
 }
+
+// TestExpandWrappers_ShellDialectDrivesWrapperRecognition pins that the set of
+// programs treated as `-c` interpreter wrappers is the SAME set shellenv
+// recognizes as shells. The two lists had diverged: shellenv resolves ash,
+// busybox, ksh93, loksh, oksh and pdksh (and any `.exe` spelling) to a POSIX
+// dialect ltk can parse, but the wrapper table named only six of them, so
+// `ash -c "git commit --no-verify"` was never re-parsed and the deny rule
+// never saw the command that actually runs.
+func TestExpandWrappers_ShellDialectDrivesWrapperRecognition(t *testing.T) {
+	for _, prog := range []string{"ash", "busybox", "ksh93", "loksh", "oksh", "pdksh", "bash.exe"} {
+		t.Run(prog, func(t *testing.T) {
+			f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+			r := newReg(f)
+			s := cmdScript(ir.ShellBash, prog, "-c", "git commit --no-verify")
+			r.ExpandWrappers(context.Background(), s)
+			if len(f.seen) == 0 {
+				t.Fatalf("%s -c was not recognized as a wrapper; shellenv resolves it to a shell ltk parses", prog)
+			}
+			if got := nestedPrograms(s); !contains(got, "git") {
+				t.Errorf("nested programs = %v, want the inner `git` surfaced", got)
+			}
+		})
+	}
+}

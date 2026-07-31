@@ -1137,7 +1137,22 @@ Examples:
 			// (an `llm host` runner WITH the run-id trio → EngineHost); the
 			// host watches it via WatchRuns. No go-plugin client; no
 			// in-container listener.
-			handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, policy, ws, req, backendName, label, runVerbosity, activeHarp, ctxResult.Context, prompt, managed.ChatMCPServers(backendName, req.Options.Env[agent.MCPCommandOverrideEnv]), permMode, mode, runStructured, runnerSpawnEnv)
+			handle, sess, oerr := startContainerOwnedRun(ctx, sessionCoord, ownedRunLaunch{
+				Policy:      policy,
+				Workspace:   ws,
+				Req:         req,
+				BackendName: backendName,
+				Label:       label,
+				Verbosity:   runVerbosity,
+				Harp:        activeHarp,
+				ContextText: ctxResult.Context,
+				Prompt:      prompt,
+				MCPServers:  managed.ChatMCPServers(backendName, req.Options.Env[agent.MCPCommandOverrideEnv]),
+				Permission:  permMode,
+				Mode:        mode,
+				Structured:  runStructured,
+				RunnerEnv:   runnerSpawnEnv,
+			})
 			// Assign BEFORE checking oerr (U041-F05): startContainerOwnedRun
 			// can return a non-nil handle ALONGSIDE a non-nil error (the
 			// container started; a later step in StartOwnedRun failed) — if

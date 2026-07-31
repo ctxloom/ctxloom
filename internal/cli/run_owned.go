@@ -44,6 +44,29 @@ type ownedRunSession struct {
 	leadTurnIssued bool
 }
 
+// ownedRunLaunch is startContainerOwnedRun's request. It is a struct rather
+// than a positional list because the launch needs fourteen inputs, three of
+// them adjacent strings (harp, context, prompt) that a transposition at the
+// call site would swap silently — a run named after its own prompt, with the
+// assembled context delivered as the harp, and nothing in the type system
+// objecting. A keyed literal makes each value say what it is.
+type ownedRunLaunch struct {
+	Policy      isolation.Policy
+	Workspace   isolation.Workspace
+	Req         *pb.RunStart
+	BackendName string
+	Label       string
+	Verbosity   int
+	Harp        string
+	ContextText string
+	Prompt      string
+	MCPServers  []agent.ChatMCPServer
+	Permission  agent.PermissionMode
+	Mode        pb.ExecutionMode
+	Structured  bool
+	RunnerEnv   map[string]string
+}
+
 // startContainerOwnedRun is the Phase 2a-B launch: subscribe to the coordinator
 // event stream, then mint the owner-owned run and spawn its runner via the
 // StartRunner keepalive-with-run-id primitive (the runner runs `ctxloom llm
@@ -52,15 +75,15 @@ type ownedRunSession struct {
 // runner). The returned RunnerHandle is the caller's teardown handle
 // (isolation `docker rm -f` by name); the ownedRunSession carries the outcome +
 // event stream the structured/oneshot consumers drive.
-func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy isolation.Policy, ws isolation.Workspace, req *pb.RunStart, backendName, label string, verbosity int, harp, contextText, prompt string, mcpServers []agent.ChatMCPServer, perm agent.PermissionMode, mode pb.ExecutionMode, structured bool, runnerEnv map[string]string) (*isolation.RunnerHandle, *ownedRunSession, error) {
+func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunch) (*isolation.RunnerHandle, *ownedRunSession, error) {
 	if c == nil {
 		return nil, nil, fmt.Errorf("container structured/oneshot run needs the hosted session coordinator, which failed to stand up")
 	}
-	stampHostTerminalEnv(req)
+	stampHostTerminalEnv(spec.Req)
 
 	var handle *isolation.RunnerHandle
 	starter := func(sctx context.Context, spawnEnv map[string]string) (func(), error) {
-		h, err := policy.StartRunner(sctx, backendName, label, verbosity, ws, spawnEnv)
+		h, err := spec.Policy.StartRunner(sctx, spec.BackendName, spec.Label, spec.Verbosity, spec.Workspace, spawnEnv)
 		if err != nil {
 			return nil, err
 		}
@@ -68,12 +91,12 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy is
 		return h.Kill, nil
 	}
 
-	owner, ok := c.Identify(runnerEnv[coord.EnvCoordCred])
+	owner, ok := c.Identify(spec.RunnerEnv[coord.EnvCoordCred])
 	if !ok {
 		// The owner Identity is used only for lineage journaling (ParentHarp /
 		// Depth); if the owner token can't be resolved, the session harp at
 		// depth 0 is the honest fallback.
-		owner = coord.Identity{Harp: harp}
+		owner = coord.Identity{Harp: spec.Harp}
 	}
 
 	// Subscribe BEFORE StartOwnedRun so no delta from the first turn is
@@ -86,17 +109,17 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, policy is
 	// not for its whole lifetime.
 	_, events, cancel, narrow := c.WatchRuns(nil)
 
-	lead := operations.JoinLeadBlocks(contextText, prompt)
+	lead := operations.JoinLeadBlocks(spec.ContextText, spec.Prompt)
 	outcome, err := c.StartOwnedRun(ctx, owner, coord.OwnerRunSpec{
-		Harp:       harp,
-		Backend:    backendName,
-		Label:      label,
-		Model:      req.GetOptions().GetModel(),
-		WorkDir:    req.GetOptions().GetWorkDir(),
-		Env:        req.GetOptions().GetEnv(),
-		MCPServers: mcpServers,
-		Permission: perm,
-		Oneshot:    mode == pb.ExecutionMode_ONESHOT && !structured,
+		Harp:       spec.Harp,
+		Backend:    spec.BackendName,
+		Label:      spec.Label,
+		Model:      spec.Req.GetOptions().GetModel(),
+		WorkDir:    spec.Req.GetOptions().GetWorkDir(),
+		Env:        spec.Req.GetOptions().GetEnv(),
+		MCPServers: spec.MCPServers,
+		Permission: spec.Permission,
+		Oneshot:    spec.Mode == pb.ExecutionMode_ONESHOT && !spec.Structured,
 	}, starter, lead)
 	if err != nil {
 		cancel()

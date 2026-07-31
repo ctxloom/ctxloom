@@ -32,9 +32,19 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// Entry is one row in index.yaml. The json tags mirror the yaml keys so
-// `ctxloom session list --format json` and any frontend reading it (the VSCode
-// companion) share the same snake_case contract as the on-disk index.
+// Entry is one row in index.yaml. The YAML keys are the on-disk contract; the
+// json tags mirror them field-for-field so that any future direct JSON
+// projection of an Entry is snake_case-identical to the file.
+//
+// No frontend reads this type as JSON today, and none should be assumed to:
+// `ctxloom session list --format json` renders a separate rendering-time
+// projection (internal/cli.SessionRow — harp/summary/start/end/essence_path),
+// the list_sessions MCP tool renders its own sessionSummary, and the
+// ctxloom://sessions/recent resource builds its own YAML row type. The json
+// tags are therefore a shape guarantee, not a wire in use.
+//
+// The one deliberate asymmetry is CanonicalTranscriptPath: computed on read, so
+// yaml:"-", but json-visible for a projection that wants capture presence.
 type Entry struct {
 	HarpName       string     `yaml:"harp_name" json:"harp_name"`
 	SessionID      string     `yaml:"session_id,omitempty" json:"session_id,omitempty"` // empty until backend binds on initialize

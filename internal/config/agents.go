@@ -26,11 +26,18 @@ func (c *Config) agentDirLoader() *agents.Loader {
 // version-controlled-with-config form) and a warning names the shadowed file —
 // per fault tolerance the merge never errors. Each returned Agent carries its
 // Name and Source.
+//
+// Every returned Agent is cloned, so it obeys accessors.go's copy-on-read
+// policy like every other value handed out of a Config: Agent.Profiles decides
+// which context a delegated child is given and Agent.Escalation is the
+// permission ladder it runs under, so a caller filtering either in place must
+// not be rewriting it for every other holder of the shared instance.
 func (c *Config) LoadAgents() []agents.Agent {
 	merged := make(map[string]agents.Agent, len(c.agents))
 
 	// Config-key entries first — they are authoritative on collision.
 	for name, sub := range c.agents {
+		sub = cloneAgent(sub)
 		sub.Name = name
 		sub.Source = agents.SourceConfig
 		merged[name] = sub

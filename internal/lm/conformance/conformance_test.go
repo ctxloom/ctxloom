@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -177,21 +178,87 @@ func TestConformance_RefusesToOverwriteUnparseableSettings(t *testing.T) {
 	}
 }
 
-// TestConformance_AtomicWriteBackup: overwriting an existing settings file leaves
-// a .ctxloom.bak of the prior content (crash-safety).
+// recordingFs records every path opened for CREATION and every rename. That is
+// what makes ATOMICITY observable from outside a writer: an atomic write puts
+// the new bytes in a temp file and renames it over the destination, so the
+// destination is never itself opened for writing and no reader can ever
+// observe it half-written. A writer that truncated the live file and wrote
+// into it would leave the same final bytes and the same backup — identical to
+// every assertion this suite made before (U058-F05).
+type recordingFs struct {
+	afero.Fs
+	mu       sync.Mutex
+	created  []string
+	renamedT []string
+}
+
+func (r *recordingFs) Create(name string) (afero.File, error) {
+	r.note(name)
+	return r.Fs.Create(name)
+}
+
+func (r *recordingFs) OpenFile(name string, flag int, perm os.FileMode) (afero.File, error) {
+	if flag&(os.O_CREATE|os.O_WRONLY|os.O_RDWR|os.O_TRUNC) != 0 {
+		r.note(name)
+	}
+	return r.Fs.OpenFile(name, flag, perm)
+}
+
+func (r *recordingFs) Rename(oldname, newname string) error {
+	r.mu.Lock()
+	r.renamedT = append(r.renamedT, newname)
+	r.mu.Unlock()
+	return r.Fs.Rename(oldname, newname)
+}
+
+func (r *recordingFs) note(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.created = append(r.created, name)
+}
+
+func (r *recordingFs) snapshot() (created, renamedTo []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string{}, r.created...), append([]string{}, r.renamedT...)
+}
+
+func (r *recordingFs) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.created, r.renamedT = nil, nil
+}
+
+// TestConformance_AtomicWriteBackup: overwriting an existing settings file
+// leaves a .ctxloom.bak of the prior content AND replaces the file atomically —
+// both halves of the contract doc.go names, where the suite used to assert only
+// the backup and take the atomicity on trust (U058-F05).
 func TestConformance_AtomicWriteBackup(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
-			fs := afero.NewMemMapFs()
+			fs := &recordingFs{Fs: afero.NewMemMapFs()}
 			w := a.newWriter(agent.SettingsOptions{FS: fs})
 			path := w.SettingsPath(projectDir)
 			require.NoError(t, afero.WriteFile(fs, path, []byte(a.userFile), 0644))
+			fs.reset() // that setup write is the test's, not the writer's
 
 			require.NoError(t, w.WriteSettings(standardHooks(), nil, nil, projectDir))
 
 			bak, err := afero.ReadFile(fs, path+".ctxloom.bak")
 			require.NoError(t, err, "a .ctxloom.bak of the prior settings must exist")
 			assert.Contains(t, string(bak), a.userMarker, "backup holds the pre-write content")
+
+			created, renamedTo := fs.snapshot()
+			assert.NotContains(t, created, path,
+				"the live settings file must never be opened for writing: an atomic write renames a temp over it, so no reader can see it half-written")
+			assert.Contains(t, renamedTo, path,
+				"the new content must arrive by rename; created=%v", created)
+
+			entries, dirErr := afero.ReadDir(fs, filepath.Dir(path))
+			require.NoError(t, dirErr)
+			for _, e := range entries {
+				assert.NotContains(t, e.Name(), ".tmp", "a successful atomic write leaves no temp behind")
+			}
 		})
 	}
 }

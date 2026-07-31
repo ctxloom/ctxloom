@@ -223,11 +223,20 @@ func formulaEnumRefViolations(schema *tagschema.Schema, enums map[string][]strin
 }
 
 // groupByTarget groups a task's stored tag strings by their "ns:key" target,
-// collecting each value-carrying tag's distinct value (a valueless/modifier
+// collecting each value-carrying tag's DISTINCT value (a valueless/modifier
 // tag carries nothing to check or collapse, so it's skipped here — it can
 // never violate an enum/range/cardinality rule).
+//
+// Distinct is on the PARSED value, not the raw string, and the difference is
+// the whole point: tagma accepts a value bare or quoted, so `triage:type=docs`
+// and `triage:type="docs"` are two raw strings denoting one tag. Grouping them
+// as two entries made the arity=scalar check — which counts entries — report
+// one value as two, in a message that contradicted itself ("2 distinct values
+// [docs docs]"), and made every other check fire once per spelling. Order is
+// preserved so the violation messages stay stable.
 func groupByTarget(tagStrings []string) map[string][]string {
 	out := map[string][]string{}
+	seen := map[string]map[string]struct{}{}
 	for _, raw := range tagStrings {
 		t, err := tagma.ParseTag(raw)
 		if err != nil {
@@ -237,6 +246,13 @@ func groupByTarget(tagStrings []string) map[string][]string {
 			continue
 		}
 		target := tagschema.Target(t)
+		if seen[target] == nil {
+			seen[target] = map[string]struct{}{}
+		}
+		if _, dup := seen[target][*t.Value]; dup {
+			continue
+		}
+		seen[target][*t.Value] = struct{}{}
 		out[target] = append(out[target], *t.Value)
 	}
 	return out

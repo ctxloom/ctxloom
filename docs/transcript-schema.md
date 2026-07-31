@@ -52,9 +52,14 @@ The critical fact this schema leans on: **five of ctxloom's six engines
 through the exact same code path** — `internal/acp.NewChatDriver` — which
 normalizes every engine's wire protocol onto one Go type,
 `agent.ChatEvent` (`internal/shared/agent/chat.go`), via
-`internal/acp/mapping.go`'s `mapSessionUpdate`. Only **antigravity** has no
-`StructuredChat` capability at all (no `internal/antigravity/chat.go`) — it
-is oneshot/interactive-only, handled by a different regime (§5).
+`internal/acp/mapping.go`'s `mapSessionUpdate`. **antigravity** is the one
+exception, but not because it lacks the capability: it has one
+(`internal/antigravity/chat.go`) and implements it as a bespoke PROSE driver
+over `agy -p` rather than through `NewChatDriver`, since agy has no ACP
+subcommand and no first-party ACP adapter. Prose in, prose out — no
+reasoning, tool-call or turn-accounting events — so antigravity contributes
+nothing to the richer half of this schema through structured chat, and its
+oneshot/interactive regimes (§5) are what actually feed it.
 
 This is a stronger position than "pick a lowest common denominator": the
 mapping in `mapSessionUpdate` is *already* a hand-tuned, tested, per-engine

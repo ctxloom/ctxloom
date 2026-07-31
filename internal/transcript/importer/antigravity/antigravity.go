@@ -5,9 +5,12 @@
 // (internal/transcript/importer/codex) — a small envelope/payload type set, a
 // Convert that streams the file in order, and a colocated fixture test
 // runnable in total isolation from the rest of the module — but its OUTPUT
-// surface is deliberately smaller: antigravity has no StructuredChat
-// capability at all (no internal/antigravity/chat.go), so ctxloom's own
-// canonical mapping table for it (docs/transcript-schema.md §2c) names only
+// surface is deliberately smaller. antigravity DOES offer StructuredChat
+// (internal/antigravity/chat.go), but implements it as a bespoke PROSE driver
+// over `agy -p` instead of through internal/acp.NewChatDriver like every
+// other engine: prose in, prose out, with no reasoning, tool-call or
+// turn-accounting events anywhere in it. So ctxloom's own canonical mapping
+// table for antigravity (docs/transcript-schema.md §2c) names only
 // two step types as carrying anything canonical — USER_INPUT -> entry.type
 // "user", PLANNER_RESPONSE -> entry.type "assistant" — and lists model
 // reasoning and tool invocation/output as "(none)" for antigravity's native

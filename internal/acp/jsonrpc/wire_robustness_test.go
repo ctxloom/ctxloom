@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -475,4 +476,54 @@ func TestStart_LiveCtxLeavesTheConnectionAlone(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("a live ctx must not stop the read loop")
 	}
+}
+
+// pendingCount reports how many response slots are currently registered,
+// without racing the read loop that also touches the map.
+func pendingCount(c *Conn) int {
+	c.pendingMu.Lock()
+	defer c.pendingMu.Unlock()
+	return len(c.pending)
+}
+
+// failingWriter stands in for a transport that is already gone.
+type failingWriter struct{}
+
+func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("transport gone") }
+
+// TestGo_DroppedAwaitLeaksOnlyUntilTheConnectionDies bounds U013-F14. Go's
+// contract — exactly one await per successful Go, which owns the slot's
+// cleanup — is connascence of execution the type genuinely cannot enforce: the
+// cleanup lives in the await's own defer, so a caller that drops the closure
+// keeps its slot. What that costs is the point. The slot is a map entry and a
+// one-deep channel, it can no longer park the read loop (a duplicate response
+// into a full slot is dropped, not blocked on), and failPending reclaims every
+// abandoned slot when the connection dies. So the leak is bounded by the
+// connection, not permanent, and this pins that bound.
+func TestGo_DroppedAwaitLeaksOnlyUntilTheConnectionDies(t *testing.T) {
+	pr, pw := io.Pipe()
+	conn := NewConn(pr, &lockedBuffer{}, CloserFunc(pw.Close), &mockHandler{})
+
+	for range 3 {
+		_, err := conn.Go("session/prompt", nil)
+		require.NoError(t, err)
+	}
+	assert.Equal(t, 3, pendingCount(conn), "an un-awaited Go keeps its slot: that is the connascence the contract carries")
+
+	conn.Start(context.Background())
+	require.NoError(t, conn.Close())
+	waitDone(t, conn)
+	assert.Zero(t, pendingCount(conn), "connection death must reclaim every abandoned slot")
+}
+
+// TestGo_FailedWriteLeavesNoPendingSlot pins the one part of U013-F14's cleanup
+// the CODEC owns rather than the caller: when Go fails, no await is ever handed
+// out, so nothing else could ever release the slot it had already registered.
+func TestGo_FailedWriteLeavesNoPendingSlot(t *testing.T) {
+	conn := NewConn(strings.NewReader(""), failingWriter{}, nil, &mockHandler{})
+
+	await, err := conn.Go("session/prompt", nil)
+	require.Error(t, err, "the write failed, so the request was never sent")
+	assert.Nil(t, await)
+	assert.Zero(t, pendingCount(conn), "a Go that returns an error must leave no slot behind")
 }

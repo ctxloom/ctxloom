@@ -238,3 +238,41 @@ func TestReadLoop_UnrecoverableFrameEndsTheSession(t *testing.T) {
 	assert.Error(t, await(ctx, nil), "a parked caller must be released, not left hanging, when the stream cannot be framed")
 	waitDone(t, conn)
 }
+
+// TestReadLoop_WrongProtocolVersionIsReported pins U013-F11(a): the spec makes
+// the jsonrpc member MUST-be-exactly-"2.0", and this codec decoded it and then
+// never looked at it — so a peer speaking a different protocol was served in
+// silence and any resulting confusion had no first clue attached to it. The
+// frame is still dispatched: per this package's stated ethos a version
+// mismatch is worth saying out loud, not worth dropping a peer's traffic over.
+func TestReadLoop_WrongProtocolVersionIsReported(t *testing.T) {
+	warnings := captureWarnings(t)
+	notified := make(chan string, 4)
+	conn, _ := newScriptedConn([]string{
+		`{"jsonrpc":"1.0","method":"session/update"}`,
+	}, notifyRecorder(notified))
+	conn.Start(context.Background())
+
+	select {
+	case m := <-notified:
+		assert.Equal(t, "session/update", m, "a version mismatch is reported, not enforced by dropping traffic")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the frame was never dispatched")
+	}
+	waitDone(t, conn)
+	assert.Contains(t, warnings(), `"1.0"`, "the version the peer actually claimed must be named")
+}
+
+// TestReadLoop_CorrectProtocolVersionIsSilent is the other half: the check must
+// not turn every conforming frame into a warning.
+func TestReadLoop_CorrectProtocolVersionIsSilent(t *testing.T) {
+	warnings := captureWarnings(t)
+	notified := make(chan string, 4)
+	conn, _ := newScriptedConn([]string{
+		`{"jsonrpc":"2.0","method":"session/update"}`,
+	}, notifyRecorder(notified))
+	conn.Start(context.Background())
+	<-notified
+	waitDone(t, conn)
+	assert.Empty(t, warnings(), "a conforming frame must warn about nothing")
+}

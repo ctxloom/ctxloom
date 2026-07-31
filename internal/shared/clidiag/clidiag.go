@@ -22,8 +22,14 @@ import (
 // aggregating writer. It always returns the human line, even in structured
 // mode: WarnOnce/FwarnOnce's dedup key (see onceSeen below) needs one stable identity
 // per distinct message regardless of which wire shape actually gets written.
+//
+// prog is passed as an ARGUMENT, never spliced into the format string, so it
+// renders identically to fwarn's "%s: warning: %s\n" for every prog. Splicing it
+// made a percent sign in prog a format verb in this path only: the key and the
+// emitted line diverged, and the stray verb consumed the caller's args, so the
+// MESSAGE BODY came out mangled too.
 func Line(prog, format string, args ...any) string {
-	return fmt.Sprintf(prog+": warning: "+format+"\n", args...)
+	return fmt.Sprintf("%s: warning: %s\n", prog, fmt.Sprintf(format, args...))
 }
 
 // structured gates whether Fwarn/FwarnOnce write the human "<prog>: warning:

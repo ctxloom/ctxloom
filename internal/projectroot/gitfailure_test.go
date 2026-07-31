@@ -14,14 +14,25 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// brokenRepoDir builds a directory whose .git exists but is not a usable
-// repository — present enough that "there is no repository here" is the wrong
-// conclusion to draw about it.
+// brokenRepoDir builds a directory whose .git exists but is unusable: the
+// linked-worktree/submodule form (.git as a FILE) carrying content that is not
+// a gitdir pointer. Measured against go-git: this is one of the few shapes
+// that fails with something OTHER than "repository does not exist" — a .git
+// DIRECTORY with a corrupt HEAD still opens fine, and a dangling `gitdir:`
+// pointer reports ErrRepositoryNotExists like an absent one.
+//
+// The helper asserts its own hostility before returning, so a fixture that
+// quietly stopped being broken cannot make the tests below pass for the wrong
+// reason.
 func brokenRepoDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".git"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git", "HEAD"), []byte("garbage\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".git"), []byte("garbage, not a gitdir pointer\n"), 0o644))
+
+	_, err := gitutil.FindRoot(dir)
+	require.Error(t, err, "fixture must not resolve as a repository")
+	require.False(t, gitutil.IsNoRepository(err),
+		"fixture must fail as a BROKEN repository, not as an absent one")
 	return dir
 }
 
@@ -37,10 +48,10 @@ func TestGitutil_NoRepositoryIsDistinguishableFromABrokenOne(t *testing.T) {
 	assert.True(t, gitutil.IsNoRepository(err),
 		"a directory outside any repository must classify as the benign case")
 
-	_, brokenErr := gitutil.FindRoot(brokenRepoDir(t))
-	require.Error(t, brokenErr)
-	assert.False(t, gitutil.IsNoRepository(brokenErr),
-		"an unreadable/corrupt .git must NOT classify as 'not a repository'")
+	// brokenRepoDir asserts the other side of the discrimination as part of
+	// building the fixture: a .git that exists but is unusable must NOT
+	// classify as "not a repository".
+	brokenRepoDir(t)
 }
 
 // TestWorkDirWithBoundary_WarnsOnAnUnusableRepository pins what the
@@ -64,7 +75,7 @@ func TestWorkDirWithBoundary_WarnsOnAnUnusableRepository(t *testing.T) {
 	assert.NotEmpty(t, root)
 
 	assert.Contains(t, sink.String(), "git", "the warning must name what failed")
-	assert.Contains(t, sink.String(), "garbage", "the warning must carry the underlying git failure")
+	assert.Contains(t, sink.String(), "gitdir", "the warning must carry the underlying git failure")
 }
 
 // TestWorkDirWithBoundary_SilentOutsideAnyRepository is the other half: being

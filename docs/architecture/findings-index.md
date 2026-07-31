@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,524** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,525** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 180 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **151** |
+| `open` | no commit names this ID | **150** |
 
-**Totals: 2268 findings across 162 units — 1,524 resolved, 151 still open, 593 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,525 resolved, 150 still open, 593 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 573 | 90 | 104 | 96 | 136 |
+| MED | 999 | 574 | 89 | 104 | 96 | 136 |
 | LOW | 871 | 590 | 54 | 60 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1442,7 +1442,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U065-F16 | **RESOLVED** `1bed7862` | `worktree_reap.go:235-238` | CORRECTNESS | REAPED vs SPARED is decided by `if _, statErr := os.Stat(wtDir); statErr != nil`. **Any** stat error — `EACCES` on a parent, `ELOOP`, `ENAMETOOLONG` — is read as "gone", so the sweep reports worktr... | U065.md |
 | U066-F04 | open | `app.go:147, 175, 186, 199-206` | COHESION | `engine.Response{Allow: true}` is **connascent of meaning** across four distinct outcomes: "no rule matched", "nothing to check", "could not parse, policy says pass", "ltk crashed". The type has no... | U066.md |
 | U066-F05 | **RESOLVED** `34879f5c` | `app.go:85, 151, 183` | ERRHANDLING | **Inconsistent nil discipline on `a.Config`** within one type. `denyOnUnanalyzable` guards `a.Config != nil`; `resolveShell` and `decide` dereference it unguarded. | U066.md |
-| U066-F06 | open | `app.go:164-171 vs app.go:199-206` | DUPLICATE | The `rules.Decision` → `engine.Response` mapping is written out **twice, field for field**. Six fields, both copies identical. A seventh field added to `Decision` will compile fine while being sile... | U066.md |
+| U066-F06 | **RESOLVED** `206d9069` | `app.go:164-171 vs app.go:199-206` | DUPLICATE | The `rules.Decision` → `engine.Response` mapping is written out **twice, field for field**. Six fields, both copies identical. A seventh field added to `Decision` will compile fine while being sile... | U066.md |
 | U067-F04 | **ESCALATED** (cross-package/product decision; see wave-2 report) | **`engine.go:78`** | DEAD | **`Output.ExitCode` only ever holds `0`**, making `os.Exit(out.ExitCode)` at `cmd/ltk/evaluate.go:82` unreachable. Worse, a nonzero exit would be actively *wrong* for both engines. | U067.md |
 | U067-F05 | **REFUTED** `c3da05c5` | **`engine.go:98-117`** | COHESION | **`Engine` is two interfaces under one name.** The eight methods partition disjointly by caller — `{Name, Decode, Encode}` = runtime, `{Detect, SettingsPath, HookCommand, Install, Uninstall}` = man... | U067.md |
 | U067-F06 | **REFUTED** `c3da05c5` | **`engine.go:121-123 + antigravity.go:102-110 + claudecode.go:139-144`** | CORRECTNESS | **`Detect` picks Claude Code over an actually-installed Antigravity hook.** Both score 2 for their strong marker, and ties go to whoever is first in `engines()` — Claude. So a project with a bare `... | U067.md |

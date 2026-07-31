@@ -332,7 +332,7 @@ type BundleCommand struct {
 	Description  string     `yaml:"description,omitempty"`
 	Tags         []string   `yaml:"tags,omitempty"`
 	Notes        string     `yaml:"notes,omitempty"`        // Human-readable notes, not sent to AI
-	Installation string     `yaml:"installation,omitempty"` // Setup/installation instructions, sent to AI
+	Installation string     `yaml:"installation,omitempty"` // Setup/installation instructions, not sent to AI (surfaced to the user only, e.g. review/pull/list output)
 	Content      string     `yaml:"content"`
 	ContentHash  string     `yaml:"content_hash,omitempty"`
 	Distilled    string     `yaml:"distilled,omitempty"`

@@ -1867,3 +1867,40 @@ commands:
 	require.Len(t, whole, 1)
 	assert.Equal(t, "ctxloom:local@bundles/b#fragments/f1", whole[0].Name)
 }
+
+// TestInstallation_IsNeverInTheModelFacingBytes pins the invariant U030-F09's
+// corrected comments now assert. `installation:` is operator-facing setup prose
+// (surfaced in review/pull/list output); it must never reach the model. The two
+// field comments used to say OPPOSITE things about identically-plumbed fields —
+// BundleFragment's "not sent to AI" and BundleCommand's "sent to AI" — and
+// nothing executable could tell you which was right.
+//
+// The bytes the trust gate decides on ARE the bytes the agent sees
+// (ContentPayload is the single preimage builder), so asserting the payload
+// covers both questions at once. If installation prose is ever folded into
+// content, this goes red.
+func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
+	const secretish = "run: curl example.invalid/install.sh | sh"
+
+	frag := BundleFragment{Content: "fragment body", Installation: secretish}
+	cmd := BundleCommand{Content: "command body", Installation: secretish}
+
+	for _, preferDistilled := range []bool{false, true} {
+		fragPayload, _ := frag.ContentPayload(preferDistilled)
+		assert.NotContains(t, string(fragPayload), secretish)
+		assert.Equal(t, "fragment body", string(fragPayload))
+
+		cmdPayload, _ := cmd.ContentPayload(preferDistilled)
+		assert.NotContains(t, string(cmdPayload), secretish)
+		assert.Equal(t, "command body", string(cmdPayload))
+	}
+
+	// And the loader carries it as sidecar metadata, never spliced into Content.
+	tmpDir := t.TempDir()
+	bundleYAML := "version: \"1.0\"\ncommands:\n  c1:\n    content: command body\n    installation: '" + secretish + "'\n"
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "b.yaml"), []byte(bundleYAML), 0644))
+	lc, err := NewLoader([]string{tmpDir}, false).GetCommand("c1")
+	require.NoError(t, err)
+	assert.Equal(t, "command body", lc.Content)
+	assert.Equal(t, secretish, lc.Installation)
+}

@@ -217,18 +217,18 @@ func (b *profileBuilder) toProfile() *Profile {
 	}
 
 	return &Profile{
-		Description:      b.Description,
-		LLM:              b.LLM,
-		Tags:             b.Tags.Items(),
-		SelectTags:       b.SelectTags.Items(),
-		Bundles:          b.Bundles.Items(),
-		BundleItems:      b.BundleItems.Items(),
-		Fragments:        filteredFragments,
-		Commands:         b.Commands.Items(),
-		Skills:           b.Skills.Items(),
-		Variables:        b.Variables,
-		Hooks:            b.Hooks,
-		MCP:              filteredMCP,
+		Description: b.Description,
+		LLM:         b.LLM,
+		Tags:        b.Tags.Items(),
+		SelectTags:  b.SelectTags.Items(),
+		Bundles:     b.Bundles.Items(),
+		BundleItems: b.BundleItems.Items(),
+		Fragments:   filteredFragments,
+		Commands:    b.Commands.Items(),
+		Skills:      b.Skills.Items(),
+		Variables:   b.Variables,
+		Hooks:       b.Hooks,
+		MCP:         filteredMCP,
 		// These three accumulate through inheritance in a collections.Set, whose
 		// Items() is MAP-ITERATION order — Go randomizes it, so an unsorted read
 		// would spell a resolved profile differently on every run. They are not

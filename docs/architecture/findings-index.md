@@ -23,10 +23,10 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,532** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **140** |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 207 |
+| `open` | no commit names this ID | **139** |
 
-**Totals: 2268 findings across 162 units — 1,532 resolved, 140 still open, 596 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,532 resolved, 139 still open, 597 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 578 | 84 | 104 | 96 | 137 |
+| MED | 999 | 578 | 83 | 104 | 96 | 138 |
 | LOW | 871 | 593 | 49 | 62 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1872,7 +1872,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U138-F10 | **ESCALATED** `846c7060` | `:202-207` | CORRECTNESS | An **explicitly empty** `tag_schema: []` is indistinguishable from the key being unset, and silently gets the full `DefaultTagSchema` back — so there is no way to run taskloom with tag-schema enfor... | U138.md |
 | U139-F01 | **RESOLVED** `462ffed8` | `:33-41` | TRIVIAL | `engines()` and `All()` are the same function. `All` is a one-line pass-through, and `engines` has no caller outside this file | U139.md |
 | U139-F02 | **RESOLVED** `ffe68453` | `:34-63` vs `internal/ltk/engine/engine.go:119-147` | DUPLICATE | **This is the second engine registry in the repo, and the two are near-identical code** — two packages named `engine`, two `Get(name)` functions with the same body and the same comment, two `engine... | U139.md |
-| U139-F03 | open | `:34-36` | CORRECTNESS | The registry claims to be "the registry of known engines" but silently omits **opencode**, which the repo carries as a first-class backend — so an opencode user running `taskloom manage install` is... | U139.md |
+| U139-F03 | **ESCALATED** `PENDING01` | `:34-36` | CORRECTNESS | The registry claims to be "the registry of known engines" but silently omits **opencode**, which the repo carries as a first-class backend — so an opencode user running `taskloom manage install` is... | U139.md |
 | U140-F03 | **RESOLVED** `e1635575` | `:36-40` | TRIVIAL | `Resolve` is a one-line pass-through that discards `found`, and it exists only so `cmd/taskloom/root.go` need not write `_`. The package exports two entry points for one chain | U140.md |
 | U140-F04 | open | `:93-109`, `:105-108` | CORRECTNESS | `fromEnv` collapses **"unset"** and **"set but unusable"** into the same `("", false)` return, so `ResolveBoundary`'s `found` bit cannot distinguish "no project boundary exists" from "the user told... | U140.md |
 | U141-F02 | **RESOLVED** `70c8aebf` | `gate.go:77-102` | CORRECTNESS | `Release` never calls `g.afterWrite`, so a bar marked dirty *by the replayed data itself* is never flushed. The replay is filtered through the guard (`:93`), and that filter can call `barDamaged` (... | U141.md |

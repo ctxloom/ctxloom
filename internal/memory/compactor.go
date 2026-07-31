@@ -750,7 +750,23 @@ func (c *Compactor) updateSessionIndex(harpName, sessionID, summary string, deta
 	if err != nil {
 		return
 	}
-	if entry, _ := mgr.Find(harpName); entry != nil && entry.SessionID == "" {
+	// The bind goes to sessions.Manager rather than operations.BindSession
+	// deliberately: routing it through the operations façade would make this
+	// domain package depend on the orchestration layer above it (and on
+	// everything that layer pulls in). Manager.BindSession re-checks
+	// first-bind-wins under the index file lock, so the façade's caller-side
+	// guards are defence in depth here, not the thing preventing a clobber.
+	// The ONE guard that is not redundant is the read failure below.
+	entry, ferr := mgr.Find(harpName)
+	switch {
+	case ferr != nil:
+		// A transient index-read failure is otherwise indistinguishable from
+		// "no entry for this harp", and both fall through to no bind at all.
+		// The bind is first-bind-wins and is never retried, so a harp that
+		// misses it has no session id for the rest of its life and every later
+		// distill/resume fails with "no session bound".
+		c.warnf("read session index for %s: %v (session id not recorded)", harpName, ferr)
+	case entry != nil && entry.SessionID == "":
 		if err := mgr.BindSession(harpName, sessionID, ""); err != nil {
 			c.warnf("index bind failed: %v", err)
 		}

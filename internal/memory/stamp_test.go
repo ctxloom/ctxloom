@@ -6,7 +6,11 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/plans"
 )
 
 func writePlanFile(t *testing.T, name, content string) string {
@@ -273,4 +277,38 @@ func TestStampPlanFile_PreservesFileMode(t *testing.T) {
 			t.Fatalf("re-stamping changed the plan's mode from %v to %v", mode, again.Mode().Perm())
 		}
 	}
+}
+
+// StampPlanFile is one half of a contract whose other half lives outside this
+// file: it WRITES the `sessions:` block-list that plans.ParseFrontmatter READS
+// back out of the same document. Neither side can be changed alone — the key,
+// the block-list style, the append-rather-than-replace semantics, and the
+// survival of fields the stamper does not own are one agreement, and nothing
+// else in the tree states it end to end.
+//
+// The fixture uses the <name>.plan.md convention because that is the population
+// plans.ParseFrontmatter reads. IsPlanFile deliberately does NOT match that
+// convention; see its doc comment, which records the mismatch as an open
+// question rather than an oversight, so this pin does not assert either way.
+func TestStampPlanFile_WritesTheSessionsListPlansReadsBack(t *testing.T) {
+	path := writePlanFile(t, "roadmap.plan.md", "---\ntitle: Roadmap\n---\n\nbody text\n")
+
+	// Assert the fixture is hostile: the reader must find nothing before the
+	// writer runs, or a green here would prove nothing about the writer.
+	before, _ := plans.ParseFrontmatter(readFile(t, path))
+	require.Equal(t, "Roadmap", before)
+	_, noSessions := plans.ParseFrontmatter(readFile(t, path))
+	require.Empty(t, noSessions, "the fixture must start with no sessions list")
+
+	require.NoError(t, StampPlanFile(path, "vital-deaf-stunt"))
+	require.NoError(t, StampPlanFile(path, "lively-harp-two"))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	title, sessions := plans.ParseFrontmatter(string(data))
+	assert.Equal(t, "Roadmap", title, "stamping must preserve frontmatter fields it does not own")
+	assert.Equal(t, []string{"vital-deaf-stunt", "lively-harp-two"}, sessions,
+		"the reader must see every stamped harp, in stamp order")
+	assert.Contains(t, string(data), "body text", "the body must survive verbatim")
 }

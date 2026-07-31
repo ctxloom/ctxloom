@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,420** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 160 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 161 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 189 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 194 |
-| `open` | no commit names this ID | **305** |
+| `open` | no commit names this ID | **304** |
 
-**Totals: 2268 findings across 162 units — 1,420 resolved, 305 still open, 543 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,420 resolved, 304 still open, 544 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 525 | 171 | 90 | 87 | 126 |
-| LOW | 871 | 538 | 123 | 54 | 94 | 62 |
+| LOW | 871 | 538 | 122 | 55 | 94 | 62 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2416,7 +2416,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U069-F09 | **RESOLVED** `12f375ce` | `cmd.go:61-64` | TRIVIAL | `lex` is a one-expression pass-through with one caller and no test of its own. | U069.md |
 | U070-F02 | **RESOLVED** `c9e5c81e` | `pwsh.go:30-31`, `:149` | DEAD | `ErrUnavailable` is an exported sentinel with **zero** `errors.Is`/comparison sites anywhere in the repo, tests included. | U070.md |
 | U070-F05 | **RESOLVED** `1b85da63` | `pwsh.go:151-152`, `:161-163` | ERRHANDLING | A 5-second timeout is indistinguishable from any other exec failure in the returned error, so an operator seeing intermittent denials (or, worse, intermittent *allows* via F01) has nothing to go on. | U070.md |
-| U070-F06 | open | `pwsh.go:157` | CORRECTNESS | The command text is passed via the environment; a command longer than the platform's `ARG_MAX`/env limit makes `exec` fail, which under F01 becomes a silent allow rather than a diagnosable error. | U070.md |
+| U070-F06 | **PARTIAL** `2be0c94a` | `pwsh.go:157` | CORRECTNESS | The command text is passed via the environment; a command longer than the platform's `ARG_MAX`/env limit makes `exec` fail, which under F01 becomes a silent allow rather than a diagnosable error. | U070.md |
 | U070-F07 | open | `pwsh.go:128-131` | COHESION | Package-level `binOnce`/`binPath` are mutable global state behind an instance method; no owner, not resettable. | U070.md |
 | U071-F03 | open | `shell.go:130-162` | COMPLEXITY | `lowerCmd` is CCN 12, above the project's own CI gate of 10 (per the brief's baseline). | U071.md |
 | U071-F06 | open | `shell.go:347-349` | CORRECTNESS | `addNested` reuses the same `lowerer`, so `vars` is a single flat scope: an assignment inside `$(…)` leaks into the enclosing script, contrary to shell semantics and to the package doc's "assignmen... | U071.md |

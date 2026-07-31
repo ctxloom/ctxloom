@@ -145,14 +145,22 @@ type cancelledToolUsesContent struct {
 	ToolUseResults []toolUseResult `json:"tool_use_results"`
 }
 
+// statusSuccess is the ONE toolUseResult.Status value that is not an error.
+// It is kiro-cli's own literal, matched exactly and case-sensitively: this is
+// a vendor string ctxloom does not control, so normalizing it (folding case,
+// trimming) would be inventing a tolerance the vendor never promised, and
+// would silently reclassify a future status that merely looks similar.
+//
+// Any OTHER value maps to IsError — the inverse default from codex's
+// function_call_output, which carries no status field at all and so must
+// default IsError false rather than guess. kiro's status field IS present, so
+// treating "not Success" as an error reads the vendor's own signal rather than
+// fabricating one. "Success" and "Error" are the only two values observed on
+// this box.
+const statusSuccess = "Success"
+
 // toolUseResult is one element of a ToolUseResults/CancelledToolUses
-// tool_use_results array. Status was observed as exactly "Success" or
-// "Error" on this box; mapping.go's toolResultEvents treats ANY value other
-// than the literal string "Success" as IsError — the inverse default from
-// codex's function_call_output (which carries NO status field at all, so
-// codex must default IsError false rather than guess). kiro's status field
-// IS present, so treating "not Success" as an error is reading the vendor's
-// own signal, not fabricating one.
+// tool_use_results array. See statusSuccess for how Status is interpreted.
 type toolUseResult struct {
 	ToolUseID string              `json:"tool_use_id"`
 	Content   []toolResultContent `json:"content"`

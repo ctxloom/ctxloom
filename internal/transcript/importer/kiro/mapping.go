@@ -103,9 +103,8 @@ func userContentEvents(raw json.RawMessage) []agent.ChatEvent {
 
 // toolResultEvents maps a tool_use_results array (shared by ToolUseResults
 // and CancelledToolUses) to one tool_result entry per element. IsError is
-// true for any Status other than the literal "Success" — see
-// toolUseResult's doc comment for why this is reading the vendor's own
-// signal, not guessing one the way codex must for function_call_output.
+// true for any Status other than statusSuccess (schema.go), which carries the
+// full rationale for that inversion.
 func toolResultEvents(results []toolUseResult) []agent.ChatEvent {
 	if len(results) == 0 {
 		return nil
@@ -119,7 +118,7 @@ func toolResultEvents(results []toolUseResult) []agent.ChatEvent {
 		for i, c := range r.Content {
 			texts[i] = c.Text
 		}
-		evs = append(evs, importer.ToolResultEvent(r.ToolUseID, importer.JoinNonEmpty(texts), r.Status != "Success"))
+		evs = append(evs, importer.ToolResultEvent(r.ToolUseID, importer.JoinNonEmpty(texts), r.Status != statusSuccess))
 	}
 	return evs
 }

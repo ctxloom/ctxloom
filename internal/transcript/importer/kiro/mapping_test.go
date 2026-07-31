@@ -44,7 +44,7 @@ func TestToolResultEvents_SuccessWithText(t *testing.T) {
 }
 
 func TestToolResultEvents_NonSuccessStatusIsError(t *testing.T) {
-	for _, status := range []string{"Error", "Cancelled", "", "anything-else"} {
+	for _, status := range []string{"Error", "Cancelled", "", "anything-else", "success", "SUCCESS", " Success"} {
 		t.Run(status, func(t *testing.T) {
 			evs := toolResultEvents([]toolUseResult{{ToolUseID: "x", Status: status}})
 			require.Len(t, evs, 1)

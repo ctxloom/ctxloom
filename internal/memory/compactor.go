@@ -284,7 +284,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	// floor) is the bright line. Skip the whole chunk/map/reduce pipeline
 	// (no plugin subprocess spawned at all) and persist a trivial dump
 	// instead, so the picker/resume flow still finds a valid essence.
-	if isEmptySession(session.Entries) {
+	if isEmptySession(session.Entries) || rendersToNothing(logText) {
 		return c.dumpEmptySession(session, harpName, sourceSize, plans, result, start)
 	}
 
@@ -367,6 +367,23 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 // in tart-aqua's final-pass timeout.
 func isEmptySession(entries []agent.SessionEntry) bool {
 	return len(entries) == 0
+}
+
+// rendersToNothing reports whether the text sessionToText produced for the
+// session is empty — the same "nothing was ever said" state isEmptySession
+// describes, reached with entries present.
+//
+// This is NOT the byte/token floor isEmptySession argues against, and the
+// distinction is the whole point: a floor would have to guess how small a real
+// conversation can be, while this is exact. Entries can render to nothing for
+// reasons that have nothing to do with how much was said — a session whose only
+// main-thread entries are `thinking`, which appendEntryText suppresses by
+// policy (proud-heap), or entries carrying a type this renderer has no case
+// for. Without this check the pipeline chunks the empty string into one chunk
+// and spawns an LLM plugin subprocess to summarize a transcript containing
+// nothing, then writes whatever the model invents over the session's essence.
+func rendersToNothing(logText string) bool {
+	return strings.TrimSpace(logText) == ""
 }
 
 // emptySessionPlaceholder is the body written for a session with zero

@@ -1746,3 +1746,77 @@ func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) 
 	assert.NotContains(t, err.Error(), "does not support session history",
 		"reporting an unsupported backend sends the user after the wrong remedy")
 }
+
+// TestCompact_EntriesThatRenderToNothing_ShortCircuit covers the state
+// isEmptySession's entry count cannot see: entries are present, but the text
+// handed to distillation is empty. A session whose only main-thread entries
+// are `thinking` reaches exactly that, because appendEntryText suppresses
+// thinking by policy (proud-heap) unless IncludeThinking is set.
+//
+// Without the render check the pipeline chunks the empty string into one
+// chunk and spawns an LLM subprocess to summarize a transcript containing
+// nothing, then saves whatever comes back over the session's essence. The
+// ClientFactory fails the test if any LLM call is attempted.
+func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
+	testsupport.Isolate(t)
+
+	thinkingOnly := []agent.SessionEntry{
+		{Type: agent.EntryTypeThinking, Content: "let me consider the options"},
+		{Type: agent.EntryTypeThinking, Content: "still considering"},
+	}
+
+	// Fixture hostility check: these entries must be non-empty AND must render
+	// to nothing. If either half stops holding, this test is no longer about
+	// the defect it names.
+	require.NotEmpty(t, thinkingOnly)
+	probe := (&Compactor{}).sessionToText(&agent.Session{Entries: thinkingOnly})
+	require.Empty(t, strings.TrimSpace(probe),
+		"fixture is not hostile: these entries render to non-empty text")
+
+	mockBe := &mockBackend{history: &mockSessionHistory{
+		currentSession: &agent.Session{ID: "thinking-only-session", Entries: thinkingOnly},
+	}}
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			t.Fatalf("an LLM subprocess was spawned to distil an empty transcript; prompt was %q", req.Prompt.Content)
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err, "nothing to distil is not a failure")
+	assert.Equal(t, 0, result.ChunksCreated)
+	require.NotEmpty(t, result.DistilledPath)
+	data, err := os.ReadFile(result.DistilledPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), emptySessionPlaceholder)
+
+	// The same session WITH thinking included renders real text, so it must go
+	// down the ordinary pipeline — the short-circuit keys on the rendered
+	// output, not on the entry types.
+	var spawned int
+	includeClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			spawned++
+			_, _ = io.WriteString(stdout, "distilled ok")
+			return 0, nil
+		},
+	}
+	inclusive, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(includeClient),
+		OutputDir:       t.TempDir(),
+		IncludeThinking: true,
+	})
+	require.NoError(t, err)
+	_, err = inclusive.Compact(context.Background())
+	require.NoError(t, err)
+	assert.Positive(t, spawned, "with thinking included the transcript is not empty and must be distilled")
+}

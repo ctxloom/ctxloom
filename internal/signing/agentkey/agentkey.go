@@ -363,7 +363,45 @@ func dialEnvAgent() (agent.Agent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to ssh-agent at %s: %w", sock, err)
 	}
-	return agent.NewClient(conn), nil
+	return &closingAgent{ExtendedAgent: agent.NewClient(conn), conn: conn}, nil
+}
+
+// closingAgent is an agent.Agent that also owns the connection it speaks over.
+//
+// It exists because DialAgent's signature hands back only an agent.Agent, so
+// there is nowhere else to put the connection: whoever dialled must be able to
+// release it without the field's type changing under every caller.
+type closingAgent struct {
+	agent.ExtendedAgent
+	conn net.Conn
+}
+
+func (a *closingAgent) Close() error { return a.conn.Close() }
+
+// releaseUnlessRetained closes the agent connection unless the resolution kept
+// it. Every resolver defers this: on any error arm the socket is released
+// before the error leaves, and on success it is deliberately NOT — the
+// Discovered that owns it signs over that connection, and closing early would
+// break signing rather than fix a leak.
+func releaseUnlessRetained(ag agent.Agent, result **Discovered) {
+	if *result != nil {
+		return
+	}
+	if c, ok := ag.(io.Closer); ok {
+		_ = c.Close()
+	}
+}
+
+// retain records the agent connection on a resolved identity, so Close can
+// reach it and releaseUnlessRetained leaves it alone.
+func retain(d *Discovered, ag agent.Agent) *Discovered {
+	if d == nil {
+		return d
+	}
+	if c, ok := ag.(io.Closer); ok {
+		d.closer = c
+	}
+	return d
 }
 
 // Discover resolves a signing identity. explicitKey is the caller's
@@ -394,7 +432,7 @@ func (d *Discoverer) Discover(ctx context.Context, explicitKey string) (*Discove
 // must keep priority over (c): a value that legitimately parses as a
 // fingerprint or resolves as a file must never be reinterpreted as a name
 // just because it happens to also resemble one.
-func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*Discovered, error) {
+func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (result *Discovered, err error) {
 	ag, err := d.dialAgent()
 	if err != nil {
 		return nil, &NoKeyError{
@@ -403,19 +441,22 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (*
 			Err:    err,
 		}
 	}
+	defer releaseUnlessRetained(ag, &result)
 
 	if strings.HasPrefix(explicitKey, "SHA256:") {
-		return findByFingerprint(ag, explicitKey, "--key")
+		d2, ferr := findByFingerprint(ag, explicitKey, "--key")
+		return retain(d2, ag), ferr
 	}
 
 	pub, pubErr := d.resolvePublicKey(explicitKey)
 	if pubErr == nil {
-		return findByPublicKey(ag, pub, "--key")
+		d2, ferr := findByPublicKey(ag, pub, "--key")
+		return retain(d2, ag), ferr
 	}
 
 	discovered, nameErr := d.resolveByComment(ag, explicitKey)
 	if nameErr == nil {
-		return discovered, nil
+		return retain(discovered, ag), nil
 	}
 	var ambigName *AmbiguousKeyNameError
 	if errors.As(nameErr, &ambigName) {
@@ -487,7 +528,7 @@ func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Disc
 // parameter carried no information and could mislead a caller into thinking
 // ctx cancellation was honored here. Dropped rather than left lying; wiring
 // real cancellation into DialAgent is a separate, larger change.
-func (d *Discoverer) resolveGitSigningKey(value string) (*Discovered, error) {
+func (d *Discoverer) resolveGitSigningKey(value string) (result *Discovered, err error) {
 	pub, err := d.resolvePublicKey(value)
 	if err != nil {
 		return nil, fmt.Errorf("git config user.signingkey %s: %w", displayKeyValue(value), err)
@@ -501,6 +542,7 @@ func (d *Discoverer) resolveGitSigningKey(value string) (*Discovered, error) {
 			Err:    err,
 		}
 	}
+	defer releaseUnlessRetained(ag, &result)
 
 	d2, err := findByPublicKey(ag, pub, "git config user.signingkey")
 	if err != nil {
@@ -516,18 +558,19 @@ func (d *Discoverer) resolveGitSigningKey(value string) (*Discovered, error) {
 			Err:    err,
 		}
 	}
-	return d2, nil
+	return retain(d2, ag), nil
 }
 
 // resolveSoleAgentIdentity implements step 3 of the chain: use the agent's
 // only identity when there is exactly one, error (ambiguous or empty)
 // otherwise.
 // U135-F04: ctx was accepted but never used; dropped (see resolveGitSigningKey).
-func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (*Discovered, error) {
+func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (result *Discovered, err error) {
 	ag, err := d.dialAgent()
 	if err != nil {
 		return nil, &NoKeyError{Looked: looked, Detail: err.Error(), Err: err}
 	}
+	defer releaseUnlessRetained(ag, &result)
 
 	signers, err := ag.Signers()
 	if err != nil {
@@ -545,11 +588,11 @@ func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (*Discovered, err
 	}
 
 	s := signers[0]
-	return &Discovered{
+	return retain(&Discovered{
 		Signer:      s,
 		Fingerprint: ssh.FingerprintSHA256(s.PublicKey()),
 		Source:      "ssh-agent (sole identity)",
-	}, nil
+	}, ag), nil
 }
 
 // resolvePublicKey turns a git-signingkey-shaped or --key-shaped value into

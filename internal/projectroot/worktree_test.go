@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/tasks/taskstest"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 func TestParseGitdirPointer(t *testing.T) {
@@ -149,4 +150,39 @@ func TestDetectWorktree(t *testing.T) {
 		assert.Equal(t, main, info.MainRoot)
 		assert.False(t, info.MainRootExists, "the main worktree was deleted out from under the pointer")
 	})
+}
+
+// TestDetectWorktree_EmptyDirIsRefused pins U092-F07: dir was never validated,
+// and filepath.Join("", ".git") is the BARE RELATIVE ".git" — so an empty dir
+// silently stopped naming a directory at all and started probing whatever
+// working directory the process happened to hold. The answer then depends on
+// where the binary was launched from, which is precisely the property every
+// caller of this package is trying to pin down. An unnamed directory is a
+// caller mistake, not a directory to guess at.
+func TestDetectWorktree_EmptyDirIsRefused(t *testing.T) {
+	// Hostile fixture: the process cwd IS a linked-worktree-shaped directory,
+	// so a dir="" that leaks to the cwd answers Linked=true and is visibly
+	// distinguishable from a refusal (§11k).
+	cwd := testsupport.ProjectDir(t)
+	require.NoError(t, os.WriteFile(filepath.Join(cwd, ".git"),
+		[]byte("gitdir: "+filepath.Join(cwd, ".git", "worktrees", "wt")+"\n"), 0o644))
+	probe, err := DetectWorktree(afero.NewOsFs(), cwd)
+	require.NoError(t, err)
+	require.True(t, probe.Linked, "fixture is not hostile: the cwd must look like a linked worktree for this test to mean anything")
+
+	_, err = DetectWorktree(afero.NewOsFs(), "")
+	assert.Error(t, err, "an empty dir must be refused, not resolved against the process working directory")
+}
+
+// TestTaskStoreRoot_EmptyDirIsRefused pins the same defect at the other entry
+// point named by U092-F07. TaskStoreRoot's first act is
+// filepath.Join(dir, ".ctxloom"), which for an empty dir tests the cwd's
+// .ctxloom and can return "" as a project root — a task store keyed on nothing.
+func TestTaskStoreRoot_EmptyDirIsRefused(t *testing.T) {
+	cwd := testsupport.ProjectDir(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(cwd, ".ctxloom"), 0o755))
+
+	got, err := TaskStoreRoot(afero.NewOsFs(), "")
+	assert.Error(t, err, "an empty dir must be refused, not resolved against the process working directory")
+	assert.Empty(t, got, "a refused resolution must not hand back a root")
 }

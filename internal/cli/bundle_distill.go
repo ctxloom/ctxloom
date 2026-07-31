@@ -305,11 +305,13 @@ func buildSiblingContext(bundle *bundles.Bundle, excludeName string) string {
 	return ctx.String()
 }
 
-// hasSiblingsOfType reports whether a bundle has sibling items of a type worth
-// listing: more than one of that type, or exactly one that isn't the excluded
-// (currently-distilling) item.
-func hasSiblingsOfType(count int, excludeName, prefix string) bool {
-	return count > 1 || (count == 1 && !strings.HasPrefix(excludeName, prefix))
+// hasSiblingsOfType reports whether a bundle has sibling items of a kind worth
+// listing: more than one of that kind, or exactly one that isn't the excluded
+// (currently-distilling) item. It takes the item KIND, not a spelled-out
+// prefix, so the "fragments/"/"commands/" ref grammar lives only in
+// itemRefPrefix (item_kind.go).
+func hasSiblingsOfType(count int, excludeName string, kind ItemType) bool {
+	return count > 1 || (count == 1 && !strings.HasPrefix(excludeName, itemRefPrefix(kind)))
 }
 
 // firstLineTruncated returns the first line of s, trimmed and capped at 60
@@ -326,12 +328,12 @@ func firstLineTruncated(s string) string {
 // message handed to the distiller, so map order here would make the model's
 // input — and therefore the distilled bytes — differ run to run.
 func appendSiblingFragments(ctx *strings.Builder, bundle *bundles.Bundle, excludeName string) {
-	if !hasSiblingsOfType(len(bundle.Fragments), excludeName, "fragments/") {
+	if !hasSiblingsOfType(len(bundle.Fragments), excludeName, ItemTypeFragment) {
 		return
 	}
 	ctx.WriteString("Sibling fragments:\n")
 	for _, name := range slices.Sorted(maps.Keys(bundle.Fragments)) {
-		if "fragments/"+name == excludeName {
+		if itemRefPrefix(ItemTypeFragment)+name == excludeName {
 			continue
 		}
 		fmt.Fprintf(ctx, "- %s: %s\n", name, firstLineTruncated(bundle.Fragments[name].Content))
@@ -343,12 +345,12 @@ func appendSiblingFragments(ctx *strings.Builder, bundle *bundles.Bundle, exclud
 // NAME order (see appendSiblingFragments on why order is load-bearing),
 // preferring each prompt's Description over a content preview.
 func appendSiblingPrompts(ctx *strings.Builder, bundle *bundles.Bundle, excludeName string) {
-	if !hasSiblingsOfType(len(bundle.Commands), excludeName, "commands/") {
+	if !hasSiblingsOfType(len(bundle.Commands), excludeName, ItemTypeCommand) {
 		return
 	}
 	ctx.WriteString("Sibling commands:\n")
 	for _, name := range slices.Sorted(maps.Keys(bundle.Commands)) {
-		if "commands/"+name == excludeName {
+		if itemRefPrefix(ItemTypeCommand)+name == excludeName {
 			continue
 		}
 		prompt := bundle.Commands[name]

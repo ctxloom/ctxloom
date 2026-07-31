@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -322,4 +323,48 @@ func TestServe_PromptEmptyBlocks_Refused(t *testing.T) {
 	}()
 	resp, _ = c.waitResponse(c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[{"type":"text","text":"hello"}]}`))
 	require.Nil(t, resp.Error)
+}
+
+// TestServe_CommandInvokedWithMediaBlock_ArgumentsExcludeThePlaceholder pins
+// U014-F16. promptText flattens an image/audio block into a labeled
+// placeholder line and joins it to the user's text; handlePrompt then handed
+// that whole joined string to expandCommand. So a "/name ..." invocation sent
+// alongside an attachment passed the placeholder to the command as part of
+// its ARGUMENTS.
+//
+// SessionCommands.Resolve documents `rest` as "the free text the user typed
+// after the command name" (ACP's AvailableCommandInput.Unstructured). A line
+// ctxloom generated to describe a block it could not render is not text the
+// user typed, and a command that interpolates its arguments embeds it
+// verbatim into the body the engine runs.
+func TestServe_CommandInvokedWithMediaBlock_ArgumentsExcludeThePlaceholder(t *testing.T) {
+	gotRest := make(chan string, 1)
+	eng := newFakeEngine()
+	eng.commands = &SessionCommands{
+		Available: []operations.CommandInfo{{Name: "code-review", Description: "Review code"}},
+		Resolve: func(_ context.Context, name, rest string) (string, bool, error) {
+			gotRest <- rest
+			return "REVIEW BODY: " + rest, true, nil
+		},
+	}
+	go eng.pump()
+	c := startServer(t, func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil })
+	sid := c.handshake("/proj")
+
+	go func() {
+		eng.receiveMsg(t)
+		eng.events <- agent.ChatEvent{Complete: &agent.TurnMeta{StopReason: "end_turn"}}
+	}()
+	resp, _ := c.waitResponse(c.send("session/prompt", `{"sessionId":"`+sid+`","prompt":[`+
+		`{"type":"text","text":"/code-review please"},`+
+		`{"type":"image","mimeType":"image/png","data":"AAAA"}]}`))
+	require.Nil(t, resp.Error)
+
+	select {
+	case rest := <-gotRest:
+		assert.Equal(t, "please", rest,
+			"the command's arguments must be what the user typed, not ctxloom's own media placeholder line")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the command was never resolved")
+	}
 }

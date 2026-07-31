@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/internal/docsgen"
 )
 
@@ -106,5 +107,82 @@ func TestRun_ReportsAnAssemblyFailureInsteadOfPanicking(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "assemble runner MCP surface") {
 		t.Errorf("the assembly failure was not reported; stderr = %q", out.String())
+	}
+}
+
+// pristineHidden records every top-level command's Hidden flag exactly as
+// internal/cli declares it, snapshotted at package init. It has to be a
+// snapshot: cli.GetRootCmd() returns a process-wide singleton and PrepareTree
+// MUTATES it, so a test that reads c.Hidden directly is reading whatever an
+// earlier test in the same binary left behind.
+var pristineHidden = func() map[string]bool {
+	m := map[string]bool{}
+	for _, c := range cli.GetRootCmd().Commands() {
+		m[c.Name()] = c.Hidden
+	}
+	return m
+}()
+
+// undocumentedHidden are the top-level commands hidden from --help that are
+// also deliberately NOT documented: shell plumbing (completion), hook
+// endpoints ctxloom invokes on the user's behalf (hook), and internal helpers
+// (plan, util). They are the complement of Product.Unhide, and together the two
+// sets must account for every hidden top-level command.
+var undocumentedHidden = map[string]bool{
+	"completion": true,
+	"hook":       true,
+	"plan":       true,
+	"util":       true,
+}
+
+// TestEveryHiddenTopLevelCommandIsDecided pins U156-F05. `Unhide` is a
+// hand-maintained list in THIS package keyed on a `Hidden` flag set in
+// internal/cli, and the two are joined by nothing. The coupling fails in both
+// directions and both are silent: a command newly marked `Hidden: true` for the
+// same "advanced but documented" reason simply loses its reference pages with
+// the generator still reporting success, and an Unhide entry for a command that
+// is no longer hidden is a no-op nobody notices.
+//
+// The coupling cannot be removed -- "hidden but documented" versus "hidden and
+// undocumented" is a real per-command decision that nothing in the tree
+// encodes -- so it is made CHECKED. Every hidden top-level command must be in
+// exactly one of the two sets, and every entry in either set must name a
+// command that is actually hidden.
+func TestEveryHiddenTopLevelCommandIsDecided(t *testing.T) {
+	p, closeMCP, err := ctxloomProduct()
+	if err != nil {
+		t.Fatalf("ctxloomProduct: %v", err)
+	}
+	t.Cleanup(closeMCP)
+
+	unhide := map[string]bool{}
+	for _, n := range p.Unhide {
+		unhide[n] = true
+	}
+
+	for name, hidden := range pristineHidden {
+		if !hidden {
+			continue
+		}
+		if !unhide[name] && !undocumentedHidden[name] {
+			t.Errorf("top-level command %q is hidden but appears in neither Product.Unhide nor undocumentedHidden: "+
+				"it silently generates no reference pages -- decide which it is", name)
+		}
+		if unhide[name] && undocumentedHidden[name] {
+			t.Errorf("top-level command %q is in BOTH Product.Unhide and undocumentedHidden", name)
+		}
+	}
+
+	for name := range unhide {
+		if _, ok := pristineHidden[name]; !ok {
+			t.Errorf("Product.Unhide names %q, which is not a top-level command -- a rename left it dangling", name)
+		} else if !pristineHidden[name] {
+			t.Errorf("Product.Unhide names %q, which internal/cli does not hide -- the unhide is a no-op and the list has gone stale", name)
+		}
+	}
+	for name := range undocumentedHidden {
+		if !pristineHidden[name] {
+			t.Errorf("undocumentedHidden names %q, which internal/cli does not hide -- this list has gone stale", name)
+		}
 	}
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -1751,9 +1752,29 @@ func strandedAuthoredBundles(fs afero.Fs, cacheBundles string) []string {
 		return nil
 	}
 	var stranded []string
-	_ = afero.Walk(fs, cacheBundles, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info == nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
-			return nil //nolint:nilerr // an unreadable entry is skipped, not fatal
+	rel := func(path string) string {
+		r, rerr := filepath.Rel(cacheBundles, path)
+		if rerr != nil {
+			return filepath.Base(path)
+		}
+		return filepath.ToSlash(r)
+	}
+	walkErr := afero.Walk(fs, cacheBundles, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			// An entry we cannot even read is the strongest case of "cannot
+			// prove this is regenerable cache", so it counts — the bias stated
+			// above, applied to the one case that used to escape it. A
+			// directory we cannot enumerate hides an unknown number of
+			// authored bundles, and naming the directory is the only honest
+			// thing left to say about it. Anything that is neither a directory
+			// nor a YAML was never a bundle, so it stays out.
+			if (info != nil && info.IsDir()) || strings.HasSuffix(path, ".yaml") {
+				stranded = append(stranded, rel(path))
+			}
+			return nil //nolint:nilerr // one unreadable entry never aborts the scan
+		}
+		if info == nil || info.IsDir() || !strings.HasSuffix(info.Name(), ".yaml") {
+			return nil
 		}
 		if data, rerr := afero.ReadFile(fs, path); rerr == nil {
 			// Legacy remote-pull artifacts embed a `_source` block; a non-empty
@@ -1767,13 +1788,16 @@ func strandedAuthoredBundles(fs afero.Fs, cacheBundles string) []string {
 				return nil
 			}
 		}
-		rel, rerr := filepath.Rel(cacheBundles, path)
-		if rerr != nil {
-			rel = info.Name()
-		}
-		stranded = append(stranded, filepath.ToSlash(rel))
+		stranded = append(stranded, rel(path))
 		return nil
 	})
+	if walkErr != nil {
+		// The callback never returns an error, so this is defence against a
+		// future one rather than a live path — but a scan that stopped early
+		// under-reports, and under-reporting is precisely what this function
+		// must not do silently.
+		clidiag.Warn("ctxloom", "scan of %s stopped early (%v); the stranded-bundle list may be incomplete", cacheBundles, walkErr)
+	}
 	sort.Strings(stranded)
 	return stranded
 }

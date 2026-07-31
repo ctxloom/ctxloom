@@ -96,8 +96,19 @@ func shellSingleQuote(s string) string {
 // merge primitive the host assembly (backends.AssembleManagedHooks) and the
 // agent-side BaseLifecycle.MergeManaged both build on, so it stays in the
 // substrate even though config-coupled assembly moved host-side.
+// A nil src is a legitimate no-op (nothing to merge). A nil DEST is not: it is
+// the caller's own hook set, so with none there is nowhere for src to go and this
+// signature has no way to refuse. The drop still happens — it cannot not — but a
+// non-empty set going missing is named on the diagnostic channel rather than
+// leaving the session running with none of its configured hooks and nothing said.
 func MergeHooksConfig(dest *wire.HooksConfig, src *wire.HooksConfig) {
-	if src == nil || dest == nil {
+	if src == nil {
+		return
+	}
+	if dest == nil {
+		if n := countHooks(src); n > 0 {
+			Warn("hook merge has no destination hook set: dropping %d configured hook(s); this is a caller error, not a configuration one", n)
+		}
 		return
 	}
 
@@ -121,4 +132,22 @@ func MergeHooksConfig(dest *wire.HooksConfig, src *wire.HooksConfig) {
 			dest.Plugins[name][event] = append(dest.Plugins[name][event], eventHooks...)
 		}
 	}
+}
+
+// countHooks totals every hook a HooksConfig carries — the six unified
+// lifecycles plus every plugin-specific list — so a merge that cannot happen can
+// report the SIZE of what it dropped rather than a bare "some hooks".
+func countHooks(h *wire.HooksConfig) int {
+	if h == nil {
+		return 0
+	}
+	n := len(h.Unified.PreTool) + len(h.Unified.PostTool) +
+		len(h.Unified.SessionStart) + len(h.Unified.SessionEnd) +
+		len(h.Unified.PreShell) + len(h.Unified.PostFileEdit)
+	for _, backend := range h.Plugins {
+		for _, hooks := range backend {
+			n += len(hooks)
+		}
+	}
+	return n
 }

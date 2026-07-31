@@ -291,7 +291,7 @@ func (l *Loader) fragmentFromBundle(bundleName, fragName string) (*LoadedContent
 	}
 	frag, ok := bundle.Fragments[fragName]
 	if !ok {
-		return nil, fmt.Errorf("fragment %q not found in bundle %q", fragName, bundleName)
+		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundleName)
 	}
 	lc := l.fragmentContent(bundle, fragName, frag)
 	if lc == nil {
@@ -444,7 +444,7 @@ func (l *Loader) commandFromBundle(bundleName, promptName string) (*LoadedConten
 	}
 	prompt, ok := bundle.Commands[promptName]
 	if !ok {
-		return nil, fmt.Errorf("command %q not found in bundle %q", promptName, bundleName)
+		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundleName)
 	}
 	lc := l.commandContent(bundle, promptName, prompt)
 	if lc == nil {

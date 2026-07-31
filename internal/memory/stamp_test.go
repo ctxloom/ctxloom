@@ -5,6 +5,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/internal/shared/plans"
 )
 
 func writePlanFile(t *testing.T, name, content string) string {
@@ -178,4 +184,131 @@ func TestStampPlanFile_RoundTripPreservesArbitraryFields(t *testing.T) {
 			t.Errorf("expected %q in output:\n%s", want, got)
 		}
 	}
+}
+
+// TestEncodeFrontmatter_PartialDocumentIsNeverReturned pins the contract
+// updateFrontmatter depends on: the rendered string is only ever handed on to
+// an atomic write over the user's plan file, so a rendering that did not
+// complete must surface as an error and an EMPTY string, never as the
+// truncated bytes the encoder happened to have buffered.
+//
+// The node below (a document whose child carries no kind) is one the yaml
+// emitter refuses mid-stream: it leaves the buffer empty and puts the emitter
+// in a state where the stream close also fails. Both are checked, so the
+// caller cannot mistake a half-rendered document for a complete one.
+func TestEncodeFrontmatter_PartialDocumentIsNeverReturned(t *testing.T) {
+	broken := &yaml.Node{
+		Kind:    yaml.DocumentNode,
+		Content: []*yaml.Node{{Value: "no-kind"}},
+	}
+	out, err := encodeFrontmatter(broken)
+	if err == nil {
+		t.Fatalf("expected an encode error, got out=%q", out)
+	}
+	if out != "" {
+		t.Fatalf("a failed render must return no bytes at all, got %q", out)
+	}
+}
+
+// TestEncodeFrontmatter_RoundTripsCompleteDocument is the green half: a
+// well-formed frontmatter document renders in full, with nothing left
+// unflushed in the encoder when the string is taken.
+func TestEncodeFrontmatter_RoundTripsCompleteDocument(t *testing.T) {
+	var root yaml.Node
+	if err := yaml.Unmarshal([]byte("title: a plan\nsessions:\n  - one\n  - two\n"), &root); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	out, err := encodeFrontmatter(&root)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	for _, want := range []string{"title: a plan", "sessions:", "- one", "- two"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered frontmatter is missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestStampPlanFile_PreservesFileMode pins that stamping a plan is a content
+// edit, not a permissions change. The rewrite is atomic (temp file + rename),
+// so the replacement's mode is whatever the writer is handed — it used to be
+// a hard-coded 0644, which quietly widened a plan the user had kept private.
+func TestStampPlanFile_PreservesFileMode(t *testing.T) {
+	for _, mode := range []os.FileMode{0o600, 0o640, 0o664} {
+		path := writePlanFile(t, "current_plan.md", "# Plan\n\nbody\n")
+		if err := os.Chmod(path, mode); err != nil {
+			t.Fatalf("chmod fixture: %v", err)
+		}
+		// The fixture must actually be hostile to the defect before the
+		// behaviour is asserted: confirm the mode really differs from the
+		// 0644 the writer used to hard-code.
+		st, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat fixture: %v", err)
+		}
+		if st.Mode().Perm() != mode {
+			t.Fatalf("fixture did not take mode %v, got %v", mode, st.Mode().Perm())
+		}
+
+		if err := StampPlanFile(path, "some-harp"); err != nil {
+			t.Fatalf("stamp: %v", err)
+		}
+		if !strings.Contains(readFile(t, path), "some-harp") {
+			t.Fatalf("stamp did not run: harp missing from %s", path)
+		}
+		after, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat after stamp: %v", err)
+		}
+		if after.Mode().Perm() != mode {
+			t.Fatalf("stamping changed the plan's mode from %v to %v", mode, after.Mode().Perm())
+		}
+
+		// Second stamp: the update path (frontmatter now exists) must preserve
+		// the mode too, not just the prepend path.
+		if err := StampPlanFile(path, "other-harp"); err != nil {
+			t.Fatalf("re-stamp: %v", err)
+		}
+		again, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat after re-stamp: %v", err)
+		}
+		if again.Mode().Perm() != mode {
+			t.Fatalf("re-stamping changed the plan's mode from %v to %v", mode, again.Mode().Perm())
+		}
+	}
+}
+
+// StampPlanFile is one half of a contract whose other half lives outside this
+// file: it WRITES the `sessions:` block-list that plans.ParseFrontmatter READS
+// back out of the same document. Neither side can be changed alone — the key,
+// the block-list style, the append-rather-than-replace semantics, and the
+// survival of fields the stamper does not own are one agreement, and nothing
+// else in the tree states it end to end.
+//
+// The fixture uses the <name>.plan.md convention because that is the population
+// plans.ParseFrontmatter reads. IsPlanFile deliberately does NOT match that
+// convention; see its doc comment, which records the mismatch as an open
+// question rather than an oversight, so this pin does not assert either way.
+func TestStampPlanFile_WritesTheSessionsListPlansReadsBack(t *testing.T) {
+	path := writePlanFile(t, "roadmap.plan.md", "---\ntitle: Roadmap\n---\n\nbody text\n")
+
+	// Assert the fixture is hostile: the reader must find nothing before the
+	// writer runs, or a green here would prove nothing about the writer.
+	before, _ := plans.ParseFrontmatter(readFile(t, path))
+	require.Equal(t, "Roadmap", before)
+	_, noSessions := plans.ParseFrontmatter(readFile(t, path))
+	require.Empty(t, noSessions, "the fixture must start with no sessions list")
+
+	require.NoError(t, StampPlanFile(path, "vital-deaf-stunt"))
+	require.NoError(t, StampPlanFile(path, "lively-harp-two"))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	title, sessions := plans.ParseFrontmatter(string(data))
+	assert.Equal(t, "Roadmap", title, "stamping must preserve frontmatter fields it does not own")
+	assert.Equal(t, []string{"vital-deaf-stunt", "lively-harp-two"}, sessions,
+		"the reader must see every stamped harp, in stamp order")
+	assert.Contains(t, string(data), "body text", "the body must survive verbatim")
 }

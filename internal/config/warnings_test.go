@@ -2,6 +2,9 @@ package config
 
 import (
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -9,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
 // failOpenFs wraps an afero.Fs and fails Open/OpenFile for one path with a
@@ -110,4 +114,60 @@ func TestLoad_LossyMigrationTaggedMigrationLossy(t *testing.T) {
 	cfg2, err := Load(WithFS(fs2), WithAppDir(appDir))
 	require.NoError(t, err)
 	assert.Empty(t, cfg2.warnings, "migration warnings must not leak into later loads")
+}
+
+// --- the contract WarningKind's own doc states -----------------------------
+
+// allWarningKinds is every kind config.Load can attach to a Warning. A kind
+// missing from here is a kind nothing below checks, so keep it exhaustive.
+var allWarningKinds = []WarningKind{
+	WarnKindRead,
+	WarnKindParse,
+	WarnKindValidate,
+	WarnKindUnknownKey,
+	WarnKindMigrationLossy,
+}
+
+// The doc on WarningKind promises that every kind is fatal-class in strict
+// mode and the fail-loudly gate depends on it: a kind that mapped to no fatal
+// class would degrade silently on exactly the startup paths that exist to
+// refuse a broken config. Each must also carry an actionable fix-it, since the
+// abort listing prints one per finding.
+func TestWarningKind_EveryKindIsFatalClassWithAFixIt(t *testing.T) {
+	for _, kind := range allWarningKinds {
+		t.Run(string(kind), func(t *testing.T) {
+			require.NotEmpty(t, string(kind), "a kind's on-the-wire value must not be empty")
+			assert.Contains(t,
+				[]strictness.Class{strictness.ClassConfig, strictness.ClassMigration},
+				kind.StrictnessClass(),
+				"every warning kind must bucket into a fatal class")
+			assert.NotEmpty(t, kind.FixIt(), "every warning kind must name its fix")
+		})
+	}
+}
+
+// The drift this guards is a specific one: the type doc used to hand-maintain
+// a COUNT of the kinds ("All four kinds are fatal-class"), a fifth kind was
+// added, and the sentence quietly became false — a doc claiming a property of
+// a set it no longer describes. Prose stating the invariant needs no number,
+// so no number may appear.
+//
+// The source root is resolved from this test file's COMPILED-IN path rather
+// than the working directory: a cwd-relative scan silently finds nothing when
+// something moves the cwd, and a gate that finds nothing passes.
+func TestWarningKind_DocStatesTheInvariantWithoutHandCountingKinds(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	require.True(t, ok, "cannot resolve this test's own source path")
+	src, err := os.ReadFile(filepath.Join(filepath.Dir(thisFile), "warnings.go"))
+	require.NoError(t, err)
+
+	_, after, found := strings.Cut(string(src), "// WarningKind classifies")
+	require.True(t, found, "WarningKind's doc comment must exist")
+	doc, _, found := strings.Cut(after, "\ntype WarningKind string")
+	require.True(t, found, "WarningKind's declaration must follow its doc comment")
+
+	for _, numeral := range []string{"two", "three", "four", "five", "six", "seven"} {
+		assert.NotContains(t, strings.ToLower(doc), " "+numeral+" kind",
+			"the doc must state the invariant over ALL kinds, not count them by hand")
+	}
 }

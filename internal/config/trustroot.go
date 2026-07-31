@@ -64,10 +64,7 @@ func EmbeddedSigners() *allowedsigners.Store {
 // safe; degrading toward fewer keys INVISIBLY is how a revoked-looking signer
 // gets diagnosed as a publishing bug.
 func (c *Config) TrustRoot() *allowedsigners.Store {
-	fs := c.fs
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := c.getFS()
 	stores := []*allowedsigners.Store{c.embeddedSignersTrusted()}
 	for _, path := range c.allowedSignersPaths() {
 		stores = append(stores, c.parseAllowedSigners(fs, path))
@@ -129,10 +126,7 @@ func filterSuppressedPrincipals(store *allowedsigners.Store, suppressed map[stri
 // boundary, ADR 0024); this method is the READ side TrustRoot() and
 // ListSigners/ShowSigner both consult.
 func (c *Config) SuppressedEmbeddedPrincipals() map[string]bool {
-	fs := c.fs
-	if fs == nil {
-		fs = afero.NewOsFs()
-	}
+	fs := c.getFS()
 	out := map[string]bool{}
 	for _, path := range c.distrustedSignersPaths() {
 		for principal := range readPrincipalLines(fs, path) {
@@ -142,21 +136,31 @@ func (c *Config) SuppressedEmbeddedPrincipals() map[string]bool {
 	return out
 }
 
-// distrustedSignersPaths lists the on-disk suppression files in union order
-// (user, then project), skipping the project path when it resolves to the
-// same file as the user one — the exact mirror of allowedSignersPaths.
-func (c *Config) distrustedSignersPaths() []string {
+// signerStorePaths lists one signer store's on-disk locations in union order
+// (user, then project), skipping the project path when it resolves to the same
+// file as the user one (a home-rooted .ctxloom, where both names denote one
+// file). allowed_signers and distrusted_signers are the SAME two-location
+// shape and differ only in which pair of path builders names the file, so the
+// shape lives here once: a change to the union order or the dedup rule cannot
+// reach one store and miss its counterpart.
+func (c *Config) signerStorePaths(homePath func() (string, error), projectPath func(string) string) []string {
 	var out []string
-	if home, err := paths.HomeDistrustedSignersPath(); err == nil {
+	if home, err := homePath(); err == nil {
 		out = append(out, home)
 	}
 	if len(c.appPaths) > 0 {
-		project := paths.DistrustedSignersPath(c.appPaths[0])
+		project := projectPath(c.appPaths[0])
 		if len(out) == 0 || out[0] != project {
 			out = append(out, project)
 		}
 	}
 	return out
+}
+
+// distrustedSignersPaths lists the on-disk suppression files in union order —
+// the exact mirror of allowedSignersPaths.
+func (c *Config) distrustedSignersPaths() []string {
+	return c.signerStorePaths(paths.HomeDistrustedSignersPath, paths.DistrustedSignersPath)
 }
 
 // readPrincipalLines parses one distrusted_signers file: one principal per
@@ -171,6 +175,14 @@ func (c *Config) distrustedSignersPaths() []string {
 // the reject path. It stays non-fatal (failing closed here would suppress
 // every embedded principal, i.e. withhold all first-party content over a
 // permissions problem), but it must never be silent.
+//
+// A file that opens and then stops PART WAY THROUGH is the same degradation
+// wearing a success's clothes: a mid-read I/O error, or a line past
+// bufio.Scanner's 64 KiB token limit, ends the scan with whatever was parsed
+// so far and no error anywhere. Every principal below the truncation point
+// stops being suppressed — the same silent re-trust as an unreadable file, on
+// a partial file — so the scan's error is checked and reported for the same
+// reason.
 func readPrincipalLines(fs afero.Fs, path string) map[string]bool {
 	f, err := fs.Open(path)
 	if err != nil {
@@ -190,24 +202,15 @@ func readPrincipalLines(fs afero.Fs, path string) map[string]bool {
 		}
 		out[line] = true
 	}
+	if err := sc.Err(); err != nil {
+		clidiag.Warn("ctxloom", "distrusted_signers %s could only be read as far as %d entr(ies); any signer suppressed below that point is trusted again this session: %v", path, len(out), err)
+	}
 	return out
 }
 
-// allowedSignersPaths lists the on-disk trust-root files in union order (user,
-// then project), skipping the project path when it resolves to the same file as
-// the user one (a home-rooted .ctxloom, where both names denote one file).
+// allowedSignersPaths lists the on-disk trust-root files in union order.
 func (c *Config) allowedSignersPaths() []string {
-	var out []string
-	if home, err := paths.HomeAllowedSignersPath(); err == nil {
-		out = append(out, home)
-	}
-	if len(c.appPaths) > 0 {
-		project := paths.AllowedSignersPath(c.appPaths[0])
-		if len(out) == 0 || out[0] != project {
-			out = append(out, project)
-		}
-	}
-	return out
+	return c.signerStorePaths(paths.HomeAllowedSignersPath, paths.AllowedSignersPath)
 }
 
 // parseAllowedSigners reads and parses one allowed_signers file. An absent file

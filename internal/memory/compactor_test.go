@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
@@ -105,17 +107,15 @@ func TestCompactor_SessionToText_ErrorFlag(t *testing.T) {
 }
 
 func TestCompactor_ChunkText_SmallText(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{ChunkSize: DefaultChunkTokens}}
 
 	smallText := "This is small text"
-	chunks := c.chunkText(smallText, DefaultChunkTokens)
+	chunks := chunkText(smallText, DefaultChunkTokens)
 
 	assert.Len(t, chunks, 1)
 	assert.Equal(t, smallText, chunks[0])
 }
 
 func TestCompactor_ChunkText_LargeText(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
 
 	// Create text larger than one chunk
 	// DefaultChunkTokens * CharsPerToken = 8000 * 4 = 32000 chars
@@ -124,7 +124,7 @@ func TestCompactor_ChunkText_LargeText(t *testing.T) {
 		largeText += "## Section\nSome content here that goes on for a while.\n\n"
 	}
 
-	chunks := c.chunkText(largeText, 100) // 100 tokens = 400 chars
+	chunks := chunkText(largeText, 100) // 100 tokens = 400 chars
 
 	assert.Greater(t, len(chunks), 1)
 	// Each chunk should be non-empty
@@ -134,12 +134,11 @@ func TestCompactor_ChunkText_LargeText(t *testing.T) {
 }
 
 func TestCompactor_ChunkText_BreaksAtHeaders(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
 
 	text := "## Section 1\nContent for section 1.\n\n## Section 2\nContent for section 2.\n\n## Section 3\nContent for section 3."
 
 	// Use small chunk size to force splitting
-	chunks := c.chunkText(text, 20) // 20 tokens = 80 chars
+	chunks := chunkText(text, 20) // 20 tokens = 80 chars
 
 	// Should break at section boundaries when possible
 	assert.Greater(t, len(chunks), 1)
@@ -150,13 +149,12 @@ func TestCompactor_ChunkText_BreaksAtHeaders(t *testing.T) {
 // that fails proto3 string marshaling downstream, silently turning the chunk
 // into a failure marker (content loss).
 func TestCompactor_ChunkText_UTF8RuneBoundaries(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
 
 	t.Run("no-overlap regime reconstructs exactly", func(t *testing.T) {
 		// 9-byte repeating unit (3+4+2 bytes) so the 100-byte target boundary
 		// (25 tokens * 4 chars) always lands mid-rune.
 		text := strings.Repeat("界😀é", 120) // 1080 bytes
-		chunks := c.chunkText(text, 25)    // 100-byte chunks; overlap (2000) > chunk → no overlap
+		chunks := chunkText(text, 25)      // 100-byte chunks; overlap (2000) > chunk → no overlap
 		require.Greater(t, len(chunks), 1)
 		for i, chunk := range chunks {
 			assert.True(t, utf8.ValidString(chunk), "chunk %d is not valid UTF-8: %q", i, chunk)
@@ -173,7 +171,7 @@ func TestCompactor_ChunkText_UTF8RuneBoundaries(t *testing.T) {
 			fmt.Fprintf(&b, "%d界😀é", i)
 		}
 		text := b.String()
-		chunks := c.chunkText(text, 600) // 2400-byte chunks, 2000-byte overlap
+		chunks := chunkText(text, 600) // 2400-byte chunks, 2000-byte overlap
 		require.Greater(t, len(chunks), 1)
 
 		covered := 0 // end of the covered prefix of text
@@ -196,10 +194,9 @@ func TestCompactor_ChunkText_UTF8RuneBoundaries(t *testing.T) {
 // and emitted it again as a standalone chunk — one wasted LLM distill call of
 // duplicated content per compaction.
 func TestCompactor_ChunkText_NoTrailingOverlapDuplicate(t *testing.T) {
-	c := &Compactor{config: CompactionConfig{}}
 
 	text := strings.TrimSpace(strings.Repeat("alpha beta gamma delta ", 60)) // ~1380 chars
-	chunks := c.chunkText(text, 100)                                         // 400-char chunks, 200-char overlap
+	chunks := chunkText(text, 100)                                           // 400-char chunks, 200-char overlap
 
 	require.Greater(t, len(chunks), 1)
 	for i := 1; i < len(chunks); i++ {
@@ -1640,4 +1637,284 @@ func TestBuildPickerDetail(t *testing.T) {
 			assert.Equal(t, tt.expected, buildPickerDetail(tt.body))
 		})
 	}
+}
+
+// TestNewCompactor_ChunkSizeBand pins the one relationship between the
+// configured chunk size and the fixed ChunkOverlapTokens that matters.
+// chunkText advances by (chunk - overlap) per step, so a configured size just
+// above the overlap advances by almost nothing: `config.compaction_chunks:
+// 501` turns a 32,000 character transcript into ~8,000 chunks, each spawning
+// its own LLM plugin subprocess. At or below the overlap the advance goes
+// non-positive and chunkText degrades to no overlap, which is safe — so only
+// the open band is corrected, and small chunk sizes stay exactly as set.
+func TestNewCompactor_ChunkSizeBand(t *testing.T) {
+	testsupport.Isolate(t)
+
+	t.Run("a size inside the band is raised and reported", func(t *testing.T) {
+		var progress bytes.Buffer
+		c, err := NewCompactor(CompactionConfig{
+			ChunkSize:       ChunkOverlapTokens + 1,
+			BackendOverride: &mockBackend{},
+			Progress:        &progress,
+		})
+		require.NoError(t, err)
+		assert.Equal(t, MinOverlappingChunkTokens, c.config.ChunkSize,
+			"a chunk size barely above the overlap advances by almost nothing per step")
+		assert.Contains(t, progress.String(), "chunk overlap",
+			"raising a user-configured value silently is the other half of this defect")
+	})
+
+	t.Run("the corrected size bounds the chunk count", func(t *testing.T) {
+		// The property the correction buys, stated against chunkText directly.
+		// Measured without it, at ChunkOverlapTokens+1, for contrast.
+		text := strings.Repeat("alpha beta gamma delta epsilon ", 2000)
+		ideal := len(text) / (MinOverlappingChunkTokens * CharsPerToken)
+
+		corrected := chunkText(text, MinOverlappingChunkTokens)
+		require.Greater(t, len(corrected), 1)
+		assert.LessOrEqual(t, len(corrected), 2*ideal+2,
+			"at twice the overlap the chunk count stays near the ideal")
+
+		inBand := chunkText(text, ChunkOverlapTokens+1)
+		assert.Greater(t, len(inBand), 20*len(corrected),
+			"fixture sanity: the uncorrected in-band size must actually explode, "+
+				"or this test proves nothing about the correction")
+	})
+
+	t.Run("a size at or below the overlap is left alone", func(t *testing.T) {
+		// chunkText already degrades these to the no-overlap regime, and small
+		// sizes are a legitimate configuration.
+		for _, size := range []int{100, ChunkOverlapTokens} {
+			c, err := NewCompactor(CompactionConfig{
+				ChunkSize:       size,
+				BackendOverride: &mockBackend{},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, size, c.config.ChunkSize)
+		}
+	})
+
+	t.Run("an explicit large size is left alone", func(t *testing.T) {
+		c, err := NewCompactor(CompactionConfig{
+			ChunkSize:       4000,
+			BackendOverride: &mockBackend{},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, 4000, c.config.ChunkSize)
+	})
+}
+
+// TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason pins the error a
+// user actually sees when the canonical session index cannot be opened on a
+// retired-scraper backend. Those backends (claude-code, the default, among
+// them) have no legacy scraper leg, so the canonical layer is the only
+// transcript source; when its index fails to open there is nothing to read.
+// That used to surface as "backend %q does not support session history" — a
+// true statement about a different problem, pointing at a remedy (switch
+// backends) that cannot fix an unwritable index.
+func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) {
+	home := testsupport.Isolate(t)
+
+	// Make sessions.Open("") fail: it MkdirAll's the index's parent, so a plain
+	// file where that directory belongs is enough.
+	sessionsPath := filepath.Join(home, ".ctxloom", "sessions")
+	require.NoError(t, os.MkdirAll(filepath.Dir(sessionsPath), 0o755))
+	require.NoError(t, os.WriteFile(sessionsPath, []byte("not a directory"), 0o644))
+
+	// The fixture must be hostile from the code-under-test's vantage point
+	// before anything is asserted about behaviour: a temp HOME that the
+	// compactor does not actually consult would make this test green for the
+	// wrong reason.
+	_, openErr := sessions.Open("")
+	require.Error(t, openErr, "fixture is not hostile: sessions.Open still succeeds")
+
+	backend := "claude-code"
+	require.True(t, pb.IsRetiredScraperBackend(backend),
+		"fixture assumes a backend with no legacy scraper leg")
+
+	c, err := NewCompactor(CompactionConfig{Backend: backend})
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_, err = c.Compact(ctx)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, context.DeadlineExceeded)
+
+	assert.Contains(t, err.Error(), "session index",
+		"the failure that actually happened must be the one reported")
+	assert.NotContains(t, err.Error(), "does not support session history",
+		"reporting an unsupported backend sends the user after the wrong remedy")
+}
+
+// TestCompact_EntriesThatRenderToNothing_ShortCircuit covers the state
+// isEmptySession's entry count cannot see: entries are present, but the text
+// handed to distillation is empty. A session whose only main-thread entries
+// are `thinking` reaches exactly that, because appendEntryText suppresses
+// thinking by policy (proud-heap) unless IncludeThinking is set.
+//
+// Without the render check the pipeline chunks the empty string into one
+// chunk and spawns an LLM subprocess to summarize a transcript containing
+// nothing, then saves whatever comes back over the session's essence. The
+// ClientFactory fails the test if any LLM call is attempted.
+func TestCompact_EntriesThatRenderToNothing_ShortCircuit(t *testing.T) {
+	testsupport.Isolate(t)
+
+	thinkingOnly := []agent.SessionEntry{
+		{Type: agent.EntryTypeThinking, Content: "let me consider the options"},
+		{Type: agent.EntryTypeThinking, Content: "still considering"},
+	}
+
+	// Fixture hostility check: these entries must be non-empty AND must render
+	// to nothing. If either half stops holding, this test is no longer about
+	// the defect it names.
+	require.NotEmpty(t, thinkingOnly)
+	probe := (&Compactor{}).sessionToText(&agent.Session{Entries: thinkingOnly})
+	require.Empty(t, strings.TrimSpace(probe),
+		"fixture is not hostile: these entries render to non-empty text")
+
+	mockBe := &mockBackend{history: &mockSessionHistory{
+		currentSession: &agent.Session{ID: "thinking-only-session", Entries: thinkingOnly},
+	}}
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			t.Fatalf("an LLM subprocess was spawned to distil an empty transcript; prompt was %q", req.Prompt.Content)
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err, "nothing to distil is not a failure")
+	assert.Equal(t, 0, result.ChunksCreated)
+	require.NotEmpty(t, result.DistilledPath)
+	data, err := os.ReadFile(result.DistilledPath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), emptySessionPlaceholder)
+
+	// The same session WITH thinking included renders real text, so it must go
+	// down the ordinary pipeline — the short-circuit keys on the rendered
+	// output, not on the entry types.
+	var spawned int
+	includeClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			spawned++
+			_, _ = io.WriteString(stdout, "distilled ok")
+			return 0, nil
+		},
+	}
+	inclusive, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(includeClient),
+		OutputDir:       t.TempDir(),
+		IncludeThinking: true,
+	})
+	require.NoError(t, err)
+	_, err = inclusive.Compact(context.Background())
+	require.NoError(t, err)
+	assert.Positive(t, spawned, "with thinking included the transcript is not empty and must be distilled")
+}
+
+// A distilled artifact's path must still name the file it was written to after
+// the process changes directory. Every CLI distill path chdirs into the
+// session's own project dir and then back out again, and `session distill`
+// PRINTS the returned path, so a path left as a bare relative string names a
+// different file the moment the cwd moves — and the unconditional MkdirAll on
+// it mints a stray .ctxloom under whatever directory the process happens to be
+// in, which config's app-dir walk will later adopt. The default output
+// directory must therefore be anchored at the moment it is resolved.
+func TestSaveDistilled_DefaultOutputDirIsAnchored(t *testing.T) {
+	testsupport.ProjectDir(t)
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+
+	c := &Compactor{config: CompactionConfig{}}
+	// The default branch is reached only with no OutputDir configured; assert
+	// the fixture is hostile from saveDistilled's own vantage point rather than
+	// assuming it.
+	require.Empty(t, c.config.OutputDir, "this pin only exercises the default when no OutputDir is configured")
+
+	path, err := c.saveDistilled("anchored", "## Summary\nbody.", distilledMeta{})
+	require.NoError(t, err)
+	assert.True(t, filepath.IsAbs(path), "the distilled path must be absolute, got %q", path)
+	assert.Equal(t, filepath.Join(wd, ".ctxloom", "sessions", "anchored.md"), path)
+
+	// existingEssence resolves the same default, or the two disagree about
+	// where an essence lives and dumpEmptySession overwrites a real one.
+	found, ok := c.existingEssence("anchored", "")
+	assert.True(t, ok, "existingEssence must find the essence saveDistilled just wrote")
+	assert.Equal(t, path, found)
+}
+
+// An unreadable session index must not be indistinguishable from "this harp has
+// no entry". The bind is first-bind-wins and is never retried, so a harp that
+// misses it here has no session id for the rest of its life and every later
+// `session distill`/resume fails with "no session bound" — with nothing on the
+// record saying why. The lookup failure is a degradation and the compactor
+// already has a sink for degradations.
+func TestUpdateSessionIndex_WarnsWhenTheIndexCannotBeRead(t *testing.T) {
+	home := testsupport.Isolate(t)
+	indexPath := filepath.Join(home, ".ctxloom", "sessions", "index.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(indexPath), 0o755))
+	require.NoError(t, os.WriteFile(indexPath, []byte("sessions: [not: a list of entries\n"), 0o644))
+
+	// The bind arm is reached only through Find, so assert the fixture is
+	// hostile from updateSessionIndex's own vantage point before asserting
+	// anything about what it reports.
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	_, ferr := mgr.Find("lively-index-harp")
+	require.Error(t, ferr, "the fixture index must be unreadable, or this pin proves nothing")
+
+	var sink bytes.Buffer
+	c := &Compactor{config: CompactionConfig{Progress: &sink}}
+	// An empty summary skips the SetSummary arm, so the lookup failure is the
+	// only thing that can put anything in the sink.
+	c.updateSessionIndex("lively-index-harp", "sess-1", "", nil, 0)
+
+	assert.Contains(t, sink.String(), "lively-index-harp",
+		"an unreadable index must be reported, not silently taken for an absent entry")
+}
+
+// Distillation is headless: there is no human to answer an engine that stops to
+// ask, so the request must leave here in ONESHOT with a posture that cannot
+// block. The gRPC server floors a ONESHOT whose posture would block, so this is
+// the SECOND altitude of that invariant and the public behaviour is identical
+// either way — the point is that the request the compactor SENDS says so. The
+// sibling one-shot call in the trigger-triage path spells this differently and
+// relies on the floor alone; anything that unifies the two must not quietly
+// take this with it.
+func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
+	testsupport.Isolate(t)
+
+	var sawOpts *pb.RunOptions
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			sawOpts = req.Options
+			_, _ = stdout.Write([]byte("distilled"))
+			return 0, nil
+		},
+	}
+
+	c := &Compactor{
+		config:        CompactionConfig{LLM: "mock", Model: "haiku"},
+		clientFactory: pb.MockClientFactory(mockClient),
+	}
+	out, err := c.runDistill(context.Background(), "instructions", "transcript")
+	require.NoError(t, err)
+	require.Equal(t, "distilled", out)
+
+	require.NotNil(t, sawOpts, "the pin is worthless unless the request actually reached the client")
+	assert.Equal(t, pb.ExecutionMode_ONESHOT, sawOpts.Mode)
+	assert.True(t, sawOpts.SkipSetup, "distillation must stay in minimal mode")
+	mode, ok := agent.ParsePermissionMode(sawOpts.PermissionMode)
+	require.True(t, ok, "the request must name a parseable permission posture, got %q", sawOpts.PermissionMode)
+	assert.True(t, mode.SafeHeadless(),
+		"a headless distillation must not send a posture that would stop to ask, got %q", mode)
 }

@@ -1,10 +1,14 @@
 package config
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -182,4 +186,160 @@ func TestSuppressedEmbeddedPrincipals_UnreadableStore_IsLoud(t *testing.T) {
 
 	assert.Contains(t, buf.String(), "distrusted_signers",
 		"an unreadable suppression file re-trusts a key the operator removed; that must be reported")
+}
+
+// --- shared-behaviour pin for the trust-root filesystem resolution ----------
+
+// TrustRoot and SuppressedEmbeddedPrincipals both resolve their filesystem
+// before touching disk. A Config built without an injected filesystem (the
+// production shape) must still resolve to the OS filesystem rather than
+// dereferencing a nil afero.Fs, and an INJECTED filesystem must be the only
+// one either method reads. Both properties are what the resolution step buys;
+// pinning them here keeps a single shared resolver honest.
+func TestTrustRootFilesystemResolution_NilFSFallsBackAndInjectedFSIsHonored(t *testing.T) {
+	t.Run("nil filesystem does not panic", func(t *testing.T) {
+		cfg := &Config{appPaths: []string{"/nonexistent-ctxloom-project/.ctxloom"}}
+		require.Nil(t, cfg.fs, "the fixture must exercise the nil-filesystem path")
+		assert.NotPanics(t, func() {
+			assert.NotNil(t, cfg.TrustRoot())
+			assert.Empty(t, cfg.SuppressedEmbeddedPrincipals())
+		})
+	})
+
+	t.Run("injected filesystem is the one read", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		_, line := newTestKey(t)
+		require.NoError(t, afero.WriteFile(fs,
+			paths.AllowedSignersPath(".ctxloom"),
+			[]byte("pinned@example.com namespaces=\"ctxloom\" "+line+"\n"), 0o644))
+		require.NoError(t, afero.WriteFile(fs,
+			paths.DistrustedSignersPath(".ctxloom"),
+			[]byte("suppressed@example.com\n"), 0o644))
+
+		cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+		assert.NotEmpty(t, cfg.TrustRoot().Entries(), "the injected allowed_signers must be read")
+		assert.True(t, cfg.SuppressedEmbeddedPrincipals()["suppressed@example.com"],
+			"the injected distrusted_signers must be read")
+	})
+}
+
+// --- parity pin across the two signer-store path lists ----------------------
+
+// allowedSignersPaths and distrustedSignersPaths are the SAME two-location
+// shape (user store first, then project store, project skipped when it names
+// the same file as the user one) over two different pairs of path builders.
+// This pins that shape on BOTH so it stays one behaviour: same length, same
+// order, same home/project dedup decision, for every appPaths configuration
+// that matters. A divergence between the two lists — one growing a location
+// the other does not, or one dropping the dedup — is the defect this guards.
+func TestSignerStorePaths_AllowedAndDistrustedAgreeOnShape(t *testing.T) {
+	home, err := os.UserHomeDir()
+	require.NoError(t, err)
+	homeApp := filepath.Join(home, AppDirName)
+
+	cases := []struct {
+		name     string
+		appPaths []string
+		wantLen  int
+	}{
+		{"no project store: user location only", nil, 1},
+		{"distinct project store: both locations", []string{".ctxloom"}, 2},
+		{"home-rooted project store: deduplicated to one", []string{homeApp}, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{appPaths: tc.appPaths}
+			allowed := cfg.allowedSignersPaths()
+			distrusted := cfg.distrustedSignersPaths()
+
+			require.Len(t, allowed, tc.wantLen)
+			require.Len(t, distrusted, tc.wantLen,
+				"the suppression store must list the same locations as the trust store")
+
+			for i := range allowed {
+				assert.Equal(t, filepath.Dir(allowed[i]), filepath.Dir(distrusted[i]),
+					"location %d must be the same directory in both lists", i)
+				assert.Equal(t, paths.AllowedSignersFileName, filepath.Base(allowed[i]))
+				assert.Equal(t, paths.DistrustedSignersFileName, filepath.Base(distrusted[i]))
+			}
+			if tc.wantLen == 2 {
+				assert.Equal(t, homeApp, filepath.Dir(allowed[0]), "the user location comes first")
+			}
+		})
+	}
+}
+
+// A distrusted_signers file that opens and then stops PART WAY THROUGH — a
+// mid-read I/O error, or a line past bufio.Scanner's 64 KiB token limit — used
+// to end the scan with no error checked anywhere: the entries above the
+// truncation point loaded, the ones below silently stopped being suppressed,
+// and nothing said so. The direction is fail-OPEN: fewer suppressions means an
+// embedded key the operator explicitly removed counts again.
+func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	// One good entry, then a line past bufio.Scanner's token limit. The
+	// scanner returns the first line and then fails with ErrTooLong.
+	content := "kept@example.com\n" +
+		strings.Repeat("x", bufio.MaxScanTokenSize+1) + "\n" +
+		"lost@example.com\n"
+	require.NoError(t, afero.WriteFile(fs, paths.DistrustedSignersPath(".ctxloom"), []byte(content), 0o644))
+
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	suppressed := cfg.SuppressedEmbeddedPrincipals()
+
+	// The fixture must actually truncate from the reader's point of view, or
+	// this test proves nothing about the reporting below it.
+	require.True(t, suppressed["kept@example.com"], "the entries before the truncation point must load")
+	require.False(t, suppressed["lost@example.com"], "the fixture must actually truncate the scan")
+
+	assert.Contains(t, buf.String(), "distrusted_signers",
+		"a truncated suppression file re-trusts keys the operator removed; that must be reported")
+	assert.Contains(t, buf.String(), "trusted again this session",
+		"the report must name the fail-open direction, not just that something went wrong")
+}
+
+// A malformed LINE in an otherwise-good allowed_signers file is deliberately
+// NOT a trust-store finding, and this pins that boundary from both sides.
+//
+// strictness.ClassTrust is documented as "a corrupt/unreadable trust store
+// (the deny-all posture)" — the store as a whole being unusable. Two branches
+// of parseAllowedSigners are that (an unreadable file, an unparsable file) and
+// both escalate. A skipped line is not: the file opened, parsed, and
+// contributed every valid entry it held, which is ssh-keygen's own behaviour
+// and the point of TestTrustRoot_MalformedLineSkippedRestStillLoads above.
+// Escalating it would abort `ctxloom run` over one stray line while every key
+// in the file still works.
+//
+// It must still be REPORTED — a line that silently does not count is how a
+// trusted signer looks revoked — so the warning is asserted here too.
+func TestTrustRoot_MalformedLine_WarnsButIsNotATrustStoreFinding(t *testing.T) {
+	resetConfigStrictness(t)
+	fs := afero.NewMemMapFs()
+	pub, keyLine := newTestKey(t)
+
+	content := "this-line-is-garbage-with-no-key\n" +
+		"bundles@ctxloom.dev namespaces=\"" + signing.NamespacePublish + "\" " + keyLine
+	require.NoError(t, afero.WriteFile(fs, paths.AllowedSignersPath(".ctxloom"), []byte(content), 0o644))
+
+	cfg := &Config{appPaths: []string{".ctxloom"}, fs: fs}
+
+	var buf bytes.Buffer
+	restore := clidiag.SetSink(&buf)
+	defer restore()
+
+	mark := strictness.Checkpoint()
+	root := cfg.TrustRoot()
+
+	// The fixture must actually contain a line the parser rejects, or the
+	// assertions below hold vacuously.
+	require.Contains(t, buf.String(), "ignored", "the fixture must produce a per-line parse error")
+	assert.True(t, root.TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted,
+		"the valid entries in the same file still load")
+	assert.Empty(t, strictness.Since(mark),
+		"a skipped line is not a corrupt trust store; escalating it would abort startup over one stray line")
 }

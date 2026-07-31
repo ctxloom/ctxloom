@@ -136,13 +136,11 @@ func TestLoad_UnknownKeyInRefdSection_StillSuggests(t *testing.T) {
 func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: kiro\n      effrot: high\n")
 
-	// NOTE: a config that mismatches every anyOf branch on its own "type"
-	// const produces one leaf failure PER branch (7, here) — a distinct,
-	// already-known duplicate-warning symptom (see U096.md's F02 cross-unit
-	// note: "does not fix the duplicate-warning count ... needs its own
-	// dedup" at config/unknown_keys.go's leafCauses fan-out). That is not
-	// this finding; what THIS test pins is that every one of those repeated
-	// warnings now carries a real suggestion instead of none at all.
+	// The per-branch fan-out this used to produce (one leaf failure per anyOf
+	// alternative, seven identical warnings for one typo) is deduplicated now;
+	// see TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise. What
+	// THIS test pins is orthogonal: whatever warnings come out carry a real
+	// suggestion drawn from the matched branch, instead of none at all.
 	warns := unknownKeyWarnings(cfg)
 	require.NotEmpty(t, warns, "warnings: %+v", cfg.warnings)
 	for _, w := range warns {
@@ -264,4 +262,42 @@ func TestLoad_AgentCoordinatorAndDriving_NoUnknownKeyWarning(t *testing.T) {
 	require.True(t, ok, "the agent binding must still parse despite the two new fields")
 	assert.True(t, a.Coordinator, "coordinator: true must be honored, not just accepted")
 	assert.Equal(t, agents.DrivingOneshot, a.Driving, "driving: oneshot must be honored, not just accepted")
+}
+
+// One typo must produce ONE warning, however many schema leaves it trips.
+//
+// An llm.configs.<label> entry is validated against an anyOf with one
+// alternative per backend, so a single unknown key inside it fails
+// additionalProperties in EVERY alternative — seven identical "unknown key
+// `llm.configs.big.effrot`" lines for one mistake. Worse, the six alternatives
+// whose `type` discriminator did not match each contributed a const failure,
+// which raised the "the document is also broken some other way" flag and
+// appended a raw jsonschema dump naming /llm/configs/big/type — the one key in
+// that block the user got RIGHT. A diagnostic that repeats itself seven times
+// and then blames a correct line is worse than the raw error it replaced.
+func TestLoad_UnknownKeyInAnyOfBranch_ReportedOnceWithoutBranchNoise(t *testing.T) {
+	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: kiro\n      effrot: high\n")
+
+	warns := unknownKeyWarnings(cfg)
+	require.Len(t, warns, 1,
+		"one typo, one warning: the per-branch fan-out is the schema's business, not the user's")
+	assert.Contains(t, warns[0].Text, "llm.configs.big.effrot")
+
+	require.Len(t, cfg.warnings, 1,
+		"the rejected branches' const failures are how the schema picked a branch, not a second defect: %+v", cfg.warnings)
+	for _, w := range cfg.warnings {
+		assert.NotContains(t, w.Text, "/llm/configs/big/type",
+			"nothing may blame the `type` the user got right")
+	}
+}
+
+// The suppression above must not be able to hide a real problem. A config whose
+// ONLY fault sits inside a branch — a valid backend with a bad value — has no
+// unknown keys at all, so it still reports the raw validation error.
+func TestLoad_NonUnknownKeyFaultInsideAnyOfBranch_StillReported(t *testing.T) {
+	cfg := loadYAML(t, "version: 6\nllm:\n  configs:\n    big:\n      type: kiro\n      effort: 12\n")
+
+	assert.Empty(t, unknownKeyWarnings(cfg), "a wrong-typed value is not an unknown key")
+	require.NotEmpty(t, cfg.warnings, "a fault inside a branch must still be reported")
+	assert.Equal(t, WarnKindValidate, cfg.warnings[0].Kind)
 }

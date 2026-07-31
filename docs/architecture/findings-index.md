@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,530** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,531** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 181 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 206 |
-| `open` | no commit names this ID | **143** |
+| `open` | no commit names this ID | **142** |
 
-**Totals: 2268 findings across 162 units — 1,530 resolved, 143 still open, 595 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,531 resolved, 142 still open, 595 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 578 | 84 | 105 | 96 | 136 |
+| MED | 999 | 579 | 83 | 105 | 96 | 136 |
 | LOW | 871 | 590 | 54 | 60 | 104 | 63 |
 | (unparsed) | 22 | 10 | 5 | 4 | 2 | 1 |
 
@@ -1813,7 +1813,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U126-F07 | **REFUTED** `5b30aa83` | `tagschema.go:99-107` | SILENTNOOP | `Parse` on an empty declaration list returns a **valid `Schema` and a nil error**, producing an object that silently disables every schema-driven behaviour in the product — scalar collapse, enum/ra... | U126.md |
 | U127-F02 | **RESOLVED** `ae01686f` `ebd33b7c` | **`package-wide`** | NOPAY | This package has **zero test files** while 127 call sites depend on it for correctness, and its failure mode is silent by construction | U127.md |
 | U127-F03 | **RESOLVED** `3a610586` | `taskstest.go:26-40`, `:58-67` vs `testsupport.go:71-103` | DUPLICATE | `Isolate` and `ProjectDir` are **byte-duplicated bodies** in `testsupport`, even though this package's own docs twice assert the "one body, no duplicate" principle and implement it correctly for th... | U127.md |
-| U127-F04 | open | `gitfixture.go:27-29` | CORRECTNESS | `t.Skip("git not on PATH")` means that in an environment without git, **all 16 call sites vanish and the suite still reports PASS** — and those 16 are the only coverage of the linked-worktree redir... | U127.md |
+| U127-F04 | **RESOLVED** `c72a9aa7` | `gitfixture.go:27-29` | CORRECTNESS | `t.Skip("git not on PATH")` means that in an environment without git, **all 16 call sites vanish and the suite still reports PASS** — and those 16 are the only coverage of the linked-worktree redir... | U127.md |
 | U127-F06 | **RESOLVED** `ebd33b7c` | `gitfixture.go:10-23` | DUPLICATE | `RealGitWorktreeFixture`'s doc declares itself canonical and sanctions **exactly one** frozen copy — but a **third** copy already exists, and the doc does not know | U127.md |
 | U128-F02 | **RESOLVED** `3eef08d4` | **`parse.go:63-71`** | CORRECTNESS | `stripCodeFence` unconditionally drops the whole fence-opener **line**. When the model puts the array on that same line (```` ```json [{...}]\n``` ````), the array is destroyed, `extractJSONArray` ... | U128.md |
 | U128-F03 | **RESOLVED** `e48bd7ad` | **`parse.go:52-53`** | CORRECTNESS | `extractJSONArray`'s "first `[` to last `]`" scan is broken by any bracketed prose *before* the array — a common model habit — producing a garbage span that fails to unmarshal and degrades the chunk. | U128.md |

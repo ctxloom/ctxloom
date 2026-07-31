@@ -229,9 +229,16 @@ func (b *profileBuilder) toProfile() *Profile {
 		Variables:        b.Variables,
 		Hooks:            b.Hooks,
 		MCP:              filteredMCP,
-		ExcludeFragments: b.ExcludeFragments.Items(),
-		ExcludeMCP:       b.ExcludeMCP.Items(),
-		DenyTools:        b.DenyTools.Items(),
+		// These three accumulate through inheritance in a collections.Set, whose
+		// Items() is MAP-ITERATION order — Go randomizes it, so an unsorted read
+		// would spell a resolved profile differently on every run. They are not
+		// internal bookkeeping: DenyTools rides SurfaceInputs into each engine's
+		// settings surface, and AssembleManagedDenyTools documents the order as
+		// deterministic. A Set carries no insertion order to restore, so the
+		// stable order is the sorted one.
+		ExcludeFragments: collections.SortedKeys(b.ExcludeFragments),
+		ExcludeMCP:       collections.SortedKeys(b.ExcludeMCP),
+		DenyTools:        collections.SortedKeys(b.DenyTools),
 	}
 }
 

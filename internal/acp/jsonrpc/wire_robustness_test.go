@@ -276,3 +276,66 @@ func TestReadLoop_CorrectProtocolVersionIsSilent(t *testing.T) {
 	waitDone(t, conn)
 	assert.Empty(t, warnings(), "a conforming frame must warn about nothing")
 }
+
+// TestAwait_TimeoutNamesTheRequest pins U013-F09: a caller whose RPC ran out of
+// time saw a bare "context deadline exceeded" with nothing identifying which
+// request died. On a connection that multiplexes session/prompt, session/cancel
+// and every fs/* round trip, that error is unattributable — the one thing the
+// reader needs is the one thing it did not carry. errors.Is must still see the
+// cause, so the identity callers branch on is unchanged.
+func TestAwait_TimeoutNamesTheRequest(t *testing.T) {
+	pr, pw := io.Pipe() // a peer that is connected and simply never answers
+	t.Cleanup(func() { _ = pw.Close() })
+	conn := NewConn(pr, &lockedBuffer{}, nil, &mockHandler{})
+	conn.Start(context.Background())
+
+	await, err := conn.Go("session/prompt", nil)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	aerr := await(ctx, nil)
+	require.Error(t, aerr)
+	assert.ErrorIs(t, aerr, context.DeadlineExceeded, "the cause must stay matchable")
+	assert.Contains(t, aerr.Error(), "session/prompt", "the error must name the RPC that died")
+}
+
+// TestAwait_ConnectionCloseNamesTheRequest is U013-F09's other reported shape: a
+// caller released because the transport died learned only that "the connection
+// closed", never which in-flight request it lost.
+func TestAwait_ConnectionCloseNamesTheRequest(t *testing.T) {
+	conn, _ := newScriptedConn(nil, &mockHandler{}) // EOF on the first read
+
+	await, err := conn.Go("fs/read_text_file", nil)
+	require.NoError(t, err)
+	conn.Start(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	aerr := await(ctx, nil)
+	require.Error(t, aerr)
+	assert.ErrorIs(t, aerr, ErrConnClosed, "the cause must stay matchable")
+	assert.Contains(t, aerr.Error(), "fs/read_text_file", "the error must name the RPC that died")
+}
+
+// TestAwait_PeerErrorIsNotWrapped guards the limit of U013-F09's fix: a peer's
+// own JSON-RPC error object is returned verbatim so callers can keep type-
+// asserting it to *Error and reading its code. Annotating THAT one would break
+// every caller that branches on the peer's code.
+func TestAwait_PeerErrorIsNotWrapped(t *testing.T) {
+	conn, _ := newScriptedConn([]string{
+		`{"jsonrpc":"2.0","id":1,"error":{"code":-32601,"message":"Method not found"}}`,
+	}, &mockHandler{})
+
+	await, err := conn.Go("session/nope", nil)
+	require.NoError(t, err)
+	conn.Start(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	aerr := await(ctx, nil)
+	require.Error(t, aerr)
+	rerr, ok := aerr.(*Error)
+	require.True(t, ok, "expected a bare *Error, got %T: %v", aerr, aerr)
+	assert.Equal(t, CodeMethodNotFound, rerr.Code)
+}

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,324** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,325** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 143 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 176 |
-| `open` | no commit names this ID | **451** |
+| `open` | no commit names this ID | **450** |
 
-**Totals: 2268 findings across 162 units — 1,324 resolved, 451 still open, 493 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,325 resolved, 450 still open, 493 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 477 | 250 | 80 | 79 | 113 |
-| LOW | 871 | 490 | 189 | 48 | 87 | 57 |
+| LOW | 871 | 491 | 188 | 48 | 87 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2252,7 +2252,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U043-F10 | open | `trust_interactive.go:90-92, 143-145` | ERRHANDLING | A genuine terminal read failure is indistinguishable from the user pressing Ctrl-D: both `return nil` and the caller reports success. In `offerBundleHookTrust` this abandons every remaining hook af... | U043.md |
 | U043-F11 | **RESOLVED** `b2bb35b3` | `skill_cmd.go:212-215` | CORRECTNESS | `ctxloom skill sync 'my-bundle#skills/'` silently widens to a whole-bundle sync instead of erroring on the empty name. | U043.md |
 | U043-F12 | open | `startup_helpers.go:140-149` | ERRHANDLING | The worktree reaper's failure surface is discarded entirely — only `result.Reaped` is read, so a reaper that failed on every candidate is indistinguishable from a clean sweep. | U043.md |
-| U043-F13 | open | `util_config_write.go:179,183,186` | ERRHANDLING | Verify-failure errors interpolate an empty `result.Backup`, producing "original backed up to " / "restore from backup " with nothing after it — precisely when the user most needs an actionable mess... | U043.md |
+| U043-F13 | **RESOLVED** `c7e03509` | `util_config_write.go:179,183,186` | ERRHANDLING | Verify-failure errors interpolate an empty `result.Backup`, producing "original backed up to " / "restore from backup " with nothing after it — precisely when the user most needs an actionable mess... | U043.md |
 | U043-F15 | **RESOLVED** `ed3bd3dd` | `util_config_write.go:325-328` | TRIVIAL | `asConfigMap` is a bare two-line type assertion with no invariant. | U043.md |
 | U043-F16 | open | `weave.go:232-234` | COUPLING | `--map-only` and `--no-synthesize` are registered as two independent bool flags bound to the same pointer — an undeclared alias that appears twice in `--help` and twice in shell completion, with no... | U043.md |
 | U043-F17 | open | `weave.go:75-148`, `util_config_write.go:111-191` | COMPLEXITY | Both functions exceed the project's CCN-10 CI gate (19 and 18). | U043.md |

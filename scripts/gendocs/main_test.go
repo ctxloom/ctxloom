@@ -2,9 +2,12 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -186,5 +189,128 @@ func TestEveryHiddenTopLevelCommandIsDecided(t *testing.T) {
 		if !pristineHidden[name] {
 			t.Errorf("undocumentedHidden names %q, which internal/cli does not hide -- this list has gone stale", name)
 		}
+	}
+}
+
+// standaloneDelegationTools are the agent-delegation tools mcpIntro's caution
+// block says the STANDALONE `ctxloom mcp serve` surface exposes.
+var standaloneDelegationTools = []string{"agent_run", "agent_send", "agent_recv", "agent_stop"}
+
+// runnerOnlyDelegationTools are the delegation tools mcpIntro says the
+// standalone surface does NOT have, and which therefore must exist on the
+// documented (runner-terminated) surface for the caution to mean anything.
+var runnerOnlyDelegationTools = []string{"roster", "agent_report", "agent_fetch_artifact"}
+
+// differingParamTools are the shared delegation tools whose standalone input
+// schema genuinely differs from the documented one. agent_recv is deliberately
+// NOT here: its input is `wait` on both surfaces, byte-identical. If this set
+// changes, mcpIntro's differingParamsClause must change with it — the two are
+// asserted against each other below.
+var differingParamTools = []string{"agent_run", "agent_send", "agent_stop"}
+
+// differingParamsClause is the sentence in mcpIntro that states the set above.
+// It is matched literally so that re-measuring and re-wording stay one change.
+const differingParamsClause = "`agent_run`, `agent_send` and `agent_stop` take different parameters there than documented here"
+
+// TestMCPIntro_StandaloneSurfaceClaimsAreTrue pins U156-F02. mcpIntro's caution
+// block makes checkable factual claims about a surface generated NOWHERE on
+// this page: which delegation tools standalone `ctxloom mcp serve` exposes
+// (agent_run/send/recv/stop), which it does not (roster, agent_report,
+// agent_fetch_artifact), and which of the shared ones take different
+// parameters. Nothing joined that prose to either surface, so every one of
+// them could go false silently — and one already had: the page claimed all
+// four take different parameters, when agent_recv's input schema is identical
+// on both surfaces.
+//
+// Documentation-correctness row (template §4 class 5): the code was right and
+// the prose was not, so nothing executable was red until this pin existed. The
+// invariant it maintains is the prose's own claim, in both directions — a tool
+// added to or removed from either surface now fails here, naming the sentence
+// to fix.
+func TestMCPIntro_StandaloneSurfaceClaimsAreTrue(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	standalone, err := cli.ListStandaloneMCPToolContracts(ctx)
+	if err != nil {
+		t.Fatalf("enumerate the standalone `ctxloom mcp serve` surface: %v", err)
+	}
+	documented, err := cli.ListDocMCPToolContracts(ctx)
+	if err != nil {
+		t.Fatalf("enumerate the documented runner surface: %v", err)
+	}
+	if len(standalone) == 0 || len(documented) == 0 {
+		t.Fatalf("empty surface (standalone=%d documented=%d): the claims below would pass vacuously",
+			len(standalone), len(documented))
+	}
+
+	byName := func(cs []cli.DocMCPToolContract) map[string]cli.DocMCPToolContract {
+		m := make(map[string]cli.DocMCPToolContract, len(cs))
+		for _, c := range cs {
+			m[c.Name] = c
+		}
+		return m
+	}
+	std, doc := byName(standalone), byName(documented)
+
+	// Claim 1: the standalone surface exposes agent_run/send/recv/stop.
+	for _, name := range standaloneDelegationTools {
+		if _, ok := std[name]; !ok {
+			t.Errorf("mcpIntro says standalone `ctxloom mcp serve` exposes %q; it does not", name)
+		}
+		if !strings.Contains(mcpIntro, "`"+name+"`") {
+			t.Errorf("mcpIntro no longer names %q — the caution block and this pin have drifted", name)
+		}
+	}
+
+	// Claim 1's "only": no OTHER delegation tool rides the standalone surface.
+	for name := range std {
+		if !strings.HasPrefix(name, "agent_") && name != "roster" {
+			continue
+		}
+		if !slices.Contains(standaloneDelegationTools, name) {
+			t.Errorf("standalone `ctxloom mcp serve` exposes delegation tool %q, which mcpIntro's "+
+				"\"only\" excludes — the caution block is now false", name)
+		}
+	}
+
+	// Claims 2-4: no roster, no agent_report, no agent_fetch_artifact — and
+	// each of them IS on the documented surface, or the distinction the caution
+	// draws no longer exists.
+	for _, name := range runnerOnlyDelegationTools {
+		if _, ok := std[name]; ok {
+			t.Errorf("mcpIntro says standalone `ctxloom mcp serve` has no %q; it does", name)
+		}
+		if _, ok := doc[name]; !ok {
+			t.Errorf("mcpIntro contrasts standalone with a documented surface that has %q; "+
+				"the documented surface does not have it either, so the caution is meaningless", name)
+		}
+		if !strings.Contains(mcpIntro, "`"+name+"`") {
+			t.Errorf("mcpIntro no longer names %q — the caution block and this pin have drifted", name)
+		}
+	}
+
+	// Claim 5: which of the shared four actually take different parameters.
+	var differ []string
+	for _, name := range standaloneDelegationTools {
+		s, sok := std[name]
+		d, dok := doc[name]
+		if !sok || !dok {
+			continue // already reported above
+		}
+		if s.InputSchema != d.InputSchema {
+			differ = append(differ, name)
+		}
+	}
+	slices.Sort(differ)
+	want := slices.Clone(differingParamTools)
+	slices.Sort(want)
+	if !slices.Equal(differ, want) {
+		t.Errorf("the shared delegation tools whose standalone input schema differs from the documented one "+
+			"are %v, not %v — update differingParamTools AND mcpIntro's clause together", differ, want)
+	}
+	if !strings.Contains(mcpIntro, differingParamsClause) {
+		t.Errorf("mcpIntro must state that exactly %v take different parameters on the standalone surface; "+
+			"it does not contain %q", want, differingParamsClause)
 	}
 }

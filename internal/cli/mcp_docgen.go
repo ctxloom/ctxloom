@@ -130,6 +130,38 @@ func ListDocMCPToolContracts(ctx context.Context) ([]DocMCPToolContract, error) 
 		return nil, err
 	}
 	defer closeHome()
+	return toolContracts(ctx, server)
+}
+
+// NewStandaloneMCPServer builds the STANDALONE `ctxloom mcp serve` tool surface
+// — the legacy stdio one a harness gets when it registers `ctxloom mcp serve`
+// itself rather than reaching the runner through the stdio shim. It is the
+// same registration `ctxloom mcp serve` performs (registerTools) over a config
+// -less ctxServer, so nothing dials and no handler runs.
+//
+// It exists so the difference between this surface and the DOCUMENTED
+// (runner-terminated) one built by NewDocMCPServer is measurable. The MCP
+// reference page's intro states that difference as fact — which tools the
+// standalone surface lacks, and which of the shared ones take different
+// parameters — and nothing could check it, so the prose could only ever be
+// verified by hand and could go stale without a single test noticing.
+func NewStandaloneMCPServer() *mcp.Server {
+	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: Version}, nil)
+	(&ctxServer{}).registerTools(server)
+	return server
+}
+
+// ListStandaloneMCPToolContracts returns the full advertised contract of every
+// tool on the standalone `ctxloom mcp serve` surface, via the same in-memory
+// client round trip ListDocMCPToolContracts uses against the documented one.
+func ListStandaloneMCPToolContracts(ctx context.Context) ([]DocMCPToolContract, error) {
+	return toolContracts(ctx, NewStandaloneMCPServer())
+}
+
+// toolContracts enumerates a server's advertised tools through an in-memory
+// client round trip — the SDK exposes no direct accessor on the server itself —
+// and returns them sorted by name.
+func toolContracts(ctx context.Context, server *mcp.Server) ([]DocMCPToolContract, error) {
 	serverT, clientT := mcp.NewInMemoryTransports()
 	if _, err := server.Connect(ctx, serverT, nil); err != nil {
 		return nil, fmt.Errorf("connect doc server: %w", err)

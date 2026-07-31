@@ -117,7 +117,19 @@ type taskCompletePayload struct {
 // second pass in the file's own order for every entry/accounting event.
 func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) error {
 	c := &converter{record: importer.RecordFunc(rec, "codex")}
-	err := importer.ConvertJSONLLines(ctx, rec, lines, "codex", scanSessionInfo(lines),
+	// scanSessionInfo is a full pass over the file in its own right, and it
+	// runs as an ARGUMENT to ConvertJSONLLines — i.e. entirely before the
+	// per-line ctx check inside it. It therefore takes ctx itself, and is
+	// preceded by a check of its own so that a cancelled import with nothing
+	// to dispatch still reports the cancellation instead of returning nil.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	info, err := scanSessionInfo(ctx, lines)
+	if err != nil {
+		return err
+	}
+	err = importer.ConvertJSONLLines(ctx, rec, lines, "codex", info,
 		func(line []byte) error {
 			var env rolloutLine
 			if jsonErr := json.Unmarshal(line, &env); jsonErr != nil {
@@ -170,11 +182,19 @@ func (c *converter) checkFloor(total int) error {
 // envelope types that contribute session-level metadata, latching each field
 // onto its FIRST occurrence only via importer.SessionInfoBuilder (mirrors
 // Recorder.Record's own "latch onto the first KindSession line" discipline
-// in recorder.go). Returns nil if the file contained none of them at all
+// in recorder.go). Returns nil info if the file contained none of them at all
 // (nothing to record).
-func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
+//
+// It observes ctx per line, exactly as the streaming pass does. This pass is
+// a full walk of the file on its own, and it completes before the streaming
+// pass begins — so without a check here a cancelled import runs the entire
+// scan out first, which on a large rollout is most of the work.
+func scanSessionInfo(ctx context.Context, lines [][]byte) (*agent.ChatSessionInfo, error) {
 	var b importer.SessionInfoBuilder
 	for _, line := range lines {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		var env rolloutLine
 		if err := json.Unmarshal(line, &env); err != nil {
 			continue
@@ -209,7 +229,7 @@ func scanSessionInfo(lines [][]byte) *agent.ChatSessionInfo {
 			b.SetPermissionMode(p.ApprovalPolicy)
 		}
 	}
-	return b.Build()
+	return b.Build(), nil
 }
 
 // converter carries the streamed second pass's only piece of cross-line

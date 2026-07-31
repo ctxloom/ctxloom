@@ -413,20 +413,43 @@ func (s *Store) writeUnsigned(header signing.CountersignHeader, payload []byte) 
 	return afero.WriteFile(s.fs, path, []byte("unsigned\n"), 0o644)
 }
 
+// hasUnsigned reports whether the unsigned marker for header+payload is
+// present. Existence IS the entire record here (spec §9.5) — there is nothing
+// to re-verify — so getting this wrong in the absent direction does not
+// degrade a rejection, it CANCELS one.
+//
+// It LISTS the directory rather than stat-ing the one path, which is not
+// pedantry: a stat failure used to be folded into "absent" (err == nil &&
+// exists), and a fault that hides a single path from Stat alone leaves
+// Store.Readable — the whole-store guard that gates EffectiveTrust's
+// fail-closed preamble — reporting the store perfectly healthy. Reading
+// through the same ReadDir that Readable performs makes the two agree by
+// construction: anything that can hide a marker from this function also fails
+// Readable, so the fail-closed gate fires instead of the marker quietly
+// vanishing.
 func (s *Store) hasUnsigned(header signing.CountersignHeader, payload []byte) bool {
 	if s == nil {
 		return false
 	}
 	if s.configured() != nil {
-		// See candidates: an unconfigured store must never stat the working
+		// See candidates: an unconfigured store must never read the working
 		// directory, because a marker's mere existence IS the approval.
 		return false
 	}
 	if s.headerInvalid(header) {
 		return false
 	}
-	exists, err := afero.Exists(s.fs, filepath.Join(s.dir, unsignedFilename(header, payload)))
-	return err == nil && exists
+	entries, err := afero.ReadDir(s.fs, s.dir)
+	if err != nil {
+		return false // see Readable
+	}
+	want := unsignedFilename(header, payload)
+	for _, e := range entries {
+		if !e.IsDir() && e.Name() == want {
+			return true
+		}
+	}
+	return false
 }
 
 // WriteUnsignedApprove records an unsigned approve marker (degraded path).

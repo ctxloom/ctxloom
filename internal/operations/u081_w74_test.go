@@ -1,7 +1,9 @@
 package operations
 
 import (
+	"bytes"
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -11,6 +13,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // ---------------------------------------------------------------------------
@@ -88,4 +93,57 @@ func TestShortNameLocalWins_ReadAndExport(t *testing.T) {
 	got, err := afero.ReadFile(fs, exp.Dest)
 	require.NoError(t, err)
 	assert.Contains(t, string(got), "content: hi")
+}
+
+// ---------------------------------------------------------------------------
+// U081-F13 — an unreadable lockfile silently empties the removed-upstream walk.
+// ---------------------------------------------------------------------------
+
+// TestBundleListDeletedResolver_WarnsOnUnreadableLockfile pins the LOUD path.
+// Every remote source the deleted-item walk inspects comes from the lockfile,
+// so a lockfile that will not parse leaves the resolver with nothing to look
+// at and `bundle list` stops flagging bundles removed upstream — while still
+// printing a complete-looking listing. The listing is allowed to degrade; it is
+// not allowed to degrade in silence.
+func TestBundleListDeletedResolver_WarnsOnUnreadableLockfile(t *testing.T) {
+	projectDir := testsupport.ProjectDir(t) // isolates HOME/env; never the real ~/.ctxloom
+	appDir := filepath.Join(projectDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+	lockPath := paths.LockPath(appDir)
+	require.NoError(t, os.WriteFile(lockPath, []byte("bundles: [this is not\n  a: mapping\n"), 0644))
+
+	// The fixture must be hostile FROM THE CODE'S VANTAGE POINT: assert the
+	// lockfile really is unreadable through the exact manager the resolver
+	// builds, before asserting anything about what the resolver says.
+	_, loadErr := remote.NewLockfileManager(appDir, remote.WithLockfileFS(afero.NewOsFs())).Load()
+	require.Error(t, loadErr, "fixture is not broken — the rest of this test would prove nothing")
+
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	require.NotNil(t, bundleListDeletedResolver(cfg))
+
+	assert.Contains(t, sink.String(), lockPath,
+		"the warning must name the unreadable lockfile")
+	assert.Contains(t, sink.String(), "removed upstream",
+		"the warning must say what the user is no longer being told")
+}
+
+// TestBundleListDeletedResolver_SilentOnGoodLockfile keeps the warning honest:
+// the normal path stays quiet, so the diagnostic above means something when it
+// does appear.
+func TestBundleListDeletedResolver_SilentOnGoodLockfile(t *testing.T) {
+	projectDir := testsupport.ProjectDir(t)
+	appDir := filepath.Join(projectDir, ".ctxloom")
+	require.NoError(t, os.MkdirAll(appDir, 0755))
+
+	var sink bytes.Buffer
+	restore := clidiag.SetSink(&sink)
+	defer restore()
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	require.NotNil(t, bundleListDeletedResolver(cfg))
+	assert.Empty(t, sink.String(), "a missing lockfile is the ordinary case, not a fault")
 }

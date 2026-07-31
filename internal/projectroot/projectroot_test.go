@@ -2,8 +2,12 @@ package projectroot
 
 import (
 	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -201,6 +205,84 @@ func TestFromEnv_RepeatedInvalidRootWarnsOnce(t *testing.T) {
 	}
 	assert.Equal(t, 1, strings.Count(sink.String(), bad),
 		"one offending value warns once however often it is resolved")
+}
+
+// pkgSourceDir returns this package's SOURCE directory, resolved from the
+// compiled-in path of this very file rather than from the process cwd. A
+// source-scanning gate that walks "." finds zero files the moment anything
+// moves the cwd -- and then matches zero symbols, reports no debt, and exits
+// 0. That is a gate that evaporates rather than fails, so the scan root must
+// never depend on where the test binary happens to run.
+func pkgSourceDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	require.True(t, ok, "runtime.Caller could not resolve this test's own source path")
+	return filepath.Dir(file)
+}
+
+// TestPackageDocNamesEveryExportedSurface pins the invariant the package doc
+// asserts after U092-F10: that a reader of the doc comment can discover
+// everything this package does. The package grew from one responsibility
+// (CTXLOOM_ROOT-first root resolution) to three -- root resolution, git
+// worktree classification, and the task-store redirect -- while the doc still
+// described only the first, so two thirds of the package were undiscoverable
+// from its own front door.
+//
+// The guard is deliberately mechanical rather than a prose review: every
+// exported function and type must be NAMED in the package doc. Adding a fourth
+// responsibility without documenting it therefore fails here, which is the
+// only thing that keeps the corrected prose true over time.
+func TestPackageDocNamesEveryExportedSurface(t *testing.T) {
+	dir := pkgSourceDir(t)
+
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, dir, func(fi os.FileInfo) bool {
+		return !strings.HasSuffix(fi.Name(), "_test.go")
+	}, parser.ParseComments)
+	require.NoError(t, err)
+
+	pkg, ok := pkgs["projectroot"]
+	require.True(t, ok, "scan root %s does not contain package projectroot -- the gate is looking at the wrong directory", dir)
+
+	// The scan is only meaningful if it actually read this package's files
+	// (§11m): an empty or near-empty parse would satisfy every assertion below
+	// vacuously.
+	require.GreaterOrEqual(t, len(pkg.Files), 3,
+		"scan root %s yielded %d non-test files; expected the whole package", dir, len(pkg.Files))
+
+	var packageDoc string
+	var exported []string
+	for _, f := range pkg.Files {
+		if f.Doc != nil && strings.TrimSpace(f.Doc.Text()) != "" {
+			packageDoc = f.Doc.Text()
+		}
+		for _, decl := range f.Decls {
+			switch d := decl.(type) {
+			case *ast.FuncDecl:
+				if d.Recv == nil && d.Name.IsExported() {
+					exported = append(exported, d.Name.Name)
+				}
+			case *ast.GenDecl:
+				if d.Tok != token.TYPE {
+					continue
+				}
+				for _, spec := range d.Specs {
+					if ts, isType := spec.(*ast.TypeSpec); isType && ts.Name.IsExported() {
+						exported = append(exported, ts.Name.Name)
+					}
+				}
+			}
+		}
+	}
+
+	require.NotEmpty(t, packageDoc, "package projectroot has no package doc comment at all")
+	require.NotEmpty(t, exported, "found no exported functions or types -- the parse did not see this package's declarations")
+
+	for _, name := range exported {
+		assert.Contains(t, packageDoc, name,
+			"exported surface %q is not named anywhere in the package doc, so a reader of the "+
+				"doc cannot discover it; document the responsibility it belongs to", name)
+	}
 }
 
 func TestWorkDir(t *testing.T) {

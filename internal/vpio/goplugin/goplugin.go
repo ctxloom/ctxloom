@@ -20,6 +20,7 @@ package goplugin
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
@@ -54,12 +55,26 @@ type runResult struct {
 // client.Run exactly as the pre-extraction call site did (same signature,
 // same goroutine-pump semantics inside GRPCClient.RunWithModelInfo — MOVED,
 // not rewritten) and returns a Session that relays Resize calls onto the
-// same resize channel client.Run already understands. Always succeeds
-// synchronously here (the underlying transport is already connected); the
-// error return is load-bearing for the sibling dockerexec transport, whose
-// Start CAN fail synchronously (a missing runtime binary or `docker exec`
-// refusing to attach — see dockerexec.Session's TestStart_FailsWhenBinaryMissing).
+// same resize channel client.Run already understands. The underlying
+// transport is already connected, so the only synchronous failure here is a
+// spec this transport cannot honour; the sibling dockerexec transport has more
+// (a missing runtime binary, or `docker exec` refusing to attach — see
+// dockerexec.Session's TestStart_FailsWhenBinaryMissing).
 func (l *Launcher) Start(ctx context.Context, spec vpio.ProcessSpec) (vpio.Session, error) {
+	// This transport writes to BOTH sinks unconditionally: the Run stream
+	// carries stdout and stderr as distinct frames and internal/lm/grpc's
+	// RunWithModelInfo Writes each one straight through. A nil sink is
+	// therefore not "no output wanted", it is a nil-interface Write inside the
+	// pump goroutine below — an unrecovered panic that takes the process down,
+	// from a frame the engine happened to send. Refuse it where the caller can
+	// still be told which field was empty.
+	if spec.Stdout == nil {
+		return nil, fmt.Errorf("vpio/goplugin: ProcessSpec.Stdout is nil; this transport has nowhere to deliver the session's output")
+	}
+	if spec.Stderr == nil {
+		return nil, fmt.Errorf("vpio/goplugin: ProcessSpec.Stderr is nil; this transport carries the session's stderr as its own stream and has nowhere to deliver it")
+	}
+
 	resizeCh := make(chan *pb.WindowSize, 1)
 	s := &Session{resize: resizeCh, result: make(chan runResult, 1), done: make(chan struct{})}
 

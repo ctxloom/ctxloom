@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 )
@@ -98,7 +100,7 @@ func TestLauncher_StartDoesNotBlockOnRun(t *testing.T) {
 
 	started := make(chan struct{})
 	go func() {
-		sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
+		sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{Stdout: io.Discard, Stderr: io.Discard})
 		if err != nil {
 			t.Errorf("Start: %v", err)
 		}
@@ -133,7 +135,7 @@ func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
 	fc := &fakeClient{resizeDone: make(chan struct{}), block: make(chan struct{})}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
+	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -187,7 +189,7 @@ func TestSession_WaitAloneReleasesResourcesWithoutCtxCancellation(t *testing.T) 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel() // safety net only; must not be required for the assertion below
 
-	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
+	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -208,7 +210,7 @@ func TestSession_ResizeAfterCloseDoesNotPanicOrBlock(t *testing.T) {
 	fc := &fakeClient{}
 	ctx, cancel := context.WithCancel(context.Background())
 
-	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
+	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -236,7 +238,7 @@ func TestSession_WaitReturnsExitCodeAndError(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
+	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -266,7 +268,7 @@ func TestSession_WaitIsIdempotent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{})
+	sess, err := NewLauncher(fc, &pb.RunStart{}).Start(ctx, vpio.ProcessSpec{Stdout: io.Discard, Stderr: io.Discard})
 	if err != nil {
 		t.Fatalf("Start: %v", err)
 	}
@@ -325,4 +327,65 @@ func TestSession_ResizeCoalescesLatestWins(t *testing.T) {
 	// A released session drops rather than sending on a closed channel.
 	s.stop()
 	s.Resize(4, 4)
+}
+
+// writingClient is a pb.Client that Writes to both sinks, exactly as
+// internal/lm/grpc's RunWithModelInfo does for a RunResponse_Stdout /
+// RunResponse_Stderr frame: an unconditional Write on the caller's writer.
+type writingClient struct{ pb.Client }
+
+func (writingClient) Run(_ context.Context, _ *pb.RunStart, _ io.Reader, stdout, stderr io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
+	if _, err := stdout.Write([]byte("engine output\n")); err != nil {
+		return 1, err
+	}
+	if _, err := stderr.Write([]byte("engine diagnostic\n")); err != nil {
+		return 1, err
+	}
+	return 0, nil
+}
+
+// TestLauncher_StartRefusesNilStdio pins vpio.ProcessSpec's nil contract on
+// this transport: Stdin may be nil (a non-interactive turn), Stdout and Stderr
+// may not. Both carry the session's own bytes as distinct wire frames here, and
+// the pump Writes each one unconditionally — so a nil sink is not "no output
+// wanted", it is a nil-interface Write in a goroutine with no recover above it.
+// Measured against the unguarded code: `panic: runtime error: invalid memory
+// address or nil pointer dereference`, taking the process with it.
+//
+// The refusal names which field was empty, which is the whole difference
+// between this and both alternatives — a panic from a stack that does not
+// mention ProcessSpec, or a silent io.Discard that returns exit 0 having
+// delivered nothing.
+func TestLauncher_StartRefusesNilStdio(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		spec vpio.ProcessSpec
+		want string
+	}{
+		{"nil stdout", vpio.ProcessSpec{Stderr: io.Discard}, "Stdout is nil"},
+		{"nil stderr", vpio.ProcessSpec{Stdout: io.Discard}, "Stderr is nil"},
+		{"both nil", vpio.ProcessSpec{}, "Stdout is nil"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sess, err := NewLauncher(writingClient{}, &pb.RunStart{}).Start(t.Context(), tc.spec)
+			require.Error(t, err, "a spec this transport cannot honour must fail Start")
+			require.Nil(t, sess)
+			require.Contains(t, err.Error(), tc.want, "the refusal must name the empty field")
+		})
+	}
+}
+
+// TestLauncher_StartAcceptsANilStdin is the other half: nil Stdin IS
+// sanctioned (vpio.ProcessSpec's own doc), so the guard above must not have
+// widened into refusing a legitimate non-interactive turn.
+func TestLauncher_StartAcceptsANilStdin(t *testing.T) {
+	var out, errs bytes.Buffer
+	sess, err := NewLauncher(writingClient{}, &pb.RunStart{}).Start(t.Context(),
+		vpio.ProcessSpec{Stdout: &out, Stderr: &errs})
+	require.NoError(t, err)
+	status, err := sess.Wait()
+	require.NoError(t, err)
+	require.Equal(t, int32(0), status.Code)
+	require.Contains(t, out.String(), "engine output")
+	require.Contains(t, errs.String(), "engine diagnostic")
 }

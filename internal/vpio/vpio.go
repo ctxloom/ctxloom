@@ -42,9 +42,11 @@ type ProcessSpec struct {
 	// Stdin is the frontend's keystroke source. nil for a non-interactive
 	// (oneshot) turn — the Launcher must not block trying to read it.
 	Stdin io.Reader
-	// Stdout receives the session's output. On a transport that carries the
-	// turn over a single stream, that includes the session's stderr — see
-	// Stderr.
+	// Stdout receives the session's output. REQUIRED: Start must REFUSE a nil
+	// Stdout rather than substitute a discard, because a turn whose entire
+	// output vanished behind exit code 0 is indistinguishable from one that
+	// ran and said nothing. On a transport that carries the turn over a
+	// single stream, this also receives the session's stderr — see Stderr.
 	Stdout io.Writer
 	// Stderr receives DIAGNOSTICS ABOUT the session. Whether it also receives
 	// the session's own stderr depends on what the transport can separate, and
@@ -58,6 +60,14 @@ type ProcessSpec struct {
 	//
 	// A caller that must see everything the session emitted therefore reads
 	// Stdout; Stderr is where the transport explains itself.
+	//
+	// nil is permitted only for a transport that does NOT deliver the
+	// session's own stderr here — it then has only its own diagnostics to
+	// place, and falls back to the process diagnostic sink. A transport that
+	// DOES deliver the session's stderr here must refuse a nil Stderr, for the
+	// same reason Stdout is required: discarding half the session is not a
+	// sanctioned way to run one. So goplugin refuses it and dockerexec
+	// tolerates it.
 	Stderr io.Writer
 }
 

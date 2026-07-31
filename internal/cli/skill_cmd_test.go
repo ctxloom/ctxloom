@@ -2,6 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -91,4 +94,30 @@ func TestSplitSkillSyncRef(t *testing.T) {
 			assert.Contains(t, err.Error(), "#skills/")
 		})
 	}
+}
+
+// Every command RunE must hand the operations layer the context COBRA owns —
+// cmd.Context() — never a fresh context.Background(). Root wires the
+// signal-cancelled context into that one value, so a RunE that substitutes its
+// own detaches its work from Ctrl-C and from any deadline a parent (the MCP
+// server, an ACP session, a test) set. `skill` was the last group doing this:
+// six of its seven subcommands opened their own root context.
+//
+// A behavioural pin is not available here and the reason matters: every
+// operations/skills.go entry point takes `_ context.Context` and DISCARDS it,
+// so no cancellation is observable through this seam today in either
+// direction. The invariant worth maintaining is therefore the wiring itself —
+// once the operations layer starts honoring its ctx, this file must already be
+// passing the right one.
+func TestSkillCommands_UseCobraContextNotBackground(t *testing.T) {
+	src, err := os.ReadFile("skill_cmd.go")
+	require.NoError(t, err)
+	var offending []string
+	for i, line := range strings.Split(string(src), "\n") {
+		if strings.Contains(line, "context.Background()") {
+			offending = append(offending, fmt.Sprintf("skill_cmd.go:%d: %s", i+1, strings.TrimSpace(line)))
+		}
+	}
+	assert.Empty(t, offending,
+		"skill subcommands must pass cmd.Context() to the operations layer, not a detached root context")
 }

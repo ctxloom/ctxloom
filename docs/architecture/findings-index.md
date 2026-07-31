@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,617** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 199 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 200 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 212 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 214 |
-| `open` | no commit names this ID | **26** |
+| `open` | no commit names this ID | **25** |
 
-**Totals: 2268 findings across 162 units — 1,617 resolved, 26 still open, 625 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,617 resolved, 25 still open, 626 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 626 | 18 | 116 | 97 | 142 |
+| MED | 999 | 626 | 17 | 117 | 97 | 142 |
 | LOW | 871 | 627 | 8 | 66 | 105 | 65 |
 | (unparsed) | 22 | 12 | 0 | 5 | 4 | 1 |
 
@@ -1918,7 +1918,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U151-F02 | **RESOLVED** `7592453f` | `vpio.go:48-51` | COUPLING | `ProcessSpec` specifies nil-handling for `Stdin` only. For nil `Stdout` the two implementations have **opposite** failure modes — one silently discards the entire session, the other panics. Neither... | U151.md |
 | U151-F03 | **RESOLVED** `5108649a` | `vpio.go:50-51` | CORRECTNESS | The interface promises "Stderr receives the session's diagnostic output", but one of the two implementations never reads the field — dockerexec merges stderr into stdout and drops the caller's writ... | U151.md |
 | U151-F04 | **RESOLVED** `dd298653` | `vpio.go:70-77` | NOPAY | `Session.Signal` has zero callers anywhere in the repository, and both implementations exist solely to return "not supported". It is one third of the `Session` interface carrying no load. | U151.md |
-| U151-F06 | open | `vpio.go:62-81` | COUPLING | `Session` has no `Close`/`Release`, so a caller cannot tell a session to free its resources; each implementation invents its own lifecycle, and one of them leaks. | U151.md |
+| U151-F06 | **PARTIAL** `bead2506` | `vpio.go:62-81` | COUPLING | `Session` has no `Close`/`Release`, so a caller cannot tell a session to free its resources; each implementation invents its own lifecycle, and one of them leaks. | U151.md |
 | U152-F02 | **RESOLVED** `8d4f3e77` | `dockerexec.go:119` | CORRECTNESS | The exec subprocess is built with `exec.CommandContext` but sets neither `cmd.Cancel` nor `cmd.WaitDelay`, so on context cancellation the `docker exec` CLI is **SIGKILLed with zero grace** — the sa... | U152.md |
 | U152-F03 | **RESOLVED** `dc390c93` | `dockerexec.go:209-214` | CORRECTNESS | The pty master file descriptor is **never closed on the normal exit path** — one leaked fd per interactive container turn. | U152.md |
 | U152-F04 | **PARTIAL** `1cad74b8` | `dockerexec.go:148-150` | CORRECTNESS | The stdin-copy goroutine is never cancelled and never observed: with a real `os.Stdin` it parks in `Read` forever, outliving the session, holding a reference to the leaked master, and writing into ... | U152.md |

@@ -156,19 +156,28 @@ func Show(path string) (string, error) {
 	return string(data), nil
 }
 
-// ParseFrontmatter extracts the `title` scalar and the `sessions:` block-list
-// from a plan's leading YAML frontmatter (the `---` … `---` block). It is
-// tolerant and dependency-free — only those two fields are read; a document with
-// no frontmatter yields ("", nil).
+// ParseFrontmatter extracts the `title` scalar and the `sessions:` list from a
+// plan's leading YAML frontmatter. It is tolerant and dependency-free — only
+// those two fields are read; a document with no frontmatter yields ("", nil).
+//
+// BOTH delimiters are required. An opening `---` that is never closed is not
+// frontmatter: it is a document whose author did something else, and scanning
+// it to EOF makes any body line shaped like `title:` — a heading in a fenced
+// YAML example, a quoted snippet — silently become the plan's title. The
+// paired writer refuses such a document outright rather than guess where the
+// block ends, so accepting it here would have the two halves of one format
+// disagreeing about which files even have frontmatter.
 func ParseFrontmatter(content string) (title string, sessions []string) {
 	lines := strings.Split(content, "\n")
 	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "---" {
 		return "", nil
 	}
+	closed := false
 	inSessions := false
 	for _, raw := range lines[1:] {
 		line := strings.TrimRight(raw, "\r")
 		if strings.TrimSpace(line) == "---" {
+			closed = true
 			break
 		}
 		if inSessions {
@@ -203,6 +212,9 @@ func ParseFrontmatter(content string) (title string, sessions []string) {
 			}
 			sessions = append(sessions, parseFlowSequence(rest)...)
 		}
+	}
+	if !closed {
+		return "", nil
 	}
 	return title, sessions
 }

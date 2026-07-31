@@ -1210,3 +1210,62 @@ func TestRunTurn_EventsClosedWithoutErrsStillResolvesTheTurn(t *testing.T) {
 		t.Fatal("session/prompt never resolved: runTurn is parked on a bare receive from an Errs channel nobody will ever close")
 	}
 }
+
+// frameFailingWriter fails only the frames whose bytes contain `reject`, and
+// writes everything else. jsonrpc.Conn marshals and writes each frame
+// independently (writeFrame), with no sticky error, so a per-FRAME failure —
+// an unmarshalable payload, a short write — really can drop one notification
+// while the reply that follows lands normally.
+type frameFailingWriter struct {
+	mu     sync.Mutex
+	reject string
+}
+
+func (w *frameFailingWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.reject != "" && strings.Contains(string(p), w.reject) {
+		return 0, io.ErrShortWrite
+	}
+	return len(p), nil
+}
+
+// TestSwitchProfile_FailedModeNotificationFailsTheRequest pins U014-F07:
+// switchProfile warned and continued when either of its two session/update
+// notifications failed, then returned nil — so session/set_mode and
+// session/set_config_option answered SUCCESS to a client that never received
+// the current_mode_update telling it which profile it is now in. emitUpdate,
+// on the very same connection, already treats a failed notification as fatal
+// to the request; this path was the sole divergence.
+func TestSwitchProfile_FailedModeNotificationFailsTheRequest(t *testing.T) {
+	eng := newFakeEngine()
+	eng.modes = &SessionModes{
+		Current:   operations.DefaultModeID,
+		Available: []SessionMode{{ID: operations.DefaultModeID, Name: "default"}, {ID: "review", Name: "review"}},
+	}
+	eng.assembleMode = func(context.Context, SessionMode) (string, error) { return "REVIEW CTX", nil }
+	go eng.pump()
+
+	w := &frameFailingWriter{reject: "current_mode_update"}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{
+		open:     func(context.Context, OpenRequest) (*EngineChat, error) { return eng.chat(""), nil },
+		ctx:      ctx,
+		sessions: make(map[api.SessionId]*session),
+	}
+	s.conn = jsonrpc.NewConn(strings.NewReader(""), w, nil, s)
+	s.conn.Start(ctx)
+
+	sess, rerr := s.openSession(OpenRequest{}, "", nil)
+	require.Nil(t, rerr)
+
+	var gotErr *jsonrpc.Error
+	var replied bool
+	s.handleSetMode(json.RawMessage(`{"sessionId":"`+string(sess.id)+`","modeId":"review"}`),
+		func(_ any, rerr *jsonrpc.Error) { replied, gotErr = true, rerr })
+
+	require.True(t, replied)
+	assert.NotNil(t, gotErr,
+		"the client never got the current_mode_update, so set_mode must not answer success")
+}

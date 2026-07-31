@@ -11,6 +11,28 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
+// TestRunRemoteDiscover_ProgressLineIsClosedBeforeAnError pins U040-F22: the
+// "Searching repositories..." progress line is deliberately newline-less so a
+// result count can be appended to it, but the early error return left it
+// dangling and the error text rendered as a suffix of the progress line
+// ("Searching repositories...Error: ..."). The progress line must be
+// terminated before the command hands an error back to the error printer.
+func TestRunRemoteDiscover_ProgressLineIsClosedBeforeAnError(t *testing.T) {
+	origSource := discoverSource
+	t.Cleanup(func() { discoverSource = origSource })
+	// An unsupported --source is the reachable path on which DiscoverRemotes
+	// itself errors, before anything has closed the progress line.
+	discoverSource = "gitlab"
+
+	var err error
+	out := captureStdout(t, func() {
+		err = runRemoteDiscover(&cobra.Command{}, nil, discoverTestConfig, remote.NewMockFetcher())
+	})
+	require.Error(t, err)
+	assert.Equal(t, "Searching repositories...\n", out,
+		"the progress line must be terminated so the error does not read as its continuation")
+}
+
 func discoverTestConfig() (*config.Config, error) {
 	return config.NewFixture(config.Fixture{}), nil
 }

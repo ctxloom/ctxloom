@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -230,4 +231,56 @@ func TestUpdateBundle_IdenticalSetIsNoChanges(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "updated", third.Status)
 	assert.Equal(t, []string{"set fragment: intro"}, third.Changes)
+}
+
+// plantingDistiller writes rival bytes to path the first time it is asked to
+// distill, standing in for a concurrent author who wins the race between
+// CreateBundle's existence check and its Save.
+type plantingDistiller struct {
+	t       *testing.T
+	path    string
+	content []byte
+	planted bool
+}
+
+func (d *plantingDistiller) Distill(context.Context, DistillRequest) (DistillResult, error) {
+	if !d.planted {
+		require.NoError(d.t, os.WriteFile(d.path, d.content, 0o644))
+		d.planted = true
+	}
+	return DistillResult{Distilled: "a plausible distillation of the fragment", ModelID: "m"}, nil
+}
+
+// TestCreateBundle_ConcurrentCreateIsNotClobbered pins U082-F20: CreateBundle
+// checked for an existing bundle with os.Stat and then wrote with a plain
+// Save, so anything appearing at the path in between was silently overwritten.
+// The window is not microseconds — distillation runs inside it, one LLM round
+// trip per item — and what it destroys is another author's bundle.
+func TestCreateBundle_ConcurrentCreateIsNotClobbered(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	path := filepath.Join(paths.LocalBundlesPath(appDir), "contested.yaml")
+
+	rival := []byte("version: 1.0.0\ndescription: authored by the other writer\n")
+	d := &plantingDistiller{t: t, path: path, content: rival}
+
+	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{
+		Name:      "contested",
+		Distiller: d,
+		Fragments: map[string]BundleFragmentInput{
+			"f": {Content: "a fragment body long enough to be worth distilling"},
+		},
+	})
+
+	// §11k: the fixture is only hostile if the distiller actually ran — that
+	// is what puts the rival file inside the check-to-write window.
+	require.True(t, d.planted, "distiller never ran; nothing occupied the TOCTOU window")
+
+	// Payload first: what the defect destroys is bytes, not an exit status.
+	got, readErr := os.ReadFile(path)
+	require.NoError(t, readErr)
+	assert.Equal(t, string(rival), string(got),
+		"the other author's bundle must survive untouched")
+
+	require.Error(t, err, "creating over a bundle that appeared mid-flight must refuse")
+	assert.Contains(t, err.Error(), "already exists")
 }

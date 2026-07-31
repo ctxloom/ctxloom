@@ -159,7 +159,7 @@ const (
 func HomeSessionsDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the home sessions root ~/%s/%s: %w", AppDirName, SessionsDir, err)
 	}
 	return filepath.Join(home, AppDirName, SessionsDir), nil
 }
@@ -350,7 +350,7 @@ func ProjectSessionsDir(appDir string) string {
 func TriggerCacheDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the trigger verdict cache ~/%s/%s/triggers: %w", AppDirName, CacheDir, err)
 	}
 	return filepath.Join(home, AppDirName, CacheDir, "triggers"), nil
 }
@@ -388,7 +388,7 @@ func ApprovalsPath(appPath string) string {
 func HomeApprovalsPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the user countersignature store ~/%s/%s: %w", AppDirName, ApprovalsDirName, err)
 	}
 	return filepath.Join(home, AppDirName, ApprovalsDirName), nil
 }
@@ -408,7 +408,7 @@ func AllowedSignersPath(appPath string) string {
 func HomeAllowedSignersPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the user trust root ~/%s/%s: %w", AppDirName, AllowedSignersFileName, err)
 	}
 	return filepath.Join(home, AppDirName, AllowedSignersFileName), nil
 }
@@ -433,7 +433,7 @@ func DistrustedSignersPath(appPath string) string {
 func HomeDistrustedSignersPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("resolve the user distrust record ~/%s/%s: %w", AppDirName, DistrustedSignersFileName, err)
 	}
 	return filepath.Join(home, AppDirName, DistrustedSignersFileName), nil
 }

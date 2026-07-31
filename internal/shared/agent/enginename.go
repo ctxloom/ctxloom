@@ -1,6 +1,9 @@
 package agent
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 // engineAliases maps every accepted alternate spelling of an engine name to its
 // canonical form. One table for the whole repo: engine names are user-facing
@@ -24,4 +27,21 @@ func CanonicalEngineName(name string) string {
 		return canonical
 	}
 	return want
+}
+
+// EngineNameAliases returns every alternate spelling that resolves to
+// canonical, sorted, or nil when it has none. It exists so a registry
+// refusing an unknown engine name can enumerate what it WOULD have accepted
+// without keeping its own copy of the alias table — the copy this table was
+// consolidated to eliminate. The canonical name itself is not included: the
+// caller already knows it, since it asked about it.
+func EngineNameAliases(canonical string) []string {
+	var aliases []string
+	for alias, target := range engineAliases {
+		if target == canonical {
+			aliases = append(aliases, alias)
+		}
+	}
+	sort.Strings(aliases)
+	return aliases
 }

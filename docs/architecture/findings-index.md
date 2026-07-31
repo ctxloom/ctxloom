@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,330** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 143 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 144 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 174 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 176 |
-| `open` | no commit names this ID | **445** |
+| `open` | no commit names this ID | **444** |
 
-**Totals: 2268 findings across 162 units — 1,330 resolved, 445 still open, 493 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,330 resolved, 444 still open, 494 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -331,7 +331,7 @@ which also asserts each row's columns sum to its section size.
 
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
-| HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
+| HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 480 | 247 | 80 | 79 | 113 |
 | LOW | 871 | 493 | 186 | 48 | 87 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
@@ -689,7 +689,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U042-F02 | **RESOLVED** `e329f9d4` | `session_backfill.go:65-68` | SILENTNOOP | `session backfill` returns exit 0 even when every entry failed. | U042.md |
 | U042-F03 | **RESOLVED** `91a6e7a2` | `session_cmd.go:300-302` | SILENTNOOP | A malformed SessionStart hook payload silently skips the harp→session_id bind, and nothing reports it — not even the caller's warning, because the function returns `nil`. | U042.md |
 | U042-F04 | **RESOLVED** `91a6e7a2` | `session_cmd.go:454-466` | CORRECTNESS | In `distillMissingOrStale`, an entry with an empty `ProjectDir` inherits the **previous** entry's chdir'd cwd, so `config.Load()` at `:462` loads the wrong project's config and the cwd-bound legacy... | U042.md |
-| U043-F01 | open | `startup_helpers.go:59-62` | CORRECTNESS | Config warnings are re-printed AND re-recorded as *new* fatal findings on every `GetConfig()` call, inflating the strict-startup abort block with duplicates of one problem. | U043.md |
+| U043-F01 | **PARTIAL** `920a39dd` | `startup_helpers.go:59-62` | CORRECTNESS | Config warnings are re-printed AND re-recorded as *new* fatal findings on every `GetConfig()` call, inflating the strict-startup abort block with duplicates of one problem. | U043.md |
 | U043-F02 | **RESOLVED** `749b1a85` | `weave.go:145` | SILENTNOOP | A synthesis that returns empty output prints one blank line and exits 0 — the characteristic bug. | U043.md |
 | U043-F03 | **RESOLVED** `749b1a85` | `weave.go:77` | SILENTNOOP | The "nothing to weave" guard tests the *flags*, not the *resolved parts*, so `--parts-from <empty-or-all-dirs>` passes the guard and synthesizes zero parts. | U043.md |
 | U044-F01 | **RESOLVED** `cfea9f18` | `export.go:75, :31, :63; model.go:464, :482` | SILENTNOOP | Transcript export writes a 0-byte file and reports `saved <path>` | U044.md |

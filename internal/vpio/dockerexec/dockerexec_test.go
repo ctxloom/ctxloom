@@ -528,3 +528,38 @@ func TestSession_WaitIsIdempotent(t *testing.T) {
 	assert.Equal(t, first, second, "a later Wait must return the same exit status")
 	assert.Equal(t, firstErr, secondErr, "a later Wait must return the same error")
 }
+
+// TestSession_CtxCancellationAloneDoesNotReleaseThePtyMaster pins the LIMIT of
+// the lifecycle contract vpio.Session now states: cancelling the ctx passed to
+// Start ASKS the turn to end, but Wait is the release point, and until it is
+// called this transport is still holding the host pty master.
+//
+// This is a characterization of a deliberate boundary, not an endorsement of
+// it. If a future change ever does release on cancellation — or the seam grows
+// the explicit Close/Release this shape argues for — this test fails, and the
+// documented contract has to be revisited rather than silently drifting out of
+// step with the code.
+func TestSession_CtxCancellationAloneDoesNotReleaseThePtyMaster(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var out syncBuf
+	sess, err := startPTYCommand(ctx,
+		exec.CommandContext(ctx, "sh", "-c", "sleep 30"),
+		vpio.ProcessSpec{Stdout: &out})
+	require.NoError(t, err)
+
+	masterClosed := func() bool {
+		sess.mu.Lock()
+		defer sess.mu.Unlock()
+		return sess.masterClosed
+	}
+	require.False(t, masterClosed(), "a live session holds its master")
+
+	cancel()
+	require.Never(t, masterClosed, 500*time.Millisecond, 50*time.Millisecond,
+		"ctx cancellation must not be mistaken for the release point")
+
+	_, _ = sess.Wait()
+	require.True(t, masterClosed(), "Wait is the release point")
+}

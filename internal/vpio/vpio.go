@@ -79,6 +79,20 @@ type ExitStatus struct {
 
 // Session is a started interactive turn: the stdio wired at Start, plus the
 // control primitives above-the-seam code drives it with.
+//
+// LIFECYCLE. There is deliberately no Close/Release: Wait IS the release
+// point, and a caller that reaches Start MUST reach Wait. Every resource a
+// transport holds for the turn — pty master, pump goroutines, the resize
+// channel — is freed there, whether the turn ended normally or was cut short.
+// Cancelling the ctx passed to Start ASKS the turn to end; it does not
+// substitute for Wait, and a session abandoned without one can still be
+// holding host resources. Pinned per transport by
+// goplugin's TestSession_WaitAloneReleasesResourcesWithoutCtxCancellation and
+// dockerexec's TestSession_WaitClosesThePtyMaster.
+//
+// After Wait returns, the remaining methods stay SAFE rather than becoming
+// undefined: Resize on a finished session is a silent no-op, and Wait itself
+// is idempotent (see below).
 type Session interface {
 	// Resize notifies the session of a terminal size change (rows, cols).
 	// Above-the-seam code calls this once per SIGWINCH-derived size event;

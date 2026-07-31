@@ -338,17 +338,38 @@ func (l *lowerer) addNested(sc *ir.SimpleCommand, stmts []*syntax.Stmt) {
 
 // literalFallback concatenates the literal parts of a word, used only when
 // expansion errors.
+//
+// A double-quoted part contributes its own literal parts: `"push"` is one word
+// whose text is `push`, exactly as `push` and `'push'` are. Rendering it as ""
+// instead does not merely lose quoting — argvFallback drops empty words, so the
+// argument disappears from argv and every rule written against it stops
+// matching, silently, on a command line the operator did write a rule for.
 func literalFallback(w *syntax.Word) string {
+	if w == nil {
+		return ""
+	}
 	var b strings.Builder
-	for _, part := range w.Parts {
+	writeLiteralParts(&b, w.Parts)
+	return b.String()
+}
+
+// writeLiteralParts appends the literal text of parts to b, descending into
+// double quotes. Parts whose value cannot be known without expanding
+// (parameters, substitutions, arithmetic) contribute nothing — the same
+// erasure the successful expansion path performs for them.
+func writeLiteralParts(b *strings.Builder, parts []syntax.WordPart) {
+	for _, part := range parts {
 		switch p := part.(type) {
 		case *syntax.Lit:
 			b.WriteString(p.Value)
 		case *syntax.SglQuoted:
 			b.WriteString(p.Value)
+		case *syntax.DblQuoted:
+			if p != nil {
+				writeLiteralParts(b, p.Parts)
+			}
 		}
 	}
-	return b.String()
 }
 
 // argvFallback builds argv from literal word text when field expansion errors,

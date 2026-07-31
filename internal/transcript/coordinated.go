@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // CoordinatedRecorder fixes outer-petal: GRPCClient.Chat (and
@@ -34,6 +35,21 @@ type CoordinatedRecorder struct {
 	ch   chan recordRequest
 	wg   sync.WaitGroup
 	done chan struct{}
+
+	// closeMu guards the transition of ch from open to closed against
+	// concurrent sends. A send on a closed channel PANICS — in the
+	// submitting goroutine, which at every production call site is the live
+	// chat's own pump — and no select, buffer or ordering discipline can make
+	// that recoverable after the fact, so the check and the send have to be
+	// atomic with respect to the close. Held for reading by Submit for the
+	// duration of its send, and for writing by the goroutine that closes.
+	closeMu sync.RWMutex
+	closed  bool
+
+	// lateWarn reports the first event dropped after the close, once per
+	// recorder: dropping is the only thing left to do with it, but a silent
+	// drop is indistinguishable from a successful capture.
+	lateWarn sync.Once
 }
 
 // recordRequest pairs one submitted event with an ack channel Submit blocks
@@ -73,7 +89,10 @@ func NewCoordinatedRecorder(rec Recorder, producers int) *CoordinatedRecorder {
 	cr.wg.Add(producers)
 	go func() {
 		cr.wg.Wait()
+		cr.closeMu.Lock()
+		cr.closed = true
 		close(cr.ch)
+		cr.closeMu.Unlock()
 	}()
 	go func() {
 		defer close(cr.done)
@@ -97,17 +116,45 @@ func (cr *CoordinatedRecorder) ProducerDone() {
 // until that goroutine's Record(ev) call has actually returned (or ctx is
 // done) — not merely until the channel handoff completes. See recordRequest's
 // doc for why the stronger guarantee is necessary.
+//
+// Submitting after every producer has finished (or to a recorder constructed
+// with zero producers) drops the event with one warning instead of panicking.
+// It is still a caller-lifecycle fault, but the fault belongs to the
+// transcript, not to the conversation: this type wraps a best-effort capture
+// sink for a LIVE chat, and a library that panics in its caller's goroutine
+// over a miscounted producer takes the conversation down with the transcript.
 func (cr *CoordinatedRecorder) Submit(ctx context.Context, ev agent.ChatEvent) {
 	req := recordRequest{ev: ev, ack: make(chan struct{})}
-	select {
-	case cr.ch <- req:
-	case <-ctx.Done():
+
+	cr.closeMu.RLock()
+	if cr.closed {
+		cr.closeMu.RUnlock()
+		cr.noteLateSubmit()
 		return
 	}
+	select {
+	case cr.ch <- req:
+		cr.closeMu.RUnlock()
+	case <-ctx.Done():
+		cr.closeMu.RUnlock()
+		return
+	}
+
 	select {
 	case <-req.ack:
 	case <-ctx.Done():
 	}
+}
+
+// noteLateSubmit reports the first event this recorder dropped because every
+// producer had already finished. The drop itself is unavoidable — the wrapped
+// Recorder is closed — but it is a caller-lifecycle fault, and this package's
+// characteristic hazard is a capture path that reports success while
+// delivering nothing.
+func (cr *CoordinatedRecorder) noteLateSubmit() {
+	cr.lateWarn.Do(func() {
+		clidiag.Warn("ctxloom", "transcript: an event was submitted after every producer had finished and was NOT captured; this transcript is incomplete (further late events are dropped without repeating this)")
+	})
 }
 
 // Done reports when the wrapped Recorder has been closed: every registered

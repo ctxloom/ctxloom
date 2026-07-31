@@ -33,6 +33,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"sync"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
@@ -62,6 +63,12 @@ const schemaResourceName = "acp-schema-v1.json"
 // the exact ACP type that diverged (e.g. "NewSessionResponse") rather than a
 // generic "no branch of this oneOf matched" from the top-level union.
 type Validator struct {
+	// mu guards BOTH the cache map and the compiler. The compiler needs it
+	// as much as the map does: jsonschema.Compiler mutates its own resource
+	// table inside Compile (findResource) and documents no concurrency
+	// guarantee, so two goroutines compiling different $defs of the same
+	// resource race each other inside the library.
+	mu       sync.Mutex
 	compiler *jsonschema.Compiler
 	cache    map[string]*jsonschema.Schema
 }
@@ -77,7 +84,15 @@ func NewValidator() (*Validator, error) {
 }
 
 // def compiles (or returns the cached compilation of) the named $defs entry.
+//
+// The lock spans the compile, not just the map access, because the compiler
+// itself is shared mutable state (see Validator.mu). Compilation is held once
+// per $defs entry for the process's lifetime, so the serialisation costs at
+// most one compile per name — a conformance run validating many frames
+// concurrently pays it on the first frame of each type and never again.
 func (v *Validator) def(name string) (*jsonschema.Schema, error) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	if s, ok := v.cache[name]; ok {
 		return s, nil
 	}

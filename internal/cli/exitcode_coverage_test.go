@@ -52,9 +52,19 @@ import (
 // candidates cheaply enough to run on every build. A command that fixes its
 // site by routing through clidiag.WarnErrors replaces this whole loop with
 // a single call, so the fixed site stops matching automatically.
+//
+// The print-call alternation must track the package's DIAGNOSTIC VOCABULARY,
+// not just the two spellings that existed when the gate was written: U034-F11
+// rewrote bundle_distill.go's loop body from `fmt.Fprintln(os.Stderr, e)` to
+// `errw.Println(e)` (an iox.ErrWriter), and the detector silently stopped
+// seeing that site — a warn-only loop that had merely changed writers read to
+// the gate as "debt paid down". `\w+\.Print(ln|f)` covers the ErrWriter form
+// (and any other receiver with the same method names) so a loop cannot escape
+// detection by switching writers. Note `fmt.Fprintln` does NOT match that
+// third alternative (`.Fprintln` is not `.Println`), so both are needed.
 var silentFailureLoopRE = regexp.MustCompile(
 	`for\s+_,\s*\w+\s*:=\s*range\s+\w+(?:\.\w+)*\.Errors\s*\{\s*\n\s*` +
-		`(?:clidiag\.(?:Warn|Fwarn)|fmt\.Fprint(?:ln|f))\(`,
+		`(?:clidiag\.(?:Warn|Fwarn)|fmt\.Fprint(?:ln|f)|\w+\.Print(?:ln|f))\(`,
 )
 
 // findSilentFailureSites scans every non-test .go file directly in
@@ -120,7 +130,7 @@ var silentFailureAllowlist = map[string]string{
 	"manage.go:308": "`manage hooks install` inline RunE: ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
 	"manage.go:344": "`manage hooks uninstall` inline RunE: RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:308",
 
-	"bundle_distill.go:129": "the print-only `for _, e := range result.Errors` loop inside emit()'s text closure stays (it must — this same result.Errors also rides the --format json payload, so deleting it would drop the JSON error detail); the actual T9/R1 bug (U034-F02) is FIXED by a check placed AFTER emit() returns, `if len(result.Errors) > 0 { return ... }`, in runBundleDistill itself — that path covers text AND structured formats alike, which folding the fix into this closure's return value could not (Emit only calls the closure for --format text; a json/yaml/toml run never executes it, so an error returned from inside it would still be silently lost for every non-text format). Kept allowlisted because the regex keys on this loop's SHAPE, not on whether the surrounding function still swallows it.",
+	"bundle_distill.go:134": "the print-only `for _, e := range result.Errors` loop inside emit()'s text closure stays (it must — this same result.Errors also rides the --format json payload, so deleting it would drop the JSON error detail); the actual T9/R1 bug (U034-F02) is FIXED by a check placed AFTER emit() returns, `if len(result.Errors) > 0 { return ... }`, in runBundleDistill itself — that path covers text AND structured formats alike, which folding the fix into this closure's return value could not (Emit only calls the closure for --format text; a json/yaml/toml run never executes it, so an error returned from inside it would still be silently lost for every non-text format). Kept allowlisted because the regex keys on this loop's SHAPE, not on whether the surrounding function still swallows it. Line renumbered from :129 to :134 by U034-F11, which moved the loop down (a comment plus the iox.ErrWriter construction) AND rewrote its body from `fmt.Fprintln(os.Stderr, e)` to `errw.Println(e)`; that rewrite also made the loop stop matching silentFailureLoopRE entirely, which the gate reported as a stale entry (\"debt paid down\") when in fact only the writer had changed — see the regex's own comment for the vocabulary widening that restores detection. The loop's warn-only SHAPE and the fix below emit() are both unchanged.",
 
 	"remote_discover.go:80": "`remote discover`: per-source discovery errors are only warned by this loop, but U040-F01 already added a check just below it (`if result.Count == 0 && len(result.Errors) > 0 { return ... }`) so a total search failure does exit non-zero; kept allowlisted because the regex keys on this loop's SHAPE (warn-only, no return), not on whether the surrounding function still swallows the failure. Line renumbered from :62 to :77 when discoverCmd's inline RunE was extracted into runRemoteDiscover (U040-F01 escalation: the extraction itself, needed so the fix has a regression test — see remote_discover_test.go), and from :77 to :80 when the DiscoverRemotes error path grew a newline to close the progress line (U040-F22). The loop's shape is unchanged in both cases; only the ledger key moved.",
 }

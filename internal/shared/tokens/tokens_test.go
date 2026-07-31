@@ -8,8 +8,9 @@ func TestEstimate(t *testing.T) {
 		want int
 	}{
 		{"", 0},
-		{"abcd", 1},      // 4 chars / 4
-		{"abcdefghi", 2}, // 9 chars / 4 = 2 (floor)
+		{"abcd", 1},      // 4 bytes / 4
+		{"abcdefghi", 3}, // 9 bytes / 4, rounded UP — see
+		//                   TestEstimate_NonEmptyTextIsNeverZeroTokens for why
 	}
 	for _, tt := range tests {
 		if got := Estimate(tt.in); got != tt.want {

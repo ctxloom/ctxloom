@@ -19,6 +19,15 @@ package tokens
 const BytesPerToken = 4
 
 // Estimate returns a rough token count for text.
+//
+// It rounds UP, so any non-empty text estimates at one token or more. Plain
+// integer division returned 0 for anything shorter than BytesPerToken, and a
+// non-empty string that estimates at zero is a trap for every caller that
+// gates on the result: a budget check concluding there is nothing to send, a
+// "does this need chunking" test, a ratio with the estimate in the
+// denominator. Only genuinely empty text estimates at zero. Rounding up is
+// also the safer direction for an estimate feeding a budget — it can never
+// under-report.
 func Estimate(text string) int {
-	return len(text) / BytesPerToken
+	return (len(text) + BytesPerToken - 1) / BytesPerToken
 }

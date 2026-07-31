@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,521** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,522** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 180 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 205 |
-| `open` | no commit names this ID | **154** |
+| `open` | no commit names this ID | **153** |
 
-**Totals: 2268 findings across 162 units — 1,521 resolved, 154 still open, 593 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,522 resolved, 153 still open, 593 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 572 | 91 | 104 | 96 | 136 |
+| MED | 999 | 573 | 90 | 104 | 96 | 136 |
 | LOW | 871 | 588 | 56 | 60 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1766,7 +1766,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U115-F06 | **PARTIAL** `19d72034` | **`plans.go:19-20`, `:40-46`** | DUPLICATE | The package re-declares vocabulary `internal/paths` already owns: `sessionsDirName = "sessions"` duplicates `paths.SessionsDir` (`internal/paths/paths.go:97`), `planExt = ".plan.md"` duplicates `pa... | U115.md |
 | U116-F03 | **RESOLVED** `617d6a2f` | `ptyrunner.go:104` | CORRECTNESS | **The `stderr io.Writer` parameter is accepted and never read.** A caller passing distinct stdout/stderr writers gets everything merged onto stdout and nothing at all on stderr, with no indication. | U116.md |
 | U116-F04 | open | `ptyrunner.go:132`, `:156` | ERRHANDLING | Both `ptty.Resize` errors are discarded — including the **initial** one, whose entire purpose is to fix a documented defect. If the initial resize fails, the 300ms wait bought nothing, the child pa... | U116.md |
-| U116-F05 | open | `ptyrunner_goleak_test.go:16-62` vs `ptyrunner.go:104,165-208` | CORRECTNESS | **The goroutine-leak test is stale and verifies nothing about the goroutine it names.** Its doc describes a version of `RunInteractive` that read the process-global `os.Stdin`; the current signatur... | U116.md |
+| U116-F05 | **RESOLVED** `90f0ec14` | `ptyrunner_goleak_test.go:16-62` vs `ptyrunner.go:104,165-208` | CORRECTNESS | **The goroutine-leak test is stale and verifies nothing about the goroutine it names.** Its doc describes a version of `RunInteractive` that read the process-global `os.Stdin`; the current signatur... | U116.md |
 | U116-F06 | open | `ptyrunner.go:104-254` | COMPLEXITY | `RunInteractive` is CCN 15 against a CI gate that fails above 10, with no `nolint` and no exclusion. Either the gate is not running or it is failing. | U116.md |
 | U116-F07 | open | `ptyrunner.go:113` | ERRHANDLING | `cmd.Args[1:]` panics on a hand-constructed `*exec.Cmd` with a nil `Args`, and silently discards `cmd.Args[0]` — so a caller deliberately setting a different argv[0] from `cmd.Path` gets it dropped... | U116.md |
 | U117-F02 | **RESOLVED** `509a4e40` | **`shellenv.go:147-151`** | ERRHANDLING | **The probe subprocess's stderr is discarded**, so when the login shell fails there is no way to learn why. The returned error carries only the exit status. This repo built a package for precisely ... | U117.md |

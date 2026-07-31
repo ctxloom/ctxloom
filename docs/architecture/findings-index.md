@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,445** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,446** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 169 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 192 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 195 |
-| `open` | no commit names this ID | **267** |
+| `open` | no commit names this ID | **266** |
 
-**Totals: 2268 findings across 162 units — 1,445 resolved, 267 still open, 556 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,446 resolved, 266 still open, 556 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 538 | 148 | 98 | 88 | 127 |
+| MED | 999 | 539 | 147 | 98 | 88 | 127 |
 | LOW | 871 | 548 | 110 | 55 | 96 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
@@ -1538,7 +1538,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U084-F05 | **RESOLVED** `e459008e` | **`hooks.go:271-340`** | DUPLICATE | `checkClaudeHookTargetScope`, `checkCodexHookTargetScope` and `checkKiroHookTargetScope` are three structurally identical 15-line functions differing only in two function references and three messa... | U084.md |
 | U084-F06 | **RESOLVED** `a0c17295` | **`hooks.go:64-66`** | CORRECTNESS | Production code calls `agent.SetExecutablePathForTesting(req.ExecPath)`, mutating an unsynchronized package global that is **never restored**. Confirms routed item 11, with one correction. | U084.md |
 | U084-F09 | **RESOLVED** `4e24ca49` | `helpers.go:42-47` | ERRHANDLING | A malformed or unreadable `remotes.yaml` silently disables per-forge `token_env` resolution, with no warning — private-repo clones then fail later with a confusing auth error. | U084.md |
-| U084-F10 | open | `engine_types.go:222` vs `internal/acp/fsupstream.go:25` | COUPLING | `CTXLOOM_ACP_FS_UPSTREAM` is written as two independent string literals with **no test asserting they match**, and the stated justification does not hold. | U084.md |
+| U084-F10 | **RESOLVED** `25e24fab` | `engine_types.go:222` vs `internal/acp/fsupstream.go:25` | COUPLING | `CTXLOOM_ACP_FS_UPSTREAM` is written as two independent string literals with **no test asserting they match**, and the stated justification does not hold. | U084.md |
 | U084-F11 | **RESOLVED** `cbc516e6` | **`hooks.go:165-177`** | ERRHANDLING | When **every** backend fails, `ApplyHooks` still returns a nil error with `Status: "partial"` and an empty `Backends` — `ctxloom manage hooks install` exits 0 having written nothing. | U084.md |
 | U084-F16 | open | `package-wide (all 9 files)` | COHESION | These files share only a package name. Nine unrelated concerns, 42 internal dependencies, no common type, no common invariant. | U084.md |
 | U085-F07 | **RESOLVED** `6b4e275e` | **`oneshot.go:316-319`** | SILENTNOOP | `if req.Context != ""` means a member whose profile assembles to nothing runs **context-free** with no diagnostic at all — the agent still executes and produces plausible output. | U085.md |

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,536** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,537** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 183 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 210 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 208 |
-| `open` | no commit names this ID | **131** |
+| `open` | no commit names this ID | **130** |
 
-**Totals: 2268 findings across 162 units — 1,536 resolved, 131 still open, 601 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,537 resolved, 130 still open, 601 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 579 | 79 | 105 | 97 | 139 |
+| MED | 999 | 580 | 78 | 105 | 97 | 139 |
 | LOW | 871 | 596 | 45 | 62 | 105 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
@@ -1887,7 +1887,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U143-F03 | **ESCALATED** (feature gap, not an active defect — needs a new named-capability + opt-in floor design, mirroring `CTXLOOM_LIVE_REQUIRE`) | `dockergate.go:83-87` | CORRECTNESS | `SkipCapability` takes only a free-text `reason` and is **never promoted to a failure under any condition**, so a capability that CI genuinely *does* provide can silently degrade to a skip forever.... | U143.md |
 | U144-F05 | open | `record.go:81-86; recorder.go:79` | CORRECTNESS | `Record.Engine` is written unvalidated from the **registered backend name**, which for claude is `"claude-code"` — a value the published JSON Schema's `engine` enum rejects. Every real claude trans... | U144.md |
 | U144-F06 | **ESCALATED** (cross-package; see wave-2 report) | `record.go:260-306; recorder.go:46-58` | NOPAY | The entire `RawPolicy` / `RecorderOption` / `WithRawPolicy` apparatus (~55 lines + a `ChatRequest` field + a proto field) has no production reachability: nothing ever sets `agent.ChatRequest.Transc... | U144.md |
-| U144-F07 | open | `history.go:139-144` | CORRECTNESS | `CurrentSession` returns the **first** candidate's `GetSession` error rather than skipping to the next, so one stale index entry (file pruned by retention reap, permissions change) makes "current s... | U144.md |
+| U144-F07 | **RESOLVED** `fcfb5964` | `history.go:139-144` | CORRECTNESS | `CurrentSession` returns the **first** candidate's `GetSession` error rather than skipping to the next, so one stale index entry (file pruned by retention reap, permissions change) makes "current s... | U144.md |
 | U144-F08 | open | `history.go:185-187` | COUPLING | The fail-loud schema-version contract has no teeth end to end: three of the four consumers swallow the hard error | U144.md |
 | U144-F09 | **RESOLVED** `71cb25a2` | `recorder.go:116-178` | COMPLEXITY | `fileRecorder.Record` has CCN 12 against a CI gate that fails above 10 (brief baseline; the only such function in the unit) | U144.md |
 | U144-F10 | **RESOLVED** `e7631e88` | `record.go:308-414 ↔ history.go:215-285` | DUPLICATE | Eight hand-written mirror converters plus ten mirror structs mean each new `agent` field must be edited in four places with nothing enforcing parity — F01 and F02 are proof it has already silently ... | U144.md |

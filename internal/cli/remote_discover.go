@@ -191,8 +191,13 @@ func readRepoChoice(reader *bufio.Reader, count int) (num int, quit bool) {
 func promptRemoteName(reader *bufio.Reader, defaultName string) (name string, ok bool) {
 	fmt.Printf("Name for remote [%s]: ", defaultName)
 	nameInput, err := reader.ReadString('\n')
-	_ = err
 	name = strings.TrimSpace(nameInput)
+	// ReadString reports io.EOF alongside a final line that carries no
+	// trailing newline, so bytes read ARE an answer whatever the terminator;
+	// only a read that produced none is a failure to answer.
+	if err != nil && name == "" {
+		return "", false
+	}
 	if name == "" {
 		return defaultName, true
 	}

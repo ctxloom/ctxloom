@@ -175,6 +175,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		turnDone    chan turnResult     // non-nil while a turn is in flight
 		turnStarted time.Time           // when the in-flight turn's prompt was written
 		queued      []agent.ChatMessage // messages that arrived mid-turn, in order (B2: full message, not just Text — ContentBlocks rides along)
+		queueWarned bool                // queueDepthWarnAt already reported; once per conversation
 		inChan      = in                // nil'd once the caller closes input
 	)
 	// startTurn WRITES the session/prompt frame synchronously (so a CancelTurn
@@ -265,6 +266,10 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 				notifyCancel()
 			default:
 				queued = append(queued, msg)
+				if len(queued) > queueDepthWarnAt && !queueWarned {
+					queueWarned = true
+					warnf("acp: %d messages queued behind the in-flight turn and still growing — the client is sending faster than the engine answers; nothing is dropped, but they accumulate in memory until the engine catches up", len(queued))
+				}
 			}
 		}
 	}

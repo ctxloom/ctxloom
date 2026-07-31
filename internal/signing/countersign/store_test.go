@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -730,4 +731,47 @@ func TestStore_DirectoryWithGlobMetacharacters_StillFindsRejections(t *testing.T
 			assert.True(t, ok, "a recorded content rejection must still be found")
 		})
 	}
+}
+
+// statDenyFs fails Stat for chosen paths while leaving Open/ReadDir working —
+// the shape that separates hasUnsigned's probe from Readable's whole-store
+// walk, since one stats a single path and the other lists and opens.
+type statDenyFs struct {
+	afero.Fs
+	deny map[string]error
+}
+
+func (f statDenyFs) Stat(name string) (os.FileInfo, error) {
+	if err, ok := f.deny[name]; ok {
+		return nil, err
+	}
+	return f.Fs.Stat(name)
+}
+
+// TestStore_UnsignedRejectMarker_IsNotErasedByAStatFailure pins the reject
+// direction of hasUnsigned's error handling.
+//
+// hasUnsigned returned `err == nil && exists`, folding every stat failure into
+// "absent". For an unsigned marker, EXISTENCE IS THE ENTIRE RECORD (§9.5) —
+// there is nothing to re-verify — so a stat that fails does not degrade the
+// answer, it INVERTS it. On HasUnsignedContentReject and HasUnsignedRefReject
+// that is a fail-open: a rejection a human recorded reads as no rejection.
+//
+// The store-wide guard (Readable, gating EffectiveTrust's preamble) covers the
+// ordinary cause, an unreadable directory, because it lists and opens every
+// file. It does NOT cover a failure that hides one path from Stat alone, which
+// is exactly what this fixture is: Readable reports the store healthy.
+func TestStore_UnsignedRejectMarker_IsNotErasedByAStatFailure(t *testing.T) {
+	base := afero.NewMemMapFs()
+	s := NewStore("/store", base)
+	require.NoError(t, s.WriteUnsignedRefReject("bundle:evil"))
+
+	h := signing.CountersignHeader{Assertion: signing.AssertionReject, Ref: "bundle:evil", Form: signing.AttestNone}
+	marker := filepath.Join("/store", unsignedFilename(h, nil))
+
+	blind := NewStore("/store", statDenyFs{Fs: base, deny: map[string]error{marker: os.ErrPermission}})
+
+	require.NoError(t, blind.Readable(), "the whole-store guard sees nothing wrong here")
+	assert.True(t, blind.HasUnsignedRefReject("bundle:evil"),
+		"a recorded unsigned rejection must not be erased by a stat failure")
 }

@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,328** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,329** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 144 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 176 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 177 |
-| `open` | no commit names this ID | **443** |
+| `open` | no commit names this ID | **442** |
 
-**Totals: 2268 findings across 162 units — 1,328 resolved, 443 still open, 497 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,329 resolved, 442 still open, 497 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,7 +332,7 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
-| MED | 999 | 480 | 244 | 81 | 80 | 114 |
+| MED | 999 | 481 | 243 | 81 | 80 | 114 |
 | LOW | 871 | 491 | 187 | 48 | 88 | 57 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
@@ -1284,7 +1284,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U046-F11 | **RESOLVED** `a01b8a4a` | `code_python.go:182-206`, `code_java.go:90-112`, `code_rust.go:123-136` | SILENTNOOP | The class/impl body extractors silently drop declaration kinds they do not enumerate, with no marker in the output and no entry in `CompressedElements`. Python class bodies keep only `function_defi... | U046.md |
 | U046-F12 | **RESOLVED** `c8f21924` | `code_python.go:114` vs `:208`; `code_rust.go:59` vs `:138`; `code_java.go:114` vs `:138` | DUPLICATE | Three near-clone pairs of signature extractors, each pair differing only in indentation/terminator: `extractPythonFunc`/`extractPythonFuncSignatureOnly` (~90 % identical switch), `extractRustFunc`/... | U046.md |
 | U046-F19 | **REFUTED** `cb2cd6d0` | `code_treesitter_guards_test.go:243-255` | CORRECTNESS | The package's own guard test **pins the F02 defect as correct behaviour**. `"garbage code never panics and never errors"` feeds junk (including `""` and `strings.Repeat("???", 100)`) to `Compress(c... | U046.md |
-| U047-F02 | open | `internal/config/accessors.go:213-232` | CORRECTNESS | `cloneProfile` misses `Profile.DenyTools`, so `GetProfileDefinitions()` / `GetProfilesConfig()` hand back a slice that aliases the shared `Config`'s storage — a hole in the copy-on-read guarantee t... | U047.md |
+| U047-F02 | **RESOLVED** `91bf8f67` | `internal/config/accessors.go:213-232` | CORRECTNESS | `cloneProfile` misses `Profile.DenyTools`, so `GetProfileDefinitions()` / `GetProfilesConfig()` hand back a slice that aliases the shared `Config`'s storage — a hole in the copy-on-read guarantee t... | U047.md |
 | U047-F03 | **RESOLVED** `3240c53b` | `internal/config/accessors.go:3-48` | NOPAY | The 46-line header comment — the file's entire justification — describes a migration state that no longer exists, and actively misleads a future reader about what is safe to do. | U047.md |
 | U047-F05 | open | `internal/config/agents.go:32-66` | CORRECTNESS | `LoadAgents`/`Agent` bypass the package's own copy-on-read policy: the returned `agents.Agent` values alias `c.agents`' nested `Profiles` and `Escalation` slices. | U047.md |
 | U047-F06 | **RESOLVED** `3240c53b` | `internal/config/accessors.go:284, 287, 390, 393, 397` | DEAD | Five accessors have zero production call sites. `GetSource`, `GetVersion`, `GetEditor`, `GetUI` have **zero call sites anywhere in the repo**; `GetIsolationImages` is **test-only**. | U047.md |

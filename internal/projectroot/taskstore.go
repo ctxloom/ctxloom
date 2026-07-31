@@ -1,7 +1,9 @@
 package projectroot
 
 import (
+	"errors"
 	"fmt"
+	iofs "io/fs"
 	"path/filepath"
 
 	"github.com/spf13/afero"
@@ -40,8 +42,15 @@ func TaskStoreRoot(fs afero.Fs, dir string) (string, error) {
 		return "", fmt.Errorf("resolve task-store root: %w", errNoDir)
 	}
 	ownAppDir := filepath.Join(dir, paths.AppDirName)
-	if info, err := fs.Stat(ownAppDir); err == nil && info.IsDir() {
+	ownInfo, ownErr := fs.Stat(ownAppDir)
+	switch {
+	case ownErr == nil && ownInfo.IsDir():
 		return dir, nil // opt-out: dir is a deliberately separate project
+	case ownErr != nil && !errors.Is(ownErr, iofs.ErrNotExist):
+		// Only plain absence means "no opt-out here". A permission or I/O
+		// fault that read as absence would silently redirect this project's
+		// task store elsewhere, discarding an opt-out that may well exist.
+		return "", fmt.Errorf("resolve task-store root for %s: stat %s: %w", dir, ownAppDir, ownErr)
 	}
 
 	info, err := DetectWorktree(fs, dir)

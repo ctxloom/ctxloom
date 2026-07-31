@@ -3,6 +3,7 @@ package projectroot
 import (
 	"errors"
 	"fmt"
+	iofs "io/fs"
 	"path/filepath"
 	"strings"
 
@@ -62,10 +63,14 @@ type WorktreeInfo struct {
 // feature must leave unaffected (see internal/config's findAppDir /
 // worktreeSignpost, the sole caller as of this writing).
 //
-// It returns a non-nil error when dir is empty (see errNoDir), and when dir
-// has a `.git` FILE that exists but cannot be read (permission denied, I/O
-// error) -- both distinct faults from "not a linked worktree," which callers
-// surface rather than silently swallow.
+// It returns a non-nil error when dir is empty (see errNoDir), and when dir's
+// `.git` entry cannot be STAT'd or READ for any reason other than plain
+// absence (permission denied, I/O error) -- distinct faults from "not a
+// linked worktree," which callers surface rather than silently swallow. Only
+// "the entry does not exist" means "not a worktree": a fault that reads as
+// absence fails OPEN in the direction that loses data, since a linked
+// worktree misclassified as an ordinary directory keeps a task store nobody
+// running from the primary checkout will ever read.
 func DetectWorktree(fs afero.Fs, dir string) (WorktreeInfo, error) {
 	if dir == "" {
 		return WorktreeInfo{}, errNoDir
@@ -73,7 +78,10 @@ func DetectWorktree(fs afero.Fs, dir string) (WorktreeInfo, error) {
 	dotGit := filepath.Join(dir, ".git")
 	fi, statErr := fs.Stat(dotGit)
 	if statErr != nil {
-		return WorktreeInfo{}, nil // no .git here -- not a worktree root at all
+		if errors.Is(statErr, iofs.ErrNotExist) {
+			return WorktreeInfo{}, nil // no .git here -- not a worktree root at all
+		}
+		return WorktreeInfo{}, fmt.Errorf("stat %s: %w", dotGit, statErr)
 	}
 	if fi.IsDir() {
 		return WorktreeInfo{}, nil // the main worktree, or a plain repo

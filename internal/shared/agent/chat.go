@@ -438,17 +438,32 @@ type TerminalResponse struct {
 	Error  string
 }
 
-// TurnMeta is backend-agnostic completion metadata for one response: a client can
-// surface a context-window gauge, cost, and timing. Backends fill what they can;
-// a zero field means "unknown".
+// TurnMeta is backend-agnostic completion metadata, emitted once per response:
+// a client can surface a context-window gauge, cost, and timing. Backends fill
+// what they can; a zero field means "unknown".
+//
+// EMITTED per turn; MEASURED per SESSION. The token and cost fields report the
+// conversation's running totals as of this turn, NOT that turn's own
+// consumption — the field names say "this response" and the values do not, so
+// the distinction is spelled out here rather than left to be rediscovered.
+// It is what every reader already assumes: the gauge renders
+// InputTokens/ContextWindow as "used out of the window", ACP's own
+// usage_update is cumulative by specification (its `used` is "tokens currently
+// in context", its `cost` "cumulative session cost") and round-trips through
+// this struct, and agentcoord bills the LAST turn's meta as the session total.
+// A backend that reports per-turn deltas here therefore under-reports the
+// session everywhere at once, and silently.
+//
+// StopReason, DurationMs and Model are the per-turn exceptions, as their names
+// suggest: each describes the one response this meta completes.
 type TurnMeta struct {
-	InputTokens         int
-	OutputTokens        int
-	CacheReadTokens     int
-	CacheCreationTokens int
+	InputTokens         int // session total: tokens in context as of this turn
+	OutputTokens        int // session total
+	CacheReadTokens     int // session total
+	CacheCreationTokens int // session total
 	ContextWindow       int // model's context window (for an "x / N" gauge)
 	MaxOutputTokens     int
-	CostUSD             float64
+	CostUSD             float64 // session total, in USD
 	Model               string
 	StopReason          string
 	DurationMs          int

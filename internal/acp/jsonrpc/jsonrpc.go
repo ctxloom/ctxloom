@@ -18,7 +18,11 @@
 // agent server, whose session/prompt runs a whole engine turn and must not
 // block the read loop (a blocked read loop could never see session/cancel).
 // Per the repo's fault-tolerance ethos it warns and continues on a malformed
-// frame rather than tearing the session down.
+// frame — one that is not a JSON-RPC message, or whose members are the wrong
+// JSON type — rather than tearing the session down. The limit is what the
+// decoder can still frame: a JSON SYNTAX error leaves it at an undefined byte
+// with no trustworthy frame boundary after it, so that (and any transport
+// error) ends the session and releases every parked caller.
 package jsonrpc
 
 import (
@@ -99,7 +103,12 @@ type Conn struct {
 	closer io.Closer
 
 	writeMu sync.Mutex // serializes frame writes (Call, Notify, and inbound responses share the writer)
-	nextID  int64
+	// nextID carries its own 64-bit alignment guarantee. A bare int64 reached
+	// with atomic.AddInt64 does not: Go promises 8-byte alignment only for the
+	// first word of an allocated struct on 32-bit platforms, and this field is
+	// several words in, so the add would panic there — and would start or stop
+	// doing so with any future reordering of the fields above it.
+	nextID atomic.Int64
 
 	pendingMu sync.Mutex
 	pending   map[int64]chan rpcMessage
@@ -115,6 +124,14 @@ type Conn struct {
 // handler receives inbound requests and notifications. The read loop does
 // NOT start until Start is called (see its doc) — call Start once
 // construction is complete.
+//
+// closer is the connection's ONLY teardown lever, and it carries a
+// requirement the type cannot check: it must end the stream r reads from, so
+// that a Read parked in the read loop returns. A closer that shuts the
+// transport's write end (or the socket) satisfies this; one that merely
+// releases bookkeeping does not. Pass nil only when this side is not meant to
+// be able to tear the connection down — the read loop will then run until the
+// peer ends the stream, and nothing on this side can stop it.
 func NewConn(r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn {
 	return &Conn{
 		dec:     json.NewDecoder(r),
@@ -152,6 +169,17 @@ func NewConn(r io.Reader, w io.Writer, closer io.Closer, handler Handler) *Conn 
 // makes Start's own goroutine creation the happens-before edge instead —
 // the read loop, and everything it dispatches, is guaranteed to see
 // everything the caller did up to and including the Start call.
+// ctx is the DISPATCH SCOPE handed to each handler invocation, NOT the
+// connection's lifetime. Cancelling it does not stop the read loop: the loop
+// spends its life parked inside Decode, where it can select on nothing, so
+// the only lever is the closer — and pulling that lever is the OWNER's call to
+// time, not this type's. An ACP client cancelling a turn has protocol work to
+// do on the wire first (it sends session/cancel and lets the parked
+// session/prompt resolve with stopReason "cancelled", keeping the session
+// usable); a connection that tore itself down the instant its ctx ended would
+// race that notification off the wire. Callers that want cancellation to end
+// the connection compose it themselves — cancel, say what the protocol
+// requires, then Close.
 func (c *Conn) Start(ctx context.Context) {
 	go c.readLoop(ctx)
 }
@@ -181,7 +209,7 @@ func (c *Conn) Go(method string, params any) (func(ctx context.Context, result a
 	if perr != nil {
 		return nil, perr
 	}
-	id := atomic.AddInt64(&c.nextID, 1)
+	id := c.nextID.Add(1)
 	ch := make(chan rpcMessage, 1)
 
 	c.pendingMu.Lock()
@@ -201,25 +229,40 @@ func (c *Conn) Go(method string, params any) (func(ctx context.Context, result a
 			delete(c.pending, id)
 			c.pendingMu.Unlock()
 		}()
+		// Everything this codec itself reports is annotated with the RPC it
+		// belongs to: one connection multiplexes every method, so a bare
+		// "context deadline exceeded" names no request and cannot be acted on.
+		// The peer's OWN error object is the exception — it travels verbatim so
+		// callers can keep type-asserting *Error and reading its code.
 		select {
 		case resp, ok := <-ch:
 			if !ok {
-				return c.closedErr() // failPending closed the slot (connection died)
+				return rpcErrf(method, id, c.closedErr()) // failPending closed the slot (connection died)
 			}
 			if resp.Error != nil {
 				return resp.Error
 			}
 			if result != nil && len(resp.Result) > 0 {
-				return json.Unmarshal(resp.Result, result)
+				if uerr := json.Unmarshal(resp.Result, result); uerr != nil {
+					return rpcErrf(method, id, uerr)
+				}
+				return nil
 			}
 			return nil
 		case <-ctx.Done():
-			return ctx.Err()
+			return rpcErrf(method, id, ctx.Err())
 		case <-c.done:
-			return c.closedErr()
+			return rpcErrf(method, id, c.closedErr())
 		}
 	}
 	return await, nil
+}
+
+// rpcErrf attributes a codec-side failure to the request it belongs to. The
+// cause is wrapped, not replaced, so errors.Is on ErrConnClosed or a context
+// cause keeps working for callers that branch on it.
+func rpcErrf(method string, id int64, cause error) error {
+	return fmt.Errorf("acp: %s (request id %d): %w", method, id, cause)
 }
 
 // Notify sends a notification (no response expected).
@@ -234,7 +277,12 @@ func (c *Conn) Notify(method string, params any) error {
 	return c.writeFrame(rpcMessage{Method: method, Params: rawParams})
 }
 
-// Close tears down the transport and unblocks any parked reader/caller.
+// Close runs the closer given to NewConn, once. Whether that unblocks the read
+// loop and the parked callers is the CLOSER's property, not this type's: a Conn
+// owns neither the reader nor the writer and has no way to interrupt a Read in
+// progress. With a closer that ends the stream, Close is a full teardown; with
+// a nil closer there is nothing to run and Close reports success having stopped
+// nothing, which is the caller's choice to make and not a failure to report.
 func (c *Conn) Close() error {
 	var err error
 	c.closeOnce.Do(func() {
@@ -248,17 +296,31 @@ func (c *Conn) Close() error {
 // Done is closed when the read loop exits (EOF, read error, or Close).
 func (c *Conn) Done() <-chan struct{} { return c.done }
 
-// readLoop decodes frames until EOF/error, routing each to a pending caller
-// (response), the handler (request/notification), or a warning (garbage). A
-// decode error ends the session — it fails every parked caller and closes done.
+// readLoop decodes frames until the stream ends or can no longer be framed,
+// routing each frame to a pending caller (response), the handler
+// (request/notification), or a warning (garbage). A frame the decoder consumed
+// but could not shape is warned and skipped; anything that leaves the stream
+// unframeable ends the session, failing every parked caller and closing done.
 func (c *Conn) readLoop(ctx context.Context) {
 	defer close(c.done)
 	for {
 		var m rpcMessage
 		if err := c.dec.Decode(&m); err != nil {
+			if isRecoverableFrameErr(err) {
+				warnf("acp: dropping a malformed frame and continuing: %v", err)
+				continue
+			}
 			c.readErr.Store(&err)
 			c.failPending()
 			return
+		}
+		// The spec makes this member MUST-be-exactly-"2.0". A mismatch means the
+		// peer is not speaking the protocol we are, which is worth saying out
+		// loud on the first frame that shows it — but not worth dropping the
+		// peer's traffic over, since everything else about the frame may still
+		// be serviceable.
+		if m.JSONRPC != jsonrpcVersion {
+			warnf("acp: peer frame declares jsonrpc %q, not %q", m.JSONRPC, jsonrpcVersion)
 		}
 		switch {
 		case m.Method != "" && len(m.ID) > 0:
@@ -271,6 +333,19 @@ func (c *Conn) readLoop(ctx context.Context) {
 			warnf("acp: dropping unrecognized JSON-RPC frame (no method, no id)")
 		}
 	}
+}
+
+// isRecoverableFrameErr reports whether the read loop may skip a frame the
+// decoder rejected and keep serving the session. It may exactly when the
+// decoder still consumed the whole JSON value, leaving the stream framed at
+// the next one: encoding/json advances past a value before reporting an
+// *UnmarshalTypeError, so a frame whose members are the wrong JSON type costs
+// only that frame. A syntax error is the opposite — the decoder stops at an
+// undefined byte and nothing downstream can be trusted to be a frame boundary
+// — as is any transport error, so those end the session.
+func isRecoverableFrameErr(err error) bool {
+	var typeErr *json.UnmarshalTypeError
+	return errors.As(err, &typeErr)
 }
 
 // serveNotification dispatches an inbound notification with the same panic
@@ -330,9 +405,23 @@ func (c *Conn) serveRequest(ctx context.Context, m rpcMessage) {
 
 // routeResponse hands a response frame to the caller waiting on its id.
 func (c *Conn) routeResponse(m rpcMessage) {
-	var id int64
-	if err := json.Unmarshal(m.ID, &id); err != nil {
-		warnf("acp: dropping response with non-integer id %s", m.ID)
+	// JSON-RPC 2.0 mandates a null id on an error the peer cannot attribute to
+	// a request — Parse error (-32700), Invalid Request (-32600) — which is to
+	// say, on the errors reporting that OUR OWN output was unreadable. No
+	// caller can be waiting on it (ids start at 1), and unmarshalling JSON null
+	// into an int64 is a no-op in encoding/json, so routing it by id would
+	// silently rename it "unknown id 0" and discard the code and message.
+	if isNullID(m.ID) {
+		if m.Error != nil {
+			warnf("acp: peer reported an error it could not attribute to a request: %s", m.Error.Error())
+		} else {
+			warnf("acp: dropping id-less response frame carrying no error")
+		}
+		return
+	}
+	id, ok := responseID(m.ID)
+	if !ok {
+		warnf("acp: dropping response with an id that matches no outstanding request: %s", m.ID)
 		return
 	}
 	c.pendingMu.Lock()
@@ -342,8 +431,46 @@ func (c *Conn) routeResponse(m rpcMessage) {
 		warnf("acp: dropping response for unknown id %d", id)
 		return
 	}
-	ch <- m
+	// The slot is cap-1 and JSON-RPC 2.0 permits exactly one response per id,
+	// so a full slot means the peer answered twice. This send runs on the read
+	// loop: blocking here stops every later frame, permanently, because the
+	// waiting caller receives once and then abandons the slot. First answer
+	// wins; the extra is dropped.
+	select {
+	case ch <- m:
+	default:
+		warnf("acp: dropping duplicate response for id %d (one response per id was already routed)", id)
+	}
 }
+
+// responseID resolves a response frame's id member to the integer id this
+// codec allocated for the waiting caller. JSON-RPC 2.0 permits a String id,
+// and a peer that echoes our numeric id back stringified ("1") is answering
+// the request we sent: refusing to recognise it parks the caller until its
+// deadline for a turn that actually completed. Only the MATCHING side is
+// lenient — outbound ids stay integers. false means the member is neither an
+// integer nor an integer-valued string.
+func responseID(raw json.RawMessage) (int64, bool) {
+	var id int64
+	if err := json.Unmarshal(raw, &id); err == nil {
+		return id, true
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return 0, false
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
+}
+
+// isNullID reports whether a frame's id member is the JSON literal null. The
+// decoder stores a raw member verbatim, so this is a byte compare; the wire
+// distinction matters because null is a PRESENT id member meaning "not
+// attributable", not an absent one.
+func isNullID(raw json.RawMessage) bool { return string(raw) == "null" }
 
 // failPending unblocks every parked caller when the connection dies.
 func (c *Conn) failPending() {
@@ -355,8 +482,13 @@ func (c *Conn) failPending() {
 	}
 }
 
+// closedErr renders the reason a parked caller was released. An end-of-stream
+// is a normal hangup and reports as ErrConnClosed; anything else is a real
+// transport failure and travels verbatim. EOF is matched with errors.Is
+// because a reader in the chain may annotate it, and an annotated hangup is
+// still a hangup.
 func (c *Conn) closedErr() error {
-	if p := c.readErr.Load(); p != nil && *p != nil && *p != io.EOF {
+	if p := c.readErr.Load(); p != nil && *p != nil && !errors.Is(*p, io.EOF) {
 		return *p
 	}
 	return ErrConnClosed

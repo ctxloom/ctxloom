@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -51,10 +52,29 @@ func NewValidatorFromSchema(schemaData []byte) (*ConfigValidator, error) {
 }
 
 // ValidateBytes validates YAML content against the config schema.
+//
+// Input carrying no document at all — no bytes, whitespace, or nothing but
+// comments — is refused here rather than left to the schema. Otherwise the
+// answer is "validated, no problems found" for a file nothing was read from,
+// which is the same shape of success as a gate that checked zero documents.
+// Whether that happens to be caught downstream depends on the CALLER's schema
+// declaring a root type that excludes null; both schemas in this repo do, but
+// NewValidatorFromSchema hands this API to callers who author their own.
+//
+// An explicit `null` is a different fact: it IS a document, and a schema may
+// legitimately permit it, so it is validated normally. That is why the check
+// is on the parsed node rather than on "decoded to nil" — the two are
+// indistinguishable once decoded into an interface{}.
 func (v *ConfigValidator) ValidateBytes(data []byte) error {
 	var yamlData interface{}
 	if err := yaml.Unmarshal(data, &yamlData); err != nil {
 		return fmt.Errorf("YAML parse error: %w", err)
+	}
+	if yamlData == nil {
+		var doc yaml.Node
+		if err := yaml.Unmarshal(data, &doc); err == nil && doc.Kind == 0 {
+			return fmt.Errorf("no YAML document to validate: the input is empty or contains only comments")
+		}
 	}
 
 	jsonData := convertToJSON(yamlData)
@@ -130,15 +150,12 @@ func (v *ConfigValidator) KnownKeys(path []string) []string {
 }
 
 // collectKnownKeys unions s's own Properties with every anyOf/oneOf/allOf
-// branch's, following $ref. depth bounds a pathological $ref cycle (the same
-// unbounded-loop concern noted on resolveSchemaRef, F07) rather than
-// recursing forever; 64 is far past any real schema's nesting.
+// branch's AND its $ref referent's — a $ref is applied alongside whatever the
+// referring schema declares itself (see schemaChild), so both sides name keys.
+// depth bounds the recursion rather than trusting the schema graph to be
+// acyclic; 64 is far past any real schema's nesting.
 func collectKnownKeys(s *jsonschema.Schema, seen map[string]bool, depth int) {
-	if depth > 64 {
-		return
-	}
-	s = resolveSchemaRef(s)
-	if s == nil {
+	if depth > 64 || s == nil {
 		return
 	}
 	for k := range s.Properties {
@@ -149,40 +166,108 @@ func collectKnownKeys(s *jsonschema.Schema, seen map[string]bool, depth int) {
 			collectKnownKeys(branch, seen, depth+1)
 		}
 	}
+	collectKnownKeys(s.Ref, seen, depth+1)
 }
 
-// resolveSchemaRef follows a chain of $ref indirection to the schema that
-// actually carries the object keywords (properties/additionalProperties/...).
-func resolveSchemaRef(s *jsonschema.Schema) *jsonschema.Schema {
-	for s != nil && s.Ref != nil {
-		s = s.Ref
-	}
-	return s
-}
+// anyKeySchema is the walker's stand-in for a location that constrains no key
+// name at all, reached from `additionalProperties: true`. It is compared by
+// IDENTITY, never by content: schemaChild returns it for every key, so the
+// whole subtree below such a location resolves as known. It carries no
+// keywords of its own and must never be handed to the validator -- it exists
+// only to answer KnownPath/KnownKeys.
+var anyKeySchema = &jsonschema.Schema{}
 
-// schemaChild returns the sub-schema key names within s, or nil if s does not
+// schemaChild returns the sub-schema naming key within s, or nil if s does not
 // recognize key at all. See KnownPath's doc for the resolution order.
+//
+// `$ref` is consulted LAST rather than first. Draft 2020-12 makes it an
+// in-place applicator: the keywords written beside a $ref still apply, so
+// `{"$ref": base, "properties": {...}}` names both sets of keys. Replacing s
+// with its referent up front — which is what "follow the ref" reads like —
+// silently drops the near side of that, and drops it again at every hop of a
+// $ref chain. Consulting s's own keywords first and recursing into s.Ref only
+// when none matched keeps every schema along the chain in play. For the same
+// reason the sub-schemas returned here are NOT dereferenced: the next segment's
+// lookup does it, with that sub-schema's own siblings still visible.
 func schemaChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
-	s = resolveSchemaRef(s)
 	if s == nil {
 		return nil
 	}
+	if s == anyKeySchema {
+		return anyKeySchema
+	}
 	if sub, ok := s.Properties[key]; ok {
-		return resolveSchemaRef(sub)
+		return sub
 	}
 	for pattern, sub := range s.PatternProperties {
 		if pattern.MatchString(key) {
-			return resolveSchemaRef(sub)
+			return sub
 		}
 	}
-	if sub, ok := s.AdditionalProperties.(*jsonschema.Schema); ok {
-		return resolveSchemaRef(sub)
+	switch addl := s.AdditionalProperties.(type) {
+	case *jsonschema.Schema:
+		return addl
+	case bool:
+		// `additionalProperties: true` says every key name here is permitted
+		// and constrains the value not at all, so every segment below it is
+		// permitted too. `false` names nothing extra and so matches nothing
+		// here, but it is not an answer for the whole schema — the search
+		// continues into the branches and the $ref below. An ABSENT keyword
+		// behaves like `false`: this walker answers "does the schema NAME this
+		// location", and an author who listed properties and said nothing else
+		// named exactly those. (Both in-repo schemas are authored
+		// additionalProperties:false throughout, so reading silence as
+		// permissive would make every typo in them resolve as known.)
+		if addl {
+			return anyKeySchema
+		}
+	}
+	if child := arrayChild(s, key); child != nil {
+		return child
 	}
 	for _, branches := range [][]*jsonschema.Schema{s.AnyOf, s.OneOf, s.AllOf} {
 		for _, branch := range branches {
 			if child := schemaChild(branch, key); child != nil {
 				return child
 			}
+		}
+	}
+	return schemaChild(s.Ref, key)
+}
+
+// arrayChild resolves an ARRAY INDEX segment to the schema governing that
+// position, or nil when s is not an array or key is not an index. An array is
+// addressed by position, so only a non-negative integer descends -- treating a
+// word as an array key would make every misspelling under every array resolve
+// as known.
+//
+// Paths reach here because a config path that crosses an array carries the
+// index as a segment: config/unknown_keys.go turns the violation's instance
+// location "/hooks/unified/pre_tool/0" into "hooks.unified.pre_tool.0" before
+// asking for that section's declared names.
+//
+// Draft 2020-12 spells the positional schemas `prefixItems` and the remainder
+// `items` (Items2020); earlier drafts spell the remainder `items` and allow a
+// tuple form (a []*Schema). All three shapes are honored so the walker matches
+// whatever draft the caller's schema declares -- NewValidatorFromSchema is a
+// public seam and does not fix the draft.
+func arrayChild(s *jsonschema.Schema, key string) *jsonschema.Schema {
+	idx, err := strconv.Atoi(key)
+	if err != nil || idx < 0 {
+		return nil
+	}
+	if idx < len(s.PrefixItems) {
+		return s.PrefixItems[idx]
+	}
+	if s.Items2020 != nil {
+		return s.Items2020
+	}
+	switch items := s.Items.(type) {
+	case *jsonschema.Schema:
+		return items
+	case []*jsonschema.Schema:
+		if idx < len(items) {
+			return items[idx]
 		}
 	}
 	return nil

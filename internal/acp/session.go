@@ -71,16 +71,17 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		ctx:         ctx,
 		out:         out,
 		autoApprove: req.Permissions.AllowsWithoutPrompt(),
-		forward:     req.ForwardPermissions,
-		pendingPerm: make(map[string]chan agent.PermissionAnswer),
-		forwardTerm: req.ForwardTerminal,
-		pendingTerm: make(map[string]chan agent.TerminalResponse),
 		clock:       b.clock(),
 		// T13 (finding S3): the fs/* boundary is the same WorkDir handed to
 		// the transport two statements above, so it can never name a
 		// different directory than the engine actually runs in.
 		workspaceRoot: req.WorkDir,
 	}
+	// Both brokers count their forwarders on the SAME WaitGroup, since teardown
+	// has to wait for every in-flight forwarder regardless of kind; everything
+	// else about them stays per-kind.
+	sess.perm = newPendingBroker[agent.PermissionAnswer](req.ForwardPermissions, "perm-", "permission", &sess.forwardGoroutines)
+	sess.term = newPendingBroker[agent.TerminalResponse](req.ForwardTerminal, "term-", "terminal", &sess.forwardGoroutines)
 	// B5 (gap G14): req.Env[fsUpstreamEnvVar] is set ONLY on the fully
 	// unisolated HOST axis (see operations.OpenEngineSession's gate, and
 	// operations.OpenRequest.FsUpstreamAddr's doc for the full rule) — when
@@ -113,7 +114,16 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 	// that resolution before letting close(out) run.
 	teardown := func() {
 		cancel()
-		_ = conn.Close()
+		// conn.Close returns the transport's own teardown result — for a
+		// spawned engine that is cmd.Wait's error, i.e. the process exit
+		// status. It does NOT fail the conversation: the turns were delivered,
+		// and a shutdown status is not grounds to discard a good session. But
+		// it is the only evidence of an engine that died badly, and dropping it
+		// left "the agent crashed on exit" indistinguishable from a clean run.
+		// Close is once-only, so this can warn at most once per conversation.
+		if cerr := conn.Close(); cerr != nil {
+			warnf("acp: engine transport exited abnormally after the conversation: %v", cerr)
+		}
 		<-conn.Done()
 		sess.forwardGoroutines.Wait()
 		if sess.fsUpstream != nil {
@@ -166,6 +176,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		turnDone    chan turnResult     // non-nil while a turn is in flight
 		turnStarted time.Time           // when the in-flight turn's prompt was written
 		queued      []agent.ChatMessage // messages that arrived mid-turn, in order (B2: full message, not just Text — ContentBlocks rides along)
+		queueWarned bool                // queueDepthWarnAt already reported; once per conversation
 		inChan      = in                // nil'd once the caller closes input
 	)
 	// startTurn WRITES the session/prompt frame synchronously (so a CancelTurn
@@ -239,19 +250,40 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 			}
 			switch {
 			case msg.Permission != nil:
-				sess.deliverPermission(*msg.Permission)
+				sess.perm.deliver(msg.Permission.ID, *msg.Permission)
 			case msg.Terminal != nil:
-				sess.deliverTerminal(*msg.Terminal)
+				sess.term.deliver(msg.Terminal.ID, *msg.Terminal)
 			case msg.CancelTurn:
-				if turnDone != nil {
-					notifyCancel()
+				if turnDone == nil {
+					// Nothing to abandon, so no session/cancel goes out — but
+					// this is a real race for any client on the far side of
+					// the gRPC or ACP door (the turn ends in the instant
+					// between the user cancelling and the message landing),
+					// and a cancel that does nothing must not also say
+					// nothing.
+					warnf("acp: turn cancel ignored: no turn in flight (the turn had already finished when the cancel arrived)")
+					continue
 				}
+				notifyCancel()
 			default:
 				queued = append(queued, msg)
+				if len(queued) > queueDepthWarnAt && !queueWarned {
+					queueWarned = true
+					warnf("acp: %d messages queued behind the in-flight turn and still growing — the client is sending faster than the engine answers; nothing is dropped, but they accumulate in memory until the engine catches up", len(queued))
+				}
 			}
 		}
 	}
 }
+
+// queueDepthWarnAt is how deep Chat's pending-message queue may grow before it
+// is reported. The queue is deliberately unbounded — the input loop must keep
+// draining `in` while a turn is in flight, or a permission answer and a turn
+// cancel could never reach a parked engine — so this is the only backpressure
+// signal available: a client streaming faster than the engine can answer is
+// told, once, rather than silently accumulating messages (and their media
+// payloads) for the lifetime of the conversation.
+const queueDepthWarnAt = 64
 
 // envOverlay is the adapter subprocess's env overlay: the caller's env, plus —
 // when the embedding backend configured ModelEnvVar — the requested model
@@ -651,26 +683,11 @@ func (s *chatSession) buildPromptBlocks(msg agent.ChatMessage) ([]api.ContentBlo
 func (s *chatSession) deliverBlock(b agent.ContentBlock) api.ContentBlock {
 	switch b.Kind {
 	case "image":
-		if s.caps.Prompt.Image {
-			if block, ok := decodeACPBlock(b.Raw); ok {
-				return block
-			}
-		}
-		return flattenedBlockWarning(b, "image")
+		return s.gatedBlock(b, "image", s.caps.Prompt.Image)
 	case "audio":
-		if s.caps.Prompt.Audio {
-			if block, ok := decodeACPBlock(b.Raw); ok {
-				return block
-			}
-		}
-		return flattenedBlockWarning(b, "audio")
+		return s.gatedBlock(b, "audio", s.caps.Prompt.Audio)
 	case "resource":
-		if s.caps.Prompt.EmbeddedContext {
-			if block, ok := decodeACPBlock(b.Raw); ok {
-				return block
-			}
-		}
-		return flattenedBlockWarning(b, "resource")
+		return s.gatedBlock(b, "resource", s.caps.Prompt.EmbeddedContext)
 	case "resource_link":
 		// Spec: "All agents MUST support resource links" — never gated.
 		if block, ok := decodeACPBlock(b.Raw); ok {
@@ -711,23 +728,49 @@ func decodeACPBlock(raw json.RawMessage) (api.ContentBlock, bool) {
 	return block, true
 }
 
-// flattenedBlockWarning renders b as a visible text placeholder when the
-// connected engine did not advertise support for its kind (or its Raw bytes
-// failed to decode) — the flatten-WITH-warning degradation the plan requires:
-// ctxloom neither silently drops the content nor lies about having delivered
-// it. Logs the same finding (operational visibility) and returns text so the
-// model — and a transcript viewer — sees that something arrived instead of
-// the turn silently missing it.
-func flattenedBlockWarning(b agent.ContentBlock, kind string) api.ContentBlock {
+// gatedBlock delivers one capability-gated block: the real typed ACP block
+// when the connected engine advertised its kind AND the block's Raw bytes
+// decode, and a visible text placeholder otherwise.
+//
+// The two ways that can fail are DIFFERENT FAULTS and are reported as such.
+// "the engine does not advertise X support" is actionable — connect a
+// different engine. "the block's bytes could not be decoded" is a fault on
+// ctxloom's own side of the wire, and reporting it as a missing engine
+// capability sends the reader hunting a capability the engine already has
+// while the real cause goes unnamed. The placeholder is read by the model and
+// by the user as the reason the content is missing, so it must name the one
+// that actually applies.
+func (s *chatSession) gatedBlock(b agent.ContentBlock, kind string, advertised bool) api.ContentBlock {
+	if !advertised {
+		return flattenedBlockWarning(b, kind, "the connected engine does not advertise "+kind+" support")
+	}
+	if block, ok := decodeACPBlock(b.Raw); ok {
+		return block
+	}
+	return flattenedBlockWarning(b, kind, "its content bytes could not be decoded")
+}
+
+// flattenedBlockWarning renders b as a visible text placeholder, naming the
+// reason it could not be delivered — the flatten-WITH-warning degradation the
+// plan requires: ctxloom neither silently drops the content nor lies about
+// having delivered it. Logs the same finding (operational visibility) and
+// returns text so the model — and a transcript viewer — sees that something
+// arrived instead of the turn silently missing it.
+func flattenedBlockWarning(b agent.ContentBlock, kind, reason string) api.ContentBlock {
 	detail := mediaBlockDetail(b.Raw)
-	warnf("acp: flattening %s content block to text — the connected engine does not advertise %s support%s", kind, kind, detail)
-	return api.TextBlock(fmt.Sprintf("[%s content received but not delivered: the connected engine does not advertise %s support%s]", kind, kind, detail))
+	warnf("acp: flattening %s content block to text — %s%s", kind, reason, detail)
+	return api.TextBlock(fmt.Sprintf("[%s content received but not delivered: %s%s]", kind, reason, detail))
 }
 
 // mediaBlockDetail extracts a human-readable "(mimeType=..., N bytes)" detail
 // from an image/audio block's Raw bytes for the flatten-with-warning message,
 // or "" when Raw carries no recognizable mimeType (e.g. a resource block,
 // which has no data/mimeType shape).
+//
+// N is the size of the DECODED payload. The spec carries image/audio data
+// base64-encoded, which inflates by 4/3, so the character count of the wire
+// field is not a byte count — and this string is read by the model and by a
+// human as the size of the content that did not arrive.
 func mediaBlockDetail(raw json.RawMessage) string {
 	var d struct {
 		MimeType string `json:"mimeType"`
@@ -736,7 +779,124 @@ func mediaBlockDetail(raw json.RawMessage) string {
 	if err := json.Unmarshal(raw, &d); err != nil || d.MimeType == "" {
 		return ""
 	}
-	return fmt.Sprintf(" (mimeType=%s, %d bytes)", d.MimeType, len(d.Data))
+	return fmt.Sprintf(" (mimeType=%s, %d bytes)", d.MimeType, base64DecodedLen(d.Data))
+}
+
+// base64DecodedLen is the exact decoded byte count of a base64 payload,
+// computed arithmetically rather than by decoding it: every 4 encoding
+// characters carry 3 bytes, and a trailing 1 or 2 characters carry 1 or 2.
+// Padding is not data, so it is discarded first — this holds for the padded
+// and unpadded alphabets alike.
+func base64DecodedLen(data string) int {
+	return len(strings.TrimRight(data, "=")) * 3 / 4
+}
+
+// --- forwarded-callback broker ---
+
+// pendingBroker tracks the in-flight agent→client callbacks of ONE kind that
+// ctxloom forwards upstream instead of answering itself: a permission request
+// awaiting the user's decision, a terminal/* call awaiting the editor's. Each
+// request parks on its own buffered channel until an answer arrives, input
+// closes, or the conversation's ctx dies.
+//
+// The two live instances stay INDEPENDENT — their own lock, their own id
+// space, their own input-closed flag — so a permission answer can never be
+// delayed behind a terminal call, and an id issued for one kind can never
+// resolve a request of the other. What they share is the bookkeeping, which was
+// previously written out twice in full; the reply SHAPES still differ per kind
+// and belong to the forwarder, not here (a permission resolves as a cancelled
+// outcome, a terminal as a JSON-RPC error).
+type pendingBroker[T any] struct {
+	// enabled is whether this kind is forwarded at all for this conversation;
+	// false makes register a no-op so the caller decides locally instead.
+	enabled bool
+	prefix  string // id prefix — what keeps the two kinds' id spaces disjoint
+	kind    string // names this kind in a diagnostic
+	// inFlight counts forwarder goroutines for the whole conversation, shared
+	// across kinds because teardown must wait for all of them.
+	inFlight *sync.WaitGroup
+
+	mu      sync.Mutex
+	seq     int64
+	pending map[string]chan T
+	noInput bool // input closed: no answers of this kind can arrive anymore
+}
+
+func newPendingBroker[T any](enabled bool, prefix, kind string, inFlight *sync.WaitGroup) *pendingBroker[T] {
+	return &pendingBroker[T]{
+		enabled:  enabled,
+		prefix:   prefix,
+		kind:     kind,
+		inFlight: inFlight,
+		pending:  make(map[string]chan T),
+	}
+}
+
+// register allocates a pending slot, or returns a nil channel when forwarding
+// is off for this kind, or when no answer can ever arrive because input has
+// already closed.
+func (b *pendingBroker[T]) register() (chan T, string) {
+	if !b.enabled {
+		return nil, ""
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.noInput {
+		return nil, ""
+	}
+	b.seq++
+	id := b.prefix + strconv.FormatInt(b.seq, 10)
+	ch := make(chan T, 1)
+	b.pending[id] = ch
+	// Counted HERE, synchronously, rather than as the first statement of the
+	// forwarder goroutine the caller is about to spawn: the caller's shape is
+	// `if ch, id := b.register(); ch != nil { go forward(...) }`, so counting
+	// inside the goroutine would let teardown's Wait() observe zero in-flight
+	// forwarders during the window between `go` and that goroutine being
+	// scheduled — and teardown would then close the event channel out from
+	// under a forwarder still about to send on it.
+	b.inFlight.Add(1)
+	return ch, id
+}
+
+// deliver routes the caller's answer to the parked request; an answer naming a
+// request this broker does not know (already resolved, or never issued) is
+// dropped with a warning. The send happens under the lock so it cannot race
+// closeInput's close of the same channel, and never blocks: the channel is
+// buffered(1), so a duplicate answer is dropped rather than parking a caller.
+func (b *pendingBroker[T]) deliver(id string, ans T) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	ch := b.pending[id]
+	if ch == nil {
+		warnf("acp: dropping %s answer for unknown request %q", b.kind, id)
+		return
+	}
+	select {
+	case ch <- ans:
+	default: // buffered(1): a duplicate answer is dropped
+	}
+}
+
+// unregister retires a resolved forwarded request.
+func (b *pendingBroker[T]) unregister(id string) {
+	b.mu.Lock()
+	delete(b.pending, id)
+	b.mu.Unlock()
+}
+
+// closeInput marks that no more answers of this kind can arrive: every parked
+// request is released (its forwarder sees a closed channel and replies with
+// this kind's own resolution), and later requests decline instead of parking
+// forever on an answer that can no longer come.
+func (b *pendingBroker[T]) closeInput() {
+	b.mu.Lock()
+	b.noInput = true
+	for id, ch := range b.pending {
+		close(ch)
+		delete(b.pending, id)
+	}
+	b.mu.Unlock()
 }
 
 // --- per-conversation callback handler ---
@@ -748,12 +908,20 @@ type chatSession struct {
 	ctx         context.Context
 	out         chan<- agent.ChatEvent
 	autoApprove bool
-	forward     bool // surface permission requests upstream instead of auto-deciding
 	clock       func() time.Time
 
-	// caps is the engine's advertised initialize-time capabilities, read once
-	// in Chat right after setup() returns and never mutated afterward — safe
-	// to read from any goroutine without a lock (see setup/engineCapabilities).
+	// caps is the engine's advertised initialize-time capabilities, assigned in
+	// Chat right after setup() returns.
+	//
+	// It is NOT safe to read from any goroutine, and "never mutated afterward"
+	// is not what protects it: the assignment happens AFTER conn.Start has
+	// already launched the read loop, so a handler that read caps would be
+	// racing that write no matter what happens later. What makes the field
+	// lock-free is narrower — the write and every read live on Chat's own loop
+	// goroutine (buildPromptBlocks → deliverBlock → gatedBlock, reached from
+	// startTurn). Reading caps from HandleNotification or HandleRequest is a
+	// data race; it needs a lock or an atomic first (see
+	// setup/engineCapabilities).
 	caps engineCapabilities
 
 	// forwardGoroutines counts every in-flight forwardPermission/forwardTerminal
@@ -767,20 +935,14 @@ type chatSession struct {
 	// after the read loop exits, so close(out) cannot precede the LAST sender.
 	forwardGoroutines sync.WaitGroup
 
-	// forwarded-permission state: each in-flight request parks on its channel
-	// until the caller's answer (or input close / ctx death) resolves it.
-	permMu      sync.Mutex
-	permSeq     int64
-	pendingPerm map[string]chan agent.PermissionAnswer
-	noInput     bool // input closed: no answers can arrive anymore
-
-	// forwardTerm mirrors forward, gating the terminal/* broker instead of
-	// permission forwarding (B1, gap G6) — set from
-	// agent.ChatRequest.ForwardTerminal, true only when the upstream editor
-	// actually advertised the terminal capability (see setup's doc comment).
-	// forwarded-terminal state mirrors the permission bookkeeping above
-	// exactly, in its own mutex/map so the two domains never share a lock.
-	forwardTerm bool
+	// perm and term are the two forwarded-callback brokers (see pendingBroker):
+	// permission requests awaiting the user's decision, terminal/* calls
+	// awaiting the editor's answer. Each is enabled independently —
+	// agent.ChatRequest.ForwardPermissions and ForwardTerminal, the latter true
+	// only when the upstream editor actually advertised the terminal capability
+	// (see setup's doc comment) — and each keeps its own lock and id space.
+	perm *pendingBroker[agent.PermissionAnswer]
+	term *pendingBroker[agent.TerminalResponse]
 
 	// workspaceRoot is this session's authoritative filesystem boundary: the
 	// SAME agent.ChatRequest.WorkDir the engine subprocess is spawned with
@@ -795,11 +957,6 @@ type chatSession struct {
 	// cwd; confineToWorkspace resolves "" to that same cwd, so the boundary
 	// still tracks the engine rather than defaulting to permitting anything.
 	workspaceRoot string
-
-	termMu      sync.Mutex
-	termSeq     int64
-	pendingTerm map[string]chan agent.TerminalResponse
-	termNoInput bool // input closed: no terminal answers can arrive anymore
 
 	// turn accounting fed by the real usage_update variant — see
 	// consumeMetaUpdate. Guarded by metaMu: updates arrive on the read loop
@@ -970,36 +1127,11 @@ func (s *chatSession) handlePermission(params json.RawMessage, reply func(any, *
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
 		return
 	}
-	if ch, id := s.registerPermission(); ch != nil {
+	if ch, id := s.perm.register(); ch != nil {
 		go s.forwardPermission(id, ch, &req, reply)
 		return
 	}
 	reply(decidePermission(req.Options, s.autoApprove), nil)
-}
-
-// registerPermission allocates a pending forwarded-permission slot, or returns
-// nil when forwarding is off (or no answer can ever arrive — input closed).
-func (s *chatSession) registerPermission() (chan agent.PermissionAnswer, string) {
-	if !s.forward {
-		return nil, ""
-	}
-	s.permMu.Lock()
-	defer s.permMu.Unlock()
-	if s.noInput {
-		return nil, ""
-	}
-	s.permSeq++
-	id := "perm-" + strconv.FormatInt(s.permSeq, 10)
-	ch := make(chan agent.PermissionAnswer, 1)
-	s.pendingPerm[id] = ch
-	// Counted BEFORE the caller spawns forwardPermission (U012-F01): the caller
-	// does `if ch, id := s.registerPermission(); ch != nil { go s.forwardPermission(...) }`,
-	// so Add must happen here, synchronously, rather than as the first statement
-	// of the goroutine — otherwise teardown's Wait() could observe zero
-	// in-flight forwarders during the (however brief) window between `go` and
-	// the new goroutine actually starting to run.
-	s.forwardGoroutines.Add(1)
-	return ch, id
 }
 
 // forwardPermission emits the request upstream and replies with the caller's
@@ -1008,7 +1140,7 @@ func (s *chatSession) registerPermission() (chan agent.PermissionAnswer, string)
 // no-op that neither approves nor commits a remembered rejection.
 func (s *chatSession) forwardPermission(id string, ch chan agent.PermissionAnswer, req *api.RequestPermissionRequest, reply func(any, *jsonrpc.Error)) {
 	defer s.forwardGoroutines.Done()
-	defer s.unregisterPermission(id)
+	defer s.perm.unregister(id)
 	cancelled := permissionResult{Outcome: permissionOutcome{Outcome: outcomeCancelled}}
 	if !s.send(agent.ChatEvent{Permission: permissionRequestEvent(id, req)}) {
 		reply(cancelled, nil)
@@ -1026,49 +1158,13 @@ func (s *chatSession) forwardPermission(id string, ch chan agent.PermissionAnswe
 	}
 }
 
-// deliverPermission routes the caller's answer to the parked request; an
-// answer for an unknown (already-resolved) request is dropped with a warning.
-// The send happens under permMu so it cannot race inputClosed's close of the
-// same channel; it never blocks (buffered(1), duplicates dropped).
-func (s *chatSession) deliverPermission(ans agent.PermissionAnswer) {
-	s.permMu.Lock()
-	defer s.permMu.Unlock()
-	ch := s.pendingPerm[ans.ID]
-	if ch == nil {
-		warnf("acp: dropping permission answer for unknown request %q", ans.ID)
-		return
-	}
-	select {
-	case ch <- ans:
-	default: // buffered(1): a duplicate answer is dropped
-	}
-}
-
-// unregisterPermission retires a resolved forwarded request.
-func (s *chatSession) unregisterPermission(id string) {
-	s.permMu.Lock()
-	delete(s.pendingPerm, id)
-	s.permMu.Unlock()
-}
-
-// inputClosed marks that no more answers can arrive: every parked forwarded
-// request resolves as cancelled, and future ones auto-decide instead.
+// inputClosed marks that no more answers can arrive, for every kind of
+// forwarded request at once: each parked request resolves (a permission as
+// cancelled, a terminal as an error), and future ones decline instead of
+// parking on an answer that can no longer come.
 func (s *chatSession) inputClosed() {
-	s.permMu.Lock()
-	s.noInput = true
-	for id, ch := range s.pendingPerm {
-		close(ch)
-		delete(s.pendingPerm, id)
-	}
-	s.permMu.Unlock()
-
-	s.termMu.Lock()
-	s.termNoInput = true
-	for id, ch := range s.pendingTerm {
-		close(ch)
-		delete(s.pendingTerm, id)
-	}
-	s.termMu.Unlock()
+	s.perm.closeInput()
+	s.term.closeInput()
 }
 
 // handleTerminal answers one terminal/* request (B1, gap G6). Under
@@ -1081,34 +1177,11 @@ func (s *chatSession) inputClosed() {
 // locally-implemented fake terminal: ctxloom must broker, never implement one
 // of its own.
 func (s *chatSession) handleTerminal(method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
-	if ch, id := s.registerTerminal(); ch != nil {
+	if ch, id := s.term.register(); ch != nil {
 		go s.forwardTerminal(id, ch, method, params, reply)
 		return
 	}
 	reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeMethodNotFound, Message: "acp: " + method + " not supported: ctxloom's client role does not advertise the terminal capability for this session (no upstream editor advertised clientCapabilities.terminal, or input has already closed) — ctxloom brokers terminal/* to editors, it never implements one itself"})
-}
-
-// registerTerminal allocates a pending forwarded-terminal-request slot, or
-// returns nil when forwarding is off (or no answer can ever arrive — input
-// closed). Mirrors registerPermission exactly.
-func (s *chatSession) registerTerminal() (chan agent.TerminalResponse, string) {
-	if !s.forwardTerm {
-		return nil, ""
-	}
-	s.termMu.Lock()
-	defer s.termMu.Unlock()
-	if s.termNoInput {
-		return nil, ""
-	}
-	s.termSeq++
-	id := "term-" + strconv.FormatInt(s.termSeq, 10)
-	ch := make(chan agent.TerminalResponse, 1)
-	s.pendingTerm[id] = ch
-	// See registerPermission's identical comment: counted here, synchronously,
-	// before the caller's `go s.forwardTerminal(...)` — not as that goroutine's
-	// first statement.
-	s.forwardGoroutines.Add(1)
-	return ch, id
 }
 
 // forwardTerminal emits one terminal/* request upstream (stripped of this
@@ -1119,7 +1192,7 @@ func (s *chatSession) registerTerminal() (chan agent.TerminalResponse, string) {
 // waiting on terminal/create must get SOME answer.
 func (s *chatSession) forwardTerminal(id string, ch chan agent.TerminalResponse, method string, params json.RawMessage, reply func(any, *jsonrpc.Error)) {
 	defer s.forwardGoroutines.Done()
-	defer s.unregisterTerminal(id)
+	defer s.term.unregister(id)
 	stripped, err := stripSessionID(params)
 	if err != nil {
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()})
@@ -1144,30 +1217,6 @@ func (s *chatSession) forwardTerminal(id string, ch chan agent.TerminalResponse,
 	case <-s.ctx.Done():
 		reply(nil, &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "acp: " + method + ": chat context cancelled before the editor answered the terminal request"})
 	}
-}
-
-// deliverTerminal routes the caller's answer to the parked terminal request;
-// an answer for an unknown (already-resolved) request is dropped with a
-// warning. Mirrors deliverPermission exactly.
-func (s *chatSession) deliverTerminal(ans agent.TerminalResponse) {
-	s.termMu.Lock()
-	defer s.termMu.Unlock()
-	ch := s.pendingTerm[ans.ID]
-	if ch == nil {
-		warnf("acp: dropping terminal answer for unknown request %q", ans.ID)
-		return
-	}
-	select {
-	case ch <- ans:
-	default: // buffered(1): a duplicate answer is dropped
-	}
-}
-
-// unregisterTerminal retires a resolved forwarded terminal request.
-func (s *chatSession) unregisterTerminal(id string) {
-	s.termMu.Lock()
-	delete(s.pendingTerm, id)
-	s.termMu.Unlock()
 }
 
 // terminalOp maps an ACP terminal/* JSON-RPC method name onto the

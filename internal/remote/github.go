@@ -12,6 +12,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // GitHubFetcher implements Fetcher for GitHub repositories.
@@ -163,10 +164,16 @@ func is401Error(resp *github.Response, err error) bool {
 }
 
 // shouldRetry401 checks if a 401 error occurred and we have a fallback client.
-// If so, it prints a warning and returns true.
+// If so, it warns and returns true.
+//
+// The warning goes through clidiag, like every other warning this package
+// raises: os.Stderr is not always a safe destination (under `ctxloom run` it
+// is the terminal the TUI paints on, and a session that owns the terminal
+// redirects the sink for its lifetime), and clidiag also owns the structured
+// wire shape for --format json.
 func (f *GitHubFetcher) shouldRetry401(resp *github.Response, err error) bool {
 	if is401Error(resp, err) && f.fallback != nil {
-		fmt.Fprintf(os.Stderr, "ctxloom: GitHub token invalid, retrying without authentication\n")
+		clidiag.Warn("ctxloom", "GitHub token invalid, retrying without authentication")
 		return true
 	}
 	return false
@@ -292,9 +299,37 @@ func (f *GitHubFetcher) retryRefWithFallback(ctx context.Context, owner, repo, r
 	return sha, true, rerr
 }
 
+// Bounds on an abbreviated commit SHA a forge will resolve. The floor is
+// git's own conventional minimum abbreviation for an unambiguous object; the
+// ceiling is the full length of a SHA-1 object name.
+const (
+	minAbbreviatedSHALen = 7
+	maxCommitSHALen      = 40
+)
+
+// looksLikeCommitSHA reports whether ref could be an object name at all: hex,
+// and within the abbreviation bounds. Length alone is not the question a
+// commit probe is asking — it admits every branch or tag name of seven
+// characters or more, so `develop` went to the commits endpoint before anyone
+// asked whether it was a branch. Refs that are not commit-ish are resolved by
+// the branch and tag rungs below, which is where they were always going to be
+// answered.
+func looksLikeCommitSHA(ref string) bool {
+	if len(ref) < minAbbreviatedSHALen || len(ref) > maxCommitSHALen {
+		return false
+	}
+	for _, r := range ref {
+		isHexDigit := (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') || (r >= 'A' && r <= 'F')
+		if !isHexDigit {
+			return false
+		}
+	}
+	return true
+}
+
 // resolveAsCommit tries ref as a commit SHA (only when it looks like one).
 func (f *GitHubFetcher) resolveAsCommit(ctx context.Context, client GitHubClient, owner, repo, ref string, allowRetry bool) (sha string, found bool, err error) {
-	if len(ref) < 7 || len(ref) > 40 {
+	if !looksLikeCommitSHA(ref) {
 		return "", false, nil
 	}
 	commit, resp, err := client.Repositories().GetCommit(ctx, owner, repo, ref, nil)
@@ -485,8 +520,18 @@ func (p *GitHubPublisher) CreateOrUpdateFile(ctx context.Context, owner, repo, p
 		return "", fmt.Errorf("refusing to publish empty content to %s/%s/%s: a 0-byte write would replace the remote file with nothing", owner, repo, path)
 	}
 
-	// Check if file exists to get its SHA
-	existingSHA, _ := p.GetFileSHA(ctx, owner, repo, path, branch)
+	// GetFileSHA separates "the file is not there" (a 404, reported as an
+	// empty SHA and a nil error) from "I could not find out" (any other
+	// failure, reported as an error). Only the first is a fact about the
+	// remote. Dropping the error collapses them, and the empty SHA that
+	// results is what shapes the request: with no SHA the contents API is
+	// asked to CREATE the path, so a transient read failure over an existing
+	// file emits a create for something meant to be updated.
+	existingSHA, err := p.GetFileSHA(ctx, owner, repo, path, branch)
+	if err != nil {
+		return "", fmt.Errorf("cannot tell whether %s/%s/%s already exists, so the write is refused rather than sent as a create: %w",
+			owner, repo, path, err)
+	}
 
 	opts := &github.RepositoryContentFileOptions{
 		Message: github.String(message),

@@ -2,18 +2,28 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// `bundle hold` / `bundle unhold` on an item that is not in the active lockfile
-// achieved NOTHING: no entry was flipped, nothing was persisted. Reporting that
-// on stdout and exiting 0 is this project's signature silent no-op — a script
-// that holds a mistyped name saw success and an unfrozen dependency. It must
-// FAIL, and say what to do about it.
+// `bundle hold` / `bundle unhold` flip a flag on the ACTIVE LOCKFILE entry, so
+// when the named item has no such entry nothing is flipped and nothing is
+// persisted. U034-F09 read that whole branch as the project's signature silent
+// no-op and made it a hard error. It is really two situations the lockfile
+// cannot tell apart, and only one of them is a failure — see
+// reportNothingToHold. These two tests pin both arms so neither can drift back
+// into the other.
+
+// A name that resolves to NOTHING — a typo, the wrong project, a `remote pull`
+// that never ran — is the real U034-F09 case: the caller asked to freeze a
+// dependency, nothing was frozen, and exit 0 would tell them it was. No
+// acceptance scenario ever covered this arm.
 func TestBundleHoldUnhold_UnknownItemFailsInsteadOfNoOpping(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -23,17 +33,53 @@ func TestBundleHoldUnhold_UnknownItemFailsInsteadOfNoOpping(t *testing.T) {
 		{"unhold", bundleUnholdCmd.RunE},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			setupEditProject(t) // a project with no lockfile at all
+			setupEditProject(t) // a project with no lockfile and no bundles at all
 
-			var out bytes.Buffer
+			var out, errOut bytes.Buffer
 			cmd := &cobra.Command{}
 			cmd.SetOut(&out)
+			cmd.SetErr(&errOut)
 			err := tc.run(cmd, []string{"not-installed"})
 
 			require.Error(t, err, "nothing was held/unheld, so the command must not report success")
 			assert.Contains(t, err.Error(), "not-installed")
 			assert.Contains(t, err.Error(), "active lockfile")
 			assert.Empty(t, out.String(), "a failure is not primary output; nothing goes to stdout")
+		})
+	}
+}
+
+// A LOCAL bundle is the arm the acceptance suite has specified since the
+// command was `bundle pin` ("Holding a local bundle reports it is not
+// lockfile-tracked", which asserts BOTH hold and unhold succeed). It has no
+// upstream and no lockfile entry, so `remote upgrade` can never advance it: the
+// guarantee hold exists to give already holds, and unhold has nothing to
+// release. That is a benign no-op, not a user error — exit 0.
+//
+// The notice is still about work NOT done, so it must ride STDERR (the half of
+// U034-F09 that was right); stdout stays empty because nothing was pinned.
+func TestBundleHoldUnhold_LocalBundleSucceedsWithANoticeOnStderr(t *testing.T) {
+	for _, verb := range []string{"hold", "unhold"} {
+		t.Run(verb, func(t *testing.T) {
+			run := bundleHoldCmd.RunE
+			if verb == "unhold" {
+				run = bundleUnholdCmd.RunE
+			}
+			cfg := setupEditProject(t)
+			_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "demo"})
+			require.NoError(t, err)
+
+			var out, errOut bytes.Buffer
+			cmd := &cobra.Command{}
+			cmd.SetOut(&out)
+			cmd.SetErr(&errOut)
+
+			require.NoError(t, run(cmd, []string{"demo"}),
+				"a local bundle is already unadvanceable by `remote upgrade`; asking to %s it is not a user error", verb)
+			assert.Contains(t, errOut.String(), "nothing to "+verb,
+				"the acceptance suite asserts this wording (bundle.feature)")
+			assert.Contains(t, errOut.String(), "local bundle")
+			assert.Empty(t, out.String(), "nothing was pinned, so nothing belongs on stdout")
 		})
 	}
 }

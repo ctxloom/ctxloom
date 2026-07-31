@@ -199,37 +199,69 @@ func scanSessionInfo(ctx context.Context, lines [][]byte) (*agent.ChatSessionInf
 		if err := json.Unmarshal(line, &env); err != nil {
 			continue
 		}
-		switch env.Type {
-		case "session_meta":
-			var p sessionMetaPayload
-			if err := json.Unmarshal(env.Payload, &p); err != nil {
-				continue
-			}
-			id := p.ID
-			if id == "" {
-				id = p.SessionID
-			}
-			b.SetSessionID(id)
-		case "event_msg":
-			var head eventMsgHead
-			if err := json.Unmarshal(env.Payload, &head); err != nil || head.Type != "task_started" {
-				continue
-			}
-			var p taskStartedPayload
-			if err := json.Unmarshal(env.Payload, &p); err != nil {
-				continue
-			}
-			b.SetContextWindow(p.ModelContextWindow)
-		case "turn_context":
-			var p turnContextPayload
-			if err := json.Unmarshal(env.Payload, &p); err != nil {
-				continue
-			}
-			b.SetModel(p.Model)
-			b.SetPermissionMode(p.ApprovalPolicy)
-		}
+		scanSessionLine(&b, env)
 	}
 	return b.Build(), nil
+}
+
+// scanSessionLine feeds one already-unwrapped envelope's session-level fields
+// into b. Every payload here is decoded a SECOND time, per envelope type,
+// because rolloutLine only carries the payload as raw bytes — that is codex's
+// format, not a choice this adapter makes. A payload that fails to decode
+// contributes nothing and is not an error: an envelope whose inner shape has
+// drifted still leaves the rest of the file readable (importer.VendorAdapter's
+// degrade-to-partial contract).
+func scanSessionLine(b *importer.SessionInfoBuilder, env rolloutLine) {
+	switch env.Type {
+	case "session_meta":
+		scanSessionMeta(b, env.Payload)
+	case "event_msg":
+		scanTaskStarted(b, env.Payload)
+	case "turn_context":
+		scanTurnContext(b, env.Payload)
+	}
+	// response_item / world_state carry no session-level metadata.
+}
+
+// scanSessionMeta latches the session id, falling back to the legacy
+// "session_id" key on older codex builds that carried it instead of "id"
+// (see sessionMetaPayload's doc comment).
+func scanSessionMeta(b *importer.SessionInfoBuilder, raw json.RawMessage) {
+	var p sessionMetaPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return
+	}
+	id := p.ID
+	if id == "" {
+		id = p.SessionID
+	}
+	b.SetSessionID(id)
+}
+
+// scanTaskStarted latches the model's context window. event_msg is a family of
+// payloads sharing one envelope type, so the nested discriminator is checked
+// first: task_started is the only variant that carries this.
+func scanTaskStarted(b *importer.SessionInfoBuilder, raw json.RawMessage) {
+	var head eventMsgHead
+	if err := json.Unmarshal(raw, &head); err != nil || head.Type != "task_started" {
+		return
+	}
+	var p taskStartedPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return
+	}
+	b.SetContextWindow(p.ModelContextWindow)
+}
+
+// scanTurnContext latches the resolved model and approval policy for the turn
+// that follows it.
+func scanTurnContext(b *importer.SessionInfoBuilder, raw json.RawMessage) {
+	var p turnContextPayload
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return
+	}
+	b.SetModel(p.Model)
+	b.SetPermissionMode(p.ApprovalPolicy)
 }
 
 // converter carries the streamed second pass's only piece of cross-line

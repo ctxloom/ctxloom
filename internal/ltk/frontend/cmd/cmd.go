@@ -92,8 +92,18 @@ func (l *lexer) flush() {
 	}
 }
 
-func (l *lexer) add(b byte)             { l.buf.WriteByte(b); l.hasWord = true }
-func (l *lexer) emit(k tkind, t string) { l.toks = append(l.toks, tok{kind: k, text: t}) }
+func (l *lexer) add(b byte) { l.buf.WriteByte(b); l.hasWord = true }
+
+// emit appends a non-word token, flushing any pending word first so it keeps
+// its place in the stream. Flushing here rather than at each call site is what
+// makes the ordering unstateable-wrongly: every operator ends the word before
+// it, and a caller that forgets loses that word into the next one — dropping
+// one such flush merges `X=go` with the `&` that follows it, and only a single
+// test in this package notices.
+func (l *lexer) emit(k tkind, t string) {
+	l.flush()
+	l.toks = append(l.toks, tok{kind: k, text: t})
+}
 
 func (l *lexer) run() []tok {
 	for l.i < len(l.s) {
@@ -106,7 +116,6 @@ func (l *lexer) run() []tok {
 			l.flush()
 			l.i++
 		case '\n':
-			l.flush()
 			l.emit(tSeq, "\n")
 			l.i++
 		case '&':
@@ -114,11 +123,9 @@ func (l *lexer) run() []tok {
 		case '|':
 			l.lexPair('|', tOr, "||", tPipe, "|")
 		case '(':
-			l.flush()
 			l.emit(tLParen, "(")
 			l.i++
 		case ')':
-			l.flush()
 			l.emit(tRParen, ")")
 			l.i++
 		case '>', '<':
@@ -188,7 +195,6 @@ func (l *lexer) lexPercent() bool {
 
 // lexPair emits a doubled operator (e.g. &&) or its single form (&).
 func (l *lexer) lexPair(ch byte, dbl tkind, dblText string, single tkind, singleText string) {
-	l.flush()
 	if l.i+1 < len(l.s) && l.s[l.i+1] == ch {
 		l.emit(dbl, dblText)
 		l.i += 2
@@ -202,7 +208,6 @@ func (l *lexer) lexPair(ch byte, dbl tkind, dblText string, single tkind, single
 // (e.g. the 2 in 2>) so it does not leak into argv.
 func (l *lexer) lexRedir() {
 	l.dropFDPrefix()
-	l.flush()
 	c := l.s[l.i]
 	o := string(c)
 	l.i++

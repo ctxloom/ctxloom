@@ -68,6 +68,10 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 		GitHubFetcher: fetcher,
 	})
 	if err != nil {
+		// The progress line above is deliberately newline-less so the result
+		// count can be appended to it. Nothing appends on this path, so close
+		// it here — otherwise the error prints as a continuation of it.
+		fmt.Println()
 		return err
 	}
 

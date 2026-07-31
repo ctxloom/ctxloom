@@ -481,7 +481,13 @@ func prefixWrapped(argv []string) ([]string, bool) {
 		if len(inner) == 0 {
 			return nil, false
 		}
-		return inner, true
+		// Clone rather than hand back a sub-slice: the returned argv becomes a
+		// nested SimpleCommand of the very command it was cut from, so sharing a
+		// backing array would let a write through either one silently rewrite the
+		// other's view of what runs — a guard reporting on a command other than
+		// the one it decided about. Prefix wrappers are rare on the hot path and
+		// the argv is short, so the copy is not worth reasoning about.
+		return slices.Clone(inner), true
 	}
 	return nil, false
 }

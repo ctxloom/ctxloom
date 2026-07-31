@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,498** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 177 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 178 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 207 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 204 |
-| `open` | no commit names this ID | **182** |
+| `open` | no commit names this ID | **181** |
 
-**Totals: 2268 findings across 162 units — 1,498 resolved, 182 still open, 588 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,498 resolved, 181 still open, 589 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 561 | 106 | 102 | 95 | 135 |
-| LOW | 871 | 578 | 67 | 59 | 104 | 63 |
+| LOW | 871 | 578 | 66 | 60 | 104 | 63 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2652,7 +2652,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U111-F09 | open | `harp.go:108-114` | CORRECTNESS | `Groups()` returns names in Go map-iteration order, i.e. randomized per process. | U111.md |
 | U113-F04 | **RESOLVED** `5ff9c4ab` | `internal/shared/iox/errwriter.go:62-67` vs `:73-80` | DUPLICATE | `WriteRaw` re-implements `Write`'s body instead of delegating; the short-circuit guard now exists in two places on the same field | U113.md |
 | U113-F05 | open | `internal/shared/iox/atomicwrite.go:20,26,34,38,42,46` and `internal/shared/iox/atomicwrite_fs.go:19,25,33,37,41,46` | ERRHANDLING | Both writers return bare stdlib errors with no context; the most likely one (`CreateTemp`) names the *temp* file, not the target the caller asked to write, and several callers do not wrap either | U113.md |
-| U113-F07 | open | `internal/shared/iox/atomicwrite.go:40`, `internal/shared/iox/atomicwrite_fs.go:40` | CORRECTNESS | `perm` is applied via `Chmod`, which **ignores umask**, unlike `os.WriteFile`/`afero.WriteFile`, which mask it. A caller migrating from `os.WriteFile` silently gets a wider mode than before under a... | U113.md |
+| U113-F07 | **PARTIAL** `faf79c01` | `internal/shared/iox/atomicwrite.go:40`, `internal/shared/iox/atomicwrite_fs.go:40` | CORRECTNESS | `perm` is applied via `Chmod`, which **ignores umask**, unlike `os.WriteFile`/`afero.WriteFile`, which mask it. A caller migrating from `os.WriteFile` silently gets a wider mode than before under a... | U113.md |
 | U114-F08 | **RESOLVED** `72f7f6bf` | `internal/agentcoord/coord/pidalive_unix.go:9`, `internal/lm/isolation/pidalive_unix.go:12` (+ `_windows` twins)` | TRIVIAL | Four one-line wrapper functions across two packages, in four build-tagged files, exist solely to re-export `pidalive.Alive` under a local name. The build tags are pure ceremony — the wrappers are p... | U114.md |
 | U115-F07 | **RESOLVED** `19d72034` | `internal/cli/plan_watch.go:58` | DUPLICATE | The `.plan.md` extension is hardcoded a further time in the watcher, in the same repo as two constants that define it. Adjacent to my unit and caused by `planExt` being unexported here. | U115.md |
 | U115-F08 | open | **`plans.go:145-175` (vs `internal/memory/stamp.go:69-72`)`** | CORRECTNESS | Reader and writer disagree on what counts as frontmatter. `ParseFrontmatter` never requires a **closing** `---`: a document opening with `---` and never closing it is scanned to EOF, so `title:`-sh... | U115.md |

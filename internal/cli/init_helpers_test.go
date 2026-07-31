@@ -10,7 +10,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -157,7 +156,7 @@ func TestApplyInitHooks_EmptyBackendListIsNotSuccess(t *testing.T) {
 	appDir := filepath.Join(testsupport.Isolate(t), ".ctxloom")
 
 	orig := applyHooksFn
-	applyHooksFn = func(context.Context, *config.Config, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
+	applyHooksFn = func(context.Context, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
 		return &operations.ApplyHooksResult{Status: "ok", Backends: nil}, nil
 	}
 	t.Cleanup(func() { applyHooksFn = orig })
@@ -179,7 +178,7 @@ func TestApplyInitHooks_ReportsTheBackendsItWrote(t *testing.T) {
 	appDir := filepath.Join(testsupport.Isolate(t), ".ctxloom")
 
 	orig := applyHooksFn
-	applyHooksFn = func(context.Context, *config.Config, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
+	applyHooksFn = func(context.Context, operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
 		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"claude-code", "codex"}}, nil
 	}
 	t.Cleanup(func() { applyHooksFn = orig })

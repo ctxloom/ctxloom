@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // FragmentEntry represents a fragment in operation results.
@@ -134,10 +135,15 @@ func GetFragment(ctx context.Context, cfg *config.Config, req GetFragmentRequest
 	}, nil
 }
 
-// containsTag checks if any tag contains the query string.
+// containsTag reports whether any tag contains query, case-insensitively.
+// U084-F13: both operands are folded HERE. Folding only the tag left an
+// undocumented "caller must lowercase query" precondition — every current
+// caller happens to honour it, so the next one would inherit a silent
+// false-negative with nothing to warn them.
 func containsTag(tags []string, query string) bool {
+	q := strings.ToLower(query)
 	for _, tag := range tags {
-		if strings.Contains(strings.ToLower(tag), query) {
+		if strings.Contains(strings.ToLower(tag), q) {
 			return true
 		}
 	}
@@ -145,14 +151,14 @@ func containsTag(tags []string, query string) bool {
 }
 
 // sortContentInfos sorts content infos by the specified field and order.
+// U084-F13: an unrecognised sortBy used to fall out of the switch and leave the
+// slice in loader order — a silent no-op for a caller that explicitly asked for
+// an ordering. It now warns and falls back to name, matching ListProfiles'
+// existing taxonomy for the same mistake (profiles.go).
 func sortContentInfos(infos []bundles.ContentInfo, sortBy, sortOrder string) {
-	if sortBy == "" {
-		sortBy = "name"
-	}
 	reverse := sortOrder == "desc"
 
-	switch sortBy {
-	case "name":
+	byName := func() {
 		sort.Slice(infos, func(i, j int) bool {
 			cmp := strings.Compare(strings.ToLower(infos[i].Name), strings.ToLower(infos[j].Name))
 			if reverse {
@@ -160,6 +166,11 @@ func sortContentInfos(infos []bundles.ContentInfo, sortBy, sortOrder string) {
 			}
 			return cmp < 0
 		})
+	}
+
+	switch sortBy {
+	case "", "name":
+		byName()
 	case "source":
 		sort.Slice(infos, func(i, j int) bool {
 			cmp := strings.Compare(infos[i].Source, infos[j].Source)
@@ -168,5 +179,8 @@ func sortContentInfos(infos []bundles.ContentInfo, sortBy, sortOrder string) {
 			}
 			return cmp < 0
 		})
+	default:
+		clidiag.Warn("ctxloom", "unknown sort_by %q; sorting by name (accepted: name, source)", sortBy)
+		byName()
 	}
 }

@@ -58,7 +58,7 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 		AppPaths:     []string{appDir},
 	})
 
-	_, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
 		Backend:      "all",
 		WorkDir:      projectDir,
 		FS:           afero.NewOsFs(),

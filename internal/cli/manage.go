@@ -129,11 +129,13 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	cfg, err := GetConfig()
-	if err != nil {
+	// ApplyHooks reloads config from disk itself (U084-F04), so this load is
+	// not an input to it — it is the early guard + config-warning echo the
+	// command owes the user before doing any work.
+	if _, err := GetConfig(); err != nil {
 		return err
 	}
-	result, err := operations.ApplyHooks(cmd.Context(), cfg, operations.ApplyHooksRequest{
+	result, err := operations.ApplyHooks(cmd.Context(), operations.ApplyHooksRequest{
 		Backend:           "all",
 		RegenerateContext: true,
 	})
@@ -292,12 +294,13 @@ var manageHooksInstallCmd = &cobra.Command{
 	Short: "Apply ctxloom hooks and regenerate context into backend config",
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
+		// Guard + config-warning echo only; ApplyHooks reloads from disk
+		// itself (U084-F04).
+		if _, err := GetConfig(); err != nil {
 			return err
 		}
 		workDir := projectroot.WorkDir()
-		result, err := operations.ApplyHooks(cmd.Context(), cfg, operations.ApplyHooksRequest{
+		result, err := operations.ApplyHooks(cmd.Context(), operations.ApplyHooksRequest{
 			Backend:           manageHooksBackend,
 			RegenerateContext: true,
 			Force:             manageHooksForce,

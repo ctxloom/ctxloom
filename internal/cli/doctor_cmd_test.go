@@ -91,7 +91,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 func applyHooksHermetically(t *testing.T, cfg *config.Config, root, backend string) {
 	t.Helper()
 	t.Cleanup(selfexec.SetPathForTesting("ctxloom"))
-	_, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
 		Backend: backend, WorkDir: root, RegenerateContext: true,
 	})
 	require.NoError(t, err)
@@ -712,8 +712,8 @@ func TestDoctorCmd_DepsFlag_JSONShapeIsDepsSignKeyGitIdentityAndACPAdapter(t *te
 }
 
 func TestDoctorCmd_JSONShape(t *testing.T) {
-	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+	root, _ := setupProject(t, "claude-code")
+	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
 		Backend: "claude-code", WorkDir: root,
 	})
 	require.NoError(t, err)
@@ -753,8 +753,8 @@ func TestDoctorCmd_JSONShape(t *testing.T) {
 // run, checked both on a healthy project and on a misconfigured one (a
 // write hidden behind either branch would still be caught).
 func TestDoctorCmd_ReadOnly(t *testing.T) {
-	root, cfg := setupProject(t, "claude-code")
-	_, err := operations.ApplyHooks(context.Background(), cfg, operations.ApplyHooksRequest{
+	root, _ := setupProject(t, "claude-code")
+	_, err := operations.ApplyHooks(context.Background(), operations.ApplyHooksRequest{
 		Backend: "claude-code", WorkDir: root,
 	})
 	require.NoError(t, err)

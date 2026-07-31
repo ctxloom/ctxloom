@@ -296,7 +296,7 @@ fragments:
 		}), nil
 	}
 
-	result, err := ApplyHooks(context.Background(), nil, ApplyHooksRequest{
+	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
 		Backend:           "claude-code",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,

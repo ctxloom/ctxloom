@@ -128,12 +128,20 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // DirtyTreeCommitAck) — both empty/false reproduces the pre-interview shape
 // (no keys written, built-in "commit" default, unacknowledged).
 func BuildInitialConfig(engine, dirtyTreeHandler string, dirtyTreeCommitAck bool) ([]byte, error) {
-	scaffold, err := config.ParseConfig(mustResource(resources.GetInitConfig))
+	scaffoldData, err := readResource(resources.GetInitConfig, "init scaffold")
+	if err != nil {
+		return nil, err
+	}
+	scaffold, err := config.ParseConfig(scaffoldData)
 	if err != nil {
 		return nil, fmt.Errorf("parse init scaffold: %w", err)
 	}
 
-	registry, err := config.ParseConfig(mustResource(resources.GetDefaultConfig))
+	registryData, err := readResource(resources.GetDefaultConfig, "default registry")
+	if err != nil {
+		return nil, err
+	}
+	registry, err := config.ParseConfig(registryData)
 	if err != nil {
 		return nil, fmt.Errorf("parse default registry: %w", err)
 	}
@@ -211,10 +219,24 @@ func roleLabel(registry config.LMConfig, engine, role string) string {
 	return ""
 }
 
-// mustResource reads an embedded resource, returning nil bytes on error. The
-// embedded files always exist, so an error here means a build/embed problem;
-// ParseConfig of nil bytes yields an empty config, which the caller surfaces.
-func mustResource(read func() ([]byte, error)) []byte {
-	data, _ := read()
-	return data
+// readResource reads an embedded resource, naming it in any failure.
+//
+// U084-F17: this replaces `mustResource`, which was named for a contract it
+// did not implement — it discarded the error and returned nil bytes. Nothing
+// downstream caught that: config.ParseConfig(nil) is yaml.Unmarshal of nil,
+// which succeeds and yields an EMPTY config, so a build with a broken embed
+// scaffolded a project whose config.yaml had no settings, no mcp block and no
+// llm registry, silently, at exit 0. `must*` in Go means "panic on failure";
+// this one swallowed instead, which is the opposite.
+//
+// The failure is a build/embed fault rather than anything a user can cause
+// (internal/config/arch_test.go asserts every accessor resolves), so the point
+// is not that it happens often — it is that when it does, init must not write
+// a hollow config and call it a project.
+func readResource(read func() ([]byte, error), what string) ([]byte, error) {
+	data, err := read()
+	if err != nil {
+		return nil, fmt.Errorf("read embedded %s: %w", what, err)
+	}
+	return data, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -42,11 +43,24 @@ type ApplyHooksResult struct {
 	Status      string   `json:"status"`
 	Backends    []string `json:"backends"`
 	ContextHash string   `json:"context_hash,omitempty"`
-	Errors      []string `json:"errors,omitempty"` // per-backend failures; non-empty => partial success
+	// Errors holds per-backend failures. Non-empty alongside a non-empty
+	// Backends means partial success; non-empty with an EMPTY Backends means
+	// nothing was configured at all, which ApplyHooks reports as
+	// Status "failed" and a non-nil error (U084-F11).
+	Errors []string `json:"errors,omitempty"`
 }
 
 // ApplyHooks applies ctxloom hooks to backend configuration files.
-func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) (*ApplyHooksResult, error) {
+//
+// It deliberately takes NO *config.Config. U084-F04: it used to accept one and
+// never read it — every caller handed over a Config it had just built and had
+// it silently discarded, because ApplyHooks reloads from disk via
+// resolveHookConfig. That reload is correct and load-bearing (`manage install`
+// writes config.yaml immediately before calling, so a Config captured earlier
+// is stale by construction), so the parameter was the thing that was wrong,
+// not the reload. Tests and any caller needing a different config inject it
+// through ApplyHooksRequest.ConfigLoader, which is the one honoured seam.
+func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, error) {
 	backend := req.Backend
 	if backend == "" {
 		backend = "all"
@@ -183,17 +197,33 @@ func ApplyHooks(ctx context.Context, cfg *config.Config, req ApplyHooksRequest) 
 
 	// Partial success is success: report which backends took and which
 	// failed rather than collapsing the whole call to an error.
+	//
+	// U084-F11: but TOTAL failure is not partial success. When every backend
+	// the request asked for failed, `applied` is empty and nothing at all was
+	// written — yet the old code still answered Status "partial", Backends []
+	// and a nil error, so `ctxloom manage hooks install` printed
+	// "Hooks partial for: []" and exited 0. That is exactly the silent-no-op
+	// shape (exit 0, success-ish message, zero bytes written). The word
+	// "partial" has to have something on both sides of it.
 	status := "applied"
 	if len(applyErrors) > 0 {
 		status = "partial"
 	}
-
-	return &ApplyHooksResult{
+	result := &ApplyHooksResult{
 		Status:      status,
 		Backends:    applied,
 		ContextHash: contextHash,
 		Errors:      applyErrors,
-	}, nil
+	}
+	if len(applied) == 0 && len(applyErrors) > 0 {
+		result.Status = "failed"
+		// The result is returned alongside the error so a caller that wants
+		// the per-backend detail still has it; every current caller checks
+		// err first and warns or aborts.
+		return result, fmt.Errorf("no backend could be configured: %s", strings.Join(applyErrors, "; "))
+	}
+
+	return result, nil
 }
 
 // bundleLoaderOpts builds the bundle loader options from the request's optional

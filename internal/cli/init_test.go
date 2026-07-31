@@ -330,8 +330,16 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 
 	var gotAppDir string
 	orig := applyHooksFn
-	applyHooksFn = func(_ context.Context, cfg *config.Config, _ operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
-		gotAppDir = cfg.GetAppDir()
+	applyHooksFn = func(_ context.Context, req operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
+		// U084-F04: this used to read the appDir off the *config.Config
+		// parameter — which ApplyHooks never read, so the assertion held
+		// while production re-discovered an ambient config by walking up
+		// from cwd. Read it off ConfigLoader instead: the seam ApplyHooks
+		// actually honours, so the pin now tracks the real path.
+		require.NotNil(t, req.ConfigLoader, "the target appDir must ride the seam ApplyHooks honours")
+		loaded, lerr := req.ConfigLoader()
+		require.NoError(t, lerr)
+		gotAppDir = loaded.GetAppDir()
 		return &operations.ApplyHooksResult{Status: "ok", Backends: []string{"codex"}}, nil
 	}
 	t.Cleanup(func() { applyHooksFn = orig })

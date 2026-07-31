@@ -194,7 +194,7 @@ func TestRunSyncPostSteps_FailuresWarnOnStderr(t *testing.T) {
 	syncLockStep = func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error) {
 		return nil, fmt.Errorf("lock boom")
 	}
-	syncHooksStep = func(context.Context, *config.Config, ApplyHooksRequest) (*ApplyHooksResult, error) {
+	syncHooksStep = func(context.Context, ApplyHooksRequest) (*ApplyHooksResult, error) {
 		return nil, fmt.Errorf("hooks boom")
 	}
 

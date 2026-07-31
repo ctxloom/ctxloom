@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,455** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,464** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 173 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 198 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 200 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 200 |
-| `open` | no commit names this ID | **242** |
+| `open` | no commit names this ID | **231** |
 
-**Totals: 2268 findings across 162 units — 1,455 resolved, 242 still open, 571 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,464 resolved, 231 still open, 573 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 540 | 136 | 100 | 91 | 132 |
-| LOW | 871 | 556 | 97 | 57 | 99 | 62 |
+| MED | 999 | 545 | 130 | 100 | 92 | 132 |
+| LOW | 871 | 560 | 92 | 57 | 100 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1534,13 +1534,13 @@ Full evidence and the suggested action for any row live in its source review at 
 | U083-F15 | **RESOLVED** `f491f088` | `delegate.go:442-452`, `:596-598` | ERRHANDLING | `boundDirtyChanges` swallows the `WorkingChanges` error and returns an empty list; the "commit" handler then prints a preview that names **no** files immediately before auto-committing the user's t... | U083.md |
 | U083-F16 | **PARTIAL** `0a7fb13f` | `engine_session.go:78`, `:114`, `:922`; `delegate.go:167`; `depgraph.go:264` | COMPLEXITY | Five functions exceed the project's stated CCN-10 CI gate, one of them anonymous (so a name-keyed gate cannot report it). | U083.md |
 | U083-F17 | **RESOLVED** `cc44e876` | `engine_session.go:609-621` | SILENTNOOP | `session/set_mode` replaces the session's lead context with `res.Context` unchecked — an assembly that succeeds while producing zero bytes silently blanks the mode's context. | U083.md |
-| U084-F04 | open | **`hooks.go:54`** | COUPLING | `ApplyHooks`'s exported `cfg *config.Config` parameter is **never read**; the function reloads config from disk instead. | U084.md |
+| U084-F04 | **RESOLVED** `02a59469` | **`hooks.go:54`** | COUPLING | `ApplyHooks`'s exported `cfg *config.Config` parameter is **never read**; the function reloads config from disk instead. | U084.md |
 | U084-F05 | **RESOLVED** `e459008e` | **`hooks.go:271-340`** | DUPLICATE | `checkClaudeHookTargetScope`, `checkCodexHookTargetScope` and `checkKiroHookTargetScope` are three structurally identical 15-line functions differing only in two function references and three messa... | U084.md |
-| U084-F06 | open | **`hooks.go:64-66`** | CORRECTNESS | Production code calls `agent.SetExecutablePathForTesting(req.ExecPath)`, mutating an unsynchronized package global that is **never restored**. Confirms routed item 11, with one correction. | U084.md |
-| U084-F09 | open | `helpers.go:42-47` | ERRHANDLING | A malformed or unreadable `remotes.yaml` silently disables per-forge `token_env` resolution, with no warning — private-repo clones then fail later with a confusing auth error. | U084.md |
-| U084-F10 | open | `engine_types.go:222` vs `internal/acp/fsupstream.go:25` | COUPLING | `CTXLOOM_ACP_FS_UPSTREAM` is written as two independent string literals with **no test asserting they match**, and the stated justification does not hold. | U084.md |
-| U084-F11 | open | **`hooks.go:165-177`** | ERRHANDLING | When **every** backend fails, `ApplyHooks` still returns a nil error with `Status: "partial"` and an empty `Backends` — `ctxloom manage hooks install` exits 0 having written nothing. | U084.md |
-| U084-F16 | open | `package-wide (all 9 files)` | COHESION | These files share only a package name. Nine unrelated concerns, 42 internal dependencies, no common type, no common invariant. | U084.md |
+| U084-F06 | **RESOLVED** `a0c17295` | **`hooks.go:64-66`** | CORRECTNESS | Production code calls `agent.SetExecutablePathForTesting(req.ExecPath)`, mutating an unsynchronized package global that is **never restored**. Confirms routed item 11, with one correction. | U084.md |
+| U084-F09 | **RESOLVED** `4e24ca49` | `helpers.go:42-47` | ERRHANDLING | A malformed or unreadable `remotes.yaml` silently disables per-forge `token_env` resolution, with no warning — private-repo clones then fail later with a confusing auth error. | U084.md |
+| U084-F10 | **RESOLVED** `25e24fab` | `engine_types.go:222` vs `internal/acp/fsupstream.go:25` | COUPLING | `CTXLOOM_ACP_FS_UPSTREAM` is written as two independent string literals with **no test asserting they match**, and the stated justification does not hold. | U084.md |
+| U084-F11 | **RESOLVED** `cbc516e6` | **`hooks.go:165-177`** | ERRHANDLING | When **every** backend fails, `ApplyHooks` still returns a nil error with `Status: "partial"` and an empty `Backends` — `ctxloom manage hooks install` exits 0 having written nothing. | U084.md |
+| U084-F16 | **REFUTED** `e5fbaab0` | `package-wide (all 9 files)` | COHESION | These files share only a package name. Nine unrelated concerns, 42 internal dependencies, no common type, no common invariant. | U084.md |
 | U085-F07 | **RESOLVED** `6b4e275e` | **`oneshot.go:316-319`** | SILENTNOOP | `if req.Context != ""` means a member whose profile assembles to nothing runs **context-free** with no diagnostic at all — the agent still executes and produces plausible output. | U085.md |
 | U085-F08 | **RESOLVED** `75c49ef0` | **`lockfile.go:275-506`** | DEAD | `CheckOutdated` and its entire helper chain — ~200 LOC and 5 types — have **zero production call sites**. | U085.md |
 | U085-F09 | **RESOLVED** `253f5649` | **`lockfile.go:174-270`** | DEAD | `InstallDependencies` (75 LOC) plus the `Puller` port and both DTOs are test-only. | U085.md |
@@ -2487,12 +2487,12 @@ Full evidence and the suggested action for any row live in its source review at 
 | U083-F26 | **RESOLVED** `2df10350` | `engine_session.go:736-739` vs `:958` | DUPLICATE | The worktree-isolation announcement prose is duplicated verbatim in two places. | U083.md |
 | U084-F07 | **RESOLVED** `9f84aa35` | `helpers.go:71,78,84` | TRIVIAL | `NewRepoCache`, `NewCachedFetcherFactory` and `GetCachedFetcher` are exported one-line pass-throughs to same-package unexported twins. | U084.md |
 | U084-F08 | **RESOLVED** `0e703dc2` | `ensemble.go:193-198` | DEAD | `MapProfilesResult` is documented as "the CLI-facing envelope for a `map` run" but **there is no `ctxloom map` command**. | U084.md |
-| U084-F12 | open | `fragments.go:60-62` | ERRHANDLING | `ListFragments` returns the loader's error verbatim with no context — the caller cannot tell whether tag-listing or full-listing failed. | U084.md |
-| U084-F13 | open | `fragments.go:148-172`, `fragments.go:138` | CORRECTNESS | `sortContentInfos` silently returns the input **unsorted** for any `sortBy` other than `"name"`/`"source"`; `containsTag` has an undocumented "caller must lowercase `query`" precondition. | U084.md |
+| U084-F12 | **REFUTED** `8823ff08` | `fragments.go:60-62` | ERRHANDLING | `ListFragments` returns the loader's error verbatim with no context — the caller cannot tell whether tag-listing or full-listing failed. | U084.md |
+| U084-F13 | **RESOLVED** `5388ced4` | `fragments.go:148-172`, `fragments.go:138` | CORRECTNESS | `sortContentInfos` silently returns the input **unsorted** for any `sortBy` other than `"name"`/`"source"`; `containsTag` has an undocumented "caller must lowercase `query`" precondition. | U084.md |
 | U084-F14 | **RESOLVED** `c2c669f1` | **`items.go:425,441,457`** | DUPLICATE | Three helpers each re-implement the same fragment-vs-command switch to pull a different field group; a third `ItemKind` means editing eight `switch` statements with no compiler help. | U084.md |
-| U084-F15 | open | **`hooks.go:399,408` via `backends.BackendsWithSettings`** | CORRECTNESS | `ApplyHooksResult.Backends` is in map-iteration order, so `ctxloom manage hooks install` prints a different backend order on every run and JSON output is unstable. | U084.md |
-| U084-F17 | open | **`init.go:217-220`** | ERRHANDLING | `mustResource` is named for a contract it does not implement: it discards the error and returns nil, so a broken embed yields an empty config that `BuildInitialConfig` writes to disk as a project's... | U084.md |
-| U084-F18 | open | `legacy_cleanup.go:35,79-88` | CORRECTNESS | The empty-directory prune only removes **one level**, and an unreadable bundles root is silently treated as "nothing to do". | U084.md |
+| U084-F15 | **RESOLVED** `eeb21f62` | **`hooks.go:399,408` via `backends.BackendsWithSettings`** | CORRECTNESS | `ApplyHooksResult.Backends` is in map-iteration order, so `ctxloom manage hooks install` prints a different backend order on every run and JSON output is unstable. | U084.md |
+| U084-F17 | **RESOLVED** `5b9dc31c` | **`init.go:217-220`** | ERRHANDLING | `mustResource` is named for a contract it does not implement: it discards the error and returns nil, so a broken embed yields an empty config that `BuildInitialConfig` writes to disk as a project's... | U084.md |
+| U084-F18 | **RESOLVED** `4ad31d78` | `legacy_cleanup.go:35,79-88` | CORRECTNESS | The empty-directory prune only removes **one level**, and an unreadable bundles root is silently treated as "nothing to do". | U084.md |
 | U085-F18 | **RESOLVED** `cb92d8b4` | **`profiles.go:20-33`** | DEAD | `LocalProfileNameFromPath` is exported but test-only. | U085.md |
 | U085-F19 | **RESOLVED** `9f84aa35` | **`lockfile.go:456-458`** | TRIVIAL | `repoURLForEntry(_ string, entry remote.LockEntry, _ *remote.Registry) string { return entry.URL }` — two of three parameters are discarded and the body is one field access. The two call sites pass... | U085.md |
 | U085-F20 | **REFUTED** `8c371870` | **`lockfile.go:273`** | DUPLICATE | `operations.FetcherFactory` re-declares `remote.FetcherFactory` with an identical signature, forcing a pointless conversion. | U085.md |

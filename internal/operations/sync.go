@@ -268,8 +268,11 @@ func syncRefs(ctx context.Context, puller Puller, refs []string, itemType remote
 // so tests can pin the guard conditions in runSyncPostSteps without driving the
 // full lockfile/hook machinery. Production wires them to the real operations.
 var (
-	syncLockStep  func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error)
-	syncHooksStep func(context.Context, *config.Config, ApplyHooksRequest) (*ApplyHooksResult, error)
+	syncLockStep func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error)
+	// syncHooksStep takes no *config.Config: ApplyHooks reloads config from
+	// disk itself (U084-F04), so passing one here would be the same silent
+	// discard the parameter removal fixed.
+	syncHooksStep func(context.Context, ApplyHooksRequest) (*ApplyHooksResult, error)
 )
 
 // Bound in init (not at declaration) to avoid an initialization cycle: the real
@@ -299,7 +302,7 @@ func runSyncPostSteps(ctx context.Context, cfg *config.Config, req SyncDependenc
 	// settings apply — per-backend partial failures are already instrumented
 	// inside ApplyHooks); degraded mode warns and continues.
 	if req.ApplyHooks && result.Total > 0 {
-		if _, err := syncHooksStep(ctx, cfg, ApplyHooksRequest{
+		if _, err := syncHooksStep(ctx, ApplyHooksRequest{
 			Backend:           "all",
 			RegenerateContext: true,
 		}); err != nil {

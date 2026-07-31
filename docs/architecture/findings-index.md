@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,451** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 171 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 172 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 193 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 197 |
-| `open` | no commit names this ID | **256** |
+| `open` | no commit names this ID | **255** |
 
-**Totals: 2268 findings across 162 units — 1,451 resolved, 256 still open, 561 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,451 resolved, 255 still open, 562 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 540 | 141 | 99 | 90 | 129 |
-| LOW | 871 | 552 | 106 | 56 | 95 | 62 |
+| LOW | 871 | 552 | 105 | 57 | 95 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2429,7 +2429,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U073-F06 | **RESOLVED** `55edc2ab` | `rules.go:360` | SILENTNOOP | With no submodule paths the sentinel is dropped and the rule is left with zero patterns, matching nothing — indistinguishable from an unreadable `.gitmodules`. | U073.md |
 | U073-F11 | open | `eval.go:29`, `eval.go:80` | ERRHANDLING | Both evaluators guard `script == nil` / empty path but not `cfg == nil`, which panics on `cfg.Rules`. | U073.md |
 | U073-F12 | open | `rules.go:389`, `rules.go:644` | COMPLEXITY | `Match.matches` and `validateRule` are both at CCN 11, above the project's own gate. | U073.md |
-| U073-F13 | open | `rules.go:262` | CORRECTNESS | `match.command` tokens are literal — no glob, no regex — while `match.path` tokens in the same file *are* full globs, and nothing warns when a user writes a metacharacter in `command:`. | U073.md |
+| U073-F13 | **PARTIAL** `9d612953` | `rules.go:262` | CORRECTNESS | `match.command` tokens are literal — no glob, no regex — while `match.path` tokens in the same file *are* full globs, and nothing warns when a user writes a metacharacter in `command:`. | U073.md |
 | U073-F14 | open | `eval.go:25-28` | CORRECTNESS | The doc comment says "the first matching deny rule wins", but command order dominates rule order — an earlier *command* matching a later *rule* beats a later command matching an earlier rule. | U073.md |
 | U073-F15 | **RESOLVED** `100f543d` | `eval.go:13`, `eval.go:11` | DEAD | `Decision.Command` is written and never read anywhere in the repo; `Decision.Rule` is read only by this package's own tests. | U073.md |
 | U074-F03 | open | `submodules.go:48-54` | CORRECTNESS | Trailing inline comments and quoted values are not handled: `path = libs/foo ; note` yields the path `libs/foo ; note`, and git-config's quoted form `path = "libs/foo"` yields `"libs/foo"` with the... | U074.md |

@@ -81,11 +81,58 @@ func parseSubmodulePaths(content string) []string {
 		if !ok || strings.TrimSpace(key) != "path" {
 			continue
 		}
-		if p := strings.TrimSpace(val); p != "" {
+		if p := configValue(val); p != "" {
 			paths = append(paths, filepath.ToSlash(p))
 		}
 	}
 	return paths
+}
+
+// configValue decodes a git-config variable value: `;` and `#` begin a comment
+// unless quoted, a double-quoted run contributes its contents without the
+// quotes and without comment meaning, `\` escapes the next byte (\n, \t and \b
+// name control characters; anything else is literal, which covers \" and \\),
+// and unquoted surrounding whitespace is dropped.
+//
+// Taking the raw line remainder instead is a mis-parse in the fail-open
+// direction: `path = "libs/foo"` yielded the path `"libs/foo"`, which
+// Config.ExpandSubmodules turns into the deny pattern `"libs/foo"/` — a pattern
+// no real path can match, so the rule written to guard that submodule guards
+// nothing, silently.
+func configValue(raw string) string {
+	var b strings.Builder
+	inQuotes := false
+	keep := 0 // b.Len() through the last byte that survives trailing trimming
+	write := func(c byte, quoted bool) {
+		b.WriteByte(c)
+		if quoted || (c != ' ' && c != '\t') {
+			keep = b.Len()
+		}
+	}
+	raw = strings.TrimLeft(raw, " \t")
+	for i := 0; i < len(raw); i++ {
+		switch c := raw[i]; {
+		case c == '\\' && i+1 < len(raw):
+			i++
+			switch e := raw[i]; e {
+			case 'n':
+				write('\n', true)
+			case 't':
+				write('\t', true)
+			case 'b':
+				write('\b', true)
+			default:
+				write(e, true)
+			}
+		case c == '"':
+			inQuotes = !inQuotes
+		case !inQuotes && (c == ';' || c == '#'):
+			return b.String()[:keep]
+		default:
+			write(c, inQuotes)
+		}
+	}
+	return b.String()[:keep]
 }
 
 // sectionHeader splits a git-config section header off the front of line. It

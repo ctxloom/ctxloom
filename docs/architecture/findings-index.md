@@ -21,12 +21,12 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 | status | meaning | count |
 |---|---|---|
 | **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,283** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 124 |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 125 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 170 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 165 |
-| `open` | no commit names this ID | **526** |
+| `open` | no commit names this ID | **525** |
 
-**Totals: 2268 findings across 162 units — 1,283 resolved, 526 still open, 459 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,283 resolved, 525 still open, 460 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 1 | 11 | 6 | 6 |
 | MED | 999 | 454 | 293 | 69 | 79 | 104 |
-| LOW | 871 | 472 | 221 | 40 | 83 | 55 |
+| LOW | 871 | 472 | 220 | 41 | 83 | 55 |
 | (unparsed) | 22 | 5 | 11 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2569,7 +2569,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U093-F24 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `mock_fetcher.go (whole file)` | NOPAY | 206 lines of test double compile into the shipped production binary. | U093.md |
 | U093-F27 | **RESOLVED** `b9348b9a` | `git_clone_fetcher.go:289` | ERRHANDLING | `GetDefaultBranch` returns the guess `"main"` with a nil error when nothing resolved, presenting a guess as an answer. | U093.md |
 | U093-F28 | open | `github.go:284` | COUPLING | Unnamed magic bounds encode "looks like a commit SHA", and a 7-character branch name is probed as a commit first. | U093.md |
-| U093-F29 | open | `github.go:114, 123, 125, 169` | ERRHANDLING | Diagnostics go to `os.Stderr` via raw `fmt.Fprintf` while the same package uses `clidiag` for the equivalent job. | U093.md |
+| U093-F29 | **PARTIAL** `130573c3` | `github.go:114, 123, 125, 169` | ERRHANDLING | Diagnostics go to `os.Stderr` via raw `fmt.Fprintf` while the same package uses `clidiag` for the equivalent job. | U093.md |
 | U093-F33 | **RESOLVED** `71b6ebe5` | **`lockfile.go:104-107`** | ERRHANDLING | `Save(nil)` panics rather than returning an error, on the type that is the sole on-disk trust record. | U093.md |
 | U093-F34 | open | **`lockfile.go:156-176, 279-301`** | COUPLING | Two public methods return slices of *anonymous* structs, so any caller that wants to store or pass the result must re-spell the exact anonymous type. | U093.md |
 | U093-F35 | **ESCALATED** `f889332c` | **`lockfile.go:71-74, 104-129`** | CORRECTNESS | The lockfile schema version is a magic literal at three construction sites, validated nowhere, and `Save` will happily persist `version: 0`. | U093.md |

@@ -55,7 +55,12 @@ func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *c
 // schema-invalid config files (and lossy migrations) to kind-tagged Warnings
 // and returns a nil error, so every startup path that consumes a loaded config
 // must surface them — otherwise a corrupted config.yaml silently launches an
-// empty-context session. A present-but-broken config is fatal-class
+// empty-context session. The RECORDING is deduplicated per strictness window
+// (RecordOnce): config.Load is memoized and re-consulted from every
+// GetConfig-based command, so recording unconditionally turned one broken file
+// into N copies of one finding in a single abort block. The finding still
+// re-fires in the next window, so an unfixed config refuses the next session
+// too. A present-but-broken config is fatal-class
 // (fail-loudly): `ctxloom run` / `ctxloom mcp` / `ctxloom acp` abort on the
 // recorded findings unless --degraded; management commands never check
 // findings, so for them this stays pure warning output. Shared by `ctxloom
@@ -66,7 +71,7 @@ func printConfigWarnings(w io.Writer, warnings []config.Warning) {
 	ew := iox.NewErrWriter(w)
 	for _, warning := range warnings {
 		clidiag.Fwarn(ew, "ctxloom", "%s", warning.Text)
-		strictness.Record(configWarningClass(warning.Kind), configWarningFixIt(warning.Kind), "%s", warning.Text)
+		strictness.RecordOnce(configWarningClass(warning.Kind), configWarningFixIt(warning.Kind), "%s", warning.Text)
 	}
 }
 

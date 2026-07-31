@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 
@@ -377,7 +378,10 @@ func runUpdateDistill(ctx context.Context, bundle *bundles.Bundle, req UpdateBun
 }
 
 // applyFragmentEdits merges set inputs into the bundle's fragments and applies
-// removals, appending a change line per mutation. It returns the names that need
+// removals, appending a change line per mutation. A set input that merges to an
+// entry identical to the existing one is NOT a mutation and reports nothing:
+// UpdateBundle's "no_changes" status is defined as "the request produced no
+// diff", so a re-applied identical edit must not claim one. It returns the names that need
 // (re)distillation: a fragment is queued when it is new or its content actually
 // changed (unless NoDistill). A metadata-only edit (same content) updates
 // tags/notes/installation but preserves the cached Distilled/DistilledBy/
@@ -402,6 +406,9 @@ func applyFragmentEdits(bundle *bundles.Bundle, set map[string]BundleFragmentInp
 			if !in.NoDistill {
 				distillTargets = append(distillTargets, name)
 			}
+		}
+		if hadExisting && reflect.DeepEqual(merged, existing) {
+			continue
 		}
 		bundle.Fragments[name] = merged
 		changes = append(changes, "set fragment: "+name)
@@ -438,6 +445,9 @@ func applyPromptEdits(bundle *bundles.Bundle, set map[string]BundleCommandInput,
 				distillTargets = append(distillTargets, name)
 			}
 		}
+		if hadExisting && reflect.DeepEqual(merged, existing) {
+			continue
+		}
 		bundle.Commands[name] = merged
 		changes = append(changes, "set prompt: "+name)
 	}
@@ -468,20 +478,25 @@ func onlyNewKeys[V, E any](in map[string]V, existing map[string]E) map[string]V 
 }
 
 // applyMCPEdits merges set inputs into the bundle's MCP servers and applies
-// removals, appending a change line per mutation. MCP servers carry no distilled
-// content, so there are no distill targets to return.
+// removals, appending a change line per mutation — a merge identical to the
+// existing entry is not one, per applyFragmentEdits. MCP servers carry no
+// distilled content, so there are no distill targets to return.
 func applyMCPEdits(bundle *bundles.Bundle, set map[string]BundleMCPInput, remove []string, changes []string) []string {
 	for name, in := range set {
 		if bundle.MCP == nil {
 			bundle.MCP = make(map[string]bundles.BundleMCP)
 		}
-		existing := bundle.MCP[name]
-		existing.Command = in.Command
-		existing.Args = in.Args
-		existing.Env = in.Env
-		existing.Notes = in.Notes
-		existing.Installation = in.Installation
-		bundle.MCP[name] = existing
+		existing, hadExisting := bundle.MCP[name]
+		merged := existing
+		merged.Command = in.Command
+		merged.Args = in.Args
+		merged.Env = in.Env
+		merged.Notes = in.Notes
+		merged.Installation = in.Installation
+		if hadExisting && reflect.DeepEqual(merged, existing) {
+			continue
+		}
+		bundle.MCP[name] = merged
 		changes = append(changes, "set mcp: "+name)
 	}
 	for _, name := range remove {

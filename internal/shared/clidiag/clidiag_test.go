@@ -3,6 +3,8 @@ package clidiag
 import (
 	"bytes"
 	"encoding/json"
+	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -196,3 +198,35 @@ func TestLine_MatchesFwarnForAProgContainingAPercent(t *testing.T) {
 			"Line must render exactly what Fwarn writes for prog %q — it is that line's dedup key", prog)
 	}
 }
+
+// SetSink's doc guarantees it "never installs a nil writer" — the guarantee that
+// stops the next warning panicking or vanishing. The `w == nil` check only sees
+// an UNTYPED nil, so a typed-nil (`var f *os.File; SetSink(f)`) satisfied w !=
+// nil and was installed: writes to it either panic (*bytes.Buffer) or return
+// ErrInvalid (*os.File), and fwarn discards the write error — the diagnostic is
+// gone with no trace, this project's signature failure shape. A typed nil must
+// be treated exactly like an untyped one: fall back to the default sink.
+// (U103-F08. warnSink's identity is asserted rather than driving a real Warn,
+// which would print onto the suite's own stderr.)
+func TestSetSink_TypedNilFallsBackToTheDefault(t *testing.T) {
+	var file *os.File
+	var buf *bytes.Buffer
+	var fn writerFunc
+
+	for name, w := range map[string]io.Writer{
+		"*os.File":      file,
+		"*bytes.Buffer": buf,
+		"func-based":    fn,
+		"untyped nil":   nil,
+	} {
+		restore := SetSink(w)
+		assert.Same(t, os.Stderr, warnSink(), "a %s nil writer must not be installed as the sink", name)
+		restore()
+	}
+}
+
+// writerFunc is a func-kinded io.Writer, so the typed-nil guard is exercised on
+// something other than a pointer.
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }

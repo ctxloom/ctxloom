@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"sync"
 	"sync/atomic"
 
@@ -93,12 +94,31 @@ var sink atomic.Pointer[io.Writer]
 // untouched, because a caller that named its own writer already chose.
 func SetSink(w io.Writer) (restore func()) {
 	prev := sink.Load()
-	if w == nil {
+	if isNilWriter(w) {
 		sink.Store(nil)
 	} else {
 		sink.Store(&w)
 	}
 	return func() { sink.Store(prev) }
+}
+
+// isNilWriter reports whether w carries no usable writer — an untyped nil, or a
+// TYPED nil (`var f *os.File; SetSink(f)`), which a bare `w == nil` misses
+// because the interface still holds a type. Installing one is the failure SetSink
+// documents itself as preventing: writing to it either panics (*bytes.Buffer) or
+// returns an error fwarn discards (*os.File), so the diagnostic disappears
+// without a trace.
+func isNilWriter(w io.Writer) bool {
+	if w == nil {
+		return true
+	}
+	switch v := reflect.ValueOf(w); v.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface,
+		reflect.Map, reflect.Pointer, reflect.Slice, reflect.UnsafePointer:
+		return v.IsNil()
+	default:
+		return false
+	}
 }
 
 // warnSink resolves the current destination for the stderr-flavored helpers.

@@ -60,19 +60,23 @@ func MergeMCPConfig(dest *MCPConfig, src *MCPConfig) {
 		dest.AutoRegisterCtxloom = &autoRegister
 	}
 
-	// Merge unified servers
-	if dest.Servers == nil {
-		dest.Servers = make(map[string]MCPServer)
-	}
+	// Merge unified servers. Each map is allocated only once there is something
+	// to put in it: nil means "this layer said nothing about MCP" and empty
+	// means "this layer declared MCP and it is empty", and a merge is where
+	// layering is decided, so manufacturing the second from the first would
+	// fabricate a declaration no config made.
 	for name, server := range src.Servers {
+		if dest.Servers == nil {
+			dest.Servers = make(map[string]MCPServer, len(src.Servers))
+		}
 		dest.Servers[name] = CloneMCPServer(server)
 	}
 
 	// Merge plugin-specific servers
-	if dest.Plugins == nil {
-		dest.Plugins = make(map[string]map[string]MCPServer)
-	}
 	for backend, servers := range src.Plugins {
+		if dest.Plugins == nil {
+			dest.Plugins = make(map[string]map[string]MCPServer, len(src.Plugins))
+		}
 		if dest.Plugins[backend] == nil {
 			dest.Plugins[backend] = make(map[string]MCPServer)
 		}

@@ -25,8 +25,14 @@ const draft = "https://json-schema.org/draft/2020-12/schema"
 
 // Target names one JSON output struct to publish a schema for. Name is the file
 // base (without the "-schema.json" suffix) and the $id stem; if empty it is
-// derived from the Go type name. Nested types reused inside a Target are inlined
-// by the reflector — only top-level output shapes need their own Target.
+// derived from the Go type name, which must therefore be non-empty — Generate
+// refuses a target whose name cannot be derived. Nested types reused inside a
+// Target are inlined by the reflector — only top-level output shapes need their
+// own Target.
+//
+// An omitted Name binds the published $id to the Go identifier: renaming the
+// type renames the schema's URL. Set Name explicitly on any target whose $id is
+// meant to outlive Go-side refactoring.
 type Target struct {
 	Type reflect.Type
 	Name string
@@ -59,6 +65,9 @@ func Generate(dir string, targets []Target) (int, error) {
 	// finished one.
 	if len(targets) == 0 {
 		return 0, errors.New("schemagen: no targets — refusing to report success having generated nothing")
+	}
+	if err := rejectUnderivableNames(targets); err != nil {
+		return 0, err
 	}
 	// Two targets resolving to the same file base would write one $id with two
 	// different shapes, last writer wins — a lying contract, and one no count of
@@ -103,6 +112,23 @@ func Generate(dir string, targets []Target) (int, error) {
 		written++
 	}
 	return written, nil
+}
+
+// rejectUnderivableNames reports an error for any target whose schema name
+// resolves to the empty string. reflect.Type.Name() is "" for every unnamed
+// type — an anonymous struct, a pointer, a slice, a map — so a target that
+// relies on the derived name for one of those would otherwise be published as
+// the file "-schema.json" under the $id "<idBase>.json": a contract whose URL
+// identifies nothing. The name is the schema's identity; it cannot be blank.
+func rejectUnderivableNames(targets []Target) error {
+	for _, t := range targets {
+		if name(t) != "" {
+			continue
+		}
+		return fmt.Errorf(
+			"schemagen: cannot derive a schema name for %s (unnamed types have no reflect name) — give the target an explicit Name", t.Type)
+	}
+	return nil
 }
 
 // rejectNameCollisions reports an error when two targets resolve to the same

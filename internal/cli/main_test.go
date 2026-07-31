@@ -69,14 +69,24 @@ func TestCLITestBinary_FailsClosedWithoutTheSandbox(t *testing.T) {
 	}
 }
 
-// repoDir returns the module root, derived from this file's own compiled-in
-// path rather than the working directory (TestMain has already moved that into
-// the sandbox, which is the whole point).
-func repoDir(t *testing.T) string {
+// pkgSourceDir returns this package's own source directory, and repoDir the
+// module root, both derived from this file's compiled-in path rather than the
+// working directory — TestMain has already moved that into the sandbox, which
+// is the whole point. Every source-scanning test in this package (the exit-code
+// policy sweep, the doc-comment sweep, the reach-back marker sweep) resolves
+// through these: a scan rooted at "." silently scans an EMPTY directory once
+// the binary is sandboxed, and a sweep that finds nothing reports "no
+// violations", which is the false green these sweeps exist to prevent.
+func pkgSourceDir(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller: cannot locate this source file")
 	}
-	return filepath.Dir(filepath.Dir(filepath.Dir(file))) // internal/cli/<file> -> repo root
+	return filepath.Dir(file)
+}
+
+func repoDir(t *testing.T) string {
+	t.Helper()
+	return filepath.Dir(filepath.Dir(pkgSourceDir(t))) // internal/cli -> repo root
 }

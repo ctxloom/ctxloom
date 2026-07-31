@@ -31,7 +31,10 @@ func TestReachBackMarker_HasExactlyOneDeclaration(t *testing.T) {
 	// Production sources on both sides of the boundary. Comments are allowed
 	// to quote the marker (they explain the wire form); only a Go string
 	// literal in code is a second declaration.
-	for _, dir := range []string{".", filepath.Join("..", "acp")} {
+	// Absolute, from the compiled-in source paths — not "." / "../acp" (see
+	// pkgSourceDir): TestMain sandboxes the binary into a temp cwd, where
+	// neither relative path resolves.
+	for _, dir := range []string{pkgSourceDir(t), filepath.Join(repoDir(t), "internal", "acp")} {
 		entries, err := os.ReadDir(dir)
 		require.NoError(t, err, "read %s", dir)
 		for _, e := range entries {

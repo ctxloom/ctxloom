@@ -63,7 +63,11 @@ var silentFailureLoopRE = regexp.MustCompile(
 // the test's output — and the allowlist keyed from it — is stable.
 func findSilentFailureSites(t *testing.T) []string {
 	t.Helper()
-	entries, err := os.ReadDir(".")
+	// Absolute, from this package's compiled-in source path — not "." (see
+	// pkgSourceDir): TestMain sandboxes the binary into a temp cwd, where a
+	// "." scan finds no sites and this sweep silently reports no debt.
+	dir := pkgSourceDir(t)
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read internal/cli: %v", err)
 	}
@@ -73,7 +77,7 @@ func findSilentFailureSites(t *testing.T) []string {
 		if e.IsDir() || filepath.Ext(name) != ".go" || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		src, err := os.ReadFile(name)
+		src, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}

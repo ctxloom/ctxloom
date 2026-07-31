@@ -17,7 +17,8 @@ import (
 )
 
 // idBase is the published $id prefix; matches the hand-maintained input schemas
-// (schema/input/{config,fragment}-schema.json) under the same host.
+// (resources/schema/input/{config,fragment,taskloom-config}-schema.json) under
+// the same host.
 const idBase = "https://ctxloom.dev/schemas/"
 
 // draft is the JSON Schema dialect every generated schema declares.

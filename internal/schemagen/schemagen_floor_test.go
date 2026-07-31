@@ -3,9 +3,11 @@
 package schemagen
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -218,5 +220,43 @@ func TestGenerate_UnderivableNameIsRefused(t *testing.T) {
 				t.Error("a refused run wrote a file named \"-schema.json\"")
 			}
 		})
+	}
+}
+
+// pkgSourceDir resolves this package's directory from the COMPILED-IN source
+// path of this file rather than from the test binary's working directory, so a
+// test that walks the repo cannot silently walk the wrong tree and find
+// nothing (which would read as a clean pass).
+func pkgSourceDir(t *testing.T) string {
+	t.Helper()
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("cannot resolve this test's own source path")
+	}
+	return filepath.Dir(file)
+}
+
+// TestIDBase_MatchesTheHandMaintainedInputSchemas pins the invariant idBase's
+// doc comment asserts: the generated schemas and the hand-maintained input
+// schemas are published under ONE host, and those input schemas live at
+// resources/schema/input. Moving or renaming that directory, or changing either
+// side's host, turns the doc comment back into a claim nobody checks.
+func TestIDBase_MatchesTheHandMaintainedInputSchemas(t *testing.T) {
+	inputDir := filepath.Join(pkgSourceDir(t), "..", "..", "resources", "schema", "input")
+	for _, base := range []string{"config-schema.json", "fragment-schema.json"} {
+		path := filepath.Join(inputDir, base)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("input schema not where idBase's doc comment says it is: %v", err)
+		}
+		var doc struct {
+			ID string `json:"$id"`
+		}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatalf("%s: %v", base, err)
+		}
+		if !strings.HasPrefix(doc.ID, idBase) {
+			t.Errorf("%s declares $id %q, which is not under idBase %q", base, doc.ID, idBase)
+		}
 	}
 }

@@ -1144,3 +1144,35 @@ func TestOpenSession_FailureAfterRegistrationReleasesTheSession(t *testing.T) {
 	assert.Nil(t, s.lookup("tidy-old-harp"),
 		"a session/load that failed after registration must not keep the harp occupied — the client was never given this session")
 }
+
+// TestOpenSession_LostRaceOnFixedIDIsRefusedNotRenamed pins U014-F05:
+// openSession's duplicate check for a FIXED (session/load) id ran before the
+// engine was opened, and the registration that followed re-tested the map
+// under the lock with a fallback that MINTED a generated "ctxloom-N" id. So a
+// session/load that lost the race was registered under an id the caller never
+// asked for and was never told about — session/load's response body carries
+// no sessionId, so the client goes on addressing the harp, which belongs to
+// somebody else's session. Silently answering a different question is never
+// better than refusing.
+func TestOpenSession_LostRaceOnFixedIDIsRefusedNotRenamed(t *testing.T) {
+	eng := newFakeEngine()
+	go eng.pump()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	s := &Server{ctx: ctx, sessions: make(map[api.SessionId]*session)}
+	// The competing registration lands while THIS open is in flight — exactly
+	// the window between the pre-check and the registration.
+	s.open = func(context.Context, OpenRequest) (*EngineChat, error) {
+		s.mu.Lock()
+		s.sessions["tidy-old-harp"] = &session{id: "tidy-old-harp"}
+		s.mu.Unlock()
+		return eng.chat(""), nil
+	}
+
+	sess, rerr := s.openSession(OpenRequest{ResumeHarp: "tidy-old-harp"}, "tidy-old-harp")
+
+	require.NotNil(t, rerr, "the requested harp was taken while we opened — that must be refused")
+	assert.Nil(t, sess)
+	assert.Contains(t, rerr.Message, "tidy-old-harp")
+}

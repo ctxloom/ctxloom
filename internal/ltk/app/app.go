@@ -192,9 +192,12 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 
 	// Understand trivial wrappers (bash -c "…", eval "…", env …, timeout N …,
 	// …) by unwrapping their inner command, so a denied command can't be
-	// smuggled past a rule. A truncated expansion means the nesting ran deeper
-	// than ltk verified — fail CLOSED (deny) rather than evaluate rules
-	// against a possibly-incomplete view of what the command actually runs.
+	// smuggled past a rule. A truncated expansion means a WRAPPER was left
+	// unexpanded — its inner command string was never parsed, so no rule saw
+	// the command that actually runs — and is failed CLOSED (deny). Depth on
+	// its own is not that signal: a command substitution the frontend already
+	// parsed is visible to rules.Evaluate at any depth, so nesting alone must
+	// not produce this denial.
 	// A nested command that failed to PARSE (as opposed to depth) is a
 	// separate signal: previously this was silently dropped from the IR with
 	// no trace at all, which is the exact mechanism behind

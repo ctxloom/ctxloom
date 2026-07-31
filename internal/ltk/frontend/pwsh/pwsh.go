@@ -64,11 +64,21 @@ type Frontend struct {
 	// run executes the parse helper for src and returns its JSON stdout. It is a
 	// field so tests can inject a fake without a real PowerShell install.
 	run func(ctx context.Context, src string) ([]byte, error)
+
+	// binOnce/binPath memoize the PATH lookup for the interpreter. They belong
+	// to the Frontend rather than the package: as package state the first
+	// answer — including "not found" — was frozen for the life of the process,
+	// with no owner able to invalidate it and no way for a test to arrange
+	// either outcome.
+	binOnce sync.Once
+	binPath string
 }
 
 // New returns a PowerShell Frontend backed by the real parser.
 func New() *Frontend {
-	return &Frontend{run: runPowerShell}
+	f := &Frontend{}
+	f.run = f.runPowerShell
+	return f
 }
 
 // Shells reports the dialects handled by this frontend.
@@ -131,26 +141,21 @@ func lower(data []byte, shell ir.Shell) (*ir.Script, error) {
 	return script, nil
 }
 
-var (
-	binOnce sync.Once
-	binPath string
-)
-
-// resolveBin finds pwsh (preferred) or powershell once.
-func resolveBin() string {
-	binOnce.Do(func() {
+// resolveBin finds pwsh (preferred) or powershell once per Frontend.
+func (f *Frontend) resolveBin() string {
+	f.binOnce.Do(func() {
 		for _, name := range []string{"pwsh", "powershell"} {
 			if p, err := exec.LookPath(name); err == nil {
-				binPath = p
+				f.binPath = p
 				return
 			}
 		}
 	})
-	return binPath
+	return f.binPath
 }
 
-func runPowerShell(ctx context.Context, src string) ([]byte, error) {
-	bin := resolveBin()
+func (f *Frontend) runPowerShell(ctx context.Context, src string) ([]byte, error) {
+	bin := f.resolveBin()
 	if bin == "" {
 		return nil, errUnavailable
 	}
@@ -165,7 +170,25 @@ func runPowerShell(ctx context.Context, src string) ([]byte, error) {
 	cmd.Stdout = &out
 	cmd.Stderr = &errb
 	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("pwsh parse failed: %w: %s", err, strings.TrimSpace(errb.String()))
+		return nil, runErr(ctx, err, strings.TrimSpace(errb.String()))
 	}
 	return out.Bytes(), nil
+}
+
+// runErr says WHICH failure a failed child run was. When the parse overruns
+// parseTimeout the context kills the process, so cmd.Run reports only "signal:
+// killed" — the same thing an OOM kill or any other external signal reports.
+// An operator watching intermittent denials (or intermittent unanalyzed
+// allows) then has nothing to act on, and cannot tell "PowerShell is slow
+// here, raise the limit" from "something is killing the process". Wrapping the
+// context's own error also makes the case testable with errors.Is instead of
+// by matching on message text.
+func runErr(ctx context.Context, err error, stderr string) error {
+	switch {
+	case errors.Is(ctx.Err(), context.DeadlineExceeded):
+		return fmt.Errorf("pwsh parse exceeded its %s deadline and was killed (%v): %w", parseTimeout, err, context.DeadlineExceeded)
+	case errors.Is(ctx.Err(), context.Canceled):
+		return fmt.Errorf("pwsh parse was canceled (%v): %w", err, context.Canceled)
+	}
+	return fmt.Errorf("pwsh parse failed: %w: %s", err, stderr)
 }

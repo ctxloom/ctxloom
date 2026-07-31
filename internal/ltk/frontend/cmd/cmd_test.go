@@ -64,11 +64,49 @@ func TestParenGroupFlattened(t *testing.T) {
 	}
 }
 
+// TestGroupKeepsItsOwnConnector pins that flattening a ( … ) group carries the
+// connector that joined the GROUP to what came before onto the group's first
+// inner pipeline, exactly as the shell frontend's lowerGroup does. Without it
+// the `&&` in `echo a && ( … )` is dropped from the IR entirely and the
+// flattened commands read as an unconditional sequence.
+func TestGroupKeepsItsOwnConnector(t *testing.T) {
+	s := parse(t, "echo a && (echo b & echo c)")
+	var conns []ir.Connector
+	for _, p := range s.Pipelines {
+		conns = append(conns, p.Connector)
+	}
+	want := []ir.Connector{ir.ConnNone, ir.ConnAnd, ir.ConnSeq}
+	if !reflect.DeepEqual(conns, want) {
+		t.Errorf("connectors = %v, want %v", conns, want)
+	}
+}
+
 func TestQuotedArgument(t *testing.T) {
 	s := parse(t, `cmd /c "git tag v1"`)
 	c := s.Pipelines[0].Commands[0]
 	if !reflect.DeepEqual(c.Argv, []string{"cmd", "/c", "git tag v1"}) {
 		t.Errorf("argv = %v", c.Argv)
+	}
+}
+
+// TestUnterminatedQuoteKeepsRestOfLineLiteral pins the behaviour U069-F03
+// reads as a defect: an unterminated `"` swallows the rest of the line into
+// one word, so `del` is not surfaced as a further command.
+//
+// That is what cmd.exe itself does. Its parser tracks quote state across the
+// whole line, and `&` `|` `(` `)` `<` `>` are not special while that state is
+// open, so an odd number of quotes leaves the remainder literal and no second
+// command ever runs. Splitting here would make ltk match rules against a
+// command cmd.exe will not execute — a false denial invented by ltk's own
+// parser. Do not "fix" this by re-lexing the tail; see U069-F03.
+func TestUnterminatedQuoteKeepsRestOfLineLiteral(t *testing.T) {
+	s := parse(t, `echo "hi & del /f /q important-file`)
+	if got := programs(s); !reflect.DeepEqual(got, []string{"echo"}) {
+		t.Fatalf("programs = %v, want [echo]: the unterminated quote keeps the tail literal in cmd.exe too", got)
+	}
+	c := s.Pipelines[0].Commands[0]
+	if !reflect.DeepEqual(c.Argv, []string{"echo", "hi & del /f /q important-file"}) {
+		t.Errorf("argv = %v, want the whole tail as one word", c.Argv)
 	}
 }
 
@@ -80,11 +118,67 @@ func TestCaretEscapeNotAnOperator(t *testing.T) {
 	}
 }
 
+// TestCaretLineContinuation pins cmd's `^` at end of line: it is a LINE
+// CONTINUATION, so the caret and the newline both disappear and the word
+// continues on the next line. Escaping the newline into the word instead
+// leaves argv[0] as "git\n", which no rule targeting `git push` can match
+// even though cmd.exe runs exactly that — a silent bypass, not the cosmetic
+// end-of-input case the row describes.
+func TestCaretLineContinuation(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		src  string
+		want []string
+	}{
+		{"word boundary preserved", "git^\n push --force", []string{"git", "push", "--force"}},
+		{"word joined across lines", "ec^\nho hi", []string{"echo", "hi"}},
+		{"crlf line ending", "git^\r\n push --force", []string{"git", "push", "--force"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := parse(t, tc.src)
+			if len(s.Pipelines) != 1 {
+				t.Fatalf("a continued line is ONE command, got %d pipelines", len(s.Pipelines))
+			}
+			if got := s.Pipelines[0].Commands[0].Argv; !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("argv = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// TestTrailingCaretProducesNothing pins the end-of-input case the row names:
+// a `^` with nothing after it has nothing to escape and must not leave a
+// stray character in the word.
+func TestTrailingCaretProducesNothing(t *testing.T) {
+	s := parse(t, "echo hi^")
+	if got := s.Pipelines[0].Commands[0].Argv; !reflect.DeepEqual(got, []string{"echo", "hi"}) {
+		t.Errorf("argv = %q, want [echo hi]", got)
+	}
+}
+
 func TestPercentExpansionKeptLiteral(t *testing.T) {
 	s := parse(t, "echo %PATH%")
 	c := s.Pipelines[0].Commands[0]
 	if !reflect.DeepEqual(c.Argv, []string{"echo", "%PATH%"}) {
 		t.Errorf("argv = %v (%%VAR%% kept literal; cmd resolution out of scope)", c.Argv)
+	}
+}
+
+// TestSameLineSetIsNotVariableIndirection records what U069-F04's cited
+// evasion actually does. cmd.exe expands every %VAR% on a line when it READS
+// the line, before running any part of it, so `%X%` here takes X's value from
+// before `set X=go` ran — and an unset name is left verbatim rather than
+// expanding to nothing. The line therefore runs `set X=go` and then the
+// literal `%X% test`, which is not `go test` by any route.
+//
+// ltk keeping %X% literal is the same outcome, so this particular string is
+// not a live bypass. Variable resolution in the cmd frontend is a real gap
+// (the sibling shell frontend resolves), but it is a gap about names ALREADY
+// set in the environment, not about same-line indirection.
+func TestSameLineSetIsNotVariableIndirection(t *testing.T) {
+	s := parse(t, "set X=go& %X% test")
+	if got := programs(s); !reflect.DeepEqual(got, []string{"set", "%X%"}) {
+		t.Errorf("programs = %v, want [set %%X%%]", got)
 	}
 }
 
@@ -104,6 +198,32 @@ func TestFileDescriptorRedirNotInArgv(t *testing.T) {
 	c := s.Pipelines[0].Commands[0]
 	if !reflect.DeepEqual(c.Argv, []string{"dir"}) {
 		t.Errorf("argv = %v, want [dir] (the 2 fd should not be an arg)", c.Argv)
+	}
+}
+
+// TestFileDescriptorPrefixIsOneDigit pins how much of the word before a
+// redirection operator is the file descriptor. cmd reads exactly ONE digit
+// there; everything before it is still an argument. Discarding the whole word
+// whenever it happened to be all digits dropped a real argument out of argv
+// (`foo 123>out` lost the `12` that cmd.exe passes to foo), and keeping the
+// whole word whenever it was not all digits kept a digit that cmd.exe consumed
+// as the handle.
+func TestFileDescriptorPrefixIsOneDigit(t *testing.T) {
+	for _, tc := range []struct {
+		src  string
+		want []string
+	}{
+		{"foo 123>out", []string{"foo", "12"}},
+		{"echo abc1>out", []string{"echo", "abc"}},
+		{"dir 2>&1", []string{"dir"}},
+		{"dir > out.txt", []string{"dir"}},
+	} {
+		t.Run(tc.src, func(t *testing.T) {
+			s := parse(t, tc.src)
+			if got := s.Pipelines[0].Commands[0].Argv; !reflect.DeepEqual(got, tc.want) {
+				t.Errorf("argv = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 

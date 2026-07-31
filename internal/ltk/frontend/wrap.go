@@ -2,7 +2,6 @@ package frontend
 
 import (
 	"context"
-	"path"
 	"slices"
 	"strings"
 	"unicode"
@@ -13,36 +12,56 @@ import (
 
 // maxWrapDepth bounds how deep ExpandWrappers re-parses nested wrappers
 // (e.g. `bash -c "bash -c '…'"`), guarding against pathological input.
-// Reaching the cap now returns truncated=true (see expandWrappers) so the
-// caller fails CLOSED (denies) instead of silently stopping expansion —
-// hitting this cap means there is more nested structure than ltk verified,
-// which is itself a strong evasion signal. Set higher than the old 4 (which
-// was a soft "stop re-parsing" limit) because it is now a hard deny: ordinary
-// deeply-nested-but-benign command substitutions should not trip it.
+// A wrapper found at or past the cap is left unexpanded and reported as
+// truncated=true (see expandWrappers) so the caller fails CLOSED (denies)
+// rather than matching rules against a command string ltk never parsed.
+//
+// The cap gates RE-PARSING only. Already-present nested scripts — command
+// substitutions the frontend has itself parsed in full — are walked past the
+// cap and never make a command truncated on their own: nothing about them is
+// unverified, since ir.Walk (what rules.Evaluate matches against) descends
+// into them to unlimited depth. Counting them toward the cap denied benign
+// deeply-substituted commands with a reason naming a wrapper depth that was
+// never exceeded.
 const maxWrapDepth = 8
 
 // wrapperRule identifies a command that runs another command given inline — a
 // trivial way to sneak a denied command past a rule. ExpandWrappers re-parses
 // that inner command so rules match the real thing.
 type wrapperRule struct {
-	programs []string // argv[0] basename (lowercased)
-	flag     string   // flag whose argument(s) are the inner command; "" = eval-style (all args)
-	joinRest bool     // true: inner = all args after the flag joined; false: the single arg after it
-	caseFold bool     // true: flag matches case-insensitively (cmd switches, pwsh parameters); POSIX flags are case-sensitive (-c ≠ -C)
-	cluster  bool     // true: the flag also counts inside a POSIX short-option cluster (`bash -ec …` ≡ `bash -e -c …`)
+	programs []string   // argv[0] basename (lowercased); for wrappers that are not shells
+	shells   []ir.Shell // dialects whose interpreter this rule describes, resolved via shellenv
+	flag     string     // flag whose argument(s) are the inner command; "" = eval-style (all args)
+	joinRest bool       // true: inner = all args after the flag joined; false: the single arg after it
+	caseFold bool       // true: flag matches case-insensitively (cmd switches, pwsh parameters); POSIX flags are case-sensitive (-c ≠ -C)
+	cluster  bool       // true: the flag also counts inside a POSIX short-option cluster (`bash -ec …` ≡ `bash -e -c …`)
 }
 
-// wrapperRules covers the common shell wrappers. Inner-command shell is derived
-// from the program name via innerShell.
+// wrapperRules covers the common shell wrappers.
+//
+// A shell interpreter is identified by the DIALECT shellenv resolves its
+// program name to, not by a second hand-maintained name list: shellenv already
+// owns that mapping (innerShell consults it for the inner command's dialect),
+// and duplicating it here let the two drift — ash, busybox, ksh93, loksh, oksh
+// and pdksh were parseable shells that no wrapper rule recognized, so their
+// `-c` body was never re-parsed and a deny rule never saw the real command.
+// Non-shell wrappers (eval) still match by program name.
 var wrapperRules = []wrapperRule{
-	{programs: []string{"sh", "bash", "zsh", "dash", "ksh", "mksh"}, flag: "-c", joinRest: false, cluster: true},
+	{shells: []ir.Shell{ir.ShellSh, ir.ShellBash, ir.ShellZsh, ir.ShellMksh}, flag: "-c", joinRest: false, cluster: true},
 	{programs: []string{"eval"}, flag: "", joinRest: true},
-	{programs: []string{"cmd", "cmd.exe"}, flag: "/c", joinRest: true, caseFold: true},
-	{programs: []string{"cmd", "cmd.exe"}, flag: "/k", joinRest: true, caseFold: true},
+	{shells: []ir.Shell{ir.ShellCmd}, flag: "/c", joinRest: true, caseFold: true},
+	{shells: []ir.Shell{ir.ShellCmd}, flag: "/k", joinRest: true, caseFold: true},
 	// PowerShell joins everything after -Command into one command line; -c is
 	// its documented shorthand.
-	{programs: []string{"pwsh", "powershell", "pwsh.exe", "powershell.exe"}, flag: "-command", joinRest: true, caseFold: true},
-	{programs: []string{"pwsh", "powershell", "pwsh.exe", "powershell.exe"}, flag: "-c", joinRest: true, caseFold: true},
+	{shells: []ir.Shell{ir.ShellPwsh}, flag: "-command", joinRest: true, caseFold: true},
+	{shells: []ir.Shell{ir.ShellPwsh}, flag: "-c", joinRest: true, caseFold: true},
+}
+
+// matches reports whether prog (an already-lowercased basename) invokes this
+// rule's wrapper: either by exact program name, or by the shell dialect
+// shellenv resolves it to.
+func (rule wrapperRule) matches(prog string, sh ir.Shell) bool {
+	return slices.Contains(rule.programs, prog) || (sh != "" && slices.Contains(rule.shells, sh))
 }
 
 // ExpandWrappers re-parses the inner command of any trivial shell wrapper it
@@ -58,9 +77,11 @@ var wrapperRules = []wrapperRule{
 // against a graph that silently dropped part of the real command is the same
 // as not having looked at it:
 //
-//   - truncated: the recursion hit maxWrapDepth while there was still nested
-//     structure left to descend into. The depth cap existing at all means the
-//     walk stopped somewhere the evaluator never got to look.
+//   - truncated: a WRAPPER was found at or past maxWrapDepth and so was left
+//     unexpanded. Its inner command string was never parsed, so no rule can
+//     have seen the command that actually runs. Nesting alone does not set
+//     this: a substitution the frontend already parsed is fully visible to
+//     the evaluator however deep it sits.
 //   - unanalyzed: a wrapper's inner command STRING could not be parsed at all
 //     (a genuine syntax error, or an inner shell dialect this build has no
 //     frontend for). Previously this error was silently discarded and the
@@ -78,37 +99,49 @@ func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) 
 	if s == nil {
 		return false, false
 	}
-	if depth >= maxWrapDepth {
-		return true, false // fail closed: more nested structure exists, unverified
-	}
+	// At the cap ltk stops RE-PARSING but keeps walking: the remaining tree is
+	// what the frontend already produced, so descending it costs nothing it did
+	// not already pay and cannot grow without bound.
+	atCap := depth >= maxWrapDepth
 	for pi := range s.Pipelines {
 		cmds := s.Pipelines[pi].Commands
 		for ci := range cmds {
 			sc := &cmds[ci]
+			// A wrapper found at or past the cap is left unexpanded: its inner
+			// command string stays a command no rule will ever see, so say so
+			// (fail closed) instead of re-parsing it.
 			if inner, shell, ok := wrappedCommand(sc.Argv, s.Shell); ok && inner != "" {
-				// Append whatever the inner frontend salvaged even on a parse error:
-				// the Frontend contract returns a non-nil (possibly partial) Script
-				// alongside an error so callers can still match the commands it did
-				// recover. Dropping those would fail OPEN for a guard. A genuine parse
-				// error (including an unsupported inner shell, which Registry.Parse
-				// reports as ErrUnsupportedShell with a nil Script) means the view is
-				// incomplete — surfaced via unanalyzed rather than silently ignored.
-				nested, perr := r.Parse(ctx, shell, inner)
-				if perr != nil {
-					unanalyzed = true
-				}
-				if nested != nil {
-					sc.Nested = append(sc.Nested, nested)
+				if atCap {
+					truncated = true
+				} else {
+					// Append whatever the inner frontend salvaged even on a parse error:
+					// the Frontend contract returns a non-nil (possibly partial) Script
+					// alongside an error so callers can still match the commands it did
+					// recover. Dropping those would fail OPEN for a guard. A genuine parse
+					// error (including an unsupported inner shell, which Registry.Parse
+					// reports as ErrUnsupportedShell with a nil Script) means the view is
+					// incomplete — surfaced via unanalyzed rather than silently ignored.
+					nested, perr := r.Parse(ctx, shell, inner)
+					if perr != nil {
+						unanalyzed = true
+					}
+					if nested != nil {
+						sc.Nested = append(sc.Nested, nested)
+					}
 				}
 			}
 			// An argv-prepending wrapper's inner command is already argv, not a
 			// string to re-parse — just append it as a same-shell nested command
 			// so Walk (and further wrapper expansion) sees it too.
 			if inner, ok := prefixWrapped(sc.Argv); ok {
-				sc.Nested = append(sc.Nested, &ir.Script{
-					Shell:     s.Shell,
-					Pipelines: []ir.Pipeline{{Commands: []ir.SimpleCommand{{Argv: inner}}}},
-				})
+				if atCap {
+					truncated = true
+				} else {
+					sc.Nested = append(sc.Nested, &ir.Script{
+						Shell:     s.Shell,
+						Pipelines: []ir.Pipeline{{Commands: []ir.SimpleCommand{{Argv: inner}}}},
+					})
+				}
 			}
 			// Recurse into already-present nested scripts (substitutions) and any
 			// just-added wrapper bodies (interpreter- and prefix-style alike), so
@@ -123,16 +156,35 @@ func (r *Registry) expandWrappers(ctx context.Context, s *ir.Script, depth int) 
 	return truncated, unanalyzed
 }
 
+// argvBase reduces a program token to its basename, treating BOTH '/' and '\'
+// as separators regardless of the host OS. path.Base is slash-only and
+// filepath.Base follows the host, so either one lets a Windows-style
+// invocation (`C:\Windows\System32\cmd.exe /c …`) keep its whole path as the
+// "program name" when ltk runs on a POSIX host — the wrapper tables then never
+// match and the inner command is never analysed. The dialects ltk parses
+// include cmd.exe and PowerShell, so a backslash path is ordinary input here,
+// not a foreign one.
+func argvBase(prog string) string {
+	if i := strings.LastIndexAny(prog, `/\`); i >= 0 {
+		return prog[i+1:]
+	}
+	return prog
+}
+
 // wrappedCommand returns the inner command string and the shell it is written
 // in, if argv is a recognized wrapper invocation.
 func wrappedCommand(argv []string, outer ir.Shell) (string, ir.Shell, bool) {
 	if len(argv) == 0 {
 		return "", "", false
 	}
-	prog := strings.ToLower(path.Base(argv[0]))
+	prog := strings.ToLower(argvBase(argv[0]))
+	sh := shellenv.ShellFromPath(prog)
 	args := argv[1:]
+	if inner, ok := envSplitString(prog, args); ok {
+		return inner, outer, true
+	}
 	for _, rule := range wrapperRules {
-		if !slices.Contains(rule.programs, prog) {
+		if !rule.matches(prog, sh) {
 			continue
 		}
 		inner, ok := rule.extract(args)
@@ -142,6 +194,47 @@ func wrappedCommand(argv []string, outer ir.Shell) (string, ir.Shell, bool) {
 		return inner, innerShell(prog, outer), true
 	}
 	return "", "", false
+}
+
+// envSplitString returns the command string of `env -S STRING` (GNU env's
+// --split-string), if that is what args carries. -S makes env an INTERPRETER
+// wrapper, not a prefix one: its inner command arrives as a single STRING that
+// env itself splits into words, so it must be re-parsed like `sh -c`'s
+// argument. Treating -S as merely another option whose argument is stepped
+// over left the inner command out of the IR entirely — `env -S "git commit
+// --no-verify"` yielded no nested command at all, so no rule could match it.
+//
+// The string is re-parsed in the SURROUNDING dialect: env does its own
+// word-splitting rather than invoking a shell, and shell tokenization is the
+// closest available approximation for the purpose of naming the program and
+// its arguments.
+func envSplitString(prog string, args []string) (string, bool) {
+	if prog != "env" {
+		return "", false
+	}
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-S" || a == "--split-string":
+			if i+1 < len(args) {
+				return args[i+1], true
+			}
+			return "", false
+		case strings.HasPrefix(a, "--split-string="):
+			return strings.TrimPrefix(a, "--split-string="), true
+		case strings.HasPrefix(a, "-S"): // glued form: env -S'git push'
+			return a[2:], true
+		case isEnvAssignment(a):
+			continue
+		case a == "-u" || a == "--unset" || a == "-C" || a == "--chdir":
+			i++ // these consume the following token as their argument
+			continue
+		case isPosixOption(a):
+			continue
+		}
+		return "", false // first operand reached: this is a prefix invocation
+	}
+	return "", false
 }
 
 // extract pulls the inner command string out of a wrapper's arguments.
@@ -393,7 +486,7 @@ func prefixWrapped(argv []string) ([]string, bool) {
 	if len(argv) == 0 {
 		return nil, false
 	}
-	prog := strings.ToLower(path.Base(argv[0]))
+	prog := strings.ToLower(argvBase(argv[0]))
 	args := argv[1:]
 	for _, rule := range prefixWrapperRules {
 		if !slices.Contains(rule.programs, prog) {
@@ -407,19 +500,30 @@ func prefixWrapped(argv []string) ([]string, bool) {
 		if len(inner) == 0 {
 			return nil, false
 		}
-		return inner, true
+		// Clone rather than hand back a sub-slice: the returned argv becomes a
+		// nested SimpleCommand of the very command it was cut from, so sharing a
+		// backing array would let a write through either one silently rewrite the
+		// other's view of what runs — a guard reporting on a command other than
+		// the one it decided about. Prefix wrappers are rare on the hot path and
+		// the argv is short, so the copy is not worth reasoning about.
+		return slices.Clone(inner), true
 	}
 	return nil, false
 }
 
 // skipEnv locates the inner command after `env`'s leading KEY=VAL assignment
 // tokens and options: -i/--ignore-environment and -0/--null take no argument;
-// -u/--unset, -C/--chdir, -S/--split-string each consume the following token
-// as their argument (or, in `--opt=val` form, none). The first token that is
-// neither an assignment nor a recognized option begins the inner command. An
-// unrecognized option token is conservatively skipped by itself (bias toward
-// stripping more, per the package doc above) rather than treated as the
-// inner command's program name.
+// -u/--unset and -C/--chdir each consume the following token as their argument
+// (or, in `--opt=val` form, none). The first token that is neither an
+// assignment nor a recognized option begins the inner command. An unrecognized
+// option token is conservatively skipped by itself (bias toward stripping
+// more, per the package doc above) rather than treated as the inner command's
+// program name.
+//
+// -S/--split-string is deliberately NOT among the step-over options: it makes
+// env an interpreter wrapper whose inner command is a STRING to re-parse, and
+// envSplitString handles it. Reporting no prefix-style inner command here
+// keeps the same invocation from being expanded down both paths.
 func skipEnv(args []string) (int, bool) {
 	i := 0
 	for i < len(args) {
@@ -428,13 +532,15 @@ func skipEnv(args []string) (int, bool) {
 		case isEnvAssignment(a):
 			i++
 			continue
+		case a == "-S" || a == "--split-string" || strings.HasPrefix(a, "--split-string=") || strings.HasPrefix(a, "-S"):
+			return 0, false // interpreter form: see envSplitString
 		case a == "-i" || a == "--ignore-environment" || a == "-0" || a == "--null":
 			i++
 			continue
-		case a == "-u" || a == "--unset" || a == "-C" || a == "--chdir" || a == "-S" || a == "--split-string":
+		case a == "-u" || a == "--unset" || a == "-C" || a == "--chdir":
 			i += 2
 			continue
-		case strings.HasPrefix(a, "--unset=") || strings.HasPrefix(a, "--chdir=") || strings.HasPrefix(a, "--split-string="):
+		case strings.HasPrefix(a, "--unset=") || strings.HasPrefix(a, "--chdir="):
 			i++
 			continue
 		case isPosixOption(a):
@@ -469,13 +575,16 @@ func isEnvAssignment(tok string) bool {
 	return true
 }
 
-// skipCommand locates the inner command after `command`'s no-argument options
-// -p/-v/-V. (`command -v foo` only PRINTS foo's resolution rather than
-// running it, but treating it as if foo runs is the fail-safe direction for a
-// guard — see the package doc above.)
+// skipCommand locates the inner command after `command`'s options -p/-v/-V,
+// including any bundled cluster of them (`command -pv foo`). Any option-shaped
+// token is skipped by itself: matching only the exact spellings left a cluster
+// as the inner command's argv[0], which no rule can match. (`command -v foo`
+// only PRINTS foo's resolution rather than running it, but treating it as if
+// foo runs is the fail-safe direction for a guard — see the package doc
+// above.)
 func skipCommand(args []string) (int, bool) {
 	i := 0
-	for i < len(args) && (args[i] == "-p" || args[i] == "-v" || args[i] == "-V") {
+	for i < len(args) && isPosixOption(args[i]) {
 		i++
 	}
 	if i >= len(args) {
@@ -485,13 +594,14 @@ func skipCommand(args []string) (int, bool) {
 }
 
 // skipSetsid locates the inner command after setsid's no-argument options
-// -w/--wait, -c/--ctty, -f/--fork.
+// -w/--wait, -c/--ctty, -f/--fork, and any bundled cluster of them (`-wf`).
+// None of setsid's options consume an operand, so every option-shaped token is
+// skipped by itself.
 func skipSetsid(args []string) (int, bool) {
 	i := 0
 	for i < len(args) {
-		switch args[i] {
-		case "-w", "--wait", "-c", "--ctty", "-f", "--fork":
-			i++
+		if isPosixOption(args[i]) {
+			i++ // -w/--wait, -c/--ctty, -f/--fork, and any bundled cluster of them
 			continue
 		}
 		break
@@ -548,7 +658,9 @@ func skipTimeout(args []string) (int, bool) {
 
 // skipNice locates the inner command after nice's -n/--adjustment ADJ (which
 // takes an argument) and the bare `-N` adjustment shorthand (e.g. `nice -5
-// cmd`).
+// cmd`). A glued form (`nice -n5 cmd`) matches neither, so any remaining
+// option-shaped token is skipped by itself rather than being left as the inner
+// command's argv[0] where no rule could match it.
 func skipNice(args []string) (int, bool) {
 	i := 0
 	for i < len(args) {
@@ -562,6 +674,9 @@ func skipNice(args []string) (int, bool) {
 			continue
 		case isNiceAdjustment(a):
 			i++
+			continue
+		case isPosixOption(a):
+			i++ // unrecognized/glued option (e.g. -n5): skip it alone
 			continue
 		}
 		break
@@ -587,7 +702,10 @@ func isNiceAdjustment(tok string) bool {
 }
 
 // skipStdbuf locates the inner command after stdbuf's -i/-o/-e (each takes an
-// argument: the buffering mode).
+// argument: the buffering mode). The mode is commonly glued on (`stdbuf -oL`),
+// which matches none of the exact spellings, so any remaining option-shaped
+// token is skipped by itself rather than being left as the inner command's
+// argv[0] where no rule could match it.
 func skipStdbuf(args []string) (int, bool) {
 	i := 0
 	for i < len(args) {
@@ -598,6 +716,9 @@ func skipStdbuf(args []string) (int, bool) {
 			continue
 		case strings.HasPrefix(a, "--input=") || strings.HasPrefix(a, "--output=") || strings.HasPrefix(a, "--error="):
 			i++
+			continue
+		case isPosixOption(a):
+			i++ // unrecognized/glued option (e.g. -oL): skip it alone
 			continue
 		}
 		break

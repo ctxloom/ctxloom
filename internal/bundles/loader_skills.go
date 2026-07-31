@@ -237,7 +237,7 @@ func (l *Loader) skillFromBundle(bundleName, skillName string) (*LoadedSkill, er
 	}
 	entry, ok := bundle.Skills[skillName]
 	if !ok {
-		return nil, fmt.Errorf("skill %q not found in bundle %q", skillName, bundleName)
+		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrSkillNotFound, skillName, bundleName)
 	}
 	ls := l.skillContent(bundle, skillName, entry)
 	if ls == nil {

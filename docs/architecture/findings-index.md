@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,532** |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,533** |
 | **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 182 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 208 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 207 |
-| `open` | no commit names this ID | **139** |
+| `open` | no commit names this ID | **138** |
 
-**Totals: 2268 findings across 162 units — 1,532 resolved, 139 still open, 597 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,533 resolved, 138 still open, 597 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -333,7 +333,7 @@ which also asserts each row's columns sum to its section size.
 |---|---|---|---|---|---|---|
 | HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
 | MED | 999 | 578 | 83 | 104 | 96 | 138 |
-| LOW | 871 | 593 | 49 | 62 | 104 | 63 |
+| LOW | 871 | 594 | 48 | 62 | 104 | 63 |
 | (unparsed) | 22 | 9 | 7 | 4 | 2 | 0 |
 
 Updated again 2026-07-27 during the `gooey-basil` output-flow batch: 7 of 8
@@ -2736,7 +2736,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U139-F04 | **PARTIAL** `b5742e86` | `:29-31` | CORRECTNESS | `TaskloomServer` hard-codes `Command: "taskloom"` — a bare name resolved against **the agent's** `PATH` at some future invocation, not against anything verified at registration time. If taskloom is... | U139.md |
 | U139-F05 | **RESOLVED** `f0170c44` | `:63` | ERRHANDLING | `Get`'s error names the bad input but not the valid set, in a package whose whole design premise is that a typo must be a hard error | U139.md |
 | U139-F06 | **REFUTED** `462ffed8` | `:20-22` | TRIVIAL | `Engine` is a type **alias** that introduces no new concept — it is a rename, and a reader must follow one hop to find the method set | U139.md |
-| U140-F05 | open | `:113-123` | ERRHANDLING | `gitRoot` swallows two very different failures into the same `("", false)`: "not inside a git repo" (the expected, benign case) and "inside a repo whose `.git` is unreadable or corrupt" (a real pro... | U140.md |
+| U140-F05 | **RESOLVED** `da5c3eaf` | `:113-123` | ERRHANDLING | `gitRoot` swallows two very different failures into the same `("", false)`: "not inside a git repo" (the expected, benign case) and "inside a repo whose `.git` is unreadable or corrupt" (a real pro... | U140.md |
 | U140-F06 | open | `:34`, `:105-108` | CORRECTNESS | `warnOnce` is package-level state consumed on first use, so in a test binary the **first** test exercising an invalid `CTXLOOM_ROOT` consumes it and every later test's warning silently does not hap... | U140.md |
 | U141-F09 | **RESOLVED** `91c22ef8` | `interceptor.go:141-143` | DEAD | The `case ixOff:` arm inside `scan`'s per-byte loop is unreachable. The function returns early for `ixOff` at :103-104, and inside the loop `ic.state` only ever moves among `ixPass`/`ixFresh`/`ixUI... | U141.md |
 | U141-F10 | **ESCALATED** (gn/vital-deaf-stunt) | `controller.go:280-291, surround.go:297-307` | CORRECTNESS | `Controller.release` computes `pre` *without* holding `ttyMu`: `ResumeSequence` (:287) takes and releases the lock, setting `suspended = false`, and only then does `gate.Release(pre)` re-acquire it... | U141.md |

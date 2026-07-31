@@ -1,5 +1,26 @@
-// Package pidalive provides ONE shared liveness probe for a bare pid,
-// consolidating what used to be three near-identical copies
+// Package pidalive answers ONE question about a BARE PID: is some process
+// alive at this number right now. It cannot answer "is the process I meant
+// still alive", and callers must not read it that way. A pid is not a stable
+// identifier — the kernel recycles numbers within kernel.pid_max — so a pid
+// persisted to disk and probed later can name an unrelated process that has
+// merely inherited the number, and Probe will confidently report Alive.
+//
+// Closing that window needs an identity token taken while the process is known
+// to be the right one (a pidfd, or a start-time stamp read from the process
+// table) and persisted alongside the pid; internal/lm/grpc's procHandle is the
+// worked example, pinning identity with a pidfd before it reads /proc. Every
+// caller here instead reads a pid out of a file written by an earlier process
+// — an MCP discovery marker, a worktree owner file, a state-dir lock — and has
+// no such token, so the protection would have to be added to those three
+// on-disk formats, not here. Probe takes an int and nothing else precisely
+// because it has no way to tell the difference.
+//
+// The exposure is bounded by MaybeAlive's direction: reuse makes a dead
+// owner read as live, so the failure is a skipped reap or a refused claim,
+// never a stranger's worktree deleted or a shared journal.
+//
+// It provides that probe once for the whole repo, consolidating what used to
+// be three near-identical copies
 // (agentcoord/coord.PidAlive, internal/operations' test-only pidAlive, and
 // internal/lm/isolation's startup-reaper pidAlive) into a single leaf package
 // with no internal dependencies — safe for any package to import without

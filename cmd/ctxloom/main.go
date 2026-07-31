@@ -9,6 +9,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
 	"github.com/ctxloom/ctxloom/internal/shared/procsec"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -36,7 +37,7 @@ func main() {
 	// project); the persistent --degraded flag wins over it once parsed (see
 	// cli root's PersistentPreRun). Deliberately NO config key: a broken
 	// config cannot excuse itself.
-	if os.Getenv("CTXLOOM_DEGRADED") == "1" {
+	if envSwitchOn("CTXLOOM_DEGRADED", os.Stderr) {
 		strictness.SetDegraded(true)
 	}
 
@@ -46,14 +47,14 @@ func main() {
 	// mechanism for a subprocess/CI that must not depend on what the host has
 	// installed; the persistent --no-companions flag wins over it once parsed
 	// (see cli root's PersistentPreRun).
-	if os.Getenv("CTXLOOM_NO_COMPANIONS") == "1" {
+	if envSwitchOn("CTXLOOM_NO_COMPANIONS", os.Stderr) {
 		config.SetCompanionsDisabled(true)
 	}
 
 	// Initialize logging (verbose mode if CTXLOOM_VERBOSE=1), dispatch, flush,
 	// exit — in that order, and with the exit as the LAST thing this process
 	// does. See runCLI for why the flush cannot be a defer.
-	os.Exit(runCLI(loggerConstructor(os.Getenv("CTXLOOM_VERBOSE") == "1"), cli.Run, os.Stderr))
+	os.Exit(runCLI(loggerConstructor(envSwitchOn("CTXLOOM_VERBOSE", os.Stderr)), cli.Run, os.Stderr))
 }
 
 // runCLI installs the process-wide logger, dispatches, then flushes the
@@ -71,6 +72,21 @@ func runCLI(construct func() (*zap.Logger, error), dispatch func() int, warn io.
 	code := dispatch()
 	_ = logger.Sync()
 	return code
+}
+
+// envSwitchOn reads one of the CTXLOOM_* boolean process switches and reports
+// a value no boolean spelling covers, rather than treating it as off in
+// silence. These switches are read before any flag is parsed, so this warning
+// is the only feedback an operator who mistyped one will ever get: the mode
+// simply would not engage, with nothing to distinguish that from the feature
+// being broken.
+func envSwitchOn(name string, warn io.Writer) bool {
+	on, unrecognized := envswitch.On(name)
+	if unrecognized != "" && warn != nil {
+		fmt.Fprintf(warn, "ctxloom: warning: %s=%q is not an on/off value; treating it as off "+
+			"(on: 1/true/yes/on, off: 0/false/no/off)\n", name, unrecognized)
+	}
+	return on
 }
 
 // loggerConstructor picks the process logger's build recipe: a development

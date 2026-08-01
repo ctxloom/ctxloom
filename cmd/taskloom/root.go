@@ -42,6 +42,11 @@ of precedence. Agents reach the same store via the MCP tools served by
 Tasks carry flat tags: apply them with ` + "`taskloom tag`" + ` (or ` + "`add --tag`" + `), see the
 vocabulary in use with ` + "`taskloom tags`" + `, and filter with ` + "`taskloom list --tag-query`" + `.`,
 	SilenceUsage: true,
+	// cobra's own error print knows nothing about --format, so it would emit a
+	// human "Error: <msg>" line into a stream the caller asked to be json/yaml/
+	// toml. main's tail (reportExecuteError) reports the failure through the
+	// shared format filter instead; without this the two would BOTH print.
+	SilenceErrors: true,
 	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
 	// --format, off for text/markdown or an unresolvable value — mirroring
 	// cmd/ctxloom, so a machine-readable listing carries machine-readable

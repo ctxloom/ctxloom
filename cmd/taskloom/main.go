@@ -3,7 +3,25 @@
 // same operations to agents.
 package main
 
-import "os"
+import (
+	"io"
+	"os"
+
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
+)
+
+// reportExecuteError writes a terminal error in the format the invocation
+// selected, so a caller reading a --format json/yaml/toml stream gets a
+// parseable envelope for the failure instead of a human line that ends its
+// parse. cobra's own error print is silenced on the root (see root.go) so this
+// is the only tail; text keeps cobra's exact "Error: <msg>" wording.
+//
+// It takes the writer rather than reaching for os.Stderr so the wiring itself
+// is testable, and discards EmitError's result because the only way it fails is
+// a failing w — and w is the sole channel that failure could be reported on.
+func reportExecuteError(w io.Writer, err error) {
+	_ = cliemit.EmitError(w, rootCmd, err)
+}
 
 func main() {
 	// A no-op unless built with `-tags docsgen` (`just gen-docs`), which mounts
@@ -14,6 +32,7 @@ func main() {
 	rootCmd.AddCommand(newLoadoutCmd())
 
 	if err := rootCmd.Execute(); err != nil {
+		reportExecuteError(os.Stderr, err)
 		os.Exit(1)
 	}
 }

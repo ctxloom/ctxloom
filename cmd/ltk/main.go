@@ -11,10 +11,12 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -57,9 +59,36 @@ retry the right way. See docs/RULES.md for the full rule model.`,
 	return root
 }
 
+// reportExecuteError writes a terminal error on w in the format the invocation
+// selected. json/yaml/toml go through the shared cliemit filter, so a caller
+// reading a machine-readable stream gets a parseable {"error": "..."} envelope
+// for the failure rather than a human sentence that ends its parse on the one
+// event it most needs to handle.
+//
+// text and markdown keep the "ltk: <err>" line verbatim. The family's other
+// binaries print "Error: <msg>" there, but ltk has always named itself instead,
+// and that line is what a terminal and any script grepping stderr sees today;
+// aligning the wording is a separate, human-visible change and not this one.
+//
+// root is the command that OWNS --format, which is why the flag is resolved
+// against it and not against whatever subcommand failed (see cliemit.Resolve's
+// ordering note). An unresolvable --format reads as not-structured and keeps
+// the human line: a format that will not parse must not cost the caller the
+// original error.
+func reportExecuteError(w io.Writer, root *cobra.Command, err error) {
+	if format, ferr := cliemit.Resolve(root); ferr == nil && format.Structured() {
+		// EmitError only fails when w does, and w is the only channel that
+		// failure could have been reported on.
+		_ = cliemit.EmitError(w, root, err)
+		return
+	}
+	fmt.Fprintln(w, progName+":", err)
+}
+
 func main() {
-	if err := newRootCmd().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, progName+":", err)
+	root := newRootCmd()
+	if err := root.Execute(); err != nil {
+		reportExecuteError(os.Stderr, root, err)
 		os.Exit(1)
 	}
 }

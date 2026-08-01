@@ -46,14 +46,41 @@ type l0ClientCapture struct {
 // internal/acp/session.go's handleFsWrite, which now returns
 // api.WriteTextFileResponse{}): the divergence that used to be recorded
 // here is GONE, confirmed by this test itself failing with "validation now
-// PASSES" until the entry was removed. Empty rather than deleted-and-
-// forgotten: an empty map is exactly what "zero known client-side
-// divergences" looks like.
-var l0ClientKnownDivergences = map[string]string{}
+// PASSES" until the entry was removed.
+//
+// The map went back to non-empty when L0 switched from acptest.NewValidator
+// to acptest.NewStrictValidator (U014-F24): as vendored, schema-v1.19.0
+// closes no object shape, so the harness could see a MISSING required field
+// but never an EXTRA one. The strict Validator measures that second half, and
+// found one thing on this side.
+var l0ClientKnownDivergences = map[string]string{
+	// DIVERGENCE 1 — `clientCapabilities.auth` on the initialize request.
+	//
+	// WHAT: setup (internal/acp/session.go) fills an SDK
+	// api.ClientCapabilities, and that struct carries an `Auth
+	// AuthCapabilities` field tagged `json:"auth,omitempty"`. omitempty does
+	// nothing for a struct value, so `"auth":{}` rides EVERY initialize
+	// request ctxloom sends as a client. schema-v1.19.0's ClientCapabilities
+	// defines fs, terminal, session and _meta — there is no `auth`.
+	//
+	// WHOSE FIELD IT IS: not ctxloom's. The SDK's own doc comment on that
+	// field says "**UNSTABLE** — This capability is not part of the spec yet,
+	// and may be removed or changed at any point". ctxloom never sets it; it
+	// is the zero value of a field the SDK always serialises. This is exactly
+	// the SDK-vs-current-spec gap this harness was built to measure, arriving
+	// from the direction nobody was watching.
+	//
+	// WHEN THIS ENTRY COMES OFF: when the SDK stops emitting the field (a
+	// pointer type, a working omitempty, or removal), or when upstream adopts
+	// `auth` into ClientCapabilities and a re-vendor brings it in. Either way
+	// checkL0Client fails loudly at that moment rather than letting a stale
+	// entry ride.
+	"initialize request": "'/clientCapabilities/auth' does not validate",
+}
 
 func mustClientValidator(t *testing.T) *acptest.Validator {
 	t.Helper()
-	v, err := acptest.NewValidator()
+	v, err := acptest.NewStrictValidator()
 	require.NoError(t, err)
 	return v
 }

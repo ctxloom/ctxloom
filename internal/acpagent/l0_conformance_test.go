@@ -49,6 +49,13 @@ type l0Capture struct {
 // a listed frame ever stops failing, require.Error below fails LOUDLY
 // instead of silently starting to pass a check that no longer means what it
 // used to — that is the signal to shrink this map, not to delete the test.
+// The map went back to non-empty when L0 switched from acptest.NewValidator
+// to acptest.NewStrictValidator (U014-F24): as vendored, schema-v1.19.0
+// closes no object shape at all, so the harness could see a MISSING required
+// field but never an EXTRA one. The strict Validator derives a closed copy of
+// the same vendored bytes and measures that second half; `models` below is
+// the one thing it found on this side.
+//
 // IR4 SHRUNK this map to empty: ctxloom's session-info extension
 // (model/permissionMode/contextWindow/mcpServers) used to be its own
 // bespoke top-level `sessionUpdate` variant ("ctxloom_session_info"), which
@@ -63,14 +70,44 @@ type l0Capture struct {
 // schema-v1.19.0's 142 $defs — see internal/acpagent/wire.go's
 // ctxloomSessionInfoUpdate doc comment for the full per-fact evidence) and
 // still ride `_meta` on a REAL, schema-valid "session_info_update" frame —
-// the spec's own sanctioned extension channel — so this map stays empty
-// either way. If any entry is ever added back, it needs the same rigor as
-// the one it replaced.
-var l0KnownDivergences = map[string]string{}
+// the spec's own sanctioned extension channel — so neither of those is what
+// the entry below records. Any entry added here needs the same rigor as the
+// one IR4/G13 removed.
+var l0KnownDivergences = map[string]string{
+	// DIVERGENCE 1 — `models` on the session/new response body.
+	//
+	// WHAT: newSessionResult (internal/acpagent/wire.go) emits a `models`
+	// object (currentModelId + availableModels). schema-v1.19.0's
+	// NewSessionResponse defines sessionId, modes, configOptions and _meta,
+	// and nothing else — model advertisement in the current spec rides the
+	// generic SessionConfigOption "model" category, which CO1 ALSO emits.
+	//
+	// WHY IT IS SANCTIONED RATHER THAN A BUG: `models` is a KEPT pre-CO1
+	// compatibility surface, not an oversight. The target clients
+	// (agentic.nvim, formulahendry's picker) drive the models advertisement
+	// today and are not known to speak session/set_config_option in any
+	// released version, so dropping it now would break working clients to
+	// satisfy a schema. It is duplicated wire surface with a recorded,
+	// not open-ended, removal condition.
+	//
+	// WHEN THIS ENTRY COMES OFF — DO NOT DELETE IT AS STALE: it goes when
+	// U014-F11's retirement trigger fires, i.e. when wire.go's
+	// newSessionResult/loadSessionResult drop the `models` field and
+	// modelState/modelWire/modelStateWire are deleted. That trigger, and its
+	// two named preconditions, are recorded in full on newSessionResult's doc
+	// comment — read it there, it is the authority. Until then this frame is
+	// EXPECTED to fail, and checkL0 will say so loudly if it ever stops.
+	//
+	// Note the session/LOAD response carries the same field and is NOT listed:
+	// this scripted conversation resumes on an engine advertising no LLMs, so
+	// `models` is omitted there. If that fixture ever gains LLMs, "session/load
+	// response" joins this list for exactly the same reason.
+	"session/new response": "'/models' does not validate",
+}
 
 func mustValidator(t *testing.T) *acptest.Validator {
 	t.Helper()
-	v, err := acptest.NewValidator()
+	v, err := acptest.NewStrictValidator()
 	require.NoError(t, err)
 	return v
 }
@@ -324,15 +361,14 @@ func TestL0_KnownDivergenceSubstringsAreDistinct(t *testing.T) {
 }
 
 // TestCheckL0_StaleKnownDivergenceFailsLoudly pins U014-F21's refutation.
-// The unit review flagged l0KnownDivergences (currently empty) and this
+// The unit review flagged l0KnownDivergences (empty at the time) and this
 // map's ratchet branch in checkL0 as NOPAY — "guards an empty map, pays for
-// nothing" — because with zero entries today, checkL0's known-divergence
-// branch never executes and TestL0_KnownDivergenceSubstringsAreDistinct
-// iterates nothing. But the map's own doc comment records it already fired
-// once for real (IR4's divergence was found, listed, fixed, and the map
-// shrunk back to empty when checkL0's require.Error/assert.Contains pair
-// caught the fix landing) — it is armed-but-currently-empty infrastructure
-// with a proven track record, not dead weight. This test arms it
+// nothing" — because with zero entries at that moment, checkL0's
+// known-divergence branch never executed and
+// TestL0_KnownDivergenceSubstringsAreDistinct iterated nothing. The map is
+// non-empty again (U014-F24's strict validator found `models`), so the
+// premise no longer even holds; but the refutation stands on its own and the
+// map will empty out again when U014-F11 lands. This test arms it
 // synthetically to prove the ratchet still bites: if checkL0 didn't require
 // a LISTED divergence to still be failing, a real regression (an emitter
 // silently starting to conform where it used to knowingly diverge, or vice
@@ -361,15 +397,14 @@ func TestCheckL0_StaleKnownDivergenceFailsLoudlySubprocess(t *testing.T) {
 }
 
 // TestCheckL0_StaleKnownDivergenceFailsLoudly pins U014-F21's refutation.
-// The unit review flagged l0KnownDivergences (currently empty) and this
+// The unit review flagged l0KnownDivergences (empty at the time) and this
 // map's ratchet branch in checkL0 as NOPAY — "guards an empty map, pays for
-// nothing" — because with zero entries today, checkL0's known-divergence
-// branch never executes and TestL0_KnownDivergenceSubstringsAreDistinct
-// iterates nothing. But the map's own doc comment records it already fired
-// once for real (IR4's divergence was found, listed, fixed, and the map
-// shrunk back to empty when checkL0's require.Error/assert.Contains pair
-// caught the fix landing) — it is armed-but-currently-empty infrastructure
-// with a proven track record, not dead weight. This test re-invokes this
+// nothing" — because with zero entries at that moment, checkL0's
+// known-divergence branch never executed and
+// TestL0_KnownDivergenceSubstringsAreDistinct iterated nothing. The map is
+// non-empty again (U014-F24's strict validator found `models`), so the
+// premise no longer even holds; but the refutation stands on its own and the
+// map will empty out again when U014-F11 lands. This test re-invokes this
 // binary (`go test -run`) with a synthetic listed divergence armed against a
 // payload that validates cleanly, and asserts the SUBPROCESS exits non-zero —
 // proving checkL0 still fails loud when a listed divergence stops

@@ -501,11 +501,24 @@ complexity-csv *ARGS:
     echo "nloc,ccn,tokens,params,length,location,file,function,long_name,start,end"
     lizard -x "*.pb.go" -x "*/website/*" --csv {{ if ARGS == "" { "." } else { ARGS } }} || true
 
-# Enforcing gate: fail if any function exceeds CCN 10. No leading `-`, so a
-# violation propagates lizard's non-zero exit and breaks CI. Run in the lint
-# job alongside golangci-lint.
-complexity-check *ARGS:
-    lizard -x "*.pb.go" -x "*/website/*" -C 10 {{ if ARGS == "" { "." } else { ARGS } }}
+# Enforcing gate: fail if any function is a NEW (or newly-worsened) CCN>10
+# violation not already accounted for in .complexity-baseline.txt. Pre-existing
+# violations (282 as of the baseline's creation — DEBT, not an approved state,
+# see that file's header) do not fail this gate; a violation absent from the
+# baseline, or a baselined one whose CCN increased, does. Run in the lint job
+# alongside golangci-lint. See scripts/complexity_gate.py for the full design
+# rationale (identity scheme, known blind spots).
+complexity-check:
+    python3 scripts/complexity_gate.py check
+
+# Deliberately regenerate .complexity-baseline.txt from the CURRENT tree's
+# violations. This is the ONLY sanctioned way that file changes — never hand
+# edit it, never a side effect of `complexity-check`. Review the diff before
+# committing: a shrinking baseline is progress; a growing one is you knowingly
+# accepting new/worsened complexity debt, and that belongs in the commit
+# message.
+complexity-baseline-update:
+    python3 scripts/complexity_gate.py generate > .complexity-baseline.txt
 
 # Format code
 fmt:

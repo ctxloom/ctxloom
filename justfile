@@ -880,9 +880,17 @@ complexity *ARGS: dev-image
 complexity-csv *ARGS: dev-image
     just _run complexity-csv {{ARGS}}
 
-# Enforcing gate: fail if any function exceeds CCN 10 (used by the CI lint job).
-complexity-check *ARGS: dev-image
-    just _run complexity-check {{ARGS}}
+# Enforcing gate: fail on any NEW or newly-worsened CCN>10 violation, ratcheted
+# against .complexity-baseline.txt (used by the CI lint job). Pre-existing
+# violations don't fail it; see that file's header and scripts/complexity_gate.py.
+complexity-check: dev-image
+    just _run complexity-check
+
+# Deliberately regenerate .complexity-baseline.txt from the current tree.
+# Never run this to make a genuinely new violation "go away" without review —
+# always look at the diff first. See .complexity-baseline.txt's header.
+complexity-baseline-update: dev-image
+    just _run complexity-baseline-update
 
 # Run the CLI locally without installing — builds ./ctxloom (host, no
 # treesitter/CGO) and execs it attached to this terminal, so interactive

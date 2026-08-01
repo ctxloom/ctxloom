@@ -21,20 +21,13 @@ var (
 // acpCmd is the ACP (Agent Client Protocol) command tree: SERVER (ctxloom
 // speaks ACP to an editor that connects in) and CLIENT (ctxloom connects OUT
 // to an ACP-speaking agent) are the two directions — see acpServeCmd and
-// acpClientCmd. Bare `ctxloom acp` (no subcommand) is a deprecated alias for
-// `acp serve`, its historical behavior — runACPServerBareAlias prints the
-// one-line pointer itself.
+// acpClientCmd.
 //
-// Deliberately NOT cobra's `Deprecated` field: cobra's IsAvailableCommand
-// treats ANY non-empty Deprecated as unavailable UNCONDITIONALLY (checked
-// before Runnable/HasAvailableSubCommands — see cobra's command.go), and both
-// `doc.GenMarkdownTreeCustom` (gen-docs) and the root --help subcommand
-// listing skip an unavailable command's entire subtree without recursing —
-// so marking THIS node deprecated would silently hide acp serve/client/
-// list too, exactly the commands the reorg wants MORE discoverable, not
-// less. Only leaf commands with no children
-// use the real field; a parent with a bare-invocation alias prints its own
-// notice instead.
+// It is a pure group node with no RunE of its own: bare `ctxloom acp` prints
+// help, exactly like `ctxloom bundle` or `ctxloom remote`. It used to be a
+// runnable alias for `acp serve` that printed its own deprecation pointer;
+// that alias and its wrapper are gone, matching bare `ctxloom trust`. One
+// spelling per concept, no shims.
 var acpCmd = &cobra.Command{
 	Use:   "acp",
 	Short: "ACP (Agent Client Protocol): serve ctxloom to an editor, or connect ctxloom out to an ACP-speaking agent",
@@ -50,24 +43,7 @@ subcommand:
                         third-party command that itself speaks ACP) and
                         drives one headless turn against it.
   ctxloom acp list      Lists the ACP agent-server entries to paste into an
-                        editor's config for the server direction.
-
-Bare 'ctxloom acp' (no subcommand) is a deprecated alias for 'acp serve'.`,
-	Args: cobra.NoArgs,
-	RunE: runACPServerBareAlias,
-}
-
-// acpBareDeprecation is the one-line pointer bare `ctxloom acp` prints (same
-// shape/wording cobra's own Deprecated field would print, reproduced by hand
-// here — see acpCmd's doc comment for why the real field can't be used).
-const acpBareDeprecation = "use `ctxloom acp serve` instead"
-
-// runACPServerBareAlias is bare acpCmd's RunE: prints the deprecation pointer
-// to stderr, then runs the exact same serve logic as `acp serve` (runACPServer)
-// — additive shim, not yet a removal (CLAUDE.md/plan Phase 1 posture).
-func runACPServerBareAlias(cmd *cobra.Command, args []string) error {
-	fmt.Fprintf(cmd.ErrOrStderr(), "Command %q is deprecated, %s\n", cmd.Name(), acpBareDeprecation)
-	return runACPServer(cmd, args)
+                        editor's config for the server direction.`,
 }
 
 // acpServeCmd is the real home of ctxloom-as-ACP-server: ctxloom serves the

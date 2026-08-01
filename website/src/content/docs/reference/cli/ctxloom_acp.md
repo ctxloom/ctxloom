@@ -27,12 +27,6 @@ subcommand:
   ctxloom acp list      Lists the ACP agent-server entries to paste into an
                         editor's config for the server direction.
 
-Bare 'ctxloom acp' (no subcommand) is a deprecated alias for 'acp serve'.
-
-```
-ctxloom acp [flags]
-```
-
 ### Options
 
 ```

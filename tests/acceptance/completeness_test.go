@@ -120,22 +120,25 @@ func isLeafIdentByte(b byte) bool {
 // must be pruned back down). Every entry names the task that will backfill
 // it; that task is the only legitimate way an entry leaves this list.
 var knownUncoveredCLI = []string{
-	// Publisher signing surface: zero acceptance scenarios sign a bundle or
-	// list the allowed_signers store. Backfill: task outer-water.
-	// "ctxloom signer add"/"ctxloom signer remove" were here too, but J3
-	// (steps_j3.go, j3_corporate_signed.feature) now legitimately drives both:
-	// the Background's "Alice trusts the company key" step runs `ctxloom
-	// signer add ... --project`, and scenario 6's "Alice revokes her trust in
-	// the company key" runs `ctxloom signer remove ... --project` — pruned.
-	// "ctxloom signer show" was here too, but J7 (steps_j7.go,
-	// j7_incident.feature)'s irrevocable-embedded-key scenario now legitimately
-	// drives it (before/after the removal attempt) — pruned.
-	"ctxloom sign",
-	"ctxloom signer list",
-	// Relocates an authored bundle to another remote/project; needs a second
-	// project/remote fixture beyond this suite's single seeded remote.
-	// Backfill: task cheap-pug.
-	"ctxloom bundle move",
+	// The publisher-signing surface is now covered by J18 (steps_j18_signing.go,
+	// j18_signing.feature): `ctxloom bundle sign` (bare ref, --all, an item ref,
+	// and the empty-publish-set failure), the deprecated `ctxloom sign` twin,
+	// `ctxloom signer list` and its canonical `trust signer list`,
+	// `trust signer add|show|remove`, `trust accept`, `trust reject`, and
+	// `bundle move` (verbatim relocation plus the refused-move path). Every one
+	// runs against a real ssh-agent (testenv.StartSSHAgent) and asserts payload:
+	// each `.sig` is verified independently against bundle bytes read fresh off
+	// disk, `--all` is counted against the publish set, and `--project`'s store
+	// location is asserted on BOTH the project and the user path.
+	//
+	// "ctxloom signer add"/"ctxloom signer remove" left this list earlier: J3
+	// (steps_j3.go, j3_corporate_signed.feature) drives both — the Background's
+	// "Alice trusts the company key" step runs `ctxloom signer add ...
+	// --project`, and scenario 6's "Alice revokes her trust in the company key"
+	// runs `ctxloom signer remove ... --project`. "ctxloom signer show" left it
+	// when J7 (steps_j7.go, j7_incident.feature)'s irrevocable-embedded-key
+	// scenario started driving it before and after the removal attempt.
+	//
 	// Long-lived watcher with no bounded/hermetic exit in this harness yet.
 	// Backfill: task cheap-pug.
 	"ctxloom session watch",
@@ -154,13 +157,10 @@ var knownUncoveredCLI = []string{
 	// session work added `session backfill`/`session query` plus the `acp …`
 	// surface. The acceptance corpus still drives the legacy spellings, so
 	// these new leaves are genuinely uncovered. Allowlisted pending real
-	// acceptance coverage; tracked as one backfill task.
-	"ctxloom trust accept",
-	"ctxloom trust reject",
-	"ctxloom trust signer add",
-	"ctxloom trust signer list",
-	"ctxloom trust signer remove",
-	"ctxloom trust signer show",
+	// acceptance coverage; tracked as one backfill task. (The signing/trust
+	// half of this group — `trust accept|reject`, `trust signer
+	// add|list|remove|show`, and `bundle sign` — left the list with J18; see
+	// the note at the top.)
 	"ctxloom mcp register",
 	"ctxloom mcp unregister",
 	"ctxloom mcp server add",
@@ -171,7 +171,6 @@ var knownUncoveredCLI = []string{
 	"ctxloom config init",
 	"ctxloom config show",
 	"ctxloom container tooling",
-	"ctxloom bundle sign",
 	"ctxloom init prompt",
 	"ctxloom session query",
 	"ctxloom acp client",

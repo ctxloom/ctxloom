@@ -3,6 +3,7 @@
 package acceptance
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -470,13 +471,20 @@ func TestCompleteness(t *testing.T) {
 	// One prominent, always-printed deficit statement — the per-subtest
 	// t.Logf lines above are detail for someone chasing a specific gap, not
 	// a substitute for a reader seeing the size of the debt at a glance.
-	// Deliberately printed unconditionally (not gated on -v or on failure):
-	// a green run must not look indistinguishable from a run with zero
-	// coverage gaps.
+	//
+	// This is fmt.Fprintf(os.Stderr, ...), NOT t.Logf: t.Log/t.Logf output is
+	// buffered by the testing package and only flushed for a FAILING test or
+	// under -v — on a normal passing `go test` (no -v; this is how `just
+	// test-pkg` and CI's plain invocations run), the line never reaches the
+	// terminal at all, silently recreating exactly the "clean pass while 43
+	// surfaces go unexercised" problem this gate exists to fix. Writing
+	// straight to the process's real stderr bypasses that buffering
+	// entirely, so a green run cannot look indistinguishable from a run with
+	// zero coverage gaps.
 	totalUncovered := cliUncovered + toolsUncovered + runnerOnlyUncovered
-	t.Logf("COMPLETENESS DEFICIT: %d leaf/tool surfaces are allowlisted UNCOVERED — "+
+	fmt.Fprintf(os.Stderr, "COMPLETENESS DEFICIT: %d leaf/tool surfaces are allowlisted UNCOVERED — "+
 		"%d CLI leaves, %d MCP tools, %d runner-only MCP tools. This is accepted "+
-		"debt (see backfill-task comments above each list), not a clean pass.",
+		"debt (see backfill-task comments above each list), not a clean pass.\n",
 		totalUncovered, cliUncovered, toolsUncovered, runnerOnlyUncovered)
 	if totalUncovered > maxKnownUncoveredTotal {
 		t.Errorf("COMPLETENESS DEFICIT ratchet: %d allowlisted-uncovered surfaces "+

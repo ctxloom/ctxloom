@@ -228,7 +228,13 @@ var knownUncoveredRunnerOnlyTools = []string{
 // direction: an item in got but not want is a NEW gap (something regressed);
 // an item in want but not got means the allowlist is stale (it was backfilled
 // and should be pruned). label names the surface for the failure message.
-func assertExactUncovered(t *testing.T, label string, got, want []string) {
+//
+// Returns len(gotSet): the ACTUAL number of uncovered surfaces observed this
+// run (not the allowlist's own size), so a caller can fold it into
+// TestCompleteness's total-deficit report and ratchet. Deliberately not
+// len(wantSet) — if got and want ever disagree (a currently-failing run),
+// the live count is the honest one; the allowlist's book-keeping isn't.
+func assertExactUncovered(t *testing.T, label string, got, want []string) int {
 	t.Helper()
 	gotSet := append([]string{}, got...)
 	wantSet := append([]string{}, want...)
@@ -256,6 +262,13 @@ func assertExactUncovered(t *testing.T, label string, got, want []string) {
 			t.Errorf("%s: allowlist entry %q is now covered — prune it from knownUncovered*", label, w)
 		}
 	}
+
+	// Prominent, single-line deficit statement — the per-item t.Logf lines
+	// above are detail, not a substitute for this. A reader skimming output
+	// (or `just` failure summaries, which truncate) should not have to count
+	// "allowlisted uncovered" lines to learn the size of the gap.
+	t.Logf("%s: %d ALLOWLISTED UNCOVERED (debt, not a pass) — %v", label, len(gotSet), gotSet)
+	return len(gotSet)
 }
 
 // excludedLeaves are public-surface entry points deliberately not exercised by a
@@ -309,10 +322,32 @@ var excludedTools = map[string]string{}
 // against a seeded file:// remote.
 var excludedTemplates = map[string]string{}
 
+// maxKnownUncoveredTotal is a RATCHET on the combined size of every
+// knownUncovered* allowlist (currently 36 CLI leaves + 4 MCP tools + 3
+// runner-only MCP tools = 43). It exists because assertExactUncovered's
+// exact-set check only catches a leaf/tool going uncovered WITHOUT anyone
+// updating the matching allowlist — it does nothing to stop someone from
+// adding a new gap AND an allowlist entry for it in the same change, which
+// passes cleanly today with only a t.Logf to notice by. This constant makes
+// that silent-absorption path loud: TestCompleteness fails if the live total
+// ever exceeds it, so growing the allowlists requires bumping this number in
+// the same diff, with a reason, in code review.
+//
+// It does NOT fail on the existing 43 (that's accepted, tracked debt — every
+// entry in the three lists above carries its own backfill-task comment) and
+// it is not automatically lowered by backfill work: when a task closes gaps,
+// lower this number too, or the ratchet just grows slack instead of tracking
+// the debt down.
+const maxKnownUncoveredTotal = 43
+
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.
 func TestCompleteness(t *testing.T) {
 	corpus := loadCorpus(t)
+
+	// Populated by the three allowlisted subtests below, then folded into one
+	// prominent deficit statement (and ratcheted) once they've all run.
+	var cliUncovered, toolsUncovered, runnerOnlyUncovered int
 
 	t.Run("cli leaves", func(t *testing.T) {
 		// requiredHiddenLeaves are appended rather than discovered by
@@ -353,7 +388,7 @@ func TestCompleteness(t *testing.T) {
 				uncovered = append(uncovered, path)
 			}
 		}
-		assertExactUncovered(t, "cli leaves", uncovered, knownUncoveredCLI)
+		cliUncovered = assertExactUncovered(t, "cli leaves", uncovered, knownUncoveredCLI)
 	})
 
 	tools, resources, templates := liveSurface(t)
@@ -385,7 +420,7 @@ func TestCompleteness(t *testing.T) {
 				uncovered = append(uncovered, name)
 			}
 		}
-		assertExactUncovered(t, "mcp tools", uncovered, knownUncoveredTools)
+		toolsUncovered = assertExactUncovered(t, "mcp tools", uncovered, knownUncoveredTools)
 	})
 
 	// U156-F01: everything above measures the STANDALONE `ctxloom mcp
@@ -429,8 +464,27 @@ func TestCompleteness(t *testing.T) {
 				uncovered = append(uncovered, name)
 			}
 		}
-		assertExactUncovered(t, "mcp tools (runner-only)", uncovered, knownUncoveredRunnerOnlyTools)
+		runnerOnlyUncovered = assertExactUncovered(t, "mcp tools (runner-only)", uncovered, knownUncoveredRunnerOnlyTools)
 	})
+
+	// One prominent, always-printed deficit statement — the per-subtest
+	// t.Logf lines above are detail for someone chasing a specific gap, not
+	// a substitute for a reader seeing the size of the debt at a glance.
+	// Deliberately printed unconditionally (not gated on -v or on failure):
+	// a green run must not look indistinguishable from a run with zero
+	// coverage gaps.
+	totalUncovered := cliUncovered + toolsUncovered + runnerOnlyUncovered
+	t.Logf("COMPLETENESS DEFICIT: %d leaf/tool surfaces are allowlisted UNCOVERED — "+
+		"%d CLI leaves, %d MCP tools, %d runner-only MCP tools. This is accepted "+
+		"debt (see backfill-task comments above each list), not a clean pass.",
+		totalUncovered, cliUncovered, toolsUncovered, runnerOnlyUncovered)
+	if totalUncovered > maxKnownUncoveredTotal {
+		t.Errorf("COMPLETENESS DEFICIT ratchet: %d allowlisted-uncovered surfaces "+
+			"exceeds the recorded ceiling of %d (maxKnownUncoveredTotal) — either "+
+			"back-fill coverage, or if this growth is deliberate, bump "+
+			"maxKnownUncoveredTotal in this same commit and say why",
+			totalUncovered, maxKnownUncoveredTotal)
+	}
 
 	t.Run("mcp resources", func(t *testing.T) {
 		for _, uri := range resources {

@@ -123,17 +123,20 @@ func findSilentFailureSites(t *testing.T) []string {
 // two `cfg, err := GetConfig()` guards in this file into two-line comments
 // plus an `if _, err :=` form. The swallow shapes are untouched.
 //
-// Line numbers shifted (117/154/266/287 -> 140/205/332/368) during the
-// gooey-basil output-flow batch's T19 format-debt paydown (--format json now
-// routes through emit() for all four sites) — the underlying anti-pattern
+// Line numbers shifted (117/154/266/287 -> 140/205/332/368 -> 157/238/323/359)
+// during the gooey-basil output-flow batch's T19 format-debt paydown
+// (--format json now routes through emit() for all four sites), then again
+// when the engine-validation-scoping fix inserted the checkInstallEngineApplies
+// doc lines and the --engine hook-backend-scoping block ahead of
+// runManageInstall's ApplyHooks call — the underlying anti-pattern
 // (ApplyHooks/RemoveHooks per-backend errors warned, then `return nil`) is
-// unchanged and out of that batch's scope (T9/R1, not T19); only the ledger
-// keys were re-pointed at the new line numbers.
+// unchanged and out of both batches' scope (T9/R1, not T19 or the engine fix);
+// only the ledger keys were re-pointed at the new line numbers.
 var silentFailureAllowlist = map[string]string{
-	"manage.go:145": "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:226": "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:145",
-	"manage.go:311": "`manage hooks install` inline RunE: ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:347": "`manage hooks uninstall` inline RunE: RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:311",
+	"manage.go:157": "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
+	"manage.go:238": "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:157",
+	"manage.go:323": "`manage hooks install` inline RunE: ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
+	"manage.go:359": "`manage hooks uninstall` inline RunE: RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:323",
 
 	"bundle_distill.go:134": "the print-only `for _, e := range result.Errors` loop inside emit()'s text closure stays (it must — this same result.Errors also rides the --format json payload, so deleting it would drop the JSON error detail); the actual T9/R1 bug (U034-F02) is FIXED by a check placed AFTER emit() returns, `if len(result.Errors) > 0 { return ... }`, in runBundleDistill itself — that path covers text AND structured formats alike, which folding the fix into this closure's return value could not (Emit only calls the closure for --format text; a json/yaml/toml run never executes it, so an error returned from inside it would still be silently lost for every non-text format). Kept allowlisted because the regex keys on this loop's SHAPE, not on whether the surrounding function still swallows it. Line renumbered from :129 to :134 by U034-F11, which moved the loop down (a comment plus the iox.ErrWriter construction) AND rewrote its body from `fmt.Fprintln(os.Stderr, e)` to `errw.Println(e)`; that rewrite also made the loop stop matching silentFailureLoopRE entirely, which the gate reported as a stale entry (\"debt paid down\") when in fact only the writer had changed — see the regex's own comment for the vocabulary widening that restores detection. The loop's warn-only SHAPE and the fix below emit() are both unchanged.",
 

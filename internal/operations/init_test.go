@@ -41,6 +41,33 @@ func TestInitializeProject(t *testing.T) {
 	assert.True(t, remotesExists, "remotes.yaml should be written")
 }
 
+// TestInitializeProject_UnknownEngineRefusesAndWritesNothing pins the fix for
+// the "exit 0 + success message + corrupt config" defect: `req.Engine` naming
+// a backend the registry doesn't know (a typo, an unsupported name) used to
+// scaffold anyway via fallbackRegistry's `{type: <whatever>}`, producing a
+// config.yaml that then failed ctxloom's own JSON-schema validation on the
+// very next command. It must instead refuse loud, naming the bad value and
+// the valid set, and must leave NOTHING behind — not even the directory tree
+// MkdirAll would otherwise have created.
+func TestInitializeProject_UnknownEngineRefusesAndWritesNothing(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := "/proj/.ctxloom"
+
+	res, err := InitializeProject(context.Background(), InitializeProjectRequest{AppDir: appDir, Engine: "bogus", FS: fs})
+	require.Error(t, err, "an unknown engine must be refused, not silently scaffolded")
+	assert.Nil(t, res)
+	assert.Contains(t, err.Error(), `"bogus"`, "the refusal must name the offending value")
+	assert.Contains(t, err.Error(), "claude-code", "the refusal must list the valid engine set")
+
+	exists, existsErr := afero.DirExists(fs, appDir)
+	require.NoError(t, existsErr)
+	assert.False(t, exists, "a rejected engine must leave no directory behind, not even an empty one")
+
+	cfgExists, cfgErr := afero.Exists(fs, paths.ConfigPath(appDir))
+	require.NoError(t, cfgErr)
+	assert.False(t, cfgExists, "a rejected engine must leave no config.yaml behind")
+}
+
 // TestInitializeProject_DirtyTreeHandlerAnswerWritesBothKeys proves the init
 // interview's single dirty-tree question actually LANDS both
 // dirty_tree_handler and dirty_tree_commit_ack ON DISK — not just that

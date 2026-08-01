@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/resources"
@@ -55,9 +57,22 @@ const SeedProfileName = "default"
 // default coding profile). Safe to re-run: directories use MkdirAll and the
 // scaffold files are overwritten — EXCEPT the seed profile, which is left
 // untouched if it already exists so a re-init never clobbers user edits.
+//
+// req.Engine is validated against the backends registry (internal/lm/backends
+// — the one place a "known engine" is defined) BEFORE anything is written: an
+// unknown value refuses loud, with the value named and the valid set listed,
+// rather than scaffolding a config.yaml that then fails ctxloom's own
+// JSON-schema validation on the very next command (the silent-no-op-shaped
+// failure this codebase treats as a bug, not a shortcut). Every caller that
+// accepts a user-typed --engine (manage install, config init and its
+// deprecated aliases, root init) funnels through here, so this is the single
+// choke point — no per-call-site duplicate check needed.
 func InitializeProject(_ context.Context, req InitializeProjectRequest) (*InitializeProjectResult, error) {
 	if req.AppDir == "" {
 		return nil, fmt.Errorf("app dir is required")
+	}
+	if !backends.Exists(req.Engine) {
+		return nil, fmt.Errorf("unknown engine %q; valid engines: %s", req.Engine, strings.Join(backends.List(), ", "))
 	}
 	fs := getFS(req.FS)
 	// The authored-bundles home is the COMMITTED content tree; the cache is

@@ -135,8 +135,20 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	if _, err := GetConfig(); err != nil {
 		return err
 	}
+	// An EXPLICIT --engine scopes the hook apply to that one backend — the flag
+	// reads like "install for this engine" and used to wire all five
+	// regardless (`.opencode/`, `.kiro/`, etc. materializing in a project that
+	// uses only one engine). Omitting the flag keeps the prior "all" default:
+	// manageInstallEngine always holds a value (its flag default is
+	// "claude-code"), so Changed is the only reliable signal that the user
+	// actually asked for one engine — see checkInstallEngineApplies above,
+	// which gates on the same Changed() check for the same reason.
+	hookBackend := "all"
+	if cmd.Flags().Changed("engine") {
+		hookBackend = manageInstallEngine
+	}
 	result, err := operations.ApplyHooks(cmd.Context(), operations.ApplyHooksRequest{
-		Backend:           "all",
+		Backend:           hookBackend,
 		RegenerateContext: true,
 	})
 	if err != nil {

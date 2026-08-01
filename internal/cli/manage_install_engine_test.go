@@ -78,6 +78,68 @@ func TestManageInstall_RerunWithoutEngineStillWorks(t *testing.T) {
 	require.NoError(t, err, "re-running install to re-apply hooks must stay a supported repair")
 }
 
+// TestManageInstall_UnknownEngineRefusesLoud pins the fix for the "exit 0 +
+// success message + corrupt config" defect: `manage install --engine bogus`
+// used to print "Initialized ctxloom directory" and write a config.yaml that
+// then failed ctxloom's own JSON-schema validation on the very next command.
+// It must instead refuse loud, name the offending value, list the valid set,
+// and leave NOTHING behind — not even an empty .ctxloom directory.
+func TestManageInstall_UnknownEngineRefusesLoud(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+
+	out, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "bogus")
+	require.Error(t, err, "an unknown engine must not report success")
+	assert.Contains(t, err.Error(), `"bogus"`, "the refusal must name the offending value")
+	assert.Contains(t, err.Error(), "claude-code", "the refusal must list the valid engine set")
+	assert.NotContains(t, out, "Initialized ctxloom directory", "no success line on a rejected engine")
+
+	_, statErr := os.Stat(filepath.Join(dir, ".ctxloom"))
+	assert.True(t, os.IsNotExist(statErr), "a rejected engine must leave no .ctxloom directory behind")
+}
+
+// TestManageInstall_EngineScopesWrites pins the fix for the second defect on
+// the same flag: `--engine codex` used to write EVERY registered engine's
+// surfaces (.claude/, .kiro/, .opencode/, .agents/ all materializing in a
+// project that uses only codex) because ApplyHooks was always called with
+// Backend: "all", ignoring the flag entirely except for the config's
+// recorded default. An explicit --engine must scope the hook apply to that
+// one backend.
+func TestManageInstall_EngineScopesWrites(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+
+	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "codex")
+	require.NoError(t, err)
+
+	assert.DirExists(t, filepath.Join(dir, ".codex"), "the named engine's surface must be written")
+	for _, other := range []string{".claude", ".kiro", ".opencode", ".agents"} {
+		_, statErr := os.Stat(filepath.Join(dir, other))
+		assert.True(t, os.IsNotExist(statErr), "%s must NOT be written when --engine codex was asked for", other)
+	}
+}
+
+// TestManageInstall_NoEngineFlagAppliesAllBackends is the guard on the
+// scoping fix: omitting --engine is the documented "wire everything" install
+// and must keep writing every backend's surface, exactly as before — the
+// flag's ABSENCE, not its default value, is what selects "all".
+func TestManageInstall_NoEngineFlagAppliesAllBackends(t *testing.T) {
+	dir := testsupport.ProjectDir(t)
+
+	// pflag's Changed sticks on the shared FlagSet across Execute() calls in
+	// the same process (TestManageInstall_RerunWithoutEngineStillWorks above
+	// documents the same artefact) — reset it so this run is the "no --engine
+	// passed" invocation a real process would make, regardless of what an
+	// earlier test in this binary left behind.
+	require.NoError(t, manageInstallCmd.Flags().Set("engine", "claude-code"))
+	manageInstallCmd.Flags().Lookup("engine").Changed = false
+
+	_, err := runCLIErr(t, "manage", "install", "--print=false")
+	require.NoError(t, err)
+
+	for _, backend := range []string{".claude", ".codex", ".kiro", ".opencode"} {
+		assert.DirExists(t, filepath.Join(dir, backend), "omitting --engine must still wire %s", backend)
+	}
+}
+
 // TestCheckInstallEngineApplies covers the decision itself, free of the cobra
 // flag plumbing: only the explicit-flag-plus-existing-dir combination is an
 // error, so neither a first install nor a plain re-run is affected.

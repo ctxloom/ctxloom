@@ -26,9 +26,11 @@ var fragmentListCmd = &cobra.Command{
 	Long: `List all fragments from all installed bundles.
 
 Use --bundle to filter by a specific bundle.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return listItems(cmd, ItemTypeFragment, fragmentListBundle)
-	},
+	RunE: runFragmentList,
+}
+
+func runFragmentList(cmd *cobra.Command, args []string) error {
+	return listItems(cmd, ItemTypeFragment, fragmentListBundle)
 }
 
 var fragmentListBundle string
@@ -44,9 +46,11 @@ Examples:
   ctxloom fragment show core#fragments/tdd
   ctxloom fragment show go-tools#fragments/testing`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return showItem(cmd, args[0], ItemTypeFragment, fragmentShowDistilled, fragmentShowInteractive)
-	},
+	RunE: runFragmentShow,
+}
+
+func runFragmentShow(cmd *cobra.Command, args []string) error {
+	return showItem(cmd, args[0], ItemTypeFragment, fragmentShowDistilled, fragmentShowInteractive)
 }
 
 var (
@@ -65,9 +69,11 @@ Examples:
   ctxloom fragment create my-bundle coding-standards
   ctxloom fragment create go-tools testing-patterns`,
 	Args: cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return createItem(cmd, args[0], args[1], ItemTypeFragment)
-	},
+	RunE: runFragmentCreate,
+}
+
+func runFragmentCreate(cmd *cobra.Command, args []string) error {
+	return createItem(cmd, args[0], args[1], ItemTypeFragment)
 }
 
 var fragmentDeleteCmd = &cobra.Command{
@@ -80,9 +86,11 @@ Reference format: bundle#fragments/name
 Examples:
   ctxloom fragment delete my-bundle#fragments/old-standard`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return deleteItem(cmd, args[0], ItemTypeFragment)
-	},
+	RunE: runFragmentDelete,
+}
+
+func runFragmentDelete(cmd *cobra.Command, args []string) error {
+	return deleteItem(cmd, args[0], ItemTypeFragment)
 }
 
 var fragmentEditCmd = &cobra.Command{
@@ -102,9 +110,11 @@ Examples:
   ctxloom fragment edit go-tools#fragments/testing
   ctxloom fragment edit core#fragments/tdd --no-distill`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return editItem(cmd, args[0], ItemTypeFragment, fragmentEditNoDistill)
-	},
+	RunE: runFragmentEdit,
+}
+
+func runFragmentEdit(cmd *cobra.Command, args []string) error {
+	return editItem(cmd, args[0], ItemTypeFragment, fragmentEditNoDistill)
 }
 
 var fragmentEditNoDistill bool
@@ -120,9 +130,11 @@ Examples:
   ctxloom fragment distill core#fragments/tdd
   ctxloom fragment distill go-tools#fragments/testing --force`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return distillItem(cmd, args[0], ItemTypeFragment, fragmentDistillForce)
-	},
+	RunE: runFragmentDistill,
+}
+
+func runFragmentDistill(cmd *cobra.Command, args []string) error {
+	return distillItem(cmd, args[0], ItemTypeFragment, fragmentDistillForce)
 }
 
 var fragmentDistillForce bool

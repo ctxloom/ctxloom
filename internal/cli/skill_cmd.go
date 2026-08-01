@@ -45,30 +45,32 @@ var skillListCmd = &cobra.Command{
 	Long: `List all Agent Skill packages from all installed bundles.
 
 Use --bundle to filter by a specific bundle.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		res, err := operations.ListSkills(cmd.Context(), cfg, operations.ListSkillsRequest{SortBy: "source"})
-		if err != nil {
-			return fmt.Errorf("failed to list skills: %w", err)
-		}
-		entries := res.Skills
-		totalCount := len(entries)
-		if skillListBundle != "" {
-			filtered := make([]operations.SkillEntry, 0, len(entries))
-			for _, e := range entries {
-				if e.Source == skillListBundle {
-					filtered = append(filtered, e)
-				}
+	RunE: runSkillList,
+}
+
+func runSkillList(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	res, err := operations.ListSkills(cmd.Context(), cfg, operations.ListSkillsRequest{SortBy: "source"})
+	if err != nil {
+		return fmt.Errorf("failed to list skills: %w", err)
+	}
+	entries := res.Skills
+	totalCount := len(entries)
+	if skillListBundle != "" {
+		filtered := make([]operations.SkillEntry, 0, len(entries))
+		for _, e := range entries {
+			if e.Source == skillListBundle {
+				filtered = append(filtered, e)
 			}
-			entries = filtered
 		}
-		return emit(cmd, entries, func() error {
-			return printSkillList(cmd, entries, skillListBundle, totalCount)
-		})
-	},
+		entries = filtered
+	}
+	return emit(cmd, entries, func() error {
+		return printSkillList(cmd, entries, skillListBundle, totalCount)
+	})
 }
 
 // printSkillList renders the skill listing. When --bundle filtered every
@@ -122,37 +124,39 @@ Reference format: bundle#skills/name
 Examples:
   ctxloom skill show core#skills/code-reviewer`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+	RunE: runSkillShow,
+}
+
+func runSkillShow(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	res, err := operations.GetSkill(cmd.Context(), cfg, operations.GetSkillRequest{Name: args[0]})
+	if err != nil {
+		return err
+	}
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "%s#skills/%s\n\n", res.Bundle, res.Name)
+		fmt.Fprintf(out, "description: %s\n", res.Description)
+		if res.License != "" {
+			fmt.Fprintf(out, "license: %s\n", res.License)
 		}
-		res, err := operations.GetSkill(cmd.Context(), cfg, operations.GetSkillRequest{Name: args[0]})
-		if err != nil {
-			return err
+		if res.Compatibility != "" {
+			fmt.Fprintf(out, "compatibility: %s\n", res.Compatibility)
 		}
-		return emit(cmd, res, func() error {
-			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "%s#skills/%s\n\n", res.Bundle, res.Name)
-			fmt.Fprintf(out, "description: %s\n", res.Description)
-			if res.License != "" {
-				fmt.Fprintf(out, "license: %s\n", res.License)
-			}
-			if res.Compatibility != "" {
-				fmt.Fprintf(out, "compatibility: %s\n", res.Compatibility)
-			}
-			if len(res.AllowedTools) > 0 {
-				fmt.Fprintf(out, "allowed-tools: %s\n", strings.Join(res.AllowedTools, ", "))
-			}
-			fmt.Fprintln(out)
-			fmt.Fprintln(out, res.Body)
-			fmt.Fprintf(out, "\nFiles (%d):\n", len(res.Files))
-			for _, f := range res.Files {
-				fmt.Fprintf(out, "  %s  %s  %s\n", f.Mode, f.SHA256, f.Path)
-			}
-			return nil
-		})
-	},
+		if len(res.AllowedTools) > 0 {
+			fmt.Fprintf(out, "allowed-tools: %s\n", strings.Join(res.AllowedTools, ", "))
+		}
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, res.Body)
+		fmt.Fprintf(out, "\nFiles (%d):\n", len(res.Files))
+		for _, f := range res.Files {
+			fmt.Fprintf(out, "  %s  %s  %s\n", f.Mode, f.SHA256, f.Path)
+		}
+		return nil
+	})
 }
 
 var skillCreateDescription string
@@ -172,27 +176,29 @@ Examples:
   ctxloom skill create my-bundle code-reviewer
   ctxloom skill create my-bundle code-reviewer --description "Reviews Go diffs for common bugs"`,
 	Args: cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		res, err := operations.CreateSkill(cmd.Context(), cfg, operations.CreateSkillRequest{
-			Bundle:      args[0],
-			Name:        args[1],
-			Description: skillCreateDescription,
-		})
-		if err != nil {
-			return err
-		}
-		return emit(cmd, res, func() error {
-			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Created skill %q in bundle %q\n", res.Name, res.Bundle)
-			fmt.Fprintf(out, "  %s\n", res.Dir)
-			fmt.Fprintf(out, "Edit %s/SKILL.md, then run: ctxloom skill sync %s#skills/%s\n", res.Dir, res.Bundle, res.Name)
-			return nil
-		})
-	},
+	RunE: runSkillCreate,
+}
+
+func runSkillCreate(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	res, err := operations.CreateSkill(cmd.Context(), cfg, operations.CreateSkillRequest{
+		Bundle:      args[0],
+		Name:        args[1],
+		Description: skillCreateDescription,
+	})
+	if err != nil {
+		return err
+	}
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Created skill %q in bundle %q\n", res.Name, res.Bundle)
+		fmt.Fprintf(out, "  %s\n", res.Dir)
+		fmt.Fprintf(out, "Edit %s/SKILL.md, then run: ctxloom skill sync %s#skills/%s\n", res.Dir, res.Bundle, res.Name)
+		return nil
+	})
 }
 
 var skillSyncCmd = &cobra.Command{
@@ -214,35 +220,37 @@ Examples:
   ctxloom skill sync my-bundle#skills/code-reviewer
   ctxloom skill sync my-bundle`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		bundleName, skillName, err := splitSkillSyncRef(args[0])
-		if err != nil {
-			return err
-		}
-		res, err := operations.SyncSkill(cmd.Context(), cfg, operations.SyncSkillRequest{
-			Bundle: bundleName,
-			Name:   skillName,
-		})
-		if err != nil {
-			return err
-		}
-		return emit(cmd, res, func() error {
-			out := cmd.OutOrStdout()
-			for _, s := range res.Synced {
-				status := "unchanged"
-				if s.Changed {
-					status = "changed"
-				}
-				fmt.Fprintf(out, "  %s: %d file(s), manifest %s\n", s.Name, s.FileCount, status)
+	RunE: runSkillSync,
+}
+
+func runSkillSync(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	bundleName, skillName, err := splitSkillSyncRef(args[0])
+	if err != nil {
+		return err
+	}
+	res, err := operations.SyncSkill(cmd.Context(), cfg, operations.SyncSkillRequest{
+		Bundle: bundleName,
+		Name:   skillName,
+	})
+	if err != nil {
+		return err
+	}
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		for _, s := range res.Synced {
+			status := "unchanged"
+			if s.Changed {
+				status = "changed"
 			}
-			fmt.Fprintf(out, "Synced %d skill(s) in bundle %q\n", len(res.Synced), res.Bundle)
-			return nil
-		})
-	},
+			fmt.Fprintf(out, "  %s: %d file(s), manifest %s\n", s.Name, s.FileCount, status)
+		}
+		fmt.Fprintf(out, "Synced %d skill(s) in bundle %q\n", len(res.Synced), res.Bundle)
+		return nil
+	})
 }
 
 // splitSkillSyncRef splits `skill sync`'s single argument into the bundle and
@@ -283,42 +291,44 @@ Examples:
   ctxloom skill export my-bundle#skills/code-reviewer
   ctxloom skill export my-bundle#skills/code-reviewer -o /tmp/code-reviewer.zip --sign`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		bundleName, skillName, ok := strings.Cut(args[0], "#skills/")
-		if !ok {
-			return fmt.Errorf("invalid skill reference: expected bundle#skills/name (got %q)", args[0])
-		}
-		req := operations.ExportSkillRequest{
-			Bundle:  bundleName,
-			Name:    skillName,
-			OutPath: skillExportOut,
-			Sign:    skillExportSign,
-		}
-		if skillExportSign {
-			discovered, err := agentkey.NewDiscoverer().Discover(cmd.Context(), cfg.SignKey())
-			if err != nil {
-				return err
-			}
-			defer func() { _ = discovered.Close() }()
-			req.Signer = discovered.Signer
-		}
-		res, err := operations.ExportSkill(cmd.Context(), cfg, req)
+	RunE: runSkillExport,
+}
+
+func runSkillExport(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	bundleName, skillName, ok := strings.Cut(args[0], "#skills/")
+	if !ok {
+		return fmt.Errorf("invalid skill reference: expected bundle#skills/name (got %q)", args[0])
+	}
+	req := operations.ExportSkillRequest{
+		Bundle:  bundleName,
+		Name:    skillName,
+		OutPath: skillExportOut,
+		Sign:    skillExportSign,
+	}
+	if skillExportSign {
+		discovered, err := agentkey.NewDiscoverer().Discover(cmd.Context(), cfg.SignKey())
 		if err != nil {
 			return err
 		}
-		return emit(cmd, res, func() error {
-			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Exported %s -> %s (%d bytes)\n", res.Name, res.ZipPath, res.Bytes)
-			if res.SigPath != "" {
-				fmt.Fprintf(out, "Signed: %s\n", res.SigPath)
-			}
-			return nil
-		})
-	},
+		defer func() { _ = discovered.Close() }()
+		req.Signer = discovered.Signer
+	}
+	res, err := operations.ExportSkill(cmd.Context(), cfg, req)
+	if err != nil {
+		return err
+	}
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Exported %s -> %s (%d bytes)\n", res.Name, res.ZipPath, res.Bytes)
+		if res.SigPath != "" {
+			fmt.Fprintf(out, "Signed: %s\n", res.SigPath)
+		}
+		return nil
+	})
 }
 
 var skillImportBundle string
@@ -346,31 +356,33 @@ Examples:
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle --sig ./code-reviewer.zip.sig`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		if skillImportBundle == "" {
-			return fmt.Errorf("--bundle is required")
-		}
-		res, err := operations.ImportSkill(cmd.Context(), cfg, operations.ImportSkillRequest{
-			Bundle:      skillImportBundle,
-			ArchivePath: args[0],
-			SigPath:     skillImportSig,
-		})
-		if err != nil {
-			return err
-		}
-		return emit(cmd, res, func() error {
-			out := cmd.OutOrStdout()
-			fmt.Fprintf(out, "Imported skill %q into bundle %q (%d file(s))\n", res.Name, res.Bundle, res.FileCount)
-			fmt.Fprintf(out, "  %s\n", res.Dir)
-			fmt.Fprintf(out, "  signature: %s\n", res.SignatureState)
-			fmt.Fprintln(out, "Pending review — run: ctxloom review", res.Bundle)
-			return nil
-		})
-	},
+	RunE: runSkillImport,
+}
+
+func runSkillImport(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	if skillImportBundle == "" {
+		return fmt.Errorf("--bundle is required")
+	}
+	res, err := operations.ImportSkill(cmd.Context(), cfg, operations.ImportSkillRequest{
+		Bundle:      skillImportBundle,
+		ArchivePath: args[0],
+		SigPath:     skillImportSig,
+	})
+	if err != nil {
+		return err
+	}
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Imported skill %q into bundle %q (%d file(s))\n", res.Name, res.Bundle, res.FileCount)
+		fmt.Fprintf(out, "  %s\n", res.Dir)
+		fmt.Fprintf(out, "  signature: %s\n", res.SignatureState)
+		fmt.Fprintln(out, "Pending review — run: ctxloom review", res.Bundle)
+		return nil
+	})
 }
 
 func init() {

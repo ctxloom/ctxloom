@@ -26,13 +26,15 @@ not edit the manifest, and the held SHA still satisfies the constraint. Unhold t
 let it move again. ('hold' was formerly 'pin', which now risks confusion with an
 exact version pin in the manifest.)`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
-		return holdItem(cfg, args[0], cmd.OutOrStdout(), cmd.ErrOrStderr())
-	},
+	RunE: runBundleHold,
+}
+
+func runBundleHold(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	return holdItem(cfg, args[0], cmd.OutOrStdout(), cmd.ErrOrStderr())
 }
 
 // holdItem sets the hold flag on name's active lockfile entry and reports the
@@ -84,21 +86,23 @@ var bundleUnholdCmd = &cobra.Command{
 	Aliases: []string{"unpin"},
 	Short:   "Release a hold so `upgrade` can advance the item again",
 	Args:    cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
-		found, err := operations.SetItemPin(cfg, args[0], false)
-		if err != nil {
-			return err
-		}
-		// See reportNothingToHold: a local bundle has nothing to release and
-		// succeeds; a name that resolves to nothing is refused.
-		if !found {
-			return reportNothingToHold(cfg, args[0], "unhold", cmd.ErrOrStderr())
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Released hold on %q; the next 'remote upgrade' may advance it.\n", args[0])
-		return nil
-	},
+	RunE:    runBundleUnhold,
+}
+
+func runBundleUnhold(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	found, err := operations.SetItemPin(cfg, args[0], false)
+	if err != nil {
+		return err
+	}
+	// See reportNothingToHold: a local bundle has nothing to release and
+	// succeeds; a name that resolves to nothing is refused.
+	if !found {
+		return reportNothingToHold(cfg, args[0], "unhold", cmd.ErrOrStderr())
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Released hold on %q; the next 'remote upgrade' may advance it.\n", args[0])
+	return nil
 }

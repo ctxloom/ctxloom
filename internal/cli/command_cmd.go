@@ -26,9 +26,11 @@ var commandListCmd = &cobra.Command{
 	Long: `List all commands from all installed bundles.
 
 Use --bundle to filter by a specific bundle.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return listItems(cmd, ItemTypeCommand, commandListBundle)
-	},
+	RunE: runCommandList,
+}
+
+func runCommandList(cmd *cobra.Command, args []string) error {
+	return listItems(cmd, ItemTypeCommand, commandListBundle)
 }
 
 var commandListBundle string
@@ -44,9 +46,11 @@ Examples:
   ctxloom command show core#commands/code-review
   ctxloom command show go-tools#commands/testing`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return showItem(cmd, args[0], ItemTypeCommand, commandShowDistilled, commandShowInteractive)
-	},
+	RunE: runCommandShow,
+}
+
+func runCommandShow(cmd *cobra.Command, args []string) error {
+	return showItem(cmd, args[0], ItemTypeCommand, commandShowDistilled, commandShowInteractive)
 }
 
 var (
@@ -65,9 +69,11 @@ Examples:
   ctxloom command create my-bundle code-review
   ctxloom command create go-tools testing-patterns`,
 	Args: cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return createItem(cmd, args[0], args[1], ItemTypeCommand)
-	},
+	RunE: runCommandCreate,
+}
+
+func runCommandCreate(cmd *cobra.Command, args []string) error {
+	return createItem(cmd, args[0], args[1], ItemTypeCommand)
 }
 
 var commandDeleteCmd = &cobra.Command{
@@ -80,9 +86,11 @@ Reference format: bundle#commands/name
 Examples:
   ctxloom command delete my-bundle#commands/old-command`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return deleteItem(cmd, args[0], ItemTypeCommand)
-	},
+	RunE: runCommandDelete,
+}
+
+func runCommandDelete(cmd *cobra.Command, args []string) error {
+	return deleteItem(cmd, args[0], ItemTypeCommand)
 }
 
 var commandEditCmd = &cobra.Command{
@@ -102,9 +110,11 @@ Examples:
   ctxloom command edit go-tools#commands/testing
   ctxloom command edit core#commands/code-review --no-distill`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return editItem(cmd, args[0], ItemTypeCommand, commandEditNoDistill)
-	},
+	RunE: runCommandEdit,
+}
+
+func runCommandEdit(cmd *cobra.Command, args []string) error {
+	return editItem(cmd, args[0], ItemTypeCommand, commandEditNoDistill)
 }
 
 var commandEditNoDistill bool
@@ -120,9 +130,11 @@ Examples:
   ctxloom command distill core#commands/code-review
   ctxloom command distill go-tools#commands/testing --force`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return distillItem(cmd, args[0], ItemTypeCommand, commandDistillForce)
-	},
+	RunE: runCommandDistill,
+}
+
+func runCommandDistill(cmd *cobra.Command, args []string) error {
+	return distillItem(cmd, args[0], ItemTypeCommand, commandDistillForce)
 }
 
 var commandDistillForce bool

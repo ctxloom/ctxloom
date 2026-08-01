@@ -41,27 +41,9 @@ func executeFailingUnderFormat(t *testing.T, format string) string {
 	rootCmd.SetArgs([]string{"zz-fail-under-test", "--format", format})
 
 	// rootCmd is package-global and shared with every other test in this
-	// package, so this helper has to defend both directions.
-	//
-	// INBOUND: cliemit.Resolve honours a Changed --json flag as --format json
-	// BEFORE it ever reads --format, and TestLoadout_JSONFlag runs `--json`
-	// against this same rootCmd — loadout_test.go sorts ahead of main_test.go,
-	// so without the reset below every case here inherits json and the two
-	// human-format pins fail while passing in isolation. Resetting only on the
-	// way out is not enough when the leak comes from another file.
-	//
-	// OUTBOUND: put back everything this touched, each parsed flag's Changed
-	// bit included, or the next test inherits a format nobody set.
-	resetGlobalFormatFlags := func() {
-		for _, name := range []string{"format", "json"} {
-			f := rootCmd.PersistentFlags().Lookup(name)
-			if f == nil {
-				continue
-			}
-			_ = f.Value.Set(f.DefValue)
-			f.Changed = false
-		}
-	}
+	// package, so this helper has to defend both directions — see
+	// resetGlobalFormatFlags's own doc for why both an inbound and an
+	// outbound reset are needed here.
 	resetGlobalFormatFlags()
 
 	t.Cleanup(func() {
@@ -77,6 +59,36 @@ func executeFailingUnderFormat(t *testing.T, format string) string {
 	require.Error(t, err, "the fixture command must fail; with no error there is no error path to pin")
 	reportExecuteError(&buf, err)
 	return buf.String()
+}
+
+// resetGlobalFormatFlags restores rootCmd's persistent --format and --json
+// flags to their zero state (default value, Changed=false).
+//
+// rootCmd is package-global and shared by every test in this package, so any
+// test that drives it through Execute (or otherwise sets these flags
+// directly) has to defend both directions:
+//
+// INBOUND: cliemit.Resolve honours a Changed --json flag as --format json
+// BEFORE it ever reads --format. Go runs this package's tests in source-file
+// order, and loadout_test.go sorts ahead of this file, so a test there that
+// leaves --json Changed (runLoadout's callers) leaks into whichever test
+// here runs next — resetting only on the way out is not enough when the leak
+// comes from another file.
+//
+// OUTBOUND: put back everything a test touched, each parsed flag's Changed
+// bit included, or the next test — in this file or any other — inherits a
+// format nobody set. loadout_test.go's own callers reset both directions for
+// the same reason; this function is the one place both files call so the
+// reset logic is defined once.
+func resetGlobalFormatFlags() {
+	for _, name := range []string{"format", "json"} {
+		f := rootCmd.PersistentFlags().Lookup(name)
+		if f == nil {
+			continue
+		}
+		_ = f.Value.Set(f.DefValue)
+		f.Changed = false
+	}
 }
 
 // TestExecuteError_IsParseableUnderStructuredFormats is the silent-format-lie

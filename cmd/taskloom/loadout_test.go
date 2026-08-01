@@ -153,11 +153,21 @@ func TestLoadout_ExplicitFormatBeatsShorthandAndRefusesUnknown(t *testing.T) {
 // only place the root's persistent flags and the subcommand's local ones meet
 // — calling companionloadout.Emit directly, as the tests above do, cannot see
 // this interaction at all.
+//
+// rootCmd is package-global and shared with every other test in this
+// package (main_test.go's executeFailingUnderFormat drives the same
+// instance), so this resets the persistent --format/--json flags both
+// inbound and outbound via resetGlobalFormatFlags — the callers below pass
+// --json, and without the outbound reset its Changed bit survives this test
+// and leaks into whichever test runs next, in this file or any other.
 func runLoadout(t *testing.T, args ...string) string {
 	t.Helper()
 	loadout := newLoadoutCmd()
 	rootCmd.AddCommand(loadout)
 	t.Cleanup(func() { rootCmd.RemoveCommand(loadout) })
+
+	resetGlobalFormatFlags()
+	t.Cleanup(resetGlobalFormatFlags)
 
 	var buf bytes.Buffer
 	rootCmd.SetOut(&buf)

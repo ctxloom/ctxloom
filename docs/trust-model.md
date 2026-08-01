@@ -518,3 +518,41 @@ never permitted in the committable project store.
    and both companion loadouts, and `.goreleaser.yml` carries no `signs:` block at
    all — **release artifacts are unsigned**. The compromise radius of that one key
    is therefore every signed surface at once.
+10. **An agent can write to the repository it works in — and `.git` is code, not
+    just data.** ctxloom runs an agent in its own git worktree, and the git
+    *common* directory is exposed to that agent read-write: in a container it is
+    bind-mounted at its identical host path (`gitCommonDirMount` in
+    `internal/lm/isolation/container.go` → `rt.ExposeIdentical(common, false)`,
+    and the project mount itself is `ExposeIdentical(cw.dir, false)`), and on the
+    host runtime nothing is in the way at all. That directory holds `hooks/` and
+    the repo-local `config`, whose `core.hooksPath`, `core.fsmonitor`,
+    `core.sshCommand`, `core.pager` and `[alias]` keys all name commands git
+    executes. An agent that replaces `hooks/pre-commit` has planted a program
+    that runs the next time a **human** commits in the primary checkout — on the
+    host, outside the container, as that user. This repository carries live
+    `pre-commit` and `prepare-commit-msg` hooks in that directory today, so the
+    file is real, not a `.sample`. The accurate statement of the residual is
+    therefore not "code and git state are corruptable": under accident it is a
+    spoiled branch, and under malice it is **host code execution**. Which control
+    owns which question: the **review/trust pipeline at ingest** (fragment and
+    skill review, publisher signatures, countersignatures) is the control against
+    a malicious *instruction* reaching an agent; the **container at runtime**
+    isolates the process and the host filesystem; the **worktree and branch**
+    bound the blast radius of *accident* and ordinary agent error, and are not a
+    control against malice; the **read-write git mount** is not a control at all
+    — it is this accepted residual. An agent handed a working repository can
+    write to it; that is inherent to the job, not a defect ctxloom intends to
+    close. The mitigation is upstream (point agents at repositories you would be
+    willing to restore from their remote; inspect `.git/hooks` and `.git/config`
+    after a run you have reason to doubt), and the risk sits with the user. Ruled
+    and accepted 2026-07-31; ratifies the in-code "Over-mount blast radius,
+    ACCEPTED" decision.
+11. **The review gate covers what ctxloom delivers, not every ingress.** Review,
+    signing and countersigning cover content ctxloom itself resolves and hands to
+    an agent: fragments, skills, bundles, hooks, MCP declarations. They do not
+    cover a poisoned file already committed in the repository the agent works in,
+    web content the agent fetches, the contents of an upstream dependency, or an
+    injection carried in data the agent merely processes. None of those pass
+    through the gate, because ctxloom never resolved them. Stated explicitly
+    because gap 10 leans on review as the upstream control: it is strong on one
+    ingress, not on all of them.

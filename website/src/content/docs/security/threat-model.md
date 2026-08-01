@@ -161,6 +161,53 @@ about what that costs you.
 **`$PAGER` runs during review.** Review shells out to your pager, which is user-controlled
 code execution at review time. Acknowledged and accepted, as it is in every tool that pages.
 
+**An agent can rewrite the repository you point it at — including the parts of `.git` that
+execute code on your host.** ctxloom gives an agent its own git worktree, and the
+repository's git *common* directory is exposed to that agent read-write: in a container it
+is bind-mounted at its identical host path (`gitCommonDirMount` in
+`internal/lm/isolation/container.go`, which mounts it with `ReadOnly` false), and on the
+host runtime there is no boundary in the way at all. That directory is not only objects and
+refs. It holds `hooks/`, and it holds the repo-local `config`, whose `core.hooksPath`,
+`core.fsmonitor`, `core.sshCommand`, `core.pager` and `[alias]` keys all name commands git
+will run. An agent that writes `hooks/pre-commit` there has planted a program that runs the
+next time **a human commits in the primary checkout** — on the host, outside any container,
+as that user. This is not a theoretical file: ctxloom's own repository has live `pre-commit`
+and `prepare-commit-msg` hooks in that directory today, alongside the `.sample` files git
+ships. So state the blast radius accurately. Under accident it is a spoiled branch. Under
+malice it is **host code execution**, not repository corruption.
+
+**Four things isolate four different risks, and only three of them are controls.** It is
+worth being explicit about which one owns which question, because they are routinely
+credited with each other's work.
+
+- **The review and trust pipeline, at ingest.** Fragment review, skill review, publisher
+  signatures, countersignatures. This is the control against a malicious *instruction*
+  reaching an agent at all. Its reach is bounded — see the next entry.
+- **The container, at runtime.** Isolates the agent *process* and the host filesystem: what
+  the agent may execute, and what it can see and touch outside the mounts it was handed.
+- **The worktree and branch, as blast radius.** Isolation against *accident* and ordinary
+  agent error. A confused agent's edits land on a throwaway branch instead of your working
+  tree, and are cheap to throw away. This is **not** isolation against malice; nothing about
+  a worktree stops a deliberate write from reaching the shared `.git` both of you use.
+- **The read-write git mount.** Not a control. It is the residual, accepted above.
+
+An agent that has been given a working repository can write to that repository. That is what
+makes it useful, and ctxloom cannot fundamentally prevent it while remaining useful — it is
+inherent, not a defect we intend to fix. We do not defend against it; you carry it. The
+decision is upstream of ctxloom: point an agent at a repository you would be willing to
+restore from its remote, keep the review pipeline (not the container, and not the worktree)
+as the thing standing between you and an instruction that wants your host, and read
+`.git/hooks` and `.git/config` before your next commit if you have reason to doubt a run.
+
+**Review covers the content ctxloom delivers, not everything an agent reads.** The gate is
+strong on one ingress and silent on the rest. It covers fragments, skills, bundles, hooks
+and MCP declarations — content ctxloom itself resolves and hands to the agent. It does not
+cover a poisoned file already committed in the repository you point the agent at, a web page
+the agent fetches, the contents of an upstream dependency it installs or reads, or an
+injection carried in data the agent merely processes. None of those pass through the trust
+gate, because ctxloom never resolved them. "Reviewed context" does not mean "this agent
+cannot be given a malicious instruction".
+
 **On Docker Desktop the host-to-container LLM transport has no cryptographic authentication, and is reachable across the container network.**
 On non-Linux hosts (macOS and Windows, under Docker Desktop) ctxloom reaches the isolated LLM
 plugin over plain gRPC — there is no per-run bearer token, no mTLS (go-plugin's AutoMTLS is

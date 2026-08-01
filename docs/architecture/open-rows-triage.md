@@ -350,3 +350,96 @@ coupling itself is unchanged.
 **Severity: LOW.** Bounded by `defaultRequestTimeout`; the run does terminate. The fix
 (derive `rctx` from `ctx`) is one token, but it changes stop semantics and deserves a
 deliberate call rather than a drive-by edit.
+
+---
+
+## U025 — `internal/agentcoord/discover`
+
+### U025-F03 — STILL LIVE — `os.Stat` inside the sort comparator
+
+`internal/agentcoord/discover/discover.go:99`, with `mtime` at `:127-132`.
+*Drift: cited `:62` (comparator) and `:81-86` (`mtime`).*
+
+```go
+sort.Slice(matches, func(i, j int) bool { return mtime(matches[i]).After(mtime(matches[j])) })
+```
+
+`mtime` does a fresh `os.Stat` on every call, so the comparator is impure and
+`sort.Slice` is unstable with no tiebreak. Unchanged since the census; note the file *was*
+edited in that window (U025-F02 added the `skipped []error` return, `:90`, `:100-118`) —
+the reviewer's neighbouring finding was fixed and this one was not.
+
+**Failure path.** A live coordinator rewrites its `endpoint.json` on `Serve()` while
+`List()` is sorting → the comparator's answers become mutually inconsistent → Go's
+`sort.Slice` yields an arbitrary order (it does not panic or corrupt; the consequence is
+purely ordering). `watchLiveFeed` (`operations/sessionfeed.go:154-162`) then tries
+candidates in the wrong recency order. Separately, equal mtimes — routine at 1-second
+filesystem granularity, and most likely for coordinators started together, which is the
+case the ordering exists to serve — give a non-deterministic order every run.
+
+**Severity: LOW.** Adversarially, this is much weaker than the row's `CORRECTNESS/MED`
+label suggests. `n` is the number of *projects with a coordinator state dir* — a handful
+— so the "O(n log n) syscalls" amplification is negligible, and the caller
+(`watchLiveFeed`) **tries every endpoint in turn until one holds the harp**, so a wrong
+order costs a few extra failed dials, never a wrong answer. Worth the six-line fix
+(stat once into a slice, add a path tiebreak); not worth prioritising.
+
+### U025-F04 — STILL LIVE (latent only — no failure path today)
+
+`internal/agentcoord/discover/discover.go:68-71`, populated at `:119-122`.
+*Drift: cited `38-41`.*
+
+```go
+type Endpoint struct {
+	URL  string
+	Cred string   // :70 — bearer credential, plain exported string
+}
+```
+
+Confirmed absent: `rg 'func \(e Endpoint\)|func \(e \*Endpoint\)'` returns nothing — there
+is still no `String()` and no `LogValue()`.
+
+**No failure path exists today.** Exhaustive search of every consumer: `discover.List()`
+has exactly one production caller, `operations/sessionfeed.go:140`, and the only thing
+that ever formats an endpoint is `ep.URL` alone (`sessionfeed.go:190`, `:193`, `:197`).
+`ep.Cred` is used once (`:196`), passed to `bearerToken`, never printed. The `%v` at
+`sessionfeed.go:151` formats `skipped[0]` (an `error`), not an `Endpoint`.
+
+**Severity: NIT (hardening, not a defect).** The finding said so itself — *"nothing leaks
+yet"*. By the standard "a claim with no failure path is not a finding", this row is a
+design-hardening suggestion on a type whose purpose is to be passed around. Cheap
+insurance; not a live bug. Recommend recording it as accepted-hardening rather than
+carrying it as an open defect.
+
+---
+
+## Cross-cutting findings
+
+### The ledger's `open` derivation missed exactly one row — by one commit body
+
+`U020-F07` is named in the **body** of `c2c4195d` (in `0f59fbae..HEAD`) and
+`git log --grep='U020-F07'` finds it. The census did not.
+
+Scope of the miss, measured: re-running `git log 0f59fbae..HEAD --grep=<ID>` for **all 24**
+IDs returns a hit for `U020-F07` only. A parallel search of the source tree
+(`rg <ID> --glob '*.go' --glob '*.yml'`) for the other 23 returns nothing — no fix cites
+them in a comment either. **So the mechanical derivation was correct for 23 of 24.** The
+extraction is sound; it just matched subject lines rather than whole messages.
+
+### The CCN 10 gate has never actually run — it is skipped behind a red lint step
+
+Bears directly on `U020-F13` and `U049-F25`, and is bigger than either.
+
+- The gate is real: `.github/workflows/ci.yml:208-209` → `just complexity-check` →
+  `lizard -x "*.pb.go" -x "*/website/*" -C 10 .` (`justfile.container:507-508`), no
+  leading `-`, no per-file exclusions. Verified to exit `1` on any warning.
+- It is comprehensively violated: a repo-wide run of that exact command at `d4c7da2c`
+  reports **278 functions over CCN 10**.
+- It never fires. On the most recent `ci.yml` run (`29883211433`, `release/0.7`,
+  2026-07-22) the Lint job fails at *"Run golangci-lint"* and the next step, *"Enforce
+  cyclomatic complexity (CCN ≤ 10)"*, is **skipped**. Every `ci.yml` run back to at least
+  2026-07-19 failed.
+
+Fixing `terminateRun` and the five `config_migrate.go` functions would not change any of
+this. **The actionable item is the unreached gate, not the six functions.** Recommend
+filing it separately.

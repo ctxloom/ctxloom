@@ -20,14 +20,14 @@ type MCPServer struct {
 type MCPConfig struct {
 	// AutoRegisterCtxloom controls whether ctxloom's own MCP server is auto-registered.
 	// Defaults to true if not specified.
-	AutoRegisterCtxloom *bool `yaml:"auto_register_ctxloom,omitempty"`
+	AutoRegisterCtxloom *bool `yaml:"auto_register_ctxloom,omitempty" json:"auto_register_ctxloom,omitempty"`
 
 	// Servers defines MCP servers to register (unified across backends).
-	Servers map[string]MCPServer `yaml:"servers,omitempty"`
+	Servers map[string]MCPServer `yaml:"servers,omitempty" json:"servers,omitempty"`
 
 	// Plugins holds backend-specific MCP server overrides (passthrough).
 	// Keys are backend names (e.g., "claude-code", "antigravity").
-	Plugins map[string]map[string]MCPServer `yaml:"plugins,omitempty"`
+	Plugins map[string]map[string]MCPServer `yaml:"plugins,omitempty" json:"plugins,omitempty"`
 }
 
 // ShouldAutoRegisterCtxloom returns whether to auto-register the ctxloom MCP server.

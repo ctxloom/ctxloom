@@ -40,18 +40,18 @@ type Hook struct {
 
 // UnifiedHooks defines backend-agnostic hook events that get translated per-backend.
 type UnifiedHooks struct {
-	PreTool      []Hook `yaml:"pre_tool,omitempty"`
-	PostTool     []Hook `yaml:"post_tool,omitempty"`
-	SessionStart []Hook `yaml:"session_start,omitempty"`
-	SessionEnd   []Hook `yaml:"session_end,omitempty"`
-	PreShell     []Hook `yaml:"pre_shell,omitempty"`
-	PostFileEdit []Hook `yaml:"post_file_edit,omitempty"`
+	PreTool      []Hook `yaml:"pre_tool,omitempty" json:"pre_tool,omitempty"`
+	PostTool     []Hook `yaml:"post_tool,omitempty" json:"post_tool,omitempty"`
+	SessionStart []Hook `yaml:"session_start,omitempty" json:"session_start,omitempty"`
+	SessionEnd   []Hook `yaml:"session_end,omitempty" json:"session_end,omitempty"`
+	PreShell     []Hook `yaml:"pre_shell,omitempty" json:"pre_shell,omitempty"`
+	PostFileEdit []Hook `yaml:"post_file_edit,omitempty" json:"post_file_edit,omitempty"`
 }
 
 // HooksConfig holds both unified and backend-specific hook configurations.
 type HooksConfig struct {
-	Unified UnifiedHooks            `yaml:"unified,omitempty"`
-	Plugins map[string]BackendHooks `yaml:"plugins,omitempty"`
+	Unified UnifiedHooks            `yaml:"unified,omitempty" json:"unified,omitempty"`
+	Plugins map[string]BackendHooks `yaml:"plugins,omitempty" json:"plugins,omitempty"`
 }
 
 // HasAny reports whether any hook is configured. Used by config Save() to decide

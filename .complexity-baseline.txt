@@ -73,14 +73,15 @@
 ./internal/claude/claudecode.go|(b*ClaudeCode)Execute ctx context . Context , req * agent . ExecuteRequest , stdout , stderr io . Writer|1|14|Execute|106-164
 ./internal/cli/acp_door_equivalence_test.go|(doorBackend)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|13|Chat|103-135
 ./internal/cli/bundle_distill.go|runBundleDistill cmd * cobra . Command , args [ ] string|1|11|runBundleDistill|79-162
-./internal/cli/bundle_items.go|runBundleMCPEdit cmd * cobra . Command , args [ ] string|1|11|runBundleMCPEdit|49-116
+./internal/cli/bundle_items.go|runBundleMCPEdit cmd * cobra . Command , args [ ] string|1|11|runBundleMCPEdit|33-100
 ./internal/cli/init_helpers_test.go|TestWriteInitialConfig t * testing . T|1|11|TestWriteInitialConfig|70-108
 ./internal/cli/manage.go|runManageInstall cmd * cobra . Command , _ [ ] string|1|12|runManageInstall|84-184
 ./internal/cli/mcp_doccomment_test.go|TestDocComments_NameOnlyConstructorsThatExist t * testing . T|1|11|TestDocComments_NameOnlyConstructorsThatExist|34-76
 ./internal/cli/mcp_runner.go| ctx context . Context , req * mcp . CallToolRequest|1|14||635-707
 ./internal/cli/mcp_tools_memory.go|(s*ctxServer)handleGetPreviousSession ctx context . Context , _ * mcp . CallToolRequest , in getPreviousSessionInput|1|14|handleGetPreviousSession|456-525
 ./internal/cli/mcp_tools_memory.go|(s*ctxServer)loadOrDistillSession ctx context . Context , sessionID , backendName , model string , redistillWhenUnknown bool|1|16|loadOrDistillSession|658-752
-./internal/cli/remote_discover.go|runRemoteDiscover cmd * cobra . Command , args [ ] string , loadConfig func * config . Config , error , fetcher remote . Fetcher|1|11|runRemoteDiscover|49-132
+./internal/cli/remote_discover.go|runRemoteDiscover cmd * cobra . Command , args [ ] string , loadConfig func * config . Config , error , fetcher remote . Fetcher|1|11|runRemoteDiscover|51-134
+./internal/cli/run.go|runRun cmd * cobra . Command , args [ ] string|1|92|runRun|352-1308
 ./internal/cli/run_owned.go|renderOwnedRunEvents ctx context . Context , out io . Writer , format , runID string , events < - chan * agentcoordpb . AgentEvent , turnIdle chan < - string , capture bool|1|27|renderOwnedRunEvents|295-404
 ./internal/cli/run_owned.go|runStructuredREPLViaCoord ctx context . Context , sess * ownedRunSession , format string , stdin io . Reader , stdout io . Writer|1|13|runStructuredREPLViaCoord|140-213
 ./internal/cli/run_structured.go|decodeMessageLine s string|1|11|decodeMessageLine|432-464
@@ -282,7 +283,7 @@
 ./scripts/gendocs/main_test.go|TestCtxloomProduct t * testing . T|1|12|TestCtxloomProduct|22-62
 ./scripts/gendocs/main_test.go|TestEveryHiddenTopLevelCommandIsDecided t * testing . T|1|14|TestEveryHiddenTopLevelCommandIsDecided|156-193
 ./scripts/gendocs/main_test.go|TestMCPIntro_StandaloneSurfaceClaimsAreTrue t * testing . T|1|22|TestMCPIntro_StandaloneSurfaceClaimsAreTrue|230-316
-./tests/acceptance/completeness_test.go| t * testing . T|1|11||353-393
+./tests/acceptance/completeness_test.go| t * testing . T|1|11||344-384
 ./tests/acceptance/isolation_probe.go|probeContainerUnexpected diff [ ] string , containerHome string|1|12|probeContainerUnexpected|540-583
 ./tests/acceptance/isolation_probe.go|runProbeContainer w * World , backendType , runtimeBin string|1|11|runProbeContainer|876-964
 ./tests/acceptance/isolation_probe.go|runProbeWorktree w * World , backendType string , forcedPath probeAuthPath , degraded bool|1|14|runProbeWorktree|779-863

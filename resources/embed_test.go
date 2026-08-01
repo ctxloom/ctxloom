@@ -284,7 +284,7 @@ func TestGetBuiltinCommandBody_CtxloomInit(t *testing.T) {
 		"--runtime container",
 		"--workspace worktree",
 		"ctxloom container check",
-		"ctxloom agent set",
+		"ctxloom agent create",
 		"ctxloom agent list",
 	} {
 		if !strings.Contains(body, want) {

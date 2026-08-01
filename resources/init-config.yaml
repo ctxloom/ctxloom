@@ -17,7 +17,7 @@ config:
 # baseline conduct/practice + developer profiles, so the seeded default is a real,
 # editable local coding profile, not a bare remote reference. A bare `ctxloom run`
 # binds this agent. Edit the profile, add language/stack profiles via discovery,
-# or run `ctxloom agent setup` to bind more agents; `ctxloom agent default <name>`
+# or run `ctxloom init prompt` to bind more agents; `ctxloom agent default <name>`
 # repoints the default.
 
 # MCP server configuration.

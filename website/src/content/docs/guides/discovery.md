@@ -94,7 +94,7 @@ Once you've added a remote, you can:
 ### Browse Its Contents
 
 ```bash
-ctxloom remote browse golang-bundles
+ctxloom remote show golang-bundles
 ```
 
 ### Reference Remote Content
@@ -128,9 +128,9 @@ review` walks the pending items and shows each one's content: `[a]ccept`,
 `[r]eject`, `[s]kip`, or `[A]` to accept everything left in a bundle.
 Accepting countersigns the exact bytes you saw with your own SSH key, so any
 later change to that content — including a version upgrade — drops it back to
-pending until you review it again. `ctxloom trust <ref>` and `ctxloom
+pending until you review it again. `ctxloom trust accept <ref>` and `ctxloom
 blacklist <ref>` are the same accept/reject as scriptable one-liners, for
-scripts or CI. Trusting a publisher's key instead (`ctxloom signer add`)
+scripts or CI. Trusting a publisher's key instead (`ctxloom trust signer create`)
 skips this per-item review for everything they sign.
 
 ### Use Content Directly
@@ -175,7 +175,7 @@ still add them as remotes. Any non-GitHub URL resolves to the generic git
 forge, which clones with your ambient git credentials:
 
 ```bash
-ctxloom remote add internal https://gitlab.example.com/team/ctxloom-internal
+ctxloom remote create internal https://gitlab.example.com/team/ctxloom-internal
 ```
 
 ## MCP Server Integration

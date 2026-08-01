@@ -55,7 +55,7 @@ Feature: Manage the project harness
 
   Scenario: Config init scaffolds a config in a bare project
     Given an empty project directory
-    When I run "ctxloom manage config init --engine claude-code"
+    When I run "ctxloom config init --engine claude-code"
     Then the command succeeds
     And the file ".ctxloom/config.yaml" exists
 

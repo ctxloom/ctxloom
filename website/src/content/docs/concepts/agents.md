@@ -45,12 +45,12 @@ Agents live solely in your `.ctxloom` — under the `agents:` key of `config.yam
 ## Managing agents
 
 ```bash
-ctxloom agent set finder --engine claude-fast --profiles finder
-ctxloom agent set dev --engine claude-code --profiles default,go-developer --runtime container --permissions acceptEdits
-ctxloom agent set reviewer --profiles cr-correctness-go --permissions plan   # default engine
+ctxloom agent create finder --engine claude-fast --profiles finder
+ctxloom agent create dev --engine claude-code --profiles default,go-developer --runtime container --permissions acceptEdits
+ctxloom agent create reviewer --profiles cr-correctness-go --permissions plan   # default engine
 ctxloom agent list
 ctxloom agent show dev
-ctxloom agent remove reviewer
+ctxloom agent delete reviewer
 ```
 
 Re-running `agent set` with the same name updates the binding. `agent set` covers every field except `escalation`, which has no flag — write the ladder into `config.yaml` or the agent's own `.ctxloom/agents/<name>.yaml`.
@@ -63,10 +63,10 @@ Re-running `agent set` with the same name updates the binding. `agent set` cover
 ctxloom run --agent dev "implement the feature"          # one agent, interactive
 ctxloom map --agents finder,reviewer "assess the parser" # parallel members
 ctxloom weave --agents cr-security,cr-perf -s synthesis "review this diff"
-ctxloom acp server --agent dev                           # serve over ACP (editors, optional)
+ctxloom acp serve --agent dev                           # serve over ACP (editors, optional)
 ```
 
-In `map`/`weave`, `--agents` members each run on their own engine binding, while bare `-p` profiles are sugar for a default-engine agent. ACP editor integration is optional (see the acp-setup skill); `ctxloom acp entries` prints one editor agent-server entry per binding so ACP clients (like Zed) can pick agents from the editor.
+In `map`/`weave`, `--agents` members each run on their own engine binding, while bare `-p` profiles are sugar for a default-engine agent. ACP editor integration is optional (see the acp-setup skill); `ctxloom acp list` prints one editor agent-server entry per binding so ACP clients (like Zed) can pick agents from the editor.
 
 ## The two isolation axes
 
@@ -123,7 +123,7 @@ An explicit base always beats auto-detection, and a devcontainer or user base th
 
 ### Tooling declarations
 
-Bundles can declare the tools their content needs inside the agent image (a `tooling` command). `ctxloom tooling` collects the declarations from **trusted** bundles and emits them with instructions for your AI: propose the base-Containerfile additions as a diff, get your explicit approval per change, then rebuild. Nothing is applied automatically on pull or sync.
+Bundles can declare the tools their content needs inside the agent image (a `tooling` command). `ctxloom container tooling` collects the declarations from **trusted** bundles and emits them with instructions for your AI: propose the base-Containerfile additions as a diff, get your explicit approval per change, then rebuild. Nothing is applied automatically on pull or sync.
 
 ## Agents vs profiles
 

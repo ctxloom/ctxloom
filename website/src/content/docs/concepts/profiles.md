@@ -311,7 +311,7 @@ or a bundle-qualified profile ref. To repoint the default later, use
 ```bash
 ctxloom agent default            # show the current default agent
 ctxloom agent default dev        # make the 'dev' agent the default
-ctxloom agent set dev --profiles developer,base --engine claude-code
+ctxloom agent create dev --profiles developer,base --engine claude-code
 ```
 
 ## Variables

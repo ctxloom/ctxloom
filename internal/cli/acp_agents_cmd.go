@@ -24,13 +24,12 @@ type acpAgentEntry struct {
 	Profiles []string `json:"profiles,omitempty"`
 }
 
-// acpEntriesCmd is the real home (CLI-primary reorg plan, Decision 5: "acp
-// agents" → "acp entries") of the ACP-server entry lister — renamed because
-// "agents" collided with ctxloom's own unrelated "agent" noun (engine↔profile
-// bindings) while this command is entirely about the SERVER direction's
-// editor-config entries.
-var acpEntriesCmd = &cobra.Command{
-	Use:   "entries",
+// acpListCmd is the canonical spine's `list` for the ACP noun: the
+// ACP-server entry lister. It was `acp agents` (which collided with ctxloom's
+// own unrelated `agent` noun), then `acp entries`; a bespoke leaf name meaning
+// "list" is a spine violation, so it is spelled `list` (verb-spine reorg §5).
+var acpListCmd = &cobra.Command{
+	Use:   "list",
 	Short: "List the ACP agent-server entries to configure in an editor",
 	Long: `List this project's advertisable ACP agent-server entries: the plain ctxloom
 entry plus one per agent binding (ACP has no in-protocol selection — a client
@@ -41,15 +40,6 @@ The output includes a ready-to-paste Zed settings.json "agent_servers" block;
 other ACP clients configure the same command/args in their own format.`,
 	Args: cobra.NoArgs,
 	RunE: runACPEntries,
-}
-
-// acpAgentsCmd is a Deprecated alias for `ctxloom acp entries`.
-var acpAgentsCmd = &cobra.Command{
-	Use:        "agents",
-	Short:      "List the ACP agent-server entries to configure in an editor",
-	Deprecated: "use `ctxloom acp entries` instead",
-	Args:       cobra.NoArgs,
-	RunE:       runACPEntries,
 }
 
 func runACPEntries(cmd *cobra.Command, args []string) error {
@@ -76,15 +66,14 @@ func ctxloomExecutable() string {
 
 // buildACPAgentEntries builds the advertisable entries: the plain default
 // agent first, then one per agent (already name-sorted by ListAgents). The
-// emitted args invoke the reorged 'acp server' subcommand, not the deprecated
-// bare form.
+// emitted args invoke the canonical 'acp serve' subcommand, not the bare form.
 func buildACPAgentEntries(subs []operations.AgentEntry, exe string) []acpAgentEntry {
-	entries := []acpAgentEntry{{Name: "ctxloom", Command: exe, Args: []string{"acp", "server"}}}
+	entries := []acpAgentEntry{{Name: "ctxloom", Command: exe, Args: []string{"acp", "serve"}}}
 	for _, s := range subs {
 		entries = append(entries, acpAgentEntry{
 			Name:     "ctxloom: " + s.Name,
 			Command:  exe,
-			Args:     []string{"acp", "server", "--agent", s.Name},
+			Args:     []string{"acp", "serve", "--agent", s.Name},
 			Agent:    s.Name,
 			Engine:   s.Engine,
 			Profiles: s.Profiles,
@@ -157,6 +146,5 @@ func zedAgentServersBlock(entries []acpAgentEntry) string {
 }
 
 func init() {
-	acpCmd.AddCommand(acpEntriesCmd)
-	acpCmd.AddCommand(acpAgentsCmd)
+	acpCmd.AddCommand(acpListCmd)
 }

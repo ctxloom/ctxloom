@@ -17,11 +17,11 @@ import (
 // runner state so "the command succeeds" keeps working.
 func registerReviewSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^I accept the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, item, name string) error {
-		return runTrustPlumbing(c, "trust", item, name)
+		return runTrustPlumbing(c, "accept", item, name)
 	})
 
 	ctx.Step(`^I reject the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, item, name string) error {
-		return runTrustPlumbing(c, "blacklist", item, name)
+		return runTrustPlumbing(c, "reject", item, name)
 	})
 }
 
@@ -44,5 +44,5 @@ func runTrustPlumbing(c context.Context, verb, item, remoteName string) error {
 		return fmt.Errorf("remote %q was not seeded", remoteName)
 	}
 	ref := fmt.Sprintf("file://%s@bundles/%s", bare, item)
-	return runOK(w, verb, ref)
+	return runOK(w, "trust", verb, ref)
 }

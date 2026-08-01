@@ -209,9 +209,7 @@ var containerProvenanceCmd = &cobra.Command{
 // rebuild. A markdown resource, not Go — the procedure is data.
 var toolingPrompt = resources.MustGetPromptText("tooling")
 
-// toolingCmdLong is shared by toolingCmd (deprecated top-level alias) and
-// containerToolingCmd (the real home, Decision 4/6: top-level `tooling` ->
-// `container tooling`).
+// toolingCmdLong documents `ctxloom container tooling`.
 const toolingCmdLong = `Collect every trusted bundle's 'tooling' command — the tools its
 content needs inside the agent container image — and emit them with
 instructions for the LLM: scaffold/locate the editable base Containerfile
@@ -222,26 +220,11 @@ Collection is TRUST-GATED: declarations from unreviewed bundles are withheld
 like any other gated content, and nothing is ever applied automatically on
 pull/sync — the edit is the LLM's, gated by the user.`
 
-// toolingCmd emits the agent-image tooling instructions plus every
-// TRUSTED bundle's `tooling` command. The LLM runs this, reads the
-// declarations, and folds them — with the user's explicit approval — into the
-// scaffolded base Containerfile. Read-only: collection goes through the trust
-// gate and nothing is written here.
-var toolingCmd = &cobra.Command{
-	Use:        "tooling",
-	Short:      "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
-	Long:       toolingCmdLong,
-	Deprecated: toolingDeprecation,
-	Args:       cobra.NoArgs,
-	RunE:       runToolingCmd,
-}
-
-// toolingDeprecation is the one-line pointer cobra prints whenever the
-// legacy top-level `ctxloom tooling` still runs.
-const toolingDeprecation = "use `ctxloom container tooling` instead"
-
-// runToolingCmd is the RunE shared by toolingCmd (deprecated alias) and
-// containerToolingCmd (the real home).
+// runToolingCmd is containerToolingCmd's RunE. It emits the agent-image
+// tooling instructions plus every TRUSTED bundle's `tooling` command: the LLM
+// runs this, reads the declarations, and folds them — with the user's explicit
+// approval — into the scaffolded base Containerfile. Read-only: collection
+// goes through the trust gate and nothing is written here.
 func runToolingCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
@@ -253,7 +236,7 @@ func runToolingCmd(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// containerToolingCmd is the real home of `ctxloom tooling` (Decision 4/6).
+// containerToolingCmd is the container noun's `tooling` domain verb.
 var containerToolingCmd = &cobra.Command{
 	Use:   "tooling",
 	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
@@ -451,6 +434,4 @@ func init() {
 	// the container image is (today) where declarations land.
 	containerCmd.AddCommand(containerToolingCmd)
 	rootCmd.AddCommand(containerCmd)
-	// Deprecated alias, kept working (see toolingCmd's Deprecated field).
-	rootCmd.AddCommand(toolingCmd)
 }

@@ -181,7 +181,7 @@ func TestEmitSessionRows_QueryFull_MatchesAndCarriesBody(t *testing.T) {
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&bytes.Buffer{})
-	rootCmd.SetArgs([]string{"session", "query", "retry-backoff-overflow", "--full", "--format", "json"})
+	rootCmd.SetArgs([]string{"session", "search", "retry-backoff-overflow", "--full", "--format", "json"})
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)

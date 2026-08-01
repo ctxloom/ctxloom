@@ -40,8 +40,10 @@ var requiredHiddenLeaves = []string{
 // paths get no red signal when they break. Each listed leaf requires a
 // genuine "I run" invocation per engine, not just one for the whole leaf.
 var engineMatrixLeaves = map[string][]string{
-	"ctxloom manage install":     {"claude-code", "codex", "kiro", "antigravity"},
-	"ctxloom manage config init": {"claude-code", "codex", "kiro", "antigravity"},
+	"ctxloom manage install": {"claude-code", "codex", "kiro", "antigravity"},
+	// Repointed by the verb-spine reorg: `manage config init` was a deprecated
+	// alias and is DELETED, so the matrix rides its canonical twin.
+	"ctxloom config init": {"claude-code", "codex", "kiro", "antigravity"},
 }
 
 // strictRunLeaves are ordinary (visible, non-engine-matrix) leaves promoted
@@ -150,41 +152,28 @@ var knownUncoveredCLI = []string{
 	"ctxloom hook session-bind",
 	"ctxloom hook stamp-plan",
 	"ctxloom hook hud",
-	// Post-reorg coverage debt. The noun-verb CLI reorg (2710ff0) added
-	// canonical `trust …`, `mcp …`, `config …`, `container tooling`, `bundle
-	// sign`, and `init prompt` leaves ALONGSIDE the retained legacy aliases
-	// (`signer …`, `manage config …`, `tooling`, `sign` — still present and
-	// still exercised by the corpus under their old names), and the writer-a
-	// session work added `session backfill`/`session query` plus the `acp …`
-	// surface. The acceptance corpus still drives the legacy spellings, so
-	// these new leaves are genuinely uncovered. Allowlisted pending real
-	// acceptance coverage; tracked as one backfill task. (The signing/trust
-	// half of this group — `trust accept|reject`, `trust signer
-	// add|list|remove|show`, and `bundle sign` — left the list with J18; see
-	// the note at the top.)
-	"ctxloom mcp register",
-	"ctxloom mcp unregister",
-	"ctxloom mcp server add",
-	"ctxloom mcp server list",
-	"ctxloom mcp server remove",
-	"ctxloom mcp server show",
-	"ctxloom config get",
-	"ctxloom config init",
-	"ctxloom config show",
-	"ctxloom container tooling",
-	"ctxloom init prompt",
-	"ctxloom session query",
+	// Post-reorg coverage debt, now MUCH smaller: the verb-spine reorg deleted
+	// every deprecated alias, so the ~15 canonical leaves whose only coverage
+	// used to ride an alias (`blacklist`, bare `trust`, `signer *`, `tooling`,
+	// `acp agents`, `manage config *`, `manage mcp *`) were re-spelled onto
+	// their canonical leaves in the same change and left this list. What
+	// remains is genuinely uncovered. Backfill: one task.
 	"ctxloom acp client",
-	"ctxloom acp entries",
-	"ctxloom acp server",
+	"ctxloom acp serve",
+	"ctxloom session search",
+	// `mcp server edit` is the new home of the deleted `bundle mcp edit`; it
+	// opens $EDITOR on a bundle-scoped MCP entry, which the harness has no
+	// fixture for (its predecessor was `excludedLeaves`-excluded for exactly
+	// that reason).
+	"ctxloom mcp server edit",
 	// Engine-matrix variants: only the claude-code path is exercised;
 	// codex/kiro/antigravity need their own fixtures. Backfill: task glad-skid.
 	"ctxloom manage install --engine codex",
 	"ctxloom manage install --engine kiro",
 	"ctxloom manage install --engine antigravity",
-	"ctxloom manage config init --engine codex",
-	"ctxloom manage config init --engine kiro",
-	"ctxloom manage config init --engine antigravity",
+	"ctxloom config init --engine codex",
+	"ctxloom config init --engine kiro",
+	"ctxloom config init --engine antigravity",
 }
 
 // knownUncoveredTools is knownUncoveredCLI's MCP-tool counterpart: the exact
@@ -276,12 +265,10 @@ func assertExactUncovered(t *testing.T, label string, got, want []string) int {
 // scenario, each with the reason. Printed on every run so the exclusion is never
 // silent (see plan §7.5 / "no silent caps").
 var excludedLeaves = map[string]string{
-	"ctxloom manage config edit": "opens $EDITOR on config.yaml; TTY-only, no hermetic fixture",
-	"ctxloom config edit":        "noun-verb alias of `manage config edit`; opens $EDITOR on config.yaml, TTY-only, no hermetic fixture",
-	"ctxloom mcp serve":          "the MCP server itself; exercised by every @mcp scenario",
+	"ctxloom config edit": "opens $EDITOR on config.yaml; TTY-only, no hermetic fixture",
+	"ctxloom mcp serve":   "the MCP server itself; exercised by every @mcp scenario",
 	"ctxloom llm serve":          "internal gRPC plugin server",
 	"ctxloom remote discover":    "network discovery search; no deterministic fixture (excluded)",
-	"ctxloom bundle mcp edit":    "edits an MCP server embedded in a bundle; requires a bundle-embedded MCP fixture (niche)",
 	// Remote ops needing richer state than a single-commit fixture provides. The
 	// core clone/fetch/install/sync path is covered hermetically by the @remote
 	// content scenarios (browse/install/sync/lock against a seeded file:// repo).
@@ -294,8 +281,6 @@ var excludedLeaves = map[string]string{
 	"ctxloom completion powershell": "shell variant; the completion path is covered via bash",
 	"ctxloom help":                  "cobra-generated help command",
 	"ctxloom bundle push":           "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
-	"ctxloom command push":          "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
-	"ctxloom profile push":          "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
 	"ctxloom container build":       "builds the agent container image; requires a container runtime + network pulls, out of hermetic scope",
 	"ctxloom plan watch":            "long-lived file watcher (runs until interrupted); no hermetic exit",
 }
@@ -324,8 +309,8 @@ var excludedTools = map[string]string{}
 var excludedTemplates = map[string]string{}
 
 // maxKnownUncoveredTotal is a RATCHET on the combined size of every
-// knownUncovered* allowlist (currently 36 CLI leaves + 4 MCP tools + 3
-// runner-only MCP tools = 43). It exists because assertExactUncovered's
+// knownUncovered* allowlist (currently 15 CLI leaves + 4 MCP tools + 3
+// runner-only MCP tools = 22). It exists because assertExactUncovered's
 // exact-set check only catches a leaf/tool going uncovered WITHOUT anyone
 // updating the matching allowlist — it does nothing to stop someone from
 // adding a new gap AND an allowlist entry for it in the same change, which
@@ -334,12 +319,18 @@ var excludedTemplates = map[string]string{}
 // ever exceeds it, so growing the allowlists requires bumping this number in
 // the same diff, with a reason, in code review.
 //
-// It does NOT fail on the existing 43 (that's accepted, tracked debt — every
+// It does NOT fail on the existing 22 (that's accepted, tracked debt — every
 // entry in the three lists above carries its own backfill-task comment) and
 // it is not automatically lowered by backfill work: when a task closes gaps,
 // lower this number too, or the ratchet just grows slack instead of tracking
 // the debt down.
-const maxKnownUncoveredTotal = 43
+//
+// LOWERED from 43 by the verb-spine reorg: deleting the deprecated aliases
+// forced the ~15 canonical leaves that were covered only through an alias to
+// be re-spelled onto their canonical spelling, which is what actually closed
+// the gaps. Lowering the ceiling in the same change is the point — a reorg
+// that shrank the debt while leaving the ratchet at 43 would just bank slack.
+const maxKnownUncoveredTotal = 22
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.

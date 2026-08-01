@@ -18,16 +18,16 @@ Experimental — interfaces may change and it is not yet verified against all ed
 ACP (Agent Client Protocol) has two directions under ctxloom, each its own
 subcommand:
 
-  ctxloom acp server   ctxloom SERVES the protocol (stdio) so an ACP editor
+  ctxloom acp serve    ctxloom SERVES the protocol (stdio) so an ACP editor
                         client (Zed's agent panel, VS Code, Nori, ...)
                         connects IN and drives ctxloom sessions.
   ctxloom acp client    ctxloom CONNECTS OUT to an ACP-speaking agent (a
                         third-party command that itself speaks ACP) and
                         drives one headless turn against it.
-  ctxloom acp entries   Lists the ACP agent-server entries to paste into an
+  ctxloom acp list      Lists the ACP agent-server entries to paste into an
                         editor's config for the server direction.
 
-Bare 'ctxloom acp' (no subcommand) is a deprecated alias for 'acp server'.
+Bare 'ctxloom acp' (no subcommand) is a deprecated alias for 'acp serve'.
 
 ```
 ctxloom acp [flags]
@@ -56,6 +56,6 @@ ctxloom acp [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom acp client](/reference/cli/ctxloom_acp_client/)	 - Connect ctxloom OUT to a configured ACP-speaking agent and drive one headless turn
-* [ctxloom acp entries](/reference/cli/ctxloom_acp_entries/)	 - List the ACP agent-server entries to configure in an editor
-* [ctxloom acp server](/reference/cli/ctxloom_acp_server/)	 - Serve ctxloom as an Agent Client Protocol agent (stdio) for an editor to connect to
+* [ctxloom acp list](/reference/cli/ctxloom_acp_list/)	 - List the ACP agent-server entries to configure in an editor
+* [ctxloom acp serve](/reference/cli/ctxloom_acp_serve/)	 - Serve ctxloom as an Agent Client Protocol agent (stdio) for an editor to connect to
 

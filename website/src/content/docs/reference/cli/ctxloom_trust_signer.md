@@ -20,7 +20,7 @@ own embedded trust root.
 Trusting a signer is the single most consequential command in the signing
 feature: everything that key ever publishes (or approves, for an
 approve-namespace key) reaches your agent WITHOUT REVIEW, forever, until
-you remove it. 'trust signer add' names that consequence and shows the
+you remove it. 'trust signer create' names that consequence and shows the
 fingerprint you are supposed to verify out of band before continuing.
 
 ### Options
@@ -40,9 +40,9 @@ fingerprint you are supposed to verify out of band before continuing.
 
 ### SEE ALSO
 
-* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept an item's current content (fragment, command, MCP server, or hook)
-* [ctxloom trust signer add](/reference/cli/ctxloom_trust_signer_add/)	 - Trust a signer's public key
+* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept, reject, or manage the signers of item content
+* [ctxloom trust signer create](/reference/cli/ctxloom_trust_signer_create/)	 - Trust a signer's public key
+* [ctxloom trust signer delete](/reference/cli/ctxloom_trust_signer_delete/)	 - Delete a trusted signer
 * [ctxloom trust signer list](/reference/cli/ctxloom_trust_signer_list/)	 - List trusted signers
-* [ctxloom trust signer remove](/reference/cli/ctxloom_trust_signer_remove/)	 - Remove a trusted signer
 * [ctxloom trust signer show](/reference/cli/ctxloom_trust_signer_show/)	 - Show every trust-root entry for a principal
 

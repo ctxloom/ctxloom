@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
 
-// signKeyFlag backs `ctxloom sign --key <path|fingerprint>` — an explicit
+// signKeyFlag backs `ctxloom bundle sign --key <path|fingerprint>` — an explicit
 // override that wins over both git config user.signingkey and ssh-agent
 // auto-detection (spec §7A.4).
 var (
@@ -26,8 +26,7 @@ var (
 // between the flag registration and anywhere else this needs restating.
 const signKeyFlagHelp = "explicit signing key: a SHA256:... ssh-agent fingerprint, a path to a public key, or a ssh-agent key's comment/name (case-insensitive substring)"
 
-// signCmdLong is shared by signCmd (deprecated top-level alias) and
-// bundleSignCmd (the real home, Decision 1/4: `sign` -> `bundle sign`).
+// signCmdLong documents `ctxloom bundle sign`.
 const signCmdLong = `Sign a local bundle file, writing a detached <bundle>.yaml.sig sibling that
 lets anyone who trusts your key verify the bundle came from you (signature-
 envelope spec §3.1, §4.2).
@@ -53,23 +52,7 @@ Examples:
   ctxloom bundle sign my-tools --key ~/.ssh/id_ed25519.pub
   ctxloom bundle sign my-tools --key ben@abbitt.me       # match by ssh-agent key comment`
 
-var signCmd = &cobra.Command{
-	Use:        "sign [ref]",
-	Short:      "Sign a local bundle for publication",
-	Long:       signCmdLong,
-	Deprecated: signDeprecation,
-	Args:       cobra.MaximumNArgs(1),
-	RunE:       runSignCmd,
-}
-
-// signDeprecation is the one-line pointer cobra prints whenever the legacy
-// top-level `ctxloom sign` still runs.
-const signDeprecation = "use `ctxloom bundle sign` instead"
-
-// runSignCmd is the RunE shared by signCmd (deprecated alias) and
-// bundleSignCmd (the real home) — a cobra command has exactly one parent, so
-// the reorg's new home is a distinct command sharing this body (mirrors
-// registerACPServerFlags' rationale in acp_cmd.go).
+// runSignCmd is bundleSignCmd's RunE.
 func runSignCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
@@ -82,7 +65,7 @@ func runSignCmd(cmd *cobra.Command, args []string) error {
 	return runSign(cmd, cfg, agentkey.NewDiscoverer(), ref, signAllFlag, signKeyFlag)
 }
 
-// bundleSignCmd is the real home of `ctxloom sign` (Decision 1/4).
+// bundleSignCmd is the bundle noun's `sign` domain verb.
 var bundleSignCmd = &cobra.Command{
 	Use:   "sign [ref]",
 	Short: "Sign a local bundle for publication",
@@ -91,7 +74,7 @@ var bundleSignCmd = &cobra.Command{
 	RunE:  runSignCmd,
 }
 
-// signCmdResult is emit()'s result for `ctxloom sign`: one entry per bundle
+// signCmdResult is emit()'s result for `ctxloom bundle sign`: one entry per bundle
 // signed, so json/yaml/toml/markdown callers get every target uniformly
 // instead of scraping the "signed by X (Y)" text lines this command has
 // always printed.
@@ -112,7 +95,7 @@ type signCmdTarget struct {
 	Fingerprint string `json:"fingerprint"`
 }
 
-// runSign is the testable body of `ctxloom sign`: cfg and discoverer are
+// runSign is the testable body of `ctxloom bundle sign`: cfg and discoverer are
 // both DI seams (a real config.Config over a temp project, and a fake
 // agentkey.Discoverer wired to fake git-config/ssh-agent responses, mirror
 // internal/signing/agentkey's own tests) so this composition — resolve key,
@@ -166,7 +149,7 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 	})
 }
 
-// validateSignRequest rejects the two argument shapes `ctxloom sign` cannot
+// validateSignRequest rejects the two argument shapes `bundle sign` cannot
 // act on: a ref together with --all (two different answers to "sign what?"),
 // and neither of them (no answer at all). Split out of runSign, which was
 // carrying argument validation, key-override precedence, target resolution,
@@ -175,10 +158,10 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 // answerable before any key or bundle is touched.
 func validateSignRequest(ref string, all bool) error {
 	if all && ref != "" {
-		return fmt.Errorf("ctxloom sign: --all cannot be combined with a ref")
+		return fmt.Errorf("ctxloom bundle sign: --all cannot be combined with a ref")
 	}
 	if !all && ref == "" {
-		return fmt.Errorf("ctxloom sign: a ref is required (or pass --all)")
+		return fmt.Errorf("ctxloom bundle sign: a ref is required (or pass --all)")
 	}
 	return nil
 }
@@ -243,12 +226,8 @@ func printSignResult(w io.Writer, t signCmdTarget) {
 }
 
 func init() {
-	rootCmd.AddCommand(signCmd)
-	signCmd.Flags().BoolVar(&signAllFlag, "all", false, "sign every local bundle this project publishes")
-	signCmd.Flags().StringVar(&signKeyFlag, "key", "", signKeyFlagHelp)
-
-	// Real home (bundleCmd.AddCommand(bundleSignCmd) itself lives in
-	// bundle.go, which assembles the whole bundle subtree).
+	// bundleCmd.AddCommand(bundleSignCmd) itself lives in bundle.go, which
+	// assembles the whole bundle subtree.
 	bundleSignCmd.Flags().BoolVar(&signAllFlag, "all", false, "sign every local bundle this project publishes")
 	bundleSignCmd.Flags().StringVar(&signKeyFlag, "key", "", signKeyFlagHelp)
 }

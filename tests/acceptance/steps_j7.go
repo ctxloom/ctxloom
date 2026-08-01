@@ -137,7 +137,7 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		}
 
 		// Wire (but do not yet pull) the reference.
-		if err := runOK(w, "remote", "add", "company", url, "--forge", "git"); err != nil {
+		if err := runOK(w, "remote", "create", "company", url, "--forge", "git"); err != nil {
 			return err
 		}
 		if err := runOK(w, "profile", "modify", "default", "--add-bundle", "company/"+bundleName); err != nil {
@@ -346,18 +346,18 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		j7 := j7Of(w)
 		// "before" listing: the embedded principal must already be visible
 		// (oozy-plod (a)) — tagged embedded, not yet distrusted.
-		_ = w.env.Run("signer", "show", j7EmbeddedPrincipal)
+		_ = w.env.Run("trust", "signer", "show", j7EmbeddedPrincipal)
 		j7.embeddedShowBefore = w.env.LastOutput()
 		// The removal attempt, aimed straight at the REAL embedded
 		// principal — not a stand-in for it. It cannot delete the compiled-in
 		// bytes, but it DOES now persist a local suppression (oozy-plod (b)).
-		_ = w.env.Run("signer", "remove", j7EmbeddedPrincipal, "--project")
+		_ = w.env.Run("trust", "signer", "delete", j7EmbeddedPrincipal, "--project")
 		j7.embeddedRemoveOutput = w.env.LastOutput()
 		// "after" listing: still visible, now tagged locally distrusted.
-		_ = w.env.Run("signer", "show", j7EmbeddedPrincipal)
+		_ = w.env.Run("trust", "signer", "show", j7EmbeddedPrincipal)
 		j7.embeddedShowAfter = w.env.LastOutput()
-		w.docStepMaterialized = "$ ctxloom signer show " + j7EmbeddedPrincipal + "\n" + j7.embeddedShowBefore +
-			"\n$ ctxloom signer remove " + j7EmbeddedPrincipal + " --project\n" + j7.embeddedRemoveOutput +
+		w.docStepMaterialized = "$ ctxloom trust signer show " + j7EmbeddedPrincipal + "\n" + j7.embeddedShowBefore +
+			"\n$ ctxloom trust signer delete " + j7EmbeddedPrincipal + " --project\n" + j7.embeddedRemoveOutput +
 			"\n$ ctxloom signer show " + j7EmbeddedPrincipal + "\n" + j7.embeddedShowAfter
 		return nil
 	})
@@ -368,7 +368,7 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		// This Then's OWN evidence: the removal attempt's actual reply. A Then
 		// with an empty evidence pane proves nothing to a reader of the
 		// published page, however green it is in the suite.
-		w.docStepMaterialized = "$ ctxloom signer remove " + j7EmbeddedPrincipal + " --project\n" + j7.embeddedRemoveOutput
+		w.docStepMaterialized = "$ ctxloom trust signer delete " + j7EmbeddedPrincipal + " --project\n" + j7.embeddedRemoveOutput
 		if strings.Contains(j7.embeddedRemoveOutput, "no entry for") {
 			return fmt.Errorf("'signer remove' must no longer report a bare \"no entry for\" for the embedded principal — it has a real local-suppression effect now; output:\n%s", j7.embeddedRemoveOutput)
 		}
@@ -388,7 +388,7 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		// removal attempt — both name the embedded principal (visibility never
 		// regresses), and only the AFTER listing carries the "locally
 		// distrusted" tag.
-		w.docStepMaterialized = "$ ctxloom signer show " + j7EmbeddedPrincipal + "   # before the removal attempt\n" + j7.embeddedShowBefore +
+		w.docStepMaterialized = "$ ctxloom trust signer show " + j7EmbeddedPrincipal + "   # before the removal attempt\n" + j7.embeddedShowBefore +
 			"\n$ ctxloom signer show " + j7EmbeddedPrincipal + "   # after the removal attempt\n" + j7.embeddedShowAfter
 		for _, out := range []string{j7.embeddedShowBefore, j7.embeddedShowAfter} {
 			if !strings.Contains(out, j7EmbeddedPrincipal) {

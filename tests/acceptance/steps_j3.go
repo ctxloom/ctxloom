@@ -100,7 +100,7 @@ func j3WireReference(w *World) error {
 	if j3.url == "" {
 		return fmt.Errorf("the company's bundle was never seeded")
 	}
-	if err := runOK(w, "remote", "add", "company", j3.url, "--forge", "git"); err != nil {
+	if err := runOK(w, "remote", "create", "company", j3.url, "--forge", "git"); err != nil {
 		return err
 	}
 	if err := runOK(w, "profile", "modify", "default", "--add-bundle", "company/"+j3.bundleName); err != nil {
@@ -215,10 +215,10 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 		if err := os.WriteFile(keyPath, pubBytes, 0o644); err != nil {
 			return fmt.Errorf("write company public key: %w", err)
 		}
-		// Drives the real "ctxloom signer add" leaf (project store, so the
+		// Drives the real "ctxloom trust signer create" leaf (project store, so the
 		// whole team inherits the trust decision) — see completeness_test.go's
 		// knownUncoveredCLI, pruned for this ref by J3.
-		return runOK(w, "signer", "add", j3.principal, "--key", keyPath, "--project")
+		return runOK(w, "trust", "signer", "create", j3.principal, "--key", keyPath, "--project")
 	})
 
 	// --- Scenario 1: reference mechanic ---------------------------------------
@@ -315,7 +315,7 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		j3 := j3Of(w)
 		ref := j3.url + "@bundles/" + j3.bundleName + "#hooks/session_start/0"
-		return runOK(w, "blacklist", ref)
+		return runOK(w, "trust", "reject", ref)
 	})
 
 	ctx.Step(`^the MCP server appears in her assistant's configuration$`, func(c context.Context) error {
@@ -410,7 +410,7 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("seed signed extra bundle %q: %w", extra.name, err)
 			}
 			remoteName := "company-" + extra.name
-			if err := runOK(w, "remote", "add", remoteName, url, "--forge", "git"); err != nil {
+			if err := runOK(w, "remote", "create", remoteName, url, "--forge", "git"); err != nil {
 				return err
 			}
 			if err := runOK(w, "profile", "modify", "default", "--add-bundle", remoteName+"/"+extra.name); err != nil {
@@ -429,9 +429,9 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice revokes her trust in the company key$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// Drives the real "ctxloom signer remove" leaf — see
+		// Drives the real "ctxloom trust signer delete" leaf — see
 		// completeness_test.go's knownUncoveredCLI, pruned for this ref by J3.
-		return runOK(w, "signer", "remove", j3Of(w).principal, "--project")
+		return runOK(w, "trust", "signer", "delete", j3Of(w).principal, "--project")
 	})
 
 	ctx.Step(`^her assistant no longer receives any content signed by that key$`, func(c context.Context) error {
@@ -485,7 +485,7 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("seed unsigned bystander remote: %w", err)
 		}
-		if err := runOK(w, "remote", "add", "bystander", url, "--forge", "git"); err != nil {
+		if err := runOK(w, "remote", "create", "bystander", url, "--forge", "git"); err != nil {
 			return err
 		}
 		if err := runOK(w, "profile", "modify", "default", "--add-bundle", "bystander/bystander"); err != nil {

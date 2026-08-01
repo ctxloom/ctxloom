@@ -145,7 +145,7 @@ Context bundles for [description].
 ## Installation
 
 ```bash
-ctxloom remote add mybundles username/my-ctxloom-bundles
+ctxloom remote create mybundles username/my-ctxloom-bundles
 ctxloom profile create dev -b mybundles/go-development
 ctxloom remote pull
 ctxloom review
@@ -169,7 +169,7 @@ key they trust is exempt from it, so it reaches their agent as soon as they
 pull it. Everything else is born pending regardless of how it was published.
 Signing only authenticates the bundle as genuinely yours — it never vouches
 for whether it's safe — so trusting your key is a separate decision each
-consumer makes for themselves (`ctxloom signer add`).
+consumer makes for themselves (`ctxloom trust signer create`).
 
 The easiest way to sign is at publish time: `ctxloom bundle push my-bundle
 mybundles --sign` (see Validation below) signs the exact bytes it publishes
@@ -181,7 +181,7 @@ sign first, inside a real ctxloom project (see Validation), then commit both
 files yourself:
 
 ```bash
-ctxloom sign my-bundle
+ctxloom bundle sign my-bundle
 ```
 
 This writes a detached `my-bundle.yaml.sig` next to the bundle in your
@@ -288,7 +288,7 @@ ctxloom works with private repos when authenticated:
 
 ```bash
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
-ctxloom remote add team https://github.com/myorg/ctxloom-internal
+ctxloom remote create team https://github.com/myorg/ctxloom-internal
 ```
 
 ### Monorepo Structure
@@ -330,7 +330,7 @@ project (`ctxloom init`, if the directory you're publishing from doesn't
 already have one) rather than the bare repository from Publishing to GitHub
 above. Write the bundle at `.ctxloom/content/bundles/my-bundle.yaml` — that
 directory is committed, which is what makes the rest of this flow work: it's
-what `ctxloom sign` signs, and it's the tree `ctxloom bundle push` reads from
+what `ctxloom bundle sign` signs, and it's the tree `ctxloom bundle push` reads from
 — then:
 
 ```bash

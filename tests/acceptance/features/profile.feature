@@ -48,7 +48,7 @@ Feature: Profiles
     And the output contains "No default agent set."
     Given a bundle "demo" exists
     And a profile "dev" with bundle "demo"
-    And I run "ctxloom agent set developer --profiles dev"
+    And I run "ctxloom agent create developer --profiles dev"
     When I run "ctxloom agent default developer"
     Then the command succeeds
     When I run "ctxloom agent default"

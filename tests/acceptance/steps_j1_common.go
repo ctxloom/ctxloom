@@ -134,7 +134,7 @@ func addSourceAsRemote(w *World, name, profile string) error {
 	if src == nil {
 		return fmt.Errorf("source %q was never seeded", name)
 	}
-	if err := runOK(w, "remote", "add", name, src.url, "--forge", "git"); err != nil {
+	if err := runOK(w, "remote", "create", name, src.url, "--forge", "git"); err != nil {
 		return err
 	}
 	if err := runOK(w, "profile", "modify", profile, "--add-bundle", name+"/"+src.bundleName); err != nil {
@@ -241,7 +241,12 @@ func runFreshMockSession(w *World) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := runOK(w, "agent", "set", "default", "--engine", "mock", "--profiles", "default"); err != nil {
+	// `agent create` and `agent edit` are NOT an upsert (the verb-spine reorg
+	// split the old upsert `agent set` in two), and this fixture runs both
+	// against a project that may or may not already have a "default" agent
+	// from the setup interview. Point it at whichever verb applies rather
+	// than at whichever happens to work today.
+	if err := repointDefaultAgentAtMock(w); err != nil {
 		return "", err
 	}
 	// --agent (not --profile) is required to actually resolve THIS binding's
@@ -313,4 +318,17 @@ func promptSection(recorded string) (string, error) {
 		return "", fmt.Errorf("the mock's record carries no \"=== Prompt ===\" section; recorded:\n%s", recorded)
 	}
 	return recorded[i+len("=== Prompt ===\n"):], nil
+}
+
+// repointDefaultAgentAtMock binds the "default" agent to the mock engine,
+// creating it when absent and editing it when present. `agent create` refuses
+// an existing name and `agent edit` refuses an absent one — deliberately, so
+// neither silently does the other's job — which means a fixture that has to
+// work either way must ask which case it is in.
+func repointDefaultAgentAtMock(w *World) error {
+	verb := "create"
+	if err := w.env.Run("agent", "show", "default"); err == nil {
+		verb = "edit"
+	}
+	return runOK(w, "agent", verb, "default", "--engine", "mock", "--profiles", "default")
 }

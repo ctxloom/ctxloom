@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -100,21 +101,24 @@ func TestRenderAgentShow_ResolutionFailureStillPrintsDefinition(t *testing.T) {
 	assert.Contains(t, out, "Resolved engine: unavailable (profile missing not found)")
 }
 
-// TestAgentSetupCmd_EmitsPrompt proves `agent setup` writes the
-// agent-assisted setup prompt — the SCAN → DISCUSS → SET instructions the LLM
-// follows — to stdout. The prompt is a markdown resource, so the assertions pin
-// only the load-bearing, name-agnostic mechanics (not any role/lens names).
-func TestAgentSetupCmd_EmitsPrompt(t *testing.T) {
+// TestSetupPrompt_EmitsPrompt proves the setup-prompt body — the SCAN →
+// DISCUSS → WRITE instructions the LLM follows — reaches stdout. It used to be
+// asserted through the deprecated `agent setup` alias, deleted by the
+// verb-spine reorg; `ctxloom init prompt` is the surviving door onto the SAME
+// body (runSetupPromptCmd). The prompt is a markdown resource, so the
+// assertions pin only the load-bearing, name-agnostic mechanics (not any
+// role/lens names).
+func TestSetupPrompt_EmitsPrompt(t *testing.T) {
 	var buf bytes.Buffer
-	agentSetupCmd.SetOut(&buf)
-	t.Cleanup(func() { agentSetupCmd.SetOut(nil) })
+	cmd := &cobra.Command{}
+	cmd.SetOut(&buf)
 
-	assert.NoError(t, agentSetupCmd.RunE(agentSetupCmd, nil))
+	assert.NoError(t, runSetupPromptCmd(cmd, nil))
 	out := buf.String()
 
 	assert.Contains(t, out, "ctxloom llm list", "prompt scans engines at runtime")
 	assert.Contains(t, out, "ctxloom profile list", "prompt scans profiles at runtime")
-	assert.Contains(t, out, "ctxloom agent set", "prompt writes bindings via agent set")
+	assert.Contains(t, out, "ctxloom agent create", "prompt writes bindings via agent create")
 	assert.Contains(t, out, "search_library", "prompt discovers the cr-* lenses from the library")
 }
 

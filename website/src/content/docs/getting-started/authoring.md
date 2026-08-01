@@ -18,7 +18,7 @@ ctxloom bundle create my-standards -d "My coding standards"
 
 This creates `.ctxloom/content/bundles/my-standards.yaml` with an example
 fragment and command. That directory is committed — it's your project's own
-authored content, the tree `ctxloom sign --all` signs, and what a publishing
+authored content, the tree `ctxloom bundle sign --all` signs, and what a publishing
 repo ships:
 
 ```yaml
@@ -262,7 +262,7 @@ git push -u origin main
 Others can then use your bundles:
 
 ```bash
-ctxloom remote add standards you/ctxloom-standards
+ctxloom remote create standards you/ctxloom-standards
 ctxloom run -f coding-style "help me"
 ```
 

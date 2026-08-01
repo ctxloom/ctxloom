@@ -122,7 +122,7 @@ func TestRunSessionQuery_Integration(t *testing.T) {
 	var out, errOut bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&errOut)
-	rootCmd.SetArgs([]string{"session", "query", "retry-backoff-overflow", "--format", "json"})
+	rootCmd.SetArgs([]string{"session", "search", "retry-backoff-overflow", "--format", "json"})
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
@@ -156,7 +156,7 @@ func TestRunSessionQuery_NoMatches(t *testing.T) {
 		var out bytes.Buffer
 		rootCmd.SetOut(&out)
 		rootCmd.SetErr(&bytes.Buffer{})
-		rootCmd.SetArgs([]string{"session", "query", "no-such-word-anywhere", "--format", "json"})
+		rootCmd.SetArgs([]string{"session", "search", "no-such-word-anywhere", "--format", "json"})
 		t.Cleanup(func() { rootCmd.SetOut(nil); rootCmd.SetErr(nil); rootCmd.SetArgs(nil) })
 		require.NoError(t, rootCmd.Execute())
 		assert.Equal(t, "[]", strings.TrimSpace(out.String()))
@@ -169,7 +169,7 @@ func TestRunSessionQuery_NoMatches(t *testing.T) {
 		// Explicit --format text: the persistent --format flag is a single
 		// shared pflag.Value on rootCmd, so it carries whatever the previous
 		// subtest last set unless this invocation overrides it too.
-		rootCmd.SetArgs([]string{"session", "query", "no-such-word-anywhere", "--format", "text"})
+		rootCmd.SetArgs([]string{"session", "search", "no-such-word-anywhere", "--format", "text"})
 		t.Cleanup(func() { rootCmd.SetOut(nil); rootCmd.SetErr(nil); rootCmd.SetArgs(nil) })
 		require.NoError(t, rootCmd.Execute())
 		assert.Contains(t, out.String(), "(no sessions)")

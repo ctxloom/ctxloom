@@ -20,7 +20,7 @@ import (
 // companions, profiles+content, agents, close) — ONE text used by THREE doors
 // (init-as-skill plan §4.2/ADDITION "one body, N doors"): `ctxloom init`'s
 // discovery launch (discoverySessionPrompt, init.go), `ctxloom init prompt`'s
-// re-entry pointer below, and the `/ctxloom-init` slash command available in
+// re-entry pointer, and the `/ctxloom-init` slash command available in
 // every ordinary session (resources/commands/ctxloom-init.md, exported via
 // internal/lm/backends.builtinCommands — unconditional, on ALL backends'
 // command catalogs, loaded by the engine only on invocation, never injected
@@ -241,10 +241,9 @@ func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent,
 // access) runs `ctxloom init prompt`, reads the emitted instructions, and
 // follows them. This is a re-entry POINTER onto the SAME body `/ctxloom-init`
 // and the `ctxloom init` discovery launch use (ctxloomInitPrompt) — not a
-// separate/duplicated prompt — so all doors evolve together. Shared by
-// initPromptCmd (the real home, Decision 6 of the CLI-primary reorg plan) and
-// agentSetupCmd (kept as a Deprecated alias — 'setup' printing the whole
-// interview was misfiled under 'agent').
+// separate/duplicated prompt — so all doors evolve together. This is
+// initPromptCmd's RunE (`ctxloom init prompt`); the `agent setup` spelling
+// that used to share it was deleted with the rest of the deprecated aliases.
 func runSetupPromptCmd(cmd *cobra.Command, args []string) error {
 	// A bundle (or installed companion) can ship its own `agent-setup` command
 	// to AUGMENT the built-in onboarding/composition guidance (data, not
@@ -259,22 +258,6 @@ func runSetupPromptCmd(cmd *cobra.Command, args []string) error {
 	return w.Err()
 }
 
-// agentSetupCmd is a Deprecated alias for `ctxloom init prompt` (Decision 6):
-// 'setup' printing the whole setup interview was misfiled under 'agent'.
-// Still runs — same RunE, runSetupPromptCmd — so nothing breaks abruptly.
-var agentSetupCmd = &cobra.Command{
-	Use:        "setup",
-	Short:      "Print ctxloom's setup prompt (companions, profiles, agents) for the LLM to follow",
-	Deprecated: agentSetupDeprecation,
-	Args:       cobra.NoArgs,
-	RunE:       runSetupPromptCmd,
-}
-
-// agentSetupDeprecation is the one-line pointer cobra prints whenever
-// `ctxloom agent setup` still runs (the same additive-deprecation-shim shape
-// as this package's other one-line-pointer deprecations — not yet a removal).
-const agentSetupDeprecation = "use `ctxloom init prompt` instead"
-
 var (
 	agentSetEngine      string
 	agentSetProfiles    []string
@@ -284,17 +267,10 @@ var (
 	agentSetDriving     string
 )
 
-// agentSetCmd is the write half: add or update a LOCAL agent under the
-// `agents:` config key. This is what the setup flow calls to persist the
-// binding the user chose. Generic by design — it stores whatever name/engine/
-// profiles are passed; no role/lens names are baked in.
-var agentSetCmd = &cobra.Command{
-	Use:   "set <name>",
-	Short: "Add or update a local agent (engine↔profile binding)",
-	Long: `Bind an LLM engine to one or more profiles under a name, written to the
-'agents:' key of .ctxloom/config.yaml. Re-running with the same name updates it.
-
-The engine (optional) overrides the profiles' own llm; omit it to use the project
+// agentWriteLong is the shared body text for `agent create` and `agent edit`:
+// the axes an agent binding carries are identical either way, so the two help
+// pages cannot drift about what they mean.
+const agentWriteLong = `The engine (optional) overrides the profiles' own llm; omit it to use the project
 default. Profiles compose into one assembled context. Runtime (optional:
 host|container) sets WHERE this agent's engine process executes; omit it to
 inherit the project's 'runtime:' default. The workspace axis (worktree vs shared
@@ -303,75 +279,155 @@ dir) is NOT set here — it is a session trait chosen at invocation time
 the per-turn execution axis; omit it to keep the default conversational
 (warm-engine) model. oneshot requires a resume-capable engine and is
 EXPERIMENTAL in this release — executable, but its interfaces and behavior
-may change.
+may change.`
+
+// agentCreateCmd and agentEditCmd are the write half, split off the retired
+// upsert `agent set` (verb-spine reorg §5): the spine has `create` (fails if
+// the name is taken) and `edit` (fails if it is not), and blind
+// create-or-update is not a third verb. Both are LOCAL agents under the
+// `agents:` config key. Generic by design — whatever name/engine/profiles are
+// passed is what gets stored; no role/lens names are baked in.
+var agentCreateCmd = &cobra.Command{
+	Use:   "create <name>",
+	Short: "Create a local agent (engine↔profile binding)",
+	Long: `Bind an LLM engine to one or more profiles under a NEW name, written to the
+'agents:' key of .ctxloom/config.yaml. Refuses a name that already names an
+agent — change an existing one with 'ctxloom agent edit'.
+
+` + agentWriteLong + `
 
 Examples:
-  ctxloom agent set finder --engine claude-fast --profiles finder
-  ctxloom agent set dev --engine claude-code --profiles default,go-developer --runtime container
-  ctxloom agent set reviewer --profiles cr-correctness-golang   # default engine`,
+  ctxloom agent create finder --engine claude-fast --profiles finder
+  ctxloom agent create dev --engine claude-code --profiles default,go-developer --runtime container
+  ctxloom agent create reviewer --profiles cr-correctness-golang   # default engine`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// No help shortcut: `agent set help` names the agent to write, and the
-		// shortcut made an agent called "help" impossible to create.
-		name := args[0]
-		cfg, err := GetConfigForUpdate()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		// Only the flags the user actually TYPED are sent. A nil field means
-		// "not named", which SetAgent keeps at its existing value — so
-		// `agent set dev --runtime container` no longer wipes dev's engine,
-		// profiles, posture, coordinator flag and escalation ladder. An
-		// explicitly-supplied empty value (--engine "") still clears.
-		req := operations.SetAgentRequest{Name: name}
-		if cmd.Flags().Changed("engine") {
-			req.Engine = &agentSetEngine
-		}
-		if cmd.Flags().Changed("profiles") {
-			req.Profiles = &agentSetProfiles
-		}
-		if cmd.Flags().Changed("runtime") {
-			req.Runtime = &agentSetRuntime
-		}
-		if cmd.Flags().Changed("permissions") {
-			req.Permissions = &agentSetPermissions
-		}
-		if cmd.Flags().Changed("coordinator") {
-			req.Coordinator = &agentSetCoordinator
-		}
-		if cmd.Flags().Changed("driving") {
-			req.Driving = &agentSetDriving
-		}
-		entry, err := operations.SetAgent(config.NewManager(), cfg, req)
-		if err != nil {
-			return err
-		}
-		return emit(cmd, entry, func() error {
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			engine := entry.Engine
-			if engine == "" {
-				engine = "project default"
-			}
-			w.Printf("Set agent %q (engine: %s", entry.Name, engine)
-			if len(entry.Profiles) > 0 {
-				w.Printf(", profiles: %s", strings.Join(entry.Profiles, ", "))
-			}
-			if entry.Runtime != "" {
-				w.Printf(", runtime: %s", entry.Runtime)
-			}
-			if entry.Permissions != "" {
-				w.Printf(", permissions: %s", entry.Permissions)
-			}
-			if entry.Coordinator {
-				w.Printf(", coordinator: true")
-			}
-			if entry.Driving != "" {
-				w.Printf(", driving: %s", entry.Driving)
-			}
-			w.Println(")")
-			return w.Err()
-		})
-	},
+	RunE: runAgentCreate,
+}
+
+var agentEditCmd = &cobra.Command{
+	Use:   "edit <name>",
+	Short: "Edit an existing local agent (engine↔profile binding)",
+	Long: `Change an EXISTING agent's binding in the 'agents:' key of
+.ctxloom/config.yaml. Refuses a name no agent has — create one with
+'ctxloom agent create'.
+
+Only the flags you pass are applied; every unnamed field keeps its current
+value, so 'ctxloom agent edit dev --runtime container' does not wipe dev's
+engine, profiles, posture, coordinator flag or escalation ladder. An
+explicitly-supplied empty value (--engine "") clears that field.
+
+` + agentWriteLong + `
+
+Examples:
+  ctxloom agent edit dev --runtime container
+  ctxloom agent edit reviewer --profiles cr-correctness-golang,cr-security`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAgentEdit,
+}
+
+func runAgentCreate(cmd *cobra.Command, args []string) error {
+	return writeAgentBinding(cmd, args[0], false)
+}
+
+func runAgentEdit(cmd *cobra.Command, args []string) error {
+	return writeAgentBinding(cmd, args[0], true)
+}
+
+// writeAgentBinding is `agent create`/`agent edit`'s shared body. mustExist
+// picks which precondition is enforced: edit refuses a name nothing defines,
+// create refuses one something already does. Enforcing it here — rather than
+// letting the upsert through — is the whole point of the split: a typo'd
+// `edit` used to silently mint a brand-new agent, and a `create` over a live
+// name used to silently overwrite it.
+func writeAgentBinding(cmd *cobra.Command, name string, mustExist bool) error {
+	// No help shortcut: the positional arg NAMES the agent to write, and the
+	// shortcut made an agent called "help" impossible to create.
+	cfg, err := GetConfigForUpdate()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	if err := checkAgentExistence(cfg, name, mustExist); err != nil {
+		return err
+	}
+	entry, err := operations.SetAgent(config.NewManager(), cfg, buildSetAgentRequest(cmd, name))
+	if err != nil {
+		return err
+	}
+	return emit(cmd, entry, func() error {
+		return renderAgentWritten(cmd.OutOrStdout(), entry, mustExist)
+	})
+}
+
+// checkAgentExistence enforces create-vs-edit's differing precondition against
+// the MERGED agent view (config key + .ctxloom/agents/*.yaml), so a
+// directory-defined agent counts as existing for both verbs.
+func checkAgentExistence(cfg *config.Config, name string, mustExist bool) error {
+	_, exists := cfg.Agent(name)
+	switch {
+	case mustExist && !exists:
+		return fmt.Errorf("no agent named %q — create it with `ctxloom agent create %s`", name, name)
+	case !mustExist && exists:
+		return fmt.Errorf("agent %q already exists — change it with `ctxloom agent edit %s`", name, name)
+	}
+	return nil
+}
+
+// buildSetAgentRequest sends only the flags the user actually TYPED. A nil
+// field means "not named", which SetAgent keeps at its existing value; an
+// explicitly-supplied empty value (--engine "") still clears.
+func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRequest {
+	req := operations.SetAgentRequest{Name: name}
+	if cmd.Flags().Changed("engine") {
+		req.Engine = &agentSetEngine
+	}
+	if cmd.Flags().Changed("profiles") {
+		req.Profiles = &agentSetProfiles
+	}
+	if cmd.Flags().Changed("runtime") {
+		req.Runtime = &agentSetRuntime
+	}
+	if cmd.Flags().Changed("permissions") {
+		req.Permissions = &agentSetPermissions
+	}
+	if cmd.Flags().Changed("coordinator") {
+		req.Coordinator = &agentSetCoordinator
+	}
+	if cmd.Flags().Changed("driving") {
+		req.Driving = &agentSetDriving
+	}
+	return req
+}
+
+// renderAgentWritten writes the one-line confirmation for a created/edited
+// agent, naming which of the two happened.
+func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool) error {
+	w := iox.NewErrWriter(out)
+	verb := "Created"
+	if edited {
+		verb = "Updated"
+	}
+	engine := entry.Engine
+	if engine == "" {
+		engine = "project default"
+	}
+	w.Printf("%s agent %q (engine: %s", verb, entry.Name, engine)
+	if len(entry.Profiles) > 0 {
+		w.Printf(", profiles: %s", strings.Join(entry.Profiles, ", "))
+	}
+	if entry.Runtime != "" {
+		w.Printf(", runtime: %s", entry.Runtime)
+	}
+	if entry.Permissions != "" {
+		w.Printf(", permissions: %s", entry.Permissions)
+	}
+	if entry.Coordinator {
+		w.Printf(", coordinator: true")
+	}
+	if entry.Driving != "" {
+		w.Printf(", driving: %s", entry.Driving)
+	}
+	w.Println(")")
+	return w.Err()
 }
 
 // agentDefaultCmd shows or sets the always-bound DEFAULT AGENT — the binding a
@@ -434,12 +490,11 @@ Examples:
 	},
 }
 
-// agentRemoveCmd deletes a config-key agent and persists the removal.
-var agentRemoveCmd = &cobra.Command{
-	Use:     "remove <name>",
-	Aliases: []string{"rm", "delete"},
-	Short:   "Remove a local agent from config.yaml",
-	Args:    cobra.ExactArgs(1),
+// agentDeleteCmd deletes a config-key agent and persists the removal.
+var agentDeleteCmd = &cobra.Command{
+	Use:   "delete <name>",
+	Short: "Delete a local agent from config.yaml",
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
 		cfg, err := GetConfigForUpdate()
@@ -454,7 +509,7 @@ var agentRemoveCmd = &cobra.Command{
 			return err
 		}
 		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("Removed agent %q\n", name)
+		w.Printf("Deleted agent %q\n", name)
 		return w.Err()
 	},
 }
@@ -463,28 +518,39 @@ func init() {
 	rootCmd.AddCommand(agentCmd)
 	agentCmd.AddCommand(agentListCmd)
 	agentCmd.AddCommand(agentShowCmd)
-	agentCmd.AddCommand(agentSetupCmd)
-	agentCmd.AddCommand(agentSetCmd)
+	agentCmd.AddCommand(agentCreateCmd)
+	agentCmd.AddCommand(agentEditCmd)
 	agentCmd.AddCommand(agentDefaultCmd)
-	agentCmd.AddCommand(agentRemoveCmd)
+	agentCmd.AddCommand(agentDeleteCmd)
 
-	agentSetCmd.Flags().StringVar(&agentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
-	agentSetCmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
-	agentSetCmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
-	agentSetCmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
-	agentSetCmd.Flags().BoolVar(&agentSetCoordinator, "coordinator", false, "Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf")
-	agentSetCmd.Flags().StringVar(&agentSetDriving, "driving", "", "Per-turn execution axis: conversational|oneshot (empty = conversational, today's default; oneshot requires a resume-capable engine and is EXPERIMENTAL in this release — interfaces and behavior may change)")
+	// create and edit take the SAME axis flags against the SAME flag vars:
+	// they are one concept split by precondition, not two option sets.
+	for _, c := range []*cobra.Command{agentCreateCmd, agentEditCmd} {
+		registerAgentWriteFlags(c)
+	}
 
 	agentShowCmd.ValidArgsFunction = completeAgentNames
-	agentRemoveCmd.ValidArgsFunction = completeAgentNames
+	agentEditCmd.ValidArgsFunction = completeAgentNames
+	agentDeleteCmd.ValidArgsFunction = completeAgentNames
 	agentDefaultCmd.ValidArgsFunction = completeAgentNames
-	_ = agentSetCmd.RegisterFlagCompletionFunc("engine", completeLLMNames)
-	_ = agentSetCmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
-	_ = agentSetCmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+}
+
+// registerAgentWriteFlags binds the agent-binding axis flags to cmd (shared by
+// `agent create` and `agent edit`).
+func registerAgentWriteFlags(cmd *cobra.Command) {
+	cmd.Flags().StringVar(&agentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
+	cmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
+	cmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
+	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
+	cmd.Flags().BoolVar(&agentSetCoordinator, "coordinator", false, "Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf")
+	cmd.Flags().StringVar(&agentSetDriving, "driving", "", "Per-turn execution axis: conversational|oneshot (empty = conversational, today's default; oneshot requires a resume-capable engine and is EXPERIMENTAL in this release — interfaces and behavior may change)")
+	_ = cmd.RegisterFlagCompletionFunc("engine", completeLLMNames)
+	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
+	_ = cmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return isolation.RuntimeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
-	_ = agentSetCmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
-	_ = agentSetCmd.RegisterFlagCompletionFunc("driving", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
+	_ = cmd.RegisterFlagCompletionFunc("driving", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return agents.DrivingModeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 }

@@ -225,8 +225,8 @@ A signature that is present but does **not** verify over the bytes it sits besid
 bundle is withheld entirely, never degraded to unsigned.
 
 Third-party unsigned remotes default to pending; their content is reviewed like
-anything else. Signer keys are managed with `ctxloom signer add|list|show|remove`
-and signatures are produced with `ctxloom sign`; a hand-edited `allowed_signers`
+anything else. Signer keys are managed with `ctxloom trust signer create|list|show|remove`
+and signatures are produced with `ctxloom bundle sign`; a hand-edited `allowed_signers`
 file is still read verbatim, so editing it by hand remains equivalent.
 Signing/verification is CLI-only and is
 **never** exposed over MCP — handing the agent a `signer add` capability would
@@ -257,10 +257,10 @@ bytes** with the reviewer's own SSH key:
   rejecting countersigns the ref block plus a content-reject over the current
   bytes. Viewing never mutates — only an explicit letter acts.
 - The countersigning key is resolved once per session, before the first item is
-  shown, via the same zero-config discovery chain `ctxloom sign` uses
+  shown, via the same zero-config discovery chain `ctxloom bundle sign` uses
   (`internal/signing/agentkey`): `git config user.signingkey` first, then the
   sole identity held by `ssh-agent` (`SSH_AUTH_SOCK`) when there is exactly
-  one. (`--key` and the `sign.key` config default, which `ctxloom sign` also
+  one. (`--key` and the `sign.key` config default, which `ctxloom bundle sign` also
   honors, are not yet exposed on `ctxloom review` itself.) If the key is a
   plain software key
   (not `sk-ssh-ed25519@openssh.com` / `sk-ecdsa-sha2-nistp256@openssh.com`), the
@@ -281,7 +281,7 @@ bytes** with the reviewer's own SSH key:
   look.
 - `init`'s interview ends with a review session when anything is pending.
 
-`ctxloom trust <ref>` and `ctxloom blacklist <ref>` are the scriptable plumbing
+`ctxloom trust accept <ref>` and `ctxloom trust reject <ref>` are the scriptable plumbing
 beneath the porcelain — they write the same countersignatures through the same
 mutation path, so the porcelain and the plumbing produce identical on-disk
 results.
@@ -487,10 +487,10 @@ never permitted in the committable project store.
    per `ctxloom review` invocation instead (never blocking). Tracked as deferred
    work.
 6. **`ctxloom review` does not expose `--key` / `sign.key` config.** The
-   discovery chain itself is unified: `ctxloom review` and `ctxloom sign` both
+   discovery chain itself is unified: `ctxloom review` and `ctxloom bundle sign` both
    resolve through the same `internal/signing/agentkey.Discoverer` (git
    `user.signingkey` → sole `ssh-agent` identity). What `ctxloom review` does
-   not do is pass an explicit key into that chain, so — unlike `ctxloom sign`
+   not do is pass an explicit key into that chain, so — unlike `ctxloom bundle sign`
    — an operator cannot override discovery with `--key` or the `sign.key`
    config default on `review` itself; only git config and ssh-agent are
    consulted. Narrowing this remaining gap means threading an explicit-key
@@ -508,7 +508,7 @@ never permitted in the committable project store.
 8. **ctxloom's own embedded key cannot be untrusted.** The compiled-in trust root
    is unconditionally unioned into every lookup (`config.TrustRoot`), and
    `operations.RemoveSigner` only rewrites the user/project *file*. There is no
-   negative-entry mechanism, so `ctxloom signer remove ben+ctxloom@abbitt.me` does
+   negative-entry mechanism, so `ctxloom trust signer delete ben+ctxloom@abbitt.me` does
    not stop ctxloom-published bundles being auto-trusted. Spec §7 says the embedded
    defaults are removable; they are not. A user who wants to review ctxloom's own
    content by hand currently has no supported way to ask for that.

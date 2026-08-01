@@ -39,12 +39,12 @@ Feature: Additional read and configuration commands
     When I run "ctxloom manage hooks install"
     Then the command succeeds
     And the file ".mcp.json" contains "ctxloom-auto"
-    When I run "ctxloom manage mcp uninstall"
+    When I run "ctxloom mcp unregister"
     Then the command succeeds
     When I run "ctxloom manage hooks install"
     Then the command succeeds
     And the file ".mcp.json" does not contain "ctxloom-auto"
-    When I run "ctxloom manage mcp install"
+    When I run "ctxloom mcp register"
     Then the command succeeds
     When I run "ctxloom manage hooks install"
     Then the command succeeds

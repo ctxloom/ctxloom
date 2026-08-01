@@ -41,10 +41,10 @@ func init() {
 
 	// Fragment/prompt management lives under the top-level `fragment` and
 	// `prompt` commands (full CRUD, routed through operations); the former
-	// duplicate `bundle fragment`/`bundle prompt` subtrees were removed. MCP
-	// editing has no top-level home, so it stays under `bundle mcp`.
-	bundleCmd.AddCommand(bundleMCPCmd)
-	bundleMCPCmd.AddCommand(bundleMCPEditCmd)
+	// duplicate `bundle fragment`/`bundle prompt` subtrees were removed.
+	// Bundle-scoped MCP editing moved to the MCP-server noun as
+	// `mcp server edit <bundle>#mcp/<name>` (verb-spine reorg §5), which
+	// deleted the `bundle mcp` group node too.
 
 	// Bundle hold/unhold — dependency management over the active lockfile.
 	// (Per-item content review lives in the top-level `ctxloom review`.)

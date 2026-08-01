@@ -32,5 +32,5 @@ ctxloom mcp server list [flags]
 
 ### SEE ALSO
 
-* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, add, remove, or show configured MCP servers
+* [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, create, edit, or delete configured MCP servers
 

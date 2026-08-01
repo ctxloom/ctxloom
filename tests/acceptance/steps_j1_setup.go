@@ -70,7 +70,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^her project is configured for (\S+)$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		if err := runOK(w, "manage", "config", "show"); err != nil {
+		if err := runOK(w, "config", "show"); err != nil {
 			return err
 		}
 		if !strings.Contains(w.env.LastOutput(), engine) {
@@ -345,10 +345,10 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		first := w.j1Sources["first"]
 		second := w.j1Sources["second"]
-		if err := runOK(w, "trust", "file://"+w.remoteBare["first"]+"@bundles/"+first.bundleName+"#fragments/"+first.itemName); err != nil {
+		if err := runOK(w, "trust", "accept", "file://"+w.remoteBare["first"]+"@bundles/"+first.bundleName+"#fragments/"+first.itemName); err != nil {
 			return err
 		}
-		return runOK(w, "blacklist", "file://"+w.remoteBare["second"]+"@bundles/"+second.bundleName+"#fragments/"+second.itemName)
+		return runOK(w, "trust", "reject", "file://"+w.remoteBare["second"]+"@bundles/"+second.bundleName+"#fragments/"+second.itemName)
 	})
 
 	ctx.Step(`^Alice starts a new session$`, func(c context.Context) error {

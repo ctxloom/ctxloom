@@ -77,7 +77,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom search](/reference/cli/ctxloom_search/)	 - Search content across local and remote sources
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions
 * [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage Agent Skills (SKILL.md packages)
-* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept an item's current content (fragment, command, MCP server, or hook)
+* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept, reject, or manage the signers of item content
 * [ctxloom version](/reference/cli/ctxloom_version/)	 - Print the version number
 * [ctxloom weave](/reference/cli/ctxloom_weave/)	 - Fan a task across agents/profiles in parallel, then synthesize the results
 

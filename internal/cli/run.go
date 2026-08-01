@@ -40,29 +40,23 @@ import (
 )
 
 var (
-	runLLM         string
-	runAgent       string
-	runWorkspace   string
-	runPermissions string
-	runPrompt      string
-	runFragments   []string
-	runTags        []string
-	runProfile     string
-	runSavedPrompt string // --command / -r
-	// runSavedPromptDeprecated backs the deprecated --run-prompt alias (F9: the
-	// "prompt" vocabulary is stale — a saved, user-invoked item is a "command",
-	// matching the resources/commands/ terminology and the command item-kind).
-	// Reconciled into runSavedPrompt in RunE before it's read; kept only so
-	// existing scripts/invocations using --run-prompt keep working.
-	runSavedPromptDeprecated string
-	runDryRun                bool
-	runPrint                 bool
-	runStructured            bool
-	runPlainTerminal         bool
-	runVerbosity             int
-	runAssumeYes             bool
-	runSeedTask              string
-	runSeedStatus            string
+	runLLM           string
+	runAgent         string
+	runWorkspace     string
+	runPermissions   string
+	runPrompt        string
+	runFragments     []string
+	runTags          []string
+	runProfile       string
+	runSavedPrompt   string // --command / -r
+	runDryRun        bool
+	runPrint         bool
+	runStructured    bool
+	runPlainTerminal bool
+	runVerbosity     int
+	runAssumeYes     bool
+	runSeedTask      string
+	runSeedStatus    string
 	// runResumeSession/runResumeDistill are the two deterministic-resume flags
 	// (restored after WS-4/5 removed all flag-based resume + the interactive
 	// picker — see resolveResumeIntentWith's deletion in c7cddd9). Unlike the
@@ -390,14 +384,6 @@ Examples:
 		// Profiles can carry an older schema too (e.g. bare bundle refs); offer to
 		// persist those rewrites the same way.
 		confirmProfileUpgrades(cfg)
-
-		// F9: reconcile the deprecated --run-prompt alias into --command before
-		// either is read. --command (the flag actually parsed) wins if somehow
-		// both were passed — an explicit current-vocabulary flag beats a
-		// deprecated one rather than silently being overridden by it.
-		if runSavedPrompt == "" && runSavedPromptDeprecated != "" {
-			runSavedPrompt = runSavedPromptDeprecated
-		}
 
 		// Build the prompt - from saved command, flag, or remaining args
 		// Empty prompt is allowed (starts interactive mode)
@@ -1686,12 +1672,6 @@ func init() {
 	runCmd.Flags().StringVarP(&runLLM, "llm", "l", "", "config label to use (e.g. claude-code, claude-fast, antigravity); overrides the configured default")
 	runCmd.Flags().StringVar(&runPrompt, "prompt", "", "Prompt to send to the AI (alternative to positional args)")
 	runCmd.Flags().StringVarP(&runSavedPrompt, "command", "r", "", "Run a saved command by name")
-	// Deprecated F9 alias: --run-prompt is the pre-rename "prompt" vocabulary
-	// (resources/commands/ and the command item-kind have always said
-	// "command"). Kept working, not just aliased in help — see the RunE
-	// reconciliation above.
-	runCmd.Flags().StringVar(&runSavedPromptDeprecated, "run-prompt", "", "Deprecated: use --command instead")
-	_ = runCmd.Flags().MarkDeprecated("run-prompt", "use --command instead")
 	runCmd.Flags().StringSliceVarP(&runFragments, "fragment", "f", nil, "Context fragment(s) to include (can be repeated)")
 	runCmd.Flags().StringSliceVarP(&runTags, "tag", "t", nil, "Include fragments with this tag (can be repeated)")
 	runCmd.Flags().StringVarP(&runProfile, "profile", "p", "", "Profile to use (predefined fragment collection)")
@@ -1732,7 +1712,6 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("tag", completeTagNames)
 	_ = runCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 	_ = runCmd.RegisterFlagCompletionFunc("command", completePromptNames)
-	_ = runCmd.RegisterFlagCompletionFunc("run-prompt", completePromptNames)
 }
 
 // confirmSyncInstall returns true if startup sync should proceed.

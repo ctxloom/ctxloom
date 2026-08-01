@@ -52,7 +52,6 @@ Examples:
 * [ctxloom bundle hold](/reference/cli/ctxloom_bundle_hold/)	 - Hold an item at its locked SHA so `upgrade` won't advance it
 * [ctxloom bundle import](/reference/cli/ctxloom_bundle_import/)	 - Import a bundle from a local file
 * [ctxloom bundle list](/reference/cli/ctxloom_bundle_list/)	 - List installed bundles
-* [ctxloom bundle mcp](/reference/cli/ctxloom_bundle_mcp/)	 - Manage MCP servers within a bundle
 * [ctxloom bundle move](/reference/cli/ctxloom_bundle_move/)	 - Move an authored bundle to a remote or another project, carrying its signature
 * [ctxloom bundle push](/reference/cli/ctxloom_bundle_push/)	 - Publish a bundle to a remote repository
 * [ctxloom bundle show](/reference/cli/ctxloom_bundle_show/)	 - Show bundle contents

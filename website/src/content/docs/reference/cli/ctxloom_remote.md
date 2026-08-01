@@ -20,22 +20,23 @@ bundles and profiles.
 
 Registry:
   ctxloom remote list                    List configured remotes
-  ctxloom remote add <name> <url>        Register a remote
-  ctxloom remote rm <name>               Remove a remote
+  ctxloom remote show <name>             Show one remote and its bundles
+  ctxloom remote create <name> <url>     Register a remote
+  ctxloom remote delete <name>           Delete a remote
   ctxloom remote default <name>          Set the default remote
 
 A remote is just an address; its content takes the review path. To auto-trust a
-publisher's content, trust their signing key (ctxloom signer add) — not the URL.
+publisher's content, trust their signing key (ctxloom trust signer create) — not
+the URL.
 
 Discovery:
   ctxloom search <query>                 Search local and remote content
-  ctxloom remote browse <remote>         Browse a remote's contents
   ctxloom remote discover                Find ctxloom repositories
 
 Examples:
-  ctxloom remote add alice alice/ctxloom
+  ctxloom remote create alice alice/ctxloom
   ctxloom search "golang testing"
-  ctxloom remote browse ctxloom-default
+  ctxloom remote show ctxloom-default
 
 ### Options
 
@@ -55,13 +56,13 @@ Examples:
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
-* [ctxloom remote add](/reference/cli/ctxloom_remote_add/)	 - Register a remote source
-* [ctxloom remote browse](/reference/cli/ctxloom_remote_browse/)	 - Browse bundles in a remote
+* [ctxloom remote create](/reference/cli/ctxloom_remote_create/)	 - Register a remote source
 * [ctxloom remote default](/reference/cli/ctxloom_remote_default/)	 - Set the default remote
+* [ctxloom remote delete](/reference/cli/ctxloom_remote_delete/)	 - Delete a remote source
 * [ctxloom remote discover](/reference/cli/ctxloom_remote_discover/)	 - Search GitHub for ctxloom repositories
 * [ctxloom remote list](/reference/cli/ctxloom_remote_list/)	 - List configured remotes
 * [ctxloom remote pull](/reference/cli/ctxloom_remote_pull/)	 - Pull dependencies from profiles
-* [ctxloom remote remove](/reference/cli/ctxloom_remote_remove/)	 - Remove a remote source
+* [ctxloom remote show](/reference/cli/ctxloom_remote_show/)	 - Show a remote and the bundles it publishes
 * [ctxloom remote update](/reference/cli/ctxloom_remote_update/)	 - Check for and apply updates to remote items
 * [ctxloom remote upgrade](/reference/cli/ctxloom_remote_upgrade/)	 - Upgrade pinned dependencies to the latest available
 

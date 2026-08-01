@@ -48,7 +48,7 @@ before anything crosses that line.
 <!-- doc:scenario: After setup, trusted sources are part of the configuration -->
 This scenario is deliberately narrow: it proves the **posture**, not
 **delivery**. After Alice runs setup and adds both repositories as sources,
-`ctxloom manage config show` and a materialized profile already reflect that
+`ctxloom config show` and a materialized profile already reflect that
 her personal repository is signed with her own key and her company's is
 signed with a key she trusts. That is enough for both to be exposed — the
 [three-state gate](/security/trust-states/) allows content the moment a

@@ -22,7 +22,7 @@ Feature: Remote content
   Scenario: Browse a remote's contents
     Given an initialized ctxloom project
     And a git remote "origin" serving a ctxloom bundle
-    When I run "ctxloom remote browse origin"
+    When I run "ctxloom remote show origin"
     Then the command succeeds
     And the output contains "@bundles/demo"
 

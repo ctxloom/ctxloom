@@ -23,10 +23,10 @@ ctxloom init --home
 ctxloom remote discover golang
 
 # Add a remote
-ctxloom remote add community alice/ctxloom-golang
+ctxloom remote create community alice/ctxloom-golang
 
 # Browse what's available
-ctxloom remote browse community
+ctxloom remote show community
 ```
 
 ### 3. Create a Profile
@@ -151,7 +151,7 @@ git push -u origin main
 
 ```bash
 # Add team remote
-ctxloom remote add team myorg/ctxloom-team
+ctxloom remote create team myorg/ctxloom-team
 
 # Create profile that inherits the bundle-shipped team profile
 ctxloom profile create my-dev \
@@ -168,7 +168,7 @@ ctxloom run -p my-dev "help with code"
 ```
 
 If your team signs its bundles and everyone trusts the team's signing key
-(`ctxloom signer add context@myorg.example --key team-publish.pub`), the review
+(`ctxloom trust signer create context@myorg.example --key team-publish.pub`), the review
 step is unnecessary: content from a trusted signer is exempt from the gate. Trust
 is anchored to the key, not to the remote's URL.
 
@@ -324,7 +324,7 @@ ctxloom run -p reviewer -f query-optimization \
 Bind an engine and profiles under a named agent, then run it by name (see [Agents](/concepts/agents/)):
 
 ```bash
-ctxloom agent set reviewer --engine claude-code --profiles reviewer
+ctxloom agent create reviewer --engine claude-code --profiles reviewer
 ctxloom run --agent reviewer "review this change"
 ```
 
@@ -425,7 +425,7 @@ ctxloom manage hooks install
 ctxloom fragment list
 
 # Check what's available remotely
-ctxloom remote browse ctxloom-default
+ctxloom remote show ctxloom-default
 
 # Pull missing dependencies
 ctxloom remote pull

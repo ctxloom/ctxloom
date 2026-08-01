@@ -372,7 +372,7 @@ func j18Reference(w *World) error {
 	if err := runOK(w, "profile", "create", "default", "-b", "seed", "-d", "J18 default profile"); err != nil {
 		return err
 	}
-	if err := runOK(w, "remote", "add", "company", st.url, "--forge", "git"); err != nil {
+	if err := runOK(w, "remote", "create", "company", st.url, "--forge", "git"); err != nil {
 		return err
 	}
 	if err := runOK(w, "profile", "modify", "default", "--add-bundle", "company/"+j18PublishedName); err != nil {
@@ -599,39 +599,14 @@ func registerJ18Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^the deprecated spelling put its notice on stderr and its signature report on stdout$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// Re-run through Command, which keeps the two streams apart —
-		// TestEnvironment.Run deliberately concatenates them, so the ONLY way
-		// to prove the notice is not polluting a caller's parsed stdout is to
-		// capture them separately here.
-		cmd := w.env.Command(nil, "sign", j18PublishedName)
-		var stdout, stderr strings.Builder
-		cmd.Stdout = &stdout
-		cmd.Stderr = &stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("`ctxloom sign` failed: %w; stderr:\n%s", err, stderr.String())
-		}
-		if !strings.Contains(stderr.String(), "is deprecated") {
-			return fmt.Errorf("the deprecation notice is not on stderr; stderr was:\n%s", stderr.String())
-		}
-		if strings.Contains(stdout.String(), "is deprecated") {
-			return fmt.Errorf("the deprecation notice leaked onto stdout, where a caller parses the signature report; stdout was:\n%s", stdout.String())
-		}
-		if !strings.Contains(stdout.String(), ".yaml.sig") {
-			return fmt.Errorf("stdout carries no signature report; stdout was:\n%s", stdout.String())
-		}
-		return nil
-	})
-
 	// --- Trust store assertions ---------------------------------------------
 
 	ctx.Step(`^Trent's key is trusted in the committable project store as "([^"]*)"$`, func(c context.Context, principal string) error {
-		return runOK(worldFrom(c), "trust", "signer", "add", principal, "--key", j18PubKeyFile, "--project", "--yes")
+		return runOK(worldFrom(c), "trust", "signer", "create", principal, "--key", j18PubKeyFile, "--project", "--yes")
 	})
 
 	ctx.Step(`^Trent's key is also trusted in his personal user store as "([^"]*)"$`, func(c context.Context, principal string) error {
-		return runOK(worldFrom(c), "trust", "signer", "add", principal, "--key", j18PubKeyFile, "--yes")
+		return runOK(worldFrom(c), "trust", "signer", "create", principal, "--key", j18PubKeyFile, "--yes")
 	})
 
 	// A review decision recorded by someone holding a signing key is SIGNED
@@ -655,7 +630,7 @@ func registerJ18Steps(ctx *godog.ScenarioContext) {
 	// ordinary developer setup — a key in ssh-agent — the flagship trust
 	// command is a silent no-op.
 	ctx.Step(`^Alice's own review key is trusted for approve and reject as "([^"]*)"$`, func(c context.Context, principal string) error {
-		return runOK(worldFrom(c), "trust", "signer", "add", principal, "--key", j18PubKeyFile, "--namespace", "approve,reject", "--yes")
+		return runOK(worldFrom(c), "trust", "signer", "create", principal, "--key", j18PubKeyFile, "--namespace", "approve,reject", "--yes")
 	})
 
 	ctx.Step(`^the project store "([^"]*)" trusts "([^"]*)" for publishing, with Trent's own key$`, func(c context.Context, rel, principal string) error {

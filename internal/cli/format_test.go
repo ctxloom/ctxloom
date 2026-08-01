@@ -267,8 +267,8 @@ func TestStreamingFormatVocabularyAgreesWithClifmt(t *testing.T) {
 // error and a non-zero exit. This pins both halves.
 func TestFormatDebtCommands_AreTrackedAndRefuseNonTextLoudly(t *testing.T) {
 	for _, path := range []string{
-		"bundle hold", "bundle unhold", "bundle delete", "bundle mcp edit",
-		"agent remove", "agent default",
+		"bundle hold", "bundle unhold", "bundle delete", "mcp server edit",
+		"agent delete", "agent default",
 	} {
 		_, ok := formatDebtAllowlist[path]
 		assert.True(t, ok, "%q must stay in formatDebtAllowlist: the debt is tracked, not forgotten", path)

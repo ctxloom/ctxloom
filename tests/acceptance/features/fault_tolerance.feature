@@ -32,6 +32,6 @@ Feature: Fault tolerance
 
   Scenario: An unreachable remote does not crash pull
     Given an initialized ctxloom project
-    And I run "ctxloom remote add broken file:///nonexistent/ctxloom-repo.git --forge git"
+    And I run "ctxloom remote create broken file:///nonexistent/ctxloom-repo.git --forge git"
     When I run "ctxloom remote pull"
     Then the command succeeds

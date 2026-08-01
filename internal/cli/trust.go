@@ -13,15 +13,14 @@ import (
 )
 
 // Per-item trust CLI: the scriptable plumbing of the three-state review model
-// (trust-simplify). `trust` records accepted, `blacklist` records rejected —
-// the same states the interactive `ctxloom review` porcelain (slice 2) writes.
+// (trust-simplify). `trust accept` records accepted, `trust reject` records
+// rejected — the same states the interactive `ctxloom review` porcelain
+// (slice 2) writes.
 // Management is CLI-only: there are deliberately NO MCP tools for any of these.
 // (Source-level `remote trust/untrust` is deleted — trust is now keyed to a
 // publisher signing key, not a remote; see docs/trust-model.md.)
 
-// trustCmdLong is shared by trustCmd (bare-invocation deprecated alias, still
-// the parent for trust accept|reject|signer) and trustAcceptCmd (the real
-// home, Decision 1: `trust <ref>` -> `trust accept <ref>`).
+// trustCmdLong documents `ctxloom trust accept`.
 const trustCmdLong = `Accept the currently-resolved content of an item so it is exposed to the agent.
 
 The acceptance is bound to the item's current content-hash pair (raw and, when
@@ -39,35 +38,18 @@ Examples:
 
 Reject an item with 'ctxloom trust reject <ref>'.`
 
-// trustCmd is both the `trust` parent (accept|reject|signer subcommands) and
-// a deprecated bare-invocation alias for `trust accept <ref>`, its historical
-// behavior (CLI-primary reorg plan, Decision 1). Deliberately NOT cobra's
-// `Deprecated` field: acp_cmd.go's acpCmd doc comment explains why a
-// non-leaf command can't use it (IsAvailableCommand would hide the whole
-// accept/reject/signer subtree from --help) — runTrustBareAlias prints the
-// one-line pointer itself instead.
+// trustCmd is a PURE GROUP NODE: the parent of accept|reject|signer. It used
+// to also be runnable as a bare `ctxloom trust <ref>` alias for `trust
+// accept`, which is deleted — an imperative bare noun that silently means
+// "accept" is exactly the surface a user cannot guess safely (verb-spine
+// reorg §6).
 var trustCmd = &cobra.Command{
-	Use:   "trust <ref>",
-	Short: "Accept an item's current content (fragment, command, MCP server, or hook)",
-	Long:  trustCmdLong + "\n\nBare 'ctxloom trust <ref>' (no subcommand) is a deprecated alias for 'trust accept <ref>'.",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runTrustBareAlias,
+	Use:   "trust",
+	Short: "Accept, reject, or manage the signers of item content",
+	Long:  trustCmdLong,
 }
 
-// trustBareDeprecation is the one-line pointer bare `ctxloom trust <ref>`
-// prints (same shape cobra's own Deprecated field would print — see
-// acpBareDeprecation in acp_cmd.go for the same pattern).
-const trustBareDeprecation = "use `ctxloom trust accept <ref>` instead"
-
-// runTrustBareAlias is bare trustCmd's RunE: prints the deprecation pointer,
-// then runs the exact same accept logic as `trust accept` (runTrustAcceptCmd).
-func runTrustBareAlias(cmd *cobra.Command, args []string) error {
-	fmt.Fprintf(cmd.ErrOrStderr(), "Command %q is deprecated, %s\n", cmd.Name(), trustBareDeprecation)
-	return runTrustAcceptCmd(cmd, args)
-}
-
-// runTrustAcceptCmd is the RunE shared by trustCmd (bare alias) and
-// trustAcceptCmd (the real home).
+// runTrustAcceptCmd is trustAcceptCmd's RunE.
 func runTrustAcceptCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
@@ -110,9 +92,7 @@ func runItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	})
 }
 
-// blacklistLong is shared by blacklistCmd (deprecated top-level alias) and
-// trustRejectCmd (the real home, Decision 1: `blacklist <ref>` -> `trust
-// reject <ref>`).
+// blacklistLong documents `ctxloom trust reject`.
 const blacklistLong = `Reject an item, withholding it from every exposure surface, always.
 
 A rejection writes two companion entries: the ref-level rejected state (denies
@@ -130,21 +110,7 @@ Examples:
   ctxloom trust reject tooling#fragments/curl-pipe-sh
   ctxloom trust reject 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
 
-var blacklistCmd = &cobra.Command{
-	Use:        "blacklist <ref>",
-	Short:      "Reject an item so it is withheld from the agent",
-	Long:       blacklistLong,
-	Deprecated: blacklistDeprecation,
-	Args:       cobra.ExactArgs(1),
-	RunE:       runBlacklistCmd,
-}
-
-// blacklistDeprecation is the one-line pointer cobra prints whenever the
-// legacy top-level `ctxloom blacklist` still runs.
-const blacklistDeprecation = "use `ctxloom trust reject <ref>` instead"
-
-// runBlacklistCmd is the RunE shared by blacklistCmd (deprecated alias) and
-// trustRejectCmd (the real home).
+// runBlacklistCmd is trustRejectCmd's RunE.
 func runBlacklistCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
@@ -153,7 +119,7 @@ func runBlacklistCmd(cmd *cobra.Command, args []string) error {
 	return runBlacklist(cmd, cfg, args[0])
 }
 
-// trustRejectCmd is the real home of `ctxloom blacklist <ref>` (Decision 1).
+// trustRejectCmd is the trust noun's `reject` decision verb.
 var trustRejectCmd = &cobra.Command{
 	Use:   "reject <ref>",
 	Short: "Reject an item so it is withheld from the agent",
@@ -247,10 +213,8 @@ func harnessApplied(ctx context.Context, cfg *config.Config) bool {
 }
 
 func init() {
-	// Top-level per-item mutations. trustCmd is both the bare-alias RunE and
-	// the accept|reject|signer parent (Decision 1/3).
+	// Top-level per-item mutations. trustCmd is a pure group node.
 	rootCmd.AddCommand(trustCmd)
-	rootCmd.AddCommand(blacklistCmd)
 
 	trustCmd.AddCommand(trustAcceptCmd)
 	trustCmd.AddCommand(trustRejectCmd)

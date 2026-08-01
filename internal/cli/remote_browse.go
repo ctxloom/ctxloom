@@ -13,13 +13,15 @@ import (
 
 var browseRecursive bool
 
-var remoteBrowseCmd = &cobra.Command{
-	Use:   "browse <remote>",
-	Short: "Browse bundles in a remote",
-	Long: `List bundles available in a remote repository.
+// remoteShowCmd is the canonical spine's `show` for the remote noun. It was
+// spelled `browse`; the spine has one read verb (verb-spine reorg §5).
+var remoteShowCmd = &cobra.Command{
+	Use:   "show <remote>",
+	Short: "Show a remote and the bundles it publishes",
+	Long: `Show one remote: its bundles, as published in the remote repository.
 
 Examples:
-  ctxloom remote browse ctxloom-default`,
+  ctxloom remote show ctxloom-default`,
 	Args: cobra.ExactArgs(1),
 	RunE: runRemoteBrowse,
 }
@@ -72,18 +74,18 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom remote pull")
+	fmt.Fprintln(out, "Use one: add its ref to a profile (ctxloom profile create/edit), then ctxloom remote pull")
 
 	return nil
 }
 
 func init() {
-	remoteCmd.AddCommand(remoteBrowseCmd)
+	remoteCmd.AddCommand(remoteShowCmd)
 
 	// Recursion is the default because bundles live in subdirectories of a
 	// remote (bundles/<name>); a top-level-only listing would surface almost
 	// nothing. The usage says so, so that -r does not read as the switch that
 	// turns it on.
-	remoteBrowseCmd.Flags().BoolVarP(&browseRecursive, "recursive", "r", true,
+	remoteShowCmd.Flags().BoolVarP(&browseRecursive, "recursive", "r", true,
 		"Descend into subdirectories; pass --recursive=false to list only the top level")
 }

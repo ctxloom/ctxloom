@@ -6,7 +6,7 @@ Feature: Remote registry
 
   Scenario: Add a remote and list it
     Given an initialized ctxloom project
-    When I run "ctxloom remote add origin file:///tmp/acceptance-remote.git --forge git"
+    When I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
     Then the command succeeds
     When I run "ctxloom remote list"
     Then the command succeeds
@@ -15,15 +15,15 @@ Feature: Remote registry
 
   Scenario: Set a default remote
     Given an initialized ctxloom project
-    And I run "ctxloom remote add origin file:///tmp/acceptance-remote.git --forge git"
+    And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
     When I run "ctxloom remote default origin"
     Then the command succeeds
     And the file ".ctxloom/remotes.yaml" contains "default: origin"
 
   Scenario: Remove a remote
     Given an initialized ctxloom project
-    And I run "ctxloom remote add origin file:///tmp/acceptance-remote.git --forge git"
-    When I run "ctxloom remote remove origin"
+    And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+    When I run "ctxloom remote delete origin"
     Then the command succeeds
     When I run "ctxloom remote list"
     Then the output does not contain "origin"

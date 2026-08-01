@@ -290,7 +290,7 @@ Verifying a signature (accepting a remote bundle, trusting a publisher) is pure 
 external binary at all — it runs the same inside a minimal container with no SSH tooling
 present. **Producing** one does need SSH tooling, because ctxloom never generates, stores, or
 reads private key material itself (see [Key management](/security/key-management/)) — it always
-signs through your existing `ssh-agent`. `ctxloom sign`, `ctxloom review --project`, and
+signs through your existing `ssh-agent`. `ctxloom bundle sign`, `ctxloom review --project`, and
 countersigning a `ctxloom review` decision all need:
 
 - The OpenSSH client tools (`ssh-keygen`, `ssh-add`) — to create a key, if you don't already have
@@ -300,7 +300,7 @@ countersigning a `ctxloom review` decision all need:
   user.signingkey` naming one — either satisfies ctxloom's key-discovery chain.
 
 If you already sign git commits over SSH, there is nothing extra to set up — ctxloom reuses that
-key. If you have neither, `ctxloom sign` and `ctxloom review --project` fail with an actionable
+key. If you have neither, `ctxloom bundle sign` and `ctxloom review --project` fail with an actionable
 error (the exact `ssh-add`/`ssh-keygen` commands to run) rather than a silent no-op. Reviewing
 content for yourself only — `ctxloom review` without `--project` — never requires a key: with
 none found, it offers an explicit, confirmed **unsigned** path instead.

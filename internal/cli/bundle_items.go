@@ -20,32 +20,16 @@ import (
 // Fragment and prompt management under `bundle` was a partial duplicate of the
 // top-level `fragment`/`prompt` command trees (which carry the full CRUD and
 // already route through internal/operations). Those duplicate subtrees were
-// removed; MCP-server editing has no top-level equivalent, so it stays here —
-// routed through the operations core like everything else.
+// removed.
+//
+// Bundle-scoped MCP-server editing used to hang off `bundle mcp edit`. The verb
+// spine moved it to the MCP-server noun — `mcp server edit <bundle>#mcp/<name>`
+// (mcp.go) — and deleted the `bundle mcp` group node; the body below is that
+// leaf's implementation, still routed through the operations core.
 
-// ============ Bundle MCP Commands ============
-
-var bundleMCPCmd = &cobra.Command{
-	Use:   "mcp",
-	Short: "Manage MCP servers within a bundle",
-	Long:  `Commands for managing MCP server configurations within a bundle.`,
-}
-
-var bundleMCPEditCmd = &cobra.Command{
-	Use:   "edit <bundle-name> <mcp-name>",
-	Short: "Edit an MCP server configuration",
-	Long: `Edit an MCP server's configuration using your configured editor.
-
-Opens the MCP server config as YAML in your editor. When you save and close,
-the bundle is updated with the new configuration.
-
-Examples:
-  ctxloom bundle mcp edit my-bundle tree-sitter
-  ctxloom bundle mcp edit tools sequential-thinking`,
-	Args: cobra.ExactArgs(2),
-	RunE: runBundleMCPEdit,
-}
-
+// runBundleMCPEdit edits one bundle-scoped MCP server. args is
+// [bundle-name, mcp-name]: the caller (runMCPServerEdit) has already split the
+// `<bundle>#mcp/<name>` ref into its two halves.
 func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 	bundleName, mcpName := args[0], args[1]
 

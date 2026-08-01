@@ -51,5 +51,5 @@ ctxloom trust accept <ref> [flags]
 
 ### SEE ALSO
 
-* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept an item's current content (fragment, command, MCP server, or hook)
+* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept, reject, or manage the signers of item content
 

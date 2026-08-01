@@ -19,8 +19,8 @@ publishing](/getting-started/installation/#signing-and-publishing-needs-ssh) for
 install:
 
 ```bash
-ctxloom sign my-tools     # writes a detached my-tools.yaml.sig sibling
-ctxloom sign --all        # every local bundle this project publishes
+ctxloom bundle sign my-tools     # writes a detached my-tools.yaml.sig sibling
+ctxloom bundle sign --all        # every local bundle this project publishes
 ```
 
 Key discovery is zero-config, in this order:
@@ -57,10 +57,10 @@ filesystem. Hand-editing an `allowed_signers` file is fully equivalent to using 
 it is read verbatim either way.
 
 ```bash
-ctxloom signer add context@acme.com --key ~/.ssh/acme-publish.pub
-ctxloom signer list
-ctxloom signer show context@acme.com
-ctxloom signer remove context@acme.com
+ctxloom trust signer create context@acme.com --key ~/.ssh/acme-publish.pub
+ctxloom trust signer list
+ctxloom trust signer show context@acme.com
+ctxloom trust signer delete context@acme.com
 ```
 
 The principal (`context@acme.com`) is just a label. **The key is the trust.**
@@ -127,8 +127,8 @@ Rejections likewise survive; nothing un-rejects.
 
 :::danger[The embedded ctxloom key cannot be untrusted]
 ctxloom's compiled-in trust root is **unconditionally unioned into every lookup**, and
-`ctxloom signer remove` only rewrites the user or project *file*. There is no negative-entry
-mechanism. Running `ctxloom signer remove ben+ctxloom@abbitt.me` does **not** stop
+`ctxloom trust signer delete` only rewrites the user or project *file*. There is no negative-entry
+mechanism. Running `ctxloom trust signer delete ben+ctxloom@abbitt.me` does **not** stop
 ctxloom-published bundles from being auto-trusted. If you want to review ctxloom's own content
 by hand, there is currently no supported way to ask for that.
 :::

@@ -142,7 +142,7 @@ Templating cannot smuggle content past the gate either: the signed payload is th
 ## Recording a decision
 
 `ctxloom review` is the porcelain — see [Review and trust](/concepts/review-and-trust/) for
-the ceremony. `ctxloom trust <ref>` and `ctxloom blacklist <ref>` are the scriptable plumbing
+the ceremony. `ctxloom trust accept <ref>` and `ctxloom trust reject <ref>` are the scriptable plumbing
 beneath it, writing the same countersignatures through the same path.
 
 The normative account of all of the above — storage formats, identity rules, lifecycle, and

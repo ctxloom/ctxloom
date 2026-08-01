@@ -217,7 +217,7 @@ ctxloom remote list
 
 **Add the remote:**
 ```bash
-ctxloom remote add myremote owner/repo
+ctxloom remote create myremote owner/repo
 ```
 
 ### Pull Failures
@@ -368,7 +368,7 @@ cat .mcp.json | jq '.mcpServers'
 
 **Ensure ctxloom is registered:**
 ```bash
-ctxloom manage mcp install
+ctxloom mcp register
 ctxloom manage hooks install
 ```
 
@@ -438,7 +438,7 @@ cat ~/.ctxloom/config.yaml
 yamllint .ctxloom/config.yaml
 
 # Or test by showing config
-ctxloom manage config show
+ctxloom config show
 ```
 
 ### Startup Aborts with "authored bundle(s)" Fatal Finding

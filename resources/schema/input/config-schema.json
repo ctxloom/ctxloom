@@ -77,7 +77,7 @@
         },
         "sign": {
           "type": "object",
-          "description": "Publisher-signing defaults for `fragment push`/`command push`.",
+          "description": "Publisher-signing defaults for `bundle push`.",
           "properties": {
             "default": {
               "type": "boolean",

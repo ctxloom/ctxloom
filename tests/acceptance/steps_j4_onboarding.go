@@ -213,7 +213,7 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 		if err := w.env.TrustSigner(signer, j4UpstreamPrincipal, true); err != nil {
 			return fmt.Errorf("trust upstream signer: %w", err)
 		}
-		if err := runOK(w, "remote", "add", "upstream", url, "--forge", "git"); err != nil {
+		if err := runOK(w, "remote", "create", "upstream", url, "--forge", "git"); err != nil {
 			return err
 		}
 		if err := runOK(w, "profile", "modify", j2Profile, "--add-bundle", "upstream/"+j4UpstreamBundle); err != nil {
@@ -264,7 +264,7 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return fmt.Errorf("seed signed company remote: %w", err)
 		}
-		if err := runOK(w, "remote", "add", "trent-company", url, "--forge", "git"); err != nil {
+		if err := runOK(w, "remote", "create", "trent-company", url, "--forge", "git"); err != nil {
 			return err
 		}
 		if err := runOK(w, "profile", "modify", j2Profile, "--add-bundle", "trent-company/"+j4CompanyBundle); err != nil {
@@ -322,7 +322,7 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 		// Bob's OWN project-scoped trust decision, in his own checkout — the
 		// gate opening the ordinary way, exactly like J3's "Alice trusts the
 		// company key".
-		return runBob(w, "signer", "add", j4CompanyPrincipal, "--key", keyPath, "--project")
+		return runBob(w, "trust", "signer", "create", j4CompanyPrincipal, "--key", keyPath, "--project")
 	})
 
 	ctx.Step(`^his assistant receives the company's content$`, func(c context.Context) error {

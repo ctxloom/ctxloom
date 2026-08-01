@@ -73,19 +73,19 @@ func TestPrintProfileCreated_WritesToTheGivenWriter(t *testing.T) {
 // changes anything.
 //
 // The default is deliberately true and is NOT changed here: bundles live in
-// subdirectories of a remote (bundles/<name>), so a non-recursive browse of a
+// subdirectories of a remote (bundles/<name>), so a non-recursive read of a
 // bundle repository would surface almost nothing. Flipping it would change
-// what `ctxloom remote browse <remote>` returns, which is a contract call.
+// what `ctxloom remote show <remote>` returns, which is a contract call.
 //
 // This pins the two together: if someone flips the default, the text
 // asserting it no longer matches and this fails, rather than the help
 // quietly going stale again.
-func TestRemoteBrowseRecursive_HelpMatchesTheActualDefault(t *testing.T) {
-	f := remoteBrowseCmd.Flags().Lookup("recursive")
+func TestRemoteShowRecursive_HelpMatchesTheActualDefault(t *testing.T) {
+	f := remoteShowCmd.Flags().Lookup("recursive")
 	require.NotNil(t, f, "the --recursive flag must exist")
 
 	assert.Equal(t, "true", f.DefValue,
-		"recursion is on by default; bundles live in subdirectories, so a non-recursive browse would surface almost nothing")
+		"recursion is on by default; bundles live in subdirectories, so a non-recursive read would surface almost nothing")
 	assert.Contains(t, f.Usage, "--recursive=false",
 		"the help must name the only form that actually changes behaviour; cobra renders the \"(default true)\" part itself, so the usage text must not repeat it")
 }

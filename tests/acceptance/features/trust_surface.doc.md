@@ -84,7 +84,7 @@ just two of them.
 The honest gap, proven rather than asserted. A bundle can ship a profile —
 a named composition of the bundle's own fragments, skills, MCP servers, and
 hooks — but the profile itself carries no trust identity of its own: there is
-no `trust.ItemKind` for it, and `ctxloom trust`/`ctxloom blacklist` cannot even
+no `trust.ItemKind` for it, and `ctxloom trust accept`/`trust reject` cannot even
 parse a `#profiles/<name>` selector. That is not an oversight this page papers
 over; it is a real property of the review model, stated plainly instead of
 quietly assumed. What a reviewer actually approves or denies is always one of

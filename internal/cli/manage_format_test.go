@@ -103,18 +103,18 @@ func TestManageStatusline_FormatJSON(t *testing.T) {
 	require.Equal(t, false, payload["statusline"])
 }
 
-// TestMcpServerAddRemove_FormatJSON pins runMCPAdd/runMCPRemove (shared by
-// `mcp server add`/`remove` and their deprecated `manage mcp servers
-// add`/`remove` aliases): --format json must render the operations result
-// struct instead of the bare fmt.Printf lines both used unconditionally.
-func TestMcpServerAddRemove_FormatJSON(t *testing.T) {
+// TestMcpServerCreateDelete_FormatJSON pins runMCPAdd/runMCPRemove (behind
+// `mcp server create`/`delete`): --format json must render the operations
+// result struct instead of the bare fmt.Printf lines both used
+// unconditionally.
+func TestMcpServerCreateDelete_FormatJSON(t *testing.T) {
 	testsupport.ProjectDir(t)
 
-	payload := runCLIJSON(t, "mcp", "server", "add", "coverage-server", "--command", "echo")
+	payload := runCLIJSON(t, "mcp", "server", "create", "coverage-server", "--command", "echo")
 	require.Equal(t, "coverage-server", payload["name"])
 	require.Equal(t, "echo", payload["command"])
 
-	payload = runCLIJSON(t, "mcp", "server", "remove", "coverage-server")
+	payload = runCLIJSON(t, "mcp", "server", "delete", "coverage-server")
 	require.Equal(t, "coverage-server", payload["name"])
 }
 

@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/pflag"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
@@ -299,46 +298,17 @@ func TestSignerConsequenceText_PublishWinsInAMixedGrant(t *testing.T) {
 	}
 }
 
-// TestDeprecatedAliasFlagsMatchTheirRealHome is U042-F09's pin. The row's
-// observation is right — seven package-global flag vars are each bound into two
-// different cobra commands (the deprecated top-level alias and its real home) —
-// but the consequence it names does not follow: one process parses flags for
-// exactly one matched command, so the shared address is never written twice in
-// a single run. The live hazard is DRIFT: the alias and its real home declare
-// their flags at two separate call sites, so a flag added, renamed, defaulted
-// differently, or marked required on one silently diverges from the other and
-// the deprecated command starts behaving differently from the one users are
-// being told to switch to. That is what this pins.
-func TestDeprecatedAliasFlagsMatchTheirRealHome(t *testing.T) {
-	// Only the command's OWN flags: cobra merges a parent's persistent flags
-	// into Flags() lazily, the first time the command is executed, so an
-	// unfiltered comparison would depend on which tests ran earlier in the
-	// process. "help" is cobra's own injected flag for the same reason.
-	describe := func(c *cobra.Command) map[string]string {
-		inherited := c.InheritedFlags()
-		out := map[string]string{}
-		c.Flags().VisitAll(func(f *pflag.Flag) {
-			if f.Name == "help" || inherited.Lookup(f.Name) != nil {
-				return
-			}
-			out[f.Name] = fmt.Sprintf("shorthand=%q default=%q usage=%q annotations=%v",
-				f.Shorthand, f.DefValue, f.Usage, f.Annotations)
-		})
-		return out
-	}
-	for _, p := range []struct {
-		name        string
-		alias, home *cobra.Command
-	}{
-		{"sign", signCmd, bundleSignCmd},
-		{"signer add", signerAddCmd, trustSignerAddCmd},
-		{"signer list", signerListCmd, trustSignerListCmd},
-		{"signer show", signerShowCmd, trustSignerShowCmd},
-		{"signer remove", signerRemoveCmd, trustSignerRemoveCmd},
-	} {
-		assert.Equal(t, describe(p.home), describe(p.alias),
-			"%s: the deprecated alias must accept exactly the flags its real home does", p.name)
-		assert.NotEmpty(t, p.alias.Deprecated, "%s: the alias must still point at its new home", p.name)
-		assert.Empty(t, p.home.Deprecated, "%s: the real home is not deprecated", p.name)
+// The deprecated top-level `sign`/`signer *` aliases are DELETED (verb-spine
+// reorg §6), so TestDeprecatedAliasFlagsMatchTheirRealHome — which pinned the
+// alias/real-home flag sets against drift — has no subject left. What replaces
+// it is the one remaining invariant: the canonical trust-signer leaves carry
+// the flags themselves, and nothing in the tree is deprecated any more.
+func TestTrustSignerLeavesCarryTheirOwnFlags(t *testing.T) {
+	require.NotNil(t, trustSignerCreateCmd.Flags().Lookup("key"),
+		"`trust signer create` owns --key; it used to be registered twice, once per spelling")
+	require.NotNil(t, trustSignerDeleteCmd.Flags().Lookup("project"),
+		"`trust signer delete` owns --project")
+	for _, c := range []*cobra.Command{trustSignerCreateCmd, trustSignerListCmd, trustSignerShowCmd, trustSignerDeleteCmd, bundleSignCmd} {
+		assert.Empty(t, c.Deprecated, "%s: no leaf in the reorged tree is deprecated", c.Name())
 	}
 }

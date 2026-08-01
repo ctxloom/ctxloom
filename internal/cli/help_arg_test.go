@@ -65,7 +65,7 @@ const (
 // mandatory name argument, with the behaviour each one is pinned to. The list
 // is exhaustive by construction — every site that mentions helpArgName or
 // calls helpShortcut appears here, plus the two that deliberately mention
-// neither (bundle create, agent set).
+// neither (bundle create, agent create).
 var helpArgCommands = []struct {
 	path      []string
 	behaviour helpArgBehaviour
@@ -77,9 +77,9 @@ var helpArgCommands = []struct {
 	{path: []string{"bundle", "edit"}, behaviour: helpAsFallback},
 	{path: []string{"bundle", "show"}, behaviour: helpAsFallback},
 	{path: []string{"agent", "show"}, behaviour: helpAsFallback},
-	{path: []string{"agent", "set"}, behaviour: actsOnResource, exists: agentHelpExists},
+	{path: []string{"agent", "create"}, behaviour: actsOnResource, exists: agentHelpExists},
 	{path: []string{"agent", "default"}, behaviour: helpAsFallback},
-	{path: []string{"agent", "remove"}, behaviour: helpAsFallback},
+	{path: []string{"agent", "delete"}, behaviour: helpAsFallback},
 	{path: []string{"profile", "create"}, behaviour: helpBeforeConfig},
 	{path: []string{"profile", "delete"}, behaviour: helpBeforeConfig},
 	{path: []string{"profile", "show"}, behaviour: helpBeforeConfig},
@@ -107,7 +107,7 @@ var helpArgCommands = []struct {
 //
 // EACH SUBTEST GETS ITS OWN PROJECT ROOT. When they shared one, the table's own
 // ordering became a hidden fixture: `bundle create help` created a real bundle
-// that `bundle show help` then found, and `agent set help` defined the agent
+// that `bundle show help` then found, and `agent create help` defined the agent
 // that `agent default help` then bound — later rows "failing" on state earlier
 // rows had written.
 func TestHelpArgShortcut_BehaviourForEveryNameTakingCommand(t *testing.T) {

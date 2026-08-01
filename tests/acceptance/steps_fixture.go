@@ -120,7 +120,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 
 	// An INLINE profile, written straight into config.yaml's `profiles:
 	// definitions:` map — as opposed to `profile create`, which always writes a
-	// directory profile (.ctxloom/profiles/<name>.yaml). `ctxloom manage config
+	// directory profile (.ctxloom/profiles/<name>.yaml). `ctxloom config
 	// get profiles` only ever reflects this inline map (cfg.Profiles.Definitions):
 	// there is no CLI surface that populates it, so a scenario asserting on that
 	// section must seed it directly. Appends to the existing config.yaml — safe
@@ -174,7 +174,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			w.remoteBare = map[string]string{}
 		}
 		w.remoteBare[name] = strings.TrimPrefix(url, "file://")
-		_ = w.env.Run("remote", "add", name, url, "--forge", "git")
+		_ = w.env.Run("remote", "create", name, url, "--forge", "git")
 		if w.env.LastExitCode() != 0 {
 			return fmt.Errorf("remote add failed: %s", w.env.LastOutput())
 		}

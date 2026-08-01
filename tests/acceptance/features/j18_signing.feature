@@ -68,23 +68,22 @@ Feature: A signature somebody can check
     And the signature beside bundle "my-tools" is non-empty and verifies against the bundle's bytes on disk
     And exactly 1 signature file exists in the published bundle tree
 
-  # The deprecated top-level spelling still has users and still has to WORK —
-  # a deprecation that quietly stopped writing signatures, or that polluted the
-  # stdout a script parses, would be found by nobody.
-  Scenario: The deprecated ctxloom sign spelling still lands a real signature
+  # `bundle sign` is the ONLY spelling: the deprecated top-level `ctxloom
+  # sign` twin this scenario pair used to cover is deleted (verb-spine reorg
+  # §6), so what survives is the canonical leaf signing a second, differently
+  # named bundle — the payload assertion, which was always the value here.
+  Scenario: Signing a bundle by bare name lands a verifiable signature
     Given Trent's project publishes the "secure-coding" bundle his team depends on
-    When I run "ctxloom sign secure-coding"
+    When I run "ctxloom bundle sign secure-coding"
     Then the command succeeds
-    And the output contains "is deprecated"
     And the signature beside bundle "secure-coding" is non-empty and verifies against the bundle's bytes on disk
-    And the deprecated spelling put its notice on stderr and its signature report on stdout
 
   # --project is how a team distributes trust: the committable store every
   # clone inherits, as opposed to the user store that follows one person. BOTH
   # paths are asserted — a trust root written to the wrong store is invisible
   # until a teammate's clone silently trusts nothing.
   Scenario: Trent distributes his trust root in the store his teammates inherit by cloning
-    When I run "ctxloom trust signer add context@acme.example --key acme-publish.pub --project --yes"
+    When I run "ctxloom trust signer create context@acme.example --key acme-publish.pub --project --yes"
     Then the command succeeds
     And the project store ".ctxloom/allowed_signers" trusts "context@acme.example" for publishing, with Trent's own key
     And the user store ".ctxloom/allowed_signers" was never written
@@ -102,13 +101,6 @@ Feature: A signature somebody can check
     Then the command succeeds
     And the listing names "context@acme.example" in the "project" store, with Trent's fingerprint and the publish namespace
     And the listing names "context@acme.example" in the "user" store, with Trent's fingerprint and the publish namespace
-
-  Scenario: The deprecated signer list spelling reads back the same trust root
-    Given Trent's key is trusted in the committable project store as "context@acme.example"
-    When I run "ctxloom signer list"
-    Then the command succeeds
-    And the output contains "is deprecated"
-    And the listing names "context@acme.example" in the "project" store, with Trent's fingerprint and the publish namespace
 
   # The acceptance binds to the item's CURRENT content hashes, so a later
   # revision returns it to pending rather than riding the old decision. The
@@ -151,7 +143,7 @@ Feature: A signature somebody can check
     And Trent's key is trusted in the committable project store as "context@acme.example"
     And Trent publishes the signed bundle to his company repo, and Alice references it
     And her assistant receives the "tdd" guidance
-    When I run "ctxloom trust signer remove context@acme.example --project"
+    When I run "ctxloom trust signer delete context@acme.example --project"
     Then the command succeeds
     And the output contains "removed 1 entry for context@acme.example"
     And the project store ".ctxloom/allowed_signers" no longer names Trent's key

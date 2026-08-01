@@ -10,7 +10,7 @@ A **bundle** collects that content (fragments, commands, MCP server configs, pro
 
 Local bundles are stored in `.ctxloom/content/bundles/` as YAML files. That
 directory is committed — it's the content your project publishes, and it's
-what `ctxloom sign --all` signs — unlike `.ctxloom/cache/`, which is
+what `ctxloom bundle sign --all` signs — unlike `.ctxloom/cache/`, which is
 gitignored and holds only regenerable, remote-pulled artifacts.
 
 ```yaml

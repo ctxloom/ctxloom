@@ -14,7 +14,7 @@ Browse and manage harp-named sessions
 ### Synopsis
 
 Read and manage the harp-keyed session index at
-~/.ctxloom/sessions/index.yaml. Use to list/show/rename/forget
+~/.ctxloom/sessions/index.yaml. Use to list/show/rename/delete
 sessions without launching the LLM. Sessions appear here automatically
 once `ctxloom run` has been used to launch a backend.
 
@@ -37,11 +37,11 @@ once `ctxloom run` has been used to launch a backend.
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom session backfill](/reference/cli/ctxloom_session_backfill/)	 - Import vendor-native transcripts for sessions ctxloom has no canonical memory of
+* [ctxloom session delete](/reference/cli/ctxloom_session_delete/)	 - Drop a harp entry from the index. Transcript and essence files stay on disk.
 * [ctxloom session distill](/reference/cli/ctxloom_session_distill/)	 - Force-distill a session by harp name. Useful for sessions that ended before auto-compact ran.
-* [ctxloom session forget](/reference/cli/ctxloom_session_forget/)	 - Drop a harp entry from the index. Transcript and essence files stay on disk.
 * [ctxloom session list](/reference/cli/ctxloom_session_list/)	 - List harp-named sessions (default: current project; --all for everything)
-* [ctxloom session query](/reference/cli/ctxloom_session_query/)	 - Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)
 * [ctxloom session rename](/reference/cli/ctxloom_session_rename/)	 - Rename a harp entry. The backend transcript is unaffected.
+* [ctxloom session search](/reference/cli/ctxloom_session_search/)	 - Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)
 * [ctxloom session show](/reference/cli/ctxloom_session_show/)	 - Print the distilled essence of a harp-named session
 * [ctxloom session watch](/reference/cli/ctxloom_session_watch/)	 - Stream a session's transcript as structured turns (messages, not raw bytes)
 

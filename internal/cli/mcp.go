@@ -57,23 +57,7 @@ var mcpServeCmd = &cobra.Command{
 	RunE: runMCPServerSDK,
 }
 
-// mcpListDeprecation is the one-line pointer cobra prints whenever the
-// legacy `ctxloom manage mcp servers list` still runs.
-const mcpListDeprecation = "use `ctxloom mcp server list` instead"
-
-var mcpListCmd = &cobra.Command{
-	Use:        "list",
-	Aliases:    []string{"ls"},
-	Short:      "List configured MCP servers",
-	Deprecated: mcpListDeprecation,
-	RunE:       runMCPList,
-}
-
-// mcpServerListCmd is the real home of `ctxloom manage mcp servers list`
-// (CLI-primary reorg plan, Decision 3: `manage mcp servers *` -> `mcp server
-// *`). A cobra command has exactly one parent, so this is a distinct
-// *cobra.Command sharing runMCPList (mirrors registerACPServerFlags'
-// rationale in acp_cmd.go).
+// mcpServerListCmd is the canonical spine's `list` for the MCP-server noun.
 var mcpServerListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
@@ -172,7 +156,7 @@ func printMCPList(w io.Writer, result *operations.ListMCPServersResult) error {
 		fmt.Fprintln(w, "No MCP servers configured.")
 		fmt.Fprintln(w)
 		fmt.Fprintf(w, "Auto-register ctxloom MCP server: %v\n", result.AutoRegister)
-		fmt.Fprintln(w, "\nUse 'ctxloom manage mcp servers add <name> --command <cmd>' to add one.")
+		fmt.Fprintln(w, "\nUse 'ctxloom mcp server create <name> --command <cmd>' to add one.")
 		return nil
 	}
 
@@ -196,36 +180,22 @@ var (
 	mcpAddBackend string
 )
 
-// mcpAddLong is shared by mcpAddCmd (deprecated alias) and mcpServerAddCmd
-// (the real home, Decision 3: `manage mcp servers *` -> `mcp server *`).
-const mcpAddLong = `Add an MCP server to be injected into backend settings.
+// mcpServerCreateLong documents `mcp server create`, the canonical spine's
+// `create` for the MCP-server noun.
+const mcpServerCreateLong = `Add an MCP server to be injected into backend settings.
 
 Examples:
-  ctxloom mcp server add my-server --command "npx my-mcp-server"
-  ctxloom mcp server add tools --command "python" --args "-m,mcp_tools"
-  ctxloom mcp server add claude-only --command "./server" --backend claude-code`
+  ctxloom mcp server create my-server --command "npx my-mcp-server"
+  ctxloom mcp server create tools --command "python" --args "-m,mcp_tools"
+  ctxloom mcp server create claude-only --command "./server" --backend claude-code`
 
-var mcpAddCmd = &cobra.Command{
-	Use:        "add <name>",
-	Short:      "Add an MCP server configuration",
-	Long:       mcpAddLong,
-	Deprecated: mcpAddDeprecation,
-	Args:       cobra.ExactArgs(1),
-	RunE:       runMCPAdd,
-}
-
-// mcpServerAddCmd is the real home of `ctxloom manage mcp servers add`.
-var mcpServerAddCmd = &cobra.Command{
-	Use:   "add <name>",
-	Short: "Add an MCP server configuration",
-	Long:  mcpAddLong,
+var mcpServerCreateCmd = &cobra.Command{
+	Use:   "create <name>",
+	Short: "Create an MCP server configuration",
+	Long:  mcpServerCreateLong,
 	Args:  cobra.ExactArgs(1),
 	RunE:  runMCPAdd,
 }
-
-// mcpAddDeprecation is the one-line pointer cobra prints whenever the legacy
-// `ctxloom manage mcp servers add` still runs.
-const mcpAddDeprecation = "use `ctxloom mcp server add` instead"
 
 func runMCPAdd(cmd *cobra.Command, args []string) error {
 	name := args[0]
@@ -261,26 +231,12 @@ func runMCPAdd(cmd *cobra.Command, args []string) error {
 
 var mcpRemoveBackend string
 
-// mcpRemoveDeprecation is the one-line pointer cobra prints whenever the
-// legacy `ctxloom manage mcp servers remove` still runs.
-const mcpRemoveDeprecation = "use `ctxloom mcp server remove` instead"
-
-var mcpRemoveCmd = &cobra.Command{
-	Use:        "remove <name>",
-	Aliases:    []string{"rm"},
-	Short:      "Remove an MCP server configuration",
-	Deprecated: mcpRemoveDeprecation,
-	Args:       cobra.ExactArgs(1),
-	RunE:       runMCPRemove,
-}
-
-// mcpServerRemoveCmd is the real home of `ctxloom manage mcp servers remove`.
-var mcpServerRemoveCmd = &cobra.Command{
-	Use:     "remove <name>",
-	Aliases: []string{"rm"},
-	Short:   "Remove an MCP server configuration",
-	Args:    cobra.ExactArgs(1),
-	RunE:    runMCPRemove,
+// mcpServerDeleteCmd is the canonical spine's `delete` for the MCP-server noun.
+var mcpServerDeleteCmd = &cobra.Command{
+	Use:   "delete <name>",
+	Short: "Delete an MCP server configuration",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runMCPRemove,
 }
 
 func runMCPRemove(cmd *cobra.Command, args []string) error {
@@ -310,19 +266,7 @@ func runMCPRemove(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// mcpShowDeprecation is the one-line pointer cobra prints whenever the
-// legacy `ctxloom manage mcp servers show` still runs.
-const mcpShowDeprecation = "use `ctxloom mcp server show` instead"
-
-var mcpShowCmd = &cobra.Command{
-	Use:        "show <name>",
-	Short:      "Show details of an MCP server configuration",
-	Deprecated: mcpShowDeprecation,
-	Args:       cobra.ExactArgs(1),
-	RunE:       runMCPShow,
-}
-
-// mcpServerShowCmd is the real home of `ctxloom manage mcp servers show`.
+// mcpServerShowCmd is the canonical spine's `show` for the MCP-server noun.
 var mcpServerShowCmd = &cobra.Command{
 	Use:   "show <name>",
 	Short: "Show details of an MCP server configuration",
@@ -401,24 +345,69 @@ func mcpScopeLabel(backend string) string {
 	return backend + " only"
 }
 
-// mcpServerCmd is the real home of `ctxloom manage mcp servers` (CLI-primary
-// reorg plan, Decision 3: `manage mcp servers *` -> `mcp server *`).
-var mcpServerCmd = &cobra.Command{
-	Use:   "server",
-	Short: "List, add, remove, or show configured MCP servers",
+// mcpServerEditCmd is the canonical spine's `edit` for the MCP-server noun. It
+// is the new home of the deleted `bundle mcp edit` (CLI verb-spine reorg §5):
+// the ref SHAPE picks the store, exactly as the addressing grammar does
+// everywhere else — `<bundle>#mcp/<name>` addresses a bundle item.
+var mcpServerEditCmd = &cobra.Command{
+	Use:   "edit <bundle>#mcp/<name>",
+	Short: "Edit an MCP server configuration in $EDITOR",
+	Long: `Edit an MCP server's configuration using your configured editor.
+
+Opens the MCP server config as YAML in your editor. When you save and close,
+the containing bundle is updated with the new configuration.
+
+The ref shape selects the store, per the universal addressing grammar:
+a '<bundle>#mcp/<name>' ref addresses a bundle-scoped server.
+
+Examples:
+  ctxloom mcp server edit my-bundle#mcp/tree-sitter
+  ctxloom mcp server edit tools#mcp/sequential-thinking`,
+	Args: cobra.ExactArgs(1),
+	RunE: runMCPServerEdit,
 }
 
-// mcpRegisterDeprecation / mcpUnregisterDeprecation are the one-line pointers
-// cobra prints whenever the legacy `ctxloom manage mcp install/uninstall`
-// still run.
-const (
-	mcpRegisterDeprecation   = "use `ctxloom mcp register` instead"
-	mcpUnregisterDeprecation = "use `ctxloom mcp unregister` instead"
-)
+// mcpServerRefPrefix is the item-ref path prefix that addresses a
+// bundle-scoped MCP server (`<bundle>#mcp/<name>`). Unlike fragments and
+// commands the kind is not pluralized, so this cannot go through
+// itemRefPrefix.
+const mcpServerRefPrefix = "mcp/"
 
-// mcpRegisterCmd / mcpUnregisterCmd are the real homes of `ctxloom manage mcp
-// install`/`uninstall` (Decision 3), sharing setMcpAutoRegister (manage.go)
-// with manageMcpInstallCmd/manageMcpUninstallCmd.
+// splitMCPServerRef splits a `<bundle>#mcp/<name>` ref into its two halves.
+// A ref that does not carry the `#mcp/` path is rejected by name: the
+// config-level (config.yaml `mcp.servers`) store has no editor path yet, and
+// silently editing the wrong store — or reporting success having changed
+// nothing — is the failure mode this refusal exists to prevent.
+func splitMCPServerRef(ref string) (bundleName, serverName string, err error) {
+	hash := strings.Index(ref, "#")
+	if hash < 0 || !strings.HasPrefix(ref[hash+1:], mcpServerRefPrefix) {
+		return "", "", fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); editing a config-level server is not implemented — use `ctxloom mcp server delete` then `ctxloom mcp server create`", ref, mcpServerRefPrefix)
+	}
+	bundleName = ref[:hash]
+	serverName = strings.TrimPrefix(ref[hash+1:], mcpServerRefPrefix)
+	if bundleName == "" || serverName == "" {
+		return "", "", fmt.Errorf("mcp server edit: incomplete ref %q (expected <bundle>#%s<name>)", ref, mcpServerRefPrefix)
+	}
+	return bundleName, serverName, nil
+}
+
+func runMCPServerEdit(cmd *cobra.Command, args []string) error {
+	bundleName, serverName, err := splitMCPServerRef(args[0])
+	if err != nil {
+		return err
+	}
+	return runBundleMCPEdit(cmd, []string{bundleName, serverName})
+}
+
+// mcpServerCmd is the MCP-server noun: the canonical spine over the
+// config-level MCP server store.
+var mcpServerCmd = &cobra.Command{
+	Use:   "server",
+	Short: "List, show, create, edit, or delete configured MCP servers",
+}
+
+// mcpRegisterCmd / mcpUnregisterCmd toggle ctxloom's own auto-registration,
+// sharing setMcpAutoRegister (manage.go).
 var mcpRegisterCmd = &cobra.Command{
 	Use:   "register",
 	Short: "Enable auto-registration of ctxloom's own MCP server",
@@ -437,40 +426,26 @@ func init() {
 	rootCmd.AddCommand(mcpCmd)
 
 	// The bare `ctxloom mcp` (and `mcp serve`) is the runtime server, referenced
-	// by generated .mcp.json. Server-config management lives under `manage mcp`
-	// (wired in manage.go, deprecated) and `mcp server`/`mcp register`/`mcp
-	// unregister` (wired below, the real homes); only the runtime entry hangs
-	// off root here.
+	// by generated .mcp.json. Server-config management lives under `mcp server`;
+	// ctxloom's own auto-registration under `mcp register`/`mcp unregister`.
 	mcpCmd.AddCommand(mcpServeCmd)
 
-	// Flags for the deprecated server-config CRUD commands (still parented
-	// under manage mcp servers in manage.go).
-	mcpAddCmd.Flags().StringVarP(&mcpAddCommand, "command", "c", "", "Command to run the MCP server (required)")
-	mcpAddCmd.Flags().StringSliceVarP(&mcpAddArgs, "args", "a", nil, "Arguments for the command (can be repeated)")
-	mcpAddCmd.Flags().StringVarP(&mcpAddBackend, "backend", "b", "", "Backend to add server for (claude-code, antigravity, or unified)")
-	_ = mcpAddCmd.MarkFlagRequired("command")
-
-	mcpRemoveCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to remove server from")
-
-	mcpShowCmd.Flags().BoolVarP(&mcpShowInteractive, "interactive", "i", false, "Review the server's effective trust (interactive terminal only)")
-
-	// Real home: `mcp server list|add|remove|show`.
 	mcpCmd.AddCommand(mcpServerCmd)
 	mcpServerCmd.AddCommand(mcpServerListCmd)
-	mcpServerCmd.AddCommand(mcpServerAddCmd)
-	mcpServerCmd.AddCommand(mcpServerRemoveCmd)
 	mcpServerCmd.AddCommand(mcpServerShowCmd)
+	mcpServerCmd.AddCommand(mcpServerCreateCmd)
+	mcpServerCmd.AddCommand(mcpServerEditCmd)
+	mcpServerCmd.AddCommand(mcpServerDeleteCmd)
 
-	mcpServerAddCmd.Flags().StringVarP(&mcpAddCommand, "command", "c", "", "Command to run the MCP server (required)")
-	mcpServerAddCmd.Flags().StringSliceVarP(&mcpAddArgs, "args", "a", nil, "Arguments for the command (can be repeated)")
-	mcpServerAddCmd.Flags().StringVarP(&mcpAddBackend, "backend", "b", "", "Backend to add server for (claude-code, antigravity, or unified)")
-	_ = mcpServerAddCmd.MarkFlagRequired("command")
+	mcpServerCreateCmd.Flags().StringVarP(&mcpAddCommand, "command", "c", "", "Command to run the MCP server (required)")
+	mcpServerCreateCmd.Flags().StringSliceVarP(&mcpAddArgs, "args", "a", nil, "Arguments for the command (can be repeated)")
+	mcpServerCreateCmd.Flags().StringVarP(&mcpAddBackend, "backend", "b", "", "Backend to add server for (claude-code, antigravity, or unified)")
+	_ = mcpServerCreateCmd.MarkFlagRequired("command")
 
-	mcpServerRemoveCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to remove server from")
+	mcpServerDeleteCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to delete the server from")
 
 	mcpServerShowCmd.Flags().BoolVarP(&mcpShowInteractive, "interactive", "i", false, "Review the server's effective trust (interactive terminal only)")
 
-	// Real home: `mcp register`/`mcp unregister`.
 	mcpCmd.AddCommand(mcpRegisterCmd)
 	mcpCmd.AddCommand(mcpUnregisterCmd)
 }

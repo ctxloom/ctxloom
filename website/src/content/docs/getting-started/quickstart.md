@@ -193,10 +193,10 @@ Then in your AI CLI:
 ctxloom remote discover golang
 
 # Add a remote
-ctxloom remote add community alice/ctxloom-golang
+ctxloom remote create community alice/ctxloom-golang
 
 # Browse remote content
-ctxloom remote browse community
+ctxloom remote show community
 
 # Author a local profile referencing the remote bundle, then pull it.
 # A profile's -b accepts the short <remote>/<bundle> form.

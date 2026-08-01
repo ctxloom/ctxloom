@@ -17,7 +17,7 @@ This starts ctxloom as an MCP server over stdio.
 Claude Code doesn't read `mcpServers` from `~/.claude/settings.json` — it reads `.mcp.json` (project scope) or `~/.claude.json` (user scope). The easiest path is to let ctxloom write that entry for you:
 
 ```bash
-ctxloom manage mcp install
+ctxloom mcp register
 ```
 
 If you need to add it by hand, put the block in `.mcp.json` (project) or `~/.claude.json` (user), not `settings.json`:
@@ -40,8 +40,8 @@ Replace `/path/to/ctxloom` with your actual binary location (e.g., `~/go/bin/ctx
 By default, ctxloom auto-registers itself as an MCP server. Control this with:
 
 ```bash
-ctxloom manage mcp uninstall
-ctxloom manage mcp install
+ctxloom mcp unregister
+ctxloom mcp register
 ```
 
 Or in config:
@@ -159,11 +159,11 @@ Management requests route through the CLI instead — e.g. "pull the remotes" ru
 ctxloom manages MCP server configurations with the CLI:
 
 ```bash
-ctxloom manage mcp servers list
-ctxloom manage mcp servers add tree-sitter -c "npx" -a "tree-sitter-mcp"
-ctxloom manage mcp servers add my-server -c "/path/to/server" -b claude-code
-ctxloom manage mcp servers remove tree-sitter
-ctxloom manage mcp servers show tree-sitter
+ctxloom mcp server list
+ctxloom mcp server create tree-sitter -c "npx" -a "tree-sitter-mcp"
+ctxloom mcp server create my-server -c "/path/to/server" -b claude-code
+ctxloom mcp server delete tree-sitter
+ctxloom mcp server show tree-sitter
 ```
 
 ## Bundle MCP Definitions
@@ -198,4 +198,4 @@ When pulling from remotes:
 - **Context Items**: Risk of prompt injection
 - **Bundles**: Combine both risks
 
-Always review content before referencing it in a profile and running `ctxloom remote pull`. Trust-gating withholds unreviewed MCP servers from the agent until you accept them with `ctxloom review` (or `ctxloom trust <ref>` for a single item) — or trust the publisher's key with `ctxloom signer add <principal> --key <path> --namespace publish` so their future content skips review. A remote itself carries no trust; trust follows a signing key, not a fetch address.
+Always review content before referencing it in a profile and running `ctxloom remote pull`. Trust-gating withholds unreviewed MCP servers from the agent until you accept them with `ctxloom review` (or `ctxloom trust accept <ref>` for a single item) — or trust the publisher's key with `ctxloom trust signer create <principal> --key <path> --namespace publish` so their future content skips review. A remote itself carries no trust; trust follows a signing key, not a fetch address.

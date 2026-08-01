@@ -19,8 +19,11 @@ var sessionQueryAll bool
 // the FULL projection carrying each matched session's complete essence body.
 var sessionQueryFull bool
 
-var sessionQueryCmd = &cobra.Command{
-	Use:   "query <word>...",
+// sessionSearchCmd is the session noun's content search. It was spelled
+// `query`; `search` is the one spelling for content search, matching the
+// top-level `ctxloom search` (verb-spine reorg §5).
+var sessionSearchCmd = &cobra.Command{
+	Use:   "search <word>...",
 	Short: "Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)",
 	Long: `Searches session metadata (harp name, summary, start/end) and, for
 sessions that have already been distilled, the essence body itself. Every
@@ -38,9 +41,9 @@ returned in a result row (the same lightweight harp/summary/start/end shape
 }
 
 func init() {
-	sessionQueryCmd.Flags().BoolVar(&sessionQueryAll, "all", false, "Search sessions from every project (default: filter to cwd)")
-	sessionQueryCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
-	sessionCmd.AddCommand(sessionQueryCmd)
+	sessionSearchCmd.Flags().BoolVar(&sessionQueryAll, "all", false, "Search sessions from every project (default: filter to cwd)")
+	sessionSearchCmd.Flags().BoolVar(&sessionQueryFull, "full", false, "Include each matched session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
+	sessionCmd.AddCommand(sessionSearchCmd)
 }
 
 // runSessionQuery loads the same candidate set `session list` would (project-

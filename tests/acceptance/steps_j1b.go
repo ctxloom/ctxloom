@@ -212,7 +212,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("j1b: reached this step with w.j1Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
 		// The composed agent-setup guidance (built-in + the company command's
-		// codeword instruction) is exactly what `ctxloom agent setup` emits
+		// codeword instruction) is exactly what `ctxloom init prompt` emits
 		// (internal/cli/agent.go, via the SAME operations.ResolveSetupPrompt
 		// this scenario is proving) — driving it straight into the real
 		// assistant as its prompt is the equivalent of the interactive

@@ -34,7 +34,7 @@ Feature: Sessions
   Scenario: Forget a session drops it from the index
     Given an initialized ctxloom project
     And a recorded session "amber-swift-owl"
-    When I run "ctxloom session forget amber-swift-owl"
+    When I run "ctxloom session delete amber-swift-owl"
     Then the command succeeds
     When I run "ctxloom session list --all"
     Then the output does not contain "amber-swift-owl"

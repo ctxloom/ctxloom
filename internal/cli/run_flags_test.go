@@ -19,14 +19,14 @@ import (
 // guarding, and it is the one the split actually creates.
 //
 // This asserts the registration side of every flag the command documents,
-// including the deprecated alias and the hidden seeding flags, plus the
+// including the hidden seeding flags, plus the
 // mutual-exclusion groups that make --agent and the profile flags refuse each
 // other.
 func TestRunCmd_EveryFlagVarIsActuallyBound(t *testing.T) {
 	flags := runCmd.Flags()
 
 	for _, name := range []string{
-		"llm", "prompt", "command", "run-prompt", "fragment", "tag", "profile",
+		"llm", "prompt", "command", "fragment", "tag", "profile",
 		"agent", "workspace", "permissions", "dry-run", "print", "structured",
 		"plain-terminal", "verbose", "yes", "session", "distill",
 		"seed-task", "seed-status",
@@ -45,8 +45,8 @@ func TestRunCmd_EveryFlagVarIsActuallyBound(t *testing.T) {
 		assert.Equal(t, long, f.Name, "-%s must stay bound to --%s", short, long)
 	}
 
-	assert.True(t, flags.Lookup("run-prompt").Deprecated != "",
-		"--run-prompt is the pre-rename alias and must stay marked deprecated")
+	assert.Nil(t, flags.Lookup("run-prompt"),
+		"--run-prompt was the pre-rename alias for --command and is DELETED, not deprecated (verb-spine reorg §6: no shims)")
 	for _, hidden := range []string{"seed-task", "seed-status"} {
 		assert.True(t, flags.Lookup(hidden).Hidden, "--%s is internal and must stay hidden", hidden)
 	}

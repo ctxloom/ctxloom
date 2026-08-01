@@ -127,43 +127,6 @@ Examples:
 
 var commandDistillForce bool
 
-// commandPushDeprecation is the one-line pointer cobra prints whenever
-// `ctxloom command push` still runs (CLI-primary reorg plan, Decision 4:
-// `command push` -> `bundle push`).
-const commandPushDeprecation = "use `ctxloom bundle push` instead"
-
-var commandPushCmd = &cobra.Command{
-	Use:        "push <bundle> [remote]",
-	Short:      "Push a bundle to remote",
-	Deprecated: commandPushDeprecation,
-	Long: `Push a bundle containing commands to a remote repository.
-
-This publishes the entire bundle (which contains commands, fragments, etc.)
-to the specified remote.
-
---sign publishes a detached signature alongside the bundle (signature-
-envelope spec §3.1) so anyone who trusts your key can verify it came from
-you, using the same zero-config key discovery 'ctxloom bundle sign' uses. Set
-'sign.default: true' in config to make every push sign unless --no-sign is
-given for one invocation.
-
-Examples:
-  ctxloom command push my-bundle
-  ctxloom command push my-bundle ctxloom-default
-  ctxloom command push my-bundle --pr
-  ctxloom command push my-bundle --sign
-
-DEPRECATED: use 'ctxloom bundle push' instead.`,
-	Args: cobra.RangeArgs(1, 2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		remoteName := ""
-		if len(args) > 1 {
-			remoteName = args[1]
-		}
-		return pushBundle(cmd, args[0], remoteName, bundlePushPR, bundlePushMessage, bundlePushSign, bundlePushNoSign)
-	},
-}
-
 func init() {
 	rootCmd.AddCommand(commandCmd)
 
@@ -173,13 +136,10 @@ func init() {
 	commandCmd.AddCommand(commandDeleteCmd)
 	commandCmd.AddCommand(commandEditCmd)
 	commandCmd.AddCommand(commandDistillCmd)
-	commandCmd.AddCommand(commandPushCmd)
 
 	commandListCmd.Flags().StringVarP(&commandListBundle, "bundle", "b", "", "Filter by bundle name")
 	commandShowCmd.Flags().BoolVarP(&commandShowDistilled, "distilled", "d", false, "Show distilled version")
 	commandShowCmd.Flags().BoolVarP(&commandShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
 	commandEditCmd.Flags().BoolVar(&commandEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	commandDistillCmd.Flags().BoolVarP(&commandDistillForce, "force", "f", false, "Re-distill even if unchanged")
-
-	registerPushFlags(commandPushCmd)
 }

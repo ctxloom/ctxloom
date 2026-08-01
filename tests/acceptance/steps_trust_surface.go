@@ -187,7 +187,7 @@ fragments:
 
 // tsRef composes the canonical item ref for this feature's seeded bundle:
 // "file://<bare>@bundles/<bundleName>#<selector>", the same shape
-// steps_j3.go/steps_review.go drive `ctxloom trust`/`ctxloom blacklist` with.
+// steps_j3.go/steps_review.go drive `ctxloom trust accept`/`trust reject` with.
 func tsRef(w *World, selector string) string {
 	ts := tsOf(w)
 	return ts.url + "@bundles/" + ts.bundleName + "#" + selector
@@ -219,7 +219,7 @@ func tsSelector(element string) (string, error) {
 func tsWireAndPull(w *World, url string) error {
 	ts := tsOf(w)
 	ts.url = url
-	if err := runOK(w, "remote", "add", "trustdemo", url, "--forge", "git"); err != nil {
+	if err := runOK(w, "remote", "create", "trustdemo", url, "--forge", "git"); err != nil {
 		return err
 	}
 	if err := runOK(w, "profile", "modify", "default", "--add-bundle", "trustdemo/"+ts.bundleName); err != nil {
@@ -295,7 +295,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
-		return runOK(w, "trust", tsRef(w, selector))
+		return runOK(w, "trust", "accept", tsRef(w, selector))
 	})
 
 	ctx.Step(`^Alice rejects the (fragment|command|MCP server|hook)$`, func(c context.Context, element string) error {
@@ -304,7 +304,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
-		return runOK(w, "blacklist", tsRef(w, selector))
+		return runOK(w, "trust", "reject", tsRef(w, selector))
 	})
 
 	// "Alice starts a session" is steps_j1_setup.go's existing step
@@ -321,7 +321,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice tries to approve the bundle's profile$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_ = w.env.Run("trust", tsRef(w, "profiles/reviewme"))
+		_ = w.env.Run("trust", "accept", tsRef(w, "profiles/reviewme"))
 		return nil // the refusal (non-zero exit + message) is asserted next
 	})
 
@@ -330,7 +330,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		out := w.env.LastOutput()
 		w.docStepMaterialized = out
 		if w.env.LastExitCode() == 0 {
-			return fmt.Errorf("expected 'ctxloom trust <ref>#profiles/...' to refuse (non-zero exit); got exit 0, output:\n%s", out)
+			return fmt.Errorf("expected 'ctxloom trust accept <ref>#profiles/...' to refuse (non-zero exit); got exit 0, output:\n%s", out)
 		}
 		if !strings.Contains(out, "unknown item kind") {
 			return fmt.Errorf("refusal does not name profiles as an unrecognized item kind (want \"unknown item kind\"); output:\n%s", out)
@@ -563,7 +563,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice rejects the fragment, and ctxloom reports what it recorded$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return runOK(w, "blacklist", tsRef(w, "fragments/context"), "--format", "json")
+		return runOK(w, "trust", "reject", tsRef(w, "fragments/context"), "--format", "json")
 	})
 
 	ctx.Step(`^the recorded rejection covers exactly the (raw form|raw and distilled forms)$`, func(c context.Context, which string) error {
@@ -596,7 +596,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		// refuse it outright rather than silently downgrading it to a local
 		// bundle name — a local ref is auto-ALLOWED at cascade step 3, so a
 		// downgrade here is a gate bypass, not a cosmetic mislabel.
-		_ = w.env.Run("trust", "https://#fragments/context")
+		_ = w.env.Run("trust", "accept", "https://#fragments/context")
 		return nil // the refusal is asserted next
 	})
 
@@ -612,7 +612,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	})
 }
 
-// tsRejectedContentForms parses the JSON `ctxloom blacklist --format json`
+// tsRejectedContentForms parses the JSON `ctxloom trust reject --format json`
 // emitted (operations.SetBlacklistResult) and returns its "content_forms" —
 // the forms a CONTENT-level (ref-omitted) block was actually written for. This
 // is the recorded DECISION, read back from the tool's own report of it, as

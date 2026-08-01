@@ -126,9 +126,9 @@ Trust a **key**, and everything that key signs — text, executables, and all
 future updates — skips review:
 
 ```bash
-ctxloom signer add context@acme.com --key ~/.ssh/acme-publish.pub
-ctxloom signer list
-ctxloom signer remove context@acme.com
+ctxloom trust signer create context@acme.com --key ~/.ssh/acme-publish.pub
+ctxloom trust signer list
+ctxloom trust signer delete context@acme.com
 ```
 
 The principal (`context@acme.com`) is just a label; the key is the trust. Keys
@@ -142,8 +142,8 @@ approve items for you — so a lead can review on the team's behalf.
 Publish your own bundles the same way — sign them, trust your key:
 
 ```bash
-ctxloom sign my-tools    # writes a detached my-tools.yaml.sig sibling
-ctxloom sign --all
+ctxloom bundle sign my-tools    # writes a detached my-tools.yaml.sig sibling
+ctxloom bundle sign --all
 ```
 
 A signature that verifies under a key you trust is checked over the bundle's raw
@@ -163,8 +163,8 @@ anything you've rejected.
 per item:
 
 ```bash
-ctxloom trust <ref>       # approve one item (e.g. code-quality#fragments/solid)
-ctxloom blacklist <ref>   # reject one item everywhere
+ctxloom trust accept <ref>       # approve one item (e.g. code-quality#fragments/solid)
+ctxloom trust reject <ref>   # reject one item everywhere
 ```
 
 Both write the same countersignatures `ctxloom review` writes, through the same

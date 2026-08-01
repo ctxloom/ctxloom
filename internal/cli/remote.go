@@ -21,28 +21,29 @@ bundles and profiles.
 
 Registry:
   ctxloom remote list                    List configured remotes
-  ctxloom remote add <name> <url>        Register a remote
-  ctxloom remote rm <name>               Remove a remote
+  ctxloom remote show <name>             Show one remote and its bundles
+  ctxloom remote create <name> <url>     Register a remote
+  ctxloom remote delete <name>           Delete a remote
   ctxloom remote default <name>          Set the default remote
 
 A remote is just an address; its content takes the review path. To auto-trust a
-publisher's content, trust their signing key (ctxloom signer add) — not the URL.
+publisher's content, trust their signing key (ctxloom trust signer create) — not
+the URL.
 
 Discovery:
   ctxloom search <query>                 Search local and remote content
-  ctxloom remote browse <remote>         Browse a remote's contents
   ctxloom remote discover                Find ctxloom repositories
 
 Examples:
-  ctxloom remote add alice alice/ctxloom
+  ctxloom remote create alice alice/ctxloom
   ctxloom search "golang testing"
-  ctxloom remote browse ctxloom-default`,
+  ctxloom remote show ctxloom-default`,
 }
 
 var remoteAddForge string
 
-var remoteAddCmd = &cobra.Command{
-	Use:   "add <name> <url>",
+var remoteCreateCmd = &cobra.Command{
+	Use:   "create <name> <url>",
 	Short: "Register a remote source",
 	Long: `Register a remote repository as a source for fragments and prompts.
 
@@ -60,10 +61,10 @@ Forge selection:
   Enterprise instance).
 
 Examples:
-  ctxloom remote add alice alice/ctxloom
-  ctxloom remote add corp https://git.example.com/corp/ctxloom
-  ctxloom remote add corp https://git.example.com/corp/ctxloom --forge git
-  ctxloom remote add work https://github.mycorp.com/me/ctxloom --forge work-ghe`,
+  ctxloom remote create alice alice/ctxloom
+  ctxloom remote create corp https://git.example.com/corp/ctxloom
+  ctxloom remote create corp https://git.example.com/corp/ctxloom --forge git
+  ctxloom remote create work https://github.mycorp.com/me/ctxloom --forge work-ghe`,
 	Args: cobra.ExactArgs(2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
@@ -89,11 +90,10 @@ Examples:
 	},
 }
 
-var remoteRemoveCmd = &cobra.Command{
-	Use:     "remove <name>",
-	Aliases: []string{"rm"},
-	Short:   "Remove a remote source",
-	Args:    cobra.ExactArgs(1),
+var remoteDeleteCmd = &cobra.Command{
+	Use:   "delete <name>",
+	Short: "Delete a remote source",
+	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg, err := GetConfig()
 		if err != nil {
@@ -107,7 +107,7 @@ var remoteRemoveCmd = &cobra.Command{
 			return err
 		}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Removed remote '%s'\n", result.Name)
+		fmt.Fprintf(cmd.OutOrStdout(), "Deleted remote '%s'\n", result.Name)
 		return nil
 	},
 }
@@ -308,13 +308,13 @@ func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
 func init() {
 	rootCmd.AddCommand(remoteCmd)
 
-	remoteCmd.AddCommand(remoteAddCmd)
-	remoteCmd.AddCommand(remoteRemoveCmd)
+	remoteCmd.AddCommand(remoteCreateCmd)
+	remoteCmd.AddCommand(remoteDeleteCmd)
 	remoteCmd.AddCommand(remoteListCmd)
 	remoteCmd.AddCommand(remoteDefaultCmd)
 	remoteCmd.AddCommand(remotePullCmd)
 
-	remoteAddCmd.Flags().StringVar(&remoteAddForge, "forge", "",
+	remoteCreateCmd.Flags().StringVar(&remoteAddForge, "forge", "",
 		"Forge to bind this remote to: github, git, or a configured forges: label (default: resolve from URL host)")
 
 	remoteDefaultCmd.Flags().BoolVar(&remoteDefaultClear, "clear", false,

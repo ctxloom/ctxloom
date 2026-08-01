@@ -9,7 +9,7 @@ This page is generated from `ctxloom trust --help`.
 
 ## ctxloom trust
 
-Accept an item's current content (fragment, command, MCP server, or hook)
+Accept, reject, or manage the signers of item content
 
 ### Synopsis
 
@@ -29,12 +29,6 @@ Examples:
   ctxloom trust accept 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
 Reject an item with 'ctxloom trust reject <ref>'.
-
-Bare 'ctxloom trust <ref>' (no subcommand) is a deprecated alias for 'trust accept <ref>'.
-
-```
-ctxloom trust <ref> [flags]
-```
 
 ### Options
 

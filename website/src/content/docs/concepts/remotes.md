@@ -19,9 +19,9 @@ ctxloom run -p 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#
 
 ```bash
 ctxloom remote list                     # List configured remotes
-ctxloom remote add <name> <url>         # Register a remote source
-ctxloom remote remove <name>            # Remove a remote
-ctxloom remote browse <name>            # Browse remote contents
+ctxloom remote create <name> <url>         # Register a remote source
+ctxloom remote delete <name>            # Remove a remote
+ctxloom remote show <name>            # Browse remote contents
 ctxloom remote discover                 # Find public ctxloom repositories
 ctxloom remote default <name>           # Set the default remote
 ```
@@ -36,10 +36,10 @@ key, not the repository — see [Review and trust](/concepts/review-and-trust/).
 
 ```bash
 # GitHub shorthand
-ctxloom remote add myteam myorg/ctxloom-team
+ctxloom remote create myteam myorg/ctxloom-team
 
 # Full URL
-ctxloom remote add corp https://gitlab.com/corp/ctxloom
+ctxloom remote create corp https://gitlab.com/corp/ctxloom
 ```
 
 The forge resolves from the URL host: github.com (and the `owner/repo`
@@ -50,7 +50,7 @@ the label of a `forges:` entry in `remotes.yaml` (for example a GitHub
 Enterprise instance).
 
 ```bash
-ctxloom remote add corp https://git.example.com/corp/ctxloom --forge git
+ctxloom remote create corp https://git.example.com/corp/ctxloom --forge git
 ```
 
 ## Consuming Remote Content

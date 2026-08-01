@@ -33,26 +33,32 @@ func TestManageNamespace_HasExpectedSubcommands(t *testing.T) {
 
 	// "init" is deliberately absent: the duplicate `manage init` entry point
 	// was DELETED outright (not deprecated) — root `ctxloom init` is the sole
-	// bootstrap (CLI-primary reorg plan, Decision 6). "config" stays as a
-	// deprecated alias group (manageConfigCmd) even though its real home
-	// promoted to the top-level `ctxloom config` (see
-	// TestOldTopLevelPaths_AreRemoved for that assertion).
-	for _, name := range []string{"install", "uninstall", "status", "hooks", "mcp", "statusline", "config", "gitignore"} {
+	// bootstrap. "mcp" and "config" are gone too: the verb-spine reorg (§6)
+	// deleted the whole deprecated `manage mcp *` / `manage config *` alias
+	// namespace, whose real homes are the top-level `ctxloom mcp` and
+	// `ctxloom config`.
+	for _, name := range []string{"install", "uninstall", "status", "hooks", "statusline", "gitignore"} {
 		assert.NotNil(t, findSub(manage, name), "manage %s should exist", name)
 	}
 	assert.Nil(t, findSub(manage, "init"), "manage init was deleted; root `ctxloom init` is the sole bootstrap")
+	for _, name := range []string{"mcp", "config"} {
+		assert.Nil(t, findSub(manage, name), "manage %s was a deprecated alias namespace and is deleted", name)
+	}
 }
 
-func TestManageMcp_SplitsRegistrationFromServerCRUD(t *testing.T) {
-	mcp := findSub(findSub(rootCmd, "manage"), "mcp")
+// TestMcpNamespace_SplitsRegistrationFromServerCRUD pins the shape the
+// deleted `manage mcp` alias namespace pointed at: registration toggles and
+// the configured-server spine are siblings under the top-level `mcp` noun.
+func TestMcpNamespace_SplitsRegistrationFromServerCRUD(t *testing.T) {
+	mcp := findSub(rootCmd, "mcp")
 	require.NotNil(t, mcp)
 
-	assert.NotNil(t, findSub(mcp, "install"), "manage mcp install toggles auto-register on")
-	assert.NotNil(t, findSub(mcp, "uninstall"), "manage mcp uninstall toggles auto-register off")
+	assert.NotNil(t, findSub(mcp, "register"), "mcp register toggles auto-register on")
+	assert.NotNil(t, findSub(mcp, "unregister"), "mcp unregister toggles auto-register off")
 
-	servers := findSub(mcp, "servers")
-	require.NotNil(t, servers, "configured-server CRUD lives under manage mcp servers")
-	assert.ElementsMatch(t, []string{"list", "add", "remove", "show"}, subNames(servers))
+	servers := findSub(mcp, "server")
+	require.NotNil(t, servers, "configured-server CRUD lives under mcp server")
+	assert.ElementsMatch(t, []string{"list", "show", "create", "edit", "delete"}, subNames(servers))
 }
 
 func TestManageHooks_HasInstallUninstallStatus(t *testing.T) {
@@ -62,10 +68,9 @@ func TestManageHooks_HasInstallUninstallStatus(t *testing.T) {
 }
 
 func TestOldTopLevelPaths_AreRemoved(t *testing.T) {
-	// config is back at the top level (CLI-primary reorg plan, Decision 6:
-	// `manage config *` promoted to `config *`); `manage config` stays working
-	// as a deprecated alias group (TestManageNamespace_HasExpectedSubcommands).
-	assert.NotNil(t, findSub(rootCmd, "config"), "config promoted to top level (plan Decision 6)")
+	// config is at the top level; the `manage config` alias group is deleted
+	// (TestManageNamespace_HasExpectedSubcommands).
+	assert.NotNil(t, findSub(rootCmd, "config"), "config lives at the top level")
 
 	hook := findSub(rootCmd, "hook")
 	require.NotNil(t, hook, "hook namespace stays (hidden callback home)")

@@ -31,9 +31,11 @@ installs exactly what is already pinned and never advances.
 
 Examples:
   ctxloom remote upgrade                 # Advance pins to the latest available`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRemoteUpgrade(cmd, GetConfig)
-	},
+	RunE: runRemoteUpgradeCmd,
+}
+
+func runRemoteUpgradeCmd(cmd *cobra.Command, args []string) error {
+	return runRemoteUpgrade(cmd, GetConfig)
 }
 
 // runRemoteUpgrade re-resolves and rewrites the active lock.

@@ -38,39 +38,41 @@ Examples:
   ctxloom profile materialize default --target ./out
   ctxloom profile materialize go-dev cr-correctness-go --target ../worktree`,
 	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+	RunE: runProfileMaterialize,
+}
+
+func runProfileMaterialize(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	// Fail-loudly choke owner (CLAUDE.md): checkpoint before materialize so every
+	// fatal surface-write finding it records through strictness is caught here and
+	// aborts the command (exit 3) unless --degraded downgrades them — mirroring
+	// how `ctxloom run`/`mcp`/`acp` gate their own startup findings.
+	mark := strictness.Checkpoint()
+	res, err := operations.MaterializeProfile(cmd.Context(), cfg, operations.MaterializeProfileRequest{
+		Profiles: args,
+		Target:   materializeTarget,
+		Backend:  materializeBackend,
+	})
+	if err != nil {
+		return err
+	}
+	if ferr := failOnFindings(os.Stderr, mark); ferr != nil {
+		return ferr
+	}
+	return emit(cmd, res, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Materialized %s → %s (%s)\n", strings.Join(res.Profiles, ", "), res.Target, res.Backend)
+		for _, s := range res.Wrote {
+			w.Printf("  wrote %s\n", s)
 		}
-		// Fail-loudly choke owner (CLAUDE.md): checkpoint before materialize so every
-		// fatal surface-write finding it records through strictness is caught here and
-		// aborts the command (exit 3) unless --degraded downgrades them — mirroring
-		// how `ctxloom run`/`mcp`/`acp` gate their own startup findings.
-		mark := strictness.Checkpoint()
-		res, err := operations.MaterializeProfile(cmd.Context(), cfg, operations.MaterializeProfileRequest{
-			Profiles: args,
-			Target:   materializeTarget,
-			Backend:  materializeBackend,
-		})
-		if err != nil {
-			return err
+		for _, warn := range res.Warnings {
+			w.Printf("  warning: %s\n", warn)
 		}
-		if ferr := failOnFindings(os.Stderr, mark); ferr != nil {
-			return ferr
-		}
-		return emit(cmd, res, func() error {
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			w.Printf("Materialized %s → %s (%s)\n", strings.Join(res.Profiles, ", "), res.Target, res.Backend)
-			for _, s := range res.Wrote {
-				w.Printf("  wrote %s\n", s)
-			}
-			for _, warn := range res.Warnings {
-				w.Printf("  warning: %s\n", warn)
-			}
-			return w.Err()
-		})
-	},
+		return w.Err()
+	})
 }
 
 func init() {

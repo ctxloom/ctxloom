@@ -305,72 +305,76 @@ var manageHooksInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Apply ctxloom hooks and regenerate context into backend config",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		// Guard + config-warning echo only; ApplyHooks reloads from disk
-		// itself (U084-F04).
-		if _, err := GetConfig(); err != nil {
-			return err
-		}
-		workDir := projectroot.WorkDir()
-		result, err := operations.ApplyHooks(cmd.Context(), operations.ApplyHooksRequest{
-			Backend:           manageHooksBackend,
-			RegenerateContext: true,
-			Force:             manageHooksForce,
-		})
-		if err != nil {
-			return err
-		}
-		for _, e := range result.Errors {
-			clidiag.Warn("ctxloom", "%s", e)
-		}
+	RunE:  runManageHooksInstall,
+}
 
-		type manageHooksInstallResult struct {
-			Status      string   `json:"status"`
-			Backends    []string `json:"backends"`
-			ProjectRoot string   `json:"project_root"`
-			Errors      []string `json:"errors,omitempty"`
-		}
-		out := manageHooksInstallResult{
-			Status:      result.Status,
-			Backends:    result.Backends,
-			ProjectRoot: workDir,
-			Errors:      result.Errors,
-		}
-		return emit(cmd, out, func() error {
-			fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v (project root: %s)\n", result.Status, result.Backends, workDir)
-			return nil
-		})
-	},
+func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
+	// Guard + config-warning echo only; ApplyHooks reloads from disk
+	// itself (U084-F04).
+	if _, err := GetConfig(); err != nil {
+		return err
+	}
+	workDir := projectroot.WorkDir()
+	result, err := operations.ApplyHooks(cmd.Context(), operations.ApplyHooksRequest{
+		Backend:           manageHooksBackend,
+		RegenerateContext: true,
+		Force:             manageHooksForce,
+	})
+	if err != nil {
+		return err
+	}
+	for _, e := range result.Errors {
+		clidiag.Warn("ctxloom", "%s", e)
+	}
+
+	type manageHooksInstallResult struct {
+		Status      string   `json:"status"`
+		Backends    []string `json:"backends"`
+		ProjectRoot string   `json:"project_root"`
+		Errors      []string `json:"errors,omitempty"`
+	}
+	out := manageHooksInstallResult{
+		Status:      result.Status,
+		Backends:    result.Backends,
+		ProjectRoot: workDir,
+		Errors:      result.Errors,
+	}
+	return emit(cmd, out, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v (project root: %s)\n", result.Status, result.Backends, workDir)
+		return nil
+	})
 }
 
 var manageHooksUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Remove ctxloom hooks, statusline, MCP entries, and command files",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
-		result, err := operations.RemoveHooks(cmd.Context(), cfg, operations.RemoveHooksRequest{Backend: manageHooksBackend})
-		if err != nil {
-			return err
-		}
-		for _, e := range result.Errors {
-			clidiag.Warn("ctxloom", "%s", e)
-		}
+	RunE:  runManageHooksUninstall,
+}
 
-		type manageHooksUninstallResult struct {
-			Status   string   `json:"status"`
-			Backends []string `json:"backends"`
-			Errors   []string `json:"errors,omitempty"`
-		}
-		out := manageHooksUninstallResult{Status: result.Status, Backends: result.Backends, Errors: result.Errors}
-		return emit(cmd, out, func() error {
-			fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v\n", result.Status, result.Backends)
-			return nil
-		})
-	},
+func runManageHooksUninstall(cmd *cobra.Command, _ []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	result, err := operations.RemoveHooks(cmd.Context(), cfg, operations.RemoveHooksRequest{Backend: manageHooksBackend})
+	if err != nil {
+		return err
+	}
+	for _, e := range result.Errors {
+		clidiag.Warn("ctxloom", "%s", e)
+	}
+
+	type manageHooksUninstallResult struct {
+		Status   string   `json:"status"`
+		Backends []string `json:"backends"`
+		Errors   []string `json:"errors,omitempty"`
+	}
+	out := manageHooksUninstallResult{Status: result.Status, Backends: result.Backends, Errors: result.Errors}
+	return emit(cmd, out, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "Hooks %s for: %v\n", result.Status, result.Backends)
+		return nil
+	})
 }
 
 var manageHooksStatusCmd = &cobra.Command{
@@ -427,14 +431,22 @@ var manageStatuslineInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Let ctxloom manage the HUD statusline (default)",
 	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return setStatusline(cmd, true) },
+	RunE:  runManageStatuslineInstall,
 }
 
 var manageStatuslineUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Stop managing the HUD statusline; keep your own",
 	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return setStatusline(cmd, false) },
+	RunE:  runManageStatuslineUninstall,
+}
+
+func runManageStatuslineInstall(cmd *cobra.Command, _ []string) error {
+	return setStatusline(cmd, true)
+}
+
+func runManageStatuslineUninstall(cmd *cobra.Command, _ []string) error {
+	return setStatusline(cmd, false)
 }
 
 // setStatusline persists the statusline preference and prints the resulting state.
@@ -476,26 +488,28 @@ var manageGitignoreInstallCmd = &cobra.Command{
 	Use:   "install",
 	Short: "Add ctxloom's private-state and transient-artifact ignores",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		appDir, err := resolveAppDir(false)
-		if err != nil {
-			return err
-		}
-		projectDir := filepath.Dir(appDir)
-		if err := ensureHarnessGitignore(projectDir); err != nil {
-			return err
-		}
-		path := filepath.Join(projectDir, ".gitignore")
+	RunE:  runManageGitignoreInstall,
+}
 
-		type manageGitignoreInstallResult struct {
-			Status string `json:"status"`
-			Path   string `json:"path"`
-		}
-		return emit(cmd, manageGitignoreInstallResult{Status: "updated", Path: path}, func() error {
-			fmt.Fprintf(cmd.OutOrStdout(), "Updated %s\n", path)
-			return nil
-		})
-	},
+func runManageGitignoreInstall(cmd *cobra.Command, _ []string) error {
+	appDir, err := resolveAppDir(false)
+	if err != nil {
+		return err
+	}
+	projectDir := filepath.Dir(appDir)
+	if err := ensureHarnessGitignore(projectDir); err != nil {
+		return err
+	}
+	path := filepath.Join(projectDir, ".gitignore")
+
+	type manageGitignoreInstallResult struct {
+		Status string `json:"status"`
+		Path   string `json:"path"`
+	}
+	return emit(cmd, manageGitignoreInstallResult{Status: "updated", Path: path}, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "Updated %s\n", path)
+		return nil
+	})
 }
 
 func init() {

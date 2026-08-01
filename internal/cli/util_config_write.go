@@ -75,15 +75,17 @@ only the TARGET file's format varies; the shape you send never does.
 --filetype is inferred from --file's extension (.json / .toml) when omitted.`,
 	Hidden: true,
 	Args:   cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		result, err := runConfigWrite(afero.NewOsFs(), cmd, configWriteFile, configWriteFiletype)
-		if err != nil {
-			return err
-		}
-		return emit(cmd, result, func() error {
-			return renderConfigWriteResult(cmd.OutOrStdout(), result)
-		})
-	},
+	RunE:   runConfigWriteCmd,
+}
+
+func runConfigWriteCmd(cmd *cobra.Command, args []string) error {
+	result, err := runConfigWrite(afero.NewOsFs(), cmd, configWriteFile, configWriteFiletype)
+	if err != nil {
+		return err
+	}
+	return emit(cmd, result, func() error {
+		return renderConfigWriteResult(cmd.OutOrStdout(), result)
+	})
 }
 
 func init() {

@@ -412,14 +412,22 @@ var mcpRegisterCmd = &cobra.Command{
 	Use:   "register",
 	Short: "Enable auto-registration of ctxloom's own MCP server",
 	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd, true) },
+	RunE:  runMCPRegister,
 }
 
 var mcpUnregisterCmd = &cobra.Command{
 	Use:   "unregister",
 	Short: "Disable auto-registration of ctxloom's own MCP server",
 	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return setMcpAutoRegister(cmd, false) },
+	RunE:  runMCPUnregister,
+}
+
+func runMCPRegister(cmd *cobra.Command, _ []string) error {
+	return setMcpAutoRegister(cmd, true)
+}
+
+func runMCPUnregister(cmd *cobra.Command, _ []string) error {
+	return setMcpAutoRegister(cmd, false)
 }
 
 func init() {

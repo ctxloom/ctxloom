@@ -28,46 +28,48 @@ var profileListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
 	Short:   "List all profiles",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
+	RunE:    runProfileList,
+}
+
+func runProfileList(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// The directory-existence check stays a CLI concern: it distinguishes
+	// "no profiles dir at all" (suggest mkdir) from "dir exists but empty"
+	// (suggest create). operations.ListProfiles would conflate the two by
+	// defaulting the dir. Resolve the structured list up front so --format
+	// json is honored uniformly (emitting [] in both empty cases); the human
+	// path keeps the dir-vs-empty hint messages.
+	profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
+	var list []operations.ProfileEntry
+	if len(profileDirs) > 0 {
+		res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{})
 		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+			return err
 		}
+		list = res.Profiles
+	}
+	if list == nil {
+		list = []operations.ProfileEntry{}
+	}
 
-		// The directory-existence check stays a CLI concern: it distinguishes
-		// "no profiles dir at all" (suggest mkdir) from "dir exists but empty"
-		// (suggest create). operations.ListProfiles would conflate the two by
-		// defaulting the dir. Resolve the structured list up front so --format
-		// json is honored uniformly (emitting [] in both empty cases); the human
-		// path keeps the dir-vs-empty hint messages.
-		profileDirs := profiles.GetProfileDirs(cfg.FS(), cfg.GetAppPaths())
-		var list []operations.ProfileEntry
-		if len(profileDirs) > 0 {
-			res, err := operations.ListProfiles(cmd.Context(), cfg, operations.ListProfilesRequest{})
-			if err != nil {
-				return err
-			}
-			list = res.Profiles
+	return emit(cmd, list, func() error {
+		out := cmd.OutOrStdout()
+		if len(profileDirs) == 0 {
+			fmt.Fprintln(out, "No profiles directory found.")
+			fmt.Fprintln(out, "Create one with: mkdir -p .ctxloom/profiles")
+			return nil
 		}
-		if list == nil {
-			list = []operations.ProfileEntry{}
+		if len(list) == 0 {
+			fmt.Fprintln(out, "No profiles defined.")
+			fmt.Fprintln(out, "Use 'ctxloom profile create <name> -b <bundles...>' to create one.")
+			return nil
 		}
-
-		return emit(cmd, list, func() error {
-			out := cmd.OutOrStdout()
-			if len(profileDirs) == 0 {
-				fmt.Fprintln(out, "No profiles directory found.")
-				fmt.Fprintln(out, "Create one with: mkdir -p .ctxloom/profiles")
-				return nil
-			}
-			if len(list) == 0 {
-				fmt.Fprintln(out, "No profiles defined.")
-				fmt.Fprintln(out, "Use 'ctxloom profile create <name> -b <bundles...>' to create one.")
-				return nil
-			}
-			return renderProfileList(out, list)
-		})
-	},
+		return renderProfileList(out, list)
+	})
 }
 
 // renderProfileList writes the human-readable summary of a profile list
@@ -222,54 +224,58 @@ var profileDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a profile",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-		if shown, err := helpShortcut(cmd, name); shown {
-			return err
-		}
+	RunE:  runProfileDelete,
+}
 
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
+func runProfileDelete(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	if shown, err := helpShortcut(cmd, name); shown {
+		return err
+	}
 
-		// Operations core deletes the profile AND clears it from the config
-		// defaults if it was the default — a cleanup the old CLI path skipped.
-		if _, err := operations.DeleteProfile(cmd.Context(), cfg, operations.DeleteProfileRequest{Name: name}); err != nil {
-			return err
-		}
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Deleted profile %q\n", name)
-		return nil
-	},
+	// Operations core deletes the profile AND clears it from the config
+	// defaults if it was the default — a cleanup the old CLI path skipped.
+	if _, err := operations.DeleteProfile(cmd.Context(), cfg, operations.DeleteProfileRequest{Name: name}); err != nil {
+		return err
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Deleted profile %q\n", name)
+	return nil
 }
 
 var profileShowCmd = &cobra.Command{
 	Use:   "show <name>",
 	Short: "Show details of a profile",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-		if shown, err := helpShortcut(cmd, name); shown {
-			return err
-		}
+	RunE:  runProfileShow,
+}
 
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
+func runProfileShow(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	if shown, err := helpShortcut(cmd, name); shown {
+		return err
+	}
 
-		res, err := operations.GetProfile(cmd.Context(), cfg, operations.GetProfileRequest{Name: name})
-		if err != nil {
-			return fmt.Errorf("profile %q not found", name)
-		}
-		// "Default" now means membership in the default AGENT's composed profiles
-		// (profiles.defaults was retired — see Config.DefaultAgentProfiles).
-		isDefault := slices.Contains(cfg.DefaultAgentProfiles(), res.Name)
-		return emit(cmd, profileDetailJSON{GetProfileResult: res, Default: isDefault}, func() error {
-			return renderProfileShow(cmd.OutOrStdout(), res, isDefault)
-		})
-	},
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	res, err := operations.GetProfile(cmd.Context(), cfg, operations.GetProfileRequest{Name: name})
+	if err != nil {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	// "Default" now means membership in the default AGENT's composed profiles
+	// (profiles.defaults was retired — see Config.DefaultAgentProfiles).
+	isDefault := slices.Contains(cfg.DefaultAgentProfiles(), res.Name)
+	return emit(cmd, profileDetailJSON{GetProfileResult: res, Default: isDefault}, func() error {
+		return renderProfileShow(cmd.OutOrStdout(), res, isDefault)
+	})
 }
 
 // profileDetailJSON is the --format json shape for `profile show`: the declared
@@ -334,67 +340,69 @@ Examples:
   ctxloom profile modify developer --add-bundle https://github.com/user/ctxloom@bundles/go-development
   ctxloom profile modify developer -d "New description"`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-		if shown, err := helpShortcut(cmd, name); shown {
-			return err
-		}
+	RunE: runProfileUpdate,
+}
 
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
+func runProfileUpdate(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	if shown, err := helpShortcut(cmd, name); shown {
+		return err
+	}
 
-		// Bundle/parent refs are canonicalized on store by operations.UpdateProfile
-		// (decision B): a short "<remote>/<bundle>[#profiles/...]" ref expands to its
-		// canonical URL, and removals canonicalize the same way so they match the
-		// on-disk form. A bare, unprefixed name is LOCAL (decision A).
-		req := operations.UpdateProfileRequest{
-			Name:                   name,
-			AddParents:             profileUpdateAddParents,
-			RemoveParents:          profileUpdateRemoveParents,
-			AddBundles:             profileUpdateAddBundles,
-			RemoveBundles:          profileUpdateRemoveBundles,
-			AddExcludeFragments:    profileUpdateAddExcludeFragments,
-			RemoveExcludeFragments: profileUpdateRemoveExcludeFragments,
-			AddExcludeMCP:          profileUpdateAddExcludeMCP,
-			RemoveExcludeMCP:       profileUpdateRemoveExcludeMCP,
-		}
-		if cmd.Flags().Changed("description") {
-			d := profileUpdateDescription
-			req.Description = &d
-		}
-		if cmd.Flags().Changed("llm") {
-			// Validate a non-empty value the same way create/run do; an empty
-			// value clears the preference and skips validation.
-			if profileUpdateLLM != "" {
-				if _, err := validateExplicitLLM(cfg, profileUpdateLLM); err != nil {
-					return err
-				}
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	// Bundle/parent refs are canonicalized on store by operations.UpdateProfile
+	// (decision B): a short "<remote>/<bundle>[#profiles/...]" ref expands to its
+	// canonical URL, and removals canonicalize the same way so they match the
+	// on-disk form. A bare, unprefixed name is LOCAL (decision A).
+	req := operations.UpdateProfileRequest{
+		Name:                   name,
+		AddParents:             profileUpdateAddParents,
+		RemoveParents:          profileUpdateRemoveParents,
+		AddBundles:             profileUpdateAddBundles,
+		RemoveBundles:          profileUpdateRemoveBundles,
+		AddExcludeFragments:    profileUpdateAddExcludeFragments,
+		RemoveExcludeFragments: profileUpdateRemoveExcludeFragments,
+		AddExcludeMCP:          profileUpdateAddExcludeMCP,
+		RemoveExcludeMCP:       profileUpdateRemoveExcludeMCP,
+	}
+	if cmd.Flags().Changed("description") {
+		d := profileUpdateDescription
+		req.Description = &d
+	}
+	if cmd.Flags().Changed("llm") {
+		// Validate a non-empty value the same way create/run do; an empty
+		// value clears the preference and skips validation.
+		if profileUpdateLLM != "" {
+			if _, err := validateExplicitLLM(cfg, profileUpdateLLM); err != nil {
+				return err
 			}
-			l := profileUpdateLLM
-			req.LLM = &l
 		}
+		l := profileUpdateLLM
+		req.LLM = &l
+	}
 
-		// Route through the operations core: it validates added parents exist
-		// before mutating (a check the old CLI path lacked) and reflects the
-		// default flag into config.
-		res, err := operations.UpdateProfile(cmd.Context(), cfg, req)
-		if err != nil {
-			return err
-		}
+	// Route through the operations core: it validates added parents exist
+	// before mutating (a check the old CLI path lacked) and reflects the
+	// default flag into config.
+	res, err := operations.UpdateProfile(cmd.Context(), cfg, req)
+	if err != nil {
+		return err
+	}
 
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		if res.Status == "no_changes" {
-			w.Println("No changes made.")
-			return w.Err()
-		}
-		for _, c := range res.Changes {
-			w.Printf("%s\n", c)
-		}
-		w.Printf("Modified profile %q\n", name)
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	if res.Status == "no_changes" {
+		w.Println("No changes made.")
 		return w.Err()
-	},
+	}
+	for _, c := range res.Changes {
+		w.Printf("%s\n", c)
+	}
+	w.Printf("Modified profile %q\n", name)
+	return w.Err()
 }
 
 var (
@@ -418,9 +426,11 @@ var profileEditCmd = &cobra.Command{
 Examples:
   ctxloom profile edit my-profile`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return editProfileFile(cmd.OutOrStdout(), args[0])
-	},
+	RunE: runProfileEdit,
+}
+
+func runProfileEdit(cmd *cobra.Command, args []string) error {
+	return editProfileFile(cmd.OutOrStdout(), args[0])
 }
 
 var profileExportCmd = &cobra.Command{

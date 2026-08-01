@@ -62,13 +62,15 @@ The scriptable plumbing under this porcelain:
   ctxloom trust <ref>       accept one item
   ctxloom blacklist <ref>   reject one item`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
-		return runReview(cmd, cfg)
-	},
+	RunE: runReviewCmd,
+}
+
+func runReviewCmd(cmd *cobra.Command, _ []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	return runReview(cmd, cfg)
 }
 
 func init() {

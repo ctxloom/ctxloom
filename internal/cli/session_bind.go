@@ -40,29 +40,31 @@ var sessionBindCmd = &cobra.Command{
 	Use:    "session-bind",
 	Short:  "Bind the current backend session to the active harp (internal — used by the SessionStart hook)",
 	Hidden: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		harp := os.Getenv("CTXLOOM_SESSION_HARP")
-		// Read the hook payload once: the marker doesn't need it, the bind does.
-		raw, _ := io.ReadAll(cmd.InOrStdin())
-		// Emit the deterministic harp self-id marker as SessionStart context so
-		// the transcript carries a greppable owner tag, independent of the index,
-		// the binding, or PID bookkeeping. This is the SessionStart hook installed
-		// for every ctxloom session, so it identifies the harp even when no
-		// project context (inject-context) is configured. Best-effort: a hook must
-		// never fail the host backend's startup, so failures past this point only
-		// skip the index bind — the marker is already on stdout.
-		//
-		// Skipped for Antigravity payloads: there this command runs as a
-		// PreToolUse hook, where stdout is reserved for decision JSON — the
-		// SessionStart additionalContext envelope would be junk at best.
-		if !isAntigravityHookPayload(raw) {
-			emitHarpMarker(cmd.OutOrStdout(), harp)
-		}
-		if err := bindSessionFromPayload(bytes.NewReader(raw), harp); err != nil {
-			clidiag.Warn("ctxloom", "session bind failed: %v", err)
-		}
-		return nil
-	},
+	RunE:   runSessionBind,
+}
+
+func runSessionBind(cmd *cobra.Command, args []string) error {
+	harp := os.Getenv("CTXLOOM_SESSION_HARP")
+	// Read the hook payload once: the marker doesn't need it, the bind does.
+	raw, _ := io.ReadAll(cmd.InOrStdin())
+	// Emit the deterministic harp self-id marker as SessionStart context so
+	// the transcript carries a greppable owner tag, independent of the index,
+	// the binding, or PID bookkeeping. This is the SessionStart hook installed
+	// for every ctxloom session, so it identifies the harp even when no
+	// project context (inject-context) is configured. Best-effort: a hook must
+	// never fail the host backend's startup, so failures past this point only
+	// skip the index bind — the marker is already on stdout.
+	//
+	// Skipped for Antigravity payloads: there this command runs as a
+	// PreToolUse hook, where stdout is reserved for decision JSON — the
+	// SessionStart additionalContext envelope would be junk at best.
+	if !isAntigravityHookPayload(raw) {
+		emitHarpMarker(cmd.OutOrStdout(), harp)
+	}
+	if err := bindSessionFromPayload(bytes.NewReader(raw), harp); err != nil {
+		clidiag.Warn("ctxloom", "session bind failed: %v", err)
+	}
+	return nil
 }
 
 // emitHarpMarker writes the harp self-id marker to w as a SessionStart hook

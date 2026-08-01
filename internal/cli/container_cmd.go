@@ -81,42 +81,44 @@ is absent (honoring the same base/engine resolution); this command is the
 explicit path (refresh, custom base). To run a fully user-provided image
 instead, set isolation_images in config — those are run as-is and never built.`,
 	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		var backend string
-		cfg, cerr := GetConfig()
-		if len(args) == 1 {
-			backend = args[0]
-			if names := backends.List(); !slices.Contains(names, backend) {
-				sort.Strings(names)
-				return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
-			}
-		} else {
-			if cerr != nil {
-				return fmt.Errorf("no backend given and the config is unavailable to resolve the default: %w", cerr)
-			}
-			backend, _ = operations.ResolveBackend(cfg, "")
-		}
+	RunE: runContainerBuild,
+}
 
+func runContainerBuild(cmd *cobra.Command, args []string) error {
+	var backend string
+	cfg, cerr := GetConfig()
+	if len(args) == 1 {
+		backend = args[0]
+		if names := backends.List(); !slices.Contains(names, backend) {
+			sort.Strings(names)
+			return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
+		}
+	} else {
 		if cerr != nil {
-			cfg = nil
+			return fmt.Errorf("no backend given and the config is unavailable to resolve the default: %w", cerr)
 		}
-		opts := containerBuildOptions(containerBuildFlagValues{
-			BaseImage:           containerBuildBaseImage,
-			BaseContainerfile:   containerBuildBaseContainerfile,
-			Runtime:             containerBuildRuntime,
-			DevcontainerService: containerBuildDevcontainerService,
-			Engines:             containerBuildEngines,
-			NoDevcontainerBase:  containerBuildNoDevcontainerBase,
-			KeepCache:           containerBuildKeepCache,
-		}, cfg, backend, cmd.ErrOrStderr())
-		opts.Output = os.Stdout
-		image, err := isolation.BuildAgentImage(cmd.Context(), backend, opts)
-		if err != nil {
-			return err
-		}
-		fmt.Fprintf(cmd.OutOrStdout(), "Built %s for backend %s\n", image, backend)
-		return nil
-	},
+		backend, _ = operations.ResolveBackend(cfg, "")
+	}
+
+	if cerr != nil {
+		cfg = nil
+	}
+	opts := containerBuildOptions(containerBuildFlagValues{
+		BaseImage:           containerBuildBaseImage,
+		BaseContainerfile:   containerBuildBaseContainerfile,
+		Runtime:             containerBuildRuntime,
+		DevcontainerService: containerBuildDevcontainerService,
+		Engines:             containerBuildEngines,
+		NoDevcontainerBase:  containerBuildNoDevcontainerBase,
+		KeepCache:           containerBuildKeepCache,
+	}, cfg, backend, cmd.ErrOrStderr())
+	opts.Output = os.Stdout
+	image, err := isolation.BuildAgentImage(cmd.Context(), backend, opts)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Built %s for backend %s\n", image, backend)
+	return nil
 }
 
 // containerBuildFlagValues carries `container build`'s own flag state into
@@ -193,14 +195,16 @@ var containerProvenanceCmd = &cobra.Command{
 	Short:  "Print the content digest of the binaries baked into agent images",
 	Hidden: true,
 	Args:   cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// The DEFAULT-base digest on purpose: the ahead-of-time just recipes
-		// this stamps for bake the embedded default base; a custom
-		// isolation_base_containerfile build stamps its own label inside
-		// BuildAgentImage.
-		fmt.Fprintln(cmd.OutOrStdout(), isolation.HostProvenanceDigest(""))
-		return nil
-	},
+	RunE:   runContainerProvenance,
+}
+
+func runContainerProvenance(cmd *cobra.Command, args []string) error {
+	// The DEFAULT-base digest on purpose: the ahead-of-time just recipes
+	// this stamps for bake the embedded default base; a custom
+	// isolation_base_containerfile build stamps its own label inside
+	// BuildAgentImage.
+	fmt.Fprintln(cmd.OutOrStdout(), isolation.HostProvenanceDigest(""))
+	return nil
 }
 
 // toolingPrompt is the instruction preamble `container tooling`
@@ -289,20 +293,22 @@ nothing changes until you edit it.
 Idempotent and WIP-safe: an already-configured base is returned as-is, and an
 existing file at the target is adopted, never overwritten (--force overwrites).`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		path, err := operations.ScaffoldContainerBase(config.NewManager(), cfg, containerScaffoldPath, containerScaffoldForce)
-		if err != nil {
-			return err
-		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("Base Containerfile: %s\n", path)
-		w.Println("Edit it (the engine's agent stage layers on top), then run `ctxloom container build`.")
-		return w.Err()
-	},
+	RunE: runContainerScaffold,
+}
+
+func runContainerScaffold(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	path, err := operations.ScaffoldContainerBase(config.NewManager(), cfg, containerScaffoldPath, containerScaffoldForce)
+	if err != nil {
+		return err
+	}
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Printf("Base Containerfile: %s\n", path)
+	w.Println("Edit it (the engine's agent stage layers on top), then run `ctxloom container build`.")
+	return w.Err()
 }
 
 // containerCheckCmd reports whether `runtime: container` agents can actually
@@ -329,25 +335,27 @@ changed — read the report, not the exit code. A usage error is still an error
 Run it inside a dev container to learn whether to enable docker-in-docker
 or keep agents on 'runtime: host'.`,
 	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, cerr := GetConfig()
-		var backend string
-		if len(args) == 1 {
-			backend = args[0]
-			if names := backends.List(); !slices.Contains(names, backend) {
-				sort.Strings(names)
-				return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
-			}
-		} else if cerr == nil {
-			backend, _ = operations.ResolveBackend(cfg, "")
+	RunE: runContainerCheck,
+}
+
+func runContainerCheck(cmd *cobra.Command, args []string) error {
+	cfg, cerr := GetConfig()
+	var backend string
+	if len(args) == 1 {
+		backend = args[0]
+		if names := backends.List(); !slices.Contains(names, backend) {
+			sort.Strings(names)
+			return fmt.Errorf("unknown backend %q (available: %s)", backend, strings.Join(names, ", "))
 		}
-		img := isolation.ImageConfig{}
-		if cerr == nil {
-			img = operations.IsolationImageConfig(cfg, backend)
-		}
-		d := containerCheckConfigGap(isolation.Diagnose(cmd.Context(), backend, img), len(args) == 1, cerr)
-		return emit(cmd, d, func() error { return renderContainerCheck(cmd.OutOrStdout(), backend, d) })
-	},
+	} else if cerr == nil {
+		backend, _ = operations.ResolveBackend(cfg, "")
+	}
+	img := isolation.ImageConfig{}
+	if cerr == nil {
+		img = operations.IsolationImageConfig(cfg, backend)
+	}
+	d := containerCheckConfigGap(isolation.Diagnose(cmd.Context(), backend, img), len(args) == 1, cerr)
+	return emit(cmd, d, func() error { return renderContainerCheck(cmd.OutOrStdout(), backend, d) })
 }
 
 // containerCheckConfigGap folds an unloadable config into the diagnosis as

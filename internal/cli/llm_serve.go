@@ -22,60 +22,62 @@ var llmServeCmd = &cobra.Command{
 	Long:    `Starts the ctxloom binary as a plugin server for the specified backend. This is used internally by the plugin system.`,
 	Args:    cobra.ExactArgs(1),
 	Hidden:  true, // Hide from help since it's for internal use
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Fail-loudly gate (U037-F03): checkpoint before standUpRunner's config
-		// load, so a fatal-class finding it records (a corrupted/malformed
-		// config.yaml, via printAndRecordConfigWarnings) aborts this process-owning
-		// entry point below instead of silently serving an empty/partial
-		// context. Degraded mode (--degraded / CTXLOOM_DEGRADED=1) is the
-		// escape hatch, same as `ctxloom run`/`ctxloom mcp`.
-		startupMark := strictness.Checkpoint()
+	RunE:    runLLMServe,
+}
 
-		backendName := args[0]
+func runLLMServe(cmd *cobra.Command, args []string) error {
+	// Fail-loudly gate (U037-F03): checkpoint before standUpRunner's config
+	// load, so a fatal-class finding it records (a corrupted/malformed
+	// config.yaml, via printAndRecordConfigWarnings) aborts this process-owning
+	// entry point below instead of silently serving an empty/partial
+	// context. Degraded mode (--degraded / CTXLOOM_DEGRADED=1) is the
+	// escape hatch, same as `ctxloom run`/`ctxloom mcp`.
+	startupMark := strictness.Checkpoint()
 
-		// Get the backend from the registry
-		backend := backends.Get(backendName)
-		if backend == nil {
-			return fmt.Errorf("unknown backend: %s", backendName)
-		}
+	backendName := args[0]
 
-		// Shared runner standup: consume+scrub the coordinator trio, load
-		// config, stand up the EngineHost + dial home + runner-local MCP +
-		// BindHome (llm_serve.go's former body, now shared with `llm host`).
-		// serve's distinction is the transport TAIL below: plugin.Serve.
-		standup, err := standUpRunner(cmd, backend, backendName, llmServeLabel)
-		if err != nil {
-			return err
-		}
-		if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
-			return ferr
-		}
+	// Get the backend from the registry
+	backend := backends.Get(backendName)
+	if backend == nil {
+		return fmt.Errorf("unknown backend: %s", backendName)
+	}
 
-		// Create the plugin map with our backend
-		pluginMap := map[string]plugin.Plugin{
-			pb.LLMPluginKey: &pb.LLMGRPCPlugin{Impl: backend},
-		}
+	// Shared runner standup: consume+scrub the coordinator trio, load
+	// config, stand up the EngineHost + dial home + runner-local MCP +
+	// BindHome (llm_serve.go's former body, now shared with `llm host`).
+	// serve's distinction is the transport TAIL below: plugin.Serve.
+	standup, err := standUpRunner(cmd, backend, backendName, llmServeLabel)
+	if err != nil {
+		return err
+	}
+	if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+		return ferr
+	}
 
-		// plugin.Serve below blocks with no signal handling of its own (it
-		// swallows SIGINT and leaves SIGTERM at its default disposition), so
-		// this is `llm serve`'s only chance to react to the SIGTERM the kernel
-		// delivers when its host dies — isolateRunner's Pdeathsig. Without it
-		// the runner would die and strand the engine subprocess it isolated
-		// into its own process group. `llm host` deliberately does NOT install
-		// this: it already unwinds through waitForRunnerTermination into
-		// standup.teardown, and two handlers on one signal race.
-		pb.InstallRunnerTeardown()
+	// Create the plugin map with our backend
+	pluginMap := map[string]plugin.Plugin{
+		pb.LLMPluginKey: &pb.LLMGRPCPlugin{Impl: backend},
+	}
 
-		// Serve the plugin
-		plugin.Serve(&plugin.ServeConfig{
-			HandshakeConfig: pb.HandshakeConfig,
-			Plugins:         pluginMap,
-			GRPCServer:      plugin.DefaultGRPCServer,
-		})
+	// plugin.Serve below blocks with no signal handling of its own (it
+	// swallows SIGINT and leaves SIGTERM at its default disposition), so
+	// this is `llm serve`'s only chance to react to the SIGTERM the kernel
+	// delivers when its host dies — isolateRunner's Pdeathsig. Without it
+	// the runner would die and strand the engine subprocess it isolated
+	// into its own process group. `llm host` deliberately does NOT install
+	// this: it already unwinds through waitForRunnerTermination into
+	// standup.teardown, and two handlers on one signal race.
+	pb.InstallRunnerTeardown()
 
-		standup.teardown()
-		return nil
-	},
+	// Serve the plugin
+	plugin.Serve(&plugin.ServeConfig{
+		HandshakeConfig: pb.HandshakeConfig,
+		Plugins:         pluginMap,
+		GRPCServer:      plugin.DefaultGRPCServer,
+	})
+
+	standup.teardown()
+	return nil
 }
 
 var llmServeLabel string

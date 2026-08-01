@@ -37,72 +37,74 @@ var llmTurnCmd = &cobra.Command{
 	Long:   `Runs one interactive engine turn directly on the current TTY for the specified backend, reading its RunStart from the --start handoff file. Used internally by the docker-exec interactive launcher; opens NO plugin listener.`,
 	Args:   cobra.ExactArgs(1),
 	Hidden: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// NOTE (terminal-query suppression lives in the Launcher, not here):
-		// ctxloom's package-INIT terminal-capability detection (termenv querying
-		// the background via OSC 11 + a DSR terminator) fires before this RunE —
-		// before main() even — so it can only be silenced by the process's TERM,
-		// which the docker-exec Launcher forces to `dumb` for the turn process
-		// (dockerexec.turnTermValue). The engine child still gets real color via
-		// RunStart.Options.Env's TERM (stamped by startContainerInteractive),
-		// which overrides the turn's dumb in the child's BuildEnv.
+	RunE:   runLLMTurn,
+}
 
-		// Fail-loudly gate (U037-F03): same shape as `llm serve`/`llm host` —
-		// checkpoint before standUpRunner's config load. Unlike serve/host, a
-		// standUpRunner ERROR here is deliberately downgraded to a warning
-		// below (interactive turn has no RunID, so no EngineHost, and an MCP
-		// hiccup degrades to the shim's local fallback rather than failing the
-		// turn) — but a fatal-class FINDING (a corrupted/malformed
-		// config.yaml) is a different, stronger signal and still aborts unless
-		// --degraded, same as the other two process-owning entry points.
-		startupMark := strictness.Checkpoint()
+func runLLMTurn(cmd *cobra.Command, args []string) error {
+	// NOTE (terminal-query suppression lives in the Launcher, not here):
+	// ctxloom's package-INIT terminal-capability detection (termenv querying
+	// the background via OSC 11 + a DSR terminator) fires before this RunE —
+	// before main() even — so it can only be silenced by the process's TERM,
+	// which the docker-exec Launcher forces to `dumb` for the turn process
+	// (dockerexec.turnTermValue). The engine child still gets real color via
+	// RunStart.Options.Env's TERM (stamped by startContainerInteractive),
+	// which overrides the turn's dumb in the child's BuildEnv.
 
-		backendName := args[0]
-		backend := backends.Get(backendName)
-		if backend == nil {
-			return fmt.Errorf("unknown backend: %s", backendName)
-		}
-		if llmTurnStartPath == "" {
-			return fmt.Errorf("llm turn: --start (the RunStart handoff path) is required")
-		}
-		req, err := readRunStartHandoff(llmTurnStartPath)
-		if err != nil {
-			return err
-		}
+	// Fail-loudly gate (U037-F03): same shape as `llm serve`/`llm host` —
+	// checkpoint before standUpRunner's config load. Unlike serve/host, a
+	// standUpRunner ERROR here is deliberately downgraded to a warning
+	// below (interactive turn has no RunID, so no EngineHost, and an MCP
+	// hiccup degrades to the shim's local fallback rather than failing the
+	// turn) — but a fatal-class FINDING (a corrupted/malformed
+	// config.yaml) is a different, stronger signal and still aborts unless
+	// --degraded, same as the other two process-owning entry points.
+	startupMark := strictness.Checkpoint()
 
-		// Stand up the runner-local MCP surface (config + socket + marker +
-		// CTXLOOM_MCP_SOCKET export) so the engine child spawned by Execute has
-		// its ctxloom tools and coordinator reach-back — the same standup `llm
-		// serve`/`llm host` run, which also consumes+scrubs the reach-back trio
-		// so the engine never inherits it. Best-effort: with no trio in the env
-		// it is a no-op, and an MCP hiccup on this interactive path degrades the
-		// shim to its local fallback rather than failing the turn (there is no
-		// hosted delegated run here — no RunID, so no EngineHost).
-		standup, serr := standUpRunner(cmd, backend, backendName, llmTurnLabel)
-		if serr != nil {
-			clidiag.Warn("ctxloom", "runner MCP standup for interactive turn failed (continuing without it): %v", serr)
-			standup = &runnerStandup{}
-		}
-		defer standup.teardown()
+	backendName := args[0]
+	backend := backends.Get(backendName)
+	if backend == nil {
+		return fmt.Errorf("unknown backend: %s", backendName)
+	}
+	if llmTurnStartPath == "" {
+		return fmt.Errorf("llm turn: --start (the RunStart handoff path) is required")
+	}
+	req, err := readRunStartHandoff(llmTurnStartPath)
+	if err != nil {
+		return err
+	}
 
-		if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
-			return ferr
-		}
+	// Stand up the runner-local MCP surface (config + socket + marker +
+	// CTXLOOM_MCP_SOCKET export) so the engine child spawned by Execute has
+	// its ctxloom tools and coordinator reach-back — the same standup `llm
+	// serve`/`llm host` run, which also consumes+scrubs the reach-back trio
+	// so the engine never inherits it. Best-effort: with no trio in the env
+	// it is a no-op, and an MCP hiccup on this interactive path degrades the
+	// shim to its local fallback rather than failing the turn (there is no
+	// hosted delegated run here — no RunID, so no EngineHost).
+	standup, serr := standUpRunner(cmd, backend, backendName, llmTurnLabel)
+	if serr != nil {
+		clidiag.Warn("ctxloom", "runner MCP standup for interactive turn failed (continuing without it): %v", serr)
+		standup = &runnerStandup{}
+	}
+	defer standup.teardown()
 
-		// Resize: the exec TTY's SIGWINCH (delivered by the daemon when the host
-		// resizes) drives the engine's pty via the same watchResize the go-plugin
-		// frontend uses, adapted to RunTurn's agent.WindowSize channel.
-		resize := turnResize(cmd.Context(), os.Stdin)
+	if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+		return ferr
+	}
 
-		result, err := pb.RunTurn(cmd.Context(), backend, req, os.Stdin, os.Stdout, os.Stderr, resize)
-		if err != nil {
-			return fmt.Errorf("interactive turn failed: %w", err)
-		}
-		if result.ExitCode != 0 {
-			return &ExitError{Code: int(result.ExitCode)}
-		}
-		return nil
-	},
+	// Resize: the exec TTY's SIGWINCH (delivered by the daemon when the host
+	// resizes) drives the engine's pty via the same watchResize the go-plugin
+	// frontend uses, adapted to RunTurn's agent.WindowSize channel.
+	resize := turnResize(cmd.Context(), os.Stdin)
+
+	result, err := pb.RunTurn(cmd.Context(), backend, req, os.Stdin, os.Stdout, os.Stderr, resize)
+	if err != nil {
+		return fmt.Errorf("interactive turn failed: %w", err)
+	}
+	if result.ExitCode != 0 {
+		return &ExitError{Code: int(result.ExitCode)}
+	}
+	return nil
 }
 
 // writeRunStartHandoff serializes req (protojson) to a 0600 file in the session

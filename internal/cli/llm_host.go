@@ -29,35 +29,37 @@ var llmHostCmd = &cobra.Command{
 	Long:   `Starts the ctxloom binary as an engine-runner host for the specified backend, hosting the engine in-process over Transport 2 with NO go-plugin listener. Used internally by the delegated StartRun spawn path.`,
 	Args:   cobra.ExactArgs(1),
 	Hidden: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Fail-loudly gate (U037-F03): same shape as `llm serve` — see its
-		// RunE for the full rationale.
-		startupMark := strictness.Checkpoint()
+	RunE:   runLLMHost,
+}
 
-		backendName := args[0]
+func runLLMHost(cmd *cobra.Command, args []string) error {
+	// Fail-loudly gate (U037-F03): same shape as `llm serve` — see its
+	// RunE for the full rationale.
+	startupMark := strictness.Checkpoint()
 
-		backend := backends.Get(backendName)
-		if backend == nil {
-			return fmt.Errorf("unknown backend: %s", backendName)
-		}
+	backendName := args[0]
 
-		standup, err := standUpRunner(cmd, backend, backendName, llmHostLabel)
-		if err != nil {
-			return err
-		}
-		if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
-			return ferr
-		}
+	backend := backends.Get(backendName)
+	if backend == nil {
+		return fmt.Errorf("unknown backend: %s", backendName)
+	}
 
-		// The runner stays warm across turns; the coordinator tears it down
-		// (RunnerHandle.Kill) when the child ends or at a one-shot turn
-		// boundary. Block until that (or a signal / cancelled context) — there
-		// is no plugin.Serve to hold the process here.
-		waitForRunnerTermination(cmd)
+	standup, err := standUpRunner(cmd, backend, backendName, llmHostLabel)
+	if err != nil {
+		return err
+	}
+	if ferr := failOnFindings(os.Stderr, startupMark); ferr != nil {
+		return ferr
+	}
 
-		standup.teardown()
-		return nil
-	},
+	// The runner stays warm across turns; the coordinator tears it down
+	// (RunnerHandle.Kill) when the child ends or at a one-shot turn
+	// boundary. Block until that (or a signal / cancelled context) — there
+	// is no plugin.Serve to hold the process here.
+	waitForRunnerTermination(cmd)
+
+	standup.teardown()
+	return nil
 }
 
 // waitForRunnerTermination blocks the `llm host` runner until its root context

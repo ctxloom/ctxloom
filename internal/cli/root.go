@@ -92,53 +92,14 @@ var rootCmd = &cobra.Command{
 	// does, and TestNoSubcommandDefinesPersistentHooks (root_test.go) fails if
 	// one ever starts to — per-command setup belongs in PreRun(E), which cobra
 	// runs IN ADDITION to this.
-	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		// U104-F01's runtime guard (format.go): clear the per-invocation
-		// "did this command honor --format" tracker before anything can set
-		// it, so checkFormatWasHonored's PersistentPostRunE below checks
-		// exactly this invocation.
-		resetFormatGuard()
-		if cmd.Root().PersistentFlags().Changed("degraded") {
-			strictness.SetDegraded(degradedFlag)
-		}
-		// Same shape as --degraded: CTXLOOM_NO_COMPANIONS was already applied
-		// pre-dispatch, and an explicitly set flag wins over it in either
-		// direction. Applied here (not after GetConfig) because config.Load is
-		// called from ~10 sites across the CLI — a per-Config toggle would only
-		// take effect on whichever one happened to be wired.
-		if cmd.Root().PersistentFlags().Changed("no-companions") {
-			config.SetCompanionsDisabled(noCompanionsFlag)
-		}
-		// Capture the env/CLI config-override chain (CTXLOOM_CONFIG_* vars,
-		// plus any flag this INVOKED command changed) exactly ONCE per process,
-		// right here — cmd.Flags() is the invoked command's fully-parsed flag
-		// set (its own local flags plus every inherited persistent flag) at the
-		// earliest point every subcommand passes through. Every config.Load
-		// from here on resolves it via the funnel (see loadUncached); a bind
-		// failure degrades to a warning rather than aborting startup, matching
-		// this codebase's fault-tolerance convention (an ambiguous individual
-		// override is caught and warned about later, per-Load, once there is a
-		// config base to resolve it against).
-		if err := config.InstallOverridesFromFlags(cmd.Flags()); err != nil {
-			clidiag.Warn("ctxloom", "config overrides: %v", err)
-		}
-		// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
-		// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
-		// text/markdown or an unresolvable value — an invalid --format is
-		// reported by the command's own emit()/cliemit.Resolve call, not here, so
-		// this just falls back to the safe default rather than erroring twice.
-		format, ferr := cliemit.Resolve(cmd)
-		clidiag.SetStructured(ferr == nil && format.Structured())
-	},
+	PersistentPreRun: rootPersistentPreRun,
 	// U104-F01's runtime guard (format.go): fires only after a successful
 	// RunE (cobra skips it on error, and skips it entirely for
 	// --help/--version/completion), turning a non-text --format that no
 	// command ever honored into a loud error instead of a silent exit 0.
 	// Symmetrically with PersistentPreRun above, and enforced by the same test:
 	// no subcommand defines its own PersistentPostRun(E), so this runs for all.
-	PersistentPostRunE: func(cmd *cobra.Command, args []string) error {
-		return checkFormatWasHonored(cmd)
-	},
+	PersistentPostRunE: rootPersistentPostRunE,
 	Long: `ctxloom manages context for AI coding assistants.
 
 QUICK START
@@ -171,6 +132,49 @@ REFERENCE SYNTAX
   remote/bundle                   Bundle from a remote repository
 
 Run 'ctxloom <command> --help' for details on any command.`,
+}
+
+func rootPersistentPostRunE(cmd *cobra.Command, args []string) error {
+	return checkFormatWasHonored(cmd)
+}
+
+func rootPersistentPreRun(cmd *cobra.Command, args []string) {
+	// U104-F01's runtime guard (format.go): clear the per-invocation
+	// "did this command honor --format" tracker before anything can set
+	// it, so checkFormatWasHonored's PersistentPostRunE below checks
+	// exactly this invocation.
+	resetFormatGuard()
+	if cmd.Root().PersistentFlags().Changed("degraded") {
+		strictness.SetDegraded(degradedFlag)
+	}
+	// Same shape as --degraded: CTXLOOM_NO_COMPANIONS was already applied
+	// pre-dispatch, and an explicitly set flag wins over it in either
+	// direction. Applied here (not after GetConfig) because config.Load is
+	// called from ~10 sites across the CLI — a per-Config toggle would only
+	// take effect on whichever one happened to be wired.
+	if cmd.Root().PersistentFlags().Changed("no-companions") {
+		config.SetCompanionsDisabled(noCompanionsFlag)
+	}
+	// Capture the env/CLI config-override chain (CTXLOOM_CONFIG_* vars,
+	// plus any flag this INVOKED command changed) exactly ONCE per process,
+	// right here — cmd.Flags() is the invoked command's fully-parsed flag
+	// set (its own local flags plus every inherited persistent flag) at the
+	// earliest point every subcommand passes through. Every config.Load
+	// from here on resolves it via the funnel (see loadUncached); a bind
+	// failure degrades to a warning rather than aborting startup, matching
+	// this codebase's fault-tolerance convention (an ambiguous individual
+	// override is caught and warned about later, per-Load, once there is a
+	// config base to resolve it against).
+	if err := config.InstallOverridesFromFlags(cmd.Flags()); err != nil {
+		clidiag.Warn("ctxloom", "config overrides: %v", err)
+	}
+	// Flip clidiag's structured-diagnostics channel on for json/yaml/toml
+	// --format, off (today's plain "<prog>: warning: <msg>" stderr) for
+	// text/markdown or an unresolvable value — an invalid --format is
+	// reported by the command's own emit()/cliemit.Resolve call, not here, so
+	// this just falls back to the safe default rather than erroring twice.
+	format, ferr := cliemit.Resolve(cmd)
+	clidiag.SetStructured(ferr == nil && format.Structured())
 }
 
 // GetRootCmd returns the root command for documentation generation.

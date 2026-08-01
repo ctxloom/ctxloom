@@ -56,26 +56,28 @@ PowerShell:
 	DisableFlagsInUseLine: true,
 	ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 	Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		switch args[0] {
-		case "bash":
-			return cmd.Root().GenBashCompletion(os.Stdout)
-		case "zsh":
-			return cmd.Root().GenZshCompletion(os.Stdout)
-		case "fish":
-			return cmd.Root().GenFishCompletion(os.Stdout, true)
-		case "powershell":
-			return cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
-		default:
-			// Unreachable through cobra (ValidArgs + OnlyValidArgs rejects any
-			// other value first), which is exactly why the shell list must not
-			// be able to grow past this switch in silence: without this arm a
-			// new ValidArgs entry exits 0 having written nothing, and the user
-			// sources an empty file.
-			return fmt.Errorf("no completion generator for shell %q (supported: %s)",
-				args[0], strings.Join(cmd.ValidArgs, ", "))
-		}
-	},
+	RunE:                  runCompletion,
+}
+
+func runCompletion(cmd *cobra.Command, args []string) error {
+	switch args[0] {
+	case "bash":
+		return cmd.Root().GenBashCompletion(os.Stdout)
+	case "zsh":
+		return cmd.Root().GenZshCompletion(os.Stdout)
+	case "fish":
+		return cmd.Root().GenFishCompletion(os.Stdout, true)
+	case "powershell":
+		return cmd.Root().GenPowerShellCompletionWithDesc(os.Stdout)
+	default:
+		// Unreachable through cobra (ValidArgs + OnlyValidArgs rejects any
+		// other value first), which is exactly why the shell list must not
+		// be able to grow past this switch in silence: without this arm a
+		// new ValidArgs entry exits 0 having written nothing, and the user
+		// sources an empty file.
+		return fmt.Errorf("no completion generator for shell %q (supported: %s)",
+			args[0], strings.Join(cmd.ValidArgs, ", "))
+	}
 }
 
 // completeFragmentNames returns a completion function for fragment names.

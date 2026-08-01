@@ -165,35 +165,37 @@ blocked or changed. A "warn" status IS this command's fail-loud signal — read
 the report, don't grep the exit code. A usage error is still an error (e.g. a
 --format value this build cannot render).`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		ctx := cmd.Context()
-		cfg, cfgErr := GetConfig()
-		var checks []doctorCheck
-		if doctorDepsOnlyFlag {
-			checks = []doctorCheck{
-				doctorCheckDeps(cfg),
-				doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
-				doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
-				doctorCheckACPAdapter(cfg),
-			}
-		} else {
-			checks = []doctorCheck{
-				doctorCheckSetupMarker(cfg, cfgErr),
-				doctorCheckDeps(cfg),
-				doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
-				doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
-				doctorCheckACPAdapter(cfg),
-				doctorCheckAgents(ctx, cfg, cfgErr),
-				doctorCheckVersion(),
-				doctorCheckHooksTrust(ctx, cfg, cfgErr),
-				doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
-				doctorCheckSetupCompanions(cfg, cfgErr),
-				doctorCheckSetupAuthPing(),
-			}
+	RunE: runDoctorCmd,
+}
+
+func runDoctorCmd(cmd *cobra.Command, args []string) error {
+	ctx := cmd.Context()
+	cfg, cfgErr := GetConfig()
+	var checks []doctorCheck
+	if doctorDepsOnlyFlag {
+		checks = []doctorCheck{
+			doctorCheckDeps(cfg),
+			doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
+			doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
+			doctorCheckACPAdapter(cfg),
 		}
-		report := doctorReport{Checks: checks}
-		return emit(cmd, report, func() error { return renderDoctorReport(cmd.OutOrStdout(), report) })
-	},
+	} else {
+		checks = []doctorCheck{
+			doctorCheckSetupMarker(cfg, cfgErr),
+			doctorCheckDeps(cfg),
+			doctorCheckSignKey(ctx, cfg, agentkey.NewDiscoverer()),
+			doctorCheckGitIdentity(ctx, agentkey.NewDiscoverer().GitConfig),
+			doctorCheckACPAdapter(cfg),
+			doctorCheckAgents(ctx, cfg, cfgErr),
+			doctorCheckVersion(),
+			doctorCheckHooksTrust(ctx, cfg, cfgErr),
+			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
+			doctorCheckSetupCompanions(cfg, cfgErr),
+			doctorCheckSetupAuthPing(),
+		}
+	}
+	report := doctorReport{Checks: checks}
+	return emit(cmd, report, func() error { return renderDoctorReport(cmd.OutOrStdout(), report) })
 }
 
 // doctorConfiguredEngines returns the sorted, de-duplicated set of registered

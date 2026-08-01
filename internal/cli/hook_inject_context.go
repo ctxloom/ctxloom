@@ -53,106 +53,108 @@ Output format (JSON to stdout):
 	Args:          cobra.ExactArgs(1),
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	RunE: func(cmd *cobra.Command, args []string) (err error) {
-		// Always output valid JSON, even on errors, so the host never hangs
-		// waiting for output — but a panic still exits NON-ZERO: a panicking
-		// hook has delivered zero context, and exit 0 would make that
-		// indistinguishable from "ctxloom had nothing to inject". Registered
-		// before the first statement that can panic (the args read below), so
-		// the whole body is covered.
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: panic: %v\n", r)
-				// Output empty JSON on panic
-				fmt.Println("{}")
-				err = fmt.Errorf("inject-context hook panicked: %v", r)
-			}
-		}()
+	RunE:          runHookInjectContext,
+}
 
-		hash := args[0]
-
-		// Read hook input from stdin (Claude passes session context here)
-		var hookInput claude.SessionStartPayload
-		inputData, err := io.ReadAll(os.Stdin)
-		if err == nil && len(inputData) > 0 {
-			if unmarshalErr := json.Unmarshal(inputData, &hookInput); unmarshalErr != nil {
-				clidiag.Warn("ctxloom hook inject-context", "failed to parse hook input: %v", unmarshalErr)
-			}
-		}
-
-		// Determine work directory from --project flag, git root, or current directory
-		workDir := resolveInjectContextWorkDir(injectContextProject, gitutil.FindRoot)
-
-		// Read context file by hash
-		content, err := agent.ReadContextFile(workDir, hash)
-		if err != nil {
-			// Log to stderr, output empty JSON to stdout
-			clidiag.Warn("ctxloom hook inject-context", "failed to read context file: %v", err)
-			content = ""
-		}
-
-		// Select this part's chunk. With no --of (the legacy/manual single-shot
-		// form), the whole content is emitted as one block. With --part/--of,
-		// the content is split deterministically (see backends.ChunkContext)
-		// and we wait our turn so the N parallel chunk hooks complete — and
-		// thus inject — in order (see backends.AwaitTurn).
-		content, part, total := selectChunk(content, injectContextPart, injectContextTotal)
-		// Ordering only matters for a part that HAS a chunk to emit. An
-		// out-of-range part (missing context file, or a file that shrank since
-		// the hooks were written) emits nothing, so joining the rendezvous
-		// would spend up to ContextRendezvousTimeout of session-startup
-		// latency ordering nothing at all. Skipping cannot break the chain for
-		// the parts that do have content: chunks are contiguous from part 1,
-		// so an empty part is never followed by a content-bearing one, and the
-		// rendezvous only ever waits on the immediate predecessor.
-		if total > 1 && content != "" {
-			agent.AwaitTurn(hookInput.SessionID, part, total)
-		}
-
-		// On the initial launch of a resumed session, inject the resumed
-		// session's distilled essence alongside the project context. Skipped on
-		// /clear and /compact (by source), where re-injecting would also mean a
-		// redistill on the resume hot path — there the user pulls prior context
-		// back explicitly with /recover.
-		resumedEssence := resumedEssenceForInjection(part, hookInput.Source,
-			os.Getenv("CTXLOOM_RESUMED_FROM"), os.Getenv("CTXLOOM_RESUMED_PARTS"))
-
-		// Build output via the extracted helper so the wrapping logic
-		// (header/footer, empty-content handling, SessionStart event
-		// name) is unit-testable without the surrounding hook plumbing.
-		output := buildInjectContextOutput(content, resumedEssence, part, total)
-
-		// After a /clear, nudge the USER (not the model) toward /recover via the
-		// systemMessage channel, independent of the injected context. /clear keeps
-		// the SAME session alive — its transcript still holds the pre-clear
-		// conversation, which recover_session re-distills — so the gate is the
-		// CURRENT session being recoverable (a present, non-empty transcript), NOT
-		// a prior session existing. Only the first chunk checks (the message also
-		// guards part>1); the stat is local, and on a missing/empty transcript we
-		// stay silent rather than promise a recovery that would come back empty.
-		clearRecoverable := false
-		if hookInput.Source == "clear" && part <= 1 {
-			clearRecoverable = currentSessionRecoverable(hookInput.TranscriptPath)
-		}
-		// Compose the user-facing SessionStart nudges: the clear-recovery hint
-		// (when a /clear left a recoverable prior session) and the agent-setup
-		// nudge (when this project has profiles but no agents). Both ride the
-		// systemMessage channel and can co-occur, so they are joined rather than
-		// one clobbering the other.
-		output.SystemMessage = operations.JoinLeadBlocks(
-			clearRecoveryMessage(hookInput.Source, part, clearRecoverable),
-			agentSetupNudge(workDir, part),
-		)
-
-		// Output JSON to stdout
-		encoder := json.NewEncoder(os.Stdout)
-		if err := encoder.Encode(output); err != nil {
-			// If encoding fails, output empty JSON
-			clidiag.Warn("ctxloom hook inject-context", "failed to encode output: %v", err)
+func runHookInjectContext(cmd *cobra.Command, args []string) (err error) {
+	// Always output valid JSON, even on errors, so the host never hangs
+	// waiting for output — but a panic still exits NON-ZERO: a panicking
+	// hook has delivered zero context, and exit 0 would make that
+	// indistinguishable from "ctxloom had nothing to inject". Registered
+	// before the first statement that can panic (the args read below), so
+	// the whole body is covered.
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Fprintf(os.Stderr, "ctxloom hook inject-context: panic: %v\n", r)
+			// Output empty JSON on panic
 			fmt.Println("{}")
+			err = fmt.Errorf("inject-context hook panicked: %v", r)
 		}
-		return nil
-	},
+	}()
+
+	hash := args[0]
+
+	// Read hook input from stdin (Claude passes session context here)
+	var hookInput claude.SessionStartPayload
+	inputData, err := io.ReadAll(os.Stdin)
+	if err == nil && len(inputData) > 0 {
+		if unmarshalErr := json.Unmarshal(inputData, &hookInput); unmarshalErr != nil {
+			clidiag.Warn("ctxloom hook inject-context", "failed to parse hook input: %v", unmarshalErr)
+		}
+	}
+
+	// Determine work directory from --project flag, git root, or current directory
+	workDir := resolveInjectContextWorkDir(injectContextProject, gitutil.FindRoot)
+
+	// Read context file by hash
+	content, err := agent.ReadContextFile(workDir, hash)
+	if err != nil {
+		// Log to stderr, output empty JSON to stdout
+		clidiag.Warn("ctxloom hook inject-context", "failed to read context file: %v", err)
+		content = ""
+	}
+
+	// Select this part's chunk. With no --of (the legacy/manual single-shot
+	// form), the whole content is emitted as one block. With --part/--of,
+	// the content is split deterministically (see backends.ChunkContext)
+	// and we wait our turn so the N parallel chunk hooks complete — and
+	// thus inject — in order (see backends.AwaitTurn).
+	content, part, total := selectChunk(content, injectContextPart, injectContextTotal)
+	// Ordering only matters for a part that HAS a chunk to emit. An
+	// out-of-range part (missing context file, or a file that shrank since
+	// the hooks were written) emits nothing, so joining the rendezvous
+	// would spend up to ContextRendezvousTimeout of session-startup
+	// latency ordering nothing at all. Skipping cannot break the chain for
+	// the parts that do have content: chunks are contiguous from part 1,
+	// so an empty part is never followed by a content-bearing one, and the
+	// rendezvous only ever waits on the immediate predecessor.
+	if total > 1 && content != "" {
+		agent.AwaitTurn(hookInput.SessionID, part, total)
+	}
+
+	// On the initial launch of a resumed session, inject the resumed
+	// session's distilled essence alongside the project context. Skipped on
+	// /clear and /compact (by source), where re-injecting would also mean a
+	// redistill on the resume hot path — there the user pulls prior context
+	// back explicitly with /recover.
+	resumedEssence := resumedEssenceForInjection(part, hookInput.Source,
+		os.Getenv("CTXLOOM_RESUMED_FROM"), os.Getenv("CTXLOOM_RESUMED_PARTS"))
+
+	// Build output via the extracted helper so the wrapping logic
+	// (header/footer, empty-content handling, SessionStart event
+	// name) is unit-testable without the surrounding hook plumbing.
+	output := buildInjectContextOutput(content, resumedEssence, part, total)
+
+	// After a /clear, nudge the USER (not the model) toward /recover via the
+	// systemMessage channel, independent of the injected context. /clear keeps
+	// the SAME session alive — its transcript still holds the pre-clear
+	// conversation, which recover_session re-distills — so the gate is the
+	// CURRENT session being recoverable (a present, non-empty transcript), NOT
+	// a prior session existing. Only the first chunk checks (the message also
+	// guards part>1); the stat is local, and on a missing/empty transcript we
+	// stay silent rather than promise a recovery that would come back empty.
+	clearRecoverable := false
+	if hookInput.Source == "clear" && part <= 1 {
+		clearRecoverable = currentSessionRecoverable(hookInput.TranscriptPath)
+	}
+	// Compose the user-facing SessionStart nudges: the clear-recovery hint
+	// (when a /clear left a recoverable prior session) and the agent-setup
+	// nudge (when this project has profiles but no agents). Both ride the
+	// systemMessage channel and can co-occur, so they are joined rather than
+	// one clobbering the other.
+	output.SystemMessage = operations.JoinLeadBlocks(
+		clearRecoveryMessage(hookInput.Source, part, clearRecoverable),
+		agentSetupNudge(workDir, part),
+	)
+
+	// Output JSON to stdout
+	encoder := json.NewEncoder(os.Stdout)
+	if err := encoder.Encode(output); err != nil {
+		// If encoding fails, output empty JSON
+		clidiag.Warn("ctxloom hook inject-context", "failed to encode output: %v", err)
+		fmt.Println("{}")
+	}
+	return nil
 }
 
 // clearRecoveryMessage returns the user-facing nudge shown after a /clear when

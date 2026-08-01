@@ -57,13 +57,15 @@ ctxloom command show / ctxloom skill show for local content.`,
   ctxloom search --type bundle golang     # search only remote bundles
   ctxloom search --format json cache      # machine-readable output`,
 	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		query := ""
-		if len(args) > 0 {
-			query = args[0]
-		}
-		return runUnifiedSearch(cmd, query, searchTags, searchItemFilter, searchLocalOnly, searchRemoteOnly)
-	},
+	RunE: runSearch,
+}
+
+func runSearch(cmd *cobra.Command, args []string) error {
+	query := ""
+	if len(args) > 0 {
+		query = args[0]
+	}
+	return runUnifiedSearch(cmd, query, searchTags, searchItemFilter, searchLocalOnly, searchRemoteOnly)
 }
 
 func init() {

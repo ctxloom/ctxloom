@@ -33,22 +33,24 @@ var llmListCmd = &cobra.Command{
 	Aliases: []string{"ls"},
 	Short:   "List available LLMs",
 	Long:    `Lists the available LLM backends.`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		names, defaultLabel := availableLLMsWithDefault()
-		entries := llmListEntries(names, defaultLabel)
-		return emit(cmd, entries, func() error {
-			out := cmd.OutOrStdout()
-			fmt.Fprintln(out, "Available LLMs:")
-			for _, e := range entries {
-				if e.Default {
-					fmt.Fprintf(out, "  %s (default)\n", e.Label)
-				} else {
-					fmt.Fprintf(out, "  %s\n", e.Label)
-				}
+	RunE:    runLLMList,
+}
+
+func runLLMList(cmd *cobra.Command, args []string) error {
+	names, defaultLabel := availableLLMsWithDefault()
+	entries := llmListEntries(names, defaultLabel)
+	return emit(cmd, entries, func() error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintln(out, "Available LLMs:")
+		for _, e := range entries {
+			if e.Default {
+				fmt.Fprintf(out, "  %s (default)\n", e.Label)
+			} else {
+				fmt.Fprintf(out, "  %s\n", e.Label)
 			}
-			return nil
-		})
-	},
+		}
+		return nil
+	})
 }
 
 // availableLLMsWithDefault enumerates the LLM labels and the configured

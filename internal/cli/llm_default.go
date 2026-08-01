@@ -20,13 +20,15 @@ Without arguments, prints the current default LLM name.
 With an LLM name argument, sets that LLM as the default.`,
 	Args:              cobra.MaximumNArgs(1),
 	ValidArgsFunction: completeLLMNames,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfigForUpdate()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		return runLLMDefault(cmd, config.NewManager(), cfg, args)
-	},
+	RunE:              runLLMDefaultCmd,
+}
+
+func runLLMDefaultCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfigForUpdate()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	return runLLMDefault(cmd, config.NewManager(), cfg, args)
 }
 
 // llmDefaultShowResult is emit()'s result for the show path (`llm default`

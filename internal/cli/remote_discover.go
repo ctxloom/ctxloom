@@ -33,9 +33,11 @@ Examples:
   ctxloom remote discover                      # Find all ctxloom repos
   ctxloom remote discover golang               # Filter by 'golang' in description
   ctxloom remote discover --stars 10           # Only repos with 10+ stars`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return runRemoteDiscover(cmd, args, GetConfig, nil)
-	},
+	RunE: runRemoteDiscoverCmd,
+}
+
+func runRemoteDiscoverCmd(cmd *cobra.Command, args []string) error {
+	return runRemoteDiscover(cmd, args, GetConfig, nil)
 }
 
 // runRemoteDiscover searches for discoverable ctxloom repositories and offers

@@ -22,43 +22,45 @@ var stampPlanCmd = &cobra.Command{
 	Use:    "stamp-plan",
 	Short:  "Stamp the active session's harp name into a plan file's frontmatter (internal — used by the PostFileEdit hook)",
 	Hidden: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		harp := os.Getenv("CTXLOOM_SESSION_HARP")
-		if harp == "" {
-			// No active session — silent no-op so the hook is safe to
-			// install before Phase 3's session naming ships.
-			return nil
-		}
-		raw, err := io.ReadAll(cmd.InOrStdin())
-		if err != nil {
-			// Machine hook: never fail the host agent's tool call over a
-			// stamping hiccup (the sibling hooks — session-bind,
-			// inject-context — follow the same warn-and-continue rule).
-			clidiag.Warn("ctxloom", "stamp-plan: read stdin: %v", err)
-			return nil
-		}
-		path, err := parseEditPayload(raw)
-		if err != nil {
-			// A payload this hook cannot decode is a contract break with the
-			// host engine (every supported shape is JSON), so it is reported
-			// on the same warn-and-continue channel as the stdin-read failure
-			// above rather than vanishing. A payload that decodes but names no
-			// file (a non-edit tool call) is an ordinary event and stays
-			// silent, so this never becomes per-tool-call noise.
-			clidiag.Warn("ctxloom", "stamp-plan: parse hook payload: %v", err)
-			return nil
-		}
-		if path == "" {
-			return nil // no file_path — not a file edit, nothing to stamp
-		}
-		if !memory.IsPlanFile(path) {
-			return nil
-		}
-		if err := memory.StampPlanFile(path, harp); err != nil {
-			clidiag.Warn("ctxloom", "stamp-plan: %v", err)
-		}
+	RunE:   runStampPlan,
+}
+
+func runStampPlan(cmd *cobra.Command, args []string) error {
+	harp := os.Getenv("CTXLOOM_SESSION_HARP")
+	if harp == "" {
+		// No active session — silent no-op so the hook is safe to
+		// install before Phase 3's session naming ships.
 		return nil
-	},
+	}
+	raw, err := io.ReadAll(cmd.InOrStdin())
+	if err != nil {
+		// Machine hook: never fail the host agent's tool call over a
+		// stamping hiccup (the sibling hooks — session-bind,
+		// inject-context — follow the same warn-and-continue rule).
+		clidiag.Warn("ctxloom", "stamp-plan: read stdin: %v", err)
+		return nil
+	}
+	path, err := parseEditPayload(raw)
+	if err != nil {
+		// A payload this hook cannot decode is a contract break with the
+		// host engine (every supported shape is JSON), so it is reported
+		// on the same warn-and-continue channel as the stdin-read failure
+		// above rather than vanishing. A payload that decodes but names no
+		// file (a non-edit tool call) is an ordinary event and stays
+		// silent, so this never becomes per-tool-call noise.
+		clidiag.Warn("ctxloom", "stamp-plan: parse hook payload: %v", err)
+		return nil
+	}
+	if path == "" {
+		return nil // no file_path — not a file edit, nothing to stamp
+	}
+	if !memory.IsPlanFile(path) {
+		return nil
+	}
+	if err := memory.StampPlanFile(path, harp); err != nil {
+		clidiag.Warn("ctxloom", "stamp-plan: %v", err)
+	}
+	return nil
 }
 
 func init() {

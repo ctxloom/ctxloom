@@ -25,13 +25,15 @@ the repair as separate events. Idempotent — running it again once nothing
 is displaced is a no-op.`,
 	Example: `  taskloom repair`,
 	Args:    cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
-		}
-		return runRepairCmd(cmd.OutOrStdout(), tc)
-	},
+	RunE:    runRepair,
+}
+
+func runRepair(cmd *cobra.Command, args []string) error {
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	return runRepairCmd(cmd.OutOrStdout(), tc)
 }
 
 // runRepairCmd is repairCmd's RunE body, factored out so it can be driven in

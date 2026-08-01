@@ -61,47 +61,49 @@ subscribes to this and re-queries the task list on each event, so it stays live
 without polling or watching the store files itself (the watch plumbing lives in
 the backend, not the client).`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := checkWatchFormat(cmd); err != nil {
-			return err
-		}
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
-		}
-		projectID, logPath, err := operations.ResolveLogPath(tc)
-		if err != nil {
-			return err
-		}
+	RunE: runWatch,
+}
 
-		// Watch the tasks directory (not the file directly): the log may not
-		// exist yet, and watching the dir catches its creation too. Filter to
-		// this project's log so other projects' churn — and the .lock — are
-		// ignored. watch.New no longer creates the root itself (U132-F03) —
-		// this IS the reviewable call site that genuinely needs it to exist
-		// before the log's first append.
-		tasksDir := filepath.Dir(logPath)
-		if err := os.MkdirAll(tasksDir, 0o755); err != nil {
-			return err
-		}
-		w, err := watch.New(tasksDir, false, func(p string) bool {
-			return p == logPath
-		})
-		if err != nil {
-			return err
-		}
-		defer func() { _ = w.Close() }()
+func runWatch(cmd *cobra.Command, args []string) error {
+	if err := checkWatchFormat(cmd); err != nil {
+		return err
+	}
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	projectID, logPath, err := operations.ResolveLogPath(tc)
+	if err != nil {
+		return err
+	}
 
-		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
+	// Watch the tasks directory (not the file directly): the log may not
+	// exist yet, and watching the dir catches its creation too. Filter to
+	// this project's log so other projects' churn — and the .lock — are
+	// ignored. watch.New no longer creates the root itself (U132-F03) —
+	// this IS the reviewable call site that genuinely needs it to exist
+	// before the log's first append.
+	tasksDir := filepath.Dir(logPath)
+	if err := os.MkdirAll(tasksDir, 0o755); err != nil {
+		return err
+	}
+	w, err := watch.New(tasksDir, false, func(p string) bool {
+		return p == logPath
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = w.Close() }()
 
-		enc := json.NewEncoder(cmd.OutOrStdout())
-		emit := func() error {
-			return enc.Encode(watchEvent{Event: "changed", Kind: "tasks", Project: projectID})
-		}
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-		return watch.Stream(ctx, w, watchDebounce, emit)
-	},
+	enc := json.NewEncoder(cmd.OutOrStdout())
+	emit := func() error {
+		return enc.Encode(watchEvent{Event: "changed", Kind: "tasks", Project: projectID})
+	}
+
+	return watch.Stream(ctx, w, watchDebounce, emit)
 }
 
 func init() {

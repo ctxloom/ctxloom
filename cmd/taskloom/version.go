@@ -16,16 +16,18 @@ var version = "dev"
 var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Print the taskloom version",
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		// Routed through emit like every other command (and cmd/ctxloom's own
-		// version): text prints the bare version line; json/yaml/toml/markdown
-		// serialize cliversion.Info. json stays {name,version} — the shape
-		// ctxloom's boot probe parses from `taskloom version --format json`.
-		return cliemit.Emit(cmd, cliversion.Info{Name: progName, Version: version}, func() error {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
-			return err
-		})
-	},
+	RunE:  runVersion,
+}
+
+func runVersion(cmd *cobra.Command, _ []string) error {
+	// Routed through emit like every other command (and cmd/ctxloom's own
+	// version): text prints the bare version line; json/yaml/toml/markdown
+	// serialize cliversion.Info. json stays {name,version} — the shape
+	// ctxloom's boot probe parses from `taskloom version --format json`.
+	return cliemit.Emit(cmd, cliversion.Info{Name: progName, Version: version}, func() error {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
+		return err
+	})
 }
 
 func init() {

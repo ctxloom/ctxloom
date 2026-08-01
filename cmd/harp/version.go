@@ -18,16 +18,18 @@ func newVersionCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Print the harp version",
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := resolveFormat(cmd)
-			if err != nil {
-				return err
-			}
-			if format == clifmt.FormatText {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), Version)
-				return err
-			}
-			return clifmt.Render(cmd.OutOrStdout(), cliversion.Info{Name: progName, Version: Version}, format)
-		},
+		RunE:  runHarpVersion,
 	}
+}
+
+func runHarpVersion(cmd *cobra.Command, _ []string) error {
+	format, err := resolveFormat(cmd)
+	if err != nil {
+		return err
+	}
+	if format == clifmt.FormatText {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), Version)
+		return err
+	}
+	return clifmt.Render(cmd.OutOrStdout(), cliversion.Info{Name: progName, Version: Version}, format)
 }

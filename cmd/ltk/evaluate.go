@@ -13,8 +13,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
+// evaluateFlags groups `evaluate`'s flag-bound locals so its RunE can be a
+// named method rather than a closure over three loose variables.
+type evaluateFlags struct {
+	cfgPath    string
+	shellName  string
+	engineName string
+}
+
 func newEvaluateCmd() *cobra.Command {
-	var cfgPath, shellName, engineName string
+	f := &evaluateFlags{}
 	c := &cobra.Command{
 		Use:   "evaluate",
 		Short: "Evaluate a hook payload from stdin and emit an allow/deny decision",
@@ -33,14 +41,16 @@ A denial is written in the engine's format (for Claude Code, a permissionDecisio
 on stdout, exit 0); an allow writes nothing. Intended to be run by the hook, not
 by hand.`,
 		Args: cobra.NoArgs,
-		RunE: func(*cobra.Command, []string) error {
-			return runEvaluate(engineName, cfgPath, ir.Shell(shellName))
-		},
+		RunE: f.run,
 	}
-	c.Flags().StringVar(&cfgPath, "config", "", "path to rules YAML (default: search cwd)")
-	c.Flags().StringVar(&shellName, "shell", "", "force a shell dialect, overriding the engine's tool-derived shell")
-	c.Flags().StringVar(&engineName, "engine", "claude-code", "hook engine adapter")
+	c.Flags().StringVar(&f.cfgPath, "config", "", "path to rules YAML (default: search cwd)")
+	c.Flags().StringVar(&f.shellName, "shell", "", "force a shell dialect, overriding the engine's tool-derived shell")
+	c.Flags().StringVar(&f.engineName, "engine", "claude-code", "hook engine adapter")
 	return c
+}
+
+func (f *evaluateFlags) run(*cobra.Command, []string) error {
+	return runEvaluate(f.engineName, f.cfgPath, ir.Shell(f.shellName))
 }
 
 // runEvaluate is the process edge around evaluate: it feeds it stdin, writes

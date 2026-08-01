@@ -54,9 +54,7 @@ Examples:
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return runGenerate(cmd, opts)
-		},
+		RunE:          opts.run,
 	}
 
 	root.Flags().IntVarP(&opts.components, "components", "c", 3,
@@ -70,6 +68,15 @@ Examples:
 
 	root.AddCommand(newVersionCmd())
 	return root
+}
+
+// run is the root command's RunE. A METHOD rather than a package-level
+// function because the command literal is built inside newRootCmd() and its
+// body reads that call's own `opts` — a bound method value on the addressable
+// local preserves that exactly, where a package-level func would need package
+// state and would break the factory's re-entrancy.
+func (o *generateOpts) run(cmd *cobra.Command, _ []string) error {
+	return runGenerate(cmd, *o)
 }
 
 // groupsHelp renders the available word-list groups for the --group flag's

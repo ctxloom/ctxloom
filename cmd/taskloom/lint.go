@@ -40,17 +40,19 @@ catch drift — it exits non-zero when any violation is found.`,
 	Example: `  taskloom lint
   taskloom lint --json`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		format, err := cliemit.Resolve(cmd)
-		if err != nil {
-			return err
-		}
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
-		}
-		return runLintCmd(cmd.OutOrStdout(), tc, format)
-	},
+	RunE: runLint,
+}
+
+func runLint(cmd *cobra.Command, args []string) error {
+	format, err := cliemit.Resolve(cmd)
+	if err != nil {
+		return err
+	}
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	return runLintCmd(cmd.OutOrStdout(), tc, format)
 }
 
 // runLintCmd is lintCmd's RunE body, factored out so it can be driven in

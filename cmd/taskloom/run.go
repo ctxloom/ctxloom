@@ -37,46 +37,48 @@ so ctxloom must be on PATH.
 With a task harp id argument the picker is skipped and that task is launched
 directly. In a non-interactive shell a task harp id is required.`,
 	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// All of the project's tasks live in one append-only log; each carries
-		// the harp of the session that originated it. Fetch EVERY status
-		// (includeDone=true): the picker hides completed tasks by default
-		// itself (filterOpen), so its `a` toggle can reveal them, and a direct
-		// harp-id launch of a Done/Archived task still resolves.
-		tc, err := taskContextSingle()
+	RunE: runRun,
+}
+
+func runRun(cmd *cobra.Command, args []string) error {
+	// All of the project's tasks live in one append-only log; each carries
+	// the harp of the session that originated it. Fetch EVERY status
+	// (includeDone=true): the picker hides completed tasks by default
+	// itself (filterOpen), so its `a` toggle can reveal them, and a direct
+	// harp-id launch of a Done/Archived task still resolves.
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	res, err := operations.ListTasks(tc, operations.ListOptions{IncludeDone: true})
+	if err != nil {
+		return fmt.Errorf("list tasks: %w", err)
+	}
+	warnTask(res.Warning)
+
+	var chosen tasks.Task
+	if len(args) == 1 {
+		match, ok := findTask(res.Tasks, args[0])
+		if !ok {
+			return fmt.Errorf("task not found: %s", args[0])
+		}
+		chosen = match
+	} else {
+		if !isInteractiveTerminal() {
+			return fmt.Errorf("no task harp id given and not a terminal; pass a task harp id (see `taskloom list`)")
+		}
+		pick, ok, err := pickTask(os.Stderr, os.Stdin, res.Tasks)
 		if err != nil {
 			return err
 		}
-		res, err := operations.ListTasks(tc, operations.ListOptions{IncludeDone: true})
-		if err != nil {
-			return fmt.Errorf("list tasks: %w", err)
+		if !ok {
+			fmt.Fprintln(os.Stderr, "taskloom: cancelled")
+			return nil
 		}
-		warnTask(res.Warning)
+		chosen = pick
+	}
 
-		var chosen tasks.Task
-		if len(args) == 1 {
-			match, ok := findTask(res.Tasks, args[0])
-			if !ok {
-				return fmt.Errorf("task not found: %s", args[0])
-			}
-			chosen = match
-		} else {
-			if !isInteractiveTerminal() {
-				return fmt.Errorf("no task harp id given and not a terminal; pass a task harp id (see `taskloom list`)")
-			}
-			pick, ok, err := pickTask(os.Stderr, os.Stdin, res.Tasks)
-			if err != nil {
-				return err
-			}
-			if !ok {
-				fmt.Fprintln(os.Stderr, "taskloom: cancelled")
-				return nil
-			}
-			chosen = pick
-		}
-
-		return launchTaskAgent(chosen, tasksRunNoStart)
-	},
+	return launchTaskAgent(chosen, tasksRunNoStart)
 }
 
 func init() {

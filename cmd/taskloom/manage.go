@@ -40,27 +40,33 @@ Name one with --engine to register just that backend — creating its config
 if needed. --project writes the project-scoped config under --dir instead of
 the user-level one.`,
 	Args: cobra.NoArgs,
-	RunE: func(*cobra.Command, []string) error {
-		return manageInstall(manageEngine, manageDir, !manageProject, managePrintOnly, os.Stderr)
-	},
+	RunE: runManageInstall,
+}
+
+func runManageInstall(*cobra.Command, []string) error {
+	return manageInstall(manageEngine, manageDir, !manageProject, managePrintOnly, os.Stderr)
 }
 
 var manageUninstallCmd = &cobra.Command{
 	Use:   "uninstall",
 	Short: "Remove the taskloom MCP server from backend configs",
 	Args:  cobra.NoArgs,
-	RunE: func(*cobra.Command, []string) error {
-		return manageUninstall(manageEngine, manageDir, !manageProject, os.Stderr)
-	},
+	RunE:  runManageUninstall,
+}
+
+func runManageUninstall(*cobra.Command, []string) error {
+	return manageUninstall(manageEngine, manageDir, !manageProject, os.Stderr)
 }
 
 var manageStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Report where the taskloom MCP server is registered",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, _ []string) error {
-		return manageStatus(manageDir, cmd.OutOrStdout())
-	},
+	RunE:  runManageStatus,
+}
+
+func runManageStatus(cmd *cobra.Command, _ []string) error {
+	return manageStatus(manageDir, cmd.OutOrStdout())
 }
 
 // resolveEngines picks the engines to operate on: the one explicitly named

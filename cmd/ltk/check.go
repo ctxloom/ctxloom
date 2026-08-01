@@ -35,8 +35,17 @@ type checkResult struct {
 	ParseError string `json:"parse_error,omitempty"`
 }
 
+// checkFlags groups `check`'s flag-bound locals so its RunE can be a named
+// method instead of a closure over three loose variables — the same shape
+// manageFlags already uses in manage.go.
+type checkFlags struct {
+	cfgPath   string
+	shellName string
+	command   string
+}
+
 func newCheckCmd() *cobra.Command {
-	var cfgPath, shellName, command string
+	f := &checkFlags{}
 	c := &cobra.Command{
 		Use:   "check",
 		Short: "Check whether a shell command would be allowed (structured output)",
@@ -56,19 +65,21 @@ suggestion} via the shared clifmt filter; text prints the human verdict.
 Unlike the hook, this is an explicit command, so it fails loud (exit 1) on a
 broken/unreadable config rather than failing closed.`,
 		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := cliemit.Resolve(cmd)
-			if err != nil {
-				return err
-			}
-			return runCheck(cmd.OutOrStdout(), cmd.ErrOrStderr(), command, cfgPath, ir.Shell(shellName), format)
-		},
+		RunE: f.run,
 	}
-	c.Flags().StringVar(&command, "command", "", "the shell command to check (required)")
-	c.Flags().StringVar(&cfgPath, "config", "", "path to rules YAML (default: search cwd)")
-	c.Flags().StringVar(&shellName, "shell", "", "force a shell dialect for parsing")
+	c.Flags().StringVar(&f.command, "command", "", "the shell command to check (required)")
+	c.Flags().StringVar(&f.cfgPath, "config", "", "path to rules YAML (default: search cwd)")
+	c.Flags().StringVar(&f.shellName, "shell", "", "force a shell dialect for parsing")
 	_ = c.MarkFlagRequired("command")
 	return c
+}
+
+func (f *checkFlags) run(cmd *cobra.Command, _ []string) error {
+	format, err := cliemit.Resolve(cmd)
+	if err != nil {
+		return err
+	}
+	return runCheck(cmd.OutOrStdout(), cmd.ErrOrStderr(), f.command, f.cfgPath, ir.Shell(f.shellName), format)
 }
 
 // runCheck loads the rules, evaluates the command, and writes the verdict to

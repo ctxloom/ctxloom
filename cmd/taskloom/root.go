@@ -53,10 +53,12 @@ vocabulary in use with ` + "`taskloom tags`" + `, and filter with ` + "`taskloom
 	// warnings too. An invalid --format is reported by the command's own
 	// emit()/resolveFormat call, not here, so this just falls back to the safe
 	// default rather than erroring twice.
-	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
-		format, ferr := cliemit.Resolve(cmd)
-		clidiag.SetStructured(ferr == nil && format.Structured())
-	},
+	PersistentPreRun: rootPersistentPreRun,
+}
+
+func rootPersistentPreRun(cmd *cobra.Command, _ []string) {
+	format, ferr := cliemit.Resolve(cmd)
+	clidiag.SetStructured(ferr == nil && format.Structured())
 }
 
 // tasksProject is the --project override: an explicit project-id to act on,

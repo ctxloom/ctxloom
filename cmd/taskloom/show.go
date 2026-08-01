@@ -24,27 +24,29 @@ which prints one-line summaries: copy a harp id from the list and pass it here
 to read the whole task. --format json/yaml/toml/markdown emit the structured
 task for scripting.`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Search every status: a harp id shown by `list --all` (Done/Archived
-		// included) must still resolve here.
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
-		}
-		res, err := operations.ListTasks(tc, operations.ListOptions{IncludeDone: true})
-		if err != nil {
-			return err
-		}
-		task, ok := findTask(res.Tasks, args[0])
-		if !ok {
-			return fmt.Errorf("no task with harp id %q (see `taskloom list`)", args[0])
-		}
-		noteTaskProject(res.ProjectDir, res.ProjectID)
-		cfg := hideConfigFor(tc)
-		return cliemit.Emit(cmd, task, func() error {
-			return renderTaskDetail(cmd.OutOrStdout(), task, cfg)
-		})
-	},
+	RunE: runShow,
+}
+
+func runShow(cmd *cobra.Command, args []string) error {
+	// Search every status: a harp id shown by `list --all` (Done/Archived
+	// included) must still resolve here.
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	res, err := operations.ListTasks(tc, operations.ListOptions{IncludeDone: true})
+	if err != nil {
+		return err
+	}
+	task, ok := findTask(res.Tasks, args[0])
+	if !ok {
+		return fmt.Errorf("no task with harp id %q (see `taskloom list`)", args[0])
+	}
+	noteTaskProject(res.ProjectDir, res.ProjectID)
+	cfg := hideConfigFor(tc)
+	return cliemit.Emit(cmd, task, func() error {
+		return renderTaskDetail(cmd.OutOrStdout(), task, cfg)
+	})
 }
 
 func init() {

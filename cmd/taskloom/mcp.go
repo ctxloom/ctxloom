@@ -25,15 +25,17 @@ task_list, task_add, task_tag, task_set_status, and task_edit. The project and s
 are resolved per call from CTXLOOM_PROJECT_ID / CTXLOOM_SESSION_HARP (exported
 by ctxloom run) or the working directory, so one long-lived server follows the
 session it was launched for.`,
-	RunE: func(_ *cobra.Command, _ []string) error {
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		defer stop()
+	RunE: runMCP,
+}
 
-		if err := newMCPServer().Run(ctx, &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) {
-			return err
-		}
-		return nil
-	},
+func runMCP(_ *cobra.Command, _ []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := newMCPServer().Run(ctx, &mcp.StdioTransport{}); err != nil && !errors.Is(err, context.Canceled) {
+		return err
+	}
+	return nil
 }
 
 // newMCPServer builds the task-tool MCP server: the surface `taskloom mcp`

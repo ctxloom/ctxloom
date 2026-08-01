@@ -20,11 +20,11 @@
 # means violations were fixed (good, expected); a GROWING baseline means you are
 # knowingly accepting new or worsened debt, and that decision belongs in the commit
 # message, not silently in this file.
-./cmd/ltk/manage.go| cmd * cobra . Command , _ [ ] string|1|11||117-155
+./cmd/ltk/manage.go|(f*manageFlags)runInstall cmd * cobra . Command , _ [ ] string|1|11|runInstall|126-164
 ./cmd/ltk/manage_test.go|TestWriteFileAtomicReplace t * testing . T|1|11|TestWriteFileAtomicReplace|211-248
 ./cmd/mockengine/main.go|run args [ ] string|1|12|run|63-163
 ./cmd/taskloom/commands_test.go| t * testing . T|1|11||82-106
-./cmd/taskloom/manage.go|manageUninstall name , dir string , global bool , errOut io . Writer|1|11|manageUninstall|125-172
+./cmd/taskloom/manage.go|manageUninstall name , dir string , global bool , errOut io . Writer|1|11|manageUninstall|131-178
 ./cmd/taskloom/mcp_docgen_test.go|TestNewMCPServerRegistersTaskTools t * testing . T|1|17|TestNewMCPServerRegistersTaskTools|15-74
 ./internal/acp/acp.go|(b*ACP)Configure cfg agent . BackendConfig|1|19|Configure|224-299
 ./internal/acp/container_transport.go|(b*ACP)containerTransport ctx context . Context , argv [ ] string , env map [ string ] string , workDir string|1|11|containerTransport|69-163

@@ -94,34 +94,36 @@ tags in use (with counts) via "taskloom tags".`,
 
   # every project's tasks, not just the current one
   taskloom list --global`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		format, err := cliemit.Resolve(cmd)
-		if err != nil {
-			return err
-		}
-		tc, err := taskContext()
-		if err != nil {
-			return err
-		}
-		// Resolved unconditionally (not just when --sort priority is passed):
-		// it's a cheap config read, and priority computation needs it — see
-		// runListCmd's --sort priority branch.
-		tc, err = resolveTagSchema(tc)
-		if err != nil {
-			return err
-		}
-		return runListCmd(cmd.OutOrStdout(), os.Stderr, tc, listOptions{
-			Statuses: tasksListStatuses,
-			Term:     tasksListTerm,
-			TagQuery: tasksListTagQuery,
-			All:      tasksListAll,
-			Global:   tasksListGlobal,
-			Sort:     tasksListSort,
-			Compact:  tasksListCompact,
-			Limit:    tasksListLimit,
-			Format:   format,
-		})
-	},
+	RunE: runList,
+}
+
+func runList(cmd *cobra.Command, args []string) error {
+	format, err := cliemit.Resolve(cmd)
+	if err != nil {
+		return err
+	}
+	tc, err := taskContext()
+	if err != nil {
+		return err
+	}
+	// Resolved unconditionally (not just when --sort priority is passed):
+	// it's a cheap config read, and priority computation needs it — see
+	// runListCmd's --sort priority branch.
+	tc, err = resolveTagSchema(tc)
+	if err != nil {
+		return err
+	}
+	return runListCmd(cmd.OutOrStdout(), os.Stderr, tc, listOptions{
+		Statuses: tasksListStatuses,
+		Term:     tasksListTerm,
+		TagQuery: tasksListTagQuery,
+		All:      tasksListAll,
+		Global:   tasksListGlobal,
+		Sort:     tasksListSort,
+		Compact:  tasksListCompact,
+		Limit:    tasksListLimit,
+		Format:   format,
+	})
 }
 
 // listOptions bundles the resolved inputs for `taskloom list`. It replaces a
@@ -417,25 +419,27 @@ time anyone reads the task; a symbol name still finds it.`,
   taskloom add "dedupe the retry loop in the sync client
 (found 2026-07-19, session icy-weary-chimp, while reviewing config layering)"`,
 	Args: cobra.MinimumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		text := strings.Join(args, " ")
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
-		}
-		res, err := operations.AddTaskWithTags(tc, text, tasksAddStatus, tasksAddTrigger, tasksAddTags)
-		if err != nil {
-			return err
-		}
-		warnTask(res.Warning)
-		noteTaskProject(res.ProjectDir, res.ProjectID)
-		task := res.Task
-		return cliemit.Emit(cmd, task, func() error {
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
-			return w.Err()
-		})
-	},
+	RunE: runAdd,
+}
+
+func runAdd(cmd *cobra.Command, args []string) error {
+	text := strings.Join(args, " ")
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	res, err := operations.AddTaskWithTags(tc, text, tasksAddStatus, tasksAddTrigger, tasksAddTags)
+	if err != nil {
+		return err
+	}
+	warnTask(res.Warning)
+	noteTaskProject(res.ProjectDir, res.ProjectID)
+	task := res.Task
+	return cliemit.Emit(cmd, task, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+		return w.Err()
+	})
 }
 
 var tasksStatusTrigger string
@@ -449,24 +453,26 @@ Use "Deferred" with --trigger to park a task on a named revive condition; the
 task then hides from the default list until the trigger fires. A task already
 carrying a trigger keeps it when re-deferred, so --trigger is optional then.`,
 	Args: cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
-		}
-		res, err := operations.SetTaskStatus(tc, args[0], args[1], tasksStatusTrigger)
-		if err != nil {
-			return err
-		}
-		warnTask(res.Warning)
-		noteTaskProject(res.ProjectDir, res.ProjectID)
-		task := res.Task
-		return cliemit.Emit(cmd, task, func() error {
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
-			return w.Err()
-		})
-	},
+	RunE: runStatus,
+}
+
+func runStatus(cmd *cobra.Command, args []string) error {
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	res, err := operations.SetTaskStatus(tc, args[0], args[1], tasksStatusTrigger)
+	if err != nil {
+		return err
+	}
+	warnTask(res.Warning)
+	noteTaskProject(res.ProjectDir, res.ProjectID)
+	task := res.Task
+	return cliemit.Emit(cmd, task, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+		return w.Err()
+	})
 }
 
 var editCmd = &cobra.Command{
@@ -477,25 +483,27 @@ var editCmd = &cobra.Command{
 The entire text is replaced with what you pass (not patched); the task's
 status and any Deferred trigger are left unchanged.`,
 	Args: cobra.MinimumNArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		text := strings.Join(args[1:], " ")
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
-		}
-		res, err := operations.EditTask(tc, args[0], text)
-		if err != nil {
-			return err
-		}
-		warnTask(res.Warning)
-		noteTaskProject(res.ProjectDir, res.ProjectID)
-		task := res.Task
-		return cliemit.Emit(cmd, task, func() error {
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
-			return w.Err()
-		})
-	},
+	RunE: runEdit,
+}
+
+func runEdit(cmd *cobra.Command, args []string) error {
+	text := strings.Join(args[1:], " ")
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	res, err := operations.EditTask(tc, args[0], text)
+	if err != nil {
+		return err
+	}
+	warnTask(res.Warning)
+	noteTaskProject(res.ProjectDir, res.ProjectID)
+	task := res.Task
+	return cliemit.Emit(cmd, task, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, task.Text)
+		return w.Err()
+	})
 }
 
 var (
@@ -515,27 +523,29 @@ tags already in use with "taskloom tags"; filter tasks by tag with
 	Example: `  taskloom tag swift-amber-falcon --add urgent --add release
   taskloom tag swift-amber-falcon --remove urgent --add blocked`,
 	Args: cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(tasksTagAdd) == 0 && len(tasksTagRemove) == 0 {
-			return fmt.Errorf("nothing to do: pass --add <tag> and/or --remove <tag>")
-		}
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
-		}
-		res, err := operations.TagTask(tc, args[0], tasksTagAdd, tasksTagRemove)
-		if err != nil {
-			return err
-		}
-		warnTask(res.Warning)
-		noteTaskProject(res.ProjectDir, res.ProjectID)
-		task := res.Task
-		return cliemit.Emit(cmd, task, func() error {
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, strings.Join(task.Tags, ","))
-			return w.Err()
-		})
-	},
+	RunE: runTag,
+}
+
+func runTag(cmd *cobra.Command, args []string) error {
+	if len(tasksTagAdd) == 0 && len(tasksTagRemove) == 0 {
+		return fmt.Errorf("nothing to do: pass --add <tag> and/or --remove <tag>")
+	}
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	res, err := operations.TagTask(tc, args[0], tasksTagAdd, tasksTagRemove)
+	if err != nil {
+		return err
+	}
+	warnTask(res.Warning)
+	noteTaskProject(res.ProjectDir, res.ProjectID)
+	task := res.Task
+	return cliemit.Emit(cmd, task, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("%s\t%s\t%s\n", task.HarpID, task.Status, strings.Join(task.Tags, ","))
+		return w.Err()
+	})
 }
 
 var tagsCmd = &cobra.Command{
@@ -553,74 +563,78 @@ Apply tags with "taskloom tag" or "taskloom add --tag"; filter by them with
 	Example: `  taskloom tags
   taskloom tags --json`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
-		}
-		res, err := operations.ListTagCounts(tc)
-		if err != nil {
-			return err
-		}
-		warnTask(res.Warning)
-		return cliemit.Emit(cmd, res.Tags, func() error {
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			w.Printf("Project: %s\n\n", formatProjectLabel(res.ProjectDir, res.ProjectID))
-			// The vocabulary enumeration goes through the same display-hide
-			// filter as list/show: a tag hidden by tag_schema's tagma.hide:*
-			// declarations shouldn't surface here either — see hideConfigFor.
-			visible := visibleTagCounts(res.Tags, hideConfigFor(tc))
-			if len(visible) == 0 {
-				w.Println("(no tags in use — apply one with `taskloom tag <harp-id> --add <tag>`)")
-				return w.Err()
-			}
-			// Pad the tag column so the counts align; the counts are labeled so
-			// the output is self-describing without a header row.
-			tagWidth := 0
-			for _, t := range visible {
-				if len(t.Tag) > tagWidth {
-					tagWidth = len(t.Tag)
-				}
-			}
-			for _, t := range visible {
-				w.Printf("%-*s  %3d active  %3d total\n", tagWidth, t.Tag, t.Active, t.Total)
-			}
+	RunE: runTags,
+}
+
+func runTags(cmd *cobra.Command, args []string) error {
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	res, err := operations.ListTagCounts(tc)
+	if err != nil {
+		return err
+	}
+	warnTask(res.Warning)
+	return cliemit.Emit(cmd, res.Tags, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Project: %s\n\n", formatProjectLabel(res.ProjectDir, res.ProjectID))
+		// The vocabulary enumeration goes through the same display-hide
+		// filter as list/show: a tag hidden by tag_schema's tagma.hide:*
+		// declarations shouldn't surface here either — see hideConfigFor.
+		visible := visibleTagCounts(res.Tags, hideConfigFor(tc))
+		if len(visible) == 0 {
+			w.Println("(no tags in use — apply one with `taskloom tag <harp-id> --add <tag>`)")
 			return w.Err()
-		})
-	},
+		}
+		// Pad the tag column so the counts align; the counts are labeled so
+		// the output is self-describing without a header row.
+		tagWidth := 0
+		for _, t := range visible {
+			if len(t.Tag) > tagWidth {
+				tagWidth = len(t.Tag)
+			}
+		}
+		for _, t := range visible {
+			w.Printf("%-*s  %3d active  %3d total\n", tagWidth, t.Tag, t.Active, t.Total)
+		}
+		return w.Err()
+	})
 }
 
 var summaryCmd = &cobra.Command{
 	Use:   "summary",
 	Short: "Show per-status counts and active in-progress tasks",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		tc, err := taskContextSingle()
-		if err != nil {
-			return err
+	RunE:  runSummary,
+}
+
+func runSummary(cmd *cobra.Command, args []string) error {
+	tc, err := taskContextSingle()
+	if err != nil {
+		return err
+	}
+	res, err := operations.ListTasks(tc, operations.ListOptions{IncludeSummary: true})
+	if err != nil {
+		return err
+	}
+	warnTask(res.Warning)
+	sum := res.Summary
+	return cliemit.Emit(cmd, sum, func() error {
+		// Stable order so output is diffable.
+		keys := make([]string, 0, len(sum.Counts))
+		for k := range sum.Counts {
+			keys = append(keys, k)
 		}
-		res, err := operations.ListTasks(tc, operations.ListOptions{IncludeSummary: true})
-		if err != nil {
-			return err
+		sort.Strings(keys)
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		for _, k := range keys {
+			w.Printf("%s\t%d\n", k, sum.Counts[k])
 		}
-		warnTask(res.Warning)
-		sum := res.Summary
-		return cliemit.Emit(cmd, sum, func() error {
-			// Stable order so output is diffable.
-			keys := make([]string, 0, len(sum.Counts))
-			for k := range sum.Counts {
-				keys = append(keys, k)
-			}
-			sort.Strings(keys)
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			for _, k := range keys {
-				w.Printf("%s\t%d\n", k, sum.Counts[k])
-			}
-			if len(sum.InProgress) > 0 {
-				w.Printf("\nIn-progress: %s\n", strings.Join(sum.InProgress, ", "))
-			}
-			return w.Err()
-		})
-	},
+		if len(sum.InProgress) > 0 {
+			w.Printf("\nIn-progress: %s\n", strings.Join(sum.InProgress, ", "))
+		}
+		return w.Err()
+	})
 }
 
 var statusesCmd = &cobra.Command{
@@ -632,23 +646,25 @@ Lets a GUI render status groups and pickers from the source of truth instead of
 hardcoding the status set. "terminal" marks completed statuses (Done/Archived);
 "requires_trigger" marks statuses that need a revive condition (Deferred).`,
 	Args: cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		statuses := tasks.Statuses()
-		return cliemit.Emit(cmd, statuses, func() error {
-			w := iox.NewErrWriter(cmd.OutOrStdout())
-			for _, s := range statuses {
-				flags := ""
-				if s.Terminal {
-					flags += "\tterminal"
-				}
-				if s.RequiresTrigger {
-					flags += "\trequires-trigger"
-				}
-				w.Printf("%d\t%s%s\n", s.Order, s.Name, flags)
+	RunE: runStatusesCmd,
+}
+
+func runStatusesCmd(cmd *cobra.Command, args []string) error {
+	statuses := tasks.Statuses()
+	return cliemit.Emit(cmd, statuses, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		for _, s := range statuses {
+			flags := ""
+			if s.Terminal {
+				flags += "\tterminal"
 			}
-			return w.Err()
-		})
-	},
+			if s.RequiresTrigger {
+				flags += "\trequires-trigger"
+			}
+			w.Printf("%d\t%s%s\n", s.Order, s.Name, flags)
+		}
+		return w.Err()
+	})
 }
 
 func init() {

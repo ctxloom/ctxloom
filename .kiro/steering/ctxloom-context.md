@@ -696,6 +696,29 @@ Write `text` subject-first: the first line is what the task IS
 truncated there). Put provenance like dates or session names on a
 later line, not the first.
 
+## Check the log before you start, and again before you finish
+
+**Before starting work**, look for open tasks that touch what you are
+about to change. One may already hold the root cause, a decision
+someone already made, or a constraint you would otherwise rediscover
+the hard way — and it may show that someone else is mid-flight in the
+same files. Search by AREA, not just by title, since a task about your
+code may be named for its symptom:
+
+    taskloom list --term <symbol, path, or error string>
+    taskloom list --tag-query <area>
+
+**Before finishing**, scan again for tasks in the same area. If your
+change satisfies one, say so and offer to close it — quote what the
+task asked for and what you actually did, so the reader can judge
+rather than take your word. If it satisfies a task only in part, edit
+the task to record what is now done and what remains, instead of
+leaving it whole and letting the next person redo the finished half.
+
+Both halves matter for the same reason: a task nobody rereads gets
+solved twice, and a task silently satisfied but left open is
+indistinguishable from work never done.
+
 ## Plan stamping
 
 When you edit a plan file (`CURRENT_PLAN.md`, `*-plan.md`,

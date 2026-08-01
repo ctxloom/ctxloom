@@ -30,27 +30,27 @@
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 5 22fdb4df169aa29b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 5 868179845751bc91",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 5 22fdb4df169aa29b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 5 868179845751bc91",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 5 22fdb4df169aa29b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 5 868179845751bc91",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 5 22fdb4df169aa29b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 5 868179845751bc91",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 5 22fdb4df169aa29b",
+            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 5 868179845751bc91",
             "timeout": 60,
             "type": "command"
           }

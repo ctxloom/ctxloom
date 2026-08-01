@@ -760,6 +760,48 @@ clean-caches:
     done
     echo "after:  $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
 
+# Report Go cache sizes and, above LIMIT_GB, evict the oldest build-cache
+# entries until the build cache is back under the limit. The SIZE bound that
+# `clean-caches` (all-or-nothing) and Go itself do not provide.
+#
+# WHY: ~/.cache/go-build is one unbounded directory shared by the host, gopls,
+# every worktree, and every `just _run` container (see the GOCACHE mount in
+# _run — that sharing is deliberate and stays). Go's own trim only evicts
+# entries unused for ~5 days, so the cache is bounded at ~5 days of churn;
+# a heavy multi-agent day here produces ~100 GB, so 5 days is ~500 GB. That is
+# how /home reached 99% full with a 218 GB build cache while Go's trim was
+# working exactly as designed. Worktrees compound it: without -trimpath the
+# compiler embeds absolute source paths, so the same package built in 13
+# ctxloom worktrees is 13 distinct cache entries.
+#
+# Eviction is age-based, the same mechanism as Go's own trim: delete
+# <hash>-a/<hash>-d files older than a cutoff, tightening the cutoff until
+# under the limit. A missing entry is a plain cache miss, never a wrong build,
+# so partial eviction is always safe. NEVER touches ~/go/pkg/mod (expensive to
+# refetch, and not the problem).
+#
+#   just cache-report        report, evict above the 40 GB default
+#   just cache-report 0      report only, evict nothing
+cache-report LIMIT_GB="40":
+    #!/usr/bin/env bash
+    set -uo pipefail
+    gbc="$(go env GOCACHE 2>/dev/null || echo "$HOME/.cache/go-build")"
+    gmc="$(go env GOMODCACHE 2>/dev/null || echo "$HOME/go/pkg/mod")"
+    size_gb() { du -sk "$1" 2>/dev/null | awk '{printf "%.1f", $1/1048576}'; }
+    limit="{{LIMIT_GB}}"
+    echo "GOCACHE     $gbc: $(size_gb "$gbc") GB (limit ${limit} GB)"
+    echo "GOMODCACHE  $gmc: $(size_gb "$gmc") GB (never trimmed here)"
+    echo "disk:       $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
+    if [ ! -d "$gbc" ] || [ "${limit%%.*}" = "0" ]; then exit 0; fi
+    # 5d, 3d, 2d, 1d, 12h, 6h, 2h — stop as soon as we are under the limit.
+    for mins in 7200 4320 2880 1440 720 360 120; do
+        over=$(awk -v a="$(size_gb "$gbc")" -v b="$limit" 'BEGIN{print (a>b)?1:0}')
+        [ "$over" = "1" ] || break
+        echo "  over limit — evicting entries unused for >${mins} min"
+        find "$gbc" -type f \( -name '*-a' -o -name '*-d' \) -mmin +"$mins" -delete 2>/dev/null
+    done
+    echo "after:      $(size_gb "$gbc") GB"
+
 # Prune ephemeral docker images this repo's tooling produces — per-agent-run
 # images (ctxloom-agent:<hash>), integration-test images (ctxloom-*-itest,
 # ctxloom-iso*, ctxloom-coord*), and VS Code devcontainer builds (vsc-*) — plus

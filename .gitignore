@@ -142,3 +142,6 @@ AGENTS.md
 # the repo record. FINDINGS.md and docs/behaviour-changes-*.md are the committed
 # artifacts; this is the scratch ledger behind them.
 DECISIONS.md
+
+# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)
+.codex/auth.json

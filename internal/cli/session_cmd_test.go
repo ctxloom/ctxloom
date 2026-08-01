@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -450,4 +451,73 @@ func TestFileExists(t *testing.T) {
 	assert.True(t, fileExists(regular), "an existing regular file exists")
 	assert.False(t, fileExists(dir), "a DIRECTORY is not a file — the whole point of the IsDir check")
 	assert.False(t, fileExists(filepath.Join(dir, "absent.md")), "a missing path does not exist")
+}
+
+// --- Phase 2: direct tests for the extracted `session` RunE bodies ----------
+
+// loadSessionEntries normalizes nil to an empty slice. That is the difference
+// between `[]` and `null` in `session list --format json` — "no sessions" vs
+// "the field is missing" for a consumer — and it has to hold on BOTH the
+// per-project and the --all path, because --distill calls this twice.
+func TestLoadSessionEntries_NeverReturnsNil(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("HOME", dir)
+
+	for _, all := range []bool{false, true} {
+		entries, err := loadSessionEntries(all)
+		require.NoError(t, err, "all=%v", all)
+		require.NotNil(t, entries, "all=%v: a nil slice marshals to null, not []", all)
+		assert.Empty(t, entries, "all=%v", all)
+	}
+}
+
+// undistilledSessionError tells the two "nothing to print" cases apart. They
+// are NOT interchangeable: a pending harp has nothing to distill, so telling
+// the user to run `session distill` on it is advice that cannot work.
+func TestUndistilledSessionError_DistinguishesPendingFromUndistilled(t *testing.T) {
+	pending := undistilledSessionError("amber-swift-owl", "")
+	require.Error(t, pending)
+	assert.Contains(t, pending.Error(), "pending")
+	assert.NotContains(t, pending.Error(), "session distill",
+		"a harp with no backend session bound has nothing to distill; naming the command would be unusable advice")
+
+	bound := undistilledSessionError("amber-swift-owl", "sess-123")
+	require.Error(t, bound)
+	assert.Contains(t, bound.Error(), "ctxloom session distill amber-swift-owl",
+		"a bound-but-uncompacted harp must name the command that fixes it")
+}
+
+func TestRunSessionRenameAndDelete_ReportWhatTheyDid(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	t.Setenv("HOME", dir)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp(dir, "claude-code")
+	require.NoError(t, err)
+	harp := entry.HarpName
+
+	var renamed bytes.Buffer
+	rc := &cobra.Command{}
+	rc.SetOut(&renamed)
+	require.NoError(t, runSessionRename(rc, []string{harp, "bright-keen-hawk"}))
+	assert.Contains(t, renamed.String(), "renamed "+harp)
+	assert.Contains(t, renamed.String(), "bright-keen-hawk")
+
+	var deleted bytes.Buffer
+	dc := &cobra.Command{}
+	dc.SetOut(&deleted)
+	require.NoError(t, runSessionDelete(dc, []string{"bright-keen-hawk"}))
+	// The message has to carry the nuance the retired `forget` spelling carried
+	// in its NAME: the index entry goes, the files do not.
+	assert.Contains(t, deleted.String(), "deleted bright-keen-hawk")
+	assert.Contains(t, deleted.String(), "transcript and essence stay on disk")
+
+	entries, err := loadSessionEntries(true)
+	require.NoError(t, err)
+	for _, e := range entries {
+		assert.NotEqual(t, "bright-keen-hawk", e.HarpName, "the entry must actually be gone from the index")
+	}
 }

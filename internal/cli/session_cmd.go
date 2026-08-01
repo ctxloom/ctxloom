@@ -31,51 +31,73 @@ var (
 var sessionListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List harp-named sessions (default: current project; --all for everything)",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// A closure so --distill can re-read the index after writing fresh
-		// essences, picking up the new summaries and SourceSize. --all spans
-		// every project (ListAllSessions: enriched + activity-sorted like the
-		// per-project path); the default filters to the cwd's project.
-		loadEntries := func() ([]sessions.Entry, error) {
-			if sessionListAll {
-				return operations.ListAllSessions()
-			}
-			wd, _ := os.Getwd()
-			return operations.ListSessionsForProject(wd)
+	RunE:  runSessionList,
+}
+
+func runSessionList(cmd *cobra.Command, _ []string) error {
+	entries, err := loadSessionEntries(sessionListAll)
+	if err != nil {
+		return err
+	}
+	// appDir is the global ctxloom home (cwd-independent), used by --distill
+	// below to detect missing essences.
+	appDir := sessionAppDir()
+	// --distill: compact every row whose essence is missing or stale so the
+	// listing shows a title everywhere. Then re-read the index so the fresh
+	// summaries/sizes render. Without the flag, title-less rows stay as-is.
+	if sessionListDistill {
+		distillMissingOrStale(cmd, entries, appDir)
+		if refreshed, rErr := loadSessionEntries(sessionListAll); rErr == nil {
+			entries = refreshed
 		}
-		entries, err := loadEntries()
-		if err != nil {
-			return err
-		}
-		if entries == nil {
-			entries = []sessions.Entry{}
-		}
-		// appDir is the global ctxloom home (cwd-independent), used by --distill
-		// below to detect missing essences.
-		appDir := ""
-		if cfg, cErr := config.Load(); cErr == nil {
-			appDir = cfg.GetAppDir()
-		}
-		// --distill: compact every row whose essence is missing or stale so the
-		// listing shows a title everywhere. Then re-read the index so the fresh
-		// summaries/sizes render. Without the flag, title-less rows stay as-is.
-		if sessionListDistill {
-			distillMissingOrStale(cmd, entries, appDir)
-			if refreshed, rErr := loadEntries(); rErr == nil {
-				entries = refreshed
-			}
-			if entries == nil {
-				entries = []sessions.Entry{}
-			}
-		}
-		// Default output shape (CLI-primary reorg plan, decision 13): a
-		// lightweight projection — harp, single-line summary, start, end,
-		// essence path — never the full Entry (session_id, transcript paths,
-		// etc. stay off this wire; internal/sessions.Entry's own json posture
-		// is untouched). --full swaps in each session's complete essence body
-		// (see session_full.go); emitSessionRows owns both shapes.
-		return emitSessionRows(cmd, entries, sessionListFull, appDir)
-	},
+	}
+	// Default output shape (CLI-primary reorg plan, decision 13): a
+	// lightweight projection — harp, single-line summary, start, end,
+	// essence path — never the full Entry (session_id, transcript paths,
+	// etc. stay off this wire; internal/sessions.Entry's own json posture
+	// is untouched). --full swaps in each session's complete essence body
+	// (see session_full.go); emitSessionRows owns both shapes.
+	return emitSessionRows(cmd, entries, sessionListFull, appDir)
+}
+
+// loadSessionEntries reads the session index: every project's sessions when
+// all is set (ListAllSessions — enriched + activity-sorted like the
+// per-project path), the cwd's project otherwise.
+//
+// It NORMALIZES nil to an empty slice. That is load-bearing rather than
+// cosmetic: `session list --format json` renders this value directly, and a nil
+// slice marshals to `null` where an empty one marshals to `[]` — the difference
+// between "no sessions" and "the field is missing" for a consumer. Called twice
+// per --distill run (before and after distillation), so the normalization has
+// to live here, not at one call site.
+func loadSessionEntries(all bool) ([]sessions.Entry, error) {
+	load := operations.ListSessionsForProject
+	var entries []sessions.Entry
+	var err error
+	if all {
+		entries, err = operations.ListAllSessions()
+	} else {
+		wd, _ := os.Getwd()
+		entries, err = load(wd)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if entries == nil {
+		entries = []sessions.Entry{}
+	}
+	return entries, nil
+}
+
+// sessionAppDir resolves the global ctxloom home, degrading to "" when config
+// cannot be loaded — the session index is cwd-independent, so a listing must
+// still render for a project with a broken config.
+func sessionAppDir() string {
+	cfg, err := config.Load()
+	if err != nil {
+		return ""
+	}
+	return cfg.GetAppDir()
 }
 
 // sessionEssence is the structured result of `session show`. In json mode a
@@ -96,48 +118,59 @@ var sessionShowCmd = &cobra.Command{
 	Use:   "show <harp-name>",
 	Short: "Print the distilled essence of a harp-named session",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		entry, err := operations.GetSession(args[0])
-		if err != nil {
-			return err
+	RunE:  runSessionShow,
+}
+
+func runSessionShow(cmd *cobra.Command, args []string) error {
+	harp := args[0]
+	entry, err := operations.GetSession(harp)
+	if err != nil {
+		return err
+	}
+	if entry == nil {
+		return fmt.Errorf("harp not found: %q", harp)
+	}
+	essence, distilled := readSessionEssence(harp, entry)
+	essencePath := ""
+	if distilled {
+		essencePath, _ = sessionEssenceInfo(harp, entry, sessionAppDir())
+	}
+	return emit(cmd, sessionEssence{Harp: harp, Distilled: distilled, Essence: essence, EssencePath: essencePath}, func() error {
+		if !distilled {
+			return undistilledSessionError(harp, entry.SessionID)
 		}
-		if entry == nil {
-			return fmt.Errorf("harp not found: %q", args[0])
-		}
-		essence, distilled := readSessionEssence(args[0], entry)
-		essencePath := ""
-		if distilled {
-			appDir := ""
-			if cfg, cErr := config.Load(); cErr == nil {
-				appDir = cfg.GetAppDir()
-			}
-			essencePath, _ = sessionEssenceInfo(args[0], entry, appDir)
-		}
-		return emit(cmd, sessionEssence{Harp: args[0], Distilled: distilled, Essence: essence, EssencePath: essencePath}, func() error {
-			if !distilled {
-				if entry.SessionID == "" {
-					return fmt.Errorf("harp %q is pending (no backend session ID bound yet)", args[0])
-				}
-				return fmt.Errorf("no essence for %q (run `ctxloom session distill %s` to compact this session first)", args[0], args[0])
-			}
-			_, _ = cmd.OutOrStdout().Write([]byte(essence))
-			return nil
-		})
-	},
+		_, _ = cmd.OutOrStdout().Write([]byte(essence))
+		return nil
+	})
+}
+
+// undistilledSessionError explains why there is nothing to print, telling the
+// two cases apart: a harp with no backend session bound yet is PENDING (there
+// is nothing to distill), while a bound one just has not been compacted and
+// names the command that would do it. Text-format only — the structured shape
+// reports distilled:false rather than erroring, so a frontend can show a hint
+// on hover without branching on an exit code.
+func undistilledSessionError(harp, sessionID string) error {
+	if sessionID == "" {
+		return fmt.Errorf("harp %q is pending (no backend session ID bound yet)", harp)
+	}
+	return fmt.Errorf("no essence for %q (run `ctxloom session distill %s` to compact this session first)", harp, harp)
 }
 
 var sessionRenameCmd = &cobra.Command{
 	Use:   "rename <old-harp> <new-harp>",
 	Short: "Rename a harp entry. The backend transcript is unaffected.",
 	Args:  cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := operations.RenameSession(args[0], args[1]); err != nil {
-			return err
-		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("renamed %s → %s\n", args[0], args[1])
-		return w.Err()
-	},
+	RunE:  runSessionRename,
+}
+
+func runSessionRename(cmd *cobra.Command, args []string) error {
+	if err := operations.RenameSession(args[0], args[1]); err != nil {
+		return err
+	}
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Printf("renamed %s → %s\n", args[0], args[1])
+	return w.Err()
 }
 
 // sessionDeleteCmd is the canonical spine's `delete` for the session noun. It
@@ -147,14 +180,16 @@ var sessionDeleteCmd = &cobra.Command{
 	Use:   "delete <harp-name>",
 	Short: "Drop a harp entry from the index. Transcript and essence files stay on disk.",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := operations.ForgetSession(args[0]); err != nil {
-			return err
-		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("deleted %s from the session index (transcript and essence stay on disk)\n", args[0])
-		return w.Err()
-	},
+	RunE:  runSessionDelete,
+}
+
+func runSessionDelete(cmd *cobra.Command, args []string) error {
+	if err := operations.ForgetSession(args[0]); err != nil {
+		return err
+	}
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Printf("deleted %s from the session index (transcript and essence stay on disk)\n", args[0])
+	return w.Err()
 }
 
 var sessionDistillCmd = &cobra.Command{

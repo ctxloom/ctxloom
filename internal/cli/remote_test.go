@@ -2,9 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
@@ -76,4 +78,43 @@ func TestPullResultErr(t *testing.T) {
 		})
 		assert.NoError(t, err, "retraction is the protective mechanism working, not a pull failure")
 	})
+}
+
+// --- Phase 2: direct tests for the extracted `remote` RunE bodies -----------
+
+// renderRemoteList's empty arm is the one that used to be a func literal
+// nested two levels deep inside a composite literal — unreachable from a test
+// without a real config and a real remote store. The guidance it prints is the
+// whole output in that case, so it has to name commands that exist.
+func TestRenderRemoteList_EmptyStoreGuidanceNamesRealCommands(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, renderRemoteList(&buf, &operations.ListRemotesResult{Count: 0}))
+	got := buf.String()
+
+	assert.Contains(t, got, "No remotes configured.")
+	assert.Contains(t, got, "ctxloom remote create")
+	assert.Contains(t, got, "ctxloom remote discover")
+	assert.NotContains(t, got, "ctxloom remote add",
+		"`remote add` was renamed to `remote create`; guidance naming a deleted spelling is worse than none")
+}
+
+// The default marker is the only thing distinguishing two otherwise identical
+// rows, and `remote default` has no read command of its own — this listing IS
+// the read surface for it.
+func TestRenderRemoteList_MarksTheDefault(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, renderRemoteList(&buf, &operations.ListRemotesResult{
+		Count:   2,
+		Default: "origin",
+		Remotes: []operations.RemoteEntry{
+			{Name: "origin", URL: "https://example.test/a"},
+			{Name: "other", URL: "https://example.test/b"},
+		},
+	}))
+	got := buf.String()
+
+	assert.Contains(t, got, "Configured remotes:")
+	assert.Regexp(t, `origin\s+https://example\.test/a \(default\)`, got)
+	assert.Regexp(t, `other\s+https://example\.test/b\n`, got)
+	assert.Equal(t, 1, strings.Count(got, "(default)"), "exactly one remote is the default")
 }

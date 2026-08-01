@@ -66,92 +66,104 @@ Examples:
   ctxloom remote create corp https://git.example.com/corp/ctxloom --forge git
   ctxloom remote create work https://github.mycorp.com/me/ctxloom --forge work-ghe`,
 	Args: cobra.ExactArgs(2),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
+	RunE: runRemoteCreate,
+}
 
-		result, err := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
-			Name:  args[0],
-			URL:   args[1],
-			Forge: remoteAddForge,
-		})
-		if err != nil {
-			return err
-		}
+func runRemoteCreate(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
 
-		if result.Warning != "" {
-			clidiag.Warn("ctxloom", "%s", result.Warning)
-		}
+	result, err := operations.AddRemote(cmd.Context(), cfg, operations.AddRemoteRequest{
+		Name:  args[0],
+		URL:   args[1],
+		Forge: remoteAddForge,
+	})
+	if err != nil {
+		return err
+	}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Added remote '%s' → %s\n", result.Name, result.URL)
-		return nil
-	},
+	if result.Warning != "" {
+		clidiag.Warn("ctxloom", "%s", result.Warning)
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Added remote '%s' → %s\n", result.Name, result.URL)
+	return nil
 }
 
 var remoteDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a remote source",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
-		}
+	RunE:  runRemoteDelete,
+}
 
-		result, err := operations.RemoveRemote(cmd.Context(), cfg, operations.RemoveRemoteRequest{
-			Name: args[0],
-		})
-		if err != nil {
-			return err
-		}
+func runRemoteDelete(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
 
-		fmt.Fprintf(cmd.OutOrStdout(), "Deleted remote '%s'\n", result.Name)
-		return nil
-	},
+	result, err := operations.RemoveRemote(cmd.Context(), cfg, operations.RemoveRemoteRequest{
+		Name: args[0],
+	})
+	if err != nil {
+		return err
+	}
+
+	fmt.Fprintf(cmd.OutOrStdout(), "Deleted remote '%s'\n", result.Name)
+	return nil
 }
 
 var remoteListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
 	Short:   "List configured remotes",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return err
+	RunE:    runRemoteList,
+}
+
+func runRemoteList(cmd *cobra.Command, _ []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+
+	result, err := operations.ListRemotes(cmd.Context(), cfg, operations.ListRemotesRequest{})
+	if err != nil {
+		return err
+	}
+
+	return emit(cmd, result, func() error {
+		return renderRemoteList(cmd.OutOrStdout(), result)
+	})
+}
+
+// renderRemoteList writes the human listing: the empty-store guidance, or one
+// row per remote with the default marked. Split out of the RunE so the
+// rendering can be driven from a value, without a project or a config load.
+func renderRemoteList(out io.Writer, result *operations.ListRemotesResult) error {
+	if result.Count == 0 {
+		fmt.Fprintln(out, "No remotes configured.")
+		fmt.Fprintln(out, "Use 'ctxloom remote create <name> <url>' to add a remote.")
+		fmt.Fprintln(out, "Use 'ctxloom remote discover' to find public repositories.")
+		return nil
+	}
+
+	fmt.Fprintln(out, "Configured remotes:")
+	for _, r := range result.Remotes {
+		var marks string
+		if r.Name == result.Default {
+			marks += " (default)"
 		}
-
-		result, err := operations.ListRemotes(cmd.Context(), cfg, operations.ListRemotesRequest{})
-		if err != nil {
-			return err
-		}
-
-		return emit(cmd, result, func() error {
-			out := cmd.OutOrStdout()
-			if result.Count == 0 {
-				fmt.Fprintln(out, "No remotes configured.")
-				fmt.Fprintln(out, "Use 'ctxloom remote add <name> <url>' to add a remote.")
-				fmt.Fprintln(out, "Use 'ctxloom remote discover' to find public repositories.")
-				return nil
-			}
-
-			fmt.Fprintln(out, "Configured remotes:")
-			for _, r := range result.Remotes {
-				var marks string
-				if r.Name == result.Default {
-					marks += " (default)"
-				}
-				fmt.Fprintf(out, "  %-15s %s%s\n", r.Name, r.URL, marks)
-			}
-			return nil
-		})
-	},
+		fmt.Fprintf(out, "  %-15s %s%s\n", r.Name, r.URL, marks)
+	}
+	return nil
 }
 
 // `ctxloom remote trust|untrust` are DELETED (signature-envelope spec §11).
 // A remote no longer carries trust: it is just an address to fetch from.
-// Trusting a publisher is `ctxloom signer add <principal> --key <path>`, which
+// Trusting a publisher is `ctxloom trust signer create <principal> --key <path>`, which
 // trusts a KEY (verified over the bytes) rather than a LOCATION (hash-blind).
 
 var remoteDefaultCmd = &cobra.Command{
@@ -218,26 +230,28 @@ Examples:
   ctxloom remote pull                    # Pull all dependencies
   ctxloom remote pull --force            # Re-pull even if already installed
   ctxloom remote pull --lock=false       # Skip lockfile update`,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
+	RunE: runRemotePull,
+}
 
-		fmt.Fprintln(cmd.OutOrStdout(), "Pulling dependencies...")
+func runRemotePull(cmd *cobra.Command, _ []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
 
-		result, err := operations.SyncDependencies(cmd.Context(), cfg, operations.SyncDependenciesRequest{
-			Force:      remotePullForce,
-			Lock:       remotePullLock,
-			ApplyHooks: true,
-		})
-		if err != nil {
-			return err
-		}
+	fmt.Fprintln(cmd.OutOrStdout(), "Pulling dependencies...")
 
-		renderPullSummary(cmd.OutOrStdout(), result)
-		return pullResultErr(result)
-	},
+	result, err := operations.SyncDependencies(cmd.Context(), cfg, operations.SyncDependenciesRequest{
+		Force:      remotePullForce,
+		Lock:       remotePullLock,
+		ApplyHooks: true,
+	})
+	if err != nil {
+		return err
+	}
+
+	renderPullSummary(cmd.OutOrStdout(), result)
+	return pullResultErr(result)
 }
 
 // pullResultErr is U039-F02's fix: `remote pull` used to exit 0 even when

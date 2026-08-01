@@ -21,6 +21,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
 func TestRenderAgentList_EngineAndDefault(t *testing.T) {
@@ -251,4 +252,202 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			&operations.ResolvedAgent{Label: "l"}, nil)
 		assert.ErrorIs(t, err, errWriteRefused)
 	})
+}
+
+// --- Phase 2: direct tests for the extracted `agent` RunE bodies -------------
+//
+// Every `agent` leaf's body used to be a func literal inside a
+// &cobra.Command{} composite literal, which lizard's Go parser does not see as
+// a function at all — so none of them were measurable by the complexity gate,
+// and none could be called without going through cobra's argument plumbing.
+// These call the extracted functions DIRECTLY.
+
+// agentProject stands a temp project up with a real config.yaml and chdirs
+// into it, so the extracted bodies run against a genuine config.Config rather
+// than a mock.
+func agentProject(t *testing.T, configYAML string) string {
+	t.Helper()
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, ".ctxloom"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".ctxloom", "config.yaml"), []byte(configYAML), 0o644))
+	t.Chdir(root)
+	config.Invalidate()
+	t.Cleanup(config.Invalidate)
+	return root
+}
+
+// textCmd is a bare cobra command wired to a buffer, for calling an extracted
+// RunE without registering anything on the root tree.
+func textCmd() (*cobra.Command, *bytes.Buffer) {
+	var buf bytes.Buffer
+	c := &cobra.Command{}
+	c.SetOut(&buf)
+	c.SetErr(&bytes.Buffer{})
+	c.SetContext(context.Background())
+	return c, &buf
+}
+
+func TestRunAgentList_EmptyAndPopulated(t *testing.T) {
+	t.Run("no agents", func(t *testing.T) {
+		agentProject(t, "version: 6\n")
+		cmd, out := textCmd()
+		require.NoError(t, runAgentList(cmd, nil))
+		assert.Contains(t, out.String(), "No agents defined.")
+	})
+
+	t.Run("one agent", func(t *testing.T) {
+		agentProject(t, "version: 6\nagents:\n  dev:\n    engine: claude-code\n    profiles: [default]\n")
+		cmd, out := textCmd()
+		require.NoError(t, runAgentList(cmd, nil))
+		got := out.String()
+		assert.Contains(t, got, "Agents (1):")
+		assert.Contains(t, got, "dev")
+		assert.Contains(t, got, "engine: claude-code")
+	})
+}
+
+// The courtesy "help" shortcut only fires for an ABSENT agent — a DEFINED
+// agent literally named "help" must still be showable. Both directions are
+// driven here because the guard is a single `if` that reads correctly either
+// way if you only test one of them.
+func TestRunAgentShow_HelpShortcutOnlyWhenAbsent(t *testing.T) {
+	t.Run("absent help renders command help", func(t *testing.T) {
+		agentProject(t, "version: 6\n")
+		// The REAL command, not a bare one: cobra's help template renders from
+		// Use/Short/Long, so a stub command would "pass" by printing nothing.
+		var out bytes.Buffer
+		agentShowCmd.SetOut(&out)
+		agentShowCmd.SetContext(context.Background())
+		t.Cleanup(func() { agentShowCmd.SetOut(nil); agentShowCmd.SetContext(context.Background()) })
+
+		require.NoError(t, runAgentShow(agentShowCmd, []string{"help"}),
+			"an ABSENT agent named help is the courtesy help request, not an error")
+		assert.Contains(t, out.String(), "Usage")
+		assert.Contains(t, out.String(), "agent show")
+	})
+
+	t.Run("an agent named help is shown, not swallowed", func(t *testing.T) {
+		agentProject(t, "version: 6\nagents:\n  help:\n    profiles: [default]\n")
+		cmd, out := textCmd()
+		require.NoError(t, runAgentShow(cmd, []string{"help"}))
+		assert.Contains(t, out.String(), "Agent: help")
+	})
+}
+
+// checkAgentExistence is the whole point of splitting the old upsert `agent
+// set` into create + edit: each verb refuses exactly the case the other owns.
+func TestCheckAgentExistence_EachVerbRefusesTheOthersCase(t *testing.T) {
+	agentProject(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n")
+	cfg, err := GetConfig()
+	require.NoError(t, err)
+
+	assert.NoError(t, checkAgentExistence(cfg, "brand-new", false), "create accepts an unused name")
+	assert.NoError(t, checkAgentExistence(cfg, "dev", true), "edit accepts an existing name")
+
+	err = checkAgentExistence(cfg, "dev", false)
+	require.Error(t, err, "create must refuse a name that already exists")
+	assert.Contains(t, err.Error(), "already exists")
+	assert.Contains(t, err.Error(), "ctxloom agent edit dev", "the refusal must name the verb that does apply")
+
+	err = checkAgentExistence(cfg, "nope", true)
+	require.Error(t, err, "edit must refuse a name nothing defines")
+	assert.Contains(t, err.Error(), "no agent named")
+	assert.Contains(t, err.Error(), "ctxloom agent create nope")
+}
+
+// buildSetAgentRequest must send ONLY the flags the caller typed: a nil field
+// means "not named", which SetAgent keeps at its existing value. An unset flag
+// leaking through as a non-nil zero value is how `agent edit dev --runtime
+// container` used to wipe dev's engine, profiles and escalation ladder.
+func TestBuildSetAgentRequest_OnlySendsChangedFlags(t *testing.T) {
+	cmd := &cobra.Command{}
+	registerAgentWriteFlags(cmd)
+	require.NoError(t, cmd.Flags().Parse([]string{"--runtime", "container"}))
+
+	req := buildSetAgentRequest(cmd, "dev")
+	assert.Equal(t, "dev", req.Name)
+	require.NotNil(t, req.Runtime, "the flag that WAS typed must be sent")
+	assert.Equal(t, "container", *req.Runtime)
+	assert.Nil(t, req.Engine, "an untyped flag must stay nil so SetAgent preserves it")
+	assert.Nil(t, req.Profiles)
+	assert.Nil(t, req.Permissions)
+	assert.Nil(t, req.Coordinator)
+	assert.Nil(t, req.Driving)
+}
+
+// An explicitly-supplied empty value is a CLEAR, not a "not named" — the two
+// are the same string at the flag layer and only Changed() tells them apart.
+func TestBuildSetAgentRequest_ExplicitEmptyIsSentAsAClear(t *testing.T) {
+	cmd := &cobra.Command{}
+	registerAgentWriteFlags(cmd)
+	require.NoError(t, cmd.Flags().Parse([]string{"--engine", ""}))
+
+	req := buildSetAgentRequest(cmd, "dev")
+	require.NotNil(t, req.Engine, `--engine "" must be sent, not treated as unnamed`)
+	assert.Equal(t, "", *req.Engine)
+}
+
+func TestRenderAgentWritten_NamesWhichVerbRan(t *testing.T) {
+	entry := &operations.AgentEntry{Name: "dev", Profiles: []string{"a", "b"}, Runtime: "container", Coordinator: true}
+
+	var created bytes.Buffer
+	require.NoError(t, renderAgentWritten(&created, entry, false))
+	assert.Contains(t, created.String(), `Created agent "dev"`)
+	assert.Contains(t, created.String(), "profiles: a, b")
+	assert.Contains(t, created.String(), "runtime: container")
+	assert.Contains(t, created.String(), "coordinator: true")
+
+	var edited bytes.Buffer
+	require.NoError(t, renderAgentWritten(&edited, entry, true))
+	assert.Contains(t, edited.String(), `Updated agent "dev"`)
+}
+
+// An agent with no declared engine reads as the project default, not as an
+// empty string the user has to interpret.
+func TestRenderAgentWritten_BlankEngineReadsAsProjectDefault(t *testing.T) {
+	var buf bytes.Buffer
+	require.NoError(t, renderAgentWritten(&buf, &operations.AgentEntry{Name: "dev"}, false))
+	assert.Contains(t, buf.String(), "engine: project default")
+}
+
+func TestRenderDefaultAgent_BothArms(t *testing.T) {
+	var unset bytes.Buffer
+	require.NoError(t, renderDefaultAgent(iox.NewErrWriter(&unset), ""))
+	assert.Contains(t, unset.String(), "No default agent set.")
+
+	var set bytes.Buffer
+	require.NoError(t, renderDefaultAgent(iox.NewErrWriter(&set), "dev"))
+	assert.Contains(t, set.String(), "Default agent: dev")
+}
+
+// `agent default <name>` is advisory about an unknown name (it warns and binds
+// anyway) but must still PERSIST the choice — a warn-and-do-nothing would look
+// identical on stdout.
+func TestRunAgentDefault_PersistsTheBinding(t *testing.T) {
+	root := agentProject(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n")
+	cmd, out := textCmd()
+	require.NoError(t, runAgentDefault(cmd, []string{"dev"}))
+	assert.Contains(t, out.String(), `Set default agent to "dev"`)
+
+	raw, err := os.ReadFile(filepath.Join(root, ".ctxloom", "config.yaml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "dev", "the binding must reach disk, not just stdout")
+
+	config.Invalidate()
+	cfg, err := GetConfig()
+	require.NoError(t, err)
+	assert.Equal(t, "dev", cfg.GetDefaultAgent())
+}
+
+func TestRunAgentDelete_RemovesAndReports(t *testing.T) {
+	agentProject(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n")
+	cmd, out := textCmd()
+	require.NoError(t, runAgentDelete(cmd, []string{"dev"}))
+	assert.Contains(t, out.String(), `Deleted agent "dev"`)
+
+	config.Invalidate()
+	cfg, err := GetConfig()
+	require.NoError(t, err)
+	_, ok := cfg.Agent("dev")
+	assert.False(t, ok, "the agent must be gone from config, not merely reported gone")
 }

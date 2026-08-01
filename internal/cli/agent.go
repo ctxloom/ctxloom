@@ -52,16 +52,18 @@ var agentListCmd = &cobra.Command{
 	Use:     "list",
 	Aliases: []string{"ls"},
 	Short:   "List all local agents",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		list := operations.ListAgents(cfg)
-		return emit(cmd, list, func() error {
-			return renderAgentList(cmd.OutOrStdout(), list)
-		})
-	},
+	RunE:    runAgentList,
+}
+
+func runAgentList(cmd *cobra.Command, _ []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	list := operations.ListAgents(cfg)
+	return emit(cmd, list, func() error {
+		return renderAgentList(cmd.OutOrStdout(), list)
+	})
 }
 
 // renderAgentList writes the human-readable summary of the agent list.
@@ -108,35 +110,37 @@ var agentShowCmd = &cobra.Command{
 	Use:   "show <name>",
 	Short: "Show an agent and its resolved engine",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-		cfg, err := GetConfig()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
+	RunE:  runAgentShow,
+}
 
-		def, err := operations.GetAgent(cfg, name)
-		if err != nil {
-			// "help" is a legal agent name; the courtesy shortcut fires only
-			// when there is no such agent (see runBundleShow).
-			if name == helpArgName {
-				return cmd.Help()
-			}
-			return err
+func runAgentShow(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	def, err := operations.GetAgent(cfg, name)
+	if err != nil {
+		// "help" is a legal agent name; the courtesy shortcut fires only
+		// when there is no such agent (see runBundleShow).
+		if name == helpArgName {
+			return cmd.Help()
 		}
-		// Resolve the engine/backend (and compose the profiles) so the override
-		// behavior is visible. Resolution is fault-tolerant for show: a failure
-		// (e.g. a missing constituent profile) still prints the definition with a
-		// warning rather than failing the command.
-		resolved, rerr := operations.ResolveAgent(cmd.Context(), cfg, name, "")
-		payload := agentShowJSON{Definition: def, Resolved: resolved}
-		if rerr != nil {
-			payload.ResolutionError = rerr.Error()
-		}
-		return emit(cmd, payload, func() error {
-			return renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr)
-		})
-	},
+		return err
+	}
+	// Resolve the engine/backend (and compose the profiles) so the override
+	// behavior is visible. Resolution is fault-tolerant for show: a failure
+	// (e.g. a missing constituent profile) still prints the definition with a
+	// warning rather than failing the command.
+	resolved, rerr := operations.ResolveAgent(cmd.Context(), cfg, name, "")
+	payload := agentShowJSON{Definition: def, Resolved: resolved}
+	if rerr != nil {
+		payload.ResolutionError = rerr.Error()
+	}
+	return emit(cmd, payload, func() error {
+		return renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr)
+	})
 }
 
 // agentShowJSON is the --format json shape for `agent show`: the declared
@@ -450,44 +454,60 @@ Examples:
   ctxloom agent default            # show the current default agent
   ctxloom agent default dev        # make 'dev' the default agent`,
 	Args: cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		cfg, err := GetConfigForUpdate()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
-		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
+	RunE: runAgentDefault,
+}
 
-		// No argument: report the current default agent.
-		if len(args) == 0 {
-			if cfg.GetDefaultAgent() == "" {
-				w.Println("No default agent set.")
-				return w.Err()
-			}
-			w.Printf("Default agent: %s\n", cfg.GetDefaultAgent())
-			return w.Err()
-		}
+func runAgentDefault(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfigForUpdate()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	w := iox.NewErrWriter(cmd.OutOrStdout())
 
-		name := args[0]
-		// Advisory only (fault tolerance): warn but don't block when the named
-		// agent isn't defined yet — a bare run degrades gracefully and the user
-		// may define it next. An UNDEFINED agent named "help" is read as the
-		// courtesy help request instead, so `ctxloom agent default help` does
-		// not quietly bind a default nobody asked for; a DEFINED one is bound.
-		if _, ok := cfg.Agent(name); !ok {
-			if name == helpArgName {
-				return cmd.Help()
-			}
-			clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
+	// No argument: report the current default agent.
+	if len(args) == 0 {
+		return renderDefaultAgent(w, cfg.GetDefaultAgent())
+	}
+
+	name := args[0]
+	// Advisory only (fault tolerance): warn but don't block when the named
+	// agent isn't defined yet — a bare run degrades gracefully and the user
+	// may define it next. An UNDEFINED agent named "help" is read as the
+	// courtesy help request instead, so `ctxloom agent default help` does
+	// not quietly bind a default nobody asked for; a DEFINED one is bound.
+	if _, ok := cfg.Agent(name); !ok {
+		if name == helpArgName {
+			return cmd.Help()
 		}
-		if err := config.NewManager().Update(func(d *config.Draft) error {
-			d.DefaultAgent = name
-			return nil
-		}); err != nil {
-			return fmt.Errorf("failed to save config: %w", err)
-		}
-		w.Printf("Set default agent to %q.\n", name)
+		clidiag.Warn("ctxloom", "agent %q is not defined yet; a bare `ctxloom run` will degrade to empty context until it is", name)
+	}
+	if err := setDefaultAgent(name); err != nil {
+		return err
+	}
+	w.Printf("Set default agent to %q.\n", name)
+	return w.Err()
+}
+
+// renderDefaultAgent writes the no-argument report: which agent a bare
+// `ctxloom run` binds, or that none is set.
+func renderDefaultAgent(w *iox.ErrWriter, current string) error {
+	if current == "" {
+		w.Println("No default agent set.")
 		return w.Err()
-	},
+	}
+	w.Printf("Default agent: %s\n", current)
+	return w.Err()
+}
+
+// setDefaultAgent persists `default_agent` in .ctxloom/config.yaml.
+func setDefaultAgent(name string) error {
+	if err := config.NewManager().Update(func(d *config.Draft) error {
+		d.DefaultAgent = name
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+	return nil
 }
 
 // agentDeleteCmd deletes a config-key agent and persists the removal.
@@ -495,23 +515,25 @@ var agentDeleteCmd = &cobra.Command{
 	Use:   "delete <name>",
 	Short: "Delete a local agent from config.yaml",
 	Args:  cobra.ExactArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		name := args[0]
-		cfg, err := GetConfigForUpdate()
-		if err != nil {
-			return fmt.Errorf("failed to load config: %w", err)
+	RunE:  runAgentDelete,
+}
+
+func runAgentDelete(cmd *cobra.Command, args []string) error {
+	name := args[0]
+	cfg, err := GetConfigForUpdate()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+	if err := operations.RemoveAgent(config.NewManager(), cfg, name); err != nil {
+		// See runAgentShow: only an ABSENT "help" is the courtesy request.
+		if name == helpArgName {
+			return cmd.Help()
 		}
-		if err := operations.RemoveAgent(config.NewManager(), cfg, name); err != nil {
-			// See agentShowCmd: only an ABSENT "help" is the courtesy request.
-			if name == helpArgName {
-				return cmd.Help()
-			}
-			return err
-		}
-		w := iox.NewErrWriter(cmd.OutOrStdout())
-		w.Printf("Deleted agent %q\n", name)
-		return w.Err()
-	},
+		return err
+	}
+	w := iox.NewErrWriter(cmd.OutOrStdout())
+	w.Printf("Deleted agent %q\n", name)
+	return w.Err()
 }
 
 func init() {

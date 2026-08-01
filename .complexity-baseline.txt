@@ -81,7 +81,6 @@
 ./internal/cli/mcp_tools_memory.go|(s*ctxServer)handleGetPreviousSession ctx context . Context , _ * mcp . CallToolRequest , in getPreviousSessionInput|1|14|handleGetPreviousSession|456-525
 ./internal/cli/mcp_tools_memory.go|(s*ctxServer)loadOrDistillSession ctx context . Context , sessionID , backendName , model string , redistillWhenUnknown bool|1|16|loadOrDistillSession|658-752
 ./internal/cli/remote_discover.go|runRemoteDiscover cmd * cobra . Command , args [ ] string , loadConfig func * config . Config , error , fetcher remote . Fetcher|1|11|runRemoteDiscover|51-134
-./internal/cli/run.go|runRun cmd * cobra . Command , args [ ] string|1|92|runRun|352-1308
 ./internal/cli/run_owned.go|renderOwnedRunEvents ctx context . Context , out io . Writer , format , runID string , events < - chan * agentcoordpb . AgentEvent , turnIdle chan < - string , capture bool|1|27|renderOwnedRunEvents|295-404
 ./internal/cli/run_owned.go|runStructuredREPLViaCoord ctx context . Context , sess * ownedRunSession , format string , stdin io . Reader , stdout io . Writer|1|13|runStructuredREPLViaCoord|140-213
 ./internal/cli/run_structured.go|decodeMessageLine s string|1|11|decodeMessageLine|432-464

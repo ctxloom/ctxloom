@@ -13,13 +13,25 @@ No code was changed. No ledger row was edited. A human applies these.
 
 ## Verdict summary
 
-| bucket | count |
-|---|---|
-| STILL LIVE | 22 |
-| FIXED | 1 |
-| NEVER HELD | 0 |
-| CANNOT DETERMINE | 1 |
-| **total** | **24** |
+| bucket | count | IDs |
+|---|---|---|
+| STILL LIVE | 19 | U020-F05, F06, F08, F09, F10, F13, F14, F15, F16, F17, F18; U025-F03, F04; U049-F13, F14, F16, F18, F24, F25 |
+| FIXED | 3 | U020-F07 @ `c2c4195d`; U049-F11 @ `428ce9ae`; U049-F12 @ `00396a53` |
+| NEVER HELD | 2 | U049-F17, U049-F19 |
+| CANNOT DETERMINE | 0 | — |
+| **total** | **24** | |
+
+**Read the "STILL LIVE" count with care.** 19 is not 19 bugs. Only **U020-F05** and
+**U020-F09/F10** describe a defect with a user-visible failure and no mitigation. Six rows
+(`U020-F17`, `U025-F04`, `U049-F24`, and the two complexity rows `U020-F13`/`U049-F25`)
+are STILL LIVE only in the sense that *the code is unchanged* — they have **no failure
+path at all**, and by this triage's own standard ("a claim with no failure path is not a
+finding") they should be closed as accepted/hardening rather than carried as defects.
+Severity is stated per row; the count is not a priority signal.
+
+All three FIXED rows were fixed **incidentally, under a different ID** — none was closed
+by work that set out to close it. See "Cross-cutting findings" for what that implies about
+the ledger.
 
 ---
 
@@ -413,7 +425,257 @@ carrying it as an open defect.
 
 ---
 
+## U049 — `internal/config`
+
+### U049-F16 — STILL LIVE — every config write destroys comments and reorders keys
+
+`internal/config/config_save.go:145` (`yaml.Unmarshal(existingData, &existing)` into
+`map[string]interface{}`) and `:89` (`yaml.Marshal(existing)`).
+*Drift: cited `:126` and `:165`.*
+
+The sort was confirmed at the library, not assumed: `gopkg.in/yaml.v3@v3.0.1/encode.go:186-189`
+(`encoder.mapv`) does `keys := keyList(in.MapKeys()); sort.Sort(keys)`. A
+`map[string]interface{}` carries no comment nodes at all, so comments cannot survive the
+round trip.
+
+**Failure path.** A user hand-writes `.ctxloom/config.yaml` with header comments and their
+own key order, then runs **any** write command — `ctxloom mcp add`, `ctxloom agent
+add/set`, `ctxloom manage statusline on`, anything routed through `Manager.Update`
+(`config_manager.go:70` → `saveLocked`). Every comment is destroyed and every key at every
+level is re-emitted in sort order. The user ran an unrelated command and got an unrelated
+whole-file rewrite, silently and irreversibly without VCS.
+
+**Demonstrated, not inferred.** A standalone probe reproducing exactly that round trip
+(`yaml.Unmarshal` into `map[string]interface{}` → `yaml.Marshal`):
+
+```yaml
+# BEFORE                                          # AFTER
+# ctxloom project config -- hand written…         agents: {}
+version: 6                                        llm:
+                                                      default: claude-code
+llm:                                              profiles:
+  # our default backend                               dev:
+  default: claude-code                                    parents:
+                                                              - base
+profiles:                                         version: 6
+  # the profile we actually use
+  dev:
+    parents: [base]
+
+agents: {}
+```
+
+All four comments destroyed; key order changed from authored (`version, llm, profiles,
+agents`) to alphabetical; inline flow style `[base]` rewritten to block style.
+
+**Severity: MED-HIGH — the highest-impact row outside U020.** Large blast radius (every
+write command), fully silent, and it directly contradicts the same file's own
+`commitPendingUpgrade` (`config_save.go:53`), which exists specifically to write bytes
+verbatim *"so the comments and key order preserved by the node rewrite survive"*. The
+codebase already knows how to do this correctly, twenty lines away.
+
+### U049-F14 — STILL LIVE (via a different mechanism than the row states)
+
+`internal/config/config_migrate.go:24-27` (package-global `migrationWarnMu` /
+`migrationWarnings`), drained at `config.go:1574` inside `loadConfigLayer` — per-*layer*.
+`Load()` takes `ambientMu` only on the no-arg path; `config.go:1101-1105` returns
+`loadUncached(opts...)` **before** the lock whenever any option is passed.
+
+**Failure path.** `internal/agentcoord/coord/spawner.go:323` calls
+`loadConfig(config.WithAppDir(appPaths[0]))` — `Load` *with* options, so `ambientMu` is
+bypassed. That runs under `prodSpawner.resolveCfg` → `Resolve` → `Coordinator.AgentRun`
+(`children.go:255`), one goroutine per concurrent child spawn. Two concurrent `agent_run`
+calls against a pre-v6 config whose migration hits a lossy branch
+(`config_migrate.go:233` or `:599`): goroutine A records the warning, B's drain collects
+it, A's drain returns empty. A's `*Config` carries zero warnings, so
+`WarnKindMigrationLossy` never reaches A's strict-mode gate and the dropped setting goes
+unreported for that load.
+
+**Severity: LOW.** No data race (the mutex holds) and the *multiset* of warnings is
+unchanged — only its attribution, and only for a pre-v6 config with a lossy branch. A
+genuine fail-loudly hole, narrowly reachable.
+
+**Drift — two cited facts are stale.** *"`Manager.Update` calls `loadUncached` twice per
+transaction"* is **false**: U049-F15 cut it to once (`config_manager.go:98`). The drain is
+`config.go:1574`, not `:1471`. And the row's stated mechanism ("each child re-loading
+config") misdescribes it — children are separate *processes* with their own globals; the
+real concurrency is in-process `AgentRun` handlers.
+
+### U049-F18 — STILL LIVE — v3→v4 deletes three user-set keys with no lossy warning
+
+`internal/config/config_migrate.go:336-338` — `upgrade.MapDelete(entry, "trust_workspace")`
+/ `"approval_mode"` / `"binary_path"`, with no `recordMigrationWarning`.
+*Drift: cited `:322-324`; the sibling call is `:233`, not `:219`.*
+
+The mechanism is wired and used twice in the same file (`:233`, `:599`) and maps to
+`WarnKindMigrationLossy` → `strictness.ClassMigration`, fatal in strict mode
+(`warnings.go:36,47`).
+
+**Failure path.** A v3-or-older config with
+`llm.configs.<label>: {type: gemini, binary_path: /opt/bin/gemini, approval_mode: …, trust_workspace: true}`.
+On load, `geminiToAntigravityUpgrade.Apply` flips the type and deletes all three keys. The
+rewrite prompt names the *upgrade*, not the losses; strict mode does not abort; nothing
+tells the user their configured binary path was discarded.
+
+**Severity: LOW-MED.** Narrow (only `type: gemini` on a pre-v4 config), and `binary_path`
+genuinely could not be carried forward — it pointed at a binary the new backend cannot
+run. **The defect is the silence, not the deletion.** Cheap to fix.
+
+### U049-F13 — STILL LIVE — exponential parent resolution
+
+`internal/config/config_resolve.go:306` —
+`resolveProfileRecursive(profiles, parentName, visited.Clone(), builder, depth+1)`
+inside `resolveProfileParents`'s per-parent loop. No memoization. `maxProfileDepth = 64`
+at `:270`.
+
+**Drift — hard.** The cited `:337` now lands inside `mergeProfileValues` (`:322-371`) and
+has nothing to do with the claim. `resolveProfileRecursive` was split into
+`guardProfileResolution` (`:279`) and `resolveProfileParents` (`:304`); it is itself now
+only CCN 3. The defect survived the refactor and moved to `:306`.
+
+**Failure path.** `guardProfileResolution` marks `visited` only on the clone, so the
+visited set prevents re-entry along one *path*, never across siblings. 30 profiles where
+`p<i>` declares `parents: [p<i+1>, p<i+1>]` — a diamond is not even required, the same
+parent listed twice suffices, because iteration 2 clones the *pre-mutation* set and never
+sees iteration 1's visit. Depth reaches ~30, well under 64, so the guard never fires and
+the resolver performs ~2^30 merges. `ctxloom run -p p0` hangs burning CPU with no
+diagnostic.
+
+**Severity: LOW.** Requires a deliberately pathological hand-written config; no privilege
+boundary is crossed and no ordinary typo produces it. Real, but it is a
+hang-your-own-shell bug.
+
+### U049-F24 — STILL LIVE, but not a defect
+
+`internal/config/home.go:17` (no drift — `HomeConfigDir` is still on line 17). One
+production caller, `config.go:1399` *(drift: cited `:1319`)*.
+
+Refutation attempted and failed, independently on both sides: `internal/paths` does **not**
+import `internal/config`, and `config.AppDirName` is merely an alias of
+`paths.AppDirName` (`config.go:38`), so the move is unblocked by any cycle. `internal/paths`
+still holds `HomeSessionsDir:170`, `HomeApprovalsPath:399`, `HomeAllowedSignersPath:419`,
+`HomeDistrustedSignersPath:444` in the identical shape.
+
+**No failure path — no input produces a wrong outcome.** A file-placement observation.
+**Severity: none.**
+
+### U049-F25 — STILL LIVE (measured), gate framing needs rewording
+
+Measured with the exact CI command at `d4c7da2c`. Six functions over gate, not five —
+the row missed one, and two figures drifted up:
+
+| function | CCN today | claimed | line today | cited |
+|---|---|---|---|---|
+| `migrateLLMv3` | **31** | 31 | `:166` | `:152` |
+| `Apply` | **19** | 18 | `:316` | `:302` |
+| `Apply` | **16** | 15 | `:86` | `:72` |
+| `migrateDefaultAgentV6` | **14** | 14 | `:559` | `:545` |
+| `migrateProfilesV3` | **13** | 13 | `:256` | `:242` |
+| `Apply` | **11** | — *(missed)* | `:397` | — |
+
+**Severity: LOW as a per-function item.** See "Cross-cutting findings" — the gate is
+violated at 278 sites repo-wide and never actually runs. These six are in no way
+distinguished among them, and fixing `config_migrate.go` alone would not turn it green.
+
+### U049-F11 — FIXED @ `428ce9ae` (+ `442e7aae`)
+
+The three byte-identical builtin loops are gone: `config_bundles.go:777` is now the single
+`eachBuiltinBundle(fn)`, and the three former sites (`:214`, `:508`, `:571`) are one-line
+callbacks. The row's sharpest evidence — *"the three builtin loops disagree on the
+`ListBuiltinBundles` error path, two `return out` and one falls through"* — is resolved
+into one canonical `return` at `:781`. The four profile-scope loops now share
+`resolveProfileScope` (`:366`) and `resolveProfileOrReport`.
+
+`428ce9ae` — *"fix(U047-F12, U047-F11): one canonical parse for builtin bundles"*, plus
+`442e7aae` for the profile-loop extraction. Both in `0f59fbae..HEAD`. Neither names U049-F11.
+
+**Residual (not the row's subject):** the guard *spelling* still varies three ways —
+`config_bundles.go:132`, `:330`, `:404`/`:450`. Cosmetic; the duplication is gone.
+
+### U049-F12 — FIXED @ `00396a53`
+
+`config_resolve.go:239-241` now reads:
+
+```go
+ExcludeFragments: collections.SortedKeys(b.ExcludeFragments),
+ExcludeMCP:       collections.SortedKeys(b.ExcludeMCP),
+DenyTools:        collections.SortedKeys(b.DenyTools),
+```
+
+— exactly the three fields the row named. `collections.Set.Items()` is still unordered
+(`internal/shared/collections/set.go:50-58`); it is simply no longer on this path.
+
+`00396a53` — *"fix(U106-F06): give a resolved Profile's set-backed fields a stable order"*.
+Incidental: closed under a different unit's ID. *Drift: `toProfile` is at `:197`, not
+`:270-272`.*
+
+**Residual worth a look (nobody's row).** Five sibling fields in the same struct literal
+still use unordered `.Items()` — `Tags:222`, `SelectTags:223`, `Bundles:224`,
+`BundleItems:225`, `Commands:227`. The fix was applied to the three fields the finding
+named, not to the class. Whether any of those five reach a hashed or written artifact was
+**not** determined here and should be checked.
+
+### U049-F17 — NEVER HELD
+
+`config_bundles.go:699` and `:745` *(drift: cited `:671`, `:717`)* withhold on a bare
+`continue` when `ContentPayload()` errors — but that error branch is unreachable.
+`BundleHook.ContentPayload` (`internal/bundles/bundles.go:783`) and `BundleMCP.ContentPayload`
+(`:722`) are `json.Marshal` over structs holding only `string`, `[]string`,
+`map[string]string` and `bool` — no chan, func, cyclic reference or NaN, none of which
+`json.Marshal` can fail on.
+
+The codebase asserts this itself: both `ComputeContentHash` wrappers annotate the error
+branch *"Unreachable: the struct holds only strings/[]string/map[string]string, none of
+which json.Marshal can fail on."*
+
+So **no user's hook or MCP server can disappear through this path.** The row's premise —
+"a user's configured executable silently disappears from the launched engine" — has no
+input that produces it. Adding a warn to unreachable defensive code is not a fix.
+
+### U049-F19 — NEVER HELD
+
+Half the row is right and the load-bearing half is wrong.
+
+**Right:** `config_types.go:96` does construct `FragmentRef{Name: ""}` from an empty
+scalar. Verified empirically against `yaml.v3` — a bare `- ` yields
+`Kind=ScalarNode, Tag="!!null", Value=""`, which takes the scalar branch. (`- ~` and
+`- null` are *worse* than the row claimed: they yield `Name: "~"` and `Name: "null"`.)
+
+**Wrong: "with no error".** `resources/schema/input/config-schema.json:160-186` requires
+each `fragments` item to be either a string with `minLength: 1` or an object with a
+`minLength: 1` name. `validator.ValidateBytes(data)` runs on **every** layer load
+(`config.go:1588`, inside `loadConfigLayer`) and appends the classified result to
+`cfg.warnings` (`:1589`); `classifyValidationError`'s terminal branch
+(`internal/config/unknown_keys.go:124`) unconditionally appends a `WarnKindValidate`,
+which is fatal-class in strict mode. The YAML null converts to a JSON null and fails the
+`oneOf`.
+
+That constraint landed in `07a365f7` (2026-06-11), **six weeks before** the census base
+`0f59fbae` (2026-07-24) — so the claim was wrong when written, not fixed since.
+
+**Found while refuting it — a real gap no row covers.** `internal/profiles/profiles.go:40-47`
+carries the byte-identical `UnmarshalYAML` with no emptiness check, and directory profiles
+have **no schema file at all**: `resources/schema/input/` holds only `config-schema.json`,
+`fragment-schema.json` and `taskloom-config-schema.json`. **That** path is genuinely
+silent. If F19's defect is worth fixing anywhere it is there — and no open row cites it.
+
+---
+
 ## Cross-cutting findings
+
+### All three FIXED rows were fixed incidentally, under a different ID
+
+None of `U020-F07`, `U049-F11`, `U049-F12` was closed by work aimed at it:
+
+| row | fixed by | that commit's stated subject |
+|---|---|---|
+| U020-F07 | `c2c4195d` | `fix(U020-F01)` — a slot-state refactor |
+| U049-F11 | `428ce9ae` | `fix(U047-F12, U047-F11)` — a different unit |
+| U049-F12 | `00396a53` | `fix(U106-F06)` — a different unit |
+
+This is the ledger's blind spot working exactly as its header warns. It also means the
+converse is worth auditing across the whole index: rows marked RESOLVED by ID may be no
+better verified than these were.
 
 ### The ledger's `open` derivation missed exactly one row — by one commit body
 
@@ -443,3 +705,31 @@ Bears directly on `U020-F13` and `U049-F25`, and is bigger than either.
 Fixing `terminateRun` and the five `config_migrate.go` functions would not change any of
 this. **The actionable item is the unreached gate, not the six functions.** Recommend
 filing it separately.
+
+### Line-number drift is near-universal — treat every cited line as advisory
+
+Of the 24 rows, **22 cite a `file:line` that no longer matches the claim.** Only
+`U049-F24` (`home.go:17`, exact) and `U020-F15` (region shifted, ordering unchanged)
+survived. `children.go` alone moved ~280 lines. Two rows drifted so far that the cited
+line now describes unrelated code:
+
+- `U049-F13` cited `config_resolve.go:337`, which now sits inside `mergeProfileValues`.
+  The defect survived a refactor and moved to `:306`.
+- `U020-F13` cited `children.go:1299-1440`; `terminateRun` is now `:1517-1662`.
+
+Every row above was re-located by **behaviour**, not by line number.
+
+### Two rows were overstated in kind, not merely in degree
+
+`U049-F17` (ERRHANDLING over a branch that is structurally unreachable — and which the
+codebase itself annotates as unreachable) and `U049-F19` (SILENTNOOP over a path that
+emits a strict-mode-fatal schema warning). Both look entirely plausible from the *shape*
+of the code and only fall apart when you read the callee or the schema. If the bulk review
+was shape-driven, that is the failure mode to expect elsewhere in the index.
+
+### Scope note — one uncited defect found while refuting a row
+
+`internal/profiles/profiles.go:40-47` carries `U049-F19`'s exact claim on the
+directory-profile path, where — unlike `config.yaml` — **no schema validator exists**.
+That path is genuinely silent. It is not covered by any row in the index. Flagged, not
+filed; filing is the human's call.

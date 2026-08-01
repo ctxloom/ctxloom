@@ -20,13 +20,13 @@ Every row now carries a **Status**. It is derived **mechanically from the commit
 
 | status | meaning | count |
 |---|---|---|
-| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,617** |
-| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 200 |
+| **RESOLVED** `<sha>` | a commit named this ID and closed it | **1,616** |
+| **PARTIAL** `<sha>` | one half closed, the other half refuted in the same commit | 201 |
 | **REFUTED** `<sha>` | the commit examined it and the evidence did not hold | 213 |
 | **ESCALATED** `<sha>` | examined, deliberately **not** applied — a judgement call was raised instead | 214 |
 | `open` | no commit names this ID | **24** |
 
-**Totals: 2268 findings across 162 units — 1,617 resolved, 24 still open, 627 adjudicated without a fix.**
+**Totals: 2268 findings across 162 units — 1,616 resolved, 24 still open, 628 adjudicated without a fix.**
 
 Updated again 2026-07-29 by the `wave8/netneg-launch` batch: all 15 rows of the
 LAUNCH flow adjudicated (U040-F06/F07/F11/F15, U041-F23/F24, U061-F05/F15,
@@ -36,8 +36,12 @@ returned ZERO `git log --grep` hits at the base commit, and two of them were
 already fixed** under entirely different IDs: U084-F05's three per-engine hook
 scope checks were collapsed into one descriptor-driven loop by `bb97f1fb`
 (a claude/codex/kiro $HOME-collision fix), and U133-F02's triplicated
-`wire.MCPServer` deep copy was already one exported implementation with a
-parity gate added under U047-F13 @ `e13f8a9f`. The DUPLICATE label again hid
+`wire.MCPServer` deep copy was brought under a parity gate spanning **both**
+copies by U047-F13 @ `e13f8a9f`. *(Corrected 2026-07-31: this paragraph
+previously read "was already one exported implementation with a parity gate."
+It was not. `e13f8a9f` gated two copies and deleted neither; the copy became
+singular only later, at `d6a8cae0`, which is a descendant of `e13f8a9f` and
+is now what both U047-F13 and U133-F02 cite.)* The DUPLICATE label again hid
 worse defects than the duplication: U040-F07's two reference guards reported
 DIFFERENT errors for the same input (a `ctxloom:local@…` ref, which parses and
 carries no URL, was "invalid reference" from one guard and "reference has no
@@ -331,7 +335,7 @@ which also asserts each row's columns sum to its section size.
 
 | severity | count | resolved | open | partial | refuted | escalated |
 |---|---|---|---|---|---|---|
-| HIGH | 376 | 352 | 0 | 12 | 6 | 6 |
+| HIGH | 376 | 351 | 0 | 13 | 6 | 6 |
 | MED | 999 | 626 | 16 | 117 | 98 | 142 |
 | LOW | 871 | 627 | 8 | 66 | 105 | 65 |
 | (unparsed) | 22 | 12 | 0 | 5 | 4 | 1 |
@@ -760,7 +764,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U067-F03 | **RESOLVED** `94790fc9` | **`engine.go:77`** | NOPAY | **`Output.Stderr` is a half-built channel: consumed but never produced.** `cmd/ltk/evaluate.go:78-79` writes it to the process stderr; no production code ever puts a byte in it. It is exactly the c... | U067.md |
 | U068-F01 | **RESOLVED** `b4cfb7dd` | `wrap.go:80` | ERRHANDLING / SILENTNOOP | A nested command that fails to parse is silently allowed: the error from the inner `Parse` is discarded, so `on_parse_error` never applies below the top level | U068.md |
 | U068-F02 | **RESOLVED** `b4cfb7dd` | `frontend.go:24-26` | CORRECTNESS / COUPLING | "Empty result" is **not** distinguishable from "parse failed" in the type. The only discriminator is a droppable `error` return — and it is dropped at `wrap.go:80` | U068.md |
-| U068-F03 | **RESOLVED** `b4cfb7dd` | `frontend.go:49`, `frontend.go:57-60` | DEAD / CORRECTNESS | A *missing* frontend degrades to **allow**, and `Registry.Supports` — the one function that could assert coverage — is dead | U068.md |
+| U068-F03 | **PARTIAL** `b4cfb7dd` | `frontend.go:49`, `frontend.go:57-60` | DEAD / CORRECTNESS | A *missing* frontend degrades to **allow**, and `Registry.Supports` — the one function that could assert coverage — is dead. **Only the first half is fixed.** `b4cfb7dd` closed the degrades-to-allow path (via the `unanalyzed` flag), but `Registry.Supports` still has **zero callers repo-wide** — verified 2026-07-31, it appears only at its own declaration. `8ad1b40e` credited all of U068-F01/F02/F03 to `b4cfb7dd`; for F03 that overstated a half-fix as complete. | U068.md |
 | U069-F01 | **RESOLVED** `b4cfb7dd` | `cmd.go:35-39` | SILENTNOOP | `Parse` never returns an error, so `defaults.on_parse_error` is structurally unreachable for cmd; malformed input is presented to the rule engine as if fully understood. | U069.md |
 | U069-F02 | **RESOLVED** `b4cfb7dd` | `cmd.go:235-236`, `:239-240` | CORRECTNESS | An unmatched `)` silently discards every remaining token, including whole commands. This is the concrete mechanism behind F01 and it defeats deny rules. | U069.md |
 | U069-F10 | **RESOLVED** `b4cfb7dd` | `cmd.go:138-151` + `wrap.go:133,144` | CORRECTNESS | The `joinRest` UNSURE is **settled: the doubly-nested command IS re-parsed, but mangled beyond recognition, and the deny rule misses.** `cmd.exe /c bash -c "go test"` is allowed while `cmd.exe /c g... | U069.md |
@@ -1544,7 +1548,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U085-F07 | **RESOLVED** `6b4e275e` | **`oneshot.go:316-319`** | SILENTNOOP | `if req.Context != ""` means a member whose profile assembles to nothing runs **context-free** with no diagnostic at all — the agent still executes and produces plausible output. | U085.md |
 | U085-F08 | **RESOLVED** `75c49ef0` | **`lockfile.go:275-506`** | DEAD | `CheckOutdated` and its entire helper chain — ~200 LOC and 5 types — have **zero production call sites**. | U085.md |
 | U085-F09 | **RESOLVED** `253f5649` | **`lockfile.go:174-270`** | DEAD | `InstallDependencies` (75 LOC) plus the `Puller` port and both DTOs are test-only. | U085.md |
-| U085-F10 | **RESOLVED** `4c0ceb8b` | **`profiles.go:508-523`** | CORRECTNESS | **Confirms routed item 12.** `profileLoader` discovers directories on `cfg.FS()` but constructs the loader **without** `profiles.WithFS(cfg.FS())`, so `NewLoader`'s default `afero.NewOsFs()` reads ... | U085.md |
+| U085-F10 | **RESOLVED** `32606a59` | **`profiles.go:508-523`** | CORRECTNESS | **Confirms routed item 12.** `profileLoader` discovers directories on `cfg.FS()` but constructs the loader **without** `profiles.WithFS(cfg.FS())`, so `NewLoader`'s default `afero.NewOsFs()` reads ... **Repointed 2026-07-31.** Previously cited `4c0ceb8b`, whose own body says *"Did NOT also fix profileLoader(cfg) … (U085-F10/F11)"* — it **disclaims** this fix and is a U089-F10 change to `upgrade.go`. The defect was actually closed by `32606a59`, the U085-F11 profile-loader collapse, which names U085-F10 and touches `operations/profiles.go`. This is the original motivating case for `audit_sha_credits.py`; the repoint was reported as landed in the audit's own summary but had never reached this branch. | U085.md |
 | U085-F11 | **RESOLVED** `32606a59` | **`profiles.go:508 vs config/config.go:772`** | DUPLICATE | Two near-identical profile-loader factories, differing only in the missing `WithFS` (F10) and a fallback directory. A third partial (`profileLoaderFS`) lives in this same unit. | U085.md |
 | U085-F12 | **RESOLVED** `8620f4b1` | `mcp_servers.go:43-48, 159-163` | NOPAY | `ListMCPServers` and `GetMCPServer` **never read their `cfg` parameter** (nor `ctx`); they reload the config from disk and accept a *second* injection channel, `req.TestConfig`, to compensate. | U085.md |
 | U085-F13 | **REFUTED** `8c371870` | **`lockfile.go:410-416, 466-473`** | ERRHANDLING | `findOutdatedEntries` discards every per-entry failure with a bare `continue` and no warning, so a run in which *every* resolve failed reports `"All items are up to date"` — the most dangerous poss... | U085.md |
@@ -1835,7 +1839,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U132-F05 | **RESOLVED** `a7b5784e` | **`watch.go:87-90`** | ERRHANDLING | `Close` is **not idempotent**: a second call panics on `close of closed channel`. It also returns an error that both consumers discard, and it has no way to report that `pump` has actually stopped. | U132.md |
 | U132-F06 | **RESOLVED** `c3935d0e` | **`watch.go:131-138`** | ERRHANDLING | Watch errors are dropped on the floor beyond the first: `errs` is buffered at 1 and the send is non-blocking with a bare `default:`. If a consumer never selects on `Errors()`, **every** error is di... | U132.md |
 | U132-F07 | **RESOLVED** `00fe6609` | **`watch.go:108-141`** | COMPLEXITY | `pump` is CCN 16 against a CI gate that fails above 10, with no `nolint` and no exclusion. | U132.md |
-| U133-F02 | **RESOLVED** `e459008e` | **`mcp.go:84`** | DUPLICATE | The deep-copy semantics this package owns are re-implemented byte-for-byte in `internal/config`, and re-implemented a third time as proto converters — three copies with no compiler link | U133.md |
+| U133-F02 | **RESOLVED** `d6a8cae0` | **`mcp.go:84`** | DUPLICATE | The deep-copy semantics this package owns are re-implemented byte-for-byte in `internal/config`, and re-implemented a third time as proto converters — three copies with no compiler link. **Adjudicated 2026-07-31:** `d6a8cae0` deleted `internal/config`'s copy — `cloneMCPServerMap` now calls `wire.CloneMCPServer` (`accessors.go:101`). The "third copy" is **not** a third copy of these semantics: `internal/lm/grpc` converts a **different type** (`agent.ChatMCPServer`) for proto marshalling, not `wire.MCPServer`. RESOLVED stands. Previously cited `e459008e`, which is a **U084-F05 docs commit** touching unrelated files — a neighbour-copy mis-credit. | U133.md |
 | U133-F03 | **RESOLVED** `ff103ad9` | **`hooks.go:79`** | COHESION | The hooks half of this vocabulary has no merge primitive in `wire`; the primitive lives in an outer package and duplicates `Append` verbatim | U133.md |
 | U133-F04 | **RESOLVED** `305af0a1` | **`hooks.go:15-38`, `mcp.go:11-30`** | NOPAY | Every `mapstructure` tag in this unit (~13) is dead metadata — nothing in the repo decodes these types with mapstructure | U133.md |
 | U133-F05 | **PARTIAL** `10df3356` | **`mcp.go:50`** | ERRHANDLING | `if src == nil \ | U133.md |
@@ -2062,7 +2066,7 @@ Full evidence and the suggested action for any row live in its source review at 
 | U021-F13 | **RESOLVED** `98d9511f` | `coordinator.go:334-384` | CORRECTNESS | `New`'s five post-`WithCancel` failure paths call `closePartial` but never `c.cancel()`, and on the ephemeral path never remove the temp dir they just created. | U021.md |
 | U021-F14 | **RESOLVED** `923c28a1` | `coordinator.go:532` | CORRECTNESS | `c.srv` is read in `Close()` without holding `c.mu`, while `Serve()` writes it unguarded (`httpserver.go:110`). A `Close` concurrent with `Serve` is a data race. | U021.md |
 | U021-F15 | **PARTIAL** `64f92ef7` | `folds.go:81, enginehost.go:352, coordinator.go:655, coordinator.go:251` | COMPLEXITY | Six functions exceed the project's CCN-10 CI gate, topped by `runsFold.apply` at **26**. | U021.md |
-| U021-F16 | **REFUTED** `64f92ef7` | `folds.go:43-45, enginehost.go:494-500` | LOW | Two owned files are **not gofmt-clean**. | U021.md |
+| U021-F16 | **REFUTED** `d19c0fe8` | `folds.go:43-45, enginehost.go:494-500` | LOW | Two owned files are **not gofmt-clean**. **Adjudicated 2026-07-31 — the verdict is right, the old citation was not.** Both files were gofmt-clean at `64f92ef7`, at `64f92ef7~1`, and today: the claim never held. The standing guard is repo-wide, not per-row — `gofmt` is enabled as a linter in `.golangci.yml:35`, so no bespoke pinning test is warranted here (template §4). Previously cited `64f92ef7`, which is **U021-F15**'s commit (peerSend split) and does not name F16 — a neighbour-copy mis-credit; repointed to the wave-10 bookkeeping commit as the truest citation available. | U021.md |
 | U021-F17 | **PARTIAL** `5bd7cf8a` | `enginehost.go:502, 713-730` | ERRHANDLING | `runStartedConfig` and `structFromJSON` both return `nil` on a marshal failure, silently dropping the entire payload rather than degrading partially or signalling. | U021.md |
 | U021-F18 | **RESOLVED** `dc7fd60b` | `enginehost.go:31, 485` | NOPAY | `engineHome.ReportRunExited`'s third parameter `terminalEventSeen` is a literal `true` at its only production call site — a parameter that cannot vary. | U021.md |
 | U021-F19 | **RESOLVED** `967b4304` | `enginehost.go:549-554` | CORRECTNESS | `usdToMicros` guards NaN/Inf/negative but not magnitude: a harness reporting an absurd cost (>1.8e13 USD) wraps the `uint64`. | U021.md |

@@ -22,6 +22,19 @@ X") belongs on a later line, not the first — otherwise it eats the summary
 budget before the subject appears. Full text is always available via
 "taskloom show <harp-id>".
 
+Record only what is STILL TO DO. A task is a work item, not a history of
+one. When part of it lands, EDIT the task down to what remains — do not
+append "ITEM 1 DONE, items 2-13 remain". A task carrying its own finished
+half reads as open work forever: every reader has to re-derive what is
+actually left, and a triage pass cannot tell it from work never started.
+What was completed belongs in the commit message, not here.
+
+Locate the work by SIGNATURE, not by position. Name the function, method,
+type, or exact string to search for — "cloneMCPServer in internal/config",
+"the Changed --json branch in cliemit.Resolve" — never "accessors.go:95".
+Line numbers drift on every edit above them and are usually wrong by the
+time anyone reads the task; a symbol name still finds it.
+
 ```
 taskloom add <text> [flags]
 ```

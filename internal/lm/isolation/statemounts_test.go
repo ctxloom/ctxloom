@@ -34,9 +34,11 @@ func TestSessionStateFromEnv(t *testing.T) {
 // TestSessionStateMounts_PerBackendStoreRoots pins the per-backend transcript
 // store map (§6b L1): the harp's persist/transcripts dir bind-mounts RW to
 // each engine's native STORE ROOT resolved against the CONTAINER home, the
-// persist dir maps to the container-home ~/.ctxloom session path, and the
-// shared task-log dir maps to the container-home ~/.ctxloom/tasks. Host
-// sources are created (a bind source must exist) and every mount is RW.
+// persist dir maps to the container-home ~/.ctxloom session path, and this
+// project's task log and its lock map to the same two paths under the
+// container home. Host sources are created (a bind source must exist, and a
+// missing FILE source would be created as a directory by the runtime) and
+// every mount is RW.
 func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 	tests := []struct {
 		backend  string
@@ -56,7 +58,7 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 			c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-1"}
 			mounts, err := c.sessionStateMounts()
 			require.NoError(t, err)
-			require.Len(t, mounts, 3)
+			require.Len(t, mounts, 4)
 
 			wantStore, err := paths.HarpTranscriptStoreDir("brisk-teal-otter")
 			require.NoError(t, err)
@@ -72,15 +74,20 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 				Container: filepath.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 			}, mounts[1], "persist/ binds to the container-home session path so in-container artifacts land on the host")
 			assert.Equal(t, Mount{
-				Host:      filepath.Join(home, ".ctxloom", "tasks"),
-				Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks"),
-			}, mounts[2], "the project-shared task-log dir binds into the container home")
+				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
+				Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
+			}, mounts[2], "THIS project's task log binds into the container home, not the dir holding every project's")
+			assert.Equal(t, Mount{
+				Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
+				Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl.lock"),
+			}, mounts[3], "the log's lock rides along: a lock the container cannot see excludes nothing")
 
 			for _, m := range mounts {
 				assert.False(t, m.ReadOnly, "state mounts are RW: the engine/taskloom writes them")
 				info, statErr := os.Stat(m.Host)
 				require.NoError(t, statErr, "bind source %s must exist before `run`", m.Host)
-				assert.True(t, info.IsDir())
+				assert.Equal(t, strings.HasSuffix(m.Host, ".jsonl") || strings.HasSuffix(m.Host, ".lock"), !info.IsDir(),
+					"the task sources are FILES and the session sources are DIRS; a missing file source is created as a directory by the runtime")
 			}
 		})
 	}
@@ -98,8 +105,9 @@ func TestSessionStateMounts_NoHarp_SkipsPerSessionMounts(t *testing.T) {
 	c.state = SessionState{ProjectID: "proj-1"}
 	mounts, err := c.sessionStateMounts()
 	require.NoError(t, err)
-	require.Len(t, mounts, 1, "only the task-store mount applies without a harp")
-	assert.Equal(t, filepath.Join(home, ".ctxloom", "tasks"), mounts[0].Host)
+	require.Len(t, mounts, 2, "only the task-store mounts (log + lock) apply without a harp")
+	assert.Equal(t, filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"), mounts[0].Host)
+	assert.Equal(t, filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl.lock"), mounts[1].Host)
 
 	_, statErr := os.Stat(filepath.Join(home, ".ctxloom", "sessions"))
 	assert.True(t, os.IsNotExist(statErr), "no session dir is minted for a harpless run")
@@ -120,6 +128,43 @@ func TestSessionStateMounts_NoProjectID_SkipsTaskMount(t *testing.T) {
 
 	_, statErr := os.Stat(filepath.Join(home, ".ctxloom", "tasks"))
 	assert.True(t, os.IsNotExist(statErr), "no shared task dir is minted without a project id")
+}
+
+// A container run gets ONE project's task log, never the home-rooted dir that
+// holds every project's. The task store is home-scoped and shared by every
+// project on the machine, so the directory mount handed a run for project A
+// read-write access to project B's task log — a project it has no relationship
+// with, whose tasks it can read and whose log it can append to or corrupt.
+// Nothing needed that: the run writes one file, the one its pinned project id
+// names.
+func TestSessionStateMounts_TaskMountReachesOnlyThisProjectsLog(t *testing.T) {
+	home := testsupport.Isolate(t)
+
+	tasksDir := filepath.Join(home, ".ctxloom", "tasks")
+	require.NoError(t, os.MkdirAll(tasksDir, 0o755))
+	otherLog := filepath.Join(tasksDir, "proj-b.jsonl")
+	require.NoError(t, os.WriteFile(otherLog, []byte("{\"op\":\"add\"}\n"), 0o644))
+	ownLog := filepath.Join(tasksDir, "proj-a.jsonl")
+
+	c := NewContainerFor(fakeRuntime{name: "docker", available: true}, "claude-code")
+	c.state = SessionState{Harp: "brisk-teal-otter", ProjectID: "proj-a"}
+	mounts, err := c.sessionStateMounts()
+	require.NoError(t, err)
+
+	var reachesOwn bool
+	for _, m := range mounts {
+		assert.False(t, mountReaches(m, otherLog),
+			"mount %s → %s hands this run another project's task log (%s)", m.Host, m.Container, otherLog)
+		reachesOwn = reachesOwn || mountReaches(m, ownLog)
+	}
+	assert.True(t, reachesOwn,
+		"the run's OWN task log must still reach the host store: least privilege is a narrower mount, not no mount")
+}
+
+// mountReaches reports whether host path p is inside (or is) what m exposes to
+// the container.
+func mountReaches(m Mount, p string) bool {
+	return p == m.Host || strings.HasPrefix(p, m.Host+string(filepath.Separator))
 }
 
 // TestSessionStateMounts_RejectsUnsafeHarp: the harp arrives from an env map
@@ -156,7 +201,12 @@ func TestSessionStateMounts_RenderedArgv(t *testing.T) {
 	assert.Contains(t, argv,
 		fmt.Sprintf("--mount type=bind,source=%s,target=%s", store, filepath.Join(defaultContainerHome, ".claude", "projects")))
 	assert.Contains(t, argv,
-		fmt.Sprintf("--mount type=bind,source=%s,target=%s", filepath.Join(home, ".ctxloom", "tasks"), filepath.Join(defaultContainerHome, ".ctxloom", "tasks")))
+		fmt.Sprintf("--mount type=bind,source=%s,target=%s",
+			filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
+			filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl")))
+	assert.NotContains(t, argv,
+		fmt.Sprintf("--mount type=bind,source=%s,target=%s", filepath.Join(home, ".ctxloom", "tasks"), filepath.Join(defaultContainerHome, ".ctxloom", "tasks")),
+		"the dir holding every project's task log is never handed to a run")
 	assert.NotContains(t, argv, store+",readonly", "the engine writes its transcript store")
 }
 
@@ -236,9 +286,9 @@ func TestContainerPrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		Container: filepath.Join(defaultContainerHome, ".ctxloom", "sessions", "brisk-teal-otter", "persist"),
 	}, "session persist mount threaded into the run spec")
 	assert.Contains(t, cw.extraMounts, Mount{
-		Host:      filepath.Join(home, ".ctxloom", "tasks"),
-		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks"),
-	}, "shared task-store mount threaded into the run spec")
+		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
+		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
+	}, "this project's task-log mount threaded into the run spec")
 }
 
 // TestContainerWorktreePrepareWorkspace_ThreadsStateMounts: the
@@ -300,8 +350,8 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 		Container: filepath.Join(defaultContainerHome, ".claude", "projects"),
 	}, "transcript store mount rides the composition too")
 	assert.Contains(t, w.extraMounts, Mount{
-		Host:      filepath.Join(home, ".ctxloom", "tasks"),
-		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks"),
+		Host:      filepath.Join(home, ".ctxloom", "tasks", "proj-1.jsonl"),
+		Container: filepath.Join(defaultContainerHome, ".ctxloom", "tasks", "proj-1.jsonl"),
 	})
 }
 

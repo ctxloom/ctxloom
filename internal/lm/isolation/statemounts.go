@@ -8,6 +8,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/filelock"
 	taskpaths "github.com/ctxloom/ctxloom/internal/shared/tasks/paths"
 )
 
@@ -61,8 +62,8 @@ func safePathSegment(s string) bool {
 // sessionStateMounts builds the scoped read-write state mounts that keep a
 // containerized run's ctxloom-stateful writes durable across teardown. The
 // container gets a fresh HOME, so without these every engine transcript,
-// in-container ~/.ctxloom write, and session artifact dies with it. Three
-// mounts, each scoped to exactly one concern:
+// in-container ~/.ctxloom write, and session artifact dies with it. Each mount
+// is scoped to exactly one concern:
 //
 //	~/.ctxloom/sessions/<harp>/persist/transcripts → the engine's native
 //	    transcript STORE ROOT in the container home (per-backend
@@ -74,11 +75,22 @@ func safePathSegment(s string) bool {
 //	~/.ctxloom/sessions/<harp>/persist → the same path relative to the
 //	    CONTAINER home, so in-container hooks/MCP writing session-scoped
 //	    artifacts land them on the host.
-//	~/.ctxloom/tasks → the project-SHARED task-log dir, so an in-container
-//	    taskloom's task_add/deferral reports reach the one host log every
-//	    session shares (keyed by the CTXLOOM_PROJECT_ID the run env pins).
+//	~/.ctxloom/tasks/<project-id>.jsonl (and its .lock sidecar) → the same
+//	    path under the container home, so an in-container taskloom's
+//	    task_add/deferral reports reach the one host log every session of THIS
+//	    project shares. Two single FILES, not the tasks dir: that dir holds
+//	    every project on the machine, and a run keyed to one project id has no
+//	    business reading — let alone appending to — another project's task
+//	    log. Which project it is comes from the CTXLOOM_PROJECT_ID the run env
+//	    pins.
 //
-// All three are RW host state and so ride the container identity contract
+// VM-FS append hazard on the log: host and container both APPEND to it. On
+// native Linux a bind mount is the same inode, so O_APPEND keeps concurrent
+// appends atomic; on Docker Desktop's VM filesystems (gRPC-FUSE/9p) that
+// atomicity is NOT guaranteed and interleaved appends can tear. The
+// single-writer decision is parked on the macOS runbook (sudsy-sip).
+//
+// All of them are RW host state and so ride the container identity contract
 // (entrypoint PUID/PGID remap): the in-container writer must be the host user
 // or these dirs collect wrongly-owned files. A missing harp/project id skips
 // the facet with a streamed warning — NOT a strictness finding, because
@@ -128,25 +140,46 @@ func (c Container) sessionStateMounts() ([]Mount, error) {
 		// the container than pollutes the shared host store.
 		clidiag.WarnOnce("ctxloom", "%s", noProjectIDNotice)
 	} else {
-		tasksDir, err := taskpaths.HomeTasksDir()
+		// HomeTasksLogPath validates the project id as a single clean path
+		// segment first — it arrives from the run env, the same untrusted
+		// channel the harp does, and here it becomes a host path and a bind
+		// source.
+		logPath, err := taskpaths.HomeTasksLogPath(c.state.ProjectID)
 		if err != nil {
 			return nil, fmt.Errorf("container task-store mount: %w", err)
 		}
-		if err := os.MkdirAll(tasksDir, 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 			return nil, fmt.Errorf("container task-store mount: %w", err)
 		}
-		// VM-FS append hazard: host and container both APPEND to the shared
-		// per-project JSONL under this mount. On native Linux a bind mount is
-		// the same inode, so O_APPEND keeps concurrent appends atomic; on
-		// Docker Desktop's VM filesystems (gRPC-FUSE/9p) that atomicity is NOT
-		// guaranteed and interleaved appends can tear. Deliberately no locking
-		// here — the single-writer/lock decision is parked on the macOS
-		// runbook (sudsy-sip).
-		mounts = append(mounts, c.runtime.Expose(
-			tasksDir,
-			filepath.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir),
-			false,
-		))
+		// The lock rides along because the log alone is only half the
+		// protocol: every writer of this log takes filelock.PathFor(log)
+		// first, and a lock file the container cannot see is a lock that
+		// excludes nothing across the boundary.
+		//
+		// Both sources must exist, as FILES, before `run`: a runtime asked to
+		// bind a source that is not there creates a DIRECTORY in its place,
+		// and neither the log nor the lock survives that.
+		for _, src := range []string{logPath, filelock.PathFor(logPath)} {
+			if err := ensureFile(src); err != nil {
+				return nil, fmt.Errorf("container task-store mount: %w", err)
+			}
+			mounts = append(mounts, c.runtime.Expose(
+				src,
+				filepath.Join(c.home, taskpaths.AppDirName, taskpaths.TasksDir, filepath.Base(src)),
+				false,
+			))
+		}
 	}
 	return mounts, nil
+}
+
+// ensureFile creates path as an empty regular file if it does not exist, and
+// leaves an existing one untouched — never truncating a log that already has
+// tasks in it.
+func ensureFile(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }

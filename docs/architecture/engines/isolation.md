@@ -135,7 +135,7 @@ scratch.
 - The project dir at its **identical absolute path** (`ExposeIdentical`, `runtime.go:254`).
 - `gitdirMirrorMount` (`container.go:531`) when `.git` is a pointer file; `gitCommonDirMount` (`container.go:798`) mirrors the whole common dir **read-write** at an identical path.
 - `containerConfigOverlay` (`container.go:743`) — one scratch-backed bind per profile `overlayDirs`, seeded by `seedOverlay` (`:819`), with the target pre-created (`:756-762`) so the mountpoint is never root-owned.
-- `sessionStateMounts` (`statemounts.go:76`) — three scoped RW mounts: engine transcripts (at `profile.transcriptStoreRel` under container `HOME`), the session persist dir, and `~/.ctxloom/tasks`. `safePathSegment` (`statemounts.go:44`) validates the harp and project id before they become host paths.
+- `sessionStateMounts` (`statemounts.go:76`) — scoped RW mounts: engine transcripts (at `profile.transcriptStoreRel` under container `HOME`), the session persist dir, and **this project's** task log `~/.ctxloom/tasks/<project-id>.jsonl` plus its `.lock` sidecar — two single files, never the `~/.ctxloom/tasks` dir, which holds every project on the machine. `safePathSegment` (`statemounts.go:44`) validates the harp, and `paths.HomeTasksLogPath` the project id, before they become host paths.
 
 **Env** (`renderRunSpec`, `runtime.go:530`): entries are emitted as `-e <entry>` and
 are **either** a bare `NAME` (value read by the runtime from the launcher's own

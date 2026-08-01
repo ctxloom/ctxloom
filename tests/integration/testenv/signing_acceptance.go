@@ -3,6 +3,7 @@
 package testenv
 
 import (
+	"crypto"
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
@@ -23,6 +24,14 @@ import (
 type TestSigner struct {
 	Signer ssh.Signer
 	Public ssh.PublicKey
+
+	// Private is the raw ed25519 private key behind Signer. Kept so
+	// StartSSHAgent can hand it to agent.NewKeyring: the ssh-agent keyring
+	// holds PRIVATE keys and signs with them, and ssh.Signer exposes no way
+	// back to the material it wraps. Nothing outside this package's own
+	// in-process agent should read it — J18 drives `ctxloom bundle sign`,
+	// which never sees a private key, only the agent socket.
+	Private crypto.PrivateKey
 }
 
 // GenerateTestSigner creates a fresh ed25519 identity.
@@ -39,8 +48,23 @@ func GenerateTestSigner() (*TestSigner, error) {
 	if err != nil {
 		return nil, fmt.Errorf("wrap public key: %w", err)
 	}
-	return &TestSigner{Signer: signer, Public: sshPub}, nil
+	return &TestSigner{Signer: signer, Public: sshPub, Private: priv}, nil
 }
+
+// AuthorizedKey renders this identity as a single authorized_keys/`.pub` line
+// (optionally carrying comment) — the shape `git config user.signingkey` and
+// `ctxloom trust signer add --key <path>` both accept.
+func (s *TestSigner) AuthorizedKey(comment string) string {
+	line := string(ssh.MarshalAuthorizedKey(s.Public)) // already newline-terminated
+	if comment == "" {
+		return line
+	}
+	return line[:len(line)-1] + " " + comment + "\n"
+}
+
+// Fingerprint is the SHA256 fingerprint ctxloom prints and stores for this
+// identity.
+func (s *TestSigner) Fingerprint() string { return ssh.FingerprintSHA256(s.Public) }
 
 // SeedSignedRemote is SeedRemote plus a detached publisher signature: every
 // path in signPaths (bundle YAML files already present in files, e.g.

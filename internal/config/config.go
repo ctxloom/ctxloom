@@ -236,7 +236,7 @@ type Config struct {
 	// PendingUpgrade: the caller prompts and the prompt names the path, so
 	// home is never rewritten as a silent side effect of a project-scoped
 	// run. Before that existed, home was upgraded in memory on every load and
-	// never written back — visible, but never converging.
+	// never written back — visible, but never converging (long-ice).
 	homePendingUpgrade *upgrade.Pending
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)

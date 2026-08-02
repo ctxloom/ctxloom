@@ -31,9 +31,9 @@ func (c *Config) CommitUpgrade() error {
 //
 // Without it, a stale ~/.ctxloom/config.yaml was upgraded in memory on every
 // single load and never written back: the home file never converged and the
-// upgrade pipeline redid identical work forever. The write itself needed no
-// new machinery — the shared committer is keyed on Pending.Path, so "a file
-// other than the ambient one" was never actually the hard part.
+// upgrade pipeline redid identical work forever (long-ice). The write itself
+// needed no new machinery — the shared committer is keyed on Pending.Path, so
+// "a file other than the ambient one" was never actually the hard part.
 //
 // Same consent rule as CommitUpgrade, and it matters more here: the caller
 // prompts first (the prompt names the path, so a user sees it is their HOME

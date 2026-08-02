@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// With home < project layering, a stale ~/.ctxloom/config.yaml was
+// long-ice: with home < project layering, a stale ~/.ctxloom/config.yaml was
 // upgraded in memory on EVERY load and never written back, so the home file
 // never converged and the upgrade machinery redid the same work forever. The
 // pending upgrade was visible but not persistable — CommitUpgrade only ever

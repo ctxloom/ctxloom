@@ -264,7 +264,7 @@ var noPanicCorpus = []string{
 func isKnownLoweringCrasher(sh ir.Shell, src string) bool {
 	// mvdan.cc/sh v3.13.1 nil-derefs on an empty parameter name, `${}`, under
 	// the zsh variant only (expand/param.go:57) — filed upstream separately;
-	// see TestExpanderPanicBecomesParseError below.
+	// see TestExpanderPanicBecomesParseError below and the swift-print task.
 	// Not deduplicated here by exact string: the fuzzer will find other
 	// spellings that hit the same underlying nil-deref (e.g. "x${}y"), and all
 	// of them are this one known bug, not a new one.

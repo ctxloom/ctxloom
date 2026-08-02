@@ -310,7 +310,7 @@ func CanonicalRepoURL(raw string) string {
 
 	normalized := remote.NormalizeURL(raw)
 
-	// PARSE FIRST, then branch on the parsed scheme (U150-F01). The old order
+	// PARSE FIRST, then branch on the parsed scheme. The old order
 	// was a HasPrefix check on the raw string, which is case-SENSITIVE: an
 	// uppercase "HTTPS://github.com/acme/repo" skipped host folding, path
 	// folding and slash trimming altogether — every one of them — even though
@@ -338,9 +338,8 @@ func CanonicalRepoURL(raw string) string {
 	// www.github.com and github.com are one repo. knownCaseFoldForges already
 	// listed "www.github.com", which proves the variant was considered — but
 	// nothing ever rewrote the host, so the entry only ever lowercased the
-	// path of a URL that still compared unequal to its bare-host twin
-	// (U150-F13). Folding the prefix off is what makes the entry mean
-	// something.
+	// path of a URL that still compared unequal to its bare-host twin.
+	// Folding the prefix off is what makes the entry mean something.
 	if strings.HasPrefix(u.Host, "www.") && knownCaseFoldForges[strings.TrimPrefix(u.Host, "www.")] {
 		u.Host = strings.TrimPrefix(u.Host, "www.")
 	}

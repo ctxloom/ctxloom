@@ -46,7 +46,7 @@ func TestCanonicalRepoURL_VariantsCollapse(t *testing.T) {
 		"git@github.com:Acme/Repo.git",
 		"acme/repo",
 
-		// U150-F01. Each of these escaped a sticky ref-level rejection by
+		// Each of these escaped a sticky ref-level rejection by
 		// respelling the remote URL — and for a bundle carrying a verified
 		// publisher signature the escape is not "rejected -> pending" but
 		// "rejected -> ALLOW" at step 5, because the store address is

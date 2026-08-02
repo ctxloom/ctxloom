@@ -25,7 +25,7 @@ const privateKeyNeedle = "NEEDLE-SECRET-MATERIAL"
 // TestExplicitKey_PrivateKeyMaterialIsNeverEchoed pins that a --key/sign.key
 // value carrying private key material is never reproduced in an error.
 //
-// The defect this pins (U135-F07): every failure arm interpolated the raw
+// The defect this pins: every failure arm interpolated the raw
 // value. `--key %q: not a recognized fingerprint or public key`, the
 // NoKeyError "Looked for: --key/sign.key <value>" line, "no ssh-agent identity
 // comment matches %q", and — worst — the file arm, which handed the value to

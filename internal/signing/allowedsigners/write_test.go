@@ -141,7 +141,7 @@ func TestFormatEntry_RequiresPrincipalAndKey(t *testing.T) {
 
 // --- the writer must not emit a line the reader will reject or misread ------
 
-// U136-F01. A principal containing whitespace makes ssh.ParseAuthorizedKey
+// A principal containing whitespace makes ssh.ParseAuthorizedKey
 // tokenize the tail differently, so Parse drops the entry on every subsequent
 // read — while `ctxloom signer add` printed a success line and a fingerprint.
 // Zero trust delivered, reported as trust granted.
@@ -175,7 +175,7 @@ func TestFormatEntry_MultiplePrincipals_StillWork(t *testing.T) {
 	assert.Equal(t, []string{"alice@example.com", "bob@example.com"}, store.Entries()[0].Principals)
 }
 
-// U136-F02. FormatEntry documents itself as rendering "one allowed_signers
+// FormatEntry documents itself as rendering "one allowed_signers
 // line". A newline in Comment made it emit TWO — the second one a complete,
 // fully-trusted entry that the CLI's confirmation prompt never displayed.
 // Comment reaches here from the unvalidated --comment flag.

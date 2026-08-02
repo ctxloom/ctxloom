@@ -41,7 +41,7 @@ func NewStore(entries ...Entry) *Store {
 // it does affect which entry's Line is reported first in diagnostics. A
 // nil *Store argument is ignored — nil means "this location was not
 // consulted", and it is NOT the way to report a location that failed: use
-// FailedSource, whose provenance this preserves (U136-F04).
+// FailedSource, whose provenance this preserves.
 func Union(stores ...*Store) *Store {
 	var all []Entry
 	var perrs []*ParseError
@@ -225,7 +225,7 @@ func keysEqual(a, b ssh.PublicKey) bool {
 // trust root failed to load": an unreadable location, an absent one, an
 // empty one and an entirely-garbage one all resolved to the same value, so a
 // caller that wanted to refuse when the root did not actually load had
-// nothing to ask (U136-F04). Union skipping a nil *Store was the erasure —
+// nothing to ask. Union skipping a nil *Store was the erasure —
 // the caller that returned nil on EACCES produced a union indistinguishable
 // from one where that location simply held no keys.
 type Source struct {

@@ -446,7 +446,7 @@ func TestParseFile_MissingFileReturnsError(t *testing.T) {
 
 // --- the declared key type must match the key blob --------------------------
 
-// U136-F05. golang.org/x/crypto's parseAuthorizedKey base64-decodes the field
+// golang.org/x/crypto's parseAuthorizedKey base64-decodes the field
 // after the first space WITHOUT ever reading the type token, so this package
 // granted trust from lines real ssh-keygen calls "invalid key" and refuses to
 // verify against. Measured against the ssh-keygen binary: `ssh-rsa <ed25519

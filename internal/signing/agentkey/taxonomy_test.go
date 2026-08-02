@@ -23,7 +23,7 @@ import (
 //     never degrade to an unsigned publish", which is only actionable if the
 //     type actually covers every such failure.
 //
-// The defect this pins (U135-F08): it did not. Which arm produced a
+// The defect this pins: it did not. Which arm produced a
 // *NoKeyError and which produced a bare fmt.Errorf depended on WHICH STEP OF
 // THE CHAIN was running, not on what had gone wrong — see the twin below.
 func TestDiscover_FailureTaxonomyIsClosed(t *testing.T) {

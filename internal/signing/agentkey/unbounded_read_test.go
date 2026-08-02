@@ -15,8 +15,8 @@ import (
 )
 
 // TestGitSigningKey_RepoLocalConfigNamesTheFileRead is the MEASUREMENT behind
-// U135-F11's premise, kept as a pin because everything else here depends on it
-// being true: `git config --get` runs with cmd.Dir set to the working
+// the trust boundary's premise, kept as a pin because everything else here
+// depends on it being true: `git config --get` runs with cmd.Dir set to the working
 // repository, so a value written into that repository's OWN .git/config — the
 // file that arrives with a clone — decides which path ctxloom opens.
 //
@@ -55,7 +55,7 @@ func TestGitSigningKey_RepoLocalConfigNamesTheFileRead(t *testing.T) {
 // TestResolvePublicKey_OversizedFileIsRefused pins the ceiling on what a
 // key-value path may read.
 //
-// The defect this pins (U135-F11): the read was os.ReadFile with no bound, on
+// The defect this pins: the read was os.ReadFile with no bound, on
 // a path the repository being worked in can name. A file large enough to
 // matter was slurped whole before anything looked at it.
 func TestResolvePublicKey_OversizedFileIsRefused(t *testing.T) {

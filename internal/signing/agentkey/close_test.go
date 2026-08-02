@@ -29,7 +29,7 @@ func (c *countingAgent) Close() error {
 // TestDiscover_AgentConnectionLifetime pins who releases the ssh-agent
 // connection and when.
 //
-// The defect this pins (U135-F05): dialEnvAgent opened a unix socket and
+// The defect this pins: dialEnvAgent opened a unix socket and
 // returned only the agent speaking over it, so the connection had no owner.
 // Discovered exposed no Close, and nothing closed it on the FAILURE paths
 // either — which is where it matters most, because `ctxloom doctor` and init

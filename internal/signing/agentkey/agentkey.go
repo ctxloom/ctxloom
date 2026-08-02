@@ -242,8 +242,8 @@ type NoKeyError struct {
 	// Detail is an optional root cause (e.g. "ssh-agent not running", "key
 	// named by git config is not loaded"), for display.
 	Detail string
-	// Err is the underlying error Detail was derived from, when one exists
-	// (U135-F01/F03): an ssh-agent RPC/protocol failure (agent locked, a
+	// Err is the underlying error Detail was derived from, when one exists:
+	// an ssh-agent RPC/protocol failure (agent locked, a
 	// wedged socket) is a DIFFERENT fact than "the agent is reachable but
 	// does not hold this key", and a caller that wants to tell them apart —
 	// or simply wants the real cause via errors.Is/As — must not find it
@@ -530,7 +530,7 @@ func (d *Discoverer) resolveExplicit(ctx context.Context, explicitKey string) (r
 		return nil, nameErr
 	}
 
-	// U135-F01(b): nameErr is not just "no comment matched" — resolveByComment
+	// nameErr is not just "no comment matched" — resolveByComment
 	// also returns "listing ssh-agent identities: <rpc err>" when ag.Signers()
 	// itself fails (agent locked, wedged socket). That used to be silently
 	// dropped here in favor of pubErr alone, so an agent RPC failure was
@@ -588,7 +588,7 @@ func (d *Discoverer) resolveByComment(ag agent.Agent, explicitKey string) (*Disc
 // resolveGitSigningKey resolves `git config user.signingkey`'s value (a
 // literal "ssh-<type> AAAA..." string, a "key::<literal>" prefix per git
 // 2.34+, or a path to a public key file) to a live ssh-agent identity.
-// U135-F04: this used to take an unused context.Context — the actual
+// This used to take an unused context.Context — the actual
 // blocking I/O (agent dial + RPC) has no cancellation seam at all, so the
 // parameter carried no information and could mislead a caller into thinking
 // ctx cancellation was honored here. Dropped rather than left lying; wiring
@@ -609,7 +609,7 @@ func (d *Discoverer) resolveGitSigningKey(value string) (result *Discovered, err
 
 	d2, err := findByPublicKey(ag, pub, "git config user.signingkey")
 	if err != nil {
-		// U135-F01(a): findByPublicKey fails BOTH when the key is genuinely
+		// findByPublicKey fails BOTH when the key is genuinely
 		// absent from the agent AND when ag.Signers() itself errored (agent
 		// locked, wedged socket, RPC failure) — those are different facts,
 		// and the second one is not fixed by "ssh-add it": the key IS loaded,
@@ -622,8 +622,7 @@ func (d *Discoverer) resolveGitSigningKey(value string) (result *Discovered, err
 
 // resolveSoleAgentIdentity implements step 3 of the chain: use the agent's
 // only identity when there is exactly one, error (ambiguous or empty)
-// otherwise.
-// U135-F04: ctx was accepted but never used; dropped (see resolveGitSigningKey).
+// otherwise. ctx was accepted but never used; dropped (see resolveGitSigningKey).
 func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (result *Discovered, err error) {
 	ag, err := d.dialAgent()
 	if err != nil {
@@ -633,7 +632,7 @@ func (d *Discoverer) resolveSoleAgentIdentity(looked []string) (result *Discover
 
 	signers, err := ag.Signers()
 	if err != nil {
-		// U135-F01(c)/F03: an ssh-agent RPC failure while LISTING identities
+		// An ssh-agent RPC failure while LISTING identities
 		// is a different fact than "the agent holds no identities" — chain
 		// the real cause via Err so a caller can errors.Is/As it, not just
 		// read a flattened string.
@@ -680,7 +679,7 @@ func (d *Discoverer) resolvePublicKey(value string) (ssh.PublicKey, error) {
 		return nil, err
 	}
 
-	// U135-F02: user.signingkey conventionally names the PRIVATE key path in
+	// user.signingkey conventionally names the PRIVATE key path in
 	// some real setups, with the public key living alongside it as
 	// "<path>.pub". Probe that sibling FIRST — before ever reading `path`
 	// itself — whenever path doesn't already end in .pub. The old fallback

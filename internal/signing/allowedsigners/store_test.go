@@ -276,7 +276,7 @@ func TestStore_NilKeyIsNeverTrusted(t *testing.T) {
 	assert.False(t, store.TrustedForNamespace(nil, "publish.v1.ctxloom.dev", fixedNow()).Trusted)
 }
 
-// --- U136-F04: a store must be able to say "a location failed to load" -------
+// --- a store must be able to say "a location failed to load" ----------------
 
 // The API could not express "the trust root failed to load": an unreadable
 // location, an absent one, an empty one and an entirely-garbage one all

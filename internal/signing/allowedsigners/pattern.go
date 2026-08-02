@@ -23,7 +23,7 @@ func matchPatternList(patterns []string, s string) bool {
 			neg = true
 			p = p[1:]
 		}
-		// U136-F18: this used to go through a one-line globMatch(string,string)
+		// This used to go through a one-line globMatch(string,string)
 		// wrapper whose only work was these same two []byte conversions, with
 		// exactly this one caller. Inlined.
 		if globMatchBytes([]byte(p), []byte(s)) {

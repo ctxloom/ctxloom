@@ -36,7 +36,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 // per-field "Defaults to ..." promises on Discoverer are true of the TYPE, not
 // merely of the NewDiscoverer constructor.
 //
-// The defect this pins (U135-F06): the defaults existed only inside
+// The defect this pins: the defaults existed only inside
 // NewDiscoverer, so a Discoverer built as a struct literal — which is how the
 // fields' own doc ("Every field is overridable") invites you to use it, and
 // how every test in this repo does use it — dereferenced a nil func and

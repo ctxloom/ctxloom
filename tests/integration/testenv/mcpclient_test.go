@@ -2,7 +2,7 @@ package testenv
 
 import "testing"
 
-// TestParseNamedArray_MissingArrayIsAnError pins U163-F05: listNames
+// TestParseNamedArray_MissingArrayIsAnError pins that listNames
 // (and ListToolDetails, the same shape) returned (nil, nil) when the named
 // result array was missing or not an array — so a server advertising ZERO
 // tools/resources was indistinguishable from one whose response was

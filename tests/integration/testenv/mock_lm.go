@@ -54,8 +54,8 @@ func (m *MockLM) SetResponse(response string) error {
 // touching only llm.configs.mock, llm.defaults.primary, config.use_distilled,
 // and version — every other top-level key (agents, default_agent, workspace,
 // any other engine's llm.configs entry, profiles, llm.defaults.fast, …) that
-// was already on disk survives untouched. Before U159-F01/U163-F02 this
-// rebuilt the whole file from scratch, preserving only a hand-extracted
+// was already on disk survives untouched. This used to
+// rebuild the whole file from scratch, preserving only a hand-extracted
 // profiles: section and silently destroying everything else a prior step
 // (a journey Given, another engine's WriteConfig call) had written.
 func (m *MockLM) WriteConfig() error {
@@ -130,7 +130,7 @@ func quotedYAMLString(v string) *yaml.Node {
 }
 
 // ErrMockNeverInvoked is returned by GetRecordedInput when the record file
-// does not exist -- U163-F09: this used to collapse into ("", nil), making a
+// does not exist -- this used to collapse into ("", nil), making a
 // mock that was NEVER invoked indistinguishable from one invoked with empty
 // input, and any negative assertion over the returned string ("does not
 // contain X") would pass vacuously against either. Callers that want the old

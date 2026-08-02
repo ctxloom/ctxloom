@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestMockLM_WriteConfig_PreservesUnrelatedSections pins U159-F01/U163-F02:
+// TestMockLM_WriteConfig_PreservesUnrelatedSections pins that
 // WriteConfig used to rebuild .ctxloom/config.yaml from scratch, preserving
 // only a top-level profiles: section — silently destroying agents:,
 // default_agent:, workspace:, and any other engine's llm.configs entry that

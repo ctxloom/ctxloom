@@ -355,8 +355,8 @@ func TestContainerWorktreePrepareWorkspace_ThreadsStateMounts(t *testing.T) {
 	})
 }
 
-// TestSessionStateMounts_DegradeNoticeCoversEveryAffectedMember pins U064-F06.
-// The row observed that a missing harp or project id degrades durability behind
+// TestSessionStateMounts_DegradeNoticeCoversEveryAffectedMember pins a fix.
+// A review row observed that a missing harp or project id degrades durability behind
 // clidiag.WarnOnce, so in a delegated fan-out (agent_run — all one process)
 // only the FIRST affected member warns and every later one is silent. The
 // mechanism is real: WarnOnce dedups on the whole formatted line and these

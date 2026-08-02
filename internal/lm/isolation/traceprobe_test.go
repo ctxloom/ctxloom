@@ -238,7 +238,7 @@ const unnamedErrnoStrace = `12 openat(AT_FDCWD, "/home/ctxloom/.config/odd", O_R
 14 readlink("/proc/self/exe", "/usr/local/bin/ctxloom", 4096) = 22
 `
 
-// TestParseStraceReads_NegativeReturnIsNeverOK pins U064-F04: the parser
+// TestParseStraceReads_NegativeReturnIsNeverOK pins that the parser
 // captured the syscall's return value and then ignored it, deciding "ok"
 // purely on whether a NAMED errno was present. A failure strace did not name
 // symbolically therefore read back as a success — the exact inversion this
@@ -274,8 +274,8 @@ func TestParseStraceReads_NegativeReturnIsNeverOK(t *testing.T) {
 	}
 }
 
-// TestTraceProbeFromEnv_ActivationIsNeverSilent pins U064-F11's corrected
-// invariant. The row read TraceProbe's security note as claiming the loosened
+// TestTraceProbeFromEnv_ActivationIsNeverSilent pins a corrected
+// invariant. A review row read TraceProbe's security note as claiming the loosened
 // seccomp profile is STRUCTURALLY unreachable from a normal run, and objected
 // that the gate is a plain os.Getenv — an environment variable is inherited
 // from whatever launched ctxloom, so any parent that exports it turns an

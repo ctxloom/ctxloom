@@ -58,10 +58,6 @@ var (
 	runSeedTask      string
 	runSeedStatus    string
 	// runResumeSession/runResumeDistill are the two deterministic-resume flags
-	// (restored after WS-4/5 removed all flag-based resume + the interactive
-	// picker — see resolveResumeIntentWith's deletion in c7cddd9). Unlike the
-	// old picker-era flags (--tasks-from/--new-session/--no-tasks), this is a
-	// single axis with two modes:
 	//   --session <harp>            full resume: the harp's full recorded
 	//                                transcript is folded into THIS run's
 	//                                assembled context (resumeFullContext).
@@ -114,22 +110,21 @@ func orDefault(s, def string) string {
 }
 
 // execCommand is the seam tests override to avoid actually shelling
-// out. Production points it at exec.CommandContext (FINDING #3: the
-// exit-path caller needs to be able to kill a stalled distill via ctx
-// cancellation); tests substitute a fake that records the arguments and
-// returns a harmless exec.Cmd (e.g., /bin/true) so .Run() succeeds without
-// side effects.
+// out. Production points it at exec.CommandContext
 var execCommand = exec.CommandContext
 
-// shellOutDistill is the exit path's (distillSessionOnExit) distill
-// implementation. It runs `ctxloom session distill <harp>` as a child process
-// so this file doesn't need to depend on the compactor or any LLM machinery
-// itself. Stdout/stderr are piped through to the user.
+// shellOutDistill is the ON-DEMAND distill implementation, reached from
+// resumeDistillEnv when `run --session <harp> --distill` needs an essence that
+// does not exist yet. It runs `ctxloom session distill <harp>` as a child
+// process so this file doesn't need to depend on the compactor or any LLM
+// machinery itself. Stdout/stderr are piped through to the user.
+//
+// It used to serve a second caller, the automatic exit-time distill, which was
+// removed: distillation is on-demand only now, so a session stays title-less
+// until something explicitly asks for one.
 //
 // ctx bounds the child via exec.CommandContext: when ctx is cancelled the
-// stdlib kills the process. distillSessionOnExit derives ctx from
-// context.WithTimeout(exitDistillTimeout) — see its own doc for why exit-time
-// distillation is bounded rather than unbounded.
+// stdlib kills the process.
 func shellOutDistill(ctx context.Context, harpName string) error {
 	// selfexec.Path survives an in-place upgrade that unlinks the executing
 	// inode; it is shared with the gRPC client, which cannot import cmd.
@@ -138,77 +133,6 @@ func shellOutDistill(ctx context.Context, harpName string) error {
 	c.Stdout = os.Stderr
 	c.Stderr = os.Stderr
 	return c.Run()
-}
-
-// exitDistillTimeout bounds distillSessionOnExit's synchronous exit-time
-// distill (FINDING #3): a stalled LLM/network call at process-exit time must
-// not wedge the exiting shell forever.
-const exitDistillTimeout = 120 * time.Second
-
-// distillSessionOnExit runs the exit-time distill. It mirrors the guard
-// MarkSessionEnded already uses (a bound harp) and additionally requires an
-// INTERACTIVE run, which folds in two disqualifying cases:
-//
-//   - structured-REPL runs: --structured returns via runStructuredREPL before
-//     goplugin.NewLauncher(...).Start ever runs Setup, so a structured
-//     session never gets its session_id bound by the SessionStart hook —
-//     there would be nothing for `session distill` to find.
-//   - oneshot/--print runs (FINDING #2): a headless `ctxloom run -p X --print`
-//     mints a fresh harp on every invocation, so the idempotency check
-//     (essenceFn) never short-circuits — without this gate, distillation
-//     would fire as a blocking LLM call at the end of EVERY headless call.
-//
-// essenceFn/distillFn are injected (readHarpEssence/
-// shellOutDistill in production) so the decision logic is unit-testable
-// without shelling out or touching the filesystem.
-//
-// BLOCKING IS DELIBERATE (user decision, not an oversight): distillation
-// used to happen lazily, only when a future session's resume path (now
-// removed — see Decision 11) needed the essence. The user chose to pay for it
-// here instead, so a session's LLM-driven distill happens synchronously on
-// exit rather than being deferred onto some future session's startup —
-// `ctxloom run` visibly pauses on "distilling session <harp>…" before the
-// shell gets control back.
-//
-// BOUNDED, NOT UNBOUNDED (FINDING #3): the block above is deliberate, but
-// unbounded is not — a stalled LLM/network call at process-exit time must
-// not wedge the exiting shell forever. distillFn is run under a
-// context.WithTimeout(timeout) derived from context.Background() (NOT tied
-// to the run's own shutdown-signal context, so a Ctrl-C exit still gets the
-// full budget rather than an already-cancelled context). On timeout,
-// distillFn is left to be killed by its own ctx-cancellation handling
-// (shellOutDistill uses exec.CommandContext, so the child process is
-// killed) and distillSessionOnExit returns without error — a manual
-// `ctxloom session distill <harp>` (or the "resume" skill, which redistills a
-// still-live session's growing transcript) picks up the incomplete distill
-// later.
-//
-// Idempotent: skipped if an essence already exists for the harp.
-func distillSessionOnExit(activeHarp string, interactive bool, essenceFn func(string) ([]byte, error), distillFn func(context.Context, string) error, timeout time.Duration, out io.Writer) {
-	if activeHarp == "" || !interactive {
-		return
-	}
-	if _, essErr := essenceFn(activeHarp); essErr == nil {
-		return // already distilled
-	}
-	fmt.Fprintf(out, "ctxloom: distilling session %s…\n", activeHarp)
-
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-
-	done := make(chan error, 1)
-	go func() { done <- distillFn(ctx, activeHarp) }()
-
-	select {
-	case dErr := <-done:
-		if dErr != nil {
-			clidiag.Warn("ctxloom", "could not distill %s on exit: %v", activeHarp, dErr)
-			return
-		}
-		fmt.Fprintf(out, "ctxloom: distilled session %s\n", activeHarp)
-	case <-ctx.Done():
-		fmt.Fprintf(out, "ctxloom: distillation timed out; run \"ctxloom session distill %s\" to finish it\n", activeHarp)
-	}
 }
 
 // validateResumeFlags rejects --distill without --session up front (friction
@@ -250,10 +174,10 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 // "tasks" — task restoration was removed along with the picker and is not
 // coming back here) so resumePartsIncludeSession's essence gate opens.
 //
-// essenceFn/distillFn mirror distillSessionOnExit's own injection (production:
-// readHarpEssence/shellOutDistill — the SAME `session distill` compactor path
-// as the exit-time auto-distill, session_cmd.go's runSessionDistill/
-// compactEntry/memory.NewCompactor) so distill-on-demand is unit-testable
+// essenceFn/distillFn are injected (production: readHarpEssence/
+// shellOutDistill — the `session distill` compactor path, session_cmd.go's
+// runSessionDistill/compactEntry/memory.NewCompactor) so distill-on-demand
+// is unit-testable
 // without shelling out. A distill failure warns rather than blocking launch;
 // the SessionStart hook's own readHarpEssence call then simply finds nothing
 // and omits the essence block.
@@ -500,18 +424,6 @@ func runRun(cmd *cobra.Command, args []string) error {
 	defer restoreTitle()
 
 	st.exportProjectIdentity()
-
-	// Distill the just-ended session on exit (see distillSessionOnExit for why
-	// this blocks). Registered BEFORE the markSessionEnded defer below so it
-	// runs AFTER it — defers unwind LIFO, and `session distill`'s time-window
-	// fallback wants ended_at stamped first.
-	//
-	// Gated to INTERACTIVE runs only (FINDING #2): oneshot/--print
-	// (mode == ONESHOT) mints a fresh harp per invocation, so distilling there
-	// would be a blocking LLM call on every headless call with no idempotency
-	// guard to save it; --structured never binds a session_id at all (see
-	// distillSessionOnExit).
-	defer distillSessionOnExit(st.activeHarp, st.interactiveExit(), readHarpEssence, shellOutDistill, exitDistillTimeout, os.Stderr)
 
 	// Mark the harp ended on whatever exit path we take — clean return,
 	// ctrl+c, or panic. The end timestamp lets the time-window fallback in
@@ -1076,13 +988,6 @@ func (st *runState) exportProjectIdentity() {
 	if warning != "" {
 		clidiag.Warn("ctxloom", "%s", warning)
 	}
-}
-
-// interactiveExit reports whether this run's exit should trigger the
-// exit-time distill: an INTERACTIVE run that is not --structured. See
-// distillSessionOnExit for why both disqualifications exist.
-func (st *runState) interactiveExit() bool {
-	return st.mode == pb.ExecutionMode_INTERACTIVE && !runStructured
 }
 
 // markSessionEnded stamps the harp's end timestamp. It guards on an unbound

@@ -9,7 +9,7 @@ This page is generated from `ctxloom session distill --help`.
 
 ## ctxloom session distill
 
-Force-distill a session by harp name. Useful for sessions that ended before auto-compact ran.
+Distill a session by harp name. Distillation is on-demand: nothing distills a session automatically when it ends.
 
 ### Synopsis
 

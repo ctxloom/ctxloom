@@ -34,13 +34,20 @@ Session memory solves a different problem: a summary that outlives the session. 
 
 ctxloom distills out of band instead. It reads the complete transcript from disk, in a fresh process, with a full budget, using a separate fast model (default: Haiku). The summary gets written where it actually has room to be good, and it's saved to disk, so it's still there after `/clear` — or after the process restarts, or a day later.
 
-You rarely need to trigger this yourself. It runs automatically:
+Distillation is **on-demand**. Nothing distills a session automatically when it
+ends — a session stays title-less until something explicitly asks for its essence.
 
-- On exit: when an interactive `ctxloom run` session ends, the transcript that just closed is distilled before control returns to your shell — unless an essence already exists for it, in which case the distill is skipped (idempotent). A resumed session, or one where `/recover` already ran, already has an essence, so it doesn't get a fresh one at exit. Non-interactive runs (`--print`, oneshot, `--structured`) never distill on exit at all.
-- On resume: starting a new `ctxloom run` and choosing to resume distills the previous session first, so its essence is ready to inject.
-- On recovery: `/recover` (or asking "what were we working on?") distills on demand, which is what makes the `/clear` → `/recover` sequence above work even for a session that hasn't exited yet.
+It is triggered for you in two places:
 
-Calling distillation by hand is for two narrower cases: forcing a fresh essence when the exit-time skip left a stale one (`ctxloom session distill <harp>`), or picking up a session that ended before any exit-time distill ran (a crash, a killed process, a non-interactive run).
+- On resume: `ctxloom run --session <harp> --distill` distills the previous session
+  first, so its essence is ready to inject into the new run.
+- On recovery: `/recover` (or asking "what were we working on?") distills on demand,
+  which is what makes the `/clear` → `/recover` sequence above work even for a session
+  that has not exited yet. `load_session`, `get_previous_session`, `compact_session`
+  and `list_sessions(distill_missing)` all reach the same lazy path.
+
+Distilling by hand — `ctxloom session distill <harp>` — is how you give a session an
+essence ahead of needing one, or force a fresh essence over a stale one.
 
 ## Overview
 
@@ -163,7 +170,7 @@ Distilled memory is portable across agents — it's stored as plain markdown. Ra
 ```bash
 # Morning: Write code with Claude
 ctxloom run --llm claude-code "implement the auth module"
-# When done, just exit - ctxloom distills the session automatically
+# When done, just exit. Distill it when you want it: ctxloom session distill <harp>
 
 # Afternoon: Review with Antigravity
 ctxloom run --llm antigravity
@@ -280,8 +287,8 @@ ctxloom session delete <harp>           # Drop an entry (files stay on disk)
 ctxloom session distill <harp>          # Force-distill a session
 ```
 
-`session distill` is useful for sessions that ended before the exit-time distill
-ran — distill first, then load with `load_session` or `ctxloom run --session <harp>`.
+`session distill` is how a session gets an essence at all — distill first, then load
+with `load_session` or `ctxloom run --session <harp>`.
 
 ## Best Practices
 
@@ -310,4 +317,4 @@ If compaction fails:
 If a session you expect to load has no distilled content:
 - Check `~/.ctxloom/sessions/<harp>/essence.md` for that session's distilled essence
 - Run `ctxloom session list` to confirm the session is in the index
-- Force-distill it with `ctxloom session distill <harp>` (for sessions that ended before the exit-time distill ran)
+- Distill it with `ctxloom session distill <harp>` — sessions have no essence until asked

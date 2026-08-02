@@ -194,7 +194,7 @@ func runSessionDelete(cmd *cobra.Command, args []string) error {
 
 var sessionDistillCmd = &cobra.Command{
 	Use:   "distill <harp-name>",
-	Short: "Force-distill a session by harp name. Useful for sessions that ended before auto-compact ran.",
+	Short: "Distill a session by harp name. Distillation is on-demand: nothing distills a session automatically when it ends.",
 	Long: `Looks up the harp's bound session_id in ~/.ctxloom/sessions/index.yaml,
 runs the compactor on that backend session, and writes a fresh essence.md
 under the harp directory. Errors if the harp has no session_id bound

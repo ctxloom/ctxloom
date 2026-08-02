@@ -1,13 +1,10 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"errors"
-	"io"
 	"os/exec"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,7 +20,7 @@ import (
 // Two modes restored after WS-4/5 removed all flag-based resume + the
 // interactive picker (c7cddd9): bare --session (full resume, resumeFullContext)
 // and --session --distill (distilled resume, resumeDistillEnv). Both are IoC-
-// extracted exactly like distillSessionOnExit's essenceFn/distillFn seam, so
+// extracted behind an essenceFn/distillFn seam, so
 // they're testable without a live session index, backend transcript reader, or
 // shelling out.
 
@@ -91,7 +88,7 @@ func TestResumeFullContext_EmptyExistingContext(t *testing.T) {
 }
 
 // TestResumeDistillEnv_SkipsDistillWhenEssenceExists covers the idempotency
-// check shared with distillSessionOnExit: an already-distilled harp must not
+// idempotency check: an already-distilled harp must not
 // pay for a redundant distill before resuming.
 func TestResumeDistillEnv_SkipsDistillWhenEssenceExists(t *testing.T) {
 	distillCalled := false
@@ -235,150 +232,6 @@ func TestShellOutDistill_PropagatesError(t *testing.T) {
 
 	err := shellOutDistill(context.Background(), "any-harp")
 	assert.Error(t, err, "non-zero exit must propagate")
-}
-
-// testDistillTimeout is a generous bound used by tests that expect the
-// injected distillFn to return immediately — large enough that it never
-// fires in practice, so these tests exercise the happy/error paths rather
-// than the FINDING #3 timeout path (covered separately below).
-const testDistillTimeout = 5 * time.Second
-
-// TestDistillSessionOnExit_DistillsExactlyOnce covers the happy path: a
-// clean exit with a bound harp on an INTERACTIVE run and no pre-existing
-// essence distills exactly once for that harp.
-func TestDistillSessionOnExit_DistillsExactlyOnce(t *testing.T) {
-	var essenceCalls, distillCalls []string
-	essenceFn := func(harp string) ([]byte, error) {
-		essenceCalls = append(essenceCalls, harp)
-		return nil, errors.New("no essence yet")
-	}
-	distillFn := func(_ context.Context, harp string) error {
-		distillCalls = append(distillCalls, harp)
-		return nil
-	}
-	var out bytes.Buffer
-
-	distillSessionOnExit("swift-amber-falcon", true, essenceFn, distillFn, testDistillTimeout, &out)
-
-	assert.Equal(t, []string{"swift-amber-falcon"}, essenceCalls, "idempotency check runs once")
-	assert.Equal(t, []string{"swift-amber-falcon"}, distillCalls, "distill runs exactly once for the active harp")
-	assert.Contains(t, out.String(), "distilling session swift-amber-falcon")
-	assert.Contains(t, out.String(), "distilled session swift-amber-falcon")
-}
-
-// TestDistillSessionOnExit_NoOpCases covers the guarded no-op cases: an
-// empty harp, a non-interactive run (structured-REPL or oneshot/--print),
-// and a harp whose essence already exists must never shell out to distill.
-// FINDING #2: a headless `ctxloom run -p X --print` must not pay for a
-// blocking LLM call on every invocation.
-func TestDistillSessionOnExit_NoOpCases(t *testing.T) {
-	t.Run("empty harp", func(t *testing.T) {
-		distillCalled := false
-		distillSessionOnExit("", true,
-			func(string) ([]byte, error) { return nil, errors.New("no essence") },
-			func(context.Context, string) error { distillCalled = true; return nil },
-			testDistillTimeout,
-			io.Discard)
-		assert.False(t, distillCalled, "no bound harp: nothing to distill")
-	})
-
-	t.Run("non-interactive run (structured REPL or oneshot/--print)", func(t *testing.T) {
-		distillCalled := false
-		distillSessionOnExit("swift-amber-falcon", false,
-			func(string) ([]byte, error) { return nil, errors.New("no essence") },
-			func(context.Context, string) error { distillCalled = true; return nil },
-			testDistillTimeout,
-			io.Discard)
-		assert.False(t, distillCalled, "structured runs never bind a session_id, and headless oneshot/--print must not pay for a blocking LLM call on every invocation — skip")
-	})
-
-	t.Run("neither bound nor interactive", func(t *testing.T) {
-		distillCalled := false
-		distillSessionOnExit("", false,
-			func(string) ([]byte, error) { return nil, errors.New("no essence") },
-			func(context.Context, string) error { distillCalled = true; return nil },
-			testDistillTimeout,
-			io.Discard)
-		assert.False(t, distillCalled, "neither bound nor eligible")
-	})
-
-	t.Run("already distilled", func(t *testing.T) {
-		distillCalled := false
-		distillSessionOnExit("swift-amber-falcon", true,
-			func(string) ([]byte, error) { return []byte("essence"), nil }, // essence exists
-			func(context.Context, string) error { distillCalled = true; return nil },
-			testDistillTimeout,
-			io.Discard)
-		assert.False(t, distillCalled, "idempotent: an existing essence must not be redistilled")
-	})
-}
-
-// TestDistillSessionOnExit_DistillFailureWarnsNotPanics covers the failure
-// path: a distill error must be swallowed (warned) rather than propagated —
-// this runs from a defer in the exit path, where there is no caller left to
-// hand an error to.
-func TestDistillSessionOnExit_DistillFailureWarnsNotPanics(t *testing.T) {
-	var out bytes.Buffer
-	assert.NotPanics(t, func() {
-		distillSessionOnExit("swift-amber-falcon", true,
-			func(string) ([]byte, error) { return nil, errors.New("no essence") },
-			func(context.Context, string) error { return errors.New("boom") },
-			testDistillTimeout,
-			&out)
-	})
-	assert.Contains(t, out.String(), "distilling session swift-amber-falcon", "the visible pre-distill message still prints")
-	assert.NotContains(t, out.String(), "distilled session swift-amber-falcon", "no false success line on failure")
-}
-
-// TestDistillSessionOnExit_BoundedByTimeout is the FINDING #3 regression
-// test: a stalled distillFn (simulating a wedged LLM/network call) must not
-// block distillSessionOnExit forever. The fake ignores its ctx entirely
-// (blocks on an unbuffered channel that never receives) so boundedness comes
-// from distillSessionOnExit's own timeout plumbing, not cooperative
-// cancellation by the callee. A short injected timeout keeps the test fast;
-// production wires a real 120s (exitDistillTimeout).
-func TestDistillSessionOnExit_BoundedByTimeout(t *testing.T) {
-	var out bytes.Buffer
-	hang := make(chan struct{}) // never closed/sent to — simulates a wedged call
-	distillFn := func(context.Context, string) error {
-		<-hang
-		return nil
-	}
-
-	const shortTimeout = 30 * time.Millisecond
-	start := time.Now()
-	distillSessionOnExit("swift-amber-falcon", true,
-		func(string) ([]byte, error) { return nil, errors.New("no essence") },
-		distillFn,
-		shortTimeout,
-		&out)
-	elapsed := time.Since(start)
-
-	assert.Less(t, elapsed, 2*time.Second, "must return once the injected timeout fires, not block on the hung call")
-	assert.Contains(t, out.String(), "ctxloom: distillation timed out")
-	assert.NotContains(t, out.String(), "distilled session swift-amber-falcon", "no false success line on timeout")
-}
-
-// TestDistillSessionOnExit_TimeoutNamesTheManualRemedy pins what the timeout
-// line is allowed to CLAIM. Nothing in ctxloom re-distills an abandoned harp on
-// a later startup: distillSessionOnExit only ever runs against the harp its own
-// run just minted, and its idempotency guard (essenceFn) is scoped to that one
-// harp — so a timed-out distill stays undone until somebody asks for it by
-// name. The line must therefore name the command that actually finishes the
-// job, and must not promise an automatic retry that no code path performs.
-func TestDistillSessionOnExit_TimeoutNamesTheManualRemedy(t *testing.T) {
-	var out bytes.Buffer
-	hang := make(chan struct{})
-	distillSessionOnExit("swift-amber-falcon", true,
-		func(string) ([]byte, error) { return nil, errors.New("no essence") },
-		func(context.Context, string) error { <-hang; return nil },
-		30*time.Millisecond,
-		&out)
-
-	assert.Contains(t, out.String(), "ctxloom session distill swift-amber-falcon",
-		"the timeout line must name the manual command that actually completes the distill")
-	assert.NotContains(t, out.String(), "next startup",
-		"no startup path re-distills an abandoned harp — promising one tells the user to wait for something that never happens")
 }
 
 // The resolveSelfExecutable decision tree (deleted-suffix stripping, PATH

@@ -56,7 +56,7 @@ func TestBuildExecCmd_RendersTurnArgv(t *testing.T) {
 	assert.Contains(t, env, "TERM=dumb", "the turn process runs under TERM=dumb")
 }
 
-// TestStartPTYCommand_NilStdoutErrors pins U152-F01: a nil spec.Stdout used
+// TestStartPTYCommand_NilStdoutErrors pins that a nil spec.Stdout used
 // to silently substitute io.Discard — the pump ran, Wait still returned
 // ExitStatus{Code: 0}, nil, and the entire interactive session's output
 // vanished with no error, no warning, no log at all: exit 0, success, zero
@@ -131,7 +131,7 @@ func TestSession_WaitDockerLevelFailureIsError(t *testing.T) {
 	assert.Contains(t, werr.Error(), "boom-tail", "the CLI output tail is surfaced")
 }
 
-// TestSession_RingIsSharedStderrtailImplementation pins U118-F01: Session's
+// TestSession_RingIsSharedStderrtailImplementation pins that Session's
 // output-tail ring must be the ONE shared stderrtail.Ring implementation
 // (internal/shared/stderrtail), not the byte-for-byte private duplicate this
 // package grew independently — one day AFTER stderrtail was written
@@ -295,7 +295,7 @@ func TestDockerLevelError_ParityAcrossBothRenderings(t *testing.T) {
 		"one tail, one rendering — a reader (or a grep) must not have to know which failure fired")
 }
 
-// TestStartPTYCommand_CancellationIsGraceful pins U152-F02: the turn subprocess
+// TestStartPTYCommand_CancellationIsGraceful pins that the turn subprocess
 // is built with exec.CommandContext and neither cmd.Cancel nor cmd.WaitDelay
 // was set, so os/exec's default cancellation is Process.Kill() — SIGKILL, zero
 // grace. The subprocess here is the `docker exec` CLI attached to a live
@@ -327,7 +327,7 @@ func TestStartPTYCommand_CancellationIsGraceful(t *testing.T) {
 	require.FileExists(t, marker, "the subprocess was killed with zero grace instead of being asked to stop")
 }
 
-// TestSession_WaitClosesThePtyMaster pins U152-F03: the host pty master was
+// TestSession_WaitClosesThePtyMaster pins that the host pty master was
 // closed ONLY on Wait's drain-timeout backstop arm. On the normal exit path —
 // every healthy turn — the fd stayed open for the life of the process, so a
 // frontend driving several container turns under one long-lived context leaked
@@ -344,10 +344,10 @@ func TestSession_WaitClosesThePtyMaster(t *testing.T) {
 	require.ErrorIs(t, sess.master.Close(), os.ErrClosed, "the pty master must be closed once Wait returns")
 }
 
-// TestStartPTYCommand_StdinPumpRetiresWithTheSession pins U152-F04: the
+// TestStartPTYCommand_StdinPumpRetiresWithTheSession pins that the
 // stdin-copy goroutine was fire-and-forget — nothing cancelled it and nothing
 // could observe it. Its danger was not the goroutine but its WRITE END: it held
-// the pty master, which the session never closed (U152-F03), so a keystroke
+// the pty master, which the session never closed, so a keystroke
 // arriving after the turn ended was copied into a descriptor whose owner had
 // moved on. Once the master is closed with the session, that write can only
 // fail, and the pump retires.
@@ -389,7 +389,7 @@ func TestStartPTYCommand_NilStdinRetiresImmediately(t *testing.T) {
 	}
 }
 
-// TestSession_ResizeReportsAFailedIoctl pins U152-F06: Resize discarded
+// TestSession_ResizeReportsAFailedIoctl pins that Resize discarded
 // pty.Setsize's error outright, so a resize that never reached the container
 // produced no error, no warning and no log — the container's TTY silently kept
 // the old geometry for the whole turn while the agent redrew into the wrong
@@ -431,7 +431,7 @@ func TestSession_ResizeAfterTheSessionEndsIsSilent(t *testing.T) {
 	assert.Empty(t, diag.String(), "a resize after the session ended is dropped, not reported")
 }
 
-// TestStart_RefusesAnIncompleteTurn pins U152-F07: nothing validated the
+// TestStart_RefusesAnIncompleteTurn pins that nothing validated the
 // Launcher's own inputs, so an empty Backend, StartPath or container name still
 // rendered a WELL-FORMED command — `docker exec -i -t "" ctxloom llm turn
 // --start ""` — and the first thing that noticed was the runtime, or the

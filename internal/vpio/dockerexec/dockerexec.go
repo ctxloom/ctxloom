@@ -17,8 +17,8 @@
 // streams. The exec'd in-container command is `ctxloom llm turn <backend>
 // --start <path>`, which runs the Run-RPC body (Setup→Execute→Cleanup) DIRECTLY
 // on the exec TTY. There is NO in-container listener and NO published port: the
-// exec rides the daemon's control socket (the mauve-state class cannot recur on
-// this path).
+// exec rides the daemon's control socket (the routable in-container listener
+// vulnerability class cannot recur on this path).
 package dockerexec
 
 import (
@@ -189,7 +189,7 @@ func (l *Launcher) validate() error {
 // diagnostics). Factored out of Start so the pty/exit/resize plumbing is
 // unit-testable against a plain command (sh/cat) with no docker daemon.
 func startPTYCommand(ctx context.Context, cmd *exec.Cmd, spec vpio.ProcessSpec) (*Session, error) {
-	// U152-F01: a nil spec.Stdout used to silently substitute io.Discard —
+	// A nil spec.Stdout used to silently substitute io.Discard —
 	// the pump ran, Wait still returned ExitStatus{Code: 0}, nil, and the
 	// ENTIRE interactive session's output vanished with no error, no
 	// warning, no log: exit 0, success, zero bytes delivered. vpio.ProcessSpec

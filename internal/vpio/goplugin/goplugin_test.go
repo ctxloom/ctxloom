@@ -123,13 +123,13 @@ func TestLauncher_StartDoesNotBlockOnRun(t *testing.T) {
 // carries a nil Stdin and the relay is still required, which is precisely why a
 // Launcher may not infer "no resize is ever coming" from a nil Stdin — the
 // shortcut that would otherwise close the resize channel early and end
-// ptyrunner's initialResizeWait (taskloom `trim-viper`). Verified to bite:
+// ptyrunner's initialResizeWait. Verified to bite:
 // applying that shortcut (s.stop() when spec.Stdin == nil) fails this test with
 // "expected at least one resize event to reach the transport".
 func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
 	// Run is held open so the resizes happen against a LIVE session, which is
 	// the only state in which a relay is meaningful — a session whose Run has
-	// already returned releases itself (U153-F02) and drops resizes by design.
+	// already returned releases itself and drops resizes by design.
 	// Without the hold, whether a resize relays would depend on whether the
 	// test goroutine beat the Run goroutine, which is not a property to assert.
 	fc := &fakeClient{resizeDone: make(chan struct{}), block: make(chan struct{})}
@@ -171,7 +171,7 @@ func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {
 }
 
 // TestSession_WaitAloneReleasesResourcesWithoutCtxCancellation inverts
-// U153-F02: the ctx-done watcher goroutine and the resize channel are tied
+// this: the ctx-done watcher goroutine and the resize channel are tied
 // to the CALLER's context, not to the session's own lifetime (Start's
 // `go func() { <-ctx.Done(); s.stop() }()`), so both outlive a session that
 // has already completed — Wait returning releases nothing. For a one-shot
@@ -251,7 +251,7 @@ func TestSession_WaitReturnsExitCodeAndError(t *testing.T) {
 	}
 }
 
-// TestSession_WaitIsIdempotent pins U153-F01: Wait read the single-slot result
+// TestSession_WaitIsIdempotent pins that Wait read the single-slot result
 // channel directly, so the FIRST call drained it and every later call blocked
 // forever. The sibling implementation of the same vpio.Session method
 // (dockerexec.Session) guards its Wait with a sync.Once and returns the cached

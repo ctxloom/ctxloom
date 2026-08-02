@@ -27,7 +27,7 @@
 // (TestStartRun_BackendParity) and CLI/JSON-RPC-level probing (codex-acp
 // advertises loadSession:true; `-c model=` is accepted at parse). NOT proven:
 // a live authenticated delegated echo — parse-acceptance is not honor.
-// Revive once codex credentials exist on a dev host.
+// Revive once codex credentials exist on a dev host (taskloom bold-smirk).
 package codex
 
 import (

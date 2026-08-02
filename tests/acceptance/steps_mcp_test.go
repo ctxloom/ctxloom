@@ -8,8 +8,8 @@ import (
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
-// TestAssertToolCallSucceeds_FailsWhenEnvelopeCannotBeUnwrapped pins
-// U162-F04: callTool used to discard Inner()'s error entirely
+// TestAssertToolCallSucceeds_FailsWhenEnvelopeCannotBeUnwrapped pins that
+// callTool used to discard Inner()'s error entirely
 // (w.lastInner, _ = res.Inner()), leaving lastInner nil with no signal —
 // a malformed or error envelope was indistinguishable from a well-formed
 // one simply missing the field being asserted, and "the tool call

@@ -2,7 +2,7 @@
 
 // J9 matrix: the per-engine config-home isolation payload the top of
 // j9_isolation.feature's own doc used to flag as "needs a real
-// registered-engine fixture... out of hermetic scope here" (grave-prize).
+// registered-engine fixture... out of hermetic scope here".
 // Filled here via a SPY fixture, WITHOUT giving up the mock's hermetic,
 // no-live-credential, no-network guarantee.
 //
@@ -51,18 +51,18 @@
 // j9_isolation.doc.md for the full accounting of what is and is not proven
 // where.
 //
-// U161-F02 RE-VERIFIED 2026-07-26 (flow/testbed testbed batch): the finding
-// claimed "the Examples table still lists opencode alongside four engines
-// whose payload is checked" — re-checked against features/j9_isolation.feature
-// as it stands today and that is no longer true. The ONE Examples table that
-// asserts on spy payload ("A worktree run copies the host credential ...")
-// lists only claude-code and codex; opencode appears only in the two
-// pre-spawn-only outlines named above, which read the run's OUTPUT, never
-// the spy. So the specific misleading-coverage-claim harm the finding named
-// does not hold against the current file — REFUTED, not fixed (nothing to
-// fix). The underlying limitation (opencode's spy is never invoked, because
-// its real launch is a stateful ACP handshake) is real and stays documented
-// above; only the "the Examples table hides that" half was refuted.
+// RE-VERIFIED 2026-07-26: an earlier review claimed "the Examples table still
+// lists opencode alongside four engines whose payload is checked" — re-checked
+// against features/j9_isolation.feature as it stands today and that is no
+// longer true. The ONE Examples table that asserts on spy payload ("A
+// worktree run copies the host credential ...") lists only claude-code and
+// codex; opencode appears only in the two pre-spawn-only outlines named
+// above, which read the run's OUTPUT, never the spy. So the specific
+// misleading-coverage-claim harm the earlier review named does not hold
+// against the current file — nothing to fix here. The underlying limitation
+// (opencode's spy is never invoked, because its real launch is a stateful
+// ACP handshake) is real and stays documented above; only the "the Examples
+// table hides that" half was refuted.
 package acceptance
 
 import (
@@ -360,7 +360,7 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice has no "([^"]*)" credentials on the host$`, func(c context.Context, engine string) error {
 		w := worldFrom(c)
-		// U161-F07: this used to be an unconditional no-op on the ASSUMPTION
+		// This used to be an unconditional no-op on the ASSUMPTION
 		// that "the fresh TestEnvironment HOME never has one" -- true today,
 		// but an assumption a scenario ordering change or a future fixture
 		// helper writing into HOME earlier could silently invalidate. The

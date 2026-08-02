@@ -55,7 +55,7 @@ func registerMCPSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the tool result contains "([^"]*)"$`, func(c context.Context, want string) error {
 		w := worldFrom(c)
-		// U162-F07: this used to substring-match the WHOLE re-marshalled
+		// This used to substring-match the WHOLE re-marshalled
 		// JSON-RPC envelope (w.lastTool.JSON()) -- field names, the isError
 		// flag, and any error text included -- so a tool call that FAILED
 		// with an error message quoting `want` would pass. Match against the
@@ -161,7 +161,7 @@ func callTool(c context.Context, name string, args map[string]any) error {
 // directly unit-testable without going through godog. Checks two distinct
 // failure shapes: the CallToolResult's isError flag (the MCP SDK reports
 // handler/validation failures as a result with isError=true and a nil
-// envelope error, not just a JSON-RPC error), AND — U162-F04 — whether the
+// envelope error, not just a JSON-RPC error), AND whether the
 // envelope could be unwrapped at all. Before this, an envelope that failed
 // to unwrap (a malformed/error payload Inner() couldn't parse) left
 // w.lastInner nil with no signal, so every subsequent "the tool result

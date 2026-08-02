@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGenSchemasStub_WithoutTag_FailsLoud pins U003-F01: `go run
+// TestGenSchemasStub_WithoutTag_FailsLoud pins that `go run
 // ./cmd/gen-schemas` without `-tags schemagen` used to hit the `!schemagen`
 // stub whose entire body was `func main() {}` — exit 0, having generated
 // nothing at all, silently. The stub must instead fail loud and point at the

@@ -19,7 +19,7 @@ import (
 // server down before the handler writes its response. A real MCP client keeps
 // stdin open until it has its responses — this models that.
 //
-// U163-F08: this used to be an unconditional time.Sleep(mcpStdinGrace) on
+// This used to be an unconditional time.Sleep(mcpStdinGrace) on
 // every one of RunWithStdin's ~10 call sites -- 2s of wall clock per call
 // regardless of how fast the response actually arrived, even though the doc
 // already conceded "responses arrive in milliseconds". waitForStdinResponse
@@ -52,7 +52,7 @@ type TestEnvironment struct {
 
 	// runs is the ordered history of every CLI invocation (Run / RunWithStdin),
 	// oldest first — replacing a single mutable lastOutput/lastError/
-	// lastExitCode slot (U163-F01). A single slot forced any scenario that
+	// lastExitCode slot. A single slot forced any scenario that
 	// ran two commands to lose the first's output the moment the second
 	// ran; five acceptance journeys had invented private snapshot fields to
 	// work around exactly that. LastOutput/LastExitCode/LastError read the
@@ -224,7 +224,7 @@ func candidateBinaryPaths() []string {
 func findProjectRoot() string {
 	cwd, err := os.Getwd()
 	if err != nil {
-		// U163-F12: os.Getwd's error used to be silently discarded and root
+		// os.Getwd's error used to be silently discarded and root
 		// walked from "" -- filepath.Join("", "go.mod") happens to resolve
 		// relative to the process's real cwd via the OS anyway, but
 		// filepath.Dir("") is "." (not ""), so the loop's own root/parent
@@ -266,7 +266,7 @@ func firstExistingBinary(locations []string) (string, bool) {
 // Setup configures the environment variables for isolated testing.
 //
 // The error return can never be non-nil today (storeAndSetEnv returns
-// nothing; U163-F07) — kept deliberately as a documented future-proofing
+// nothing) — kept deliberately as a documented future-proofing
 // seam rather than dropped, since every one of Setup's five call sites
 // already checks it and a future storeAndSetEnv-shaped failure (a real
 // os.Setenv error, say) should be able to surface through the same path
@@ -559,8 +559,7 @@ func (e *TestEnvironment) LastOutput() string {
 // that, and so on), or "" if fewer than n+1 commands have run yet. Lets a
 // scenario recover an EARLIER command's output after a later command has
 // run and LastOutput now reflects that one instead — the exact need five
-// acceptance journeys previously met by inventing a private snapshot field
-// (U163-F01).
+// acceptance journeys previously met by inventing a private snapshot field.
 func (e *TestEnvironment) NthLastOutput(n int) string {
 	idx := len(e.runs) - 1 - n
 	if idx < 0 || idx >= len(e.runs) {
@@ -644,8 +643,8 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 }
 
 // waitForStdinResponse polls out for its response to arrive and settle,
-// instead of blindly sleeping the full mcpStdinGrace ceiling on every call
-// (U163-F08): it returns as soon as some output has been written and then
+// instead of blindly sleeping the full mcpStdinGrace ceiling on every call:
+// it returns as soon as some output has been written and then
 // stayed unchanged for one poll interval, which is the common case in
 // milliseconds; a child that never writes anything is still bounded by
 // mcpStdinGrace, exactly matching the old fixed-sleep behavior for that case.

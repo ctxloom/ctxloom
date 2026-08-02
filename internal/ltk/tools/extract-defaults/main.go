@@ -105,7 +105,7 @@ func assemble(md []byte, minRules int) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("assembled defaults do not parse: %w", err)
 	}
-	// U077-F01: the block-count check above validates the FENCES, not the
+	// The block-count check above validates the FENCES, not the
 	// rules. A document whose fences carry only prose, comments or a bare
 	// `rules:` assembles to a rule-free config, and rules.Parse accepts that —
 	// its decoder tolerates io.EOF and normalizeAndValidate has no minimum. The

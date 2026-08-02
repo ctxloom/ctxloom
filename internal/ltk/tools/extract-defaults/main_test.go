@@ -72,7 +72,7 @@ func TestEmbeddedSampleMatchesDoc(t *testing.T) {
 	}
 }
 
-// U077-F01: assemble validated the BLOCK count, never the RULE count. A doc
+// assemble validated the BLOCK count, never the RULE count. A doc
 // whose yaml fences carry prose, comments or an empty `rules:` key assembles to
 // a rule-free config, and rules.Parse accepts that happily (its decoder
 // tolerates io.EOF and normalizeAndValidate has no minimum). The result is

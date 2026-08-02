@@ -58,7 +58,7 @@ type Script struct {
 
 // Pipeline is one or more simple commands joined by "|".
 //
-// Background/Negated were dropped (U072-F03): frontend/shell was the only
+// Background/Negated were dropped: frontend/shell was the only
 // writer and, past a single test-only reader inside that same package, they
 // had no reader anywhere in the repo. Match.matches only ever consulted
 // Commands (rules match on Argv), so the two flags never influenced a
@@ -70,7 +70,7 @@ type Pipeline struct {
 
 // SimpleCommand is a single program invocation.
 //
-// Raw was dropped (U072-F03/U071-F02): its doc said "for human-facing
+// Raw was dropped: its doc said "for human-facing
 // messages", but no message path ever read it (a deny's Reason comes from
 // Rule.Message, rules/eval.go) — rg found zero readers anywhere, tests
 // included. It cost a full syntax.Printer pretty-print per command on the
@@ -121,7 +121,7 @@ type Redirect struct {
 // a substitution, ...), is NOT necessarily the top-level script Walk was
 // called on and may carry a different Shell. A caller that matches against
 // "the script's shell" using the top-level Script instead of this owner
-// mismatches every rule scoped to a nested dialect (fixes U072-F01/U073-F01:
+// mismatches every rule scoped to a nested dialect (this fixes a real bypass:
 // a `shells: [cmd]` rule could never fire on a cmd.exe payload nested inside a
 // bash `bash -c "cmd.exe /c …"` wrapper, because the walk had no way to say
 // which shell actually owned that command). The visitor returns false to stop

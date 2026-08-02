@@ -69,7 +69,7 @@ func TestConfirmByRepeatDelayBand(t *testing.T) {
 	}
 }
 
-// TestConfirmByRepeatReportsSaveError pins U076-F01: a Store.Save failure
+// TestConfirmByRepeatReportsSaveError pins that a Store.Save failure
 // (here, an afero.Fs wrapped read-only so every write fails) must be
 // reported to the caller, not silently discarded. Before the fix this arming
 // call's error vanished entirely (`_ = st.Save(now)`), so a persistence
@@ -85,7 +85,7 @@ func TestConfirmByRepeatReportsSaveError(t *testing.T) {
 	}
 }
 
-// TestConfirmByRepeatTooEarlyDoesNotWrite pins U076-F07: an over-eager repeat
+// TestConfirmByRepeatTooEarlyDoesNotWrite pins that an over-eager repeat
 // (still inside the delay) must not persist changed state -- nothing armed or
 // cleared changes on this path, so it must attempt no write. Proven the hard
 // way: arm on a writable fs, snapshot the resulting bytes onto a SEPARATE

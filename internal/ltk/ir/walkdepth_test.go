@@ -20,12 +20,13 @@ func deepScript(depth int) *Script {
 	return cur
 }
 
-// TestWalkHandlesDeepAcyclicNesting measures the reachable half of U072-F10.
-// Walk recurses once per nesting level with no cap, so the question is whether
-// an ordinary command line can drive it deep enough to matter. It cannot: a
-// substitution nested this deep is far past anything a shell parser will hand
-// back, and Go's growable stacks absorb it. The unreachable half — a cycle —
-// is covered by TestNestedIsAcyclicByConstruction below.
+// TestWalkHandlesDeepAcyclicNesting measures the reachable half of a
+// two-part risk: Walk recurses once per nesting level with no cap, so the
+// question is whether an ordinary command line can drive it deep enough to
+// matter. It cannot: a substitution nested this deep is far past anything a
+// shell parser will hand back, and Go's growable stacks absorb it. The
+// unreachable half — a cycle — is covered by
+// TestNestedIsAcyclicByConstruction below.
 func TestWalkHandlesDeepAcyclicNesting(t *testing.T) {
 	const depth = 20000
 	s := deepScript(depth)
@@ -38,8 +39,8 @@ func TestWalkHandlesDeepAcyclicNesting(t *testing.T) {
 	}
 }
 
-// TestNestedIsAcyclicByConstruction is the guard that makes U072-F10's cycle
-// premise checkable rather than merely argued. Walk has no visited set, so an
+// TestNestedIsAcyclicByConstruction is the guard that makes the cycle
+// premise above checkable rather than merely argued. Walk has no visited set, so an
 // aliased *Script in Nested would recurse until the stack is exhausted — and a
 // Go stack overflow is a fatal error no recover() can catch, which would take
 // down the hook process rather than produce a decision.
@@ -124,7 +125,7 @@ func TestFrontendProducedGraphsAreAcyclic(t *testing.T) {
 	}
 }
 
-// TestShellIsPartOfTheGraphContract is the pin for U072-F02, which measures
+// TestShellIsPartOfTheGraphContract is the pin against a claim that measures
 // (correctly — 4 of the 9 importing packages use only Shell) that the Shell
 // enum and the command graph have different audiences, and concludes they are
 // "two unrelated contracts in one package".

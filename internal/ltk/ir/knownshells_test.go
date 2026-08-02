@@ -7,8 +7,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
-// TestKnownShellsCannotBeMutatedByImporters is the inverted form of the
-// characterization committed for U072-F09. Shell.Valid is the sole validation
+// TestKnownShellsCannotBeMutatedByImporters is the inverted form of an
+// earlier characterization test. Shell.Valid is the sole validation
 // gate for a user-supplied shell name (defaults.shell and every match.shells
 // entry go through it), so the set it consults must not be reachable from
 // outside the package. The pre-fix test — which reassigned ir.KnownShells and

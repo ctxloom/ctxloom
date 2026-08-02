@@ -45,7 +45,7 @@ func ConfirmByRepeat(fs afero.Fs, resp engine.Response, command, stateFile strin
 		}
 		// Repeated inside the delay: keep the existing arm (don't reset the
 		// timer) and push back harder. Nothing in st.Pending changed on this
-		// path (U076-F07), so there is nothing to persist — do NOT call Save
+		// path, so there is nothing to persist — do NOT call Save
 		// here: it would perform a real atomic write (temp file + rename) for
 		// zero state delta, on every over-eager repeat.
 		resp.Reason = tooEarlyReason(resp.Reason, st.RemainingDelay(key, now))

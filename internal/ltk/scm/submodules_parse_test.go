@@ -135,7 +135,7 @@ func TestSubmodulePaths_CommentOnlyValueIsNotAPath(t *testing.T) {
 // turns it into ".", whose parent is itself, so the walk ends on its first
 // iteration and answers nil — "this repository declares no submodules" — which
 // is the one answer this function must never invent. It is the same collapse
-// U074-F01 removed from the read path: the caller has to be able to tell an
+// that was removed from the read path: the caller has to be able to tell an
 // absence from a failure to find out.
 func TestSubmodulePaths_EmptyStartDirIsAnError(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -162,7 +162,7 @@ func TestSubmodulePaths_EmptyStartDirIsAnError(t *testing.T) {
 // pointer (a submodule working tree or linked worktree); anything else named
 // .git is a broken repo by git's own rules, and treating it as a root makes
 // SubmodulePaths answer "this repo declares no submodules" — the same fail-open
-// nil that U074-F01 made this function stop returning for read failures.
+// nil this function was fixed to stop returning for read failures.
 func TestSubmodulePaths_StrayGitFileIsNotARepoRoot(t *testing.T) {
 	newFS := func(t *testing.T) afero.Fs {
 		t.Helper()

@@ -43,7 +43,7 @@ func (u unreadableFs) OpenFile(name string, flag int, perm os.FileMode) (afero.F
 	return u.Fs.OpenFile(name, flag, perm)
 }
 
-// TestSubmodulePaths_UnreadableIsNotAbsent pins U073-F06's root cause: an
+// TestSubmodulePaths_UnreadableIsNotAbsent pins the root cause of a real bug: an
 // UNREADABLE .gitmodules used to be indistinguishable from an ABSENT one — both
 // yielded nil, which ExpandSubmodules turns into a rule with zero patterns that
 // silently guards nothing. "There are no submodules" and "I could not find out

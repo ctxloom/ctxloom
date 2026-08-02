@@ -4,11 +4,11 @@
 // exit seam (internal/cli/run.go, right where transcript.RecordOneshot hooks
 // the oneshot exit) and the `session backfill` command (session_cmd.go),
 // which runs the identical conversion over already-indexed old sessions.
-// Closes docs/transcript-schema.md §8's "interactive-pty gap" (task
-// petty-green): an engine driven through its own interactive TUI has no
-// ctxloom memory today because the structured tee (Tee/TeeAndClose) can
-// never reach a pty — this is the missing other half, reading the engine's
-// OWN transcript back after the fact instead.
+// Closes docs/transcript-schema.md §8's "interactive-pty gap": an engine
+// driven through its own interactive TUI has no ctxloom memory today because
+// the structured tee (Tee/TeeAndClose) can never reach a pty — this is the
+// missing other half, reading the engine's OWN transcript back after the
+// fact instead.
 package operations
 
 import (
@@ -75,7 +75,7 @@ var vendorImportRegistry = map[string]vendorImportEntry{
 }
 
 // VendorImportEngineNames returns the backend names vendorImportRegistry
-// covers (T12: one of the four independently-maintained engine-identity
+// covers (one of the four independently-maintained engine-identity
 // rosters found spread across the codebase — see
 // tests/arch/engine_identity_arch_test.go's TestArch_EngineIdentityRosters_
 // MembersAreRegisteredBackends, which validates every name returned here is
@@ -138,7 +138,7 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 // silence vs. a warning/report row) — it does not swallow errors itself.
 //
 // A Convert failure that happened AFTER some lines were already recorded
-// (U145-F02) has its partial canonical file removed before returning: without
+// has its partial canonical file removed before returning: without
 // that, hasCanonicalTranscript's presence-only guard would treat the partial
 // file as a complete one forever, silently masking the original failure on
 // every later call for this harp instead of allowing a genuine retry.
@@ -163,7 +163,7 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 	cerr := reg.adapter.Convert(ctx, rec, src)
 	_ = rec.Close()
 	if cerr != nil {
-		// U145-F02: Convert can fail AFTER already recording some lines (a
+		// Convert can fail AFTER already recording some lines (a
 		// bad byte partway through a large transcript), and
 		// transcript.Recorder creates its file on the first SUCCESSFUL
 		// Record (recorder.go's NewRecorder doc) — so a failure here can
@@ -181,7 +181,7 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 		}
 		return true, fmt.Errorf("convert %s transcript for %s: %w", e.Backend, e.HarpName, cerr)
 	}
-	// U089-F03: Convert succeeding is NOT the same fact as bytes landing on
+	// Convert succeeding is NOT the same fact as bytes landing on
 	// disk. transcript.Recorder only creates its canonical file on the FIRST
 	// SUCCESSFUL Record, so a Convert that (legitimately, per
 	// importer.VendorAdapter's own degrade-to-partial contract) wrote zero

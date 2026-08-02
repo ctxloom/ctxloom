@@ -22,7 +22,7 @@ import (
 // pending and is withheld until `ctxloom review` accepts it. Returns the number
 // of entries whose SHA advanced.
 // UpgradeDependencies's third return, incomplete, is true when part of the
-// dependency closure could not be reached this round (U040-F12): the caller
+// dependency closure could not be reached this round: the caller
 // must not report "everything is up to date" on that basis alone — advanced
 // counts only what WAS resolved, and an incomplete closure means part of the
 // project was never actually checked against upstream.
@@ -38,7 +38,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 	baseDir := getBaseDir(cfg)
 	auth := remote.LoadAuth(baseDir)
 	factory := remote.FetcherFactory(NewCachedFetcherFactory(cfg))
-	// U089-F10 (escalated from wave-1): both lockfile manager constructions in
+	// Both lockfile manager constructions in
 	// this function used to omit WithLockfileFS, so under an injected
 	// filesystem (tests, or any future FS-scoped caller) the closure walk
 	// would enumerate roots from cfg's FS while this function's own Load/Save
@@ -69,7 +69,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 	if len(conflicts) > 0 {
 		return 0, false, ConflictError(conflicts)
 	}
-	// U083-F02: closureRoots' OWN failures (a root that could not load) used
+	// closureRoots' OWN failures (a root that could not load) used
 	// to be invisible to the preserve-existing-entries guard below — only
 	// the walker's internal unexpanded set fed it. Merge both.
 	unexpanded = append(unexpanded, rootsUnexpanded...)
@@ -85,7 +85,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 			continue
 		}
 		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
-		// U089-F01: a full re-resolve is NOT a fresh retraction check — only
+		// A full re-resolve is NOT a fresh retraction check — only
 		// sync's installed-ref re-check (checkInstalledRetraction) or the next
 		// Pull actually reads the publisher's manifest and is entitled to lift
 		// a retraction. Without this, `ctxloom remote upgrade` silently

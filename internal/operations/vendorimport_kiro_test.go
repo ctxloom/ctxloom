@@ -202,8 +202,8 @@ func isolatedKiroFixtureDB(t *testing.T, harp string, rows ...kiroFixtureRow) st
 	return dbPath
 }
 
-// TestLocateKiroConversation_PrefersIsolatedHarpDBOverHostAmbient pins
-// dizzy-zoom's second caveat: kiroDBPath() previously read only the HOST
+// TestLocateKiroConversation_PrefersIsolatedHarpDBOverHostAmbient pins that
+// kiroDBPath() previously read only the HOST
 // process's own $XDG_DATA_HOME, invisible to an isolated (worktree/
 // container) kiro run's own per-agent override — so a conversation that
 // happened entirely inside an isolated sqlite db was never found by the
@@ -304,7 +304,7 @@ func TestLocateKiroConversation_BoundSessionIDPicksTheDBThatHoldsIt(t *testing.T
 }
 
 // TestLocateKiroConversation_UnreadableDBIsReportedNotSilentlyNothing pins
-// U089-F20: a kiro sqlite store that exists but cannot be read (corrupt,
+// that a kiro sqlite store that exists but cannot be read (corrupt,
 // truncated mid-write, locked by a still-running kiro-cli, or simply not a
 // sqlite file at all) is a DIFFERENT fact from "this session has no
 // conversation to import", and the two used to be indistinguishable —

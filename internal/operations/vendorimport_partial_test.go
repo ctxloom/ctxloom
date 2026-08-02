@@ -33,7 +33,7 @@ func (a partialFailAdapter) Convert(_ context.Context, rec transcript.Recorder, 
 	return assert.AnError
 }
 
-// U145-F02: Convert failing partway through a transcript still leaves
+// Convert failing partway through a transcript still leaves
 // whatever it already wrote on disk (transcript.Recorder creates its file on
 // the first SUCCESSFUL Record — recorder.go's NewRecorder doc — and every
 // Record before the failure succeeded). hasCanonicalTranscript's guard is
@@ -80,7 +80,7 @@ func (zeroLineAdapter) Convert(_ context.Context, _ transcript.Recorder, _ strin
 	return nil
 }
 
-// U089-F03: ConvertVendorTranscript returned (true, nil) — "converted" —
+// ConvertVendorTranscript returned (true, nil) — "converted" —
 // whenever Convert itself succeeded, with NO check that any bytes actually
 // landed on disk. transcript.Recorder creates its canonical file only on the
 // FIRST SUCCESSFUL Record (recorder.go's NewRecorder doc), so a Convert that

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U023-F33 claimed c.launches is an unbounded per-run projection that
+// A finding claimed c.launches is an unbounded per-run projection that
 // reapEndedRuns should bound like "every other" one. REFUTED, and this is the
 // guard against the proposed remedy being applied:
 //

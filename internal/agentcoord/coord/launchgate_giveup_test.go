@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// U023-F04 (already fixed under U023-F02's commit, pinned here): budget
+// Budget
 // exhaustion used to be announced ONLY for CauseLaunchFailed, so an
 // attach-then-die loop ended in total silence with the child's mail still
 // queued — a stranded mailbox nobody is told about. relaunchForLeftoverMail now
@@ -18,7 +18,7 @@ import (
 //
 // The assertion is on the PARENT'S MAILBOX, not on stderr: the parent is an
 // agent whose only input is its mailbox, and the coordinator's stderr is a
-// channel it cannot read (U020-F04).
+// channel it cannot read.
 func TestGiveUpLaunching_NotifiesTheParentForANonLaunchCause(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
@@ -86,7 +86,7 @@ func TestGiveUpLaunching_StaysSilentForAnOperatorStop(t *testing.T) {
 	}
 }
 
-// U023-F34 (already fixed under U023-F02's commit, pinned here): the register's
+// The register's
 // claim was that `agent_stop` "refuses resumed children" — under one-shot a
 // healthy child spends the gap between turns with an ENDED current run, so
 // AgentStop takes the rec.Ended branch, and BEFORE the fix that branch returned

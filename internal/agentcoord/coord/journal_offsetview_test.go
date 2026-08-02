@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U019-F01: checkpoint.go's writeItemsSnapshot used to read the journal's
+// checkpoint.go's writeItemsSnapshot used to read the journal's
 // offset (Offset()) and the fold's state (View()) as TWO separate locked
 // windows. A concurrent Exec landing between them lands in the gap: the read
 // observes fold state NEWER than the recorded offset, so restore(snapshot) +

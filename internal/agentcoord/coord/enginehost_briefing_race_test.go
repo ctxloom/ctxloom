@@ -11,7 +11,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U021-F01: SetTurnSink's closure and the briefing goroutine both send to
+// SetTurnSink's closure and the briefing goroutine both send to
 // the same UNBUFFERED `in`, from two different goroutines, with no ordering
 // between them. If coordinator mail is already queued at standup
 // (issueStartRun's opportunistic pushMail, called immediately after

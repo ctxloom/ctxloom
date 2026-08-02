@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U022-F20: flushItems detached ch.items ("facts := ch.items; ch.items =
+// flushItems detached ch.items ("facts := ch.items; ch.items =
 // nil") BEFORE attempting the journal append, and on an Exec failure just
 // warned and returned — the facts existed in no buffer and no journal,
 // permanently lost. The comment claimed "the runner keeps the events unacked

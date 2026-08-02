@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// U023-F13: launchBackoff's exponential loop only consults launchBackoffMax
+// launchBackoff's exponential loop only consults launchBackoffMax
 // INSIDE the doubling loop, and the loop body never runs for the first retry
 // (fails == 1 → `for range 0`). So the very first retry returned
 // launchBackoffBase UNCAPPED: an operator who lowers CTXLOOM_LAUNCH_BACKOFF_MAX

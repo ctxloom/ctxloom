@@ -9,7 +9,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U022-F01: abandonPark's own comment claimed "the delivery beat us; but the
+// abandonPark's own comment claimed "the delivery beat us; but the
 // caller is leaving — requeue", but no requeue existed: `<-p.ch` drained and
 // discarded the delivered batch. deliverNotice already removed it from the
 // buffer (or never buffered it — it went straight to p.ch), and

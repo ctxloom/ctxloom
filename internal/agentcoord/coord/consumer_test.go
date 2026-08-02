@@ -212,7 +212,7 @@ drain:
 // some other one) is what gets evicted, and the terminal event lands right
 // after it — one eviction, one successful retry, well inside
 // terminalEvictAttempts.
-// TestWatchHub_Narrow_ScopesToOneRun is U041-F06 PART 1's hub-level contract
+// TestWatchHub_Narrow_ScopesToOneRun is PART 1's hub-level contract
 // test. startContainerOwnedRun must subscribe BEFORE the run's ID exists
 // (StartOwnedRun mints it internally, mid-call — see run_owned.go's own
 // comment on that ordering), so subscribe(nil) — hub-wide — is unavoidable at
@@ -351,9 +351,9 @@ func TestConsumer_CredentialRejectedOnCoordinatorService(t *testing.T) {
 	// The stream interceptor rejects BEFORE the RunnerChannel handler ever
 	// runs, so the server can close the stream before this Send's Hello
 	// frame lands — Send legitimately surfaces io.EOF/Unavailable in that
-	// race under load, not a real client bug (flaky-agentcoord S3,
-	// hoary-amigo — the same classic gRPC client-streaming antipattern
-	// artifacts_test.go's uploadRaw had). The authoritative status always
+	// race under load, not a real client bug (the same classic gRPC
+	// client-streaming antipattern artifacts_test.go's uploadRaw had). The
+	// authoritative status always
 	// rides Recv, never a Send error, so a Send failure here is tolerated.
 	_ = stream.Send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_Hello{Hello: &agentcoordpb.RunnerHello{}}})
 	_, err = stream.Recv()

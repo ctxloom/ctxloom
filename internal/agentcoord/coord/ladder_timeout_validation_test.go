@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// U023-F09: buildLadder REJECTS a role: on an auto_accept/auto_decline rung
+// buildLadder REJECTS a role: on an auto_accept/auto_decline rung
 // ("role is not meaningful for action") but silently DROPPED a timeout: on the
 // same rungs. An operator writing
 //

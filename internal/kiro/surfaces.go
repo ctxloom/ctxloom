@@ -82,10 +82,10 @@ type mcpSurface struct {
 
 // Deliver writes .kiro/settings/mcp.json via the reused reconciler and returns a
 // handle whose Cleanup drops the ctxloom-managed servers (RemoveServers). Reads
-// s.commandOverride (dire-five) — settingsSurface below and opencode's
-// configSurface are deliberately NOT touched the same way: the override is
-// MCP-only (it replaces the ctxloom stdio command), and neither the agent JSON
-// nor opencode's config carries that command.
+// s.commandOverride — settingsSurface below and opencode's configSurface are
+// deliberately NOT touched the same way: the override is MCP-only (it
+// replaces the ctxloom stdio command), and neither the agent JSON nor
+// opencode's config carries that command.
 // reprise:accept-drift
 func (s *mcpSurface) Deliver(dir string) (agent.Delivered, error) {
 	w := &KiroWriter{FS: s.fs, mcpCommandOverride: s.commandOverride}
@@ -104,8 +104,8 @@ func (s *mcpSurface) UnsafeInfo() string { return "kiro/mcp" }
 // writeAgentConfig. kiro's hooks live inside this agent JSON, so settings + hooks
 // are one surface. Delivery-ONLY.
 //
-// agentName (U055-F01, closing the Phase 2 note this used to carry): the
-// agent's NAME is what `--agent <name>` selects at launch — kiro's per-agent
+// agentName (closing the Phase 2 note this used to carry): the agent's NAME
+// is what `--agent <name>` selects at launch — kiro's per-agent
 // isolation lever. It must be the SAME name buildArgs launches with, so it
 // rides in.AgentName from NewSurfaces (empty uses defaultAgentName, unchanged
 // from before this field existed).
@@ -244,7 +244,7 @@ func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	}
 }
 
-// kiroApproaches is kiro's DECLARED per-surface approach table (vital-tiger v2
+// kiroApproaches is kiro's DECLARED per-surface approach table (v2
 // per-provider dispatch): every surface is a single native file. kiro reads
 // .kiro/steering for context (no hook, no out-of-cwd flag), and its hooks live
 // inside the agent JSON (settings + hooks fold into one surface). The mechanical

@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// TestChatACPConfig_UsesGenericModelFlag pins the Wave C3 finding: unlike
+// TestChatACPConfig_UsesGenericModelFlag pins a verified fact: unlike
 // codex-acp, `kiro-cli acp --model <id>` is a real, CLI-parse-accepted flag
 // (verified live: `kiro-cli --help-all` documents it, and an unauthenticated
 // live spawn with an arbitrary --model value fails on kiro-cli's own auth
@@ -37,8 +37,8 @@ func TestChatACPConfig_CarriesConfiguredKnobs(t *testing.T) {
 	assert.Equal(t, map[string]string{"FOO": "bar"}, cfg.Env)
 }
 
-// U055-F03: a configured `effort:` is delivered on the direct-CLI path
-// (buildArgs emits --effort) but the structured-chat path never reads it — the
+// A configured `effort:` is delivered on the direct-CLI path (buildArgs
+// emits --effort) but the structured-chat path never reads it — the
 // user's setting silently evaporates, and the session runs at kiro's default
 // effort while nothing says so. Delivering it to `kiro-cli acp` is unverified
 // (see chatACPConfig's doc), so the honest outcome is a loud one, not a quiet

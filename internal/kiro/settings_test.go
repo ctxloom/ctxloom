@@ -194,7 +194,7 @@ func TestKiroWriter_Status_UnreadableSteeringIsAnError(t *testing.T) {
 }
 
 // TestKiroWriter_RemoveSettings_UndeterminableAgentFileIsAnError is the other
-// half of U055-F12's claim: RemoveSettings drops afero.Exists' error exactly as
+// half of the same bug: RemoveSettings drops afero.Exists' error exactly as
 // Present drops os.Stat's, so an agent config that exists but cannot be stat'ed
 // is silently skipped and uninstall reports success with the ctxloom-owned file
 // still on disk — exit 0, success message, nothing removed.

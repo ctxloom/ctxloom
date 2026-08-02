@@ -47,7 +47,7 @@ func (b *Kiro) chatACPConfig() acp.ACPConfig {
 	// --effort) but has no verified counterpart on `kiro-cli acp`, so this
 	// path cannot honor it. Say so: silently dropping a knob the user
 	// explicitly set means the session runs at kiro's default effort while
-	// every surface reports success (U055-F03). Passing --effort through on
+	// every surface reports success. Passing --effort through on
 	// speculation is the worse option — an unsupported flag would break the
 	// spawn outright, and this file's doc comment already refuses to assume
 	// the two vocabularies line up.

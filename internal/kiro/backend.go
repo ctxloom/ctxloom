@@ -15,15 +15,15 @@
 // does not exist"), proving the flag reaches real model resolution rather
 // than being accepted and ignored (cf. claude-code-acp's silent-ignore).
 //
-// tough-cloud S5: the session-history reader (formerly internal/kiro/
-// session.go) was DELETED outright, not demoted to an importer — the user's
-// explicit decision. It was CONFIRMED BROKEN against real session files
-// (tall-grab: it read the v1 sessions/cli/*.jsonl store, but a real
-// `kiro-cli chat --no-interactive` oneshot — the mode ctxloom's own oneshot
-// Execute path uses — persists into a structurally different v2 SQLite blob
-// this reader never parsed). Kiro's structured Chat driver already streams
-// the real conversation through ACP, captured canonically instead (see
-// internal/transcript); Kiro's Backend.History() now returns nil.
+// The session-history reader (formerly internal/kiro/session.go) was DELETED
+// outright, not demoted to an importer — the user's explicit decision. It was
+// CONFIRMED BROKEN against real session files: it read the v1
+// sessions/cli/*.jsonl store, but a real `kiro-cli chat --no-interactive`
+// oneshot — the mode ctxloom's own oneshot Execute path uses — persists into
+// a structurally different v2 SQLite blob this reader never parsed. Kiro's
+// structured Chat driver already streams the real conversation through ACP,
+// captured canonically instead (see internal/transcript); Kiro's
+// Backend.History() now returns nil.
 package kiro
 
 import (
@@ -90,9 +90,9 @@ func NewKiro() *Kiro {
 	b.InitLaunch(
 		agent.NewBaseLifecycle("kiro"),
 		agent.NewBaseContextProvider(),
-		nil, // SessionHistory: kiro's sessions/cli/*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
+		nil, // SessionHistory: kiro's sessions/cli/*.jsonl scraper deleted — canonical capture is the only transcript source now
 		&agent.CellDelivery{
-			// U055-F01: a plain agent.BuildWellKnown(NewSurfaces) has no way to
+			// A plain agent.BuildWellKnown(NewSurfaces) has no way to
 			// see this backend's configured agent-name override — SurfaceInputs
 			// is built generically in setupViaCells with no knowledge of any
 			// concrete backend's fields. This closure captures b and reads
@@ -199,9 +199,9 @@ func (b *Kiro) buildArgs(req *agent.ExecuteRequest, model string) []string {
 	}
 
 	// Map the generalized permission posture onto kiro's --trust-tools /
-	// --trust-all-tools flags (tangy-fox; was bypass-only — read-only used to
-	// silently collapse to kiro's own prompting, the worst-collapsed engine of
-	// the three under-mapped ones). SkipSetup forces the read-only arm
+	// --trust-all-tools flags (this used to be bypass-only — read-only
+	// silently collapsed to kiro's own prompting, the worst-collapsed engine
+	// of the three under-mapped ones). SkipSetup forces the read-only arm
 	// regardless of a requested bypass, matching codex's and agy's identical
 	// SkipSetup-wins switch shape (a distillation run must never widen to
 	// bypass just because the label's configured posture happens to be

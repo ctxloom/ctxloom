@@ -60,16 +60,16 @@ type KiroWriter struct {
 	FS afero.Fs
 	// mcpCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
 	// the ctxloom-managed .kiro/settings/mcp.json entry's command (see
-	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell (the
-	// dire-five fix). Empty (the default) preserves the host self-exec-
-	// absolute behavior exactly.
+	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell.
+	// Empty (the default) preserves the host self-exec-absolute behavior
+	// exactly.
 	mcpCommandOverride string
 	// agentName, when non-empty, replaces defaultAgentName as BOTH the
 	// materialized agent JSON's file name (.kiro/agents/<name>.json) and its
-	// own "name" field (U055-F01: these two used to disagree — writeAgentConfig
-	// always used defaultAgentName while `--agent` launched with the
-	// configured KiroConfig.Agent override, a broken launch). Empty (the
-	// default) preserves today's "ctxloom" behavior exactly.
+	// own "name" field (these two used to disagree — writeAgentConfig always
+	// used defaultAgentName while `--agent` launched with the configured
+	// KiroConfig.Agent override, a broken launch). Empty (the default)
+	// preserves today's "ctxloom" behavior exactly.
 	agentName string
 }
 

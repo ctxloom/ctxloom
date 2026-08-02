@@ -14,8 +14,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// TestKiro_SetupExecute_AgreeOnAgentName is the end-to-end PAYLOAD test for
-// U055-F01: a configured `agent:` override used to reach buildArgs'
+// TestKiro_SetupExecute_AgreeOnAgentName is the end-to-end PAYLOAD test for a
+// real bug: a configured `agent:` override used to reach buildArgs'
 // `--agent <name>` while Setup's writeAgentConfig kept writing the
 // materialized custom-agent JSON under the hardcoded defaultAgentName, both
 // as the file's path AND its "name" field — so kiro-cli was told to select an
@@ -70,8 +70,8 @@ func TestNewKiro_Defaults(t *testing.T) {
 }
 
 // TestNewKiro_HasNoSessionHistoryReader pins the fact several comments in this
-// package rest on (U055-F02): kiro's sessions/cli/*.jsonl scraper was DELETED,
-// not demoted — it was confirmed broken against the v2 SQLite store a real
+// package rest on: kiro's sessions/cli/*.jsonl scraper was DELETED, not
+// demoted — it was confirmed broken against the v2 SQLite store a real
 // `kiro-cli chat --no-interactive` writes, and canonical capture is the only
 // transcript source now. Anything reintroducing a reader here must revisit
 // those comments, and KIRO_HOME's scope with them.
@@ -132,7 +132,7 @@ type foreignConfig struct{}
 
 func (foreignConfig) BackendType() string { return "not-kiro" }
 
-// TestKiro_ConfigureForeignConfigIsWarned pins U055-F11: a config Configure
+// TestKiro_ConfigureForeignConfigIsWarned pins a real bug: a config Configure
 // cannot read drops EVERY override (binary path, args, env, effort, agent,
 // agent-engine) and the run then launches on defaults. Staying silent about
 // that surfaces the mis-wiring a whole session later as a launch that ignored

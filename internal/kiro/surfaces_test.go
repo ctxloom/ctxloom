@@ -478,7 +478,7 @@ func TestSharedCell_AcceptsOnlyUnsafeKiroSurfaces(t *testing.T) {
 	assert.Contains(t, stderr, "warning:", "every kiro surface warns when DeliverShared delivers it")
 }
 
-// ---- approach dispatch (vital-tiger v2) -------------------------------------
+// ---- approach dispatch (v2) -------------------------------------
 
 // SupportedApproaches pins kiro's per-surface table: every surface is
 // native-file-only — kiro reads steering directly, no hook, no out-of-cwd flag.
@@ -499,8 +499,8 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 	}
 }
 
-// TestNewSurfaces_DispatchAgreesWithFieldsAndTable is U055-F10's pin. The row
-// claimed kiro's five surfaces are "listed twice with nothing enforcing
+// TestNewSurfaces_DispatchAgreesWithFieldsAndTable pins a real finding. The
+// row claimed kiro's five surfaces are "listed twice with nothing enforcing
 // agreement" between the named struct fields and the dispatch map. There are in
 // fact THREE lists — fields, dispatch, and the declared kiroApproaches table —
 // and only the fields are unguarded, because they are read by tests alone

@@ -55,14 +55,14 @@ func TestMCPRegistrar_Present(t *testing.T) {
 	assert.True(t, r.Present(dir, true))
 }
 
-// TestMCPRegistrar_PresentWarnsWhenPresenceIsUnknowable pins U055-F12's
-// answerable half. agent.MCPRegistrar.Present is a boolean predicate, so it has
-// exactly one way to say "no" and three reasons to reach it: kiro is genuinely
-// absent, $HOME could not be resolved, and stat failed for some reason other
-// than absence. Only the first is a fact about kiro. The other two make the
-// registrar's caller (taskloom manage's auto-detection) skip kiro exactly as if
-// the user had never used it — so they must at least be SAID, since the return
-// type cannot carry them.
+// TestMCPRegistrar_PresentWarnsWhenPresenceIsUnknowable pins the answerable
+// half of a real bug: agent.MCPRegistrar.Present is a boolean predicate, so it
+// has exactly one way to say "no" and three reasons to reach it: kiro is
+// genuinely absent, $HOME could not be resolved, and stat failed for some
+// reason other than absence. Only the first is a fact about kiro. The other
+// two make the registrar's caller (taskloom manage's auto-detection) skip
+// kiro exactly as if the user had never used it — so they must at least be
+// SAID, since the return type cannot carry them.
 func TestMCPRegistrar_PresentWarnsWhenPresenceIsUnknowable(t *testing.T) {
 	r := MCPRegistrar{}
 

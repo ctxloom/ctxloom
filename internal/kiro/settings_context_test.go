@@ -11,14 +11,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// TestKiroWriter_UnreadableContextHashIsLoud pins U055-F06: a non-empty context
-// hash whose file cannot be read used to be downgraded to content == "", which
-// writeSteering interprets as "the caller wants no context" — so it REMOVED the
-// steering file kiro auto-loads and returned nil. The session then launched with
-// zero context bytes and exit 0, and the previously-delivered context was
-// destroyed on the way out. A hash is an assertion that context exists; failing
-// to resolve it is a failure to determine what to deliver, not a request to
-// deliver nothing.
+// TestKiroWriter_UnreadableContextHashIsLoud pins a real bug: a non-empty
+// context hash whose file cannot be read used to be downgraded to content ==
+// "", which writeSteering interprets as "the caller wants no context" — so it
+// REMOVED the steering file kiro auto-loads and returned nil. The session
+// then launched with zero context bytes and exit 0, and the
+// previously-delivered context was destroyed on the way out. A hash is an
+// assertion that context exists; failing to resolve it is a failure to
+// determine what to deliver, not a request to deliver nothing.
 func TestKiroWriter_UnreadableContextHashIsLoud(t *testing.T) {
 	w, fs := newTestWriter()
 

@@ -200,8 +200,8 @@ func TestEvaluateTriggers_HappyPath(t *testing.T) {
 	assert.True(t, client.gotReqs[0].Options.SkipSetup)
 }
 
-// TestEvaluateTriggers_RepoStateReachesThePrompt is the regression for the
-// live used-lurk failure: an existence-style trigger ("package X exists") was
+// TestEvaluateTriggers_RepoStateReachesThePrompt is the regression for a
+// live failure: an existence-style trigger ("package X exists") was
 // judged not-fired because the package was UNCOMMITTED and the evidence pack
 // only carried commit history. The repo's current state — including untracked
 // work — must reach the model.

@@ -253,8 +253,8 @@ func TestEffectiveTrust_CorruptLockfile_RejectionStillOutranks(t *testing.T) {
 // discipline. A user cannot otherwise diagnose this: nothing they typed
 // mentions lock.yaml, and the abort has to read as a POLICY refusal, not a
 // crash. Following internal/acp/fsconfine.go's discipline, it must name the
-// reason, name the file, say the state is intact (T1 preserves the corrupt
-// file byte-identical), and name the recovery.
+// reason, name the file, say the state is intact (the corrupt file is
+// preserved byte-identical), and name the recovery.
 func TestEffectiveTrust_CorruptLockfile_FindingNamesTheRecovery(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
@@ -283,7 +283,7 @@ func TestEffectiveTrust_CorruptLockfile_FindingNamesTheRecovery(t *testing.T) {
 
 // TestContentGate_CorruptLockfile_WithholdsRemoteContent is the
 // PRODUCTION-SHAPED case, and it exists because the corrupt-approvals-store
-// fix (taskloom rocky-motto) shipped a guard that turned out to be DEAD CODE
+// fix shipped a guard that turned out to be DEAD CODE
 // on the real call path: every production caller injected its Records, so the
 // gate — reachable only when Records was nil — never ran. Retraction has the
 // mirror-image shape: buildContentGate never sets contentGate.retraction

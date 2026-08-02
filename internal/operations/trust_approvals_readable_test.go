@@ -97,7 +97,7 @@ func TestEffectiveTrust_UnreadableApprovalsStore_DenyAllAndStrictFatal(t *testin
 }
 
 // TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll is the
-// PRODUCTION-SHAPED reproduction of the fail-open bug (taskloom rocky-motto):
+// PRODUCTION-SHAPED reproduction of the fail-open bug:
 // EVERY real caller (contentGate — see contentGate.allow threading g.records
 // into EffectiveTrustRequest.Records — plus review.go and bundle_distill.go)
 // builds its ReviewRecords ONCE, up front, and passes it NON-NIL on every

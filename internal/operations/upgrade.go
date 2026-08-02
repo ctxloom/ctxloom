@@ -15,8 +15,8 @@ import (
 // frozen and never advances. A hash conflict in the proposed closure is a hard
 // error; nothing is written.
 //
-// There is no review gate here: the lockfile is pure dependency pinning
-// (trust-simplify slice 3). Whether any newly-pinned content ever reaches the
+// There is no review gate here: the lockfile is pure dependency pinning.
+// Whether any newly-pinned content ever reaches the
 // agent is decided per item at exposure by the content-hash trust gate
 // (EffectiveTrust) — changed content from an untrusted source re-hashes to
 // pending and is withheld until `ctxloom review` accepts it. Returns the number

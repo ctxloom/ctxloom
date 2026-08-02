@@ -546,8 +546,8 @@ func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 }
 
 // TestSetItemTrust_ApprovesSkillCurrentVersion mirrors
-// TestSetItemTrust_ApprovesCurrentVersion for the NEW trust.KindSkill kind
-// (Part B2): a skill from an untrusted/unsigned publisher is NOT trusted
+// TestSetItemTrust_ApprovesCurrentVersion for the NEW trust.KindSkill kind:
+// a skill from an untrusted/unsigned publisher is NOT trusted
 // (pending) until a human reviews and accepts it — exactly like a
 // command/prompt — and once SetItemTrust records that acceptance, the exact
 // approved manifest bytes resolve ALLOW/SourceAccepted while any other
@@ -721,7 +721,7 @@ func TestParseTrustItemRef(t *testing.T) {
 		{name: "missing selector", ref: "tooling", wantErr: true},
 		{name: "unknown kind", ref: "tooling#widgets/x", wantErr: true},
 		{name: "empty name", ref: "tooling#fragments/", wantErr: true},
-		// uncut-grub regression lock: internal/lm/backends/managed.go's
+		// Regression lock: internal/lm/backends/managed.go's
 		// gateProfileMCP/gateProfileHooks used to compose the gate ref as
 		// "<profile-display-name>#<kind>/<name>". For a bundle-shipped
 		// profile the display name is itself "<bundle>#profiles/<name>", so
@@ -757,7 +757,7 @@ func TestParseTrustItemRef(t *testing.T) {
 			ref:        "ctxloom:local@bundles/kit#hooks/session_start/0",
 			wantBundle: "kit", wantKind: trust.KindHook, wantName: "session_start/0", wantLocal: true,
 		},
-		// ugly-sake regression lock: the OLD buggy ref shape for a REMOTE
+		// Regression lock: the OLD buggy ref shape for a REMOTE
 		// profile's hook was just the bare display name
 		// ("my-remote-profile#hooks/pre_tool/0") — parseTrustItemRef's
 		// bare-token fallback resolves that IsLocal:true unconditionally,

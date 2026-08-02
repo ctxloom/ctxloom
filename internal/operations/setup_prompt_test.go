@@ -90,8 +90,8 @@ commands:
 	assert.Equal(t, got, again, "composition order must be stable across repeated resolutions")
 }
 
-// TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin proves the
-// paced-trump claim that a companion loadout's `agent-setup` command lands in
+// TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin proves that a
+// companion loadout's `agent-setup` command lands in
 // the SAME seeded set a repo bundle's does (config.go's SeededBundleLoader
 // merges loadRemoteBundleSeed and companionBundleSeed into one map), so
 // composing over ListAllCommands picks up an installed companion's setup

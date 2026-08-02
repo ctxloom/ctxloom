@@ -149,7 +149,7 @@ func TestWorktree_TeardownAbortsOnOuterWIP(t *testing.T) {
 	assert.Empty(t, f.Removed, "a dirty outer worktree is preserved, not removed")
 }
 
-// TestWorktree_TeardownAbortsOnIgnoredContent pins U053-F01/U054-F01: IsDirty
+// TestWorktree_TeardownAbortsOnIgnoredContent pins that IsDirty
 // alone misses gitignored/excluded content, so a worktree holding ONLY
 // ignored files (e.g. an agent-authored CLAUDE.md hidden by this repo's own
 // common-dir info/exclude block) used to read clean and get destroyed.
@@ -184,7 +184,7 @@ func TestWorktree_TeardownAbortsOnUnknownIgnoredContentState(t *testing.T) {
 }
 
 // TestWorktree_TeardownRetiresConfigExcludeWhenLastWorktreeGone pins the other
-// half of U054-F02: once teardown removes the LAST non-main worktree, the
+// half: once teardown removes the LAST non-main worktree, the
 // shared config-exclude block must be retired from the common-dir
 // info/exclude — otherwise the developer's own main checkout is left unable
 // to see new CLAUDE.md/AGENTS.md/.claude/ files FOREVER, with no removal
@@ -217,7 +217,7 @@ func TestProvisionConfigHome_OwnerOnly(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "engine creds/state dir is owner-only")
 }
 
-// TestWorktree_UnregisteredBackendRecordsFinding pins U065-F01: a backend
+// TestWorktree_UnregisteredBackendRecordsFinding pins that a backend
 // registered in NEITHER credentialSeedSpecs nor curatedHomeSpecs (e.g. "acp",
 // a real, user-selectable registered backend — registry.go:392) used to fall
 // through PrepareWorkspace with zero engine-global isolation and no finding
@@ -239,7 +239,7 @@ func TestWorktree_UnregisteredBackendRecordsFinding(t *testing.T) {
 }
 
 // TestWorktree_MockBackendExemptFromUnregisteredFinding is the negative
-// space U065-F01's fix must not break: the built-in "mock" test backend is a
+// space the fix above must not break: the built-in "mock" test backend is a
 // NAMED, independently-verified exemption (a bare echo with no on-disk
 // global state — see j9_isolation.feature's own hermeticity note), not an
 // unregistered real backend, so it must never fire the new finding.
@@ -253,7 +253,7 @@ func TestWorktree_MockBackendExemptFromUnregisteredFinding(t *testing.T) {
 	assert.Empty(t, strictness.All(), "the built-in mock backend has no global state to isolate — it must stay exempt")
 }
 
-// TestWorktree_CuratedHomeRefusalFiresDespiteProvisionFailure pins U065-F02:
+// TestWorktree_CuratedHomeRefusalFiresDespiteProvisionFailure pins that
 // the fatal curatedHomeRefusal finding used to be gated BEHIND
 // provisionCuratedHome succeeding, so a transient mkdir/symlink failure
 // suppressed the refusal entirely. The refusal exists because auth AND file
@@ -279,7 +279,7 @@ func TestWorktree_CuratedHomeRefusalFiresDespiteProvisionFailure(t *testing.T) {
 	assert.Contains(t, findings[0].Message, "AUTHENTICATION escapes it")
 }
 
-// TestWorktree_ConfigHomeMkdirFailureRecordsFinding pins U065-F03: a total
+// TestWorktree_ConfigHomeMkdirFailureRecordsFinding pins that a total
 // provisionConfigHome MkdirAll failure — which costs ALL engine-global
 // isolation for claude/codex/kiro/opencode — used to be a plain clidiag.Warn,
 // a QUIETER severity than the LESSER (partial: creds present but unseedable)
@@ -330,7 +330,7 @@ func TestWorktree_CleanupIdempotent(t *testing.T) {
 	assert.Equal(t, before, len(f.Calls), "second cleanup makes no further git calls")
 }
 
-// --- Host+worktree credential seeding integration (grave-prize) ------------
+// --- Host+worktree credential seeding integration ---------------------------
 //
 // These exercise the FULL PrepareWorkspace path (not just hostCredentialSeed in
 // auth_test.go), proving the backend threaded through NewWorktree actually
@@ -339,7 +339,7 @@ func TestWorktree_CleanupIdempotent(t *testing.T) {
 // (provisioning returned no error while shipping an EMPTY config-home).
 
 // TestWorktree_PrepareSeedsClaudeCredentials is the end-to-end PAYLOAD-asserting
-// regression test for grave-prize: a "claude-code" worktree, no ANTHROPIC_API_KEY,
+// regression test: a "claude-code" worktree, no ANTHROPIC_API_KEY,
 // real host creds available (via the hostHomeDir seam) → Env()'s
 // CLAUDE_CONFIG_DIR points at a directory that ACTUALLY CONTAINS the seeded
 // credential bytes, not an empty dir claude would find "Not logged in" against.
@@ -648,7 +648,7 @@ func TestWorktree_GitIdentity_AttributesToAgentNotHuman(t *testing.T) {
 	require.NoError(t, ws.Cleanup())
 }
 
-// --- Per-engine isolation-home (legal-hula / white-dawn / balmy-comic) -----
+// --- Per-engine isolation-home -----------------------------------------
 
 // TestWorktree_HomeVars_PerBackend is the "descriptor table guard" the
 // per-engine-isolation-home plan §9 asks for: each backend's Env() var-set
@@ -697,7 +697,7 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 	}
 }
 
-// TestWorktree_KiroTwoAgentsDisjointXDG is legal-hula's headline PAYLOAD test:
+// TestWorktree_KiroTwoAgentsDisjointXDG is the headline PAYLOAD test:
 // two concurrent kiro worktree agents (KIRO_API_KEY set, so XDG isolation is
 // granted) get DISJOINT XDG_DATA_HOME roots — the assertion that would have
 // caught the original bug (both "isolated" agents sharing one global
@@ -734,12 +734,12 @@ func TestWorktree_KiroTwoAgentsDisjointXDG(t *testing.T) {
 	assert.Empty(t, strictness.All(), "KIRO_API_KEY present — both agents isolate cleanly, no finding")
 }
 
-// TestWorktree_KiroFailLoudWithoutApiKey pins legal-hula's fail-loud floor: no
+// TestWorktree_KiroFailLoudWithoutApiKey pins the fail-loud floor: no
 // KIRO_API_KEY means isolating XDG_DATA_HOME would silently strand the agent
 // logged out of its (global, unrelocatable) credential store, so it is
 // OMITTED from Env() (falling back to the shared global store) and a
 // ClassIsolation finding is recorded — the previously-SILENT non-isolation
-// (legal-hula) becomes a loud, degradable error instead. KIRO_HOME (sessions
+// becomes a loud, degradable error instead. KIRO_HOME (sessions
 // only, no creds) still isolates unconditionally.
 func TestWorktree_KiroFailLoudWithoutApiKey(t *testing.T) {
 	resetStrictness(t)
@@ -781,7 +781,7 @@ func TestWorktree_KiroIsolatesXDGWithApiKey(t *testing.T) {
 	assert.Empty(t, strictness.All(), "no finding when the gate is satisfied")
 }
 
-// --- opencode host+worktree credential seeding (sunny-saga) ----------------
+// --- opencode host+worktree credential seeding ------------------------------
 
 // TestWorktree_PrepareSeedsOpencodeCredentials is the end-to-end
 // PAYLOAD-asserting regression test: a "opencode" worktree, no
@@ -819,7 +819,7 @@ func TestWorktree_PrepareSeedsOpencodeCredentials(t *testing.T) {
 }
 
 // TestWorktree_PrepareFailsLoudForOpencodeWhenNoCredsAndNoKey pins the
-// closed silent no-op: before sunny-saga, an "opencode" worktree with no
+// closed silent no-op: before this fix, an "opencode" worktree with no
 // OPENROUTER_API_KEY and no host auth.json made NO finding at all
 // (credentialSeedSpecs had no "opencode" entry, so seedCredentials
 // short-circuited silently) — strictly worse than kiro's loud
@@ -871,7 +871,7 @@ func TestWorktree_PrepareSkipsOpencodeSeedingWithOpenrouterKeyNoFailLoud(t *test
 	require.NoError(t, ws.Cleanup())
 }
 
-// TestWorktree_HomeVarDirsExist is U065-F04's pin: every directory Env() names
+// TestWorktree_HomeVarDirsExist pins that every directory Env() names
 // for a backend's HomeVars must EXIST, owner-only, by the time the workspace is
 // handed to a caller. Only hostCredentialSeed ever created a config-home
 // subdirectory, it created spec.destSubdir alone, and only on the path where
@@ -933,7 +933,7 @@ func (panicAfterAddGit) CommonDir(context.Context, string) (string, error) {
 	panic("worktree provisioning blew up after the checkout existed")
 }
 
-// TestWorktree_PanicRecoveryPrunesRegistration is U065-F09's pin. The recovery
+// TestWorktree_PanicRecoveryPrunesRegistration pins that the recovery
 // path removed the checkout with a raw os.RemoveAll and stopped there, so the
 // repo kept the worktree's administrative registration
 // (.git/worktrees/<name>) — one stale `git worktree list` entry per panic,
@@ -962,7 +962,7 @@ func TestWorktree_PanicRecoveryPrunesRegistration(t *testing.T) {
 	assert.Empty(t, left, "recovery leaves no checkout, config-home, scratch dir or owner marker behind")
 }
 
-// TestNestedUnder_MatchesRealpathResolvedPaths is U065-F10's red-first pin.
+// TestNestedUnder_MatchesRealpathResolvedPaths is a red-first pin.
 // `git worktree list --porcelain` reports every path REALPATH-RESOLVED, while
 // the target teardown is given is whatever scratchBase built — os.TempDir() on
 // macOS is /var/folders/… behind the /var → /private/var symlink, and a
@@ -989,7 +989,7 @@ func TestNestedUnder_MatchesRealpathResolvedPaths(t *testing.T) {
 		"resolving the target must not widen the match to unrelated trees")
 }
 
-// TestWorktree_UnsafeHarpIsReported is U065-F13's pin. scratchBase runs the
+// TestWorktree_UnsafeHarpIsReported pins that scratchBase runs the
 // SAME safePathSegment validator on the SAME untrusted input the container
 // path validates (a harp arriving from the env map), but where the container
 // path turns a rejection into a hard error, this one silently swapped in the
@@ -1031,7 +1031,7 @@ func TestWorktree_UnsafeHarpIsReported(t *testing.T) {
 	})
 }
 
-// TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern is U065-F05's pin, and
+// TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern pins a claim, and
 // the row is REFUTED. The claim is that excludeConfigFromMerge "reports success
 // having written zero bytes when handed an empty pattern list", because
 // gitignore.EnsureFile returns nil before opening the file when len(patterns)
@@ -1062,7 +1062,7 @@ func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
 	}
 }
 
-// TestWorktreeCleanup_NoResourceStrandedByTheDirGuard is U065-F08's pin, and
+// TestWorktreeCleanup_NoResourceStrandedByTheDirGuard pins a claim, and
 // the row is REFUTED on its consequence. The claim: Cleanup's idempotence guard
 // `if w.dir == "" { return nil }` also short-circuits removal of configHome,
 // curatedHome and scratchDir, which are independent resources.

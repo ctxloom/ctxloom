@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// U024-F05: agent_run answered "spawned <harp> (engine X, runtime container)"
+// agent_run answered "spawned <harp> (engine X, runtime container)"
 // BEFORE any spawn had been attempted — the disposition asserted a fact the
 // coordinator did not yet have, so a launch that had already failed by the
 // time the answer was composed still reported as spawned.

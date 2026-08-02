@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// U024-F11: Launch and StartEngine each built their own operations.AgentChatRequest
+// Launch and StartEngine each built their own operations.AgentChatRequest
 // literal, with different field subsets, so a field both paths need could be added
 // to one and silently omitted from the other.
 //

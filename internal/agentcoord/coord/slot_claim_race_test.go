@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U020-F01: childRt.slotHeld used to conflate "holds a slot" with "intends
+// childRt.slotHeld used to conflate "holds a slot" with "intends
 // to acquire one". claimSlotIntent set the (single) bit true BEFORE a
 // potentially long BLOCKING turnSlots.acquire (onRoleUnpark's shape); a
 // concurrent releaseSlot/onRolePark landing inside that window could not

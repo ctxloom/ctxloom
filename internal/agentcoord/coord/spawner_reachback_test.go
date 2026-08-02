@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// U024-F13: childMCPServers can compose a set with no ctxloom MCP server in it —
+// childMCPServers can compose a set with no ctxloom MCP server in it —
 // and that set is the child's ONLY coordination surface. Without it the child has
 // no agent_send, no agent_recv and no agent_report: it launches, consumes its
 // budget, and can never answer its parent or be steered. Nothing reported it.

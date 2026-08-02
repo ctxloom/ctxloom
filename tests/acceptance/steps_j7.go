@@ -6,7 +6,7 @@
 // company-key revocation, so this journey keeps only the two things J3
 // cannot express — retraction propagating across MORE THAN ONE
 // already-installed developer, and ctxloom's own go:embed'd publisher key:
-// UPDATED 2026-07-15 (oozy-plod) from "irrevocable and invisible" to
+// UPDATED 2026-07-15 from "irrevocable and invisible" to
 // "visible, and locally revocable" — the key is now surfaced by `signer
 // list`/`show` (tagged embedded/not-removable) and `signer remove` aimed at
 // it persists a real local suppression TrustRoot() honors, though the
@@ -60,10 +60,10 @@ type j7State struct {
 	companyBare string // bare repo path (no file:// prefix) for the company's signed bundle remote, for AdvanceRemote
 
 	// Carol's own retraction-sync {pull, materialize} outputs are read via
-	// w.env.NthLastOutput(1) / .LastOutput() at assertion time (U163-F01) —
+	// w.env.NthLastOutput(1) / .LastOutput() at assertion time —
 	// no snapshot fields needed since nothing else runs a command between
 	// "Carol runs her next routine sync" and the Then steps below.
-	bobSyncOutput   string // Bob's own retraction-sync `remote pull` output (his own runBob-captured stream, separate from w.env — a distinct single-slot register, out of U163-F01's scope)
+	bobSyncOutput   string // Bob's own retraction-sync `remote pull` output (his own runBob-captured stream, separate from w.env — a distinct single-slot register)
 	bobMaterialized string // Bob's own retraction-sync `profile materialize` output
 
 	embeddedShowBefore   string // `signer show <embedded principal>` output BEFORE the removal attempt
@@ -243,7 +243,7 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		// "Carol runs her next routine sync" ran pull then materialize, in
 		// that order, with nothing else in between: NthLastOutput(1) is the
-		// pull's own output, LastOutput() the materialize's (U163-F01) — no
+		// pull's own output, LastOutput() the materialize's — no
 		// snapshot fields needed.
 		carolSyncOutput := w.env.NthLastOutput(1)
 		carolMaterialized := w.env.LastOutput()
@@ -313,7 +313,7 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		// Same shape as "Carol is told the bundle was retracted..." above:
 		// NthLastOutput(1) is the pull's own output, LastOutput() the
-		// materialize's (U163-F01) — "Carol runs her next routine sync" ran pull
+		// materialize's — "Carol runs her next routine sync" ran pull
 		// then materialize, in that order, with nothing else in between.
 		carolSyncOutput := w.env.NthLastOutput(1)
 		carolMaterialized := w.env.LastOutput()
@@ -344,13 +344,13 @@ func registerJ7Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Trent removes ctxloom's own publisher key from the project's trust store$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j7 := j7Of(w)
-		// "before" listing: the embedded principal must already be visible
-		// (oozy-plod (a)) — tagged embedded, not yet distrusted.
+		// "before" listing: the embedded principal must already be visible —
+		// tagged embedded, not yet distrusted.
 		_ = w.env.Run("trust", "signer", "show", j7EmbeddedPrincipal)
 		j7.embeddedShowBefore = w.env.LastOutput()
 		// The removal attempt, aimed straight at the REAL embedded
 		// principal — not a stand-in for it. It cannot delete the compiled-in
-		// bytes, but it DOES now persist a local suppression (oozy-plod (b)).
+		// bytes, but it DOES now persist a local suppression.
 		_ = w.env.Run("trust", "signer", "delete", j7EmbeddedPrincipal, "--project")
 		j7.embeddedRemoveOutput = w.env.LastOutput()
 		// "after" listing: still visible, now tagged locally distrusted.

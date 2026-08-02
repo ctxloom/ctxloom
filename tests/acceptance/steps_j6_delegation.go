@@ -67,7 +67,7 @@ type j6State struct {
 }
 
 // j6RunFact is runEnqueued's (coord/facts.go) payload, decoded straight off
-// runs.jsonl — the exact fields Wave F1 added so a child's resolved grant is
+// runs.jsonl — the exact fields added so a child's resolved grant is
 // auditable, not just provable in-process.
 type j6RunFact struct {
 	RunID      string   `json:"run_id"`
@@ -154,7 +154,7 @@ func j6JournalRaw(w *World) (string, error) {
 // journal (append) order.
 // j6AllFactsForAgent parses run.enqueued facts for one agent. skipped and
 // firstSkipErr report any journal line that failed to unmarshal, or whose
-// run.enqueued payload (Data) failed to decode (U161-F04: these used to be
+// run.enqueued payload (Data) failed to decode (these used to be
 // silently `continue`d past uncounted, so a schema-drifted journal read as
 // "no journaled run.enqueued fact found for agent X" -- indistinguishable
 // from a child that genuinely never spawned).
@@ -463,7 +463,7 @@ func registerJ6Steps(ctx *godog.ScenarioContext) {
 	// read the journal back). This flow's own coordinator verbs include a
 	// shutdown edge — agent_stop — that had NO acceptance coverage at all
 	// (completeness_test.go's own census is the only place the string
-	// appeared). U024-F04 (this batch) fixed a real bug on exactly this
+	// appeared). This fixed a real bug on exactly this
 	// path: a stop landing on an already-ended run must still cancel any
 	// armed relaunch, not just report "already ended" as a no-op. These two
 	// scenarios are the tip-to-tail proof that the STOP verb itself behaves

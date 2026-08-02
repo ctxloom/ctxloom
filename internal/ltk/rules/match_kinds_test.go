@@ -6,7 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
-// U073-F07 reads Match as "two types wearing one name", with
+// Match can be read as "two types wearing one name", with
 // mixesCommandAndPath enforcing at runtime what a type split would enforce at
 // compile time. The description is accurate: Match carries the command-rule
 // fields and the path-rule field in one struct, isPathRule discriminates, and

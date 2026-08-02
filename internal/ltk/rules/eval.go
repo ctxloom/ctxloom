@@ -9,11 +9,11 @@ import (
 // Decision is the result of evaluating a script against a config.
 type Decision struct {
 	Allowed bool
-	// RuleID is the id of the deny rule that fired, "" if none (U073-F15: this
+	// RuleID is the id of the deny rule that fired, "" if none. This
 	// used to be Rule *Rule, but the whole *Rule was read only by this
 	// package's own tests, and only ever for its ID -- RuleID gives them the
 	// same assertion with a far smaller, loggable value instead of a pointer
-	// into the live rule table).
+	// into the live rule table.
 	RuleID  string
 	Reason  string // human-facing explanation
 	Suggest string // suggested replacement command, if any
@@ -64,8 +64,7 @@ func Evaluate(cfg *Config, script *ir.Script) Decision {
 			// Match against the shell that actually OWNS this command, not the
 			// top-level script's — a nested wrapper body (e.g. a `cmd.exe /c …`
 			// re-parsed inside a bash script) carries its own dialect, and a
-			// `shells:` rule must be judged against that, not the outer script
-			// (U072-F01/U073-F01).
+			// `shells:` rule must be judged against that, not the outer script.
 			shell := owner.Shell
 			// Allow rules match positionals with a strict, position-anchored
 			// prefix; deny rules keep the permissive ordered-subsequence match.

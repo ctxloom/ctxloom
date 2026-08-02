@@ -260,7 +260,7 @@ func TestBareCommandMatchesAnyInvocation(t *testing.T) {
 	}
 }
 
-// aloof-fog: an allow rule used to match its positionals as an ordered
+// An allow rule used to match its positionals as an ordered
 // SUBSEQUENCE of a command's operands, the same permissive operator used for
 // deny rules. That let an allowlisted spelling smuggled into an OPTION'S
 // VALUE (not a real subcommand) short-circuit a later deny — fail-open. Allow
@@ -402,8 +402,8 @@ func TestValidationErrors(t *testing.T) {
 	}
 }
 
-// TestEvaluateMatchesNestedCommandsAgainstTheirOwnShell pins U072-F01 /
-// U073-F01: a `shells:` scoped rule must be judged against the shell that
+// TestEvaluateMatchesNestedCommandsAgainstTheirOwnShell pins that a
+// `shells:` scoped rule must be judged against the shell that
 // actually OWNS the command being matched, not the top-level script's. A
 // nested script (e.g. surfaced by ExpandWrappers unwrapping a `cmd.exe /c
 // "del /f …"` wrapper embedded in a bash top-level command) carries its own
@@ -439,7 +439,7 @@ rules:
 	}
 }
 
-// TestMatchCommandResolvesWindowsAbsolutePathBasename pins U073-F04:
+// TestMatchCommandResolvesWindowsAbsolutePathBasename pins that
 // matchCommand's basename fallback used path.Base directly, which is
 // POSIX-only (splits on '/' alone) — a Windows-style absolute invocation
 // (`C:\Windows\System32\cmd.exe`) never reduced to a bare `cmd.exe` the way
@@ -459,7 +459,7 @@ rules:
 	}
 }
 
-// TestShortClusterExpansionUsesInvokedProgramNotScriptShell pins U073-F10: a
+// TestShortClusterExpansionUsesInvokedProgramNotScriptShell pins that a
 // script's OWN dialect must not govern flag-cluster classification for a
 // command whose PROGRAM is itself a different shell/interpreter binary.
 // `pwsh -Recurse` run as a plain command from a bash script was, before the

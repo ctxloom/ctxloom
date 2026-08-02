@@ -29,7 +29,7 @@ rules:
 }
 
 // TestCommandOrderDominatesRuleOrder pins the invariant Evaluate's corrected
-// doc now states (U073-F14). Evaluate's outer loop is the COMMAND walk and its
+// doc now states. Evaluate's outer loop is the COMMAND walk and its
 // inner loop is the rule list, so the denial that is reported belongs to the
 // earliest matching COMMAND, not the earliest matching RULE. Which rule fires
 // is what the operator sees as the reason and the suggestion, so the ordering

@@ -7,7 +7,7 @@ import (
 
 // TestValidateRuleArms characterizes every rejection validateRule can produce,
 // by the exact message text and not merely by err != nil. It is the safety net
-// U073-F12's split needs: a pure complexity reduction cannot be shown by a red
+// a validateRule split needs: a pure complexity reduction cannot be shown by a red
 // test, so what makes the refactor checkable is that each arm still fires, in
 // the same order, with the same words. Order matters here — several fixtures
 // are constructed so that exactly one check can fire.

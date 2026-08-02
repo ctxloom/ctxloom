@@ -426,7 +426,7 @@ func (m Match) matches(shell ir.Shell, c ir.SimpleCommand, strictPrefix bool) bo
 	// The shell whose flag conventions classify THIS command's own arguments:
 	// when the command's program is itself a recognized shell/interpreter
 	// binary, ITS identity governs its args regardless of what dialect the
-	// enclosing script declares (U073-F10) — running `pwsh -Recurse` as a
+	// enclosing script declares — running `pwsh -Recurse` as a
 	// plain command from a bash script must not have `-Recurse` shredded into
 	// single-letter POSIX clusters just because the ENCLOSING script is bash.
 	// The `shells:` constraint above stays keyed on the enclosing script,
@@ -502,7 +502,7 @@ func shellForProgram(program string) ir.Shell {
 // POSIX-only (it splits on '/' alone), so a Windows-style absolute program
 // path — `C:\Windows\System32\cmd.exe`, the normal form under the cmd/pwsh
 // dialects this unit itself supports — never reduced to a bare `cmd.exe` the
-// way `/usr/bin/git` already reduces to `git` (U073-F04): a `command: [cmd]`
+// way `/usr/bin/git` already reduces to `git`: a `command: [cmd]`
 // rule silently never fired against an absolute-backslash-path invocation.
 // Scoped to ShellCmd/ShellPwsh so a literal backslash inside an unusual POSIX
 // filename is never misread as a path separator.

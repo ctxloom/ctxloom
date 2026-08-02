@@ -7,7 +7,7 @@ import (
 )
 
 // These pin the invariant Match.Command's "Tokens are LITERAL" section now
-// states, per U073-F13: match.command compares for equality while match.path
+// states: match.command compares for equality while match.path
 // globs, and nothing anywhere warns about the difference. The pins exist so
 // the documented contract is maintained rather than merely asserted — if
 // globbing is ever added to command tokens, both of these go red and the

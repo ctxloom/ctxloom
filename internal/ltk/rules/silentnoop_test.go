@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestDenyRuleNeedsMessageOrSuggest pins U073-F03: a deny rule with neither
+// TestDenyRuleNeedsMessageOrSuggest pins that a deny rule with neither
 // `message` nor `suggest` validates, fires, and hands the model a bare "deny"
 // with no explanation — `permissionDecisionReason` is absent from the hook
 // response entirely, so the agent cannot tell the user why or what to do
@@ -64,7 +64,7 @@ func TestDenyRuleNeedsMessageOrSuggest(t *testing.T) {
 	}
 }
 
-// TestExpandSubmodules_RejectsInvalidInjectedPattern pins U073-F05:
+// TestExpandSubmodules_RejectsInvalidInjectedPattern pins that
 // ExpandSubmodules injects raw .gitmodules strings into Match.Path AFTER Parse
 // validated that list, and globMatch swallows the resulting error — so a
 // submodule whose path carries a glob metacharacter (`a[`) expands into a

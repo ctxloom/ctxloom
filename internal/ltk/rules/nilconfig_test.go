@@ -6,7 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
-// TestEvaluateToleratesNilConfig pins U073-F11. Both evaluators guarded their
+// TestEvaluateToleratesNilConfig pins a real bug: both evaluators guarded their
 // other argument (a nil script, an empty path) and then dereferenced cfg
 // unguarded, so a nil *Config panicked on cfg.Rules. A panic on ltk's analysis
 // path is worse than any rule miss: it is the guard failing on a command

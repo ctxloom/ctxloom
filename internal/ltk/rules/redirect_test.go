@@ -6,7 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
-// U072-F04: the IR records a command's redirects faithfully, but Match has no
+// The IR records a command's redirects faithfully, but Match has no
 // redirect predicate at all, so nothing in the rule language can refer to
 // them. For a BARE redirect (`> /etc/passwd`, no program word) that leaves the
 // statement structurally unmatchable — matchCommand also bails on empty argv —

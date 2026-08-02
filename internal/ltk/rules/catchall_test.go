@@ -8,7 +8,7 @@ import (
 
 // The two match shapes below carry NO positive selector — nothing that names a
 // program, an argument or a path — yet both load and both deny unconditionally
-// within their scope. U073-F08 calls that the accident Match's own doc says an
+// within their scope, which is the accident Match's own doc says an
 // empty match avoids. These tests CHARACTERIZE what ltk does today so the open
 // question is visible in the suite rather than only in a findings row:
 // tightening validation here would reject rule files that load now, and one of

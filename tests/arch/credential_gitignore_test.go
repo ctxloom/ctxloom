@@ -20,7 +20,7 @@ import (
 // silent and unrecoverable — a leaked credential cannot be un-pushed. This gate
 // makes the ignore rule load-bearing in the test suite instead of by convention.
 //
-// U045-F01. Add a row here whenever a new engine seeds a credential in-tree.
+// Add a row here whenever a new engine seeds a credential in-tree.
 var credentialPaths = []struct {
 	path string
 	why  string

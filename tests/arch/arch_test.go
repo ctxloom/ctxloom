@@ -71,7 +71,7 @@ var testSupportImporters = map[string]string{
 	// The acceptance suite (godog step registrations, `//go:build acceptance`)
 	// is the same shape: ordinary .go files that only ever compile into a
 	// `-tags acceptance` test binary, never a shipped one. steps_isolation_probe.go
-	// imports dockergate (U159-F02) to mirror its skip/fail decision for the
+	// imports dockergate to mirror its skip/fail decision for the
 	// container-axis probe.
 	"tests/acceptance": "godog acceptance suite, compiled only under -tags acceptance; never linked into a binary",
 }

@@ -14,9 +14,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestFindAppDir_WorktreeSignpost is the acceptance gate for task brown-canal
-// (2026-07-09 revision): a linked git worktree with no .ctxloom of its own is
-// a fail-loud signpost finding, not a silent resolution as a foreign/empty
+// TestFindAppDir_WorktreeSignpost is the acceptance gate: a linked git
+// worktree with no .ctxloom of its own is a fail-loud signpost finding, not
+// a silent resolution as a foreign/empty
 // project. findAppDir records the finding through strictness and continues on
 // today's fallback — the startup choke owners (`ctxloom run`/`mcp`/`acp`)
 // abort on it pre-launch (exit 3) unless --degraded. See worktreeSignpost for
@@ -192,7 +192,7 @@ func runGit(t *testing.T, dir string, args ...string) {
 	require.NoError(t, err, "git %v: %s", args, out)
 }
 
-// U048-F19: findAppDir's last resort — reached only when os.UserHomeDir()
+// findAppDir's last resort — reached only when os.UserHomeDir()
 // fails — returned <pwd>/.ctxloom without creating it, or, when os.Getwd() had
 // ALSO failed, the bare RELATIVE string ".ctxloom" tagged SourceProject.
 // loadUncached then derives appRoot as filepath.Dir(appPath), so the relative

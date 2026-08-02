@@ -167,12 +167,11 @@ func TestInstallOverridesFromFlags_CapturesEnvAndChangedFlag(t *testing.T) {
 	assert.Equal(t, "host", cfg.runtime, "the --runtime BUSINESS flag must never be scanned as a config override")
 }
 
-// U048-F17 claimed three initialization errors in this file are handled three
-// DIFFERENT ways: InstallOverridesFromFlags discards the validator error
-// entirely with no log, loadUncached zap-warns it, and mergeDefaultConfig
-// returns silently.
+// Three initialization errors in this file are handled three DIFFERENT
+// ways: InstallOverridesFromFlags discards the validator error entirely with
+// no log, loadUncached zap-warns it, and mergeDefaultConfig returns silently.
 //
-// The first limb is no longer true. U096-F01 changed both validator sites: this
+// The first limb is no longer true: both validator sites were changed so this
 // one now zap-warns with a stated rationale, and loadUncached escalates to a
 // fatal-class cfg.warnings entry. The remaining divergence is therefore
 // deliberate and carries its reasoning in the code at each site — a compile

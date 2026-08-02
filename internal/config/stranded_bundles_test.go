@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// U048-F21: strandedAuthoredBundles discarded the afero.Walk error and its
+// strandedAuthoredBundles discarded the afero.Walk error and its
 // per-entry callback returned nil on ANY error, so a directory it could not
 // enumerate silently contributed nothing.
 //
@@ -95,9 +95,9 @@ func (f *countingFs) Open(name string) (afero.File, error) {
 	return f.Fs.Open(name)
 }
 
-// U048-F07 claimed GetBundleDirs — "called many times per process (every loader
-// build)" by its own doc — runs a full afero.Walk of cache/bundles with a
-// ReadFile plus yaml.Unmarshal per YAML on EVERY call.
+// GetBundleDirs — "called many times per process (every loader
+// build)" by its own doc — was claimed to run a full afero.Walk of
+// cache/bundles with a ReadFile plus yaml.Unmarshal per YAML on EVERY call.
 //
 // MEASURED, and the "every call" is conditional in a way that changes the
 // verdict: strandedAuthoredBundles opens with fs.Stat(cacheBundles) and returns

@@ -19,7 +19,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// T10 — SIGNED-PREIMAGE ↔ WIRE PARITY
+// SIGNED-PREIMAGE <-> WIRE PARITY
 //
 // A bundle's executable items (hooks, MCP servers) are approved by hashing a
 // PREIMAGE — the canonical JSON that BundleHook.ContentPayload /
@@ -29,24 +29,26 @@ import (
 // crosses into the wire type, the artifact that runs is NOT the artifact the
 // signature covered, and nothing complains: both sides hash successfully and
 // simply disagree about what was approved. That is exactly what happened to
-// Hook.PreToolFallback (U030-F04 / X9).
+// Hook.PreToolFallback.
 //
 // This gate is a DIFFERENT AXIS from the two that already exist and it is not
 // reachable from either:
 //
-//   - internal/lm/grpc's T7 total-struct proto parity couples the Go WIRE type
-//     to its PROTO mirror, in both directions. It starts one step downstream of
-//     here: it can prove wire.Hook.PreToolFallback reaches the proto, and says
-//     nothing about whether the signed preimage reached wire.Hook.
+//   - internal/lm/grpc's total-struct proto parity gate couples the Go WIRE
+//     type to its PROTO mirror, in both directions. It starts one step
+//     downstream of here: it can prove wire.Hook.PreToolFallback reaches the
+//     proto, and says nothing about whether the signed preimage reached
+//     wire.Hook.
 //   - internal/testsupport/parity couples agent.ChatEvent to its transcript and
 //     `--format json` mirrors. Different types entirely.
 //
-// T10 + T7 compose into the whole chain: preimage → wire (here) → proto (T7).
+// This gate and the proto parity gate compose into the whole chain: preimage
+// → wire (here) → proto (the proto parity gate).
 //
 // WHAT COUNTS AS EVIDENCE, and why nothing weaker will do
 //
-// The suggested remedy for U030-F04 was to "reflect over hookContentPayload /
-// mcpContentPayload field names and assert each has a counterpart on
+// The suggested remedy for the PreToolFallback gap was to "reflect over
+// hookContentPayload / mcpContentPayload field names and assert each has a counterpart on
 // wire.Hook / wire.MCPServer". A name-scan is NOT enough, and this programme
 // has the scar tissue to prove it: a previous gate scanned names, passed, and
 // its finding stayed open — because a wire type can carry a field of the right

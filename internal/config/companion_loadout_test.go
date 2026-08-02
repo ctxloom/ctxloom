@@ -420,7 +420,7 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 }
 
 // TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers is the
-// regression guard for U049-F02. A profile's exclude_mcp could not exclude a
+// regression guard for a bug where a profile's exclude_mcp could not exclude a
 // COMPANION-shipped (or builtin-shipped) MCP server: the `excluded` set was
 // built INSIDE the profile-bundle loop, long after the builtin merge and the
 // companion loop had already written into `result`. `exclude_mcp: [ltk-server]`

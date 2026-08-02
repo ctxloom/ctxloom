@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// U047-F12: BuiltinCompanionBins parsed embedded bundle YAML with a raw
+// BuiltinCompanionBins parsed embedded bundle YAML with a raw
 // yaml.Unmarshal instead of bundles.ParseBundle, so it skipped the schema
 // upgrade pipeline every on-disk and remote bundle goes through.
 //

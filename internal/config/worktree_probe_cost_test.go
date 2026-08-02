@@ -28,8 +28,8 @@ func (f *statCountingFs) Stat(name string) (os.FileInfo, error) {
 	return f.Fs.Stat(name)
 }
 
-// TestFindAppDir_WorktreeProbePerAncestor is the MEASUREMENT U092-F06 asserted
-// without one. The row claims DetectWorktree runs once per cwd ancestor with no
+// TestFindAppDir_WorktreeProbePerAncestor is a MEASUREMENT that was previously
+// asserted without one. DetectWorktree runs once per cwd ancestor with no
 // memoization anywhere. Both halves are true and are pinned here so the number
 // is a fact the suite maintains rather than an estimate in a review doc.
 //

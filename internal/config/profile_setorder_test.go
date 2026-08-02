@@ -17,7 +17,7 @@ import (
 // on every single run. AssembleManagedDenyTools even documents the opposite
 // ("Order is deterministic"). The other accumulators on this builder (Tags,
 // Bundles, Commands, Skills) already went through orderedSet for exactly this
-// reason; these three were left behind. (U106-F06.)
+// reason; these three were left behind.
 func TestResolveProfile_SetBackedFieldsAreDeterministicallyOrdered(t *testing.T) {
 	// Eight entries each: the chance of a random map order coming out sorted is
 	// about 1 in 40320 per field per resolution, so 30 resolutions make an

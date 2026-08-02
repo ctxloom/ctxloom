@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
 
-// long-ice: with home < project layering, a stale ~/.ctxloom/config.yaml was
+// With home < project layering, a stale ~/.ctxloom/config.yaml was
 // upgraded in memory on EVERY load and never written back, so the home file
 // never converged and the upgrade machinery redid the same work forever. The
 // pending upgrade was visible but not persistable — CommitUpgrade only ever
@@ -50,7 +50,7 @@ func TestCommitHomeUpgrade(t *testing.T) {
 // caller has just asked the user to consent to a REWRITE, so a nil return means
 // that rewrite landed — and an empty payload lands as a zero-byte config.yaml
 // over a file that was, until that moment, valid. internal/profiles already
-// enforces this on its own committer (U091-F13); the config committer did not.
+// enforces this on its own committer; the config committer did not.
 func TestCommitUpgrade_EmptyPayload_RefusesAndLeavesTheFileAlone(t *testing.T) {
 	const path = "/proj/.ctxloom/config.yaml"
 

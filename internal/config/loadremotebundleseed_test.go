@@ -85,7 +85,7 @@ func TestLoadRemoteBundleSeed_FullLoad(t *testing.T) {
 	assert.False(t, shortKeyed, "the seed is canonical-keyed only — no short keys")
 }
 
-// TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent (U048-F02) proves a
+// TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent proves a
 // genuine registry-open failure (as opposed to "no remotes.yaml yet", which
 // stays silent — see remote.NewRegistry's own os.IsNotExist carve-out) is
 // diagnosed rather than indistinguishable from "no remotes configured".
@@ -109,7 +109,7 @@ func TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent(t *testing.T) {
 		"a real registry-open failure must be diagnosed, not silently indistinguishable from \"no remotes\"")
 }
 
-// TestLoadRemoteBundleSeed_LockfileParseErrorWarnsNotSilent (U048-F02) is the
+// TestLoadRemoteBundleSeed_LockfileParseErrorWarnsNotSilent is the
 // lockfile half: an unparseable lock.yaml is a real error (contrast the
 // ordinary missing-file case, which LockfileManager.Load itself already
 // degrades to an empty, no-error lockfile).

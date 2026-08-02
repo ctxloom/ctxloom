@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// U048-F18: ParseConfig pre-populates BOTH lm.Configs and profiles.Definitions
+// ParseConfig pre-populates BOTH lm.Configs and profiles.Definitions
 // with empty maps before unmarshalling, but re-guards only lm.Configs
 // afterwards. A document that nulls the profile map out therefore leaves
 // Definitions nil while Configs is non-nil — two containers with the same

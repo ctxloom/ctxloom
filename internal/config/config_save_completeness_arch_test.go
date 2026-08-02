@@ -12,9 +12,9 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// U049-F03 / U049-F20: every persisted config field is declared in FOUR
-// hand-maintained places — Config, configDoc, Fixture and applyConfigSections
-// — and the fourth is the one that gets forgotten. applyConfigSections' own
+// Every persisted config field is declared in FOUR hand-maintained places —
+// Config, configDoc, Fixture and applyConfigSections — and the fourth is the
+// one that gets forgotten. applyConfigSections' own
 // comments document that happening twice already (`dirty_tree_handler` /
 // `dirty_tree_commit_ack`, then `agent_turn_cap`): each time, a write through
 // the documented Draft/Fixture API compiled, reported success, and was

@@ -99,7 +99,7 @@ func TestArch_ConfigSchema_NoUnknownTopLevelProperty(t *testing.T) {
 // arbitrary keys (a user-named map, not a fixed struct's fields) — the key
 // is the LAST path segment leading to the object (its own property name, or
 // its parent's if reached via `additionalProperties`/`patternProperties`).
-// U050-F01's audit found exactly one UNINTENTIONAL escape ($defs/hook); this
+// A prior audit found exactly one UNINTENTIONAL escape ($defs/hook); this
 // is the acknowledged list every other one must appear on to be exempted.
 var intentionalOpenSchemaMaps = map[string]bool{
 	"configs":          true, // llm.configs: user-named backend labels
@@ -135,7 +135,7 @@ func walkSchemaObjects(t *testing.T, key string, node any, visit func(key string
 	}
 }
 
-// TestArch_ConfigSchema_EveryObjectDeclaresAdditionalProperties (U050-F01) is
+// TestArch_ConfigSchema_EveryObjectDeclaresAdditionalProperties is
 // the class fix: the file's founding premise ("additionalProperties:false at
 // every level, so an unknown key is already detected on load") was false for
 // exactly one object — $defs/hook, which omitted the keyword (defaulting to
@@ -386,8 +386,8 @@ func profileYAMLFields(t *testing.T) []string {
 	return names
 }
 
-// TestArch_ProfileSchema_CoversEveryProfileField closes the hole U049-F01 came
-// through: the drift gate above reflects configDoc and so covers the TOP LEVEL
+// TestArch_ProfileSchema_CoversEveryProfileField closes the hole a prior gap
+// came through: the drift gate above reflects configDoc and so covers the TOP LEVEL
 // ONLY. `deny_tools` had yaml+mapstructure tags and was honoured all the way
 // through mergeProfileValues → toProfile, yet appeared nowhere in the schema —
 // and profiles.definitions.<name> is additionalProperties:false, so using the

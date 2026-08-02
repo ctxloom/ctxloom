@@ -13,7 +13,7 @@ import (
 // safe only while no two callers ever hold the same one. Memoising this
 // accessor — an obvious-looking optimisation, since it rebuilds the seed each
 // call — would silently turn that into shared mutable state across every
-// goroutine that resolves a profile (U091-F19).
+// goroutine that resolves a profile.
 func TestGetProfileLoader_ReturnsAFreshLoader(t *testing.T) {
 	cfg := NewFixture(Fixture{AppPaths: []string{"/app"}})
 	cfg.SetFS(afero.NewMemMapFs())

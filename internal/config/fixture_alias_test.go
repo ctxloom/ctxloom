@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// U049-F05: Fixture's own doc promises "a Fixture-built Config never aliases a
+// Fixture's own doc promises "a Fixture-built Config never aliases a
 // Load result. Every call yields a separately-owned value", and ToFixture /
 // NewFixture broke that promise for every map and slice they carried — the
 // struct was copied, the containers behind it were not. That re-opened exactly
@@ -156,7 +156,7 @@ func TestNewFixture_NeverAliasesItsFixture(t *testing.T) {
 	assertNoSharedContainers(t, reflect.ValueOf(f), reflect.ValueOf(cfg).Elem(), "Fixture", "Config")
 }
 
-// TestToFixture_MutationDoesNotReachConfig is F05's instance, stated as
+// TestToFixture_MutationDoesNotReachConfig states the same contract as
 // behaviour: several tests used to write a profile definition through
 // `cfg.ToFixture().Profiles.Definitions[...] = ...` and rely on it landing in
 // the ambient config. It must not.

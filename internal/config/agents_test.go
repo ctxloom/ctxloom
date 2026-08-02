@@ -210,7 +210,7 @@ func TestAgentDirLoader_NeverNil(t *testing.T) {
 	assert.Empty(t, list)
 }
 
-// U047-F05: LoadAgents folded the `agents:` config-key entries into its merged
+// LoadAgents folded the `agents:` config-key entries into its merged
 // map with a plain struct copy, so every returned Agent's Profiles and
 // Escalation slices still pointed at the shared Config's storage. That bypasses
 // the copy-on-read policy accessors.go exists to enforce — and the package
@@ -269,7 +269,7 @@ func TestAgent_MutationDoesNotReachConfig(t *testing.T) {
 		"Agent must hand back an owned copy of Profiles")
 }
 
-// U047-F09: LoadAgents warned on a directory-scan failure and then used the nil
+// LoadAgents warned on a directory-scan failure and then used the nil
 // result as if it were a successful EMPTY scan, so the caller got a merged set
 // silently missing every on-disk agent — and `run --agent dev` reported "no
 // such agent" for an agent that is defined and merely unreadable.
@@ -313,7 +313,7 @@ func TestLoadAgents_UnreadableAgentsDirectoryIsAFinding(t *testing.T) {
 	assert.Contains(t, findings[0].Message, agentsDir, "the finding names the directory it could not read")
 }
 
-// U047-F08: Agent(name) re-runs LoadAgents' full two-source merge on every
+// Agent(name) re-runs LoadAgents' full two-source merge on every
 // lookup, and LoadAgents re-emitted its shadowing warning each time. Config's
 // Agent() sits on the path operations.ResolveAgent, DefaultAgentProfiles and
 // `agent show` all take, so one command reaches it several times and a single

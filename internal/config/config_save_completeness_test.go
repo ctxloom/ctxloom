@@ -18,9 +18,9 @@ import (
 // `just test-arch` selects them as a discrete attributable group.
 //
 // What stayed here, and why, matters more than what left. TestUISurvivesSaveRoundTrip
-// is NOT a class gate: it is U049-F03's instance, ordinary regression coverage
-// pinning ONE named field, and it must keep running in the default suite.
-// fullyPopulatedFixture stayed because it is shared — fixture_alias_test.go,
+// is NOT a class gate: it is the instance that prompted the class fix, ordinary
+// regression coverage pinning ONE named field, and it must keep running in the
+// default suite. fullyPopulatedFixture stayed because it is shared — fixture_alias_test.go,
 // which carries no build tag, builds its alias probe on top of it, so moving it
 // behind the tag would have broken the untagged build outright.
 
@@ -56,8 +56,9 @@ func fullyPopulatedFixture() Fixture {
 	}
 }
 
-// TestUISurvivesSaveRoundTrip is U049-F03's instance: the field whose absence
-// prompted the class fix, asserted end to end through the documented API.
+// TestUISurvivesSaveRoundTrip is the instance that prompted the class fix:
+// the field whose absence prompted it, asserted end to end through the
+// documented API.
 func TestUISurvivesSaveRoundTrip(t *testing.T) {
 	surround := false
 	cfg := NewFixture(Fixture{

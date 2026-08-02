@@ -10,11 +10,11 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 )
 
-// U047-F02: cloneProfile once omitted Profile.DenyTools, so every copy-on-read
+// cloneProfile once omitted Profile.DenyTools, so every copy-on-read
 // profile accessor handed back a slice that aliased the shared Config's
-// storage. The hole was closed as a side finding of U049-F05, but the gate that
-// found it walks Fixture, not the accessors the review named — so nothing
-// pinned the accessors themselves. These do.
+// storage. The hole was closed as a side finding of the fix to toDoc/ToFixture
+// below, but the gate that found it walks Fixture, not the accessors named
+// here — so nothing pinned the accessors themselves. These do.
 //
 // The contract under test is accessors.go's whole reason to exist: a value
 // handed out by a Get* accessor is separately owned, and mutating it can never
@@ -59,13 +59,13 @@ func TestGetProfileDefinitions_DenyToolsMutationDoesNotReachConfig(t *testing.T)
 		"GetProfileDefinitions must hand back an owned copy of DenyTools")
 }
 
-// U048-F22: toDoc copied the Config's maps and slices (agents,
+// toDoc copied the Config's maps and slices (agents,
 // isolationImages, isolationEngines, lm.Configs, profiles.Definitions) BY
 // REFERENCE, and MarshalYAML — which is exported and returns exactly that doc
 // — is the one public path out of the type. The aliasing was closed by
-// 91bf8f67 (U049-F05, which fixed toDoc alongside its near-identical twin
-// ToFixture), but the gate it shipped walks Fixture and never touched this
-// seam. Pin it here so the doc projection cannot silently regress to sharing.
+// 91bf8f67, which fixed toDoc alongside its near-identical twin ToFixture, but
+// the gate it shipped walks Fixture and never touched this seam. Pin it here
+// so the doc projection cannot silently regress to sharing.
 
 // TestMarshalYAML_NeverAliasesConfigContainers is the class gate on the
 // exported marshal path: whatever yaml.Marshal(cfg) is handed must be

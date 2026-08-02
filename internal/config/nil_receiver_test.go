@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U048-F10: five methods on *Config explicitly guard `c == nil` while the rest
+// Five methods on *Config explicitly guard `c == nil` while the rest
 // panic, so a caller cannot tell which contract applies to the method in front
 // of it.
 //

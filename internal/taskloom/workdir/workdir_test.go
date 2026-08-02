@@ -163,7 +163,7 @@ func TestResolve_BareCwdFallbackIsUnaffected(t *testing.T) {
 	assert.Equal(t, wantDir, resolved)
 }
 
-// TestResolve_UnlinkedCwdFailsLoudRatherThanInventingDot pins U140-F02: when
+// TestResolve_UnlinkedCwdFailsLoudRatherThanInventingDot pins that when
 // os.Getwd fails (a reaped worktree's cwd — precisely this package's problem
 // domain, per ResolveBoundary's own doc), the prior chain silently returned
 // ".", a directory name meaning "wherever any future process happens to be"

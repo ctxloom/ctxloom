@@ -116,7 +116,7 @@ func TestConfig_KnownKeyValidates(t *testing.T) {
 }
 
 // TestHomingSchemaDescription_MatchesActualResolveModeBehavior is a
-// regression guard for U138-F09: the schema's published `homing` description
+// regression guard: the schema's published `homing` description
 // once claimed the opposite of what ResolveMode does — "taskloom refuses to
 // guess... must set it before any command... will run" versus the code's
 // actual, deliberate silent default to paths.ModeHome when unset (see this

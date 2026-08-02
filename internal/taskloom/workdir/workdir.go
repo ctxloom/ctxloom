@@ -51,10 +51,10 @@ func ResolveBoundary() (root string, found bool, err error) {
 	if berr != nil {
 		// A failing os.Getwd (the only source of this error — see
 		// projectroot.WorkDirWithBoundary) is a hard error here, never
-		// silently treated as "." (U140-F02 — that value was invented by
+		// silently treated as "." — that value was invented by
 		// this package's OWN prior copy of this chain, and could be minted
 		// as a permanent project-registry identity keyed on "wherever any
-		// future process happens to be").
+		// future process happens to be".
 		return "", false, fmt.Errorf("resolve project work root: %w", berr)
 	}
 	target, terr := projectroot.TaskStoreRoot(afero.NewOsFs(), base)

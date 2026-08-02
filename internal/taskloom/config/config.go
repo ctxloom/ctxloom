@@ -340,7 +340,7 @@ func Load(workDir string, fs *pflag.FlagSet) (Config, error) {
 		return Config{}, fmt.Errorf("taskloom: parse merged config: %w", err)
 	}
 
-	// A schema-compile failure must not degrade to "valid" (U138-F01): the
+	// A schema-compile failure must not degrade to "valid": the
 	// embedded schema is a build-time resource, so this either fails
 	// uniformly for every invocation or never — silently skipping
 	// ValidateBytes here would mean an unknown key, a malformed tag_schema

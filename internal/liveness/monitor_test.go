@@ -403,7 +403,7 @@ func TestMonitor_DiedVersusCleanEnd(t *testing.T) {
 //
 // This used to be proved through a CPU-burn probe. That probe could never run
 // in production — no liveness.Target ever carried a pid, because
-// Spawner.StartEngine returns a Kill closure and not one (U056-F04) — so the
+// Spawner.StartEngine returns a Kill closure and not one — so the
 // distinction it drew was a distinction the shipped monitor could not make.
 // The worktree mtime clock draws the same one from evidence the coordinator
 // actually has.
@@ -487,7 +487,7 @@ func TestMonitor_WorktreeActivityCountsAsProgress(t *testing.T) {
 // "Quiet on every clock" is only sayable when every clock was actually read;
 // an unreadable worktree could be full of writes. Condemning anyway is the
 // same verdict-manufactured-from-a-failure as condemning on an unreadable
-// transcript (U056-F01/F05/F08).
+// transcript.
 func TestMonitor_UnreadableWorktreeIsUnknownNotStalled(t *testing.T) {
 	requireNonRoot(t)
 	testHome(t)
@@ -589,7 +589,7 @@ func mustJSON(t *testing.T, v any) string {
 // verdict can be argued from the record. A record whose keys are inconsistent
 // is one a consumer has to special-case, so every field marshals snake_case —
 // including At, which carried no tag at all and marshalled as "At" while every
-// sibling was lower-case (U056-F17).
+// sibling was lower-case.
 func TestReport_MarshalsEveryFieldSnakeCase(t *testing.T) {
 	raw, err := json.Marshal(liveness.Report{
 		Harp: "h", State: liveness.StateHealthy, Reason: "r", At: time.Unix(1, 0).UTC(),
@@ -610,7 +610,7 @@ func TestReport_MarshalsEveryFieldSnakeCase(t *testing.T) {
 // "the monitor will not invent an age it does not know". The quiet ladder read
 // it the other way round: `!StartedAt.IsZero() && age < grace` makes an unknown
 // age NOT-young, which ENABLES the age-gated content clauses on exactly the
-// targets whose age nobody could supply (U056-F06).
+// targets whose age nobody could supply.
 func TestMonitor_UnknownStartTimeDoesNotEnableTheAgeGatedRules(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	quiet := now.Add(-20 * time.Minute)
@@ -630,8 +630,8 @@ func TestMonitor_UnknownStartTimeDoesNotEnableTheAgeGatedRules(t *testing.T) {
 // reach any ABSENCE-based verdict". The quiet ladder's terminal rung condemned
 // regardless of age — the `young` guard only skipped the content clauses and
 // then fell through to StateStalled anyway, so the launch grace protected
-// nothing (U056-F06; at census this fell through to the since-deleted cpuRung,
-// which had the same hole).
+// nothing (it fell through to the since-deleted cpuRung, which had the same
+// hole).
 func TestMonitor_LaunchGraceSuppressesTheQuietStall(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	quiet := now.Add(-20 * time.Minute)
@@ -660,7 +660,7 @@ func TestMonitor_LaunchGraceSuppressesTheQuietStall(t *testing.T) {
 // branch emits a Redelivery carrying no cadence at all (same receipt stamp, or
 // records with no usable ts), and loopRung fired on Repeats alone, so a burst
 // of three identical lines was condemned in seconds with a "0s cadence"
-// reason (U056-F07).
+// reason.
 func TestMonitor_ZeroCadenceRepeatsAreNotAGraceFreeLoop(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)
 	at := now.Add(-time.Second)
@@ -685,7 +685,7 @@ func TestMonitor_ZeroCadenceRepeatsAreNotAGraceFreeLoop(t *testing.T) {
 // O_APPEND file, so many records that never advanced past 0 means many
 // recorders. It is POSITIVE evidence, so it must fire with no launch grace and
 // no start time at all — the case a backwards CPU counter was once proposed to
-// cover (U056-F18), and the case the age gate added for U056-F06 must not
+// cover, and the case the age gate added for the launch-grace fix must not
 // swallow.
 func TestMonitor_SeqPinnedRelaunchLoopFiresWithoutAnAgeOrAGrace(t *testing.T) {
 	now := time.Date(2026, 7, 24, 12, 0, 0, 0, time.UTC)

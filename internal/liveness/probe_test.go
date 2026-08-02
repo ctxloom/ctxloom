@@ -77,7 +77,7 @@ func TestProbeMerge_AliveOutranksNotFound(t *testing.T) {
 // silently degrading the ladder into firing on everything, and overriding one
 // field must not blank the rest back to zero. Proven through Assess's
 // observable behaviour rather than a getter: Monitor no longer exposes its
-// normalized Thresholds (U056-F12), so the fallback is pinned by what a
+// normalized Thresholds, so the fallback is pinned by what a
 // zero-StartGrace ladder would do differently — condemn a 1-minute-old
 // launch as StateStalled instead of respecting the (normalized) 5-minute
 // launch grace.

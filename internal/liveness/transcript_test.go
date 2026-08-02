@@ -159,8 +159,8 @@ func TestNewestMTime_AbsentRootIsNotAnError(t *testing.T) {
 // stillness. The walk callback used to swallow every error and return nil, so
 // `filepath.WalkDir` consumed it and `chmod 000` came back as
 // (zero, false, nil) — indistinguishable from an empty directory, which drops
-// the filesystem clock out of `Quiet` and biases the verdict toward stalled
-// (U056-F08). This is the same absent-vs-error collapse as U056-F01/F05.
+// the filesystem clock out of `Quiet` and biases the verdict toward stalled.
+// This is the same absent-vs-error collapse the transcript reader guards against.
 func TestNewestMTime_UnreadableRootIsAnError(t *testing.T) {
 	requireNonRoot(t)
 	root := t.TempDir()
@@ -226,7 +226,7 @@ func TestNewestMTime_FindsNewestFileAndSkipsGit(t *testing.T) {
 // repeated the same number of times differed only in CONTENT, and which one
 // won was decided by Go's randomised map iteration. A monitor whose reason
 // text changes between two reads of an unchanged file is one nobody can argue
-// with from the record (U056-F16).
+// with from the record.
 func TestReadTranscript_RedeliveryTieBreakIsDeterministic(t *testing.T) {
 	base := time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC)
 	var lines []map[string]any
@@ -252,8 +252,8 @@ func TestReadTranscript_RedeliveryTieBreakIsDeterministic(t *testing.T) {
 // field where that costs a caller something real: 0 is a meaningful tolerance
 // (exact cadence only) and cannot be asked for, because normalize() reads it
 // as "unset" and substitutes 0.25. The surprise is now written down on the
-// field; this pins the behaviour the prose asserts, so the two cannot drift
-// (U056-F14). Exact matching remains expressible via a ratio too small for any
+// field; this pins the behaviour the prose asserts, so the two cannot drift.
+// Exact matching remains expressible via a ratio too small for any
 // integer-nanosecond deviation to clear.
 func TestReadTranscriptWith_ZeroJitterRatioMeansTheDefaultNotExactCadence(t *testing.T) {
 	base := time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC)

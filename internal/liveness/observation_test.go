@@ -17,18 +17,18 @@ import (
 // ===========================================================================
 // A BROKEN OBSERVATION IS NOT AN OBSERVATION OF BREAKAGE.
 //
-// U056-F01/F05: TranscriptStat had no observability bit, so "the file is not
+// TranscriptStat had no observability bit, so "the file is not
 // there" (the loudest possible progress signal), "the file could not be
 // opened" (a broken instrument) and "the caller never asked" all arrived at
 // the ladder as the same Exists:false — and graceRung turned every one of
 // them into StateStalled, "the engine has emitted zero events".
 //
-// U056-F02: the 20 000-line scan bound read the HEAD of the file, so every
+// The 20 000-line scan bound read the HEAD of the file, so every
 // last-record measurement went permanently stale on a long transcript —
 // a healthy long-running agent reads as stalled and a cleanly-ended one as
 // dead.
 //
-// U056-F03: Target.Ended was passed in and read by nothing, so a child the
+// Target.Ended was passed in and read by nothing, so a child the
 // coordinator had already terminated kept being assessed as a live one and
 // was condemned ten minutes later.
 // ===========================================================================
@@ -45,7 +45,7 @@ func unopenablePath(t *testing.T) string {
 	return filepath.Join(notADir, "transcript.jsonl")
 }
 
-// F05 — a read that reached a conclusion is Observed; one that broke is not.
+// A read that reached a conclusion is Observed; one that broke is not.
 func TestReadTranscript_ObservedSeparatesAbsenceFromBreakage(t *testing.T) {
 	base := time.Date(2026, 7, 24, 10, 0, 0, 0, time.UTC)
 	good := writeJSONL(t, []map[string]any{userLine(0, base, "hello")})
@@ -66,7 +66,7 @@ func TestReadTranscript_ObservedSeparatesAbsenceFromBreakage(t *testing.T) {
 	assert.False(t, st.Exists)
 }
 
-// F01 — a transcript that cannot be opened must not be reported as an engine
+// A transcript that cannot be opened must not be reported as an engine
 // that emitted zero events.
 func TestMonitor_UnreadableTranscriptIsNotAStall(t *testing.T) {
 	testHome(t)
@@ -84,7 +84,7 @@ func TestMonitor_UnreadableTranscriptIsNotAStall(t *testing.T) {
 	assert.Contains(t, rep.Reason, "transcript", "reason=%q", rep.Reason)
 }
 
-// F01 (the coordinator's half) — coord/liveness.go sets TranscriptPath to ""
+// The coordinator's half: coord/liveness.go sets TranscriptPath to ""
 // when paths resolution fails, which is also a broken observation and must
 // not be laundered into a stall.
 func TestMonitor_UnaskedTranscriptIsNotAStall(t *testing.T) {
@@ -101,7 +101,7 @@ func TestMonitor_UnaskedTranscriptIsNotAStall(t *testing.T) {
 	assert.Equal(t, liveness.StateUnknown, rep.State, "reason=%q", rep.Reason)
 }
 
-// F01 — the content rung is an ABSENCE rule too ("zero assistant turns"), so
+// The content rung is an ABSENCE rule too ("zero assistant turns"), so
 // it must be gated on the same bit. A scan that aborts part-way (a directory
 // in the transcript's place) yields a partial stat that reads as an engine
 // which never produced a turn.
@@ -123,7 +123,7 @@ func TestMonitor_AbortedScanIsNotZeroAssistantTurns(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// F02 — the scan bound must not make the last record invisible.
+// The scan bound must not make the last record invisible.
 // ---------------------------------------------------------------------------
 
 // longTranscript writes n+2 records: one opening user turn, n assistant
@@ -166,7 +166,7 @@ func TestReadTranscript_LongTranscriptStillSeesItsTail(t *testing.T) {
 	assert.Equal(t, 25001, st.MaxSeq, "the highest seq lives in the tail")
 }
 
-// F02 at the ladder: a long, quiet, cleanly-finished session must be neither
+// At the ladder: a long, quiet, cleanly-finished session must be neither
 // stalled (stale LastTS) nor dead (unseen `complete`).
 func TestMonitor_LongFinishedTranscriptIsNotDeadOrStalled(t *testing.T) {
 	testHome(t)
@@ -185,7 +185,7 @@ func TestMonitor_LongFinishedTranscriptIsNotDeadOrStalled(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// F03 — a run the coordinator has already ended cannot be stalled.
+// A run the coordinator has already ended cannot be stalled.
 // ---------------------------------------------------------------------------
 
 // unobservable stands in for the production state after a terminal: the runner

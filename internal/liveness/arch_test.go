@@ -21,7 +21,7 @@ import (
 // THE CLASS GATE: an input record's field must be FILLED by somebody and READ
 // by somebody. A field with only one of the two is a promise, not a mechanism.
 //
-// The defect this closes (U056-F03/F04): liveness.Target is the whole input to
+// The defect this closes: liveness.Target is the whole input to
 // the delegation watchdog — "everything the caller knows about one agent" —
 // and four of its twelve fields were fiction. `Ended` and `ContainerID` were
 // declared and read by nothing; `PID` and `WorkDir` were read by three of the
@@ -64,7 +64,7 @@ import (
 //   - Writers set through encoding/json, reflection, or a generated
 //     constructor are invisible for the same syntactic reason.
 //   - Test files are excluded on BOTH sides on purpose: a field written only
-//     by a test is precisely U056-F04's shape (the evidence source that only
+//     by a test is precisely that shape (the evidence source that only
 //     ever runs under test), so counting test writers would green the exact
 //     defect the gate exists to catch.
 // ---------------------------------------------------------------------------
@@ -74,11 +74,11 @@ import (
 // that drift are the same defect and the same check —
 //
 //   - an INPUT record is filled by a caller and read by the package (a field
-//     nobody fills makes every rule that reads it unreachable: U056-F03/F04);
+//     nobody fills makes every rule that reads it unreachable);
 //   - an OUTPUT record is filled by the package and read by a caller (a field
 //     nobody reads makes the work that produces it pointless, and — worse —
 //     lets a distinction the producer went to the trouble of recording be
-//     dropped by every consumer: U056-F08's FSObserved, gathered on every
+//     dropped by every consumer: FSObserved, gathered on every
 //     tick and consulted by nothing, so "the walk found nothing" and "the
 //     walk was denied" reached the verdict as the same fact).
 type inputRecord struct {
@@ -230,8 +230,8 @@ func scanRecordUse(t *testing.T, path string, rec inputRecord, written, read map
 	// as a write — ast.Inspect descends into the LHS and the generic selector
 	// case fires on it — so a field the producer sets and nobody consults
 	// satisfies both halves of the gate by itself. That is precisely the
-	// wrong-evidence green this gate exists to refuse (it hid U056-F08's
-	// FSObserved). Traversal is pre-order, so the AssignStmt is always seen
+	// wrong-evidence green this gate exists to refuse (it hid FSObserved's
+	// own defect). Traversal is pre-order, so the AssignStmt is always seen
 	// before its own LHS. Compound assignment (`x.N += 1`) and `x.N++` are
 	// deliberately NOT recorded: those genuinely read the old value.
 	assignTargets := map[ast.Node]bool{}

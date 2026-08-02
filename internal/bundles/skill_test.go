@@ -407,7 +407,7 @@ func TestResolveSkillDir_RejectsAbsolutePath(t *testing.T) {
 }
 
 // =============================================================================
-// U031 findings-sweep additions
+// Additional coverage
 // =============================================================================
 
 // openFailFs fails Open for one exact path, so a test can make a single file in
@@ -425,7 +425,7 @@ func (f *openFailFs) Open(name string) (afero.File, error) {
 	return f.Fs.Open(name)
 }
 
-// TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile is U031-F18.
+// TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile pins the fix below.
 //
 // buildSkillManifest returned walkErr, relErr and readErr completely
 // unwrapped, so a mid-walk failure surfaced as a bare "simulated permission
@@ -451,7 +451,8 @@ func TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile(t *testing.T) {
 		"the underlying cause must still be wrapped, not replaced")
 }
 
-// TestSkillManifestSerializeFallback_IsNotSharedAcrossManifests is U031-F06.
+// TestSkillManifestSerializeFallback_IsNotSharedAcrossManifests pins the fix
+// below.
 //
 // Serialize's error fallback is a SIGNATURE PREIMAGE: PublisherSkillSignature
 // Verifier.VerifyManifestSignature verifies a detached signature over exactly
@@ -460,8 +461,9 @@ func TestBuildSkillManifest_MidWalkFailureNamesTheSkillAndFile(t *testing.T) {
 // verify against ANY manifest that hit the fallback — which is precisely the
 // defect the sibling BundleMCP/BundleHook fallbacks call out in their own
 // comments ("to a digest DISTINCT per server/failure, not a shared constant:
-// one constant standing in for many different items is the T4 defect"), even
-// though this comment claimed to be following that precedent.
+// one constant standing in for many different items is exactly the defect
+// this guards against"), even though this comment previously claimed to be
+// following that precedent under a different name.
 //
 // Different manifests must produce different fallback bytes.
 func TestSkillManifestSerializeFallback_IsNotSharedAcrossManifests(t *testing.T) {

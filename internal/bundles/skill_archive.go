@@ -295,7 +295,7 @@ func extractZip(fsys afero.Fs, archive []byte, destDir string, opts ExtractOptio
 	if st.topDir == "" {
 		return "", fmt.Errorf("skill archive: empty archive, no top-level skill directory found")
 	}
-	// U031-F01: a topDir alone (e.g. a lone "myskill/" marker entry) is not
+	// A topDir alone (e.g. a lone "myskill/" marker entry) is not
 	// proof anything was actually extracted — processArchiveEntry returns nil
 	// for the marker itself without writing a single file, so an archive
 	// containing only single-segment entries previously "succeeded" having
@@ -350,7 +350,7 @@ func extractTarGz(fsys afero.Fs, archive []byte, destDir string, opts ExtractOpt
 	if st.topDir == "" {
 		return "", fmt.Errorf("skill archive: empty archive, no top-level skill directory found")
 	}
-	// U031-F01: see extractZip's identical guard — a top-level marker alone
+	// See extractZip's identical guard — a top-level marker alone
 	// is not proof anything was extracted.
 	if st.filesWritten == 0 {
 		return "", fmt.Errorf("skill archive: contained no files under its top-level directory %q — rejected", st.topDir)
@@ -671,7 +671,7 @@ func normalizeExtractedMode(mode int64) os.FileMode {
 // validate, when non-nil, is run against the STAGING tree — before anything
 // at the destination is touched — and its error aborts the import with the
 // destination untouched. It is a required parameter rather than an option
-// because of U087-F25: the destination is computed from the ARCHIVE's own
+// because the destination is computed from the ARCHIVE's own
 // top-level directory name and then RemoveAll'd, so importing a malformed
 // archive over a good skill used to leave the skill gone from disk while
 // bundle.yaml still referenced it. Callers with genuinely nothing to check
@@ -712,7 +712,7 @@ func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts E
 	}
 
 	// Validate in staging: the destination must not be destroyed on behalf of
-	// a replacement that turns out to be unusable (U087-F25).
+	// a replacement that turns out to be unusable.
 	if validate != nil {
 		if err := validate(fsys, staged); err != nil {
 			_ = fsys.RemoveAll(stagingRoot)

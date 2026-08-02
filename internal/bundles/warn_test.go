@@ -27,7 +27,7 @@ func TestBundleWarner_DedupesPerRef(t *testing.T) {
 	assert.Equal(t, 2, strings.Count(out, "skipping unresolved bundle"))
 }
 
-// TestBundleWarner_UnresolvedAndAmbiguousDoNotShareAKeyspace is U031-F19.
+// TestBundleWarner_UnresolvedAndAmbiguousDoNotShareAKeyspace pins the fix below.
 //
 // One `seen` map served two kinds of warning asymmetrically: `unresolved` keyed
 // on the bare ref, `ambiguous` keyed on the string "ambiguous:"+name. A bundle
@@ -63,7 +63,7 @@ func TestBundleWarner_AmbiguousDedupesPerName(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(out, `fragment "shared"`))
 }
 
-// TestLoader_WarnWriterReceivesTheWarnerDiagnostics is U031-F14.
+// TestLoader_WarnWriterReceivesTheWarnerDiagnostics pins the fix below.
 //
 // WithWarnWriter's contract is "redirects THIS loader/store's user-facing
 // diagnostics (the clidiag 'ctxloom: warning:' lines)". It did not: only

@@ -104,7 +104,7 @@ func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 	assert.Equal(t, "two", got.Fragments["a"].Content)
 }
 
-// TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent is U031-F12.
+// TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent pins the fix below.
 //
 // invalidateStaleSignature read the sibling `.sig` and treated EVERY error as
 // "no signature, nothing to invalidate". A `.sig` that exists but cannot be
@@ -145,7 +145,7 @@ func TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent(t *testing.T) {
 	assert.True(t, still)
 }
 
-// TestFSStore_Save_MissingSignatureStaysSilent pins the other side of U031-F12:
+// TestFSStore_Save_MissingSignatureStaysSilent pins the other side of the fix:
 // a genuinely absent `.sig` is the common case and must stay silent, so the fix
 // discriminates not-exist from every other read failure rather than turning the
 // common case loud.

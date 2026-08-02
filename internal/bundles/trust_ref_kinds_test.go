@@ -1,4 +1,4 @@
-// This file is an EXTERNAL test package on purpose (U030-F19).
+// This file is an EXTERNAL test package on purpose.
 //
 // internal/bundles hard-codes the trust-ref kind directory segments
 // ("fragments", "prompts", "skills") at its gate calls, while

@@ -256,7 +256,7 @@ func TestHardenedExtract_RejectsZipSymlinkEntry(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 // TestHardenedExtract_RejectsPreExistingSymlinkEscapeInDestDir is the
-// regression guard for tepid-emu: safeSkillRelJoin's confinement check is
+// regression guard for a real escape: safeSkillRelJoin's confinement check is
 // purely LEXICAL (string path arithmetic via filepath.Join/Rel) — it has no
 // way to know that one of a target path's ancestor directories might already
 // be a REAL symlink on disk, planted in destDir before this call, pointing
@@ -663,7 +663,7 @@ func TestHardenedExtract_ZipDirectoryMarkerEntry(t *testing.T) {
 	})
 }
 
-// TestHardenedExtract_RejectsArchiveWithNoFiles (U031-F01) proves an archive
+// TestHardenedExtract_RejectsArchiveWithNoFiles proves an archive
 // whose every entry is single-segment (just the top-level directory marker,
 // no files underneath) is REJECTED rather than reporting success having
 // written zero bytes under destDir — the topDir=="" guard alone cannot catch
@@ -974,7 +974,7 @@ func TestPublisherSkillSignatureVerifier_TamperedSignatureRejected(t *testing.T)
 	require.Error(t, verifier.VerifyManifestSignature(pkg.Manifest))
 }
 
-// TestImportSkillArchive_FailedValidationLeavesDestinationIntact is U087-F25
+// TestImportSkillArchive_FailedValidationLeavesDestinationIntact pins the fix
 // at the mechanism: the destination is computed from the ARCHIVE's own
 // top-level directory name and then RemoveAll'd, so "import over the tree I
 // already have" is the ordinary case. A validator that rejects the staged
@@ -1026,7 +1026,7 @@ func TestImportSkillArchive_ValidatorSeesTheFinalSkillName(t *testing.T) {
 }
 
 // =============================================================================
-// U031 findings-sweep additions
+// Additional coverage
 // =============================================================================
 
 // TestHardenedExtract_UnsupportedFormatLeavesNoExtractionRoot pins that a
@@ -1049,7 +1049,7 @@ func TestHardenedExtract_UnsupportedFormatLeavesNoExtractionRoot(t *testing.T) {
 		"a rejected format must not leave an extraction root behind: nothing was extracted, so nothing should have been created")
 }
 
-// TestExportSkillZip_EmptyManifestIsRejectedNotSilentlyPackedEmpty is U031-F05:
+// TestExportSkillZip_EmptyManifestIsRejectedNotSilentlyPackedEmpty pins
 // this project's characteristic bug, in the export path. ExportSkillZip's only
 // guard was `pkg == nil`, so a SkillPackage whose Manifest is empty walked
 // straight past it, the pack loop never ran, and the function returned a
@@ -1075,7 +1075,7 @@ func TestExportSkillZip_EmptyManifestIsRejectedNotSilentlyPackedEmpty(t *testing
 }
 
 // TestExportSkillZip_ArchiveAlwaysCarriesEveryManifestFile is the payload half
-// of U031-F05: whatever ExportSkillZip returns without an error must actually
+// of the fix above: whatever ExportSkillZip returns without an error must actually
 // contain one zip entry per manifest entry. A zero-entry archive returned with
 // a nil error is the exact shape the guard above rejects, and this pins that a
 // non-empty package still round-trips every file.
@@ -1089,7 +1089,7 @@ func TestExportSkillZip_ArchiveAlwaysCarriesEveryManifestFile(t *testing.T) {
 		"every manifest entry must be present as a zip entry — an archive with fewer entries than the manifest is a silent partial export")
 }
 
-// TestParseSkillFileMode_RejectsTrailingGarbageAndBasePrefixes is U031-F09.
+// TestParseSkillFileMode_RejectsTrailingGarbageAndBasePrefixes pins the fix below.
 //
 // parseSkillFileMode used fmt.Sscanf(mode, "%o", &perm), which stops at the
 // first byte it cannot consume and still reports success: MEASURED, Sscanf
@@ -1150,7 +1150,7 @@ func (f *mkdirFailFs) MkdirAll(p string, perm os.FileMode) error {
 	return f.Fs.MkdirAll(p, perm)
 }
 
-// TestHardenedExtract_MkdirFailureNamesTheEntry is U031-F16. Both MkdirAll
+// TestHardenedExtract_MkdirFailureNamesTheEntry pins the fix below. Both MkdirAll
 // failures inside processArchiveEntry were returned bare — `return
 // fsys.MkdirAll(target, 0o755)` and `return err` — so a mid-extraction
 // directory failure surfaced as "simulated mkdir failure" with no indication of
@@ -1185,7 +1185,7 @@ func TestHardenedExtract_MkdirFailureNamesTheEntry(t *testing.T) {
 	})
 }
 
-// TestProcessArchiveEntry_UnclassifiedKindIsRejectedNotWritten is U031-F20.
+// TestProcessArchiveEntry_UnclassifiedKindIsRejectedNotWritten pins the fix below.
 //
 // entryKind's zero value used to be kindFile — i.e. the UNSAFE default for a
 // hardened extractor was "write these bytes to disk". Both current producers
@@ -1231,7 +1231,7 @@ func (f *renameFailFs) Rename(oldname, newname string) error {
 	return f.Fs.Rename(oldname, newname)
 }
 
-// TestImportSkillArchive_FailedFinalRenameLeavesDestinationIntact is U031-F11.
+// TestImportSkillArchive_FailedFinalRenameLeavesDestinationIntact pins the fix below.
 //
 // ImportSkillArchive did RemoveAll(final) and THEN Rename(staged, final). The
 // window between those two calls is the whole defect: if the rename fails —
@@ -1268,7 +1268,7 @@ func TestImportSkillArchive_FailedFinalRenameLeavesDestinationIntact(t *testing.
 }
 
 // TestImportSkillArchive_SucceedsOverAnExistingTreeAndLeavesNoBackup pins the
-// other half of U031-F11's fix: the aside-and-swap must still be a clean
+// other half of the fix above: the aside-and-swap must still be a clean
 // REPLACEMENT on the happy path — the new tree wins, files the old tree had
 // and the new one does not are gone, and no backup debris is left behind.
 func TestImportSkillArchive_SucceedsOverAnExistingTreeAndLeavesNoBackup(t *testing.T) {
@@ -1295,7 +1295,7 @@ func TestImportSkillArchive_SucceedsOverAnExistingTreeAndLeavesNoBackup(t *testi
 }
 
 // TestImportSkillArchive_UnrestorableTreeSaysWhereItIs covers the worst branch
-// of U031-F11's fix: the swap failed AND the aside copy could not be put back.
+// of the fix above: the swap failed AND the aside copy could not be put back.
 // Reporting only the swap failure would send the user to look at an empty
 // destination with no idea their tree is still on disk and recoverable, so the
 // error must name where the only surviving copy is.
@@ -1321,7 +1321,7 @@ func TestImportSkillArchive_UnrestorableTreeSaysWhereItIs(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// U031-F21 — direct unit tests for the three confinement helpers
+// Direct unit tests for the three confinement helpers
 // -----------------------------------------------------------------------------
 //
 // tarEntryKind, symlinkEscapesRoot and resolveSymlinkChain each carry part of
@@ -1509,15 +1509,14 @@ func TestResolveSymlinkChain(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// U031-F10 — characterization tests for processArchiveEntry's remaining arms
+// Characterization tests for processArchiveEntry's remaining arms
 // -----------------------------------------------------------------------------
 //
-// U031-F10 is a pure complexity reduction: processArchiveEntry sits at CCN 23
+// processArchiveEntry sits at CCN 23
 // against this project's own CCN-10 gate, with ten parameters, two of them
 // mutable accumulators threaded through both format loops. Behaviour is
-// unchanged by definition, so no test can discriminate before from after — per
-// the sweep's contract these are CHARACTERIZATION tests that must be green on
-// both sides. The arms already covered elsewhere in this file (traversal,
+// unchanged by definition, so no test can discriminate before from after — these
+// are CHARACTERIZATION tests that must be green on both sides. The arms already covered elsewhere in this file (traversal,
 // absolute paths, symlinks, hardlinks/devices, a second top-level directory,
 // the byte and entry caps, the directory marker, a pre-existing symlink escape,
 // an unclassified kind, and both MkdirAll failures) are not duplicated here;

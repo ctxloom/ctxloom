@@ -96,7 +96,7 @@ func TestParseBundle_SkillsKeyLegacyEntryAmongNewShapeStillErrs(t *testing.T) {
 	assert.Contains(t, err.Error(), "commands:")
 }
 
-// TestParseBundle_LegacySkillsKeyErrorOnARealBundle pins U030-F12. Every other
+// TestParseBundle_LegacySkillsKeyErrorOnARealBundle pins that every other
 // test of this guard hands ParseBundle a document with a root `name:` key —
 // which is precisely why nobody noticed that a REAL bundle.yaml has no such
 // key. Bundle.Name is `yaml:"-"`, so the marshaller never writes one and the

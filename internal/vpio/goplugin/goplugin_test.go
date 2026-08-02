@@ -123,7 +123,7 @@ func TestLauncher_StartDoesNotBlockOnRun(t *testing.T) {
 // carries a nil Stdin and the relay is still required, which is precisely why a
 // Launcher may not infer "no resize is ever coming" from a nil Stdin — the
 // shortcut that would otherwise close the resize channel early and end
-// ptyrunner's initialResizeWait. Verified to bite:
+// ptyrunner's initialResizeWait (taskloom `trim-viper`). Verified to bite:
 // applying that shortcut (s.stop() when spec.Stdin == nil) fails this test with
 // "expected at least one resize event to reach the transport".
 func TestSession_ResizeRelaysOntoTheWire(t *testing.T) {

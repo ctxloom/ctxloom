@@ -506,7 +506,7 @@ func authMethodNames(methods []api.AuthMethod) string {
 // ModelEnvVar) is left to do the job alone, as expected. A NAME match with a
 // VERSION miss is different: it means this IS the targeted agent, just at an
 // unverified version (e.g. after an adapter upgrade) — that combination
-// warns instead of failing silently, since it is the
+// warns (see wasting-crinkle) instead of failing silently, since it is the
 // one no-op path that signals a broken expectation rather than business as
 // usual.
 func (b *ACP) applyModelQuirk(ctx context.Context, conn *jsonrpc.Conn, sessionID api.SessionId, info *api.Implementation, req agent.ChatRequest) error {
@@ -522,7 +522,7 @@ func (b *ACP) applyModelQuirk(ctx context.Context, conn *jsonrpc.Conn, sessionID
 		// verified version. Every other no-op path (nil quirk, name
 		// mismatch) is unremarkable and stays silent; THIS one means a user
 		// upgraded claude-code-acp and silently lost model selection, this
-		// project's signature failure mode — so it's
+		// project's signature failure mode (see wasting-crinkle) — so it's
 		// the one case worth a warning.
 		warnf("model-delivery quirk %s: connected %s %s is not a verified version (only %v verified) — the requested model %q will NOT be applied via this quirk; relying on spec-standard delivery (--model argv, ModelConfigKey, ModelEnvVar) alone", q.Method, q.AgentName, info.Version, q.AdapterVersions, req.Model)
 		return nil

@@ -1735,7 +1735,7 @@ var testModelQuirk = &agent.ModelDeliveryQuirk{
 	AdapterVersions: []string{"1.0.0"},
 }
 
-// TestChat_ModelQuirk_VersionMismatch_WarnsAndSkips pins the
+// TestChat_ModelQuirk_VersionMismatch_WarnsAndSkips pins wasting-crinkle's
 // fix: the connected agent IS the one the quirk targets (name matches) but
 // at a version nobody verified — this is the silent-no-op-turned-loud case.
 // Before the fix this path (like the other three below) returned nil with

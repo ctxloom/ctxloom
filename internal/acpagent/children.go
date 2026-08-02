@@ -7,7 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// D3: Tier A push — a delegated child's
+// D3 (manly-grant (2)): Tier A push — a delegated child's
 // live activity surfaces in the connected editor's transcript as it happens,
 // not only via agent_recv/roster polling. This file is deliberately
 // decoupled from internal/agentcoord/coord (the same layering EngineChat

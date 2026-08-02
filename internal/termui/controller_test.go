@@ -384,7 +384,7 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 // enough consecutive failures must now surface exactly one warning, and a
 // later success must reset the streak. Exercises rosterFetch directly
 // (no goroutine/ticker) to stay fully deterministic — the goroutine-join
-// half is a separate, tracked concern and is
+// half is a separate, tracked concern (fussy-plow/rapid-grass) and is
 // deliberately untouched here.
 func TestController_RosterFetchWarnsAfterConsecutiveFailures(t *testing.T) {
 	boom := errors.New("coordinator unreachable")

@@ -178,7 +178,7 @@ func (l *eventLog) fold() (*folded, error) {
 // (add, addTags, removeTags, setStatus, setText, remove) and currentTags
 // called fold() directly, so an unresolved harp collision made every read
 // fail loud while every write kept right on succeeding into a store
-// nothing could read (U122-F02). repair() is the one caller that must see
+// nothing could read. repair() is the one caller that must see
 // the raw anomalies, so it keeps calling fold() directly.
 func (l *eventLog) foldChecked() (*folded, error) {
 	f, err := l.fold()
@@ -430,7 +430,7 @@ func admissible(ev Event) error {
 // process resumed with a stale fd, ...), it rolls the file back to its
 // length as of just before this call rather than leaving a torn line on
 // disk. That matters because fold() treats ANY unparseable line as fatal
-// for the whole log (U120-F05) — without this, a single failed append from
+// for the whole log — without this, a single failed append from
 // THIS process would brick every future read and write of the store, with
 // "move the file aside and re-add every task" as the only stated recovery.
 // Truncate's own error is deliberately ignored: it is already best-effort
@@ -804,13 +804,13 @@ func (l *eventLog) repair() error {
 		if err := validateStatusTrigger(status, trigger); err != nil {
 			status, trigger = StatusToDo, ""
 		}
-		// Carry Tags and Ts through too (U120-F14): the displaced task's own
+		// Carry Tags and Ts through too: the displaced task's own
 		// fields, not the repair's own defaults. Dropping Tags silently
 		// discards payload despite reporting success; dropping Ts (the
 		// original add's timestamp) makes append() re-stamp the CURRENT
 		// time as CreatedAt, silently pinning the recovered task to the
 		// extreme of any age-based decay_fn (see priority.Compute's own
-		// CreatedAt.IsZero guard, U124-F03) instead of preserving its real
+		// CreatedAt.IsZero guard) instead of preserving its real
 		// age.
 		ev := Event{Op: opAdd, Task: id, Text: a.Text, Status: status, Trigger: trigger, Session: a.Session, Tags: a.Tags, Ts: a.Ts, RepairOf: key}
 		if err := l.append(ev); err != nil {

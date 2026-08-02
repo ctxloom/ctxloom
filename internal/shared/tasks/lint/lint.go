@@ -38,7 +38,7 @@ type Violation struct {
 // was actually checked. CheckedTargets exists because an empty Violations
 // slice is ambiguous by itself — it means EITHER "genuinely clean" OR "this
 // project's tag_schema declares no enum/range facets, so nothing was
-// checked at all" (U121-F01). A caller positioning this as a CI gate (see
+// checked at all". A caller positioning this as a CI gate (see
 // cmd/taskloom's lint command) must distinguish the two.
 type Result struct {
 	Violations []Violation
@@ -98,7 +98,7 @@ func Lint(all []tasks.Task, schema *tagschema.Schema) (Result, error) {
 
 	// CheckedTargets counts the distinct enum/range-declared targets this
 	// run actually examined, so a caller can tell "genuinely clean" apart
-	// from "checked nothing" (U121-F01) — a nil schema, or one declaring
+	// from "checked nothing" — a nil schema, or one declaring
 	// neither facet, returns an empty violation list that reads identically
 	// to a clean project unless this count is also inspected.
 	checkedTargets := make(map[string]struct{}, len(enums)+len(ranges))
@@ -187,7 +187,7 @@ func rangeViolations(harpID string, ranges map[string]bounds, values map[string]
 			// strconv.ParseFloat accepts "NaN"/"Inf"/"-Inf" case-
 			// insensitively, and every `<`/`>` comparison against NaN
 			// is false — so a NaN value would otherwise pass both
-			// branches below silently (U121-F08). Treat non-finite
+			// branches below silently. Treat non-finite
 			// exactly like an unparseable value.
 			if perr == nil && (math.IsNaN(f) || math.IsInf(f, 0)) {
 				perr = fmt.Errorf("%q is not a finite number", v)

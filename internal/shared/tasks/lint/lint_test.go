@@ -234,11 +234,11 @@ func TestLint_ViolationsAreSortedForDeterministicOutput(t *testing.T) {
 	assert.Equal(t, "zzz", result.Violations[1].HarpID)
 }
 
-// TestLint_FlagsNaNAsOutOfRange pins U121-F08: strconv.ParseFloat accepts
+// TestLint_FlagsNaNAsOutOfRange pins the fix: strconv.ParseFloat accepts
 // the literal string "NaN" (a legal tagma bare token), and every `<`/`>`
 // bounds comparison against NaN is false — so a NaN value passed both
 // branches of the range check silently, reported as conformant, on its way
-// to hanging priority.rankNormalize (U124-F01) with no warning from the
+// to hanging priority.rankNormalize with no warning from the
 // project's only read-time data-conformance sweep.
 func TestLint_FlagsNaNAsOutOfRange(t *testing.T) {
 	schema := tripleSchema(t)
@@ -252,7 +252,7 @@ func TestLint_FlagsNaNAsOutOfRange(t *testing.T) {
 	assert.Contains(t, result.Violations[0].Reason, "triage:impact")
 }
 
-// TestLint_CheckedTargetsReportsHowMuchWasExamined pins U121-F01: an empty
+// TestLint_CheckedTargetsReportsHowMuchWasExamined pins the fix: an empty
 // Violations slice is ambiguous by itself between "genuinely clean" and
 // "checked nothing because the schema declares no enum/range facet" —
 // CheckedTargets must distinguish the two.

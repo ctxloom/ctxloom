@@ -67,7 +67,7 @@ type j6State struct {
 }
 
 // j6RunFact is runEnqueued's (coord/facts.go) payload, decoded straight off
-// runs.jsonl — the exact fields added so a child's resolved grant is
+// runs.jsonl — the exact fields Wave F1 added so a child's resolved grant is
 // auditable, not just provable in-process.
 type j6RunFact struct {
 	RunID      string   `json:"run_id"`

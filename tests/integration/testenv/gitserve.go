@@ -29,7 +29,7 @@ type GitRepo struct {
 // This is the *testing.T-fatal wrapper around SeedRemote (gitserve_acceptance.go)
 // — the same init-bare/init-work/config/write/add/commit/push/symbolic-ref
 // sequence used to live here a second time, hand-duplicated with its own
-// runGit/gitConfig twins (U163-F04). SeedRemote is the one implementation now;
+// runGit/gitConfig twins. SeedRemote is the one implementation now;
 // this trades its returned error for t.Fatalf, matching every other
 // *testing.T helper in this package.
 func SeedGitRepo(t *testing.T, files map[string]string) *GitRepo {

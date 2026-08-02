@@ -6,7 +6,7 @@ import (
 )
 
 // TestTestEnvironment_NthLastOutput_SeesAnEarlierRunAfterALaterOneOverwritesLast
-// pins U163-F01: TestEnvironment used to keep only a single mutable
+// pins that TestEnvironment used to keep only a single mutable
 // lastOutput/lastError/lastExitCode slot, so any scenario that ran two
 // commands lost the first's output the moment the second ran. Five
 // acceptance journeys had invented private snapshot fields to work around

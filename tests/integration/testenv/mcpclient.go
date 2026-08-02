@@ -38,7 +38,7 @@ const mcpRecvTimeout = 15 * time.Second
 // re-implementing the wire plumbing. Every method returns an error (no
 // *testing.T) so it composes with both Go tests and godog steps.
 // MCPClient is single-goroutine: every request method reads and increments
-// nextID unsynchronized (U163-F10). Nothing here is safe for concurrent use
+// nextID unsynchronized. Nothing here is safe for concurrent use
 // from more than one goroutine -- unlike Command (environment.go), whose doc
 // explicitly advertises building many concurrently, MCPClient carries no such
 // contract and must not be treated as if it did.
@@ -375,10 +375,10 @@ func (c *MCPClient) listNames(method, array, field string) ([]string, error) {
 // parseNamedArray extracts a string field from each element of a named array
 // in result, returning an ERROR (not a nil slice) when the array key is
 // absent or not an array — a malformed response must not be
-// indistinguishable from a well-formed empty list (U163-F05: a server
+// indistinguishable from a well-formed empty list: a server
 // advertising zero tools/resources looked identical to one whose response
 // never parsed, and the acceptance suite's only completeness gate passed
-// vacuously against either).
+// vacuously against either.
 func parseNamedArray(result map[string]any, array, field string) ([]string, error) {
 	raw, present := result[array]
 	if !present {

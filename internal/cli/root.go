@@ -93,7 +93,7 @@ var rootCmd = &cobra.Command{
 	// one ever starts to — per-command setup belongs in PreRun(E), which cobra
 	// runs IN ADDITION to this.
 	PersistentPreRun: rootPersistentPreRun,
-	// U104-F01's runtime guard (format.go): fires only after a successful
+	// The runtime guard (format.go): fires only after a successful
 	// RunE (cobra skips it on error, and skips it entirely for
 	// --help/--version/completion), turning a non-text --format that no
 	// command ever honored into a loud error instead of a silent exit 0.
@@ -139,7 +139,7 @@ func rootPersistentPostRunE(cmd *cobra.Command, args []string) error {
 }
 
 func rootPersistentPreRun(cmd *cobra.Command, args []string) {
-	// U104-F01's runtime guard (format.go): clear the per-invocation
+	// The runtime guard (format.go): clear the per-invocation
 	// "did this command honor --format" tracker before anything can set
 	// it, so checkFormatWasHonored's PersistentPostRunE below checks
 	// exactly this invocation.

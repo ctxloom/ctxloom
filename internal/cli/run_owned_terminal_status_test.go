@@ -12,7 +12,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// TestRenderOwnedRunEvents_TerminalStatusFailsClosed pins U016-F06: the
+// TestRenderOwnedRunEvents_TerminalStatusFailsClosed pins a fix: the
 // terminal Result.RunStatus enum used to be read as a DENY-list — anything
 // that was not RUN_STATUS_FAILED exited 0. The zero value
 // RUN_STATUS_UNSPECIFIED therefore read as success at every consumer, and so

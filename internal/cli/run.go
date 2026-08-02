@@ -170,7 +170,7 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 // CTXLOOM_RESUMED_FROM/CTXLOOM_RESUMED_PARTS pair that hook_inject_context.go's
 // resumedEssenceForInjection (SessionStart hook) and mcp_server.go's
 // sessionInstructions already know how to consume — the exact mechanism the
-// pre-WS-4/5 picker-driven --session resume used. PARTS is "session" (not
+// picker-driven --session resume this replaced used. PARTS is "session" (not
 // "tasks" — task restoration was removed along with the picker and is not
 // coming back here) so resumePartsIncludeSession's essence gate opens.
 //
@@ -183,9 +183,8 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 // and omits the essence block.
 func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), distillFn func(context.Context, string) error) map[string]string {
 	if _, err := essenceFn(harp); err != nil {
-		// Unbounded context.Background(): unlike the exit-path distill
-		// (FINDING #3), this runs before the session's terminal is handed to
-		// the user, not after process exit — no shell to unblock.
+		// Unbounded context.Background(): this runs before the session's
+		// terminal is handed to the user, so there is no shell to unblock yet.
 		if dErr := distillFn(context.Background(), harp); dErr != nil {
 			clidiag.Warn("ctxloom", "could not distill %s for resume essence: %v", harp, dErr)
 		}
@@ -444,7 +443,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	// is non-nil per run; the container arm never constructs a client.
 	//
 	// Registered HERE, before the workspace is prepared and before
-	// startTransport can return early, rather than after them (U041-F05): a
+	// startTransport can return early, rather than after them: a
 	// defer only protects returns that happen AFTER it is reached, so a defer
 	// placed after startTransport never fires for an early return out of it —
 	// exactly the case where startContainerOwnedRun starts a real container,
@@ -697,7 +696,7 @@ func (st *runState) resolveClassicAssembly() error {
 		return fmt.Errorf("no fragments loaded: requested fragments not found: %s", strings.Join(st.ctxResult.MissingFragments, ", "))
 	}
 
-	// U082-F03: the tag counterpart of the guard above — an explicit
+	// The tag counterpart of the guard above — an explicit
 	// -t selection that matches zero fragments must not silently
 	// exit 0 having delivered no context.
 	if len(runTags) > 0 && len(st.ctxResult.MissingTags) == len(runTags) {
@@ -874,9 +873,9 @@ func (st *runState) emitDryRun() error {
 // terminal-title restore for runRun to defer — the OSC2 push/pop pair has to
 // unwind on runRun's frame, not this one.
 //
-// Session resolution (Decision 11): no interactive resume picker, no
-// flag-based resume — every `ctxloom run` opens a FRESH harp. Resuming prior
-// context is the in-engine "resume" skill's job (recover_session/load_session/
+// Session resolution: no interactive resume picker, no flag-based resume —
+// every `ctxloom run` opens a FRESH harp. Resuming prior context is the
+// in-engine "resume" skill's job (recover_session/load_session/
 // get_previous_session), invoked from inside the session that just started,
 // not a startup-time choice.
 func (st *runState) openSession() func() {
@@ -904,7 +903,7 @@ func (st *runState) openSession() func() {
 	st.runEnv["CTXLOOM_SESSION_HARP"] = entry.HarpName
 	st.applyResumeEnv()
 
-	// Start-session display (WS-5): a read-only summary of this session,
+	// Start-session display: a read-only summary of this session,
 	// printed BEFORE the engine spawns. previous, below, is resolved via
 	// the SAME primitive the get_previous_session MCP tool reads — never
 	// re-derived — and is purely informational: bringing it back is the
@@ -1038,7 +1037,7 @@ func (st *runState) hostCoordinator() func() {
 	// session harp.
 	st.runnerSpawnEnv["CTXLOOM_SESSION_HARP"] = st.activeHarp
 
-	// U021-F02: RevokeSessionOwner existed with zero call sites, so a depth-0
+	// RevokeSessionOwner existed with zero call sites, so a depth-0
 	// session-owner credential (minted per `ctxloom run` process by
 	// sessionOwnerEnv) was never revoked — doc.go's "revocation at run end
 	// severs the credential's streams and parked polls" held for run
@@ -1260,8 +1259,7 @@ func (st *runState) stampWorkspaceOnRequest() {
 // the Launcher just receives the already-wrapped streams.
 //
 // Every arm assigns its handle into the state BEFORE checking its own error
-// (U041-F05) so runRun's already-registered teardown sees it — see the
-// per-arm notes.
+// so runRun's already-registered teardown sees it — see the per-arm notes.
 func (st *runState) startTransport() error {
 	switch runTransport(st.policy.Name(), st.mode, runStructured) {
 	case armDockerExecInteractive:
@@ -1294,7 +1292,7 @@ func (st *runState) startTransport() error {
 			Structured:  runStructured,
 			RunnerEnv:   st.runnerSpawnEnv,
 		})
-		// Assign BEFORE checking oerr (U041-F05): startContainerOwnedRun
+		// Assign BEFORE checking oerr: startContainerOwnedRun
 		// can return a non-nil handle ALONGSIDE a non-nil error (the
 		// container started; a later step in StartOwnedRun failed) — if
 		// the assignment waited for the error check, that early return
@@ -1502,7 +1500,7 @@ func (st *runState) launchSession(sio sessionIO) error {
 // piped-stdin source a `--print` run may be using, and refuse a `--print` run
 // that ends up with nothing to say.
 //
-// U041-F03: both steps used to be missing. An unreadable pipe was swallowed
+// Both steps used to be missing. An unreadable pipe was swallowed
 // (`if data, rerr := io.ReadAll(os.Stdin); rerr == nil`, the error dropped),
 // and nothing downstream rejected an empty ONESHOT prompt, so
 // `broken-producer | ctxloom run --print` launched a headless engine with an
@@ -1529,7 +1527,7 @@ func finalizeRunPrompt(prompt string, print, stdinPiped bool, stdin io.Reader) (
 // container arm (runOneshotViaCoord). It records the two-entry canonical
 // transcript and reports the zero-answer case as a failure.
 //
-// U041-F01/F02: the container arm warned about an empty answer and returned nil
+// The container arm warned about an empty answer and returned nil
 // anyway; the go-plugin arm had no check at all and simply handed the empty
 // string to RecordOneshot, which treats "nothing to record" as a legitimate
 // no-op. Either way `ctxloom run --print ... > out.txt` produced an empty file

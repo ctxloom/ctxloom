@@ -102,7 +102,7 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 	// Subscribe BEFORE StartOwnedRun so no delta from the first turn is
 	// missed — StartOwnedRun mints the run's ID internally, mid-call, so it
 	// cannot be known yet: subscribe(nil) is genuinely hub-wide at this
-	// instant. U041-F06: narrow() re-scopes this SAME subscription down to
+	// instant. narrow() re-scopes this SAME subscription down to
 	// just this run the moment StartOwnedRun returns with the real ID below,
 	// so this run only shares its ring's delivery budget with every other
 	// concurrent run on this coordinator for the brief window before that —
@@ -225,7 +225,7 @@ func runOneshotViaCoord(ctx context.Context, sess *ownedRunSession, harp, backen
 	runID := sess.outcome.RunID
 
 	// The answer buffer belongs to the RENDER goroutine, and the accumulated
-	// text is handed over the turn-boundary channel (U041-F04). It used to be a
+	// text is handed over the turn-boundary channel. It used to be a
 	// strings.Builder shared with this goroutine, read the instant turnIdle
 	// fired — but that boundary is signalled from inside the very loop that
 	// keeps appending, so the read raced every delta still in flight. A race
@@ -246,7 +246,7 @@ func runOneshotViaCoord(ctx context.Context, sess *ownedRunSession, harp, backen
 		// and WAIT for it before this goroutine touches stdout below — it is
 		// still selecting on events, and two goroutines writing the same
 		// stdout is how the trailing newline ends up in the middle of the
-		// answer (the second half of U041-F04).
+		// answer (the same race as above, on the flush side).
 		cancel()
 		<-rendered
 	case res := <-rendered:
@@ -259,7 +259,7 @@ func runOneshotViaCoord(ctx context.Context, sess *ownedRunSession, harp, backen
 	if text != "" && !strings.HasSuffix(text, "\n") {
 		fmt.Fprintln(stdout)
 	}
-	// U041-F01/F02: BOTH --print arms close out through recordOneshotAnswer, so
+	// BOTH --print arms close out through recordOneshotAnswer, so
 	// "the engine answered nothing" is one rule with one message rather than a
 	// warning on this arm and no check at all on the go-plugin one. Capture runs
 	// even on a nonzero exit (partial prose is still real memory of what
@@ -288,7 +288,7 @@ type ownedRenderResult struct {
 // ctx.Err() on cancellation. REASONING/LOG channels are excluded — the host
 // renders the answer, not the scratchpad, exactly like accumulateFinalText.
 //
-// The accumulator is LOCAL by construction (U041-F04): every read by another
+// The accumulator is LOCAL by construction: every read by another
 // goroutine goes through turnIdle or the return value, so there is no shared
 // buffer to race on. capture=false skips accumulation entirely for the REPL,
 // which only counts boundaries.
@@ -308,7 +308,7 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 	var answer strings.Builder
 	final := map[string]bool{}
 	enc := json.NewEncoder(out)
-	// U041-F06: the watchHub ring (consumer.go) this channel is fed from is a
+	// The watchHub ring (consumer.go) this channel is fed from is a
 	// lossy, per-subscriber buffer that a busy coordinator's OTHER concurrent
 	// runs can also fill (this run's subscription is scoped, but the ring
 	// still drops under sustained overload); nothing upstream re-sends a
@@ -378,7 +378,7 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 					}
 				}
 			case *agentcoordpb.AgentEvent_RunCompleted:
-				// SUCCESS IS AN ALLOW-LIST (U016-F06). This used to test
+				// SUCCESS IS AN ALLOW-LIST. This used to test
 				// `== RUN_STATUS_FAILED`, which made the enum's zero value —
 				// and CANCELLED, TIMED_OUT, BUDGET_EXCEEDED, and any value
 				// proto3's open enums let through — exit 0. A run that was

@@ -39,7 +39,7 @@ func TestMCPCommand_RejectsUnknownSubcommands(t *testing.T) {
 // today sees no change); the other four formats get clifmt's structured
 // {"error": "..."} envelope instead of the same human line regardless of
 // --format, which was the one place in the CLI where --format=json still
-// leaked plain text onto stderr. U104-F04 moved the rendering itself into
+// leaked plain text onto stderr. The fix moved the rendering itself into
 // cliemit, where the package doc already claimed it lived; these assertions
 // are unchanged, which is the point.
 func TestReportExecuteError_Text_MatchesPreClifmtLine(t *testing.T) {
@@ -57,8 +57,8 @@ func TestReportExecuteError_JSON_EmitsStructuredEnvelope(t *testing.T) {
 }
 
 // PersistentPreRun is where the CLI's resolved --format flows into
-// clidiag's process-wide structured-diagnostics switch (Decision 7's
-// warnings side channel): json/yaml/toml turn it on, text/markdown (and an
+// clidiag's process-wide structured-diagnostics switch (the warnings side
+// channel): json/yaml/toml turn it on, text/markdown (and an
 // unresolvable value, left for the command's own emit() to report) leave it
 // off. cmd is built via formatCmd (format_test.go), the same
 // inherited-persistent-flag stand-in this file's other format tests use, since
@@ -92,11 +92,11 @@ func TestPersistentPreRun_SetsClidiagStructuredFromFormat(t *testing.T) {
 	}
 }
 
-// U104-F09 claimed Execute()'s error path resolves --format from rootCmd,
-// "where the --json shorthand does not exist", so a --json invocation that
-// fails gets JSON-shaped output on the happy path and plain text on the error
-// path. Both halves were measured against the code and neither survives for
-// the ctxloom binary:
+// A prior finding claimed Execute()'s error path resolves --format from
+// rootCmd, "where the --json shorthand does not exist", so a --json
+// invocation that fails gets JSON-shaped output on the happy path and plain
+// text on the error path. Both halves were measured against the code and
+// neither survives for the ctxloom binary:
 //
 //  1. --format is a PERSISTENT flag on rootCmd, so parsing a subcommand's
 //     invocation sets the very pflag.Flag object rootCmd owns. Resolving from
@@ -124,7 +124,7 @@ func TestExecuteErrorPath_FormatResolvesFromRootAndNoJSONShorthandExists(t *test
 	walk(rootCmd)
 	assert.Empty(t, withJSON,
 		"Execute() resolves --format from rootCmd, which cannot see a subcommand-local --json; "+
-			"adding one re-opens U104-F09 and must move the resolve to the executed command")
+			"adding one re-opens this problem and must move the resolve to the executed command")
 
 	root := &cobra.Command{Use: "probe", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentFlags().String("format", formatText, "")
@@ -145,7 +145,7 @@ func TestExecuteErrorPath_FormatResolvesFromRootAndNoJSONShorthandExists(t *test
 		"root-scoped and command-scoped resolution must not diverge for --format")
 }
 
-// TestNoSubcommandDefinesPersistentHooks enforces the invariant U040-F16 found
+// TestNoSubcommandDefinesPersistentHooks enforces an invariant found
 // asserted only in a comment on rootCmd. Cobra runs the CLOSEST
 // PersistentPreRun/PersistentPostRun(E) it finds walking up from the invoked
 // command, not every one in the chain — so a single subcommand declaring its

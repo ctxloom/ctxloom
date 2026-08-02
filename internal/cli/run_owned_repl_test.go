@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 )
 
-// U041-F20 flagged the whole Phase 2a-B host path (this file's package) as
-// having zero tests; runOneshotViaCoord and renderOwnedRunEvents since
+// The whole Phase 2a-B host path (this file's package) once had zero tests;
+// runOneshotViaCoord and renderOwnedRunEvents since
 // gained coverage (run_owned_oneshot_test.go, run_owned_terminal_status_test.go),
 // but runStructuredREPLViaCoord — the Transport 2 REPL driver, distinct from
 // both — remained untested. This pins its base case: the lead turn's

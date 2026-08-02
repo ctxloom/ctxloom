@@ -244,7 +244,7 @@ func TestRunCharacterization_ExplicitFragmentMissFailsLoudly(t *testing.T) {
 	assert.Equal(t, exitCodeFatalFindings, exitErr.Code, "it aborts at the startup gate, not the assembly guard")
 }
 
-// The tag counterpart of the guard above (U082-F03).
+// The tag counterpart of the guard above.
 func TestRunCharacterization_ExplicitTagMissFailsLoudly(t *testing.T) {
 	runCLIFixture(t)
 

@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// U041-F01 / U041-F04 cover the Transport-2 container oneshot path
+// These tests cover the Transport-2 container oneshot path
 // (runOneshotViaCoord): the answer a --print run prints comes off the
 // coordinator's event stream, so "we got nothing" and "we got it concurrently"
 // are both this function's problem.
@@ -62,7 +62,7 @@ func oneshotSession(t *testing.T, evs ...*agentcoordpb.AgentEvent) *ownedRunSess
 	}
 }
 
-// TestRunOneshotViaCoord_EmptyAnswerIsAFailure is U041-F01. A container --print
+// TestRunOneshotViaCoord_EmptyAnswerIsAFailure pins a fix: a container --print
 // run that streamed zero answer bytes is this project's signature silent
 // no-op: the code already WARNS about it and then returns nil, so `ctxloom run
 // --print ... > out.txt` leaves an empty file and exit 0. A caller cannot tell
@@ -83,7 +83,8 @@ func TestRunOneshotViaCoord_EmptyAnswerIsAFailure(t *testing.T) {
 
 // TestRunOneshotViaCoord_StreamsAndSucceeds is the discriminator: a run that
 // DID deliver text still exits 0 and still prints exactly what it streamed.
-// Without this, F01's fix could be satisfied by failing everything.
+// Without this, the empty-answer fix above could be satisfied by failing
+// everything.
 func TestRunOneshotViaCoord_StreamsAndSucceeds(t *testing.T) {
 	sess := oneshotSession(t,
 		ownedFinalStart("m1"),
@@ -99,7 +100,7 @@ func TestRunOneshotViaCoord_StreamsAndSucceeds(t *testing.T) {
 	assert.Equal(t, "hello world\n", out.String(), "the streamed answer, newline-terminated")
 }
 
-// TestRunOneshotViaCoord_ConcurrentDeltasAreRaceFree is U041-F04. The renderer
+// TestRunOneshotViaCoord_ConcurrentDeltasAreRaceFree pins a fix: the renderer
 // runs in its own goroutine and kept appending to the answer buffer while the
 // main goroutine read it at the turn boundary — the boundary is signalled from
 // INSIDE the loop that keeps writing, so the read is not ordered after the
@@ -160,7 +161,7 @@ func TestRenderOwnedRunEvents_IgnoresOtherRuns(t *testing.T) {
 	assert.Equal(t, "mine", out.String())
 }
 
-// TestRenderOwnedRunEvents_SeqGapIsSurfaced pins U041-F06's gap-detection
+// TestRenderOwnedRunEvents_SeqGapIsSurfaced pins the gap-detection
 // fix: the watchHub ring (consumer.go) is a lossy, per-subscriber-shared
 // buffer — a busy coordinator running other concurrent work can drop this
 // run's own events out of it, and nothing upstream re-sends them. Every

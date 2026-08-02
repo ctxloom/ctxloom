@@ -17,12 +17,11 @@ import (
 // =============================================================================
 // Deterministic --session resume tests
 // =============================================================================
-// Two modes restored after WS-4/5 removed all flag-based resume + the
-// interactive picker (c7cddd9): bare --session (full resume, resumeFullContext)
-// and --session --distill (distilled resume, resumeDistillEnv). Both are IoC-
-// extracted behind an essenceFn/distillFn seam, so
-// they're testable without a live session index, backend transcript reader, or
-// shelling out.
+// Two modes restored after all flag-based resume + the interactive picker
+// were removed: bare --session (full resume, resumeFullContext) and
+// --session --distill (distilled resume, resumeDistillEnv). Both are
+// IoC-extracted behind an essenceFn/distillFn seam, so they're testable
+// without a live session index, backend transcript reader, or shelling out.
 
 // TestValidateResumeFlags covers the friction-up-front gate: --distill only
 // modifies HOW --session resumes, so it is meaningless (and rejected) without
@@ -182,16 +181,16 @@ func TestWarnBypassOnLostContainer(t *testing.T) {
 	})
 }
 
-// TestShellOutDistill covers the exit-path (and, formerly, the picker's)
-// `session distill` shell-out. We replace
+// TestShellOutDistill covers the on-demand `session distill` shell-out
+// (--session --distill's resumeDistillEnv path). We replace
 // the execCommand seam with a fake that returns /bin/true (or echo on
 // platforms where true is non-standard), records the invocation
 // arguments, and confirms the subprocess sees the expected harp.
 //
-// execCommand is exec.CommandContext-shaped (FINDING #3: the exit-path
-// caller needs to be able to kill a stalled distill), so the fake accepts
-// and ignores a ctx like production code does when the caller passes
-// context.Background() (unbounded, same as the old exec.Command seam).
+// execCommand is exec.CommandContext-shaped so a caller can bound or cancel a
+// stalled distill, so the fake accepts and ignores a ctx like production code
+// does when the caller passes context.Background() (unbounded, same as the
+// old exec.Command seam).
 func TestShellOutDistill(t *testing.T) {
 	var captured []string
 	orig := execCommand
@@ -221,8 +220,8 @@ func TestShellOutDistill(t *testing.T) {
 
 // TestShellOutDistill_PropagatesError covers the failure path: when
 // the subprocess exits non-zero, shellOutDistill must surface that as
-// an error rather than swallowing it. The picker's d<N> handler shows
-// the error to the user.
+// an error rather than swallowing it, so the caller can warn the user
+// instead of resuming as if the distill had succeeded.
 func TestShellOutDistill_PropagatesError(t *testing.T) {
 	orig := execCommand
 	execCommand = func(_ context.Context, name string, args ...string) *exec.Cmd {

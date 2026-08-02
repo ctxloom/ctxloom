@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U041-F03: `--print` is a one-shot. It gets exactly one turn, and the prompt
+// `--print` is a one-shot. It gets exactly one turn, and the prompt
 // is that turn — so every way of ending up without one has to be loud. Two
 // were silent: an unreadable pipe (the io.ReadAll error was dropped on the
 // floor) and an empty prompt after every source was exhausted, which launched
@@ -67,7 +67,7 @@ func TestFinalizeRunPrompt_KeepsWorkingCases(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// TestRecordOneshotAnswer_EmptyAnswerFails is U041-F02: the go-plugin --print
+// TestRecordOneshotAnswer_EmptyAnswerFails pins a fix: the go-plugin --print
 // arm handed an empty capture straight to transcript.RecordOneshot, whose
 // contract is that "nothing to record" is a legitimate no-op — so a run that
 // answered nothing wrote nothing, said nothing and exited 0.

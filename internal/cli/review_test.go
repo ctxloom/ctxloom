@@ -324,8 +324,8 @@ func TestResolveReviewSigner_HonoursSignKeyConfig(t *testing.T) {
 	})
 }
 
-// TestPrintReviewItem_UnchangedUpdateSaysSo pins the reachable half of
-// U040-F14: an UPDATE whose diff comes out EMPTY silently fell through to the
+// TestPrintReviewItem_UnchangedUpdateSaysSo pins the reachable half of a fix:
+// an UPDATE whose diff comes out EMPTY silently fell through to the
 // full-content display with no explanation at all. That is not a corner case —
 // operations.buildReviewItem labels an item UPDATE whenever a PRIOR approve
 // entry exists, including when the bytes are identical and the item is pending
@@ -364,7 +364,7 @@ func TestPrintReviewItem_ChangedUpdateStillDiffs(t *testing.T) {
 	assert.NotContains(t, got, "unchanged since it was approved")
 }
 
-// TestReviewWantsListing pins U040-F18. `ctxloom review --format json` on a TTY
+// TestReviewWantsListing pins a fix: `ctxloom review --format json` on a TTY
 // took the interactive countersigning walk: --format was accepted, never read,
 // and nothing rendered through emit — so the human was prompted through an
 // approval session and the invocation only failed the format-was-honored guard
@@ -405,7 +405,7 @@ func TestReviewWantsListing(t *testing.T) {
 
 // TestPrintReviewItem_AllArms characterizes every arm of printReviewItem's
 // body rendering before it is split, so the split is provably
-// behaviour-preserving (U040-F13 is a pure complexity reduction: nothing here
+// behaviour-preserving (a pure complexity reduction: nothing here
 // can go red by definition).
 func TestPrintReviewItem_AllArms(t *testing.T) {
 	for _, tc := range []struct {

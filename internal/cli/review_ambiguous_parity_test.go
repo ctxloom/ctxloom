@@ -39,7 +39,7 @@ func ambiguousDiscoverer(t *testing.T) *agentkey.Discoverer {
 // §11o/§4): it is unchanged by whatever canonical form the two collapse into,
 // and it is red only if the two ever describe the same candidates differently.
 //
-// The divergence it caught (U135-F09): review dropped the agent COMMENT from
+// The divergence it caught: review dropped the agent COMMENT from
 // every candidate line, printing only fingerprint and key type. The comment is
 // the whole point of the listing — agentkey's own code says so, "it's what a
 // human actually recognizes" — and it is what the user must then type to

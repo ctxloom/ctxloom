@@ -27,7 +27,7 @@ import (
 // This is a CHARACTERIZATION, not an endorsement: it records the gap so that
 // closing it is a deliberate act with a visible diff, rather than something a
 // later change makes look accidental. Closing it is not a CLI-side edit --
-// see the escalation recorded for U041-F08. The session half is recoverable
+// it needs escalation elsewhere. The session half is recoverable
 // here (the coordinator already emits ctxloom/harness_session carrying the
 // session id and its resumable flag); the complete half is not, because
 // per-turn usage never reaches this stream -- ctxloom/turn_idle carries only
@@ -74,7 +74,7 @@ func TestRenderOwnedRunEvents_NDJSONCarriesOnlyEntries(t *testing.T) {
 	require.NotEmpty(t, kinds)
 	for _, k := range kinds {
 		assert.Equal(t, chatEventTypeEntry, k,
-			"this arm emits only %q today — if it has started emitting %q or %q, U041-F08's gap is closing and this characterization must be replaced by a conformance assertion",
+			"this arm emits only %q today — if it has started emitting %q or %q, this gap is closing and this characterization must be replaced by a conformance assertion",
 			chatEventTypeEntry, chatEventTypeComplete, chatEventTypeSession)
 	}
 }

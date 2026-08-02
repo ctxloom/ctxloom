@@ -466,8 +466,8 @@ func TestPendingReview_DualFormExposesBothForms(t *testing.T) {
 	assert.Empty(t, solid.AlternateContent, "a single-form item has no second countersigned form")
 }
 
-// TestPendingReview_UnreadableSkillIsWarned is a regression guard for
-// U086-F19: pendingItems dropped an MCP server, hook, or skill whose
+// TestPendingReview_UnreadableSkillIsWarned is a regression guard:
+// pendingItems dropped an MCP server, hook, or skill whose
 // ContentPayload()/EffectiveManifest() failed via a bare `continue`, with NO
 // warning — unlike classify's structurally identical unaddressable-item case,
 // which does warn. A manifest-less skill (no authored Files) whose on-disk
@@ -506,8 +506,8 @@ func TestPendingReview_UnreadableSkillIsWarned(t *testing.T) {
 		"an EffectiveManifest failure must be warned like classify's structurally identical case, not silently dropped")
 }
 
-// TestRenderMCPSurface_EmptyServerShowsMarker is a regression guard for
-// U086-F24: an MCP server with no command, args, env, or install text used
+// TestRenderMCPSurface_EmptyServerShowsMarker is a regression guard: an MCP
+// server with no command, args, env, or install text used
 // to render as just "command: \n" — a reviewer approving it saw nothing
 // wrong-looking rather than being told the surface is degenerate. The
 // countersignature still binds ContentPayload()'s real bytes regardless (this
@@ -519,8 +519,8 @@ func TestRenderMCPSurface_EmptyServerShowsMarker(t *testing.T) {
 		"a fully empty MCP surface must say so explicitly, not just print a blank command line")
 }
 
-// TestRenderSkillSurface_EmptyManifestShowsMarker is a regression guard for
-// U086-F24: renderSkillSurface returned "" outright for a skill whose
+// TestRenderSkillSurface_EmptyManifestShowsMarker is a regression guard:
+// renderSkillSurface returned "" outright for a skill whose
 // (effective) manifest has zero file entries.
 func TestRenderSkillSurface_EmptyManifestShowsMarker(t *testing.T) {
 	rendered := renderSkillSurface(bundles.SkillManifest{})
@@ -528,8 +528,8 @@ func TestRenderSkillSurface_EmptyManifestShowsMarker(t *testing.T) {
 		"an empty skill manifest must say so explicitly rather than rendering an empty string")
 }
 
-// TestRenderHookSurface_NoCommandOrPromptShowsMarker is a regression guard
-// for U086-F24: a hook with neither a command nor a prompt executes nothing,
+// TestRenderHookSurface_NoCommandOrPromptShowsMarker is a regression guard:
+// a hook with neither a command nor a prompt executes nothing,
 // but used to render only its event/matcher/type header with no signal that
 // nothing actually runs.
 func TestRenderHookSurface_NoCommandOrPromptShowsMarker(t *testing.T) {

@@ -210,7 +210,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		srv := bundle.MCP[name]
 		payload, perr := srv.ContentPayload()
 		if perr != nil {
-			// U086-F19: mirror classify's warning for a structurally
+			// Mirror classify's warning for a structurally
 			// identical "cannot address this item" case — the gate withholds
 			// it anyway, so review is the only place the user could learn
 			// why an item they can see in the bundle never appears.
@@ -241,7 +241,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		skill := bundle.Skills[name]
 		// Bundle.Path is overloaded and filepath.Dir of a companion/seeded
 		// value is ".", which would hash files from the process working
-		// directory into what the user is asked to approve (U030-F03). Only a
+		// directory into what the user is asked to approve. Only a
 		// manifest-LESS skill actually needs the tree, so only that case is
 		// fatal here — see SkillPreimageDir.
 		skillDir, dirErr := bundle.SkillPreimageDir(skill)
@@ -323,8 +323,8 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 	// EffectiveTrust's error return is currently vestigial — every one of its
 	// return statements pairs a non-nil result with a nil error (verified
 	// across all 7 returns in EffectiveTrust's body) — so this checks only
-	// the State() outcome (U086-F20 dropped the unreachable err!=nil/res==nil
-	// disjuncts). If EffectiveTrust's contract ever changes to return a real
+	// the State() outcome (the unreachable err!=nil/res==nil disjuncts were
+	// dropped). If EffectiveTrust's contract ever changes to return a real
 	// error, this must change with it.
 	res, _ := EffectiveTrust(e.cfg, EffectiveTrustRequest{
 		Ref:     tRef,
@@ -426,7 +426,7 @@ func remoteNameFor(reg *remote.Registry, bundleRef string) string {
 }
 
 // emptySurfaceMarker replaces a render*Surface function's output when the
-// underlying item carries no executable content at all (U086-F24): a blank
+// underlying item carries no executable content at all: a blank
 // field (or, for renderSkillSurface, "") reads to a reviewer as "nothing
 // changed here", not as "this item genuinely has nothing in it" — a subtle
 // but real difference when the reviewer is about to bless it. Display-only:
@@ -485,7 +485,7 @@ func renderHookSurface(entry bundles.HookEntry) string {
 	if entry.Hook.Command == "" && entry.Hook.Prompt == "" {
 		// A hook with neither a command nor a prompt executes nothing — say
 		// so explicitly rather than letting the event/matcher/type header
-		// read as a complete, reviewed surface (U086-F24).
+		// read as a complete, reviewed surface.
 		b.WriteString(emptySurfaceMarker)
 	}
 	return b.String()

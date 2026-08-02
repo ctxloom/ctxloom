@@ -1,9 +1,9 @@
 // Table-driven coverage over rootCmd's descendants (Phase 0 of the clifmt
-// integration, decision 7 in the CLI-primary reorg plan): every runnable,
-// non-hidden command must either render cleanly in all five --format
-// encodings, or carry a documented reason it doesn't. New commands are
-// caught automatically — formatCoverageWalk fails the test if a command has
-// no registry entry, so the registry can't silently go stale.
+// integration): every runnable, non-hidden command must either render
+// cleanly in all five --format encodings, or carry a documented reason it
+// doesn't. New commands are caught automatically — formatCoverageWalk fails
+// the test if a command has no registry entry, so the registry can't
+// silently go stale.
 //
 // SCOPE NOTE (read before adding entries): only commands whose RunE already
 // calls emit() can meaningfully prove anything here — a command that never
@@ -50,7 +50,7 @@ type formatCoverageEntry struct {
 	skip      string
 	extraArgs func(format string) []string
 
-	// formatDebt marks a skip entry as T19 debt: this command registers
+	// formatDebt marks a skip entry as format debt: this command registers
 	// (inherits) the persistent --format flag but its RunE never routes
 	// through emit()/cliemit.Emit, so --format is silently accepted and
 	// discarded. It is orthogonal to skip's REASON the harness can't
@@ -194,7 +194,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"trust reject": {skip: "needs a resolvable ref; not exercised here"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
-	// T19 audit: all four of these ARE format debt too (bundleDeleteCmd's
+	// All four of these ARE format debt too (bundleDeleteCmd's
 	// runBundleDelete, bundle_hold_cli.go's hold/unhold RunEs, and
 	// runBundleMCPEdit never call emit() — confirmed absent from the global
 	// emit(cmd, ...) call-site grep), even though the reason they're skipped
@@ -209,12 +209,12 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"mcp server edit": {skip: "needs an existing bundle-scoped MCP entry fixture; not exercised here", formatDebt: true},
 
 	// --- skip: network / real remote required ---
-	// T19 audit: 8 of these 9 `remote` commands ARE format debt — none of
+	// 8 of these 9 `remote` commands ARE format debt — none of
 	// remote_browse.go/remote_discover.go/remote_update.go/remote_upgrade.go,
 	// nor remote.go's add/remove/default/pull RunEs, call emit() (confirmed:
 	// zero "emit(" occurrences in those RunE bodies). `remote list` is the
-	// lone exception (fixtured above) — so "all nine remote commands" (the
-	// original T19 claim) overstates by one; it's 8/9, not 9/9.
+	// lone exception (fixtured above) — so an earlier claim of "all nine
+	// remote commands" overstates by one; it's 8/9, not 9/9.
 	"remote create":   {skip: "network: adds and probes a real remote", formatDebt: true},
 	"remote show":     {skip: "network: reads a real remote's catalog", formatDebt: true},
 	"remote default":  {skip: "needs a configured remote fixture", formatDebt: true},
@@ -226,7 +226,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"bundle push":     {skip: "network: publishes to a real remote repository (covered by push_sign_test.go)"},
 
 	// --- skip: docker / container runtime required ---
-	// T19 audit: `container check` DOES honor format (containerCheckCmd calls
+	// `container check` DOES honor format (containerCheckCmd calls
 	// emit()) despite the skip; `container build`/`container scaffold` do
 	// not (both write straight to os.Stdout / cmd.OutOrStdout() with no emit
 	// call) — format debt.
@@ -236,15 +236,14 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 
 	// --- skip: side-effecting installers (hooks/statusline/gitignore/mcp registration) ---
 	// (`manage init` was deleted outright — not deprecated — root `ctxloom
-	// init` is the sole bootstrap, plan Decision 6; no registry entry needed.)
-	// T19 audit: every installer/register command below is format debt
+	// init` is the sole bootstrap; no registry entry needed.)
+	// Every installer/register command below is format debt
 	// (confirmed: none of manage.go's install/uninstall/hooks-*/mcp-*/
 	// statusline-*/gitignore-install RunEs, nor mcp.go's mcpRegisterCmd/
 	// mcpUnregisterCmd inline closures, call emit()) — this is the "eleven
-	// commands ignore --format via bare fmt.Printf" class (matches the
-	// FINDINGS.md U037-F18 shape). `manage mcp servers show` is the one
-	// exception: it shares runMCPShow with `mcp server show`, which does
-	// call emit() — not debt, just fixture-gated.
+	// commands ignore --format via bare fmt.Printf" class. `manage mcp
+	// servers show` is the one exception: it shares runMCPShow with `mcp
+	// server show`, which does call emit() — not debt, just fixture-gated.
 	"manage install":              {skip: "installer: side-effecting project bootstrap"},
 	"manage uninstall":            {skip: "installer: side-effecting project teardown"},
 	"manage hooks install":        {skip: "installer: writes real hook files"},
@@ -293,11 +292,11 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"profile edit":     {skip: "not wired to emit() yet", formatDebt: true},
 	"profile export":   {skip: "not wired to emit() yet", formatDebt: true},
 	"profile import":   {skip: "not wired to emit() yet", formatDebt: true},
-	// T19 audit: this entry was WRONG — one of the registry's "known
+	// This entry was WRONG — one of the registry's "known
 	// inaccuracies". profileMaterializeCmd's RunE DOES call emit() (verified
 	// via find_symbol on profile_materialize.go); it's fixture-gated like
 	// `profile show`, not format debt. Reclassified below; not counted in
-	// the T19 total and NOT in formatDebtAllowlist.
+	// the format-debt total and NOT in formatDebtAllowlist.
 	"profile materialize": {skip: "wired to emit(), but needs a resolvable profile + --target fixture; not exercised here (corrected T19 audit: previously mislabeled 'not wired to emit() yet', but profileMaterializeCmd's RunE does call emit())"},
 	"profile modify":      {skip: "not wired to emit() yet", formatDebt: true},
 	"session show":        {skip: "wired to emit(), but needs an existing session fixture; not exercised here"},
@@ -410,8 +409,8 @@ func runFormatCoverageCase(t *testing.T, path string, args []string, format stri
 	}
 }
 
-// formatDebtAllowlist is T19's ("--format is declared far more widely than it
-// is honored", FINDINGS.md) enforcement ledger. It is the machine-readable
+// formatDebtAllowlist is the enforcement ledger for "--format is declared far
+// more widely than it is honored". It is the machine-readable
 // list of commands currently allowed to register/inherit the persistent
 // --format flag and silently discard it (their RunE never reaches
 // emit()/cliemit.Emit). TestFormatCoverage_DebtAllowlistTracksRegistry below
@@ -429,12 +428,12 @@ func runFormatCoverageCase(t *testing.T, path string, args []string, format stri
 // one never requires touching another, so flow batches that own different
 // commands can land in parallel.
 //
-// Grouped by owning surface per the T19 remediation batches (gooey-basil owns
+// Grouped by owning surface per the remediation batches (gooey-basil owns
 // rendering; brave-mango/sick-shawl/known-bleep/clean-pony own the commands).
 var formatDebtAllowlist = map[string]string{
-	// --- config surface (config.go; manage.go's deprecated aliases share the same RunEs) ---
-	// `config show`/`config get` (and their two aliases) were paid down by
-	// U035-F07: both RunEs route through emit() over a yaml-round-tripped
+	// --- config surface (config.go) ---
+	// `config show`/`config get` were paid down:
+	// both RunEs route through emit() over a yaml-round-tripped
 	// payload, so all five encodings carry the real configuration.
 	"config edit": "config.go: runConfigEdit must route through emit() (or be reclassified as structurally exempt: it only launches $EDITOR, no renderable result)",
 	"config init": "config.go: runConfigInit must route through emit() instead of a bare fmt.Fprintf",
@@ -484,8 +483,8 @@ var formatDebtAllowlist = map[string]string{
 	"session distill": "session_cmd.go: runSessionDistill must route through emit()",
 }
 
-// TestFormatCoverage_DebtAllowlistTracksRegistry is T19's enforcing half: it
-// fails if formatCoverageRegistry's formatDebt markers and
+// TestFormatCoverage_DebtAllowlistTracksRegistry is this ledger's enforcing
+// half: it fails if formatCoverageRegistry's formatDebt markers and
 // formatDebtAllowlist's keys ever drift apart, in either direction —
 //   - a formatDebt:true entry with no allowlist key (new debt introduced
 //     without being counted), and
@@ -513,17 +512,17 @@ func TestFormatCoverage_DebtAllowlistTracksRegistry(t *testing.T) {
 	}
 }
 
-// U104-F03 claimed the registry misattributes `bundle hold`, `bundle unhold`
-// and `mcp server edit` as FIXTURE gaps, hiding them from the "not wired to
-// emit() yet" follow-up list, while `bundle move` is correctly attributed.
-// The underlying facts still hold — those three RunEs contain zero emit()
-// calls and bundle_move.go's contains one — but the register's proposed
+// A prior review claimed the registry misattributes `bundle hold`, `bundle
+// unhold` and `mcp server edit` as FIXTURE gaps, hiding them from the "not
+// wired to emit() yet" follow-up list, while `bundle move` is correctly
+// attributed. The underlying facts still hold — those three RunEs contain
+// zero emit() calls and bundle_move.go's contains one — but the proposed
 // remedy (move the three lines into the not-wired skip block) was rejected in
 // favour of a better one: formatDebt is a SEPARATE axis from skip's reason,
 // so a command can be both fixture-gated AND format debt without either fact
 // erasing the other. See formatCoverageEntry.formatDebt's doc.
 //
-// This pins that separation for the four commands the row names, so a future
+// This pins that separation for the four commands named above, so a future
 // edit cannot quietly re-collapse the two axes and lose the debt again.
 func TestFormatCoverage_FixtureSkipAndFormatDebtAreSeparateAxes(t *testing.T) {
 	debtByFixtureSkip := []string{"bundle hold", "bundle unhold", "mcp server edit"}

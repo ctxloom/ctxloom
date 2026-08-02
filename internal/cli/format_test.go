@@ -110,7 +110,7 @@ func TestEmit_UnknownFormat_WrapsErrUnsupportedFormat(t *testing.T) {
 	assert.True(t, errors.Is(err, clifmt.ErrUnsupportedFormat), "got: %v", err)
 }
 
-// --- U104-F01: the runtime guard that turns "--format is registered
+// --- the runtime guard that turns "--format is registered
 // globally but honoured opt-in" into a loud error instead of a silent exit 0
 // ---
 
@@ -169,13 +169,13 @@ func TestOutputFormatOf_MarksFormatWasHonored(t *testing.T) {
 // init` is a real, currently-unwired command (format_coverage_test.go's
 // formatDebtAllowlist: "config.go: runConfigInit must route through emit()
 // instead of a bare fmt.Fprintf" — owned by a different flow batch, not touched
-// here) — exactly U104-F01's "accepted and silently ignored on dozens of
-// commands" shape. An unwired command must refuse loudly instead of exiting 0
-// while lying about having honored the flag.
+// here) — exactly the "accepted and silently ignored on dozens of
+// commands" shape formatWasHonored guards against. An unwired command must
+// refuse loudly instead of exiting 0 while lying about having honored the flag.
 //
-// It drives `config init` rather than `config show`: U035-F07 wired show/get
-// through emit(), so they no longer exhibit the shape this guard exists to
-// catch.
+// It drives `config init` rather than `config show`: `config show`/`config
+// get` were wired through emit(), so they no longer exhibit the shape this
+// guard exists to catch.
 func TestUnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
 	testsupport.ProjectDir(t)
 	config.Invalidate()
@@ -223,8 +223,8 @@ func TestUnwiredCommand_DefaultTextStillWorks(t *testing.T) {
 	assert.NotEmpty(t, out.String())
 }
 
-// U104-F07 counted four format vocabularies for one flag and named the third
-// independent resolveFormat (cmd/harp) as the duplication. That copy is gone:
+// A prior review counted four format vocabularies for one flag and named the
+// third independent resolveFormat (cmd/harp) as the duplication. That copy is gone:
 // cmd/harp imports cliemit and its resolveFormat delegates to
 // cliemit.Resolve, pinned by cmd/harp/format_parity_test.go. What remains is
 // not a fourth implementation but a deliberate NARROWING, documented in this
@@ -259,12 +259,12 @@ func TestStreamingFormatVocabularyAgreesWithClifmt(t *testing.T) {
 	}
 }
 
-// U034-F06 reads the six commands that accept the global --format and never
-// read it as "so `--format json` silently returns text". They do not read it —
-// that part is accurate and all six are TRACKED as debt in
-// formatDebtAllowlist — but the outcome is no longer silent: U104-F01's
-// PersistentPostRunE guard turns the accepted-and-ignored case into a loud
-// error and a non-zero exit. This pins both halves.
+// The six commands that accept the global --format and never read it were
+// once described as "so `--format json` silently returns text". They do not
+// read it — that part is accurate and all six are TRACKED as debt in
+// formatDebtAllowlist — but the outcome is no longer silent: the
+// PersistentPostRunE guard (formatWasHonored) turns the accepted-and-ignored
+// case into a loud error and a non-zero exit. This pins both halves.
 func TestFormatDebtCommands_AreTrackedAndRefuseNonTextLoudly(t *testing.T) {
 	for _, path := range []string{
 		"bundle hold", "bundle unhold", "bundle delete", "mcp server edit",

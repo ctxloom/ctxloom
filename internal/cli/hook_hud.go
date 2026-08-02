@@ -209,7 +209,7 @@ func formatHud(session agentSessionJSON, info ctxloomHudInfo) string {
 	}
 
 	if len(parts) == 0 {
-		// U036-F02: the SUCCESS path must never be less informative than the
+		// The SUCCESS path must never be less informative than the
 		// failure paths (runHookHud's read/parse-error branches both print
 		// the "ctxloom" sentinel). A sparse session JSON plus no resolvable
 		// ctxloom config previously formatted to zero bytes — the statusline

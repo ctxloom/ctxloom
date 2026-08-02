@@ -1,5 +1,5 @@
-// T9/R1 gate: a management command must not exit 0 on a real failure
-// ("exit-0-on-failure", the project's signature bug family — see the
+// This gate enforces that a management command must not exit 0 on a real
+// failure ("exit-0-on-failure", the project's signature bug family — see the
 // silent-no-op standing note: exit 0, success message, nothing actually
 // done). `strictness` is deliberately LAUNCH-ONLY (it records fatal startup
 // findings that OpenEngineSession/the agent spawner turn into an error via
@@ -19,7 +19,7 @@
 // non-empty, letting cli.Run do its job.
 //
 // This test is the enforcement half, shaped like format_coverage_test.go's
-// T19 formatDebtAllowlist gate: it statically detects the anti-pattern (a
+// formatDebtAllowlist gate: it statically detects the anti-pattern (a
 // `for range X.Errors` loop whose body only warns/prints) in every non-test
 // .go file directly in this package, and requires each detected site to
 // carry a silentFailureAllowlist entry naming the required fix. A detected
@@ -28,9 +28,9 @@
 // down but the ledger line was never removed) — so the debt can only shrink
 // visibly, never drift stale in either direction.
 //
-// Fixing at most zero commands here is deliberate (T9/R1's stated scope):
-// this test only proves the gate is enforcing, not that the six known sites
-// are fixed.
+// Fixing at most zero commands here is deliberate, and within this gate's
+// stated scope: this test only proves the gate is enforcing, not that the
+// six known sites are fixed.
 package cli
 
 import (
@@ -54,7 +54,7 @@ import (
 // a single call, so the fixed site stops matching automatically.
 //
 // The print-call alternation must track the package's DIAGNOSTIC VOCABULARY,
-// not just the two spellings that existed when the gate was written: U034-F11
+// not just the two spellings that existed when the gate was written: a fix
 // rewrote bundle_distill.go's loop body from `fmt.Fprintln(os.Stderr, e)` to
 // `errw.Println(e)` (an iox.ErrWriter), and the detector silently stopped
 // seeing that site — a warn-only loop that had merely changed writers read to
@@ -68,7 +68,7 @@ var silentFailureLoopRE = regexp.MustCompile(
 )
 
 // findSilentFailureSites scans every non-test .go file directly in
-// internal/cli (the package T9/R1 scopes: cobra command wiring) for
+// internal/cli (the package this gate scopes: cobra command wiring) for
 // silentFailureLoopRE, returning "file.go:line" sites in sorted order so
 // the test's output — and the allowlist keyed from it — is stable.
 func findSilentFailureSites(t *testing.T) []string {
@@ -100,8 +100,9 @@ func findSilentFailureSites(t *testing.T) []string {
 	return sites
 }
 
-// silentFailureAllowlist is T9/R1's enforcement ledger, shaped like T19's
-// formatDebtAllowlist: every site findSilentFailureSites turns up must have
+// silentFailureAllowlist is this gate's enforcement ledger, shaped like
+// format_coverage_test.go's formatDebtAllowlist: every site
+// findSilentFailureSites turns up must have
 // exactly one entry here naming the fix, and every entry here must still
 // match a real site (a fixed site stops matching silentFailureLoopRE, so a
 // stale entry means "paid down — delete this line").
@@ -118,20 +119,20 @@ func findSilentFailureSites(t *testing.T) []string {
 // backend settings. manage.go:224/344 (uninstall counterparts) and
 // remote_discover.go:62 share the identical shape by source inspection.
 //
-// Line numbers shifted again (143/224/308/344 -> 145/226/311/347) when
-// U084-F04 removed ApplyHooks' unread *config.Config parameter, which turned
+// Line numbers shifted again (143/224/308/344 -> 145/226/311/347) when a fix
+// removed ApplyHooks' unread *config.Config parameter, which turned
 // two `cfg, err := GetConfig()` guards in this file into two-line comments
 // plus an `if _, err :=` form. The swallow shapes are untouched.
 //
 // Line numbers shifted (117/154/266/287 -> 140/205/332/368 -> 157/238/323/359)
-// during the gooey-basil output-flow batch's T19 format-debt paydown
+// during the gooey-basil output-flow batch's format-debt paydown
 // (--format json now routes through emit() for all four sites), then again
 // when the engine-validation-scoping fix inserted the checkInstallEngineApplies
 // doc lines and the --engine hook-backend-scoping block ahead of
 // runManageInstall's ApplyHooks call — the underlying anti-pattern
 // (ApplyHooks/RemoveHooks per-backend errors warned, then `return nil`) is
-// unchanged and out of both batches' scope (T9/R1, not T19 or the engine fix);
-// only the ledger keys were re-pointed at the new line numbers.
+// unchanged and out of both batches' scope; only the ledger keys were
+// re-pointed at the new line numbers.
 var silentFailureAllowlist = map[string]string{
 	"manage.go:157": "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
 	"manage.go:238": "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:157",
@@ -143,7 +144,7 @@ var silentFailureAllowlist = map[string]string{
 	"remote_discover.go:82": "`remote discover`: per-source discovery errors are only warned by this loop, but U040-F01 already added a check just below it (`if result.Count == 0 && len(result.Errors) > 0 { return ... }`) so a total search failure does exit non-zero; kept allowlisted because the regex keys on this loop's SHAPE (warn-only, no return), not on whether the surrounding function still swallows the failure. Line renumbered from :62 to :77 when discoverCmd's inline RunE was extracted into runRemoteDiscover (U040-F01 escalation: the extraction itself, needed so the fix has a regression test — see remote_discover_test.go), from :77 to :80 when the DiscoverRemotes error path grew a newline to close the progress line (U040-F22), and from :80 to :82 when the Phase-2 hoist moved discoverCmd's RunE literal out of the composite literal. The loop's shape is unchanged in every case; only the ledger key moved.",
 }
 
-// TestExitCodePolicy_SilentFailureSitesAreAllowlisted is T9/R1's enforcing
+// TestExitCodePolicy_SilentFailureSitesAreAllowlisted is this gate's enforcing
 // half. Run with an empty silentFailureAllowlist, it fails once per detected
 // site, listing every management command that can currently warn a real
 // failure and still exit 0 — that failure listing is the audit trail for

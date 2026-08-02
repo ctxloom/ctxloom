@@ -20,8 +20,8 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw pins
-// U035-F06's reachable path. A nil Distiller is not an error to any caller:
+// TestNewLLMDistiller_UnresolvableLabelSaysContentWillBeStoredRaw pins the
+// reachable path: a nil Distiller is not an error to any caller:
 // operations stores the RAW content and every command reports success, so
 // `bundle distill` could say "distilled N items" having distilled none. The
 // reason has to reach the user.
@@ -84,10 +84,10 @@ func TestNewLLMDistiller_ResolvableLabelIsSilent(t *testing.T) {
 	assert.NotEmpty(t, ld.prompt, "a distiller with an EMPTY prompt would silently distill against nothing")
 }
 
-// TestLoadDistillPrompt_AlwaysYieldsAPrompt pins the measured fact that removed
-// U035-F06's second "silent return nil": loadDistillPrompt has no failure mode —
-// every unavailable source falls back to the embedded default — so it no longer
-// returns an error for a caller to discard.
+// TestLoadDistillPrompt_AlwaysYieldsAPrompt pins the measured fact that
+// loadDistillPrompt has no failure mode — every unavailable source falls
+// back to the embedded default — so it no longer returns an error for a
+// caller to discard.
 func TestLoadDistillPrompt_AlwaysYieldsAPrompt(t *testing.T) {
 	assert.NotEmpty(t, loadDistillPrompt())
 }

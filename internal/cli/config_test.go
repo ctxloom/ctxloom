@@ -228,10 +228,9 @@ func TestRunConfigInit_WritesTheScaffoldPayload(t *testing.T) {
 
 // TestConfigShowGet_HonorEveryFormatWithARealPayload pins that a SILENTNOOP
 // framing is refuted — the PersistentPostRunE guard (formatWasHonored,
-// format.go) already turns `config show --format json` into a loud exit-1
-// refusal (see format_test.go's
-// TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly) rather
-// than a silent YAML-instead-of-JSON lie — but the underlying gap was real, and
+// format.go) already turns an unwired command's `--format json` into a loud
+// exit-1 refusal (see format_test.go's TestUnwiredCommand_FormatJSONErrorsLoudly)
+// rather than a silent YAML-instead-of-JSON lie — but the underlying gap was real, and
 // this is what paying it down has to deliver: EVERY format carries the actual
 // configuration, never an empty envelope. Config's fields are unexported and it
 // renders via MarshalYAML, so the naive `emit(cmd, cfg, ...)` wiring would emit

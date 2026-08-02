@@ -802,10 +802,10 @@ func hashTree(t *testing.T, root string) map[string]string {
 	return out
 }
 
-// --- U035-F05: the trust half of DOCTOR-CHECK-HOOKS-TRUST-d4 ---
+// --- the trust half of DOCTOR-CHECK-HOOKS-TRUST-d4 ---
 
-// TestDoctorTrustStoreDetail_UnreadableEntriesWarnAndAreNotCountedActive is
-// U035-F05's real defect. The row claims doctorCheckHooksTrust appends
+// TestDoctorTrustStoreDetail_UnreadableEntriesWarnAndAreNotCountedActive pins
+// the real defect. An earlier finding claimed doctorCheckHooksTrust appends
 // ListSigners' ERROR text without setting warn; that mechanism is refuted —
 // operations.ListSigners returns `out, nil` unconditionally (signer.go), so the
 // error arm is unreachable. The IMPACT it describes was real by another route:
@@ -841,7 +841,7 @@ func TestDoctorTrustStoreDetail_ErrorArmWarns(t *testing.T) {
 	// Defensive only: ListSigners cannot currently return an error (it ends in
 	// `return out, nil`), so this arm is unreachable in production. It is still
 	// pinned, because the old code appended the error text and left the status
-	// at "ok" — the exact shape U035-F05 named.
+	// at "ok".
 	detail, ok := doctorTrustStoreDetail(nil, assert.AnError)
 	assert.False(t, ok)
 	assert.Contains(t, detail, assert.AnError.Error())
@@ -867,9 +867,9 @@ func TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore(t *testing
 	assert.Contains(t, check.Detail, appDir)
 }
 
-// --- U035-F21: a container runtime is required only where containers run ---
+// --- a container runtime is required only where containers run ---
 
-// TestDoctorContainerRuntimeRequired pins U035-F21. DEPS-a1 bucketed
+// TestDoctorContainerRuntimeRequired pins that DEPS-a1 used to bucket
 // docker/podman as unconditionally REQUIRED ("git, every configured engine's
 // client, and a container runtime are all on PATH (required)"), but ctxloom runs
 // engines on the host by default: a project with no container agents needs no
@@ -944,7 +944,7 @@ func TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired(t *testing.T) {
 		"a project that runs container agents genuinely needs one:\n%s", check.Detail)
 }
 
-// TestDoctorStatus_WireValuesAreUnchanged pins U035-F12's constraint: the three
+// TestDoctorStatus_WireValuesAreUnchanged pins the constraint: the three
 // statuses are the vocabulary the "ctxloom-doctor" Agent Skill and every
 // `doctor --format json` consumer read, so naming the type must not have moved a
 // single byte on the wire.
@@ -967,7 +967,7 @@ func TestDoctorStatus_WireValuesAreUnchanged(t *testing.T) {
 }
 
 // TestGitIdentityDetail_ReadErrorIsReported is characterization coverage added
-// before U035-F09 split gitIdentityDetail: the `git config` READ-failure arm
+// before gitIdentityDetail was split: the `git config` READ-failure arm
 // (as opposed to a value simply being unset) had no test, so the split would
 // otherwise have been unguarded.
 func TestGitIdentityDetail_ReadErrorIsReported(t *testing.T) {

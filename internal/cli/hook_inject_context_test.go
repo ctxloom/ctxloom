@@ -307,8 +307,8 @@ func TestCurrentSessionRecoverable(t *testing.T) {
 // inject-context RunE relies on for output.SystemMessage (the two
 // SessionStart nudges — clear-recovery + agent-setup — coexisting):
 // non-empty parts join with a blank line, empties drop. Previously covered
-// via composeSystemMessage, a pure rename of operations.JoinLeadBlocks
-// deleted as U036-F17; the RunE now calls JoinLeadBlocks directly.
+// via composeSystemMessage, a pure rename of operations.JoinLeadBlocks that
+// was later deleted; the RunE now calls JoinLeadBlocks directly.
 func TestInjectContextSystemMessageComposition(t *testing.T) {
 	assert.Equal(t, "a\n\nb", operations.JoinLeadBlocks("a", "b"))
 	assert.Equal(t, "b", operations.JoinLeadBlocks("", "b"))
@@ -351,7 +351,7 @@ func TestAgentSetupNudge_Wiring(t *testing.T) {
 	})
 }
 
-// TestHookInjectContext_PanicIsNotSuccess (U036-F20) pins that a PANICKING
+// TestHookInjectContext_PanicIsNotSuccess pins that a PANICKING
 // inject-context hook fails loud instead of reporting success with no context.
 // The recovery's job is to keep the host from hanging (it still writes the
 // empty `{}` envelope to stdout), not to convert a crash into a clean exit: a
@@ -397,7 +397,7 @@ func stdinFromString(t *testing.T, s string) {
 	})
 }
 
-// TestHookInjectContext_MissingContextSkipsRendezvous (U036-F03) pins that a
+// TestHookInjectContext_MissingContextSkipsRendezvous pins that a
 // chunk invocation with NOTHING to emit does not join the ordering rendezvous.
 //
 // When the context file is missing, ChunkContext("") yields no chunks, so every

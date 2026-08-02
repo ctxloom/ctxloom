@@ -69,7 +69,7 @@ func TestFormatHud_HarpDisplay(t *testing.T) {
 	})
 }
 
-// TestFormatHud_NeverEmptyOnSuccess (U036-F02) proves the success path falls
+// TestFormatHud_NeverEmptyOnSuccess proves the success path falls
 // back to the same "ctxloom" sentinel the error paths in runHookHud already
 // use, rather than formatting to zero bytes — a sparse session JSON plus no
 // resolvable ctxloom config previously made the statusline vanish, which

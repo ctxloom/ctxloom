@@ -56,7 +56,7 @@ func TestParseEditPayload_MalformedJSON(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestStampPlanHook_WarnsOnUnparsablePayload (U036-F10) pins the hook's
+// TestStampPlanHook_WarnsOnUnparsablePayload pins the hook's
 // warn-and-continue contract on an UNPARSABLE payload: a payload this hook
 // cannot decode at all is a contract break with the host engine (both
 // supported shapes are JSON), so it must be diagnosable on stderr rather than

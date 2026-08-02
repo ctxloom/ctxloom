@@ -17,9 +17,9 @@ import (
 // opencode.json overlay, the context file, or the command/skill surfaces)
 // itself fails while Chat/launchInteractive are already handling an earlier
 // error. The earlier error is still what's returned — masking it with this
-// one would be worse — but silently discarding the revert failure (U080-F10)
-// left the user's project holding whatever partial overlay state (e.g. a plan
-// run's read-only permission block) with no warning at all.
+// one would be worse — but silently discarding the revert failure left the
+// user's project holding whatever partial overlay state (e.g. a plan run's
+// read-only permission block) with no warning at all.
 func warnRevertFailure(what string, err error) {
 	if err != nil {
 		clidiag.Warn("ctxloom", "opencode: reverting %s failed after an earlier error; it may still be left modified: %v", what, err)
@@ -71,7 +71,7 @@ func (b *Opencode) Chat(ctx context.Context, req agent.ChatRequest, in <-chan ag
 	// .opencode/ctxloom-context.md. Chat used to carry model/mcp/permission on
 	// this overlay but NOT context, so structured-chat and oneshot
 	// `opencode acp` runs saw no project context whatsoever — the run
-	// succeeded, the agent simply knew nothing (sick-dairy).
+	// succeeded, the agent simply knew nothing.
 	mc := chatManaged(req, model, b.pendingContext, req.MCPServers)
 	removeContext, err := materializeContextSurface(fs, req.WorkDir, b.pendingContext)
 	if err != nil {
@@ -199,8 +199,7 @@ func materializeContextSurface(fs afero.Fs, workDir, context string) (func() err
 	// TrimSpace, not == "": a context of "\n" or "  " is not a context. Testing
 	// for the empty string let 1-4 bytes of whitespace through, writing a
 	// ctxloom-context.md that says nothing and pointing opencode's
-	// instructions[] at it — a delivery indistinguishable from a real one
-	// (U080-F16).
+	// instructions[] at it — a delivery indistinguishable from a real one.
 	if strings.TrimSpace(context) == "" {
 		return noop, nil
 	}

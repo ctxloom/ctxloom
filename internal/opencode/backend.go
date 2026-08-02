@@ -19,7 +19,8 @@
 // and is reverted after the run; the persistent `profile materialize` path uses
 // the descriptor surfaces.
 // The session-history reader (capabilities.go) drives opencode's own `session
-// list`/`export` commands; interactive PTY launch is still a later slice.
+// list`/`export` commands; interactive PTY launch rides opencode's TUI through
+// the injected pty launcher (interactive.go).
 package opencode
 
 import (
@@ -73,7 +74,7 @@ type Opencode struct {
 	// on Setup having run — the assembled context, commands and skills reach
 	// them ONLY through that seam — and nothing asserted the order, so a
 	// caller that skipped Setup got a run that delivered nothing and looked
-	// entirely normal (U080-F03). assertSetupRan is that assertion.
+	// entirely normal. assertSetupRan is that assertion.
 	setupRan bool
 }
 
@@ -157,10 +158,10 @@ func (b *Opencode) Execute(ctx context.Context, req *agent.ExecuteRequest, stdou
 		workDir = b.WorkDir()
 	}
 
-	// U080-F01: this used to inline its own send/drain loop with no
-	// empty-prompt check and no diagnostic for a textless turn (exit 0, zero
-	// bytes, silent) — reprise flagged it byte-for-byte identical to
-	// internal/acp/execute.go's Execute. Both now share this one plumbing.
+	// This used to inline its own send/drain loop with no empty-prompt check
+	// and no diagnostic for a textless turn (exit 0, zero bytes, silent) —
+	// reprise flagged it byte-for-byte identical to internal/acp/execute.go's
+	// Execute. Both now share this one plumbing.
 	return agent.RunOneshotTurn(req.Prompt, modelInfo, req.Verbosity, stdout, stderr,
 		func(in <-chan agent.ChatMessage, out chan<- agent.ChatEvent) error {
 			return b.Chat(ctx, agent.ChatRequest{

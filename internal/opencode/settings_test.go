@@ -16,7 +16,7 @@ import (
 // failOpenFs fails Open for exactly one path with a non-NotExist error
 // (os.ErrPermission), passing everything else through to the wrapped Fs —
 // mirrors internal/shared/agent/mcpfile_test.go's seam for the identical
-// U101-F09 shape, here pinning U080-F17.
+// shape, here pinning the same class of bug in readLedger.
 type failOpenFs struct {
 	afero.Fs
 	path string
@@ -236,7 +236,7 @@ func TestWriteSettings_MCPAndRemoveOnlyOurs(t *testing.T) {
 	assert.Equal(t, "gruvbox", got["theme"], "foreign key survives removal")
 }
 
-// TestRemoveMCP_MalformedMCPFailsLoudlyAndPreservesLedger pins U080-F04: a
+// TestRemoveMCP_MalformedMCPFailsLoudlyAndPreservesLedger pins a real bug: a
 // non-object `mcp` value used to make stripManagedMCP silently strip nothing
 // (bare `return` on the unmarshal error), after which removeMCP/RemoveSettings
 // cleared the ledger anyway — permanently orphaning the ctxloom-registered MCP
@@ -265,8 +265,8 @@ func TestRemoveMCP_MalformedMCPFailsLoudlyAndPreservesLedger(t *testing.T) {
 }
 
 // TestRemoveSettings_MalformedMCPFailsLoudlyAndPreservesLedger is the
-// RemoveSettings counterpart of the removeMCP case above (U080-F04): the same
-// bug is reachable through the full-removal path too.
+// RemoveSettings counterpart of the removeMCP case above: the same bug is
+// reachable through the full-removal path too.
 func TestRemoveSettings_MalformedMCPFailsLoudlyAndPreservesLedger(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	w := &OpencodeWriter{FS: fs}
@@ -284,7 +284,7 @@ func TestRemoveSettings_MalformedMCPFailsLoudlyAndPreservesLedger(t *testing.T) 
 		"ledger must NOT be cleared when the strip did not actually happen")
 }
 
-// TestReadLedger_ReadErrorSurfaces pins U080-F17: readLedger mapped ANY read
+// TestReadLedger_ReadErrorSurfaces pins a real bug: readLedger mapped ANY read
 // error (not just "does not exist") to nil, so a permission-denied or
 // truncated ledger was indistinguishable from an absent one — the caller then
 // stripped nothing and reported success.

@@ -55,7 +55,7 @@ func TestWriteCommandFiles_DescriptionFallback(t *testing.T) {
 }
 
 // TestWriteCommandFiles_EmptyContentIsSkippedNotWritten pins the same
-// defect class RenderCommandAsSkillFile had (U102-F01): a command with empty
+// defect class RenderCommandAsSkillFile had: a command with empty
 // or whitespace-only Content used to still render a valid-looking
 // `<name>.md` carrying only frontmatter — success, zero instruction bytes
 // delivered to opencode. WriteManagedPackageFiles already warns loudly and

@@ -40,11 +40,12 @@ func runnerReturning(listBytes, exportBytes []byte, exportErr error) func(dir st
 	}
 }
 
-// TestExecCLI_PassesDirToTestSeam pins U080-F15: the test seam used to discard
-// `dir`, the one argument execCLI's own doc comment calls load-bearing ("run
-// elsewhere it silently lists a different project"), which left the
-// must-run-in-workDir invariant structurally untestable. Now the seam receives
-// dir and this asserts it matches what ListSessions was called with.
+// TestExecCLI_PassesDirToTestSeam pins a real bug: the test seam used to
+// discard `dir`, the one argument execCLI's own doc comment calls
+// load-bearing ("run elsewhere it silently lists a different project"),
+// which left the must-run-in-workDir invariant structurally untestable. Now
+// the seam receives dir and this asserts it matches what ListSessions was
+// called with.
 func TestExecCLI_PassesDirToTestSeam(t *testing.T) {
 	var gotDir string
 	h := newOpencodeSessionHistory(nil, WithOpencodeSessionRunner(func(dir string, args ...string) ([]byte, error) {
@@ -106,7 +107,7 @@ func TestListSessions_FilterAndOrder(t *testing.T) {
 	assert.Equal(t, wantIDs, gotIDs, "filtered to the target directory, most-recent-first")
 }
 
-// TestListSessions_ResolvesSymlinkedWorkDir pins U080-F12: ListSessions
+// TestListSessions_ResolvesSymlinkedWorkDir pins a real bug: ListSessions
 // compared filepath.Abs(workDir) to opencode's `directory` value by exact
 // string equality, with no symlink resolution — filepath.Abs only cleans a
 // path, it does not resolve symlinks — so a symlinked workDir matched zero
@@ -206,8 +207,8 @@ func TestGetSession_Marker(t *testing.T) {
 func TestGetSession_Tools(t *testing.T) {
 	h := newOpencodeSessionHistory(nil, WithOpencodeSessionRunner(runnerReturning(nil, readFixture(t, "export_tool.json"), nil)))
 	// The id must be the fixture's own: an export carrying a DIFFERENT session
-	// than the one asked for is now a hard error (U080-F02), so a placeholder id
-	// here would be asserting the wrong contract.
+	// than the one asked for is now a hard error, so a placeholder id here
+	// would be asserting the wrong contract.
 	sess, err := h.GetSession("", "ses_09c85f028ffe7AzEs68oZ749iU")
 	require.NoError(t, err)
 

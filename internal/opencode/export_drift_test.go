@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestGetSession_ExportShapeDriftIsLoud pins U080-F02: `opencode export`'s JSON
-// is read into a struct, and Go silently ignores unknown fields — so ANY shape
-// drift (a renamed top-level key, a re-nested messages array, a new part
+// TestGetSession_ExportShapeDriftIsLoud pins a real bug: `opencode export`'s
+// JSON is read into a struct, and Go silently ignores unknown fields — so ANY
+// shape drift (a renamed top-level key, a re-nested messages array, a new part
 // vocabulary) unmarshals cleanly into a zero-valued document. The reader then
 // returned a Session with `Entries: []` and a nil error, and /recover rendered
 // an empty scrollback while reporting success. This is the same class of

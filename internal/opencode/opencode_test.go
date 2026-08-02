@@ -86,8 +86,8 @@ func TestChatACPConfig_DefaultBinary(t *testing.T) {
 }
 
 // writeModelConfig (the model-only projection of writeOpencodeConfig) was
-// deleted as dead (U080-F08: test-only, and a single-expression pass-through).
-// Its three tests here duplicated settings_test.go's direct
+// deleted as dead: test-only, and a single-expression pass-through. Its three
+// tests here duplicated settings_test.go's direct
 // writeOpencodeConfig coverage byte-for-byte:
 // TestWriteOpencodeConfig_MergesManagedKeysPreservingForeign (new-file +
 // preserve-unrelated-keys) and TestWriteOpencodeConfig_MalformedErrors

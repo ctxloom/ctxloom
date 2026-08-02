@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// U080-F10: every early-error path in Chat and launchInteractive discarded the
+// Every early-error path in Chat and launchInteractive used to discard the
 // LIFO revert-step errors with `_ =`, so a failed restore (e.g. of
 // opencode.json) left the user's project holding a ctxloom-written overlay
 // (a plan run's read-only permission block, or a foreign model) with no

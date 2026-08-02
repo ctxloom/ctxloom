@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// U080-F16: both context guards tested `== ""` rather than TrimSpace, so an
+// Both context guards used to test `== ""` rather than TrimSpace, so an
 // assembled context of "\n" or "  " passed the guard, wrote a 1-4 byte
 // .opencode/ctxloom-context.md and pointed opencode at it — a context file
 // with nothing in it, indistinguishable from a real delivery.
@@ -50,10 +50,10 @@ func TestWriteContext_WhitespaceOnlyRemovesRatherThanWrites(t *testing.T) {
 	assert.False(t, exists, "a whitespace-only context must clear the surface, not write a blank instruction file")
 }
 
-// U080-F03: Setup must run before Chat/launchInteractive or the run silently
-// delivers no context, no commands and no skills — connascence of EXECUTION
-// ORDER with no assertion anywhere. There is now an assertion: the seam says
-// so out loud instead of running a hollow session that looks fine.
+// Setup must run before Chat/launchInteractive or the run silently delivers
+// no context, no commands and no skills — connascence of EXECUTION ORDER with
+// no assertion anywhere. There is now an assertion: the seam says so out loud
+// instead of running a hollow session that looks fine.
 func TestAssertSetupRan_SaysSoWhenSetupWasSkipped(t *testing.T) {
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)

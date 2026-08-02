@@ -303,8 +303,8 @@ func snapshotOpencodeConfig(fs afero.Fs, workDir string) (func() error, error) {
 // stripManagedMCP removes the previously-managed servers (ledger names, plus the
 // well-known ctxloom name for pre-ledger files) from cfg's `mcp` object,
 // preserving user-authored servers. An emptied `mcp` object is dropped entirely.
-// A non-object `mcp` value FAILS LOUDLY (U080-F04) rather than silently
-// stripping nothing: applyManaged already refuses to overwrite the identical
+// A non-object `mcp` value FAILS LOUDLY rather than silently stripping
+// nothing: applyManaged already refuses to overwrite the identical
 // condition, and a caller that swallowed this error went on to clear the
 // managed-server ledger unconditionally, permanently orphaning those servers
 // with no way left to remove them.
@@ -546,7 +546,7 @@ func (w *OpencodeWriter) WriteContext(req agent.ContextWriteRequest) (agent.Cont
 
 	// TrimSpace, not == "": whitespace-only content is no context at all, and
 	// must take this removal path rather than writing a blank instruction file
-	// opencode is then pointed at (U080-F16).
+	// opencode is then pointed at.
 	if strings.TrimSpace(req.Context) == "" {
 		var report agent.ContextReport
 		if exists, _ := afero.Exists(fs, ctxPath); exists {
@@ -690,7 +690,7 @@ func (w *OpencodeWriter) Status(projectDir string) (agent.SettingsStatus, error)
 // readLedger returns the managed MCP server names from the sidecar ledger. An
 // absent ledger is honest absence: (nil, nil). Any OTHER read error
 // (permission-denied, truncated file, ...) is now returned rather than mapped
-// to the same nil (U080-F17) — a caller that could not tell "no ledger" from
+// to the same nil — a caller that could not tell "no ledger" from
 // "unreadable ledger" apart went on to strip nothing and report success.
 func (w *OpencodeWriter) readLedger(projectDir string) ([]string, error) {
 	fs := w.getFS()

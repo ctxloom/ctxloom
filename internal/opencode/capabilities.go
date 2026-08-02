@@ -33,9 +33,9 @@ type opencodeSessionHistory struct {
 	backend *Opencode
 	// run executes `opencode <args...>` in dir and returns stdout. Nil in
 	// production (falls back to execCLI); set by WithOpencodeSessionRunner in
-	// tests. dir is threaded through (U080-F15) so a test can assert the
-	// must-run-in-workDir invariant execCLI's own doc comment calls
-	// load-bearing, instead of that invariant being structurally untestable.
+	// tests. dir is threaded through so a test can assert the must-run-in-workDir
+	// invariant execCLI's own doc comment calls load-bearing, instead of that
+	// invariant being structurally untestable.
 	run func(dir string, args ...string) ([]byte, error)
 }
 
@@ -95,8 +95,8 @@ type opencodeListEntry struct {
 	Created   int64  `json:"created"`
 	Updated   int64  `json:"updated"`
 	Directory string `json:"directory"`
-	// projectId (U080-F18: declared, never read by anything, including tests)
-	// is intentionally not modeled — json.Unmarshal ignores it.
+	// projectId is declared, never read by anything (including tests), and is
+	// intentionally not modeled — json.Unmarshal ignores it.
 }
 
 // GetCurrentSession returns the most recent session transcript for workDir.
@@ -132,7 +132,7 @@ func (h *opencodeSessionHistory) ListSessions(workDir string) ([]agent.SessionMe
 		if absWork, err = filepath.Abs(workDir); err != nil {
 			return nil, err
 		}
-		// U080-F12: resolve symlinks before comparing. filepath.Abs only
+		// Resolve symlinks before comparing. filepath.Abs only
 		// cleans the path, it does not resolve symlinks, so a symlinked
 		// workDir (or a symlinked ancestor of it) never string-equalled
 		// opencode's own (already-resolved) `directory` value and yielded

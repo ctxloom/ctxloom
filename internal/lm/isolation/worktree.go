@@ -26,13 +26,13 @@ const credentialSeedFixIt = "authenticate the engine on this host (e.g. `claude 
 
 // backendsWithNoGlobalState are registered backends that provably have NO
 // engine-global config/credential state of their own to isolate, so the
-// U065-F01 "unregistered backend" finding below must not fire for them. Only
+// "unregistered backend" finding below must not fire for them. Only
 // entry today: "mock", ctxloom's own built-in test double — a bare echo that
 // never spawns a grandchild process and never touches disk (see
 // tests/acceptance/features/j9_isolation.feature's own hermeticity note).
 // This is a NAMED, independently-verified exemption, never a convenience
 // default — a real, user-selectable backend (e.g. "acp") that falls through
-// both registries is exactly the bug U065-F01 fixes, not a candidate for
+// both registries is exactly the bug this guards against, not a candidate for
 // this list.
 var backendsWithNoGlobalState = map[string]bool{"mock": true}
 
@@ -77,7 +77,7 @@ type Worktree struct {
 	// to look up a credentialSeedSpec (auth.go) and seed subscription
 	// credentials into the isolated config-home — without it, an isolated
 	// engine that honours its config-home var for creds too (claude) starts
-	// logged out (grave-prize). Empty is valid (a bare Worktree{}, or a
+	// logged out. Empty is valid (a bare Worktree{}, or a
 	// caller with no backend context, e.g. the worktree-in-container base's
 	// generic test constructor): no spec matches, so no seeding is
 	// attempted — the pre-fix behavior.
@@ -175,8 +175,8 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 	if err := w.git.WorktreeAdd(ctx, projectDir, wtPath, worktreeBaseRef); err != nil {
 		return nil, fmt.Errorf("worktree add: %w", err)
 	}
-	// Stamp the owner pid IMMEDIATELY after the checkout exists — bony-carry
-	// bug #2's fix (ReapOrphanedWorktrees, worktree_reap.go): a crashed/killed
+	// Stamp the owner pid IMMEDIATELY after the checkout exists — the fix
+	// for a bug (ReapOrphanedWorktrees, worktree_reap.go): a crashed/killed
 	// run's worktree is never reaped by anything else (teardown only ever runs
 	// on a graceful Cleanup), so a later startup sweep needs a way to prove
 	// THIS worktree's owner is gone before it dares remove it. Best-effort: a
@@ -221,7 +221,7 @@ func (w Worktree) PrepareWorkspace(ctx context.Context, projectDir, agentID stri
 		ws.curatedHome = w.provisionCuratedHomeFor(agentID, spec)
 	} else {
 		if _, seeded := credentialSeedSpecs[w.backend]; !seeded && w.backend != "" && !backendsWithNoGlobalState[w.backend] {
-			// U065-F01: a backend registered in NEITHER credentialSeedSpecs
+			// A backend registered in NEITHER credentialSeedSpecs
 			// nor curatedHomeSpecs (e.g. "acp") used to fall through here with
 			// zero engine-global isolation and NO finding at all — the run
 			// reports "worktree" isolation while the engine's global
@@ -269,7 +269,7 @@ func (w Worktree) provisionScratchDir(agentID string) string {
 // the STANDALONE host path (w.containerWrapped false) — the FATAL
 // curatedHomeRefusal (no registered spec's lever isolates authentication, so
 // one of the two always fires — see curatedHomeSpec.workspaceViable's doc;
-// U062-F21 deleted the speculative authIsolated axis that used to gate a
+// a prior fix deleted the speculative authIsolated axis that used to gate a
 // third, always-untaken "fully isolated" no-op case here). Returns "" on the
 // MkdirAll/symlink-setup failure — the run still proceeds against the shared
 // host HOME (warn), mirroring provisionConfigHome's own best-effort contract;
@@ -283,7 +283,7 @@ func (w Worktree) provisionScratchDir(agentID string) string {
 // getting the pre-existing warn-only curatedHomeAuthFinding exactly as
 // before. See Worktree.containerWrapped's doc for how that invariant is set.
 func (w Worktree) provisionCuratedHomeFor(agentID string, spec curatedHomeSpec) string {
-	// U065-F02: the finding switch used to run AFTER provisionCuratedHome, so
+	// The finding switch used to run AFTER provisionCuratedHome, so
 	// an early `return ""` on a transient mkdir/symlink failure suppressed the
 	// FATAL curatedHomeRefusal entirely. The refusal exists because this
 	// engine's auth and/or file writes escape a host worktree — facts wholly
@@ -326,7 +326,7 @@ func (Worktree) StartRunner(ctx context.Context, backendName, label string, verb
 
 // provisionConfigHome creates the per-agent config-home root (P2, T0.6) and, when
 // this policy carries a backend with a registered credentialSeedSpec, seeds it
-// with the backend's host subscription credentials (grave-prize). Returns "" on
+// with the backend's host subscription credentials. Returns "" on
 // the MkdirAll failure — the run still proceeds against the shared global config
 // (warn), never blocking. The scoped envs are preferred over a per-session HOME,
 // which would strip ~/.gitconfig/ssh identity the worktree still needs. denied
@@ -338,7 +338,7 @@ func (w Worktree) provisionConfigHome(agentID string) (home string, denied map[s
 	// creds/state (CLAUDE_CONFIG_DIR & co.) in the SHARED OS temp dir — never
 	// world-traversable.
 	if err := os.MkdirAll(home, 0o700); err != nil {
-		// U065-F03: this used to be a plain clidiag.Warn, while a LESSER
+		// This used to be a plain clidiag.Warn, while a LESSER
 		// (partial: creds present but unseedable) failure two frames later in
 		// seedCredentials is a strictness.Fail(ClassIsolation) — inverting
 		// the severity ordering, so a TOTAL loss of engine-global isolation
@@ -406,7 +406,7 @@ func (w Worktree) prepareHomeVarDirs(configHome string, denied map[string]bool) 
 // provisioning step — a warn, not a block. But "nothing seedable" is NOT
 // best-effort: no envTrigger (e.g. ANTHROPIC_API_KEY) set AND no host
 // credential file present is exactly the silent-logged-out-agent failure mode
-// fail-loudly exists to catch (the original grave-prize bug), so it records a
+// fail-loudly exists to catch, so it records a
 // ClassIsolation finding the choke owner aborts on in strict mode (default)
 // unless --degraded — matching how the container path treats unresolvable auth
 // (resolveClaudeContainerAuth / container.go).
@@ -438,7 +438,7 @@ func (w Worktree) seedCredentials(configHome, agentID string) map[string]bool {
 // that key — live-verified for kiro: KIRO_API_KEY + a fresh XDG_DATA_HOME
 // authenticates headlessly, no browser). When it is absent, isolating that var
 // would silently strand the agent logged out of a credential store it can never
-// reach again (legal-hula's exact failure shape), so this records a
+// reach again, so this records a
 // ClassIsolation fail-loud finding (degradable via --degraded) and returns the
 // var DENIED — Env() omits it, so the agent falls back to the engine's shared
 // global store instead. Non-gated HomeVars on the same spec (kiro's KIRO_HOME —
@@ -737,7 +737,7 @@ func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
 	if err := g.WorktreePrune(ctx, repoDir); err != nil {
 		clidiag.Warn("ctxloom", "worktree prune failed: %v", err)
 	}
-	// U054-F02: NOT auto-retiring the shared config-exclude block here.
+	// NOT auto-retiring the shared config-exclude block here.
 	// A first draft called gitignore.RetireWorktreeConfigBlock once no
 	// linked worktree remained, and it regressed a live, currently-passing
 	// acceptance contract — tests/acceptance/features/j9_isolation.feature's
@@ -753,14 +753,14 @@ func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
 	// package's own comments describe as the historical bug the block was
 	// added to fix in the first place. RetireWorktreeConfigBlock is kept as
 	// a tested, exported utility (gitignore.go) — the "no removal path
-	// exists at all" half of U054-F02 is fixed — but deciding WHEN it is
+	// exists at all" half is fixed — but deciding WHEN it is
 	// safe to invoke (process exit? an explicit gc/reap command? never
 	// automatically?) is a product call, not one this batch makes alone;
 	// see DECISIONS.md.
 }
 
-// unsafeToRemove is teardownWorktree's WIP-safety gate, extended past IsDirty alone
-// (U053-F01/U054-F01): IsDirty's `status --porcelain` deliberately does NOT
+// unsafeToRemove is teardownWorktree's WIP-safety gate, extended past IsDirty alone:
+// IsDirty's `status --porcelain` deliberately does NOT
 // see gitignored/excluded content — that blindness is what lets a prepared
 // agent worktree's own delivered noise (.claude/, CLAUDE.md, .ctxloom/cache/,
 // written into this same repo's common-dir info/exclude) coexist with the
@@ -782,7 +782,7 @@ func unsafeToRemove(ctx context.Context, g git.Git, dir string) (unsafe bool, re
 // retireConfigExcludeIfUnused removes the shared config-exclude block
 // (§3.1, gitignore.WorktreeArtifactPatterns under gitignore.WorktreeComment)
 // from the repo's common-dir info/exclude, but ONLY once no worktree other
-// than the main one remains — U054-F02: the block lives in the repo's ONE
+// than the main one remains — the block lives in the repo's ONE
 // shared common-dir file (git has no per-worktree info/exclude), so removing
 // it while a SIBLING agent worktree is still alive would strip that
 // sibling's own noise-hiding, false-dirtying it and re-triggering the exact

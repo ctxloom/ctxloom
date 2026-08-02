@@ -71,7 +71,7 @@ const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER m
 // would itself merge back. Safe: excludes only affect UNTRACKED files, so a repo
 // that genuinely tracks .mcp.json is unaffected.
 //
-// CLAUDE.md and the root AGENTS.md belong here too (bony-carry, worktree
+// CLAUDE.md and the root AGENTS.md belong here too (a worktree
 // orphan-accumulation fix): they are TRACKED per-agent context surfaces
 // (claude.ClaudeCodeHookWriter.WriteContext, codex.CodexHookWriter.WriteContext
 // — internal/shared/agent/managedcontext.go's doc names all three: CLAUDE.md,
@@ -95,7 +95,7 @@ var WorktreeArtifactPatterns = []string{
 	".ctxloom/cache/",
 	"CLAUDE.md",
 	"AGENTS.md",
-	// U080-F09: opencode's own written artifacts (command/skill/context files
+	// opencode's own written artifacts (command/skill/context files
 	// under .opencode/, its project-local opencode.json, and the managed-MCP
 	// sidecar ledger) were missing from this set despite the doc comment above
 	// calling it "the FULL written set across all engines" — an opencode-backed
@@ -175,7 +175,7 @@ func RetireSupersededFile(path string) (bool, error) {
 // RetireWorktreeConfigBlock removes the WorktreeComment header and any
 // WorktreeArtifactPatterns lines from the file at path — a git common-dir
 // info/exclude. Worktree teardown calls this once no linked worktree remains
-// that still needs the shared exclude block (U054-F02): the block is
+// that still needs the shared exclude block: the block is
 // written into the repo's ONE shared common-dir file (git has no per-
 // worktree info/exclude — verified: a linked worktree's own
 // .git/worktrees/<name>/info/exclude is NOT honored by `git status`), so it
@@ -247,7 +247,7 @@ func replaceFile(path string, data []byte) error {
 		return err
 	}
 	// Close is checked, not deferred-and-discarded: it is where a write that
-	// never reached disk surfaces (U054-F04 made the same point for appends).
+	// never reached disk surfaces.
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("gitignore: writing %s: %w", path, err)
 	}
@@ -396,7 +396,7 @@ func appendBlock(path string, content []byte, comment string, patterns []string)
 		_ = f.Close()
 		return err
 	}
-	// U054-F04: a deferred, discarded Close() hides an ENOSPC/EDQUOT/EIO
+	// A deferred, discarded Close() hides an ENOSPC/EDQUOT/EIO
 	// write failure behind a nil error — the worst case being the migration
 	// path in Ensure, which has already committed the REMOVAL of the
 	// superseded blanket rule before this append runs; a silently-failed

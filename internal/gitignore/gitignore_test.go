@@ -114,7 +114,7 @@ func TestPrivateStatePatterns_MatchExpectedSet(t *testing.T) {
 	}, PrivateStatePatterns)
 }
 
-// TestWorktreeArtifactPatterns_MatchExpectedSet pins U054-F13. This is the set
+// TestWorktreeArtifactPatterns_MatchExpectedSet pins that this is the set
 // whose incompleteness has twice been implicated in destroying agent work: a
 // ctxloom-written file missing from it stays visible to `git status` inside a
 // per-agent worktree, which false-dirties the worktree and makes teardown
@@ -140,7 +140,7 @@ func TestWorktreeArtifactPatterns_MatchExpectedSet(t *testing.T) {
 	}, WorktreeArtifactPatterns)
 }
 
-// TestWorktreeArtifactPatterns_CoverTransientOnes pins U054-F08. The two sets
+// TestWorktreeArtifactPatterns_CoverTransientOnes pins that the two sets
 // are documented as standing in a definite relationship — WorktreeArtifact is
 // "the BROADENED set … must keep EVERY ctxloom-written config out of a
 // developer member's merge-back" — but nothing enforced it, and the sets had
@@ -156,8 +156,7 @@ func TestWorktreeArtifactPatterns_CoverTransientOnes(t *testing.T) {
 	}
 }
 
-// TestPatternSets_AreNonEmpty pins U054-F12 and U053-F10, whose shared premise
-// is a pattern list arriving empty. Every production call site of Ensure /
+// TestPatternSets_AreNonEmpty pins against a pattern list arriving empty. Every production call site of Ensure /
 // EnsureFile passes one of these package-level sets verbatim, so an empty list
 // is not something a caller can construct — but if one of these sets were ever
 // emptied, the failure would be silent twice over: EnsureFile returns nil for
@@ -173,8 +172,8 @@ func TestPatternSets_AreNonEmpty(t *testing.T) {
 	assert.NotEmpty(t, SupersededPatterns)
 }
 
-// TestTransientArtifactPatterns_IgnoreCodexCredential pins the second half of
-// U045-F01: internal/lm/isolation/auth.go's SeedCodexHome actively copies the
+// TestTransientArtifactPatterns_IgnoreCodexCredential pins that
+// internal/lm/isolation/auth.go's SeedCodexHome actively copies the
 // host's ~/.codex/auth.json into <workDir>/.codex/auth.json on every plain
 // (non-isolated) codex run — a live credential landing directly in the
 // project's tracked working tree. Only .codex/config.toml was ever ignored;
@@ -186,7 +185,7 @@ func TestTransientArtifactPatterns_IgnoreCodexCredential(t *testing.T) {
 		"a per-agent worktree fan-out member must also keep the credential out of merge-back")
 }
 
-// TestArtifactPatterns_GranularityRule pins U054-F09. The file-granular vs
+// TestArtifactPatterns_GranularityRule pins that the file-granular vs
 // directory-granular choice is made per entry, and broadening one to its whole
 // directory is irreversible in one direction: it un-tracks whatever the
 // project had already committed there, silently. .codex/ holds a user's own
@@ -203,7 +202,7 @@ func TestArtifactPatterns_GranularityRule(t *testing.T) {
 	}
 }
 
-// TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts pins U080-F09:
+// TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts pins that
 // WorktreeArtifactPatterns is documented as "the FULL written set across all
 // engines", but opencode's own written artifacts (.opencode/ command+skill+
 // context files, opencode.json, and the .ctxloom-opencode-managed sidecar
@@ -303,7 +302,7 @@ func TestRetireSuperseded_RemovesBlanketCtxloomRule(t *testing.T) {
 	assert.Contains(t, got, "# OS files", "unrelated user comments must survive")
 }
 
-// TestRetireSuperseded_RetiresEveryBlanketSpelling pins U054-F07. Retirement
+// TestRetireSuperseded_RetiresEveryBlanketSpelling pins that retirement
 // matched four literal spellings, but a blanket .ctxloom exclusion has more
 // than four ways to be written and every one of them has the same effect: the
 // project's own .ctxloom/content/ becomes invisible to git, `git add` reports
@@ -376,8 +375,8 @@ func TestRetireSuperseded_PreservesGranularRules(t *testing.T) {
 	}
 }
 
-// TestRetireSuperseded_PreservesFileMode is U054-F06's first half, and it
-// REFUTES it: the row claims retirement "resets its mode", but os.WriteFile
+// TestRetireSuperseded_PreservesFileMode REFUTES the claim that retirement
+// "resets its mode": os.WriteFile
 // applies its perm argument only when CREATING a file, so an existing
 // .gitignore's mode was never touched. The assertion is kept because the
 // atomic rewrite below WOULD reset it — a fresh temp file takes the umask,
@@ -445,7 +444,7 @@ func TestRetireSuperseded_MissingFile(t *testing.T) {
 }
 
 // TestRetireWorktreeConfigBlock_RemovesHeaderAndPatterns pins the retirement
-// half of U054-F02: the shared common-dir info/exclude block must be
+// half: the shared common-dir info/exclude block must be
 // removable once no worktree still needs it, and removal must not touch
 // anything else in the file.
 func TestRetireWorktreeConfigBlock_RemovesHeaderAndPatterns(t *testing.T) {
@@ -518,7 +517,7 @@ func TestEnsure_RetiringBlanketRuleReplacesPrivateStateRules(t *testing.T) {
 	}
 }
 
-// TestEnsureFile_WarnsWhenAppendingOverAUserNegation pins U054-F05. .gitignore
+// TestEnsureFile_WarnsWhenAppendingOverAUserNegation pins that .gitignore
 // is LAST-MATCH-WINS and Ensure only ever appends at the end of the file, so a
 // pattern ctxloom appends silently overrides a user's earlier `!` re-include
 // of the same path — against the package doc's promise to append "without
@@ -580,7 +579,7 @@ func TestEnsure_NoBlanketRule_DoesNotInjectPrivateState(t *testing.T) {
 		"a project with no superseded rule must not have private-state patterns injected by a transient-only Ensure")
 }
 
-// TestCloseChecked_PropagatesCloseError pins U054-F04: appendBlock's old
+// TestCloseChecked_PropagatesCloseError pins that appendBlock's old
 // `defer func() { _ = f.Close() }()` discarded a write-never-reached-disk
 // failure and reported success — the worst case being Ensure's migration
 // path, which has already committed the REMOVAL of the superseded blanket

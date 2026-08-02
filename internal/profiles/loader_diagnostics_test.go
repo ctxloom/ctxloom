@@ -20,8 +20,7 @@ import (
 // profile name: every canonical URL scheme must produce the "no lockfile
 // entry" diagnosis (a remote ref can never resolve from disk), and a bare
 // local name must not. The scheme list itself is remote.IsCanonicalRef's;
-// this pin is what keeps a second, drifting copy of it out of this package
-// (U091-F04).
+// this pin is what keeps a second, drifting copy of it out of this package.
 func TestLoad_RemoteSchemeRefsReportNoLockfileEntry(t *testing.T) {
 	loader := NewLoader([]string{"/profiles"}, WithFS(afero.NewMemMapFs()))
 
@@ -49,7 +48,7 @@ func TestLoad_RemoteSchemeRefsReportNoLockfileEntry(t *testing.T) {
 // question is destructive: CreateProfile treats Exists==false as "the name is
 // free" and Save then writes over whatever is actually on disk, so a profile
 // with a YAML syntax error was silently replaced by a brand-new one and the
-// user's file was gone (U091-F06).
+// user's file was gone.
 func TestExists_ReportsPresenceNotLoadability(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, afero.WriteFile(fs, "/profiles/broken.yaml", []byte("bundles: [unclosed\n"), 0o644))
@@ -107,8 +106,7 @@ func (f *faultyFs) Open(name string) (afero.File, error) {
 // List cannot interrogate is REPORTED, not silently dropped. An unreadable dir
 // used to `continue` with the error discarded, so `ctxloom profile list`
 // printed an empty, error-free list for a machine whose profiles were all
-// present but unreachable — the shape of failure this project keeps producing
-// (U091-F07).
+// present but unreachable — the shape of failure this project keeps producing.
 func TestList_WarnsWhenAProfileDirectoryCannotBeRead(t *testing.T) {
 	base := afero.NewMemMapFs()
 	require.NoError(t, base.MkdirAll("/profiles", 0o755))
@@ -128,8 +126,7 @@ func TestList_WarnsWhenAProfileDirectoryCannotBeRead(t *testing.T) {
 
 // TestList_WarnsWhenASubdirectoryCannotBeWalked is the same invariant one level
 // down: a subdirectory whose entries cannot be read is skipped, and saying so is
-// the difference between "you have no profiles" and "I could not look"
-// (U091-F07).
+// the difference between "you have no profiles" and "I could not look".
 func TestList_WarnsWhenASubdirectoryCannotBeWalked(t *testing.T) {
 	base := afero.NewMemMapFs()
 	require.NoError(t, base.MkdirAll("/profiles/team", 0o755))
@@ -157,7 +154,7 @@ func TestList_WarnsWhenASubdirectoryCannotBeWalked(t *testing.T) {
 // TestList_NamesAreDirRelativeAndNeverEmpty pins the invariant behind the
 // discarded filepath.Rel error in List: every listed profile carries the name
 // derived from its path relative to the directory it was found in, and a name is
-// never empty. An empty Name would sort first and address nothing (U091-F14).
+// never empty. An empty Name would sort first and address nothing.
 func TestList_NamesAreDirRelativeAndNeverEmpty(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/profiles/team", 0o755))
@@ -180,7 +177,7 @@ func TestList_NamesAreDirRelativeAndNeverEmpty(t *testing.T) {
 // carries no bytes must not report success, and must not touch the file. The
 // signature invites both mistakes -- CommitUpgrade(nil) returned nil for a write
 // that never happened, and a zero-length Data was written verbatim, truncating
-// the user's profile to nothing while reporting success (U091-F13).
+// the user's profile to nothing while reporting success.
 func TestCommitUpgrade_RefusesNothingToWrite(t *testing.T) {
 	const authored = "bundles:\n  - go-development\n"
 

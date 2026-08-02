@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// U091-F08: Save accepted a profile with no content and wrote "{}\n",
+// Save used to accept a profile with no content and write "{}\n",
 // reporting success — the writer treating empty as authoritative. A profile
 // that selects nothing composes nothing, and a session launched on it is the
 // silent no-op this codebase is named for.
@@ -35,7 +35,7 @@ func TestSave_ProfileWithContentStillSaves(t *testing.T) {
 	assert.True(t, exists)
 }
 
-// U091-F01: a zero-byte / fully-commented-out / `{}` profile file loaded with
+// A zero-byte / fully-commented-out / `{}` profile file used to load with
 // err=nil into a completely empty Profile and recorded ZERO strictness
 // findings — a session launched on it gets no context at all, and nothing
 // anywhere said so. Chose a fail-loudly finding over a hard load error so

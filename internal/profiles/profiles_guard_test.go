@@ -148,7 +148,7 @@ func TestLoadFile_DedupesPendingUpgradesByPath(t *testing.T) {
 // reference with no file to re-read), while a filesystem profile is parsed
 // afresh per call. The asymmetry is safe only because every write path refuses a
 // seeded profile before mutating; this pin fixes the contract in place so a
-// caller cannot discover it by corrupting the seed (U091-F09).
+// caller cannot discover it by corrupting the seed.
 func TestLoad_SeededProfileIsSharedAndFsProfileIsNot(t *testing.T) {
 	loader, seeded, fs := seedTestProfile(t)
 	require.NoError(t, afero.WriteFile(fs, "/profiles/local.yaml",

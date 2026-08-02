@@ -160,7 +160,7 @@ func TestLoad_AliasWithoutResolver_FailsWithHint(t *testing.T) {
 // spelling while resolveProfileRecursive canonicalizes every parent, so the top
 // frame was keyed differently from every frame below it: the same profile,
 // reached again through its canonical spelling, was loaded and resolved a second
-// time and only recognised one frame later (U091-F18).
+// time and only recognised one frame later.
 func TestResolveProfile_VisitedKeyIsCanonical(t *testing.T) {
 	const alias = "myrem/ai-developer#profiles/developer"
 	canonical := defaultURL + "@bundles/ai-developer#profiles/developer"

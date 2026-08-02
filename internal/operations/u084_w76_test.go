@@ -24,7 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// U084-F13 (half one): sortContentInfos took an unvalidated sortBy and had no
+// sortContentInfos took an unvalidated sortBy and had no
 // default branch, so any value other than "name"/"source" returned the input in
 // whatever order the loader produced it — silently, with no warning. That is
 // ctxloom's characteristic silent no-op wearing a sort's clothes: the caller
@@ -34,7 +34,7 @@ import (
 // on an unknown sort_by and fall back to name — so this pin fixes the taxonomy
 // in place rather than inventing a second one.
 func TestSortContentInfos_UnknownSortByFallsBackToNameNotNoOp(t *testing.T) {
-	// §11k hostility: the fixture must be in an order that is NOT already
+	// The fixture must be in an order that is NOT already
 	// name-ascending, otherwise a no-op sort would pass for the wrong reason.
 	infos := []bundles.ContentInfo{
 		{Name: "zebra", Source: "a"},
@@ -50,7 +50,7 @@ func TestSortContentInfos_UnknownSortByFallsBackToNameNotNoOp(t *testing.T) {
 		"an unknown sort_by must still yield a deterministic ordering, not the input order")
 }
 
-// U084-F13 (half one, second face): the fallback must respect sort_order too —
+// The fallback must respect sort_order too —
 // a "desc" request with an unknown field must not silently become ascending.
 func TestSortContentInfos_UnknownSortByHonoursDescendingOrder(t *testing.T) {
 	infos := []bundles.ContentInfo{
@@ -58,7 +58,7 @@ func TestSortContentInfos_UnknownSortByHonoursDescendingOrder(t *testing.T) {
 		{Name: "zebra"},
 		{Name: "mango"},
 	}
-	// §11k hostility: start ASCENDING-leaning so a no-op cannot look descending.
+	// Start ASCENDING-leaning so a no-op cannot look descending.
 	require.NotEqual(t, []string{"zebra", "mango", "apple"}, namesOfW76(infos),
 		"fixture must not already be in the asserted order")
 
@@ -67,20 +67,20 @@ func TestSortContentInfos_UnknownSortByHonoursDescendingOrder(t *testing.T) {
 	assert.Equal(t, []string{"zebra", "mango", "apple"}, namesOfW76(infos))
 }
 
-// U084-F13 (half two): containsTag folded the case of each TAG but not of the
+// containsTag folded the case of each TAG but not of the
 // QUERY, so it carried an undocumented "caller must lowercase query"
 // precondition. Every in-tree caller happens to honour it (ListFragments and
 // SearchContent both pre-lower the query), which is exactly why it is a trap:
 // the next caller inherits a silent false-negative with nothing to warn them.
 //
-// §11o: this defect is NOT observable at any public seam today — both public
+// This defect is NOT observable at any public seam today — both public
 // callers pre-lower — so this pin is deliberately at the UNIT altitude. The
 // public-seam altitude is covered by the sort pins above; there is no
 // public-seam pin for this half because there is no public seam that can reach
 // it, and inventing one would mean removing the callers' own ToLower.
 func TestContainsTag_QueryCaseIsNotACallerPrecondition(t *testing.T) {
 	const query = "GoLang"
-	// §11k hostility: the query must genuinely carry upper case, and the tag
+	// The query must genuinely carry upper case, and the tag
 	// must genuinely be lower case, or the assertion proves nothing.
 	require.NotEqual(t, strings.ToLower(query), query, "query fixture must be mixed-case")
 	tags := []string{"golang", "best-practices"}
@@ -92,7 +92,7 @@ func TestContainsTag_QueryCaseIsNotACallerPrecondition(t *testing.T) {
 		"containsTag must fold the query's case itself rather than require the caller to")
 }
 
-// U084-F13 (half one) at the public seam: ListFragments is the exported entry
+// At the public seam, ListFragments is the exported entry
 // point that hands sort_by straight through, so an unknown value must still
 // come back ordered.
 func TestListFragments_UnknownSortByStillReturnsOrderedResults(t *testing.T) {
@@ -130,7 +130,7 @@ func namesAreAscendingW76(infos []bundles.ContentInfo) bool {
 	return true
 }
 
-// U084-F18 (half one): PurgeExtractedBundles collapsed EVERY os.Stat failure on
+// PurgeExtractedBundles collapsed EVERY os.Stat failure on
 // the bundles cache root into `return 0, nil` — a permission error, a broken
 // mount and "the directory simply isn't there" were all reported as "nothing to
 // do". The caller (cli.purgeLegacyBundles) warns on a non-nil error and
@@ -149,7 +149,7 @@ func TestPurgeExtractedBundles_UnreadableRootIsNotSilentlyNothingToDo(t *testing
 	require.NoError(t, os.Chmod(parent, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
 
-	// §11k hostility: prove the fixture is actually hostile from the
+	// Prove the fixture is actually hostile from the
 	// code-under-test's vantage point — stat must fail, and NOT with
 	// fs.ErrNotExist, or this pin would be asserting the legitimate no-op.
 	_, statErr := os.Stat(bundlesRoot)
@@ -165,7 +165,7 @@ func TestPurgeExtractedBundles_UnreadableRootIsNotSilentlyNothingToDo(t *testing
 	assert.Contains(t, err.Error(), bundlesRoot, "the error must name the path it could not read")
 }
 
-// U084-F18 (half one, control): the ordinary "cache directory was never
+// The ordinary "cache directory was never
 // created" case must stay a silent, error-free no-op. Without this the fix
 // above could over-report.
 func TestPurgeExtractedBundles_MissingRootStaysAQuietNoOp(t *testing.T) {
@@ -178,7 +178,7 @@ func TestPurgeExtractedBundles_MissingRootStaysAQuietNoOp(t *testing.T) {
 	assert.Zero(t, removed)
 }
 
-// U084-F18 (half two): the empty-directory prune ran inside a PRE-order
+// The empty-directory prune ran inside a PRE-order
 // WalkDir callback, so a parent that held one now-empty child was not itself
 // empty when it was visited and survived the pass. Only the deepest level was
 // ever cleared; a nested chain needed one extra run per level.
@@ -191,7 +191,7 @@ func TestPurgeExtractedBundles_PrunesNestedEmptyDirsInOnePass(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(inner, "pulled.yaml"), []byte(
 		"description: pulled\n_source:\n  sha: abc123\n"), 0o644))
 
-	// §11k hostility: the chain must be genuinely more than one level deep,
+	// The chain must be genuinely more than one level deep,
 	// otherwise a single-level prune would pass for the wrong reason.
 	rel, relErr := filepath.Rel(bundlesRoot, inner)
 	require.NoError(t, relErr)
@@ -212,7 +212,7 @@ func TestPurgeExtractedBundles_PrunesNestedEmptyDirsInOnePass(t *testing.T) {
 	assert.NoError(t, rootErr, "the bundles root itself must survive")
 }
 
-// U084-F09: NewRepoCache built its per-forge resolver inside
+// NewRepoCache built its per-forge resolver inside
 // `if registry, err := remote.NewRegistry(...); err == nil { ... }` — so a
 // remotes.yaml that exists but cannot be parsed or read dropped every
 // per-forge token_env with no warning at all. remote.NewRegistry already
@@ -228,7 +228,7 @@ func TestNewRepoCache_MalformedRemotesRegistryWarnsRatherThanSilentlyDroppingTok
 	require.NoError(t, os.MkdirAll(filepath.Dir(remotesPath), 0o755))
 	require.NoError(t, os.WriteFile(remotesPath, []byte("remotes: [this is not: a mapping\n"), 0o644))
 
-	// §11k hostility: prove the fixture is hostile from the code-under-test's
+	// Prove the fixture is hostile from the code-under-test's
 	// vantage point — NewRegistry must actually FAIL on it. A merely odd but
 	// parseable file would make the assertion below vacuous.
 	_, regErr := remote.NewRegistry(remotesPath)
@@ -244,7 +244,7 @@ func TestNewRepoCache_MalformedRemotesRegistryWarnsRatherThanSilentlyDroppingTok
 	assert.Contains(t, stderr, "token_env", "the warning must say what was lost")
 }
 
-// U084-F09 (control): a project with NO remotes.yaml is the ordinary case and
+// A project with NO remotes.yaml is the ordinary case and
 // must stay silent, or the fix above trades one bug for a permanent nag.
 func TestNewRepoCache_MissingRemotesRegistryStaysSilent(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
@@ -258,7 +258,7 @@ func TestNewRepoCache_MissingRemotesRegistryStaysSilent(t *testing.T) {
 		"a project that has simply never configured a remote must not be warned at")
 }
 
-// U084-F11: when EVERY backend the request asked for failed, ApplyHooks
+// When EVERY backend the request asked for failed, ApplyHooks
 // answered Status "partial", Backends [] and a nil error — so
 // `ctxloom manage hooks install` printed "Hooks partial for: []" and exited 0
 // having written nothing at all. That is ctxloom's characteristic silent
@@ -287,7 +287,7 @@ func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
 		WorkDir:      workDir,
 	})
 
-	// §11k hostility: prove the fixture actually defeated the write from the
+	// Prove the fixture actually defeated the write from the
 	// code-under-test's vantage point. If a settings file HAD appeared, or no
 	// per-backend error had been recorded, the assertions below would be
 	// asserting something other than total failure.
@@ -303,8 +303,8 @@ func TestApplyHooks_TotalFailureIsNotReportedAsPartialSuccess(t *testing.T) {
 		`"partial" needs something on both sides of it; nothing was applied`)
 }
 
-// U084-F11 (control): genuine partial success — one backend took, another did
-// not — must stay a nil error and Status "partial". The F11 fix must not
+// Genuine partial success — one backend took, another did
+// not — must stay a nil error and Status "partial". The fix must not
 // promote every per-backend hiccup into a hard failure.
 func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -329,9 +329,9 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 	assert.Equal(t, "applied", result.Status)
 }
 
-// U084-F12 — REFUTED, and this pin is the refutation.
+// This pin is a refutation of a prior review claim.
 //
-// The row says ListFragments "returns the loader's error verbatim with no
+// The claim says ListFragments "returns the loader's error verbatim with no
 // context — the caller cannot tell whether tag-listing or full-listing
 // failed". Measured against the code, that consequence cannot occur:
 //
@@ -340,12 +340,12 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 //     Every read fault (unreadable bundles root, un-walkable directory,
 //     corrupt bundle file) is reported through strictness.Fail, which streams
 //     a diagnostic to stderr in BOTH modes and records a fatal-class finding
-//     in strict mode. So the information the row says is lost is delivered —
+//     in strict mode. So the information the claim says is lost is delivered —
 //     just on a different channel than the return value.
 //  2. ListAllFragments and ListByTags each propagate only that error, so both
 //     are equally incapable of failing; ListByTags is IMPLEMENTED as a filter
 //     over ListAllFragments, so even a hypothetical error would be the same
-//     error from the same origin. The distinction the row asks ListFragments
+//     error from the same origin. The distinction the claim asks ListFragments
 //     to draw does not exist below it.
 //
 // The `if err != nil` at fragments.go:60 is therefore an unreachable branch,
@@ -354,7 +354,7 @@ func TestApplyHooks_PartialSuccessStaysANilError(t *testing.T) {
 // ListFragments takes a CONCRETE *bundles.Loader with no failure seam.
 //
 // What this test holds instead: a genuinely unreadable bundles root produces
-// a nil error AND a loud stderr line, which is the behaviour the row assumed
+// a nil error AND a loud stderr line, which is the behaviour the claim assumed
 // was missing.
 func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 	if os.Geteuid() == 0 {
@@ -368,7 +368,7 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 	require.NoError(t, os.Chmod(bundlesDir, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(bundlesDir, 0o755) })
 
-	// §11k hostility: the directory must genuinely be unreadable from the
+	// The directory must genuinely be unreadable from the
 	// process's vantage point, or "nil error" below proves nothing.
 	_, readErr := os.ReadDir(bundlesDir)
 	require.Error(t, readErr, "fixture is not hostile: the bundles dir is still readable")
@@ -388,7 +388,7 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 		"the fault is reported on the diagnostic channel, naming the directory — it is not lost")
 }
 
-// U084-F17: `mustResource` was named for a contract it did not implement. Go's
+// `mustResource` was named for a contract it did not implement. Go's
 // `must*` convention means "panic on failure"; this one did
 // `data, _ := read(); return data` — it swallowed. Nothing downstream caught
 // it either: config.ParseConfig(nil) is yaml.Unmarshal of nil bytes, which
@@ -396,7 +396,7 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 // `ctxloom init` write a config.yaml with no settings, no mcp block and no llm
 // registry, at exit 0, and call it a project.
 //
-// §11o — TWO ALTITUDES, and they are not equivalent:
+// TWO ALTITUDES, and they are not equivalent:
 //
 //	UNIT altitude (this test): readResource takes the reader as a parameter, so
 //	a failing reader can be injected. This is where the swallow is actually
@@ -411,7 +411,7 @@ func TestReadResource_PropagatesTheReadFailureInsteadOfReturningNilBytes(t *test
 	sentinel := errors.New("embed is broken")
 	failing := func() ([]byte, error) { return nil, sentinel }
 
-	// §11k hostility: prove the injected reader really fails, and really
+	// Prove the injected reader really fails, and really
 	// returns nil bytes — the exact shape the old helper laundered into a
 	// successful empty parse.
 	data, readErr := failing()
@@ -430,7 +430,7 @@ func TestReadResource_PropagatesTheReadFailureInsteadOfReturningNilBytes(t *test
 	assert.Nil(t, got)
 }
 
-// U084-F17 at the public seam (§11o): the failure itself is unprovokable here —
+// At the public seam, the failure itself is unprovokable here —
 // the embed is asserted present at build time — so this pins the CONSEQUENCE
 // the swallow used to produce. A scaffolded config must never come out hollow.
 func TestBuildInitialConfig_NeverScaffoldsAHollowConfig(t *testing.T) {
@@ -446,16 +446,17 @@ func TestBuildInitialConfig_NeverScaffoldsAHollowConfig(t *testing.T) {
 		"the seed agent must be bound to a profile, not left empty")
 }
 
-// U084-F16 — REFUTED, and this test is the refutation made mechanical.
+// This test is the refutation, made mechanical, of a prior review claim.
 //
-// The row asserts of U084's file set: "These files share only a package name.
-// Nine unrelated concerns, 42 internal dependencies, no common type, no common
-// invariant." Measured, three of those four claims do not hold, and the
-// framing of the fourth is an artifact of the review's own slicing.
+// The claim asserts of an 8-file subset of this package: "These files share
+// only a package name. Nine unrelated concerns, 42 internal dependencies, no
+// common type, no common invariant." Measured, three of those four claims do
+// not hold, and the framing of the fourth is an artifact of the review's own
+// slicing.
 //
 // MEASURED (production files only, at this commit):
 //
-//	                      U084's 8 cited files   whole internal/operations
+//	                      the cited 8-file subset   whole internal/operations
 //	files                          8                        61
 //	NLOC (lizard)              1,264                    12,770
 //	functions                     57                       623
@@ -466,7 +467,7 @@ func TestBuildInitialConfig_NeverScaffoldsAHollowConfig(t *testing.T) {
 // So the set is marginally LESS complex than the package it is drawn from —
 // it is not a hotspot, and 15 distinct dependencies across eight facade files
 // is what a facade over remote/, bundles/, config/ and lm/backends/ costs by
-// construction, not evidence of incohesion. (The row's "42" matches neither
+// construction, not evidence of incohesion. (The claim's "42" matches neither
 // the per-file nor the package-wide distinct-dependency count.)
 //
 // "No common type, no common invariant" is the claim this test answers
@@ -483,10 +484,10 @@ func TestBuildInitialConfig_NeverScaffoldsAHollowConfig(t *testing.T) {
 // concerns is a statement about the slicing.
 //
 // What is left, and is real, is that internal/operations is a large package.
-// That is a package-decomposition question, not this row's cohesion claim, and
+// That is a package-decomposition question, not this cohesion claim, and
 // is not settled by a test.
 func TestOperationsRequestResultEnvelopesShareOneJSONContract(t *testing.T) {
-	// One instance per Request/Result envelope declared in U084's file set.
+	// One instance per Request/Result envelope declared in the cited file set.
 	envelopes := []any{
 		ApplyHooksRequest{}, ApplyHooksResult{},
 		ListFragmentsRequest{}, ListFragmentsResult{},
@@ -503,7 +504,7 @@ func TestOperationsRequestResultEnvelopesShareOneJSONContract(t *testing.T) {
 	// The map/weave fan (MapProfilesRequest, WeaveRequest, WeaveResult, Part,
 	// Synthesizer) that once sat here was retired along with `ctxloom weave`;
 	// it is no longer part of this package's envelope set.
-	// §11k hostility: an empty list, or one whose members carried no exported
+	// An empty list, or one whose members carried no exported
 	// fields, would make every assertion below vacuously true.
 	require.Greater(t, len(envelopes), 20, "the sample must be the real envelope set")
 

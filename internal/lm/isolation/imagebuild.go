@@ -235,7 +235,7 @@ const (
 	devcontainerBaseBuildFixIt = "fix the project .devcontainer/devcontainer.json (or its build.dockerfile) so it builds, or pass --degraded (env CTXLOOM_DEGRADED=1) to fall back to another build source, or opt out with isolation_devcontainer_base: false"
 	devcontainerDetectFixIt    = "fix the project .devcontainer/devcontainer.json (malformed JSON, or a dockerComposeFile with no resolvable service — set isolation_devcontainer_service), or opt out with isolation_devcontainer_base: false / --no-devcontainer-base"
 	// noComposableEnginesFixIt is attached when isolation_engines resolves to
-	// an empty set (U063-F02/U064-F02): every configured name was unknown or
+	// an empty set: every configured name was unknown or
 	// non-composable, so the composed agent image would otherwise build
 	// green with zero engine-install layers and fail every run.
 	noComposableEnginesFixIt = "set isolation_engines to at least one supported, composable engine (see `ctxloom container build --help`), or leave it unset to compose every composable engine"
@@ -273,7 +273,7 @@ type buildSourcesOptions struct {
 // fragment yet — an unknown/unprofiled backend, e.g. containerProfileFor's
 // `default` arm) has no local-build recipe at all: empty means the image
 // cannot be built locally, and the caller must have a preexisting image or
-// degrade. (U063-F21 deleted the LEGACY officialImage/user-Containerfile/
+// degrade. (A prior fix deleted the LEGACY officialImage/user-Containerfile/
 // embedded-Containerfile fallback this used to fall through to: no profile,
 // registered or hypothetical, ever populated those fields, so the fallback
 // could never produce a source.)
@@ -308,7 +308,7 @@ func buildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
 func composableBuildSources(p containerProfile, opts buildSourcesOptions) []buildSource {
 	engines := resolveEngines(opts.engines)
 	if len(engines) == 0 {
-		// U063-F02/U064-F02: composeAgentContainerfile(nil) still renders a
+		// composeAgentContainerfile(nil) still renders a
 		// complete, buildable Containerfile with ZERO engine-install layers —
 		// it builds, tags, and passes every image gate, then fails every run
 		// with the engine binary simply absent. Fail loud here instead of
@@ -392,7 +392,7 @@ const baseContractLayer = `RUN (command -v apt-get >/dev/null 2>&1 \
     && rm -rf /var/lib/apt/lists/* || true)`
 
 // composeAgentContainerfile generates the MULTI-ENGINE agent Containerfile
-// (locked decisions 2-4, task stark-wheat): the base-contract fragment (best-
+// (locked decisions 2-4): the base-contract fragment (best-
 // effort tool layer for an ARBITRARY base) → the common scaffold (identity/
 // entrypoint/labels — the exact overlayUserLayer/overlayUserGate contract
 // overlayContainerfile already uses) → one engine-install RUN layer PER
@@ -731,7 +731,7 @@ func (c Container) runEnsureImage(ctx context.Context) error {
 	selfExe, err := resolveSelfExe()
 	if err != nil {
 		if present {
-			// U063-F01: this used to return nil here with NO warning and NO
+			// This used to return nil here with NO warning and NO
 			// finding at all — the isolation boundary silently degraded to a
 			// stale, possibly pre-entrypoint (root-running) image. Route the
 			// same fail-loud finding the parallel "rebuild attempted and

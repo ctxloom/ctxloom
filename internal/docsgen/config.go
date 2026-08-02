@@ -37,7 +37,7 @@ func GenConfig(p *Product, schemaPath, dir string) error {
 		return fmt.Errorf("parse config schema: %w", err)
 	}
 
-	// U051-F01: json.Unmarshal accepts a bare `null` document into a map with
+	// json.Unmarshal accepts a bare `null` document into a map with
 	// no error, leaving root == nil; every subsequent map read on a nil map
 	// is legal Go, so nothing panics and nothing errors either. Combined with
 	// a schema that parses but carries no "properties" and no "$defs" (an
@@ -67,7 +67,7 @@ func GenConfig(p *Product, schemaPath, dir string) error {
 	// Top-level fields. Note the root schema's own "description" (if any) is
 	// NOT suppressed here: renderNode renders whatever describe(root) returns
 	// under this "Top-Level Fields" heading same as any other node, so it can
-	// duplicate the intro prose above. See U051-F09.
+	// duplicate the intro prose above.
 	c.renderNode(2, "Top-Level Fields", "", root)
 
 	// Shared definitions ($defs), referenced by $ref from the fields above.
@@ -234,7 +234,7 @@ func describe(n map[string]any) string {
 // type it into config.yaml: a scalar via %v (string/bool/number, unquoted),
 // but a non-scalar (a map or array default/const) as compact JSON rather
 // than Go's %v syntax (map[a:1], [x y]), which nobody writes in a config
-// file. U051-F12.
+// file.
 func scalarOrJSON(v any) string {
 	switch v.(type) {
 	case map[string]any, []any:

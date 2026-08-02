@@ -43,7 +43,7 @@ func GenMCPTools(ctx context.Context, p *Product, dir string) error {
 	if p.MCPServer == nil {
 		return errors.New("docsgen: product " + p.Bin + " has no MCP server to document")
 	}
-	// U051-F10: mcpFrontmatter interpolates MCPSource/MCPCommand unguarded; an
+	// mcpFrontmatter interpolates MCPSource/MCPCommand unguarded; an
 	// unset field used to render a banner reading "as served by ``" instead of
 	// signalling the misconfiguration, exactly like the nil-server case above.
 	if p.MCPSource == "" || p.MCPCommand == "" {
@@ -57,7 +57,7 @@ func GenMCPTools(ctx context.Context, p *Product, dir string) error {
 	if err != nil {
 		return err
 	}
-	// U051-F02(a): a product with an MCPServer but zero registered tools used
+	// A product with an MCPServer but zero registered tools used
 	// to still write a page with an empty "## Tools" section and return nil
 	// -- exit 0, no payload, the same misconfiguration the nil-server check
 	// two lines above this already treats as fatal. Resources/Templates are
@@ -122,7 +122,7 @@ func enumerateMCPSurface(ctx context.Context, server *mcp.Server) ([]*mcp.Tool, 
 	}
 	defer cs.Close()
 
-	// U051-F04: a listing this small (~13 registered ctxloom tools against the
+	// A listing this small (~13 registered ctxloom tools against the
 	// SDK's 1000-item default page size) never actually paginates today, but
 	// reading only the first page and ignoring NextCursor would silently
 	// under-document any surface that grows past the page limit. Follow each
@@ -183,7 +183,7 @@ func writeMCPTool(b *strings.Builder, t *mcp.Tool) error {
 
 	schema, err := decodeToolSchema(t.InputSchema)
 	if err != nil {
-		// U051-F02(b): decodeToolSchema used to swallow both the Marshal and
+		// decodeToolSchema used to swallow both the Marshal and
 		// Unmarshal failure and return a zero mcpToolSchema, which reads
 		// here as "no parameters" -- indistinguishable from a genuinely
 		// parameterless tool. A tool whose schema this generator cannot
@@ -275,7 +275,7 @@ func schemaTypeName(t any) string {
 // the allowed values surface in the table.
 func propertyDescription(p mcpToolProperty) string {
 	desc := p.Description
-	// U051-F11: an array parameter's own Enum is virtually always empty --
+	// An array parameter's own Enum is virtually always empty --
 	// the constraint lives on Items instead -- so fall through to
 	// Items.Enum when present rather than silently documenting no allowed
 	// values for a constrained array.
@@ -318,7 +318,7 @@ This page is generated from %[3]s's registered MCP tools and resources, as serve
 // mdCell makes a string safe for a single Markdown table cell: escape pipes and
 // collapse newlines to spaces.
 func mdCell(s string) string {
-	// U051-F15: a CRLF-authored description left a stray \r in the cell after
+	// A CRLF-authored description left a stray \r in the cell after
 	// \n collapsed to a space; strip \r first so "line one\r\nline two"
 	// collapses to one space, not "line one\r line two".
 	s = strings.ReplaceAll(s, "\r\n", "\n")

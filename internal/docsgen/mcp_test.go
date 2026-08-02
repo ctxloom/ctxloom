@@ -74,7 +74,7 @@ func TestGenMCPTools(t *testing.T) {
 	}
 }
 
-// U051-F04: enumerateMCPSurface must not silently truncate a surface larger
+// enumerateMCPSurface must not silently truncate a surface larger
 // than one listing page. Force a two-tool server to paginate with PageSize:1
 // (well below the SDK's default of 1000) and confirm both tools reach the
 // generated page, not just the first page's worth.
@@ -123,7 +123,7 @@ func TestGenMCPToolsRequiresServer(t *testing.T) {
 	}
 }
 
-// U051-F15: mdCell collapses \n but not \r, so a CRLF-authored description
+// mdCell collapses \n but not \r, so a CRLF-authored description
 // leaves a stray carriage return inside a markdown table cell.
 func TestMdCell_CollapsesCarriageReturns(t *testing.T) {
 	got := mdCell("line one\r\nline two")
@@ -135,7 +135,7 @@ func TestMdCell_CollapsesCarriageReturns(t *testing.T) {
 	}
 }
 
-// U051-F11: propertyDescription surfaces p.Enum but never p.Items.Enum, so an
+// propertyDescription surfaces p.Enum but never p.Items.Enum, so an
 // array parameter whose ITEMS are enum-constrained documents no allowed
 // values at all.
 func TestPropertyDescription_SurfacesItemsEnum(t *testing.T) {
@@ -155,7 +155,7 @@ func TestPropertyDescription_SurfacesItemsEnum(t *testing.T) {
 	}
 }
 
-// U051-F10: mcpFrontmatter interpolates p.MCPSource/p.MCPCommand unguarded,
+// mcpFrontmatter interpolates p.MCPSource/p.MCPCommand unguarded,
 // so an unset field used to render an empty code span in the "as served by
 // ..." banner instead of signalling the misconfiguration. Require both
 // non-empty before generating.
@@ -181,7 +181,7 @@ func TestGenMCPTools_RequiresSourceAndCommand(t *testing.T) {
 	}
 }
 
-// U051-F02(a): a server with zero registered tools used to still write a
+// A server with zero registered tools used to still write a
 // page with an empty "## Tools" section and return nil -- the same
 // misconfiguration TestGenMCPToolsRequiresServer already treats as fatal for
 // a nil server, but not for an empty one.
@@ -199,7 +199,7 @@ func TestGenMCPTools_ZeroToolsFailsLoud(t *testing.T) {
 	}
 }
 
-// U051-F02(b): decodeToolSchema used to swallow a schema it could not decode
+// decodeToolSchema used to swallow a schema it could not decode
 // and return a zero mcpToolSchema, which writeMCPTool then rendered as
 // "_No parameters._" -- identical to a genuinely parameterless tool. Register
 // a tool via the SDK's low-level (non-generic) AddTool with a raw

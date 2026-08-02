@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U051-F12: describe formats const/default with %v, so a non-scalar value
+// describe formats const/default with %v, so a non-scalar value
 // (an object or array default) renders in Go syntax (map[a:1]) instead of
 // the JSON a reader would actually type into config.yaml.
 func TestDescribe_NonScalarDefaultRendersAsJSON(t *testing.T) {
@@ -93,7 +93,7 @@ func TestGenConfig_UsesProductsOwnConventions(t *testing.T) {
 	assert.Contains(t, doc, schemaPath, "must cite the schema path it was actually generated from")
 }
 
-// U051-F01: a schema that parses as valid JSON but carries no top-level
+// A schema that parses as valid JSON but carries no top-level
 // "properties" and no "$defs" used to still write a config.md page -- a
 // heading, the fixed override-chain prose, and zero documented fields -- and
 // GenConfig returned nil. That is indistinguishable from --config-schema

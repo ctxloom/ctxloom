@@ -98,7 +98,7 @@ func GenMan(p *Product, dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create man dir %s: %w", dir, err)
 	}
-	// U051-F16: a single p.Bin+"*.1" prefix glob would also match another
+	// A single p.Bin+"*.1" prefix glob would also match another
 	// product's pages whose name happens to start with this Bin (e.g.
 	// "widget" matching "widgets-make.1"). cobra's GenManTree joins
 	// CommandPath() segments with "-", so this product's own pages are
@@ -121,7 +121,7 @@ func GenMan(p *Product, dir string) error {
 
 // GenMarkdown writes the product's per-command Starlight pages into dir.
 func GenMarkdown(p *Product, dir string) error {
-	// U051-F10: filePrepender interpolates CLISource unguarded; an unset field
+	// filePrepender interpolates CLISource unguarded; an unset field
 	// used to render "generated from `` --help" instead of signalling the
 	// misconfiguration.
 	if p.CLISource == "" {

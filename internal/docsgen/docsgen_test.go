@@ -133,7 +133,7 @@ func TestGenMarkdown(t *testing.T) {
 	}
 }
 
-// U051-F16: the man-page sweep pattern <bin>*.1 is a prefix glob, not a word
+// The man-page sweep pattern <bin>*.1 is a prefix glob, not a word
 // match, so it can delete an unrelated binary's pages whose name happens to
 // start with this product's Bin (e.g. "widget" sweeping "widgets-make.1",
 // a different product's page).
@@ -157,7 +157,7 @@ func TestGenManSweepIsPrefixSafe(t *testing.T) {
 	}
 }
 
-// U051-F08: GenMan/GenMarkdown used to return MkdirAll's bare error, with no
+// GenMan/GenMarkdown used to return MkdirAll's bare error, with no
 // indication of which operation or directory failed. Force MkdirAll to fail
 // (a path component that's a regular file, not a directory) and require the
 // wrapped error to name the operation and the directory.
@@ -199,7 +199,7 @@ func TestGenMan_MkdirFailureHasContext(t *testing.T) {
 	}
 }
 
-// U051-F10: filePrepender interpolates p.CLISource unguarded, so an unset
+// filePrepender interpolates p.CLISource unguarded, so an unset
 // field used to render an empty code span in the "generated from ... --help"
 // banner instead of signalling the misconfiguration. Require CLISource
 // non-empty before generating markdown.

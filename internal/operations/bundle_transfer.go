@@ -147,7 +147,7 @@ func readSignature(fs afero.Fs, srcBundle string) ([]byte, error) {
 		// Absent is not the same state as unreadable. afero.Exists reports
 		// (false, err) for any non-IsNotExist stat failure — EACCES on the
 		// directory, an I/O error — and collapsing that into "unsigned" is
-		// precisely the downgrade this function exists to prevent (U081-F06).
+		// precisely the downgrade this function exists to prevent.
 		return nil, fmt.Errorf("stat signature %s: %w", srcSig, err)
 	}
 	if !exists {
@@ -213,7 +213,7 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 	fs := getFS(req.FS)
 	// .yaml ONLY: bundles.Loader.Find stats "<name>.yaml" and
 	// "<name>/bundle.yaml" and nothing else, so a ".yml" bundle is as
-	// unloadable as a ".txt" one (U081-F10).
+	// unloadable as a ".txt" one.
 	if err := requireLoadableName(req.SourcePath, "bundle", ".yaml"); err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func ImportBundle(_ context.Context, cfg *config.Config, req ImportBundleRequest
 	// The error matters: a destination that cannot be STATTED (permissions, a
 	// broken symlink) used to read as "does not exist" and was overwritten
 	// without --force — the one outcome this guard exists to prevent. Matches
-	// ImportProfile, which already reads it (U081-F11).
+	// ImportProfile, which already reads it.
 	exists, err := afero.Exists(fs, destPath)
 	if err != nil {
 		return nil, fmt.Errorf("cannot check whether %s already exists: %w", destPath, err)

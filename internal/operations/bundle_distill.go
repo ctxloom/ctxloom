@@ -227,8 +227,8 @@ func planBundleItemDistill(kind ItemKind, name string, noDistill, needsDistill, 
 //
 // It is handed the distilled CONTENT as well as the model id so that "a model
 // id was stamped" can never on its own buy a success verdict: zero delivered
-// bytes is a failure however it arose (U081-F04). A classifier that cannot see
-// what was produced is a classifier that can be lied to.
+// bytes is a failure however it arose. A classifier that cannot see what was
+// produced is a classifier that can be lied to.
 func distillOutcome(kind ItemKind, name, distilled, distilledBy string, failed bool) DistillBundleItem {
 	if failed || distilledBy == "" || distilled == "" {
 		return DistillBundleItem{Kind: kind, Name: name, Status: DistillStatusSkipped, Reason: "distill_failed"}

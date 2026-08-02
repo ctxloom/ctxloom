@@ -21,7 +21,7 @@ import (
 // The containment check is deliberately redundant with remote's own
 // containRemoteName: this is the value RemoveLocalItems hands to fs.Remove, so
 // it is the last place a traversal can be stopped before a delete happens, and
-// it must not depend on a sibling package keeping its guarantee (U081-F08).
+// it must not depend on a sibling package keeping its guarantee.
 // Returning "" rather than an error keeps cleanup best-effort — a ref that
 // cannot yield a safe path simply has no file to remove.
 func localItemPath(appDir string, itemType remote.ItemType, canonicalRef string) string {

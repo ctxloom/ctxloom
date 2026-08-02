@@ -181,11 +181,11 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 	assert.Equal(t, []string{"y", "z"}, sub.Profiles, "profiles replaced, not unioned")
 }
 
-// TestGetAgent_SurfacesEscalation (U028-F02) proves the approval-policy
-// ladder — previously invisible from every read path (AgentEntry had no
-// Escalation field) — is now visible via GetAgent/ListAgents, and survives a
-// SetAgent write that does not name it (the merge landed for U081-F01/F01;
-// this pins the READ half of the same finding).
+// TestGetAgent_SurfacesEscalation proves the approval-policy ladder —
+// previously invisible from every read path (AgentEntry had no Escalation
+// field) — is now visible via GetAgent/ListAgents, and survives a SetAgent
+// write that does not name it (the merge landed on the write side; this
+// pins the read half of the same fix).
 func TestGetAgent_SurfacesEscalation(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, `version: 5
 agents:

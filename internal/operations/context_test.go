@@ -132,8 +132,8 @@ func TestAssembleContextResult_MultipleProfiles(t *testing.T) {
 
 // withProfileDefs returns a config carrying cfg's fields plus defs.
 //
-// U049-F05: a Fixture used to alias the Config's own containers, so tests
-// injected profile definitions by writing straight into
+// A Fixture used to alias the Config's own containers, so tests injected
+// profile definitions by writing straight into
 // `cfg.ToFixture().Profiles.Definitions`. ToFixture now deep-copies, honouring
 // the "every call yields a separately-owned value" contract its doc always
 // claimed — which is exactly why that write is now a no-op and adding a
@@ -220,8 +220,8 @@ func TestAssembleContext_WithTags(t *testing.T) {
 	assert.Contains(t, result.Context, "Security Rules")
 }
 
-// TestAssembleContext_TagMatchingNothingIsReported (U082-F03) proves an
-// explicit -t tag that matches zero fragments is surfaced via MissingTags —
+// TestAssembleContext_TagMatchingNothingIsReported proves an explicit -t tag
+// that matches zero fragments is surfaced via MissingTags —
 // previously AssembleContext returned Context: "" with a nil error and no
 // warning at all, indistinguishable from "no tags were asked for".
 func TestAssembleContext_TagMatchingNothingIsReported(t *testing.T) {

@@ -24,9 +24,9 @@ import (
 // reached in silence, hence the warning: the caller degrades, the user is
 // told which file caused it.
 //
-// remote.BundleReader takes a *remote.Registry parameter but never reads it
-// (U093-F05), so this deliberately passes nil rather than loading one from
-// disk only to discard the possibility of failure it can't actually produce.
+// remote.BundleReader takes a *remote.Registry parameter but never reads it,
+// so this deliberately passes nil rather than loading one from disk only to
+// discard the possibility of failure it can't actually produce.
 func NewBundleReaderForConfig(cfg *config.Config) remote.BundleByteSource {
 	baseDir := getBaseDir(cfg)
 	lock, err := remote.NewLockfileManager(baseDir).Load()

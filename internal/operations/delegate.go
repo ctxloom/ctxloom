@@ -154,7 +154,7 @@ type PreparedAgentChat struct {
 	// and Start's doc.
 	chatDialTimeout time.Duration
 	// mcpCommandOverride is MCPCommandOverrideForPolicy's result for the
-	// resolved policy (U098-F04) — "" for none/worktree, the in-container
+	// resolved policy — "" for none/worktree, the in-container
 	// ctxloom binary path for a container policy. It is computed here,
 	// AFTER req.MCPServers was already frozen by the caller (coord/
 	// spawner.go's childMCPServers composes plan.MCPServers once at Resolve
@@ -361,7 +361,7 @@ func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.C
 	if p.starter == nil {
 		p.starter = isolation.StarterForWorkspace(policy, ws, rs.Backend, rs.Label, p.req.Verbosity, p.req.RunnerEnv)
 	}
-	// U098-F04: plan.MCPServers (req.MCPServers) was composed by the caller
+	// plan.MCPServers (req.MCPServers) was composed by the caller
 	// BEFORE this policy was known — coord/spawner.go's childMCPServers
 	// resolves it once at Resolve time, and the top-level `ctxloom run` path
 	// stamps its own override earlier still (cli/run.go's
@@ -408,13 +408,13 @@ func (p *PreparedAgentChat) bindIsolatedSpawn(ctx context.Context, cfg *config.C
 // agentcoord/coord/spawner.go: an analogous fail-loud gate already lives
 // there (headlessSafePermission, checkpointed inside Resolve), and this check
 // is its natural sibling — but spawner.go is under concurrent development on
-// a sibling slice (Wave B1.6), so the check sits one layer down instead,
-// upstream in operations, gating the exact same spawn moment (Start calls
-// straight through here with nothing in between).
+// a sibling slice, so the check sits one layer down instead, upstream in
+// operations, gating the exact same spawn moment (Start calls straight
+// through here with nothing in between).
 //
-// Wave C3 confirmed this stays claude-only: codex/kiro have no interactive-
-// nickname table to mis-resolve (claude's is the ONE alias layer in this
-// codebase), and both adapters accept a raw configured model string
+// This stays claude-only: codex/kiro have no interactive-nickname table to
+// mis-resolve (claude's is the ONE alias layer in this codebase), and both
+// adapters accept a raw configured model string
 // verbatim through their own delivery mechanism (codex: -c model=<value>;
 // kiro: --model <value> — see internal/codex/chat.go, internal/kiro/chat.go)
 // with no silent-fallback failure mode analogous to claude's opaque -32603.
@@ -698,7 +698,7 @@ const commitDirtyTreeAckKey = "dirty_tree_commit_ack"
 // fixed), and a post-commit stat is not proof a commit landed.
 func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git, workDir, agentName string, files dirtyFileList) error {
 	branch, berr := gitClient.CurrentBranch(ctx, workDir)
-	// U083-F03: an error here used to be discarded (`branch, _ :=`), leaving
+	// An error here used to be discarded (`branch, _ :=`), leaving
 	// branch=="" — which is NOT "HEAD", so the detached-HEAD guard below never
 	// fired. An unresolvable branch name is exactly the condition this guard
 	// exists to catch (the caller cannot tell whether this is a bare
@@ -781,7 +781,7 @@ func applyCopySnapshot(ctx context.Context, gitClient git.Git, targetDir string,
 		if err != nil {
 			return fmt.Errorf(`dirty_tree_handler "copy": reproducing tracked changes into %s: %w`, targetDir, err)
 		}
-		// U053-F03: ApplyPatch reports applied=false (no error) for a patch
+		// ApplyPatch reports applied=false (no error) for a patch
 		// it considered empty/whitespace-only. snap.patch is non-empty here,
 		// so applied=false means DiffPatch handed us content ApplyPatch does
 		// not consider real — refuse rather than silently reproducing NONE
@@ -875,8 +875,8 @@ type AgentEngineProcess struct {
 }
 
 // StartEngine spawns the engine runner process WITHOUT opening the go-plugin
-// Chat stream — the StartRun cutover's spawn half (Wave C1), migrated off
-// go-plugin entirely in queer-shrug Phase 1. It launches the runner via the
+// Chat stream — the StartRun cutover's spawn half, migrated off go-plugin
+// entirely in queer-shrug Phase 1. It launches the runner via the
 // starter seam (docker-direct `ctxloom llm host` for a container, a bare
 // self-invoked `llm host` under setsid for a host) — NO plugin handshake, NO
 // container plugin listener. A returned handle means the runner PROCESS is up;
@@ -964,8 +964,8 @@ const defaultChatDialTimeout = 5 * time.Minute
 // touching ctx itself) lets a slow-but-succeeding dial complete normally while
 // still failing loud, on a timer, when it never completes at all.
 //
-// Wave C4 KILL-LIST VERIFICATION (R13-scoped): the branch below is the
-// delegated-child go-plugin Chat dial. It was NOT deleted — grepping
+// KILL-LIST VERIFICATION: the branch below is the delegated-child go-plugin
+// Chat dial. It was NOT deleted — grepping
 // coord/children.go's two call sites (runChild, resumeChild) shows it is
 // reached ONLY when `!(plan.ViaStartRun && url != "")`, i.e. exactly two
 // documented, intentional cases: (a) a StructuredChat backend outside the

@@ -38,10 +38,10 @@ type AgentEntry struct {
 	// default — see agents.Agent.Driving).
 	Driving agents.DrivingMode `json:"driving,omitempty"`
 	// Escalation is the agent's declared approval-policy ladder, as written
-	// (U028-F02: previously invisible here — settable only by hand-editing
-	// YAML and undetectable from `agent list`/`agent show`). Empty means the
-	// ladder is derived from Permissions at resolve time (see
-	// agents.Agent.Escalation's doc).
+	// (previously invisible here — settable only by hand-editing YAML and
+	// undetectable from `agent list`/`agent show`). Empty means the ladder is
+	// derived from Permissions at resolve time (see agents.Agent.Escalation's
+	// doc).
 	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
 	// Source is "config" for a config.yaml `agents:` entry, otherwise the
 	// .ctxloom/agents/*.yaml file path it was read from.
@@ -145,8 +145,8 @@ func orKeep[T any](set *T, existing T) T {
 // REPLACE, which meant `ctxloom agent set dev --runtime container` silently
 // destroyed dev's engine, profiles, permission posture, coordinator flag and
 // — worst, because the request type cannot even express it — its approval
-// escalation ladder (U081-F01). Merging inside Update also keeps the
-// read-modify-write under the same lock, so a concurrent writer cannot land
+// escalation ladder. Merging inside Update also keeps the read-modify-write
+// under the same lock, so a concurrent writer cannot land
 // between the read of the existing record and the write of the merged one.
 //
 // Name-agnostic by construction: it stores whatever name/engine/profiles the
@@ -358,9 +358,9 @@ type ResolvedAgent struct {
 	// agent's real host-bypass posture visible. A headless run may floor this up to
 	// bypass; --permissions overrides it.
 	EffectivePermissions string `json:"effectivePermissions,omitempty"`
-	// Escalation is the agent's DECLARED approval-request ladder (Wave C2;
-	// may be empty — the coordinator derives a preset ladder from
-	// Permissions when so). Raw, unvalidated config; the coordinator's
+	// Escalation is the agent's DECLARED approval-request ladder (may be
+	// empty — the coordinator derives a preset ladder from Permissions when
+	// so). Raw, unvalidated config; the coordinator's
 	// spawn-time ladder builder validates and converts it.
 	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
 	// Coordinator mirrors agents.Agent.Coordinator: whether this agent, when

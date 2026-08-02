@@ -231,8 +231,8 @@ func TestPrepareAgentChat_ContainerDegradeGate(t *testing.T) {
 
 // overridingStubPolicy is stubPolicy plus the mcpCommandOverrider capability
 // (isolation.Container's MCPCommandOverride method), so a test can drive
-// PrepareAgentChat's policy-resolved override path (U098-F04) without
-// standing up a real container.
+// PrepareAgentChat's policy-resolved override path without standing up a
+// real container.
 type overridingStubPolicy struct {
 	stubPolicy
 	override string
@@ -240,7 +240,7 @@ type overridingStubPolicy struct {
 
 func (p overridingStubPolicy) MCPCommandOverride() string { return p.override }
 
-// TestPrepareAgentChat_MCPCommandOverride_PatchesManagedEntry pins U098-F04's
+// TestPrepareAgentChat_MCPCommandOverride_PatchesManagedEntry pins the
 // coordinator-delegation fix: coord/spawner.go's childMCPServers composes
 // plan.MCPServers at Resolve time — BEFORE Launch/StartEngine ever call
 // PrepareAgentChat and resolve the real isolation.Policy — so the
@@ -451,7 +451,7 @@ func captureWarnings(t *testing.T) *bytes.Buffer {
 }
 
 // TestHandleDirtyParentTree_IsDirtyErrorIsInspected pins the second of the two
-// production IsDirty call sites against U053-F06, which claimed a caller
+// production IsDirty call sites against the claim that a caller
 // writing `dirty, _ := IsDirty(…)` would silently receive the UNSAFE zero
 // value. No such caller exists: isolation's unsafeToRemove is fail-closed
 // (TestWorktree_TeardownAbortsOnUnknownIgnoredContentState pins that), and
@@ -825,8 +825,8 @@ func TestHandleDirtyParentTree_Commit_DetachedHeadRefuses(t *testing.T) {
 	assert.Empty(t, fake.CommitMessages, "never even attempts the commit")
 }
 
-// TestHandleDirtyParentTree_Commit_CurrentBranchErrorRefuses pins U083-F03:
-// before the fix, `branch, _ := gitClient.CurrentBranch(...)` discarded the
+// TestHandleDirtyParentTree_Commit_CurrentBranchErrorRefuses pins the fix:
+// before it, `branch, _ := gitClient.CurrentBranch(...)` discarded the
 // error, leaving branch=="" — which is NOT "HEAD", so the detached-HEAD guard
 // above never fired and the commit proceeded on an unresolvable branch name.
 // An unresolvable branch is exactly the condition the guard exists to catch
@@ -1165,8 +1165,8 @@ func TestPrepareAgentChat_Start_ChatDialDoesNotHangForever(t *testing.T) {
 }
 
 // TestApplyCopySnapshot_ReproducesUntrackedSymlink pins that "copy"
-// reproduces an untracked SYMLINK, not just an untracked regular file
-// (U083-F11). `git ls-files --others` lists symlinks exactly like regular
+// reproduces an untracked SYMLINK, not just an untracked regular file.
+// `git ls-files --others` lists symlinks exactly like regular
 // files, so a parent tree whose uncommitted work includes a new symlink used
 // to have that link dropped on the floor — no error, no warning, a worktree
 // that silently differs from what the copy handler promised to reproduce.
@@ -1201,11 +1201,11 @@ func TestApplyCopySnapshot_ReproducesUntrackedSymlink(t *testing.T) {
 }
 
 // TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud pins the other
-// half of U083-F11: an untracked path that is NEITHER a regular file nor a
-// symlink (a fifo, a socket, a device node) must REFUSE rather than be
-// skipped in silence. The copy handler's whole promise is that the child's
-// worktree reproduces the parent's uncommitted state; anything it cannot
-// reproduce is a fact the caller is entitled to.
+// half of the symlink guard above: an untracked path that is NEITHER a
+// regular file nor a symlink (a fifo, a socket, a device node) must REFUSE
+// rather than be skipped in silence. The copy handler's whole promise is
+// that the child's worktree reproduces the parent's uncommitted state;
+// anything it cannot reproduce is a fact the caller is entitled to.
 func TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud(t *testing.T) {
 	resetStrictness(t)
 	parent := t.TempDir()
@@ -1221,8 +1221,8 @@ func TestApplyCopySnapshot_UnsupportedUntrackedEntryFailsLoud(t *testing.T) {
 	assert.Contains(t, err.Error(), "pipe", "the refusal names the path it could not reproduce")
 }
 
-// TestStartOneshot_CloseTerminatesTheDriverGoroutine pins U083-F05's real
-// half: AgentChatLaunch.Close is the orchestrator's "this child is over"
+// TestStartOneshot_CloseTerminatesTheDriverGoroutine pins the real half of
+// the fix: AgentChatLaunch.Close is the orchestrator's "this child is over"
 // lever (coord.terminateRun calls it for agent_stop, launch failure and
 // every other terminal cause), and on the oneshot fallback it used to only
 // cancel the per-turn context — the driver goroutine stayed parked on its
@@ -1293,11 +1293,12 @@ func TestStartOneshot_ClosingInStillTerminates(t *testing.T) {
 	}
 }
 
-// TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking pins
-// U083-F13. The two spawn seams are independent — Factory fakes the legacy
-// go-plugin Chat dial, Starter fakes the StartRun runner launch — and a
-// non-nil Factory skips the whole isolation block that would otherwise BIND
-// a production starter. A caller that supplies only Factory and then takes
+// TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking pins the
+// nil-starter refusal. The two spawn seams are independent — Factory fakes
+// the legacy go-plugin Chat dial, Starter fakes the StartRun runner launch
+// — and a non-nil Factory skips the whole isolation block that would
+// otherwise BIND a production starter. A caller that supplies only Factory
+// and then takes
 // the StartRun path therefore reached StartEngine with p.starter == nil and
 // called it: a nil-func panic, from an exported method, naming nothing.
 //
@@ -1320,8 +1321,8 @@ func TestStartEngine_FactoryWithoutStarterRefusesInsteadOfPanicking(t *testing.T
 	assert.Contains(t, serr.Error(), "Starter", "the refusal names the seam that was not supplied")
 }
 
-// TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured is
-// U083-F24's pin, and the row is REFUTED. The claim was that the
+// TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured pins a
+// claim that turned out to be REFUTED. The claim was that the
 // oneshot+"copy" refusal firing on an EMPTY capture turns a harmless spawn
 // into an error, so it should be suppressed when there is nothing to
 // reproduce. It should not:
@@ -1361,8 +1362,8 @@ func TestPrepareAgentChat_Copy_OneshotRefusedEvenWithNothingCaptured(t *testing.
 	assert.Contains(t, err.Error(), "stale", "and names the handlers that DO work for this backend")
 }
 
-// TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview pins
-// U083-F15. The "commit" handler prints a preview naming the files it is
+// TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview pins a
+// defect: the "commit" handler prints a preview naming the files it is
 // about to commit on the user's branch, and boundDirtyChanges turned a
 // WorkingChanges FAILURE into an empty list — so the preview immediately
 // before an auto-commit of the user's tree said, with no qualification, that
@@ -1385,7 +1386,7 @@ func TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview(t *testi
 }
 
 // TestHandleDirtyParentTree_Fail_ListingFailureIsNamedInTheRefusal is the
-// same U083-F15 defect on the refusal path: "fail" exists to tell the caller
+// same defect on the refusal path: "fail" exists to tell the caller
 // WHICH uncommitted paths the child would not see, and a swallowed listing
 // error made it name none of them while asserting they exist.
 func TestHandleDirtyParentTree_Fail_ListingFailureIsNamedInTheRefusal(t *testing.T) {
@@ -1399,7 +1400,7 @@ func TestHandleDirtyParentTree_Fail_ListingFailureIsNamedInTheRefusal(t *testing
 }
 
 // TestHandleDirtyParentTree_Stale_ListingFailureIsNamedInTheWarning covers
-// the third U083-F15 message: "stale" promises to list what the child will
+// the third message: "stale" promises to list what the child will
 // NOT see.
 func TestHandleDirtyParentTree_Stale_ListingFailureIsNamedInTheWarning(t *testing.T) {
 	resetStrictness(t)
@@ -1423,8 +1424,8 @@ func (w reportingWorkspace) Cleanup() error {
 	return fmt.Errorf("remove container scratch %s: %w", w.residue, assert.AnError)
 }
 
-// TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce is U083-F12's
-// pin, and the row is REFUTED. The claim — "both workspace teardowns discard
+// TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce pins a claim
+// that turned out to be REFUTED. The claim — "both workspace teardowns discard
 // ws.Cleanup()'s error, so a failed worktree removal is invisible" — has a
 // true mechanism and a false consequence:
 //
@@ -1465,10 +1466,10 @@ func TestPrepareAgentChat_AbortReportsTeardownFailureExactlyOnce(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(warnings.String(), residue))
 }
 
-// TestPrepareAgentChat_EmptyComposedContextIsAnnounced pins U083-F08. Both
-// delegated launch paths funnel through PrepareAgentChat, and it resolved the
-// lead context with no floor: req.Context, else rs.Context, else nothing at
-// all. leadContextIn then prepends "" — the child runs with ZERO ctxloom
+// TestPrepareAgentChat_EmptyComposedContextIsAnnounced pins the zero-context
+// floor. Both delegated launch paths funnel through PrepareAgentChat, and it
+// resolved the lead context with no floor: req.Context, else rs.Context,
+// else nothing at all. leadContextIn then prepends "" — the child runs with ZERO ctxloom
 // bytes while agent_run reports a healthy spawn. That is this project's
 // signature failure mode (exit 0, success message, nothing delivered), and
 // the composed-context case is NOT covered by resolveAgentBinding's existing
@@ -1526,8 +1527,8 @@ func TestPrepareAgentChat_CallerContextCoversAnEmptyAgentContext(t *testing.T) {
 	assert.NotContains(t, warnings.String(), "zero bytes")
 }
 
-// TestPrepareAgentChat_BothLaunchPathsShareOneResolution is U083-F14's pin,
-// and the row is REFUTED. The claim is that AgentChatRequest and
+// TestPrepareAgentChat_BothLaunchPathsShareOneResolution pins a claim that
+// turned out to be REFUTED. The claim is that AgentChatRequest and
 // PreparedAgentChat are each "two objects" — a legacy-Chat prep and a
 // StartRun prep — because a few fields (contextText, and the request's
 // Context/MCPServers/ResumeSessionID/ChatDialTimeout) are read by only one of

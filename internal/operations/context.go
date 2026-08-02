@@ -73,7 +73,7 @@ type AssembleContextResult struct {
 	// companion fragments mean a non-empty FragmentsLoaded can't signal it.
 	MissingFragments []string `json:"missing_fragments,omitempty"`
 	// MissingTags names every requested tag (Tags in the request) when the
-	// WHOLE tag selection contributed zero fragments (U082-F03: previously
+	// WHOLE tag selection contributed zero fragments (previously
 	// AssembleContext returned Context: "" with a nil error and no warning
 	// at all — `ctxloom run -t <tag-that-matches-nothing>` exited 0 having
 	// delivered no context). ListByTags is a union query (any listed tag
@@ -138,9 +138,8 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	}
 	allFragments = append(allFragments, reqTagFragments...)
 
-	// U082-F03: an explicit tag selection that matches nothing must not be
-	// silently indistinguishable from "no tags were asked for" — see
-	// MissingTags' doc.
+	// An explicit tag selection that matches nothing must not be silently
+	// indistinguishable from "no tags were asked for" — see MissingTags' doc.
 	var missingTags []string
 	if len(req.Tags) > 0 && len(reqTagFragments) == 0 {
 		missingTags = append([]string{}, req.Tags...)

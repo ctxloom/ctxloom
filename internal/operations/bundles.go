@@ -1156,7 +1156,7 @@ func namesNeedingPromptDistill(b *bundles.Bundle, in map[string]BundleCommandInp
 // whose content changed (a summary of superseded content is worse than none),
 // so a failure there saves the item with raw content and no distillation at
 // all. Callers must branch on the returned set, never on the fields.
-// Distillation floor (U082-F01): distillFragments/distillPrompts previously
+// Distillation floor: distillFragments/distillPrompts previously
 // stamped ANY non-empty Distiller result as accepted — no length, ratio, or
 // sanity floor — so a 16-byte distillation of a 1,428-byte fragment (a
 // truncated or degenerate model response) was indistinguishable from a real
@@ -1226,7 +1226,7 @@ func distillItems[E any](
 			// Zero bytes delivered is a FAILED distillation, not a successful
 			// one that happened to be empty. Assigning it would overwrite a
 			// previously-good distillation with "" and let distillOutcome
-			// report "distilled" for content nobody can use (U081-F04).
+			// report "distilled" for content nobody can use.
 			clidiag.Warn("ctxloom", "distill of %s %q produced no content; keeping the previous distillation", noun, name)
 			failed.Add(name)
 			continue

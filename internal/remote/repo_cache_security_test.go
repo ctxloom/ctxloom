@@ -12,7 +12,7 @@ import (
 // TestRepoCache_safeRepoPath_StaysInsideBaseDir pins the path-traversal guard
 // in safeRepoPath. The returned dir is later RemoveAll'd and cloned into, so
 // a crafted repo URL with ".." segments must never escape the cache root —
-// AND must never resolve to the cache root itself (U095-F01: "equals
+// AND must never resolve to the cache root itself ("equals
 // baseDir" is exactly as dangerous as "escapes baseDir" once the caller
 // RemoveAll's it). We assert both the exact sanitized path (so the ".." drop
 // is load-bearing, not the Join-collapse that filepath.Join would do anyway)
@@ -71,7 +71,7 @@ func TestRepoCache_safeRepoPath_StaysInsideBaseDir(t *testing.T) {
 	}
 }
 
-// TestRepoCache_safeRepoPath_OnlyTraversalIsRefused pins U095-F01: when every
+// TestRepoCache_safeRepoPath_OnlyTraversalIsRefused pins that when every
 // part is traversal-only ("..", ".", "") there are no surviving segments, and
 // the OLD behavior silently returned baseDir itself as though it were a safe,
 // contained answer. That is exactly as dangerous as escaping baseDir, because
@@ -110,8 +110,8 @@ func TestRepoCache_repoDirForURL_TraversalContained(t *testing.T) {
 		"RepoDirForURL produced %q which escapes baseDir %q", got, base)
 }
 
-// TestRepoCache_repoDirForURL_DegenerateURLIsRefused pins U095-F01/U086-F07 at
-// the public entry point: a degenerate remote URL (empty, a bare scheme, only
+// TestRepoCache_repoDirForURL_DegenerateURLIsRefused pins, at the public
+// entry point, that a degenerate remote URL (empty, a bare scheme, only
 // traversal) must be refused with an error, never silently resolved to the
 // cache root — the caller's next move (os.RemoveAll) would otherwise wipe
 // every cached clone.

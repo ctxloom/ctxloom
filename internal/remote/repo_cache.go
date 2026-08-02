@@ -104,7 +104,7 @@ func (c *RepoCache) UpdateRepo(ctx context.Context, repoURL string, forgeType Fo
 	}
 
 	if err := c.fetch(ctx, repoDir, repoURL, forgeType); err != nil {
-		// U095-F14: return ("", err) on failure, matching ensureClone's
+		// Return ("", err) on failure, matching ensureClone's
 		// contract — a caller that used the returned path on error would
 		// otherwise silently keep working against a (possibly now stale)
 		// clone instead of treating the update as failed.
@@ -145,7 +145,7 @@ func (c *RepoCache) ensureCloneLocked(ctx context.Context, repoURL, repoDir stri
 
 	if err := c.clone(ctx, repoURL, repoDir, forgeType); err != nil {
 		if rmErr := os.RemoveAll(repoDir); rmErr != nil && !os.IsNotExist(rmErr) {
-			// U095-F05: a failed post-clone cleanup used to be discarded here,
+			// A failed post-clone cleanup used to be discarded here,
 			// leaving exactly the corrupt/partial directory this function's
 			// doc promises to remove — every later call would then trust it.
 			return "", errors.Join(err, fmt.Errorf("additionally failed to clean up the partial clone at %s: %w", repoDir, rmErr))
@@ -299,7 +299,7 @@ func runGit(ctx context.Context, dir, label string, extraEnv []string, args ...s
 	// overrides after the inherited environment guarantees they win even if the
 	// parent process (or its shell profile) already set GIT_ASKPASS/SSH_ASKPASS.
 	//
-	// U053-F02: GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_COMMON_DIR override
+	// GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE/GIT_COMMON_DIR override
 	// cmd.Dir completely if inherited — stripped here for the same reason
 	// internal/git's outputStdin strips them, so this package's clone/fetch
 	// can never be silently redirected to a different repository.
@@ -347,7 +347,7 @@ func cloneHost(cloneURL string) string {
 // keyed a "git/" user segment into the path, and why "git@host:owner/repo" and
 // "git@host:owner/repo.git" cached the SAME repository in two directories.
 //
-// U095-F01: a degenerate/pathless URL (empty, ".", a bare scheme like
+// A degenerate/pathless URL (empty, ".", a bare scheme like
 // "https://") must not silently resolve to the cache root itself — see
 // safeRepoPath. Callers that used to discard this error and clone/RemoveAll
 // whatever came back must now handle it explicitly.
@@ -370,7 +370,7 @@ func (c *RepoCache) RepoDirForURL(repoURL string) (string, error) {
 // collapse a "../" back out), then verify containment with filepath.Rel as
 // defense in depth, falling back to baseDir if anything still escapes.
 // safeRepoPath joins parts under baseDir, guaranteeing the result stays
-// STRICTLY INSIDE baseDir. SECURITY (U095-F01): the returned dir is later
+// STRICTLY INSIDE baseDir. SECURITY: the returned dir is later
 // os.RemoveAll'd and cloned into — so "escapes baseDir" is not the only
 // unsafe outcome; "equals baseDir itself" is exactly as dangerous, because
 // the caller does not distinguish "a repo's own subdirectory" from "the
@@ -411,7 +411,8 @@ func (c *RepoCache) safeRepoPath(parts ...string) (string, error) {
 //
 // It is now the CloneArg renderer over the shared ParseRepoURL grammar. It
 // used to carry its own copy of the shorthand arm, guarded differently from
-// NormalizeURL's — the drift that unranked-mouth was raised for.
+// NormalizeURL's — that drift is why the two were consolidated onto one
+// grammar.
 func normalizeCloneURL(repoURL string) string {
 	parsed, err := ParseRepoURL(repoURL)
 	if err != nil {

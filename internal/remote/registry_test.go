@@ -280,7 +280,7 @@ func TestRegistry_GetOrCreateByURL(t *testing.T) {
 	})
 }
 
-// TestRegistry_Save_CorruptExistingFileIsNotSwallowed pins U094-F12:
+// TestRegistry_Save_CorruptExistingFileIsNotSwallowed pins that
 // Registry.save used to swallow the parse error of the file it merges into
 // (`_ = yaml.Unmarshal(...)`), silently replacing an unparseable existing file
 // with an empty base map and proceeding — discarding every key save() doesn't

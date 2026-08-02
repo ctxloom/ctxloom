@@ -198,7 +198,7 @@ func TestRepoCache_UpdateRepo(t *testing.T) {
 	assert.Equal(t, repoDir, repoDir2)
 }
 
-// TestRepoCache_UpdateRepo_FetchFailure_ReturnsEmptyPath pins U095-F14:
+// TestRepoCache_UpdateRepo_FetchFailure_ReturnsEmptyPath pins that
 // UpdateRepo must return ("", err) on a fetch failure, matching ensureClone's
 // contract, not (repoDir, err) — a caller that (mistakenly) used the returned
 // path on error would otherwise silently keep working against a stale clone.
@@ -314,7 +314,7 @@ func TestRepoCache_repoDirForURL(t *testing.T) {
 			want: "/tmp/cache/github.com/owner/repo",
 		},
 		{
-			// U095-F12: the cache key must lowercase the host, matching
+			// The cache key must lowercase the host, matching
 			// cloneHost (used for the auth header) — otherwise a mixed-case
 			// host produces a SECOND clone directory for a repo already
 			// cached under its lowercase form.
@@ -363,7 +363,7 @@ func TestNormalizeCloneURL(t *testing.T) {
 		{"https://github.com/owner/repo", "https://github.com/owner/repo"},
 		{"https://github.com/owner/repo.git", "https://github.com/owner/repo"},
 		{"owner/repo", "https://github.com/owner/repo"},
-		// U095-F13: the shorthand check used to run BEFORE the .git suffix
+		// The shorthand check used to run BEFORE the .git suffix
 		// was trimmed, so "owner/repo.git" (which contains a ".") never
 		// qualified as shorthand and was returned bare instead of expanded —
 		// `git clone -- owner/repo <dir>` then treats it as a local path.
@@ -443,8 +443,8 @@ exit 0
 	return binDir
 }
 
-// TestRepoCache_EnsureRepo_CloneFailure_CleanupErrorNotSwallowed pins
-// U095-F05: when a clone fails AND the subsequent cleanup (os.RemoveAll of the
+// TestRepoCache_EnsureRepo_CloneFailure_CleanupErrorNotSwallowed pins that
+// when a clone fails AND the subsequent cleanup (os.RemoveAll of the
 // partial clone dir) also fails, the cleanup failure must be reported to the
 // caller, not silently discarded — a discarded cleanup failure leaves exactly
 // the corrupt-directory state ensureCloneLocked's own doc promises to remove.

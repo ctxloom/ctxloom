@@ -107,7 +107,7 @@ func (r *Registry) save() error {
 	var existingRaw map[string]interface{}
 	data, err := afero.ReadFile(r.fs, r.configPath)
 	if err == nil {
-		// U094-F12: an unparseable existing file must NOT be silently treated
+		// An unparseable existing file must NOT be silently treated
 		// as empty — that discarded every key save() doesn't itself manage
 		// (a corrupt file or a concurrent partial write would otherwise lose
 		// unrelated config on the next save, with no error at all).
@@ -158,7 +158,7 @@ func (r *Registry) save() error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
-	// U094-F12: a plain afero.WriteFile truncates the file in place — a crash
+	// A plain afero.WriteFile truncates the file in place — a crash
 	// or a concurrent writer (GetOrCreateByURL auto-registers on every pull,
 	// and agent children run concurrently) can observe or leave a half-written
 	// remotes.yaml. LockfileManager.write already uses this same atomic

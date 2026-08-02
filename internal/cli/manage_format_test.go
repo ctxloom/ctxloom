@@ -14,10 +14,10 @@ import (
 
 // runCLIJSON executes rootCmd with args plus "--format json" and returns the
 // decoded payload, requiring both a clean exit and valid JSON. This is the
-// format-debt paydown's unit-level proof for the
-// installer/mcp-registration surface (manage.go, mcp.go, gooey-basil batch):
-// --format json must actually produce JSON, not the human text that these
-// RunEs used to print via bare fmt.Printf regardless of the flag.
+// format-debt paydown's unit-level proof for the installer/mcp-registration
+// surface (manage.go, mcp.go): --format json must actually produce JSON, not
+// the human text that these RunEs used to print via bare fmt.Printf
+// regardless of the flag.
 func runCLIJSON(t *testing.T, args ...string) map[string]any {
 	t.Helper()
 	var out bytes.Buffer

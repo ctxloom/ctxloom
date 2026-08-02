@@ -22,7 +22,7 @@ import (
 // and env values, and argv is world-readable via /proc/<pid>/cmdline.
 const runStartHandoffFile = "runstart.json"
 
-// llmTurnCmd is the docker-exec INTERACTIVE half (queer-shrug Phase 2a-A):
+// llmTurnCmd is the docker-exec INTERACTIVE half:
 // `ctxloom llm turn <backend> --start <path>` runs the Run-RPC body
 // (grpc.RunTurn: Setup → Execute → Cleanup) DIRECTLY on the exec's TTY instead
 // of behind a go-plugin bidi stream. The host launches it via

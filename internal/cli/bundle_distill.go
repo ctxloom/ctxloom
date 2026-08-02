@@ -446,7 +446,7 @@ func distillWithLLM(ctx context.Context, llmName, llmLabel, model string, env ma
 	// delivers RunStart.Fragments to the backend (internal/lm/grpc/server.go's
 	// Run handler only converts+delivers req.Fragments inside the
 	// !opts.GetSkipSetup() branch) — a Fragments entry here would be silently
-	// dropped, never reaching the model. prim-bluff (SILENT NO-OP): this
+	// dropped, never reaching the model. SILENT NO-OP: this
 	// caller used to also set Fragments:[{Content: distillPrompt}] alongside
 	// the already-smuggled message, which did nothing but read as if the
 	// instructions had a second, redundant delivery path. Removed; the prompt

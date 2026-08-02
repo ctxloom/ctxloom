@@ -125,7 +125,7 @@ func findSilentFailureSites(t *testing.T) []string {
 // plus an `if _, err :=` form. The swallow shapes are untouched.
 //
 // Line numbers shifted (117/154/266/287 -> 140/205/332/368 -> 157/238/326/364
-// -> 154/233/321/359) during the gooey-basil output-flow batch's format-debt
+// -> 154/233/321/359) during an output-flow batch's format-debt
 // paydown (--format json now routes through emit() for all four sites), then
 // again when the engine-validation-scoping fix inserted the
 // checkInstallEngineApplies doc lines and the --engine hook-backend-scoping

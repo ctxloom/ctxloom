@@ -26,7 +26,7 @@ type runnerStandup struct {
 }
 
 // standUpRunner performs the runner standup shared by `llm serve` and `llm
-// host` (queer-shrug §4.3): consume + scrub the coordinator reach-back trio,
+// host`: consume + scrub the coordinator reach-back trio,
 // load + apply the backend config, stand up the EngineHost for a delegated
 // StructuredChat run, dial home, stand up the runner-local MCP socket, and
 // BindHome — everything llm_serve.go's body did EXCEPT the transport tail
@@ -74,8 +74,8 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 		h.Close(1, "")
 		return nil, err
 	}
-	// BIND LAST — strictly after the MCP socket exists and its env is exported
-	// (icy-value): BindHome unblocks EngineHost.Handle, and StartRun is what
+	// BIND LAST — strictly after the MCP socket exists and its env is exported:
+	// BindHome unblocks EngineHost.Handle, and StartRun is what
 	// spawns the child's engine; binding earlier races the coordinator's
 	// StartRun against socket bind + tool-schema generation.
 	if standup.engineHost != nil {
@@ -119,7 +119,7 @@ func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (
 // reach-back for it. The caller owns closing home on that error.
 //
 // The two refusal conditions are the same condition reached two ways, which is
-// why they answer identically (icy-value): the child's shim keys entirely off
+// why they answer identically: the child's shim keys entirely off
 // CTXLOOM_MCP_SOCKET, so an endpoint that failed to come up, an endpoint that
 // could not be published, and a config too broken to build one from all leave the
 // engine reaching a rogue local coordinator nobody reads. Without a hosted run

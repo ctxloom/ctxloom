@@ -428,8 +428,7 @@ func runFormatCoverageCase(t *testing.T, path string, args []string, format stri
 // one never requires touching another, so flow batches that own different
 // commands can land in parallel.
 //
-// Grouped by owning surface per the remediation batches (gooey-basil owns
-// rendering; brave-mango/sick-shawl/known-bleep/clean-pony own the commands).
+// Grouped by owning surface, each surface paid down by a separate batch.
 var formatDebtAllowlist = map[string]string{
 	// --- config surface (config.go) ---
 	// `config show`/`config get` were paid down:

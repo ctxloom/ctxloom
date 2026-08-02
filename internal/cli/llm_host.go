@@ -12,14 +12,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
-// llmHostCmd is the docker-direct runner mode (queer-shrug Phase 1): `ctxloom
-// llm host <backend>` is `llm serve` MINUS plugin.Serve. It stands the runner
-// up (EngineHost + dial-home + runner-local MCP, all via the shared
-// standUpRunner), hosts the delegated StructuredChat run IN-PROCESS over
-// Transport 2 (StartRun on its RunnerChannel), and then BLOCKS until torn down
-// — it opens NO go-plugin listener, so a container running this command
-// publishes no port and exposes no runner socket (closing the mauve-state
-// peer-container hole). Teardown is external: the coordinator's
+// llmHostCmd is the docker-direct runner mode: `ctxloom llm host <backend>`
+// is `llm serve` MINUS plugin.Serve. It stands the runner up (EngineHost +
+// dial-home + runner-local MCP, all via the shared standUpRunner), hosts the
+// delegated StructuredChat run IN-PROCESS over Transport 2 (StartRun on its
+// RunnerChannel), and then BLOCKS until torn down — it opens NO go-plugin
+// listener, so a container running this command publishes no port and
+// exposes no runner socket (closing the peer-container hole a listening
+// port would open). Teardown is external: the coordinator's
 // isolation.RunnerHandle.Kill (`docker rm -f` for a container, a setsid session
 // sweep for a host runner). A SIGINT/SIGTERM or a cancelled root context also
 // unblocks it so a bare foreground invocation can be stopped.

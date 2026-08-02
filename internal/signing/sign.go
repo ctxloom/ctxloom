@@ -12,7 +12,7 @@ import (
 // sha512 matches OpenSSH's own `ssh-keygen -Y sign` default, which is what
 // makes our signatures and OpenSSH's interoperate (see interop_test.go).
 //
-// U134-F12: this was exported as DefaultHashAlgorithm but had zero references
+// This was exported as DefaultHashAlgorithm but had zero references
 // anywhere in the repo outside its own use below — unexported since nothing
 // reads it as package API.
 const defaultHashAlgorithm = sshsig.HashSHA512
@@ -31,7 +31,7 @@ const defaultHashAlgorithm = sshsig.HashSHA512
 // §1) and is what keeps a publish signature from being replayable as an
 // approve signature or vice versa.
 func Sign(payload []byte, signer ssh.Signer, namespace string) ([]byte, error) {
-	// U134-F01: sshsig.Sign validates only that the namespace is non-empty and
+	// sshsig.Sign validates only that the namespace is non-empty and
 	// will happily hash an empty reader, producing a valid armored signature
 	// over the empty string — one blob that verifies against EVERY zero-byte
 	// payload, for every consumer, forever. A signature over nothing attests to

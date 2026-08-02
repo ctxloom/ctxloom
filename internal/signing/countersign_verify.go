@@ -44,7 +44,7 @@ func NamespaceForAssertion(a Assertion) string {
 // must not silently downgrade signed-and-tampered to plain-unsigned.
 //
 // A countersignature DOES carry an asymmetry, and this function is the wrong
-// place to resolve it (U137-F03). Approve and reject are the asymmetry: on
+// place to resolve it. Approve and reject are the asymmetry: on
 // the APPROVE path a record that does not verify degrades toward LESS
 // exposure exactly like a deleted one (spec §10.5: deletion of records is
 // fail-safe), which is what justifies the collapse here. On the REJECT path

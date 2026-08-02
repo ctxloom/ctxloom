@@ -29,7 +29,7 @@ func TestLoadoutEnvelope_RoundTrip_Unsigned(t *testing.T) {
 	assert.Empty(t, signer, "unsigned loadout: empty verified signer")
 }
 
-// U134-F03: the loadout envelope had no payload floor on either side. An
+// The loadout envelope had no payload floor on either side. An
 // empty bundle encoded to a well-formed-looking envelope, and — even worse —
 // an empty ENVELOPE (or one whose "bundle" field decodes to zero bytes)
 // decoded successfully to (zero bytes, "", nil): a companion malfunctioning

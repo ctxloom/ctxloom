@@ -118,7 +118,7 @@ func VerifyPublisher(bundleBytes, armoredSig []byte, root TrustRoot, now time.Ti
 	// the trust root, below. A blob we cannot even parse is a tamper signal, not
 	// an unsigned bundle — otherwise corrupting a .sig would silently downgrade
 	// a signed bundle to an unsigned one (spec §10.2). This MUST run before the
-	// nil-root check below (U134-F04): a nil root previously short-circuited to
+	// nil-root check below: a nil root previously short-circuited to
 	// ("", nil) — "unsigned to you" — for a structurally invalid blob too,
 	// which is exactly the downgrade this comment says must never happen. Root
 	// only ever gates the LATER trust/verify questions, never the "is this

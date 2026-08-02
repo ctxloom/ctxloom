@@ -396,7 +396,7 @@ func TestStore_Readable_FileWithinUnreadable_IsAnError(t *testing.T) {
 
 // --- an unconfigured store must be an ERROR, never a CWD-relative store ------
 
-// U137-F01. A Store built over dir "" is not "a store with nothing in it" —
+// A Store built over dir "" is not "a store with nothing in it" —
 // it is a store nobody configured, which happens for real when $HOME cannot
 // be resolved and operations' user-store construction swallows the error.
 // Readable() is the fail-closed gate EffectiveTrust consults, so an
@@ -410,7 +410,7 @@ func TestStore_Readable_EmptyDir_IsAnError(t *testing.T) {
 	assert.Contains(t, err.Error(), "no directory configured")
 }
 
-// U137-F02. filepath.Join("", x) == x, so every read path on a dir "" store
+// filepath.Join("", x) == x, so every read path on a dir "" store
 // resolves against the PROCESS WORKING DIRECTORY. Unsigned markers are
 // honoured with zero cryptographic verification, so a marker file committed
 // at a repo root would be an unconditional approval of attacker-chosen bytes.
@@ -432,8 +432,8 @@ func TestStore_UnconfiguredStore_DoesNotReadTheWorkingDirectory(t *testing.T) {
 		"an unconfigured store must not honour a marker sitting in the working directory")
 }
 
-// U137-F02, signed half: candidates() globs "<dir>/<hash>.*.sig", which for
-// dir "" is a working-directory-relative pattern.
+// The signed half of the same defect: candidates() globs "<dir>/<hash>.*.sig",
+// which for dir "" is a working-directory-relative pattern.
 func TestStore_UnconfiguredStore_DoesNotVerifyFromTheWorkingDirectory(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
@@ -452,7 +452,7 @@ func TestStore_UnconfiguredStore_DoesNotVerifyFromTheWorkingDirectory(t *testing
 	assert.False(t, ok, "an unconfigured store must not verify a signature sitting in the working directory")
 }
 
-// U137-F02, write half: an unconfigured store must refuse to write rather
+// The write half: an unconfigured store must refuse to write rather
 // than scatter approval records across the working directory.
 func TestStore_UnconfiguredStore_RefusesToWrite(t *testing.T) {
 	dir := t.TempDir()
@@ -468,7 +468,7 @@ func TestStore_UnconfiguredStore_RefusesToWrite(t *testing.T) {
 
 // --- an approval that pinned nothing must not be written ---------------------
 
-// U137-F04. countersignRecords.Approved returns false for an empty payload
+// countersignRecords.Approved returns false for an empty payload
 // before it touches any store, so a record written over an empty payload can
 // never be honoured — yet the write succeeds and the user is shown
 // "approved" with a key fingerprint. Refusing the write is the fail-loud form
@@ -500,7 +500,7 @@ func TestStore_WriteRefReject_EmptyPayload_IsStillAllowed(t *testing.T) {
 
 // --- the sidecar index must not be destroyed by a corrupt read ---------------
 
-// U137-F08. readIndex() maps an unmarshal error onto nil, indistinguishable
+// readIndex() maps an unmarshal error onto nil, indistinguishable
 // from "no index yet", and AppendIndex then rewrites the whole file from that
 // nil — one truncated write destroys the entire approval history. The index
 // is display-only, but it is what labels an item UPDATE and supplies the diff
@@ -546,7 +546,7 @@ func TestStore_LatestApprove_AbsentIndex_IsNotAnError(t *testing.T) {
 	assert.False(t, found)
 }
 
-// --- U137-F03: a record that will not even UNARMOR is not "absent" -----------
+// --- a record that will not even UNARMOR is not "absent" ---------------------
 
 // The mirror of TestStore_Readable_FileWithinUnreadable_IsAnError, for
 // content rather than I/O. A .sig file that opens fine but whose bytes are

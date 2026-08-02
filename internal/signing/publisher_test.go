@@ -142,7 +142,7 @@ func TestVerifyPublisher_ApproveSignatureIsNotAPublishSignature(t *testing.T) {
 	assert.Empty(t, principal)
 }
 
-// U134-F04: a nil trust root must not let a STRUCTURALLY INVALID signature
+// A nil trust root must not let a STRUCTURALLY INVALID signature
 // blob downgrade to "unsigned to you" — that is exactly the corrupt-.sig
 // downgrade TestVerifyPublisher_StructurallyInvalidSignatureIsTamper guards
 // against for a non-nil root. The nil-root branch used to run BEFORE the

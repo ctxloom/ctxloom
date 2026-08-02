@@ -105,7 +105,7 @@ func TestSign_EmptyNamespaceRejected(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// U134-F01: Sign hashed and signed a ZERO-BYTE payload and reported success.
+// Sign hashed and signed a ZERO-BYTE payload and reported success.
 // sshsig.Sign validates only that the namespace is non-empty, then io.Copy's an
 // empty reader into the hash — producing a valid armored signature over the
 // empty string. `ctxloom sign` on a truncated bundle wrote that .sig and printed

@@ -119,7 +119,7 @@ func (s *Store) configured() error {
 // exists to report, and every session carrying one stale record would
 // otherwise deny everything.
 //
-// It DOES parse every .sig record (U137-F03). A file that will not even
+// It DOES parse every .sig record. A file that will not even
 // unarmor is indistinguishable from a SUPPRESSED REJECTION, and the verify
 // path cannot make that distinction on the caller's behalf: it collapses an
 // unarmor failure into the same quiet (false, "") as "no such record", which
@@ -379,8 +379,8 @@ func (s *Store) candidates(header signing.CountersignHeader, payload []byte) [][
 // package: a corrupted signature body at the RIGHT index hash still resolves
 // pending, never allow).
 //
-// U137-F11: unexported — its only callers are the three wrappers below
-// (rg-verified zero external/test callers of the exported spelling), which
+// Unexported — its only callers are the three wrappers below
+// (verified zero external/test callers of the exported spelling), which
 // are the intended API surface.
 func (s *Store) verified(header signing.CountersignHeader, payload []byte, root signing.TrustRoot, now time.Time) (principal string, ok bool) {
 	if s == nil {

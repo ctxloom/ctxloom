@@ -9,11 +9,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
-// These characterize U072-F05 and U071-F04, which are the two halves of one
-// property: the IR has no way to say a word could not be resolved, so a
-// partially-erased command is indistinguishable from a shorter one that was
-// typed in full — on the ordinary expansion path (U072-F05) and on the
-// expansion-error fallback path (U071-F04) alike.
+// These characterize two halves of one property: the IR has no way to say a
+// word could not be resolved, so a partially-erased command is
+// indistinguishable from a shorter one that was typed in full — on the
+// ordinary expansion path and on the expansion-error fallback path alike.
 //
 // The erasure itself is deliberate and documented on the package: values ltk
 // cannot know expand to empty "and are simply not matched", which fails open
@@ -34,7 +33,7 @@ func parseBash(t *testing.T, src string) *ir.Script {
 	return s
 }
 
-// TestUnresolvableWordIsErasedWithoutATrace pins the core of U072-F05: an
+// TestUnresolvableWordIsErasedWithoutATrace pins the core property: an
 // unset variable in program position does not merely fail to resolve, it
 // vanishes, and the argument after it becomes argv[0]. The resulting command
 // is byte-for-byte what the shorter command line would have produced, so no
@@ -56,7 +55,7 @@ func TestUnresolvableWordIsErasedWithoutATrace(t *testing.T) {
 	}
 }
 
-// TestDegradedFallbackArgvIsUnmarked pins the U071-F04 half: when expansion
+// TestDegradedFallbackArgvIsUnmarked pins the other half: when expansion
 // ERRORS the lowerer silently substitutes a literal-text guess, and the
 // command it produces is likewise indistinguishable from a resolved one.
 func TestDegradedFallbackArgvIsUnmarked(t *testing.T) {

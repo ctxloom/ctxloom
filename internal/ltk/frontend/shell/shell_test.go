@@ -112,7 +112,7 @@ func TestProcessSubstitutionNested(t *testing.T) {
 }
 
 func TestBackgroundAndSequence(t *testing.T) {
-	// ir.Pipeline.Background was dropped (U072-F03): it had no reader outside
+	// ir.Pipeline.Background was dropped: it had no reader outside
 	// this now-removed assertion, and Match.matches never consulted it. What
 	// still matters here — and is what this test pins — is that `&`
 	// sequencing produces two distinct commands, both visible to the matcher.
@@ -264,7 +264,7 @@ var noPanicCorpus = []string{
 func isKnownLoweringCrasher(sh ir.Shell, src string) bool {
 	// mvdan.cc/sh v3.13.1 nil-derefs on an empty parameter name, `${}`, under
 	// the zsh variant only (expand/param.go:57) — filed upstream separately;
-	// see TestExpanderPanicBecomesParseError below and the swift-print task.
+	// see TestExpanderPanicBecomesParseError below.
 	// Not deduplicated here by exact string: the fuzzer will find other
 	// spellings that hit the same underlying nil-deref (e.g. "x${}y"), and all
 	// of them are this one known bug, not a new one.

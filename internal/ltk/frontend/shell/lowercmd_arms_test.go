@@ -14,12 +14,11 @@ import (
 // subshell, and the compound-command default — asserting the programs each
 // lowers to.
 //
-// U071-F03 called lowerCmd CCN 12 and over the project gate. That was right at
-// the census commit; on current release/0.7 it measures 10 under `lizard -C
-// 10`, which fails on EXCEEDING 10, so it no longer trips. The drop was not
-// this row's doing: a sibling row deleted Pipeline.Background and
-// Pipeline.Negated, and with them the two `st != nil && st.X` conjunctions in
-// the CallExpr arm. Refuted on that measurement — and this table is what a
+// lowerCmd was once measured at CCN 12, over the project gate. On current
+// release/0.7 it measures 10 under `lizard -C 10`, which fails on EXCEEDING
+// 10, so it no longer trips. The drop came from an unrelated change that
+// deleted Pipeline.Background and Pipeline.Negated, and with them the two
+// `st != nil && st.X` conjunctions in the CallExpr arm. This table is what a
 // future reduction would need, since a pure complexity change cannot be shown
 // by a red test.
 func TestLowerCmdArms(t *testing.T) {

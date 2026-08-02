@@ -8,8 +8,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
-// U071-F07 calls lowerCall's `expandConfig(&sc)` — taking the address of a
-// local that is later returned BY VALUE — a coupling hazard. It is not a live
+// lowerCall's `expandConfig(&sc)` — taking the address of a
+// local that is later returned BY VALUE — could be read as a coupling hazard. It is not a live
 // defect: every write through that pointer happens during the expansion calls
 // that lowerCall makes before its own `return sc`, so the copy carries them.
 // The aliasing is what DELIVERS the substitution capture, which is why the

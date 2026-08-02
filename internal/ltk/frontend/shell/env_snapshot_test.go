@@ -8,14 +8,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
 )
 
-// U071-F08 calls the process-environment snapshot taken in New() a connascence
-// of TIMING with the composition root. It is refuted by the deployment, not by
-// the code: `ltk evaluate` and `ltk check` are one-shot CLI processes that
-// build the App (cmd/ltk/wiring.go newDecider) and parse exactly one command
-// before exiting, and nothing on ltk's analysis path calls os.Setenv. There is
-// no window between New and Parse for the environment to change in, so the
-// row's remedy — snapshotting at Parse time — cannot be driven red here. That
-// is stated rather than papered over.
+// The process-environment snapshot taken in New() could be read as a
+// connascence of TIMING with the composition root. It is refuted by the
+// deployment, not by the code: `ltk evaluate` and `ltk check` are one-shot
+// CLI processes that build the App (cmd/ltk/wiring.go newDecider) and parse
+// exactly one command before exiting, and nothing on ltk's analysis path
+// calls os.Setenv. There is no window between New and Parse for the
+// environment to change in, so snapshotting at Parse time instead cannot be
+// driven red here. That is stated rather than papered over.
 //
 // What IS worth maintaining is the contract the snapshot exists to serve: the
 // frontend resolves variables against the environment of the process whose

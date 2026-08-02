@@ -185,7 +185,7 @@ func (l *lowerer) lowerBareRedirect(st *syntax.Stmt, conn ir.Connector) []ir.Pip
 // `(cmd) &&` etc. don't silently lose that metadata (lowerStmts alone would
 // stamp the first pipeline ConnNone). Matching is unaffected either way — Walk
 // only ever looks at Commands. The enclosing *syntax.Stmt is unused now that
-// Background/Negated are gone (U072-F03) but kept as a parameter for call-site
+// Background/Negated are gone but kept as a parameter for call-site
 // symmetry with the other lower* methods, which all take it.
 func (l *lowerer) lowerGroup(stmts []*syntax.Stmt, _ *syntax.Stmt, conn ir.Connector) []ir.Pipeline {
 	pipelines := l.lowerStmts(stmts)

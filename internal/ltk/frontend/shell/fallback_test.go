@@ -41,7 +41,7 @@ func requireExpansionFails(t *testing.T, src string) {
 	}
 }
 
-// TestArgvFallback_KeepsDoubleQuotedWords pins U071-F05. literalFallback used
+// TestArgvFallback_KeepsDoubleQuotedWords pins a real regression: literalFallback used
 // to handle only *syntax.Lit and *syntax.SglQuoted, so a *syntax.DblQuoted
 // word rendered as "" and argvFallback then dropped the argument entirely.
 // The consequence is a silent MIS-PARSE, not a cosmetic one: `push` and
@@ -63,8 +63,8 @@ func TestArgvFallback_KeepsDoubleQuotedWords(t *testing.T) {
 	}
 }
 
-// TestArgvFallback_DenyRuleStillFires is the consequence altitude for
-// U071-F05: the point of keeping double-quoted words is that the rule engine
+// TestArgvFallback_DenyRuleStillFires is the consequence altitude: the
+// point of keeping double-quoted words is that the rule engine
 // still sees the command the operator wrote a rule against. Pre-fix this
 // allowed, which is a deny-rule bypass reachable from an ordinary command line.
 func TestArgvFallback_DenyRuleStillFires(t *testing.T) {

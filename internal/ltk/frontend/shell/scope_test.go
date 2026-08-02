@@ -42,7 +42,7 @@ func requireNestedAssignment(t *testing.T, s *ir.Script, name, value string) {
 	t.Fatalf("fixture is not hostile: no %s=%s assignment was lowered anywhere in the script", name, value)
 }
 
-// TestSubshellAssignmentDoesNotEscape pins U071-F06. A command substitution
+// TestSubshellAssignmentDoesNotEscape pins a real bypass: a command substitution
 // runs in its own process, so an assignment inside it cannot change the
 // enclosing script's view of that variable. Sharing one flat `vars` map across
 // the whole lowering made it do exactly that — and because the leaked value

@@ -51,7 +51,7 @@ func yamlDoubleQuoted(s string) string {
 // name is slash-flattened for the front-matter identifier (the slash-command
 // name); description falls back to name when empty.
 func RenderCommandAsSkillFile(c CommandExport) (string, []byte, error) {
-	// U102-F01: empty (or whitespace-only) Content used to still render a
+	// Empty (or whitespace-only) Content used to still render a
 	// valid-looking SKILL.md carrying only frontmatter — success, zero
 	// instruction bytes delivered to the engine. The caller
 	// (WriteManagedPackageFiles) already warns loudly and skips this one item

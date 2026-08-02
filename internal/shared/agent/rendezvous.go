@@ -34,8 +34,7 @@ const (
 // Unlock our own lock. heldRendezvousLocksMu guards it: the sole production
 // caller (cli/hook_inject_context.go) invokes AwaitTurn once per process, but
 // nothing in this package enforces that, so a concurrent call within one
-// process (e.g. parallel callers sharing a binary) must not race the append
-// (U101-F26).
+// process (e.g. parallel callers sharing a binary) must not race the append.
 var (
 	heldRendezvousLocksMu sync.Mutex
 	heldRendezvousLocks   []*flock.Flock

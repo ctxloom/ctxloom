@@ -54,7 +54,7 @@ func TestPermissionMode_Predicates(t *testing.T) {
 	assert.False(t, PermissionAcceptEdits.SafeHeadless())
 }
 
-// TestPermissionMode_StringOutOfRangeIsVisible pins U101-F20: String()'s
+// TestPermissionMode_StringOutOfRangeIsVisible pins the fix: String()'s
 // default arm rendered ANY out-of-range value (a corrupted wire int, e.g. from
 // a future enum member this build doesn't know about) as the string "default"
 // — indistinguishable from an intentional PermissionDefault posture. A bad

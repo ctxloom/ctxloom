@@ -47,7 +47,7 @@ func (m PermissionMode) String() string {
 	case PermissionBypass:
 		return "bypass"
 	default:
-		// U101-F20: an out-of-range value used to fall through to "default" —
+		// An out-of-range value used to fall through to "default" —
 		// indistinguishable from the real, intentional PermissionDefault. A
 		// corrupted wire value must be visibly bad, not silently safe.
 		return fmt.Sprintf("permissionMode(%d)", int(m))

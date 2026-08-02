@@ -14,7 +14,7 @@ import (
 )
 
 // failChmodFs fails Chmod for exactly one path, passing everything else
-// through to the wrapped Fs — the seam U101-F27's regression test uses to
+// through to the wrapped Fs — the seam this regression test uses to
 // force the exec-bit re-assert to fail.
 type failChmodFs struct {
 	afero.Fs
@@ -175,7 +175,7 @@ func TestWriteManagedPackageFiles_UnsafeItemPathSkipsWholeItem(t *testing.T) {
 	assert.False(t, exists)
 }
 
-// TestWriteManagedPackageFiles_ChmodFailureWarns pins U101-F27: the
+// TestWriteManagedPackageFiles_ChmodFailureWarns pins the fix: the
 // exec-bit re-assert chmod's own comment argues it is needed for correctness
 // ("would silently let the exec bit drift out of sync"), then ignored its own
 // error — so a chmod failure was invisible even though the writer knows

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U102-F01: a command with empty Content used to render a valid-looking
+// A command with empty Content used to render a valid-looking
 // SKILL.md containing only frontmatter (name/description) — success, zero
 // instruction bytes delivered to the engine. WriteManagedPackageFiles already
 // warns-and-skips loudly on a render error ("skipping package %q: render

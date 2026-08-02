@@ -95,7 +95,7 @@ func TestAtomicWriteFile(t *testing.T) {
 		assert.Equal(t, os.FileMode(0600), bInfo.Mode().Perm(), "backup mirrors the restrictive source mode")
 	})
 
-	// U102-F08: AtomicWriteFile had no len(data)==0 guard, so a caller that
+	// AtomicWriteFile had no len(data)==0 guard, so a caller that
 	// accidentally assembled zero bytes (an upstream bug, not an intentional
 	// removal — RemoveSettings/dropManaged callers go through fs.Remove, never
 	// through this path with empty data) silently truncated a live settings

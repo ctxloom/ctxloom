@@ -198,7 +198,7 @@ func TestAwaitTurn(t *testing.T) {
 	})
 }
 
-// TestAwaitTurn_ConcurrentCallsDoNotRaceOnHeldLocks pins U101-F26:
+// TestAwaitTurn_ConcurrentCallsDoNotRaceOnHeldLocks pins the fix:
 // heldRendezvousLocks is a package-level slice appended without
 // synchronization. A single hook process only ever calls AwaitTurn once
 // today, but the package itself provides no guarantee of that, and nothing

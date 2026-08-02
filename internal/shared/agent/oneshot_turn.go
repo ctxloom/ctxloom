@@ -9,7 +9,7 @@ import (
 // RunOneshotTurn drives one complete oneshot ACP-shaped chat turn — the drain/
 // render plumbing internal/acp's Execute and internal/opencode's Execute both
 // carried duplicated (byte-for-byte, per reprise's own duplicate-detection
-// gate), including the same defect (U080-F01):
+// gate), including the same defect:
 //
 //   - an empty (or whitespace-only) prompt was sent to the engine with no
 //     check at all;
@@ -46,7 +46,7 @@ func RunOneshotTurn(prompt *Fragment, modelInfo *ModelInfo, verbosity uint32, st
 	// mapper emits one entry per chunk); thinking and tool traffic go to
 	// stderr only at verbosity, keeping stdout clean for the response text.
 	wroteText := false
-	// stopReason (U011-F03): captured from the turn's Complete event so a
+	// stopReason is captured from the turn's Complete event so a
 	// textless turn's warning can say WHY — a refusal, a max_tokens cutoff,
 	// and a cancelled turn are different failures with different fixes, and
 	// this used to collapse all of them (plus a genuinely empty tool-only

@@ -171,8 +171,8 @@ func WriteManagedPackageFiles[T any](
 			// perm); an existing file from a prior materialize keeps its old mode
 			// unless explicitly chmod'd, which would silently let the exec bit
 			// drift out of sync with a re-materialized script. Re-assert it, and
-			// (U101-F27) warn rather than ignore a failure of the very re-assert
-			// this comment argues is needed for correctness.
+			// warn rather than ignore a failure of the very re-assert this
+			// comment argues is needed for correctness.
 			if err := fs.Chmod(path, mode); err != nil {
 				Warn("package %q: chmod %s to %s failed: %v", name, f.RelPath, mode, err)
 			}

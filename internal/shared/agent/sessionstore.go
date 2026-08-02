@@ -58,7 +58,7 @@ var ErrNoSessions = errors.New("no sessions found")
 // list(workDir), sort most-recent-first by StartTime, then load the newest
 // session via getSession(workDir, id).
 //
-// U102-F02/F03: this used to be three functions —
+// This used to be three functions —
 // SortSessionsMostRecentFirst (a helper with ZERO callers: the ordering
 // invariant it exists to enforce was assumed, in a doc comment, rather than
 // actually applied), MostRecentSession (which trusted that assumed ordering

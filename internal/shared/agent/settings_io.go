@@ -137,7 +137,7 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ..
 	for _, opt := range opts {
 		opt(&o)
 	}
-	// U102-F08: zero-length data is almost never an intentional settings
+	// Zero-length data is almost never an intentional settings
 	// write — writing it over a live file would silently truncate it to zero
 	// bytes on a success path. Refuse by default, matching the "refuse to
 	// overwrite, never self-heal" posture corrupt-config handling already
@@ -205,7 +205,7 @@ func backupExisting(fs afero.Fs, path string, perm os.FileMode) error {
 }
 
 // WriteFileOption configures AtomicWriteFile's default refusal-of-empty-writes
-// behavior (U102-F08).
+// behavior.
 type WriteFileOption func(*writeFileOptions)
 
 type writeFileOptions struct {
@@ -249,8 +249,7 @@ func CallerOwnsBackup() WriteFileOption {
 // round-trips it, and writes it back must route its partial-parse failures
 // here. The alternative — warn and continue with an empty structure — reads
 // as "fault tolerance" and IS silent data destruction: the empty structure
-// gets persisted over the file it failed to read (taskloom lone-taste,
-// U032-F03/F05, U029-F06). A warning is not a guard.
+// gets persisted over the file it failed to read. A warning is not a guard.
 //
 // what names the thing that failed to parse; consequence completes
 // "refusing to write <file> … <consequence>".

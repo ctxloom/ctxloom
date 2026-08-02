@@ -11,7 +11,7 @@ import (
 )
 
 // TestGetCurrentSessionViaGetSession_SortsUnsortedInput pins the collapsed
-// GetCurrentSessionViaGetSession (U102-F02/F03: merged from the
+// GetCurrentSessionViaGetSession (merged from the
 // SortSessionsMostRecentFirst/MostRecentSession/GetCurrentSessionViaListSessions
 // chain) against a list() that returns sessions NOT already most-recent-first.
 // The doc comment on the old MostRecentSession assumed "a ListSessions result
@@ -56,7 +56,7 @@ func TestGetCurrentSessionViaGetSession_NoSessionsErrors(t *testing.T) {
 	assert.Contains(t, err.Error(), "no sessions found")
 }
 
-// U102-F18: "this project has no history" and "the history could not be read"
+// "This project has no history" and "the history could not be read"
 // are different facts, and a bare fmt.Errorf gave a caller no way to tell them
 // apart except by matching the message text. The empty-history case must be
 // recognisable with errors.Is; a real list failure must NOT be, so a caller
@@ -75,13 +75,13 @@ func TestGetCurrentSessionViaGetSession_NoSessionsIsASentinel(t *testing.T) {
 	assert.ErrorIs(t, err, boom)
 }
 
-// U102-F04 claimed a transcript whose every line fails parseLine is
-// indistinguishable from an empty one, because ParseSessionFile returns an
-// empty Session and a nil error for both and hands the caller no counts. The
-// second half does not hold: parseLine is the CALLER's closure, invoked once
-// per non-empty line, so the caller already owns the only counts it needs -
-// which is exactly how transcript.ParseTranscriptFile discriminates the two
-// states (U144-F03) without ParseSessionFile changing shape.
+// A transcript whose every line fails parseLine is indistinguishable from an
+// empty one, because ParseSessionFile returns an empty Session and a nil
+// error for both and hands the caller no counts. That does not hold: parseLine
+// is the CALLER's closure, invoked once per non-empty line, so the caller
+// already owns the only counts it needs - which is exactly how
+// transcript.ParseTranscriptFile discriminates the two states without
+// ParseSessionFile changing shape.
 //
 // This pins both facts at once: the degrade-to-partial contract (nil error,
 // no entries - deliberate, so that one corrupt line never destroys a readable

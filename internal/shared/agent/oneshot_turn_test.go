@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U080-F01: RunOneshotTurn is the shared drain/render plumbing opencode's and
+// RunOneshotTurn is the shared drain/render plumbing opencode's and
 // acp's Execute both used to carry duplicated (byte-for-byte, per reprise) —
 // including the same defect: an empty prompt was sent to the engine with no
 // check at all, and a turn producing zero assistant text exited 0 with zero
@@ -48,8 +48,8 @@ func TestRunOneshotTurn_NoAssistantTextIsWarned(t *testing.T) {
 	assert.NotEmpty(t, stderr.String(), "a textless turn must be warned, not silently reported as a normal success")
 }
 
-// TestRunOneshotTurn_NoAssistantTextNamesStopReason pins U011-F03's remaining
-// half (the empty-prompt refusal above already closed the other): a textless
+// TestRunOneshotTurn_NoAssistantTextNamesStopReason pins the remaining
+// half of the fix (the empty-prompt refusal above already closed the other): a textless
 // turn's warning must name WHY, from the turn's own Complete.StopReason —
 // distinguishing a refusal/cutoff/cancellation from an ordinary tool-only
 // turn — rather than emitting the identical message for all of them.

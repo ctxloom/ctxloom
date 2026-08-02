@@ -208,7 +208,7 @@ func setupTestRegistry(t *testing.T) (*remote.Registry, afero.Fs) {
 // TestSetDefaultRemote_SetAndClear reads the default back via
 // registry.GetDefault() directly and via ListRemotes' Default field — the two
 // real production paths — rather than the now-deleted GetDefaultRemote
-// operation (U086-F03: it had zero production callers; the CLI reads the
+// operation (it had zero production callers; the CLI reads the
 // default off ListRemotesResult.Default).
 func TestSetDefaultRemote_SetAndClear(t *testing.T) {
 	registry, _ := setupTestRegistry(t)
@@ -305,8 +305,8 @@ func (f *limitedWritesFs) OpenFile(name string, flag int, perm os.FileMode) (afe
 	return f.Fs.OpenFile(name, flag, perm)
 }
 
-// TestAddRemote_FailedRollbackIsWarned is a regression guard for U086-F10:
-// AddRemote's rollback paths all did `_ = registry.Remove(req.Name)`, so a
+// TestAddRemote_FailedRollbackIsWarned is a regression guard: AddRemote's
+// rollback paths all did `_ = registry.Remove(req.Name)`, so a
 // rollback that itself failed left a half-registered remote in remotes.yaml
 // with NO signal beyond the original (unrelated) error. This forces exactly
 // that: the initial Add's write succeeds (spending the one write the fake FS
@@ -727,8 +727,8 @@ func TestDiscoverRemotes_AddCommandFormat(t *testing.T) {
 	assert.Equal(t, "ctxloom remote add ctxloom alice/ctxloom", result.Repositories[0].AddCommand)
 }
 
-// TestDiscoverRemotes_AddCommandUsesRepoNameNotOwner is a regression guard for
-// U086-F13: AddCommand used to alias every suggested `remote add` on the repo
+// TestDiscoverRemotes_AddCommandUsesRepoNameNotOwner is a regression guard:
+// AddCommand used to alias every suggested `remote add` on the repo
 // OWNER, so two repos discovered from the same owner rendered IDENTICAL add
 // commands — the second one silently collides with (overwrites) the first
 // remote a user who followed the suggestion registered.
@@ -953,8 +953,8 @@ func (f *pathErrFetcher) ListDir(ctx context.Context, owner, repo, path, ref str
 	return f.MockFetcher.ListDir(ctx, owner, repo, path, ref)
 }
 
-// TestBrowseRemote_RecursiveSubdirErrorIsWarned is a regression guard for
-// U086-F08: browseDir's recursive branch used to `continue` past a
+// TestBrowseRemote_RecursiveSubdirErrorIsWarned is a regression guard:
+// browseDir's recursive branch used to `continue` past a
 // subdirectory listing failure with no warning and no count, so a partial
 // tree was reported as though it were complete. browseTypeItems already
 // surfaces a TOP-LEVEL failure via BrowseRemoteResult.Warnings — a

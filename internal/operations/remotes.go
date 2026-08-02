@@ -118,7 +118,7 @@ type AddRemoteResult struct {
 // failure paths. A failed rollback leaves a half-registered remote sitting in
 // remotes.yaml, and the caller's own error (about the ORIGINAL failure) gives
 // the user no way to learn that — so, unlike a normal best-effort discard,
-// this warns (U086-F10).
+// this warns.
 func rollbackAdd(registry *remote.Registry, name string) {
 	if rerr := registry.Remove(name); rerr != nil {
 		clidiag.Warn("ctxloom", "remote %q: registration rollback failed, a stale entry may remain in remotes.yaml: %v", name, rerr)
@@ -366,7 +366,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 	}
 
 	var allRepos []remote.RepoInfo
-	// U086-F11: named "searchErrs", not "errs" — this file also imports the
+	// Named "searchErrs", not "errs" — this file also imports the
 	// package "github.com/ctxloom/ctxloom/internal/errs" (used at
 	// browseTypeItems' errors.Is(err, errs.ErrRemoteContentNotFound)); a
 	// local `errs` here shadowed it silently, and only compiled because this
@@ -397,7 +397,7 @@ func DiscoverRemotes(ctx context.Context, cfg *config.Config, req DiscoverRemote
 			Stars:       r.Stars,
 			URL:         r.URL,
 			Forge:       string(r.Forge),
-			// U086-F13: the alias is the repo NAME, not the owner — two repos
+			// The alias is the repo NAME, not the owner — two repos
 			// discovered from the same owner used to render identical
 			// AddCommand strings, so following the second suggestion silently
 			// collided with (overwrote) the first remote's registry entry.
@@ -465,7 +465,7 @@ func BrowseRemote(ctx context.Context, cfg *config.Config, req BrowseRemoteReque
 	// Only bundles are distributed at the top level now (top-level profile
 	// distribution was retired; profiles ship inside bundles), so the loop
 	// below always covers exactly one item type regardless of req.ItemType
-	// (U086-F05: browseTypeList used to wrap this and silently ignore its
+	// (browseTypeList used to wrap this and silently ignore its
 	// parameter).
 	for _, itemType := range []remote.ItemType{remote.ItemTypeBundle} {
 		typeItems, typeWarnings := browseTypeItems(ctx, fetcher, owner, repo, rem.URL, itemType, req)
@@ -502,7 +502,7 @@ func resolveBrowseFetcher(cfg *config.Config, rem *remote.Remote, injected remot
 
 // browseTypeItems lists one item type's entries. A genuine "not found" (the
 // type's directory doesn't exist) yields no items and no warnings; any other
-// top-level error, or any subdirectory that failed mid-recursion (U086-F08),
+// top-level error, or any subdirectory that failed mid-recursion,
 // yields warning strings (also echoed to stderr).
 func browseTypeItems(ctx context.Context, fetcher remote.Fetcher, owner, repo, repoURL string, itemType remote.ItemType, req BrowseRemoteRequest) ([]BrowseItemEntry, []string) {
 	basePath := path.Join(paths.RepoContentPrefix, itemType.DirName())
@@ -555,7 +555,7 @@ func browseEntry(e remote.DirEntry, itemType remote.ItemType, repoURL string, re
 
 // browseDir lists directory contents, optionally recursively. warnings
 // collects human-readable messages for subdirectories that failed to list
-// mid-recursion (U086-F08): a subtree failure no longer vanishes silently —
+// mid-recursion: a subtree failure no longer vanishes silently —
 // the caller folds these into BrowseRemoteResult.Warnings exactly like a
 // top-level failure. A subtree's own genuinely-missing-directory case
 // (errs.ErrRemoteContentNotFound) is not itself an error here since ListDir
@@ -732,7 +732,7 @@ func SearchRemotes(ctx context.Context, cfg *config.Config, req SearchRemotesReq
 	// Only bundles are distributed at the top level now (top-level profile
 	// distribution was retired; "fragment" also searches bundles, since
 	// fragments live inside bundles), so this always covers exactly one item
-	// type regardless of req.ItemType (U086-F05: searchTypeList used to wrap
+	// type regardless of req.ItemType (searchTypeList used to wrap
 	// this and silently ignore its parameter).
 	types := []remote.ItemType{remote.ItemTypeBundle}
 	query := remote.ParseSearchQuery(req.Query)
@@ -838,7 +838,7 @@ func searchSingleRemote(ctx context.Context, cfg *config.Config, rem *remote.Rem
 		return nil, err
 	}
 
-	// Try to fetch manifest first (faster). U086-F15: a manifest hit used to
+	// Try to fetch manifest first (faster). A manifest hit used to
 	// win UNCONDITIONALLY, so a stale/partial manifest (one that omits a
 	// bundle actually present on disk — e.g. added out-of-band since the
 	// manifest was last regenerated) permanently hid it: the directory

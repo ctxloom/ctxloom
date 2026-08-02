@@ -77,7 +77,7 @@ func TestRunAttached_CloseIsBoundedWhenTheContainerIgnoresEOF(t *testing.T) {
 	}
 }
 
-// TestRunAttached_RuntimeThatLaunchesNoContainer is U062-F04's regression.
+// TestRunAttached_RuntimeThatLaunchesNoContainer pins a regression.
 // interactiveRunArgs indexed args[0] under a comment claiming "Args always start
 // with 'run' (every Runtime.RunArgs implementation here does)". That invariant is
 // FALSE: Host.RunArgs returns nil — Host launches no container at all — and so
@@ -116,7 +116,7 @@ func attachExitScript(t *testing.T, status int) string {
 	return script
 }
 
-// TestRunAttached_CloseIsCleanWhenTeardownForcedIt is U062-F05's regression.
+// TestRunAttached_CloseIsCleanWhenTeardownForcedIt pins a regression.
 // Close's whole destructive tail — force-remove the container, kill the `run`
 // client — is teardown doing its job on a container that did not take the hint
 // from stdin EOF. cmd.Wait then reports "signal: killed", which Close returned
@@ -174,10 +174,10 @@ func attachRecordingScript(t *testing.T, argvFile, envFile string) string {
 	return script
 }
 
-// TestRunAttached_SpawnEnvKeepsValuesOffTheArgv covers U062-F07 and U062-F06
+// TestRunAttached_SpawnEnvKeepsValuesOffTheArgv covers two regressions
 // together, because they are two halves of one property.
 //
-// F07: RunAttached had no SpawnEnv-equivalent channel, so a caller with a
+// The first: RunAttached had no SpawnEnv-equivalent channel, so a caller with a
 // KEY→VALUE env to deliver had only spec.Env — which renders `-e KEY=VAL` into a
 // `run` argv that stays world-readable via /proc/<pid>/cmdline for the whole life
 // of the container. That is precisely the exposure the rest of this package
@@ -185,7 +185,7 @@ func attachRecordingScript(t *testing.T, argvFile, envFile string) string {
 // on the go-plugin path). The value must reach the container without the argv
 // ever holding it.
 //
-// F06: the bare-name `-e NAME` form only works because the `run` process
+// The second: the bare-name `-e NAME` form only works because the `run` process
 // INHERITS this process's environment — the value is read from there. That was an
 // unstated dependency on cmd.Env being left nil; nothing asserted it, so setting
 // cmd.Env for any reason would have silently dropped the credential a container
@@ -196,7 +196,7 @@ func TestRunAttached_SpawnEnvKeepsValuesOffTheArgv(t *testing.T) {
 	envFile := filepath.Join(dir, "env")
 	script := attachRecordingScript(t, argvFile, envFile)
 
-	// F06: a bare NAME in the spec resolves its value from THIS process's env.
+	// A bare NAME in the spec resolves its value from THIS process's env.
 	t.Setenv("U062_HOST_PASSTHROUGH", "from-the-launcher")
 
 	rt := attachEnvRuntime{fakeRuntime{name: "docker", binary: script, available: true}}

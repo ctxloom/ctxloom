@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 )
 
-// TestCodexInstallFragment_MatchesTheACPTransportDeclaration is U064-F16's
-// pin. The adapter binary name "codex-acp" and its npm package are written
+// TestCodexInstallFragment_MatchesTheACPTransportDeclaration pins that
+// the adapter binary name "codex-acp" and its npm package are written
 // twice — once in this package's image-install fragment, once in
 // internal/codex's ACP-transport descriptor — and the fragment's own comment
 // says to "keep this binary name in sync BY HAND". A comment is not a

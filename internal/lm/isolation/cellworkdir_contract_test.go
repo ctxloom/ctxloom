@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 )
 
-// TestEnvCellWorkDir_MatchesTheCanonicalCoordConstant pins U063-F14. The
+// TestEnvCellWorkDir_MatchesTheCanonicalCoordConstant pins that the
 // isolation package copies coord.EnvCellWorkDir's VALUE as a literal because
 // importing coord would cycle (coord -> lm/backends -> acp -> isolation), and
 // nothing guarded the two staying equal: a rename on either side would leave

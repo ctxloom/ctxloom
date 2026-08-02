@@ -82,8 +82,8 @@ import (
 var curatedHomeAllowlist = []string{".gitconfig", ".ssh"}
 
 // curatedHomeSpec registers one engine whose ONLY host isolation lever is
-// HOME itself. antigravity is the first, and — resolved by sunny-saga's
-// investigation — the ONLY entry: opencode was the other candidate this
+// HOME itself. antigravity is the first, and — resolved by investigation —
+// the ONLY entry: opencode was the other candidate this
 // registry's doc used to flag as "under separate investigation," but it
 // turned out to have a FULL scoped-var lever instead (XDG_CONFIG_HOME /
 // XDG_DATA_HOME, live-verified against opencode 1.18.1 — see
@@ -102,8 +102,8 @@ type curatedHomeSpec struct {
 	// possible payoff (relocating the engine's file writes into the per-agent
 	// checkout) actually holds, given a curated HOME never relocates
 	// authentication for any registered engine (see the package-doc
-	// measurement above; U062-F21 deleted the speculative authIsolated axis —
-	// no registered or hypothetical engine has ever set it true).
+	// measurement above; a prior fix deleted the speculative authIsolated
+	// axis — no registered or hypothetical engine has ever set it true).
 	// False for antigravity: MEASURED 2026-07-22 against agy 1.1.5 (see the
 	// package doc above) — `agy -p` ignores the launch cwd entirely and
 	// always writes to its own fixed global scratch, so the workspace axis
@@ -176,7 +176,7 @@ func provisionCuratedHome(home string) error {
 	}
 	hostHome, err := hostHomeDir()
 	if err != nil {
-		// U062-F03: the resolution error used to be discarded with no
+		// The resolution error used to be discarded with no
 		// warning at all — the caller would then point $HOME at an empty
 		// curated dir and report success. A genuinely empty ALLOWLIST match
 		// (host has neither ~/.gitconfig nor ~/.ssh) is a legitimate host
@@ -194,7 +194,7 @@ func provisionCuratedHome(home string) error {
 			continue // absent on the host — skip; never create a dangling link
 		}
 		if symErr := os.Symlink(src, filepath.Join(home, name)); symErr != nil {
-			// U062-F03: every per-file Symlink failure used to be discarded
+			// Every per-file Symlink failure used to be discarded
 			// with no count and no warning (fails when the destination
 			// already exists, and fails for the whole allowlist on Windows
 			// without the privilege) — now at least loud, even though the

@@ -99,7 +99,7 @@ func TestProvisionCuratedHome_PartialPresenceLinksOnlyWhatExists(t *testing.T) {
 	assert.True(t, os.IsNotExist(err))
 }
 
-// TestProvisionCuratedHome_WarnsOnUnresolvableHostHome pins half of U062-F03:
+// TestProvisionCuratedHome_WarnsOnUnresolvableHostHome pins half of a fix:
 // an os.UserHomeDir error used to be discarded with NO warning at all — the
 // caller then points $HOME at the curated dir (still empty) and reports
 // success. It must now be loud, even though provisioning still succeeds
@@ -116,7 +116,7 @@ func TestProvisionCuratedHome_WarnsOnUnresolvableHostHome(t *testing.T) {
 }
 
 // TestProvisionCuratedHome_WarnsOnSymlinkFailure pins the other half of
-// U062-F03: os.Symlink failing for an allowlisted entry (e.g. the
+// the fix: os.Symlink failing for an allowlisted entry (e.g. the
 // destination somehow already exists) used to be discarded with no count
 // and no warning at all. It must now name the entry that failed.
 func TestProvisionCuratedHome_WarnsOnSymlinkFailure(t *testing.T) {
@@ -141,8 +141,8 @@ func TestProvisionCuratedHome_AllowlistIsExactlyGitconfigAndSSH(t *testing.T) {
 	assert.ElementsMatch(t, []string{".gitconfig", ".ssh"}, curatedHomeAllowlist)
 }
 
-// TestProvisionCuratedHome_ExclusionIsMinimalismNotContainment is U062-F13's
-// pin. The row read the allowlist as a confidentiality boundary and found it
+// TestProvisionCuratedHome_ExclusionIsMinimalismNotContainment pins a
+// finding that read the allowlist as a confidentiality boundary and found it
 // self-contradictory: all of ~/.ssh (every private key) admitted, while
 // ~/.netrc is excluded for "carrying plaintext tokens". The premise is what is
 // wrong. A curated HOME is only ever the HOME env var of a HOST process running
@@ -172,7 +172,7 @@ func TestProvisionCuratedHome_ExclusionIsMinimalismNotContainment(t *testing.T) 
 }
 
 // TestCuratedHomeSpecs_OpencodeNotRegistered pins the dispatch decision
-// directly at the registry level (sunny-saga): opencode has a REAL scoped-var
+// directly at the registry level: opencode has a REAL scoped-var
 // lever (credentialSeedSpecs["opencode"], auth.go) — its whole HOME does not
 // need to move, only XDG_CONFIG_HOME/XDG_DATA_HOME do. Registering it here
 // too would be a mutual-exclusivity bug: PrepareWorkspace consults
@@ -330,7 +330,7 @@ func TestWorktree_Antigravity_ContainerWrappedKeepsWarnOnlyNoRefusal(t *testing.
 // CONFIG_DIR-style (or XDG) lever, so worktree.go deliberately prefers that
 // over a blanket $HOME override (it would strip ~/.gitconfig/ssh identity
 // the worktree still needs for git itself — see provisionConfigHome's doc).
-// opencode is included here as the direct proof for sunny-saga: it must take
+// opencode is included here as the direct proof: it must take
 // the SCOPED-VAR path (credentialSeedSpecs), never the curated-HOME path —
 // curatedhome.go's registry doc explicitly calls out that opencode must NOT
 // be wired there speculatively, since it has a real scoped lever. None of
@@ -370,7 +370,7 @@ func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
 	}
 }
 
-// TestIsolationRegistries_AreDisjoint is U062-F14's pin. The antigravity
+// TestIsolationRegistries_AreDisjoint pins a shape. The antigravity
 // measurement narrative — HOME relocates config/session state, the D-Bus keyring
 // escapes it, `agy -p` ignores the launch cwd — was written out in full in this
 // file's package doc AND retold in auth.go's credentialSeedSpecs doc, two

@@ -65,9 +65,9 @@
 //     transcripts serve history). Consumer credentials are a distinct,
 //     read-only class — see coord/consumer.go.
 //   - D1/D5: ListRunsResult.RunInfo gains parent_run_id so a roster consumer
-//     can render the delegation tree (depth-2 children close manly-grant
-//     (4)/(5)); StartRun/RunStarted already carried parent_run_id (rev 5) —
-//     this only exposes it on the read-side roster projection.
+//     can render the delegation tree; StartRun/RunStarted already carried
+//     parent_run_id (rev 5) — this only exposes it on the read-side roster
+//     projection.
 //
 // Changelog rev 7 -> rev 8 (pre-release, additive; comment-only — no field
 // changes):
@@ -203,7 +203,7 @@
 //     per-run monotonic seq; resume is cursor-based on reconnect.
 //   - HTTP/2 flow control is hop-level. An app-level Ack watermark plus a
 //     credit window WOULD give end-to-end backpressure on the event plane;
-//     neither is implemented today (U016-F10) — the event plane runs on
+//     neither is implemented today — the event plane runs on
 //     HTTP/2 flow control alone. Hello.resume_from_seq / HelloAck.committed_seq
 //     document the gap at the fields themselves.
 //   - proto3 hygiene: *_UNSPECIFIED zero enums, oneof unions,
@@ -347,7 +347,7 @@ message HarnessSpec {
   string harness = 1;    // must be in RunnerHello.harnesses
   string model = 2;
   string workspace = 3;  // working directory / checkout the runner prepares
-  // 4 was extra_args (repeated string), REMOVED 2026-07-26 (U016-F08): it
+  // 4 was extra_args (repeated string), REMOVED 2026-07-26: it
   // documented an allowlist enforcement point that never existed and no
   // runner ever read the field. Reintroducing per-run CLI arguments means
   // building the validation first, then giving it a new field number.
@@ -403,7 +403,7 @@ message StopRun {
     doc: "Why you are stopping this child. Recorded on the run's terminal record and in the coordinator audit log, and shown in the roster's cause — say something a later reader can act on (\"superseded by a narrower brief\", \"wrong base commit\")",
     example: "\"superseded by a narrower brief\""
   }];
-  // 3 was grace (google.protobuf.Duration), REMOVED 2026-07-26 (U016-F04):
+  // 3 was grace (google.protobuf.Duration), REMOVED 2026-07-26:
   // no code path ever read it. The parent->coordinator stop is a hard kill
   // and the runner-control direction never implemented the SIGINT-then-
   // SIGTERM escalation the field implied, so advertising it to the model
@@ -412,7 +412,7 @@ message StopRun {
 }
 
 message StopRunResult {
-  // 1 was exited_within_grace (bool), REMOVED 2026-07-26 (U016-F04): both
+  // 1 was exited_within_grace (bool), REMOVED 2026-07-26: both
   // return paths hardcoded `true`, including the immediate-kill path — a
   // response field asserting an unmeasured fact. Nothing measures it now
   // that `grace` is gone.
@@ -494,7 +494,7 @@ message Hello {
   // Highest seq the agent believes the coordinator has committed
   // (0 on first attach).
   //
-  // NOT YET IMPLEMENTED (U016-F10). The intended contract is that HelloAck
+  // NOT YET IMPLEMENTED. The intended contract is that HelloAck
   // returns the coordinator's own authoritative watermark and the agent
   // re-emits anything above it. The coordinator has no durable event log to
   // derive that watermark from, so it echoes this value straight back
@@ -527,11 +527,11 @@ message AgentIdentity {
 message HelloAck {
   bool accepted = 1;
   google.rpc.Status reject_reason = 2;  // set iff !accepted
-  // Resume cursor. NOT YET AUTHORITATIVE (U016-F10): the coordinator
+  // Resume cursor. NOT YET AUTHORITATIVE: the coordinator
   // echoes Hello.resume_from_seq back unchanged because it keeps no durable
   // event log to compare against. See Hello.resume_from_seq.
   uint64 committed_seq = 3;
-  // 4 was event_window (uint32), REMOVED 2026-07-26 (U016-F10): the
+  // 4 was event_window (uint32), REMOVED 2026-07-26: the
   // app-level credit window was never emitted, never read, and never
   // enforced, so the file's "end-to-end backpressure" claim rested on a
   // field that did not exist at runtime.
@@ -694,8 +694,8 @@ message SpawnAgentRequest {
     example: "{\"prompt\": \"Review the diff on branch X for correctness bugs\"}"
   }];
   // 3 was constraints (google.protobuf.Struct), 4 was budget (BudgetSpec),
-  // 5 was notify_on (enum NotifyOn) — all three REMOVED 2026-07-26
-  // (U016-F01). Every one was projected into agent_run's model-facing tool
+  // 5 was notify_on (enum NotifyOn) — all three REMOVED 2026-07-26.
+  // Every one was projected into agent_run's model-facing tool
   // schema and discarded by serveSpawnAgent: there is no budget carve-out,
   // no constraint enforcement, and no completion-notification machinery.
   // The child's binding (its configured agent) decides model/tools/sandbox;
@@ -712,7 +712,7 @@ message BudgetSpec {
 }
 
 message SpawnAgentResult {
-  // 1 was child_task_id (string), REMOVED 2026-07-26 (U016-F01): never
+  // 1 was child_task_id (string), REMOVED 2026-07-26: never
   // populated, so the model received an always-empty id in every spawn
   // result. ctxloom keys delegation on (harp, run_id); there is no task-id
   // axis.
@@ -830,7 +830,7 @@ message PeerSendRequest {
     doc: "REQUIRED. The message's kind, from a CLOSED vocabulary of exactly four values you may send: MESSAGE_KIND_MESSAGE (plain prose, claiming no special authority), MESSAGE_KIND_RESULT (your findings/verdict/deliverable), MESSAGE_KIND_ERROR (a failure the recipient must act on), MESSAGE_KIND_QUESTION (you expect an answer back). Every OTHER value is the coordinator's own and is REJECTED from a sender, not quietly downgraded — a reserved kind asks the recipient to trust the coordinator's authorship (MESSAGE_KIND_APPROVAL_REQUEST is relayed to a human as a trust decision), so a sender able to set one could borrow that authority. An unrecognised value is likewise REJECTED rather than passed through, and so is leaving this unset: the send fails, naming the four legal values. Nothing you write here is ever interpolated into text the recipient reads — the kind renders only as a name from this closed set.",
     example: "\"MESSAGE_KIND_RESULT\""
   }];
-  // 5 was artifact_ids (repeated string), REMOVED 2026-07-26 (U016-F05):
+  // 5 was artifact_ids (repeated string), REMOVED 2026-07-26:
   // servePeerSend never read it and PeerMessage.artifacts was never
   // populated, so an agent that attached artifact ids to a message sent
   // nothing and the recipient's advertised `artifacts` array was always
@@ -866,7 +866,7 @@ message ListRunsRequest {
   };
 
   // 1 was task_id (string), 4 was include_descendants (bool) — both
-  // REMOVED 2026-07-26 (U016-F02). serveListRuns read neither. There is no
+  // REMOVED 2026-07-26. serveListRuns read neither. There is no
   // task-id axis to scope by, and the roster is ALREADY the whole
   // delegation tree: descendants (D5 grandchildren) are always included and
   // carry parent_run_id, so `include_descendants: true` could only ever
@@ -886,7 +886,7 @@ message ListRunsResult {
     // vocabulary; "ended" is the only terminal one, and entries in it appear
     // only when include_terminal is set. Produced from the roster fold's
     // state (coord/folds.go), which a test pins this list against
-    // (U016-F03 — the documented vocabulary used to name an enum nothing
+    // (the documented vocabulary used to name an enum nothing
     // constructs, so a consumer matching it never matched a single run).
     string phase = 4;
     string latest_summary = 5;     // most recent Summary.text, truncated
@@ -1280,7 +1280,7 @@ message PeerMessage {
   google.protobuf.Struct structured = 5 [(field_schema) = {
     doc: "Structured companion the sender attached, when there is one. A message whose `kind` is MESSAGE_KIND_APPROVAL_REQUEST carries the escalation ladder's ApprovalRequest projection here and is WAITING on you: answer it with agent_send(in_reply_to: this message_id, structured: {\"decision\": \"DECISION_ACCEPT\" | \"DECISION_ACCEPT_FOR_SESSION\" | \"DECISION_DECLINE\" | \"DECISION_CANCEL\", \"note\": \"...\"}). Until that lands the requesting child is blocked, and it is auto-DECLINED if the rung's timeout elapses first. This object no longer carries the message kind — read the `kind` field."
   }];
-  // 6 was artifacts (repeated ArtifactRef), REMOVED 2026-07-26 (U016-F05):
+  // 6 was artifacts (repeated ArtifactRef), REMOVED 2026-07-26:
   // no producer ever set it, so agent_recv advertised an artifacts array
   // that could never appear. See PeerSendRequest's reserved 5.
   reserved 6;

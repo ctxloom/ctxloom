@@ -228,8 +228,8 @@ func TestRuntime_FailSentinelExitsNonzero(t *testing.T) {
 		t.Fatal("fail sentinel did not produce a nonzero exit")
 	}
 	// This used to read `rep.PromptSHA256 == ""`, which could not fail: the
-	// hash was taken over a nil prompt too (U079-F03). Assert the PRESENCE bit
-	// and the delivered bytes, both of which a missing report cannot fake.
+	// hash was taken over a nil prompt too. Assert the PRESENCE bit and the
+	// delivered bytes, both of which a missing report cannot fake.
 	if !rep.PromptPresent {
 		t.Fatal("report was not emitted with the prompt it received on the failing run")
 	}

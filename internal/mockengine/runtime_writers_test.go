@@ -10,7 +10,7 @@ import (
 // Runtime already guards a nil Stdin (readPrompt answers "no prompt arrived"),
 // and already defaults a nil Getenv to the real process reader. Stdout and
 // Stderr had neither treatment, so a partially constructed Runtime took a nil
-// dereference inside fmt.Fprintf rather than degrading (U079-F18).
+// dereference inside fmt.Fprintf rather than degrading.
 //
 // The policy is the one getenv already sets: an absent injection means "use the
 // process's own facility". Discarding would be worse than the panic — the

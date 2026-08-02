@@ -10,7 +10,7 @@ import (
 // CTXLOOM_MOCK_EXIT_CODE is the mock's fault-INJECTION channel: a test sets it
 // to prove ctxloom surfaces a failing engine. A typo in the value used to be
 // dropped on the floor, so the injection silently degraded to "success" and the
-// test asserting a failure went green having injected nothing (U079-F10).
+// test asserting a failure went green having injected nothing.
 func TestDispatch_MalformedExitCodeIsLoud(t *testing.T) {
 	for _, bad := range []string{"seven", "7x", "1.5", "0x7"} {
 		_, err := Dispatch("hello", envMap(map[string]string{EnvExitCode: bad}))

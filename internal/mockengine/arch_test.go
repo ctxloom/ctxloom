@@ -22,8 +22,8 @@ import (
 // fail.
 //
 // This is the instrument this project uses to detect its characteristic bug
-// (exit 0, success message, zero bytes delivered). Three of its limbs had
-// exactly the blindness they exist to catch (U079-F03/F04/F05):
+// (exit 0, success message, zero bytes delivered). Three of its limbs once had
+// exactly the blindness they exist to catch:
 //
 //   - PromptSHA256 hashed a nil prompt to e3b0c442… and was therefore NEVER
 //     empty, so "no prompt was delivered" and "a prompt was delivered" were the

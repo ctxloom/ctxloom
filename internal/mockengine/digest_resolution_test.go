@@ -34,8 +34,8 @@ func digestOf(t *testing.T, cli agent.EngineCLI, argv []string, res Resolver) st
 	return BuildReport(cli, Walk(cli, parsed, res), nil, nil).DiscoveryDigest
 }
 
-// U079-F08: canonicalRendering carries only the STABLE fields, and every
-// discriminator between these two runs lived in Note, which is excluded. So a
+// canonicalRendering carries only the STABLE fields, and every discriminator
+// between these two runs lived in Note, which is excluded. So a
 // probe that could not be RESOLVED at all — ctxloom never passed --settings —
 // hashed identically to a probe that resolved and found NOTHING — ctxloom
 // passed --settings and wrote no file there. Those are different delivery

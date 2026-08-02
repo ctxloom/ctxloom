@@ -9,7 +9,7 @@ import (
 
 // envMap builds a two-value reader over a fixed map, so a test can express
 // "set to the empty string" as distinct from "unset" — the distinction the
-// whole of U079-F11 turns on.
+// tests below turn on.
 func envMap(m map[string]string) func(string) (string, bool) {
 	return func(k string) (string, bool) {
 		v, ok := m[k]
@@ -21,7 +21,7 @@ func envMap(m map[string]string) func(string) (string, bool) {
 // delivered. CTXLOOM_MOCK_RESPONSE is the knob that would let a test prove
 // ctxloom SURFACES a zero-byte engine reply rather than papering over it — and
 // it was unreachable, because the one-value read could not tell
-// CTXLOOM_MOCK_RESPONSE="" from an unset variable (U079-F11).
+// CTXLOOM_MOCK_RESPONSE="" from an unset variable.
 func TestDispatch_EmptyResponseCanBeRequested(t *testing.T) {
 	out, err := Dispatch("hello", envMap(map[string]string{EnvResponse: ""}))
 	if err != nil {

@@ -33,7 +33,7 @@ func emissionRuntime(t *testing.T, reportFile string, stderr, stdout *strings.Bu
 // The discovery report is the entire deliverable of this instrument. A run that
 // could not put it on the channel the caller ASKED for — CTXLOOM_MOCK_REPORT_FILE
 // is set precisely when stderr is not trusted to survive — and still exited 0
-// would be a success message over zero evidence (U079-F20).
+// would be a success message over zero evidence.
 func TestRuntime_ReportFileWriteFailureFailsTheRun(t *testing.T) {
 	dir := t.TempDir()
 	// A path whose PARENT is a regular file: the write fails with ENOTDIR.

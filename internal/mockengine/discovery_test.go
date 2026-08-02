@@ -96,8 +96,8 @@ func recordAt(t *testing.T, rep mockengine.Report, kind, scope string) mockengin
 	return mockengine.ProbeRecord{}
 }
 
-// recordByKind returns the first record of the given kind, or false. U079-F15:
-// this used to be the exported Report.Record method, but it had no production
+// recordByKind returns the first record of the given kind, or false. This used
+// to be the exported Report.Record method, but it had no production
 // caller (test-only convenience) and Report.Records is already an exported
 // field every test in this package can range over directly — recordFor/
 // recordForRel in container_docker_integration_test.go already duplicate this

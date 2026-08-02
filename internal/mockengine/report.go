@@ -54,7 +54,7 @@ type ProbeRecord struct {
 	// was established. os.Stat reports "not there" and "I could not look"
 	// through the same error return, and collapsing both into Present=false
 	// made the instrument that exists to prove delivery report a delivered
-	// surface as undelivered (U079-F06). It is in the digest because a
+	// surface as undelivered. It is in the digest because a
 	// conformance assertion of absence must not go green on a failed
 	// observation. Note carries the underlying error.
 	Unreadable bool `json:"unreadable,omitempty"`
@@ -80,15 +80,15 @@ type ProbeRecord struct {
 	// not in argv at all, or the declared scope has no resolver. Both render as
 	// Present=false, and every byte that told them apart used to live in Note,
 	// which the digest excludes — so "ctxloom never passed --settings" and
-	// "ctxloom passed --settings and wrote nothing there" hashed the same
-	// (U079-F08). They are different delivery failures. It is in the digest for
+	// "ctxloom passed --settings and wrote nothing there" hashed the same.
+	// They are different delivery failures. It is in the digest for
 	// the reason Fallback and Unreadable are.
 	Unresolved bool `json:"unresolved,omitempty"`
 	// Fallback marks a ScopeEnvDir probe whose env var was UNSET, so the root
 	// came from $HOME/<EnvHomeDefault> instead. It is in the digest because
 	// the alternative is a false green on the host path: a developer with a
 	// real ~/.codex gets present:true and a hash of their personal config for
-	// a surface ctxloom never delivered (U079-F04). Root would show it, but
+	// a surface ctxloom never delivered. Root would show it, but
 	// Root is machine-specific and deliberately outside the digest.
 	Fallback bool `json:"fallback,omitempty"`
 	// Note carries the vendor precedence/merge rule or a resolution caveat
@@ -98,7 +98,7 @@ type ProbeRecord struct {
 
 // EnvRecord is one observation of the engine's DECLARED environment contract
 // (agent.EngineCLI SetEnv/StripEnv). That contract existed with no observer at
-// all (U079-F05): a run in which ctxloom stopped setting CTXLOOM_CONTEXT_FILE,
+// all: a run in which ctxloom stopped setting CTXLOOM_CONTEXT_FILE,
 // or stopped stripping a credential, produced a report identical to one where
 // it did — in the instrument whose entire job is to prove delivery.
 type EnvRecord struct {
@@ -145,8 +145,7 @@ type EntryRecord struct {
 	SHA256 string `json:"sha256"`
 	// Unreadable marks an entry that was listed but whose bytes could not be
 	// read. Without it the entry carried an empty SHA256, which looks like a
-	// hash nobody bothered to compute rather than a read that failed
-	// (U079-F07).
+	// hash nobody bothered to compute rather than a read that failed.
 	Unreadable bool `json:"unreadable,omitempty"`
 }
 
@@ -164,7 +163,7 @@ type Report struct {
 	// declared channel. It is separate from the hash for the reason
 	// ProbeRecord.Present is separate from ProbeRecord.SHA256: zero bytes is a
 	// first-class observation, and it is the one this project's characteristic
-	// bug produces (U079-F03).
+	// bug produces.
 	PromptPresent bool `json:"promptPresent"`
 	// PromptSHA256 is sha256 over the EXACT prompt bytes the engine received
 	// (stdin for oneshot), so a test can prove the composed context reached the
@@ -276,7 +275,7 @@ func canonicalRendering(recs []ProbeRecord, env []EnvRecord) string {
 // A zero-byte prompt yields PromptPresent=false and an EMPTY PromptSHA256,
 // mirroring ProbeRecord's "SHA256 is empty when Present is false": hashing
 // nothing produces e3b0c442…, a perfectly ordinary-looking hash, and the field
-// that exists to prove delivery then proves it on every run (U079-F03).
+// that exists to prove delivery then proves it on every run.
 func BuildReport(cli agent.EngineCLI, recs []ProbeRecord, env []EnvRecord, prompt []byte) Report {
 	rep := Report{
 		Engine:          cli.Engine,

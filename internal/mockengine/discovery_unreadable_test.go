@@ -7,10 +7,9 @@ import (
 	"testing"
 )
 
-// TestObservePath_UnreadableIsNotAbsent is U079-F06.
-//
-// observePath collapsed EVERY os.Stat failure into Present=false — the same
-// answer it gives for a path that genuinely is not there. In the one instrument
+// TestObservePath_UnreadableIsNotAbsent pins a real bug: observePath collapsed
+// EVERY os.Stat failure into Present=false — the same answer it gives for a
+// path that genuinely is not there. In the one instrument
 // whose job is to prove delivery, that means a surface ctxloom DID deliver but
 // which the probe could not stat reads as "ctxloom delivered nothing", and the
 // test that trusted it goes red for the wrong reason — or, worse, a conformance
@@ -47,7 +46,7 @@ func TestObservePath_UnreadableIsNotAbsent(t *testing.T) {
 	}
 }
 
-// TestHashDir_WalkErrorIsReported is U079-F07: hashDir discarded WalkDir's
+// TestHashDir_WalkErrorIsReported pins a real bug: hashDir discarded WalkDir's
 // error entirely (`_ = filepath.WalkDir`, plus `if err != nil { return nil }`
 // inside the callback), so a directory that could not be walked produced the
 // same empty listing as an empty directory — and a file that could not be READ

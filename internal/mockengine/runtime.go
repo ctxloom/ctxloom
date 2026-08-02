@@ -171,11 +171,11 @@ func (r *Runtime) render(promptLen int, outcome Outcome) error {
 	case agent.CLISurfaceOneshot:
 		return renderOneshotWire(r.CLI.Engine, r.stdout(), r.Argv, promptLen, outcome)
 	default:
-		// U079-F13: no interactive personality exists (--surface has no
-		// caller, main.go hard-codes oneshot), so this arm used to echo the
-		// response for ANY unknown surface — silently tolerating exactly the
-		// drift renderOneshotWire's own unknown-ENGINE branch refuses. Fail
-		// loud instead, matching that stance.
+		// No interactive personality exists (--surface has no caller, main.go
+		// hard-codes oneshot), so this arm used to echo the response for ANY
+		// unknown surface — silently tolerating exactly the drift
+		// renderOneshotWire's own unknown-ENGINE branch refuses. Fail loud
+		// instead, matching that stance.
 		return fmt.Errorf("mock-engine: no wire adapter for surface %q", r.CLI.Surface)
 	}
 }

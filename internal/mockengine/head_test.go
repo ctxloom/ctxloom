@@ -9,7 +9,7 @@ import (
 // head is documented as returning a bounded, PRINTABLE prefix. It sliced at a
 // fixed byte offset and filtered nothing, so it could hand back half a UTF-8
 // rune and could carry raw control bytes straight out of a binary surface into
-// the report a human reads (U079-F17).
+// the report a human reads.
 func TestHead_NeverSplitsARune(t *testing.T) {
 	// Three-byte runes: 256 is not a multiple of 3, so a byte-offset cut lands
 	// mid-rune.

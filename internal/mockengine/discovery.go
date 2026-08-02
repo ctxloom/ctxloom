@@ -54,15 +54,16 @@ func Walk(cli agent.EngineCLI, argv agent.ParsedArgv, res Resolver) []ProbeRecor
 //
 // This is the same inversion the probe walk performs, applied to the other half
 // of the delivery contract. agent.EngineCLI declares StripEnv precisely because
-// "a strip that silently stopped happening is otherwise invisible" — and until
-// U079-F05 nothing read either list, so invisible is exactly what it was. A
-// variable that is set but EMPTY is recorded as such: a delivery that ran and
-// passed nothing is this project's characteristic bug, not a delivery.
+// "a strip that silently stopped happening is otherwise invisible" — and
+// nothing read either list before this observer existed, so invisible is
+// exactly what it was. A variable that is set but EMPTY is recorded as such: a
+// delivery that ran and passed nothing is this project's characteristic bug,
+// not a delivery.
 // lookup is the TWO-VALUE environment reader, because "unset" and "set to the
 // empty string" must not collapse here of all places. It is never defaulted to
 // the real process environment behind a caller's back: a walk that quietly
 // reads the developer's own environment is the same false green as the $HOME
-// probe fallback (U079-F04).
+// probe fallback.
 func ObserveEnv(cli agent.EngineCLI, lookup func(string) (string, bool)) []EnvRecord {
 	if lookup == nil {
 		lookup = func(string) (string, bool) { return "", false }
@@ -112,7 +113,7 @@ func probeOne(order int, p agent.CLIProbe, cli agent.EngineCLI, argv agent.Parse
 			// DEVELOPER's own ~/.codex — which statts present:true and hashes
 			// their personal config. Without this marker the two runs render
 			// identically in the digest, so the host path greens on evidence
-			// ctxloom never produced (U079-F04).
+			// ctxloom never produced.
 			root = filepath.Join(res.Home, p.EnvHomeDefault)
 			rec.Fallback = true
 			rec.Note = joinNote(rec.Note, "env "+p.EnvVar+" unset — fell back to $HOME/"+p.EnvHomeDefault)
@@ -188,7 +189,7 @@ func observePath(rec ProbeRecord, path string, dir bool) ProbeRecord {
 			// "Not there" and "I could not look" arrive through the same error
 			// return. Only the first establishes absence; reporting the second
 			// as absence makes the instrument that exists to prove delivery
-			// report a delivered surface as undelivered (U079-F06).
+			// report a delivered surface as undelivered.
 			rec.Unreadable = true
 			rec.Note = joinNote(rec.Note, "unstattable: "+err.Error())
 		}
@@ -247,7 +248,7 @@ func hashDir(root string) ([]EntryRecord, error) {
 		e := EntryRecord{Name: rel}
 		if readErr != nil {
 			// Listed but unread: say so. An entry with an empty SHA256 and no
-			// marker is indistinguishable from one nobody hashed (U079-F07).
+			// marker is indistinguishable from one nobody hashed.
 			e.Unreadable = true
 		} else {
 			e.Size = int64(len(b))

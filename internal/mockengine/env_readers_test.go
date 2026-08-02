@@ -7,8 +7,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// U079-F12 reads Runtime.getenv and Resolver.getenv as two readers of ONE
-// concept with contradictory nil policies, and asks for them to be unified.
+// It is tempting to read Runtime.getenv and Resolver.getenv as two readers of
+// ONE concept with contradictory nil policies, and ask for them to be unified.
 // They are two readers of two DIFFERENT concepts, and unifying them would
 // re-open a defect this package already fixed, so these tests pin the
 // difference in both directions.
@@ -31,7 +31,7 @@ func TestRuntimeGetenv_NilReadsTheRealProcessEnvironment(t *testing.T) {
 // policy is the opposite ON PURPOSE: a walk that quietly read the developer's
 // own environment would stat the developer's own ~/.codex and report
 // present:true with a hash of their personal config for a surface ctxloom never
-// delivered (U079-F04). "Never reach past the seam" is the whole point.
+// delivered. "Never reach past the seam" is the whole point.
 func TestResolverGetenv_NilNeverReachesTheProcessEnvironment(t *testing.T) {
 	t.Setenv(envReaderProbeVar, "from-process")
 

@@ -11,7 +11,7 @@ import (
 // no seam by which they could obtain the real driver's, because buildArgs is
 // unexported in every backend and nothing exported returns a spawn argv. These
 // two functions are that argv, lifted out of the docker-gated file so the
-// assertions below bind the very bytes the container run uses (U079-F14).
+// assertions below bind the very bytes the container run uses.
 //
 // containerPrompt is the task both container runs deliver; codex carries it in
 // argv, claude on stdin, which is the whole point of the delivery pin.
@@ -46,9 +46,9 @@ func oneshotCLI(t *testing.T, backend string) agent.EngineCLI {
 	return cli
 }
 
-// U079-F14 says the container test hand-writes the vendor argv, "so the mock
-// constrains the DECLARATION, not the DRIVER". The hand-writing is real. The
-// consequence is not: the driver is bound to the same declaration, in both
+// The container test hand-writes the vendor argv, so the mock constrains the
+// DECLARATION, not the DRIVER. The hand-writing is real. The consequence is
+// not: the driver is bound to the same declaration, in both
 // directions, by its own anti-drift gates (TestEngineCLI_BuildArgsFlagsAreDeclared
 // and TestEngineCLI_EveryDeclaredFlagIsEmitted in internal/claude and
 // internal/codex), and the mock refuses any argv the declaration cannot read.

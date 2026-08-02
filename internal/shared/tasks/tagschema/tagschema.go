@@ -280,8 +280,8 @@ func (s *Schema) Range(target string) (min, max float64, ok bool, err error) {
 // package does not report, deliberately (it mirrors tagma's own hideFact
 // decoding, and hide only ever narrows what a listing shows, never what is
 // stored, matched or ranked); pinned by
-// TestHideFacts_UninterpretableValueIsSkipped, and see U126-F03/F04 for why
-// making it loud is a config-surface decision rather than a fix. A nil Schema
+// TestHideFacts_UninterpretableValueIsSkipped — making it loud would be a
+// config-surface decision rather than a fix. A nil Schema
 // returns nil, same nil-receiver-safety as Get. Order is unspecified (map
 // iteration) — HideConfigFromPatterns's resolution doesn't depend on fact
 // order (a target with both a true and a false fact on record resolves

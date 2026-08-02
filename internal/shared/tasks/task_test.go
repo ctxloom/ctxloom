@@ -390,8 +390,8 @@ func TestSummaryMarshalsSnakeCase(t *testing.T) {
 	}
 }
 
-// TestFilterTasksUnparseableStoredTagIsUnmatchableAndUnannounced measures the
-// consequence half of U120-F16, which the existing leniency pin
+// TestFilterTasksUnparseableStoredTagIsUnmatchableAndUnannounced measures a
+// consequence which the existing leniency pin
 // (TestFilterTasksTagQueryLenientOnUnparseableStoredTag) does not: a stored
 // tag tagma cannot parse is skipped at index time, so a query naming that
 // exact tag — spelled the one way tagma's grammar allows, quoted — matches

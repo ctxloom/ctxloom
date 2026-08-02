@@ -128,7 +128,7 @@ func TestCompileFormula_TagValuesNeverReachTheExpressionText(t *testing.T) {
 	assert.Equal(t, 0.0, got, "an unparseable tag value must be inert (0), never evaluated as an expression")
 }
 
-// TestEval_NonFloat64ResultIsAReturnedErrorNotAPanic pins U126-F05's REFUTED
+// TestEval_NonFloat64ResultIsAReturnedErrorNotAPanic pins a REFUTED
 // verdict: Eval's `v, ok := out.(float64); if !ok { return 0, err }` guard
 // is documented as unreachable via CompileFormula (expr.AsFloat64() already
 // coerces at compile time), which makes it look like dead-weight TRIVIAL

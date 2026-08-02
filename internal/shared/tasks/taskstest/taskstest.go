@@ -6,8 +6,8 @@
 // task-store-specific: internal/testsupport.Isolate/ChangeDir delegate here
 // (it must stay import-cycle-free of testsupport, so the shared tree owns
 // the canonical body — see EnvKeys and ChangeDir's docs), and well over 50
-// call sites across the repo use it directly for exactly that reason
-// (U127-F07). Isolate clears every variable in EnvKeys, the full list
+// call sites across the repo use it directly for exactly that reason.
+// Isolate clears every variable in EnvKeys, the full list
 // production code reads — not merely what the task store itself touches.
 //
 // A test inheriting the ambient session's environment is non-deterministic:
@@ -25,11 +25,11 @@ import (
 // EnvKeys is the canonical, complete set of host/session environment
 // variables ctxloom (and taskloom) production code reads. Isolate clears
 // each so a test inherits none of the ambient session's values.
-// internal/testsupport.EnvKeys is this exact slice (not a copy) — U127-F01
-// found taskstest's own copy covering only 3 of the ~18 variables
+// internal/testsupport.EnvKeys is this exact slice (not a copy) — taskstest's
+// own copy once drifted to covering only 3 of the ~18 variables
 // testsupport's covered, with no guard test to catch the drift: any of the
 // 52+ callers of taskstest.Isolate (this package is used as GENERAL-purpose
-// test isolation well beyond "the task store" — see U127-F07) believed
+// test isolation well beyond "the task store") believed
 // itself isolated and was not. internal/testsupport.TestEnvKeysCoversProductionReads
 // enforces that every CTXLOOM_* variable read in production appears here;
 // since testsupport.EnvKeys is this slice, that guard now covers both names.
@@ -58,7 +58,7 @@ var EnvKeys = []string{
 	"CTXLOOM_CELL_WORKDIR",
 	// coord.EnvAgentCoordinator, read via os.Getenv(coord.EnvAgentCoordinator)
 	// in internal/cli/llm_runner_common.go — same const-read shape as the
-	// quintet above. Found by U142-F01's widened
+	// quintet above. Found by a widened
 	// TestFindUncoveredEnvReads_CatchesConstantIdentifierReads sweep, which
 	// now resolves identifier reads back to their declaring constant instead
 	// of requiring a literal "CTXLOOM_..." string.

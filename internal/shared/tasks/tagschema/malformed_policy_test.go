@@ -13,13 +13,13 @@ import (
 //
 //   - REPORTED. Every structurally malformed declaration is an error --
 //     at parse time (add: unparseable, no namespace, wrong namespace,
-//     unknown facet, no value) or at access time (Range, and Enum since
-//     U126-F01), never silently dropped.
+//     unknown facet, no value) or at access time (Range, and Enum),
+//     never silently dropped.
 //   - THE ONE EXCEPTION. A `hide` value that is not "true"/"false" is
 //     skipped by HideFacts and configures nothing, deliberately -- see that
 //     method's doc and TestHideFacts_UninterpretableValueIsSkipped. Making
 //     it loud changes what an existing config.yaml does, so it is a
-//     config-surface decision, not a sweep's fix (escalated as U126-F04).
+//     config-surface decision, not a sweep's fix.
 //
 // This table is the executable form of that rule: adding a facet whose
 // malformed value is silently dropped fails here, which is what stops the
@@ -62,7 +62,7 @@ func TestMalformedDeclarationPolicy(t *testing.T) {
 	t.Run("exception/hide", func(t *testing.T) {
 		s, err := Parse([]string{`tagma.hide:"triage:cwe"="yes"`})
 		require.NoError(t, err)
-		assert.Empty(t, s.HideFacts(), "documented, deliberate, and the only one — see U126-F04")
+		assert.Empty(t, s.HideFacts(), "documented, deliberate, and the only one")
 	})
 }
 

@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestIsolate_ClearsVarsBeyondTheOriginalThree pins U127-F01: this package's
+// TestIsolate_ClearsVarsBeyondTheOriginalThree pins the fix: this package's
 // own EnvKeys had drifted to cover only 3 of the ~18 variables
 // internal/testsupport.EnvKeys covered ("CTXLOOM_SESSION_HARP",
 // "CTXLOOM_PROJECT_ID", "CTXLOOM_ROOT"), with no guard test to catch the
@@ -43,7 +43,7 @@ func TestIsolate_ClearsVarsBeyondTheOriginalThree(t *testing.T) {
 
 // TestEnvKeys_CoversTheFullProductionSet is a lightweight regression pin
 // against EnvKeys narrowing back down: every variable known (at the time of
-// U127-F01's fix) to matter to isolation must still be present.
+// the fix) to matter to isolation must still be present.
 func TestEnvKeys_CoversTheFullProductionSet(t *testing.T) {
 	known := make(map[string]bool, len(EnvKeys))
 	for _, k := range EnvKeys {
@@ -160,7 +160,7 @@ func TestRestoreDir_SilentOnSuccess(t *testing.T) {
 // asserts. Both the package doc and EnvKeys' doc once scoped this package to
 // "the task store"; that narrow framing is what made a narrow EnvKeys look
 // correct while 50-odd callers relying on it for general isolation were not
-// isolated at all (U127-F01). The docs now say GENERAL-purpose and cite the
+// isolated at all. The docs now say GENERAL-purpose and cite the
 // call-site count as the evidence.
 //
 // A doc claim nobody measures drifts back. This measures it: if the count ever

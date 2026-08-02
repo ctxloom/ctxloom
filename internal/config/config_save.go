@@ -31,9 +31,9 @@ func (c *Config) CommitUpgrade() error {
 //
 // Without it, a stale ~/.ctxloom/config.yaml was upgraded in memory on every
 // single load and never written back: the home file never converged and the
-// upgrade pipeline redid identical work forever (long-ice). The write itself
-// needed no new machinery — the shared committer is keyed on Pending.Path, so
-// "a file other than the ambient one" was never actually the hard part.
+// upgrade pipeline redid identical work forever. The write itself needed no
+// new machinery — the shared committer is keyed on Pending.Path, so "a file
+// other than the ambient one" was never actually the hard part.
 //
 // Same consent rule as CommitUpgrade, and it matters more here: the caller
 // prompts first (the prompt names the path, so a user sees it is their HOME
@@ -122,8 +122,8 @@ func (c *Config) Marshal() ([]byte, error) {
 // unknown fields are preserved across a save. A missing file yields an empty
 // map — that is the normal first-write shape.
 //
-// A file that will not PARSE is refused (U049-F04). The old behaviour warned
-// and returned an empty map, and saveLocked then atomically replaced the file
+// A file that will not PARSE is refused. The old behaviour warned and
+// returned an empty map, and saveLocked then atomically replaced the file
 // with only the sections applyConfigSections emits: every key ctxloom does
 // not model, and every key it does model but this in-memory Config happens
 // not to carry, was destroyed by a command the user ran for an unrelated
@@ -257,9 +257,9 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// Agent-observation viewer settings (prefix key + surround bar). Declared
 	// on configDoc/Fixture when the viewer landed but never wired here — the
 	// THIRD instance of the bug dirty_tree_handler and agent_turn_cap above
-	// each document (U049-F03). Pruned when neither field is set; Surround is
-	// a *bool precisely so an explicit `surround: false` is distinguishable
-	// from unset and survives the round trip.
+	// each document. Pruned when neither field is set; Surround is a *bool
+	// precisely so an explicit `surround: false` is distinguishable from
+	// unset and survives the round trip.
 	setOrDelete(existing, "ui", c.ui.PrefixKey != "" || c.ui.Surround != nil, c.ui)
 	if c.isolationDevcontainerBase != nil {
 		setOrDelete(existing, "isolation_devcontainer_base", true, *c.isolationDevcontainerBase)

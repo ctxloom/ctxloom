@@ -200,7 +200,7 @@ func TestConfig_Save_LeavesNoTempFiles(t *testing.T) {
 	}
 }
 
-// --- U049-F04: an unparseable config.yaml must not be truncated -------------
+// --- an unparseable config.yaml must not be truncated ------------------------
 
 // readExistingConfig exists to preserve unknown keys across a save. When the
 // file will not parse it warned and returned an EMPTY map, and saveLocked

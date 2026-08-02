@@ -73,12 +73,12 @@ func TestUpdate_SerializesConcurrentWritersInProcess(t *testing.T) {
 	}
 }
 
-// TestUpdate_FailsClosedWhenLockCannotBeAcquired pins U109-F01's Manager.Update
-// half: a lock ACQUISITION failure (as opposed to blocking on contention,
-// which filelock.Lock already handles by waiting) used to degrade to an
-// unlocked read-modify-write, silently. Forced here by making the lock
-// file's path a pre-existing directory so os.OpenFile(O_CREATE|O_RDWR)
-// fails outright, with no contention involved.
+// TestUpdate_FailsClosedWhenLockCannotBeAcquired pins Manager.Update's half
+// of the fail-closed-on-lock-failure fix: a lock ACQUISITION failure (as
+// opposed to blocking on contention, which filelock.Lock already handles by
+// waiting) used to degrade to an unlocked read-modify-write, silently.
+// Forced here by making the lock file's path a pre-existing directory so
+// os.OpenFile(O_CREATE|O_RDWR) fails outright, with no contention involved.
 func TestUpdate_FailsClosedWhenLockCannotBeAcquired(t *testing.T) {
 	appDir := managerTestDir(t)
 	mgr := NewManager(WithAppDir(appDir))

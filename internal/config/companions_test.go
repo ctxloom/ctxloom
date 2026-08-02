@@ -206,8 +206,8 @@ func TestCompanionsDisabled_SkipsProbeEntirely(t *testing.T) {
 	assert.Zero(t, probed, "the probe must not be executed at all when companions are disabled")
 }
 
-// TestProbeCompanions_DisabledYieldsNothing (U047-F01) proves ProbeCompanions
-// itself honours the switch at the exec boundary — the prior gate
+// TestProbeCompanions_DisabledYieldsNothing proves ProbeCompanions itself
+// honours the switch at the exec boundary — the prior gate
 // (TestCompanionsDisabled_SkipsProbeEntirely) only proved
 // companionBundleSeed's OWN check short-circuits before ever calling the
 // probe; it never proved ProbeCompanions would refuse to run if something
@@ -227,8 +227,8 @@ func TestProbeCompanions_DisabledYieldsNothing(t *testing.T) {
 }
 
 // TestProbeCompanionLoadouts_DisabledYieldsNothing is ProbeCompanionLoadouts'
-// half of U047-F01: the loadout probe execs companion binaries too, and had
-// no gate of its own either.
+// half of the same fix: the loadout probe execs companion binaries too, and
+// had no gate of its own either.
 func TestProbeCompanionLoadouts_DisabledYieldsNothing(t *testing.T) {
 	t.Cleanup(func() { SetCompanionsDisabled(false) })
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
@@ -261,11 +261,11 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// TestProbeCompanionLoadouts_WedgedCompanionWarns (U047-F04) proves a
-// loadout probe failure that is NOT the ordinary "no loadout subcommand"
-// case (a wedged companion timing out, or any other exec failure) is
-// reported — previously it vanished with zero diagnostic and the run
-// reported success having delivered nothing from that companion.
+// TestProbeCompanionLoadouts_WedgedCompanionWarns proves a loadout probe
+// failure that is NOT the ordinary "no loadout subcommand" case (a wedged
+// companion timing out, or any other exec failure) is reported — previously
+// it vanished with zero diagnostic and the run reported success having
+// delivered nothing from that companion.
 func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
@@ -288,7 +288,7 @@ func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
 // TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet is the contrast: a
 // companion that hasn't adopted the `loadout` protocol yet (ordinary
 // *exec.ExitError, e.g. "unknown command") must NOT warn — that is the
-// common, benign case U047-F04's fix must not turn noisy.
+// common, benign case the fix above must not turn noisy.
 func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
@@ -308,8 +308,8 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 	assert.Empty(t, buf.String(), "an unadopted loadout subcommand is the ordinary case, not a warning")
 }
 
-// TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide (U107-F02) bridges
-// the two ends of the cross-process wire contract this probe's argv and
+// TestCompanionLoadoutOutput_ArgvMatchesTheEmitterSide bridges the two ends
+// of the cross-process wire contract this probe's argv and
 // companionloadout.NewCommand's cobra dispatch both have to agree on
 // (subcommand name, flag name, format value) — previously duplicated as
 // bare string literals with no shared constant and no test exercising both

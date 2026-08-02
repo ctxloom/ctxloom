@@ -580,7 +580,7 @@ func migrateDefaultAgentV6(root *yaml.Node) {
 	// (the migration rewrites the file), after which the next run launches with
 	// a different profile set than the one they configured. Report it the way
 	// migrateLLMv3 reports its own lossy branch: recordMigrationWarning,
-	// surfaced as WarnKindMigrationLossy, fatal in strict mode (U049-F06).
+	// surfaced as WarnKindMigrationLossy, fatal in strict mode.
 	if upgrade.MapValue(agentsMap, "default") == nil {
 		entry := upgrade.EnsureMap(agentsMap, "default")
 		// engine ← llm.defaults.primary (when present), so the synthesized default

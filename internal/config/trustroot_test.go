@@ -98,7 +98,7 @@ func TestTrustRoot_MalformedLineSkippedRestStillLoads(t *testing.T) {
 		"a malformed line is skipped; the valid entries in the same file still load")
 }
 
-// --- U136-F04: an unreadable trust-root location must not vanish ------------
+// --- an unreadable trust-root location must not vanish ----------------------
 
 // denyOpenFs fails Open for one path — "permission denied" without chmod, so
 // the test is deterministic and does not skip under root.
@@ -134,8 +134,8 @@ func TestTrustRoot_UnreadableStore_IsRecordedNotErased(t *testing.T) {
 	require.Error(t, failed[0].Err)
 }
 
-// TestTrustRoot_UnreadableStore_EscalatesViaStrictness (U050-F02) proves an
-// unreadable allowed_signers is not just recorded (the prior test) but
+// TestTrustRoot_UnreadableStore_EscalatesViaStrictness proves an unreadable
+// allowed_signers is not just recorded (the prior test) but
 // ESCALATED — strictness.Fail(ClassTrust, ...), matching EffectiveTrust's
 // fail-closed posture for a corrupt trust store, in addition to the stderr
 // warning. Without this, a `chmod 000`/EACCES/directory-in-its-place could

@@ -178,8 +178,8 @@ type Config struct {
 	isolationBaseContainerfile string
 	// isolationDevcontainerBase toggles auto-detecting the project's
 	// .devcontainer/devcontainer.json (or .devcontainer.json) as the
-	// locally-built agent image's BASE (stark-wheat): "an isolated agent
-	// should run in the environment the human develops in". Default true
+	// locally-built agent image's BASE: "an isolated agent should run in the
+	// environment the human develops in". Default true
 	// (nil = enabled); set false to opt out and keep the embedded default
 	// base (or an explicit isolation_base_containerfile) instead. A tri-state
 	// pointer like ui.Surround — a plain bool's zero value would default to
@@ -193,8 +193,8 @@ type Config struct {
 	// never a silent fallback to the default base.
 	isolationDevcontainerService string
 	// isolationEngines selects which engine fragments compose into the
-	// shared multi-engine agent image (stark-wheat locked decision 3: "all
-	// engines CAN be present, composition is per build") — antigravity,
+	// shared multi-engine agent image (locked decision 3: "all engines CAN
+	// be present, composition is per build") — antigravity,
 	// claude-code, codex, kiro, opencode today (each via its OWN official
 	// installer, one independently-cacheable Containerfile RUN layer). Empty/unset = every
 	// known engine (the biggest image, "one instance runs any engine"); an
@@ -236,7 +236,7 @@ type Config struct {
 	// PendingUpgrade: the caller prompts and the prompt names the path, so
 	// home is never rewritten as a silent side effect of a project-scoped
 	// run. Before that existed, home was upgraded in memory on every load and
-	// never written back — visible, but never converging (long-ice).
+	// never written back — visible, but never converging.
 	homePendingUpgrade *upgrade.Pending
 
 	fs afero.Fs // Filesystem for file operations (nil = OS filesystem)
@@ -355,7 +355,7 @@ type configDoc struct {
 // to reach back into the Config the draft was taken from. Cloning also keeps
 // the two conversions honest with each other — they are near-identical
 // 21-field copies, and one of them silently having weaker ownership than the
-// other is how U049-F05 happened.
+// other is exactly how that class of bug happens.
 func (c *Config) toDoc() configDoc {
 	return configDoc{
 		Version:                      c.version,
@@ -549,9 +549,9 @@ func ResetOverrides() {
 // nil-receiver-safe regardless, so a caller that does pass it cannot panic.
 // newConfigValidatorFn is a test seam over schema.NewConfigValidator: the
 // embedded schema it compiles is a fixed build artifact, so there is no other
-// way to exercise the "schema failed to compile" fallback below (U096-F01)
-// without corrupting a real resource. Production always uses the real
-// constructor; only tests substitute a failing stub.
+// way to exercise the "schema failed to compile" fallback below without
+// corrupting a real resource. Production always uses the real constructor;
+// only tests substitute a failing stub.
 var newConfigValidatorFn = schema.NewConfigValidator
 
 func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
@@ -586,10 +586,10 @@ func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
 func InstallOverridesFromFlags(fs *pflag.FlagSet) error {
 	validator, err := newConfigValidatorFn()
 	if err != nil {
-		// U096-F01: a compile failure here used to be discarded with no trace
-		// at all — worse than loadUncached's sibling fallback below, which at
-		// least zap-warns. The embedded schema is a build-time resource, so
-		// this "can't happen" in a healthy build; if it ever does, KnownPath
+		// A compile failure here used to be discarded with no trace at all —
+		// worse than loadUncached's sibling fallback below, which at least
+		// zap-warns. The embedded schema is a build-time resource, so this
+		// "can't happen" in a healthy build; if it ever does, KnownPath
 		// degrading to "nothing recognized" should be visible, not silent.
 		zap.L().Warn("failed to create config validator for override resolution", zap.Error(err))
 		validator = nil
@@ -892,11 +892,11 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	loader := c.SeededBundleLoader(false)
 	infos, err := loader.List()
 	if err != nil {
-		// U048-F03: the very next loop already fails loudly for a per-file
-		// error (strictness.FailOnce below) — a failure to even LIST the
-		// bundles must not be quieter than a failure to load one of them,
-		// or every bundle-shipped profile silently vanishes from the shared
-		// profile loader with no diagnostic at all.
+		// The very next loop already fails loudly for a per-file error
+		// (strictness.FailOnce below) — a failure to even LIST the bundles
+		// must not be quieter than a failure to load one of them, or every
+		// bundle-shipped profile silently vanishes from the shared profile
+		// loader with no diagnostic at all.
 		strictness.FailOnce(strictness.ClassBundle, "run `ctxloom remote pull` or fix the bundle ref, or pass --degraded",
 			"failed to list bundles for their profiles: %v", err)
 		return nil
@@ -1151,9 +1151,9 @@ var (
 // seeded — but no config.yaml has been written into it yet) is still keyed by
 // its OWN appPath ("missing:" + appPath), not a bare constant: two DIFFERENT
 // app dirs that both currently lack a config.yaml must never collide on the
-// same stamp and serve each other's stale memoized *Config (deaf-rut S5: this
-// collision made TestShowItem_NonInteractiveStdoutUnchanged serve a PRIOR
-// test iteration's already-cleaned-up t.TempDir config on ~every rerun once
+// same stamp and serve each other's stale memoized *Config (this collision
+// made TestShowItem_NonInteractiveStdoutUnchanged serve a PRIOR test
+// iteration's already-cleaned-up t.TempDir config on ~every rerun once
 // memoized, in the same process, at -count>1 — GetConfig()'s ambient memo is
 // a package-level var shared across every test in the binary). No
 // discoverable app dir at all ("" from findAppDir) stays a bare "" — that
@@ -1232,14 +1232,14 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 	configValidator, err := newConfigValidatorFn()
 	if err != nil {
 		zap.L().Warn("failed to create config validator", zap.Error(err))
-		// U096-F01: previously this degraded to "everything is valid" —
-		// zap-only, invisible to the strict-startup gate, which keys
-		// exclusively on cfg.warnings. A schema-compile failure means every
-		// config in this process loads with ZERO validation and every
-		// env/--config-set override is silently reclassified from "known,
-		// set silently" to "unknown, warn" (KnownPath degrades to false for
-		// everything). The embedded schema is a build artifact, so this is a
-		// build defect, not a user condition — surface it as fatal-class.
+		// Previously this degraded to "everything is valid" — zap-only,
+		// invisible to the strict-startup gate, which keys exclusively on
+		// cfg.warnings. A schema-compile failure means every config in this
+		// process loads with ZERO validation and every env/--config-set
+		// override is silently reclassified from "known, set silently" to
+		// "unknown, warn" (KnownPath degrades to false for everything). The
+		// embedded schema is a build artifact, so this is a build defect,
+		// not a user condition — surface it as fatal-class.
 		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindValidate,
 			Text: fmt.Sprintf("config schema failed to compile — config validation and override-key checking are DISABLED for this process: %v", err)})
 		configValidator = nil
@@ -1688,10 +1688,10 @@ func walkUpForAppDir(fs afero.Fs, dir, tempRoot string) (string, bool) {
 		// git worktree, that is a signpost, not a silent walk-past:
 		// resolving straight through to some unrelated ancestor's (or
 		// home's) .ctxloom would silently land the session on the wrong
-		// project — empty config, no profiles, no agents (task
-		// brown-canal, 2026-07-09: an earlier revision had linked
-		// worktrees INHERIT the main worktree's project identity; that
-		// inheritance design was withdrawn in favor of this signpost).
+		// project — empty config, no profiles, no agents (an earlier
+		// revision had linked worktrees INHERIT the main worktree's project
+		// identity; that inheritance design was withdrawn in favor of this
+		// signpost).
 		// worktreeSignpost records a fatal finding through strictness and
 		// the walk continues exactly as it always has — the choke owners
 		// (`ctxloom run`/`mcp`/`acp`) abort on it pre-launch unless
@@ -2079,10 +2079,10 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 
 	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), c.registryFSOptions()...)
 	if err != nil {
-		// U048-F02: this used to be indistinguishable from "no remotes
-		// registered" (the doc's own framing) — a real error (corrupt
-		// remotes.yaml, unreadable dir) silently vanished every
-		// lockfile-pinned remote bundle from assembly/hooks/MCP/commands.
+		// This used to be indistinguishable from "no remotes registered"
+		// (the doc's own framing) — a real error (corrupt remotes.yaml,
+		// unreadable dir) silently vanished every lockfile-pinned remote
+		// bundle from assembly/hooks/MCP/commands.
 		strictness.FailOnce(strictness.ClassBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
 			"failed to open the remotes registry; no remote bundles loaded: %v", err)
 		return nil

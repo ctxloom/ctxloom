@@ -31,10 +31,10 @@ var embeddedAllowedSigners string
 //
 // It is a READ view — every entry, unfiltered, including any this machine has
 // locally suppressed (see SuppressedEmbeddedPrincipals). Callers outside this
-// package (operations.ListSigners/ShowSigner — the oozy-plod (a) visibility
-// fix) enumerate the compiled-in entries through it rather than duplicating
-// the //go:embed. allowedsigners.Store exposes no mutator, so the embedded
-// root is visible without becoming editable.
+// package (operations.ListSigners/ShowSigner) enumerate the compiled-in
+// entries through it rather than duplicating the //go:embed.
+// allowedsigners.Store exposes no mutator, so the embedded root is visible
+// without becoming editable.
 func EmbeddedSigners() *allowedsigners.Store {
 	store, _, err := allowedsigners.Parse(strings.NewReader(embeddedAllowedSigners))
 	if err != nil || store == nil {
@@ -44,7 +44,7 @@ func EmbeddedSigners() *allowedsigners.Store {
 }
 
 // TrustRoot returns the union of every allowed_signers location: ctxloom's
-// embedded defaults (MINUS any locally suppressed entry — oozy-plod (b), see
+// embedded defaults (MINUS any locally suppressed entry — see
 // SuppressedEmbeddedPrincipals/filterSuppressedPrincipals below), the user
 // store (~/.ctxloom/allowed_signers), and the project store
 // (.ctxloom/allowed_signers). All locations are unioned — a key counts for
@@ -73,8 +73,8 @@ func (c *Config) TrustRoot() *allowedsigners.Store {
 }
 
 // embeddedSignersTrusted returns the embedded trust root minus any entry
-// whose principal this machine has locally distrusted (oozy-plod (b)). The
-// compiled-in bytes never change — nothing here edits
+// whose principal this machine has locally distrusted. The compiled-in
+// bytes never change — nothing here edits
 // embedded_signers.allowed_signers or the binary — this filters the STORE
 // value fresh on every call, so a suppression written mid-session (`signer
 // remove <embedded-principal>`) takes effect on the very next trust decision
@@ -90,7 +90,7 @@ func (c *Config) embeddedSignersTrusted() *allowedsigners.Store {
 
 // filterSuppressedPrincipals returns a copy of store with every entry whose
 // Principals list contains a suppressed principal removed. This is the actual
-// SUBTRACTION primitive oozy-plod (b) needed: allowedsigners.Store.decide()
+// SUBTRACTION primitive needed here: allowedsigners.Store.decide()
 // (store.go:100) is purely additive with no negative-entry concept, and
 // Union (store.go:35) only ever concatenates — so this is new machinery, not
 // a reuse of the existing content-item REJECTION mechanism (that beats a
@@ -171,10 +171,10 @@ func (c *Config) distrustedSignersPaths() []string {
 // parseAllowedSigners' case with the DIRECTION REVERSED, and the old doc here
 // had it backwards: fewer suppressions means MORE embedded keys trusted, so
 // an unreadable file silently re-trusts a key the operator explicitly removed
-// — a human's "no" quietly reversed, which is the same shape as U137-F03 on
-// the reject path. It stays non-fatal (failing closed here would suppress
-// every embedded principal, i.e. withhold all first-party content over a
-// permissions problem), but it must never be silent.
+// — a human's "no" quietly reversed, the same shape as a silently-reversed
+// rejection on the reject path. It stays non-fatal (failing closed here would
+// suppress every embedded principal, i.e. withhold all first-party content
+// over a permissions problem), but it must never be silent.
 //
 // A file that opens and then stops PART WAY THROUGH is the same degradation
 // wearing a success's clothes: a mid-read I/O error, or a line past
@@ -223,8 +223,8 @@ func (c *Config) allowedSignersPaths() []string {
 // be erased: this returned nil, Union skipped nil, and the resulting trust
 // root was byte-identical to one where the file did not exist. Every key that
 // file listed silently stopped counting, with no warning on the way out and
-// nothing on the Store to ask afterwards (U136-F04). It now warns and returns
-// a FailedSource, so the failure rides on the union as provenance for any
+// nothing on the Store to ask afterwards. It now warns and returns a
+// FailedSource, so the failure rides on the union as provenance for any
 // caller that needs to refuse rather than guess.
 func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.Store {
 	f, err := fs.Open(path)
@@ -232,11 +232,11 @@ func (c *Config) parseAllowedSigners(fs afero.Fs, path string) *allowedsigners.S
 		if os.IsNotExist(err) {
 			return nil // absent: no keys from here, and that is a real answer
 		}
-		// U050-F02: a real error here (EACCES, a directory in its place) is
-		// NOT the same fact as "absent" — it silently disarmed the on-disk
-		// trust root with no finding beyond the stderr line. Escalate it,
-		// matching EffectiveTrust's fail-closed posture for a corrupt trust
-		// store, in addition to the warning.
+		// A real error here (EACCES, a directory in its place) is NOT the
+		// same fact as "absent" — it silently disarmed the on-disk trust
+		// root with no finding beyond the stderr line. Escalate it, matching
+		// EffectiveTrust's fail-closed posture for a corrupt trust store, in
+		// addition to the warning.
 		clidiag.Warn("ctxloom", "allowed_signers %s exists but cannot be read, its keys are NOT trusted this session: %v", path, err)
 		strictness.Fail(strictness.ClassTrust, "make the allowed_signers file readable, or remove it",
 			"allowed_signers %s exists but cannot be read: %v", path, err)

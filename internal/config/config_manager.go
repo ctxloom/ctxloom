@@ -64,27 +64,27 @@ func NewManager(opts ...LoadOption) *Manager {
 //     very next Load() sees the write.
 //   - A lock ACQUISITION failure (as opposed to ordinary blocking on
 //     contention, which the lock already waits out) fails the whole call
-//     closed (U109-F01) — filelock.Lock can only error on a persistent
-//     environmental failure, exactly when writing unlocked would be least
-//     safe, so this never silently degrades to an unlocked read-modify-write.
+//     closed — filelock.Lock can only error on a persistent environmental
+//     failure, exactly when writing unlocked would be least safe, so this
+//     never silently degrades to an unlocked read-modify-write.
 func (m *Manager) Update(fn func(*Draft) error) error {
 	// Resolve the target path first, UNLOCKED — this only walks directories
 	// (findAppDir) to learn WHICH config.yaml is in play, touching none of
 	// its bytes, so there is nothing here for a concurrent writer to race.
-	// U049-F15: this used to be a full loadUncached() — schema validation,
-	// every config layer, the upgrade pipeline, bundle-profile seeding — run
-	// and discarded, solely to learn a path and an fs. resolveUpdateTarget
-	// does only the bootstrap stage-1 resolution that path actually needs.
+	// This used to be a full loadUncached() — schema validation, every
+	// config layer, the upgrade pipeline, bundle-profile seeding — run and
+	// discarded, solely to learn a path and an fs. resolveUpdateTarget does
+	// only the bootstrap stage-1 resolution that path actually needs.
 	fs, injectedFS, configPath, err := resolveUpdateTarget(m.opts...)
 	if err != nil {
 		return fmt.Errorf("resolve config path: %w", err)
 	}
 
-	// U109-F01: see Save's identical fix — filelock.Lock is BLOCKING, so an
-	// error from it is a persistent environmental failure, never transient
-	// contention. Proceeding unlocked on that failure is exactly backwards:
-	// it discards the read-modify-write serialization this method exists to
-	// provide, silently, on every subsequent Update call. Fail closed.
+	// See Save's identical fix: filelock.Lock is BLOCKING, so an error from
+	// it is a persistent environmental failure, never transient contention.
+	// Proceeding unlocked on that failure is exactly backwards: it discards
+	// the read-modify-write serialization this method exists to provide,
+	// silently, on every subsequent Update call. Fail closed.
 	if !injectedFS {
 		unlock, lerr := filelock.Lock(filelock.PathFor(configPath))
 		if lerr != nil {

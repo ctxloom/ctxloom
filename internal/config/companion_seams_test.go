@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U047-F14 claimed the exec/PATH seams (companionProbeTimeout,
+// A review pass once claimed the exec/PATH seams (companionProbeTimeout,
 // companionProbeWaitDelay, companionVersionOutput, companionLoadoutOutput,
 // pathDirs, readDir) are unsynchronised package vars READ FROM GOROUTINES while
 // the exported Set*ForTesting helpers WRITE them without a lock.
@@ -29,7 +29,7 @@ import (
 //     runs -race on every invocation, so the detector has had every opportunity
 //     and has never fired here.
 //
-// What the row does correctly identify is that the safety is UNSTATED and rests
+// What that claim does correctly identify is that the safety is UNSTATED and rests
 // on the probes' internal structure. So the answer is a pin, not a lock: this
 // drives both probes concurrently with the seams installed once — production's
 // read pattern — and asserts every probe observed the installed values. If

@@ -389,11 +389,11 @@ func TestConfigUpgrades_MalformedYAMLUnchanged(t *testing.T) {
 	assert.Equal(t, in, out)
 }
 
-// U049-F06. The collision branch — a hand-authored agents.default already
-// exists, so profiles.defaults cannot be synthesized into it — DELETES the
-// user's default profile list and says nothing. That is an irreversible
-// on-disk loss (the migration rewrites the file), and the next run silently
-// launches with a different profile set than the one the user configured.
+// The collision branch — a hand-authored agents.default already exists, so
+// profiles.defaults cannot be synthesized into it — DELETES the user's
+// default profile list and says nothing. That is an irreversible on-disk
+// loss (the migration rewrites the file), and the next run silently launches
+// with a different profile set than the one the user configured.
 //
 // migrateLLMv3 already does the right thing for its own lossy branch:
 // recordMigrationWarning, surfaced as WarnKindMigrationLossy, fatal in strict

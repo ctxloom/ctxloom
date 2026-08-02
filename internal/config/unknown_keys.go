@@ -191,7 +191,7 @@ func unknownKeyMessage(configPath, instanceLocation, key string, validator *sche
 		return b.String()
 	}
 
-	// U096-F02: this used to re-walk the RAW schema JSON by hand
+	// This used to re-walk the RAW schema JSON by hand
 	// (configSchemaDocument/knownKeysAt) and get it wrong the moment the
 	// violated object sat behind an anyOf/oneOf/allOf branch (e.g. any
 	// llm.configs.<label> entry) — the raw walker expected a map at every

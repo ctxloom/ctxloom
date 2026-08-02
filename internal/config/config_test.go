@@ -2032,9 +2032,9 @@ llm:
 	assert.NotEmpty(t, cfg.warnings)
 }
 
-// U096-F01: a schema-COMPILE failure (as opposed to a document that fails
-// validation against a good schema) used to degrade to "everything is
-// valid" — zap-only, invisible to cfg.warnings and therefore invisible to the
+// A schema-COMPILE failure (as opposed to a document that fails validation
+// against a good schema) used to degrade to "everything is valid" —
+// zap-only, invisible to cfg.warnings and therefore invisible to the
 // strict-startup gate, which keys exclusively on that slice. Force the
 // compile step itself to fail via the newConfigValidatorFn seam (the real
 // embedded schema cannot be made to fail without corrupting a build

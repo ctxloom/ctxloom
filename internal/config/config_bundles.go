@@ -113,8 +113,8 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// loop at the bottom of this function — after the builtin merge and the
 	// companion loop had already put their servers in — so a profile saying
 	// `exclude_mcp: [taskloom]` silently got taskloom's companion server
-	// anyway, with no diagnostic (U049-F02). exclude_mcp now means the same
-	// thing whichever source offered the server.
+	// anyway, with no diagnostic. exclude_mcp now means the same thing
+	// whichever source offered the server.
 	//
 	// The set is the UNION across every profile in scope, i.e. an exclusion is
 	// a VETO rather than a per-profile-local filter. That is a deliberate

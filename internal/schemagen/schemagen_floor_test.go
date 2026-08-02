@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// U097-F02: Generate with zero targets succeeded silently — MkdirAll succeeded,
+// Generate with zero targets used to succeed silently — MkdirAll succeeded,
 // the sort was a no-op, the loop iterated zero times, and it returned nil. The
 // caller then printed "gen-schemas: wrote 0 schemas" and exited 0.
 //
@@ -45,8 +45,8 @@ func TestGenerate_WritesTheTargetsItIsGiven(t *testing.T) {
 	}
 }
 
-// TestGenerate_CollidingTargetNamesAreRefused pins U003-F04: two targets that
-// resolve to the SAME file base silently overwrote each other on disk, and the
+// TestGenerate_CollidingTargetNamesAreRefused pins that two targets that
+// resolve to the SAME file base used to silently overwrite each other on disk, and the
 // caller reported one schema per TARGET — so the count could never disclose it.
 // A name collision is a lying contract (one $id, two different shapes, last
 // writer wins) and must be refused before anything is written.
@@ -77,7 +77,7 @@ func TestGenerate_CollidingTargetNamesAreRefused(t *testing.T) {
 	}
 }
 
-// TestGenerate_ReportsFilesWrittenNotTargetsGiven pins U003-F04's other half:
+// TestGenerate_ReportsFilesWrittenNotTargetsGiven pins the other half:
 // the success count comes from Generate, which knows what it wrote, rather than
 // from len(targets) at the call site, which only knows what it asked for.
 func TestGenerate_ReportsFilesWrittenNotTargetsGiven(t *testing.T) {
@@ -104,12 +104,12 @@ func TestGenerate_ReportsFilesWrittenNotTargetsGiven(t *testing.T) {
 	}
 }
 
-// TestGenerate_DoesNotPruneStaleSchemas characterizes U003-F05's mechanism,
-// which is real: Generate only ever writes, so a schema for a result type that
+// TestGenerate_DoesNotPruneStaleSchemas characterizes a real mechanism:
+// Generate only ever writes, so a schema for a result type that
 // has since been renamed or deleted survives in the output directory
-// indefinitely. The claim's CONSEQUENCE — that //go:embed then ships the stale
-// file inside the binary — no longer holds: resources/embed.go embeds
-// schema/input explicitly, not all:schema, and
+// indefinitely. One might expect that survival to leak: that //go:embed then
+// ships the stale file inside the binary. It does not: resources/embed.go
+// embeds schema/input explicitly, not all:schema, and
 // TestEmbeddedFS_ExcludesGeneratedSchemas pins that.
 //
 // So the survival below is stated behaviour, not an accident, and the reported
@@ -140,7 +140,7 @@ func TestGenerate_DoesNotPruneStaleSchemas(t *testing.T) {
 	}
 }
 
-// TestGenerate_DoesNotReorderTheCallersSlice pins U097-F03: Generate sorted the
+// TestGenerate_DoesNotReorderTheCallersSlice pins that Generate used to sort the
 // targets slice it was handed, and sort.Slice sorts the caller's backing array
 // in place. A caller that builds a target list, hands it over, and then reads
 // it back (to report on it, to diff it, to hand the same slice to a second
@@ -180,7 +180,7 @@ func TestGenerate_DoesNotReorderTheCallersSlice(t *testing.T) {
 	}
 }
 
-// TestGenerate_UnderivableNameIsRefused pins U097-F04's concrete half: when a
+// TestGenerate_UnderivableNameIsRefused pins the concrete case: when a
 // target carries no explicit Name, the file base and the published $id are
 // derived from reflect.Type.Name() — and that is the empty string for every
 // unnamed type (an anonymous struct, a pointer, a slice, a map). The derivation

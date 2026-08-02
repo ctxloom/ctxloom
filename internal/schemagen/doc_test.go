@@ -9,7 +9,7 @@ package schemagen
 // every shipped binary whether or not schemagen is built, and go.mod would
 // require the module even if this package were deleted.
 //
-// U097-F07's claim was that the tag's isolation stopped at the module graph.
+// doc.go used to claim the tag's isolation stopped at the module graph.
 // Measurement says it stops earlier than that: at the binary. The two
 // assertions below are what keep the corrected prose honest — if the SDK ever
 // drops the dependency, the second one fails and doc.go must be revised again

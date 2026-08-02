@@ -45,18 +45,17 @@ type Target struct {
 // (indented JSON, map-keyed properties) so re-running Generate over the same
 // targets is a byte-identical no-op diff — useful for reproducibility, but
 // NOT checked by CI: schemaDir is gitignored (see cmd/gen-schemas/main.go's
-// doc), so there is nothing checked-in to regenerate-then-git-diff against.
-// U097-F01: this comment used to claim a "regenerate-then-git-diff CI check"
-// that has never existed (`rg -n gen-schemas-check .` finds no recipe
-// anywhere) — determinism here is worth having for its own sake, not because
-// of a gate that isn't real. An unrepresentable type is a hard error — a
+// doc), so there is nothing checked-in to regenerate-then-git-diff against —
+// determinism here is worth having for its own sake, not because of a
+// regenerate-then-git-diff CI gate, which does not exist. An unrepresentable
+// type is a hard error — a
 // silently dropped field would be a lying contract.
 //
 // It returns the number of files it wrote, so a caller reports what was
 // generated rather than what it asked for; the two can only differ when
 // something went wrong, and the caller's own count could never disclose that.
 func Generate(dir string, targets []Target) (int, error) {
-	// U097-F02: zero targets used to succeed silently — MkdirAll, a no-op sort,
+	// Zero targets used to succeed silently — MkdirAll, a no-op sort,
 	// a loop over nothing, return nil — and the caller printed "wrote 0
 	// schemas" and exited 0. Both target providers sit behind `//go:build
 	// schemagen`, so a tag typo or a file move empties the list rather than

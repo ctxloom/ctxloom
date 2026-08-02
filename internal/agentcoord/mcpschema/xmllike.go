@@ -319,7 +319,7 @@ func fieldGetter(fld protoreflect.FieldDescriptor) string {
 // code") is literally true: there is no hand-written frame construction
 // anywhere in the repo for a future edit to get wrong.
 //
-// Zero frames is an ERROR, not an empty file (the U027-F01 lesson from the
+// Zero frames is an ERROR, not an empty file (the same lesson from the
 // binding table): a generator that silently removed every encoder would take
 // the injected-frame surface with it and report success.
 func RenderXmlLikeGo(pkg string, frames []XmlLikeFrame) ([]byte, error) {

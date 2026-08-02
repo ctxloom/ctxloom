@@ -77,7 +77,7 @@ type Endpoint struct {
 // state dir) is skipped SILENTLY, not erred: that is the common, expected
 // case, and the caller simply tries the next candidate.
 //
-// U025-F02: every OTHER way a candidate fails to become an endpoint (the
+// Every OTHER way a candidate fails to become an endpoint (the
 // user home dir unresolvable, the glob itself erroring, a candidate file
 // present but unreadable, or present but undecodable JSON) used to collapse
 // into that exact same silent skip, with no error channel at all — so the

@@ -107,7 +107,7 @@ type genResult struct {
 // generateSchemas writes one schema per binding into an EXISTING goldens
 // directory, then removes the generated schemas no binding claims any more.
 //
-// An EMPTY binding table is a failure (U027-F01). The generator used to
+// An EMPTY binding table is a failure. The generator used to
 // complete having written zero files, printing nothing and exiting 0 — its only
 // stdout line lived inside the loop, so a run that did nothing could not say
 // so, and these schemas are checked in and embedded as the live MCP tool

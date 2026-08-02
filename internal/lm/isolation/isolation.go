@@ -35,7 +35,7 @@ import (
 const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox"
 
 // NOTE on a formerly-here antigravityNoLeverFixIt / host+worktree antigravity
-// refusal (task sweet-fruit): that gate claimed antigravity "has no
+// refusal: that gate claimed antigravity "has no
 // config-home lever at all" and blocked host+worktree isolation for it
 // (a fatal ClassIsolation finding the choke owner aborted strict runs on).
 // The premise was measurably FALSE — HOME does relocate agy's config and
@@ -67,7 +67,7 @@ type Workspace interface {
 // agent without engine-specific logic. The run's approval posture resolves
 // wholly from config/CLI/agent (agent.PermissionMode), independent of which
 // strategy is in play — an approvals axis on Policy was tried and deleted as
-// dead (U063-F03): none of the three strategies' resolvers ever consulted it.
+// dead: none of the three strategies' resolvers ever consulted it.
 type Policy interface {
 	// Name identifies the policy ("none" | "worktree" | "container"), for
 	// diagnostics and config round-tripping.
@@ -92,7 +92,7 @@ type Policy interface {
 	// the process-global launcher env, racy across concurrent spawns).
 	SpawnClient(backendName, label string, verbosity int, ws Workspace, spawnEnv map[string]string) (pb.Client, error)
 	// StartRunner launches the engine RUNNER process for a prepared workspace
-	// with NO go-plugin transport — the StartRun spawn half (queer-shrug Phase
+	// with NO go-plugin transport — the StartRun spawn half (Phase
 	// 1). Container → a docker/podman `run` of `ctxloom llm host <backend>`
 	// with NO plugin socket mount, NO port publish, NO PLUGIN_*/magic-cookie
 	// env (the session-state/auth/overlay mounts and the bare-name `-e`
@@ -141,7 +141,7 @@ func StderrTailOf(h *RunnerHandle) string {
 }
 
 // EngineStarter is the StartRun spawn-half seam that replaces pb.ClientFactory
-// on the delegated StartEngine path (queer-shrug Phase 1). It binds a policy +
+// on the delegated StartEngine path (Phase 1). It binds a policy +
 // prepared workspace + backend/label/verbosity + runner env into a single
 // launch closure; the go-plugin handshake the factory completed eagerly is
 // gone (awaitRunner owns readiness). Defined here — not in operations — so
@@ -322,7 +322,7 @@ func warnUnknownAxes(a Axes) {
 // on-the-fly local build layers the engine's agent stage onto instead of an
 // auto-detected devcontainer / the embedded default base. AppRoot +
 // NoDevcontainerBase + DevcontainerService drive the auto-detected project
-// devcontainer base (stark-wheat); Engines selects a COMPOSABLE backend's
+// devcontainer base; Engines selects a COMPOSABLE backend's
 // engine set. Zero value = the backend profile's defaults (devcontainer
 // auto-detect ON, engines = every known official-installer fragment).
 type ImageConfig struct {
@@ -389,8 +389,8 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 	if axes.WantsWorktree() {
 		// Workspace-only isolation, no runtime dependency — the git-repo check
 		// and the worktree-add both degrade to None inside PrepareWorkspace
-		// (prepareChain warns). This is the PURE host+worktree path
-		// (grave-prize): NewWorktree carries backend so PrepareWorkspace can
+		// (prepareChain warns). This is the PURE host+worktree path:
+		// NewWorktree carries backend so PrepareWorkspace can
 		// provision whichever host isolation lever the backend registers —
 		// a scoped config-home var (credentialSeedSpecs, auth.go) for
 		// claude/codex/kiro, or a curated scratch HOME (curatedHomeSpecs,

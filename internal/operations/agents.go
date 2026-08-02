@@ -323,10 +323,10 @@ func hasAnyProfiles(cfg *config.Config) bool {
 	return len(list) > 0
 }
 
-// ResolvedAgent is an agent resolved into something run / map / weave can
+// ResolvedAgent is an agent resolved into something run / agent_run can
 // consume: its profiles composed into ONE assembled context, plus the engine
-// applied as the backend (overriding the composed profiles' llm). Phase C wires
-// map/weave to fan across these; Phase B provides the resolver and the entity.
+// applied as the backend (overriding the composed profiles' llm). Phase B
+// provides the resolver and the entity.
 type ResolvedAgent struct {
 	Name string `json:"name"`
 	// Engine is the agent's DECLARED engine (may be empty); Label is the
@@ -380,7 +380,7 @@ type ResolvedAgent struct {
 //
 //  1. compose the agent's profiles[] into one assembled context, via the
 //     shared multi-profile assembly path (AssembleContext with Profiles) — the
-//     same profile loader run/map/weave resolve through, so local, top-level
+//     same profile loader run/agent_run resolve through, so local, top-level
 //     remote, and bundle profiles ("<bundle>#profiles/<name>") all work, and the
 //     merge mirrors profile-parent semantics (later wins / union);
 //  2. apply the agent's engine as the backend, OVERRIDING the composed
@@ -401,17 +401,18 @@ func ResolveAgent(ctx context.Context, cfg *config.Config, name, engineOverride 
 	return resolveAgentBinding(ctx, cfg, name, sub, engineOverride, nil)
 }
 
-// resolveAgentBinding is the shared compose+engine core ResolveAgent and
-// the map/weave fan both go through, so the engine-override precedence and the
-// profile composition live in exactly one place (no duplication across the
-// named-agent path and the bare-profile-sugar path).
+// resolveAgentBinding is the shared compose+engine core ResolveAgent goes
+// through, so the engine-override precedence and the profile composition live
+// in exactly one place. Its name/sub split is general enough that a fan-out
+// caller could once build a synthetic bare-profile agent here too (the retired
+// map/weave member path did); ResolveAgent's sole surviving caller always
+// passes a real configured agent.
 //
-//   - name is the member identifier (a real agent name, or a bare profile
-//     used as sugar); it labels the result and the no-profiles warning.
-//   - sub is the binding to resolve: a configured agent, or a synthetic
-//     single-profile/empty-engine agent the fan builds for a bare profile.
+//   - name is the agent identifier; it labels the result and the no-profiles
+//     warning.
+//   - sub is the binding to resolve — a configured agent.
 //   - engineOverride, when non-empty, REPLACES the agent's declared engine for
-//     this resolution (the map/weave -l/--llm member override wins over the
+//     this resolution (a caller-level -l/--llm override wins over the
 //     binding's own engine). Empty leaves the binding's engine in force.
 //   - loader, when non-nil, is the bundle loader used to assemble the context (a
 //     test seam / shared loader); nil falls back to the gated exposure loader.
@@ -443,7 +444,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		return nil, fmt.Errorf("agent %q: compose profiles: %w", name, err)
 	}
 
-	// Effective engine: an explicit override (map/weave --llm) wins over the
+	// Effective engine: an explicit override (a caller-level --llm) wins over the
 	// binding's declared engine; either then beats the composed profiles' llm,
 	// then the project default — the same precedence run/oneshot use.
 	engine := sub.Engine
@@ -482,28 +483,4 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		Coordinator: sub.Coordinator,
 		Driving:     sub.Driving,
 	}, nil
-}
-
-// resolveMember resolves one map/weave member identifier into the engine +
-// composed context it runs with. A name matching a configured agent resolves
-// via that agent's {engine, profiles}; any other name is a BARE PROFILE used
-// as sugar — an implicit single-profile, default-engine agent (compose just
-// that profile; its engine falls back to the profile's own llm then the project
-// default, i.e. exactly the pre-Phase-C member behavior). An empty member is the
-// default-profile member: it composes the configured default profiles.
-//
-// Both paths route through resolveAgentBinding, so a bare profile reuses the
-// agent compose/engine logic verbatim rather than re-deriving it.
-func resolveMember(ctx context.Context, cfg *config.Config, member, engineOverride string, loader *bundles.Loader) (*ResolvedAgent, error) {
-	if sub, ok := cfg.Agent(member); ok {
-		return resolveAgentBinding(ctx, cfg, member, sub, engineOverride, loader)
-	}
-	// Bare-profile sugar: a synthetic single-profile, empty-engine agent. An
-	// empty member carries no profile so the composition degrades to the
-	// configured defaults (matching the old RunOneshot(Profile:"") member).
-	syn := agents.Agent{Name: member}
-	if member != "" {
-		syn.Profiles = []string{member}
-	}
-	return resolveAgentBinding(ctx, cfg, member, syn, engineOverride, loader)
 }

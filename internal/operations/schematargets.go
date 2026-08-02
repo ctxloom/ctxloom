@@ -68,7 +68,5 @@ func SchemaTargets() []schemagen.Target {
 		{Type: reflect.TypeOf(SyncDependenciesResult{})},
 		{Type: reflect.TypeOf(UpdateBundleResult{})},
 		{Type: reflect.TypeOf(UpdateProfileResult{})},
-		{Type: reflect.TypeOf(WeaveResult{})},
-		{Type: reflect.TypeOf(Part{})},
 	}
 }

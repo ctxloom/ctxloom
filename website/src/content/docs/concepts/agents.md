@@ -4,7 +4,7 @@ title: "Agents & Isolation"
 
 Your `developer` profile is right for a quick question on your laptop and wrong for a long unattended run, the kind whose file writes you'd rather confine to the project instead of letting a stray `rm -rf` loose on your home directory. Editing the profile itself every time you want a different engine or runtime defeats the point of having a reusable profile at all.
 
-An **agent** solves this by separating *what context* an AI receives (the profile's job) from *which engine runs it* and *where it executes*. Define `dev` once as `claude-code` on `runtime: container` with the `developer` profile, and `ctxloom run --agent dev` gets you that combination without touching the profile itself. Agents are also the members that [map and weave](/concepts/weave/) fan work across.
+An **agent** solves this by separating *what context* an AI receives (the profile's job) from *which engine runs it* and *where it executes*. Define `dev` once as `claude-code` on `runtime: container` with the `developer` profile, and `ctxloom run --agent dev` gets you that combination without touching the profile itself.
 
 ## What an agent is
 
@@ -61,12 +61,10 @@ Re-running `agent set` with the same name updates the binding. `agent set` cover
 
 ```bash
 ctxloom run --agent dev "implement the feature"          # one agent, interactive
-ctxloom map --agents finder,reviewer "assess the parser" # parallel members
-ctxloom weave --agents cr-security,cr-perf -s synthesis "review this diff"
 ctxloom acp serve --agent dev                           # serve over ACP (editors, optional)
 ```
 
-In `map`/`weave`, `--agents` members each run on their own engine binding, while bare `-p` profiles are sugar for a default-engine agent. ACP editor integration is optional (see the acp-setup skill); `ctxloom acp list` prints one editor agent-server entry per binding so ACP clients (like Zed) can pick agents from the editor.
+A running coordinator fans work across several agents in parallel by spawning each as a child via the `agent_run` MCP tool (see [Agent Delegation](/concepts/agent-delegation/)) — each child runs on its own configured engine binding. ACP editor integration is optional (see the acp-setup skill); `ctxloom acp list` prints one editor agent-server entry per binding so ACP clients (like Zed) can pick agents from the editor.
 
 ## The two isolation axes
 
@@ -75,14 +73,15 @@ Isolation is split into two independent axes, chosen at different times:
 | Axis | Values | Set where | Governs |
 |------|--------|-----------|---------|
 | **Agent runtime** | `host` \| `container` | On the agent (`agent set --runtime`) or the project `runtime:` default | *Where the engine process executes* |
-| **Session workspace** | `none` \| `worktree` | At invocation (`run`/`map`/`weave --workspace`) or the project `workspace:` default | *Which copy of the repo the session mutates* |
+| **Session workspace** | `none` \| `worktree` | At invocation (`run`/`acp --workspace`, or an `agent_run` spawn's `workspace` field) or the project `workspace:` default | *Which copy of the repo the session mutates* |
 
 The runtime axis is a property of the agent — a containerized developer stays containerized wherever it's used. The workspace axis is a property of the *session*: the same agent might work in the shared checkout for a quick question but in an isolated git worktree for a parallel fan-out where members would otherwise trample each other's edits.
 
 ```bash
 ctxloom run --agent dev --workspace worktree "try the refactor"
-ctxloom map --agents dev-a,dev-b --workspace worktree "each fix one module"
 ```
+
+A coordinator spawning several agents to work in parallel (e.g. `dev-a`, `dev-b`, each fixing its own module) sets `workspace: "worktree"` on each `agent_run` call so the children don't trample each other's edits.
 
 ## Containerized runtime
 
@@ -102,7 +101,7 @@ ctxloom container build          # build/refresh the image for the default backe
 ctxloom container scaffold       # materialize an editable base Containerfile
 ```
 
-Images build in two stages: a shared **base** and a **composed agent stage** — one independently-cacheable install layer per engine (antigravity, claude-code, codex, kiro, opencode today, each via its own official installer), layered onto the base and content-keyed so identical (base, engine set) builds share one tag. `run`/`map`/`weave` build the image automatically when it's absent.
+Images build in two stages: a shared **base** and a **composed agent stage** — one independently-cacheable install layer per engine (antigravity, claude-code, codex, kiro, opencode today, each via its own official installer), layered onto the base and content-keyed so identical (base, engine set) builds share one tag. ctxloom builds the image automatically when it's absent, whether launched via `run`, `acp`, or a delegated `agent_run` spawn.
 
 Antigravity is the one engine where `runtime: container` is not just the recommended isolation — it is the *only* one available. It has no config-home environment variable at all, so `workspace: worktree` on `runtime: host` has nothing to point at; ctxloom refuses that combination as a fatal finding (escapable with `--degraded`, which then runs it on your shared, un-isolated global antigravity config) rather than silently reporting the agent as isolated when it isn't. Containerizing it works — its CLI installs into the composed image like any other engine — and authentication now rides a credential mount rather than a manual login: ctxloom copies the host's file-based OAuth token (`~/.gemini/antigravity-cli/antigravity-oauth-token`) into scratch and mounts the copy read-write into the container's fresh `$HOME` at the identical path agy itself reads (read-write, not read-only, because the token's `refresh_token` self-renews by writing back — the same shape Claude Code's OAuth token gets). There is still no scoped env-var passthrough — antigravity has no `ANTIGRAVITY_*`/`AGY_*` trigger of its own — so this credential mount is the only auth path; when no such host token exists, ctxloom refuses to start the container (a fatal finding, downgradable with `--degraded`, the same posture Kiro gets when `KIRO_API_KEY` is absent) rather than launching an unauthenticated engine.
 
@@ -131,7 +130,7 @@ Bundles can declare the tools their content needs inside the agent image (a `too
 |---|---------|-------|
 | Defines | Context (fragments, commands, MCP servers, variables) | Engine + profiles + runtime |
 | Shipped in bundles | Yes (`<bundle>#profiles/<name>`) | Never — local only |
-| Used by | `run -p`, `map`/`weave -p`, agents | `run --agent`, `map`/`weave --agents`, `acp --agent` |
+| Used by | `run -p`, agents | `run --agent`, `agent_run`, `acp --agent` |
 | Engine choice | Optional `llm:` preference | Explicit `engine:` binding (overrides the profiles') |
 
-A bare `-p` profile member in `map`/`weave` is effectively an anonymous default-engine agent — reach for named agents when you want a specific engine per role, a containerized runtime, or reusable role names.
+A bare `-p` profile with `ctxloom run` is fine for a quick, unnamed context — reach for a named agent when you want a specific engine per role, a containerized runtime, a reusable role name, or the ability to spawn it as a delegated child (`agent_run` launches a *configured agent*, never a bare profile).

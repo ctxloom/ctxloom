@@ -73,7 +73,7 @@ type agentRunInput struct {
 	// Workspace is GAP 2's per-call workspace-axis override: "none" runs the
 	// child in the parent's live project checkout (it can stomp it
 	// mid-session); "worktree" carves the child its own git worktree instead
-	// — matching run/map/weave --workspace's enum. Empty defers to the
+	// — matching run/acp --workspace's enum. Empty defers to the
 	// project's cfg.Workspace when THAT is set explicitly; if neither this
 	// nor the project config says anything, a delegated child now DEFAULTS
 	// to worktree (own checkout) rather than the shared one — see

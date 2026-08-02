@@ -1,6 +1,6 @@
 // Terminal predicates shared across the CLI. They live here rather than inside
 // any one command's file because every consumer is a different command (run,
-// weave, pager, item/bundle/mcp show, review, signer): whether stdin/stdout/
+// pager, item/bundle/mcp show, review, signer): whether stdin/stdout/
 // stderr is a terminal decides prompting, pager insertion, and raw-escape
 // writes, and none of those decisions belongs to init.
 

@@ -84,8 +84,9 @@ type Agent struct {
 	// `runtime:` default and finally falls back to "host". Deliberately the
 	// ONLY isolation dimension an agent declares — the WORKSPACE axis
 	// (worktree vs shared dir) is a SESSION trait chosen at invocation time
-	// (run/map/weave `--workspace`, project `workspace:` default), never
-	// bound to the agent. Resolution lives in operations.resolveAgentBinding.
+	// (run/acp `--workspace`, an agent_run spawn's workspace field, project
+	// `workspace:` default), never bound to the agent. Resolution lives in
+	// operations.resolveAgentBinding.
 	Runtime string `yaml:"runtime,omitempty"`
 	// Permissions is the agent's launch-time permission posture
 	// (default|acceptEdits|plan|bypass) — the second safety axis a binding
@@ -109,7 +110,7 @@ type Agent struct {
 	// an agent_recv inbox plus a roster lets it infer it has children and
 	// stall waiting for notifications that never arrive. Set true only for an
 	// agent that itself spawns/manages children (e.g. a coordinator-ensemble
-	// or weave role).
+	// role).
 	Coordinator bool `yaml:"coordinator,omitempty"`
 	// Driving is the agent's per-turn execution axis: conversational (the
 	// zero value/default — the engine process stays warm across turns, the

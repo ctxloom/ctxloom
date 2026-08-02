@@ -286,7 +286,7 @@ func TestGRPCServer_Run_SkipSetup(t *testing.T) {
 }
 
 // TestGRPCServer_Run_SkipSetupDeliversFragmentsViaPrompt is the regression for
-// dire-petal (SILENT NO-OP): the fan-out/weave "none"-isolation member path
+// dire-petal (SILENT NO-OP): the oneshot "none"-isolation member path
 // (operations/oneshot.go's runResolvedAgent) sets BOTH SkipSetup:true and
 // Fragments:[{Content: composedContext}] — SkipSetup skips Setup, and Setup was
 // the ONLY path that ever converted+delivered req.Fragments to the backend, so
@@ -421,7 +421,7 @@ func (b *launchCapturingBackend) Execute(ctx context.Context, req *agent.Execute
 }
 
 // TestGRPCServer_Run_SkipSetupHonorsWorkDir is the regression for the SkipSetup
-// cwd gap: on the oneshot/map/weave fan-out path Setup is skipped, so its
+// cwd gap: on the oneshot SkipSetup path Setup is skipped, so its
 // SetWorkDir never runs; the passed WorkDir must still reach the child (the
 // engine's cwd) instead of defaulting to the plugin's inherited "." — otherwise
 // per-agent isolation can never set a workspace. Before the fix the captured

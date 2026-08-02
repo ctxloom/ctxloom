@@ -3,8 +3,8 @@
 // PLUGIN (`ctxloom llm serve <backend>`, one subprocess per run/member) plus the
 // workspace it runs in — NOT the engine: the plugin-internal engine-spawn
 // (RunLaunchSpec, the chat transports) is untouched. The seam sits at the
-// host-side pb.ClientFactory + RunOptions.WorkDir boundary, so map/weave can pick
-// a policy per member orthogonally to the engine.
+// host-side pb.ClientFactory + RunOptions.WorkDir boundary, so a delegated
+// fan-out (agent_run) can pick a policy per member orthogonally to the engine.
 //
 // A Policy has two axes:
 //   - a Workspace it prepares (the child's cwd) and tears down, and
@@ -240,8 +240,9 @@ const (
 // DIFFERENT levels and meet only here: the runtime axis is an AGENT trait
 // (`runtime:` on the binding — a cost/environment call, like engine), while
 // the workspace axis is an ORCHESTRATION trait (the invocation decides —
-// map/weave `--workspace`, the project default — because needing a private
-// cwd is a property of how you fan, not of who the agent is). Empty axis
+// run/acp `--workspace`, an agent_run spawn's workspace field, the project
+// default — because needing a private cwd is a property of how you fan, not
+// of who the agent is). Empty axis
 // values have already been resolved to defaults by the caller; unknown values
 // are treated as the axis default by Resolve/chainFor, with a warning
 // (CLAUDE.md fault tolerance).

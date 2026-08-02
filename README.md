@@ -74,8 +74,6 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom command` | Manage commands |
 | `ctxloom profile` | Manage profiles (named fragment collections) |
 | `ctxloom agent` | Inspect local agents (engine↔profile bindings) |
-| `ctxloom map` | Run multiple agents/profiles in parallel over one task (fan-out) |
-| `ctxloom weave` | Fan a task across agents/profiles in parallel, then synthesize the results |
 | `ctxloom remote` | Manage remotes and discover content |
 | `ctxloom review` | Review pending items: accept or reject what the agent may see |
 | `ctxloom trust` | Accept an item's current content (fragment, command, MCP server, or hook) |

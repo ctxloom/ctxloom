@@ -38,7 +38,7 @@ flowchart TD
     agent --> OPSA
 
     COMP["completion seams — agent.go:424-433, completion.go"]
-    COMP --> CWN["completeWorkspaceNames :424 — used by run, weave, acp"]
+    COMP --> CWN["completeWorkspaceNames :424 — used by run, acp"]
     COMP --> CAN["completeAgentNames :429 — 5 call sites"]
     COMP --> CPN["completeProfileNames — completion.go:93, 16 call sites"]
 
@@ -85,8 +85,8 @@ be unit-tested without mutating package state.
 
 Completions registered at `agent.go:392`: runtime names via
 `isolation.RuntimeNames()` (`:413`), driving modes via `agents.DrivingModeNames()`
-(`:417`), workspace names via `completeWorkspaceNames` (`:424`, shared with `run`,
-`weave` and `acp`), agent names via `completeAgentNames` (`:429`, 5 call sites).
+(`:417`), workspace names via `completeWorkspaceNames` (`:424`, shared with `run`
+and `acp`), agent names via `completeAgentNames` (`:429`, 5 call sites).
 
 ### The completion seams (`completion.go`)
 

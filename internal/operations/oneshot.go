@@ -20,9 +20,10 @@ import (
 )
 
 // RunOneshotRequest specifies a single profile-agent oneshot run: assemble a
-// profile's context, launch its backend once, and capture stdout. It is the
-// backbone both `ctxloom run --print` and the parallel `map`/`weave` orchestration
-// build on, so a member agent is just one of these.
+// profile's context, launch its backend once, and capture stdout. `ctxloom acp
+// client` and the init auth-ping both build on it directly; a delegated
+// child's oneshot fallback and `ctxloom run --print` mirror the same tail
+// (runResolvedAgent) without going through this facade.
 type RunOneshotRequest struct {
 	Profile   string // profile whose context specializes this agent (may be empty)
 	Task      string // the prompt/task sent to the agent
@@ -34,8 +35,8 @@ type RunOneshotRequest struct {
 	Loader *bundles.Loader
 	// Factory builds the plugin client; nil self-invokes the compiled-in
 	// backend carrying the resolved config label
-	// (pb.DefaultClientFactoryForLabel). The seam lets map/weave and tests
-	// inject a client without spawning real backends.
+	// (pb.DefaultClientFactoryForLabel). The seam lets delegated agent_run
+	// children and tests inject a client without spawning real backends.
 	Factory pb.ClientFactory
 }
 
@@ -124,8 +125,8 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 
 // resolvedRunRequest is an already-resolved agent run: a composed context and the
 // transport it resolved to. It is the seam shared by RunOneshot (which resolves a
-// single profile) and the map/weave fan (which resolves an agent or a
-// bare-profile member), so the backend-launch tail is written once.
+// single profile) and a delegated child's oneshot fallback (PrepareAgentChat's
+// startOneshot), so the backend-launch tail is written once.
 type resolvedRunRequest struct {
 	Context   string // assembled context injected as the agent's lead fragment
 	Task      string // the prompt/task sent to the agent
@@ -517,9 +518,9 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	}
 
 	// U085-F06: a oneshot exists ONLY to capture output — this tail is shared by
-	// `run --print`, map, weave, a delegated oneshot turn and `acp client`, and
-	// every one of them publishes res.Output as the run's whole product
-	// (WeaveResult.Report, Part.Output, a child's assistant SessionEntry). Exit 0
+	// a delegated oneshot turn and `acp client` (and mirrored by `run --print`),
+	// and every one of them publishes res.Output as the run's whole product
+	// (a child's assistant SessionEntry, RunOneshotResult.Output). Exit 0
 	// with zero bytes is therefore never "nothing to do, legitimately": it is an
 	// engine that failed to answer while claiming success, and it used to reach
 	// the user as an empty report with no error anywhere. Fail loudly and carry
@@ -538,10 +539,10 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	// enginehost.startRun, S2) never fires for it — see
 	// transcript.RecordOneshot's doc. The harp rides req.ExtraEnv exactly
 	// like the delegated-child structured path (agent.SessionHarpEnv,
-	// stamped by coord/children.go's childEnv); a fan/synth member with no
-	// harp (map/weave have none today) degrades to RecordOneshot's own
-	// empty-harp no-op. Best-effort: a capture failure warns but must never
-	// fail an otherwise-successful run.
+	// stamped by coord/children.go's childEnv); RunOneshot's own direct
+	// callers (`acp client`, the init auth-ping) carry no harp and degrade to
+	// RecordOneshot's own empty-harp no-op. Best-effort: a capture failure
+	// warns but must never fail an otherwise-successful run.
 	if harp := req.ExtraEnv[agent.SessionHarpEnv]; harp != "" {
 		if terr := transcript.RecordOneshot(harp, req.Backend, req.Task, stdout.String()); terr != nil {
 			clidiag.Warn("ctxloom", "oneshot transcript capture: %v", terr)
@@ -560,7 +561,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 // is not a configured entry but names a registered backend type resolves to that
 // backend directly (the ad-hoc `--llm <type>` convenience); otherwise
 // cfg.ResolveLLM's lookup/default applies. Shared by `run` and the
-// oneshot/map/weave path so backend resolution is identical everywhere.
+// oneshot/agent_run path so backend resolution is identical everywhere.
 func ResolveBackend(cfg *config.Config, label string) (backend, model string) {
 	backend, model = cfg.ResolveLLM(label)
 	if _, configured := cfg.GetLLMEntry(label); !configured && backends.Exists(label) {

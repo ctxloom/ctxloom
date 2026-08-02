@@ -60,9 +60,9 @@ type AgentChatRequest struct {
 	// Workspace is the caller's per-invocation workspace-axis override
 	// (isolation.WorkspaceAxis values: "none"|"worktree"; GAP 2). It OVERRIDES
 	// cfg.Workspace when set; empty falls back to cfg.Workspace — the same
-	// session-level-orchestration-trait-vs-agent-trait split
-	// operations.memberAxes already draws for map/weave's --workspace. If
-	// BOTH this and cfg.Workspace are empty (no explicit choice anywhere),
+	// session-level-orchestration-trait-vs-agent-trait split the workspace axis
+	// draws everywhere it's resolved. If BOTH this and cfg.Workspace are empty
+	// (no explicit choice anywhere),
 	// PrepareAgentChat now defaults a delegated child to worktree rather
 	// than the shared checkout — an explicit "none" at either level still
 	// wins. See PrepareAgentChat's workspace-resolution comment for the

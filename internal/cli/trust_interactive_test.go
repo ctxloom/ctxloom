@@ -202,7 +202,7 @@ func TestReviewLocalMCPTrust_RendersThroughTheCommandsErrWriter(t *testing.T) {
 }
 
 // withFailingStdin points the shared prompt reader at a terminal whose reads
-// FAULT rather than end (weave_guards_test.go's failingReader returns
+// FAULT rather than end (failingReader, run_oneshot_prompt_test.go, returns
 // assert.AnError, never io.EOF). It is precisely the case a user pressing
 // Ctrl-D is not.
 func withFailingStdin(t *testing.T) {

@@ -267,16 +267,17 @@ func (rt ociRuntime) mapper() pathMapper { return runtimeMapper(rt.pathMap) }
 // transport that bridged the Docker Desktop VM boundary on macOS/Windows was
 // deleted in 0.7 (it opened a routable in-container plugin listener on the shared
 // bridge — mauve-state), so this path is now Linux-only. Its only residual callers
-// are NON-top-level: the legacy degraded/fallback delegation and oneshot fan-out
-// members — both experimental map/weave surfaces. Top-level container runs
-// (docker-exec / Transport 2) and delegated agents (docker-direct) never reach
-// here and are unaffected on every platform. goos is a parameter (not read from
-// runtime.GOOS inline) so the gate is unit-testable, advertiseHostFor style.
+// are NON-top-level: the legacy degraded/fallback delegation and the oneshot
+// fallback a delegated child takes on a backend without structured-chat support.
+// Top-level container runs (docker-exec / Transport 2) and delegated agents
+// (docker-direct) never reach here and are unaffected on every platform. goos is
+// a parameter (not read from runtime.GOOS inline) so the gate is unit-testable,
+// advertiseHostFor style.
 func containerSpawnUnsupportedErr(goos string) error {
 	if goos == "linux" {
 		return nil
 	}
-	return fmt.Errorf("this legacy container spawn path (degraded/fallback delegation, oneshot fan-out members) is Linux-only since 0.7: the container TCP transport was removed to close a security hole. Run these experimental map/weave container spawns on Linux, or use the fully-supported top-level run modes; top-level runs and delegated agents are unaffected on this platform (%s)", goos)
+	return fmt.Errorf("this legacy container spawn path (degraded/fallback delegation, oneshot-fallback delegated children) is Linux-only since 0.7: the container TCP transport was removed to close a security hole. Run these on Linux, or use the fully-supported top-level run modes; top-level runs and delegated agents are unaffected on this platform (%s)", goos)
 }
 
 // spawn is the moved body of the old Container.spawnInContainer: it launches the

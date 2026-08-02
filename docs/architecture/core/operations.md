@@ -28,9 +28,9 @@ session can grep straight to it.
   (`profiles.go`, `profile_transfer.go`, `profile_materialize.go`, `agents.go`).
 - Managed-harness apply: settings, MCP, context, commands, across backends
   (`hooks.go`, `manage.go`, `mcp_servers.go`, `tooling.go`).
-- Session index, feeds, resume, engine sessions, delegation, one-shot and ensemble launches
+- Session index, feeds, resume, engine sessions, delegation, and one-shot launches
   (`sessions.go`, `sessionfeed.go`, `resume.go`, `engine_session.go`, `engine_types.go`,
-  `delegate.go`, `oneshot.go`, `ensemble.go`).
+  `delegate.go`, `oneshot.go`).
 - Vendor transcript import (`vendorimport*.go`) and Deferred-task trigger triage (`task_triggers*.go`).
 - The hand-maintained JSON-Schema target registry (`schematargets.go`).
 
@@ -246,12 +246,11 @@ flowchart LR
 | Function | file:line | Contract |
 |---|---|---|
 | `RunOneshot` | `oneshot.go:59` | Assembles a profile's context, resolves label/backend/model/axes/gate, delegates to the launch tail. |
-| `runResolvedAgent` | `oneshot.go:315` | **The single choke point** for `run --print`, `map`, `weave`, delegated child turns and `acp client`: prepare isolation, gate it, assemble the per-member managed config, floor the headless posture, run the plugin once, capture stdout, record the one-shot transcript. |
+| `runResolvedAgent` | `oneshot.go:315` | **The single choke point** for delegated child turns and `acp client` (mirrored by `run --print`): prepare isolation, gate it, assemble the per-member managed config, floor the headless posture, run the plugin once, capture stdout, record the one-shot transcript. |
 | `resolvedRunRequest` | `oneshot.go:122` | The already-resolved run; `Factory == nil` selects the isolating path. |
 | `ResolveBackend` / `resolveOneshotLabel` | `oneshot.go:490,502` | Label → (backend, model); three-level precedence: override → profile LLM → primary role. |
 | `IsolationImageConfig` / `CellKindForPolicy` / `MCPCommandOverrideForPolicy` / `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go:178,199,228,247,257` | Capability probes over `isolation.Policy`, declared here so `internal/lm/isolation` need not import `agent`. |
 | `isolationGateErr` | `oneshot.go:286` | Turns `ClassIsolation` strictness findings into a member-fatal error unless degraded — the fail-loud isolation gate. |
-| `MapProfiles` / `Weave` | `ensemble.go:58,224` | Bounded parallel fan-out producing one `Part` per member in input order, then (for weave) a synthesis one-shot over the parts. |
 | `PrepareAgentChat` | `delegate.go:167` | Resolves the workspace axis, handles a dirty parent tree (commit / copy-snapshot / fail), prepares isolation, and picks the chat vs one-shot path. Callers: `coord/spawner.go:410,458`. |
 | `handleDirtyParentTree` / `commitDirtyTree` / `applyCopySnapshot` | `delegate.go:494,581,652` | The dirty-tree policy: a detached HEAD or a missing acknowledgement refuses to auto-commit; `copySnapshot` captures patch + untracked list once so there is no drift window. |
 | `PreparedAgentChat.Start` / `.StartEngine` / `.startOneshot` / `.Abort` | `delegate.go:831,734,965,689` | The three launch protocols and idempotent teardown. |
@@ -317,8 +316,8 @@ flowchart LR
 8. **Every `Manager.Update` body is one transaction**: existence check and write happen inside it
    (`AddMCPServer`, `RemoveMCPServer`, `SetAgent`, `RemoveAgent`, `SetDefaultLLM`,
    `SetStatusline`, `SetMCPAutoRegister`).
-9. **`runResolvedAgent` (`oneshot.go:315`) is the single non-interactive launch tail.** `run --print`,
-   `map`, `weave`, delegated child turns and `acp client` all funnel through it.
+9. **`runResolvedAgent` (`oneshot.go:315`) is the single non-interactive launch tail.** Delegated
+   child turns and `acp client` funnel through it directly; `run --print` mirrors the same tail.
 10. **Path confinement for authored bundles is `requireSafeBundlePath`** (`bundles.go:926`):
     absolute, under a configured dir, and no symlink in any component.
 11. **`AssembleContext` (`context.go:112`) is the single composition entry point.** `hooks.go`'s

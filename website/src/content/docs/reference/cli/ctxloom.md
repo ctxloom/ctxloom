@@ -79,5 +79,4 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage Agent Skills (SKILL.md packages)
 * [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept, reject, or manage the signers of item content
 * [ctxloom version](/reference/cli/ctxloom_version/)	 - Print the version number
-* [ctxloom weave](/reference/cli/ctxloom_weave/)	 - Fan a task across agents/profiles in parallel, then synthesize the results
 

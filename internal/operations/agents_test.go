@@ -170,8 +170,8 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 }
 
 // TestResolveAgent_ExplicitEngineOverrideWins proves a caller-supplied
-// engine override (ACP --llm, the map/weave -l member override) beats the
-// agent's own declared engine — the same precedence the fan-out members use.
+// engine override (ACP --llm) beats the agent's own declared engine — the
+// same precedence a delegated child's engine override uses.
 func TestResolveAgent_ExplicitEngineOverrideWins(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)

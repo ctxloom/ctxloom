@@ -162,7 +162,7 @@ var authPingFactory pb.ClientFactory
 // oneshot run BEFORE init hands off to its raw CLI/TUI (§12 Q1, user-approved:
 // "a dead first session inside a vendor TUI is invisible failure; catch it in
 // code"). It reuses operations.RunOneshot — the SAME oneshot Execute surface
-// `ctxloom run --print` and map/weave already ride — rather than a bespoke
+// `ctxloom run --print` and delegated agent_run children already ride — rather than a bespoke
 // engine-ping path: no explicit profile (falls back to the configured
 // defaults, which is a fault-tolerant no-op if none resolve) and the smallest
 // possible task. Any failure (missing binary, no credentials, a dead

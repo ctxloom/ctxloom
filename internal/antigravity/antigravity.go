@@ -586,7 +586,7 @@ func (w *AntigravityHookWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 // the markers is ctxloom-owned and reconciled on every apply; anything
 // outside them is the user's and preserved byte-for-byte.
 //
-// CONCURRENCY LIMIT (weave/map fan-out): .agents/AGENTS.md is a WORKSPACE-FIXED
+// CONCURRENCY LIMIT (delegated agent_run fan-out): .agents/AGENTS.md is a WORKSPACE-FIXED
 // path, and agy exposes no per-invocation context redirect (no --mcp-config /
 // --settings / --append-system-prompt equivalent). So N antigravity agents run
 // in one cwd would each rewrite this one file — last writer wins → cross-agent

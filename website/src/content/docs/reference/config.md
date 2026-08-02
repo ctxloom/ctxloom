@@ -45,7 +45,7 @@ Schema for ctxloom config.yaml files
 | `sync` | object | Remote dependency sync behavior |
 | `ui` | object | Interactive-run terminal layer: the prefix-key agent-observation viewer and the persistent surround bar. `ctxloom run --plain-terminal` disables the whole layer for one session regardless of this section. |
 | `version` | integer | Config schema version (integer; distinct from the application version) Examples: `1`, `2`. |
-| `workspace` | string | Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/map/weave --workspace. Deliberately not an agent trait — needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning). Allowed values: `none`, `worktree`. |
+| `workspace` | string | Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/acp --workspace (or an agent_run spawn's workspace field). Deliberately not an agent trait — needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning). Allowed values: `none`, `worktree`. |
 
 ### agents (map values)
 
@@ -57,7 +57,7 @@ Schema for ctxloom config.yaml files
 | `escalation` | object[] | The agent's approval-request escalation ladder: an ORDERED list of rungs, each naming which ApprovalRequest kinds it answers and how. Empty derives the ladder from `permissions` (the degenerate two-rung preset: bypass accepts everything; plan declines mutating kinds and relays the rest to the parent). A non-empty list REPLACES the preset entirely — no merge. |
 | `permissions` | string | Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default. Allowed values: `default`, `acceptEdits`, `plan`, `bypass`. |
 | `profiles` | string[] | Profiles composed into one assembled context (later wins / union). Members may be local, top-level remote, or bundle profiles (<bundle>#profiles/<name>). |
-| `runtime` | string | Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/map/weave --workspace), never declared on an agent. Allowed values: `host`, `container`. |
+| `runtime` | string | Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/acp --workspace, or an agent_run spawn's workspace field), never declared on an agent. Allowed values: `host`, `container`. |
 
 #### agents (map values).escalation (items)
 

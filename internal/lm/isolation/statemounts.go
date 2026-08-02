@@ -38,8 +38,8 @@ func SessionStateFromEnv(env map[string]string) SessionState {
 }
 
 // noHarpNotice and noProjectIDNotice are the two durability degrades a run
-// without session identity reports. They are WarnOnce lines: a fan-out
-// (map/weave, agent_run) puts every member through sessionStateMounts in ONE
+// without session identity reports. They are WarnOnce lines: a delegated
+// fan-out (agent_run) puts every member through sessionStateMounts in ONE
 // process, so N identical lines would be startup spam. The cost of that
 // collapse is that the surviving line cannot name WHICH members it covers —
 // there is no identity available here to name them with, since the missing

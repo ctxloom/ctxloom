@@ -110,7 +110,7 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 	assert.Contains(t, stub.gotReq.Fragments[0].Content, "Go Patterns")
 	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
 	// dire-petal: this is exactly the SkipSetup:true + non-empty Fragments
-	// combination the "none"-isolation fan-out/weave member path sends —
+	// combination the "none"-isolation oneshot member path sends —
 	// asserted here so a future change that flips this default silently
 	// can't slip past without also exercising the grpc-server delivery fix
 	// (internal/lm/grpc.server_test.go's

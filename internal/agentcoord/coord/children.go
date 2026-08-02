@@ -224,8 +224,7 @@ type RunOutcome struct {
 // workspace is GAP 2's per-call workspace-axis override (none|worktree;
 // empty = project default, cfg.Workspace). Unlike the runtime axis — an
 // AGENT trait Resolve already carries on the plan — the workspace axis is an
-// ORCHESTRATION trait the CALLER supplies per invocation, mirroring
-// operations.memberAxes' map/weave --workspace shape: it is set on the
+// ORCHESTRATION trait the CALLER supplies per invocation: it is set on the
 // resolved plan here, never inside Resolve (agent-definition resolution
 // stays pure — see spawner.go's Resolve/GAP 1).
 //

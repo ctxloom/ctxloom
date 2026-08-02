@@ -138,7 +138,7 @@ launch (`isolation.Axes`), and both are defined in `internal/config/config.go`.
 
 | Axis | Level | Values | Set by | Governs |
 |---|---|---|---|---|
-| `workspace` | session | `none` \| `worktree` | `run`/`map`/`weave --workspace`, or the `workspace` config key | where a session's working directory lives |
+| `workspace` | session | `none` \| `worktree` | `run`/`acp --workspace`, an `agent_run` spawn's workspace field, or the `workspace` config key | where a session's working directory lives |
 | `runtime` | agent | `host` \| `container` | an agent binding's `runtime:`, or the `runtime` config key | where an agent's engine process executes |
 
 They are two axes rather than one "isolation" setting because they belong to

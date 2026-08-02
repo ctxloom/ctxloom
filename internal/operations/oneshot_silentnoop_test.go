@@ -11,10 +11,10 @@ import (
 )
 
 // TestRunOneshot_EmptyStdoutIsLoud pins U085-F06: the launch tail every headless
-// run shares (run --print, map, weave, a delegated oneshot turn, `acp client`)
+// run shares (a delegated oneshot turn, `acp client`, mirrored by run --print)
 // used to accept exit 0 with nothing on stdout as a successful run, publishing
-// Output:"" into WeaveResult.Report / Part.Output / a child's assistant entry
-// with no error anywhere. A oneshot exists ONLY to capture output, so zero bytes
+// Output:"" into RunOneshotResult.Output / a child's assistant entry with no
+// error anywhere. A oneshot exists ONLY to capture output, so zero bytes
 // is a failed run, not a legitimately-empty one.
 func TestRunOneshot_EmptyStdoutIsLoud(t *testing.T) {
 	_, loader := setupContextTestFS(t)

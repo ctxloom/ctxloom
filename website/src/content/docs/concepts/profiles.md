@@ -58,13 +58,12 @@ unless `--llm`/`-l` overrides; a misconfigured value warns and falls back to the
 primary role rather than blocking startup. Set it with `--llm` on
 `profile create`/`profile modify`.
 
-This field is what makes a profile a self-contained agent for `ctxloom map` /
-`weave`: each parallel member runs on its own `llm:`, and the synthesizer on a
-high-power one.
+This field is what makes a profile a self-contained agent for a delegated
+fan-out: each child spawned via `agent_run` runs on its own `llm:`.
 
 Profiles are also what [agents](/concepts/agents/) bind engines to: an agent is
 a named, local-only engine↔profile binding (`ctxloom agent set`), consumed by
-`run --agent` and `map`/`weave --agents`.
+`run --agent` and `agent_run`.
 
 ## Content Reference Syntax
 

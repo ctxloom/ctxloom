@@ -110,7 +110,7 @@ func TestExecutableTrustGate_WarnWithheld_NamesReason(t *testing.T) {
 
 // TestAssembleContext_WarnWithheld_NamesReason_FullPath drives the REAL
 // exposure path (AssembleContext with NO injected loader — the exact shape
-// every real `ctxloom run`/oneshot/map/weave call uses) and proves the
+// every real `ctxloom run`/oneshot/agent_run call uses) and proves the
 // assembly-time withheld advisory names WHY a rejected local fragment was
 // withheld, not just that something was withheld. This is the content-loader
 // counterpart to TestExecutableTrustGate_WarnWithheld_NamesReason above,

@@ -110,7 +110,8 @@ type Config struct {
 	// workspace is the project-wide DEFAULT for the SESSION-level workspace
 	// axis (none | worktree): where a session's working directory lives.
 	// Empty means "none" (the shared live project dir — today's behaviour).
-	// A session-creating invocation (run/map/weave `--workspace`) overrides
+	// A session-creating invocation (run/acp `--workspace`, an agent_run
+	// spawn's workspace field) overrides
 	// it per session. Deliberately NOT an agent trait: needing a private cwd
 	// is a property of how a session is launched, not of who the agent is.
 	workspace string

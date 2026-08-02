@@ -335,12 +335,10 @@ ctxloom session list
 ctxloom run --session swift-amber-falcon "pick up where we left off"
 ```
 
-Fan one task out to several profiles in parallel and synthesize the outputs into a single result (see [Weave](/concepts/weave/)):
-
-```bash
-git diff | ctxloom weave -p code-review/security -p code-review/perf \
-  -s code-review/synthesis
-```
+To fan one task out to several profiles in parallel and synthesize the outputs
+into a single result, a coordinator spawns each as a child via the `agent_run`
+MCP tool and reads their reports back itself (see [Agent
+Delegation](/concepts/agent-delegation/)).
 
 ## CI/CD Integration Workflow
 

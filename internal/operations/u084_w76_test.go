@@ -499,17 +499,10 @@ func TestOperationsRequestResultEnvelopesShareOneJSONContract(t *testing.T) {
 		DistillItemRequest{}, DistillItemResult{},
 		GetBundleMCPRequest{}, GetBundleMCPResult{},
 		SetBundleMCPRequest{}, SetBundleMCPResult{},
-		WeaveResult{},
 	}
-	// MEASURED EXCEPTION, recorded rather than papered over:
-	// MapProfilesRequest and WeaveRequest are the only Request types in this
-	// file set with NO json tag on any field, and both carry a
-	// pb.ClientFactory (a func type json.Marshal cannot encode at all). They
-	// are in-process call structs — `ctxloom weave` builds them from flags and
-	// never round-trips them through an adapter — so they are outside the
-	// envelope contract, not violations of it. Their OUTPUT side (WeaveResult,
-	// Part, Synthesizer) is fully tagged and is included above. If either ever
-	// acquires an MCP tool, it needs tags first.
+	// The map/weave fan (MapProfilesRequest, WeaveRequest, WeaveResult, Part,
+	// Synthesizer) that once sat here was retired along with `ctxloom weave`;
+	// it is no longer part of this package's envelope set.
 	// §11k hostility: an empty list, or one whose members carried no exported
 	// fields, would make every assertion below vacuously true.
 	require.Greater(t, len(envelopes), 20, "the sample must be the real envelope set")

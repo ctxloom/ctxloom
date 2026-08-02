@@ -274,7 +274,6 @@ var excludedLeaves = map[string]string{
 	// content scenarios (browse/install/sync/lock against a seeded file:// repo).
 	"ctxloom remote update":         "checks installed bundles for a newer SHA; needs a second remote commit. Core fetch covered by @remote scenarios",
 	"ctxloom remote upgrade":        "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
-	"ctxloom weave":                 "fans a task out across parallel LLM sessions, then an LLM synthesis pass over the results; @live-only, no hermetic fixture",
 	"ctxloom session distill":       "@live + requires a real backend session transcript; the fragment/command/bundle distill paths cover the distiller",
 	"ctxloom completion zsh":        "shell variant; the completion path is covered via bash",
 	"ctxloom completion fish":       "shell variant; the completion path is covered via bash",

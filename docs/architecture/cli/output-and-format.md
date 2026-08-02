@@ -59,7 +59,7 @@ cobra tree. The registry is the authoritative starting point — with the caveat
 `llm list`/`default`, `mcp list`, `mcp server show`, `acp entries`, `acp client`,
 `session list`/`show`/`query`/`backfill`, `search`, `doctor`, `container check`/`tooling`,
 `review`, `sign`, `trust signer list`/`show`, `version`, `util config-write`,
-`weave`, `run --dry-run`.
+`run --dry-run`.
 
 **Accept `--format` and ignore it entirely** (parsed flag, no consumer — output is
 always human text or always YAML):

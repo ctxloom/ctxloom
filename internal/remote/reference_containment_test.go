@@ -8,7 +8,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// TestLocalPath_AlwaysContainedInCacheRoot is the CLASS gate for U081-F08.
+// TestLocalPath_AlwaysContainedInCacheRoot is the CLASS gate for the
+// LocalPath traversal escape.
 //
 // Reference.LocalPath is the one function that turns an attacker-influenceable
 // string (a remote URL out of a lockfile) into an on-disk path, and callers

@@ -103,8 +103,8 @@ func ParseReference(ref string) (*Reference, error) {
 // had DRIFTED: the operations copy recognised any "://" but was missing
 // ctxloom:companion@, so a malformed companion ref was downgraded to a
 // first-party local bundle name and auto-trusted, i.e. trusted MORE than a
-// well-formed one (giddy-handstand / U089-F12 / U150-F09). This function is
-// the union of the two, so neither reach is lost:
+// well-formed one. This function is the union of the two, so neither reach
+// is lost:
 //
 //   - any "://" ANYWHERE, not just the http/https/file prefixes ParseReference
 //     dispatches on. An "ssh://…" or "git://…" ref is scheme-qualified even
@@ -152,7 +152,7 @@ func ResolveRef(ref, sourceURL string, kind ItemType) (*Reference, error) {
 		// the real, final error. Falling through to short-ref expansion below
 		// used to swallow it and re-expand the malformed ref's own text against
 		// sourceURL, producing a nonsense-but-valid-looking Reference with no
-		// error at all (U094-F17).
+		// error at all.
 		return nil, err
 	}
 
@@ -268,7 +268,7 @@ func parseHTTPSReference(ref string) (*Reference, error) {
 	// Split at the @ that introduces the item path, NOT the first @ in the
 	// whole string: a URL carrying userinfo
 	// (https://user@host/owner/repo@bundles/name) has an earlier @ that is
-	// part of the authority, not the item-path separator (U094-F21). The
+	// part of the authority, not the item-path separator. The
 	// authority section ends at the first "/" after the scheme, so any @
 	// before that "/" is userinfo and must be skipped.
 	prefixLen := len("https://")
@@ -357,7 +357,7 @@ func parseFileReference(ref string) (*Reference, error) {
 	// A non-empty host names a REMOTE machine in the file:// URI scheme
 	// (RFC 8089) — u.Path below silently dropped it, so
 	// "file://host/path@bundles/x" used to resolve to "file:///path" (a
-	// DIFFERENT, local repository) instead of erroring (U094-F21). This
+	// DIFFERENT, local repository) instead of erroring. This
 	// package's file:// support is local-repository-only; reject rather than
 	// silently discard.
 	if u.Host != "" {
@@ -596,8 +596,7 @@ func (r *Reference) LocalRemoteName() string {
 // result callers hand to fs.Remove and friends. None of the derivations below
 // strip traversal: httpHostPath's path.Join CLEANS, so "https://x/../.."
 // collapses to "..", and sanitizePath only rewrites "://", ":" and "@". A
-// ".." segment therefore used to escape .ctxloom/cache/bundles entirely
-// (U081-F08).
+// ".." segment therefore used to escape .ctxloom/cache/bundles entirely.
 //
 // Traversal segments are REWRITTEN rather than dropped so two degenerate
 // remotes cannot silently collide onto one cache directory.

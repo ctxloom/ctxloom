@@ -104,7 +104,7 @@ func TestParseReference_HTTPS(t *testing.T) {
 			wantPath: "code-review-base",
 		},
 		{
-			// U094-F21: the item-path separator must be found AFTER the
+			// The item-path separator must be found AFTER the
 			// authority, not at the FIRST "@" in the whole string — a URL
 			// carrying userinfo has an earlier "@" that is part of the host,
 			// not the item-path separator. Before the fix this mis-split into
@@ -257,7 +257,7 @@ func TestParseReference_File(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// U094-F21: a non-empty host in a file:// URL used to be silently
+			// A non-empty host in a file:// URL used to be silently
 			// dropped (u.Path only), so "file://host/path@bundles/x" resolved
 			// to "file:///path" — a DIFFERENT, local repository — instead of
 			// erroring. file:// support here is local-repository-only.

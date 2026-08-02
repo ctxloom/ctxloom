@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U093-F22: GitCloneFetcher carries two ref-resolution ladders. ResolveRef
+// GitCloneFetcher carries two ref-resolution ladders. ResolveRef
 // tries origin/<ref>, then refs/tags/<ref>, then the bare revision; its doc
 // says "This mirrors resolveToCommitHash", which tries origin/<ref>, then the
 // bare revision, then refs/tags/<ref>, and then falls back to an explicit

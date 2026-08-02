@@ -190,7 +190,7 @@ func SessionIndexPath() (string, error) {
 //
 // harp is validated here (harp.Validate) because this is the chokepoint every
 // harp-derived path is built from — essence, ephemeral, canonical transcript,
-// and the harp dir itself all layer on this one function. U087-F04: a harp
+// and the harp dir itself all layer on this one function. A harp
 // name is a user-renameable string that becomes a single path COMPONENT, so
 // `ctxloom session rename <old> ../..` otherwise reached MkdirAll/Symlink on
 // a traversed path. Validating at each caller would have been seven chances
@@ -426,7 +426,7 @@ func HomeAllowedSignersPath() (string, error) {
 
 // DistrustedSignersPath returns the path to the LOCAL embedded-key suppression
 // record (at appPath root, next to allowed_signers): the negative counterpart
-// to it (oozy-plod (b)). allowed_signers is purely additive — there is no way
+// to it. allowed_signers is purely additive — there is no way
 // to write a "no longer trust this key" entry into it — so a distrusted
 // embedded principal is recorded HERE instead, one principal per line, and
 // Config.TrustRoot() (trustroot.go) subtracts any embedded entry matching a

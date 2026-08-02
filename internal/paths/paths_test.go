@@ -198,7 +198,7 @@ func TestResolveHarpCanonicalTranscriptPath_BothPresent_PrefersCurrent(t *testin
 	assert.Equal(t, current, p, "the current name wins when both exist — nothing writes the legacy name post-rename")
 }
 
-// TestHarpDir_RefusesTraversingNames is U087-F04's class gate at the path
+// TestHarpDir_RefusesTraversingNames is the class gate at the path
 // chokepoint: every harp-derived path (essence, ephemeral, canonical
 // transcript, the harp dir itself) is built from HarpDir, so a name that is
 // not one path component must be refused HERE rather than at each caller's

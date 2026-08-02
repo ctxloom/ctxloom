@@ -1734,7 +1734,7 @@ func TestBundleHooks_EntriesAndEntryByID(t *testing.T) {
 }
 
 // TestParseBundle_RejectsADocumentThatDeclaresNothing is the regression guard
-// for U030-F01, the root cause under U082-F02. gopkg.in/yaml.v3 returns a nil
+// for the root cause: gopkg.in/yaml.v3 returns a nil
 // error for every one of these inputs, unmarshalling each into a zero-value
 // Bundle, so ParseBundle handed callers a VALID EMPTY BUNDLE for a truncated
 // bundle.yaml, a zero-length companion loadout payload, or an empty remote
@@ -1761,7 +1761,7 @@ func TestParseBundle_RejectsADocumentThatDeclaresNothing(t *testing.T) {
 	}
 }
 
-// TestParseBundle_AcceptsAVersionOnlySkeleton is the other half of U030-F01:
+// TestParseBundle_AcceptsAVersionOnlySkeleton is the other half of the rule:
 // the rejection must not swallow a legitimately contentless bundle. CreateBundle
 // writes exactly this -- a version and nothing else -- and publishing one to
 // claim a name is deliberate authoring, not a failure. A single declared item
@@ -1778,7 +1778,7 @@ func TestParseBundle_AcceptsAVersionOnlySkeleton(t *testing.T) {
 	assert.Len(t, b.Fragments, 1)
 }
 
-// TestLoader_IsDistilled_HonoursNoDistill pins U030-F08: IsDistilled describes
+// TestLoader_IsDistilled_HonoursNoDistill pins that IsDistilled describes
 // the BYTES that were served, so it must be derived from the same decision that
 // chose them (resolveEffective's ContentForm), never re-derived from a subset of
 // its terms.
@@ -1819,7 +1819,7 @@ commands:
 	assert.False(t, cmd.IsDistilled, "the flag must describe the bytes actually served")
 }
 
-// TestExpandBundleRef_TargetedSelectorGrammar pins U030-F17: the ':' selector
+// TestExpandBundleRef_TargetedSelectorGrammar pins the ':' selector
 // aliases expandBundleRef actually recognises. The inline comment claimed
 // "{fragments|prompts|mcp}", but the ':' marker list was rewritten to
 // ":commands/" by the prompt→command item-kind rename and ":prompts/" was
@@ -1868,8 +1868,8 @@ commands:
 	assert.Equal(t, "ctxloom:local@bundles/b#fragments/f1", whole[0].Name)
 }
 
-// TestInstallation_IsNeverInTheModelFacingBytes pins the invariant U030-F09's
-// corrected comments now assert. `installation:` is operator-facing setup prose
+// TestInstallation_IsNeverInTheModelFacingBytes pins the invariant the
+// corrected field comments now assert. `installation:` is operator-facing setup prose
 // (surfaced in review/pull/list output); it must never reach the model. The two
 // field comments used to say OPPOSITE things about identically-plumbed fields —
 // BundleFragment's "not sent to AI" and BundleCommand's "sent to AI" — and
@@ -1905,13 +1905,13 @@ func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 	assert.Equal(t, secretish, lc.Installation)
 }
 
-// TestBundleAccessorTier_Characterization pins the whole accessor tier
-// U030-F20 names, so a later collapse into a generic accessor is provably
+// TestBundleAccessorTier_Characterization pins the whole accessor tier,
+// so a later collapse into a generic accessor is provably
 // behaviour-preserving rather than hopefully so.
 //
 // Measured against the census: the tier was 13 methods and is now 10 —
-// SkillCount, HasProfiles and AllTags have already been removed by this
-// campaign, and every survivor has at least one production caller, so there is
+// SkillCount, HasProfiles and AllTags have already been removed, and every
+// survivor has at least one production caller, so there is
 // no dead member left to delete. What IS worth locking is the only real
 // behaviour any of them has: the *Names accessors return SORTED slices, which
 // downstream reproducibility (command-file writes, review output) depends on

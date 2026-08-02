@@ -416,7 +416,7 @@ func (l *Loader) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
 	bundle, err := l.Load(bundleRef)
 	if err != nil {
 		// Same silent-export defect as SkillsFromBundleRef, same fix, same
-		// warner expandBundleRef already uses (U030-F07): writing zero command
+		// warner expandBundleRef already uses: writing zero command
 		// files because the bundle would not load must not look like a bundle
 		// that ships no commands.
 		l.warnUnresolvedBundle(bundleRef, err)

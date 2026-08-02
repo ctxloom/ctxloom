@@ -61,7 +61,7 @@ func (l *Loader) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
 	if err != nil {
 		// This feeds the export path that WRITES per-engine skill files, so a
 		// bare `return nil` exported zero skills, exit 0, in silence —
-		// indistinguishable from a bundle that ships none (U030-F07). The
+		// indistinguishable from a bundle that ships none. The
 		// sibling expandBundleRef already warns here through this same warner;
 		// that inconsistency was the tell.
 		l.warnUnresolvedBundle(bundleRef, err)
@@ -97,7 +97,7 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 	// NOT filepath.Dir(bundle.Path): Path is overloaded, and for a companion-
 	// or seeded bundle Dir() of it is ".", which resolved this skill against
 	// the process working directory and materialized whatever sat there as
-	// the bundle's own content (U030-F03). FSDir refuses those values.
+	// the bundle's own content. FSDir refuses those values.
 	bundleDir, err := bundle.FSDir()
 	if err != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
@@ -114,8 +114,8 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 	// when it has not. There is deliberately NO `len(entry.Files) > 0`
 	// predicate here any more: that single condition used to both empty the
 	// preimage and skip the verification below, so a manifest-less skill got
-	// a constant hash AND no tamper check — two failures of one trust gate
-	// (arch-review S2/T4). A failure to resolve the manifest withholds.
+	// a constant hash AND no tamper check — two failures of one trust gate.
+	// A failure to resolve the manifest withholds.
 	manifest, err := entry.EffectiveManifest(l.fs, bundleDir, name)
 	if err != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)

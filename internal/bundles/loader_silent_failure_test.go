@@ -15,7 +15,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// U030-F03 / U030-F06 / U030-F07 — three silent failures in the bundle loader.
+// Three silent failures in the bundle loader.
 //
 // All three share one shape, the one this project calls characteristic: a
 // determination FAILED, and the caller was handed the same value it would get
@@ -44,7 +44,7 @@ func captureBundleWarner(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// TestCommandsFromBundleRef_WarnsWhenBundleUnloadable is U030-F07 for commands.
+// TestCommandsFromBundleRef_WarnsWhenBundleUnloadable pins the fix for commands.
 //
 // CommandsFromBundleRef feeds the export path that WRITES per-engine command
 // files. A profile naming a bundle that will not load exported zero commands,
@@ -64,7 +64,7 @@ func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 			"ships no commands unless someone says so")
 }
 
-// TestSkillsFromBundleRef_WarnsWhenBundleUnloadable is U030-F07 for skills —
+// TestSkillsFromBundleRef_WarnsWhenBundleUnloadable pins the same fix for skills —
 // the same defect, the same export path, the same silence.
 func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
@@ -77,7 +77,7 @@ func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 		"the ref that failed to load must be named in a diagnostic")
 }
 
-// TestList_UnreadableBundlesDirIsLoud is U030-F06.
+// TestList_UnreadableBundlesDirIsLoud pins the fix below.
 //
 // A bundles root that cannot be read returned an EMPTY LIST WITH A NIL ERROR,
 // and every downstream sweep then reported "fragment not found" — blaming the
@@ -121,7 +121,7 @@ func TestList_UnreadableBundlesDirIsLoud(t *testing.T) {
 			"their fragment does not exist when in truth their bundles directory could not be read")
 }
 
-// TestSkillContent_RefusesNonFilesystemBundlePath is U030-F03.
+// TestSkillContent_RefusesNonFilesystemBundlePath pins the fix below.
 //
 // Bundle.Path is overloaded: a real filesystem path for on-disk bundles, but ""
 // for companion-seeded bundles and a synthetic "<remote>:…"/"<remote-version>:…"
@@ -173,9 +173,9 @@ func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
 	}
 }
 
-// TestSkillPreimageDir_RefusesToDeriveFromCwd is the U030-F03 widening.
+// TestSkillPreimageDir_RefusesToDeriveFromCwd widens the same fix.
 //
-// The finding named ONE call site (the loader). Eight more in
+// The original fix covered ONE call site (the loader). Eight more in
 // internal/operations took filepath.Dir(bundle.Path) the same way, including
 // three on TRUST paths — `ctxloom review`'s approval surface, SetItemTrust's
 // grant preimage, and the review snapshot. On a pathless bundle those hashed

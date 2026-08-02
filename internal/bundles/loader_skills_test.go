@@ -340,11 +340,11 @@ func TestSearchSkill_AllWithheldReturnsErrSkillWithheld(t *testing.T) {
 }
 
 // =============================================================================
-// U030-F15 / U030-F16 — refutation pins
+// Refutation pins
 // =============================================================================
 
 // TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded is the
-// structural half of refuting U030-F15, which claimed a malformed manifest mode
+// structural half of refuting the claim that a malformed manifest mode
 // silently defaults to 0644 and downgrades a 0755 script.
 //
 // It cannot: an authored mode never reaches that ParseUint at all. The
@@ -380,7 +380,7 @@ func TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded(t *testing.T)
 
 // TestSkillContent_ExecBitSurvivesLoad is the other half: the mode the loader
 // hands the materializer comes from the real tree, so a 0755 script stays 0755.
-// If anyone "fixes" U030-F15 by feeding the AUTHORED manifest into the
+// If anyone "fixes" this by feeding the AUTHORED manifest into the
 // materialize loop, this is what notices.
 func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 	fsys := afero.NewMemMapFs()
@@ -399,8 +399,8 @@ func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 	assert.Equal(t, uint32(0644), modes["SKILL.md"])
 }
 
-// TestSkillContent_ManifestResolutionFailureWarns refutes U030-F16, which
-// claimed the preimage path was the one withhold in skillContent with no
+// TestSkillContent_ManifestResolutionFailureWarns refutes the claim that
+// the preimage path was the one withhold in skillContent with no
 // clidiag.Warn. The silent path it named — a json.Marshal failure on
 // BundleSkill.ContentPayload — no longer exists in that shape: the preimage is
 // now resolved through EffectiveManifest, which CAN fail for real (an
@@ -429,7 +429,7 @@ func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	assert.NotEmpty(t, out, "no withhold in skillContent may be silent")
 }
 
-// TestLoadFile_ConcurrencyContract pins what U030-F10's corrected doc now
+// TestLoadFile_ConcurrencyContract pins what LoadFile's corrected doc now
 // asserts, in the two halves the old one-liner ("safe for concurrent use")
 // blurred together.
 //

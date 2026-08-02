@@ -680,7 +680,7 @@ func (c *Config) GetEditorCommand() (string, []string) {
 
 // EditorFromEnv resolves the editor from the environment alone: VISUAL, then
 // EDITOR, then nano. It exists for callers that must run BEFORE any config is
-// loaded (e.g. `manage config edit`, which edits a possibly-broken config), so
+// loaded (e.g. `config edit`, which edits a possibly-broken config), so
 // they share the env half of GetEditorCommand's policy instead of duplicating
 // it. Values are whitespace-split like GetEditorCommand.
 func EditorFromEnv() (string, []string) {

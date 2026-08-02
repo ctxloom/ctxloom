@@ -709,7 +709,7 @@ func TestConfig_GetEditorCommand(t *testing.T) {
 }
 
 // EditorFromEnv is the pre-config-load half of the editor policy (used by
-// `manage config edit`): VISUAL → EDITOR → nano, with whitespace splitting.
+// `config edit`): VISUAL → EDITOR → nano, with whitespace splitting.
 func TestEditorFromEnv(t *testing.T) {
 	tests := []struct {
 		name     string

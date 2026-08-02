@@ -30,8 +30,8 @@ func runCLIErr(t *testing.T, args ...string) (string, error) {
 	return out.String(), err
 }
 
-// TestManageInstall_EngineOnExistingDirIsNotSilentlyDropped is the U037-F22
-// pin. `--engine` was read only inside the `if !ctxloomDirExists(appDir)`
+// TestManageInstall_EngineOnExistingDirIsNotSilentlyDropped pins that
+// `--engine` was read only inside the `if !ctxloomDirExists(appDir)`
 // branch, so re-running install to change the recorded engine printed the
 // normal success lines and exited 0 while the config kept the old engine —
 // a user-visible instruction ("re-run install with --engine") that did nothing.

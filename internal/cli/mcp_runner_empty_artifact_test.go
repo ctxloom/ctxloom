@@ -12,7 +12,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// TestArtifactStamper_RefusesAnEmptyFile pins U016-F18: the publish path
+// TestArtifactStamper_RefusesAnEmptyFile pins that the publish path
 // capped the MAXIMUM artifact size and never the minimum, so a 0-byte file
 // uploaded, journaled, and came back as `{"journaled": true, "artifact_ids":
 // [...]}`. An agent that published an empty plan got a success receipt for

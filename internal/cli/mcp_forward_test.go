@@ -48,7 +48,7 @@ func TestForward_UnixSocketRoundTrip(t *testing.T) {
 	}
 }
 
-// TestBuildForwardServer_RefusesAZeroToolRunner (U038-F03): runMCPForward's
+// TestBuildForwardServer_RefusesAZeroToolRunner pins that runMCPForward's
 // own doc claims "an unreachable runner socket is a hard startup error: a
 // silently-empty toolset would be a wrong-context session" — but nothing
 // ever checked that ANY tool actually got registered once the connection

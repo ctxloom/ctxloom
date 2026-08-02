@@ -258,10 +258,10 @@ func TestMCPDiscovery_StandaloneSessionGetsLocalMode(t *testing.T) {
 	})
 }
 
-// TestDiscoveryMarkerName_ContainerTierIsDeliberatelyCwdIndependent is the
-// U037-F15 REFUTATION pin. The row read the container tier's fixed
-// "current.json" as a bug ("a marker written by one cell can be found by a shim
-// in a different workspace") and proposed keying it by cwd like the host tier.
+// TestDiscoveryMarkerName_ContainerTierIsDeliberatelyCwdIndependent refutes
+// a claim that the container tier's fixed "current.json" is a bug ("a marker
+// written by one cell can be found by a shim in a different workspace") that
+// proposed keying it by cwd like the host tier.
 // Keying it by cwd is what would BREAK it:
 //
 //   - The two sides do NOT share a cwd inside a container. serveRunnerMCP keys

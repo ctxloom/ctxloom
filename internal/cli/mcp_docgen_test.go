@@ -8,7 +8,7 @@ import (
 	"go.uber.org/goleak"
 )
 
-// TestNewDocMCPServer_ClosesItsHome pins U038-F15's leak half. The doc server
+// TestNewDocMCPServer_ClosesItsHome pins the leak. The doc server
 // is built on a coord.Home, and constructing one is not free: it opens a gRPC
 // client and dispatches two background loops that go on redialling the
 // deliberately-dead endpoint. Every call to NewDocMCPServer therefore leaked a
@@ -16,8 +16,8 @@ import (
 // helpers build a fresh server on EVERY call, so the completeness gates that
 // use them multiplied it.
 //
-// goleak compares the goroutine set around the call, so it fails on exactly the
-// leak the row names rather than on a count that happens to drift.
+// goleak compares the goroutine set around the call, so it fails on exactly
+// this leak rather than on a count that happens to drift.
 func TestNewDocMCPServer_ClosesItsHome(t *testing.T) {
 	// IgnoreCurrent snapshots the goroutines already running, so this measures
 	// only what THIS call adds and leaves behind — the package's other tests

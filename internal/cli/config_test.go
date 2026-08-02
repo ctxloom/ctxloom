@@ -267,8 +267,8 @@ func TestConfigPayload_SectionKeysStaySnakeCase(t *testing.T) {
 	assert.NotContains(t, m, "CompactionChunks")
 }
 
-// TestConfigInitWritesItsSuccessLineToTheCommandWriter pins U035-F17 for
-// `config init`: the "Wrote <path>" line went to os.Stdout via a bare
+// TestConfigInitWritesItsSuccessLineToTheCommandWriter pins that
+// `config init`'s "Wrote <path>" line went to os.Stdout via a bare
 // fmt.Printf, so it was invisible to this package's cobra output-capture tests
 // and unredirectable by any embedding frontend.
 func TestConfigInitWritesItsSuccessLineToTheCommandWriter(t *testing.T) {

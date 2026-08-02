@@ -34,7 +34,7 @@ func seedSession(t *testing.T, projectDir string, activity time.Time) string {
 	return e.HarpName
 }
 
-// TestHandleResourceSessionsRecent_ScopesToTheCallersProject pins U038-F09.
+// TestHandleResourceSessionsRecent_ScopesToTheCallersProject pins that
 // `ctxloom://sessions/recent` is documented as "sessions for the current
 // project", and on the runner-terminated surface the current project is the
 // CELL's work dir — which the ctxServer already carries as its identity.
@@ -62,7 +62,7 @@ func TestHandleResourceSessionsRecent_ScopesToTheCallersProject(t *testing.T) {
 	assert.NotContains(t, body, theirs, "a session belonging to the serving process's cwd must not leak into the cell's view")
 }
 
-// TestHandleResourceSessionsRecent_DeclaresItsTruncation pins U038-F16. The
+// TestHandleResourceSessionsRecent_DeclaresItsTruncation pins that the
 // handler caps the body at 25 rows. Without a marker in the payload a client
 // reading 25 rows cannot tell a complete answer from a silently clipped one —
 // so "the session I am looking for is not in the index" and "the session I am
@@ -123,7 +123,7 @@ func TestHandleResourceSessionsRecent_DeclaresAnUntruncatedAnswer(t *testing.T) 
 	assert.Contains(t, body, "truncated:", "the marker must be emitted, not omitted, when false")
 }
 
-// TestHandleResourceSessionsAll_MatchesSessionListAll pins U038-F10. The
+// TestHandleResourceSessionsAll_MatchesSessionListAll pins that the
 // handler's own doc claims parity with `ctxloom session list --all`, and that
 // command reads operations.ListAllSessions — activity-sorted, most-recent
 // first. The unsorted lister returns raw index order, which is CREATION order:
@@ -170,8 +170,9 @@ func TestHandleResourceSessionsAll_MatchesSessionListAll(t *testing.T) {
 }
 
 // TestResourceProjectDir_FallsBackToCwdWithoutAnIdentity covers the other arm
-// of U038-F09: a ctxServer with no identity (docgen, tests, any caller that
-// never threads a cell) still resolves the process cwd, so the fix is additive
+// of the project-scoping fix: a ctxServer with no identity (docgen, tests,
+// any caller that never threads a cell) still resolves the process cwd, so
+// the fix is additive
 // rather than a behaviour swap. The os.Getwd failure arm is deliberately not
 // exercised — it is unreachable while the process has a valid cwd, and the
 // point of the change is that it now returns an error instead of quietly

@@ -287,7 +287,7 @@ func runMCPShow(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if !result.Found {
-		// U037-F17: this check used to live INSIDE emit()'s text closure,
+		// This check used to live INSIDE emit()'s text closure,
 		// which cliemit.Emit only runs for FormatText — every other format
 		// fell through to clifmt.Render(result, format), rendering
 		// {"found":false,...} and exiting 0. Hoisted above emit() so every

@@ -29,7 +29,7 @@ var lowerCamelConstructorRef = regexp.MustCompile(`\bnew[A-Z][A-Za-z0-9_]*\b`)
 // nothing in the toolchain checks comment prose) it survives every rename and
 // every deletion silently.
 //
-// U038-F17 is the defect this pins: two comments directed the reader to
+// The defect this pins: two comments once directed the reader to
 // `newCtxServerForIdentity`, which the runner-terminated MCP rework deleted.
 func TestDocComments_NameOnlyConstructorsThatExist(t *testing.T) {
 	fset := token.NewFileSet()

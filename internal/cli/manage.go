@@ -31,12 +31,12 @@ command files, .gitignore, and configuration.
   ctxloom manage uninstall    Remove ctxloom's hooks, MCP entry, and commands
   ctxloom manage status       Show what ctxloom has wired in
   ctxloom manage hooks        Install/uninstall/inspect backend hooks
-  ctxloom manage mcp          Manage MCP registration and server configs
   ctxloom manage gitignore    Maintain ctxloom's .gitignore entries
 
-Configuration lives at the top-level 'ctxloom config' (CLI-primary reorg plan,
-Decision 6); the duplicate 'manage init' setup entry point was removed, root
-'ctxloom init' is the sole bootstrap.`,
+MCP registration lives at the top-level 'ctxloom mcp register'/'unregister';
+configuration lives at the top-level 'ctxloom config'; the duplicate
+'manage init' setup entry point was removed, root 'ctxloom init' is the sole
+bootstrap.`,
 }
 
 // --- manage install / uninstall / status -----------------------------------
@@ -74,13 +74,10 @@ var manageStatusCmd = &cobra.Command{
 }
 
 // runManageInstall scaffolds and wires ctxloom into the current project. Fault
-// tolerant: post-scaffold steps warn and continue so a partial wire still lands
-// the user in a working state.
-// runManageInstall scaffolds and wires ctxloom into the current project. Fault
 // tolerant with respect to per-backend hook errors (collected into
 // result.Errors and warned, not fatal) so a partial wire still lands the user
 // in a working state; NOT fault tolerant with respect to the .gitignore write,
-// which now fails loud (U037-F02).
+// which now fails loud.
 func runManageInstall(cmd *cobra.Command, _ []string) error {
 	appDir, err := resolveAppDir(false)
 	if err != nil {
@@ -129,7 +126,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	// ApplyHooks reloads config from disk itself (U084-F04), so this load is
+	// ApplyHooks reloads config from disk itself, so this load is
 	// not an input to it — it is the early guard + config-warning echo the
 	// command owes the user before doing any work.
 	if _, err := GetConfig(); err != nil {
@@ -212,11 +209,9 @@ func printInstallPlan(appDir, projectDir string) {
 }
 
 // ensureHarnessGitignore excludes ctxloom's private state and transient
-// artifacts from git. Fault tolerant: a failure warns and continues.
-// ensureHarnessGitignore excludes ctxloom's private state and transient
 // artifacts from git. Returns the write failure instead of swallowing it —
 // callers must not report success when the file was never updated
-// (U037-F02: `manage gitignore install` used to print "Updated <path>" and
+// (`manage gitignore install` used to print "Updated <path>" and
 // exit 0 even when the write failed).
 func ensureHarnessGitignore(projectDir string) error {
 	patterns := append(append([]string{}, gitignore.PrivateStatePatterns...), gitignore.TransientArtifactPatterns...)
@@ -310,7 +305,7 @@ var manageHooksInstallCmd = &cobra.Command{
 
 func runManageHooksInstall(cmd *cobra.Command, _ []string) error {
 	// Guard + config-warning echo only; ApplyHooks reloads from disk
-	// itself (U084-F04).
+	// itself.
 	if _, err := GetConfig(); err != nil {
 		return err
 	}

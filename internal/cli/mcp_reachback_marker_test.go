@@ -20,11 +20,11 @@ import (
 // The ONLY admissible home for the contract is therefore the zero-import leaf
 // internal/shared/mcpsocket, and both ends must read it from there.
 //
-// U038-F13 claimed internal/cli holds its own `reachBackTCPPrefix` constant
-// kept in sync with internal/acp by a comment asking humans to do it. That is
-// no longer true — both ends read mcpsocket.TCPPrefix. This test is what keeps
-// it untrue: it goes red the moment either package grows its own literal copy
-// of the marker, which is precisely the state the finding described.
+// A prior review claimed internal/cli holds its own `reachBackTCPPrefix`
+// constant kept in sync with internal/acp by a comment asking humans to do
+// it. That is no longer true — both ends read mcpsocket.TCPPrefix. This test
+// is what keeps it untrue: it goes red the moment either package grows its
+// own literal copy of the marker, which is precisely the state described.
 func TestReachBackMarker_HasExactlyOneDeclaration(t *testing.T) {
 	require.Equal(t, "tcp://", mcpsocket.TCPPrefix, "the marker's value is the contract both ends encode/decode")
 

@@ -85,7 +85,7 @@ func TestOldTopLevelPaths_AreRemoved(t *testing.T) {
 }
 
 func TestInitAliasStaysTopLevel(t *testing.T) {
-	// `manage init` was deleted (Decision 6); root `ctxloom init` is the sole,
+	// `manage init` was deleted; root `ctxloom init` is the sole,
 	// canonical bootstrap entry point, not an alias for anything.
 	assert.NotNil(t, findSub(rootCmd, "init"), "ctxloom init is the sole bootstrap entry point")
 }

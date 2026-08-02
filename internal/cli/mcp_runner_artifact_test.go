@@ -116,10 +116,10 @@ func TestRunnerServer_ReportThenFetchArtifact(t *testing.T) {
 	require.Error(t, err, "a dest_path escaping the working directory must be rejected")
 }
 
-// TestRunnerServer_ArtifactPathsResolveAgainstCellWorkDir (U038-F01): the
+// TestRunnerServer_ArtifactPathsResolveAgainstCellWorkDir pins that the
 // runner's cell-path boundary must anchor to the CELL work dir the harness
 // actually runs in, not this process's own os.Getwd() (the coordinator's
-// cwd) — the workspace:worktree shape the finding names, where the runner
+// cwd) — the workspace:worktree shape where the runner
 // is spawned with no cmd.Dir and inherits the coordinator's cwd while the
 // harness's engine process runs with cmd.Dir=the per-agent worktree.
 // Deliberately makes the two DIFFER, then proves publish_paths/dest_path

@@ -61,7 +61,7 @@ func NewDocMCPServer() (server *mcp.Server, closeHome func(), err error) {
 // server itself (see internal/docsgen/mcp.go's enumerateMCPSurface, which
 // does the identical round trip to render the published reference page).
 //
-// U156-F01: this exists so a completeness gate can measure the SAME surface
+// This exists so a completeness gate can measure the SAME surface
 // this package documents. Before it, tests/acceptance/completeness_test.go
 // only ever enumerated the STANDALONE `ctxloom mcp serve` surface (a
 // deliberately reduced agent-delegation surface with different schemas --

@@ -196,7 +196,7 @@ func probeWellKnownRunner(cwd string) (socket string, err error) {
 		if dialable(m.Socket) {
 			return m.Socket, nil
 		}
-		// U114-F01: MaybeAlive (not a bare Alive check) treats an
+		// MaybeAlive (not a bare Alive check) treats an
 		// unconfirmable probe the same as a live runner — falling through to
 		// os.Remove + starting a fresh local coordinator on a false "dead"
 		// would risk exactly the rogue-second-coordinator scenario the error

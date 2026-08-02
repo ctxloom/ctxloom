@@ -96,7 +96,7 @@ func buildForwardServer(ctx context.Context, cs *mcp.ClientSession) (*mcp.Server
 	if err != nil {
 		return nil, err
 	}
-	// U038-F03: runMCPForward's own doc claims "an unreachable runner socket
+	// runMCPForward's own doc claims "an unreachable runner socket
 	// is a hard startup error: a silently-empty toolset would be a wrong-
 	// context session" — but nothing ever checked that ANY tool actually
 	// got registered. A runner that connects fine but advertises zero
@@ -144,7 +144,7 @@ func forwardResources(ctx context.Context, cs *mcp.ClientSession, server *mcp.Se
 			// A runner without resources is fine; only a transport
 			// fault matters — the SDK types both as errors, so this
 			// degrades to tools-only rather than failing the whole
-			// session, but U038-F03: the degrade used to be SILENT despite
+			// session, but the degrade used to be SILENT despite
 			// the comment claiming "the error surfaced" — it never did.
 			clidiag.Warn("ctxloom", "ctxloom mcp (forward mode): list runner resources: %v (degrading to tools-only)", err)
 			return nil //nolint:nilerr // resources are optional surface

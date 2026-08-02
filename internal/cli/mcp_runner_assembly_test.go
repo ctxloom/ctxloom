@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 )
 
-// Characterization coverage for newRunnerMCPServer, written BEFORE the U038-F08
+// Characterization coverage for newRunnerMCPServer, written BEFORE its
 // complexity split so the split is provably behaviour-preserving. A pure
 // complexity reduction cannot have a red — behaviour is unchanged by definition
 // — so these must be green before and after, and they cover the arms the

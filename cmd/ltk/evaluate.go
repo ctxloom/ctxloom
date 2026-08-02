@@ -162,7 +162,7 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 // An unknown --engine in the installed hook (a manual edit or a cross-version
 // rename) would otherwise exit 1, which both hosts treat as a silent allow, and
 // there is no adapter for the NAMED engine to deny with. Guessing claude-code
-// unconditionally was itself a bug (U005-F04): on an Antigravity host the deny
+// unconditionally was itself a bug: on an Antigravity host the deny
 // then rides claude-code's wire format, which agy does not recognize, so the
 // "fail closed" deny is invisible and the action proceeds anyway — the exact
 // failure mode this branch exists to prevent. Try every registered engine's own
@@ -208,8 +208,8 @@ func noteWhenNothingIsGated(out engine.Output, resolvedConfig string) engine.Out
 
 // detectEngineFromPayload tries every registered engine's Decode against
 // input and returns the first whose result looks like a genuine decode — a
-// recognized tool name or a populated Command/FilePath — never a blind guess
-// (U005-F04). nil means no engine's Decode produced anything meaningful for
+// recognized tool name or a populated Command/FilePath — never a blind guess.
+// nil means no engine's Decode produced anything meaningful for
 // this payload, so the caller falls back to claude-code.
 func detectEngineFromPayload(input []byte) engine.Engine {
 	if len(input) == 0 {
@@ -244,7 +244,7 @@ func detectEngineFromPayload(input []byte) engine.Engine {
 // Decode reads only the payload field names it knows
 // (tool_input.command/file_path/notebook_path); an unrecognized tool using
 // different field names yields an empty Request that every rule silently
-// misses (stark-boxer).
+// misses.
 //
 // This is a deliberate, NARROW exception to ltk's fail-open posture (see
 // docs/ltk/RULES.md and README.md's "Scope" section): everywhere else,

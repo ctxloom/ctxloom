@@ -250,7 +250,7 @@ func TestWriteFileAtomicReplace(t *testing.T) {
 // An empty --bin makes HookCommand emit a command line that begins with a
 // space and names a bare "evaluate" — syntactically valid, permanently
 // non-functional, and installed with a "installed hook for …" success message
-// over it (U067-F09). The hook host then fails open on every invocation, so the
+// over it. The hook host then fails open on every invocation, so the
 // guard the user just installed gates nothing and nothing ever says so. Refuse
 // the flag value instead; the whole payload is derived from it.
 func TestManage_RefusesEmptyBin(t *testing.T) {

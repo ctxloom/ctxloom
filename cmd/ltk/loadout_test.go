@@ -112,12 +112,12 @@ func TestLoadout_TamperedLoadoutBodyFailsVerification(t *testing.T) {
 	assert.Empty(t, signer)
 }
 
-// U005-F15 read the two `--format` flags as a coupling defect: the root
-// registers a PERSISTENT --format over clifmt's five output formats
+// The two `--format` flags look like a coupling defect at first glance: the
+// root registers a PERSISTENT --format over clifmt's five output formats
 // (default "text"), and `loadout` registers a LOCAL one over two envelope
 // formats (default "yaml"), which shadows it. The two meanings are real. The
 // shadowing is not a defect but the mechanism that makes both correct, and
-// every remedy the row implies breaks something:
+// every remedy that looks obvious breaks something:
 //
 //   - removing loadout's local flag makes the bare `ltk loadout` inherit the
 //     root default "text", which loadout cannot emit — the DEFAULT invocation

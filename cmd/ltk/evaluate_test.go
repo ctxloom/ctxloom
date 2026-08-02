@@ -131,8 +131,8 @@ func TestEvaluateFailsClosedOnBrokenConfig(t *testing.T) {
 
 // The hook path claims to be fail-CLOSED: never an error return, because both
 // hosts read a non-zero hook exit as an allow. evaluate and failClosed
-// nevertheless still carry `engine.Output{}, err` returns, and U005-F09 read
-// those as residual fail-open holes. They are not reachable — but "not
+// nevertheless still carry `engine.Output{}, err` returns, which read as
+// residual fail-open holes. They are not reachable — but "not
 // reachable" is a property of the adapters, not of this function, so it is
 // pinned here rather than asserted in a comment.
 //
@@ -363,7 +363,7 @@ func TestEvaluateFailsClosedOnUnknownEngine(t *testing.T) {
 	}
 }
 
-// TestEvaluateUnknownEngineDetectsRealHostFromPayload pins U005-F04: the
+// TestEvaluateUnknownEngineDetectsRealHostFromPayload pins that the
 // unknown-engine fail-closed branch must not blindly guess claude-code's wire
 // format. Before the fix it always encoded the deny as claude-code — correct
 // by accident when the real host IS claude-code, but on an actual Antigravity
@@ -459,7 +459,7 @@ rules:
 // project that never configured ltk is not gated), but it must not be
 // INVISIBLE: an operator relying on the hook being active had no signal that
 // it was gating nothing whatsoever. This pins the diagnostic added to the
-// Stderr channel (previously produced by nothing at all — U067-F03) without
+// Stderr channel (previously produced by nothing at all) without
 // changing the decision itself (still Allow).
 func TestEvaluateNoConfigFoundAnywhereWarns(t *testing.T) {
 	ws := t.TempDir()
@@ -632,7 +632,7 @@ func TestConfirmByRepeatTinyWindowDenies(t *testing.T) {
 	}
 }
 
-// TestEvaluateDeniesUnrecognizedToolName closes stark-boxer: ltk's tool
+// TestEvaluateDeniesUnrecognizedToolName closes a real bypass: ltk's tool
 // matcher is a hand-maintained list over a VENDOR-OWNED, mutating tool set. If
 // the vendor ships or renames a shell/file tool, the installed PreToolUse
 // matcher can end up firing on it while Decode does not recognise the exact

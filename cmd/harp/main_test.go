@@ -13,7 +13,7 @@ import (
 )
 
 // TestNewRootCmd_Flags pins the flag surface carried over from the removed
-// `ctxloom harp` subcommand (WS-7): every short/long name and default must
+// `ctxloom harp` subcommand: every short/long name and default must
 // match exactly, since this binary is the flag surface's only home now.
 func TestNewRootCmd_Flags(t *testing.T) {
 	root := newRootCmd()
@@ -84,18 +84,13 @@ func TestRunGenerate_Number(t *testing.T) {
 }
 
 // TestRunGenerate_NumberZero pins the historical "n<=0 emits nothing"
-// behavior the removed ctxloom harp command had (`for range harpCount`).
-// TestRunGenerate_NumberZero inverts U004-F01: `harp -n 0` (and every
-// negative count) used to print zero bytes and exit 0 — a silent no-op, not
-// a valid "zero names requested" outcome. A generator asked to generate
-// something that produces nothing has failed, not succeeded, and must say
-// so on stderr with a non-zero exit rather than rendering an empty payload.
-//
-// Production is NOT fixed yet (root.go:100-105 still loops `for range
-// opts.count`, silently producing an empty slice for count<=0) — this is
-// the RED half of the inversion, kept skipped so `just test` stays green
-// until U004-F01's fix lands. Un-skip once runGenerate rejects a
-// non-positive --number.
+// behavior the removed ctxloom harp command had (`for range harpCount`),
+// inverted: `harp -n 0` (and every negative count) used to print zero bytes
+// and exit 0 — a silent no-op, not a valid "zero names requested" outcome.
+// A generator asked to generate something that produces nothing has failed,
+// not succeeded, and must say so on stderr with a non-zero exit rather than
+// rendering an empty payload. runGenerate now rejects a non-positive
+// --number.
 func TestRunGenerate_NumberZero(t *testing.T) {
 	root := newRootCmd()
 	var out bytes.Buffer
@@ -105,7 +100,7 @@ func TestRunGenerate_NumberZero(t *testing.T) {
 
 	err := root.Execute()
 	if err == nil {
-		t.Fatal("harp -n 0 must fail loudly (U004-F01), not exit 0 having produced nothing")
+		t.Fatal("harp -n 0 must fail loudly, not exit 0 having produced nothing")
 	}
 	if out.String() != "" && err == nil {
 		t.Errorf("expected no rendered payload alongside the error, got %q", out.String())
@@ -266,7 +261,7 @@ func TestNewRootCmd_CommandSurface(t *testing.T) {
 	}
 }
 
-// TestRunGenerate_RejectsAdvertisedRangeViolations pins U004-F02: the flag help
+// TestRunGenerate_RejectsAdvertisedRangeViolations pins that the flag help
 // advertises "number of words (2-16)" and enumerates the word-list groups, and
 // the CLI must ENFORCE what it advertises. The library it calls deliberately
 // clamps instead (harp.Options.normalize, pinned by
@@ -276,7 +271,7 @@ func TestNewRootCmd_CommandSurface(t *testing.T) {
 // plausible wrong answer at exit 0: `harp -c 1` prints a THREE-word name,
 // `harp -c 99` prints sixteen, `harp -g typo` quietly draws from "default".
 //
-// Same shape and same layer as U004-F01's `--number` guard: the enforcement
+// Same shape and same layer as the `--number` guard above: the enforcement
 // belongs where the promise is made.
 func TestRunGenerate_RejectsAdvertisedRangeViolations(t *testing.T) {
 	cases := []struct {

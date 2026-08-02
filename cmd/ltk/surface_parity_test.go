@@ -11,8 +11,8 @@ import (
 
 // `evaluate` (the hook) and `check` (the query surface) run the SAME four-step
 // wiring over the same rules: load the config, expand the @submodules
-// sentinel, build the rules app, decide. U005-F10 called that duplication and
-// noted it "has already drifted". The wiring is not verbatim — the two
+// sentinel, build the rules app, decide. That duplication has already
+// drifted once. The wiring is not verbatim — the two
 // surfaces deliberately differ in ERROR POLICY, one failing closed and the
 // other failing loud — so a parity test over the failure arms would be pinning
 // a difference that is the point.

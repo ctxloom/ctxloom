@@ -28,7 +28,7 @@ type checkResult struct {
 	// parsing the command (defaults.on_parse_error let it through, or denied
 	// it, without ever consulting a single rule) — see engine.Response.
 	// Unanalyzed. Before this field existed an unanalyzed allow and a clean
-	// allow were byte-identical here (U005-F01): a caller had no way to tell
+	// allow were byte-identical here: a caller had no way to tell
 	// "nothing matched" from "nothing could be checked at all".
 	Analyzed bool `json:"analyzed"`
 	// ParseError carries the human-facing detail when Analyzed is false.
@@ -150,7 +150,7 @@ func printCheckText(w io.Writer, r checkResult) error {
 		if !r.Analyzed {
 			// Without this, an unanalyzed allow (on_parse_error let it through
 			// without ever consulting a rule) prints identically to a clean
-			// allow — U005-F01.
+			// allow.
 			_, err := fmt.Fprintf(w, "note: could not fully analyze this command (%s); allowed per defaults.on_parse_error\n", r.ParseError)
 			return err
 		}

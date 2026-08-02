@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// TestOpenHarnessEngine_CloseWhileEngineParkedOnEmit pins U001-F01: tearing a
+// TestOpenHarnessEngine_CloseWhileEngineParkedOnEmit pins that tearing a
 // session down must never race the scripting goroutine's send.
 //
 // The engine goroutine parks in emit's `select { case events <- ev:
@@ -68,7 +68,7 @@ func waitForFullEvents(events <-chan agent.ChatEvent) bool {
 	return false
 }
 
-// TestOpenHarnessEngine_ConcurrentCloseIsIdempotent pins U001-F02: EngineChat's
+// TestOpenHarnessEngine_ConcurrentCloseIsIdempotent pins that EngineChat's
 // documented contract is "Close tears the engine conversation down
 // (idempotent)". A select/default guard around close() is a non-atomic
 // imitation of sync.Once — two callers can both observe the default arm and
@@ -103,7 +103,7 @@ func TestOpenHarnessEngine_ConcurrentCloseIsIdempotent(t *testing.T) {
 }
 
 // TestOpenHarnessEngine_ResumeReplaysFixedHistory characterizes the one
-// OpenRequest field the harness does read (U001-F06): a resumed harp yields the
+// OpenRequest field the harness does read: a resumed harp yields the
 // fixed two-entry replay, a fresh session yields none and a generated harp.
 func TestOpenHarnessEngine_ResumeReplaysFixedHistory(t *testing.T) {
 	resumed, err := openHarnessEngine(context.Background(), operations.OpenRequest{ResumeHarp: "some-recorded-harp"})
@@ -139,7 +139,7 @@ func TestOpenHarnessEngine_ResumeReplaysFixedHistory(t *testing.T) {
 // cancel and finishes normally anyway, which the server must still resolve as
 // cancelled).
 //
-// This is the pin above U001-F03's collapse of the two branches onto one
+// This is the pin above a collapse of the two branches onto one
 // helper: it is green before and after, and red if the collapse loses either
 // the shared script or the deliberate divergence.
 func TestRunTurn_CancelSentinelsShareOneScript(t *testing.T) {
@@ -198,7 +198,7 @@ func recvEvent(t *testing.T, events <-chan agent.ChatEvent) agent.ChatEvent {
 	}
 }
 
-// TestRunTurn_TornDownTurnNeverCompletesWithoutItsAnswer pins U001-F04: a turn
+// TestRunTurn_TornDownTurnNeverCompletesWithoutItsAnswer pins that a turn
 // must never report completion having silently dropped the answer that
 // completion is about.
 //
@@ -263,8 +263,8 @@ func drainToClose(events <-chan agent.ChatEvent) (answer, completion bool) {
 	return answer, completion
 }
 
-// TestOpenHarnessEngine_IgnoresEverythingButTheResumedHarp pins U001-F06's
-// refutation: the L1 harness reads exactly ONE field of the OpenRequest and
+// TestOpenHarnessEngine_IgnoresEverythingButTheResumedHarp pins that the
+// L1 harness reads exactly ONE field of the OpenRequest and
 // populates exactly the protocol-level fields of the EngineChat. That is the
 // design this binary's package doc states — "it never touches ctxloom config,
 // credentials, or a real LLM" — not an oversight, and honoring the rest would

@@ -7,7 +7,7 @@
 // command exists purely for ad-hoc and external use (scripts, other tools,
 // interactive terminals) outside a ctxloom process. It replaces the former
 // `ctxloom harp` subcommand, removed in favor of this independently
-// distributable binary (see plan WS-7).
+// distributable binary.
 package main
 
 import (

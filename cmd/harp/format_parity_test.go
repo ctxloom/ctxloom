@@ -22,7 +22,7 @@ func TestResolveFormat_MatchesSharedResolver(t *testing.T) {
 		set bool
 		raw string
 		// wrongType registers --format as an int flag instead of a string.
-		// U004-F04: harp used to read it with `raw, _ := GetString(...)`, which
+		// harp used to read it with `raw, _ := GetString(...)`, which
 		// discards the only error the lookup can produce and degrades to
 		// "unsupported format: \"\"" — a message describing a value the user
 		// never typed. The shared resolver reports the wiring bug instead.

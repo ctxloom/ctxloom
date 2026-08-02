@@ -4,7 +4,7 @@
 // `go build ./...` runs; the real generator is build-tagged `schemagen` (see
 // main.go) so its reflection dependency never enters the production toolchain.
 //
-// The stub must not just exit 0 having done nothing (U003-F01): a bare
+// The stub must not just exit 0 having done nothing: a bare
 // `go run ./cmd/gen-schemas` (no tag) used to silently "succeed" without
 // generating a single schema. It now fails loud and names the real command.
 package main

@@ -22,7 +22,7 @@ const (
 	// message, then completes with stopReason "cancelled" — the ordinary
 	// mid-turn cancel path (server.go's runTurn cancelTurnCh branch).
 	//
-	// Unexported (U001-F05): this is a `main` package, which is unimportable
+	// Unexported: this is a `main` package, which is unimportable
 	// by construction, so exporting these bought no capability — the driving
 	// test in internal/acpagent necessarily keeps its own hand-synced copies
 	// (l1Sentinel*) rather than importing them. Match the already-unexported

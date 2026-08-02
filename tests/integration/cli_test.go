@@ -31,7 +31,7 @@ func setupTestEnv(t *testing.T) *testenv.TestEnvironment {
 	require.NoError(t, env.Setup(), "failed to setup test environment")
 	require.NoError(t, env.InitGitRepo(), "failed to init git repo")
 	require.NoError(t, env.CreateProjectConfig(), "failed to create .ctxloom directory")
-	// U163-F03: Cleanup's error used to be discarded at every call site,
+	// Cleanup's error used to be discarded at every call site,
 	// which is the "reports nothing, removes nothing" blindness
 	// TestEnvironment.forceRemoveAll's own doc names as the mechanism behind
 	// an observed /tmp leak. assert.NoError (not require) since this runs in
@@ -926,7 +926,7 @@ func TestInit_CreatesProjectStructure(t *testing.T) {
 	env, err := testenv.NewTestEnvironment()
 	require.NoError(t, err)
 	require.NoError(t, env.Setup())
-	t.Cleanup(func() { assert.NoError(t, env.Cleanup(), "test environment cleanup") }) // U163-F03
+	t.Cleanup(func() { assert.NoError(t, env.Cleanup(), "test environment cleanup") })
 
 	_ = env.Run("init")
 
@@ -947,7 +947,7 @@ func TestInit_GitMissing_FailsLoudBeforeClone(t *testing.T) {
 	env, err := testenv.NewTestEnvironment()
 	require.NoError(t, err)
 	require.NoError(t, env.Setup())
-	t.Cleanup(func() { assert.NoError(t, env.Cleanup(), "test environment cleanup") }) // U163-F03
+	t.Cleanup(func() { assert.NoError(t, env.Cleanup(), "test environment cleanup") })
 
 	// The ctxloom binary itself is invoked by its absolute path (testenv.Run
 	// execs env.AppBinary directly), so it needs nothing on PATH to start;

@@ -23,7 +23,7 @@ import (
 // really is the same invariant, or whether it wants a package whose name says
 // what it does. Nothing executable can go red for a documentation fix, so this
 // is the pin that makes the corrected prose maintained rather than merely
-// written (U129-F06).
+// written.
 func TestPackage_ExportsOnlyByteBudgetedShortening(t *testing.T) {
 	want := map[string]string{
 		"TruncateBytes": "cut to fit a byte budget on a rune boundary",

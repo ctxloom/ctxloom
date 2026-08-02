@@ -48,7 +48,7 @@ func TestTruncateBytes(t *testing.T) {
 // content and, when the whole capped prefix is invalid, returning "" for a
 // string that had plenty in it. A zero-payload success is the worst answer
 // available: an error message rendering it as %q then reports that the program
-// produced NOTHING, which is a different and false diagnosis (U129-F05).
+// produced NOTHING, which is a different and false diagnosis.
 func TestTruncateBytes_BacksOffAtMostASplitRune(t *testing.T) {
 	tests := []struct {
 		name     string

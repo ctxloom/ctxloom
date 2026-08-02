@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// U024-F18: sanitizeKey mapped the separators and "..", but never a BARE "."
+// sanitizeKey mapped the separators and "..", but never a BARE "."
 // (nor any key that reduces to one), so a project key of "." resolved
 // stateDirForProject to ~/.ctxloom/coord ITSELF — the root every project's own
 // state dir lives under, and the root discover.List globs. Every project

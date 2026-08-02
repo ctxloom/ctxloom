@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U024-F10: claimOwner created owner.pid exclusively and then ignored both the
+// claimOwner created owner.pid exclusively and then ignored both the
 // pid write's and the close's error, so a failed write left a ZERO-BYTE lock
 // behind while the claim was reported as WON. The next claimant reads that file,
 // strconv.Atoi("") fails, the liveness probe is skipped entirely, and the lock

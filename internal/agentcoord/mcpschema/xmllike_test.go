@@ -218,7 +218,7 @@ func TestXmlLikeFrames_KindIsDerivedFromTheMessageName(t *testing.T) {
 
 // An empty frame set is a failure, not a silent success: the emitted file's
 // escaping helpers would be unreferenced, and — like the empty-binding-table
-// guard (U027-F01) — a generator that produced nothing must say so rather than
+// guard — a generator that produced nothing must say so rather than
 // write a file that quietly removes every encoder.
 func TestRenderXmlLikeGo_NoFramesIsAnError(t *testing.T) {
 	if _, err := RenderXmlLikeGo("agentcoord", nil); err == nil {

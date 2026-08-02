@@ -20,7 +20,7 @@ import (
 // ---------------------------------------------------------------------------
 // THE CLASS GATE: every projected input field must be READ by its handler.
 //
-// The defect this closes (U016-F01/F02/F04/F05, synthesis W1): the tool
+// The defect this closes: the tool
 // surface is a faithful projection of the proto contract, and NOTHING checked
 // that a projected argument was ever read. A model was told `budget`,
 // `constraints`, `notify_on`, `task_id`, `include_descendants`, `grace`,
@@ -58,7 +58,7 @@ import (
 //     one cannot slip in unexamined.
 //   - OUTPUT schemas are out of scope: an unpopulated output field is a
 //     different defect (it lies about a result rather than discarding an
-//     argument). U016-F01's child_task_id and F04's exited_within_grace were
+//     argument). child_task_id and exited_within_grace were
 //     removed by hand for that reason.
 // ---------------------------------------------------------------------------
 
@@ -266,8 +266,8 @@ func snake(s string) string {
 }
 
 // TestArch_MCPToolSchemas_RosterPhaseVocabularyMatchesTheFold pins the `phase` vocabulary the
-// roster's OUTPUT schema documents to the roster fold's actual states
-// (U016-F03). The comment used to read "StatusChanged.Phase name or
+// roster's OUTPUT schema documents to the roster fold's actual states.
+// The comment used to read "StatusChanged.Phase name or
 // \"TERMINAL\"" — a PHASE_* enum that is never constructed anywhere — and the
 // wrong vocabulary was copied verbatim into schemas/roster.json, so a
 // coordinator matching the documented names never matched a single run.

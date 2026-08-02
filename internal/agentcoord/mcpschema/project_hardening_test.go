@@ -51,7 +51,7 @@ func recursiveFDS(t *testing.T) *descriptorpb.FileDescriptorSet {
 	}}}
 }
 
-// U026-F17: the "(recursive X)" marker is the ONLY signal that a projected
+// The "(recursive X)" marker is the ONLY signal that a projected
 // object is truncated rather than empty. A commented (or doc-annotated) field
 // used to overwrite it wholesale, so the model was handed an open object with
 // no hint that its shape had been cut off.
@@ -105,7 +105,7 @@ func exampleFDS(t *testing.T, example string) *descriptorpb.FileDescriptorSet {
 	}}}
 }
 
-// U026-F08: a malformed (field_schema).example was dropped on the floor. The
+// A malformed (field_schema).example was dropped on the floor. The
 // annotation is authored by hand in the .proto and only the generator ever
 // reads it, so a typo that silently costs the model its example is invisible
 // until someone diffs a golden by eye.
@@ -192,7 +192,7 @@ func nestedFDS(t *testing.T) *descriptorpb.FileDescriptorSet {
 	}}}
 }
 
-// U026-F04: `additionalProperties: false` used to be stamped only on the top
+// `additionalProperties: false` used to be stamped only on the top
 // level, so a model was told it could invent keys inside a nested argument
 // object — while the runner's protojson unmarshal (no DiscardUnknown) rejects
 // an invented key at ANY depth. The schema has to say what the handler does.
@@ -234,7 +234,7 @@ func TestProjectTool_LeavesDeliberatelyOpenObjectsOpen(t *testing.T) {
 		"a map keeps its value schema, not a boolean")
 }
 
-// U026-F14: mcp.Server.AddTool PANICS when a registered tool's input or output
+// mcp.Server.AddTool PANICS when a registered tool's input or output
 // schema is not type "object" (go-sdk mcp/server.go). These schemas are checked
 // in and embedded, so a non-object one takes down every child runner at
 // startup — the generator must refuse it instead.
@@ -256,7 +256,7 @@ func TestProjectTool_RejectsANonObjectSchema(t *testing.T) {
 	assert.Contains(t, err.Error(), "object")
 }
 
-// U026-F09 is REFUTED on reachability, and this is the pin. singularSchema's
+// A finding is REFUTED on reachability, and this is the pin. singularSchema's
 // fallthrough cannot silently emit "any JSON value" for a real descriptor:
 // protodesc rejects an unresolvable or out-of-range field kind before any
 // Projector exists, so no field reaching the projector can miss the switch.
@@ -282,7 +282,7 @@ func TestProjection_ProtodescRejectsAnUnprojectableKind(t *testing.T) {
 }
 
 // Every kind the projector can actually be handed projects to a constrained
-// schema — the other half of F09's refutation: the switch is exhaustive over
+// schema — the other half of the refutation above: the switch is exhaustive over
 // what protodesc admits, so the fallthrough is unreachable rather than merely
 // unexercised.
 func TestProjection_EveryAdmittedKindProjectsConstrained(t *testing.T) {

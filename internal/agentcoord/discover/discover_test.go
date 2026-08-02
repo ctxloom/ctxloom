@@ -32,7 +32,7 @@ func TestList_ParsesEndpointFiles(t *testing.T) {
 	assert.Empty(t, skipped)
 }
 
-// TestList_SkipsIncompleteOrMalformedFiles (U025-F02): the documented,
+// TestList_SkipsIncompleteOrMalformedFiles: the documented,
 // common "not minted yet" case (missing cred or port, but VALID JSON) stays
 // a SILENT skip — not reported. Malformed JSON is a genuinely different
 // failure mode (I/O/decode, not "healthy but early") and must now be
@@ -50,7 +50,7 @@ func TestList_SkipsIncompleteOrMalformedFiles(t *testing.T) {
 	assert.Contains(t, skipped[0].Error(), "proj-garbage")
 }
 
-// TestList_ReportsUnreadableFile (U025-F02): a file that exists but cannot
+// TestList_ReportsUnreadableFile: a file that exists but cannot
 // be read (permission denied) must be distinguishable from "no file exists
 // at all" — the whole point of the finding (sessionfeed.go's consumer used
 // to assert the latter unconditionally).

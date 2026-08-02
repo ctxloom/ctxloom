@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U026-F07 (aliasing half): Tools() memoises its result, so handing callers the
+// (Aliasing half): Tools() memoises its result, so handing callers the
 // package-level slice let one caller's edit rewrite the tool surface every
 // later caller sees — including the runner's registration loop, which is the
 // only thing standing between a child and a coordinator-only tool.
@@ -30,7 +30,7 @@ func TestTools_CallersCannotMutateTheMemoisedSurface(t *testing.T) {
 		"a caller's edit must not reach into the memoised schema bytes")
 }
 
-// U026-F07 (partial-load half): a corrupt schema used to come back as an error
+// (Partial-load half): a corrupt schema used to come back as an error
 // AND a truncated tool list. A caller that logs the error and carries on would
 // register a silently incomplete surface — this project's characteristic
 // failure. Nothing is returned alongside the error now.

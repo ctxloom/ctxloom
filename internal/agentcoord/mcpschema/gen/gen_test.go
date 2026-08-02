@@ -32,7 +32,7 @@ func goldensDir(t *testing.T) string {
 	return out
 }
 
-// U027-F01: the generator could complete having written ZERO files, printing
+// The generator could complete having written ZERO files, printing
 // nothing and exiting 0 — its only stdout line was inside the loop, so a
 // generator that did nothing could not say so. These schemas are checked in and
 // embedded as the live MCP tool surface, so an empty run means the binary's tool
@@ -64,7 +64,7 @@ func TestGenerateSchemas_WritesOnePerBinding(t *testing.T) {
 	}
 }
 
-// U027-F02: the output directory is embedded wholesale (//go:embed
+// The output directory is embedded wholesale (//go:embed
 // schemas/*.json), so a removed or renamed binding used to leave its old file
 // behind and every runner kept registering a live MCP tool that nothing
 // serves. The CI drift gate diffs tracked files and never asks what else the
@@ -121,7 +121,7 @@ func TestGenerateSchemas_RefusesToPruneAMisnamedSpec(t *testing.T) {
 	}
 }
 
-// U027-F03: os.MkdirAll created whatever path it was handed, so a mistyped
+// os.MkdirAll created whatever path it was handed, so a mistyped
 // -out succeeded into a brand-new tree — the real goldens went untouched, and
 // the CI `git diff` gate passed on a run that had regenerated nothing at all.
 func TestGenerateSchemas_RefusesAnOutputDirThatDoesNotExist(t *testing.T) {
@@ -153,7 +153,7 @@ func agentcoordFDS(withSourceInfo ...bool) *descriptorpb.FileDescriptorSet {
 	return fds
 }
 
-// U026-F10 / U027-F04: descriptions come from proto comments, which live only
+// Descriptions come from proto comments, which live only
 // in SourceCodeInfo. The guard returned on the FIRST agentcoord.v1 file that
 // had it, so a set where annotations.proto carried source info and
 // coordination.proto — the file holding every tool description — did not, sailed

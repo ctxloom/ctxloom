@@ -318,7 +318,7 @@ func (f *queueFold) compact() {
 
 // queued returns the waiting run_ids in enqueue order (a copy).
 //
-// test-only: no production caller (U021-F11) — it is the observation seam
+// test-only: no production caller — it is the observation seam
 // for the fold-determinism replay-equivalence acceptance test
 // (replay_test.go), which duplicating the order/inQueue filter inline would
 // not improve. Keep.

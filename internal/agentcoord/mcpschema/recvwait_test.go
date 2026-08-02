@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U026-F03 is REFUTED, and this is the pin that keeps it refuted. The register
+// A finding is REFUTED, and this is the pin that keeps it refuted. The register
 // says agent_recv's advertised wait prose hard-codes "default 60, max 600"
 // while the real numbers live as Go constants elsewhere, ungated. It does not:
 // RecvWaitDoc is derived from RecvWaitDefault and RecvWaitMax in the same

@@ -374,7 +374,7 @@ func init() {
 
 	// LIVE-UNTESTED: codex has never been run against a real account on any
 	// dev host (see the package doc in internal/codex for what's proven vs
-	// unverified).
+	// unverified; taskloom bold-smirk tracks the revive).
 	registerDescriptor(agentDescriptor{
 		name: "codex",
 		newBackend: func() agent.Backend {
@@ -413,8 +413,9 @@ func init() {
 	// commands AND Agent Skills, both under .kiro/skills/<n>/SKILL.md — the one
 	// engine where those two surfaces collide (D6 skill-wins, see
 	// kiro.filterClaimedCommands in kiro/surfaces.go).
-	// LIVE-UNTESTED: never run against a logged-in kiro-cli on any dev host
-	// (see the package doc in internal/kiro for what's proven vs unverified).
+	// LIVE-VERIFIED against an authenticated kiro-cli — see the package doc in
+	// internal/kiro for exactly what was proven (backend parity, a real oneshot
+	// chat, and --model honor confirmed two independent ways).
 	registerDescriptor(agentDescriptor{
 		name: "kiro",
 		newBackend: func() agent.Backend {

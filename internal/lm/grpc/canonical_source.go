@@ -41,8 +41,8 @@ import (
 
 // retiredScraperBackends names the backends whose legacy per-engine
 // SessionHistory scraper was removed in S5 (proven broken:
-// codex's envelope-vs-flat parse, claude's
-// wrong-filename / kiro v1-vs-v2-sqlite / antigravity global-store mis-key).
+// codex's envelope-vs-flat parse, tall-grab's claude wrong-filename /
+// kiro v1-vs-v2-sqlite / antigravity global-store mis-key).
 // A backend named here has no History() implementation left — its
 // Backend.History() now returns nil — so a caller resolving a SessionSource
 // for it must not construct a legacy leg at all (there is nothing there to

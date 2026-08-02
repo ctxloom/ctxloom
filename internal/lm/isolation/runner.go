@@ -208,7 +208,7 @@ func (t containerAddrTranslator) HostToPlugin(network, addr string) (string, str
 // segments onto a POSIX prefix — WRONG (the container never sees a `\`). A
 // correct fix needs to know WHICH side of the swap is host-native vs.
 // container-POSIX (not just "from" vs "to") and join accordingly — pure
-// path/filepath is insufficient. Deferred to a later Tier C alongside the
+// path/filepath is insufficient. Deferred to sudsy-sip Tier C alongside the
 // project-mount translation (the pathMapper seam, runtime.go) this
 // same swap must eventually route through.
 func swapPrefix(path, from, to string) string {

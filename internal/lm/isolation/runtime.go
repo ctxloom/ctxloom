@@ -98,11 +98,11 @@ type Runtime interface {
 //     mapping — see swapPrefix's doc. The linked-worktree case additionally
 //     needs the worktree's `gitdir:` FILE content rewritten (a Windows
 //     absolute path is unresolvable as a mounted POSIX path unchanged) — a
-//     known hard edge, explicitly deferred to a later Tier C.
+//     known hard edge, explicitly deferred to sudsy-sip Tier C.
 //   - DooD (docker-outside-of-docker): ctxloom itself runs inside a
 //     container that shares the HOST daemon, so this process's paths are not
 //     the daemon's paths; a mapper derived from /proc/self/mountinfo or
-//     `docker inspect <self>` would translate them (optional/
+//     `docker inspect <self>` would translate them (snug-dawn, optional/
 //     deferred — the shared-fs probe already detects and degrades this case
 //     loudly rather than mounting the wrong path).
 type pathMapper interface {

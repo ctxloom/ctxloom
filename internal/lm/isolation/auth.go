@@ -147,7 +147,7 @@ func resolveClaudeContainerAuth(containerHome, scratchDir string) (containerAuth
 // NOT ~/.claude/.credentials.json — that file does not exist there, so naming
 // it (the non-darwin hint below) is unfollowable advice. Extracting the
 // Keychain token into a per-run scratch file is a real fix but needs a real
-// Mac to verify (a separate follow-up); until it lands, the
+// Mac to verify (task sudsy-sip, a separate follow-up); until it lands, the
 // only WORKING container auth on darwin is ANTHROPIC_API_KEY (or
 // ANTHROPIC_AUTH_TOKEN), so the darwin hint names that instead of the file.
 func claudeContainerAuthHint() string {

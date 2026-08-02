@@ -366,7 +366,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 // positive: nothing was ever said, so there is nothing to condense, and
 // spawning a plugin subprocess (map) plus a reduce pass to summarize an
 // empty transcript is pure waste — one of the surfaces plausibly implicated
-// in a previously observed final-pass timeout.
+// in tart-aqua's final-pass timeout.
 func isEmptySession(entries []agent.SessionEntry) bool {
 	return len(entries) == 0
 }

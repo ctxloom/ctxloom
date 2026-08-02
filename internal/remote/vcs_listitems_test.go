@@ -77,7 +77,7 @@ func TestFSVCS_ListItems_WorkingSet(t *testing.T) {
 	assert.Equal(t, []string{"foo", "team/standards"}, bundles)
 }
 
-// TestFSVCS_ListItems_UnreadableDirIsAnError pins U095-F03: a permission-
+// TestFSVCS_ListItems_UnreadableDirIsAnError pins that a permission-
 // denied (or otherwise unreadable) local content directory must not report
 // "no items" — that is indistinguishable from the ordinary, legitimate
 // "nothing here yet" case (TestFSVCS_ListItems_MissingDirIsEmpty), but the two

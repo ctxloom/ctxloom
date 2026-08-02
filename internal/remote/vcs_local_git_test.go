@@ -131,7 +131,7 @@ func TestLocalGitVCS_FetchItem_NonGitProjectFailsClosedOnPin(t *testing.T) {
 	require.Error(t, err, "a non-git project cannot serve a pinned version → withheld")
 }
 
-// TestLocalGitVCS_FetchItem_NonGitProjectErrorNamesCause pins U095-F17:
+// TestLocalGitVCS_FetchItem_NonGitProjectErrorNamesCause pins that
 // LocalGitVCSFactory used to discard the git.PlainOpenWithOptions error when
 // degrading to the current-only fsVCS, so a later pinned read's error named
 // only the generic "does not support revisions" message — never the actual

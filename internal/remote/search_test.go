@@ -320,7 +320,7 @@ func TestMatchTags_CaseInsensitive(t *testing.T) {
 	}
 }
 
-// TestMatchTags_UnknownOperatorFailsClosed pins U095-F16: a TagQuery with a
+// TestMatchTags_UnknownOperatorFailsClosed pins that a TagQuery with a
 // zero-value (or otherwise unrecognized) Operator must NOT fail open. The
 // default arm used to return true unconditionally, so such a query matched
 // every entry regardless of its tags — a fail-open default in a filter.

@@ -301,8 +301,8 @@ func TestResolveConstraint_ResolveRefError(t *testing.T) {
 	}
 }
 
-// TestResolveConstraint_ForcedVersionRejectsUnparseableExpr pins U095-F19's
-// substantive half: resolveSemver's constraint-parse failure is NOT purely
+// TestResolveConstraint_ForcedVersionRejectsUnparseableExpr pins that
+// resolveSemver's constraint-parse failure is NOT purely
 // defensive. On the INFERRED path inferSelectorKind already proved the
 // expression parses as semver, so the branch cannot fire — but the FORCED
 // "version:<expr>" path skips inference entirely, so an unparseable
@@ -327,7 +327,7 @@ func TestResolveConstraint_ForcedVersionRejectsUnparseableExpr(t *testing.T) {
 	}
 }
 
-// TestResolveConstraint_NameTagFirst_ListTagsErrorPropagates pins U095-F04: a
+// TestResolveConstraint_NameTagFirst_ListTagsErrorPropagates pins that a
 // bare, prefix-less name of no inferable shape (e.g. "main") is classified by
 // asking the repo whether it names a tag (resolveNameTagFirst → isRepoTag). If
 // that ListTags call fails transiently, the failure must be reported, NOT

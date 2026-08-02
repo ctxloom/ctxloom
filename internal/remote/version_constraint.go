@@ -301,7 +301,7 @@ func resolveNameTagFirst(ctx context.Context, name string, rv RepoVersions) (Res
 
 // isRepoTag reports whether name is exactly one of the repository's tags. A
 // failed tag listing is reported to the caller rather than silently read as
-// "not a tag" — U095-F04: swallowing it here used to let a transient listing
+// "not a tag" — swallowing it here used to let a transient listing
 // failure fall through to resolveBranch and silently convert what may have
 // been intended as a tag PIN into branch TRACKING.
 func isRepoTag(ctx context.Context, rv RepoVersions, name string) (bool, error) {

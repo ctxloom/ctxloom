@@ -83,7 +83,7 @@ func readItemAt(ctx context.Context, vcs VCS, path, version string) ([]byte, err
 	}
 	v, ok := vcs.(Versioned)
 	if !ok {
-		// U095-F17: some backends degrade to a Versioned-less VCS for a
+		// Some backends degrade to a Versioned-less VCS for a
 		// specific, known reason (e.g. LocalGitVCSFactory falling back to
 		// fsVCS when the enclosing directory isn't a usable git repo).
 		// Surface that cause when available instead of only the generic
@@ -221,7 +221,7 @@ func (v *fsVCS) ReadFile(_ context.Context, path string) ([]byte, error) {
 // item's path relative to that base (suffix stripped). A root without the
 // directory lists empty. Current working set only — fsVCS has no history.
 //
-// U095-F03: "cannot tell if the directory exists" (a stat failure — the
+// "Cannot tell if the directory exists" (a stat failure — the
 // unreadable/permission-denied case) and "the directory genuinely does not
 // exist" are DIFFERENT facts. Local content is auto-trusted (ctxloom:local,
 // EffectiveTrust step 3), so collapsing a permission failure into "no items"
@@ -373,8 +373,7 @@ func LocalGitVCSFactory(fs afero.Fs) VCSFactory {
 		if err != nil {
 			// Not under version control (or unreadable .git): degrade to
 			// current-only. A pinned read then fails closed via readItemAt,
-			// which now (U095-F17) surfaces this cause instead of discarding
-			// it.
+			// which surfaces this cause instead of discarding it.
 			return &degradedFsVCS{fsVCS: base, cause: fmt.Errorf("open enclosing git repository: %w", err)}, nil
 		}
 		wt, err := repo.Worktree()
@@ -389,7 +388,7 @@ func LocalGitVCSFactory(fs afero.Fs) VCSFactory {
 // Versioned capability it would otherwise have had (LocalGitVCSFactory could
 // not open the enclosing git repo, or could not get its worktree). It
 // satisfies degradationCause so readItemAt's error names the real cause
-// instead of a generic "does not support revisions" message (U095-F17).
+// instead of a generic "does not support revisions" message.
 type degradedFsVCS struct {
 	fsVCS
 	cause error

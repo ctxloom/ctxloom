@@ -290,8 +290,8 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch: %w", err)
 	}
-	// A zero-byte remote file must never be pinned as a successful install
-	// (U094-F15): the lockfile entry installPulledItem is about to write would
+	// A zero-byte remote file must never be pinned as a successful install:
+	// the lockfile entry installPulledItem is about to write would
 	// otherwise report a real SHA and "installed" status for content that is
 	// empty — a silent no-op indistinguishable from a genuine pull.
 	if len(content) == 0 {

@@ -19,8 +19,8 @@ import (
 
 // TestInstallPulledItem_SyntheticNoDiskWrite covers the pull write path: a
 // remote bundle is a pure reference (git clone cache + lockfile are the
-// storage), so it gets a synthetic LocalPath and never touches disk. Prior to
-// U094-F10 this synthetic-path assembly lived in its own writePulledContent
+// storage), so it gets a synthetic LocalPath and never touches disk. This
+// synthetic-path assembly used to live in its own writePulledContent
 // method (3 of its 5 parameters unused); it is now inlined into
 // installPulledItem, so this test drives that entry point directly instead.
 func TestInstallPulledItem_SyntheticNoDiskWrite(t *testing.T) {
@@ -51,7 +51,7 @@ func TestInstallPulledItem_SyntheticNoDiskWrite(t *testing.T) {
 	})
 }
 
-// TestInstallPulledItem_OverwrittenReflectsExistingEntry pins U094-F07:
+// TestInstallPulledItem_OverwrittenReflectsExistingEntry pins that
 // PullResult.Overwritten used to be hard-coded false, making
 // operations/sync.go's "updated" status unreachable — a re-pull of an
 // already-installed item was always reported as "installed". Overwritten must

@@ -211,12 +211,12 @@ func TestPublishManager_Publish(t *testing.T) {
 		assert.Contains(t, err.Error(), "failed to read local file")
 	})
 
-	// U094-F02: loadPublishContent had no emptiness guard, so a 0-byte local
+	// loadPublishContent had no emptiness guard, so a 0-byte local
 	// file published straight through, overwriting whatever real content
 	// already existed at the remote path with nothing — success reported,
-	// SHA returned, content silently destroyed. (The SIGNED half of this
-	// finding — "a valid publisher signature over zero bytes" — is already
-	// closed independently by signing.Sign's own U134-F01 floor; this pins
+	// SHA returned, content silently destroyed. (The SIGNED half of this —
+	// "a valid publisher signature over zero bytes" — is already
+	// closed independently by signing.Sign's own floor; this pins
 	// the UNSIGNED publish path, which Sign's floor cannot reach at all.)
 	t.Run("refuses to publish an empty local file", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
@@ -244,7 +244,7 @@ func TestPublishManager_Publish(t *testing.T) {
 		assert.Empty(t, mp.createdFiles, "nothing must reach the remote")
 	})
 
-	// U094-F11: preparePublish swallowed the error from GetFileSHA, silently
+	// preparePublish used to swallow the error from GetFileSHA, silently
 	// reinterpreting "the forge failed to answer" as "the file doesn't exist"
 	// — flipping a genuine update into an "Add …" commit subject/PR title.
 	t.Run("a GetFileSHA failure aborts the publish instead of being read as absent", func(t *testing.T) {

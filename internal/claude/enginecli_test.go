@@ -301,7 +301,7 @@ func TestEngineCLI_ProbesMatchTheWriters(t *testing.T) {
 // TestEngineCLI_OneshotRequiresPrint pins claude's oneshot DISCRIMINATOR. A
 // driver that stopped emitting --print while still piping the prompt on stdin
 // hangs the real binary on its terminal handshake; against a name-only grammar
-// the stand-in produced an identical, fully green report (U079-F02).
+// the stand-in produced an identical, fully green report.
 func TestEngineCLI_OneshotRequiresPrint(t *testing.T) {
 	oneshot, ok := agent.EngineCLIFor(ClaudeEngineCLIs(), agent.CLISurfaceOneshot)
 	require.True(t, ok)

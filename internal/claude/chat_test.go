@@ -11,9 +11,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// TestChatACPConfig_StripsNestedSessionGuard is the regression pin for the
-// agentcoord Wave B1 child-death: a delegated claude child's engine chain is
-// spawned from inside the parent claude's process tree, inherits CLAUDECODE,
+// TestChatACPConfig_StripsNestedSessionGuard is the regression pin for a real
+// incident: a delegated claude child's engine chain is spawned from inside
+// the parent claude's process tree, inherits CLAUDECODE,
 // and claude's nested-session guard then refuses to start — the child died at
 // session/new with an opaque -32603 before its first turn. The chat driver
 // must strip the guard variable for its deliberate, independent engine spawn.
@@ -200,16 +200,17 @@ func TestChat_ACPTransportGate_ContainerRuntimeExempt(t *testing.T) {
 	}
 }
 
-// TestClaudeModelSelectionQuirk_PinnedDeclaration pins the quirk U032-F20 wants
-// gone. The row is right that session/set_model is unstable and undocumented and
-// that the coupling is version-scoped — that is what it IS: the sanctioned
-// quarantine for a LIVE, controlled-experiment-verified defect where
-// claude-code-acp 0.16.2 ignores argv --model, ignores ANTHROPIC_MODEL, does not
-// implement session/set_config_option at all, and calls query.setModel from its
-// own list on every session/new. Removing the quirk restores the bug (every
-// claude ACP session silently running the wrong model); it cannot be routed
-// through a spec channel the adapter does not honor. So the row is refuted and
-// the workaround is pinned instead — nothing pinned it before, in either package.
+// TestClaudeModelSelectionQuirk_PinnedDeclaration pins the quirk a past review
+// wanted gone. That review was right that session/set_model is unstable and
+// undocumented and that the coupling is version-scoped — that is what it IS:
+// the sanctioned quarantine for a LIVE, controlled-experiment-verified defect
+// where claude-code-acp 0.16.2 ignores argv --model, ignores ANTHROPIC_MODEL,
+// does not implement session/set_config_option at all, and calls
+// query.setModel from its own list on every session/new. Removing the quirk
+// restores the bug (every claude ACP session silently running the wrong
+// model); it cannot be routed through a spec channel the adapter does not
+// honor. So that review is refuted and the workaround is pinned instead —
+// nothing pinned it before, in either package.
 //
 // Each field is load-bearing at a distance: internal/acp's applyModelQuirk fires
 // ONLY when the connected agent's self-reported initialize identity matches

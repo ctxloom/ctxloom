@@ -542,7 +542,7 @@ func TestClaudeCodeHookWriter_MCPServerInjection(t *testing.T) {
 	}
 }
 
-// TestClaudeCodeHookWriter_MCPCommandOverride pins dire-five's fix at claude's
+// TestClaudeCodeHookWriter_MCPCommandOverride pins the fix at claude's
 // own writer (which does NOT ride the shared agent.MCPFileConfig reconciler —
 // claude has its own .mcp.json shape): a zero-value writer (mcpCommandOverride
 // unset — every cell but an isolated container) emits EXACTLY
@@ -766,7 +766,7 @@ func TestClaudeCodeHookWriter_UpdatesSCMMCPServer(t *testing.T) {
 }
 
 // TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp is a
-// regression test for taskloom lone-taste: loadSettings used to swallow a
+// regression test for a real bug: loadSettings used to swallow a
 // top-level unmarshal failure and return an empty-but-valid settings object,
 // which WriteSettings then persisted OVER the user's real settings.json —
 // destroying their permissions/env. It must now (a) leave the original file
@@ -800,7 +800,7 @@ func TestClaudeCodeHookWriter_MalformedSettingsJSON_FailsLoudAndBacksUp(t *testi
 }
 
 // TestClaudeCodeHookWriter_MalformedHooksJSON_FailsLoudAndBacksUp covers the
-// second half of taskloom lone-taste: the top-level JSON parses fine but the
+// second half of the same bug: the top-level JSON parses fine but the
 // "hooks" field itself doesn't unmarshal into the expected shape. This must
 // fail the same way as a fully corrupt file, not silently drop the user's
 // existing hooks.
@@ -877,12 +877,12 @@ func TestClaudeCodeHookWriter_CreatesBackupBeforeModifying(t *testing.T) {
 }
 
 // This test used to assert the OPPOSITE — that a malformed .mcp.json was
-// warned about and then overwritten, described as "resilience" (U032-F05).
-// What it actually pinned was the deletion of every MCP server the user had:
+// warned about and then overwritten, described as "resilience". What it
+// actually pinned was the deletion of every MCP server the user had:
 // loadMCPConfig returned a fresh empty config, writeMCPConfig filled it with
 // ctxloom's servers and saved. Resilience is refusing to write, not writing
-// anyway; the contract is now the same one loadSettings has had since
-// taskloom lone-taste.
+// anyway; the contract is now the same one loadSettings has had since the
+// settings.json fix above.
 func TestClaudeCodeHookWriter_MalformedMCPConfig_IsNotOverwritten(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	writer := &ClaudeCodeHookWriter{FS: fs}
@@ -993,7 +993,7 @@ func TestClaudeCodeHookWriter_DenyTools_UnionsAcrossApplies(t *testing.T) {
 	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, permissionsPayload(t, fs, settingsPath).Deny, "a later deny_tools entry unions with the existing deny list")
 }
 
-// U032-F03. The third half of taskloom lone-taste, left unfixed: an
+// The third half of the same bug class, left unfixed: an
 // unparseable "permissions" block was warned about and then DELETED from the
 // document. delete(raw, "permissions") ran unconditionally, outside the else,
 // and saveSettings only re-emits permissions when the typed field is non-nil
@@ -1067,7 +1067,7 @@ func TestClaudeCodeHookWriter_WellFormedPermissions_RoundTripUntouched(t *testin
 	assert.Contains(t, string(data), `"acceptEdits"`, "the user's defaultMode must survive")
 }
 
-// U032-F04. `delete(raw, "mcpServers")` destroyed a user's legacy mcpServers
+// `delete(raw, "mcpServers")` destroyed a user's legacy mcpServers
 // block. The comment called it a migration to .mcp.json, but no migration
 // code exists — nothing ever reads that block. The struct field's own doc
 // claims the opposite ("Preserve other settings (including legacy mcpServers
@@ -1093,7 +1093,7 @@ func TestClaudeCodeHookWriter_LegacyMCPServersInSettings_ArePreserved(t *testing
 		"a legacy mcpServers block must not be deleted: nothing migrates it, so deleting it is pure loss")
 }
 
-// U032-F05. An unparseable .mcp.json was warned about and replaced with an
+// An unparseable .mcp.json was warned about and replaced with an
 // EMPTY config, which writeMCPConfig then filled with ctxloom's servers and
 // saved — the user's servers gone. The warning text even conceded "existing
 // MCP servers may not be preserved". A warning is not a guard, and this is
@@ -1136,9 +1136,9 @@ func TestClaudeCodeHookWriter_AbsentMCPConfig_StillWrites(t *testing.T) {
 	assert.Contains(t, string(data), "ctxloom-added")
 }
 
-// TestSaveSettings_UnencodableUserFieldIsRefusedNotDropped pins the invariant
-// U032-F16 got backwards: saveSettings's "skip corrupted field" branch is NOT
-// unreachable. settings.Other holds json.RawMessage slices lifted out of a
+// TestSaveSettings_UnencodableUserFieldIsRefusedNotDropped pins an invariant
+// a past review got backwards: saveSettings's "skip corrupted field" branch
+// is NOT unreachable. settings.Other holds json.RawMessage slices lifted out of a
 // document that parsed, so the bytes are always VALID JSON — but valid JSON is
 // not the same as decodable into `any`: a number outside float64's range
 // (`1e1000`) parses fine and then fails to unmarshal. The old warn+continue
@@ -1205,7 +1205,7 @@ func (f denyStatFs) Stat(name string) (os.FileInfo, error) {
 	return f.Fs.Stat(name)
 }
 
-// TestRemoveSettings_SettingsStatErrorIsLoud pins U032-F19 for the uninstall
+// TestRemoveSettings_SettingsStatErrorIsLoud pins a real bug for the uninstall
 // path: an unreadable settings.json must NOT be reported as "nothing to
 // remove". Swallowing the stat error makes RemoveSettings a silent no-op that
 // exits 0 while ctxloom's hooks and statusline stay installed — the user is
@@ -1283,12 +1283,13 @@ func TestRemoveSettings_AbsentFilesAreNotAnError(t *testing.T) {
 }
 
 // TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext pins the detection
-// rule removeCtxloomHooks actually implements, the one U032-F22's doc comment
-// denied: identity is the leading executable token resolving to `ctxloom`, so
-// a managed hook is removed whatever its VERB, while a hook belonging to another
-// tool survives even when "ctxloom" appears in its arguments. Nothing pinned the
-// verb-agnostic half before — the existing coverage all used inject-context
-// commands, which the wrong doc happened to describe correctly.
+// rule removeCtxloomHooks actually implements, the one an old doc comment
+// wrongly denied: identity is the leading executable token resolving to
+// `ctxloom`, so a managed hook is removed whatever its VERB, while a hook
+// belonging to another tool survives even when "ctxloom" appears in its
+// arguments. Nothing pinned the verb-agnostic half before — the existing
+// coverage all used inject-context commands, which the wrong doc happened to
+// describe correctly.
 func TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext(t *testing.T) {
 	settings := &claudeCodeSettings{Hooks: map[string][]claudeCodeHookMatcher{
 		"PreToolUse": {{Hooks: []claudeCodeHook{
@@ -1311,10 +1312,10 @@ func TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext(t *testing.T) {
 		"a ctxloom-token hook is removed whatever its verb; another tool's hook is never ctxloom's to remove")
 }
 
-// TestSaveSettings_PreservesLargeIntegerUserSetting is the payload half of the
-// preservation invariant U032-F16 only covered on its error branch: a
-// user-authored number that DOES decode into `any` was not refused, it was
-// rewritten. 1234567890123456789 fits int64 but not float64's exact range, so
+// TestSaveSettings_PreservesLargeIntegerUserSetting is the payload half of
+// the preservation invariant that used to be covered only on its error
+// branch: a user-authored number that DOES decode into `any` was not
+// refused, it was rewritten. 1234567890123456789 fits int64 but not float64's exact range, so
 // the round-trip through a generic decode returned it rounded and the writer
 // persisted the rounded value with a success exit code — the file the user
 // authored, silently altered.

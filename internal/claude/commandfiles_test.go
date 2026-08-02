@@ -282,9 +282,9 @@ func (f failRemoveAllFs) RemoveAll(path string) error {
 	return f.Fs.RemoveAll(path)
 }
 
-// TestWriteCommandFiles_LegacyDirRemovalErrorIsLoud pins U032-F19's fifth
-// discarded error. The legacy .claude/commands/ctxloom/ subdirectory holds
-// command files an older ctxloom wrote; every one of them still registers as a
+// TestWriteCommandFiles_LegacyDirRemovalErrorIsLoud pins another discarded
+// error from the same bug class. The legacy .claude/commands/ctxloom/
+// subdirectory holds command files an older ctxloom wrote; every one of them still registers as a
 // slash command with claude. If the migration removal fails and the failure is
 // discarded, the write "succeeds" while the user is left with a duplicate of
 // every migrated command — the silent half-state the manifest rewrite exists to

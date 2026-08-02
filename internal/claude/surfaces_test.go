@@ -119,8 +119,8 @@ func TestContextSurface_DeliverWritesCLAUDEmd(t *testing.T) {
 }
 
 // Hand-authored content in CLAUDE.md outside the managed markers survives both
-// Deliver and Cleanup byte-for-byte (lanky-plop regression, at the surface
-// layer materialize/run actually drive).
+// Deliver and Cleanup byte-for-byte (a regression pin, at the surface layer
+// materialize/run actually drive).
 func TestContextSurface_DeliverPreservesHandWrittenCLAUDEmd(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("# Team conventions\nalways use tabs\n"), 0644))
@@ -407,7 +407,7 @@ func TestDirectoryIsolatedCell_AcceptsAllClaudeSurfaces(t *testing.T) {
 	assert.FileExists(t, filepath.Join(dir, ".claude", "commands", "review.md"))
 }
 
-// ---- approach dispatch (vital-tiger v2) -------------------------------------
+// ---- approach dispatch (v2) -------------------------------------
 
 // SupportedApproaches pins claude's per-surface table: context offers all three
 // approaches (native file, out-of-cwd system-prompt scratch, settings-carried
@@ -497,13 +497,14 @@ func readJSON(t *testing.T, path string) map[string]any {
 	return m
 }
 
-// TestNewSurfaces_ThreadsEverySurfaceScopedInput is the pin U032-F08 asks for
-// without asking for it. The row reads fileTemplateDelivery's three
-// surface-scoped fields (mcpCommandOverride, denyTools, selfContainedCommands)
-// as a coupling defect because the constructor cannot set them and a missed
-// assignment is compile-clean. The assignments are real and each is
-// exactly-once, but "compile-clean if missed" is a TEST gap, not a constructor
-// problem — a functional-options constructor is just as silently omittable.
+// TestNewSurfaces_ThreadsEverySurfaceScopedInput is the pin a past review
+// asked for without asking for it. That review read fileTemplateDelivery's
+// three surface-scoped fields (mcpCommandOverride, denyTools,
+// selfContainedCommands) as a coupling defect because the constructor cannot
+// set them and a missed assignment is compile-clean. The assignments are real
+// and each is exactly-once, but "compile-clean if missed" is a TEST gap, not
+// a constructor problem — a functional-options constructor is just as
+// silently omittable.
 //
 // So this closes the gap: all three inputs are driven from SurfaceInputs through
 // NewSurfaces and asserted on the delivered PAYLOAD. Two were already covered

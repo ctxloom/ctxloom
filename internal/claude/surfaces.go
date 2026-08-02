@@ -15,7 +15,7 @@ import (
 // appendFlagDelivery (contextdelivery.go), fileTemplateDelivery
 // (surfacedelivery.go), and the ContextWriter core WriteContext (claude.go). The
 // approach-dispatch methods below (SupportedApproaches / DefaultApproach /
-// SurfaceFor / SharedRealization — vital-tiger v2) are the per-provider table the
+// SurfaceFor / SharedRealization) are the per-provider table the
 // SurfaceSelection builder resolves a caller's named approach through; buildArgs
 // (claudecode.go) reads each out-of-cwd file's Path() after a SHARED-cwd delivery
 // converted via SharedRealization.
@@ -111,8 +111,8 @@ type mcpSurface struct {
 
 // deliver is the ONE .mcp.json recipe both entry points run: build the reused
 // file-template writer against dir, thread the ctxloom-MCP command override
-// onto it (dire-five — settingsSurface has no analogous knob, since hooks +
-// statusline carry no stdio command), and write the merged config. Deliver and
+// onto it (settingsSurface has no analogous knob, since hooks + statusline
+// carry no stdio command), and write the merged config. Deliver and
 // DeliverIsolated differ only in where dir comes from and whether the resulting
 // path is recorded; that is the whole of what either entry point adds.
 func (s *mcpSurface) deliver(dir string) (agent.Delivered, error) {
@@ -233,7 +233,7 @@ func (s *commandsSurface) UnsafeInfo() string { return "claude/commands" }
 // no home-dir dedup or DeliverIsolated variant: no engine has an out-of-cwd
 // flag for a skill package, matching commands' own "no SharedRealization"
 // (see Surfaces.SharedRealization below). SurfaceInputs no longer carries a
-// SelfContainedSkills knob (U033-F02 deleted it): it was threaded in from
+// SelfContainedSkills knob (it was deleted): it was threaded in from
 // three call sites and read by nothing here — claude's WriteSkillFiles has no
 // dedup to opt out of, so there was nothing for it to control.
 func newSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.ManagedSkillPackagesDelivery {
@@ -302,8 +302,8 @@ func NewSurfaces(in agent.SurfaceInputs, isolated agent.Placement, fs afero.Fs) 
 	}
 }
 
-// noopContextDelivery is claude's Hook-approach context delivery (vital-tiger
-// v2): a documented no-op. claude's apply-context rides the settings-carried
+// noopContextDelivery is claude's Hook-approach context delivery: a
+// documented no-op. claude's apply-context rides the settings-carried
 // SessionStart inject hook + the regenerated cache file, so there is nothing
 // extra to write — writing CLAUDE.md too would DOUBLE the context.
 type noopContextDelivery struct{}
@@ -313,8 +313,8 @@ type noopContextDelivery struct{}
 // other no-op delivery.
 func (noopContextDelivery) Deliver(string) (agent.Delivered, error) { return nil, nil }
 
-// claudeApproaches is claude's DECLARED per-surface approach table (vital-tiger
-// v2 per-provider dispatch): context supports all three — the native file
+// claudeApproaches is claude's DECLARED per-surface approach table (v2
+// per-provider dispatch): context supports all three — the native file
 // (FIRST = the WithEverything default; SystemPrompt and Hook are explicit caller
 // choices — SystemPrompt names the SHARED-cwd scratch conversion, Hook is apply's
 // hook-carried context), the out-of-cwd system-prompt scratch, and the

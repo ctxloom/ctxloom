@@ -17,7 +17,7 @@ import (
 // labeled entry may carry. The backend owns this struct; the config package
 // only carries the raw body that decodes into it.
 type ClaudeConfig struct {
-	// Model is intentionally NOT a field here (U032-F14): the effective model
+	// Model is intentionally NOT a field here: the effective model
 	// is read untyped from the same YAML body via config.ResolveLLM
 	// (entry.Body["model"].(string)) — mapstructure would silently accept an
 	// unknown "model" key even without a matching field, so a typed field
@@ -68,7 +68,7 @@ func NewClaudeCode() *ClaudeCode {
 	b.InitLaunch(
 		agent.NewBaseLifecycle("claude-code"),
 		agent.NewBaseContextProvider(),
-		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
+		nil, // SessionHistory: claude's ~/.claude/projects/*.jsonl scraper deleted — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: b.buildSurfaces},
 	)
 	b.SetACPTransport(ClaudeACPTransport) // intrinsic: every construction path (incl. direct) gets it
@@ -174,8 +174,8 @@ type claudeJSONResult struct {
 // model that generated the result: the CLI may route a large read through an
 // ancillary fast model (high input, tiny output) while the requested model does
 // the actual generation, so output — not input — marks the working model.
-// inputTokens is in the envelope too but this package never reads it
-// (U032-F13); json.Unmarshal ignores it automatically, so it isn't modeled.
+// inputTokens is in the envelope too but this package never reads it;
+// json.Unmarshal ignores it automatically, so it isn't modeled.
 type claudeModelUsage struct {
 	OutputTokens int `json:"outputTokens"`
 }
@@ -289,10 +289,11 @@ func sessionNameArgs(env map[string]string) []string {
 // collapsed read-only, this is the LESS broken of the under-mapped
 // engines), so this is defense-in-depth, not the fix itself: if a future
 // claude release ever narrows plan's own semantics, the explicit deny
-// list still holds. tangy-fox has no per-tool policy input yet, so the
-// set is a fixed, conservative write/exec list — Bash (arbitrary exec,
-// including file writes via shell), Edit, Write, NotebookEdit (every
-// built-in mutating tool this codebase's own tool vocabulary names).
+// list still holds. The generalized permission posture has no per-tool
+// policy input yet, so the set is a fixed, conservative write/exec list —
+// Bash (arbitrary exec, including file writes via shell), Edit, Write,
+// NotebookEdit (every built-in mutating tool this codebase's own tool
+// vocabulary names).
 func permissionArgs(mode agent.PermissionMode) []string {
 	switch mode {
 	case agent.PermissionBypass:
@@ -397,8 +398,8 @@ func (b *ClaudeCode) buildArgs(req *agent.ExecuteRequest) []string {
 	// an isolated cell (which skips the surface flags above) emits
 	// `--permission-mode plan --disallowedTools Bash,Edit,Write,NotebookEdit
 	// <prompt>`. Before the terminator, safety here was incidental — it held
-	// only while --model or --name happened to follow (U032-F01). "--" is
-	// emitted only when there IS a positional; a trailing bare "--" would be
+	// only while --model or --name happened to follow. "--" is emitted only
+	// when there IS a positional; a trailing bare "--" would be
 	// noise, and claude has no other positional to protect.
 	if req.Mode == agent.ModeInteractive {
 		if prompt := agent.GetPromptContent(req.Prompt); prompt != "" {

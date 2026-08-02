@@ -14,9 +14,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// U102-F06 called agent.SettingsOptions.StatusLineDisabled a claude-only
-// policy flag sitting in the options struct of a package 26 packages import.
-// Measured, it was worse than misplaced: agent.WithStatusLineDisabled had zero
+// agent.SettingsOptions.StatusLineDisabled was a claude-only policy flag
+// sitting in the options struct of a package 26 packages import. Measured, it
+// was worse than misplaced: agent.WithStatusLineDisabled had zero
 // callers anywhere in the tree, and every production construction of
 // SettingsOptions sets only FS, so the flag could never be true through that
 // route. The live statusline policy rides DeliverSettings(hooks,

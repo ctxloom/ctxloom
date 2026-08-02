@@ -341,9 +341,9 @@ func TestContextDelivery_DistinctHarpsDistinctScratch(t *testing.T) {
 	require.FileExists(t, b)
 }
 
-// TestSetup_FragmentsAssemblingToNothingIsLoud closes the divergence behind
-// U032-F11. A backend whose context rides the RAW CACHE FILE (codex,
-// antigravity, kiro) already refuses this exact input: Provide → WriteContextFile
+// TestSetup_FragmentsAssemblingToNothingIsLoud closes a real divergence: a
+// backend whose context rides the RAW CACHE FILE (codex, antigravity, kiro)
+// already refuses this exact input: Provide → WriteContextFile
 // returns agent.ErrNoContext, deliberately distinct from the no-fragments case,
 // because "the user configured no context" and "every fragment the user
 // configured resolved to nothing" are different facts. claude's context rides a

@@ -36,7 +36,7 @@ const (
 // summaryFact is factSummary's payload.
 type summaryFact struct {
 	Harp string `json:"harp"`
-	// RunID scopes Seq. Absent on facts journaled before U023-F24, which
+	// RunID scopes Seq. Absent on facts journaled before this was added, which
 	// degrades the key back to (harp, seq) for those — exactly the old
 	// behaviour for an old log, and no cross-harp collision, because Harp is
 	// still part of the key.
@@ -98,7 +98,7 @@ type reportsFold struct {
 // starts at 0 in every runner process, and a resume revokes the credential,
 // severs the runner and spawns a fresh one — so a watermark keyed by harp
 // alone silently discarded every report from a resumed child until its seq
-// climbed past the previous run's maximum (U023-F24). Under one-shot driving,
+// climbed past the previous run's maximum. Under one-shot driving,
 // which mints a new run per TURN, that was essentially every report after turn
 // 1. itemsFold has always keyed its watermark by run_id; the harp stays in the
 // key here so one harp's watermark can never suppress another's report.
@@ -324,7 +324,7 @@ func (c *Coordinator) artifactRecord(harp, artifactID string) (ArtifactRecord, b
 
 // LatestReport returns the harp's most recent report line ("" when none).
 //
-// test-only: no production caller (U023-F29) — consumer.go's own use of
+// test-only: no production caller — consumer.go's own use of
 // reportsF.latestSummary reads it from inside an already-held View window,
 // which is what this wrapper supplies. Kept rather than inlined at its 5
 // test call sites (reports_resume_dedupe_test.go, runchannel_test.go): those

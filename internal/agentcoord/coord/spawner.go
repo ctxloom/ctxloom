@@ -135,8 +135,8 @@ type Spawner interface {
 	// and runnerEnv stamped per-spawn onto the RUNNER process (the
 	// coordinator reach-back trio — the runner is the one credential
 	// holder; the harness env never carries it). resumeSessionID, when
-	// non-empty, asks the backend to resume its own native session (Slice 0,
-	// wooly-stove) instead of starting fresh — the LEGACY go-plugin dial's
+	// non-empty, asks the backend to resume its own native session (Slice 0)
+	// instead of starting fresh — the LEGACY go-plugin dial's
 	// counterpart to the migrated StartRun path's
 	// StartRun{ResumeSessionId}. A fresh (non-resumed) launch passes "".
 	Launch(ctx context.Context, plan *SpawnPlan, contextText, resumeSessionID string, env, runnerEnv map[string]string) (*operations.AgentChatLaunch, error)
@@ -205,7 +205,7 @@ var viaStartRunBackends = map[string]bool{
 //     from the first StartRunResult/init (see SpawnPlan.ResumeMode's doc);
 //     this table is the STATIC half alone.
 //   - antigravity: resume via its own `--conversation <id> --continue`
-//     (internal/antigravity/chat.go), now that Slice 0 / wooly-stove
+//     (internal/antigravity/chat.go), now that Slice 0
 //     (fix/resume-session-capture, merged 961102f5) captures the native
 //     conversation id the legacy go-plugin dial needs to pass it.
 //   - opencode: FALSE, deliberately absent — it neither consumes
@@ -490,7 +490,7 @@ func (s *prodSpawner) StartEngine(ctx context.Context, plan *SpawnPlan, env, run
 		WorkDir: eng.WorkDir,
 		Env:     eng.Env,
 		Model:   eng.Model,
-		// U098-F04: plan.MCPServers was composed at Resolve time (before this
+		// plan.MCPServers was composed at Resolve time (before this
 		// call's PrepareAgentChat resolved the real isolation.Policy), so its
 		// auto-registered ctxloom entry may still carry the host self-exec
 		// path even for a runtime:container child. prep.MCPCommandOverride()
@@ -508,7 +508,7 @@ func (s *prodSpawner) ResumeContext(ctx context.Context, plan *SpawnPlan, harp s
 	contextText := plan.Context
 	if entries, err := operations.RecordedSessionEntries(ctx, harp); err == nil {
 		rendered := operations.RenderResumedTranscript(harp, entries)
-		// U024-F03: RenderResumedTranscript legitimately returns "" for zero
+		// RenderResumedTranscript legitimately returns "" for zero
 		// substantive entries, and JoinLeadBlocks(contextText, "") yields
 		// contextText UNCHANGED — indistinguishable, from the outside, from
 		// "loaded the whole conversation". Only the error branch below used
@@ -538,7 +538,7 @@ func (s *prodSpawner) MarkSessionEnded(harp string) {
 // process env only (the engine's MCP subprocesses inherit it), and the
 // credential must never land in an MCP config structure.
 func (s *prodSpawner) childMCPServers(plan *SpawnPlan) []agent.ChatMCPServer {
-	// U100-F03 / U098-F04: ComposeChatMCPServers takes a command override so
+	// ComposeChatMCPServers takes a command override so
 	// a runtime:container agent's structured chat can emit the in-container
 	// ctxloom path instead of the host's — but prodSpawner has no
 	// isolation.Policy in scope here (Resolve time) to derive one from:

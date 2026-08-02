@@ -47,7 +47,7 @@ func (m *Manager) Resolve(projectDir string) (Resolution, error) {
 		// previously returned whichever entry slices.IndexFunc happened to
 		// hit first with no cross-check at all, even though the in-tree
 		// marker (when present) names the authoritative identity and could
-		// have caught the disagreement (U125-F01). This never blocks
+		// have caught the disagreement. This never blocks
 		// resolution — the marker is still just advisory here, since
 		// Adopt/EntriesAtPath's own detection-and-warn design (see
 		// operations.missingLogSiblingNote) depends on the ambiguity being
@@ -69,7 +69,7 @@ func (m *Manager) Resolve(projectDir string) (Resolution, error) {
 				// — re-pointing this project's identity away from the
 				// tree that never actually left, and leaving IT to mint a
 				// brand-new id on its own next resolution, appearing to
-				// have lost every task (U125-F03+F09). Re-write it now,
+				// have lost every task. Re-write it now,
 				// on the healthy path, before that gap can ever open.
 				// Best-effort: a write failure must not fail an otherwise-
 				// successful resolution.
@@ -182,7 +182,7 @@ func oldTreeGone(oldPath, id string) (gone bool, err error) {
 		// Treating "absent" the same as "names a different id" (both used
 		// to make this function return gone=true) let a markerless-but-
 		// still-there original be silently re-pointed away from ITSELF —
-		// U125-F03+F09. Only a marker naming a DIFFERENT id is real
+		// Only a marker naming a DIFFERENT id is real
 		// evidence of a move; report this case as inconclusive instead.
 		// moveOrFork's own fallback already forks (mints a new identity)
 		// rather than repoints on an inconclusive probe, which is the

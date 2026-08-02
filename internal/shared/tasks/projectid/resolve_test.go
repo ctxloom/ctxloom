@@ -83,7 +83,7 @@ func TestResolveNormalInPlace(t *testing.T) {
 }
 
 // TestResolveFastPath_WarnsWhenMarkerDisagreesWithRegistry pins the
-// fixable half of U125-F01: the fast path (registry-by-path hit) used to
+// fixable half: the fast path (registry-by-path hit) used to
 // return whichever entry matched with no cross-check at all, even though
 // the in-tree marker — when present — names the authoritative identity
 // and could catch a directory registered under two ids. This must not
@@ -220,9 +220,7 @@ func TestResolveForkedInconclusive(t *testing.T) {
 }
 
 // TestResolveOriginalSurvivesCleanedMarkerWhenCopyResolvesFirst is the
-// flow-level pin for U125-F03+F09 (a defect with no census row of its
-// own — the unit review filed it as a combined "F03 + F09" id the
-// mechanical extraction couldn't parse into a row). The sequence:
+// flow-level pin for a defect exercised by this sequence:
 // `git clean -xdf` in a project removes its (gitignored) marker without
 // touching the tree itself; a copy taken earlier still carries the
 // marker. Resolving the COPY first used to have oldTreeGone read the

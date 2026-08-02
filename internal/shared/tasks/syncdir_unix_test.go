@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// TestSyncDir pins the durability seam append() uses when it creates a log
-// (U120-F07). fsync on the file makes its contents durable and says nothing
+// TestSyncDir pins the durability seam append() uses when it creates a log.
+// fsync on the file makes its contents durable and says nothing
 // about the directory entry naming it, so the entry needs its own flush;
 // there is no way to observe an fsync from a test, so what is pinned here is
 // that the seam EXISTS, that it reports success on a real directory, and that

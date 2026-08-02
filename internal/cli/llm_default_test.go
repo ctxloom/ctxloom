@@ -131,7 +131,7 @@ func TestRunLLMDefault_Set_UnknownLLM_Errors(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestIsKnownLLM_AgreesWithTheAdvertisedSet is the U037-F11 pin. `llm default
+// TestIsKnownLLM_AgreesWithTheAdvertisedSet pins that `llm default
 // <name>` decided membership with its own predicate (backends.Exists ||
 // cfg.GetLLMEntry) and then built the rejection message from
 // operations.AvailableLLMNames — two definitions of "known LLM" with no

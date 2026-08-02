@@ -14,7 +14,7 @@ import (
 
 // runCLIJSON executes rootCmd with args plus "--format json" and returns the
 // decoded payload, requiring both a clean exit and valid JSON. This is the
-// T19 format-debt paydown's unit-level proof for the
+// format-debt paydown's unit-level proof for the
 // installer/mcp-registration surface (manage.go, mcp.go, gooey-basil batch):
 // --format json must actually produce JSON, not the human text that these
 // RunEs used to print via bare fmt.Printf regardless of the flag.
@@ -37,7 +37,7 @@ func runCLIJSON(t *testing.T, args ...string) map[string]any {
 }
 
 // TestManageGitignoreInstall_FormatJSON pins the `manage gitignore install`
-// half of T19's installer surface: it must route through emit() instead of a
+// half of the installer surface: it must route through emit() instead of a
 // bare fmt.Printf, so --format json renders {"status":"updated","path":...}
 // rather than silently discarding the flag.
 func TestManageGitignoreInstall_FormatJSON(t *testing.T) {
@@ -47,7 +47,7 @@ func TestManageGitignoreInstall_FormatJSON(t *testing.T) {
 	require.NotEmpty(t, payload["path"])
 }
 
-// TestManageGitignoreInstall_WriteFailureIsNotSilentSuccess is the U037-F02
+// TestManageGitignoreInstall_WriteFailureIsNotSilentSuccess is a
 // regression pin: `manage gitignore install` used to print "Updated <path>"
 // and exit 0 even when the .gitignore write failed. Here the write is forced
 // to fail by making ".gitignore" a directory (so gitignore.Ensure's
@@ -71,9 +71,8 @@ func TestManageGitignoreInstall_WriteFailureIsNotSilentSuccess(t *testing.T) {
 	require.NotContains(t, out.String(), "Updated", "must not print the success line when the write failed")
 }
 
-// TestMcpRegisterUnregister_FormatJSON pins setMcpAutoRegister (shared by
-// `mcp register`/`mcp unregister` and their deprecated `manage mcp
-// install`/`uninstall` aliases): --format json must render the
+// TestMcpRegisterUnregister_FormatJSON pins setMcpAutoRegister (behind
+// `mcp register`/`mcp unregister`): --format json must render the
 // auto-registration result instead of the two bare fmt.Printf/Println lines
 // it used to be stuck with regardless of --format.
 func TestMcpRegisterUnregister_FormatJSON(t *testing.T) {

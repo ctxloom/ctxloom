@@ -49,7 +49,7 @@ func twoLabelConfig() *config.Config {
 
 // decodedClaudeBinaryPath decodes the resolved claude-code config and returns
 // BinaryPath — used as the distinguishing marker between the two labels
-// (ClaudeConfig.Model was deleted as dead, U032-F14: decoded and never read
+// (ClaudeConfig.Model was deleted as dead: decoded and never read
 // by this package, the effective model resolves untyped elsewhere).
 func decodedClaudeBinaryPath(t *testing.T, cfg *config.Config) string {
 	t.Helper()
@@ -119,7 +119,7 @@ func TestDecodeBackendConfigForType_PrimaryOfOtherTypeFallsBack(t *testing.T) {
 }
 
 // TestIsMockBackend pins the one predicate both usableLLMs (run.go) and
-// getAvailableEngines (init.go) now share (U057-F14 escalation): the "mock"
+// getAvailableEngines (init.go) now share: the "mock"
 // backend must never surface in a user-facing engine list, and nothing else
 // should be caught by the same check.
 func TestIsMockBackend(t *testing.T) {
@@ -128,7 +128,7 @@ func TestIsMockBackend(t *testing.T) {
 	assert.False(t, isMockBackend(""))
 }
 
-// TestDecodeBackendConfig_GeminiHintRidesTheDiagnosticChannel pins U037-F25.
+// TestDecodeBackendConfig_GeminiHintRidesTheDiagnosticChannel pins that
 // decodeBackendConfig emitted its first line through clidiag.Warn and the
 // gemini-successor hint on the line below through a raw
 // fmt.Fprintf(os.Stderr, ...) — two diagnostic channels in one function, and

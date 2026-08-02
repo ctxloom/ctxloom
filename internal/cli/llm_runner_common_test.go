@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestLlmServe_MalformedConfigAbortsInsteadOfLaunching pins U037-F03: `llm
+// TestLlmServe_MalformedConfigAbortsInsteadOfLaunching pins that `llm
 // serve`/`llm host`/`llm turn` are process-owning entry points that used to
 // call config.Load() directly and never surface its warnings (via
 // printAndRecordConfigWarnings) or gate on them (via failOnFindings) — so a
@@ -98,7 +98,7 @@ func TestLlmServe_CleanConfigReachesUnknownBackendError(t *testing.T) {
 	require.Contains(t, err.Error(), "unknown backend")
 }
 
-// TestRunnerMustRefuseNoConfigReachBack pins U037-F05: standUpRunner must not
+// TestRunnerMustRefuseNoConfigReachBack pins that standUpRunner must not
 // silently BindHome (and let its caller launch the engine) when this runner
 // hosts a delegated run but config.Load() failed — there would be no
 // runner-local MCP endpoint, so CTXLOOM_MCP_SOCKET is never exported and the
@@ -148,7 +148,7 @@ func twoMockLabelProject(t *testing.T) {
 	t.Cleanup(config.Invalidate)
 }
 
-// TestStandUpRunner_ConfiguresFromTheLabelItWasGiven is the U037-F23 pin. `llm
+// TestStandUpRunner_ConfiguresFromTheLabelItWasGiven pins that `llm
 // host` and `llm turn` each used to copy their own --label into `llm serve`'s
 // package-global llmServeLabel, because standUpRunner read that global instead
 // of taking the label as an argument: three commands writing one mutable global
@@ -179,7 +179,7 @@ func TestStandUpRunner_ConfiguresFromTheLabelItWasGiven(t *testing.T) {
 }
 
 // TestConsumeCoordinatorReachBack_ReadsThenScrubs is the characterization half
-// of U037-F19: the reach-back is read into the standup's own state and then
+// of the reach-back scrub: it is read into the standup's own state and then
 // removed from the environment, so nothing the runner spawns can inherit it.
 func TestConsumeCoordinatorReachBack_ReadsThenScrubs(t *testing.T) {
 	env := map[string]string{
@@ -225,7 +225,7 @@ func TestConsumeCoordinatorReachBack_LeafGate(t *testing.T) {
 	assert.False(t, leafFor(map[string]string{}), "the human session is never gated")
 }
 
-// TestConsumeCoordinatorReachBack_FailedScrubRefusesToLaunch is the U037-F19
+// TestConsumeCoordinatorReachBack_FailedScrubRefusesToLaunch pins the
 // fix: the scrub used to be `_ = os.Unsetenv(k)`, so a key that survived left
 // the coordinator credential in the environment the engine child inherits —
 // third-party code handed the token, with the runner reporting a clean standup.
@@ -245,10 +245,10 @@ func TestConsumeCoordinatorReachBack_FailedScrubRefusesToLaunch(t *testing.T) {
 	assert.NotContains(t, err.Error(), "sensitive", "the refusal must not echo the credential value")
 }
 
-// TestExportRunnerMCPSocket pins U037-F19's other swallowed syscall. The export
-// used to be `_ = os.Setenv(...)`, so a failure left the endpoint listening and
-// unaddressable — the child's shim would find no socket and stand up a rogue
-// local coordinator nobody reads.
+// TestExportRunnerMCPSocket pins the other swallowed syscall in the same
+// reach-back path. The export used to be `_ = os.Setenv(...)`, so a failure
+// left the endpoint listening and unaddressable — the child's shim would
+// find no socket and stand up a rogue local coordinator nobody reads.
 func TestExportRunnerMCPSocket(t *testing.T) {
 	var gotKey, gotVal string
 	require.NoError(t, exportRunnerMCPSocket(func(k, v string) error {
@@ -263,8 +263,8 @@ func TestExportRunnerMCPSocket(t *testing.T) {
 	assert.Contains(t, err.Error(), coord.EnvMCPSocket)
 }
 
-// The three tests below are the characterization set for U037-F20's split of
-// standUpRunner into named concerns. Behaviour is unchanged by definition, so no
+// The three tests below are the characterization set for standUpRunner's
+// split into named concerns. Behaviour is unchanged by definition, so no
 // test can discriminate the refactor (template §4, case 2: pure complexity
 // reduction) — their job is to be green before AND after, covering every arm the
 // split moves that is reachable without a live coordinator.

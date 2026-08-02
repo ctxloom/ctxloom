@@ -50,7 +50,7 @@ func runLLMTurn(cmd *cobra.Command, args []string) error {
 	// RunStart.Options.Env's TERM (stamped by startContainerInteractive),
 	// which overrides the turn's dumb in the child's BuildEnv.
 
-	// Fail-loudly gate (U037-F03): same shape as `llm serve`/`llm host` —
+	// Fail-loudly gate: same shape as `llm serve`/`llm host` —
 	// checkpoint before standUpRunner's config load. Unlike serve/host, a
 	// standUpRunner ERROR here is deliberately downgraded to a warning
 	// below (interactive turn has no RunID, so no EngineHost, and an MCP

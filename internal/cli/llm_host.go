@@ -33,7 +33,7 @@ var llmHostCmd = &cobra.Command{
 }
 
 func runLLMHost(cmd *cobra.Command, args []string) error {
-	// Fail-loudly gate (U037-F03): same shape as `llm serve` — see its
+	// Fail-loudly gate: same shape as `llm serve` — see its
 	// RunE for the full rationale.
 	startupMark := strictness.Checkpoint()
 

@@ -89,7 +89,7 @@ func standUpRunner(cmd *cobra.Command, backend agent.Backend, backendName, label
 // caller can tell "degraded config" (non-nil cfg carrying warnings) from "no
 // config at all" (nil cfg) — a distinction the reach-back decisions below turn on.
 //
-// U037-F03: config.Load downgrades an unreadable/malformed/schema-invalid
+// config.Load downgrades an unreadable/malformed/schema-invalid
 // config.yaml to warnings rather than an error, so the warnings are surfaced here
 // (which also records the fatal-class findings each RunE's failOnFindings gate
 // checks) — a corrupted config must never silently launch an empty/partial-context
@@ -241,7 +241,7 @@ func exportRunnerMCPSocket(set func(string, string) error, socketPath string) er
 // refuse to launch its engine because this runner hosts a delegated run
 // (engineHost != nil, i.e. it has a RunID and a StructuredChat backend) but
 // config.Load() failed, so there is no config to build a runner-local MCP
-// endpoint from (U037-F05). Binding EngineHost in that state would let the
+// endpoint from. Binding EngineHost in that state would let the
 // engine launch with CTXLOOM_MCP_SOCKET never exported — the same "hosted
 // delegated run with no reach-back" condition standUpRunner's merr branch
 // (a few lines up) already refuses for when serveRunnerMCP itself fails.

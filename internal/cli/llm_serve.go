@@ -26,7 +26,7 @@ var llmServeCmd = &cobra.Command{
 }
 
 func runLLMServe(cmd *cobra.Command, args []string) error {
-	// Fail-loudly gate (U037-F03): checkpoint before standUpRunner's config
+	// Fail-loudly gate: checkpoint before standUpRunner's config
 	// load, so a fatal-class finding it records (a corrupted/malformed
 	// config.yaml, via printAndRecordConfigWarnings) aborts this process-owning
 	// entry point below instead of silently serving an empty/partial

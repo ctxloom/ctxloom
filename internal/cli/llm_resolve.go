@@ -15,7 +15,7 @@ import (
 // registered into the production descriptor table (registry.go), reachable
 // at runtime as `--llm mock`, but not something a real user should ever be
 // offered as a choice. Every user-facing enumeration over backends.List()
-// filters it out through this one name — U057-F14 found two independent
+// filters it out through this one name — a prior review found two independent
 // hand-written `== "mock"` skips (here and in init.go) before this constant
 // existed; consolidating the literal to one place is the minimal fix that
 // keeps working without reaching into the backends package's registration

@@ -112,7 +112,7 @@ var worktreeCandidatePrefix = worktreeScratchPrefix + "-"
 // WIP-safe, nested-aware teardown() the graceful Cleanup path uses — never
 // force.
 //
-// This is bony-carry bug #2's fix: teardown() only ever runs on a graceful
+// This is the fix for a bug: teardown() only ever runs on a graceful
 // Cleanup(); nothing else ever runs it, so a crashed/killed run's worktree was
 // orphaned PERMANENTLY — one leftover checkout (and one stale `git worktree
 // list` registration in its project repo) per crash, forever. This sweep is
@@ -206,7 +206,7 @@ func reapOneWorktree(parent context.Context, g git.Git, wtDir string) worktreeRe
 	if !ok {
 		return worktreeReapSkipped // indeterminate owner — never touch
 	}
-	// U114-F01: MaybeAlive (not a bare Alive check) treats an unconfirmable
+	// MaybeAlive (not a bare Alive check) treats an unconfirmable
 	// probe the same as a live owner — reaping is a DESTRUCTIVE, irreversible
 	// decision (this deletes a worktree, possibly with uncommitted WIP), so
 	// an unsure verdict must skip exactly like a confirmed-live owner does,

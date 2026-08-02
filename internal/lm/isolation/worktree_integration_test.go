@@ -118,7 +118,7 @@ func TestWorktreePolicy_RealGitPreservesInnerWIP(t *testing.T) {
 }
 
 // TestWorktreePolicy_RealGit_ManagedContextDeletionDoesNotOrphan is the
-// red-first proof for bony-carry bug #1: a per-agent worktree's CLAUDE.md is a
+// red-first proof for a bug: a per-agent worktree's CLAUDE.md is a
 // TRACKED context surface the claude engine's WriteContext genuinely mutates —
 // and, per its own doc, DELETES outright when the merged content is empty and
 // the file was wholly ctxloom's (internal/claude/claude.go). Before
@@ -271,7 +271,7 @@ func gitCmd(dir string, args ...string) *exec.Cmd {
 	return cmd
 }
 
-// TestGitIdentity_HostileAgentIDStillCommitsCleanly is U065-F12's pin, and the
+// TestGitIdentity_HostileAgentIDStillCommitsCleanly pins a claim, and the
 // row is REFUTED on its consequence. The claim: gitIdentity sanitizes agentID
 // for the email local-part but interpolates the RAW agentID into
 // GIT_AUTHOR_NAME/GIT_COMMITTER_NAME, so "a name containing a newline or

@@ -181,17 +181,16 @@ func (pm *PublishManager) Publish(ctx context.Context, localPath string, remoteN
 // and the bytes that land in the remote (spec §3.0, §3.1). The filesystem is
 // the manager-level seam (WithPublishFS) — PublishOptions used to carry a
 // SECOND, always-empty FS field with a silent precedence rule over this one;
-// it was deleted (U094-F01) since nothing, in production or in tests, ever set
-// it.
+// it was deleted since nothing, in production or in tests, ever set it.
 func (pm *PublishManager) loadPublishContent(localPath string) ([]byte, error) {
 	content, err := afero.ReadFile(pm.fs, localPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read local file: %w", err)
 	}
-	// U094-F02: an empty local file must never publish. Without this floor a
+	// An empty local file must never publish. Without this floor a
 	// 0-byte file overwrote whatever real content already existed at the
 	// remote path with nothing, reported success, and — before signing.Sign
-	// gained its own U134-F01 floor — could even produce a "valid" publisher
+	// gained its own floor — could even produce a "valid" publisher
 	// signature over zero bytes. Reject here, before any network write and
 	// before SignPayload is ever called, so both the signed and unsigned
 	// publish paths are covered by one guard.
@@ -273,7 +272,7 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	// GetFileSHA's contract (see the Publisher interface doc) is "empty string
 	// means the file doesn't exist" — that is NOT the same as "the forge could
 	// not be asked". A transient failure here must not be silently read as
-	// "absent" (U094-F11): that flips a genuine update into an "Add …" commit
+	// "absent": that flips a genuine update into an "Add …" commit
 	// subject / PR title, misrepresenting the change.
 	existingSHA, err := publisher.GetFileSHA(ctx, owner, repo, remotePath, branch)
 	if err != nil {
@@ -457,7 +456,7 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 // currently unused: ItemTypeBundle is the only distributed item type (see
 // types.go), so every publish target lives under "bundles"; the parameter is
 // kept so a future second ItemType doesn't require re-widening the signature
-// (U094-F04 — the switch this replaced had an identical case and default arm).
+// (the switch this replaced had an identical case and default arm).
 func buildPublishPath(_ ItemType, name string) string {
 	return path.Join(paths.RepoContentPrefix, "bundles", name+".yaml")
 }

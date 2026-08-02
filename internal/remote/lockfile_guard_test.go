@@ -137,7 +137,7 @@ func TestSave_AllowsPopulatedWrites(t *testing.T) {
 	assert.Equal(t, 3, loaded.Count())
 }
 
-// U085-F01: a corrupt lock.yaml must not be silently replaced. Its holds and
+// A corrupt lock.yaml must not be silently replaced. Its holds and
 // retractions cannot be read, so nothing can carry them forward — any write
 // over it destroys state nobody can account for.
 func TestSave_RefusesOverwritingCorruptLockfile(t *testing.T) {

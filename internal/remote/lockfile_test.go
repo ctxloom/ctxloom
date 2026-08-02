@@ -118,8 +118,8 @@ func TestLockfileManager_LoadSelfHealsLegacyCtxloomVersion(t *testing.T) {
 	}
 }
 
-// TestLockfileManager_LoadDoesNotRewriteOnAMereMention pins U093-F16's legible
-// half: the load-time self-heal must fire on the retired ctxloom_version KEY,
+// TestLockfileManager_LoadDoesNotRewriteOnAMereMention pins that the load-time
+// self-heal must fire on the retired ctxloom_version KEY,
 // not on the characters appearing anywhere in the document.
 //
 // A read that writes is already a strong thing to do; triggering it off a raw
@@ -152,8 +152,8 @@ func TestLockfileManager_LoadDoesNotRewriteOnAMereMention(t *testing.T) {
 	assert.Equal(t, original, string(onDisk), "a read that finds no legacy field must not write")
 }
 
-// TestLockfileManager_SavePersistsVersionZero CHARACTERIZES today's behaviour
-// for U093-F35; it does not endorse it.
+// TestLockfileManager_SavePersistsVersionZero CHARACTERIZES today's behaviour;
+// it does not endorse it.
 //
 // The schema version is a bare literal at three construction sites
 // (remote/lockfile.go's absent-file path, operations/lockfile.go's rebuild and
@@ -380,7 +380,7 @@ func TestLockfileManager_Load_NilMaps(t *testing.T) {
 	}
 }
 
-// U093-F02: a PRESENT-but-EMPTY (or whitespace/comment-only) lock.yaml must
+// A PRESENT-but-EMPTY (or whitespace/comment-only) lock.yaml must
 // not load as a valid, legitimately-empty lockfile — every path that writes a
 // lockfile (Save/write) always marshals at least "version: 1\nbundles: {}\n"
 // plus a timestamp, so a genuinely 0-byte file on disk can only mean
@@ -464,7 +464,7 @@ func TestLockfile_GetEntry_UnknownType(t *testing.T) {
 }
 
 // TestLockfile_OnlyBundlesAreDistributed pins the property that makes
-// AddEntry's non-bundle discard unreachable, and that U093-F32 read as a live
+// AddEntry's non-bundle discard unreachable — it used to read as a live
 // silent no-op.
 //
 // AddEntry does drop an entry whose itemType is not ItemTypeBundle, and it has

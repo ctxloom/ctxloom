@@ -164,7 +164,7 @@ func TestMockFetcher_ListDir_Unit(t *testing.T) {
 	})
 }
 
-// TestMockFetcher_ResolveTagIsTagNamespaceOnly pins U093-F21: the shared double
+// TestMockFetcher_ResolveTagIsTagNamespaceOnly pins that the shared double
 // implemented ListTags but not ResolveTag, so fetcherRepoVersions.ResolveTag
 // took its "backends that don't distinguish namespaces" fallback to the generic
 // ResolveRef — and every mock-backed semver test therefore rehearsed the
@@ -226,7 +226,7 @@ func TestMockFetcher_ResolveRef(t *testing.T) {
 		}
 	})
 
-	// U093-F20: an unseeded ref must NOT resolve. The old default synthesised
+	// An unseeded ref must NOT resolve. The old default synthesised
 	// "<ref>000000", so a test that forgot to seed still got a SHA and a nil
 	// error back — a plausible fake where a failure belonged.
 	t.Run("ref not in map does not resolve", func(t *testing.T) {
@@ -321,7 +321,7 @@ func TestMockFetcher_ValidateRepo(t *testing.T) {
 		}
 	})
 
-	// U093-F20: a repo nobody marked valid is not valid. ValidRepos IS the
+	// A repo nobody marked valid is not valid. ValidRepos IS the
 	// answer, so its zero value is the honest default; asserting true for an
 	// unseeded repo described a repository the fixture never set up.
 	t.Run("unseeded repo is not valid", func(t *testing.T) {

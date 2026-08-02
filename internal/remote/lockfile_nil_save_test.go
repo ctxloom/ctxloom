@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U093-F33: Save(nil) panicked. It reached guardDestructiveWrite, which asks
+// Save(nil) panicked. It reached guardDestructiveWrite, which asks
 // the incoming lockfile whether it IsEmpty, and dereferenced a nil receiver on
 // the way to the answer; had the guard let it past, the LockedAt stamp would
 // have panicked instead.

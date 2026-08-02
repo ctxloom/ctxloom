@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U093-F34 is a missing-seam row: the defect IS the absent named type, so a
-// test that spells it cannot be RED first -- it fails to compile, which is not
-// the same thing. So the behaviour AllEntries owes its callers is pinned here
-// first, at the public seam, and the pin is unchanged by the collapse: it
+// The defect here IS the absent named type, so a test that spells it cannot
+// be RED first -- it fails to compile, which is not the same thing. So the
+// behaviour AllEntries owes its callers is pinned here first, at the public
+// seam, and the pin is unchanged by the collapse: it
 // reads only the field names, which a named struct keeps.
 //
 // Five call sites across internal/cli and internal/operations range over this

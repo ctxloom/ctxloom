@@ -366,7 +366,7 @@ func TestGitHubFetcher_ResolveRef(t *testing.T) {
 		assert.ErrorIs(t, err, errs.ErrRemoteContentNotFound)
 	})
 
-	// U093-F19: only a 404 establishes that a ref is absent. A 5xx, a 403 or a
+	// Only a 404 establishes that a ref is absent. A 5xx, a 403 or a
 	// transport error says the forge could not be asked — and reporting that as
 	// ErrRemoteContentNotFound is load-bearing, because callers treat
 	// ErrRemoteContentNotFound as "this content legitimately does not exist"
@@ -583,10 +583,10 @@ func TestGitHubPublisher_CreateOrUpdateFile(t *testing.T) {
 		assert.Equal(t, "update-sha", sha)
 	})
 
-	// U093-F31: nil or empty content published a 0-byte file over whatever was
+	// Nil or empty content published a 0-byte file over whatever was
 	// there and returned a SHA with no error. The last gate before the network
 	// write has to hold the floor itself: PublishManager.loadPublishContent
-	// guards the BUNDLE bytes (U094-F02), but publishSignatureSibling only
+	// guards the BUNDLE bytes, but publishSignatureSibling only
 	// checks its signature for nil, so an empty-but-non-nil signature reached
 	// this method unguarded and would have overwritten a real .sig with
 	// nothing.

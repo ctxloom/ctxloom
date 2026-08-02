@@ -75,7 +75,7 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 		return nil, fmt.Errorf("failed to read lockfile: %w", err)
 	}
 
-	// U093-F02: a PRESENT-but-empty (or whitespace-only) file is a DIFFERENT
+	// A PRESENT-but-empty (or whitespace-only) file is a DIFFERENT
 	// fact from "no lockfile" (handled above) and must not collapse into it.
 	// Save/write always stamp LockedAt to time.Now() before marshaling, so
 	// any real write produces non-trivial bytes ("version: N\nlocked_at:
@@ -189,7 +189,7 @@ func AllowEmpty() SaveOption {
 //     resolved an empty closure, wrote it wholesale, and reported "Everything
 //     is up to date." Callers that genuinely mean to empty the lock pass
 //     AllowEmpty.
-//   - ANY write over an UNREADABLE lockfile (U085-F01). Every rebuild carries
+//   - ANY write over an UNREADABLE lockfile. Every rebuild carries
 //     Pinned and Retracted forward by reading the previous file; when that
 //     read fails the rebuild silently drops them. Refusing the write keeps the
 //     evidence on disk and puts the fix in the user's hands.

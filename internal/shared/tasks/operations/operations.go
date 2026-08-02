@@ -358,7 +358,7 @@ func TagTask(tc TaskContext, harpID string, add, remove []string) (*TaskResult, 
 		// flags it, and a later collapse fixes it). The old ordering did
 		// the untag first: if the add then failed, the task's previous
 		// scalar value was already gone with nothing written to replace
-		// it — an unrecoverable loss (U122-F01).
+		// it — an unrecoverable loss.
 		if len(addTags) > 0 {
 			task, err = store.AddTags(harpID, addTags...)
 			if err != nil {
@@ -604,8 +604,8 @@ func validateTag(tag string, schema *tagschema.Schema) error {
 		f, perr := strconv.ParseFloat(value, 64)
 		// strconv.ParseFloat accepts "NaN"/"Inf"/"-Inf" case-insensitively,
 		// and every `<`/`>` comparison against NaN is false — so a NaN
-		// value would otherwise pass this gate silently (U122-F12) and go
-		// on to hang priority.rankNormalize (U124-F01). Treat non-finite
+		// value would otherwise pass this gate silently and go
+		// on to hang priority.rankNormalize. Treat non-finite
 		// exactly like an unparseable value.
 		if perr == nil && (math.IsNaN(f) || math.IsInf(f, 0)) {
 			perr = fmt.Errorf("%q is not a finite number", value)
@@ -788,8 +788,7 @@ func LintTasks(tc TaskContext) (lint.Result, error) {
 // ("run Store.Repair()") — before this, that remedy was unreachable from
 // anywhere a user could act on it: no `taskloom repair` command and no
 // `task_repair` MCP tool existed, so every read (list/summary/tag-query/
-// priority/lint) kept failing loud with no way to actually resolve it
-// (U007-F11, entangled with U120-F01).
+// priority/lint) kept failing loud with no way to actually resolve it.
 func RepairStore(tc TaskContext) error {
 	store, _, _, err := resolveTaskStore(tc)
 	if err != nil {

@@ -770,12 +770,12 @@ func TestValidateTagRejectsDeclaredRangeViolation(t *testing.T) {
 	}
 }
 
-// TestValidateTagRejectsNaNOnDeclaredRange pins U122-F12: strconv.ParseFloat
+// TestValidateTagRejectsNaNOnDeclaredRange pins the fix: strconv.ParseFloat
 // accepts the literal string "NaN" (a legal tagma bare token), and every
 // `<`/`>` bounds comparison against NaN is false, so this write-time gate —
 // whose entire purpose is "a value that would be permanently unqueryable is
 // rejected loudly instead of silently persisted" — let NaN straight through.
-// A stored NaN goes on to hang priority.rankNormalize (U124-F01) with no
+// A stored NaN goes on to hang priority.rankNormalize with no
 // warning anywhere in the write path.
 func TestValidateTagRejectsNaNOnDeclaredRange(t *testing.T) {
 	schema := triageValueSchema(t)
@@ -1099,7 +1099,7 @@ func TestScalarCollapse_TagTaskCollapsesToNewestValueHistoryPreserved(t *testing
 	}
 }
 
-// TestTagTask_ScalarCollapseAddsBeforeUntag pins U122-F01: the log is
+// TestTagTask_ScalarCollapseAddsBeforeUntag pins the fix: the log is
 // append-only, so "retract the old scalar value, then add the new one" is
 // necessarily two separate writes, never one atomic operation. The old
 // ordering wrote the retracting untag FIRST — if the following add then
@@ -1396,7 +1396,7 @@ func TestTaskResult_PopulatesEveryField(t *testing.T) {
 	}
 }
 
-// TestScalarCollapse_SameValueSpelledTwoWaysIsNotARetraction pins U122-F05:
+// TestScalarCollapse_SameValueSpelledTwoWaysIsNotARetraction pins the fix:
 // scalar collapse decides TARGET identity by parsing the tag through tagma,
 // but decided VALUE identity by comparing raw strings. tagma's grammar admits
 // a quoted spelling of any component, so `triage:type=bug` and
@@ -1428,7 +1428,7 @@ func TestScalarCollapse_SameValueSpelledTwoWaysIsNotARetraction(t *testing.T) {
 }
 
 // TestScalarCollapse_TagTaskDoesNotRewriteHistoryForARespelledValue is the
-// end-to-end half of U122-F05: re-tagging with the same value spelled
+// end-to-end half of the fix: re-tagging with the same value spelled
 // differently must not append an untag event to the log.
 func TestScalarCollapse_TagTaskDoesNotRewriteHistoryForARespelledValue(t *testing.T) {
 	taskstest.Isolate(t)
@@ -1450,8 +1450,8 @@ func TestScalarCollapse_TagTaskDoesNotRewriteHistoryForARespelledValue(t *testin
 	}
 }
 
-// TestTagTask_NeverReturnsAnEmptyTaskWithANilError refutes U122-F07, which
-// claimed the `if len(addTags) > 0` guard leaves TagTask a path to return
+// TestTagTask_NeverReturnsAnEmptyTaskWithANilError refutes the claim that
+// the `if len(addTags) > 0` guard leaves TagTask a path to return
 // TaskResult{Task: tasks.Task{}} with a nil error. It cannot: scalarCollapse
 // keeps the LAST occurrence of every scalar target and passes every
 // non-scalar tag through, so a non-empty incoming list can never collapse to
@@ -1508,7 +1508,7 @@ func writeHostileMarker(t *testing.T, dir string) {
 	}
 }
 
-// TestResolveProjectIdentity_NamesTheStageThatFailed pins U122-F09: this
+// TestResolveProjectIdentity_NamesTheStageThatFailed pins the fix: this
 // function returned both of its failure modes bare, so its callers
 // (internal/cli/run.go's pre-launch export and coord_host.go's state-dir key)
 // could not tell "the project registry would not open" from "this tree's
@@ -1531,7 +1531,7 @@ func TestResolveProjectIdentity_NamesTheStageThatFailed(t *testing.T) {
 	}
 }
 
-// TestResolveTaskStore_SaysWhenTheCwdMarkerCouldNotBeRead pins U122-F03. The
+// TestResolveTaskStore_SaysWhenTheCwdMarkerCouldNotBeRead pins the fix. The
 // pin-vs-cwd mismatch check reads the working directory's own marker with
 // `cwdID, _ := projectid.ReadMarker(...)`, discarding the error from the one
 // function written specifically to REJECT a hostile marker. A rejected marker
@@ -1574,7 +1574,7 @@ func writeRegistry(t *testing.T, body string) {
 	}
 }
 
-// TestMissingLogSiblingNote_SaysWhenItCouldNotLook pins U122-F06: the note
+// TestMissingLogSiblingNote_SaysWhenItCouldNotLook pins the fix: the note
 // swallowed a registry read failure and an unusable sibling id into the same
 // empty string it returns for "nothing to report". The whole purpose of this
 // note is to stop a project's real backlog hiding behind an honest-looking

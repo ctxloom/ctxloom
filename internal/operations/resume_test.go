@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// TestRenderResumedTranscript_EmptyEntriesWarns is a regression guard for
-// U086-F17: a transcript that yields zero substantive (user/assistant/
+// TestRenderResumedTranscript_EmptyEntriesWarns is a regression guard: a
+// transcript that yields zero substantive (user/assistant/
 // tool-use) entries used to render "" with NO signal to the operator —
 // RenderResumedTranscript now warns via clidiag when it degrades to nothing,
 // so every one of its three consumers (operations/engine_session.go,
@@ -38,7 +38,7 @@ func TestRenderResumedTranscript_EmptyEntriesWarns(t *testing.T) {
 }
 
 // TestRenderResumedTranscript_LastEntryOverBudgetStillIncluded is a
-// regression guard for U086-F18: the tail-budget loop initialized start to
+// regression guard: the tail-budget loop initialized start to
 // len(parts) and only advanced it AFTER the budget test passed, so a single
 // trailing entry larger than resumeTranscriptBudget broke on its first
 // iteration before start ever moved — parts[start:] was empty, yet the

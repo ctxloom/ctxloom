@@ -58,7 +58,7 @@ func RenderResumedTranscript(harp string, entries []agent.SessionEntry) string {
 		}
 	}
 	if len(parts) == 0 {
-		// U086-F17: a resolved, error-free harp whose recorded transcript
+		// A resolved, error-free harp whose recorded transcript
 		// has no substantive entries used to prime the resumed engine with
 		// ZERO bytes of history and give no signal beyond a plain "". Warn
 		// here — once — so all three consumers (engine_session.go's ACP
@@ -69,7 +69,7 @@ func RenderResumedTranscript(harp string, entries []agent.SessionEntry) string {
 		return ""
 	}
 
-	// The tail always includes at least the LAST entry (U086-F18): start
+	// The tail always includes at least the LAST entry: start
 	// used to be initialized to len(parts) and only advanced INSIDE the
 	// budget-tested loop, so a single trailing entry alone bigger than the
 	// budget broke on its first iteration before start ever moved — the

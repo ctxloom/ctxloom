@@ -128,7 +128,7 @@ var writeOwnerPID = func(f *os.File, pid int) error {
 // A dead owner's stale lock is replaced (liveness = signal 0 probe).
 //
 // A lock file this function creates but cannot STAMP is removed again before it
-// declines (U024-F10): an owner.pid with no pid in it reads to the next
+// declines: an owner.pid with no pid in it reads to the next
 // claimant as a dead owner — strconv.Atoi("") fails, so the lock is treated as
 // stale and deleted — and two live coordinators would then share one project's
 // journals, the single outcome this lock exists to prevent. Declining a claim
@@ -151,7 +151,7 @@ func claimOwner(dir string) (release func(), err error) {
 			return nil, errStateOwned
 		}
 		pid, perr := strconv.Atoi(strings.TrimSpace(string(raw)))
-		// U114-F01: MaybeAlive (not a bare Alive check) treats an
+		// MaybeAlive (not a bare Alive check) treats an
 		// unconfirmable probe the same as a live owner — a false "the owner
 		// is dead" here would let a second process share this project's
 		// journal, which the single-writer discipline this function exists

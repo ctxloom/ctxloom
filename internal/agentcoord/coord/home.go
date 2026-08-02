@@ -101,8 +101,7 @@ type Home struct {
 	// tracked owns Home's own background loops (runnerChannelLoop,
 	// runChannelLoop, and one turnPump per hosted engine). Close/crash join it
 	// so a runner-side teardown leaves no goroutine still touching h's state
-	// (flaky-agentcoord S2: the coordinator-side S1 fix alone does not cover
-	// Home, which dispatches independently of the Coordinator's own group —
+	// (Home dispatches independently of the Coordinator's own group —
 	// fakeSpawner.StartEngine's in-process Home/EngineHost pair in the coord
 	// test suite is exactly this shape, and unblocked kill/crash is what the
 	// crash-redelivery test's determinism depends on). SetTurnSink can dispatch
@@ -538,7 +537,7 @@ func (h *Home) ReportRunExited(exitCode int, harnessSessionID string) {
 			// Always true: ReportRunExited is only ever called after the
 			// engine's chat stream has ended (enginehost.go's adapt), which
 			// is itself the terminal event. There is no call path where the
-			// terminal event was not seen — U021-F18.
+			// terminal event was not seen.
 			TerminalEventSeen: true,
 		},
 	}}); err != nil {
@@ -677,7 +676,7 @@ func (h *Home) abandonPark(p *homePark, err error) error {
 	h.mu.Lock()
 	if p.done {
 		h.mu.Unlock()
-		// U022-F01: the delivery (or a preemption, which sends nil — see
+		// The delivery (or a preemption, which sends nil — see
 		// Recv's "newest preempts" branch) beat us to it. The caller is
 		// leaving regardless (this Recv is returning err either way), but a
 		// GENUINE delivery must not be silently dropped: put it back on the
@@ -829,8 +828,8 @@ func (h *Home) reissueUnacked() {
 
 // crash tears the home down WITHOUT the clean-shutdown acknowledgements —
 // the test seam simulating a runner crash (conformance: crash-before-ack
-// re-delivers). Joins Home's own tracked loops (bounded) before returning —
-// flaky-agentcoord S2 — so a caller (fakeSpawner.StartEngine's kill, wired
+// re-delivers). Joins Home's own tracked loops (bounded) before returning
+// so a caller (fakeSpawner.StartEngine's kill, wired
 // as childRt.close) can rely on crash() actually being done, not merely
 // dispatched, before it proceeds (Coordinator.Close's attachment loop calls
 // closeFn synchronously for exactly this reason).
@@ -845,7 +844,7 @@ func (h *Home) crash() {
 // acknowledges what the harness already received — a crash skips this and
 // re-delivers, the safe direction), best-effort RunExited on the lifecycle
 // link, then both loops stop and the conn closes — joined (bounded) before
-// returning, mirroring crash() (flaky-agentcoord S2).
+// returning, mirroring crash().
 func (h *Home) Close(exitCode int, harnessSessionID string) {
 	h.ackReturned()
 	h.tracked.seal()

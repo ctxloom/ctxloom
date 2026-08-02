@@ -13,7 +13,7 @@ import (
 // / EngineHost, without go-plugin. The owning `ctxloom run` process already
 // hosts this coordinator in-process (newHostedCoordinator), so minting an
 // owner-owned run and driving/watching it is a LIBRARY call — no new RPC, no
-// change to coordination.proto (plan §0.1). The run reuses the existing
+// change to coordination.proto. The run reuses the existing
 // credential-based ownership model unchanged: it is enqueued parent-less with
 // the owner's harp as its role, its runner dials home on the ordinary
 // RunnerChannel with the per-run credential minted here, and the host consumes
@@ -22,7 +22,7 @@ import (
 
 // ownerRunRuntime is the runtime axis an owner-owned run always launches on —
 // Phase 2a-B covers the TOP-LEVEL CONTAINER structured/oneshot arm only; the
-// host (none/worktree) top-level path stays on local go-plugin (plan §0.4).
+// host (none/worktree) top-level path stays on local go-plugin.
 const ownerRunRuntime = "container"
 
 // OwnerRunSpec is everything StartOwnedRun needs beyond the prompt and the
@@ -32,7 +32,7 @@ const ownerRunRuntime = "container"
 type OwnerRunSpec struct {
 	// Harp is the owning session's harp; the owner-owned run REUSES it as its
 	// run role so transcript/session identity (state mounts, CTXLOOM_SESSION_HARP)
-	// stay coherent (plan §5.B2). The collision-audit test pins that the
+	// stay coherent. The collision-audit test pins that the
 	// role-keyed maps stay coherent under this reuse.
 	Harp       string
 	Backend    string // harness name (HarnessSpec.harness)
@@ -59,7 +59,7 @@ type OwnerRunSpec struct {
 type OwnedRunStarter func(ctx context.Context, spawnEnv map[string]string) (kill func(), err error)
 
 // StartOwnedRun mints a PARENT-LESS, owner-owned run and drives it onto
-// Transport 2 (plan §5.B): journal a runEnqueued with ParentHarp = owner.Harp,
+// Transport 2: journal a runEnqueued with ParentHarp = owner.Harp,
 // ParentRunID = "" (Depth 1), spawn the runner via start (with the per-run
 // reach-back trio), await its RunnerChannel dial-home, and issue StartRun over
 // that channel — the identical wire crossing runChildViaStartRun makes for a
@@ -78,7 +78,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	if start == nil {
 		return nil, errors.New("owner run: a runner starter is required")
 	}
-	// U023-F17: a ONE-SHOT run gets exactly one turn and this prompt is it, so
+	// A ONE-SHOT run gets exactly one turn and this prompt is it, so
 	// an empty one can only be a delivery failure upstream — and it used to
 	// sail through: issueStartRun builds Input only `if first != ""`, so the
 	// StartRun went out with a nil Input, round-tripped, and this returned a
@@ -163,7 +163,7 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// The host already composed fragments into prompt (JoinLeadBlocks at the
 	// call site), so it leads the first turn verbatim.
 	//
-	// sudsy-patio: this bare return LOOKS like it skips cleanup (the two
+	// This bare return LOOKS like it skips cleanup (the two
 	// failure paths above both call c.failChild explicitly), but it does
 	// not — issueStartRun calls c.failChild itself on every one of its
 	// error-return paths (awaitRunner timeout, payload guard, StartRun

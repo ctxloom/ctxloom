@@ -11,7 +11,7 @@ import (
 // package's Coordinator.Close runs in t.Cleanup and a require.* FailNow inside
 // a coord test deadlocks it. assert + return only.
 
-// U023-F08: a recv whose CLIENT went away (ctx cancelled) but which LOST the
+// A recv whose CLIENT went away (ctx cancelled) but which LOST the
 // race to a concurrent delivery consumed the message anyway. abandonPoll saw
 // p.done, waited for the delivery goroutine, and returned the message to a
 // caller that no longer exists — and the id stayed in c.delivered, where the
@@ -67,7 +67,7 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 	assert.Equal(t, "do the thing", got[0].Body)
 }
 
-// U023-F05: the register claimed deliverToPoll's goroutine (which calls
+// The register claimed deliverToPoll's goroutine (which calls
 // onRoleUnpark, and so may block on the execution-slot semaphore) makes the
 // recv's documented bounded `wait` unbounded, and implied the wait should
 // simply expire.
@@ -75,7 +75,7 @@ func TestRecvCancelled_DeliveryThatWonTheRaceStaysDeliverable(t *testing.T) {
 // It must NOT. Once deliverToPoll has flipped p.done it has RESERVED the
 // message id for this poll: no other recv and no turn-boundary take can see it
 // any more. A timeout that returned ErrRecvTimeout at that point would strand
-// the message in exactly the way U023-F03 documented. The overshoot is the
+// the message in exactly the way the take-fail path documented. The overshoot is the
 // execution-slot cap doing its job — a parked child may not resume an
 // EXECUTING turn without a slot — so the invariant is that a delivery which won
 // the race is delivered, however late the timer was.

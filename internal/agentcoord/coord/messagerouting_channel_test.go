@@ -10,7 +10,7 @@ import (
 )
 
 // TestMessageRouting_NeverEmitsAnUnspecifiedChannel pins the property that is
-// currently keeping U016-F07 harmless.
+// currently keeping a latent wire-contract disagreement harmless.
 //
 // MESSAGE_CHANNEL_UNSPECIFIED (0) is read with OPPOSITE meaning on the two
 // sides of this wire:

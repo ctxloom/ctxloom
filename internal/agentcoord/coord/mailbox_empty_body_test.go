@@ -16,7 +16,7 @@ import (
 // Coordinator.Close runs in t.Cleanup and a require.* FailNow inside a coord
 // test deadlocks it. assert + return in the tests that hold a coordinator.
 
-// U023-F06: neither the mailbox nor SendOwnedRunTurn rejected an EMPTY body. An
+// Neither the mailbox nor SendOwnedRunTurn rejected an EMPTY body. An
 // empty agent_send was journaled as a durable fact, "delivered" to a parked
 // recv, and answered with the ordinary success disposition — a message with
 // zero payload reported as a delivery. The receiving agent is woken for a turn

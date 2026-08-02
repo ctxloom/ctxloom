@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// --- U023-F03: a journal failure must not make a message invisible ----------
+// --- a journal failure must not make a message invisible ----------
 //
 // NOTE on assertion style: this package's Coordinator.Close runs in
 // t.Cleanup, and a require.* FailNow inside a coord test deadlocks it (the

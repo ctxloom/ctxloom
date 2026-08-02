@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U023-F16: undeliveredLocked filtered IN PLACE (`out := pending[:0]`) into
+// undeliveredLocked filtered IN PLACE (`out := pending[:0]`) into
 // whatever mailFold.pendingFor handed back, so a read of the mailbox rewrote the
 // slice it was reading. That was safe only because pendingFor happens to return
 // a copy — an invariant declared in another file, about a different type, with

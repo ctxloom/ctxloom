@@ -1,16 +1,31 @@
 @doc
-Feature: Isolation axes — where an agent's workspace and runtime actually land
+Feature: Bounding what the agent can reach, even with permissions bypassed
 
-  ctxloom's isolation seam has two independent axes: WORKSPACE (does the agent
-  get its own git worktree, or share the live project dir?) and RUNTIME (does
-  its engine process run on the host, or in a container?). This journey proves
-  the workspace axis is not just a config knob that round-trips through
-  `agent set`/`agent show` — a run REQUESTING a worktree actually lands its
-  engine somewhere distinct from a run that doesn't, and two isolated runs
-  never share that somewhere. It also proves the runtime axis's fail-loud
-  contract: an explicitly-requested container that cannot launch here aborts
-  the run rather than silently dropping the sandbox, unless the operator
-  says --degraded.
+  Priya runs an agent with its permission prompts turned off. She is not being
+  reckless — approving every file read one dialog at a time is unusable at the
+  pace the work actually happens, and her employer's policy is not "prompt the
+  human more", it is "the assistant must not be able to reach what it has no
+  business reaching." Those two facts together are the whole problem: the
+  moment the prompts are off, the engine's own guardrails are not what is
+  protecting the rest of her disk. Something else has to be.
+
+  Asking the engine nicely does not work. Vendor CLIs treat an environment
+  variable as a suggestion — one of them writes to a global path regardless of
+  what HOME says, and this suite asserts that leak as a known fact elsewhere.
+  So a boundary an engine has to cooperate with is not a boundary. It has to
+  be a property of where the process actually runs.
+
+  ctxloom's answer is two independent axes: WORKSPACE (its own git worktree,
+  or the live project directory) and RUNTIME (a host process, or a container).
+  This journey is Priya establishing that they are real. That a run REQUESTING
+  a worktree lands its engine somewhere genuinely distinct, and two isolated
+  runs never share that somewhere — not that the setting round-trips through
+  `agent show`, which would prove only that ctxloom can remember a preference.
+  And that when she asks for a container and this machine cannot give her one,
+  the run ABORTS rather than quietly proceeding unsandboxed. A sandbox that
+  silently degrades is worse than none, because she would have stopped.
+  Dropping to the host is available, but only when she says --degraded and
+  therefore knows.
 
   # WHAT THIS JOURNEY CAN AND CANNOT SEE (honesty, mirroring j6_delegation's
   # own note). The built-in mock backend is the only engine tests/acceptance

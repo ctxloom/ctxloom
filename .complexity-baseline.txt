@@ -35,7 +35,7 @@
 ./internal/acptest/schema.go|closeInstanceRoots node interface { } , mixins map [ string ] bool , isInstanceRoot bool|1|17|closeInstanceRoots|360-395
 ./internal/acptest/schema.go|collectMixinRefs node interface { } , out map [ string ] bool , shared bool|1|17|collectMixinRefs|273-324
 ./internal/acptest/schema_test.go| node interface { } , path string|1|11||132-158
-./internal/agentcoord/coord/children.go| c * Coordinator|1|16||1517-1662
+./internal/agentcoord/coord/children.go| c * Coordinator|1|16||1516-1661
 ./internal/agentcoord/coord/enginehost_reannounce_test.go|(s*steppedChat)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|13|Chat|45-91
 ./internal/agentcoord/coord/enginehost_test.go|(s*scriptedChat)Chat ctx context . Context , req agent . ChatRequest , in < - chan agent . ChatMessage , out chan < - agent . ChatEvent|1|19|Chat|263-323
 ./internal/agentcoord/coord/fake_test.go||1|17||92-145
@@ -86,7 +86,6 @@
 ./internal/cli/run_structured.go|decodeMessageLine s string|1|11|decodeMessageLine|432-464
 ./internal/cli/tui/model.go| m Model|1|25||349-421
 ./internal/cli/tui/model.go| m Model|2|11||553-607
-./internal/cli/weave.go|collectInjectedParts dir string , named [ ] string|1|11|collectInjectedParts|267-302
 ./internal/compression/code_python.go|(c*CodeCompressor)extractPythonClassBody node * sitter . Node , source [ ] byte , out * strings . Builder|1|13|extractPythonClassBody|186-224
 ./internal/config/config_migrate.go|(geminiToAntigravityUpgrade)Apply root * yaml . Node|1|19|Apply|316-369
 ./internal/config/config_migrate.go|(llmRenameUpgrade)Apply root * yaml . Node|1|16|Apply|86-123
@@ -175,12 +174,11 @@
 ./internal/operations/countersign_records.go|attestationFormFor kind trust . ItemKind , layout signing . Form|1|13|attestationFormFor|176-208
 ./internal/operations/engine_session.go||1|11||151-266
 ./internal/operations/engine_session.go|OpenEngineSession ctx context . Context , req OpenRequest , acpCoord EngineSessionCoordinator , flagProfile , flagAgent , llmOverride , flagWorkspace string|1|21|OpenEngineSession|106-468
-./internal/operations/ensemble.go|MapProfiles ctx context . Context , cfg * config . Config , req MapProfilesRequest|1|12|MapProfiles|58-181
 ./internal/operations/hooks.go|ApplyHooks ctx context . Context , req ApplyHooksRequest|1|16|ApplyHooks|63-227
 ./internal/operations/items.go|DistillItem ctx context . Context , cfg * config . Config , req DistillItemRequest|1|13|DistillItem|332-385
 ./internal/operations/items.go|SetItemContent ctx context . Context , cfg * config . Config , req SetItemContentRequest|1|11|SetItemContent|229-297
 ./internal/operations/lockfile.go|LockDependencies ctx context . Context , cfg * config . Config , req LockDependenciesRequest|1|18|LockDependencies|50-163
-./internal/operations/oneshot.go|runResolvedAgent ctx context . Context , req resolvedRunRequest|1|16|runResolvedAgent|364-557
+./internal/operations/oneshot.go|runResolvedAgent ctx context . Context , req resolvedRunRequest|1|16|runResolvedAgent|365-558
 ./internal/operations/profile_transfer.go|ImportProfile _ context . Context , cfg * config . Config , req ImportProfileRequest|1|11|ImportProfile|136-177
 ./internal/operations/profiles.go|UpdateProfile ctx context . Context , cfg * config . Config , req UpdateProfileRequest|1|11|UpdateProfile|330-417
 ./internal/operations/remotes.go|AddRemote ctx context . Context , cfg * config . Config , req AddRemoteRequest|1|17|AddRemote|129-221
@@ -282,7 +280,7 @@
 ./scripts/gendocs/main_test.go|TestCtxloomProduct t * testing . T|1|12|TestCtxloomProduct|22-62
 ./scripts/gendocs/main_test.go|TestEveryHiddenTopLevelCommandIsDecided t * testing . T|1|14|TestEveryHiddenTopLevelCommandIsDecided|156-193
 ./scripts/gendocs/main_test.go|TestMCPIntro_StandaloneSurfaceClaimsAreTrue t * testing . T|1|22|TestMCPIntro_StandaloneSurfaceClaimsAreTrue|230-316
-./tests/acceptance/completeness_test.go| t * testing . T|1|11||344-384
+./tests/acceptance/completeness_test.go| t * testing . T|1|11||343-383
 ./tests/acceptance/isolation_probe.go|probeContainerUnexpected diff [ ] string , containerHome string|1|12|probeContainerUnexpected|540-583
 ./tests/acceptance/isolation_probe.go|runProbeContainer w * World , backendType , runtimeBin string|1|11|runProbeContainer|876-964
 ./tests/acceptance/isolation_probe.go|runProbeWorktree w * World , backendType string , forcedPath probeAuthPath , degraded bool|1|14|runProbeWorktree|779-863

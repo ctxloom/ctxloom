@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestStartHostRunner_RefusesEmptyArgs pins U059-F18: StartHostRunner used to
+// TestStartHostRunner_RefusesEmptyArgs pins that StartHostRunner used to
 // self-exec whatever it was given, so an empty args slice launched a BARE
 // `ctxloom` — cobra prints help and exits 0 — and returned a healthy-looking
 // *HostRunner for a process that can never dial home. The caller only learned

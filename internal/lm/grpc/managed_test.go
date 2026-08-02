@@ -117,10 +117,9 @@ func TestManagedConverters_EmptyAndNilAreOneAnswer(t *testing.T) {
 //
 // The generated getter GetAutoRegisterCtxloom() performs exactly that collapse:
 // it returns bool, not *bool, so a nil field reads as false. Neither converter
-// may use it; both must carry the pointer through. This is finding U060-F07's
-// hazard, and it is unguarded by the package-wide parity sweep in arch_test.go,
-// which fills every field with a NON-ZERO value and so never exercises the nil
-// arm.
+// may use it; both must carry the pointer through. This hazard is unguarded
+// by the package-wide parity sweep in arch_test.go, which fills every field
+// with a NON-ZERO value and so never exercises the nil arm.
 func TestMCPConfig_ProtoRoundTrip_PreservesTriState(t *testing.T) {
 	tru, fls := true, false
 	for _, tc := range []struct {

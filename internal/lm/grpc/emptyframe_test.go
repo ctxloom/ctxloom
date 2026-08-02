@@ -15,10 +15,10 @@ import (
 // the behaviour ought to be, only fixing what it currently is so the question
 // stays answerable.
 //
-// It exists because finding U060-F12 observes that only one scalar field in
-// llm.proto is proto3 `optional`, so absent and zero are indistinguishable
-// everywhere else, and concludes that an empty frame therefore "decodes as a
-// valid, permissive request". The first half is a property of proto3 and is
+// It exists because only one scalar field in llm.proto is proto3 `optional`,
+// so absent and zero are indistinguishable everywhere else, which means an
+// empty frame "decodes as a valid, permissive request". The first half is a
+// property of proto3 and is
 // asserted here directly. The second half is the part worth pinning, because
 // the permissiveness runs BOTH ways field by field, and no wire-format change
 // can be judged without knowing which way each one falls.

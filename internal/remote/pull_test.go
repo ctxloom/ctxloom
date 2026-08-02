@@ -191,7 +191,7 @@ func TestPuller_Pull(t *testing.T) {
 	assert.Equal(t, "abc123def456", entry.SHA)
 }
 
-// TestPuller_Pull_LockfileWriteFailureIsNotSwallowed pins U094-F05: for a
+// TestPuller_Pull_LockfileWriteFailureIsNotSwallowed pins that for a
 // bundle the lockfile is the ONLY on-disk record (writePulledContent is a
 // synthetic no-op — nothing else is written). installPulledItem demoted a
 // failed lockfile write to a printed "Warning:" on opts.Stdout and returned
@@ -231,7 +231,7 @@ func TestPuller_Pull_LockfileWriteFailureIsNotSwallowed(t *testing.T) {
 	require.Error(t, err, "a pull whose only persistent record failed to write must not report success")
 }
 
-// TestPuller_Pull_RejectsEmptyContent pins U094-F15: a zero-byte remote file
+// TestPuller_Pull_RejectsEmptyContent pins that a zero-byte remote file
 // must not be pulled and pinned as a successful install with no warning — that
 // silently reports "installed" for a bundle with nothing in it.
 func TestPuller_Pull_RejectsEmptyContent(t *testing.T) {

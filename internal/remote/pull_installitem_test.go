@@ -63,7 +63,7 @@ func TestInstallPulledItem(t *testing.T) {
 		assert.Equal(t, "sha-bundle", entry.SHA)
 	})
 
-	// U094-F05: for a bundle the lockfile is the ONLY on-disk record — bundles
+	// For a bundle the lockfile is the ONLY on-disk record — bundles
 	// are never written to disk (writePulledContent is a synthetic no-op). A
 	// failed lockfile write used to be demoted to a printed "Warning:" while
 	// the pull still reported success, so a caller was told a SHA and

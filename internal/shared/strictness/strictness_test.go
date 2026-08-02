@@ -465,7 +465,7 @@ func TestConcurrentWindows_EachSeesOnlyOwnFindings(t *testing.T) {
 	}
 }
 
-// TestFailOnce_ConcurrentWindows_DedupDoesNotCrossWindows pins U119-F01:
+// TestFailOnce_ConcurrentWindows_DedupDoesNotCrossWindows pins the fix:
 // FailOnce's recording dedup key used to be built from the LIVE global
 // generation counter read at record() time, not the generation the
 // RECORDING goroutine's own window captured at ITS last Checkpoint. generation

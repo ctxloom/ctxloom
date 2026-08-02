@@ -151,7 +151,7 @@ func loginShellPath() (string, error) {
 }
 
 // pathSentinelBegin/pathSentinelEnd fence the probed PATH value against
-// anything else the shell's startup files print to stdout (U117-F01): a
+// anything else the shell's startup files print to stdout: a
 // login+interactive invocation SOURCES the user's real rc files, and an rc
 // file printing a banner, an update nag, or a fastfetch/neofetch splash on
 // every interactive start is common — un-fenced, that text was taken

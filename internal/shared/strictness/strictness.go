@@ -108,7 +108,7 @@ var (
 	// generation stays a single global COUNTER (each Checkpoint call bumps it
 	// once, under mu, regardless of which goroutine calls it) — but each
 	// window (below) captures its OWN generation value at the moment ITS
-	// goroutine last called Checkpoint (U119-F01 fix), and record()'s dedup
+	// goroutine last called Checkpoint, and record()'s dedup
 	// key reads that captured value, never this live variable directly.
 	// Two concurrently-opened windows get two different generation numbers
 	// exactly as the paragraph above always intended, but that guarantee
@@ -142,7 +142,7 @@ type window struct {
 	mu       sync.Mutex
 	findings []Finding
 	// generation is the global generation value captured by the most recent
-	// Checkpoint() call ON THIS GOROUTINE (U119-F01 fix). record's FailOnce
+	// Checkpoint() call ON THIS GOROUTINE. record's FailOnce
 	// dedup key must scope to the RECORDING goroutine's own checkpoint
 	// window, not to whatever the shared, monotonically-bumped global
 	// generation counter happens to read at the moment record() runs — two
@@ -264,7 +264,7 @@ func Checkpoint() Mark {
 	w := currentWindow()
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	// U119-F01: stamp THIS goroutine's window with the generation value this
+	// Stamp THIS goroutine's window with the generation value this
 	// very Checkpoint call captured, so record()'s dedup key (below) reads
 	// this goroutine's own last-checkpointed generation instead of the live,
 	// shared global counter — which a concurrently-checkpointing goroutine
@@ -302,7 +302,7 @@ func Since(mark Mark) []Finding {
 // Test seam: nothing in production reads it (Since/FindingsError, scoped to
 // the calling goroutine's own window, are what every real gate uses) — it
 // exists for cross-goroutine test assertions that Since structurally cannot
-// provide (see U119-F03). Grows without bound for the life of the process;
+// provide. Grows without bound for the life of the process;
 // do not call it from anything long-lived.
 func All() []Finding {
 	mu.Lock()
@@ -461,7 +461,7 @@ func detailOr(class Class, msg string) string {
 // GOROUTINE's own window (Since()'s view) — never any other goroutine's
 // window, which is the per-window ownership fix.
 func record(class Class, fixit, msg string, once bool) {
-	// U119-F01: fetch the recording goroutine's OWN window generation before
+	// Fetch the recording goroutine's OWN window generation before
 	// taking mu, so the FailOnce dedup key below is scoped to this
 	// goroutine's last-checkpointed generation — never the live global
 	// counter, which a different, concurrently-checkpointing goroutine may

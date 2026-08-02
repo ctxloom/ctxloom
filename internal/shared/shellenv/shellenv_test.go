@@ -15,7 +15,7 @@ import (
 // fakeFencedShellCmd builds the fake shim every test below uses in place of
 // the real shell invocation: it execs /bin/sh -c 'printf ...' emitting
 // banner (optional junk text a real rc file might print), then the fenced
-// PATH the real probeLoginShellPath now expects (U117-F01), so these tests
+// PATH the real probeLoginShellPath now expects, so these tests
 // exercise the same extractFencedPath contract production code does rather
 // than a shape only the fake ever produced.
 func fakeFencedShellCmd(ctx context.Context, banner, fakePath string) *exec.Cmd {
@@ -94,7 +94,7 @@ func TestResolve_FallsBackToLoginShellPATH(t *testing.T) {
 	assert.Equal(t, fakeBin, got)
 }
 
-// TestResolve_RcFileBannerDoesNotPolluteResolvedPath pins U117-F01: an
+// TestResolve_RcFileBannerDoesNotPolluteResolvedPath pins the fix: an
 // interactive login shell SOURCES the user's real rc files, and a startup
 // banner/update-nag/fastfetch-style splash printed to stdout on every
 // interactive start is common. Before fencing, that banner text became PATH
@@ -244,10 +244,10 @@ func TestLoginShellArgs_ClassifiesRobustly(t *testing.T) {
 	}
 }
 
-// TestProbeLoginShellPath_SilentShellIsAnError pins U117-F03's subject. The
-// row claims probeLoginShellPath returns ("", nil) -- success with an empty
-// payload -- when the shell runs but prints nothing, and that the cache then
-// blesses that for the process lifetime.
+// TestProbeLoginShellPath_SilentShellIsAnError pins the fix.
+// probeLoginShellPath used to return ("", nil) -- success with an empty
+// payload -- when the shell runs but prints nothing, and the cache then
+// blessed that for the process lifetime.
 //
 // That is what a bare `echo "$PATH"` capture did. Since the probe was fenced,
 // a shell that prints nothing produces neither sentinel, so extractFencedPath
@@ -282,7 +282,7 @@ func TestProbeLoginShellPath_SilentShellIsAnError(t *testing.T) {
 }
 
 // TestResolve_EmptyLoginShellPathFallsBackToTheOriginalError pins the second
-// half of U117-F03: the one ("", nil) outcome that CAN still occur is a shell
+// half of the fix: the one ("", nil) outcome that CAN still occur is a shell
 // whose PATH is genuinely empty, and Resolve must treat that as "resolved to
 // nothing" rather than searching an empty PATH and inventing a different
 // failure. The caller keeps exec.LookPath's own error, naming the binary.
@@ -301,7 +301,7 @@ func TestResolve_EmptyLoginShellPathFallsBackToTheOriginalError(t *testing.T) {
 	assert.Contains(t, err.Error(), "definitely-does-not-exist-anywhere-xyz")
 }
 
-// TestProbeLoginShellPath_FailureCarriesTheShellsStderr pins U117-F02. The
+// TestProbeLoginShellPath_FailureCarriesTheShellsStderr pins the fix. The
 // probe runs the user's REAL login shell against their REAL rc files, so
 // when it fails the shell has almost always already said why -- "command not
 // found", a syntax error with a file and line, an nvm/rbenv init that
@@ -330,7 +330,7 @@ func TestProbeLoginShellPath_FailureCarriesTheShellsStderr(t *testing.T) {
 	assert.Contains(t, err.Error(), "127", "the exit status must survive alongside it")
 }
 
-// TestResolve_SkipsAFileTheCurrentUserCannotExecute pins U117-F05.
+// TestResolve_SkipsAFileTheCurrentUserCannotExecute pins the fix.
 // isExecutableFile tested RAW MODE BITS (Mode()&0o111 != 0), which asks "does
 // SOMEBODY have an execute bit here?", not "can THIS process exec it?".
 // exec.LookPath's Unix implementation asks the second question, via an

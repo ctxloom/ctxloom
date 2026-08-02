@@ -54,7 +54,7 @@ func bundleProfileConfig(root string) *config.Config {
 const kitProfileKey = "ctxloom:local@bundles/kit#profiles/p1"
 
 // TestBundleProfile_ResolvesThroughProfileLoader proves a bundle profile
-// resolves into a runnable profile through the SAME path run/map/weave use
+// resolves into a runnable profile through the SAME path run/agent_run use
 // (GetProfileLoader().ResolveProfile), carrying its composed bundles and its
 // llm (engine) preference.
 func TestBundleProfile_ResolvesThroughProfileLoader(t *testing.T) {

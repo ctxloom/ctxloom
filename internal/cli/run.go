@@ -625,9 +625,9 @@ func (st *runState) resolvePrompt() error {
 	}
 	// In --print (oneshot) mode with no prompt yet, read it from piped stdin.
 	// This makes `run --print` a universal reducer: `… | ctxloom run -p synth
-	// --print` synthesizes over any piped input (e.g. `ctxloom weave
-	// --map-only` output or non-ctxloom text). Skipped on a TTY so an
-	// interactive read never blocks.
+	// --print` synthesizes over any piped input (e.g. output collected from
+	// other tools or an earlier run). Skipped on a TTY so an interactive read
+	// never blocks.
 	prompt, err := finalizeRunPrompt(prompt, runPrint, stdinIsPiped(), os.Stdin)
 	if err != nil {
 		return err
@@ -803,7 +803,7 @@ func (st *runState) resolveClassicAssembly() error {
 	if lerr != nil {
 		return lerr
 	}
-	// label → backend type + model (shared with the oneshot/map/weave path).
+	// label → backend type + model (shared with the oneshot/agent_run path).
 	// The backend name (not the label) drives session naming and transport.
 	st.backendName, st.labelModel = operations.ResolveBackend(st.cfg, st.label)
 	return nil

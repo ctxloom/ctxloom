@@ -663,8 +663,8 @@ type imageEnsureFlight struct {
 }
 
 // imageEnsureFlights dedupes CONCURRENT ensureImage calls per (runtime binary,
-// image tag) — the sharedFSResults keying: a map/weave fan-out drives many
-// members through the same tag from parallel goroutines, and N racing builds
+// image tag) — the sharedFSResults keying: a delegated fan-out (agent_run)
+// drives many members through the same tag from parallel goroutines, and N racing builds
 // of one tag waste N-1 multi-minute builds and can untag each other mid-build,
 // flaking another member's post-build presence recheck. Followers share the
 // in-flight leader's outcome. NOTHING outlives the flight (unlike
@@ -677,7 +677,7 @@ var (
 )
 
 // ensureImage is the image half of the container degrade gate, used by run and
-// the map/weave fan-out alike. Concurrent callers of one tag share a single
+// a delegated (agent_run) fan-out alike. Concurrent callers of one tag share a single
 // flight (imageEnsureFlights) — one build per tag, every member getting its
 // outcome; the work itself is runEnsureImage.
 func (c Container) ensureImage(ctx context.Context) error {

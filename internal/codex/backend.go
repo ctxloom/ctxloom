@@ -425,7 +425,7 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	// shared file+hook mechanism), so Execute only forwards the context-file
 	// path in the env (ExecuteCLI) — it never prepends context to the prompt.
 	//
-	// CONCURRENCY LIMIT (weave/map fan-out): the SessionStart hook is registered
+	// CONCURRENCY LIMIT (delegated agent_run fan-out): the SessionStart hook is registered
 	// in a WORKSPACE-FIXED file (.codex/config.toml) with the per-run context hash
 	// baked into its command, and Codex natively reads a WORKSPACE-FIXED AGENTS.md
 	// — neither has a per-invocation redirect (Codex has no --mcp-config/--settings/

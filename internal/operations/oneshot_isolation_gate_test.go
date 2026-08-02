@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -115,52 +114,6 @@ func TestRunResolvedAgent_ContainerDegradeFailsMemberInStrict(t *testing.T) {
 		require.NoError(t, err, "--degraded keeps the old warn-and-continue host fallback")
 		assert.Equal(t, "ran on host", res.Output)
 	})
-}
-
-// TestMapProfiles_ContainerDegradeIsPerMember pins partial success: in a fan
-// where SOME members' requested containers can't be satisfied, exactly those
-// members become error Parts and every other member still runs — 9-of-10 OK
-// still succeeds, but no member is ever silently unsandboxed. The members run
-// on parallel goroutines, so this also exercises the serialized
-// checkpoint→Prepare→gate window (member windows must not cross-contaminate).
-func TestMapProfiles_ContainerDegradeIsPerMember(t *testing.T) {
-	resetStrictness(t)
-	_, loader := setupContextTestFS(t)
-	cfg := mapTestConfig()
-	base := cfg.GetProfilesConfig().Definitions
-	cfg = withProfileDefs(cfg, map[string]config.Profile{
-		"c": base["a"],
-		"d": base["b"],
-	})
-
-	stubPrepareIsolation(t, map[string]bool{"b": true, "d": true}, func() pb.Client { return &stubClient{out: "ok"} })
-
-	parts := MapProfiles(context.Background(), cfg, MapProfilesRequest{
-		Members: []string{"a", "b", "c", "d"},
-		Task:    "review",
-		WorkDir: t.TempDir(),
-		Loader:  loader,
-		Factory: nil, // the isolation path — every member goes through Prepare
-	})
-
-	require.Len(t, parts, 4)
-	for i, want := range []struct {
-		profile string
-		failed  bool
-	}{
-		{"a", false}, {"b", true}, {"c", false}, {"d", true},
-	} {
-		assert.Equal(t, want.profile, parts[i].Profile)
-		assert.Equal(t, want.failed, parts[i].Failed(),
-			"member %q: gate failures must hit exactly the members whose container degraded", want.profile)
-		if want.failed {
-			assert.Contains(t, parts[i].Err, "NOT sandboxed")
-			assert.Contains(t, parts[i].Err, want.profile,
-				"the error Part must carry ITS OWN member's finding, not a parallel member's")
-		} else {
-			assert.Equal(t, "ok", parts[i].Output)
-		}
-	}
 }
 
 // TestIsolationGateErr pins the gate's decision table directly: only strict-mode

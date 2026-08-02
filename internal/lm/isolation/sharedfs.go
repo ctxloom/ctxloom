@@ -44,8 +44,8 @@ var probeExec = func(ctx context.Context, bin string, args []string) (string, er
 var sharedFSCheck = sharedFSProbe
 
 // sharedFSResults memoizes one probe outcome per (runtime binary, image, exact
-// mount-root set): map/weave fan many members through the same runtime+image
-// against the SAME roots, and a DEFINITIVE answer cannot change within one
+// mount-root set): a delegated fan-out (agent_run) runs many members through the
+// same runtime+image against the SAME roots, and a DEFINITIVE answer cannot change within one
 // process run — so the fleet pays for one short probe per distinct root set,
 // not one per member. The root set is now PART of the key (not just runtime +
 // image): a Docker Desktop custom file-sharing list grants sharing per HOST

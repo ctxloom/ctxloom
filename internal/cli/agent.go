@@ -279,7 +279,8 @@ default. Profiles compose into one assembled context. Runtime (optional:
 host|container) sets WHERE this agent's engine process executes; omit it to
 inherit the project's 'runtime:' default. The workspace axis (worktree vs shared
 dir) is NOT set here — it is a session trait chosen at invocation time
-(run/weave --workspace). Driving (optional: conversational|oneshot) sets
+(run/acp --workspace, or an agent_run spawn's workspace field). Driving
+(optional: conversational|oneshot) sets
 the per-turn execution axis; omit it to keep the default conversational
 (warm-engine) model. oneshot requires a resume-capable engine and is
 EXPERIMENTAL in this release — executable, but its interfaces and behavior
@@ -578,7 +579,7 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 }
 
 // completeWorkspaceNames completes the session-level --workspace flag values
-// (run/map/weave) from the isolation package's single source.
+// (run/acp) from the isolation package's single source.
 func completeWorkspaceNames(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return isolation.WorkspaceNames(), cobra.ShellCompDirectiveNoFileComp
 }

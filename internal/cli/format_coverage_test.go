@@ -234,9 +234,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"container check":    {skip: "probes for a container runtime on the host"},
 	"container scaffold": {skip: "writes a container scaffold; not exercised here", formatDebt: true},
 
-	// --- skip: spawns/fans out real agent engines ---
-	"weave": {skip: "fans a task across real agent engines/profiles and synthesizes results; not exercised here"},
-
 	// --- skip: side-effecting installers (hooks/statusline/gitignore/mcp registration) ---
 	// (`manage init` was deleted outright — not deprecated — root `ctxloom
 	// init` is the sole bootstrap, plan Decision 6; no registry entry needed.)

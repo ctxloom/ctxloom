@@ -169,7 +169,8 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 	execReq := turnExecuteRequest(req, promptContent, env, stdin, resize)
 
 	// Make cwd reach the child on EVERY path. Setup calls SetWorkDir, but the
-	// SkipSetup fan-out (oneshot/map/weave) skips Setup — so without this the
+	// SkipSetup oneshot path (run --print, delegated agent_run's oneshot
+	// fallback) skips Setup — so without this the
 	// passed WorkDir is dropped and the engine runs in the plugin's inherited
 	// "." (the isolation-blocking cwd bug). SetWorkDir lives on BaseBackend
 	// (every real backend embeds it) but not the Backend interface, and a
@@ -211,7 +212,7 @@ func RunTurn(ctx context.Context, impl agent.Backend, req *RunStart, stdin io.Re
 // dire-petal (SILENT NO-OP, fixed at the seam): Fragments are converted and
 // delivered to the backend by Setup — the SkipSetup Execute path carries no
 // Fragments field at all. Confirmed live: operations/oneshot.go's
-// runResolvedAgent (the "none"-isolation fan-out/weave member path) sets BOTH
+// runResolvedAgent (the "none"-isolation oneshot member path) sets BOTH
 // SkipSetup:true and Fragments:[{Content: composedContext}] so the shared
 // project cwd is never touched with per-member config — and that composed
 // context was silently discarded: the member ran context-free, reported exit 0,

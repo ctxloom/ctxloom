@@ -55,7 +55,7 @@ type Client interface {
 // the resolved config label, carried into the self-invoked serve subprocess:
 // with an empty label, serve falls back to a map-ordered scan over same-type
 // config entries and may configure an arbitrary label's binary/args/env, so
-// callers that resolved a specific label (run, oneshot/map/weave) must pass it.
+// callers that resolved a specific label (run, oneshot, delegated agent_run) must pass it.
 type ClientFactory func(backendName, label string, verbosity int) (Client, error)
 
 // Ensure LLMRunner implements Client interface.

@@ -15,10 +15,15 @@ import (
 // floor) and an empty prompt after every source was exhausted, which launched
 // a headless engine that asked nothing and exited 0.
 
+// failingReader always fails with assert.AnError — the same broken-pipe
+// shape, and identifiable, so tests that inject it can prove the CAUSE was
+// propagated rather than merely that something went wrong. Shared with
+// trust_interactive_test.go's withFailingStdin.
+type failingReader struct{}
+
+func (failingReader) Read([]byte) (int, error) { return 0, assert.AnError }
+
 func TestFinalizeRunPrompt_UnreadableStdinIsAnError(t *testing.T) {
-	// failingReader (weave_guards_test.go) always fails with assert.AnError —
-	// the same broken-pipe shape, and identifiable, so this proves the CAUSE
-	// was propagated rather than merely that something went wrong.
 	_, err := finalizeRunPrompt("", true, true, failingReader{})
 
 	require.Error(t, err, "a --print run whose only prompt source could not be read must not proceed")

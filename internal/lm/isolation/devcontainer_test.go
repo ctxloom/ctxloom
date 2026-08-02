@@ -250,7 +250,7 @@ func TestResolveDevBase_OptOut(t *testing.T) {
 // degenerate inputs (an unterminated string, an unterminated block comment,
 // a comment running to EOF).
 //
-// It is the behaviour-preservation pin for U063-F20/U063-F19: the two
+// It is the behaviour-preservation pin for a de-duplication: the two
 // strippers hand-rolled the same string-aware scanner, and both exceeded the
 // CCN gate. A pure de-duplication cannot make any test go red, so this covers
 // the arms first and must stay green on both sides of the collapse.
@@ -285,8 +285,8 @@ func TestStripJSONC_Characterization(t *testing.T) {
 	}
 }
 
-// TestResolveDevcontainerBase_UnparseableComposeFileNamesTheCause pins
-// U063-F18: decodeComposeFileList discarded the array-decode error, so a
+// TestResolveDevcontainerBase_UnparseableComposeFileNamesTheCause pins that
+// decodeComposeFileList discarded the array-decode error, so a
 // dockerComposeFile of an unsupported JSON shape surfaced only as the generic
 // "could not parse dockerComposeFile" — the human was told the file is wrong
 // but never what about it was wrong.

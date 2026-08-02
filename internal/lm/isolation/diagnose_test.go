@@ -29,7 +29,7 @@ func stubDaemonInfo(t *testing.T, fn func(ctx context.Context, args []string) (s
 	})
 }
 
-// TestDaemonName_SeamTimeoutAndPortableTemplate (finding 4): daemonName routes
+// TestDaemonName_SeamTimeoutAndPortableTemplate: daemonName routes
 // through the probeExec seam (so the advisory is testable without a runtime),
 // bounds itself with its own deadline, and picks a template that EXISTS on both
 // docker (top-level {{.Name}}) and podman ({{.Host.Hostname}}) — so podman no
@@ -101,7 +101,7 @@ func TestDiagnoseAdvisory(t *testing.T) {
 	})
 }
 
-// TestDiagnoseProbe_DistinguishesMismatchFromRunFailure (finding 3): a probe
+// TestDiagnoseProbe_DistinguishesMismatchFromRunFailure: a probe
 // RUN failure (daemon down, image unreadable) is reported as unprobed with its
 // real cause — NOT as a filesystem-sharing mismatch (the wrong fix-it hint).
 func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
@@ -137,12 +137,12 @@ func TestDiagnoseProbe_DistinguishesMismatchFromRunFailure(t *testing.T) {
 	})
 }
 
-// TestDiagnoseStaleness_NamesTheNotCheckedCases pins the in-scope half of
-// U063-F12: `ImageStale bool json:"image_stale,omitempty"` cannot distinguish
+// TestDiagnoseStaleness_NamesTheNotCheckedCases pins the in-scope half of a
+// finding: `ImageStale bool json:"image_stale,omitempty"` cannot distinguish
 // "not stale" from "not checked", and there are TWO ways to reach not-checked
 // — a user-owned isolation_images override (no build sources, so ctxloom never
 // inspects it) and an unresolvable expected provenance (the same fail-open
-// U063-F23 closed on the run path). Both used to report false with the report
+// case closed on the run path). Both used to report false with the report
 // saying nothing about it. The field's ambiguity is a JSON payload shape
 // question and is escalated separately; the guidance must at minimum SAY which
 // case produced the false.

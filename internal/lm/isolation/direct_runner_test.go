@@ -15,7 +15,7 @@ import (
 
 // stateMount is a stand-in for one of the session-state mounts
 // (sessionStateMounts) every container run threads in — the §6.4 mount whose
-// PRESENCE the queer-shrug transcript-survival guard depends on.
+// PRESENCE the transcript-survival guard depends on.
 var stateMount = Mount{
 	Host:      "/home/u/.ctxloom/sessions/regal-rash-dash/persist",
 	Container: "/home/ctxloom/.ctxloom/sessions/regal-rash-dash/persist",
@@ -38,12 +38,12 @@ func newRunnerTestWorkspace() *containerWorkspace {
 	}
 }
 
-// TestBuildRunnerSpec_NoPluginTransport is the queer-shrug Phase 1 unit gate:
+// TestBuildRunnerSpec_NoPluginTransport is the Phase 1 unit gate:
 // the docker-direct runner spec renders NO plugin socket mount, NO -p publish,
 // NO PLUGIN_*/magic-cookie env, runs `llm host` (not `llm serve`), rides the
 // spawn env as BARE-NAME `-e` (values never in argv), and PRESERVES the
 // session-state + auth + overlay mounts (§6.4). This is the spec-level proof
-// that closes the mauve-state peer-container hole for the delegated path.
+// that closes the peer-container hole for the delegated path.
 func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 	c := NewContainer(fakeRuntime{name: "docker", binary: "docker", available: true}, "img")
 	cw := newRunnerTestWorkspace()
@@ -67,7 +67,7 @@ func TestBuildRunnerSpec_NoPluginTransport(t *testing.T) {
 		assert.NotEqual(t, cw.socketDir, m.Host, "the host plugin socket scratch is never mounted")
 	}
 
-	// NO published port — the mauve-state listener never exists on this path
+	// NO published port — the listener never exists on this path
 	// (asserted on the rendered argv below; RunSpec has no port field since 0.7).
 
 	// NO go-plugin handshake env: no magic cookie, no PLUGIN_* of any kind.
@@ -128,7 +128,7 @@ func TestStartDirectRunner_StderrTailSurfacesOnExit(t *testing.T) {
 	assert.Contains(t, werr.Error(), "exit status 7", "the underlying exit failure is still reported")
 }
 
-// TestStartDirectRunner_ContextIsNotTheTeardownHandle REFUTES U063-F17, which
+// TestStartDirectRunner_ContextIsNotTheTeardownHandle REFUTES a finding, which
 // claimed a cancelled context "does not tear down the runner container" and
 // pointed at startDirectRunner's use of exec.Command rather than
 // CommandContext. The mechanism is real — the context is deliberately not
@@ -186,7 +186,7 @@ func TestStartDirectRunner_ContextIsNotTheTeardownHandle(t *testing.T) {
 }
 
 // TestRemoveContainer_SurvivingContainerWarnsWithAManualRemove REFUTES
-// U063-F09, which claimed RunnerHandle.Kill being `func()` means "a container
+// a finding, which claimed RunnerHandle.Kill being `func()` means "a container
 // that survives `rm -f` is only a stderr warning; the caller has no way to
 // know". The mechanism is true — Kill cannot return an error — but the
 // consequence assumes the caller is who needs to know, and no caller can act:

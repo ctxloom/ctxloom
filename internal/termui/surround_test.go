@@ -57,7 +57,7 @@ func TestSurround_TinyTerminalSkipsReservation(t *testing.T) {
 	assert.Equal(t, "\x1b[r", tty.String(), "shrink below threshold resets the scroll region")
 }
 
-// TestSurround_ZeroColsSkipsReservation pins U141-F11: fitWidth used to
+// TestSurround_ZeroColsSkipsReservation pins that fitWidth used to
 // return b[:start] when width<=0, discarding every byte appendBarContent had
 // just appended, so a cols==0 report (rows still >= minRowsForReserve) still
 // established the region and painted a structurally-valid but completely

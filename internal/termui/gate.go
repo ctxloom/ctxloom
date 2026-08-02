@@ -75,12 +75,12 @@ func (g *outputGate) Hold() {
 // Release reopens the gate: writes pre (the screen-restore sequence), replays
 // the held bytes, and appends a truncation notice when the ring overflowed —
 // all under the tty lock. pre is written unconditionally, even when the gate
-// was never held (U141-F13): nothing guarantees a caller never hits that
+// was never held: nothing guarantees a caller never hits that
 // path, and a failing-to-restore terminal with no diagnostic is a worse
 // outcome than one extra write. Only the ring replay is conditional on having
 // been held.
 //
-// Returns the first write failure encountered, if any (U141-F01): a failing
+// Returns the first write failure encountered, if any: a failing
 // tty used to silently lose the entire replay — the ring is drained
 // unconditionally above, so those bytes exist nowhere else once Release
 // returns, and nothing signaled that they were gone. Callers should surface
@@ -116,7 +116,7 @@ func (g *outputGate) Release(pre []byte) error {
 			}
 		}
 	}
-	// U141-F02: run the bar-flush hook exactly as Write does, so a bar marked
+	// Run the bar-flush hook exactly as Write does, so a bar marked
 	// dirty by the replay itself (the guard's Filter above can call
 	// barDamaged) gets repainted on this same write cycle instead of staying
 	// blank until the engine's next write — which, for an idle engine, may be
@@ -134,7 +134,7 @@ func (g *outputGate) LastWriteNanos() int64 { return g.lastWrite.Load() }
 
 // FlushGuard writes any bytes still held back inside the guard (a pending
 // incomplete escape/CSI sequence or a split UTF-8 rune tail) straight to dst,
-// under the tty lock. This is a TEARDOWN-ONLY operation (U141-F07): call it
+// under the tty lock. This is a TEARDOWN-ONLY operation: call it
 // only from Controller.Close, after the final Release, when the engine is
 // not going to write again. Calling it from an ordinary engagement release
 // (the engine keeps running afterward) would tear a sequence the engine's

@@ -151,7 +151,7 @@ func (s *surround) SetSize(rows, cols int) {
 		return
 	}
 	if !reserveActive(rows, s.reserve) || cols <= 0 {
-		// U141-F11: cols<=0 must be treated the same as a too-short terminal —
+		// cols<=0 must be treated the same as a too-short terminal —
 		// reservation honestly OFF — rather than establishing the region and
 		// having fitWidth silently discard every byte of bar content, which
 		// painted a structurally-valid but completely empty bar row with no

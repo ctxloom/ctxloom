@@ -376,15 +376,15 @@ func TestController_RosterPollFeedsBar(t *testing.T) {
 	h.c.Close()
 }
 
-// TestController_RosterFetchWarnsAfterConsecutiveFailures pins the safe half
-// of U141-F19: pollRoster discarded every FetchRoster error forever, with no
+// TestController_RosterFetchWarnsAfterConsecutiveFailures pins the safe half:
+// pollRoster discarded every FetchRoster error forever, with no
 // counter and no eventual warning, so a permanently broken coordinator
 // connection was indistinguishable from a stable roster. The last-good
 // snapshot must still stay displayed (unchanged, documented intent), but
 // enough consecutive failures must now surface exactly one warning, and a
 // later success must reset the streak. Exercises rosterFetch directly
 // (no goroutine/ticker) to stay fully deterministic — the goroutine-join
-// half of F19 is a separate, tracked concern (fussy-plow/rapid-grass) and is
+// half is a separate, tracked concern and is
 // deliberately untouched here.
 func TestController_RosterFetchWarnsAfterConsecutiveFailures(t *testing.T) {
 	boom := errors.New("coordinator unreachable")

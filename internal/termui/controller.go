@@ -106,13 +106,13 @@ type Controller struct {
 	stopRoster chan struct{}
 
 	// rosterFails counts consecutive FetchRoster failures; touched only from
-	// pollRoster's own goroutine (U141-F19), never concurrently.
+	// pollRoster's own goroutine, never concurrently.
 	rosterFails int
 }
 
 // rosterFailWarnThreshold is how many consecutive FetchRoster failures
-// pollRoster tolerates silently before surfacing exactly one warning
-// (U141-F19): the last-good roster snapshot intentionally stays displayed
+// pollRoster tolerates silently before surfacing exactly one warning:
+// the last-good roster snapshot intentionally stays displayed
 // either way, but a permanently broken coordinator connection must not stay
 // indistinguishable from a stable one forever.
 const rosterFailWarnThreshold = 3
@@ -133,7 +133,7 @@ func New(opts Options) *Controller {
 	guard := newVTGuard(c.sur.regionBottomLocked, c.sur.reassertLocked, c.sur.markDirtyLocked)
 	c.gate = newOutputGate(&c.ttyMu, opts.TTY, opts.HoldCapacity, guard, c.sur.FlushLocked)
 	// SetEngineIdle/SetPaintSafe inlined: construction-only writes, before any
-	// goroutine starts (see U141-F15/F23).
+	// goroutine starts.
 	c.sur.lastEngineWrite = c.gate.LastWriteNanos
 	c.sur.paintSafe = guard.SafeForPaint
 	// Erase the primary screen once at terminal takeover. The session picker and
@@ -185,13 +185,13 @@ func (c *Controller) Close() {
 	c.sessionMu.Lock()
 	defer c.sessionMu.Unlock()
 	if err := c.gate.Release(nil); err != nil {
-		// U141-F01: a failing tty on the final restore used to silently lose
+		// A failing tty on the final restore used to silently lose
 		// the whole held-output replay; surface it instead of swallowing it a
 		// second time here.
 		c.warn("output gate release: %v", err)
 	}
 	if err := c.gate.FlushGuard(); err != nil {
-		// U141-F07: bytes the guard held back (a pending incomplete
+		// Bytes the guard held back (a pending incomplete
 		// escape/CSI sequence or split UTF-8 rune tail) have no other flush
 		// path; the session is ending, so nothing else will ever complete
 		// them. Teardown-only — see FlushGuard's doc comment.
@@ -314,7 +314,7 @@ func (c *Controller) release(geo OverlayGeometry) {
 	pre = append(pre, c.sur.ResumeSequence()...)
 	pre = append(pre, "\x1b8"...)
 	if err := c.gate.Release(pre); err != nil {
-		// U141-F01: surface a failing tty write instead of discarding it.
+		// Surface a failing tty write instead of discarding it.
 		c.warn("output gate release: %v", err)
 	}
 	c.rt.Nudge()
@@ -364,7 +364,7 @@ func (c *Controller) pollRoster() {
 // rosterFetch performs one FetchRoster call. On success it feeds the bar and
 // resets the consecutive-failure streak. On failure it keeps the last-good
 // snapshot (documented intent, unchanged) but counts the streak and warns
-// exactly once when it reaches rosterFailWarnThreshold (U141-F19) — silence
+// exactly once when it reaches rosterFailWarnThreshold — silence
 // beyond that point used to make a permanently broken coordinator connection
 // indistinguishable from a stable roster.
 func (c *Controller) rosterFetch() {

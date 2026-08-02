@@ -41,7 +41,7 @@ func TestParsePrefixKey_Rejected(t *testing.T) {
 		"ctrl-j",  // LF
 		"ctrl-m",  // CR
 		"ctrl-@",  // NUL
-		// U141-F08: keys the engine needs even more urgently than TAB — the
+		// Keys the engine needs even more urgently than TAB — the
 		// old reject list let these through, so e.g. ui.prefix_key: "ctrl-c"
 		// passed validation and then swallowed every interrupt.
 		"ctrl-c", // SIGINT

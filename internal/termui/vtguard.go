@@ -167,7 +167,7 @@ func (g *vtGuard) stepEsc(b byte) {
 	case b >= 0x20 && b <= 0x2f:
 		g.seq = append(g.seq, b) // intermediate (e.g. ESC # 8); final follows
 		if len(g.seq) > vtCSIMax {
-			// Same escape valve as stepCSI (U141-F06): a stray ESC ridden by
+			// Same escape valve as stepCSI: a stray ESC ridden by
 			// a long run of intermediates must not buffer unboundedly.
 			g.out = append(g.out, g.seq...)
 			g.seq = g.seq[:0]
@@ -299,7 +299,7 @@ func (g *vtGuard) finishCSI() {
 		// DECSTR soft reset: margins reset to full screen, active cursor
 		// untouched — but the saved-cursor slot is reset, so a child DECSC left
 		// open no longer holds its cell. Clear childSaved (as RIS does) so it
-		// can't starve paints. This must NOT be gated on bottom>0 (U141-F12):
+		// can't starve paints. This must NOT be gated on bottom>0:
 		// the slot reset happens regardless of whether the bar is currently
 		// active, and a stale true would starve paints once it becomes active.
 		g.emitPending()
@@ -309,7 +309,7 @@ func (g *vtGuard) finishCSI() {
 		}
 		return
 	case (final == 's' || final == 'u') && !private && intermediate == 0:
-		// ANSI.SYS save/restore (U141-F05): xterm honours these into the SAME
+		// ANSI.SYS save/restore: xterm honours these into the SAME
 		// single saved-cursor slot as DECSC/DECRC (ESC 7/8), so a child using
 		// this spelling must occupy/release childSaved identically or the
 		// bar's own DECSC clobbers the child's saved cell. NOTE: CSI s is
@@ -342,7 +342,7 @@ func (g *vtGuard) finishCSI() {
 	case final == 'J' && !private && intermediate == 0 && csiFirstParam(body, 0) != 1:
 		// ED 0 (default/no param), ED 2, and ED 3 all erase down to (or past)
 		// the end of the display, bar row included, margins untouched — ED
-		// ignores scroll margins entirely (U141-F03). Only ED 1 (erase to
+		// ignores scroll margins entirely. Only ED 1 (erase to
 		// cursor) is confined to the child's own viewport and is safe.
 		g.emitPending()
 		if g.barDamaged != nil {
@@ -389,7 +389,7 @@ func (g *vtGuard) insertReassert() {
 
 // Flush returns any bytes currently held back inside the guard — a pending
 // incomplete escape/CSI sequence (g.seq) and/or a held UTF-8 rune tail
-// (g.tail) — and clears that held state (U141-F07). Unlike Filter, this
+// (g.tail) — and clears that held state. Unlike Filter, this
 // commits those bytes even though nothing will complete them: appropriate
 // only at final teardown (the caller is not going to write again), never
 // mid-session, where the next engine write would otherwise complete the

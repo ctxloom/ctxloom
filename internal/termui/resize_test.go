@@ -47,7 +47,7 @@ func TestResizeTranslator_ReservesRows_InitialAndSigwinch(t *testing.T) {
 }
 
 // TestResizeTranslator_EstablishesSurroundRegionSynchronously pins the other
-// half of DEFECT lucid-judo: run.go's watchResize emits the real terminal
+// half: run.go's watchResize emits the real terminal
 // size synchronously (buffered) BEFORE termui.New/newResizeTranslator is ever
 // called, and setupTerminalUI runs strictly before the plugin's Run stream is
 // started (goplugin.Launcher.Start / RunStart) — so if newResizeTranslator
@@ -114,7 +114,7 @@ func TestResizeTranslator_NudgeWigglesWithinEngineViewport(t *testing.T) {
 	close(src)
 }
 
-// TestResizeTranslator_NudgeSeparatesWiggleSteps pins DEFECT racy-fling: SIGWINCH
+// TestResizeTranslator_NudgeSeparatesWiggleSteps pins that SIGWINCH
 // is a non-queued signal, so the wiggle's two TIOCSWINSZ ioctls — the shrink
 // then the restore — must not land back-to-back with no separation, or they
 // can coalesce into a single delivery. The child's handler then runs once,
@@ -147,8 +147,8 @@ func TestResizeTranslator_NudgeSeparatesWiggleSteps(t *testing.T) {
 	close(src)
 }
 
-// TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale pins the T1 fix
-// for DEFECT racy-fling's restore half: the deferred restore send must not
+// TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale pins the fix
+// for the restore half: the deferred restore send must not
 // re-assert the size captured at Nudge-call time if a genuine resize lands
 // during the nudgeWiggleSeparation window. The stale send would overtake
 // (same FIFO Out() channel) the real resize and leave the child pty sized to
@@ -185,7 +185,7 @@ func TestResizeTranslator_NudgeRestoreUsesCurrentSizeNotStale(t *testing.T) {
 	close(src)
 }
 
-// TestResizeTranslator_NudgeWigglesEvenAtMinimalHeight pins U141-F17: Nudge's
+// TestResizeTranslator_NudgeWigglesEvenAtMinimalHeight pins that Nudge's
 // eff.Rows<=1 branch used to send the CURRENT size unchanged, which raises no
 // SIGWINCH (the kernel only signals on a real change) — exactly the failure
 // Nudge and nudgeWiggleSeparation exist to fix. On a minimal-height drawable

@@ -11,7 +11,7 @@ import (
 // verbatim to function at all — escape (ctrl-[), tab (ctrl-i), the
 // newline/return pair (ctrl-j/ctrl-m), interrupt/EOF (ctrl-c/ctrl-d),
 // suspend (ctrl-z), and flow control (ctrl-q/ctrl-s) — are rejected with the
-// reason (U141-F08).
+// reason.
 func ParsePrefixKey(s string) (byte, error) {
 	name := strings.ToLower(strings.TrimSpace(s))
 	rest, ok := strings.CutPrefix(name, "ctrl-")

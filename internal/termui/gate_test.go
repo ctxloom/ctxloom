@@ -53,7 +53,7 @@ func TestOutputGate_ReleaseWithOverflowAppendsTruncationNotice(t *testing.T) {
 		"overflow surfaces as a visible truncation notice")
 }
 
-// TestOutputGate_ReleaseWhenOpenStillWritesPre pins U141-F13: Release used to
+// TestOutputGate_ReleaseWhenOpenStillWritesPre pins that Release used to
 // silently discard the caller's `pre` (the full screen-restore preamble:
 // panel clear, region re-assert, bar repaint, DECRC) whenever the gate was
 // not held. No production caller hits this today, but nothing prevented it,
@@ -93,7 +93,7 @@ func (w *failWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// TestOutputGate_Release_ReturnsWriteErrors pins U141-F01: Release used to
+// TestOutputGate_Release_ReturnsWriteErrors pins that Release used to
 // discard the error from all three dst.Write calls (the restore sequence,
 // the replayed held bytes, and the truncation notice), so a failing tty
 // silently lost the entire replay — the ring is drained unconditionally, so
@@ -137,7 +137,7 @@ func TestOutputGate_Release_PartialFailureStillAttemptsEveryWrite(t *testing.T) 
 	assert.GreaterOrEqual(t, fw.calls, 3, "restore + replay + drop-notice must all still be attempted despite the first failing")
 }
 
-// TestOutputGate_Release_CallsAfterWrite pins U141-F02: Release never called
+// TestOutputGate_Release_CallsAfterWrite pins that Release never called
 // g.afterWrite, so a bar marked dirty by the replayed data itself (the guard
 // filtering the drained ring can call barDamaged, e.g. the engine emitted
 // ED 2 while the viewer was open) was never flushed — a blank bar on the
@@ -154,7 +154,7 @@ func TestOutputGate_Release_CallsAfterWrite(t *testing.T) {
 	assert.Equal(t, 1, calls, "Release must run afterWrite exactly as Write does")
 }
 
-// TestOutputGate_FlushGuard_WritesPendingBytes pins U141-F07: bytes the guard
+// TestOutputGate_FlushGuard_WritesPendingBytes pins that bytes the guard
 // holds back (a pending incomplete escape/CSI sequence, or a split UTF-8
 // rune tail) had no flush path at all — Close called gate.Release(nil),
 // which never asked the guard to flush, so a session ending mid-sequence

@@ -30,7 +30,7 @@ type resizeTranslator struct {
 // If src already has an initial size buffered — watchResize (and its Windows
 // twin) always emit one synchronously before returning the channel — it is
 // drained and applied HERE, on the caller's own goroutine, not left to the
-// async run loop below. This is DEFECT lucid-judo's ordering fix: the caller
+// async run loop below. This is the ordering fix: the caller
 // (setupTerminalUI, from run.go, well before the engine's Run stream is
 // started) then returns to code that runs strictly before the engine can
 // exist to produce output, so onSize (the surround's SetSize, which emits
@@ -107,7 +107,7 @@ func (t *resizeTranslator) Current() (rows, cols int) {
 }
 
 // nudgeWiggleSeparation is the pause between the wiggle's shrink and restore
-// sizes (DEFECT racy-fling). SIGWINCH is a NON-QUEUED signal: each of the two
+// sizes. SIGWINCH is a NON-QUEUED signal: each of the two
 // sizes becomes one TIOCSWINSZ ioctl down at the pty (ptyrunner's apply loop),
 // and if both land before the child's handler gets scheduled and reads
 // TIOCGWINSZ, the two deliveries coalesce into one — the child then observes
@@ -131,7 +131,7 @@ const nudgeWiggleSeparation = 50 * time.Millisecond
 // genuinely separated in time (see nudgeWiggleSeparation) so the two don't
 // coalesce into one delivery. The wiggle stays inside the engine's viewport
 // so nothing ever addresses the reserved rows. At a minimal-height drawable
-// (eff.Rows<=1, U141-F17) there is no room to shrink into, so the wiggle
+// (eff.Rows<=1) there is no room to shrink into, so the wiggle
 // goes the other way — (rows−N+1) then (rows−N) — still a genuine
 // transition rather than the same-size send that used to raise no SIGWINCH
 // at all at this height.
@@ -143,7 +143,7 @@ func (t *resizeTranslator) Nudge() {
 		return
 	}
 	eff := t.Translate(&pb.WindowSize{Rows: rows, Cols: cols})
-	// U141-F17: a same-size TIOCSWINSZ raises no SIGWINCH, so the wiggle step
+	// A same-size TIOCSWINSZ raises no SIGWINCH, so the wiggle step
 	// must always differ from eff — shrink by one normally, but at a
 	// minimal-height drawable (eff.Rows<=1) there is no room to shrink into,
 	// so wiggle upward instead. Either way this is a genuine transition the
@@ -158,7 +158,7 @@ func (t *resizeTranslator) Nudge() {
 	// a re-engage blocks on that same lock — a synchronous sleep here would
 	// hold up the NEXT Ctrl-] press for nudgeWiggleSeparation for no reason.
 	//
-	// DEFECT racy-fling's restore half must NOT re-send the `eff` captured
+	// The restore half must NOT re-send the `eff` captured
 	// above: that's the size at Nudge-call time, and a genuine SIGWINCH can
 	// land in the nudgeWiggleSeparation window and update t.rows/t.cols
 	// before this goroutine wakes. Sending the stale captured size then

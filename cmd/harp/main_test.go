@@ -100,7 +100,7 @@ func TestRunGenerate_NumberZero(t *testing.T) {
 
 	err := root.Execute()
 	if err == nil {
-		t.Fatal("harp -n 0 must fail loudly, not exit 0 having produced nothing")
+		t.Fatal("harp -n 0 must fail loudly (U004-F01), not exit 0 having produced nothing")
 	}
 	if out.String() != "" && err == nil {
 		t.Errorf("expected no rendered payload alongside the error, got %q", out.String())

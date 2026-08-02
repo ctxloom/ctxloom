@@ -22,7 +22,7 @@ func stubKillExec(t *testing.T, fn func(ctx context.Context, args []string) (str
 	t.Cleanup(func() { probeExec = orig })
 }
 
-// TestKill_ImposesOwnTimeout (finding 5): the go-plugin fork calls
+// TestKill_ImposesOwnTimeout: the go-plugin fork calls
 // Kill(context.Background()) — no deadline — so Kill must bound the remove
 // itself, or a wedged daemon hangs session teardown forever.
 func TestKill_ImposesOwnTimeout(t *testing.T) {
@@ -36,7 +36,7 @@ func TestKill_ImposesOwnTimeout(t *testing.T) {
 	assert.True(t, hasDeadline, "Kill bounds its own remove even when handed a deadline-less ctx")
 }
 
-// TestKill_SurfacesLeakOnRemoveFailure (finding 5): when the remove fails
+// TestKill_SurfacesLeakOnRemoveFailure: when the remove fails
 // (a wedged daemon, our own timeout), the container may still be alive holding
 // the workspace Cleanup is about to remove — surface the leak LOUDLY with the id
 // and a manual fix-it, rather than silently killing only the `run` CLI.
@@ -53,7 +53,7 @@ func TestKill_SurfacesLeakOnRemoveFailure(t *testing.T) {
 	assert.Contains(t, out, "rm -f ctxloom-iso-leak", "the fix-it names the manual removal command")
 }
 
-// TestKill_AlreadyGoneIsNotALeak (finding 5): a racing --rm already removed the
+// TestKill_AlreadyGoneIsNotALeak: a racing --rm already removed the
 // container; `rm -f` reports "No such container" — teardown SUCCESS, no warning.
 func TestKill_AlreadyGoneIsNotALeak(t *testing.T) {
 	stubKillExec(t, func(context.Context, []string) (string, error) {
@@ -94,8 +94,8 @@ func TestRemoveReportsGone(t *testing.T) {
 	assert.False(t, removeReportsGone(errors.New("context deadline exceeded")))
 }
 
-// TestKill_ReapedRunProcessIsRoutineTeardownNotAnError is U064-F13's pinning
-// test. The row claimed Kill "unconditionally returns nil and swallows
+// TestKill_ReapedRunProcessIsRoutineTeardownNotAnError pins that
+// a review row claimed Kill "unconditionally returns nil and swallows
 // r.cmd.Process.Kill(), so go-plugin can never observe a failed teardown".
 // Both halves of the mechanism are true and both are deliberate:
 //

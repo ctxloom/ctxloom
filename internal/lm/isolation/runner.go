@@ -195,7 +195,7 @@ func (t containerAddrTranslator) HostToPlugin(network, addr string) (string, str
 // A path outside the mounted dir is returned unchanged (defensive: only the
 // plugin's own socket paths live under the mount).
 //
-// Windows correctness gap (lanky-pod, DOCUMENTED not fixed here — see the
+// Windows correctness gap (DOCUMENTED not fixed here — see the
 // container-runtime-bugs plan §4/§5; UNVERIFIABLE without Windows hardware):
 // this function uses path/filepath (OS-native separators) on BOTH sides, which
 // is correct today because both directions swap between two paths that are
@@ -208,8 +208,8 @@ func (t containerAddrTranslator) HostToPlugin(network, addr string) (string, str
 // segments onto a POSIX prefix — WRONG (the container never sees a `\`). A
 // correct fix needs to know WHICH side of the swap is host-native vs.
 // container-POSIX (not just "from" vs "to") and join accordingly — pure
-// path/filepath is insufficient. Deferred to sudsy-sip Tier C alongside the
-// project-mount translation (lanky-pod's pathMapper seam, runtime.go) this
+// path/filepath is insufficient. Deferred to a later Tier C alongside the
+// project-mount translation (the pathMapper seam, runtime.go) this
 // same swap must eventually route through.
 func swapPrefix(path, from, to string) string {
 	if from == "" || to == "" {
@@ -257,7 +257,7 @@ func containerRunnerFunc(rt Runtime, image, name, projectDir, home string, comma
 // otherwise REFUSES `--dangerously-skip-permissions` under uid 0 ("cannot be used
 // with root/sudo privileges"). This is the runtime-side half of "the container is
 // the boundary" — the policy-level Approvals axis that used to name the other
-// half was deleted as dead (U063-F03): the run's actual approval posture resolves
+// half was deleted as dead: the run's actual approval posture resolves
 // from config/CLI/agent, never from the isolation policy. Harmless to engines
 // that ignore it.
 var containerBaseEnv = []string{"IS_SANDBOX=1"}
@@ -270,7 +270,7 @@ var containerBaseEnv = []string{"IS_SANDBOX=1"}
 // config overlays). Pure and deterministic so the mount/env wiring is unit-testable
 // without a container.
 //
-// mapper (lanky-pod's seam, container-runtime-bugs.plan.md §5) translates
+// mapper (the pathMapper seam, container-runtime-bugs.plan.md §5) translates
 // projectDir into the WorkDir + project-mount CONTAINER path: identityMapper
 // (every caller today — see containerRunnerFunc, which reads it off rt.mapper())
 // makes this byte-for-byte the identical-path mount buildRunSpec always built,

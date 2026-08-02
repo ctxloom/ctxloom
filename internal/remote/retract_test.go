@@ -164,7 +164,7 @@ retracted:
 		assert.Equal(t, RetractionClean, verdict)
 	})
 
-	// U150-F04: an unparseable manifest used to resolve to "not retracted",
+	// An unparseable manifest used to resolve to "not retracted",
 	// silently. That is not a graceful degrade — it is the publisher's
 	// withdrawal of content THEY SIGNED losing to their own signature, because
 	// the only thing that could have said "withdrawn" was the file we just
@@ -205,7 +205,7 @@ retracted:
 	})
 }
 
-// TestConfirmRetraction_PropagatesDeterminationFailure is U150-F04's
+// TestConfirmRetraction_PropagatesDeterminationFailure is the
 // end-to-end half: CheckRetracted's error slot is useless if the caller
 // discards it. confirmRetraction used `retracted, reason, _ =`, so even once
 // the check could say "I could not determine this", the pull carried on as

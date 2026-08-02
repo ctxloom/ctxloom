@@ -14,9 +14,9 @@ import (
 )
 
 // TestResolveRetraction_FailStale covers Puller.resolveRetraction, the
-// caller-side half of the fail-stale fix (U088-F01, U095-F02's fetch-failure
-// half, U150-F04): CheckRetracted's fetch-failure branches report
-// RetractionUnknown rather than "clean", and resolveRetraction is what turns
+// caller-side half of the fail-stale fix: CheckRetracted's fetch-failure
+// branches report RetractionUnknown rather than "clean", and
+// resolveRetraction is what turns
 // that into a decision — fall back to the last verdict this project itself
 // recorded, honoring it even when it says RETRACTED, and warning when that
 // verdict is stale.

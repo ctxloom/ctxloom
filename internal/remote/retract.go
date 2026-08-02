@@ -12,8 +12,7 @@ import (
 
 // RetractionVerdict is CheckRetracted's three-valued outcome. A bool cannot
 // express "I could not determine this" without conflating it with one of the
-// two knowable answers — that conflation is U088-F01, U095-F02's
-// fetch-failure half, and U150-F04's shared root cause: content whose
+// two knowable answers — that conflation used to mean content whose
 // retraction status is unknowable was delivered as though positively
 // cleared. See docs/trust-model.md's fail-stale policy for how callers must
 // treat RetractionUnknown.
@@ -46,7 +45,7 @@ const RetractionStaleAfter = 14 * 24 * time.Hour
 
 // CheckRetracted checks if a version is retracted in the manifest.
 //
-// "Could not determine" is NOT "not retracted" (U150-F04). A retraction is the
+// "Could not determine" is NOT "not retracted". A retraction is the
 // only channel a publisher has to withdraw content they already SIGNED, so a
 // fault on this path that resolves to a clean bill of health lets the
 // withdrawal lose to the publisher's own signature. The two answers must not

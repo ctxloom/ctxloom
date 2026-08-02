@@ -25,7 +25,7 @@ import (
 
 const (
 	// maxAgentDepth is the recursion guard: depth 0 (the session owner)
-	// spawns depth 1; depth 1 spawns depth 2 (D5, manly-grant (4): the
+	// spawns depth 1; depth 1 spawns depth 2 (D5: the
 	// B-window grandchild refusal is lifted — flat-hub semantics, each hop
 	// addresses only its own direct parent via peerSend's ParentHarp lookup,
 	// generic at any depth). depth 2 may not spawn depth 3 — the guard still
@@ -68,7 +68,7 @@ const (
 )
 
 // slotState is a childRt's three-valued relationship to the D4 execution-
-// slot cap (turnSlots), replacing a single overloaded bool (U020-F01). The
+// slot cap (turnSlots), replacing a single overloaded bool. The
 // old `slotHeld` bool did double duty as both "I am ATTEMPTING to acquire a
 // slot" (set true by claimSlotIntent BEFORE a potentially long BLOCKING
 // acquire — onRoleUnpark's) and "I actually HOLD a slot" (the only fact
@@ -108,12 +108,12 @@ type childRt struct {
 	// child (the depth-0 session owner has no run_id of its own); set for
 	// a depth-2+ grandchild. Threaded onto the outgoing StartRun request
 	// (runChildViaStartRun) so RunStarted.parent_run_id carries durable
-	// lineage on the log (manly-grant (5)) — mirrors RunRecord.ParentRunID.
+	// lineage on the log — mirrors RunRecord.ParentRunID.
 	parentRunID string
 	plan        *SpawnPlan
 
 	// slot is this childRt's relationship to the D4 execution-slot cap
-	// (turnSlots) — see slotState's doc (U020-F01) for why this is a
+	// (turnSlots) — see slotState's doc for why this is a
 	// tri-state, not a bool. slotCancel is set by releaseSlot/onRolePark
 	// when they find slot == slotClaimed (an acquisition is in flight and
 	// must not be released yet); commitSlotClaim consults it once that
@@ -152,7 +152,7 @@ type childRt struct {
 	// started in (EngineSpawn.WorkDir). It exists for the liveness watchdog:
 	// the worktree's newest mtime is the only activity clock that is not
 	// written by the engine's own bookkeeping, so it is what distinguishes an
-	// agent inside a ten-minute build from one that is hung (U056-F04).
+	// agent inside a ten-minute build from one that is hung.
 	workDir     string
 	wake        chan struct{}
 	turnOutput  []string // result bridging: this turn's assistant output (see bridgeTurnResult)
@@ -194,8 +194,8 @@ type childRt struct {
 	// attached closes once THIS attempt's launch decision is final: the
 	// engine is up (legacy: attachLaunch ran, right before the driveChild
 	// loop starts; migrated: the StartRun round-trip completed) or the
-	// attempt failed (failChild). It backs awaitChildUp/armLaunch (S3,
-	// flaky-agentcoord) — a test-facing deterministic quiesce seam over the
+	// attempt failed (failChild). It backs awaitChildUp/armLaunch —
+	// a test-facing deterministic quiesce seam over the
 	// launch/resume pipeline, replacing a wall-clock Eventually poll with a
 	// wait keyed on the actual goroutine's own progress. Set once at
 	// creation (enqueueRun); markAttached closes it exactly once.
@@ -243,7 +243,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	if prompt == "" {
 		return nil, errors.New("agent_run: prompt is required (the child's briefing/first turn)")
 	}
-	// Depth derives from the CREDENTIAL, never from env (review R11). D5
+	// Depth derives from the CREDENTIAL, never from env. D5
 	// lifts the B-window grandchild refusal (maxAgentDepth=2): a depth-1
 	// child may now spawn a depth-2 grandchild; the guard still bottoms out
 	// at depth 2 spawning depth 3.
@@ -301,7 +301,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 // publishes the runtime attachment. resume marks a re-attempt for an ended
 // harp; the claim (current run still ended) is checked inside the journal's
 // serialized window so concurrent resumes cannot double-launch. attached is
-// the childRt's "settled" signal (S3, flaky-agentcoord): AgentRun's own
+// the childRt's "settled" signal: AgentRun's own
 // synchronous call passes a fresh channel; resumeChild passes the ONE
 // channel its own dispatcher (armLaunch) created for THIS specific attempt
 // — never looked up by harp here, so a concurrent second dispatch for the
@@ -421,7 +421,7 @@ func (c *Coordinator) markAttached(rt *childRt) {
 // REAL outcome — attached (legacy: engine attached and about to start
 // driving turns; migrated: StartRun round-tripped) or failed (failChild) —
 // never merely a benign "lost the race" no-op (errResumeLost / resumeChild's
-// !found). It is the flaky-agentcoord S3 seam: a test replaces the FIRST
+// !found). A test replaces the FIRST
 // require.Eventually poll in a spawn/resume-gated chain with this, keying
 // the wait on the tracked goroutine's own progress instead of a wall-clock
 // guess — any Eventually further down the SAME chain (e.g. a durable-fold
@@ -550,7 +550,7 @@ func runnerEnv(harp, runID, token, url string, coordinatorCapable bool) map[stri
 
 // spawnReachURL resolves the coordinator URL a child on runtimeAxis can dial,
 // widening the listeners for a container child. A container child without
-// reach-back is exactly the blue-paper stranding bug, so an unresolvable
+// reach-back is exactly a stranding bug, so an unresolvable
 // endpoint is a fatal finding (fail-loud) — degraded mode downgrades it and
 // the child launches with no coordinator env (a local, message-less
 // orchestrator, today's broken-but-running posture).
@@ -590,8 +590,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	// reach-back (url == "") cannot — the runner could never dial home — so
 	// it keeps the legacy dial. This is now the go-plugin Chat dial's ONE
 	// intentional, documented reachable case for an allowlisted backend
-	// (Wave C4 kill-list verification: preserved as-is, per the plan's
-	// explicit "check what C1 landed and preserve its documented behavior");
+	// (preserved as-is, matching what C1 already landed);
 	// the dial's other reachable case is a StructuredChat backend outside
 	// the allowlist (today: none in production, only test doubles).
 	// The launch runs under a CANCELLABLE per-harp context, not baseCtx, so
@@ -702,8 +701,8 @@ func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prom
 // ctx is the launch context: cancelling it (agent_stop) aborts the
 // dial-home wait instead of holding the harp for the full
 // c.runnerAwaitTimeout.
-// startRunPayloadErr refuses a StartRun that would carry no work at all
-// (U023-F17). issueStartRun builds Input only `if first != ""`, so an empty
+// startRunPayloadErr refuses a StartRun that would carry no work at all.
+// issueStartRun builds Input only `if first != ""`, so an empty
 // lead used to go out as a StartRun with a NIL Input: it round-trips, the run
 // attaches, the roster says executing, and the engine sits there having been
 // told nothing. Zero payload, every signal green — ctxloom's characteristic
@@ -763,7 +762,7 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 			Harness:     spec,
 			Input:       input,
 			Role:        rt.agentName,
-			ParentRunId: rt.parentRunID, // D5: durable lineage on the log (manly-grant (5)) — enginehost.go echoes this into RunStarted
+			ParentRunId: rt.parentRunID, // D5: durable lineage on the log — enginehost.go echoes this into RunStarted
 		}},
 	})
 	rcancel()
@@ -862,12 +861,12 @@ func (c *Coordinator) resumeKeyFor(harp string) (sessionID string, ok bool) {
 // §6a roster state and the D4 slot accounting. The acquire is BEST-EFFORT
 // (tryAcquire): this runs on the RunChannel's receive path, which must not
 // block behind another child's turn — the strict queue discipline lives at
-// spawn time (runChild's blocking acquire). claimSlotIntent (R1, one-shot-
+// spawn time (runChild's blocking acquire). claimSlotIntent (one-shot-
 // resume plan Slice 3) makes the check-then-acquire atomic: a racing
 // onRoleUnpark/onTurnStarted pair for the SAME rt can no longer both
 // tryAcquire and both land a slot — exactly one wins the claim, a failed
 // tryAcquire rolls the claim back via releaseSlotIntent, and a successful
-// one is committed via commitSlotClaim (U020-F01) rather than left at
+// one is committed via commitSlotClaim rather than left at
 // slotClaimed forever.
 func (c *Coordinator) onTurnStarted(role string) {
 	c.mu.Lock()
@@ -877,7 +876,7 @@ func (c *Coordinator) onTurnStarted(role string) {
 		// A frame that was already in flight when the channel was severed is
 		// still dispatched: the RunChannel's receive goroutine outlives
 		// RunChannel's return, and severChan/terminateRun do not synchronise
-		// with it (U024-F09). c.byHarp keeps the ended run's childRt, so this
+		// with it. c.byHarp keeps the ended run's childRt, so this
 		// would ACQUIRE a slot for a run whose terminal has already released
 		// everything it held — and nothing would ever give that slot back,
 		// shrinking the execution cap for the rest of the process's life. Its
@@ -960,7 +959,7 @@ func (c *Coordinator) captureRunFailure(role string, ev *agentcoordpb.AgentEvent
 		return
 	}
 	res := rc.RunCompleted.GetResult()
-	// SUCCESS IS AN ALLOW-LIST (U016-F06). This used to test
+	// SUCCESS IS AN ALLOW-LIST. This used to test
 	// `!= RUN_STATUS_FAILED`, so a run that ended on the enum's ZERO value —
 	// what an engine that never set a status produces — or on TIMED_OUT /
 	// BUDGET_EXCEEDED had its dying words silently dropped and the parent got
@@ -981,7 +980,7 @@ func (c *Coordinator) captureRunFailure(role string, ev *agentcoordpb.AgentEvent
 	c.mu.Unlock()
 }
 
-// bridgeTurnResult is the AUTOMATIC child→parent report (blunt-whiff): at a
+// bridgeTurnResult is the AUTOMATIC child→parent report: at a
 // child's turn boundary, whatever the child said this turn lands in its
 // parent's mailbox as `kind: "result"` — WITHOUT the child's model having to
 // decide to call agent_send. Receiving a delegated child's result must not
@@ -1025,7 +1024,7 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	text := strings.TrimSpace(strings.Join(out, sep))
 	if text == "" {
 		clidiag.Warn("ctxloom", "agent %s: turn ended with no report and no output — nothing to bridge to %s", rt.harp, rt.parentHarp)
-		// U020-F04: that warning goes to the COORDINATOR PROCESS's stderr —
+		// That warning goes to the COORDINATOR PROCESS's stderr —
 		// a channel the parent (an agent whose sole input is its mailbox)
 		// cannot read. Under the runtime:container prompt-delivery defect
 		// this fires every turn while every cheap signal (roster state,
@@ -1041,7 +1040,7 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 		return
 	}
 	if oneshot {
-		// Durable event-log record (Wave C4, manly-grant (7)) ALONGSIDE the
+		// Durable event-log record (Wave C4) ALONGSIDE the
 		// mailbox bridge below — not a replacement for it; PublishEvents is
 		// event-plane only and carries no delivery semantics of its own. A
 		// MIGRATED child already emits its own RunCompleted on the
@@ -1050,7 +1049,7 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 	}
 	if _, _, err := c.queueMail(rt.harp, rt.parentHarp, "result", text); err != nil {
 		clidiag.Warn("ctxloom", "agent %s: bridge turn result: %v", rt.harp, err)
-		// U020-F03: the accumulator was already cleared above (so a
+		// The accumulator was already cleared above (so a
 		// concurrent append during the failed queueMail call lands cleanly
 		// on top, not lost under a lock we no longer hold) — but a failed
 		// delivery must not silently vanish the turn's own text. Restore it
@@ -1099,7 +1098,7 @@ func (c *Coordinator) onTurnIdle(role string) {
 	rt := c.byHarp[role]
 	c.mu.Unlock()
 	if rt == nil || c.runEnded(rt.runID) {
-		// A turn boundary that lands after the run's terminal (U024-F09 — see
+		// A turn boundary that lands after the run's terminal (see
 		// onTurnStarted) must not bridge: the child already delivered its
 		// terminal notice, and bridgeTurnResult on an empty accumulator queues
 		// the parent a second, contradictory "turn produced no output" message
@@ -1156,7 +1155,7 @@ func (c *Coordinator) driveChild(rt *childRt, launch *operations.AgentChatLaunch
 		case <-rt.wake:
 			c.wakeChild(rt)
 		case <-c.baseCtx.Done():
-			// Coordinator shutdown (flaky-agentcoord S1): this is the ONE
+			// Coordinator shutdown: this is the ONE
 			// loop in the package with no baseCtx case — normally Close()'s
 			// attachment-snapshot loop already closed the launch (rt.close),
 			// which makes Events close and the branch above fire, but a
@@ -1183,8 +1182,8 @@ func (c *Coordinator) driveChild(rt *childRt, launch *operations.AgentChatLaunch
 func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 	switch {
 	case ev.Entry != nil:
-		// Turn accumulation for the legacy path's half of the result bridge
-		// (blunt-whiff): a ONESHOT child has no reach-back at all, so every
+		// Turn accumulation for the legacy path's half of the result bridge:
+		// a ONESHOT child has no reach-back at all, so every
 		// entry it emits IS its output; a legacy CHAT child's answer is its
 		// assistant entries only (thinking/tool chatter is the engine
 		// transcript's job, §6b). Both feed bridgeTurnResult at the
@@ -1198,7 +1197,7 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 			c.mu.Unlock()
 		}
 	case ev.Session != nil:
-		// LEGACY path's half of PREREQ A (wooly-stove): the migrated path
+		// LEGACY path's half of PREREQ A: the migrated path
 		// already records this via StartRunResult/runchannel's
 		// ctxloom/harness_session custom event (runChildViaStartRun above);
 		// this is the only place a legacy go-plugin Chat dial's native
@@ -1222,7 +1221,7 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 // an empty mailbox parks the child idle and yields the slot.
 func (c *Coordinator) onTurnBoundary(rt *childRt) {
 	c.bridgeTurnResult(rt)
-	// A journal failure here is NOT "the mailbox is empty" (U023-F03): parking
+	// A journal failure here is NOT "the mailbox is empty": parking
 	// the child idle on it strands mail the fold still considers deliverable
 	// and reports the boundary as clean. Fail the child instead — a stalled
 	// child that says so beats one that silently stops consuming its mail.
@@ -1241,7 +1240,7 @@ func (c *Coordinator) onTurnBoundary(rt *childRt) {
 
 // publishOneshotResult journals ONE oneshot turn's stdout-bridged output as a
 // self-contained, FRESH-run_id sub-run over the unary PublishEvents fallback
-// (Wave C4 deliverable 1, closing manly-grant (7): "Oneshot-fallback
+// (Wave C4 deliverable 1: "Oneshot-fallback
 // children → unary PublishEvents is a natural fit"). A oneshot backend has no
 // persistent engine or RunChannel of its own — startOneshot's own doc says
 // "no session continuity between turns beyond the composed context" — so each
@@ -1280,7 +1279,7 @@ func (c *Coordinator) wakeChild(rt *childRt) {
 	}
 	msg, ok, err := c.takeNextMail(rt.harp)
 	if err != nil {
-		// Not a spurious wake — the take FAILED (U023-F03). Returning quietly
+		// Not a spurious wake — the take FAILED. Returning quietly
 		// would leave the child idle holding undelivered mail forever.
 		c.failChild(rt, err)
 		return
@@ -1412,7 +1411,7 @@ func (c *Coordinator) runState(runID string) string {
 
 // releaseSlot gives back a slot rt actually HOLDS. If rt is only
 // slotClaimed — an acquisition (tryAcquire or a blocking acquire) is still
-// in flight for it, the exact window U020-F01 named — releasing NOW would
+// in flight for it — releasing NOW would
 // return a slot nobody has taken from the pool yet, INFLATING the cap.
 // Instead this marks the claim cancelled; commitSlotClaim gives the slot
 // back the instant it actually lands, rather than promoting to slotHeld and
@@ -1433,7 +1432,7 @@ func (c *Coordinator) releaseSlot(rt *childRt) {
 }
 
 // claimSlotIntent atomically claims rt's "this attempt owns acquiring a
-// slot" right — the R1 fix (one-shot-resume plan Slice 3): the check
+// slot" right (one-shot-resume plan Slice 3): the check
 // (rt.slot == slotFree) and the mutation (-> slotClaimed) happen inside the
 // SAME c.mu window, so two racing callers for the SAME rt (a concurrent
 // onTurnStarted/onRoleUnpark pair, or either fired twice) can never both
@@ -1444,7 +1443,7 @@ func (c *Coordinator) releaseSlot(rt *childRt) {
 // actual turnSlots acquisition (which can block for onRoleUnpark's caller,
 // runtimeSlots.acquire) — holding c.mu across a blocking acquire would
 // stall every OTHER coordinator operation needing c.mu for as long as the
-// slot wait takes. The winner does NOT yet hold a real slot (U020-F01): it
+// slot wait takes. The winner does NOT yet hold a real slot: it
 // MUST call commitSlotClaim once its acquisition actually lands one, or
 // releaseSlotIntent if the acquisition attempt itself failed.
 func (c *Coordinator) claimSlotIntent(rt *childRt) bool {
@@ -1460,7 +1459,7 @@ func (c *Coordinator) claimSlotIntent(rt *childRt) bool {
 
 // commitSlotClaim finalizes a claimSlotIntent win once its acquisition
 // (tryAcquire or a blocking acquire) has actually landed a real turnSlots
-// slot (U020-F01). If nothing cancelled the claim while the acquisition was
+// slot. If nothing cancelled the claim while the acquisition was
 // in flight, the state becomes slotHeld — the ONLY state releaseSlot/
 // onRolePark may release against. If a concurrent releaseSlot/onRolePark
 // fired WHILE the acquisition was still pending (slotCancel), the claim
@@ -1506,7 +1505,7 @@ func (c *Coordinator) attachLaunch(rt *childRt, launch *operations.AgentChatLaun
 
 // terminateRun is the EXACTLY-ONCE terminal seam every death path funnels
 // through: the legacy chat-stream-close (endChild), the runner-loss
-// synthesis (review R3), an explicit RunExited, agent_stop, launch failure,
+// synthesis, an explicit RunExited, agent_stop, launch failure,
 // and restart adoption. The terminal fact is claimed inside the journal's
 // single-writer window; only the claimant runs the runtime consequences —
 // slot release (queue advances), credential revocation + severing, the
@@ -1556,7 +1555,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	// give, and the terminal is the fact that decides it.
 	c.clearDownTrack(rec.Harp)
 
-	// D4 (damp-pupil 1): drain BEFORE anything below that can tear the
+	// D4: drain BEFORE anything below that can tear the
 	// RunChannel's underlying connection down — closeFn (engine.Kill) closes
 	// the runner's WHOLE gRPC ClientConn, which multiplexes RunChannel too,
 	// so calling it first can win the very race this drain exists to close.
@@ -1617,7 +1616,7 @@ func (c *Coordinator) terminateRun(runID, cause, detail string) {
 	c.severChan(rec.Harp)
 
 	// The synthesized terminal notice: the parent ALWAYS learns of a child
-	// death (blue-paper). Kind distinguishes a launch failure (error) from
+	// death. Kind distinguishes a launch failure (error) from
 	// a lifecycle end (exited). A one-shot turn boundary is the exception —
 	// it is a NON-death, EXPECTED terminal that fires every single turn, so
 	// notifying the parent would spam its mailbox with an "exited" per turn;
@@ -1731,7 +1730,7 @@ func (c *Coordinator) reapEndedRuns() {
 // end-to-end: every early-return path below (before enqueueRun hands
 // ownership to the new childRt) closes it directly via the defer/settled
 // guard, so awaitChildUp never hangs on an attempt that silently never
-// reached enqueueRun (S3, flaky-agentcoord).
+// reached enqueueRun.
 //
 // delay is the bounded-retry backoff this attempt must wait out before doing
 // anything (zero for an operator-driven resume; exponential for an automatic
@@ -1836,7 +1835,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	c.mu.Unlock()
 	c.audit("agent_resume", rec.ParentHarp, map[string]string{"harp": harp, "run_id": rt.runID})
 
-	// U020-F07: read under c.mu — rt is already published (enqueueRun) at
+	// Read under c.mu — rt is already published (enqueueRun) at
 	// this point, so onRolePark/onRoleUnpark/onTurnStarted/claimSlotIntent
 	// can all touch rt.slot concurrently; matches runChild's own read.
 	c.mu.Lock()
@@ -1885,7 +1884,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 		return
 	}
 
-	// LEGACY resume (Slice 0, wooly-stove): mirror the ViaStartRun branch
+	// LEGACY resume (Slice 0): mirror the ViaStartRun branch
 	// above — a captured native session id (antigravity's agy conversation
 	// id, journaled via handleChildEvent's ev.Session case) resumes the
 	// backend's OWN session (agy --conversation <id> --continue) with no
@@ -1960,7 +1959,7 @@ func (c *Coordinator) driveQueued(harp string) string {
 // released while it waits. Roles without a child attachment (the parent
 // session) park without slot bookkeeping.
 //
-// U020-F01: onRoleUnpark's re-acquisition can be a genuinely long BLOCKING
+// onRoleUnpark's re-acquisition can be a genuinely long BLOCKING
 // wait (turnSlots.acquire). If onRolePark lands while rt is only
 // slotClaimed for that wait (not yet slotHeld), releasing here would give
 // back a slot nobody has actually taken from the pool yet — see
@@ -1990,12 +1989,12 @@ func (c *Coordinator) onRolePark(role string) {
 
 // onRoleUnpark re-acquires the slot before a parked recv completes — the
 // child resumes an EXECUTING turn, and the cap counts executing turns.
-// claimSlotIntent (R1, one-shot-resume plan Slice 3) makes "do I still need
+// claimSlotIntent (one-shot-resume plan Slice 3) makes "do I still need
 // to acquire" atomic with claiming ownership of doing so: a duplicate/
 // racing unpark signal for the SAME rt (or a race against onTurnStarted)
 // finds a claim or a held slot already in place, skips the blocking
 // acquire entirely, and just reasserts StateExecuting (idempotent) — never
-// a second acquisition against the same rt. commitSlotClaim (U020-F01)
+// a second acquisition against the same rt. commitSlotClaim
 // finalizes the win once the blocking acquire actually lands a real slot;
 // if a concurrent onRolePark/releaseSlot cancelled the claim while that
 // wait was in flight, the just-landed slot is unwanted and must be given

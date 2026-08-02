@@ -145,7 +145,7 @@ func (h *Home) DownloadArtifact(ctx context.Context, agentID, artifactID, destPa
 		return "", 0, fmt.Errorf("download %s/%s: %w", agentID, artifactID, err)
 	}
 
-	// U022-F08: the upload side now refuses a declared size of 0
+	// The upload side now refuses a declared size of 0
 	// (coord/artifacts.go's UploadArtifact), so no NEW empty artifact can
 	// be published — but this is the belt half of belt-and-suspenders
 	// against a blob that predates that fix (an existing project's

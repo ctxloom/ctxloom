@@ -22,7 +22,7 @@ type RunRecord struct {
 	Harp       string
 	Agent      string
 	ParentHarp string
-	// ParentRunID is the SPAWNING run's run_id (D5/manly-grant (5) durable
+	// ParentRunID is the SPAWNING run's run_id (D5's durable
 	// lineage) — empty for a depth-1 (top-level) child spawned by the
 	// session owner (depth 0 has no run_id of its own to be a parent of);
 	// set for a depth-2+ grandchild. Mirrors StartRun/RunStarted.parent_run_id
@@ -37,7 +37,7 @@ type RunRecord struct {
 	Cause       string
 	// Detail is the terminal fact's human-readable detail (runEnded.Detail):
 	// for an agent_stop, the stopping session plus the caller's `reason`
-	// (U016-F04 — `reason` used to be advertised to the model and discarded).
+	// (`reason` used to be advertised to the model and discarded).
 	// Empty when the terminal cause carried no detail.
 	Detail           string
 	HarnessSessionID string
@@ -69,7 +69,7 @@ type runsFold struct {
 	// creds maps hex SHA-256(token) → identity for every ACTIVE credential:
 	// live child runs plus registered session owners. Revocation (run end /
 	// session cred revoked) removes the entry — persisting only the hash is
-	// the whole store (review R8).
+	// the whole store.
 	creds map[string]Identity
 	// project is stamped from session credentials for identity mapping.
 	project string

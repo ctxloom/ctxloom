@@ -96,9 +96,9 @@ func recvUploadHeader(stream grpc.ClientStreamingServer[agentcoordpb.ArtifactUpl
 	if header.GetSizeBytes() > artifactUploadSizeCap {
 		return nil, status.Errorf(codes.InvalidArgument, "upload: declared size %d exceeds the %d-byte cap", header.GetSizeBytes(), artifactUploadSizeCap)
 	}
-	// A FLOOR as well as a cap (U016-F18). Only the maximum was ever checked,
-	// so a 0-byte artifact uploaded, journaled, and returned a success
-	// receipt with a content-addressed id — a receipt for nothing. The runner
+	// A floor as well as a cap. Only the maximum was ever checked, so a
+	// 0-byte artifact uploaded, journaled, and returned a success receipt
+	// with a content-addressed id — a receipt for nothing. The runner
 	// refuses first (mcp_runner.go's artifactStamper.publish); this is the
 	// server's own guard, because the transfer service is a credentialed
 	// surface any runner reaches, not just ours.
@@ -132,7 +132,7 @@ func uploadFailure(cerr, werr error, header *agentcoordpb.ArtifactUploadHeader, 
 	case errors.Is(werr, errArtifactSHAMismatch):
 		return status.Errorf(codes.InvalidArgument, "upload: received content (sha256 %s) does not match the declared sha256", shaHex)
 	case errors.Is(werr, errArtifactSizeMismatch):
-		// U019-F02: the declared-size floor only catches a DECLARED size of
+		// The declared-size floor only catches a DECLARED size of
 		// 0. A client that declares a non-zero size_bytes but delivers fewer
 		// bytes (in the limit, none) sails past both the cap and the floor —
 		// sha256 is optional by design (writeAtomic's own hash is

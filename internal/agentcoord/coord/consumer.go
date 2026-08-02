@@ -107,7 +107,7 @@ type watchSub struct {
 // subscribe registers a subscriber and returns its event channel, a cancel
 // func that unregisters it (call exactly once, when the watching stream
 // ends), and a narrow func that re-scopes an already-live subscription to
-// exactly one run (U041-F06): a caller that must subscribe before its own
+// exactly one run: a caller that must subscribe before its own
 // run's ID exists (StartOwnedRun mints one internally, mid-call) starts
 // hub-wide with subscribe(nil) and calls narrow(runID) the moment it learns
 // the ID, so it only competes for its own ring's budget for the run's
@@ -251,7 +251,7 @@ func (c *Coordinator) listRunsSnapshot(includeTerminal bool, role string) *agent
 // instead of dialing its own gRPC loopback. Same semantics: a snapshot
 // (returned directly, not framed) plus a live event channel from
 // subscribe-time forward; call cancel exactly once when done watching. narrow
-// (U041-F06) lets a caller that subscribed unscoped (runIDs nil/empty, e.g.
+// lets a caller that subscribed unscoped (runIDs nil/empty, e.g.
 // because its own run's ID does not exist yet) re-scope down to one run the
 // moment it learns that ID — see watchHub.subscribe's doc. A caller that
 // already knows its run IDs, or genuinely wants every run (D3's
@@ -271,14 +271,14 @@ func (c *Coordinator) WatchRuns(runIDs []string) (snapshot *agentcoordpb.ListRun
 
 // ListRuns is the in-process form of ConsumerService.ListRuns.
 //
-// test-only: no production caller (U020-F11) — production reaches
+// test-only: no production caller — production reaches
 // listRunsSnapshot directly (consumerService.ListRuns, serveListRuns). This
 // was deleted once in this wave and reverted: repointing its in-package test
 // call sites at listRunsSnapshot compiled fine, but
 // internal/cli/mcp_tools_agents_test.go (a different package) also calls it
 // via require.Eventually to poll for a roster change — `go vet ./...`, not a
 // package-scoped vet, is what caught that. Kept for that cross-package test
-// caller, the same reason as LoopbackURL (U022-F15).
+// caller, the same reason as LoopbackURL.
 func (c *Coordinator) ListRuns(includeTerminal bool, role string) *agentcoordpb.ListRunsResult {
 	return c.listRunsSnapshot(includeTerminal, role)
 }

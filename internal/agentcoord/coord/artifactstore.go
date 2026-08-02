@@ -58,8 +58,8 @@ func (s *artifactStore) path(shaHex string) string {
 var errArtifactSHAMismatch = errors.New("coord: artifact content does not match its declared sha256")
 
 // errArtifactSizeMismatch is returned by writeAtomic when the caller's
-// declared size_bytes does not match what was actually written (U019-F02):
-// sha256 is optional on the wire, so a truncated/short delivery with no
+// declared size_bytes does not match what was actually written: sha256 is
+// optional on the wire, so a truncated/short delivery with no
 // declared hash would otherwise sail through as a "success" that silently
 // contradicts the caller's own declared size.
 var errArtifactSizeMismatch = errors.New("coord: artifact content does not match its declared size")
@@ -73,7 +73,7 @@ var errArtifactSizeMismatch = errors.New("coord: artifact content does not match
 var syncArtifactDir = fsyncDir
 
 // errArtifactBadName is returned when a name handed to the store is not a
-// content hash (U019-F13). The store's whole contract is "the file name IS
+// content hash. The store's whole contract is "the file name IS
 // the sha256 of its own bytes", so anything else is a malformed request, not
 // a miss — and left unchecked it is a plain filepath.Join into whatever the
 // caller supplied.
@@ -138,7 +138,7 @@ func (s *artifactStore) writeAtomic(r io.Reader, declaredSHA []byte, declaredSiz
 	if len(declaredSHA) > 0 && !bytes.Equal(sum, declaredSHA) {
 		return "", 0, errArtifactSHAMismatch
 	}
-	// U019-F02: the size cross-check lives HERE, before publish, for the
+	// The size cross-check lives HERE, before publish, for the
 	// same reason the sha check does — a declared size that does not match
 	// what was actually received must never earn a name in the
 	// content-addressed store, or a truncated/short delivery would be

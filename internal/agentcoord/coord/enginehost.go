@@ -107,10 +107,10 @@ type EngineHost struct {
 	// loop, the briefing's first-turn send, and one resolveApproval per
 	// forwarded engine permission request). Close joins it before returning, so
 	// a runner-side teardown leaves no goroutine still touching eh/home state —
-	// the same discipline as Coordinator's and Home's groups
-	// (flaky-agentcoord S1/S2), mirrored here for the runner-hosted engine half
-	// (deaf-rut). A still-in-flight resolveApproval, or a startRun reissue
-	// landing exactly as Close begins, is what the seal in trackedGroup is for.
+	// the same discipline as Coordinator's and Home's groups, mirrored here
+	// for the runner-hosted engine half. A still-in-flight resolveApproval, or
+	// a startRun reissue landing exactly as Close begins, is what the seal in
+	// trackedGroup is for.
 	tracked   trackedGroup
 	closeOnce sync.Once
 }
@@ -143,7 +143,7 @@ func (eh *EngineHost) waitTracked() {
 
 // Close cancels the hosted run (if StartRun ever launched one) and joins
 // every tracked goroutine before returning — the runner-side teardown
-// counterpart to Coordinator.Close/Home.Close (deaf-rut). Idempotent
+// counterpart to Coordinator.Close/Home.Close. Idempotent
 // (closeOnce-guarded) and safe to call even when no run was ever started.
 func (eh *EngineHost) Close() {
 	eh.closeOnce.Do(func() {
@@ -270,7 +270,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 		ParentRunId: sr.GetParentRunId(),
 	}}})
 
-	// Tough-cloud S2: capture this delegated child's canonical transcript on
+	// Capture this delegated child's canonical transcript on
 	// the runner process that hosts it — the in-process backend.Chat seam
 	// (plan §2c seam 2). dec.SessionHarp is the child's own harp (decoded from
 	// StartRun's HarnessSpec.config, "ctxloom.session_harp" — see
@@ -280,7 +280,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	// practice; the emptiness check stays as defensive degrade-gracefully
 	// discipline, not a documented live gap.
 	//
-	// edgy-ivory: rec is opened HERE, before backend.Chat is ever dispatched,
+	// rec is opened HERE, before backend.Chat is ever dispatched,
 	// so it can ALSO record the user turns this host writes to `in` below —
 	// the briefing prompt and any later coordinator-delivered mail
 	// (SetTurnSink). TeeAndClose only ever sees the outbound `out`/ChatEvent
@@ -326,7 +326,7 @@ func (eh *EngineHost) startRun(sr *agentcoordpb.StartRun) *agentcoordpb.RunnerRe
 	}
 	eh.goTracked(func() { eh.adapt(ctx, home, adaptOut, chatErr) })
 
-	// U021-F01: SetTurnSink's closure and the briefing goroutine below both
+	// SetTurnSink's closure and the briefing goroutine below both
 	// send to the same UNBUFFERED `in`, from two different goroutines, with
 	// no ordering between them — a Go select/send race Go itself does not
 	// resolve in send order. If mail is already queued at standup
@@ -864,7 +864,7 @@ func injectMCPSocketEnv(servers []agent.ChatMCPServer, socket string) {
 // or unrecognized values fall back to TOOL_USE — the generic bucket, never
 // silently dropped.
 //
-// Wave C3 backend-parity recon: this mapping needs NO per-backend cases.
+// Backend-parity recon: this mapping needs NO per-backend cases.
 // claude/codex/kiro/generic-acp all reach here through the SAME code path —
 // internal/acp/mapping.go's permissionRequestEvent decodes every adapter's
 // session/request_permission via the one pinned ACP SDK's api.ToolCallKind,
@@ -922,7 +922,7 @@ func structFromJSON(raw json.RawMessage) *structpb.Struct {
 // wire — denies. Fail-CLOSED by construction, and the single definition
 // approvalResolution (approval.go) mirrors so the child's
 // InteractionRecorded and the coordinator's audit journal can never
-// disagree about the same event (oily-morse).
+// disagree about the same event.
 func interactionResolution(d agentcoordpb.ApprovalDecision_Decision) agentcoordpb.InteractionRecorded_Resolution {
 	switch d {
 	case agentcoordpb.ApprovalDecision_DECISION_ACCEPT, agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION:

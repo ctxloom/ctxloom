@@ -40,7 +40,7 @@ func itemsSnapshotPath(stateDir string) string {
 // leaves a torn snapshot the loader would need to detect). Best-effort: a
 // failure warns — the journal remains the source of truth regardless.
 func (c *Coordinator) writeItemsSnapshot() {
-	// U019-F01: offset and fold state MUST be read atomically (OffsetView),
+	// Offset and fold state MUST be read atomically (OffsetView),
 	// not as Offset() followed by a separate View() — a concurrent Exec
 	// landing in that gap would tag a snapshot of NEWER state with an OLDER
 	// offset, and a later tail replay from that offset would re-apply facts

@@ -61,7 +61,7 @@ const (
 	// CauseChatClose is the legacy chat-stream-close path (endChild): the
 	// child's engine event stream ended. Host children's only signal in B1.
 	CauseChatClose = "chat-close"
-	// CauseRunnerLoss is the coordinator-side synthesis (review R3): the
+	// CauseRunnerLoss is the coordinator-side synthesis: the
 	// run's RunnerChannel disconnected or missed heartbeats past the bound.
 	CauseRunnerLoss = "runner-loss"
 	// CauseRunnerExit is an explicit RunExited frame from the runner.
@@ -109,7 +109,7 @@ type runEnqueued struct {
 	Ladder []ladderRungFact `json:"ladder,omitempty"`
 	// Permission is the child's resolved permission mode's kind name
 	// (agent.PermissionMode.String(): "bypass"|"plan"|"default"|
-	// "acceptEdits") — Wave F1 (taskloom spare-chevy), journaled at enqueue
+	// "acceptEdits") — Wave F1, journaled at enqueue
 	// for the SAME reason as Ladder: a later config edit must not
 	// retroactively change what a live run's privileges were. Kind name, not
 	// a wire number, so runs.jsonl stays jq-legible.

@@ -20,7 +20,7 @@ import (
 
 // Runner liveness parameters. The runner heartbeats every HeartbeatInterval;
 // the coordinator synthesizes RunExited for a runner's active runs after
-// RunnerLossHeartbeats MISSED heartbeats (review R3: docker-stop kills runner
+// RunnerLossHeartbeats MISSED heartbeats (docker-stop kills runner
 // and harness together, so RunExited is never sent in the motivating
 // scenario — synthesis on disconnect or heartbeat silence is the load-bearing
 // path). With N=3 at 5s the silent-loss detection bound is 20s
@@ -245,7 +245,7 @@ func (s *coordService) RunnerChannel(stream grpc.BidiStreamingServer[agentcoordp
 
 	// Single writer pump: coordinator-initiated RunnerRequests (StartRun
 	// foremost) funnel through rs.send — the same discipline runChan uses
-	// on RunChannel, reversed. goTracked (flaky-agentcoord S1): see
+	// on RunChannel, reversed. goTracked: see
 	// RunChannel's identical pump in runchannel.go for why this only
 	// terminates once the underlying gRPC transport is actually cut
 	// (srv.close()'s GracefulStop/Stop), not on c.baseCtx cancellation alone.

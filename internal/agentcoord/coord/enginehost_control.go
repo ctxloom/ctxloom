@@ -53,7 +53,7 @@ type turnTag struct {
 // the briefing's successor sends, coordinator mail, and each control verb.
 //
 // It does three things that must happen together: it waits for the briefing to
-// have gone first (U021-F01 — a turn that overtakes the briefing makes the
+// have gone first (a turn that overtakes the briefing makes the
 // child's first turn something other than its task), it pushes tag onto the
 // turn-attribution FIFO in the same order the sends land, and it records the
 // user turn in the canonical transcript once the engine has actually taken it.

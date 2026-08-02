@@ -32,7 +32,7 @@ const MCPPath = discover.MCPPath
 
 // coordServing is the coordinator's listener set: the loopback listener
 // (default) plus, only while a container runner is active, listeners on the
-// container-reachable bridge/host interfaces — never 0.0.0.0 (review R10).
+// container-reachable bridge/host interfaces — never 0.0.0.0.
 // One plaintext-HTTP/2 (h2c) listener carries the gRPC channels; non-gRPC
 // requests answer 404 (the tool surface lives at each RUNNER's local
 // socket).
@@ -180,7 +180,7 @@ func (s *coordServing) saveEndpointLocked() {
 // LoopbackURL is the coordinator URL for host-side callers (the parent
 // harness's runner, host children's runners). Empty until Serve.
 //
-// test-only: no production call site (U022-F15) — production reaches the
+// test-only: no production call site — production reaches the
 // same value through ReachURL("host"). Kept as its own accessor rather than
 // deleted because it has a genuine cross-package test consumer
 // (internal/cli/mcp_runner_artifact_test.go), and every one of its 8 call
@@ -227,7 +227,7 @@ func (c *Coordinator) ReachURL(runtimeAxis string) (string, error) {
 // actually needs it (a host-only session never binds it), and every gRPC stream
 // and request on it authenticates against a per-run credential.
 //
-// R10 ("never 0.0.0.0") is satisfied everywhere. "Nothing LAN-visible" holds on
+// "Never 0.0.0.0" is satisfied everywhere. "Nothing LAN-visible" holds on
 // darwin/windows and does NOT hold on Linux — the LAN-visible bind is the cost
 // of reaching a rootless container, deliberately paid.
 func (s *coordServing) ensureWide() (string, error) {
@@ -302,7 +302,7 @@ func (s *coordServing) ensureWide() (string, error) {
 // Close's cancel does not reach them). Without this, srv.close previously
 // just closed the listeners and left every live streaming handler running
 // until its client side happened to disconnect — exactly the "in-flight
-// streaming handlers keep running" gap flaky-agentcoord's plan diagnosed.
+// streaming handlers keep running" gap this diagnosed.
 //
 // Stop(), not GracefulStop(): grpc-go's ServeHTTP path (the only path this
 // server ever runs — see grpcServer's doc) wraps each connection in a

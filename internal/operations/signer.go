@@ -214,9 +214,9 @@ func appendAllowedSignersLine(fs afero.Fs, path, line string) error {
 	b.WriteString(line)
 	b.WriteString("\n")
 
-	// U087-F10: this is the trust root — a crash or concurrent read mid-write
-	// must never observe a truncated/partial allowed_signers file. Atomic
-	// write via a same-dir temp file + rename (dir already created above).
+	// This is the trust root — a crash or concurrent read mid-write must
+	// never observe a truncated/partial allowed_signers file. Atomic write
+	// via a same-dir temp file + rename (dir already created above).
 	if err := iox.WriteFileAtomicFs(fs, path, []byte(b.String()), 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
@@ -231,7 +231,7 @@ type SignerListing struct {
 	Source string
 	Path   string
 	// Suppressed marks an "embedded" entry this machine has locally
-	// DISTRUSTED (oozy-plod (b) — see config.SuppressedEmbeddedPrincipals /
+	// DISTRUSTED (see config.SuppressedEmbeddedPrincipals /
 	// RemoveSigner's embedded-suppression path below). Always false for
 	// "user"/"project" entries — removing one of those deletes the line
 	// outright, there is nothing left to tag. A suppressed embedded entry is
@@ -261,10 +261,10 @@ type SignerListing struct {
 // spec §7, location 1) IS surfaced here as individual entries, tagged
 // "embedded": an operator auditing "whom do I trust to publish?" must be able
 // to see every key that grants trust, including the one compiled into the
-// binary — hiding it here was itself the oozy-plod defect (this function
-// used to omit it entirely, justified by a comment claiming the embedded root
-// was "empty today"; that stopped being true the moment a release key was
-// actually embedded). config.EmbeddedSigners() returns a READ view — the
+// binary — hiding it here was itself a defect (this function used to omit
+// it entirely, justified by a comment claiming the embedded root was "empty
+// today"; that stopped being true the moment a release key was actually
+// embedded). config.EmbeddedSigners() returns a READ view — the
 // Store type exposes no mutator — so
 // this enumerates entries with no mutation path opening up. An embedded entry
 // is NOT removable via this CLI (only a new binary changes the compiled-in
@@ -364,13 +364,13 @@ type RemoveSignerResult struct {
 	Removed int
 	// EmbeddedSuppressed is true when Principal ALSO matched ctxloom's
 	// EMBEDDED trust root (spec §7, location 1), in which case this call
-	// additionally persisted a local suppression record (oozy-plod (b)):
-	// ADDITIVE with Removed, which counts on-disk allowed_signers lines
-	// actually deleted — a principal can be both an on-disk entry and an
-	// embedded one, and both effects must land (U087-F17(a): an early
-	// return on Removed>0 used to skip the embedded check entirely,
-	// leaving the embedded key trusted after the on-disk line was
-	// deleted). The embedded key's compiled-in bytes are never touched —
+	// additionally persisted a local suppression record: ADDITIVE with
+	// Removed, which counts on-disk allowed_signers lines actually deleted
+	// — a principal can be both an on-disk entry and an embedded one, and
+	// both effects must land (an early return on Removed>0 used to skip the
+	// embedded check entirely, leaving the embedded key trusted after the
+	// on-disk line was deleted). The embedded key's compiled-in bytes are
+	// never touched —
 	// only a new binary changes those — but the suppression is REAL:
 	// config.TrustRoot() subtracts the matching embedded entry from the
 	// trust root on every subsequent decision, so content signed only by
@@ -391,11 +391,11 @@ type RemoveSignerResult struct {
 //
 // The embedded trust root is a separate, ADDITIVE case: this command can
 // never delete its compiled-in bytes, but whenever Principal ALSO names an
-// embedded entry, RemoveSigner ALSO persists a LOCAL distrust record (oozy-
-// plod (b) — see EmbeddedSuppressed/suppressEmbeddedPrincipal) — regardless
-// of whether an on-disk line was removed. A principal can be BOTH an
-// on-disk allowed_signers line and an embedded entry at once; U087-F17(a)
-// used to return as soon as the on-disk removal counted anything, silently
+// embedded entry, RemoveSigner ALSO persists a LOCAL distrust record (see
+// EmbeddedSuppressed/suppressEmbeddedPrincipal) — regardless of whether an
+// on-disk line was removed. A principal can be BOTH an on-disk
+// allowed_signers line and an embedded entry at once; RemoveSigner used to
+// return as soon as the on-disk removal counted anything, silently
 // skipping the embedded check and leaving the embedded key trusted after the
 // on-disk line was gone. This is the practical equivalent of removal for a
 // root nothing can literally edit, and it is a REAL effect, not a message:
@@ -491,8 +491,8 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 	if len(kept) > 0 {
 		out += "\n"
 	}
-	// U087-F10: same atomic-write requirement as appendAllowedSignersLine —
-	// the trust root must never be observed half-rewritten.
+	// Same atomic-write requirement as appendAllowedSignersLine — the trust
+	// root must never be observed half-rewritten.
 	if err := iox.WriteFileAtomicFs(fs, path, []byte(out), 0o600); err != nil {
 		return 0, fmt.Errorf("write %s: %w", path, err)
 	}
@@ -505,7 +505,7 @@ func removeFromAllowedSignersFile(fs afero.Fs, path, principal string) (int, err
 // glob), or nil if none does. Callers need the matched ENTRY, not just a
 // bool: suppressEmbeddedPrincipal must record what the entry's own
 // Principals actually say, not the (possibly glob-expanded) identity the
-// user typed — see its doc for why (U087-F17(b)).
+// user typed — see its doc for why.
 func matchingEmbeddedEntry(principal string) *allowedsigners.Entry {
 	for _, e := range config.EmbeddedSigners().Entries() {
 		if e.MatchesPrincipal(principal) {
@@ -538,10 +538,10 @@ func distrustedSignersStorePath(cfg *config.Config, project bool) (string, error
 // -> Entry.MatchesAnyPrincipal) honors on every future decision is a LITERAL
 // membership check against the embedded entry's OWN Principals strings, not
 // a glob match. Recording the user-typed identity instead of entry's actual
-// Principals (U087-F17(b)) would report success here while never actually
-// suppressing anything for a glob-principal embedded entry: the read side's
-// literal check would never find the typed identity among the entry's own
-// (glob) Principals. Recording every one of entry's own Principals strings
+// Principals would report success here while never actually suppressing
+// anything for a glob-principal embedded entry: the read side's literal
+// check would never find the typed identity among the entry's own (glob)
+// Principals. Recording every one of entry's own Principals strings
 // closes that gap and is what the read side's literal check needs to see.
 // Idempotent: a principal already recorded is left as-is, never duplicated.
 func suppressEmbeddedPrincipal(fs afero.Fs, cfg *config.Config, entry allowedsigners.Entry, project bool) (string, error) {

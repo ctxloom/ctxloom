@@ -17,7 +17,7 @@ import (
 // This is only ever invoked for a ref already shaped "<alias>/<path>" with no
 // local file at that name (remote.CanonicalizeShortRef's own gate) — so a
 // failure here is never "an ordinary local bundle name", it is specifically
-// "this alias is not one the registry knows". U087-F08: that failure used to
+// "this alias is not one the registry knows". That failure used to
 // return "" (leave the ref as authored) with NO signal, at all three call
 // sites — including the canonicalize-ON-STORE sites (CreateProfile/
 // UpdateProfile/SetAgent), where a typo'd or unregistered alias was then

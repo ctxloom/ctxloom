@@ -260,7 +260,7 @@ func TestRemoveSigner_UnknownPrincipalIsNoopNotError(t *testing.T) {
 	assert.Equal(t, 0, res.Removed)
 }
 
-// TestSignerWrites_LeaveNoLeftoverTempFile: U087-F10. Both write sites
+// TestSignerWrites_LeaveNoLeftoverTempFile: both write sites
 // (appendAllowedSignersLine via AddSigner, removeFromAllowedSignersFile via
 // RemoveSigner) now go through iox.WriteFileAtomicFs (temp file + rename)
 // instead of a direct afero.WriteFile, so the trust root is never observed
@@ -296,7 +296,7 @@ func mustAllowedSignersProjectPath(t *testing.T, cfg *config.Config) string {
 	return path
 }
 
-// --- oozy-plod (a): embedded-key visibility --------------------------------
+// --- embedded-key visibility ------------------------------------------------
 
 // testEmbeddedPrincipal is ctxloom's REAL compiled-in publisher principal
 // (internal/config/embedded_signers.allowed_signers) — these tests target the
@@ -334,7 +334,7 @@ func TestShowSigner_ShowsEmbeddedPrincipal(t *testing.T) {
 	assert.Equal(t, "embedded", found[0].Source)
 }
 
-// --- oozy-plod (b): embedded-key local suppression -------------------------
+// --- embedded-key local suppression -----------------------------------------
 
 func TestRemoveSigner_EmbeddedPrincipal_SuppressesRatherThanNoEntry(t *testing.T) {
 	_, cfg := setupBundleTestDir(t)
@@ -394,8 +394,8 @@ func TestRemoveSigner_EmbeddedPrincipal_TakesEffectOnTrustRoot(t *testing.T) {
 	assert.False(t, after.Trusted, "after `signer remove` suppresses the embedded principal, TrustRoot() must no longer trust its key")
 }
 
-// TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive pins U087-F17(a):
-// a principal that is BOTH an on-disk allowed_signers line AND an embedded
+// TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive: a principal
+// that is BOTH an on-disk allowed_signers line AND an embedded
 // entry used to get only the on-disk line deleted (the `if removed > 0
 // {return}` early return skipped the embedded check entirely), leaving the
 // embedded key still trusted after `signer remove` reported success. Both
@@ -435,8 +435,8 @@ func TestRemoveSigner_BothOnDiskAndEmbedded_EffectsAreAdditive(t *testing.T) {
 		"the suppressed embedded key must no longer be trusted — this is the effect F17(a)'s early return used to skip")
 }
 
-// TestSuppressEmbeddedPrincipal_RecordsEntrysLiteralPrincipals pins
-// U087-F17(b): the WRITE side (suppressEmbeddedPrincipal) decides what
+// TestSuppressEmbeddedPrincipal_RecordsEntrysLiteralPrincipals: the WRITE
+// side (suppressEmbeddedPrincipal) decides what
 // entry matched by GLOB (Entry.MatchesPrincipal, ssh_config PATTERNS), but
 // the READ side (config's filterSuppressedPrincipals, via
 // Entry.MatchesAnyPrincipal) subtracts by LITERAL membership of the
@@ -511,7 +511,7 @@ func (f strictMkdirFs) MkdirAll(path string, perm os.FileMode) error {
 	return f.Fs.MkdirAll(path, perm)
 }
 
-// TestAppendAllowedSignersLine_ParentDirs pins U087-F20: the parent directory
+// TestAppendAllowedSignersLine_ParentDirs: the parent directory
 // of the allowed_signers path is created before the write, INCLUDING the
 // depth-1 case ("/allowed_signers"), whose parent is the root.
 //
@@ -545,7 +545,7 @@ func TestAppendAllowedSignersLine_ParentDirs(t *testing.T) {
 	}
 }
 
-// --- U136-F03: a line the parser dropped must not read as "not there" -------
+// --- a line the parser dropped must not read as "not there" -----------------
 
 // writeAllowedSignersLines replaces the project allowed_signers file with
 // exactly these lines — the seam for exercising a store that has content
@@ -640,7 +640,7 @@ func TestListSigners_UnparseableLine_DoesNotBlankTheListingAndIsCounted(t *testi
 	assert.Equal(t, 1, unreadable, "the dropped line must appear in the audit listing, not vanish from it")
 }
 
-// --- U087-F06: an unreadable trust store must not read as an empty one ------
+// --- an unreadable trust store must not read as an empty one ----------------
 
 // requireNonRoot skips when the test process can read a 0000 file anyway.
 // Root bypasses DAC permission checks, so an EACCES test silently becomes a

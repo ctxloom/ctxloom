@@ -80,8 +80,8 @@ func TestResolveSignTarget_EmptyRefErrors(t *testing.T) {
 
 // TestSignBundleFile_WritesSigThatVerifyPublisherAccepts is the core
 // red-line assertion: ctxloom sign writes a .sig VerifyPublisher (the real
-// production verification path — S4/S5) accepts as a valid publish
-// signature, over the exact bundle file bytes.
+// production verification path) accepts as a valid publish signature, over
+// the exact bundle file bytes.
 func TestSignBundleFile_WritesSigThatVerifyPublisherAccepts(t *testing.T) {
 	_, cfg := setupBundleTestDir(t)
 	_, err := CreateBundle(context.Background(), cfg, CreateBundleRequest{Name: "my-tools"})
@@ -248,7 +248,7 @@ func TestSignItem_NoSignerIsHardError(t *testing.T) {
 	assert.Error(t, statErr, "a refused sign must not leave a signature behind")
 }
 
-// U087-F02: SignBundleFile read the bundle file and handed the bytes to
+// SignBundleFile read the bundle file and handed the bytes to
 // signing.Sign with no length check, so a truncated or zero-byte bundle got a
 // .sig and a "Signed ..." line at exit 0 — a valid publish signature covering
 // nothing. bundles.ParseBundle yaml.Unmarshals empty input without error, so the
@@ -274,7 +274,7 @@ func TestSignBundleFile_RefusesAZeroByteBundle(t *testing.T) {
 	assert.Error(t, statErr, "a refused sign must not leave a signature behind")
 }
 
-// U042-F26: ListLocalBundleNames swallowed EVERY ReadDir error with a bare
+// ListLocalBundleNames swallowed EVERY ReadDir error with a bare
 // `continue`, so a bundle dir it could not read was indistinguishable from one
 // that simply is not there, and `sign --all` reported "no local bundles to
 // sign" at exit 0. An absent dir is legitimately nothing; one that exists and
@@ -308,8 +308,8 @@ func TestListLocalBundleNames_AbsentDirIsNotAnError(t *testing.T) {
 	assert.Empty(t, names)
 }
 
-// TestListLocalBundleNames_MatchesTheLoadersEnumeration is U087-F03's gate,
-// and it is deliberately a CROSS-CHECK against the real loader rather than a
+// TestListLocalBundleNames_MatchesTheLoadersEnumeration is a gate, and it is
+// deliberately a CROSS-CHECK against the real loader rather than a
 // hand-written expectation: `sign --all` must sign every bundle the rest of
 // ctxloom can load out of the authored dirs, and the only trustworthy
 // statement of "every bundle" is the enumeration bundles.Loader actually

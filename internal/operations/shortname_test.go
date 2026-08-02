@@ -85,7 +85,7 @@ func TestCreateProfile_CanonicalizesShortRefs(t *testing.T) {
 	}, saved.Parents)
 }
 
-// TestRegistryAliasToURL_UnknownAliasWarns pins U087-F08: an alias-shaped ref
+// TestRegistryAliasToURL_UnknownAliasWarns: an alias-shaped ref
 // ("<alias>/<path>") whose alias the registry does not know used to resolve to
 // "" (ref kept as authored) with no signal anywhere. The fallback behavior is
 // unchanged — resolution still fails safe and the on-disk format is untouched

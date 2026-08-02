@@ -123,10 +123,9 @@ func TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin(t *testing.T)
 		"an installed companion's agent-setup command must be composed in exactly like a repo bundle's")
 }
 
-// TestResolveSetupPrompt_HealthyPathNeverWarns pins U087-F07's fix: the two
-// newly-added clidiag.Warn calls (listing-failure, per-ref read-failure) fire
-// only on their respective error paths, never on an ordinary successful
-// composition. Regression net against a future edit relaxing that condition.
+// TestResolveSetupPrompt_HealthyPathNeverWarns is a regression net: the two
+// clidiag.Warn calls (listing-failure, per-ref read-failure) fire only on
+// their respective error paths, never on an ordinary successful composition.
 func TestResolveSetupPrompt_HealthyPathNeverWarns(t *testing.T) {
 	testsupport.Isolate(t)
 	appDir, _ := regenTestApp(t)

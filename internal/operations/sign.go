@@ -163,15 +163,15 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 // cache: this project only has write access to its own authored bundle files.
 // Sorted for deterministic --all output.
 //
-// The enumeration MIRRORS bundles.Loader.List (U087-F03): both bundle shapes,
-// walked recursively, named by slash-joined path relative to the search dir.
+// The enumeration MIRRORS bundles.Loader.List: both bundle shapes, walked
+// recursively, named by slash-joined path relative to the search dir.
 // Listing only top-level `*.yaml` files skipped every DIRECTORY-form bundle —
 // which is exactly the shape that can ship skills (skills.go requires
 // directory form) — so a bundle with skills was unsignable via --all while
 // the command reported success having signed a subset. It is mirrored rather
 // than delegated because the loader's walk deliberately swallows read errors
 // (a corrupt bundle must not blank a listing), whereas this set decides what
-// gets SIGNED: an unreadable authored dir has to stay loud here (U042-F26).
+// gets SIGNED: an unreadable authored dir has to stay loud here.
 func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) ([]string, error) {
 	fs = getFS(fs)
 	var names []string
@@ -183,12 +183,12 @@ func ListLocalBundleNames(cfg *config.Config, fs afero.Fs) ([]string, error) {
 		}
 	}
 	for _, dir := range cfg.GetBundleDirs() {
-		// U042-F26: an ABSENT dir is legitimately nothing to list; an
-		// unreadable one (wrong permissions, a file where a directory
-		// should be, an I/O error) is a failure to find out, and swallowing
-		// it made a misconfigured GetBundleDirs indistinguishable from an
-		// empty project — `sign --all` then reported "no local bundles to
-		// sign" and exited 0.
+		// An ABSENT dir is legitimately nothing to list; an unreadable one
+		// (wrong permissions, a file where a directory should be, an I/O
+		// error) is a failure to find out, and swallowing it made a
+		// misconfigured GetBundleDirs indistinguishable from an empty
+		// project — `sign --all` then reported "no local bundles to sign"
+		// and exited 0.
 		if _, err := afero.ReadDir(fs, dir); err != nil {
 			if errors.Is(err, fs2.ErrNotExist) {
 				continue

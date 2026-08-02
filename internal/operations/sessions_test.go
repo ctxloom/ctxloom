@@ -48,10 +48,10 @@ func TestIsUnrecoverable(t *testing.T) {
 	})
 
 	t.Run("canonical transcript present, vendor transcript pruned -> recoverable", func(t *testing.T) {
-		// U087-F05: ctxloom's own capture is a full fallback. This is the
-		// predicate half of the fix; TestListSessions_KeepsSessionWithOnly
-		// ACanonicalTranscript covers the Reconcile half that makes the field
-		// non-empty in the first place.
+		// ctxloom's own capture is a full fallback. This is the predicate
+		// half of the fix; TestListSessions_KeepsSessionWithOnlyACanonicalTranscript
+		// covers the Reconcile half that makes the field non-empty in the
+		// first place.
 		assert.False(t, isUnrecoverable(sessions.Entry{
 			TranscriptPath:          missing,
 			CanonicalTranscriptPath: present,
@@ -118,7 +118,7 @@ func TestSelectPreviousEntry(t *testing.T) {
 	})
 }
 
-// TestListSessions_KeepsSessionWithOnlyACanonicalTranscript is U087-F05's
+// TestListSessions_KeepsSessionWithOnlyACanonicalTranscript is an
 // end-to-end red: a session whose VENDOR transcript was pruned but whose
 // ctxloom-captured canonical transcript.jsonl survives must not be reaped.
 // The reap is a saveLocked — irreversible — so this exercises the real
@@ -164,8 +164,8 @@ func TestListSessions_KeepsSessionWithOnlyACanonicalTranscript(t *testing.T) {
 	assert.Contains(t, onDisk, e.HarpName, "the index on disk must still hold the entry")
 }
 
-// TestBindSession_TransientIndexReadFailureWarnsRatherThanFailingSilently pins
-// U087-F29: BindSession used to discard mgr.Find's error entirely, so a
+// TestBindSession_TransientIndexReadFailureWarnsRatherThanFailingSilently:
+// BindSession used to discard mgr.Find's error entirely, so a
 // transient index-read failure (a malformed on-disk index.yaml, here standing
 // in for any read/parse fault) was indistinguishable from "no entry for this
 // harp" — both took the same silent no-op. First-bind-wins never retries, so

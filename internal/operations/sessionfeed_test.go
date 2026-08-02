@@ -30,15 +30,15 @@ const feedWait = 5 * time.Second
 // seedFeedHarp mints an index entry; withTranscript records a canonical
 // transcript.jsonl for it (the store-tail's by-location association).
 //
-// tough-cloud S5: this used to drop a raw claude-code legacy-format fixture
-// into the harp's persist/transcripts store, exercising the by-location
-// LEGACY reader (operations.HistoryForBackend -> claude's SessionHistory).
-// That reader was deleted outright (the user's DELETE decision — claude's
-// scraper is gone, not demoted to an importer; see internal/claude/
-// claudecode.go's doc). These tests were never actually about claude's file
-// format — they exist to exercise the store-tail SOURCE-SELECTION mechanism
-// (live vs. store, auto fallback) — so they now seed the one by-location
-// association every backend still supports: ctxloom's own canonical capture.
+// This used to drop a raw claude-code legacy-format fixture into the harp's
+// persist/transcripts store, exercising the by-location LEGACY reader
+// (operations.HistoryForBackend -> claude's SessionHistory). That reader was
+// deleted outright (the user's DELETE decision — claude's scraper is gone,
+// not demoted to an importer; see internal/claude/claudecode.go's doc).
+// These tests were never actually about claude's file format — they exist
+// to exercise the store-tail SOURCE-SELECTION mechanism (live vs. store,
+// auto fallback) — so they now seed the one by-location association every
+// backend still supports: ctxloom's own canonical capture.
 func seedFeedHarp(t *testing.T, home string, withTranscript bool) string {
 	t.Helper()
 	mgr, err := sessions.Open("")
@@ -59,10 +59,10 @@ func seedFeedHarp(t *testing.T, home string, withTranscript bool) string {
 	return entry.HarpName
 }
 
-// fakeConsumerServer is a hermetic double for agentcoord.v1.ConsumerService
-// (D1/D2): no real coordinator, no journals — just enough to drive the
-// discovery + watch adapter under test, the same level of realism the
-// retired agentbus tests used for their fake TapHub-backed bus server.
+// fakeConsumerServer is a hermetic double for agentcoord.v1.ConsumerService:
+// no real coordinator, no journals — just enough to drive the discovery +
+// watch adapter under test, the same level of realism the retired agentbus
+// tests used for their fake TapHub-backed bus server.
 type fakeConsumerServer struct {
 	agentcoordpb.UnimplementedConsumerServiceServer
 
@@ -133,7 +133,7 @@ func (f *fakeConsumerServer) push(t *testing.T, ev *agentcoordpb.AgentEvent) {
 
 // startFakeCoordinator serves f over a real loopback gRPC listener and
 // writes the endpoint.json a fresh HOME needs for internal/agentcoord/
-// discover to find it (the D1/D2 discovery mechanism the retired agentbus
+// discover to find it (the discovery mechanism the retired agentbus
 // socket-glob convention is replaced by).
 func startFakeCoordinator(t *testing.T, home, projectKey string, f *fakeConsumerServer) {
 	t.Helper()
@@ -193,7 +193,7 @@ func pushToolCall(t *testing.T, f *fakeConsumerServer, seq uint64) {
 	})
 }
 
-// TestAdaptConsumerFeed_SeqGapDetection is PART 1's contract test: the
+// TestAdaptConsumerFeed_SeqGapDetection is a contract test: the
 // seq-discontinuity disciplines documented on adaptConsumerFeed's seq
 // bookkeeping (mid-run baseline join, reconnect-reissue duplicate, seq==0
 // tolerance, gap-then-continue) plus the emission shape itself — a
@@ -381,7 +381,7 @@ func TestWatchSessionFeed_LiveStitchesScrollback(t *testing.T) {
 }
 
 // TestWatchSessionFeed_AutoFallsBackToStore: no coordinator endpoint anywhere
-// → the S0 store tail feeds, transparently.
+// → the store tail feeds, transparently.
 func TestWatchSessionFeed_AutoFallsBackToStore(t *testing.T) {
 	home := testsupport.Isolate(t)
 	harp := seedFeedHarp(t, home, true)
@@ -442,11 +442,11 @@ func TestWatchSessionFeed_LiveNotHoldingHarpFallsBack(t *testing.T) {
 	assert.Equal(t, "stored question", feedEntryContent(t, nextFeedEvent(t, feed.Events)))
 }
 
-// TestWatchSessionFeed_AutoWarnsOnLiveTapFailure pins U087-F11: auto mode used
-// to fall back to the store tail with the live-tap error discarded entirely —
-// a coordinator up but rejecting the bearer credential (a real D1 auth
-// problem) was indistinguishable from one simply not holding the harp. The
-// fallback itself is correct behavior; the silence was the bug.
+// TestWatchSessionFeed_AutoWarnsOnLiveTapFailure: auto mode used to fall back
+// to the store tail with the live-tap error discarded entirely — a
+// coordinator up but rejecting the bearer credential (a real auth problem)
+// was indistinguishable from one simply not holding the harp. The fallback
+// itself is correct behavior; the silence was the bug.
 func TestWatchSessionFeed_AutoWarnsOnLiveTapFailure(t *testing.T) {
 	home := testsupport.Isolate(t)
 	harp := seedFeedHarp(t, home, true)
@@ -468,7 +468,7 @@ func TestWatchSessionFeed_AutoWarnsOnLiveTapFailure(t *testing.T) {
 		"auto-mode fallback must warn about the discarded live-tap error, not stay silent")
 }
 
-// TestWatchConsumerFeed_EmptyHostNeverWrapsNilErr pins U087-F15: when a
+// TestWatchConsumerFeed_EmptyHostNeverWrapsNilErr: when a
 // coordinator endpoint URL parses cleanly but has no host, the error path used
 // to hand %w a nil err (the u.Host == "" branch shared the same
 // fmt.Errorf(..., err) call as the parse-failure branch), producing a
@@ -504,7 +504,7 @@ func TestWatchFeed_DiscoveryAcrossMultipleCoordinators(t *testing.T) {
 }
 
 // TestWatchSessionFeed_UnknownHarp / NothingToWatch pin the resolver's error
-// surface (same texts the S0 command promised).
+// surface (same texts the command promised).
 func TestWatchSessionFeed_ErrorSurface(t *testing.T) {
 	home := testsupport.Isolate(t)
 

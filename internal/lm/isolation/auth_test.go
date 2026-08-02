@@ -19,7 +19,7 @@ func TestPresentEnvKeys_OnlyKnownSetVars(t *testing.T) {
 	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, out, "only set, known auth var NAMES cross (no value; empty + unknown dropped)")
 }
 
-// TestCopyCredentialFile_RefusesSymlinkDestination pins U062-F01:
+// TestCopyCredentialFile_RefusesSymlinkDestination pins that
 // copyCredentialFile used to os.WriteFile straight at dst, which FOLLOWS a
 // symlink there — a seed then writes through to whatever the link points at.
 // Live in this repo's own working copy: `.codex/auth.json` can be a symlink
@@ -88,7 +88,7 @@ func writeCreds(t *testing.T, home string, withDotClaude bool) {
 // ok; when present, the mount is a COPY of the credential file under
 // scratchDir, mounted read-write into the container HOME, byte-identical to
 // the host original (payload assertion — the copy, not just its presence,
-// is what makes the refresh-safe rw mount correct). tangy-heave: this used
+// is what makes the refresh-safe rw mount correct). This used
 // to also assert a SECOND mount carrying ~/.claude.json — removed along with
 // that mount (see claudeCredentialCopyMounts' doc): it leaked the host
 // user's own mcpServers registrations into every isolated agent, for mere
@@ -103,7 +103,7 @@ func TestClaudeCredentialCopyMounts_PresentAndAbsent(t *testing.T) {
 	writeCreds(t, home, true)
 	mounts, ok := claudeCredentialCopyMounts("/root", scratch)
 	require.True(t, ok)
-	require.Len(t, mounts, 1, "only the OAuth token file is ever mounted — never ~/.claude.json (tangy-heave)")
+	require.Len(t, mounts, 1, "only the OAuth token file is ever mounted — never ~/.claude.json")
 	assert.Equal(t, "/root/.claude/.credentials.json", mounts[0].Container)
 	assert.False(t, mounts[0].ReadOnly, "rw so claude's token refresh can write back into the scratch copy")
 	assert.NotEqual(t, filepath.Join(home, ".claude", ".credentials.json"), mounts[0].Host, "the mount targets a SCRATCH COPY, never the host original")
@@ -115,7 +115,7 @@ func TestClaudeCredentialCopyMounts_PresentAndAbsent(t *testing.T) {
 }
 
 // TestClaudeCredentialCopyMounts_OmitsDotClaudeEvenWhenPresent: ~/.claude.json
-// is never mounted at all (tangy-heave), regardless of whether it exists on
+// is never mounted at all, regardless of whether it exists on
 // the host — the OAuth token file is the only thing required or copied.
 func TestClaudeCredentialCopyMounts_OmitsDotClaudeEvenWhenPresent(t *testing.T) {
 	home := withFakeHome(t)
@@ -160,7 +160,7 @@ func TestResolveClaudeContainerAuth_PrefersEnvThenCredsThenDegrades(t *testing.T
 	assert.Empty(t, auth.mounts, "env passthrough does not mount credentials")
 }
 
-// TestResolveClaudeContainerAuth_AuthTokenAlsoTriggers pins the paced-even fix:
+// TestResolveClaudeContainerAuth_AuthTokenAlsoTriggers pins the fix:
 // a gateway host authenticates via ANTHROPIC_BASE_URL+ANTHROPIC_AUTH_TOKEN and
 // carries no ANTHROPIC_API_KEY at all — the resolver must still prefer env
 // passthrough over the credential mount in that case, not degrade to the
@@ -209,7 +209,7 @@ func TestContainerAuthMode_String(t *testing.T) {
 	assert.Equal(t, "none", authNone.String())
 }
 
-// --- Host+worktree credential seeding (grave-prize) -------------------------
+// --- Host+worktree credential seeding ----------------------------------
 
 // TestCredentialSeedSpecs_ClaudeCodeRegistered pins the registry entry claude
 // needs: keyed by the REGISTERED backend name "claude-code" (not "claude" —
@@ -225,7 +225,7 @@ func TestCredentialSeedSpecs_ClaudeCodeRegistered(t *testing.T) {
 }
 
 // TestCredentialSeedSpecs_CodexRegisteredKiroCredlessButHomed pins the
-// balmy-comic/legal-hula shape (per-engine-isolation-home plan §6, replacing
+// shape (per-engine-isolation-home plan §6, replacing
 // the old "codex/kiro not registered" pin): codex IS now registered — this
 // registry is its ONE credential-seed mechanism (backend.go's
 // linkUserCodexAuth symlink is deleted) — with copyable sourceFiles and
@@ -250,7 +250,7 @@ func TestCredentialSeedSpecs_CodexRegisteredKiroCredlessButHomed(t *testing.T) {
 	require.Len(t, kiroSpec.HomeVars, 2)
 
 	_, agyOK := credentialSeedSpecs["antigravity"]
-	assert.False(t, agyOK, "antigravity has no config-home lever at all (vast-rut)")
+	assert.False(t, agyOK, "antigravity has no config-home lever at all")
 }
 
 // TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →
@@ -270,11 +270,11 @@ func TestHostCredentialSeed_SkipsWhenEnvTriggerSet(t *testing.T) {
 }
 
 // TestHostCredentialSeed_CopiesCredentialFileWhenPresent is the
-// PAYLOAD-asserting test that would have caught the original grave-prize
+// PAYLOAD-asserting test that would have caught the original
 // bug: it does not just check for a nil error, it reads the seeded bytes
 // back and proves they are byte-identical to the host source, owner-only
 // (0600), and land at the exact path worktree.go's Env()
-// (CLAUDE_CONFIG_DIR = <configHome>/claude) expects. tangy-heave: this used
+// (CLAUDE_CONFIG_DIR = <configHome>/claude) expects. This used
 // to also assert a seeded ~/.claude.json copy — removed along with that
 // seed (see credentialSeedSpecs' claude-code sourceFiles doc): it leaked
 // the host user's own mcpServers registrations into every isolated agent's
@@ -301,11 +301,11 @@ func TestHostCredentialSeed_CopiesCredentialFileWhenPresent(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
 
 	assert.NoFileExists(t, filepath.Join(dest, "claude", ".claude.json"),
-		"~/.claude.json must never be seeded, present on the host or not (tangy-heave)")
+		"~/.claude.json must never be seeded, present on the host or not")
 }
 
 // TestHostCredentialSeed_OnlyCredentialFileRequired: only the OAuth token
-// file is required for seedOK — and (tangy-heave) ~/.claude.json is never
+// file is required for seedOK — and ~/.claude.json is never
 // seeded regardless of whether it exists on the host.
 func TestHostCredentialSeed_OnlyCredentialFileRequired(t *testing.T) {
 	home := withFakeHome(t)
@@ -360,7 +360,7 @@ func writeCodexAuth(t *testing.T, home string) {
 
 // =============================================================================
 // SeedCodexHome — the exported seam internal/codex's Setup (ensureCodexCredentials,
-// warm-yodel) calls to extend THIS package's copy-based codex credential seeding
+// calls to extend THIS package's copy-based codex credential seeding
 // to the in-tree/None axis, which never goes through provisionConfigHome at all.
 // =============================================================================
 
@@ -401,7 +401,7 @@ func TestSeedCodexHome_EnvTriggerSkips(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(dest, ".codex"))
 }
 
-// TestSeedCodexHome_NoSourceFailsLoud is warm-yodel's fail-loud contract: no
+// TestSeedCodexHome_NoSourceFailsLoud pins the fail-loud contract: no
 // OPENAI_API_KEY and no host ~/.codex/auth.json returns a non-nil, actionable
 // error — NEVER a silent success that would let codex launch straight into a 401.
 func TestSeedCodexHome_NoSourceFailsLoud(t *testing.T) {
@@ -418,7 +418,7 @@ func TestSeedCodexHome_NoSourceFailsLoud(t *testing.T) {
 // realisticDotClaudeJSON is a stand-in for a real user's ~/.claude.json: on a
 // live host that file is not a narrow OAuth-association record — it is
 // claude's WHOLE top-level config, including mcpServers entries for the
-// user's OWN personal integrations (tangy-heave's incident named Spotify,
+// user's OWN personal integrations (an incident named Spotify,
 // Gmail, Google Drive/Calendar, Todoist). Whatever value is under
 // "mcpServers" here stands in for that live confidential data.
 const realisticDotClaudeJSON = `{
@@ -429,7 +429,7 @@ const realisticDotClaudeJSON = `{
 	}
 }`
 
-// TestClaudeCredentialCopyMounts_NeverLeaksPersonalMCPConfig is tangy-heave's
+// TestClaudeCredentialCopyMounts_NeverLeaksPersonalMCPConfig is the
 // container-path regression test: claudeCredentialCopyMounts must not carry
 // the user's own mcpServers registrations (or any other non-auth state) into
 // an isolated agent's mounted config — an isolated agent seeing the host
@@ -457,9 +457,9 @@ func TestClaudeCredentialCopyMounts_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	}
 }
 
-// TestHostCredentialSeed_NeverLeaksPersonalMCPConfig is tangy-heave's
+// TestHostCredentialSeed_NeverLeaksPersonalMCPConfig is the
 // host+worktree-path counterpart: the same confidentiality property for
-// hostCredentialSeed (worktree.go's provisionConfigHome, grave-prize).
+// hostCredentialSeed (worktree.go's provisionConfigHome).
 func TestHostCredentialSeed_NeverLeaksPersonalMCPConfig(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
@@ -486,7 +486,7 @@ func TestHostCredentialSeed_NeverLeaksPersonalMCPConfig(t *testing.T) {
 }
 
 // =============================================================================
-// opencode host+worktree credential seeding (sunny-saga) -------------------
+// opencode host+worktree credential seeding ---------------------------
 //
 // Before this registry entry, "opencode" had NO credentialSeedSpec: worktree.go's
 // seedCredentials short-circuited at `if !ok { return nil }` with no
@@ -530,7 +530,7 @@ func writeOpencodeAuth(t *testing.T, home string, withMcpAuth bool) {
 // applies to a HonoursVarForCreds==false spec).
 func TestCredentialSeedSpecs_OpencodeRegistered(t *testing.T) {
 	spec, ok := credentialSeedSpecs["opencode"]
-	require.True(t, ok, "opencode must have a credentialSeedSpec (sunny-saga)")
+	require.True(t, ok, "opencode must have a credentialSeedSpec")
 	assert.Equal(t, "opencode", spec.engine)
 	assert.Equal(t, "OPENROUTER_API_KEY", spec.envTrigger)
 	assert.True(t, spec.HonoursVarForCreds, "opencode's XDG_DATA_HOME genuinely relocates auth.json — unlike kiro's partial lever")
@@ -576,7 +576,7 @@ func TestCredentialSeedSpecs_OpencodeSourceFilesIncludeAuthAndOptionalMcpAuth(t 
 }
 
 // TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode is the
-// PAYLOAD-asserting regression test for sunny-saga: the seeded auth.json
+// PAYLOAD-asserting regression test: the seeded auth.json
 // must land NOT at <configHome>/xdg-data/auth.json but at
 // <configHome>/xdg-data/opencode/auth.json — the exact path opencode itself
 // resolves ($XDG_DATA_HOME + "/opencode/auth.json"). If the destSubdir
@@ -645,7 +645,7 @@ func TestHostCredentialSeed_OpencodeSkipsWhenOpenrouterKeySet(t *testing.T) {
 // TestHostCredentialSeed_OpencodeNoSourceReturnsNoSourceNotError: no
 // OPENROUTER_API_KEY and no host auth.json → seedNoSource — the fail-loud case
 // the CALLER (worktree.go's seedCredentials) turns into a strictness.Fail. This
-// is the exact silent no-op sunny-saga exists to close: before this spec was
+// is the exact silent no-op this spec exists to close: before it was
 // registered, an unregistered "opencode" backend made seedCredentials
 // short-circuit with no finding recorded at all.
 func TestHostCredentialSeed_OpencodeNoSourceReturnsNoSourceNotError(t *testing.T) {
@@ -659,7 +659,7 @@ func TestHostCredentialSeed_OpencodeNoSourceReturnsNoSourceNotError(t *testing.T
 }
 
 // =============================================================================
-// antigravity container credential seeding (fatal-amino, 2026-07-22) --------
+// antigravity container credential seeding (2026-07-22) --------------------
 //
 // resolveAntigravityContainerAuth seeds agy's file-based OAuth token
 // (~/.gemini/antigravity-cli/antigravity-oauth-token — CONFIRMED the real
@@ -744,7 +744,7 @@ func TestResolveAntigravityContainerAuth_CredsThenDegrades(t *testing.T) {
 }
 
 // TestCredentialSeedSpecs_AntigravityNotRegistered: antigravity has no
-// credentialSeedSpecs entry (unchanged by fatal-amino) — HOME is not a
+// credentialSeedSpecs entry — HOME is not a
 // scoped isolation var it honours for creds, so its container auth mount is
 // built directly (antigravityCredentialCopyMounts) rather than through this
 // registry, and its host+worktree axis stays on curatedHomeSpecs.
@@ -766,7 +766,7 @@ func TestFileExists(t *testing.T) {
 	assert.False(t, fileExists(filepath.Join(dir, "absent.json")), "a missing path does not exist")
 }
 
-// TestCopyCredentialFile_TightensAPreExistingDestination is U062-F02's
+// TestCopyCredentialFile_TightensAPreExistingDestination pins a
 // regression. copyCredentialFile documents "copies src to dst at 0600
 // (owner-only)", but os.WriteFile applies its perm argument ONLY when it creates
 // the file — writing over a destination that already exists keeps whatever mode
@@ -791,10 +791,10 @@ func TestCopyCredentialFile_TightensAPreExistingDestination(t *testing.T) {
 	assert.Equal(t, `{"token":"secret"}`, string(got))
 }
 
-// TestHostCredentialSeed_TightensAPreExistingSeedDir is U062-F02's other half:
-// os.MkdirAll(destDir, 0o700) is likewise a no-op on an existing directory, so a
-// seed dir that already existed at a looser mode kept it while holding the copied
-// credential files.
+// TestHostCredentialSeed_TightensAPreExistingSeedDir is the other half of the
+// pin above: os.MkdirAll(destDir, 0o700) is likewise a no-op on an existing
+// directory, so a seed dir that already existed at a looser mode kept it
+// while holding the copied credential files.
 func TestHostCredentialSeed_TightensAPreExistingSeedDir(t *testing.T) {
 	home := withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "")
@@ -814,7 +814,7 @@ func TestHostCredentialSeed_TightensAPreExistingSeedDir(t *testing.T) {
 		"a pre-existing seed dir must still end up owner-only; it holds live credential bytes")
 }
 
-// TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced is U062-F09's
+// TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced pins a
 // regression. An unresolvable host HOME was folded into seedNoSource with the
 // error discarded, so a genuine environment fault reached the user as the
 // caller's "no credentials found to authenticate this run — run `codex login`"
@@ -840,7 +840,7 @@ func TestHostCredentialSeed_UnresolvableHostHomeIsSurfaced(t *testing.T) {
 	assert.Contains(t, stderr, "claude credential seed", "…named for the engine whose seed it broke")
 }
 
-// TestClaudeCredentialCopyMounts_CopyFailureIsNotSilentAbsence is U062-F10's
+// TestClaudeCredentialCopyMounts_CopyFailureIsNotSilentAbsence pins a
 // regression. The credential-copy mount builders collapsed "no host credential
 // exists" and "the credential exists but we could not copy it" into one ok=false,
 // so the caller emitted its authHint — "no ~/.claude/.credentials.json to
@@ -868,8 +868,8 @@ func TestClaudeCredentialCopyMounts_CopyFailureIsNotSilentAbsence(t *testing.T) 
 	assert.Contains(t, stderr, ".credentials.json")
 }
 
-// TestClaudeCredentialCopyMounts_AbsentCredentialStaysSilent is the other side of
-// U062-F10: a host with no credential file at all is an ordinary, expected state
+// TestClaudeCredentialCopyMounts_AbsentCredentialStaysSilent is the other side:
+// a host with no credential file at all is an ordinary, expected state
 // (the caller's authHint already explains it), so it must NOT warn — otherwise the
 // new signal is noise and stops meaning anything.
 func TestClaudeCredentialCopyMounts_AbsentCredentialStaysSilent(t *testing.T) {
@@ -883,9 +883,9 @@ func TestClaudeCredentialCopyMounts_AbsentCredentialStaysSilent(t *testing.T) {
 	assert.Empty(t, stderr, "an absent host credential is an expected state, not a fault to warn about")
 }
 
-// --- hostCredentialSeed characterization: every arm, before and after the
-// U062-F15 split. These are not regressions; they exist so a complexity
-// reduction that changes behaviour cannot pass as one.
+// --- hostCredentialSeed characterization: every arm, before and after a
+// complexity-reduction split. These are not regressions; they exist so a
+// change that alters behaviour cannot pass as a pure refactor.
 
 // TestHostCredentialSeed_SeedDirUncreatable: the destination cannot be made at
 // all (configHome is a file). That is a hard error, distinct from every

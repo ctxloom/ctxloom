@@ -333,14 +333,14 @@ func (p *Puller) resolveRemoteTarget(ref *Reference) (repoURL string, rem *Remot
 // previously recorded anywhere — the gap that left a forced/sync re-pull of
 // retracted content just as exposed as before.
 func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, repo string, ref *Reference, localName string, opts PullOptions) (retracted bool, reason string, checkedAt time.Time, err error) {
-	// The determination failure is NOT discarded (U150-F04). CheckRetracted's
+	// The determination failure is NOT discarded. CheckRetracted's
 	// error slot is useless if the caller drops it: an "I could not determine
 	// this" would otherwise carry on indistinguishably from "clean", which is
 	// the exposure the retraction channel exists to prevent. A pull whose
 	// retraction status is unknown does not proceed — not even under Force,
 	// which waives the publisher's WARNING, not the check itself.
 	//
-	// resolveRetraction handles the fetch-failure half (U088-F01/U095-F02):
+	// resolveRetraction handles the fetch-failure half:
 	// it falls back to the last verdict this project itself recorded for
 	// localName rather than treating an unreachable remote as "clean" —
 	// only a genuinely unparseable manifest still reaches err here.
@@ -369,8 +369,8 @@ func (p *Puller) confirmRetraction(ctx context.Context, fetcher Fetcher, owner, 
 // resolveRetraction determines refStr/ref's retraction status for THIS call:
 // CheckRetracted's live verdict when the remote answered, or — when it could
 // not (RetractionUnknown) — the LAST verdict this project itself recorded for
-// localName, if any. This is the fail-stale fix for U088-F01 and U095-F02's
-// fetch-failure half (U150-F04's parse-failure half was already fixed and is
+// localName, if any. This is the fail-stale fix for the fetch-failure half
+// (the parse-failure half was already fixed and is
 // untouched here: a hard error from CheckRetracted still propagates as an
 // error, never falls back).
 //
@@ -460,7 +460,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// lockfile pair is the storage, and reads at the locked SHA go through
 	// remote.BundleReader / remote.ProfileReader. Nothing is materialized to
 	// disk, so LocalPath is a synthetic informational string and a pull never
-	// overwrites a local file (U094-F10 — this used to be a separate
+	// overwrites a local file (this used to be a separate
 	// writePulledContent method whose only real parameters were localName and
 	// sha).
 	localPath := fmt.Sprintf("<remote>:%s@%s", item.localName, item.sha)
@@ -468,7 +468,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// Update lockfile with provenance (local name as key). For bundles, the
 	// lockfile is the *only* on-disk record — read sites resolve content via
 	// the SHA recorded here, and this is also where THIS pull's own fresh
-	// retraction verdict gets persisted. A failed write here (U094-F05) used
+	// retraction verdict gets persisted. A failed write here used
 	// to be demoted to a printed warning while Pull still returned success —
 	// so a pull whose sole persistent record failed to write reported a SHA
 	// and LocalPath for a pin that does not exist on disk, and on a retracted
@@ -484,7 +484,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// hadExisting reports whether localName already had a lockfile entry
 	// BEFORE this write — i.e. this pull replaced an existing pin rather than
 	// creating a new one. It is the real signal for "updated" vs "installed"
-	// (U094-F07: PullResult.Overwritten used to be hard-coded false, making
+	// (PullResult.Overwritten used to be hard-coded false, making
 	// operations/sync.go's "updated" status unreachable).
 	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt)
 	if err != nil {
@@ -533,7 +533,7 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 //
 // hadExisting reports whether localName already had a lockfile entry before
 // this write — the caller (installPulledItem) surfaces it as
-// PullResult.Overwritten (U094-F07).
+// PullResult.Overwritten.
 func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time) (hadExisting bool, err error) {
 	itemType := opts.ItemType
 	target := p.lockfileManager

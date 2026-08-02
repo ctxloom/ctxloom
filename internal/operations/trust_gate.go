@@ -263,8 +263,8 @@ func warnWithheldItems(items []withheldItem) {
 // config.ResolveBuiltinBundleFragments), so this also fixes a prior gap where
 // a withheld builtin fragment surfaced no advisory whatsoever. Every real
 // production call site (context.go, hooks.go, tooling.go) always builds
-// through exposureLoaderGated, so gate is never nil in practice (U089-F14
-// deleted the nil-gate/raw-loader degrade path along with warnPendingTally,
+// through exposureLoaderGated, so gate is never nil in practice (the
+// nil-gate/raw-loader degrade path was deleted along with warnPendingTally,
 // its sole caller: that path only ever ran under a test-injected loader, and
 // two of its three advisory branches — pending>0&&rejected>0, rejected-only —
 // were unreachable even there, since the degrade always passed rejected=0).

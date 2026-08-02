@@ -311,12 +311,13 @@ fragments:
 	assert.NotContains(t, string(data), "BLOCKED-MARKER", "the rejected fragment must be withheld from SessionStart regen")
 }
 
-// TestContentGate_RecordsEveryDenyWithAReason pins the refutation of U089-F11,
-// which read contentGate as two types — a trust gate and a withheld-item
-// ledger — and proposed splitting them. The tally is not a second concern with
-// a life of its own: it is the gate's record of ITS OWN decisions, written on
-// every deny by the same call that made them, and read only through the gate
-// value its builder returned. What makes it load-bearing is the mandate that a
+// TestContentGate_RecordsEveryDenyWithAReason pins the refutation of a
+// proposal that read contentGate as two types — a trust gate and a
+// withheld-item ledger — and proposed splitting them. The tally is not a
+// second concern with a life of its own: it is the gate's record of ITS OWN
+// decisions, written on every deny by the same call that made them, and
+// read only through the gate value its builder returned. What makes it
+// load-bearing is the mandate that a
 // withhold is never silent or reasonless (docs/trust-model.md): the executable
 // surfaces reach the gate directly with no loader to tally them, so if the gate
 // did not record, nothing else could.
@@ -352,7 +353,7 @@ func TestContentGate_RecordsEveryDenyWithAReason(t *testing.T) {
 
 // TestParseTrustItemRef_AttemptedSourceRefsFailClosed pins the half of
 // parseTrustItemRef's fail-open boundary that is CORRECT, so it cannot regress
-// while the gap U089-F12 names is adjudicated separately. A string carrying a
+// while the remaining gap is adjudicated separately. A string carrying a
 // scheme marker that nonetheless fails remote.ParseReference must ERROR rather
 // than be downgraded to a first-party local bundle name: every caller treats
 // the error as fail-closed, so erroring withholds, while the downgrade would

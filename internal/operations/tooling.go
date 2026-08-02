@@ -122,7 +122,7 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 		}
 		// Configured but not actually on disk (deleted, never created, a typo'd
 		// path) — materialize it at the CONFIGURED location instead of
-		// silently reporting success with nothing written (U088-F04).
+		// silently reporting success with nothing written.
 		if merr := fs.MkdirAll(filepath.Dir(existing), 0o755); merr != nil {
 			return "", fmt.Errorf("create base Containerfile directory: %w", merr)
 		}
@@ -138,7 +138,7 @@ func ScaffoldContainerBase(mgr *config.Manager, cfg *config.Config, relPath stri
 	if !filepath.IsAbs(abs) {
 		abs = filepath.Join(cfg.GetAppRoot(), relPath)
 	}
-	// U088-F26: relPath is documented as project-root-relative, and the CLI
+	// relPath is documented as project-root-relative, and the CLI
 	// exposes it as a bare --path flag — untrusted user input. A "../"-laden
 	// relPath (or, via the IsAbs branch above, an absolute relPath naming
 	// anywhere on disk) must not be allowed to write outside the project.

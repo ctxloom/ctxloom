@@ -97,7 +97,7 @@ func TestScaffoldContainerBase_AlreadyConfiguredIsNoOp(t *testing.T) {
 	assert.True(t, os.IsNotExist(statErr), "no default-path file is written when a base is already configured")
 }
 
-// TestScaffoldContainerBase_RejectsPathTraversal: U088-F26. relPath rides in
+// TestScaffoldContainerBase_RejectsPathTraversal: relPath rides in
 // as a bare `--path` CLI flag with no containment check, so `--path
 // ../../evil` joined onto GetAppRoot() escaped the project entirely. The
 // call must error and nothing may land outside the project root.
@@ -115,7 +115,7 @@ func TestScaffoldContainerBase_RejectsPathTraversal(t *testing.T) {
 }
 
 // TestScaffoldContainerBase_MaterializesWhenConfiguredPathIsMissing:
-// U088-F04. isolation_base_containerfile can point at a path that was never
+// isolation_base_containerfile can point at a path that was never
 // actually created (deleted, a typo, checked out from a branch that doesn't
 // ship it) — ScaffoldContainerBase used to return that path as "already
 // configured" without ever checking it exists, so the CLI printed

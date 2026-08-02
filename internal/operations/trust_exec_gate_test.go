@@ -107,7 +107,7 @@ func TestExecGate_TrustedSignerExemptsExecutables(t *testing.T) {
 // bundle: a first-party local MCP server is written while a rejected sibling
 // is withheld. See TestExecGate_ResolveBundleMCPServers_CompanionRejectable
 // for the companion-loadout analogue of "an item can still be rejected
-// beyond its default exemption" — S8 moved ltk/taskloom off the in-binary
+// beyond its default exemption" — ltk/taskloom moved off the in-binary
 // builtin exemption (this test used to assert on) onto their own loadouts,
 // which are trusted-signer/pending like any other third-party content, never
 // exempt.
@@ -149,7 +149,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 // other third-party content: docs/trust-model.md states rejection beats
 // everything, including a trusted signer. This is the companion-loadout
 // analogue of the deleted TestExecGate_ResolveBundleMCPServers_BuiltinRejectable
-// (S8 moved ltk/taskloom off the in-binary builtin exemption that test used
+// (ltk/taskloom moved off the in-binary builtin exemption that test used
 // to drive onto their own loadouts, which are never exempt).
 func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
 	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
@@ -273,9 +273,9 @@ func TestExecGate_WithheldTallySplitsRejected(t *testing.T) {
 }
 
 // withheldStateTally counts g's withheld items by disposition, via the
-// richer withheldItems() accessor (U089-F13 deleted the now test-only
-// withheldTally method — this reproduces its exact pending/rejected split
-// for these two tests without carrying the dead method in production code).
+// richer withheldItems() accessor (the now test-only withheldTally method
+// was deleted — this reproduces its exact pending/rejected split for these
+// two tests without carrying the dead method in production code).
 func withheldStateTally(g *contentGate) (pending, rejected int) {
 	for _, item := range g.withheldItems() {
 		if item.Result.State() == trust.StateRejected {

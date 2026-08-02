@@ -63,7 +63,7 @@ func TestEffectiveTrust_AbsentApprovalsStore_NormalPending(t *testing.T) {
 // but cannot be read (permission denied listing it), EffectiveTrust must
 // deny the item — even one that would otherwise be ALLOWED at an earlier
 // step (here, step 2's local-content exemption) — and record a ClassTrust
-// strictness finding, mirroring the pre-S6 ledger's own store-open check.
+// strictness finding, mirroring the deleted ledger's own store-open check.
 // Proving the override on an IsLocal item is the point: if the preamble
 // merely fell through to steps 2-6 on error, this item would wrongly be
 // allowed at step 2 before ever consulting the (broken) approvals store.
@@ -235,7 +235,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending(
 	assert.Empty(t, strictness.Since(mark), "a fresh/absent approvals store must never record a strictness finding, even reached via the injected-records path")
 }
 
-// U137-F03 — the MIRROR trap test. The package's existing trap coverage runs
+// This is the MIRROR trap test. The package's existing trap coverage runs
 // the APPROVE direction (a corrupted approval resolves pending, never allow),
 // where collapsing "corrupt" onto "absent" is safe. This is the REJECT
 // direction, where the identical collapse is a fail-OPEN: a signed rejection

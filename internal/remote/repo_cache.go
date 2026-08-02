@@ -83,7 +83,7 @@ func (c *RepoCache) EnsureRef(ctx context.Context, repoURL string, forgeType For
 
 // EnsureFullRepo ensures a full clone exists. Identical to EnsureRepo now that
 // every clone is complete; retained as the explicit entry point for the eager
-// clone at `remote add` and the init-time clone of all remotes.
+// clone at `remote create` and the init-time clone of all remotes.
 func (c *RepoCache) EnsureFullRepo(ctx context.Context, repoURL string, forgeType ForgeType) (string, error) {
 	return c.ensureClone(ctx, repoURL, forgeType)
 }

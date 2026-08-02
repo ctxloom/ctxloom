@@ -32,7 +32,7 @@ func setWorktreeOwnerForTest(t *testing.T, wtDir string, pid int) {
 }
 
 // TestReapOrphanedWorktrees_ReapsCleanOrphan is the red-first proof for
-// bony-carry bug #2: a worktree whose owning process crashed (never reaching
+// a bug: a worktree whose owning process crashed (never reaching
 // its own Cleanup) is NEVER swept by anything today. This proves the missing
 // half exists and works — a startup sweep finds the ephemeral checkout,
 // confirms its recorded owner pid is dead, confirms the tree is genuinely
@@ -91,7 +91,7 @@ func TestReapOrphanedWorktrees_SparesUncommittedWIP(t *testing.T) {
 		// SURVIVES the sweep, so a raw RemoveAll plus a real
 		// `worktree remove --force` keeps git's own bookkeeping tidy without
 		// going through git.WorktreeRemove at all — that seam never force-
-		// removes (U053-F05: no force parameter exists on it).
+		// removes (no force parameter exists on it).
 		_ = os.RemoveAll(wtDir)
 		_ = gitRunNoFail(repo, "worktree", "remove", "--force", wtDir)
 	})
@@ -163,7 +163,7 @@ func gitRunNoFail(dir string, args ...string) error {
 	return gitCmd(dir, args...).Run()
 }
 
-// TestWorktreeRemoved_UnreadableIsNotGone is U065-F16's red-first pin. The
+// TestWorktreeRemoved_UnreadableIsNotGone is a red-first pin. The
 // REAPED-vs-SPARED verdict was `if _, statErr := os.Stat(wtDir); statErr != nil`,
 // which reads EVERY stat failure as "the tree is gone": EACCES on a parent
 // directory, ELOOP, ENAMETOOLONG. The sweep then reports a worktree it never

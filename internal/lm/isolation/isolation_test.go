@@ -292,7 +292,7 @@ func TestChainFor_NoRuntime_FatalUnlessDegraded(t *testing.T) {
 }
 
 // TestChainFor_AntigravityHostWorktree_NeverRefusesOrRecordsAFinding is the
-// successor to the former sweet-fruit fail-loud gate here: chainFor USED TO
+// successor to a former fail-loud gate here: chainFor USED TO
 // record a fatal ClassIsolation finding for host+worktree antigravity (a
 // choke owner abort unless --degraded), on the premise that antigravity has
 // "no config-home lever at all". That premise was measurably false (HOME
@@ -348,8 +348,8 @@ func TestChainFor_AntigravityHostWorktree_NeverRefusesOrRecordsAFinding(t *testi
 	})
 }
 
-// TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution is U064-F07's
-// pinning test. The row claimed an explicit runtime preference that is unknown
+// TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution pins that
+// an explicit runtime preference that is unknown
 // or unavailable is silently replaced by auto-detection, so "a user who
 // configured podman can get docker with no diagnostic". SelectRuntime's
 // fall-through is real, but no production path reaches it with a preference to
@@ -388,7 +388,7 @@ func TestSelectRuntime_NoProductionPathAcceptsASilentSubstitution(t *testing.T) 
 	}
 }
 
-// TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName pins U063-F13: the
+// TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName pins that the
 // predicate every "did we keep the container boundary?" check funnels through
 // must agree with what each policy actually calls itself. It used to match on
 // its own copies of the two name literals, so a rename on either base would
@@ -413,7 +413,7 @@ func TestIsContainerPolicyName_AgreesWithEveryPolicysOwnName(t *testing.T) {
 	assert.False(t, IsContainerPolicyName(""), "an empty name is never a container boundary")
 }
 
-// TestNonePrepareWorkspace_CannotFail REFUTES U063-F15, which flagged
+// TestNonePrepareWorkspace_CannotFail REFUTES a finding, which flagged
 // prepareChain's trailing `ws, _ := None{}.PrepareWorkspace(...)` as discarding
 // "the one place a total failure would be invisible". None.PrepareWorkspace
 // returns a literal nil error on every path — the discard is statically
@@ -448,7 +448,7 @@ func TestNonePrepareWorkspace_CannotFail(t *testing.T) {
 }
 
 // TestImageConfigZeroValue_DisablesDevcontainerDetectionSilently REFUTES
-// U063-F11, which called ImageConfig's zero value "self-contradictory"
+// a finding that called ImageConfig's zero value "self-contradictory"
 // (NoDevcontainerBase false says auto-detect ON while AppRoot "" forces it OFF)
 // and asked for a diagnostic. Both halves are wrong:
 //
@@ -480,7 +480,7 @@ func TestImageConfigZeroValue_DisablesDevcontainerDetectionSilently(t *testing.T
 }
 
 // TestImageOverrideAndBaseImageAreOppositeConcepts PARTIALLY refutes
-// U063-F07, which claimed ImageConfig and ImageBuildOptions "duplicate 6 of the
+// a finding that claimed ImageConfig and ImageBuildOptions "duplicate 6 of the
 // same concepts under different names". Five are genuinely the same and share
 // their names exactly (BaseContainerfile, AppRoot, NoDevcontainerBase,
 // DevcontainerService, Engines). The sixth pairing the row implies —

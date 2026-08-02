@@ -127,7 +127,8 @@ func TestAntigravityEncodeDeny(t *testing.T) {
 }
 
 // TestAntigravityEncodeDeny_ReasonlessRuleStillCarriesAReason pins the
-// invariant U029-F15 is about, at the layer that actually decides it.
+// invariant that a reasonless deny must still carry a reason, at the layer
+// that actually decides it.
 //
 // The row read `antigravitycli.EncodeDeny("")` — which emits
 // {"decision":"deny"} with no reason, so agy renders "Tool call denied with

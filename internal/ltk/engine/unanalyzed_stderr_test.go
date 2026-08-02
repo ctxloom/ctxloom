@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// U067-F03 pinned. `Output.Stderr` was originally a half-built channel:
+// `Output.Stderr` was originally a half-built channel:
 // cmd/ltk/evaluate.go consumed it (`if len(out.Stderr) > 0 { os.Stderr.Write(...) }`)
 // while no production code ever put a byte in it. The fix made every
 // Adapter.Encode emit the unanalyzed note into that channel, so an allow that
@@ -51,7 +51,7 @@ func TestEncodeUnanalyzedAllowWritesStderr(t *testing.T) {
 			}
 			if len(out.Stderr) == 0 {
 				t.Fatalf("an unanalyzed allow must write a diagnostic to Output.Stderr, got a zero Output " +
-					"— byte-identical to a clean allow (U067-F03)")
+					"— byte-identical to a clean allow")
 			}
 			// The note must name the cause, or it tells the operator nothing
 			// they can act on.

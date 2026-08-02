@@ -46,7 +46,7 @@ func TestUnrecognizedHostShellIsAnalyzedAsBashWithNoTrace(t *testing.T) {
 		t.Fatal("the rule should still fire: the command was analyzed, just as bash")
 	}
 	if r.Unanalyzed {
-		t.Fatal("Unanalyzed is set — the dialect substitution has become visible; U075-F01's escalation needs revisiting")
+		t.Fatal("Unanalyzed is set — the dialect substitution has become visible; the escalation this test warns about needs revisiting")
 	}
 	if r.ParseError != "" {
 		t.Fatalf("ParseError = %q, want empty", r.ParseError)

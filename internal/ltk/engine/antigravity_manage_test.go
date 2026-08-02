@@ -88,7 +88,7 @@ func TestDetectTiePrefersClaude(t *testing.T) {
 }
 
 // TestDetectTieIsAScoreTieWithAnOverride spells out the decision the test above
-// pins, because U067-F06 reads the same arrangement as a bug: a bare .claude/
+// pins, because it could otherwise be read as a bug: a bare .claude/
 // scores as high as an actually-installed .agents/hooks.json, and registry
 // order then hands the tie to Claude Code.
 //

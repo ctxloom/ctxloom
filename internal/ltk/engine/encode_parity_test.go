@@ -5,7 +5,7 @@ import "testing"
 // Every Adapter's Encode obeys ONE decision contract; only the wire bytes of a
 // denial are engine-specific. This pins that contract at the public seam
 // (Adapter.Encode) across every registered engine, so it is unchanged by how
-// the adapters are implemented behind it (U067-F07).
+// the adapters are implemented behind it.
 //
 // The four arms are the whole space Response admits, and each carries a
 // distinct obligation:
@@ -13,12 +13,12 @@ import "testing"
 //   - clean allow      → a ZERO Output: the host's own permission flow proceeds.
 //   - unanalyzed allow → still an allow on the wire, plus a stderr diagnostic,
 //     so "allowed per on_parse_error" is not byte-identical to "checked and
-//     nothing matched" (U005-F01/U067-F03).
+//     nothing matched".
 //   - deny             → a non-empty decision document on STDOUT at exit 0.
 //     Never an exit code: both hosts fail OPEN on a non-zero hook, so a denial
 //     signalled that way is invisible and the action proceeds.
 //   - reasonless deny  → still a non-empty document, because a deny that renders
-//     to nothing tells the agent neither why nor how to comply (U067-F01).
+//     to nothing tells the agent neither why nor how to comply.
 func TestEncodeParityAcrossAdapters(t *testing.T) {
 	cases := []struct {
 		name         string

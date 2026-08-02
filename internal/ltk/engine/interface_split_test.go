@@ -5,13 +5,12 @@ import (
 	"testing"
 )
 
-// U067-F05 says Engine is "two interfaces under one name" and asks for the
-// split. The split is already here and named: Adapter is the RUNTIME surface
-// (Name/Decode/Encode, what cmd/ltk evaluate needs) and Engine is Adapter plus
-// the five management methods (what cmd/ltk manage needs). This pins that
-// composition so it cannot quietly regress into the single fat interface the
-// row describes — which is what would have to happen for the claim to become
-// true.
+// Engine could be read as "two interfaces under one name", which would call
+// for a split. The split is already here and named: Adapter is the RUNTIME
+// surface (Name/Decode/Encode, what cmd/ltk evaluate needs) and Engine is
+// Adapter plus the five management methods (what cmd/ltk manage needs). This
+// pins that composition so it cannot quietly regress into a single fat
+// interface.
 func TestAdapterAndEngineStayComposed(t *testing.T) {
 	adapter := reflect.TypeOf((*Adapter)(nil)).Elem()
 	full := reflect.TypeOf((*Engine)(nil)).Elem()

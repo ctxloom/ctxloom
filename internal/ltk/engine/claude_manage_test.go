@@ -202,8 +202,8 @@ func TestClaudeInstallRejectsMalformed(t *testing.T) {
 	}
 }
 
-// Install and Uninstall must agree about what a malformed settings document is
-// (U067-F08). Uninstall used to type-assert its way past a `hooks` that is not
+// Install and Uninstall must agree about what a malformed settings document is.
+// Uninstall used to type-assert its way past a `hooks` that is not
 // an object (or a `PreToolUse` that is not an array) and return removed=false
 // with no error — which cmd/ltk reports as "no matching hook found", telling the
 // user their hook is not installed when in truth their settings file could not

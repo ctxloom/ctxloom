@@ -106,7 +106,7 @@ func TestMessage(t *testing.T) {
 		{Response{Reason: "no"}, "no"},
 		{Response{Suggest: "just test"}, "Use instead: just test"},
 		{Response{Reason: "no", Suggest: "just test"}, "no\n\nUse instead: just test"},
-		// U067-F01: a deny with NEITHER a reason nor a suggestion must still
+		// A deny with NEITHER a reason nor a suggestion must still
 		// render to a non-empty string — the agent must always be told
 		// something, never silence.
 		{Response{Allow: false}, "denied by ltk (no reason or suggested alternative was configured for this rule)"},
@@ -118,8 +118,8 @@ func TestMessage(t *testing.T) {
 	}
 }
 
-// TestClaudeMatcherCoversGatedTools pins the single-source-of-truth contract
-// (stark-boxer): the installed PreToolUse matcher must be DERIVED from the
+// TestClaudeMatcherCoversGatedTools pins the single-source-of-truth contract:
+// the installed PreToolUse matcher must be DERIVED from the
 // same tool set the runtime uses to recognise a payload. Two hand-maintained
 // lists is how one of them goes stale and silently stops gating.
 func TestClaudeMatcherCoversGatedTools(t *testing.T) {

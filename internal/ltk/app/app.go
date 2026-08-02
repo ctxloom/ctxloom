@@ -215,7 +215,7 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 		// Unsupported shell or parse error. Apply the on_parse_error policy —
 		// pass-through by default. Either way this decision is UNANALYZED: an
 		// allow here is not "the rules were checked and nothing matched", it is
-		// "nothing could be checked at all" (U005-F01/U067-F02) — carried on the
+		// "nothing could be checked at all" — carried on the
 		// Response so a caller (the CLI, an adapter's Encode) can say so instead
 		// of looking byte-identical to a clean allow.
 		if a.denyOnUnanalyzable() {
@@ -235,11 +235,10 @@ func (a *App) decide(ctx context.Context, req engine.Request) engine.Response {
 	// not produce this denial.
 	// A nested command that failed to PARSE (as opposed to depth) is a
 	// separate signal: previously this was silently dropped from the IR with
-	// no trace at all, which is the exact mechanism behind
-	// U066-F01/U068-F01/U070-F01/U071-F01 — a wrapped command ltk could not
-	// verify was treated identically to "nothing to see here" instead of
-	// going through the SAME on_parse_error policy the top-level parse
-	// failure above already respects.
+	// no trace at all — a wrapped command ltk could not verify was treated
+	// identically to "nothing to see here" instead of going through the
+	// SAME on_parse_error policy the top-level parse failure above already
+	// respects.
 	truncated, unanalyzed := a.Registry.ExpandWrappers(ctx, script)
 	if truncated {
 		return engine.Response{Allow: false, Unanalyzed: true,

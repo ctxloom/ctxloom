@@ -30,7 +30,7 @@ type Request struct {
 	// tool name). Extraction is NOT gated on name recognition — Command/FilePath
 	// may still be populated when the payload happens to reuse a known field
 	// name — but a truly unrecognized payload schema yields neither, and every
-	// rule would silently miss (stark-boxer). ltk is a cooperative redirect,
+	// rule would silently miss. ltk is a cooperative redirect,
 	// not a sandbox, but this one case is a deliberate exception to its
 	// fail-open posture: cmd/ltk/evaluate.go denies on ToolUngated rather than
 	// evaluating a request it cannot fully trust the shape of. See
@@ -56,7 +56,7 @@ type Response struct {
 	// never "the rules were checked and nothing matched". Before this field
 	// existed those two outcomes were byte-identical on every surface (the
 	// CLI's `check` JSON, the wire Output an Adapter encodes), which is the
-	// root cohesion defect behind U066-F01..F04/U067-F01..F02/U073-F02: an
+	// root cohesion defect: an
 	// operator relying on the default fail-open policy had no way to notice
 	// their rules were silently not being consulted at all. ParseError
 	// carries the human-facing detail when Unanalyzed is true.
@@ -107,7 +107,7 @@ func encodeDecision(resp Response, encodeDeny func(string) ([]byte, error)) (Out
 // Message renders the reason and suggestion into a single human-facing string.
 // Message renders the reason and suggestion into a single human-facing
 // string. Never empty: both Adapters' Encode call this only when rendering a
-// DENY, and a deny that renders to zero bytes (U067-F01) tells the agent
+// DENY, and a deny that renders to zero bytes tells the agent
 // nothing — no reason, no way to comply. Ordinary rule authoring already
 // cannot produce this in practice (validateRule requires a message or
 // suggest on every enabled deny rule, rules.go), but that is a config-time
@@ -188,7 +188,7 @@ func engines() []Engine {
 // use. Exported so a caller that must pick among engines by some means other
 // than name or directory detection — e.g. cmd/ltk/evaluate.go trying each
 // adapter's Decode against a payload it received under an unrecognized
-// --engine, rather than guessing claude-code (U005-F04) — can enumerate them
+// --engine, rather than guessing claude-code — can enumerate them
 // without reaching into this package's internals.
 func All() []Engine {
 	return engines()

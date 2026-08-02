@@ -9,8 +9,8 @@ import (
 
 // ClaudeCode.Decode really does mix two name-matching disciplines in one
 // expression list: ccShellForTool substring-matches, claudeGatesTool exact-
-// matches (U067-F11). What the row does not establish is a reachable
-// consequence, and these two tests are the vice that keeps it that way.
+// matches. That alone establishes no reachable consequence, and these two
+// tests are the vice that keeps it that way.
 //
 // Half one: over the GATED set — the only names whose Shell can ever reach a
 // decision — the substring discipline yields exactly what an exact-match
@@ -69,7 +69,7 @@ func TestClaudeSubstringOnlyMatchesAreUngated(t *testing.T) {
 		}
 		if !req.ToolUngated {
 			t.Errorf("%q is claimed by the substring discipline but not by the gated list, "+
-				"and is no longer marked ungated — its shell hint can now reach a decision (U067-F11)", tool)
+				"and is no longer marked ungated — its shell hint can now reach a decision", tool)
 		}
 	}
 }

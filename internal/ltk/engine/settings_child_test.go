@@ -8,7 +8,7 @@ import "testing"
 // slice and append may reallocate, so the caller must write the result back
 // regardless. That makes "the accessor never stores; the caller always writes
 // back" the only contract both can honour, and childMap storing its freshly
-// created map behind the caller's back the odd one out (U067-F10).
+// created map behind the caller's back the odd one out.
 func TestChildAccessors_NeverStoreIntoParent(t *testing.T) {
 	t.Run("childMap", func(t *testing.T) {
 		parent := map[string]any{}

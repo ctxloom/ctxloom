@@ -46,7 +46,7 @@ import (
 // GIT_WORK_TREE point git at a different worktree outright; GIT_INDEX_FILE/
 // GIT_COMMON_DIR/GIT_OBJECT_DIRECTORY redirect pieces of it. If any of these
 // leak from ctxloom's own process environment into a git child process,
-// every operation could silently target the wrong repository (U053-F02).
+// every operation could silently target the wrong repository.
 var RepoLocationEnvVars = []string{
 	"GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY",
 }
@@ -123,7 +123,7 @@ func GetRemoteURL(startPath, remoteName string) (string, error) {
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{
 		DetectDotGit: true,
-		// U110-F01: without this, go-git resolves a linked worktree's ".git"
+		// Without this, go-git resolves a linked worktree's ".git"
 		// FILE (gitdir: pointer) as the WHOLE repository — a private
 		// per-worktree admin dir with no `config` (that lives only in the
 		// common dir) — so `remote` always reports unconfigured there, even
@@ -168,7 +168,7 @@ func FindRoot(startPath string) (string, error) {
 
 	repo, err := git.PlainOpenWithOptions(absPath, &git.PlainOpenOptions{
 		DetectDotGit: true,
-		// U110-F01: consistent with GetRemoteURL above, even though
+		// Consistent with GetRemoteURL above, even though
 		// FindRoot's own result is unaffected either way (the worktree
 		// filesystem root is the containing directory regardless of common-
 		// dir resolution) — one word, twice, so the two literals never

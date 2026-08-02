@@ -164,11 +164,11 @@ func TestGenerateName_CollisionRate(t *testing.T) {
 	}
 }
 
-// TestGenerateShortName_DrawsFromLongGroup pins U111-F03: the short (2-
+// TestGenerateShortName_DrawsFromLongGroup pins the fix: the short (2-
 // component) name task harp minting draws from used to draw from
 // DefaultGroup — 443 adjectives × 1102 nouns ≈ 488k combinations, small
 // enough that two branches minting independently collide at percent-level
-// rates (0.5% at 50+50 tasks, per the unit review's own math), and the
+// rates (0.5% at 50+50 tasks), and the
 // verified downstream consequence of a harp collision is a task store
 // where every read fails loud. It must draw from the wider "long" group
 // instead (1269×4396 ≈ 5.58M, an 11x improvement at the same word count).
@@ -189,7 +189,7 @@ func TestGenerateShortName_DrawsFromLongGroup(t *testing.T) {
 	}
 }
 
-// TestUniqueFrom_ExhaustionReturnsError pins U111-F02: UniqueFrom's doc
+// TestUniqueFrom_ExhaustionReturnsError pins the fix: UniqueFrom's doc
 // used to say it "returns one final unredeemed gen()" on exhaustion — a
 // best-effort fallback that COULD be a duplicate, and neither of its two
 // (former) callers checked the result against used as the doc told them
@@ -234,7 +234,7 @@ func inList(list []string, s string) bool {
 	return slices.Contains(list, s)
 }
 
-// TestValidate_RejectsNamesThatAreNotOnePathComponent pins U087-F04's
+// TestValidate_RejectsNamesThatAreNotOnePathComponent pins the fix's
 // mechanism: a harp name becomes a filesystem path component (paths.HarpDir),
 // so anything that can escape that component — a separator, "..", a control
 // character — must be refused at the validator, not discovered at MkdirAll.

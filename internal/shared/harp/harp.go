@@ -195,7 +195,7 @@ func GenerateName() string {
 // = ~5.58M combinations, an 11x wider identity space than drawing the same
 // 2 components from DefaultGroup's 443×1102 (~488k) would give — the space
 // task harp minting draws from, where the verified downstream consequence of
-// a collision is a store where every read fails loud (U111-F03).
+// a collision is a store where every read fails loud.
 func GenerateShortName() string {
 	return GenerateNameWithOptions(Options{Components: 2, Group: "long"})
 }
@@ -224,7 +224,7 @@ func UniqueFrom(used map[string]struct{}, gen func() string) (string, error) {
 // session index entry and, via paths.HarpDir, a single FILESYSTEM PATH
 // COMPONENT under ~/.ctxloom/sessions/. That second role is what makes this a
 // validator rather than a style check: `ctxloom session rename <old> ../..`
-// otherwise reached MkdirAll/Symlink on a traversed path (U087-F04).
+// otherwise reached MkdirAll/Symlink on a traversed path.
 //
 // The rule is deliberately permissive on charset — a harp is renameable to
 // whatever a human finds memorable, and existing indexes hold such names — and

@@ -76,7 +76,7 @@ func (f *faultFile) Close() error {
 	return f.File.Close()
 }
 
-// TestWriteFileAtomicFs_ErrorsNameTheTarget pins U113-F05's remedy at every one
+// TestWriteFileAtomicFs_ErrorsNameTheTarget pins the remedy at every one
 // of the six error returns: whatever step fails, the caller must be told which
 // FILE IT ASKED TO WRITE and which step failed. A bare stdlib error is the
 // wrong answer twice over here — the most likely failure (creating the temp
@@ -100,8 +100,8 @@ func TestWriteFileAtomicFs_ErrorsNameTheTarget(t *testing.T) {
 		{
 			name: "create temp",
 			setup: func(t *testing.T) (afero.Fs, string) {
-				// A parent directory that does not exist: the failure the row
-				// calls out as the most likely one.
+				// A parent directory that does not exist: the most likely
+				// failure to occur.
 				return afero.NewReadOnlyFs(afero.NewMemMapFs()), target
 			},
 			cause: nil,

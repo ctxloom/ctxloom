@@ -19,7 +19,7 @@ import (
 //
 // Durability of the rename is a different property and is deliberately NOT
 // claimed: neither writer fsyncs the parent directory, so after a power loss
-// the directory entry may still name the old file (U113-F02 — the doc used to
+// the directory entry may still name the old file (the doc used to
 // say "the new content survives a crash", which the code does not deliver).
 // This test guards the guarantee that remains, and goes red the moment the
 // rename is replaced by an in-place write.

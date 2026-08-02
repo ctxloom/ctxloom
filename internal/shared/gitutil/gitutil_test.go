@@ -154,7 +154,7 @@ func TestGetRemoteURL_FilePathResolvesToRepo(t *testing.T) {
 	assert.Equal(t, "https://github.com/example/repo.git", url)
 }
 
-// TestGetRemoteURL_FromLinkedWorktree pins U110-F01: PlainOpenOptions was
+// TestGetRemoteURL_FromLinkedWorktree pins the fix: PlainOpenOptions was
 // constructed with DetectDotGit true but EnableDotGitCommonDir left false. In
 // a linked git worktree (this project's own standard agent workflow), go-git
 // then resolves the ".git" FILE's `gitdir:` pointer directly as the repo

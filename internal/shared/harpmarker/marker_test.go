@@ -127,7 +127,7 @@ func TestFormat_NeverEmitsAMarkerThatCannotIdentifyItsHarp(t *testing.T) {
 	}
 }
 
-// TestScan_IsDeterministicAcrossObjectKeys pins U112-F06: findInValue walked
+// TestScan_IsDeterministicAcrossObjectKeys pins the fix: findInValue walked
 // map[string]any in Go's RANDOMIZED range order, so a line carrying two harp
 // markers under different object keys resolved to an arbitrary one — the same
 // bytes producing a different answer between runs of the same binary. Measured
@@ -150,7 +150,7 @@ func TestScan_IsDeterministicAcrossObjectKeys(t *testing.T) {
 	}
 }
 
-// TestFind_KindAttributeIsTheOnlyDiscriminator pins U112-F08. The package doc
+// TestFind_KindAttributeIsTheOnlyDiscriminator pins the fix. The package doc
 // used to say the marker's self-closing form was "deliberately distinct from
 // the <ctxloom-context>…</ctxloom-context> content wrapper", which reads as
 // the SHAPE doing the separating. It does not, and never did: markerRe's

@@ -3,7 +3,7 @@ package agent
 import "fmt"
 
 // This file defines the APPROACH ENUMS the surface-selection builder (cells.go)
-// dispatches on — the vital-tiger v2 rework — plus the shared, DATA-driven
+// dispatches on, plus the shared, DATA-driven
 // ApproachTable each backend declares its per-provider dispatch through. Every
 // `.WithX()` on the builder takes a per-surface, caller-facing enum (ContextWrite
 // / MCPWrite / SettingsWrite / CommandsWrite) whose race-capable values are

@@ -294,7 +294,7 @@ func compileAll(schema *tagschema.Schema) (priorityFn, decayFn *tagschema.Formul
 // loud at compile time on any OTHER placeholder name, closing the gap
 // lookup's bare map index would otherwise leave open: an unrecognized
 // Builtin(...) call used to compile clean and silently resolve to 0 at Eval
-// time (inane-scuba) — indistinguishable from a legitimate zero, and
+// time — indistinguishable from a legitimate zero, and
 // capable of zeroing an entire multiplicative term with no signal at all.
 var builtinsByFacet = map[string]map[string]bool{
 	tagschema.PriorityFnFacet: {BuiltinAgeDays: true, BuiltinAgeFactor: true},

@@ -14,7 +14,7 @@ import (
 // (claude/antigravity/codex) call directly. They moved here from the host backends
 // package along with the helpers themselves.
 
-// TestResolveMCPCommand pins dire-five's fix at its narrowest seam: an empty
+// TestResolveMCPCommand pins the fix at its narrowest seam: an empty
 // override (every cell but an isolated container) returns EXACTLY
 // CtxloomCommand()'s value — the host self-exec-absolute invariant is
 // byte-for-byte unchanged — while a non-empty override (populated ONLY on the

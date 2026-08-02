@@ -147,7 +147,7 @@ func TestFwarnOnce_DedupsAcrossStructuredMode(t *testing.T) {
 	}
 }
 
-// large-album: Warn/WarnOnce wrote to os.Stderr unconditionally, and in
+// Warn/WarnOnce wrote to os.Stderr unconditionally, and in
 // `ctxloom run` stderr IS the terminal the harness paints its TUI on — so
 // "run channel down (reconnecting)" and friends landed straight on the TUI and
 // corrupted it. The sink must be redirectable for the lifetime of a session.

@@ -89,8 +89,8 @@ func TestResolveProjectIdentity(t *testing.T) {
 // behavior for its coordinator caller (internal/cli/coord_host.go, which derives
 // the coordinator state-dir key from it -- an exclusive owner.pid lock): a
 // linked git worktree and its primary checkout must resolve to DIFFERENT
-// project ids, exactly as before the task-store worktree redirect (task
-// brown-canal, 2026-07-10). The task-store seam (workdir.ResolveBoundary /
+// project ids, exactly as before the task-store worktree redirect (2026-07-10).
+// The task-store seam (workdir.ResolveBoundary /
 // projectroot.TaskStoreRoot) lives entirely outside this package specifically
 // so this function never has to choose between its two callers' conflicting
 // needs -- see internal/cli/run.go, which redirects its OWN workDir argument
@@ -183,7 +183,7 @@ func TestPinnedProjectMismatchWarns(t *testing.T) {
 }
 
 // TestMissingLogWarnsWhenSiblingIDHasLogAtSamePath is the reproduction and
-// regression test for the silent-empty-backlog design gap (see grand-slum):
+// regression test for the silent-empty-backlog design gap:
 // a project-id resolves CLEANLY (no pin-vs-cwd disagreement — the existing
 // mismatch check in resolveTaskStore has nothing to fire on), but its own
 // task log was never written, while a DIFFERENT id also registered at the

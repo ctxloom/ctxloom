@@ -178,10 +178,10 @@ func TestRunInteractive_ContextTimeout(t *testing.T) {
 }
 
 // =============================================================================
-// Initial-Size Tests (DEFECT lucid-judo: garbled paint until manual resize)
+// Initial-Size Tests (garbled paint until manual resize)
 // =============================================================================
 
-// TestRunInteractive_SizesPTYBeforeChildStarts pins the lucid-judo root cause:
+// TestRunInteractive_SizesPTYBeforeChildStarts pins the root cause:
 // go-pty allocates the pty at its own default winsize, and the pre-fix code
 // applied resize events ONLY via a goroutine started AFTER Start() — a chase
 // that can never catch a child whose first paint runs before the size
@@ -456,7 +456,7 @@ func stubResize(t *testing.T, fn func(ws agent.WindowSize) error) {
 
 // TestRunInteractive_InitialResizeFailureIsReported pins the more serious half
 // of the discarded pair. The pre-start resize is the entire mechanism behind
-// DEFECT lucid-judo's fix: the child must see its real geometry before its
+// that fix: the child must see its real geometry before its
 // first paint, and because SIGWINCH fires only on a CHANGE, a size that never
 // lands never self-heals. Swallowing that error started a child guaranteed to
 // paint wrong for the whole session and reported success.

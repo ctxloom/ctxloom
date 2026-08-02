@@ -56,7 +56,7 @@ func CtxloomCommand() string {
 // isolation.Container.MCPCommandOverride / MCPCommandOverrideEnv): a
 // container cell's engine reads its own bind-mounted, identical-path
 // .mcp.json, but the binary that materialized the surface may not be the
-// binary INSIDE the container (dire-five) — the override substitutes the
+// binary INSIDE the container — the override substitutes the
 // known in-container path (e.g. /usr/local/bin/ctxloom) so the ctxloom MCP
 // stdio command is one the container can actually exec.
 func ResolveMCPCommand(override string) string {

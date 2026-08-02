@@ -22,7 +22,7 @@ import (
 // child paints before ANY resize reaches it, that first paint uses the wrong
 // geometry, and because SIGWINCH only fires on an actual size change, a real
 // size that happens to coincide with whatever the child assumed never
-// self-heals either (see DEFECT lucid-judo). The frontend always sends its
+// self-heals either. The frontend always sends its
 // captured terminal size once, up front, before anything else (see
 // run_resize_unix.go's watchResize), but it travels a chain of goroutine
 // hops plus a gRPC round trip to get here, so it cannot be assumed to be
@@ -95,7 +95,7 @@ func (e *firstError) get() error {
 
 // drainPTY waits for the copy goroutine to actually drain whatever the
 // child already wrote into the pty before RunInteractive forces the master
-// closed (deaf-rut S5): forcing ptty.Close() immediately after c.Wait(),
+// closed: forcing ptty.Close() immediately after c.Wait(),
 // with zero grace (the historical behavior), raced the as-yet-unscheduled
 // copy goroutine — under CPU load the reader may simply not have run yet,
 // so the forced close truncated or entirely dropped output the child had

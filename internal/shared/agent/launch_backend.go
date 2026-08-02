@@ -22,7 +22,7 @@ const SessionHarpEnv = "CTXLOOM_SESSION_HARP"
 // ResolveMCPCommand). The host stamps it onto the run env ONLY for an
 // isolated-container cell (isolation.Container.MCPCommandOverride via
 // operations.MCPCommandOverrideForPolicy, cli/run.go) — the in-container
-// ctxloom binary path (dire-five: the surface used to always emit the HOST
+// ctxloom binary path (the surface used to always emit the HOST
 // self-exec path, which does not exist inside the container, so the engine's
 // `ctxloom mcp` stdio shim never launched and the child had zero MCP tools).
 // Absent/empty everywhere else, which changes nothing.

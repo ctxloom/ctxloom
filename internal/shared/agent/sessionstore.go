@@ -17,7 +17,7 @@ import (
 // tests use, plus the common JSONL-transcript parse loop. Path conventions,
 // per-line entry conversion, and session-ID recovery stay per-agent.
 //
-// tough-cloud S5: the claude/codex/antigravity SessionHistory readers that
+// The claude/codex/antigravity SessionHistory readers that
 // used to embed this were deleted outright (proven broken, see each
 // package's backend.go doc). opencode's native reader still embeds it, as
 // does antigravity's agyConversationMap (conversationmap.go) — a live
@@ -54,7 +54,7 @@ var ErrNoSessions = errors.New("no sessions found")
 // GetCurrentSessionViaGetSession is the common GetCurrentSession shape shared
 // by every per-agent SessionHistory whose per-session loader takes (workDir,
 // id string) — opencode's GetSession does (the claude/codex/antigravity
-// readers that used to share this shape were deleted, tough-cloud S5): call
+// readers that used to share this shape were deleted): call
 // list(workDir), sort most-recent-first by StartTime, then load the newest
 // session via getSession(workDir, id).
 //

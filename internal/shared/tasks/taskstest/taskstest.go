@@ -66,10 +66,10 @@ var EnvKeys = []string{
 	// internal/lm/isolation/traceprobe.go's probeTraceEnv const, read via
 	// os.Getenv(probeTraceEnv) — same shape, same discovery.
 	"CTXLOOM_ISOLATION_PROBE_TRACE_DIR",
-	// The container launch-retry budget's operator overrides (lunar-boat
-	// item 1): read via the coord.EnvLaunch* constants
-	// (os.LookupEnv(EnvLaunchMaxAttempts), not a literal "CTXLOOM_..."
-	// string), same reason as the trio above — listed here by hand.
+	// The container launch-retry budget's operator overrides: read via the
+	// coord.EnvLaunch* constants (os.LookupEnv(EnvLaunchMaxAttempts), not a
+	// literal "CTXLOOM_..." string), same reason as the trio above — listed
+	// here by hand.
 	"CTXLOOM_LAUNCH_MAX_ATTEMPTS",
 	"CTXLOOM_LAUNCH_BACKOFF_BASE",
 	"CTXLOOM_LAUNCH_BACKOFF_MAX",

@@ -17,7 +17,7 @@ import (
 // through, rather than each backend reimplementing the merge (originally
 // written for antigravity's .agents/AGENTS.md; ported here so claude's
 // CLAUDE.md and codex's AGENTS.md share one implementation instead of three —
-// see taskloom lanky-plop, the P0 data-loss bug this closes for claude).
+// closing a P0 data-loss bug for claude).
 const (
 	ManagedContextBegin = "<!-- ctxloom:context:begin (managed — do not edit between markers) -->"
 	ManagedContextEnd   = "<!-- ctxloom:context:end -->"

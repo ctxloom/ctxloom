@@ -285,7 +285,7 @@ func TestCompileAll_MoreThanOneDecayFnIsAnAmbiguityError(t *testing.T) {
 	assert.Contains(t, err.Error(), "decay_fn")
 }
 
-// TestCompileAll_UnknownBuiltinIsAnError (inane-scuba) proves a typo'd
+// TestCompileAll_UnknownBuiltinIsAnError proves a typo'd
 // builtin placeholder — one with no ":" (so it compiles to a Builtin(...)
 // call, not a Tag(...) one) that names something OTHER than the fixed known
 // set (age_days, age_factor) — fails loud at compile time, exactly like a

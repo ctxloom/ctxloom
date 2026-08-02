@@ -87,8 +87,8 @@ type sinkEntry struct{ w io.Writer }
 //
 // The redirect machinery exists because os.Stderr is NOT always a safe place to
 // write: under `ctxloom run` stderr IS the terminal the harness paints its TUI
-// on, so an unconditional warning corrupts the display mid-frame (large-album —
-// "run channel down (reconnecting)" landed straight on the TUI). A session that
+// on, so an unconditional warning corrupts the display mid-frame —
+// "run channel down (reconnecting)" landed straight on the TUI. A session that
 // owns the terminal redirects the sink for its lifetime instead.
 //
 // sinkStack holds every redirect that has NOT yet been restored. It exists

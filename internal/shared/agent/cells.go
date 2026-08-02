@@ -11,7 +11,7 @@ import (
 // This file is the type-level FOUNDATION of ctxloom's unified surface-delivery
 // seam: the Delivery interface every surface implements, the typed isolation
 // cells that land a well-known write in a private dir, and the approach-keyed
-// SurfaceSelection builder (vital-tiger v2) that resolves a caller's named
+// SurfaceSelection builder that resolves a caller's named
 // per-surface approach to a concrete Delivery via each backend's per-provider
 // dispatch. Race-safety is handled by the CELL, not a parallel type hierarchy:
 // an isolated cell's private dir makes any well-known write race-free by
@@ -99,7 +99,7 @@ type KindedDelivery interface {
 // SurfaceSet is the per-backend set of delivery surfaces for one run, exposed so
 // the SurfaceSelection builder can drive delivery without importing the concrete
 // backend. Every backend's `Surfaces` value satisfies it. The four
-// approach-dispatch methods below are the per-provider dispatch (vital-tiger v2)
+// approach-dispatch methods below are the per-provider dispatch
 // the opt-in SurfaceSelection builder resolves a caller's named approach through
 // — descriptor-keyed, never a cross-backend type switch.
 //
@@ -172,8 +172,8 @@ type SurfaceInputs struct {
 	// default) for a live/apply/container delivery that shares this host.
 	SelfContainedSkills bool
 	// MCPCommandOverride, when non-empty, replaces CtxloomCommand() as the
-	// ctxloom-managed MCP server's stdio command (see ResolveMCPCommand) — the
-	// dire-five fix. setupViaCells fills it from req.Env[MCPCommandOverrideEnv],
+	// ctxloom-managed MCP server's stdio command (see ResolveMCPCommand).
+	// setupViaCells fills it from req.Env[MCPCommandOverrideEnv],
 	// which is populated ONLY for an isolated-container cell (see
 	// isolation.Container.MCPCommandOverride via
 	// operations.MCPCommandOverrideForPolicy); every other cell leaves it "",
@@ -338,8 +338,8 @@ var surfaceOrder = []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, Su
 // NOTHING, and each chainable .WithX(approach) opts one SurfaceKind in AT A NAMED
 // APPROACH. Opt-in (no opt-out / "except") is deliberate — every caller states
 // EXACTLY which surfaces it delivers, so a future surface kind can never silently
-// ride along a broad selection. The caller ALWAYS names the approach (vital-tiger
-// v2 — fork A): there is no silent default at the call site, and a race-capable
+// ride along a broad selection. The caller ALWAYS names the approach:
+// there is no silent default at the call site, and a race-capable
 // choice is spelled UNSAFE_FILE so picking it IS the race acknowledgment. Build it
 // with Select(set), chain the surfaces, then call Build() (or the DeliverUnder
 // convenience for the at-rest callers).

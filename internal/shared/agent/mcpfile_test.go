@@ -28,7 +28,7 @@ func (f failOpenFs) Open(name string) (afero.File, error) {
 	return f.Fs.Open(name)
 }
 
-// TestMCPFileConfig_WriteServers_CommandOverride pins dire-five's fix at the
+// TestMCPFileConfig_WriteServers_CommandOverride pins the fix at the
 // shared MCP-registry reconciler kiro and antigravity both bind (mcpFile()):
 // a zero-value CommandOverride ("" — every cell but an isolated container)
 // writes EXACTLY CtxloomCommand()'s host self-exec-absolute path, byte-for-

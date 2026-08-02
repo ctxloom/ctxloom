@@ -19,7 +19,7 @@ import (
 )
 
 // Event is a single change to a watched path. Op-level detail (create/write/
-// remove/...) was deleted (U132-F04): both consumers (cmd/taskloom watch,
+// remove/...) was deleted: both consumers (cmd/taskloom watch,
 // ctxloom plan watch) discard the whole event and emit a fixed
 // {"event":"changed"} line — fsnotify's bitmask never reached a wire. Add it
 // back only alongside a real consumer.
@@ -70,7 +70,7 @@ func SkipDir(skip func(dir string) bool) Option {
 // except subtrees a SkipDir option prunes. filter, when non-nil, keeps only
 // events whose path it accepts. root must already exist.
 func New(root string, recursive bool, filter func(path string) bool, opts ...Option) (*Watcher, error) {
-	// U132-F03: New used to os.MkdirAll(root) unconditionally, so a
+	// New used to os.MkdirAll(root) unconditionally, so a
 	// nonexistent, typo'd, or wrongly-resolved root produced a healthy-
 	// looking watcher on an empty directory that streams zero events
 	// forever, at exit 0 — indistinguishable from a correct-but-quiet watch,

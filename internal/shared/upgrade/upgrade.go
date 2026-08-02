@@ -36,7 +36,7 @@ type Upgrader interface {
 
 // Pipeline applies an ordered sequence of Upgraders front-to-back.
 //
-// U131-F08: Pipeline used to also implement Upgrader itself (Name/Apply) so
+// Pipeline used to also implement Upgrader itself (Name/Apply) so
 // pipelines could compose and nest. No production Pipeline literal ever
 // nested another Pipeline (config, sessions, bundles, and profiles each build
 // one flat list of concrete Upgraders — config.go even explicitly flattens

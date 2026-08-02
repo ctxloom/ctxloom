@@ -126,7 +126,7 @@ func TestMergeMCPConfig_PluginSpecificServers(t *testing.T) {
 	})
 }
 
-// TestMergeMCPConfig_AutoRegisterCtxloomIsCopied pins U133-F06: MergeMCPConfig
+// TestMergeMCPConfig_AutoRegisterCtxloomIsCopied pins the fix: MergeMCPConfig
 // documents that "dest is independent of src" and deep-copies every server for
 // exactly that reason, but assigned AutoRegisterCtxloom as a bare *bool. Two
 // configs merged from the same source then SHARED the flag, so writing through
@@ -150,7 +150,7 @@ func TestMergeMCPConfig_AutoRegisterCtxloomIsCopied(t *testing.T) {
 	}
 }
 
-// TestMergeMCPConfig_EmptySrcDeclaresNothing pins U133-F07: dest.Servers and
+// TestMergeMCPConfig_EmptySrcDeclaresNothing pins the fix: dest.Servers and
 // dest.Plugins were allocated before the loops that fill them, so merging a
 // config that declares no MCP servers at all still turned dest's nil maps into
 // empty ones. nil and empty are not the same statement here — nil is "this

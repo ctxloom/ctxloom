@@ -207,7 +207,7 @@ func TestVersion_PresentButUnreadable_IsNotGenerationZero(t *testing.T) {
 	assert.Equal(t, 4, v)
 }
 
-// U131-F03 claimed the swallowed enc.Close() error meant "a truncated buffer
+// It might seem like the swallowed enc.Close() error means "a truncated buffer
 // would be persisted verbatim". It cannot, and this pins why: yaml.v3's Encoder
 // writes the WHOLE document during Encode, so by the time Close runs the sink
 // already holds every byte, and Close appends nothing. Run's sink is a
@@ -259,7 +259,7 @@ func TestEncoder_FailingNodesFailAtEncodeNotAtClose(t *testing.T) {
 	}
 }
 
-// CHARACTERIZATION of an ESCALATED defect (U131-F02), not a contract anyone
+// CHARACTERIZATION of an ESCALATED defect, not a contract anyone
 // should rely on. When re-encoding fails after stages have demonstrably fired,
 // Run returns (original bytes, nil) — indistinguishable from "this file is
 // already current" — and the caller goes on to parse the LEGACY bytes with the

@@ -24,7 +24,7 @@ func recv(t *testing.T, w *Watcher) Event {
 	return Event{}
 }
 
-// TestNew_FailsOnMissingRoot pins U132-F03: New used to silently MkdirAll the
+// TestNew_FailsOnMissingRoot pins the fix: New used to silently MkdirAll the
 // root it was asked to watch, so a nonexistent, typo'd, or wrongly-resolved
 // root produced a healthy-looking watcher on an empty directory that streams
 // zero events forever, at exit 0 — indistinguishable from a correct-but-quiet
@@ -84,7 +84,7 @@ func TestWatch_Recursive_Subdir(t *testing.T) {
 	}
 }
 
-// TestClose_IsIdempotent pins U132-F05: Close closed w.done unconditionally, so
+// TestClose_IsIdempotent pins the fix: Close closed w.done unconditionally, so
 // a SECOND call panicked with "close of closed channel". A watcher is handed to
 // a caller that defers Close and to a stream that may also want to stop it, and
 // neither can ask whether the other already did — an idempotent Close is the
@@ -126,7 +126,7 @@ func recvErr(t *testing.T, w *Watcher) error {
 	return nil
 }
 
-// TestErrors_NoneAreDropped pins U132-F06: the errs channel is buffered at 1
+// TestErrors_NoneAreDropped pins the fix: the errs channel is buffered at 1
 // and the forward used a bare `default:`, so every watch error after the first
 // undrained one was discarded with nothing said. An fsnotify error is not
 // decoration — "inotify queue overflow" means events were LOST, so a dropped
@@ -158,7 +158,7 @@ func TestErrors_NoneAreDropped(t *testing.T) {
 	}
 }
 
-// TestWatch_Recursive_NewDirArrivesPopulated pins U132-F09: a recursive watch
+// TestWatch_Recursive_NewDirArrivesPopulated pins the fix: a recursive watch
 // learns about a new directory only from its own Create event, by which time
 // anything already inside it exists unobserved — the watch attaches to a
 // directory whose contents it never saw appear, and reports nothing until they
@@ -205,8 +205,8 @@ func watchedSet(w *Watcher) map[string]bool {
 	return set
 }
 
-// TestAddTree_WatchesEverySubdirectoryByDefault characterizes U132-F02's
-// premise: a recursive watch descends unconditionally, so every directory under
+// TestAddTree_WatchesEverySubdirectoryByDefault characterizes the premise
+// that a recursive watch descends unconditionally, so every directory under
 // the root costs an inotify watch whether or not anything the caller asked for
 // can appear in it. Measured on this machine for `ctxloom plan watch`'s root:
 // 4,614 watched directories to observe 232 *.plan.md files. This is the
@@ -237,7 +237,7 @@ func TestAddTree_WatchesEverySubdirectoryByDefault(t *testing.T) {
 	}
 }
 
-// TestSkipDir_PrunesSubtree pins the seam U132-F02 says is missing: a caller
+// TestSkipDir_PrunesSubtree pins the seam that was missing: a caller
 // that knows a subtree cannot contain the paths it asked for must be able to
 // say so, because `filter` cannot — a directory's own name does not match the
 // paths inside it, so a *.plan.md filter says nothing about whether to descend
@@ -294,11 +294,11 @@ func TestSkipDir_PrunesSubtree(t *testing.T) {
 	}
 }
 
-// TestEvent_ReportsNoOperationKind pins U132-F08's subject after the fact.
+// TestEvent_ReportsNoOperationKind pins the subject after the fact.
 //
-// The row claimed normalize's `default` arm collapsed an unrecognised or empty
+// A prior normalize function's `default` arm collapsed an unrecognised or empty
 // fsnotify op into a confident "chmod" — absence reported as evidence. That
-// function, the Op type and Event.Op are all gone: U132-F04 removed the whole
+// function, the Op type and Event.Op are all gone: removed the whole
 // vocabulary because neither consumer ever read it. Nothing pinned that
 // removal, so the misreport could return unannounced with the field.
 //

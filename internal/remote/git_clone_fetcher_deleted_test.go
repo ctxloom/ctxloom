@@ -87,7 +87,7 @@ func TestGitCloneFetcher_ListDeletedItems_ReAddedIsPresent(t *testing.T) {
 	assert.Empty(t, deleted, "an item re-added at HEAD is present, not deleted")
 }
 
-// TestGitCloneFetcher_ListDeletedItems_HeadUnreadable pins U093-F03: a failure
+// TestGitCloneFetcher_ListDeletedItems_HeadUnreadable pins that a failure
 // to read the HEAD tree used to be swallowed with `if err == nil`, leaving the
 // present-at-HEAD baseline EMPTY — so every item ever seen anywhere in history
 // came back as "removed upstream", which is the input to a prune.

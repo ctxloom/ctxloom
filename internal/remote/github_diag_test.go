@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// U093-F29: the 401-retry notice was written to os.Stderr with a raw
+// The 401-retry notice was written to os.Stderr with a raw
 // fmt.Fprintf while everything else in this package that has something to warn
 // about goes through clidiag (lockfile.go, pull.go, normalize.go).
 //

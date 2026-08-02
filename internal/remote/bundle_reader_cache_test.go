@@ -235,7 +235,7 @@ func (s *lockfreeSource) HasBundle(name string) bool {
 // TestCachingBundleReader_SourceWithoutLockEntries pins that wrapping a source
 // is never destructive.
 //
-// U093-F14: the decorator gated ReadBundleBytes on LockEntryFor returning true
+// The decorator gated ReadBundleBytes on LockEntryFor returning true
 // and reported ErrBundleNotInLockfile otherwise, without ever asking the inner
 // source. That imposed a lockfile precondition BundleByteSource does not
 // require, so a legitimate source became unreadable purely by being wrapped.

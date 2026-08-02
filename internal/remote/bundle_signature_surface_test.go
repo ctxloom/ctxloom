@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 )
 
-// U093-F15: "this source has no signature surface" and "this bundle has no
+// "This source has no signature surface" and "this bundle has no
 // .sig" arrived as the same error, both wrapping errs.ErrRemoteContentNotFound
 // and nothing else. The first is a wiring mistake -- the decorator was handed
 // an inner source that does not implement BundleSignatureSource, which no

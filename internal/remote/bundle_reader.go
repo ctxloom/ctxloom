@@ -152,7 +152,7 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
-	// U093-F01: the pin IS the security control — EffectiveTrust's content
+	// The pin IS the security control — EffectiveTrust's content
 	// gate keys on bytes read at THIS exact commit. An empty SHA is not "no
 	// preference"; every Fetcher implementation resolves "" to the default
 	// branch TIP, so a blank pin (a hand-edited, truncated, or future-written
@@ -176,7 +176,7 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 
 	// ref.URL is guaranteed non-empty here: the IsCanonical() check above is
 	// exactly `ref.URL != ""`, so there is no fallback to entry.URL to take
-	// (U093-F23 — the fallback was unreachable dead code; entry.URL is never
+	// (the fallback was unreachable dead code; entry.URL is never
 	// cross-checked against ref.URL, which is a separate, still-open concern
 	// for whoever owns lockfile provenance validation).
 	repoURL := ref.URL

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U093-F28: `if len(ref) < 7 || len(ref) > 40` was the whole of "looks like a
+// `if len(ref) < 7 || len(ref) > 40` was the whole of "looks like a
 // commit SHA". Two unexplained numbers, and a test that does not answer the
 // question they are standing in for -- a commit SHA is hexadecimal, and length
 // alone admits every ordinary branch or tag name of seven characters or more.

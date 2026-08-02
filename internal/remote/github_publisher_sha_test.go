@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U093-F30: CreateOrUpdateFile discarded GetFileSHA's error. GetFileSHA is
+// CreateOrUpdateFile discarded GetFileSHA's error. GetFileSHA is
 // careful to separate the two answers -- a 404 comes back as ("", nil), "the
 // file is not there", and every other failure comes back as an error, "I could
 // not find out" -- and the blank identifier collapsed them into each other.
@@ -22,7 +22,7 @@ import (
 // it is actually meant to update, on the publish path that writes a bundle and
 // its detached signature.
 //
-// This is the same defect U094-F11 closed one layer up in preparePublish; the
+// This is the same defect closed one layer up in preparePublish; the
 // last gate before the network write still had it.
 func TestGitHubPublisher_CreateOrUpdateFile_ExistenceCheckFailureAborts(t *testing.T) {
 	ctx := context.Background()

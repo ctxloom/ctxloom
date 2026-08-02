@@ -8,9 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U093-F17 is CHARACTERIZED here, not fixed: removing the parameters is an
-// interface change across two packages, and the escalation is recorded in the
-// findings index.
+// This is CHARACTERIZED here, not fixed: removing the parameters is an
+// interface change across two packages.
 //
 // The Fetcher interface threads `owner, repo` through six of its seven
 // methods. GitHubFetcher needs them — it is not bound to a repository and puts

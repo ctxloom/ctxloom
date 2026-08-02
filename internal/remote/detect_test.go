@@ -149,8 +149,8 @@ func TestNormalizeURL(t *testing.T) {
 		// name "domain no scheme gets double-prefixed", because NormalizeURL's
 		// shorthand arm had no guard and sent it to
 		// "https://github.com/gitlab.com/alice/repo" — a repository that
-		// cannot exist. That was starry-debtor / U093-F06, and the human ruled
-		// on it: standardize on the correct answer.
+		// cannot exist. The human ruled on it: standardize on the correct
+		// answer.
 		//
 		// It is the one input class in this suite whose trust-namespace key
 		// MOVES. Nobody can hold an approval under the old key, because no
@@ -176,9 +176,10 @@ func TestNormalizeURL(t *testing.T) {
 // NormalizeURL's last return — "No scheme, not shorthand, not scp-like: assume
 // an HTTPS host."
 //
-// U093-F06 asserted that arm is unreachable. It is not: an input has to clear
-// three gates to arrive there — no "://", no "@", and NO "/" — and a bare
-// host name clears all three. What IS true is the row's first clause, that a
+// A prior version of this suite asserted that arm is unreachable. It is not:
+// an input has to clear three gates to arrive there — no "://", no "@", and
+// NO "/" — and a bare host name clears all three. What IS true is the row's
+// first clause, that a
 // host-qualified path ("gitlab.com/owner/repo") is stolen by the shorthand arm
 // above and prefixed onto github.com; that half is escalated separately because
 // NormalizeURL feeds trust.CanonicalRepoURL, so changing it changes which trust

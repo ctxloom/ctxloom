@@ -92,7 +92,7 @@ func TestCachedFetcher_SearchReposUsesAPI(t *testing.T) {
 // TestCachedFetcher_SearchReposUnsupportedForGenericGit pins that "this forge
 // has no search index" is not delivered as "your query matched nothing".
 //
-// U093-F18: the generic git adapter returned (nil, nil), which any caller reads
+// The generic git adapter returned (nil, nil), which any caller reads
 // as an empty result set. There is no filesystem or clone equivalent of a
 // forge-wide search — the adapter is handed one known URL and cannot enumerate
 // a host — so the honest answer is an error, not silence.

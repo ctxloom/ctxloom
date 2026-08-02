@@ -14,7 +14,7 @@ func FetchRefBytes(ctx context.Context, factory FetcherFactory, auth AuthConfig,
 	if ref == nil || !ref.IsCanonical() {
 		return nil, fmt.Errorf("not a canonical reference")
 	}
-	// U093-F01: same floor as BundleReader.fetchAtLockedSHA — a hash-pinned
+	// Same floor as BundleReader.fetchAtLockedSHA — a hash-pinned
 	// read is the security property this primitive exists to provide (its own
 	// doc: "reading it needs nothing but the clone at that sha"). An empty
 	// sha is not "no preference"; every Fetcher resolves "" to the default

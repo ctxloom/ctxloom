@@ -33,7 +33,7 @@ func TestMockFetcher_SearchRepos(t *testing.T) {
 
 func TestRepoInfo_Fields(t *testing.T) {
 	// All repository metadata must be accessible for filtering and display.
-	// Topics/Language/UpdatedAt were deleted (U095-F09): written by the
+	// Topics/Language/UpdatedAt were deleted: written by the
 	// GitHub search adapter, read by no production consumer.
 	repo := RepoInfo{
 		Owner:       "alice",

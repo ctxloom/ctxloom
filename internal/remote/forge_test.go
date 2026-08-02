@@ -63,12 +63,12 @@ func TestResolveForge_HostMatch(t *testing.T) {
 	assert.Equal(t, "GHE_TOKEN", rf.TokenEnv)
 }
 
-// TestResolveForge_UnknownLabelCannotBePersisted pins the guard that makes
-// U093-F07 unreachable.
+// TestResolveForge_UnknownLabelCannotBePersisted pins the guard that makes an
+// unknown `forge:` label on a remote unreachable.
 //
-// The row claimed an unknown `forge:` label on a remote is silently ignored and
-// falls through to host matching, binding the remote to a different endpoint
-// and a different token env. resolveForge's label lookup does indeed fall
+// It would otherwise be silently ignored and fall through to host matching,
+// binding the remote to a different endpoint and a different token env.
+// resolveForge's label lookup does indeed fall
 // through when the label is absent — but a remote cannot ACQUIRE an unknown
 // label: SetForge validates against MergeForges(registry forges) and refuses,
 // leaving the previous binding in place. Every label that can reach
@@ -162,7 +162,7 @@ func TestRegistry_ForgePersistence(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "work-ghe", rem.Forge)
 
-	// U094-F14 deleted the Registry.ResolveForge convenience wrapper (zero
+	// The Registry.ResolveForge convenience wrapper was deleted (zero
 	// production callers); this exercises the same resolution its body did,
 	// against the registry state persisted above.
 	rf := resolveForge(rem.URL, rem.Forge, reg.Forges())

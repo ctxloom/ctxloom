@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U093-F25 observes that every FetchFile / ListDir / ResolveRef / ListTags
+// Every FetchFile / ListDir / ResolveRef / ListTags
 // call re-runs localFetcher, which re-takes the per-directory clone lock and
 // re-runs git.PlainOpen on a repo that is already there. Accurate, and
 // measured on this machine at roughly 0.6 ms per call against a ~1.5 ms read

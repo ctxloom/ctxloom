@@ -111,7 +111,7 @@ func TestBundleReader_ReadBundleBytes(t *testing.T) {
 		assert.Contains(t, err.Error(), "boom")
 	})
 
-	// U093-F01: an empty entry.SHA must never reach the fetcher — the pin IS
+	// An empty entry.SHA must never reach the fetcher — the pin IS
 	// the security control (EffectiveTrust gates on content read at a
 	// specific commit), and a fetcher asked to read "" resolves the default
 	// branch TIP instead, silently converting a pinned read into a latest
@@ -203,8 +203,9 @@ func TestLoadAllBytes(t *testing.T) {
 		assert.Empty(t, failures)
 	})
 
-	// U093-F08 read "empty loaded AND empty failures" as a silent success over
-	// unread bundles. The real invariant is stronger and is what this pins:
+	// A prior version of LoadAllBytes read "empty loaded AND empty failures" as
+	// a silent success over unread bundles. The real invariant is stronger and
+	// is what this pins:
 	// every name the source admits to knowing is accounted for in exactly one
 	// of the two maps. "Zero failures" can only ever mean "nothing was named",
 	// never "something was named and skipped" — which is the shape the row was

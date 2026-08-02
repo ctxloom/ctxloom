@@ -137,8 +137,8 @@ type envelope struct {
 // The LAST-RECORD signals are the opposite: LastTS, TurnClosed, MaxSeq and
 // PendingPermission live at the END of the file and drive four rungs each. A
 // head-only bound made them permanently stale past 20000 lines, so a healthy
-// long-running agent read as stalled and a cleanly-finished one as dead
-// (U056-F02). maxTailBytes is the bounded suffix re-read to recover them.
+// long-running agent read as stalled and a cleanly-finished one as dead.
+// maxTailBytes is the bounded suffix re-read to recover them.
 const maxTranscriptScan = 20000
 
 // maxTailBytes bounds the suffix re-read that recovers the last-record
@@ -189,7 +189,7 @@ func ReadTranscriptWith(path string, thr Thresholds) (TranscriptStat, error) {
 			return TranscriptStat{Observed: true, Exists: false}, nil
 		}
 		// A broken instrument. Observed stays false so no absence rule can
-		// mistake this for "the engine emitted zero events" (U056-F01/F05).
+		// mistake this for "the engine emitted zero events".
 		return TranscriptStat{}, fmt.Errorf("liveness: open transcript %s: %w", path, err)
 	}
 	defer func() { _ = f.Close() }()
@@ -421,7 +421,7 @@ func (t *txTail) entry(idx int, e envelope) {
 // applyTail overlays the bounded-suffix fold. A truncated file's head answers
 // "how much" and its tail answers "where it ended"; keeping the head's
 // last-record answers would be reporting the state of the 20000th record as
-// the state of the run (U056-F02).
+// the state of the run.
 func (s *txScan) applyTail(st TranscriptStat) TranscriptStat {
 	t := s.tail
 	if t == nil {
@@ -617,8 +617,8 @@ var skipDirs = map[string]bool{
 // A genuine walk error IS returned, and returned ALONGSIDE whatever the walk
 // managed to see: the walk keeps going past an unreadable subtree because a
 // partial answer beats none, but the failure travels with it, because a failed
-// observation must never be reported as an observation of stillness. Before
-// U056-F08 the callback returned nil on every error, filepath.WalkDir consumed
+// observation must never be reported as an observation of stillness. The
+// callback used to return nil on every error, filepath.WalkDir consumed
 // it, and a `chmod 000` worktree was indistinguishable from an empty one.
 func NewestMTime(root string) (newest time.Time, ok bool, err error) {
 	if root == "" {

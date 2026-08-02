@@ -182,7 +182,7 @@ type Evidence struct {
 	FSObserved bool      `json:"fs_observed,omitempty"`
 	// FSError is the walk's failure text when the worktree could not be read.
 	// It is the third state the pair above cannot express: FSObserved false
-	// means "no clock", which until U056-F08 covered both "the worktree holds
+	// means "no clock", which used to cover both "the worktree holds
 	// nothing countable" and "the walk was denied" — and only one of those is
 	// evidence about the agent.
 	FSError string `json:"fs_error,omitempty"`

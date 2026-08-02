@@ -257,7 +257,7 @@ func (m *Monitor) deathRung(_ Target, ev Evidence, _ time.Time) (State, string) 
 
 // endedRung: a run the coordinator has ALREADY terminated cannot be stalled.
 //
-// Target.Ended used to be passed in and read by nothing (U056-F03), while the
+// Target.Ended used to be passed in and read by nothing, while the
 // coordinator's roster fold is never pruned and reapEndedRuns never reaps a
 // harp's current run — so every cleanly-finished child kept being enumerated,
 // went quiet (because it was done), lost its runner (so no probe could see
@@ -315,7 +315,7 @@ func (m *Monitor) graceRung(t Target, ev Evidence, _ time.Time) (State, string) 
 	// A transcript that could not be OBSERVED is a broken instrument, not an
 	// engine that emitted zero events, and every rule below this line reasons
 	// from absence. Answering "unknown" with the failure attached is the only
-	// honest verdict available (U056-F01/F05).
+	// honest verdict available.
 	if !ev.Transcript.Observed {
 		if ev.TranscriptError != "" {
 			return StateUnknown, "the transcript could not be read, so there is no evidence to judge progress by: " + ev.TranscriptError
@@ -352,7 +352,7 @@ func (m *Monitor) quietRung(t Target, ev Evidence, now time.Time) (State, string
 	// worktree is one of the everywheres. A walk that was denied could be
 	// hiding a stream of writes, so "quiet on every clock" is not a sentence
 	// the monitor is entitled to say — exactly as with an unreadable
-	// transcript in graceRung (U056-F08).
+	// transcript in graceRung.
 	if ev.FSError != "" {
 		return StateUnknown, fmt.Sprintf("quiet for %s on the clocks that could be read, but the worktree could not be walked, so filesystem activity cannot be ruled out: %s",
 			quiet.Round(time.Second), ev.FSError)
@@ -422,7 +422,7 @@ func (m *Monitor) gather(ctx context.Context, t Target, now time.Time) Evidence 
 			// forced false here as well as in the reader, because readTx is
 			// an injectable seam and a seam that reported an error while
 			// leaving Observed set would put the ladder right back to
-			// condemning on a failure (U056-F01).
+			// condemning on a failure.
 			ev.Transcript.Observed = false
 			ev.TranscriptError = err.Error()
 			clidiag.Warn("ctxloom", "liveness: %s: read transcript: %v", t.Harp, err)
@@ -434,7 +434,7 @@ func (m *Monitor) gather(ctx context.Context, t Target, now time.Time) Evidence 
 			// Same rule as the transcript above: a walk that FAILED is not a
 			// worktree that was still. The failure is carried on the evidence
 			// so the ladder can decline to judge instead of counting a
-			// missing clock as a silent one (U056-F08).
+			// missing clock as a silent one.
 			ev.FSError = err.Error()
 			clidiag.Warn("ctxloom", "liveness: %s: walk worktree: %v", t.Harp, err)
 		}
@@ -491,7 +491,7 @@ func (m *Monitor) AssessAll(ctx context.Context, targets []Target) []Report {
 	return out
 }
 
-// Watch was a self-contained poll loop; deleted (U056-F10) as test-only and
+// Watch was a self-contained poll loop; deleted as test-only and
 // duplicated by the real production driver, coord.livenessWatchdog
 // (internal/agentcoord/coord/liveness.go), which has its own ticker plus the
 // transition-suppression and Forget-reaping this one lacked.

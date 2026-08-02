@@ -27,8 +27,8 @@ func writeUnparseableIndex(t *testing.T, harpName string) string {
 	return path
 }
 
-// TestUpgrade_UnparseableTimestampIsUnstableAcrossLoads characterizes the
-// behaviour U099-F09 names. It is NOT a fix: the value chosen for an
+// TestUpgrade_UnparseableTimestampIsUnstableAcrossLoads characterizes an
+// existing behaviour. It is NOT a fix: the value chosen for an
 // unparseable timestamp is a migration decision guarded by a deliberately named
 // pin (TestNormalizeTimestampNode_UnparseableDegradesToRecent) and an in-code
 // rationale, so changing it is the human's call. This records what the current

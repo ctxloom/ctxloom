@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// TestNormalizeTimestampNode_UnencodableValueIsAnnounced pins U099-F18's
+// TestNormalizeTimestampNode_UnencodableValueIsAnnounced pins the
 // invariant: a failed re-encode must not be reported as "nothing to do".
 //
 // This is a test-seam row. Encoding a time.Time into a yaml.Node does not fail

@@ -116,7 +116,7 @@ func TestSessionStoreContract(t *testing.T) {
 }
 
 // TestSessionStoreContract_FindPopulatesCanonicalTranscript pins the
-// tough-cloud S4 fix: Find must enrich its returned copy with
+// S4 fix: Find must enrich its returned copy with
 // CanonicalTranscriptPath exactly like ListForProject already does
 // (fillCanonicalTranscript), for BOTH Store adapters — every S4 consumer that
 // resolves a single harp (compactor, sessionfeed, mcp memory tools) goes
@@ -176,7 +176,7 @@ func TestSessionStoreContract_FindPopulatesCanonicalTranscript(t *testing.T) {
 }
 
 // TestSessionStoreContract_RenameRefusesUnsafeNames holds BOTH adapters to
-// U087-F04's rule. It lives in the contract suite deliberately: MemStore is
+// the same safe-rename rule. It lives in the contract suite deliberately: MemStore is
 // the fake every other package's tests run against, so a fake that accepts a
 // name the real Manager refuses is exactly how a validation defect stays
 // invisible. Asserted on store state, not error text.

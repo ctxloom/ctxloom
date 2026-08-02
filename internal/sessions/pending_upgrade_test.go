@@ -25,10 +25,8 @@ func seedLegacyIndex(t *testing.T, harpName string) (*Manager, string) {
 	return m, path
 }
 
-// TestManager_PendingUpgradeSurvivesInterveningReads measures the concurrency
-// clause of U099-F16, whose text is truncated in the findings index at "so a
-// concurrent `Fin…`". Reconstructed against the code, the concern is that
-// loadLocked unconditionally nils pendingUpgrade, so a read landing between a
+// TestManager_PendingUpgradeSurvivesInterveningReads measures a concurrency
+// concern: loadLocked unconditionally nils pendingUpgrade, so a read landing between a
 // caller's Load and its CommitUpgrade would discard the staged upgrade and the
 // user's consent would commit nothing.
 //

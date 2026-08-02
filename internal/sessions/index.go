@@ -79,7 +79,7 @@ type Entry struct {
 
 	// CanonicalTranscriptPath is the harp's OWN captured transcript
 	// (paths.HarpCanonicalTranscriptPath — internal/transcript.Recorder's
-	// output, tough-cloud plan §2), computed on read like Distilled/
+	// output), computed on read like Distilled/
 	// EssencePath — never persisted — by stat'ing the file (see
 	// fillCanonicalTranscript, called from ListForProject). Empty means no
 	// canonical transcript has landed for this harp yet: a pre-capture
@@ -273,7 +273,7 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 // different ID are silently dropped so a stale binder cannot clobber a
 // fresh one through a TOCTOU race between Find and BindSession.
 func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error {
-	// U099-F04: both empty is a genuine no-op — the ordinary shape of a hook
+	// Both empty is a genuine no-op — the ordinary shape of a hook
 	// payload that carried no session identifier at all (session_cmd.go's
 	// bindSessionFromPayload calls in with exactly this when none of its
 	// fallbacks found one). Short-circuit before acquiring the file lock or
@@ -462,7 +462,7 @@ func fillTranscriptByLocation(e *Entry) {
 // COPY when present — the same computed-on-read posture as
 // fillTranscriptByLocation/Distilled/EssencePath, never persisted. This is
 // how a session becomes discoverable by ctxloom's own captured transcript
-// (tough-cloud §2/§4a) independent of whatever the legacy engine-file
+// independent of whatever the legacy engine-file
 // TranscriptPath does or doesn't resolve to.
 func fillCanonicalTranscript(e *Entry) {
 	if e == nil || e.HarpName == "" {
@@ -479,7 +479,7 @@ func fillCanonicalTranscript(e *Entry) {
 
 // Find returns a copy of the entry with the given harp name, or nil if
 // absent. Enriches the copy with CanonicalTranscriptPath the same way
-// ListForProject does (fillCanonicalTranscript) — tough-cloud S4: every
+// ListForProject does (fillCanonicalTranscript) — S4: every
 // single-harp lookup (compactor, sessionfeed, mcp memory tools) needs to see
 // canonical-transcript presence consistently with the listing path, not just
 // callers that go through ListForProject.
@@ -524,7 +524,7 @@ func ActivityTime(e Entry) time.Time {
 	// the legacy TranscriptPath, mirroring SourceStale: an ACP/coordinator
 	// session records ONLY a canonical transcript and never binds a legacy
 	// TranscriptPath, so statting TranscriptPath alone pinned it to StartedAt
-	// and mis-ranked it (viral-equal/icy-apron). Canonical is also the file the
+	// and mis-ranked it. Canonical is also the file the
 	// compactor distills and SourceSize fingerprints — ordering and staleness
 	// must agree on which file is the source of truth.
 	if e.CanonicalTranscriptPath != "" {
@@ -618,7 +618,7 @@ func TranscriptStale(transcriptPath string, stampedSize int64) (stale, known boo
 // relative to its source transcript, and whether that could be determined (see
 // TranscriptStale). The picker and `session list` use it to badge stale rows.
 //
-// Prefers CanonicalTranscriptPath over TranscriptPath (tough-cloud S4): once a
+// Prefers CanonicalTranscriptPath over TranscriptPath (S4): once a
 // harp has a captured canonical transcript, that IS the file the compactor
 // actually distills from (memory.transcriptSize stamps its size the same way),
 // so staleness must compare against it — comparing the essence's stamped size
@@ -666,7 +666,7 @@ func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 // SetSummary's empty-summary refusal), not in operations.RenameSession: the
 // new name becomes an index key that paths.HarpDir turns into a filesystem
 // path, and `ctxloom session rename <old> ../..` was previously a
-// pass-through all the way to MkdirAll/Symlink (U087-F04).
+// pass-through all the way to MkdirAll/Symlink.
 func (m *Manager) Rename(oldName, newName string) error {
 	if err := harp.Validate(newName); err != nil {
 		return err
@@ -764,7 +764,7 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 	survivors := make([]Entry, 0, len(idx.Sessions))
 	for _, e := range idx.Sessions {
 		// Judge a COPY enriched with the computed-on-read canonical
-		// transcript path (U087-F05). Judging the raw entry made the
+		// transcript path. Judging the raw entry made the
 		// recoverability test structurally blind: CanonicalTranscriptPath is
 		// yaml:"-", so it is ALWAYS empty on a freshly loaded entry, and a
 		// session whose vendor transcript had been pruned but whose
@@ -807,7 +807,7 @@ func (m *Manager) Reconcile(isDead func(Entry) bool) ([]Entry, error) {
 // used for staleness detection (see TranscriptStale). Passing nil detail clears
 // it; a zero sourceSize leaves the fingerprint unset (no staleness badge).
 //
-// An EMPTY summary is refused (U099-F20). Accepting it made this the
+// An EMPTY summary is refused. Accepting it made this the
 // destructive variant of the house empty-input bug: SetSummary(harp, "", nil,
 // 0) reported success while erasing a good summary, its detail lines AND its
 // staleness fingerprint. A failed distill produces exactly that argument set,
@@ -864,7 +864,7 @@ func (m *Manager) lock() (func(), error) {
 
 // saveLocked atomically replaces the index file with idx.
 //
-// A nil idx is refused (U099-F21): yaml.Marshal(nil) is the literal `null`,
+// A nil idx is refused: yaml.Marshal(nil) is the literal `null`,
 // and writing it would atomically overwrite every recorded session with a
 // file that loads back as an empty index — a total, silent wipe with a nil
 // error. No caller passes nil today; this is a guard on the destroy step, not

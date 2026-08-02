@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U099-F20: SetSummary(harp, "", nil, 0) succeeded and ERASED an existing good
+// SetSummary(harp, "", nil, 0) once succeeded and ERASED an existing good
 // summary, its detail lines and its staleness fingerprint — the destructive
 // variant of the empty-input bug. The only production caller guards against it
 // at the call site; the writer itself must not accept the erasure.
@@ -28,7 +28,7 @@ func TestSetSummary_EmptySummaryDoesNotEraseAGoodOne(t *testing.T) {
 	assert.Equal(t, int64(4096), got.SourceSize)
 }
 
-// U099-F21: saveLocked(nil) would marshal to the literal `null` and atomically
+// saveLocked(nil) would marshal to the literal `null` and atomically
 // overwrite the whole index with it — a total silent wipe. No caller passes
 // nil today; the writer must still refuse rather than destroy the file.
 func TestSaveLocked_NilIndexIsRefused(t *testing.T) {

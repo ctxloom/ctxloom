@@ -15,7 +15,7 @@ import (
 // returns entries enriched the same way every other entry-returning method
 // does.
 //
-// Reconcile judges a COPY it enriches (U087-F05), which is what stops a
+// Reconcile judges a COPY it enriches, which is what stops a
 // recoverable session being reaped -- but it used to hand back the RAW
 // survivors, so a caller taking Reconcile's return saw
 // CanonicalTranscriptPath == "" for a session that plainly has one. That is

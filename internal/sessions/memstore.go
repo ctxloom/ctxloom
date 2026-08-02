@@ -84,7 +84,7 @@ func (m *MemStore) ListAll() ([]Entry, error) {
 
 // Find returns a copy of the entry for harpName, or nil if absent. Enriches
 // the copy with CanonicalTranscriptPath, matching ListForProject and
-// *Manager.Find (tough-cloud S4).
+// *Manager.Find (S4).
 func (m *MemStore) Find(harpName string) (*Entry, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -159,7 +159,7 @@ func (m *MemStore) MarkEnded(harpName string, at time.Time) error {
 
 // Rename changes a harp name, erroring if oldName is absent, newName is taken,
 // or newName is not a usable harp identifier. The last check mirrors
-// Manager.Rename exactly (U087-F04): this is the fake every other package's
+// Manager.Rename exactly: this is the fake every other package's
 // tests run against, and a fake that accepts a name the real store refuses is
 // how a validation defect stays invisible.
 func (m *MemStore) Rename(oldName, newName string) error {

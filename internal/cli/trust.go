@@ -58,7 +58,7 @@ func runTrustAcceptCmd(cmd *cobra.Command, args []string) error {
 	return runItemTrust(cmd, cfg, args[0])
 }
 
-// trustAcceptCmd is the real home of `ctxloom trust <ref>` (Decision 1).
+// trustAcceptCmd is the real home of `ctxloom trust <ref>`.
 var trustAcceptCmd = &cobra.Command{
 	Use:   "accept <ref>",
 	Short: "Accept an item's current content (fragment, command, MCP server, or hook)",

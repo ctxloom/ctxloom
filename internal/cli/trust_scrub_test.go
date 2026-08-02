@@ -143,7 +143,7 @@ func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
 }
 
 // TestBlacklist_UnresolvableItemStatesTheRejectionIsRefOnly pins the
-// refutation of U089-F06, which claimed `blacklist` reports
+// refutation of a finding that claimed `blacklist` reports
 // {"status":"rejected"} while having SILENTLY written no content-scoped
 // rejection. The ref-only outcome is real and deliberate — spec §5.3 requires
 // a rejection to succeed even when the item is already gone, and there are no

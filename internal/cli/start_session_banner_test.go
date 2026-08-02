@@ -10,8 +10,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// TestPrintStartSessionBanner_MinimalInfo covers the degraded case (WS-4/5:
-// startup must never block on a missing piece of the banner) — only a harp,
+// TestPrintStartSessionBanner_MinimalInfo covers the degraded case (startup
+// must never block on a missing piece of the banner) — only a harp,
 // nothing else resolved.
 func TestPrintStartSessionBanner_MinimalInfo(t *testing.T) {
 	var buf bytes.Buffer

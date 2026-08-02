@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// This file is the F1 integration harness for tui/overlay.go's Run: a REAL
+// This file is the integration harness for tui/overlay.go's Run: a REAL
 // tea.Program driven over a pipe (never the tty — overlay.go:38's own
 // invariant), asserting behavior (content/escape-sequence presence and
-// ordering), never pixel goldens (Wave F playbook, binding principles).
+// ordering), never pixel goldens.
 // model_test.go already drives Model.Update synthetically; what was
 // uncovered before this file is the Program plumbing itself: real Init(),
 // real key parsing off the input reader, real renderer writes to the tty
@@ -221,7 +221,7 @@ func (b *blockingQuitter) Quit() {
 // Abort must not hold the overlay's lock while Quit blocks. Run takes that same
 // lock immediately after p.Run returns, so an Abort parked inside Quit with the
 // lock held wedges the pair permanently — and Run is what restores the engine's
-// terminal. U044-F21.
+// terminal.
 func TestOverlay_AbortDoesNotHoldTheLockWhileQuitBlocks(t *testing.T) {
 	f := newFakeSources(t.TempDir())
 	o := NewOverlay(context.Background(), f.sources(), 0x1d)

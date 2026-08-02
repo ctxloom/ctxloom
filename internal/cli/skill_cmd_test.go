@@ -34,7 +34,7 @@ func TestPrintSkillList_GenuinelyEmpty(t *testing.T) {
 	assert.Contains(t, out, "Create one with: ctxloom skill create <bundle> <name>")
 }
 
-// TestPrintSkillList_BundleFilterExcludesEverything is U043-F19: --bundle
+// TestPrintSkillList_BundleFilterExcludesEverything pins a fix: --bundle
 // naming a bundle that has no skills (or a typo) used to print the plain
 // "No skills found." + create-a-skill hint even when skills exist in OTHER
 // bundles — misleading, since skills do exist, just not under this filter.

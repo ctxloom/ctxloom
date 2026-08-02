@@ -56,7 +56,7 @@ func TestBuildRoster_ChildrenNestUnderParent(t *testing.T) {
 // The merge is "the held row is RICHER", not "the held row replaces". A
 // coordinator entry whose state is empty — a journal whose runState fact
 // decoded without one — must not erase the index's own live/ended reading,
-// which would repaint a running session as the waiting glyph. U044-F16.
+// which would repaint a running session as the waiting glyph.
 func TestBuildRoster_EmptyHeldFieldsDoNotBlankTheIndexRow(t *testing.T) {
 	ended := time.Now()
 	rows := BuildRoster(
@@ -84,7 +84,7 @@ func TestBuildRoster_OrphanChildPlacesFlat(t *testing.T) {
 	assert.Equal(t, 0, rows[0].Depth, "an orphan (parent unknown) shows at the root")
 }
 
-// Characterization of the lineage walk before U044-F20 replaces its
+// Characterization of the lineage walk before a later change replaces its
 // scan-every-row-per-node placement with a children index: depth accumulates
 // down the chain, siblings keep the order the roster produced them in, and a
 // subtree is emitted immediately after its parent rather than after its

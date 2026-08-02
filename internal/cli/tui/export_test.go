@@ -55,7 +55,7 @@ func TestTranscriptText_RendersExpanded(t *testing.T) {
 // s (save) and y (copy) are two spellings of "give me this transcript", and
 // they render it through renderItem at a width each supplies for itself. The
 // widths must be one value: a divergence silently gives the file and the
-// clipboard different line breaks for the same feed. U044-F19.
+// clipboard different line breaks for the same feed.
 func TestExportedTextAndCopiedTextAgreeOnRenderWidth(t *testing.T) {
 	items := []feedItem{{role: "user", text: strings.Repeat("x", 250)}}
 	dir := t.TempDir()
@@ -140,8 +140,8 @@ func TestCopyText_SelectedVsVisible(t *testing.T) {
 	assert.Contains(t, all, "two")
 }
 
-// TestExportTranscript_RejectsAnUnknownKind is the regression guard for
-// U044-F09. `kind` was used for TWO things -- selecting the renderer and
+// TestExportTranscript_RejectsAnUnknownKind is the regression guard: `kind`
+// was used for TWO things -- selecting the renderer and
 // supplying the filename extension -- with a `default:` arm that fell through
 // to the TEXT renderer. Any kind other than "ndjson" therefore produced
 // role-tagged plain text in a file whose extension claimed otherwise:

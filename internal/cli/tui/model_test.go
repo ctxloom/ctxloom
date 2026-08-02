@@ -195,7 +195,7 @@ func TestModel_RosterNavigationSwitchesFeed(t *testing.T) {
 // not just in the receiver it mutated. If the returned value is the pre-call
 // copy, the feed switch is silently half-applied: feedHarp still names the old
 // harp, so the incoming feedOpenedMsg is judged stale and cancelled, and the
-// new agent's feed never opens at all. U044-F05.
+// new agent's feed never opens at all.
 func TestModel_SelectionMoveReturnsTheModelOpenFeedReset(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "h1", State: "live"},
@@ -282,7 +282,7 @@ func TestModel_ExpandCollapse(t *testing.T) {
 // feed's own header is rendered from the ROSTER's selected row, and the inject
 // target is latched from the feed. Splitting the struct along those groups has
 // to carry these couplings across, so they are pinned here rather than left to
-// be discovered by whoever tries. U044-F10.
+// be discovered by whoever tries.
 func TestModel_PaneStateIsCoupledNotThreeIndependentSubModels(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "h1", Agent: "developer", Engine: "claude-code", State: "live"},
@@ -457,7 +457,7 @@ func TestModel_GapRendersNotice(t *testing.T) {
 // The roster refreshes every rosterRefreshEvery, so anything the refresh
 // clears has a lifetime of at most two seconds. "saved <path>" is the only
 // place the user learns WHERE the export landed, so the background refresh
-// must not own that line. U044-F23.
+// must not own that line.
 func TestModel_RosterRefreshDoesNotWipeAnActionOutcome(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	m := openSelected(t, newTestModel(f, nil), f)
@@ -472,7 +472,7 @@ func TestModel_RosterRefreshDoesNotWipeAnActionOutcome(t *testing.T) {
 
 // A roster fetch that fails and then succeeds has recovered; the error line
 // must go with it. Nothing else ever clears it, so before this it survived
-// every later refresh for the life of the overlay. U044-F23.
+// every later refresh for the life of the overlay.
 func TestModel_SuccessfulRosterRefreshClearsTheEarlierRosterError(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	m := openSelected(t, newTestModel(f, nil), f)
@@ -488,7 +488,7 @@ func TestModel_SuccessfulRosterRefreshClearsTheEarlierRosterError(t *testing.T) 
 
 // The hint bar shows ONE note, so a parked failure must not be able to hide a
 // newer outcome forever: the action slot wins, the roster's own failure comes
-// next, and the background note last. U044-F23.
+// next, and the background note last.
 func TestModel_HintNotePrecedence(t *testing.T) {
 	m := Model{status: "saved /tmp/t.txt"}
 	assert.Equal(t, "saved /tmp/t.txt", m.hintNote())
@@ -502,7 +502,7 @@ func TestModel_HintNotePrecedence(t *testing.T) {
 
 // View prefers errMsg over status, so an action that succeeds while a stale
 // error is still parked renders as the OLD failure — the success is
-// invisible. Every action reports exactly one outcome. U044-F23.
+// invisible. Every action reports exactly one outcome.
 func TestModel_ASucceedingActionRetiresTheEarlierFailure(t *testing.T) {
 	dir := t.TempDir()
 	f := newFakeSources(dir, RosterRow{Harp: "h1", State: "live"})
@@ -645,7 +645,7 @@ func TestModel_InjectRequiresTargetAndSeam(t *testing.T) {
 // that returns more lines than that — or a line wider than the terminal, which
 // the terminal then wraps onto another row — writes over the engine's own
 // output, and nothing puts it back. The invariant must therefore hold at every
-// geometry, not just the comfortable ones. U044-F06.
+// geometry, not just the comfortable ones.
 func TestModel_ViewFitsItsGeometryExactly(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "perky-same-chevy", Agent: "developer", Engine: "claude-code", State: "live"},
@@ -698,7 +698,7 @@ func stripSGR(s string) string {
 // that would fall through — NUL, ESC, and every printable character — it
 // rejects with a reason. This pin couples the two: it goes red if
 // ParsePrefixKey ever admits a byte teaKeyName does not name, and red if
-// teaKeyName stops agreeing with bubbletea's own vocabulary for one. U044-F22.
+// teaKeyName stops agreeing with bubbletea's own vocabulary for one.
 func TestTeaKeyName_NamesEveryPrefixParsePrefixKeyAdmits(t *testing.T) {
 	admitted := 0
 	for ch := 0; ch < 128; ch++ {
@@ -727,7 +727,6 @@ func TestPadCell_PadsShortAndTruncatesLongWithEllipsis(t *testing.T) {
 // directions over the material this overlay actually renders — a CJK or emoji
 // rune from an engine transcript occupies two columns, and lipgloss's own SGR
 // escapes (the selected roster row is styled before it is framed) occupy none.
-// U044-F07.
 func TestPadCell_FramesDisplayCellsNotRunes(t *testing.T) {
 	assert.Equal(t, 10, lipgloss.Width(padCell("日本語", 10)),
 		"a double-width rune costs two columns, not one")
@@ -849,7 +848,7 @@ func TestModel_HeaderPlaceholderWithNoFeedSelected(t *testing.T) {
 	assert.Contains(t, m.View(), "feed: —")
 }
 
-// TestModel_ExportDirErrorWinsOverTheReturnedPath is U042-F22's pin. The
+// TestModel_ExportDirErrorWinsOverTheReturnedPath pins this. The
 // production ExportDir (cli.terminalUISources) is
 // `return dir, os.MkdirAll(dir, 0o755)`, so on failure it hands back a
 // non-empty path for a directory that does not exist. Every consumer here must

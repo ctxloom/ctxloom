@@ -57,7 +57,7 @@ func TestRenderItem_ToolResultSummaryAndExpansion(t *testing.T) {
 // while the entry is collapsed. Once it IS expanded, repeating the cue tells
 // the user to press the key they just pressed — and the same rendering is what
 // the txt export and the clipboard copy contain, where no key exists at all.
-// U044-F17: the expanded summary keeps the size cue and drops the key hint.
+// The expanded summary keeps the size cue and drops the key hint.
 func TestRenderItem_ExpandedToolResultDoesNotAdvertiseTheExpandKey(t *testing.T) {
 	it := feedItem{role: "tool_result", toolName: "Bash", toolOutput: "line1\nline2\nline3"}
 
@@ -96,7 +96,7 @@ func TestRenderItem_WrapsLongLines(t *testing.T) {
 
 // Wrapping is what keeps a feed line inside the feed pane; measured in runes
 // it lets a line of double-width content run to twice the pane's width and
-// spill across the divider. U044-F07.
+// spill across the divider.
 func TestWrapLine_WrapsOnDisplayCells(t *testing.T) {
 	src := strings.Repeat("日", 10) // 10 runes, 20 columns
 	lines := wrapLine(src, 6)

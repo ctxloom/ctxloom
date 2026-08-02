@@ -33,10 +33,10 @@ func runVersionCmd(t *testing.T, format string) string {
 	return out.String()
 }
 
-// TestVersion_TextEmitsANonEmptyVersionPayload pins the invariant U105-F02
-// alleged was violated: `version` must never answer with a bare newline and
-// exit 0. The row aimed that claim at cliversion.Render's ""/"text" branch,
-// which no longer exists (deleted as test-only under U105-F01) — but the
+// TestVersion_TextEmitsANonEmptyVersionPayload pins the invariant a prior
+// finding alleged was violated: `version` must never answer with a bare
+// newline and exit 0. The row aimed that claim at cliversion.Render's
+// ""/"text" branch, which no longer exists (deleted as test-only) — but the
 // surviving text branch is this one, and it is the one a user actually
 // reaches, so the invariant is pinned here rather than left unowned.
 //
@@ -50,12 +50,12 @@ func TestVersion_TextEmitsANonEmptyVersionPayload(t *testing.T) {
 	assert.Equal(t, Version, strings.TrimSpace(got))
 }
 
-// TestVersion_UnknownFormatIsRejectedByTheSharedVocabulary pins U105-F04's
-// subject: the set of legal --format values for `version` is owned in ONE
+// TestVersion_UnknownFormatIsRejectedByTheSharedVocabulary pins its subject:
+// the set of legal --format values for `version` is owned in ONE
 // place (clifmt.ParseFormat, reached through emit/cliemit.Resolve) and not
 // re-enumerated by the version command itself. The row described a bare
 // string switch over ""/"text"/"json" inside cliversion.Render duplicating
-// that vocabulary; Render is gone (U105-F01), and this asserts what replaced
+// that vocabulary; Render is gone, and this asserts what replaced
 // it — an unknown format is refused, with a message naming the FULL five-format
 // set, which a command-local text/json switch could not produce.
 func TestVersion_UnknownFormatIsRejectedByTheSharedVocabulary(t *testing.T) {

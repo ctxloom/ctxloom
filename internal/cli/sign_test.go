@@ -214,11 +214,12 @@ func setupSignTestDir(t *testing.T) (string, *config.Config) {
 	return appDir, cfg
 }
 
-// U042-F26 (CLI face): `ctxloom sign --all` over a project whose bundle dirs
-// resolve to nothing printed "no local bundles to sign" and exited 0 — signing
-// nothing looked exactly like having nothing to sign. That is also the visible
-// face of the known GetBundleDirs-points-at-cache/bundles defect: the command
-// that is supposed to sign a publishing repo's content quietly signs none of it.
+// `ctxloom sign --all` over a project whose bundle dirs used to resolve to
+// nothing printed "no local bundles to sign" and exited 0 — signing nothing
+// looked exactly like having nothing to sign. That is also the visible face
+// of the known GetBundleDirs-points-at-cache/bundles defect: the command
+// that is supposed to sign a publishing repo's content quietly signs none of
+// it.
 func TestRunSign_AllWithNoBundlesIsAnError(t *testing.T) {
 	_, cfg := setupSignTestDir(t)
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
@@ -229,12 +230,12 @@ func TestRunSign_AllWithNoBundlesIsAnError(t *testing.T) {
 	assert.Contains(t, err.Error(), "sign", "the error names what was searched")
 }
 
-// TestRunSign_JSONSignedIsAlwaysAnArray is U042-F18's pin. The row claimed the
-// zero-target path emitted signCmdResult{} — a nil slice, rendering
+// TestRunSign_JSONSignedIsAlwaysAnArray pins the shape: the
+// zero-target path used to emit signCmdResult{} — a nil slice, rendering
 // "signed": null — while the normal path emitted an initialised slice, forcing
 // a JSON consumer to handle both. It no longer can: the only construction site
 // initialises the slice, and the zero-target arm returns an ERROR rather than
-// emitting anything at all (U042-F26). This goes red if either property is
+// emitting anything at all. This goes red if either property is
 // undone — if the slice is left nil, or if the empty case is ever made to emit
 // a result again.
 func TestRunSign_JSONSignedIsAlwaysAnArray(t *testing.T) {

@@ -76,7 +76,7 @@ func runSkillList(cmd *cobra.Command, args []string) error {
 // printSkillList renders the skill listing. When --bundle filtered every
 // result out, bundleFilter/totalCount let it distinguish "no skills exist
 // anywhere" (the create-one hint applies) from "none matched --bundle X, but
-// skills do exist in other bundles" (U043-F19: the unqualified "No skills
+// skills do exist in other bundles" (the unqualified "No skills
 // found" message used to claim the former even when the latter was true).
 func printSkillList(cmd *cobra.Command, entries []operations.SkillEntry, bundleFilter string, totalCount int) error {
 	out := cmd.OutOrStdout()

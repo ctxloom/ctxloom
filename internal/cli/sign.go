@@ -153,8 +153,8 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 // act on: a ref together with --all (two different answers to "sign what?"),
 // and neither of them (no answer at all). Split out of runSign, which was
 // carrying argument validation, key-override precedence, target resolution,
-// the empty-target diagnostic, the signing loop and rendering in one body
-// (U042-F10) — every guard here is a pre-flight check on the caller's argv,
+// the empty-target diagnostic, the signing loop and rendering in one body —
+// every guard here is a pre-flight check on the caller's argv,
 // answerable before any key or bundle is touched.
 func validateSignRequest(ref string, all bool) error {
 	if all && ref != "" {
@@ -178,8 +178,8 @@ func resolveSignKeyOverride(cfg *config.Config, keyFlag string) string {
 	return cfg.SignKey()
 }
 
-// noSignTargetsError explains a `sign --all` that matched nothing. U042-F26:
-// this used to print "no local bundles to sign" and exit 0, so signing NOTHING
+// noSignTargetsError explains a `sign --all` that matched nothing. This used
+// to print "no local bundles to sign" and exit 0, so signing NOTHING
 // looked exactly like having nothing to sign. `sign --all` is how a publishing
 // repo signs its shipped content; a run that signed none of it is a failed
 // run, and naming the directories searched is what turns "it printed something

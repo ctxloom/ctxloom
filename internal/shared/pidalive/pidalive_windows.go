@@ -14,7 +14,7 @@ import (
 // used instead — on Windows it actually calls OpenProcess and so can fail
 // for a real, live-but-inaccessible process, not just a genuinely-dead one.
 //
-// U114-F02: the previous implementation's doc comment claimed this errs
+// The previous implementation's doc comment claimed this errs
 // toward "alive" for exactly this reason ("a stale record on Windows errs
 // toward alive"), but the code returned false (Dead) for EVERY FindProcess
 // error, including ERROR_ACCESS_DENIED — a live process this token simply

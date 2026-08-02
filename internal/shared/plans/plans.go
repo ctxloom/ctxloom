@@ -86,7 +86,7 @@ func List(root string) ([]Plan, error) {
 		segs := strings.Split(rel, string(filepath.Separator))
 		harp := segs[0]
 		if d.IsDir() {
-			return nil // descend; plans may live in nested subdirectories (U115-F01/U132-F01)
+			return nil // descend; plans may live in nested subdirectories
 		}
 		if len(segs) < 2 {
 			return nil // a file directly under root, not inside any harp dir — never a plan

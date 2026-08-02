@@ -127,7 +127,7 @@ func drainPTY(ptty pty.Pty, copyDone <-chan struct{}) {
 
 // RunInteractive runs a command in interactive mode using a PTY. The PTY makes
 // the child see a real terminal even when its stdin is a pipe. Its only
-// return payload is the exit code (U116-F09): the session's output is NOT
+// return payload is the exit code: the session's output is NOT
 // captured here — an interactive TUI redraws constantly for hours, so
 // buffering the whole stream would grow without bound — callers that want
 // the output pass a stdout writer and own the retention policy. A plain int

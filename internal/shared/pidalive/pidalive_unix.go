@@ -25,7 +25,7 @@ func Probe(pid int) State {
 	// whether pid names a live process ("On Unix systems, FindProcess always
 	// succeeds..."), so an error-return branch here was provably unreachable
 	// dead code — and worse, it read as if this probe handled a FindProcess
-	// failure it can never actually receive (U114-F03).
+	// failure it can never actually receive.
 	if !pidNamesOneProcess(pid) {
 		return Unsure
 	}

@@ -28,7 +28,7 @@ func TestProbe_ExitedChildPid_ReportsDead(t *testing.T) {
 	assert.Equal(t, Dead, Probe(pid))
 }
 
-// TestState_MaybeAlive pins U114-F01's fix: every current caller in this
+// TestState_MaybeAlive pins the fix: every current caller in this
 // repo treats "cannot confirm dead" as "alive" for a reaping/claiming/
 // spawn-refusal decision, because wrongly reaping/claiming/spawning a rogue
 // duplicate on a false "dead" is worse than a needlessly conservative skip

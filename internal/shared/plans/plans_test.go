@@ -97,7 +97,7 @@ func TestListMissingRootIsEmpty(t *testing.T) {
 	}
 }
 
-// U115-F02: an unreadable session directory must be a LOUD failure, not a
+// An unreadable session directory must be a LOUD failure, not a
 // silently shorter list. Dropping a harp's whole plan set and returning
 // success is indistinguishable from that session having no plans.
 func TestListUnreadableSessionDirFailsLoudly(t *testing.T) {
@@ -145,7 +145,7 @@ func TestListVanishedSessionDirIsNotAnError(t *testing.T) {
 	}
 }
 
-// TestList_FindsNestedPlanFiles pins U115-F01/U132-F01: List enumerated only
+// TestList_FindsNestedPlanFiles pins the fix: List enumerated only
 // <root>/<harp>/*.plan.md — exactly one level deep — while the paired
 // watcher (internal/shared/watch, wired in internal/cli/plan_watch.go) is
 // explicitly recursive. A plan nested one level deeper than that (this
@@ -189,7 +189,7 @@ func TestList_FindsNestedPlanFiles(t *testing.T) {
 	}
 }
 
-// TestPlan_JSONShape_IncludesSessions pins U115-F12: Plan.Sessions has no
+// TestPlan_JSONShape_IncludesSessions pins that Plan.Sessions has no
 // in-repo reader (rg -n '\.Sessions\b' --type go -g '!*_test.go' finds only
 // unrelated idx.Sessions hits in internal/sessions and
 // internal/shared/plans/scoped.go). Its only possible consumer is the

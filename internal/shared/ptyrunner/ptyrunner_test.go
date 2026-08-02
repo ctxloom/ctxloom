@@ -318,7 +318,7 @@ func (w *failingWriter) Write(p []byte) (int, error) {
 	return take, nil
 }
 
-// TestRunInteractive_StdoutWriteFailureReportsError pins U116-F02: a write
+// TestRunInteractive_StdoutWriteFailureReportsError pins the fix: a write
 // failure delivering the child's PTY output used to be discarded
 // (`_, _ = io.Copy(dst, ptty)`), so RunInteractive reported the child's exit
 // code (often 0) as success even though delivery failed partway through.

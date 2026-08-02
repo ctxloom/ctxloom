@@ -46,7 +46,7 @@ package pidalive
 // calling; this makes the contract hold without relying on that.
 func pidNamesOneProcess(pid int) bool { return pid > 0 }
 
-// State is Probe's tri-state verdict for a pid liveness check (U114-F01). A
+// State is Probe's tri-state verdict for a pid liveness check. A
 // bare bool return forced every caller to collapse "I could not tell" into a
 // confident answer, and every caller collapsed it the same way: false
 // ("dead") — the destructive direction for a reaping/claiming decision. State

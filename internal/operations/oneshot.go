@@ -181,8 +181,8 @@ type resolvedRunRequest struct {
 // a backend's isolated runs: the per-backend prebuilt-image override (config
 // isolation_images), the base Containerfile local builds layer the agent
 // stage onto (config isolation_base_containerfile), the project root
-// devcontainer auto-detection resolves against + its opt-out/service pick
-// (stark-wheat), and the composable engine set (isolation_engines).
+// devcontainer auto-detection resolves against + its opt-out/service pick,
+// and the composable engine set (isolation_engines).
 func IsolationImageConfig(cfg *config.Config, backend string) isolation.ImageConfig {
 	if cfg == nil {
 		return isolation.ImageConfig{}
@@ -230,7 +230,7 @@ type mcpCommandOverrider interface {
 // path for a container policy (host or worktree base) — so the host can stamp
 // it onto the run env (agent.MCPCommandOverrideEnv) and the in-container
 // MCP-surface writer emits the CONTAINER path instead of the host self-exec
-// path (dire-five). Lives HERE, not in isolation, for the same reason
+// path. Lives HERE, not in isolation, for the same reason
 // CellKindForPolicy does: this is the run boundary where both isolation and
 // agent are already imported.
 func MCPCommandOverrideForPolicy(p isolation.Policy) string {
@@ -283,7 +283,7 @@ var prepareIsolation = isolation.Prepare
 // requested CONTAINER couldn't start and the run fell back to the bare,
 // unsandboxed host; (2) a requested WORKTREE's per-agent config-home has no
 // credentials to seed and no API-key env, so the engine would launch logged
-// out (grave-prize). Either way, running the member as-is would silently
+// out. Either way, running the member as-is would silently
 // deliver less than what was asked for. In strict mode that fails THE MEMBER
 // (an error Part in the fan; other members continue — partial success is
 // still success), never the whole call. Returns nil in degraded mode
@@ -423,7 +423,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 		// findings it recorded, failing THIS MEMBER (an error Part upstream;
 		// other members continue) unless --degraded. Parallel members no longer
 		// need external serialization here — strictness gives each goroutine's
-		// window its OWN findings log (bumpy-tree); Close releases this
+		// window its OWN findings log; Close releases this
 		// goroutine's registry entry once the window is read so a long fan
 		// (or a long-lived host process running many fans) doesn't accumulate
 		// one entry per member forever.

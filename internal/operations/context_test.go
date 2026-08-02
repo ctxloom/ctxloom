@@ -747,8 +747,7 @@ const builtinIsolationFragmentRef = "builtin:isolation#fragments/isolation-axes"
 // append (appendBuiltinFragments in context.go). A builtin that ships but is
 // never wired to inject would pass every other test in this file while still
 // delivering zero bytes to a real session — exactly the silent-no-op failure
-// mode this codebase has shipped before (outer-shut retraction, tiny-ooze
-// codex materialize).
+// mode this codebase has shipped before.
 func TestAssembleContext_InjectsBuiltinIsolationFragment(t *testing.T) {
 	raw, err := resources.GetBuiltinBundle("isolation")
 	require.NoError(t, err, "resources/builtin_bundles/isolation.yaml must be embedded")
@@ -965,7 +964,7 @@ func TestSubstituteVariables_DeeplyNestedSections(t *testing.T) {
 }
 
 // TestSubstituteVariables_UndefinedPlainVariableRendersVerbatim is the
-// payload-asserting proof of the fixed contract (task fatal-raven): the
+// payload-asserting proof of the fixed contract: the
 // real-world bug found via a live ACP client (Nori) was that a fragment
 // documenting another {{...}}-flavored syntax (here, justfile's `{{TOP}}` /
 // `{{ARGS}}` / `{{justfile_directory()}}`) collided with fragment

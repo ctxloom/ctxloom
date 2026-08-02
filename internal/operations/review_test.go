@@ -431,8 +431,8 @@ func TestReviewItem_UpdateVsNewAfterPartialDecisions(t *testing.T) {
 	assert.Equal(t, 1, res.Updates)
 }
 
-// TestPendingReview_DualFormExposesBothForms closes the form-flip re-gate hole
-// (boned-stole): SetItemTrust countersigns BOTH the raw and the distilled form
+// TestPendingReview_DualFormExposesBothForms closes the form-flip re-gate
+// hole: SetItemTrust countersigns BOTH the raw and the distilled form
 // of a distillable item, so review must hand the reviewer BOTH sets of bytes.
 // Showing only the effective form let an approval bless LLM-written distilled
 // bytes the human never read; flipping use_distilled then served them without

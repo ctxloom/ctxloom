@@ -357,8 +357,8 @@ func TestOpenEngineSession_ExplicitAgentWithoutWorktreeRequest(t *testing.T) {
 }
 
 // TestOpenEngineSession_UnknownAgentNeverWorktrees: an EXPLICIT --agent
-// naming a binding that doesn't exist now REFUSES to open the session
-// (sandy-boxer). It must certainly never isolate on the strength of a binding
+// naming a binding that doesn't exist now REFUSES to open the session.
+// It must certainly never isolate on the strength of a binding
 // it could not resolve, so isolation.Prepare stays unreachable either way —
 // but the session no longer opens at all, because a substitute session would
 // silently drop that agent's runtime and permissions.

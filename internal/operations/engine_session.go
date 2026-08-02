@@ -145,8 +145,8 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 	// surfaces them to the editor as a session-open failure; in degraded mode
 	// it is a no-op and the session opens with whatever context survived.
 	// Sessions open on concurrent goroutines, but no external serialization is
-	// needed: strictness gives each goroutine's window its own findings log
-	// (bumpy-tree), so a concurrently-opening session's finding can no longer
+	// needed: strictness gives each goroutine's window its own findings log,
+	// so a concurrently-opening session's finding can no longer
 	// land inside — and wrongly refuse — this one.
 	if gerr := func() error {
 		startupMark := strictness.Checkpoint()
@@ -177,7 +177,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		if resolveAgent != "" {
 			if rs, rerr := ResolveAgent(ctx, cfg, resolveAgent, llmOverride); rerr != nil {
 				// An EXPLICIT --agent (flagAgent != "") that cannot be honored
-				// is FATAL (sandy-boxer). See agentBindingError for why a
+				// is FATAL. See agentBindingError for why a
 				// degrade here is worse than a hard break. An agent auto-bound
 				// from cfg.DefaultAgent still degrades: the editor never asked
 				// for it, so a project that merely SET default_agent must not
@@ -445,7 +445,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 			}
 		}
 	})
-	// D3 (manly-grant (2)): a session gets the child-update push only when
+	// D3: a session gets the child-update push only when
 	// the coordinator actually stood up (nil on a bare harp-less session, or
 	// a degraded standup that already warned) — see EngineSessionCoordinator.
 	watchChildren := acpCoord.WatchChildren()
@@ -821,7 +821,7 @@ type acpWorkspace struct {
 // Otherwise this is the SAME checkpoint→Prepare→gate window
 // oneshot.go's runResolvedAgent and delegate.go's PrepareAgentChat run over
 // the package's shared prepareIsolation/isolationGateErr seams: a
-// ClassIsolation finding (e.g. grave-prize's no-host-credentials-to-seed
+// ClassIsolation finding (e.g. a worktree's no-host-credentials-to-seed
 // case, or antigravity's no-config-home-lever case) refuses the session open
 // in strict mode exactly like a fan member would refuse itself — rather
 // than silently launching an unseeded/logged-out engine — and the
@@ -829,7 +829,7 @@ type acpWorkspace struct {
 // error. The RUNTIME axis is left at its zero value (isolation.Axes.Runtime
 // defaults to host) — ISO1 owns that axis on this same opener. No external
 // serialization needed: strictness gives each goroutine's window its own
-// findings log (bumpy-tree).
+// findings log.
 func prepareACPWorkspace(ctx context.Context, cfg *config.Config, axes isolation.Axes, backendName, agentID, projectDir string, env map[string]string) (*acpWorkspace, error) {
 	if !axes.WantsWorktree() {
 		return nil, nil
@@ -910,9 +910,8 @@ type sessionInitSummaryInputs struct {
 	// Empty means ctxloom pinned nothing and the engine falls back to ITS
 	// OWN saved default — said PLAINLY rather than guessed at, because a
 	// model cannot self-report its own generation (it is trained before it
-	// ships; see this package's `busy-vowel` incident notes) — ctxloom is
-	// the one party that actually knows which value was set, or that none
-	// was.
+	// ships) — ctxloom is the one party that actually knows which value was
+	// set, or that none was.
 	model    string
 	profiles []string
 	// fragmentsLoaded, commandNames, skillNames, and mcpServerNames each
@@ -1090,7 +1089,7 @@ func sessionIsolationLine(in sessionInitSummaryInputs) string {
 // known and named, though — the session really is running there).
 //
 // This now covers ONLY the AUTO-BOUND default agent. An explicit --agent that
-// cannot be resolved refuses the session outright (sandy-boxer, settled: see
+// cannot be resolved refuses the session outright (settled: see
 // agentBindingError), because substituting a generic session silently drops
 // the requested binding's runtime and permissions. A cfg.DefaultAgent naming
 // a missing agent still degrades — the editor never asked for that binding —

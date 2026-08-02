@@ -537,7 +537,7 @@ func TestApplyHooks_WithMCPServers(t *testing.T) {
 }
 
 // ==========================================================================
-// checkHookTargetScope / prim-guy tests
+// checkHookTargetScope tests
 // ==========================================================================
 //
 // `manage hooks install` run from $HOME (no git root, no CTXLOOM_ROOT) used to
@@ -605,7 +605,7 @@ func TestApplyHooks_ForceOverridesHomeCollision(t *testing.T) {
 }
 
 // TestApplyHooks_RefusesCodexHomeCollision is the codex hook-scope guard's
-// (comfy-lion) canonical red case, the codex sibling of
+// canonical red case, the codex sibling of
 // TestApplyHooks_RefusesHomeCollision: WorkDir set to HOME makes
 // codex.ProjectHome(WorkDir) resolve onto codex.GlobalHome() too — codex's
 // whole config.toml/prompts/skills home, not just claude's settings.json.
@@ -657,13 +657,13 @@ func TestApplyHooks_ForceOverridesCodexHomeCollision(t *testing.T) {
 }
 
 // TestApplyHooks_RefusesKiroHomeCollision is the kiro hook-scope guard's
-// (flaky-spool) canonical red case, the kiro sibling of
+// canonical red case, the kiro sibling of
 // TestApplyHooks_RefusesHomeCollision / TestApplyHooks_RefusesCodexHomeCollision:
 // WorkDir set to HOME makes kiro's project-scoped .kiro dir
 // (filepath.Join(WorkDir, ".kiro")) resolve onto kiro's global home
 // (kiroHome(): $KIRO_HOME, else ~/.kiro) too — kiro's whole
 // agents/settings/steering home, not just one file. This is the SAME
-// collision class prim-guy found for claude and comfy-lion found for codex;
+// collision class found for claude and codex;
 // kiro was unaudited until now (see kiro.go's own doc: "kiro-cli resolves
 // the materialized WORKSPACE .kiro/agents/<name>.json over any global
 // ~/.kiro/agents copy" — that precedence is moot when workDir==HOME, because
@@ -728,7 +728,7 @@ func TestApplyHooks_ForceOverridesKiroHomeCollision(t *testing.T) {
 // This test registers a synthetic backend nobody has hardcoded anywhere
 // (backends.RegisterHookGlobalScopeForTesting, the exact seam a real
 // backend's descriptor uses in registry.go) and proves ApplyHooks refuses the
-// $HOME collision for it — generalizing prim-guy/comfy-lion/flaky-spool's
+// $HOME collision for it — generalizing the claude/codex/kiro
 // fix to "any registered backend", the property the old hardcoded branch
 // could not have: it would have silently proceeded for this name.
 func TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend(t *testing.T) {
@@ -895,7 +895,7 @@ fragments:
 	assert.NotEmpty(t, result.ContextHash) // Should have context hash since fragments were found
 }
 
-// TestApplyHooks_ClaudeCode_NoNativeContextFile pins the vital-tiger v2 guardrail:
+// TestApplyHooks_ClaudeCode_NoNativeContextFile pins the guardrail:
 // claude's apply-context rides WithContext(Hook) — the settings-carried
 // SessionStart inject hook + the regenerated cache file — so apply must NEVER
 // also write a native CLAUDE.md (that would DOUBLE the context, the exact

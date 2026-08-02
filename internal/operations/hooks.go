@@ -31,7 +31,7 @@ type ApplyHooksRequest struct {
 	BundleLoaderFS    afero.Fs         `json:"-"`                  // Optional FS for bundle loader (for testing regenerateContext)
 	// Force overrides the refusal in checkHookTargetScope when the resolved
 	// workDir would write Claude Code's user-global settings.json (the $HOME
-	// collision — see MEMORY: prim-guy). Without it, that collision aborts the
+	// collision). Without it, that collision aborts the
 	// whole apply; with it, the collision is downgraded to a loud warning and
 	// the apply proceeds — the escape hatch for a genuine intentional global
 	// install.
@@ -260,9 +260,9 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 
 // checkHookTargetScope refuses to apply hooks when the resolved workDir would
 // write a TARGET backend's user-GLOBAL scope instead of a project's
-// per-PROJECT scope — claude's settings.json (prim-guy), codex's whole
-// config.toml/prompts/skills home (comfy-lion), and kiro's whole
-// agents/settings/steering home (flaky-spool) — all the SAME collision
+// per-PROJECT scope — claude's settings.json, codex's whole
+// config.toml/prompts/skills home, and kiro's whole
+// agents/settings/steering home — all the SAME collision
 // class: each backend's project-scoped home is a workDir join, so it
 // collapses onto the bare global exactly when workDir == $HOME too. Scoped
 // to backend ("all" runs every backend with a settings writer; a named
@@ -294,10 +294,10 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 // force downgrades every collision to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
 //
-// MEMORY: prim-guy — found live 2026-07-14: `manage hooks install` run from
+// Found live 2026-07-14: `manage hooks install` run from
 // $HOME silently went global, injecting context into every project and
 // duplicating the /clear banner; home entries were removed by hand as a
-// stopgap. comfy-lion and flaky-spool are the codex/kiro completions of the
+// stopgap. The codex/kiro guards above are completions of the
 // same audit.
 func checkHookTargetScope(workDir, backend string, force bool) error {
 	for _, name := range hookBackendNames(backend) {

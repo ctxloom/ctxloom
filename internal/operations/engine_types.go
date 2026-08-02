@@ -54,7 +54,7 @@ type EngineChat struct {
 	// wire.go).
 	LLMs *SessionLLMs
 	// WatchChildren subscribes this session to its delegated children's live
-	// activity (D3, manly-grant (2), Tier A push): nil when no coordinator is
+	// activity (D3, Tier A push): nil when no coordinator is
 	// hosted (delegation degraded — the session behaves exactly as it did
 	// pre-D3). The returned channel closes and cancel becomes a no-op once
 	// ctx (the session's own lifetime) ends; the caller (acpagent's

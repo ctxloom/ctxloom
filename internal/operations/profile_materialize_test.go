@@ -59,8 +59,8 @@ func TestMaterializeProfile_WritesClaudeMd(t *testing.T) {
 		"the assembled fragment block is the CLAUDE.md payload")
 }
 
-// TestMaterializeProfile_KeepsHomeShadowedCommand is the end-to-end regression
-// for sour-feed: `profile materialize --target` must produce a PORTABLE,
+// TestMaterializeProfile_KeepsHomeShadowedCommand is the end-to-end
+// regression: `profile materialize --target` must produce a PORTABLE,
 // self-contained tree, so a builtin command (e.g. "discover") that happens to
 // be byte-identical to a file already sitting in the MATERIALIZING machine's
 // own ~/.claude/commands must still land in --target. Pre-fix, claude's

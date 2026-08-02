@@ -175,7 +175,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	warnWithheld(gate)
 	// ...and name any SELECTED profile the gate emptied out completely: the
 	// per-item advisory above says WHICH items were withheld, never which
-	// profile they cost (legal-olive).
+	// profile they cost.
 	warnGuttedProfiles(declaredByProfile, loadedNames, gate)
 
 	return &AssembleContextResult{
@@ -277,7 +277,7 @@ func fragmentsFromTags(loader *bundles.Loader, tags []string) ([]config.Fragment
 // set, warning to stderr if a later profile disagrees.
 //
 // declared maps each profile to the fragment names it pushed, so a caller can
-// tell which PROFILE a withheld item cost (warnGuttedProfiles, legal-olive) —
+// tell which PROFILE a withheld item cost (warnGuttedProfiles) —
 // the flat ref list alone cannot attribute a gap to the profile that opened it.
 func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profileNames []string, profileLoaderFunc func() ProfileLoader, fromDefaults bool) (refs []config.FragmentRef, vars map[string]string, llm string, declared map[string][]string, err error) {
 	var allFragments []config.FragmentRef
@@ -666,7 +666,7 @@ func convertProfileFragments(frags []profiles.FragmentRef, exclude []string) []c
 
 // substituteVariables applies mustache variable substitution to content.
 //
-// DECISION (task fatal-raven): an unresolved PLAIN variable tag renders
+// DECISION: an unresolved PLAIN variable tag renders
 // VERBATIM — the literal source text the author wrote (`{{ARGS}}` stays
 // `{{ARGS}}`) — instead of vanishing. checkTags' warning is unchanged and
 // still fires; verbatim rendering makes the mistake visible in the output
@@ -834,7 +834,7 @@ func guttedProfiles(declared map[string][]string, loaded []string) []string {
 	return out
 }
 
-// warnGuttedProfiles surfaces the legal-olive failure: a profile the user
+// warnGuttedProfiles surfaces the failure: a profile the user
 // explicitly SELECTED whose content the trust gate withheld in full. Assembly
 // then produces a stub and exits 0 — the agent still answers, with its whole
 // role missing, and the only signal was a generic "N item(s) awaiting review"

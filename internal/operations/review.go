@@ -59,7 +59,7 @@ type ReviewItem struct {
 	// which are not the currently-exposed form. Review MUST show it: without
 	// it, approving a fragment you read in one form silently blesses bytes you
 	// never saw, and flipping use_distilled then serves them without
-	// re-gating (boned-stole). Empty when the item has only one form.
+	// re-gating. Empty when the item has only one form.
 	AlternateContent string `json:"-"`
 	// AlternateForm names AlternateContent's form ("raw"|"distilled").
 	AlternateForm string `json:"-"`
@@ -287,8 +287,8 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 // SetItemTrust countersigns BOTH forms of a distillable item (raw always,
 // distilled when present), so an approval covers bytes in both forms. Review
 // must therefore present both — otherwise the human reads one form, blesses
-// two, and a later use_distilled flip serves unread bytes with no re-gate
-// (boned-stole). The pair is derived from the SAME preimage builder the
+// two, and a later use_distilled flip serves unread bytes with no re-gate.
+// The pair is derived from the SAME preimage builder the
 // countersignature uses (computeItemPayloadPair's payloadPair), so what the
 // reviewer sees and what gets signed can never drift apart.
 func setReviewForms(item *ReviewItem, shown []byte, shownForm bundles.ContentForm, payload func(bool) ([]byte, bundles.ContentForm)) {

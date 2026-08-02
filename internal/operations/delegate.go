@@ -54,8 +54,7 @@ type AgentChatRequest struct {
 	// captured native id" (fresh session, or the backend doesn't emit one
 	// yet — see internal/opencode) — Start leaves ChatRequest.
 	// ResumeSessionID empty exactly as before this field existed, so a
-	// caller that never sets it observes no behavior change (Slice 0,
-	// wooly-stove).
+	// caller that never sets it observes no behavior change.
 	ResumeSessionID string
 	// Workspace is the caller's per-invocation workspace-axis override
 	// (isolation.WorkspaceAxis values: "none"|"worktree"; GAP 2). It OVERRIDES
@@ -180,7 +179,7 @@ func (p *PreparedAgentChat) MCPCommandOverride() string { return p.mcpCommandOve
 // checkpoint before isolation.Prepare, refuse when an explicitly-requested
 // container degraded (ClassIsolation finding) unless degraded mode. No
 // external serialization needed: strictness gives each goroutine's window its
-// own findings log (bumpy-tree).
+// own findings log.
 func PrepareAgentChat(ctx context.Context, cfg *config.Config, req AgentChatRequest) (*PreparedAgentChat, error) {
 	rs := req.Resolved
 	p := &PreparedAgentChat{
@@ -876,7 +875,7 @@ type AgentEngineProcess struct {
 
 // StartEngine spawns the engine runner process WITHOUT opening the go-plugin
 // Chat stream — the StartRun cutover's spawn half, migrated off go-plugin
-// entirely in queer-shrug Phase 1. It launches the runner via the
+// entirely. It launches the runner via the
 // starter seam (docker-direct `ctxloom llm host` for a container, a bare
 // self-invoked `llm host` under setsid for a host) — NO plugin handshake, NO
 // container plugin listener. A returned handle means the runner PROCESS is up;

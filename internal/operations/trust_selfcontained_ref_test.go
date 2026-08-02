@@ -9,8 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// TestParseTrustItemRef_CompanionRefsFailClosed closes giddy-handstand /
-// U150-F09: the operations-side "does this look like a source ref?" predicate
+// TestParseTrustItemRef_CompanionRefsFailClosed closes a fail-open gap: the
+// operations-side "does this look like a source ref?" predicate
 // used to list three markers ("://", git@, ctxloom:local@) while
 // remote.ParseReference dispatched on six — the missing one being
 // ctxloom:companion@. A companion ref that FAILED validation therefore fell
@@ -43,7 +43,7 @@ func TestParseTrustItemRef_CompanionRefsFailClosed(t *testing.T) {
 //     four ParseReference dispatches on) must survive, or an ssh:// ref that
 //     fails to parse would silently downgrade to a local bundle name;
 //   - the remote copy's ctxloom:companion@ marker must survive, or
-//     giddy-handstand reopens.
+//     the same fail-open gap reopens.
 func TestIsSelfContainedRef_OneList(t *testing.T) {
 	selfContained := []string{
 		"https://github.com/acme/repo",

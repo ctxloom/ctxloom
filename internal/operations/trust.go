@@ -287,9 +287,9 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	// builds its ReviewRecords ONCE at construction time and threads it into
 	// EffectiveTrustRequest.Records non-nil on EVERY call; a check gated on
 	// "records == nil" therefore never runs for any of them and is dead code
-	// in production (taskloom rocky-motto — confirmed empirically: reject a
-	// local fragment, corrupt the approvals store, re-materialize, and it
-	// silently un-rejects). readableRecords is an OPTIONAL capability, not
+	// in production — confirmed empirically: reject a local fragment, corrupt
+	// the approvals store, re-materialize, and it silently un-rejects.
+	// readableRecords is an OPTIONAL capability, not
 	// part of the ReviewRecords contract: a test fake that doesn't implement
 	// it (fakeRecords) is assumed readable and skips this gate entirely —
 	// only a REAL countersignRecords (built here or injected by a caller
@@ -301,7 +301,7 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 			// gate, ahead of every other step (including the local/builtin
 			// exemptions below). Fatal-class in strict mode (a deny-all
 			// session is not the session the user set up) — mirrors the
-			// deleted ledger's own store-open check (getTrustStore, pre-S6).
+			// deleted ledger's own store-open check (getTrustStore).
 			//
 			// FailOnce, not Fail: this gate now runs on EVERY item (it moved
 			// out of the records==nil preamble, which fired at most once per
@@ -326,8 +326,8 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	if records.Rejected(req.Ref, req.Payload) {
 		return decide(trust.Deny, trust.SourceRejected), nil
 	}
-	// 2a. RETRACTION STATE UNREADABLE — the fail-closed arm of step 2
-	//     (U085-F02). A lockfile that exists but cannot be parsed does not
+	// 2a. RETRACTION STATE UNREADABLE — the fail-closed arm of step 2.
+	//     A lockfile that exists but cannot be parsed does not
 	//     say "nothing is retracted"; it says nothing at all. Treating that
 	//     silence as "nothing" is failing OPEN on the one control whose whole
 	//     purpose is "this content turned out to be harmful", so a retraction
@@ -444,7 +444,7 @@ func decide(d trust.Decision, s trust.Source) *EffectiveTrustResult {
 // returns an empty Lockfile rather than an error), never a crash and never a
 // spurious deny.
 //
-// unreadable is the fail-closed arm (U085-F02): non-nil when the lockfile
+// unreadable is the fail-closed arm: non-nil when the lockfile
 // EXISTS but could not be read or parsed, which means retraction state is
 // UNKNOWN rather than empty. See readableRetraction and step 2's gate.
 type lockfileRetraction struct {
@@ -601,7 +601,7 @@ func resolveSignerOrUnsigned(cfg *config.Config, injected ssh.Signer, project bo
 	}
 	// sign.key feeds the chain's explicit-key slot here exactly as it does for
 	// `ctxloom sign` and `ctxloom review`. Omitting it made the trust/blacklist
-	// plumbing disagree with the porcelain that calls it (trim-gloss).
+	// plumbing disagree with the porcelain that calls it.
 	var explicitKey string
 	if cfg != nil {
 		explicitKey = cfg.SignKey()
@@ -935,9 +935,9 @@ func parseTrustItemRef(ref string) (tRef trust.Ref, loadRef, version string, err
 // looksLikeSourceRef, and the copies had drifted: this one recognised any
 // "://" but not ctxloom:companion@, so a malformed companion ref was
 // downgraded to a first-party local bundle name and auto-trusted at step 3 —
-// trusted MORE than a well-formed one (giddy-handstand / U089-F12 /
-// U150-F09). There is now exactly one list, in the package that owns the ref
-// grammar, and it is the union of what the two copies recognised.
+// trusted MORE than a well-formed one. There is now exactly one list, in the
+// package that owns the ref grammar, and it is the union of what the two
+// copies recognised.
 
 // parseTrustSelector parses a "<kind>/<name>" selector (the part after "#").
 func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
@@ -956,10 +956,10 @@ func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
 		// stay valid — the content lives in bundle.Commands, which the hash
 		// helpers read under KindPrompt.
 		//
-		// NOTE: "skills" is deliberately NOT an alias here. Before the Part A
-		// skill→command rename, "skills" meant this same command kind; Part B2
+		// NOTE: "skills" is deliberately NOT an alias here. Before the
+		// skill→command rename, "skills" meant this same command kind; it now
 		// frees it for the TRUE Agent Skill kind (trust.KindSkill, below) instead
-		// — Part A already moved the CLI/review surface off "#skills/" entirely,
+		// — the CLI/review surface already moved off "#skills/" entirely,
 		// so nothing production still relies on the old meaning.
 		return trust.KindPrompt, name, nil
 	case "mcp":
@@ -1059,7 +1059,7 @@ func computeItemPayloadPair(loader *bundles.Loader, tRef trust.Ref, loadRef stri
 		// FSDir, not filepath.Dir(bundle.Path): this is a TRUST decision, and
 		// the overloaded Path resolves a companion/seeded bundle to "." — the
 		// process working directory — so the bytes hashed into the grant would
-		// be whatever happened to sit there (U030-F03).
+		// be whatever happened to sit there.
 		skillDir, dirErr := bundle.SkillPreimageDir(skill)
 		if dirErr != nil {
 			return nil, nil, "", fmt.Errorf("skill %q: %w", tRef.Name, dirErr)
@@ -1178,8 +1178,8 @@ type TrustStamper struct {
 // production builds them from cfg.
 type TrustStamperOption func(*TrustStamper)
 
-// WithStampRecords injects a pre-built review-record store (the S6 seam),
-// bypassing the default countersignature-store construction. Production
+// WithStampRecords injects a pre-built review-record store, bypassing the
+// default countersignature-store construction. Production
 // leaves this unset; tests inject a fixture built over an in-memory fs.
 func WithStampRecords(r ReviewRecords) TrustStamperOption {
 	return func(ts *TrustStamper) { ts.records = r }

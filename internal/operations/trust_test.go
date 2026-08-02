@@ -450,7 +450,7 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 	}
 }
 
-// TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected proves the S6
+// TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected proves the
 // seam: when Records is nil, EffectiveTrust builds the default (the real
 // countersignature stores) rather than crashing or panicking, and — with no
 // stores populated (a fresh project, HOME pointed at an empty temp dir) —
@@ -526,7 +526,7 @@ func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 	assert.Equal(t, "approved", res.Status)
 	assert.False(t, res.Unsigned)
 	assert.Equal(t, "user", res.Store)
-	// U089-F19: KeyFingerprint now reuses the `principal` the approval was
+	// KeyFingerprint now reuses the `principal` the approval was
 	// keyed under instead of recomputing it. Assert the VALUE, not just
 	// non-emptiness — the two must remain the same fingerprint.
 	assert.Equal(t, ssh.FingerprintSHA256(fx.signer.PublicKey()), res.KeyFingerprint)
@@ -573,7 +573,7 @@ func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 	assert.Equal(t, "approved", res.Status)
 	assert.False(t, res.Unsigned)
 	assert.Equal(t, "user", res.Store)
-	// U089-F19: KeyFingerprint now reuses the `principal` the approval was
+	// KeyFingerprint now reuses the `principal` the approval was
 	// keyed under instead of recomputing it. Assert the VALUE, not just
 	// non-emptiness — the two must remain the same fingerprint.
 	assert.Equal(t, ssh.FingerprintSHA256(fx.signer.PublicKey()), res.KeyFingerprint)
@@ -707,7 +707,7 @@ func TestParseTrustItemRef(t *testing.T) {
 			name: "builtin source ref", ref: "builtin:taskloom#mcp/taskloom",
 			wantBundle: "taskloom", wantKind: trust.KindMCP, wantName: "taskloom", wantBuiltin: true,
 		},
-		// A companion loadout ref (S8) — the "one thing that can go wrong":
+		// A companion loadout ref — the "one thing that can go wrong":
 		// remote.ParseReference must RECOGNIZE it (so it never falls into the
 		// unrecognized-source guard below) and it must land as neither local
 		// nor builtin, so it reaches EffectiveTrust's trusted-signer/approved/
@@ -803,7 +803,7 @@ func TestParseTrustItemRef(t *testing.T) {
 }
 
 // TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied is THE gate-integration
-// test the companion loadout protocol (S8) exists to prove: a companion
+// test the companion loadout protocol exists to prove: a companion
 // loadout item, seeded under the ctxloom:companion@<bin> source ref, is
 // GATED — it is neither auto-allowed as local (step 2, which would bypass
 // review entirely for third-party content) nor denied as an unrecognized
@@ -860,7 +860,7 @@ func TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied(t *testing.T) {
 
 // TestEffectiveTrust_LocalExemptionSitsBelowRetraction pins the CASCADE
 // POSITION of the first-party local exemption, which ForLocalMCP's doc comment
-// names by number (U089-F18). The number is not decoration: it is the whole
+// names by number. The number is not decoration: it is the whole
 // content of the claim "a rejection beats this, and so does a retraction".
 //
 // Nothing observable distinguishes step 2 from step 3 for a local ref through

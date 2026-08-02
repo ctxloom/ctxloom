@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// U085-F02, the READ side of the corrupt-lockfile defect. T1 (fd0d87d6)
+// This is the READ side of the corrupt-lockfile defect. A previous fix
 // stopped a corrupt lock.yaml being OVERWRITTEN; it says nothing about what
 // EffectiveTrust does when it cannot READ one. That path failed OPEN:
 // buildLockfileRetraction degraded an unparseable lockfile to "nothing is

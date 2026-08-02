@@ -46,8 +46,8 @@ func (c *countingFs) OpenFile(name string, flag int, perm os.FileMode) (afero.Fi
 	return c.Fs.OpenFile(name, flag, perm)
 }
 
-// TestTrustStamper_ReadsTheLockfileOncePerItem measures U089-F08. Both the
-// stamper's resolve and contentGate's own doc used to claim the shared
+// TestTrustStamper_ReadsTheLockfileOncePerItem measures a documentation gap.
+// Both the stamper's resolve and contentGate's own doc used to claim the shared
 // review-records store means "no per-item file I/O". Only half of that is true:
 // the records store IS built once, but EffectiveTrust builds its RETRACTION
 // records per call whenever the request carries none, and no production caller

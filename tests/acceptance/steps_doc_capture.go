@@ -3,15 +3,15 @@
 // Package acceptance: the @doc capture sidecar.
 //
 // This is a PROTOTYPE seam for a proposed "living docs" pipeline (see
-// docs/living-docs/PROPOSAL.md at the repo root of this worktree). It is NOT
+// docs/living-docs-plan.md at the repo root of this worktree). It is NOT
 // part of the ordinary `just test-acceptance` run — no plain acceptance
 // invocation sets CTXLOOM_DOC_CAPTURE_DIR — but it IS wired into CI: `just
 // gen-living-docs` (invoked by .github/workflows/docs.yml's "Generate
 // living-docs journey pages" step) sets CTXLOOM_DOC_CAPTURE_DIR, runs the
 // acceptance suite with capture on, then renders
 // website/src/content/docs/journeys/ from that run's real captured output
-// (U158-F10: this comment used to claim "not wired into … CI" outright,
-// which stopped being true once docs.yml started calling gen-living-docs).
+// (this comment used to claim "not wired into … CI" outright, which stopped
+// being true once docs.yml started calling gen-living-docs).
 // It is inert unless CTXLOOM_DOC_CAPTURE_DIR is set, in which case every step
 // of every
 // @doc-tagged scenario has its real, run-produced evidence — CLI stdout/
@@ -29,7 +29,7 @@
 // A red (failing) scenario never reaches ctx.After un-erred in a state worth
 // publishing; flushDocCapture still writes the file so a broken scenario's
 // capture is visibly marked failed rather than silently absent, but the
-// generator (scripts/gen-doc-page in the proposal) refuses to render a page
+// generator (scripts/gendocs/livingdocs) refuses to render a page
 // from any capture whose steps are not ALL "passed" — that is the "a red
 // scenario cannot be documented" guarantee.
 package acceptance
@@ -50,7 +50,7 @@ import (
 
 // docCapture and docCaptureStep are this package's names for the shared
 // living-docs wire contract (internal/shared/doccapture) both this writer and
-// scripts/gendocs/livingdocs's reader use (U158-F06: these used to be two
+// scripts/gendocs/livingdocs's reader use (these used to be two
 // independent, byte-for-byte-identical struct declarations, held in sync only
 // by a comment demanding it). Aliased, not copied, so every existing
 // w.docCapture.Steps-style field access below is unaffected.
@@ -302,7 +302,7 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 // flushDocCapture writes one scenario's accumulated capture to
 // <dir>/<file>.json. dir is created if missing.
 func flushDocCapture(dir, file string, cap *docCapture) error {
-	// U158-F09: a capture with zero steps is not a legitimate empty result —
+	// A capture with zero steps is not a legitimate empty result —
 	// the After-hook wrapper above appends exactly one docCaptureStep per
 	// step actually executed (plus a synthetic one on a mid-scenario error),
 	// so reaching here with none means the Before hook fired but nothing

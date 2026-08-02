@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestCtxloomArgs_QuotedArgumentSurvivesAsOneWord pins U158-F08: ctxloomArgs
+// TestCtxloomArgs_QuotedArgumentSurvivesAsOneWord pins that ctxloomArgs
 // used to split on bare whitespace (strings.Fields), so the acceptance suite
 // structurally could not express a quoted argument, an argument containing
 // spaces, or a flag whose value is a sentence — exactly the argv shapes

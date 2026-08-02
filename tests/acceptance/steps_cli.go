@@ -83,7 +83,7 @@ func runCLI(c context.Context, cmdline, stdin string) error {
 // splits the remainder into argv via shellSplit, so a feature file can
 // express a quoted argument, an argument containing spaces, or a flag whose
 // value is a sentence — exactly the argv shapes where the live
-// variadic-flag defect class lives (see U158-F08). Before this, bare
+// variadic-flag defect class lives. Before this, bare
 // strings.Fields whitespace-splitting made those shapes structurally
 // inexpressible.
 func ctxloomArgs(cmdline string) ([]string, error) {

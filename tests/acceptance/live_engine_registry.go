@@ -80,7 +80,7 @@ type liveAgent struct {
 	// copyCreds copies just the auth files from the real HOME into the
 	// isolated one for the subscription path, and errors when it copied
 	// zero files — a caller that seeded no credentials must not be
-	// indistinguishable from one that seeded correctly (U158-F07). Every
+	// indistinguishable from one that seeded correctly. Every
 	// registered engine has a non-nil copier today, codex included.
 	copyCreds func(realHome, fakeHome string) error
 	// authCheck determines whether the engine is AUTHENTICATED — not merely
@@ -195,8 +195,7 @@ profiles:
 	// never the tree, the same principle copyClaudeCredentials states
 	// explicitly and internal/lm/isolation/auth.go's
 	// credentialSeedSpecs["codex"] now applies to a worktree-isolated run's
-	// config-home (balmy-comic — a COPY, replacing the former
-	// linkUserCodexAuth symlink).
+	// config-home (a COPY, replacing the former linkUserCodexAuth symlink).
 	//
 	// PRODUCT BUG FOUND while proving this live (2026-07-14, direct
 	// `ctxloom run --print` against a real authenticated codex, NOT via this
@@ -210,7 +209,7 @@ profiles:
 	// its hash is IDENTICAL across two profiles with different fragment
 	// content. So a real, authenticated codex run genuinely executes (~9-12s,
 	// not a skip) but currently answers questions about context it was never
-	// given — bigger than taskloom tiny-ooze (materialize-only gap), since
+	// given — bigger than the known materialize-only gap, since
 	// this is the launch/run path. So codex reports AUTHENTICATED here (that
 	// axis is real and correct), but is NOT YET a proven context-delivering
 	// live row — do not add a J5 @live Examples row for codex until this is
@@ -502,7 +501,7 @@ func authCheckKiro(realHome string) (bool, string) {
 // (token.access_token / token.refresh_token / token.expiry), not merely the
 // file's presence.
 //
-// WRONG FILE, CORRECTED (fatal-amino, 2026-07-22): this used to read
+// WRONG FILE, CORRECTED (2026-07-22): this used to read
 // ~/.gemini/oauth_creds.json — a guess that turned out to be leftover state
 // from the retired standalone Gemini CLI (same shared ~/.gemini directory
 // layout), not an antigravity credential at all. The live-investigated,
@@ -534,8 +533,8 @@ func authCheckKiro(realHome string) (bool, string) {
 // accurate than plain presence for the "stale/revoked token still on disk"
 // case a pure file-presence check cannot distinguish.
 //
-// KNOWN, MEASURED LIMITATION THIS CANNOT FIX (2026-07-14 investigation, task
-// vast-rut, predating the file-name correction above but unaffected by it):
+// KNOWN, MEASURED LIMITATION THIS CANNOT FIX (2026-07-14 investigation,
+// predating the file-name correction above but unaffected by it):
 // this file's existence is neither necessary nor sufficient evidence of the
 // TRUE authentication condition on a HOST run. A FRESH HOME containing no
 // file-based token anywhere still let a real `agy -p` call authenticate and
@@ -678,7 +677,7 @@ func copyOneCredFile(srcDir, dstDir, name string) (copied bool, err error) {
 // live under ~/.local/share/opencode, matching opencode's own XDG_DATA_HOME
 // resolution (live-verified against opencode 1.18.1, same auth.go doc).
 // Errors when it copied zero files: a caller that seeded no credentials must
-// not be indistinguishable from one that seeded correctly (U158-F07).
+// not be indistinguishable from one that seeded correctly.
 func copyOpencodeCredentials(realHome, fakeHome string) error {
 	srcDir := filepath.Join(realHome, ".local", "share", "opencode")
 	dstDir := filepath.Join(fakeHome, ".local", "share", "opencode")
@@ -728,7 +727,7 @@ func copyClaudeCredentials(realHome, fakeHome string) error {
 // tree (which holds the brain conversation store and caches). agy keeps its
 // file-based OAuth fallback token at
 // ~/.gemini/antigravity-cli/antigravity-oauth-token — CONFIRMED 2026-07-22
-// (fatal-amino) as the real credential agy's own file-based fallback reads/
+// as the real credential agy's own file-based fallback reads/
 // writes when no OS keyring is reachable; google_accounts.json and
 // installation_id/settings.json keep the CLI out of its interactive
 // first-run flow. oauth_creds.json is DELIBERATELY not copied here: it was an
@@ -789,7 +788,7 @@ func copyKiroCredentials(realHome, fakeHome string) error {
 // dump 91MB of sqlite/temp state there). This is the identical "never the
 // whole tree" principle copyClaudeCredentials states explicitly, and the
 // identical file internal/lm/isolation/auth.go's credentialSeedSpecs["codex"]
-// COPIES (balmy-comic — replacing the former linkUserCodexAuth symlink) into
+// COPIES (replacing the former linkUserCodexAuth symlink) into
 // a worktree-isolated run's config-home — applied here to the isolated test
 // HOME instead. codexHome() (internal/codex/commandfiles.go) resolves
 // $CODEX_HOME if set, else $HOME/.codex, so once the acceptance harness

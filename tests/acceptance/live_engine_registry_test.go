@@ -319,7 +319,7 @@ func TestCodexRegistryEntry_IsWiredNotStub(t *testing.T) {
 	assert.Contains(t, a.config, "gpt-5.4-mini", "codex must pin a cheap model — live tests prove context delivery, not model quality")
 }
 
-// TestCopyCredentials_ZeroFilesCopiedIsAnError pins U158-F07: every
+// TestCopyCredentials_ZeroFilesCopiedIsAnError pins that every
 // copy*Credentials function used to succeed silently while copying zero
 // bytes — continuing/returning past a missing source with no signal at
 // all — so a caller that seeded no credentials was indistinguishable from

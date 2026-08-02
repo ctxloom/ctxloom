@@ -308,7 +308,7 @@ func commitContents(ctx context.Context, dir, preSHA, postSHA string) ([]string,
 }
 
 // diffNameOnly returns the names of files that differ between two refs.
-// Unexported: it is CommitAll's own verification step (U053-F20 — it was on
+// Unexported: it is CommitAll's own verification step (it used to be on
 // the public Git interface with no caller outside this package, forcing a
 // Fake stub and two dead fields for no consumer).
 func diffNameOnly(ctx context.Context, dir, a, b string) ([]string, error) {

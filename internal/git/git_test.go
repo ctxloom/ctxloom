@@ -36,7 +36,7 @@ func TestParseWorktreeList(t *testing.T) {
 	assert.True(t, got[2].Bare)
 }
 
-// TestParseLogEntries pins U053-F18's two behaviours across every shape the
+// TestParseLogEntries pins two behaviours across every shape the
 // --pretty=format output can take, so neither can be changed silently.
 //
 // The row's stated consequence — that a zero Date "flows into downstream
@@ -134,7 +134,7 @@ func TestExecGit_Lifecycle(t *testing.T) {
 	assert.False(t, containsPath(list, wt), "the worktree is gone after remove")
 }
 
-// TestExecGit_CommonDir_SymlinkedWorktreePath covers live-gag's edge case
+// TestExecGit_CommonDir_SymlinkedWorktreePath covers an edge case
 // (container-runtime-bugs.plan.md §2.2.3): a worktree reached through a
 // SYMLINKED alias path must still resolve to the common dir's REAL absolute
 // path, not a path that runs through the symlink — the isolation container
@@ -188,7 +188,7 @@ func TestExecGit_RepoDirsAndWorkingChanges(t *testing.T) {
 	repo := initRepo(t)
 
 	commit(t, repo, "internal/committed/a.go", "package a", "add committed pkg")
-	// Untracked, never committed — the used-lurk case.
+	// Untracked, never committed.
 	require.NoError(t, writeFile(filepath.Join(repo, "internal/fresh/pkg/b.go"), "package b"))
 
 	dirs, err := g.RepoDirs(ctx, repo, 0)
@@ -206,7 +206,7 @@ func TestExecGit_RepoDirsAndWorkingChanges(t *testing.T) {
 	assert.Len(t, capped, 1, "the inventory is bounded")
 }
 
-// TestExecGit_RepoDirs_IncludesAncestors pins U053-F09. The inventory answers
+// TestExecGit_RepoDirs_IncludesAncestors pins that the inventory answers
 // existence-style triggers ("once package X exists"), and a directory whose
 // content all lives in SUBdirectories is still a directory that exists: with
 // only internal/signing/keys/pem.go in the repo, "internal/signing" and
@@ -279,7 +279,7 @@ func TestExecGit_LogSince(t *testing.T) {
 	assert.GreaterOrEqual(t, len(all), 3)
 }
 
-// TestAttachCommitFiles_UnresolvableCommit pins U053-F13. When the per-commit
+// TestAttachCommitFiles_UnresolvableCommit pins that when the per-commit
 // `git diff-tree` call fails, the entry used to keep a nil Files list, which
 // is byte-for-byte what a commit that genuinely touched no files looks like.
 // The consumer that filters commits by path (internal/operations'
@@ -392,7 +392,7 @@ func TestExecGit_CommitAll_StagesAndVerifies(t *testing.T) {
 	assert.False(t, dirty, "nothing left uncommitted")
 }
 
-// TestExecGit_CommitAll_UnbornHEAD pins U053-F14. In a repository with zero
+// TestExecGit_CommitAll_UnbornHEAD pins that in a repository with zero
 // commits HEAD is UNBORN: `git rev-parse HEAD` fails, and CommitAll resolved
 // the pre-commit HEAD unconditionally, so it refused outright. That is the
 // one moment a project has the most unpreserved work and the least history to
@@ -493,7 +493,7 @@ func TestExecGit_ApplyPatch_EmptyIsNoop(t *testing.T) {
 	assert.False(t, applied)
 }
 
-// TestExecGit_ApplyPatch_ReportsWhetherItActuallyApplied pins U053-F03: an
+// TestExecGit_ApplyPatch_ReportsWhetherItActuallyApplied pins that an
 // empty patch and a real patch must be distinguishable at the type level, not
 // just "no error" for both. A caller that skips ApplyPatch on an empty patch
 // (as applyCopySnapshot does today) still needs a way to notice if THIS
@@ -528,7 +528,7 @@ func TestExecGit_ApplyPatch_ReportsWhetherItActuallyApplied(t *testing.T) {
 	assert.True(t, applied, "a real patch must report applied=true")
 }
 
-// TestExecGit_HasIgnoredContent pins U053-F01/U054-F01: IsDirty deliberately
+// TestExecGit_HasIgnoredContent pins that IsDirty deliberately
 // treats gitignored/excluded content as clean (that is what lets a prepared
 // agent worktree's OWN delivered noise — .claude/, CLAUDE.md, .ctxloom/cache/
 // — coexist with a real WIP check). But teardown needs a SEPARATE signal for
@@ -562,7 +562,7 @@ func TestExecGit_HasIgnoredContent(t *testing.T) {
 	assert.False(t, dirty, "IsDirty's existing contract is unchanged: ignored content alone is still not \"dirty\"")
 }
 
-// TestExecGit_DoesNotInheritGitRepoEnvVars pins U053-F02: GIT_DIR/GIT_WORK_TREE/
+// TestExecGit_DoesNotInheritGitRepoEnvVars pins that GIT_DIR/GIT_WORK_TREE/
 // GIT_INDEX_FILE/GIT_COMMON_DIR override cmd.Dir completely when inherited from
 // the calling process's environment. A ctxloom process that itself runs inside
 // (or is launched by something that sets) one of these must not have every git

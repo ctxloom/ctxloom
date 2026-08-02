@@ -54,7 +54,7 @@ type Git interface {
 	// dirty worktree, the WIP-safe default the teardown relies on). There is
 	// deliberately no force-remove escape hatch on this seam — this is the
 	// exact area where the project's standing rule is "never force-remove
-	// without inspecting/preserving WIP first" (U053-F05), so the capability
+	// without inspecting/preserving WIP first", so the capability
 	// is structurally unavailable rather than merely unused-by-convention.
 	WorktreeRemove(ctx context.Context, repoDir, path string) error
 

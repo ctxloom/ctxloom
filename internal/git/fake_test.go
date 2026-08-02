@@ -52,7 +52,7 @@ func TestFake_LogSince(t *testing.T) {
 	})
 }
 
-// TestFake_BoundDefaultsMatchExecGit pins U053-F12: the three bounded reads
+// TestFake_BoundDefaultsMatchExecGit pins that the three bounded reads
 // map a non-positive bound to a package default in execGit (maxDirs<=0 → 400,
 // maxEntries<=0 → 100 / 50). A Fake that instead returns EVERYTHING for the
 // same argument lets a test assert an unbounded result production can never
@@ -96,7 +96,7 @@ func seqStrings(prefix string, n int) []string {
 	return out
 }
 
-// TestFake_IsDirty_DirtyErr pins U053-F04: without an error injector,
+// TestFake_IsDirty_DirtyErr pins that without an error injector,
 // Fake.IsDirty can never return an error, so the fail-closed unknown-state
 // guard in isolation's teardown (`if derr != nil || dirty`) has no possible
 // unit test — a regression deleting that guard's error half would be caught
@@ -108,7 +108,7 @@ func TestFake_IsDirty_DirtyErr(t *testing.T) {
 	assert.False(t, dirty)
 }
 
-// TestFake_ApplyPatch_ReportsApplied pins U053-F03's Fake side: the fake must
+// TestFake_ApplyPatch_ReportsApplied pins the Fake side: the fake must
 // reproduce the same applied/not-applied distinction the real implementation
 // now makes, so a test double never lets an empty-patch no-op look identical
 // to a real apply.
@@ -123,7 +123,7 @@ func TestFake_ApplyPatch_ReportsApplied(t *testing.T) {
 	assert.True(t, applied)
 }
 
-// TestFake_HasIgnoredContent pins the Fake side of U053-F01/U054-F01: a test
+// TestFake_HasIgnoredContent pins the Fake side: a test
 // exercising teardown's ignored-content refusal needs a way to configure it
 // without a real git binary.
 func TestFake_HasIgnoredContent(t *testing.T) {

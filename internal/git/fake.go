@@ -28,7 +28,7 @@ type Fake struct {
 	Dirty map[string]bool
 	// DirtyErr, when set, is returned by IsDirty instead of Dirty — the only
 	// way a caller's fail-closed "unknown state" guard around IsDirty can be
-	// unit-tested at all (U053-F04).
+	// unit-tested at all.
 	DirtyErr error
 	// IgnoredContent maps a worktree path to whether HasIgnoredContent
 	// reports it as holding gitignored/excluded files.
@@ -49,7 +49,7 @@ type Fake struct {
 	Changes []string
 	// ChangesErr, when set, is returned by WorkingChanges instead of Changes —
 	// the only way to unit-test a caller that renders a file list it could not
-	// obtain (U083-F15), which is otherwise indistinguishable from "the tree is
+	// obtain, which is otherwise indistinguishable from "the tree is
 	// dirty but nothing is listed".
 	ChangesErr error
 

@@ -18,7 +18,7 @@ import (
 // recordLifecycle captures the contextHash MergeManaged receives so Setup tests
 // can assert whether the SessionStart context-injection hook was suppressed (a
 // "" hash ⇒ no hook appended). It DOES expose GetHooks/GetMCP (returning nil,
-// matching what mergedState() got from the discarded pre-U101-F04 behavior) so
+// matching what mergedState() got from the discarded prior behavior) so
 // mergedState resolves ok=true — isolating the merge/hash contract from the
 // surface plumbing without tripping setupViaCells' now-enforced accessor
 // check. noAccessorLifecycle below is the double for that check itself.
@@ -36,7 +36,7 @@ func (r *recordLifecycle) GetHooks() *wire.HooksConfig { return nil }
 func (r *recordLifecycle) GetMCP() *wire.MCPConfig     { return nil }
 
 // noAccessorLifecycle is a ManagedLifecycle that exposes ONLY MergeManaged —
-// no GetHooks/GetMCP — the shape U101-F04's test needs: every REAL backend
+// no GetHooks/GetMCP — the shape this test needs: every REAL backend
 // embeds BaseLifecycle (which has both), so this double is how the
 // mergedState() ok=false branch gets exercised at all.
 type noAccessorLifecycle struct{}
@@ -153,7 +153,7 @@ func (s *recordSurface) DeliverIsolated() (Delivered, error) {
 // SurfaceContext — mirroring a backend with no distinct context surface (its
 // context rides another surface entirely) — so cells.go's Build() skips
 // SurfaceContext and the resolved surface list's first entry is something
-// else (MCP). It is the double U101-F07's regression test needs: the shared-
+// else (MCP). It is the double this regression test needs: the shared-
 // cwd delivery loop identified the context surface by INDEX 0 rather than by
 // KIND, so on a backend shaped like this an MCP delivery failure was
 // misidentified as a context failure and silently "recovered" via the
@@ -254,7 +254,7 @@ func TestSetup_EmptySurfaceSet_MergesNoFiles(t *testing.T) {
 	assert.Empty(t, b.delivered, "an empty surface set materializes no files")
 }
 
-// TestSetup_NilDelivery_ErrorsRatherThanPanicking pins U101-F29: Setup used
+// TestSetup_NilDelivery_ErrorsRatherThanPanicking pins the fix: Setup used
 // to return nil (full success) when b.delivery is nil, even though the doc
 // comment right above it calls that exact case "a misconfigured backend". Not
 // panicking is right (a nil delivery is recoverable), but reporting SUCCESS
@@ -450,7 +450,7 @@ func TestSetup_SharedCell_ContextFailureFallsBackToHook(t *testing.T) {
 	assert.Len(t, b.delivered, 4, "context handle skipped; mcp/settings/commands/skills still delivered")
 }
 
-// TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface pins U101-F07: the
+// TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface pins the fix: the
 // context-recovery fallback used to fire whenever the FIRST resolved surface
 // failed (`i == 0`), coupling launch_backend.go to cells.go's surfaceOrder by
 // position rather than by the surface's actual kind. For a backend with no
@@ -481,7 +481,7 @@ func TestSetup_SharedCell_RecoveryOnlyFiresForContextSurface(t *testing.T) {
 	require.Error(t, err, "an MCP delivery failure on a backend with no context surface must not be swallowed by the context-recovery fallback")
 }
 
-// TestSetup_SharedCell_ContextFailureWarningNamesCause pins U101-F23: the
+// TestSetup_SharedCell_ContextFailureWarningNamesCause pins the fix: the
 // context-recovery warning used to go straight to os.Stderr with
 // fmt.Fprintf(os.Stderr, ...) — bypassing this package's own Warn/clidiag
 // sink (the seam every other warning in this package, and the mechanism a
@@ -511,8 +511,8 @@ func TestSetup_SharedCell_ContextFailureWarningNamesCause(t *testing.T) {
 		"the recovery warning must route through the package's Warn sink and name the triggering error")
 }
 
-// TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty pins
-// U101-F04: setupViaCells discarded mergedState's `ok`, so a lifecycle
+// TestSetup_LifecycleWithoutAccessors_ErrorsRatherThanWritingEmpty pins the
+// fix: setupViaCells discarded mergedState's `ok`, so a lifecycle
 // lacking the GetHooks/GetMCP accessors (recordLifecycle, engineered
 // specifically to trigger this — every real backend embeds BaseLifecycle,
 // which has both) fell through to building the surface set with nil
@@ -563,7 +563,7 @@ func TestCleanup_RunsDeliveredHandlesLIFO(t *testing.T) {
 	assert.Empty(t, b.delivered, "Cleanup clears the handle set")
 }
 
-// TestCleanup_AttemptsAllJoinsEveryError pins U101-F35: Cleanup used to keep
+// TestCleanup_AttemptsAllJoinsEveryError pins the fix: Cleanup used to keep
 // ONLY the first teardown error, silently discarding every subsequent
 // failure even though every handle is still attempted. Both errors below
 // must be recoverable from the returned error (errors.Is), not just the
@@ -657,9 +657,8 @@ func TestSetup_SurfaceContext_NoFragmentsStillSetsUp(t *testing.T) {
 // pair {ContextHook: true, RawContext: false} silently left contextHash empty,
 // MergeManaged appended no SessionStart injection hook, and Setup reported
 // success — a backend author asking for hook-delivered context got a session
-// with NO context and no diagnostic. (U100-F18. Note the row's own consequence
-// clause is truncated in the index; what is measurable here is a silent DROP,
-// not a bogus hook.)
+// with NO context and no diagnostic. What is measurable here is a silent
+// DROP, not a bogus hook.
 func TestSetup_ContextHookWithoutRawContext_IsRefused(t *testing.T) {
 	var order []string
 	set := &recordSet{order: &order}
@@ -694,7 +693,7 @@ func TestSetup_ContextHookWithoutRawContext_IsRefused(t *testing.T) {
 // The two LEGAL pairings are unchanged — the characterization half, green before
 // and after. RawContext without ContextHook (antigravity/kiro: context rides
 // AGENTS.md/steering, hash stays "") and both false (claude: context rides the
-// append flag) both still Setup cleanly. (U100-F18.)
+// append flag) both still Setup cleanly.
 func TestSetup_LegalContextHookPairingsStillSucceed(t *testing.T) {
 	for _, tc := range []struct{ raw, hook bool }{{true, false}, {false, false}} {
 		var order []string

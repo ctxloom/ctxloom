@@ -95,6 +95,6 @@ func (p ephemeralPlacement) Dir() string {
 
 // A fixed-directory Placement (writing into the session's working directory
 // rather than session-scoped scratch) used to live here as cwdPlacement, but
-// it was test-only (U101-F16): every backend that needs this shape declares
-// its own (claude's dirPlacement, surfaces.go), so there was no real shared
-// consumer to keep it for.
+// it was test-only: every backend that needs this shape declares its own
+// (claude's dirPlacement, surfaces.go), so there was no real shared consumer
+// to keep it for.

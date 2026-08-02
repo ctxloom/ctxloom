@@ -27,9 +27,9 @@ import (
 // BaseLifecycle.MergeManaged's no-op on a nil ManagedConfig.
 //
 // override replaces CtxloomCommand() as the auto-registered ctxloom server's
-// command exactly as ResolveMCPCommand does for the settings-file writers
-// (U100-F03) — empty is a no-op, non-empty (populated ONLY for an
-// isolated-container cell) wins.
+// command exactly as ResolveMCPCommand does for the settings-file writers —
+// empty is a no-op, non-empty (populated ONLY for an isolated-container cell)
+// wins.
 func ComposeChatMCPServers(pluginKey, override string, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, existing []ChatMCPServer) []ChatMCPServer {
 	if mcp == nil && bundleMCP == nil {
 		return nil
@@ -41,12 +41,12 @@ func ComposeChatMCPServers(pluginKey, override string, mcp *wire.MCPConfig, bund
 	}
 
 	if mcp.ShouldAutoRegisterCtxloom() {
-		// U100-F03: this hardcoded CtxloomCommand() (the host self-exec
-		// absolute path) with no override parameter at all, so a
-		// runtime:container agent's structured chat baked the HOST's ctxloom
-		// binary path into its own mcpServers instead of the in-container
-		// path — the same ResolveMCPCommand(override) the settings-file
-		// writers (mcpfile.go, codex/claude/etc.) already use.
+		// This used to hardcode CtxloomCommand() (the host self-exec absolute
+		// path) with no override parameter at all, so a runtime:container
+		// agent's structured chat baked the HOST's ctxloom binary path into
+		// its own mcpServers instead of the in-container path — the same
+		// ResolveMCPCommand(override) the settings-file writers (mcpfile.go,
+		// codex/claude/etc.) already use.
 		add(MCPServerName, ResolveMCPCommand(override), CtxloomMCPArgs, nil)
 	}
 	for name, s := range bundleMCP {
@@ -94,8 +94,8 @@ func addConfiguredServers(add func(name, command string, args []string, env map[
 // Launch/StartEngine ever learn the runtime policy). Re-running
 // ComposeChatMCPServers there instead would re-fire the executable trust
 // gate's WarnWithheld and violate plan.MCPServers' "resolved exactly once"
-// invariant (U098-F04) — this patches the one field that can change without
-// touching either. override == "" is a no-op (returns servers unchanged); a
+// invariant — this patches the one field that can change without touching
+// either. override == "" is a no-op (returns servers unchanged); a
 // non-empty override without a matching MCPServerName entry is also a no-op
 // (nothing to patch — e.g. ShouldAutoRegisterCtxloom was false).
 func PatchManagedCommand(servers []ChatMCPServer, override string) []ChatMCPServer {

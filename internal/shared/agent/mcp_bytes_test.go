@@ -18,7 +18,7 @@ func TestInstallMCPServerJSON_AbsentMcpServersCreatesMap(t *testing.T) {
 	assert.Contains(t, string(out), `"other": "kept"`)
 }
 
-// TestInstallMCPServerJSON_WrongTypeMcpServersRefuses pins U101-F34:
+// TestInstallMCPServerJSON_WrongTypeMcpServersRefuses pins the fix:
 // InstallMCPServerJSON used to silently REPLACE a present-but-wrong-type
 // "mcpServers" value (e.g. a string or array, however it got there) with a
 // fresh empty map — destroying whatever the user had under that key with no

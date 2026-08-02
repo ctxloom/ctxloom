@@ -101,7 +101,7 @@ var (
 // ---- isolated cells --------------------------------------------------------
 
 // An isolated cell (worktree or container — both the SAME IsolatedCell type
-// since U100-F07 collapsed the two behaviourally-identical wrapper types)
+// since a collapse merged the two behaviourally-identical wrapper types)
 // accepts ANY Delivery and writes it into its own private dir — the
 // compile-time signature (Deliver(Delivery)) encodes that a well-known write
 // into a private dir is safe.
@@ -298,8 +298,8 @@ func TestDeliverOneShared_SkipsRealizationForNonIsolatableSurface(t *testing.T) 
 // builder did not pre-validate", and an empty set supports nothing at all — so
 // returning a nil Delivery with a nil error hands a direct caller an untyped-nil
 // interface that panics on the first Deliver, with no error to branch on.
-// (U100-F11.) claude's genuine no-op is a CONCRETE noopContextDelivery value,
-// never a nil Delivery, so no backend depends on the (nil, nil) spelling.
+// claude's genuine no-op is a CONCRETE noopContextDelivery value, never a nil
+// Delivery, so no backend depends on the (nil, nil) spelling.
 func TestEmptySurfaceSet_SurfaceForErrorsForEveryKind(t *testing.T) {
 	for _, k := range []SurfaceKind{SurfaceContext, SurfaceMCP, SurfaceSettings, SurfaceCommands, SurfaceSkills} {
 		for _, a := range []Approach{ApproachUnsafeFile, ApproachSystemPrompt, ApproachHook} {
@@ -314,8 +314,8 @@ func TestEmptySurfaceSet_SurfaceForErrorsForEveryKind(t *testing.T) {
 // The acp/protocol-only path is UNAFFECTED by the refusal above: Build() never
 // reaches SurfaceFor on an empty set, because SupportedApproaches is nil for
 // every kind and Build treats an empty support list as a permitted no-op. This
-// is the public-seam characterization pin for U100-F11 — green before and after
-// the fix — so the refusal cannot regress acp's "materialize nothing" contract.
+// is the public-seam characterization pin — green before and after the fix —
+// so the refusal cannot regress acp's "materialize nothing" contract.
 func TestEmptySurfaceSet_BuildStillResolvesToNothing(t *testing.T) {
 	everything, err := Select(EmptySurfaceSet{}).WithEverything().Build()
 	require.NoError(t, err, "WithEverything over an empty set is a no-op, not an error")
@@ -335,8 +335,8 @@ func TestEmptySurfaceSet_BuildStillResolvesToNothing(t *testing.T) {
 	assert.Empty(t, kinds)
 }
 
-// CHARACTERIZATION PIN for U100-F05 (ESCALATED — a live-behaviour decision, not
-// a sweep's call). deliverOneShared never reads rs.approach: for any surface that
+// CHARACTERIZATION PIN (ESCALATED — a live-behaviour decision, not a sweep's
+// call). deliverOneShared never reads rs.approach: for any surface that
 // carries DeliverIsolated, the kind-keyed SharedRealization wins at EVERY
 // approach. So a caller that explicitly named the native-file approach
 // (ContextWriteUnsafeFile — "write CLAUDE.md") silently receives the out-of-cwd

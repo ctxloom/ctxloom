@@ -40,8 +40,8 @@ func WriteManagedContext(fs afero.Fs, path, rel, content, desc string) (ContextR
 		return ContextReport{}, fmt.Errorf("failed to read %s: %w", path, err)
 	}
 
-	// U101-F06: reinsert the new section at the SAME position the old one
-	// occupied (between before and after) instead of always appending at the
+	// Reinsert the new section at the SAME position the old one occupied
+	// (between before and after) instead of always appending at the
 	// end — the prior implementation stripped to before+after and then always
 	// appended, so any user content that came AFTER the end marker was
 	// hoisted ABOVE the re-appended section on every rewrite, violating the
@@ -96,7 +96,7 @@ func StripManagedSection(content string) string {
 // section, returning the prefix (before the begin marker) and suffix (after
 // the end marker) SEPARATELY — unlike StripManagedSection, which
 // concatenates them — so WriteManagedContext can reinsert a new section at
-// the same position rather than always at the end (U101-F06). found reports
+// the same position rather than always at the end. found reports
 // whether a properly terminated section was present; when it wasn't (no
 // begin marker, or an unterminated one — the section is ours to own and
 // drops through to EOF), before is the whole non-owned prefix and after is
@@ -109,7 +109,7 @@ func splitManagedSection(content string) (before, after string, found bool) {
 	rest := content[begin+len(ManagedContextBegin):]
 	end := strings.Index(rest, ManagedContextEnd)
 	if end < 0 {
-		// U101-F17: check the TRIMMED prefix for emptiness, not the untrimmed
+		// Check the TRIMMED prefix for emptiness, not the untrimmed
 		// one — an all-blank-lines prefix (e.g. "\n\n" before the marker) must
 		// vanish entirely, not survive as a stray "\n". The prior helper
 		// (ifNonEmptySuffix) tested content[:begin] untrimmed, so it appended

@@ -64,7 +64,7 @@ func absOrSelf(workDir string) string {
 func NewContextInjectionHooks(hash, workDir string) []wire.Hook {
 	content, err := ReadContextFile(workDir, hash)
 	if err != nil {
-		// U100-F01: this was a bare `_`, so a read failure right after the
+		// This was a bare `_`, so a read failure right after the
 		// content-addressed file was written (or a reaped/corrupted cache)
 		// silently collapsed N chunk hooks to one, reintroducing the exact
 		// truncation ContextChunkMaxChars exists to prevent. The best-effort

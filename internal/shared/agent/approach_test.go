@@ -17,7 +17,7 @@ func TestApproach_String(t *testing.T) {
 // ---- ContextWrite -------------------------------------------------------------
 
 // ContextWrite/MCPWrite/SettingsWrite/CommandsWrite/SkillsWrite no longer have
-// their own String() (U100-F06 deleted all five as test-only forwarders to
+// their own String() (all five were deleted as test-only forwarders to
 // Approach.String(), which TestApproach_String above already covers). Only
 // approach() — the compile-time cross-surface guard — remains to test here.
 func TestContextWrite_Approach(t *testing.T) {
@@ -93,7 +93,7 @@ func TestApproachTable_SupportedDefaultAndSurfaceFor(t *testing.T) {
 // default: arm that returns it makes an unrecognised value read as a decided,
 // unsafe choice in the very error text a reader uses to diagnose it
 // ("approach unsafe-file not supported"). SurfaceKind.String, in the same file,
-// already spells the honest answer ("unknown"). (U100-F14.)
+// already spells the honest answer ("unknown").
 func TestApproachString_UnknownValueIsNotRenderedAsUnsafeFile(t *testing.T) {
 	// (1) every DECLARED value keeps its stable label — the characterization
 	// half, green before and after.
@@ -110,7 +110,7 @@ func TestApproachString_UnknownValueIsNotRenderedAsUnsafeFile(t *testing.T) {
 
 // CellKind.String has the same shape and the same hazard: an unrecognised cell
 // rendering as "shared" reports NO isolation for a run whose isolation is simply
-// unknown to this build. (U100-F14.)
+// unknown to this build.
 func TestCellKindString_UnknownValueIsNotRenderedAsShared(t *testing.T) {
 	assert.Equal(t, "shared", CellKindShared.String())
 	assert.Equal(t, "directory-isolated", CellKindDirectoryIsolated.String())

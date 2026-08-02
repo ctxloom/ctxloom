@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestApplyLocalCLIConfig_NilEnvDoesNotPanic pins U101-F19: ApplyLocalCLIConfig
+// TestApplyLocalCLIConfig_NilEnvDoesNotPanic pins the fix: ApplyLocalCLIConfig
 // assigned into b.Env unconditionally, so a BaseBackend constructed without
 // going through NewBaseBackend (whose Env: make(map[string]string) is the only
 // thing that made this safe) panicked on "assignment to entry in nil map" the

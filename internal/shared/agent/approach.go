@@ -47,9 +47,9 @@ const (
 // String renders the approach for diagnostics and error text. The five
 // per-surface enums below (ContextWrite, MCPWrite, SettingsWrite,
 // CommandsWrite, SkillsWrite) used to each carry their own String() forwarding
-// to this one via approach() — all five were test-only (U100-F06; error text
-// that actually renders an approach goes through THIS method, via
-// approach()), so they were deleted. Their approach() converters stay: they
+// to this one via approach() — all five were test-only (error text that
+// actually renders an approach goes through THIS method, via approach()), so
+// they were deleted. Their approach() converters stay: they
 // are the compile-time cross-surface guard SupportedApproaches/Build rely on.
 // An UNDECLARED value renders as "unknown(<n>)", never as the zero value: the
 // zero value here is the LEAST safe approach, so rendering it for an

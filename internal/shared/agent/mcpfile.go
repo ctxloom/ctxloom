@@ -50,8 +50,8 @@ type MCPFileConfig struct {
 const mcpFileServersKey = "mcpServers"
 
 // mcpFileServer is the stdio server shape ctxloom writes. Remote servers
-// (url/serverUrl) are user-authored and pass through raw. Unexported
-// (U101-F28): it had no users outside this file.
+// (url/serverUrl) are user-authored and pass through raw. Unexported: it
+// had no users outside this file.
 type mcpFileServer struct {
 	Command string            `json:"command"`
 	Args    []string          `json:"args,omitempty"`
@@ -80,7 +80,7 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 		return err
 	}
 
-	// U101-F25: a later source (config, plugin) can shadow an earlier one
+	// A later source (config, plugin) can shadow an earlier one
 	// (bundle) under the same name — including MCPServerName itself. seen
 	// dedupes `managed` so the ledger records each name once, not once per
 	// source that wrote it.
@@ -162,7 +162,7 @@ func (c MCPFileConfig) ManagedPresent() (bool, error) {
 }
 
 // dropManaged removes every previously managed entry: the ledger names, plus
-// the well-known ctxloom server name for pre-ledger files. U101-F09: a ledger
+// the well-known ctxloom server name for pre-ledger files. A ledger
 // read failure that is NOT simply "the ledger doesn't exist yet" (permissions,
 // I/O) is returned rather than silently treated as an empty ledger — the
 // exact failure the ledger exists to prevent (an orphaned managed stdio
@@ -216,8 +216,8 @@ func (c MCPFileConfig) load() (*mcpFile, error) {
 		// that table straight back, so an unparsable registry was silently
 		// REPLACED by one containing only ctxloom's managed servers — every
 		// user-authored server and every foreign top-level field destroyed on
-		// a success path (U101-F03). "I could not read it" is not "it was
-		// empty"; refuse and say so, the same posture U045-F02/F03 already
+		// a success path. "I could not read it" is not "it was empty"; refuse
+		// and say so, the same posture corrupt-config handling already
 		// established for codex's config.toml.
 		return nil, fmt.Errorf("cannot parse %s (%w) — refusing to write over an MCP registry ctxloom could not read; fix or move the file and re-run", c.Label, err)
 	}
@@ -281,11 +281,11 @@ func (c MCPFileConfig) save(mf *mcpFile) error {
 // readLedger returns the managed server names from the ledger, if any. A
 // missing ledger (os.IsNotExist) is the legitimate "nothing managed yet"
 // case and returns (nil, nil); any OTHER read error (permissions, I/O) is
-// returned rather than silently treated the same way (U101-F09).
+// returned rather than silently treated the same way.
 // internal/opencode/settings.go's OpencodeWriter.readLedger is a similarly-
 // shaped but independently owned sidecar-ledger reader for a different
 // engine's reconciler (a different reviewed unit); this fix is scoped to
-// U101 (internal/shared/agent) and does not touch it.
+// this package and does not touch it.
 // reprise:accept-drift
 func (c MCPFileConfig) readLedger() ([]string, error) {
 	data, err := afero.ReadFile(c.FS, c.LedgerPath)

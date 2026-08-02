@@ -26,7 +26,7 @@ func InstallMCPServerJSON(config []byte, name string, server wire.MCPServer) ([]
 	}
 	servers, ok := doc["mcpServers"].(map[string]any)
 	if !ok {
-		// U101-F34: an absent key is a legitimate fresh install, but a
+		// An absent key is a legitimate fresh install, but a
 		// PRESENT value of the wrong type (a string, array, etc.) used to
 		// take the same branch and get silently REPLACED with a fresh empty
 		// map, destroying whatever the user had there. Only "absent" earns

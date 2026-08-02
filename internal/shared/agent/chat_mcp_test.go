@@ -80,13 +80,13 @@ func TestComposeChatMCPServers_OverrideOrder(t *testing.T) {
 	assert.NotContains(t, byName, "other")
 }
 
-// TestComposeChatMCPServers_CommandOverride pins U100-F03: the structured-chat
-// MCP path hardcoded CtxloomCommand() (the HOST self-exec absolute path)
-// instead of honoring a command override, so a runtime:container agent's
-// structured chat baked the host's binary path into its own mcpServers
-// instead of the in-container path Setup's settings write already uses
-// (ResolveMCPCommand) — the engine's `ctxloom mcp` stdio shim then never
-// launches inside the container.
+// TestComposeChatMCPServers_CommandOverride pins the fix for the
+// structured-chat MCP path, which used to hardcode CtxloomCommand() (the HOST
+// self-exec absolute path) instead of honoring a command override, so a
+// runtime:container agent's structured chat baked the host's binary path into
+// its own mcpServers instead of the in-container path Setup's settings write
+// already uses (ResolveMCPCommand) — the engine's `ctxloom mcp` stdio shim
+// then never launches inside the container.
 func TestComposeChatMCPServers_CommandOverride(t *testing.T) {
 	got := ComposeChatMCPServers("claude-code", "/in-container/ctxloom", &wire.MCPConfig{}, nil, nil)
 	require.Len(t, got, 1)
@@ -99,8 +99,8 @@ func TestComposeChatMCPServers_CommandOverride(t *testing.T) {
 	assert.Equal(t, CtxloomCommand(), got[0].Command)
 }
 
-// TestPatchManagedCommand pins U098-F04's coordinator-delegation fix at the
-// unit hop: a caller that had to compose the managed set BEFORE the
+// TestPatchManagedCommand pins the coordinator-delegation fix at the unit
+// hop: a caller that had to compose the managed set BEFORE the
 // isolation policy (and thus the override) was known can patch the
 // auto-registered ctxloom entry's Command afterward, without disturbing any
 // other entry — and without the empty-override / no-matching-entry cases
@@ -161,7 +161,7 @@ func TestBaseLifecycle_ChatMCPServers(t *testing.T) {
 	assert.Equal(t, "taskloom", got[1].Name)
 }
 
-// CHARACTERIZATION for U100-F12's complexity split: the arms the existing tests
+// CHARACTERIZATION for the complexity split: the arms the existing tests
 // leave uncovered, so the decomposition is provably behaviour-preserving rather
 // than merely green on the paths that were already exercised. A pure complexity
 // reduction changes no behaviour by definition, so no test can go red for it —

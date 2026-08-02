@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U100-F01: NewContextInjectionHooks discarded ReadContextFile's error
-// entirely (`content, _ := ReadContextFile(...)`), so any read failure —
+// NewContextInjectionHooks discarded ReadContextFile's error entirely
+// (`content, _ := ReadContextFile(...)`), so any read failure —
 // permissions, a reaped cache file, an unexpected I/O error — silently
 // collapsed what should be N ordered chunk hooks down to one whole-content
 // hook, reintroducing exactly the truncation ContextChunkMaxChars exists to
@@ -131,7 +131,7 @@ func TestMergeHooksConfig_PluginSpecificHooks(t *testing.T) {
 // and the ENTIRE source hook set vanished. That is this project's signature
 // failure shape applied to the hook surface: the session launches with none of
 // the configured hooks and nothing anywhere says so. The drop is still a drop
-// (there is no destination to write to), but it must be named. (U100-F10.)
+// (there is no destination to write to), but it must be named.
 func TestMergeHooksConfig_NilDestNamesTheDroppedHooks(t *testing.T) {
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
@@ -159,7 +159,7 @@ func TestMergeHooksConfig_NilDestNamesTheDroppedHooks(t *testing.T) {
 }
 
 // Dropping an EMPTY source into a nil dest loses nothing, so it must stay
-// silent — a warning there would be noise on every no-op merge. (U100-F10.)
+// silent — a warning there would be noise on every no-op merge.
 func TestMergeHooksConfig_NilDestWithNothingToLoseStaysSilent(t *testing.T) {
 	var buf bytes.Buffer
 	restore := clidiag.SetSink(&buf)
@@ -172,8 +172,8 @@ func TestMergeHooksConfig_NilDestWithNothingToLoseStaysSilent(t *testing.T) {
 	assert.Empty(t, buf.String(), "a merge that loses nothing must not warn")
 }
 
-// TestMergeHooksConfig_UnifiedHalfMatchesWireAppend is the parity test U133-F03
-// requires across BOTH implementations of the same merge. The hooks vocabulary
+// TestMergeHooksConfig_UnifiedHalfMatchesWireAppend is the parity test
+// required across BOTH implementations of the same merge. The hooks vocabulary
 // lives in wire and carries UnifiedHooks.Append; MergeHooksConfig, one layer
 // up, re-spelled the same six appends by hand, and the plugin half had no wire
 // primitive at all. Two spellings of one rule drift in one direction only —

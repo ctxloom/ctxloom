@@ -14,7 +14,7 @@ import (
 
 // failOpenFs fails Open for exactly one path with a non-NotExist error
 // (os.ErrPermission), passing everything else through to the wrapped Fs — the
-// seam U101-F09's regression test uses to distinguish "the ledger doesn't
+// seam this regression test uses to distinguish "the ledger doesn't
 // exist" from "the ledger could not be read".
 type failOpenFs struct {
 	afero.Fs
@@ -58,13 +58,12 @@ func TestMCPFileConfig_WriteServers_CommandOverride(t *testing.T) {
 	})
 }
 
-// TestMCPFileConfig_WriteServers_RefusesUnparsableRegistry pins U101-F03: an
+// TestMCPFileConfig_WriteServers_RefusesUnparsableRegistry pins the fix: an
 // unparsable MCP registry used to be warned about and silently degraded to an
 // EMPTY table, which every caller (WriteServers) then wrote straight back —
 // destroying every user-authored server AND every foreign top-level field on
 // a success path. It must now refuse instead, matching the "refuse to
-// overwrite, never self-heal" posture corrupt-config handling already uses
-// (U045-F02/F03).
+// overwrite, never self-heal" posture corrupt-config handling already uses.
 func TestMCPFileConfig_WriteServers_RefusesUnparsableRegistry(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	original := []byte(`{ this is not valid json`)
@@ -79,7 +78,7 @@ func TestMCPFileConfig_WriteServers_RefusesUnparsableRegistry(t *testing.T) {
 	assert.Equal(t, original, data, "the unparsable file must survive untouched")
 }
 
-// TestMCPFileConfig_WriteServers_LedgerReadErrorSurfaces pins U101-F09:
+// TestMCPFileConfig_WriteServers_LedgerReadErrorSurfaces pins the fix:
 // readLedger mapped ANY read error (not just "does not exist") to nil, so a
 // permission/IO failure silently defeated the ledger — dropManaged then
 // believed there was nothing previously managed to drop, the exact failure
@@ -95,7 +94,7 @@ func TestMCPFileConfig_WriteServers_LedgerReadErrorSurfaces(t *testing.T) {
 	require.Error(t, err, "a ledger read failure (not simply missing) must surface, not be silently treated as an empty ledger")
 }
 
-// TestMCPFileConfig_WriteServers_DedupesManagedNames pins U101-F25: a server
+// TestMCPFileConfig_WriteServers_DedupesManagedNames pins the fix: a server
 // name that shadows an earlier one — here, the same name present in both
 // bundleMCP and mcp.Servers — used to be appended to `managed` on EVERY add,
 // so the ledger persisted duplicate lines for one server.

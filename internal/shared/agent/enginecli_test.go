@@ -128,9 +128,9 @@ func TestEngineCLIFor_SelectsBySurface(t *testing.T) {
 // the three constraints the declaration carries beyond flag NAMES. A grammar
 // that checks only "is this name declared" accepts argv lines the real vendor
 // binary rejects with exit 2 — and the stand-in that runs on that grammar then
-// reports a fully green run for a launch that could never have started
-// (U079-F01/F02). The constraints are enforced HERE, in the shared reader, so
-// the driver's own anti-drift test and the fake get the same answer.
+// reports a fully green run for a launch that could never have started.
+// The constraints are enforced HERE, in the shared reader, so the driver's
+// own anti-drift test and the fake get the same answer.
 func TestParseArgv_EnforcesTheWHOLEDeclaredGrammar(t *testing.T) {
 	strict := grammar()
 	strict.Flags = []CLIFlag{

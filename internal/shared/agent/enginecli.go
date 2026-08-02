@@ -105,13 +105,12 @@ type CLIFlag struct {
 	// It is the surface's DISCRIMINATOR where one exists — claude's oneshot is
 	// `claude --print` and nothing else, and a driver that stopped emitting it
 	// while still piping the prompt on stdin hangs the real binary on a
-	// terminal handshake while a name-only grammar reports a perfect run
-	// (U079-F02).
+	// terminal handshake while a name-only grammar reports a perfect run.
 	Required bool
 	// Enum is the closed set of legal values, when the vendor declares one
 	// ("read-only | workspace-write | danger-full-access"). Empty means any
 	// token of the declared shape. A grammar that accepted `--sandbox
-	// nonsense` would green a line the real binary exits 2 on (U079-F01).
+	// nonsense` would green a line the real binary exits 2 on.
 	Enum []string
 	// ConflictsWith names flags that may not appear in the same argv as this
 	// one. The relation is enforced SYMMETRICALLY, so declaring it on either
@@ -180,8 +179,8 @@ const (
 
 // ProbeKindOf maps a delivery SurfaceKind onto its probe category, so the
 // declaration never restates a label the SurfaceKind enum already owns.
-// Test-only (U101-F16): its whole job is guarding that mapping in
-// enginecli_test.go, so "no production caller" is the point, not a defect.
+// Test-only: its whole job is guarding that mapping in enginecli_test.go, so
+// "no production caller" is the point, not a defect.
 func ProbeKindOf(k SurfaceKind) ProbeKind { return ProbeKind(k.String()) }
 
 // ProbeScope says where a probe's search roots come from.
@@ -288,9 +287,9 @@ func (c EngineCLI) ProbesFor(kind ProbeKind) []CLIProbe {
 // ScopeFlagValue probe naming a flag this surface does not declare (or one that
 // takes no value), or a probe whose scope and fields disagree. It exists so a
 // malformed declaration fails at its own test rather than producing a
-// mysteriously wrong parse downstream. Test-only by design (U101-F16): every
-// call site is a declaration's own anti-drift test guarding itself, which is
-// exactly the job, not a sign it is unused.
+// mysteriously wrong parse downstream. Test-only by design: every call site
+// is a declaration's own anti-drift test guarding itself, which is exactly
+// the job, not a sign it is unused.
 func (c EngineCLI) Validate() error {
 	seen := make(map[string]bool, len(c.Flags))
 	for _, f := range c.Flags {

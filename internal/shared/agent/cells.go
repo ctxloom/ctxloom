@@ -184,11 +184,11 @@ type SurfaceInputs struct {
 	DenyTools []string
 	// AgentName carries a backend-specific override for a materialized
 	// per-agent config's own identity/name — currently only kiro's, whose
-	// `--agent <name>` launch flag selects a custom agent by name
-	// (U055-F01: kiro's settingsSurface used to always write the hardcoded
-	// default name regardless of this override, so buildArgs and the
-	// materialized file silently disagreed). Empty uses the backend's own
-	// default and is a no-op for every other backend.
+	// `--agent <name>` launch flag selects a custom agent by name (kiro's
+	// settingsSurface used to always write the hardcoded default name
+	// regardless of this override, so buildArgs and the materialized file
+	// silently disagreed). Empty uses the backend's own default and is a
+	// no-op for every other backend.
 	AgentName string
 }
 
@@ -306,11 +306,11 @@ func (k CellKind) String() string {
 // isolated cell accepts ANY Delivery — the Deliver signature encodes that
 // safety.
 //
-// U100-F07: DirectoryIsolatedCell and ProcessIsolatedCell used to be two
-// distinct (behaviourally identical) types wrapping this one, chosen between
-// via a branch on req.CellKind that added nothing an isolated cell's shared
-// Deliver didn't already do — collapsed to this single type. The CellKind
-// distinction itself survives where it actually matters (buildArgs/env).
+// DirectoryIsolatedCell and ProcessIsolatedCell used to be two distinct
+// (behaviourally identical) types wrapping this one, chosen between via a
+// branch on req.CellKind that added nothing an isolated cell's shared Deliver
+// didn't already do — collapsed to this single type. The CellKind distinction
+// itself survives where it actually matters (buildArgs/env).
 type IsolatedCell struct {
 	dir string
 }
@@ -556,15 +556,15 @@ func (r *ResolvedSelection) DeliverUnder(dir string) (delivered []Delivered, kin
 // counterpart of DeliverUnder; the launch path uses deliverOneShared directly (per
 // surface) instead, so it can keep its context-failure fallback.
 //
-// U100-F04 found this has no PRODUCTION call site — true, but the review's
-// suggested fix ("port callers onto deliverOneShared directly") does not work
-// for its actual callers: deliverOneShared is unexported, and every current
-// caller of DeliverShared (claude/kiro/codex/antigravity's surfaces_test.go,
-// selection_test.go) lives in a DIFFERENT package, so it cannot reach an
-// unexported method here. DeliverShared is the sanctioned, exported seam those
-// five packages' tests use to exercise the shared-cwd "unsafe: warn and
-// proceed" behavior end to end (real UnsafeInfo() strings, real target
-// paths) — kept deliberately, not oversight.
+// This has no PRODUCTION call site — true, but a suggested fix ("port callers
+// onto deliverOneShared directly") does not work for its actual callers:
+// deliverOneShared is unexported, and every current caller of DeliverShared
+// (claude/kiro/codex/antigravity's surfaces_test.go, selection_test.go) lives
+// in a DIFFERENT package, so it cannot reach an unexported method here.
+// DeliverShared is the sanctioned, exported seam those five packages' tests
+// use to exercise the shared-cwd "unsafe: warn and proceed" behavior end to
+// end (real UnsafeInfo() strings, real target paths) — kept deliberately, not
+// oversight.
 func (r *ResolvedSelection) DeliverShared(dir string) (delivered []Delivered, kinds []SurfaceKind, errs []error) {
 	for _, rs := range r.surfaces {
 		d, err := r.deliverOneShared(rs, dir)

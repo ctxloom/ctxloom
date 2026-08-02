@@ -14,7 +14,7 @@ import (
 // (the ContextProvider interface declares an error return that was never used)
 // and UNRECOVERABLE: the hash naming the file still on disk was gone, so nothing
 // could retry or even report which file leaked. Clear now reports the failure
-// and keeps the hash so a retry is possible. (U100-F09.)
+// and keeps the hash so a retry is possible.
 func TestBaseContextProvider_ClearReportsRemovalFailureAndKeepsTheHash(t *testing.T) {
 	work := t.TempDir()
 	p := NewBaseContextProvider()
@@ -50,7 +50,7 @@ func TestBaseContextProvider_ClearReportsRemovalFailureAndKeepsTheHash(t *testin
 
 // An already-absent context file is a SUCCESSFUL clear, not a failure: Clear's
 // job is to leave nothing behind, and there is nothing behind. The hash is
-// released. (U100-F09.)
+// released.
 func TestBaseContextProvider_ClearIsIdempotentWhenTheFileIsAlreadyGone(t *testing.T) {
 	work := t.TempDir()
 	p := NewBaseContextProvider()

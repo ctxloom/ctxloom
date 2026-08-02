@@ -9,8 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// TestRouteUnifiedHooks_UnsupportedKindWarns pins U045-F05's root cause: an
-// agent with no native event for a unified hook kind used to express that by
+// TestRouteUnifiedHooks_UnsupportedKindWarns pins the root cause: an agent
+// with no native event for a unified hook kind used to express that by
 // OMITTING the route from its table, which is indistinguishable from forgetting
 // it — the hooks were written nowhere and warned nowhere, and the user's
 // configured hook was simply inert. Declaring the gap makes the drop deliberate

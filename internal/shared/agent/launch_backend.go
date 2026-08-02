@@ -102,7 +102,7 @@ func (b *LaunchBackend) History() SessionHistory { return b.history }
 // managed payload or lacks the capability. A structured Execute path uses this
 // to deliver the same server set Setup writes to the engine's settings file —
 // probed by capability so a bare ManagedLifecycle fake stays valid. override
-// is ComposeChatMCPServers' command override (U100-F03) — callers pass
+// is ComposeChatMCPServers' command override — callers pass
 // req.Env[MCPCommandOverrideEnv], populated ONLY for an isolated-container
 // cell; empty everywhere else is a no-op.
 func (b *LaunchBackend) ManagedChatMCPServers(override string) []ChatMCPServer {
@@ -164,8 +164,7 @@ func (b *LaunchBackend) ExecuteEnv(req *ExecuteRequest) map[string]string {
 
 // contextFilePath returns the on-disk path of the provided context file, or ""
 // when no context was provided. ExecuteEnv passes it into the child env via
-// the SCM context-file variable. Unexported (U101-F22): its only caller is
-// in this file.
+// the SCM context-file variable. Unexported: its only caller is in this file.
 func (b *LaunchBackend) contextFilePath() string {
 	if b.context == nil {
 		return ""
@@ -180,8 +179,8 @@ func (b *LaunchBackend) contextFilePath() string {
 // one), so Setup builds the backend's SurfaceSet from the merged state and
 // delivers it through the cell named by req.CellKind. A nil delivery is a
 // misconfigured backend (InitLaunch was called without one) — never a
-// legitimate "nothing to do" — so it fails loudly (U101-F29) rather than
-// reporting success while setting up nothing.
+// legitimate "nothing to do" — so it fails loudly rather than reporting
+// success while setting up nothing.
 func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 	b.SetWorkDir(req.WorkDir)
 	if b.delivery == nil {
@@ -249,7 +248,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 	b.lifecycle.MergeManaged(req.Managed, b.WorkDir(), contextHash)
 
 	// 3. Read the merged hooks + MCP so the settings/config surfaces write exactly
-	// the merged state. U101-F04: `ok` used to be discarded, so a lifecycle lacking
+	// the merged state. `ok` used to be discarded, so a lifecycle lacking
 	// the accessors (every production backend embeds BaseLifecycle, which has both —
 	// this is defense against a future one that doesn't) fell through to building
 	// the surface set with nil hooks/nil MCP as if that were the correctly-merged
@@ -341,12 +340,12 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 		for _, rs := range resolved.surfaces {
 			d, err := resolved.deliverOneShared(rs, b.WorkDir())
 			if err != nil {
-				// U101-F07: matched by INDEX 0 rather than by kind, coupling this
-				// loop to cells.go's surfaceOrder by position — a backend with no
-				// distinct context surface (its context rides another surface) has
-				// resolved.surfaces[0] be something else (MCP), and that surface's
-				// failure was misidentified as the context failure this fallback
-				// exists for.
+				// This used to be matched by INDEX 0 rather than by kind, coupling
+				// this loop to cells.go's surfaceOrder by position — a backend with
+				// no distinct context surface (its context rides another surface)
+				// has resolved.surfaces[0] be something else (MCP), and that
+				// surface's failure was misidentified as the context failure this
+				// fallback exists for.
 				if rs.kind == SurfaceContext && !b.delivery.RawContext && b.recoverContextViaHook(req, err) {
 					continue
 				}
@@ -359,8 +358,8 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 		return nil
 	}
 
-	// U100-F07: DirectoryIsolatedCell/ProcessIsolatedCell used to be two
-	// distinct types chosen between here on req.CellKind, but both were
+	// DirectoryIsolatedCell/ProcessIsolatedCell used to be two distinct
+	// types chosen between here on req.CellKind, but both were
 	// `isolatedCell{dir}` with no added field or method — the branch had no
 	// observable effect. Collapsed to one IsolatedCell; the CellKind
 	// distinction survives where it actually matters (buildArgs/env).
@@ -387,10 +386,10 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 // injection hook (never re-runs MergeManaged, which would clobber the statusline
 // state). Reports whether the fallback took hold (the caller then skips the failed
 // context handle and continues delivering the remaining surfaces). cause is the
-// error that triggered the fallback (U101-F23: it used to be discarded, and the
+// error that triggered the fallback — it used to be discarded, and the
 // warning went straight to os.Stderr rather than this package's own Warn/clidiag
 // sink — the mechanism a session that owns the terminal uses to keep a warning
-// from corrupting a live TUI frame it is painting).
+// from corrupting a live TUI frame it is painting.
 func (b *LaunchBackend) recoverContextViaHook(req *SetupRequest, cause error) bool {
 	Warn("context delivery failed (%v); keeping the injection hook", cause)
 	if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {
@@ -432,9 +431,9 @@ func (b *LaunchBackend) mergedState() (hooks *wire.HooksConfig, mcp *wire.MCPCon
 // Cleanup reverses the surfaces Setup delivered through the seam, in LIFO order
 // (last delivered, first undone). It attempts every handle regardless of
 // earlier failures, so one surface's failed teardown never strands the rest,
-// and joins every failure into the returned error (U101-F35: it used to keep
-// only the first, silently discarding the rest even though every handle was
-// still attempted) — errors.Is/As still find any individual cause. A backend
+// and joins every failure into the returned error (it used to keep only the
+// first, silently discarding the rest even though every handle was still
+// attempted) — errors.Is/As still find any individual cause. A backend
 // that delivered nothing (the legacy lifecycle path, or a skip-setup run)
 // holds no handles, so this is a no-op there.
 func (b *LaunchBackend) Cleanup(ctx context.Context) error {

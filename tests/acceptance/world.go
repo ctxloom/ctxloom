@@ -25,7 +25,7 @@ type World struct {
 
 	lastTool     testenv.ToolResult // last tools/call envelope
 	lastInner    map[string]any     // unwrapped inner result of lastTool
-	lastInnerErr error              // error from lastTool.Inner(), if the envelope could not be unwrapped (U162-F04)
+	lastInnerErr error              // error from lastTool.Inner(), if the envelope could not be unwrapped
 	lastRes      string             // last resources/read text
 	lastMime     string             // last resources/read MIME type
 
@@ -112,7 +112,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 		if w == nil {
 			return ctx, nil
 		}
-		// U162-F03: this used to discard all three of these errors, so a
+		// This used to discard all three of these errors, so a
 		// scenario that leaked a subprocess or failed to remove its temp root
 		// reported nothing at all -- testenv.TestEnvironment.Cleanup's own doc
 		// names exactly this discard as the primary, always-reproducible

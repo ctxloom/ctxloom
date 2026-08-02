@@ -144,9 +144,11 @@ var knownUncoveredCLI = []string{
 	// removal attempt.
 	//
 	// Long-lived watcher with no bounded/hermetic exit in this harness yet.
+	// Backfill: task cheap-pug.
 	"ctxloom session watch",
 	// Hidden machine callbacks that run on every session (SessionStart/tool
 	// hooks) but have no scenario driving their stdin payload directly.
+	// Backfill: task weary-crowd.
 	"ctxloom hook inject-context",
 	"ctxloom hook session-bind",
 	"ctxloom hook stamp-plan",
@@ -166,7 +168,7 @@ var knownUncoveredCLI = []string{
 	// that reason).
 	"ctxloom mcp server edit",
 	// Engine-matrix variants: only the claude-code path is exercised;
-	// codex/kiro/antigravity need their own fixtures.
+	// codex/kiro/antigravity need their own fixtures. Backfill: task glad-skid.
 	"ctxloom manage install --engine codex",
 	"ctxloom manage install --engine kiro",
 	"ctxloom manage install --engine antigravity",
@@ -188,10 +190,10 @@ var knownUncoveredTools = []string{
 	// agent_stop is now exercised by J6's failure-path scenario: idempotent
 	// double-stop plus a refused stop on a run id that was never spawned (a
 	// real regression this scenario now pins). Trigger evaluation remains
-	// unexercised.
+	// unexercised. Backfill: task spry-niece.
 	"evaluate_triggers",
 	// Session-memory tools named only in mcp_tools.feature's prose, never
-	// actually invoked (see ranAsTool's doc comment).
+	// actually invoked (see ranAsTool's doc comment). Backfill: task spry-niece.
 	"compact_session",
 	"get_previous_session",
 	"list_sessions",
@@ -204,7 +206,7 @@ var knownUncoveredTools = []string{
 // agent_report, and agent_fetch_artifact are named explicitly in
 // scripts/gendocs/main.go's mcpIntro as existing only on this surface;
 // before this list and its subtest existed, they had no completeness
-// coverage of any kind.
+// coverage of any kind. Backfill: task spry-niece (same task as above).
 var knownUncoveredRunnerOnlyTools = []string{
 	"agent_fetch_artifact",
 	"agent_report",

@@ -41,10 +41,10 @@ func runRemoteDiscoverCmd(cmd *cobra.Command, args []string) error {
 }
 
 // runRemoteDiscover searches for discoverable ctxloom repositories and offers
-// to add one interactively. Extracted from discoverCmd's inline RunE
-// (U040-F01 escalation) so the total-search-failure fix below has a
-// regression test that doesn't need a live cobra dispatch or network access
-// — mirrors runRemoteUpgrade's injected-loadConfig shape (remote_upgrade.go).
+// to add one interactively. Extracted from discoverCmd's inline RunE so the
+// total-search-failure fix below has a regression test that doesn't need a
+// live cobra dispatch or network access — mirrors runRemoteUpgrade's
+// injected-loadConfig shape (remote_upgrade.go).
 // fetcher is nil in production (operations.DiscoverRemotes falls back to the
 // real GitHub fetcher); tests inject a remote.MockFetcher to force
 // SearchRepos to fail deterministically.
@@ -84,12 +84,12 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 	}
 
 	if result.Count == 0 {
-		// U040-F01: a total search failure (every configured source
-		// errored — today that is the sole GitHub fetcher, so any Error
-		// here means the WHOLE search failed) used to print the exact
-		// same "No ctxloom repositories found" a genuinely-empty,
-		// successful search prints. The warnings above already named the
-		// failure; the terminal line must not still claim a clean search.
+		// A total search failure (every configured source errored — today
+		// that is the sole GitHub fetcher, so any Error here means the WHOLE
+		// search failed) used to print the exact same "No ctxloom
+		// repositories found" a genuinely-empty, successful search prints.
+		// The warnings above already named the failure; the terminal line
+		// must not still claim a clean search.
 		if len(result.Errors) > 0 {
 			return fmt.Errorf("repository search failed (see warning(s) above); no results could be retrieved")
 		}

@@ -254,7 +254,7 @@ func runRemotePull(cmd *cobra.Command, _ []string) error {
 	return pullResultErr(result)
 }
 
-// pullResultErr is U039-F02's fix: `remote pull` used to exit 0 even when
+// pullResultErr fixes the bug where `remote pull` used to exit 0 even when
 // dependencies failed or were retracted — the failures were printed to
 // stdout by renderPullSummary above, but RunE always returned nil regardless,
 // so a caller scripting on exit code (not scraping stdout text) saw success.

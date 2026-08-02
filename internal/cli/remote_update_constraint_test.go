@@ -40,7 +40,7 @@ func TestLatestWithinConstraint(t *testing.T) {
 		require.Equal(t, "releasesha", sha)
 	})
 
-	// U040-F02: a malformed URL is a genuine resolution FAILURE, not "nothing
+	// A malformed URL is a genuine resolution FAILURE, not "nothing
 	// newer found" — before the fix these collapsed to the same ok=false with
 	// no way for a caller to tell them apart.
 	t.Run("malformed URL is a resolution error, not a false ok", func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 	})
 }
 
-// TestDetectUpdates_FailedChecksAreCounted pins U040-F02: an entry whose
+// TestDetectUpdates_FailedChecksAreCounted pins a fix: an entry whose
 // reference could not even be parsed used to `continue` with ZERO
 // diagnostic and zero effect on any counter — indistinguishable from an
 // entry that was checked and found current. If every entry in a lockfile

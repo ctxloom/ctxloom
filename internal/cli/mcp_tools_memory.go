@@ -434,7 +434,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 // (rotated/deleted, a stale index entry left over from an earlier session):
 // trusting a dead id would skip the mtime listing and return an id nothing
 // can load, so a stale binding degrades to the mtime fallback exactly like an
-// unbound harp (FINDING #4). transcriptExists is injected (production passes
+// unbound harp. transcriptExists is injected (production passes
 // fileExists) so this stays pure for testability; mtimeSessions is assumed
 // most-recent-first (every backend's ListSessions ordering). Called twice by
 // the handler: first with mtimeSessions=nil (identity-only probe, so the —

@@ -12,7 +12,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agents"
 )
 
-// TestHandleAgentRecv_NamesAnUndecodableStructuredCompanion pins U038-F18.
+// TestHandleAgentRecv_NamesAnUndecodableStructuredCompanion pins the fix
+// below.
 //
 // The mailbox carries `structured` as raw bytes, and the stdio agent_recv
 // projected it with `if json.Unmarshal(...) == nil` — so anything that would

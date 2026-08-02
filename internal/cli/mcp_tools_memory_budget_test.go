@@ -155,8 +155,8 @@ func TestHandleListSessions_DistillMissingReportsThePostDistillState(t *testing.
 // that sink at its own diagnostics log for its whole lifetime
 // (redirectDiagnosticsForTUI), so nothing lands on the TUI's terminal.
 //
-// This pins the property the constraint actually needs (U039-F07, refuted:
-// the row read clidiag.Warn as a raw stderr write). Writing these warnings to
+// This pins the property the constraint actually needs (refuted: the row
+// read clidiag.Warn as a raw stderr write). Writing these warnings to
 // os.Stderr directly — or to any writer clidiag does not own — would leave
 // the buffer empty and fail here.
 func TestDistillMissingForList_WarningsGoToTheRedirectableSinkNotStderr(t *testing.T) {

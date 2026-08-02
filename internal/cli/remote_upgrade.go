@@ -61,7 +61,7 @@ func runRemoteUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, err
 		return err
 	}
 	if advanced == 0 {
-		// U040-F12: "Everything is up to date." used to print unconditionally
+		// "Everything is up to date." used to print unconditionally
 		// here, even on a round where part of the dependency closure could not
 		// be reached (a warning about it prints separately, but the terminal
 		// message still claimed a clean, complete check). advanced==0 only

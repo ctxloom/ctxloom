@@ -86,7 +86,7 @@ type runnerMCP struct {
 // any caller that never threads it) — behaviour-identical to before this
 // var existed.
 func serveRunnerMCP(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*runnerMCP, error) {
-	// U038-F01: cellWorkDir must reach the SAME place on both uses — the
+	// cellWorkDir must reach the SAME place on both uses — the
 	// discovery marker key below AND the tool surface's own cell-path
 	// boundary (newRunnerMCPServer's ctxServer identity + resolveCellPath
 	// roots). Before this fix only the marker got it; newRunnerMCPServer
@@ -233,7 +233,7 @@ func runnerSocketPath() (path string, dir string, kind socketKind, cleanup func(
 // coordinator-only tools (mcpschema.CoordinatorOnlyTools) are deliberately
 // withheld from THIS session's surface — see the registration loop below.
 // resolveCellWorkDir is the DRY form of the "cellWorkDir wins over
-// os.Getwd()" fallback rule (U038-F01): cellWorkDir is the prepared
+// os.Getwd()" fallback rule: cellWorkDir is the prepared
 // workspace dir the harness's engine process actually runs in, which can
 // differ from THIS process's own os.Getwd() for a workspace:worktree run —
 // the runner is spawned with no cmd.Dir and inherits the coordinator's cwd,
@@ -262,7 +262,7 @@ func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf 
 	// Cell-local content tools + resources: the per-runner ctxServer over
 	// the cell-delivered config. Identity is the runner's own harp. cwd is
 	// ALSO the cell-path boundary root threaded into coordinationHandler/
-	// artifactFetchHandler below (resolveCellPath) — U038-F01: this used to
+	// artifactFetchHandler below (resolveCellPath) — this used to
 	// be an independent os.Getwd() call, ignoring cellWorkDir entirely.
 	cwd := resolveCellWorkDir(cellWorkDir)
 	s := &ctxServer{cfg: cfg, self: coord.Identity{Harp: harp, Project: cwd}}
@@ -589,7 +589,7 @@ func recvHandler(home *coord.Home) mcp.ToolHandler {
 			}
 			return nil, err
 		}
-		// U038-F02: home.Recv already committed msgs as RETURNED (the
+		// home.Recv already committed msgs as RETURNED (the
 		// cursor-ack fires on the NEXT Recv) before this loop even starts —
 		// a message that fails to marshal/decode here is gone for good, not
 		// redelivered. The old code silently `continue`d, so an all-fail
@@ -819,7 +819,7 @@ func (p *artifactStamper) publish(ctx context.Context, home *coord.Home, c artif
 	if len(raw) > artifactPublishSizeCap {
 		return nil, fmt.Errorf("%s is %d bytes, over the %d-byte publish cap", c.absPath, len(raw), artifactPublishSizeCap)
 	}
-	// A FLOOR, not just a cap (U016-F18). Only the maximum was ever checked,
+	// A FLOOR, not just a cap. Only the maximum was ever checked,
 	// so a 0-byte file uploaded, journaled, and returned a success receipt
 	// with a content-addressed id — "published my plan, got an id back,
 	// delivered nothing", this project's characteristic silent no-op. A file

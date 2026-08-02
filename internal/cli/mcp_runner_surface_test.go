@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 )
 
-// U026-F05: generatedToolHandler's own doc promises "An unclassified tool is a
+// generatedToolHandler's own doc promises "An unclassified tool is a
 // startup error, never a silent fallthrough". It was not: the route arrived
 // from a bare map lookup, and mcpschema.Route's zero value IS
 // RouteCoordination — so a generated tool missing from the routing table was
@@ -52,7 +52,7 @@ func TestRegisterGeneratedTools_ClassifiedSurfaceRegisters(t *testing.T) {
 	}
 }
 
-// U026-F02: agent_report's ADVERTISED output schema is generated from the
+// agent_report's ADVERTISED output schema is generated from the
 // binding table in mcpschema; the payload reportResult actually returns is a
 // hand-written Go map in this package. Nothing tied the two together, and the
 // MCP SDK does not validate structured content against the declared schema —

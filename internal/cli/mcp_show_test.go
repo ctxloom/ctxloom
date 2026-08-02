@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestMcpServerShow_NotFound_TextAndJSONAgree pins U037-F17: `mcp server
+// TestMcpServerShow_NotFound_TextAndJSONAgree pins the fix that `mcp server
 // show <missing>` used to error on the text path but exit 0 with `--format
 // json` (the not-found check lived INSIDE emit()'s text closure, which
 // cliemit.Emit only runs for FormatText — every structured format fell

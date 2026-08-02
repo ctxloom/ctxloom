@@ -65,7 +65,7 @@ func TestRecoverTargetSessionID_BackendMismatchFallsBackToMtime(t *testing.T) {
 	assert.Equal(t, "claude-newest", got)
 }
 
-// TestRecoverTargetSessionID_StaleBindingFallsBackToMtime is the FINDING #4
+// TestRecoverTargetSessionID_StaleBindingFallsBackToMtime is a
 // regression test: the harp is bound to a session id, but its recorded
 // transcript file no longer exists (rotated/deleted — a stale index entry).
 // Trusting the dead id would skip the mtime listing entirely and hand the
@@ -134,8 +134,8 @@ func TestPreviousSessionFromMtime_TakesNewestNonActiveAmongForeignNoise(t *testi
 	assert.Equal(t, "resumed-elsewhere", got)
 }
 
-// TestPreviousSessionFromMtime_NoActiveKnownTakesSecondNewest reproduces the
-// FINDING #1 defect: when activeSessionID is unknown ("" — the current harp
+// TestPreviousSessionFromMtime_NoActiveKnownTakesSecondNewest reproduces a
+// defect: when activeSessionID is unknown ("" — the current harp
 // is unbound), metas[0] is the ACTIVE session (still live, being written by
 // the running process), not "previous". Returning it would hand the caller
 // their own live session as if it were an earlier one. Since the active

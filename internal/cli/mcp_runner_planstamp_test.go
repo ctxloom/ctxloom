@@ -15,11 +15,12 @@ import (
 )
 
 // TestPlanCandidates_ReportsAnUnreadableSessionDir pins the discovery half of
-// U038-F11. planCandidates returned a bare nil for every failure, so an
-// unreadable session dir was indistinguishable from a session that authored no
-// plans. agent_report then answered journaled:true with an empty artifact list
-// — a success receipt for delivering nothing, this project's characteristic
-// silent no-op, and the one report where the agent has no other way to notice.
+// the plan-stamping fix. planCandidates returned a bare nil for every
+// failure, so an unreadable session dir was indistinguishable from a session
+// that authored no plans. agent_report then answered journaled:true with an
+// empty artifact list — a success receipt for delivering nothing, this
+// project's characteristic silent no-op, and the one report where the agent
+// has no other way to notice.
 func TestPlanCandidates_ReportsAnUnreadableSessionDir(t *testing.T) {
 	testsupport.Isolate(t)
 	const harp = "witty-plain-otter"
@@ -58,12 +59,12 @@ func TestPlanCandidates_QuietForALegitimateAbsence(t *testing.T) {
 	})
 }
 
-// TestReportResult_NamesUnstampedPlans pins the answering half of U038-F11.
-// The advertised structured shape (journaled + artifact_ids, the generated
-// output schema) is unchanged — an unstamped plan is simply absent from
-// artifact_ids, which is exactly why the caller cannot infer it. The failures
-// therefore have to be SAID, on the text channel coordinationResult already
-// uses for human-readable status.
+// TestReportResult_NamesUnstampedPlans pins the answering half of the same
+// fix. The advertised structured shape (journaled + artifact_ids, the
+// generated output schema) is unchanged — an unstamped plan is simply absent
+// from artifact_ids, which is exactly why the caller cannot infer it. The
+// failures therefore have to be SAID, on the text channel coordinationResult
+// already uses for human-readable status.
 func TestReportResult_NamesUnstampedPlans(t *testing.T) {
 	artifacts := []*agentcoordpb.ArtifactProduced{{ArtifactId: "plan/kept"}}
 	res := reportResult(artifacts, []string{"/sessions/h/lost.plan.md: read: permission denied"})

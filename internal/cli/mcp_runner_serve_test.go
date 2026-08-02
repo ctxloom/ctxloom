@@ -12,12 +12,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestServeRunnerHTTP_ReportsAServeFailure pins U038-F04. The runner starts its
-// MCP endpoint in a goroutine and discards Serve's return value. Serve only
-// ever returns on termination, so discarding it means a post-startup failure is
-// completely invisible: the runner keeps running, keeps advertising its socket
-// and its discovery marker, and every ctxloom tool in the harness's session
-// fails against an endpoint nobody said had died.
+// TestServeRunnerHTTP_ReportsAServeFailure pins the fix for the runner
+// starting its MCP endpoint in a goroutine and discarding Serve's return
+// value. Serve only ever returns on termination, so discarding it means a
+// post-startup failure is completely invisible: the runner keeps running,
+// keeps advertising its socket and its discovery marker, and every ctxloom
+// tool in the harness's session fails against an endpoint nobody said had
+// died.
 func TestServeRunnerHTTP_ReportsAServeFailure(t *testing.T) {
 	warnings := captureWarnings(t)
 

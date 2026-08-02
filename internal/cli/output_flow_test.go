@@ -48,10 +48,10 @@ func newIsolatedFlowProject(t *testing.T) string {
 // test IS the gap"). The flow is: command result -> operations return value
 // -> strictness/emit -> clifmt/JSON/TUI rendering -> user or machine
 // consumer. `fragment list` is the representative command: it is fully
-// wired to emit() (unlike ~36 other commands this batch's U104-F01 fix now
-// gates loudly), and it already carries U037-F06's fix for the
-// filter-typo-vs-empty-result distinction, so it exercises every hop this
-// flow owns without needing a fixture from another flow's territory.
+// wired to emit() (unlike ~36 other commands only later gated loudly), and it
+// already carries the fix for the filter-typo-vs-empty-result distinction,
+// so it exercises every hop this flow owns without needing a fixture from
+// another flow's territory.
 //
 // This single test drives three scenarios the task calls out by name as
 // this flow's characteristic failure modes:
@@ -61,8 +61,8 @@ func newIsolatedFlowProject(t *testing.T) string {
 //     (0):" / `[]`), not zero bytes — distinguishable from a query that
 //     never ran.
 //  3. failure path: a bad filter is a loud error, not a silently-empty
-//     "success" (U037-F06's fix, re-verified here as part of this flow's
-//     own coverage rather than taken on faith from the census).
+//     "success" (re-verified here as part of this flow's own coverage
+//     rather than taken on faith from the census).
 func TestOutputFlow_TipToTail(t *testing.T) {
 	t.Run("empty_result_is_visible_not_silent", func(t *testing.T) {
 		newIsolatedFlowProject(t)
@@ -78,7 +78,7 @@ func TestOutputFlow_TipToTail(t *testing.T) {
 		textOut := runOutputFlowCommand(t, "text", "fragment", "list", "--bundle", "empty-fixture")
 		assert.Contains(t, textOut, `No fragments in bundle "empty-fixture"`,
 			"an empty result must say so explicitly, not print nothing (the project's characteristic silent-no-op) — "+
-				"and, per U037-F06, must name the empty BUNDLE rather than the generic 'Fragments (0):' the unfiltered case uses")
+				"and must name the empty BUNDLE rather than the generic 'Fragments (0):' the unfiltered case uses")
 
 		jsonOut := runOutputFlowCommand(t, "json", "fragment", "list", "--bundle", "empty-fixture")
 		assert.JSONEq(t, "[]", jsonOut,
@@ -135,7 +135,7 @@ func TestOutputFlow_TipToTail(t *testing.T) {
 		execErr := rootCmd.Execute()
 		require.Error(t, execErr,
 			"a --bundle filter naming NOTHING that exists must error — the caller cannot otherwise tell "+
-				"'this bundle has zero fragments' apart from 'you mistyped the bundle name' (U037-F06)")
+				"'this bundle has zero fragments' apart from 'you mistyped the bundle name'")
 		assert.Contains(t, execErr.Error(), "no-such-bundle")
 	})
 }

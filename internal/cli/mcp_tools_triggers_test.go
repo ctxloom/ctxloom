@@ -56,7 +56,7 @@ func TestEvaluateTriggersHandler_RefreshFlagPlumbsThrough(t *testing.T) {
 	assert.Equal(t, 0, out.Evaluated)
 }
 
-// U039-F04: handleEvaluateTriggers derived the caller's SessionHarp from
+// handleEvaluateTriggers used to derive the caller's SessionHarp from
 // process env (CTXLOOM_SESSION_HARP) rather than the call-scoped s.self
 // identity every sibling handler in this package already uses (e.g.
 // mcp_tools_memory.go's s.self.Harp). Env is process-WIDE; on a host-relay

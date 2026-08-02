@@ -321,7 +321,7 @@ func equalStrings(a, b []string) bool {
 }
 
 // TestReportRemovedFromRemote_CleanupFailureIsReported pins the invariant
-// U040-F04 reached for: a destructive --cleanup that cannot persist the pruned
+// that a destructive --cleanup that cannot persist the pruned
 // lockfile must SAY SO. It is pinned at the user-visible seam because the
 // operations call's error return is not the channel that carries it —
 // RemoveLocalItems reports every per-item and per-save failure through
@@ -349,7 +349,7 @@ func TestReportRemovedFromRemote_CleanupFailureIsReported(t *testing.T) {
 	}
 }
 
-// TestCheckDefaultProfiles_UnloadableConfigIsNotAnAllClear pins U040-F20.
+// TestCheckDefaultProfiles_UnloadableConfigIsNotAnAllClear pins a fix:
 // checkDefaultProfiles returned a bare nil slice when the config would not
 // load, which reportMissingDefaults renders identically to "every configured
 // default profile exists" — printing nothing at all. `remote update --apply`
@@ -378,8 +378,8 @@ func TestCheckDefaultProfiles_UnloadableConfigIsNotAnAllClear(t *testing.T) {
 }
 
 // TestApplyUpdates_CarriesTheForceDecision characterizes the --force arm of
-// applyUpdateBatch, which nothing covered before U040-F03 went near it: the
-// caller's force decision must reach every Pull as PullOptions.Force, and must
+// applyUpdateBatch, which nothing covered before: the caller's force
+// decision must reach every Pull as PullOptions.Force, and must
 // not be set when it was not asked for. The decision is a PARAMETER — a
 // function that already accepts its writer and its pull runner must not reach
 // back to a package-global for the one input that changes what it does.

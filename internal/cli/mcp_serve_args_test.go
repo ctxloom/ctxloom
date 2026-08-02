@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestMcpServeCmd_RejectsStrayArgs pins U037-F21. `ctxloom mcp` carries
+// TestMcpServeCmd_RejectsStrayArgs pins the fix that `ctxloom mcp` carries
 // Args: cobra.NoArgs with a comment saying that without it a stale invocation
 // like `ctxloom mcp list` "would silently start a stdio MCP server that sits
 // waiting on stdin" — but `ctxloom mcp serve`, which shares the very same

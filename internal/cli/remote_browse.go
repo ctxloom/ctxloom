@@ -39,7 +39,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	// distribution was retired; profiles ship inside bundles) — so this
 	// browses exactly one item type. It used to loop over a slice of
 	// item types (a leftover from when profiles were browsable
-	// separately); U039-F09 inlined that to the single call it always was.
+	// separately); this inlines that to the single call it always was.
 	const itemType = "bundle"
 	result, err := operations.BrowseRemote(cmd.Context(), cfg, operations.BrowseRemoteRequest{
 		Remote:    remoteName,
@@ -47,7 +47,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 		Recursive: browseRecursive,
 	})
 	if err != nil {
-		// U039-F03: a browse failure (network, auth, an unresolvable remote
+		// A browse failure (network, auth, an unresolvable remote
 		// name) must not be reported as "No bundles found" — that asserts a
 		// false fact (the remote may be full of bundles; the browse just
 		// never reached it) and would otherwise exit 0.

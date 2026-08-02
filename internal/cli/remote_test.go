@@ -38,7 +38,7 @@ func TestRenderPullSummary_NothingToPull(t *testing.T) {
 	assert.Contains(t, out.String(), "No remote dependencies to pull.")
 }
 
-// U039-F02: `ctxloom remote pull` exited 0 even when a dependency FAILED to
+// `ctxloom remote pull` used to exit 0 even when a dependency FAILED to
 // fetch/apply — the failures were printed to stdout (renderPullSummary) but
 // RunE always returned nil regardless. pullResultErr is the extracted
 // decision `remotePullCmd`'s RunE defers to, so a caller scripting on exit

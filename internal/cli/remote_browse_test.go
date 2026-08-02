@@ -9,9 +9,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// U039-F03: a failed browse (operations.BrowseRemote returning an error, not
-// a genuinely empty remote) reported "No bundles found in <remote>" and
-// exited 0 — the canonical exit-0-empty-payload defect, and the message
+// A failed browse (operations.BrowseRemote returning an error, not
+// a genuinely empty remote) used to report "No bundles found in <remote>" and
+// exit 0 — the canonical exit-0-empty-payload defect, and the message
 // asserted a FALSE fact (the remote may be full of bundles; the browse just
 // never reached it). An empty remote name is a real, deterministic way to
 // force operations.BrowseRemote to fail ("remote is required") without

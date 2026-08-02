@@ -253,7 +253,7 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	}
 
 	if len(bundleUpdates) == 0 {
-		// U040-F02: "up to date" is a claim about entries that were actually
+		// "up to date" is a claim about entries that were actually
 		// CHECKED. When some entries' checks failed (see the warnings above),
 		// saying so unconditionally reads as "everything was verified current"
 		// when in fact part of the closure was never resolved at all.
@@ -400,7 +400,7 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth 
 		}
 		ref, err := remote.ParseReference(e.Ref)
 		if err != nil {
-			// U040-F02: this used to `continue` with ZERO diagnostic — a
+			// This used to `continue` with ZERO diagnostic — a
 			// lockfile entry with a reference this build can no longer parse
 			// silently dropped out of the update check entirely, and if every
 			// entry hit this, "All items are up to date!" printed with nothing
@@ -416,7 +416,7 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth 
 		}
 		fetcher, err := fetcherFor(ref.URL)
 		if err != nil {
-			// U040-F02: same silent shape — a fetcher construction failure
+			// Same silent shape — a fetcher construction failure
 			// (auth, network, a malformed URL the factory rejects) looked
 			// identical to "this entry is already at the latest commit."
 			clidiag.Warn("ctxloom", "%s: could not reach %s (%v); skipping the update check for it", e.Ref, ref.URL, err)
@@ -447,8 +447,8 @@ func detectUpdates(ctx context.Context, out io.Writer, cfg *config.Config, auth 
 // versions. err is non-nil only for a genuine resolution FAILURE (a
 // malformed URL, a network/auth error reaching the forge); ok=false with a
 // nil err means resolution ran cleanly and found nothing satisfying
-// constraint — U040-F02's fix depends on callers being able to tell these
-// two cases apart instead of both collapsing into "no update, all good."
+// constraint — callers must be able to tell these two cases apart instead of
+// both collapsing into "no update, all good."
 func latestWithinConstraint(ctx context.Context, fetcher remote.Fetcher, url, constraint string) (sha string, ok bool, err error) {
 	owner, repo, err := remote.ParseOwnerRepo(url)
 	if err != nil {

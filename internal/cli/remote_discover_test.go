@@ -25,7 +25,7 @@ func discoverOneRepo() *remote.MockFetcher {
 	return f
 }
 
-// TestPromptRemoteName_UnreadableInputIsNotAnAcceptedDefault pins U040-F10.
+// TestPromptRemoteName_UnreadableInputIsNotAnAcceptedDefault pins a fix:
 // `nameInput, _ := reader.ReadString('\n')` turned an EOF or read error into
 // the empty string, which the very next line reads as "the user pressed Enter
 // to accept the default" — and the caller then registers a remote under a name
@@ -56,8 +56,8 @@ func TestPromptRemoteName_AnswersAreStillAnswers(t *testing.T) {
 	}
 }
 
-// TestInteractiveAdd_ReadsThroughTheSharedStdinReader pins U040-F09. run.go
-// documents one invariant for interactive input: every prompt reads through
+// TestInteractiveAdd_ReadsThroughTheSharedStdinReader pins the invariant
+// run.go documents for interactive input: every prompt reads through
 // the single package-level stdinReader, because a fresh bufio.Reader silently
 // discards whatever a previous reader buffered past its line (type-ahead, or a
 // pasted answer to two back-to-back confirmations). interactiveAdd opened its
@@ -81,7 +81,7 @@ func TestInteractiveAdd_ReadsThroughTheSharedStdinReader(t *testing.T) {
 		"the 'q' must have been consumed FROM the shared reader, not from a private one")
 }
 
-// TestRunRemoteDiscover_NoInteractivePromptOffATTY pins U040-F19: the add-loop
+// TestRunRemoteDiscover_NoInteractivePromptOffATTY pins a fix: the add-loop
 // was entered unconditionally, so a piped or redirected `remote discover`
 // wrote an interactive prompt nobody could answer into its own output and then
 // quit on the resulting EOF. Every other interactive surface in this package
@@ -98,7 +98,7 @@ func TestRunRemoteDiscover_NoInteractivePromptOffATTY(t *testing.T) {
 		"a prompt nobody can answer must not be written into piped output")
 }
 
-// TestRunRemoteDiscover_ProgressLineIsClosedBeforeAnError pins U040-F22: the
+// TestRunRemoteDiscover_ProgressLineIsClosedBeforeAnError pins a fix: the
 // "Searching repositories..." progress line is deliberately newline-less so a
 // result count can be appended to it, but the early error return left it
 // dangling and the error text rendered as a suffix of the progress line
@@ -124,16 +124,16 @@ func discoverTestConfig() (*config.Config, error) {
 	return config.NewFixture(config.Fixture{}), nil
 }
 
-// TestRunRemoteDiscover_TotalSearchFailureIsAnErrorNotEmptyClaim is U040-F01's
+// TestRunRemoteDiscover_TotalSearchFailureIsAnErrorNotEmptyClaim is the
 // missing regression test. discoverCmd's inline RunE used to print the exact
 // same "No ctxloom repositories found." on a total search failure (every
 // configured source erroring — today that is the sole GitHub fetcher) as it
 // did on a genuinely empty, successful search, and returned nil either way.
 // The fix (already landed) distinguishes the two; this pins it against a
 // live caller instead of leaving the fix unguarded. Extracted into
-// runRemoteDiscover (U040-F01 escalation, mirroring runRemoteUpgrade's
-// injected-loadConfig shape) specifically so this is expressible without a
-// real cobra dispatch or network access.
+// runRemoteDiscover (mirroring runRemoteUpgrade's injected-loadConfig shape)
+// specifically so this is expressible without a real cobra dispatch or
+// network access.
 func TestRunRemoteDiscover_TotalSearchFailureIsAnErrorNotEmptyClaim(t *testing.T) {
 	fetcher := remote.NewMockFetcher()
 	fetcher.SearchReposErr = assert.AnError

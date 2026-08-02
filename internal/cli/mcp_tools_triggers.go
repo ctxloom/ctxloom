@@ -92,7 +92,7 @@ func (s *ctxServer) handleEvaluateTriggers(ctx context.Context, _ *mcp.CallToolR
 // evaluateTriggersTaskContext builds the TaskContext handleEvaluateTriggers
 // evaluates triggers against. SessionHarp comes from s.self — the call-scoped
 // identity every sibling handler in this package uses (mcp_tools_memory.go's
-// s.self.Harp) — never from process env (U039-F04): env is process-wide, so
+// s.self.Harp) — never from process env: env is process-wide, so
 // on any path where one process serves more than one caller, reading it here
 // would attribute the call to whichever caller's env happened to be set last,
 // not the actual caller. ProjectID is left as a live env read: unlike

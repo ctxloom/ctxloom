@@ -20,7 +20,7 @@ func withStartHostRunner(t *testing.T, fn func(args []string, env map[string]str
 	t.Cleanup(func() { startHostRunner = orig })
 }
 
-// TestNoneStartRunner_LaunchFailureNamesTheAgent pins U063-F16: a failed host
+// TestNoneStartRunner_LaunchFailureNamesTheAgent pins that a failed host
 // runner spawn used to surface pb.StartHostRunner's error verbatim, so a
 // caller running a fan-out of members saw a bare exec failure with nothing
 // saying WHICH agent's runner died. The wrapped error must name the backend
@@ -38,7 +38,7 @@ func TestNoneStartRunner_LaunchFailureNamesTheAgent(t *testing.T) {
 	assert.Contains(t, err.Error(), "member-3", "the failure names the member label whose runner died")
 }
 
-// TestNoneSpawnEnv_BothHalvesStampTheCellWorkDir pins U063-F08's SHARED
+// TestNoneSpawnEnv_BothHalvesStampTheCellWorkDir pins the SHARED
 // behaviour: SpawnClient and StartRunner reached the host spawn through two
 // byte-identical copies of the same per-spawn env assembly, so a fix to one
 // (this env is the runner's MCP discovery marker — see EnvCellWorkDir) could

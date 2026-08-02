@@ -27,7 +27,7 @@ import (
 //     (documented gap; the engine is excluded from composableEngines() and
 //     buildSources returns nothing for it — no locally-buildable recipe exists
 //     until an installer fragment is written; see composeAgentContainerfile,
-//     buildSources, composedIdentity). U063-F21 deleted the legacy
+//     buildSources, composedIdentity). A prior fix deleted the legacy
 //     officialImage/containerfile fallback fields this comment used to
 //     describe: no profile, registered or hypothetical, ever set them, so the
 //     fallback branch they gated in buildSources could never produce output.
@@ -310,7 +310,7 @@ var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (a
 ` + nativeACPRunGate("opencode", "acp"))
 
 // antigravityInstallFragment installs agy via its OFFICIAL install script,
-// live-verified 2026-07-15 (task sweet-fruit) by fetching
+// live-verified 2026-07-15 by fetching
 // https://antigravity.google/cli/install.sh and reading it: a POSIX
 // bootstrapper that detects the platform, downloads a SHA512-checksummed flat
 // native Go binary release (no node/npm dependency, unlike claude/codex), and
@@ -321,7 +321,7 @@ var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (a
 // install --help`: "Configure environment paths and shell settings") — it is
 // not the fetcher, so it is harmless best-effort here and not relied on for
 // the binary landing at all. This closes the "no known official installer"
-// gap task bare-goes left open (profile.go's prior antigravity case, auth.go's
+// gap left open (profile.go's prior antigravity case, auth.go's
 // credentialSeedSpecs doc): antigravity is now COMPOSABLE like its siblings.
 // Its auth axis now has a real resolver too (resolveAntigravityContainerAuth,
 // auth.go) that seeds the host's file-based OAuth token
@@ -340,7 +340,7 @@ var antigravityInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 ||
 // image bakes when isolation_engines is unconfigured — every backend with a
 // known OFFICIAL-installer fragment (locked decision 3: "all engines CAN be
 // present" by default; isolation_engines trims it down), alphabetical order.
-// antigravity joined this set 2026-07-15 (task sweet-fruit) once its OWN
+// antigravity joined this set 2026-07-15 once its OWN
 // official installer script (https://antigravity.google/cli/install.sh) was
 // found and live-verified — see antigravityInstallFragment's doc. Composing
 // it in lands the agy CLI in the image; its AUTH resolver
@@ -350,7 +350,7 @@ func composableEngines() []string {
 	return []string{"antigravity", "claude-code", "codex", "kiro", "opencode"}
 }
 
-// ComposableEngines exports composableEngines() (T12: one of the four
+// ComposableEngines exports composableEngines() (one of the four
 // independently-maintained engine-identity rosters found spread across the
 // codebase — see tests/arch/engine_identity_arch_test.go's
 // TestArch_EngineIdentityRosters_MembersAreRegisteredBackends, which
@@ -445,9 +445,9 @@ func containerProfileFor(backend string) containerProfile {
 		}
 	case "codex":
 		// codex is now COMPOSABLE (its own official-installer fragment) AND
-		// has its OWN auth/overlay set (bony-spoof) — it no longer inherits
+		// has its OWN auth/overlay set — it no longer inherits
 		// the default (claude) profile's resolveAuth/authHint/overlayDirs,
-		// which was the paced-even security edge (a containerized codex run
+		// which was a security edge (a containerized codex run
 		// silently mounting/passing the user's ANTHROPIC_* credentials into a
 		// foreign, non-Anthropic engine). image stays the default fallback
 		// tag: the REAL image a codex run gets is the composed multi-engine
@@ -475,15 +475,15 @@ func containerProfileFor(backend string) containerProfile {
 		p.overlayDirs = opencodeOverlayDirs
 		p.transcriptStoreRel = filepath.FromSlash(".local/share/opencode")
 		return p
-	// antigravity is now COMPOSABLE (task sweet-fruit, 2026-07-15): its own
+	// antigravity is now COMPOSABLE (2026-07-15): its own
 	// official-installer fragment (antigravityInstallFragment) was found and
-	// live-verified, closing the image half of task bare-goes. It keeps
-	// mapping its own native transcript store, but — per the same paced-even
+	// live-verified, closing the image half of the gap. It keeps
+	// mapping its own native transcript store, but — per the same security
 	// fix as codex/opencode above — it does NOT inherit the default (claude)
 	// profile's auth/overlay: silently mounting the user's ANTHROPIC_*
 	// credentials into an antigravity container is exactly the wrong-provider
-	// security edge this fix closes. The AUTH half of bare-goes is now CLOSED
-	// too (fatal-amino, 2026-07-22): resolveAntigravityContainerAuth seeds the
+	// security edge this fix closes. The AUTH half of the gap is now CLOSED
+	// too (2026-07-22): resolveAntigravityContainerAuth seeds the
 	// host's file-based OAuth token
 	// (~/.gemini/antigravity-cli/antigravity-oauth-token — CONFIRMED the
 	// real fallback path agy uses when no OS keyring is reachable, e.g. inside
@@ -497,12 +497,12 @@ func containerProfileFor(backend string) containerProfile {
 		p.authHint = "no host ~/.gemini/antigravity-cli/antigravity-oauth-token to authenticate the in-container engine (no captured file-based OAuth token to seed — the OS keyring channel agy normally uses on a host does not reach into a container)"
 		// No known project-relative managed-config surface to shadow yet:
 		// antigravity's writers (internal/antigravity) all target GLOBAL
-		// ~/.gemini/* paths, not anything under the project dir (vast-rut).
+		// ~/.gemini/* paths, not anything under the project dir.
 		p.overlayDirs = nil
 		p.transcriptStoreRel = filepath.FromSlash(".gemini/antigravity-cli/brain")
 		return p
 	default:
-		// U064-F01: this used to be resolveAuth: resolveClaudeContainerAuth —
+		// This used to be resolveAuth: resolveClaudeContainerAuth —
 		// the unknown-backend default failed OPEN on credentials, so any
 		// unrecognized engine (a real, reachable path: registry.go registers
 		// a generic "acp" backend, and container_transport.go treats an

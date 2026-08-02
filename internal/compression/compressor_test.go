@@ -54,13 +54,13 @@ func TestDetectContentType_ByContent(t *testing.T) {
 		{"JSON object", "data", "{}", ContentTypeJSON},
 		{"JSON array", "data", "[]", ContentTypeJSON},
 		{"YAML content", "data", "---\nkey: value", ContentTypeYAML},
-		// U046-F01: content-sniffing Go source by a bare "package" prefix
-		// match false-positived on any prose starting with that word
-		// ("package layout conventions…") and destroyed it via the Go AST
-		// extractor. The sniff is deleted, not hardened — a real .go file
-		// is already routed by extension (TestDetectContentType_ByExtension),
-		// and a Go fragment with no .go-suffixed name now falls through to
-		// unknown (verbatim pass-through) rather than being guessed at.
+		// Content-sniffing Go source by a bare "package" prefix match once
+		// false-positived on any prose starting with that word ("package
+		// layout conventions…") and destroyed it via the Go AST extractor.
+		// The sniff is deleted, not hardened — a real .go file is already
+		// routed by extension (TestDetectContentType_ByExtension), and a Go
+		// fragment with no .go-suffixed name now falls through to unknown
+		// (verbatim pass-through) rather than being guessed at.
 		{"Go source with no .go name is NOT guessed from content", "data", "package main", ContentTypeUnknown},
 		{"Prose starting with the word package is not misdetected as Go", "data", "package layout conventions for this repo", ContentTypeUnknown},
 		{"No extension unknown", "file", "", ContentTypeUnknown},
@@ -82,7 +82,7 @@ func TestDetectContentType_PrefersExtension(t *testing.T) {
 	assert.Equal(t, ContentTypeGo, result)
 }
 
-// TestDetectContentType_BareExtension pins U046-F18: a file whose whole name
+// TestDetectContentType_BareExtension pins that a file whose whole name
 // IS the extension (".go", ".json") is still recognised by extension. The
 // hand-rolled `len(filename) > len(ext)` bound this replaced excluded exactly
 // that case, silently pushing such files onto the content-sniffing fallback.

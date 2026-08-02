@@ -77,15 +77,14 @@ func (c *CodeCompressor) Compress(ctx context.Context, ct ContentType, content s
 
 	output := result.String()
 	if strings.TrimSpace(output) == "" {
-		// U046-F02: the grammar can yield zero recognized node kinds for
-		// content that parses (e.g. prose wrongly routed here, or a real
-		// file this extractor's node-kind list doesn't cover) — extractGo
-		// et al only ever WRITE to result, never guarantee it ends up
-		// non-empty. An empty Content with a nil error and Ratio: 0.0
-		// previously read as a successful, extreme compression rather
-		// than the degenerate case it is; degrade to the same
-		// verbatim-pass-through every other failure path in this method
-		// already uses.
+		// The grammar can yield zero recognized node kinds for content that
+		// parses (e.g. prose wrongly routed here, or a real file this
+		// extractor's node-kind list doesn't cover) — extractGo et al only
+		// ever WRITE to result, never guarantee it ends up non-empty. An
+		// empty Content with a nil error and Ratio: 0.0 previously read as
+		// a successful, extreme compression rather than the degenerate
+		// case it is; degrade to the same verbatim-pass-through every
+		// other failure path in this method already uses.
 		return verbatimResult(content, "ast:"+string(ct)), nil
 	}
 	return Result{

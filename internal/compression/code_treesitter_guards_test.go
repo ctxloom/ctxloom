@@ -14,12 +14,12 @@ import (
 // These tests complement the per-language happy-path tests in
 // code_treesitter_test.go. They target the panic guards and fault-tolerance
 // paths hardened this session:
-//   - the no-`block` Go func / interface-method path (untagged-unsafe-scarecrow)
+//   - the no-`block` Go func / interface-method path
 //   - the abstract / no-body Java method path (the hasBlock guard mirror)
-//   - the parse-failure / unsupported-content verbatim fallback (lustrous-selective-hula)
+//   - the parse-failure / unsupported-content verbatim fallback
 //
 // Building this file at all is the first real -tags treesitter smoke-compile of
-// the per-language extractors split out of code_treesitter.go (unscathed-aged-glucose):
+// the per-language extractors split out of code_treesitter.go:
 // code_go.go, code_python.go, code_javascript.go, code_rust.go, code_java.go.
 
 // langCase exercises one language end-to-end via its explicit ct: Compress
@@ -177,7 +177,7 @@ export default internal;
 	}
 }
 
-// TestCodeCompressor_GoNoBlockFunc covers the untagged-unsafe-scarecrow guard:
+// TestCodeCompressor_GoNoBlockFunc covers the no-`block`-child guard:
 // a Go func node with no `block` child (interface methods, forward declarations)
 // must not panic on source[StartByte():blockStart] with blockStart still 0.
 func TestCodeCompressor_GoNoBlockFunc(t *testing.T) {
@@ -225,7 +225,7 @@ func TestCodeCompressor_JavaNoBodyMethod(t *testing.T) {
 	})
 }
 
-// TestCodeCompressor_VerbatimFallback covers the lustrous-selective-hula rule:
+// TestCodeCompressor_VerbatimFallback covers the fault-tolerance rule:
 // compressors degrade to verbatim (Ratio 1.0, nil error) rather than failing.
 func TestCodeCompressor_VerbatimFallback(t *testing.T) {
 	t.Run("verbatimResult is Ratio 1.0 pass-through", func(t *testing.T) {
@@ -242,12 +242,12 @@ func TestCodeCompressor_VerbatimFallback(t *testing.T) {
 		// nodes rather than a hard parse error, so this should still return
 		// cleanly (no panic, no error) per the fault-tolerance rule.
 		//
-		// U046-F19 read this as PINNING the U046-F02 defect (empty Content with
-		// a nil error reading as an extreme compression). It never asserted
-		// anything about Content at all, which was the real gap: exit-shaped
-		// assertions are precisely what let a zero-byte result look like
-		// success. Since F02, junk degrades to VERBATIM pass-through, and that
-		// is what these assertions now hold it to.
+		// This test originally only pinned that Compress didn't error or
+		// panic on garbage input. It never asserted anything about Content
+		// at all, which was the real gap: exit-shaped assertions are
+		// precisely what let a zero-byte result look like success. Junk now
+		// degrades to VERBATIM pass-through, and that is what these
+		// assertions hold it to.
 		for _, junk := range []string{"", "}{)(", "\x00\x01\x02 not code", strings.Repeat("???", 100)} {
 			require.NotPanics(t, func() {
 				result, err := c.Compress(ctx, ContentTypeGo, junk)

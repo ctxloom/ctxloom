@@ -58,7 +58,7 @@ const (
 	// MaxEssenceChars is the hard ceiling, in characters, on the distilled
 	// essence body Compact will save or hand back to a caller. It is the
 	// backstop against a pipeline that "succeeds" (every LLM call exits 0)
-	// but fails to actually COMPRESS: quit-eagle found recover_session
+	// but fails to actually COMPRESS: recover_session was once found
 	// returning a ~381,000-char essence — the map step produced per-chunk
 	// output that was never meaningfully smaller than its input, and the
 	// reduce pass that was supposed to unify it into one bounded summary
@@ -102,7 +102,7 @@ type CompactionConfig struct {
 	// session by path itself and hands it in here.
 	PreloadedSession *agent.Session
 	// IncludeThinking, when true, includes agent.EntryTypeThinking entries in
-	// the text handed to distillation. Default false (proud-heap): thinking is
+	// the text handed to distillation. Default false: thinking is
 	// the model's scratch work, verbose and not decision-bearing, and is
 	// exactly the wrong thing to spend a compacted context window on — see
 	// appendEntryText. The escape hatch exists for someone debugging a
@@ -206,13 +206,13 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		// works identically whether or not config.Backend still has a legacy
 		// scraper reader.
 		plans = reader.GetPlans
-		// Tough-cloud S4: prefer ctxloom's own captured transcript over the
+		// S4: prefer ctxloom's own captured transcript over the
 		// legacy per-engine scraper reader now behind it. A session-index open
 		// failure (rare — a corrupt/unwritable ~/.ctxloom/sessions/index.yaml)
 		// degrades to the legacy-only reader rather than failing compaction
 		// outright; distillation must never block on the canonical layer.
 		//
-		// Tough-cloud S5: config.Backend may be a retired-scraper backend
+		// S5: config.Backend may be a retired-scraper backend
 		// (codex/kiro/antigravity/claude-code — scraper deleted outright). Such a
 		// backend's plugin-side History() is now nil, so `reader` used as the
 		// legacy leg would only ever error; pass nil instead so
@@ -281,7 +281,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 	logText := c.sessionToText(session)
 	result.TotalTokensIn = tokens.Estimate(logText)
 
-	// male-aide: a session with zero main-thread entries has nothing to
+	// A session with zero main-thread entries has nothing to
 	// distill — see isEmptySession for why "zero entries" (not a byte/token
 	// floor) is the bright line. Skip the whole chunk/map/reduce pipeline
 	// (no plugin subprocess spawned at all) and persist a trivial dump
@@ -339,7 +339,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 		cleanedBody = strings.TrimSpace(combined)
 	}
 
-	// Fail-loud backstop (quit-eagle): even a "successful" pipeline (every
+	// Fail-loud backstop: even a "successful" pipeline (every
 	// LLM call exited 0, reduce ran without error) can still hand back
 	// something enormous if the model didn't actually compress — this is the
 	// general case finalCompressionPass's own check above only covers for its
@@ -366,7 +366,7 @@ func (c *Compactor) Compact(ctx context.Context) (*CompactionResult, error) {
 // positive: nothing was ever said, so there is nothing to condense, and
 // spawning a plugin subprocess (map) plus a reduce pass to summarize an
 // empty transcript is pure waste — one of the surfaces plausibly implicated
-// in tart-aqua's final-pass timeout.
+// in a previously observed final-pass timeout.
 func isEmptySession(entries []agent.SessionEntry) bool {
 	return len(entries) == 0
 }
@@ -380,7 +380,7 @@ func isEmptySession(entries []agent.SessionEntry) bool {
 // conversation can be, while this is exact. Entries can render to nothing for
 // reasons that have nothing to do with how much was said — a session whose only
 // main-thread entries are `thinking`, which appendEntryText suppresses by
-// policy (proud-heap), or entries carrying a type this renderer has no case
+// policy, or entries carrying a type this renderer has no case
 // for. Without this check the pipeline chunks the empty string into one chunk
 // and spawns an LLM plugin subprocess to summarize a transcript containing
 // nothing, then writes whatever the model invents over the session's essence.
@@ -534,7 +534,7 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 		// never touched again. CurrentSession's mtime-newest pick is unreliable
 		// here because a backend rewrites/touches a transcript file when a
 		// session is resumed, so "newest by mtime" is not reliably "the session
-		// that just ended" (seedy-apron). Only fall back to CurrentSession when
+		// that just ended". Only fall back to CurrentSession when
 		// there's no harp (e.g. a bare `ctxloom memory compact` outside any
 		// tracked session) or it isn't bound yet (bind hook never fired).
 		sessionID = c.identityBoundSessionID()
@@ -555,7 +555,7 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 			// entry). Recovery must never block (CLAUDE.md fault tolerance): fall
 			// through to CurrentSession, the same genuine last resort the
 			// empty-SessionID path always used before identity-first binding was
-			// added (FINDING #5).
+			// added.
 			session, err = c.source.CurrentSession(ctx)
 			if err != nil {
 				return nil, fmt.Errorf("get current session: %w", err)
@@ -574,7 +574,7 @@ func (c *Compactor) loadSessionToCompact(ctx context.Context) (*agent.Session, e
 	// Distillation reflects the conversation the user had: subagent-interior
 	// (sidechain) entries are attribution data for viewers, not essence input.
 	// A session with zero main-thread entries (including an all-sidechain
-	// session, which filters down to none) is not an error here — male-aide:
+	// session, which filters down to none) is not an error here:
 	// Compact's isEmptySession check short-circuits it to a plain dump rather
 	// than failing, since "nothing to distill" is not "nothing was found".
 	session.Entries = agent.MainThreadEntries(session.Entries)
@@ -648,7 +648,7 @@ func (c *Compactor) distillChunks(ctx context.Context, chunks []string) ([]strin
 // and re-asserts the mandatory YAML frontmatter + identifier preservation).
 //
 // On failure, the old behavior was to warn and return combined unchanged — "a
-// too-large summary beats no summary". That is exactly the quit-eagle fail-open
+// too-large summary beats no summary". That is exactly the fail-open
 // bug: the reduce pass is the ONE step that unifies a multi-chunk session into
 // a bounded essence, so falling back to its un-reduced input on failure means
 // falling back to something that can be arbitrarily large (roughly
@@ -688,7 +688,7 @@ func assembleBody(cleanedBody string, plans []PlanBlock) string {
 // field wins over the CTXLOOM_SESSION_HARP env var so `ctxloom session distill
 // <harp>` can override without mutating process env.
 func (c *Compactor) resolveHarpName() string {
-	// U039-F01: an explicit SessionID naming a DIFFERENT, genuinely-existing
+	// An explicit SessionID naming a DIFFERENT, genuinely-existing
 	// harp than the caller's own must route output (essence, index bind,
 	// summary) to THAT harp — otherwise compacting someone else's session
 	// silently writes the essence into, and overwrites the summary of, the
@@ -803,7 +803,7 @@ func transcriptSize(harpName string) int64 {
 	if entry == nil {
 		return 0
 	}
-	// Prefer the canonical transcript's size (tough-cloud S4): once a harp has
+	// Prefer the canonical transcript's size (S4): once a harp has
 	// one, that is the file Compact actually distilled from (NewCompactor's
 	// CanonicalFallbackSource), so the staleness fingerprint must be stamped
 	// against IT, not the legacy engine file — otherwise Entry.SourceStale
@@ -817,7 +817,7 @@ func transcriptSize(harpName string) int64 {
 	}
 	info, err := os.Stat(path)
 	if err != nil {
-		// U078-F03: unlike the branches above (no harp, no index, no path
+		// Unlike the branches above (no harp, no index, no path
 		// bound at all — all ordinary "nothing to fingerprint" states), a
 		// BOUND path that can't be stat'd is a real, surprising degradation
 		// (deleted/rotated/permission-denied). Silently returning 0 here
@@ -891,7 +891,7 @@ func truncateForSummary(s string) string {
 
 // appendEntryText renders one session entry as a markdown section.
 //
-// proud-heap: EntryTypeThinking is deliberately excluded by default (the
+// EntryTypeThinking is deliberately excluded by default (the
 // switch below has no case for it unless includeThinking is set, so it falls
 // through the switch and contributes nothing). This used to be an accident of
 // the switch simply predating the entry type; it is now an explicit policy.

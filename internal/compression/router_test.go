@@ -88,8 +88,8 @@ func (f failingCompressor) Compress(context.Context, ContentType, string) (Resul
 	return Result{}, f.err
 }
 
-// U046-F09 observed that Compress's error return is structurally nil in all
-// three current implementations and proposed retiring it. The channel is LIVE,
+// Compress's error return is structurally nil in all three current
+// implementations, which might suggest retiring it. The channel is LIVE,
 // not dead: the router propagates it unchanged, and the sole production caller
 // (cli.distillWithModel) gates on `err == nil && result.Ratio < 0.7` — a
 // non-nil error is exactly how a compressor asks to fall back to the LLM. This

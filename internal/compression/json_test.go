@@ -226,8 +226,7 @@ func TestJSONCompressor_HighEntropy(t *testing.T) {
 // NOTHING: the compressor reports success, the document keeps its shape, and
 // the payload is gone. That is this project's signature failure mode, and the
 // cap is a plain exported int on an exported struct, so nothing stops a caller
-// from reaching it. An unset budget means "do not truncate", never "delete"
-// (U129-F02).
+// from reaching it. An unset budget means "do not truncate", never "delete".
 func TestJSONCompressor_UnsetValueBudgetDoesNotDeleteEveryValue(t *testing.T) {
 	// Low-entropy and not identifier-shaped, so neither preservation rule
 	// applies and the value really does reach the truncation branch.
@@ -319,7 +318,7 @@ func TestJSONCompressor_Entropy(t *testing.T) {
 	}
 }
 
-// U046-F10: calculateEntropy counted frequencies per RUNE but divided by BYTE
+// calculateEntropy once counted frequencies per RUNE but divided by BYTE
 // length, so for any multibyte string the probabilities summed to less than 1
 // and the entropy came out understated by exactly the bytes-per-rune factor.
 // A maximally-varied non-ASCII value (every rune distinct — entropy 1.0 by
@@ -362,8 +361,8 @@ func TestJSONCompressor_PreservesBigIntegers(t *testing.T) {
 		"big integer IDs must round-trip verbatim, not as float64 scientific notation")
 }
 
-// U046-F07 called the key reordering and duplicate-key collapse a correctness
-// defect. Both are properties of decoding JSON into Go values, and both are
+// The key reordering and duplicate-key collapse were once flagged as a
+// correctness defect. Both are properties of decoding JSON into Go values, and both are
 // what RFC 8259 licenses: an object is an UNORDERED collection, and a repeated
 // name is undefined behaviour that encoding/json resolves last-wins. What would
 // be a defect is losing a key, which is what this pins alongside the two

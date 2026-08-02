@@ -77,7 +77,7 @@ func TestResolveHarpName(t *testing.T) {
 		}
 	})
 
-	// U039-F01: an explicit SessionID naming a DIFFERENT, real harp than the
+	// An explicit SessionID naming a DIFFERENT, real harp than the
 	// caller's own must route output to THAT harp, not the caller's — the
 	// defect was: compact_session with an explicit session_id distilled
 	// someone else's session but always wrote the essence, session bind, and

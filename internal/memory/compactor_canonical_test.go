@@ -17,7 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
-// TestTranscriptSize_PrefersCanonicalOverLegacy pins the tough-cloud S4
+// TestTranscriptSize_PrefersCanonicalOverLegacy pins the S4
 // staleness-fingerprint fix: once a harp has a captured canonical transcript,
 // that is the file Compact actually distills from (NewCompactor wraps the
 // production source in pb.CanonicalFallbackSource), so the size fingerprint
@@ -74,7 +74,7 @@ func TestTranscriptSize_FallsBackToLegacyWhenNoCanonical(t *testing.T) {
 	assert.Equal(t, int64(10), transcriptSize(entry.HarpName))
 }
 
-// U078-F03 (transcriptSize half): a harp with a BOUND transcript path that
+// A harp with a BOUND transcript path that
 // can no longer be stat'd (deleted, rotated, permission changed) is a real,
 // surprising degradation — unlike "no harp" or "no path bound at all", which
 // are ordinary "nothing to fingerprint" cases. transcriptSize silently

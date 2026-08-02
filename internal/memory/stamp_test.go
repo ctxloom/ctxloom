@@ -98,7 +98,7 @@ func TestStampPlanFile_HarpAlreadyPresent_NoOp(t *testing.T) {
 	_ = infoAfter
 }
 
-// U078-F11: an unterminated frontmatter block must never corrupt the file
+// An unterminated frontmatter block must never corrupt the file
 // (unchanged from before), but it IS a genuine failure to stamp — the doc
 // comment on StampPlanFile promises "caller logs" for exactly this case, and
 // the caller (hook_stamp_plan.go) only logs when err != nil. Returning nil

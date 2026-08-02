@@ -20,7 +20,7 @@ import (
 //   - File has no frontmatter → prepend a minimal one with just our session.
 //   - Malformed YAML, or an unterminated frontmatter block → the file is
 //     left untouched (never corrupt it by guessing) AND a non-nil error is
-//     returned (U078-F11: it used to be a silent nil-error no-op here, which
+//     returned (it used to be a silent nil-error no-op here, which
 //     made this comment's own "caller logs" claim false — the caller,
 //     hook_stamp_plan.go, only logs when err != nil).
 //   - Harp already present in `sessions:` → a genuine no-op (nil, file
@@ -84,7 +84,7 @@ func updateFrontmatter(path, content, harpName string, mode os.FileMode) error {
 	default:
 		end := strings.Index(rest, "\n---")
 		if end < 0 {
-			// U078-F11: a genuine failure to stamp, not a silent no-op — the
+			// A genuine failure to stamp, not a silent no-op — the
 			// file is still left untouched (never corrupt an unterminated
 			// block by guessing where it ends), but the caller must be able
 			// to tell "nothing changed because there was nothing to change"
@@ -100,7 +100,7 @@ func updateFrontmatter(path, content, harpName string, mode os.FileMode) error {
 
 	var root yaml.Node
 	if err := yaml.Unmarshal([]byte(block), &root); err != nil {
-		// U078-F11: same reasoning as the unterminated-block case above —
+		// Same reasoning as the unterminated-block case above —
 		// "refuse to corrupt" and "silently do nothing" are different
 		// outcomes, and only the first was ever intended.
 		return fmt.Errorf("stamp: %s: frontmatter is not valid YAML, refusing to modify it: %w", path, err)

@@ -10,14 +10,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U046-F20 counted ~70 tree-sitter node-type literals inlined across five files
-// and asked for named constants. Constants would not have caught what actually
-// goes wrong with these strings: they are not OUR vocabulary, they are the
-// GRAMMAR'S, and a constant spelled `nodeStatementBlock = "statment_block"` is
-// exactly as wrong as the literal — silently, by extracting nothing. What the
-// row's own diagnosis names ("no test that any of them matches the grammar") is
-// the guard worth having, and tree-sitter can answer it directly: every symbol
-// a grammar can produce is enumerable.
+// This package inlines ~70 tree-sitter node-type literals across five files
+// rather than naming them as constants. Constants would not have caught what
+// actually goes wrong with these strings: they are not OUR vocabulary, they
+// are the GRAMMAR'S, and a constant spelled `nodeStatementBlock =
+// "statment_block"` is exactly as wrong as the literal — silently, by
+// extracting nothing. The guard worth having is a test that a literal
+// actually matches the grammar, and tree-sitter can answer that directly:
+// every symbol a grammar can produce is enumerable.
 //
 // So this is the constants' job done properly. A literal that no longer exists
 // in the grammar (renamed upstream, mistyped here) fails HERE, naming the

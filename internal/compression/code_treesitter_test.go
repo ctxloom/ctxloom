@@ -111,14 +111,14 @@ func generateID() int {
 	t.Logf("\n--- Compressed output ---\n%s", result.Content)
 }
 
-// TestCodeCompressor_Go_EmptyExtractionFallsBackToVerbatim (U046-F02) proves
-// content that parses under the Go grammar but yields ZERO recognized
-// top-level node kinds (extractGo's goVerbatim map + function/method
-// declarations + comments) degrades to a verbatim pass-through, not an
-// empty Content with a nil error and Ratio: 0.0 — previously indistinguishable
-// from a successful, extreme compression. Prose wrongly routed to the Go
-// compressor (U046-F01's own failure mode, before that sniff was deleted) is
-// exactly the shape that used to trigger this: the grammar emits only ERROR/
+// TestCodeCompressor_Go_EmptyExtractionFallsBackToVerbatim proves content
+// that parses under the Go grammar but yields ZERO recognized top-level node
+// kinds (extractGo's goVerbatim map + function/method declarations +
+// comments) degrades to a verbatim pass-through, not an empty Content with a
+// nil error and Ratio: 0.0 — previously indistinguishable from a successful,
+// extreme compression. Prose wrongly routed to the Go compressor (before the
+// content-sniffing path that could misroute it was deleted) is exactly the
+// shape that used to trigger this: the grammar emits only ERROR/
 // expression_statement nodes, none of which extractGo's switch handles.
 func TestCodeCompressor_Go_EmptyExtractionFallsBackToVerbatim(t *testing.T) {
 	c := NewCodeCompressor()
@@ -521,7 +521,7 @@ type Reader interface {
 	}
 }
 
-// U046-F13: two extractors abandoned the AST for substring surgery.
+// Two extractors once abandoned the AST for substring surgery.
 // extractJSLexical searched the DECLARATION TEXT for "=> {" and sliced there,
 // so an arrow token inside a STRING LITERAL was treated as the arrow function's
 // body opener — the declaration was cut mid-literal and the rest, including its
@@ -557,7 +557,7 @@ func TestCodeCompressor_JavaScriptArrowFunctionsStillElided(t *testing.T) {
 	assert.NotContains(t, result.Content, "res.send", "the arrow body is elided")
 }
 
-// The Python half of U046-F13: extractPythonAssignment cut the text at the
+// The Python half of the same defect: extractPythonAssignment cut the text at the
 // first '=' byte, which for an AUGMENTED assignment lands INSIDE the operator —
 // "counts += [...]" was emitted as "counts + = ...", an expression that says
 // something else. The AST tags the right-hand side; slice there instead.
@@ -574,7 +574,7 @@ func TestCodeCompressor_PythonAugmentedAssignmentOperatorSurvives(t *testing.T) 
 	assert.NotContains(t, result.Content, "counts + =", "splitting '+=' changes what the line says")
 }
 
-// U046-F11: the class/impl BODY extractors enumerate a handful of member kinds
+// The class/impl BODY extractors enumerate a handful of member kinds
 // and drop everything else on the floor — no marker, no trace. A class
 // attribute, a nested type, an associated const: all present in the source,
 // absent from the compressed form the model is handed, with nothing to say they

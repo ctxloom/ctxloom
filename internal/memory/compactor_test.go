@@ -47,7 +47,7 @@ func TestCompactor_SessionToText(t *testing.T) {
 	assert.Contains(t, text, "## System: System message")
 }
 
-// TestCompactor_SessionToText_ThinkingExcludedByDefault is the proud-heap
+// TestCompactor_SessionToText_ThinkingExcludedByDefault is the
 // payload assertion: a thinking entry's content must not reach the text
 // handed to distillation unless IncludeThinking is explicitly set. "It ran"
 // proves nothing here — assert the actual bytes.
@@ -211,7 +211,7 @@ func TestCompactor_ChunkText_NoTrailingOverlapDuplicate(t *testing.T) {
 // shares the backing array with its source, so TruncateBytes re-slices and
 // never copies. This pins the property, so a future rewrite of TruncateBytes
 // that DOES copy (a []byte round trip, a strings.Builder) shows up here as the
-// per-chunk cost it would be, on text sized in hundreds of kilobytes (U129-F03).
+// per-chunk cost it would be, on text sized in hundreds of kilobytes.
 func TestCompactor_ChunkText_RuneBoundaryOffsetDoesNotCopy(t *testing.T) {
 	remaining := strings.Repeat("alpha b\u00e9ta gamma ", 20000) // ~440 KB, multibyte
 
@@ -363,7 +363,7 @@ func TestCompactor_DistillChunk_NonZeroExit(t *testing.T) {
 	assert.Contains(t, err.Error(), "exited with code 1")
 }
 
-// U078-F01: an LLM that exits 0 having written nothing is a FAILURE, not an
+// An LLM that exits 0 having written nothing is a FAILURE, not an
 // empty distillation. Treated as success it produced an empty body which
 // saveDistilled then atomically wrote over a previously good essence.md.
 func TestCompactor_DistillChunk_EmptyOutputIsAFailure(t *testing.T) {
@@ -383,7 +383,7 @@ func TestCompactor_DistillChunk_EmptyOutputIsAFailure(t *testing.T) {
 	assert.Contains(t, err.Error(), "no output")
 }
 
-// U078-F01 (second half): even if an empty body reaches saveDistilled by some
+// The other half of the same rule: even if an empty body reaches saveDistilled by some
 // other route, it must never replace an existing essence. Distillation exists
 // to preserve context; silently zeroing it is the worst possible outcome.
 func TestCompactor_SaveDistilled_RefusesEmptyBody(t *testing.T) {
@@ -510,7 +510,7 @@ func TestCompact_NoSession(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestCompact_EmptySession is the male-aide regression test: a session with
+// TestCompact_EmptySession is the empty-session regression test: a session with
 // zero main-thread entries must short-circuit straight to a dumped, trivial
 // essence — succeeding, not erroring — and must never reach the map/reduce
 // LLM pipeline. The ClientFactory below fails the test outright if the
@@ -605,7 +605,7 @@ func TestCompact_SidechainEntriesExcluded(t *testing.T) {
 	assert.NotContains(t, joined, "SIDECHAIN_INTERIOR", "sidechain content must not reach distillation")
 }
 
-// TestCompact_ThinkingExcludedFromLLMPrompt is the proud-heap end-to-end
+// TestCompact_ThinkingExcludedFromLLMPrompt is the end-to-end
 // payload assertion: the thinking-budget slice (2026-07-16) means a real
 // interactive session's canonical transcript now carries EntryTypeThinking
 // entries, and this asserts they never reach the prompt the compression LLM
@@ -658,7 +658,7 @@ func TestCompact_ThinkingExcludedFromLLMPrompt(t *testing.T) {
 
 // TestCompact_AllSidechainSessionIsEmpty: a session whose every entry is
 // subagent-interior filters down to zero main-thread entries, so it must take
-// the same male-aide dump short-circuit as a literally-empty session (see
+// the same dump short-circuit as a literally-empty session (see
 // TestCompact_EmptySession) — succeeding with a trivial essence, never
 // reaching the LLM.
 func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
@@ -693,7 +693,7 @@ func TestCompact_AllSidechainSessionIsEmpty(t *testing.T) {
 	assert.Equal(t, 0, result.ChunksCreated)
 }
 
-// U078-F02: an empty session must NOT replace an already-distilled essence
+// An empty session must NOT replace an already-distilled essence
 // with the 54-byte placeholder. Re-distillation is triggered automatically by
 // the staleness path, and loadSessionToCompact falls back to the current
 // session when a bound transcript is gone — so a good essence could be wiped
@@ -832,7 +832,7 @@ func TestCompact_MultiChunk_RunsReducePassUnderThreshold(t *testing.T) {
 	assert.True(t, sawReduce, "reduce pass must run for multi-chunk sessions even when combined output is under ChunkSize")
 }
 
-// TestCompact_EnforcesMaxEssenceChars pins quit-eagle requirement 1: even a
+// TestCompact_EnforcesMaxEssenceChars pins the requirement: even a
 // "successful" distillation pipeline (every LLM call exits 0) must never save
 // or return an essence body over the named MaxEssenceChars ceiling. Here the
 // reduce call itself exits 0 but its OWN output is oversized — a distinct
@@ -893,8 +893,8 @@ func TestCompact_EnforcesMaxEssenceChars(t *testing.T) {
 }
 
 // TestCompact_ReduceFailure_NeverFallsBackToUnboundedRawCombined is the
-// fail-open REGRESSION test for quit-eagle: recover_session on session
-// sixth-moist-kite once returned a ~381,000-char essence because the reduce
+// fail-open REGRESSION test: recover_session once returned a
+// ~381,000-char essence because the reduce
 // pass failed and the OLD code unconditionally fell back to combined (the
 // concatenated, un-reduced per-chunk map output) — "a too-large summary beats
 // no summary". When that un-reduced combined text is itself over
@@ -1172,7 +1172,7 @@ func (r refusingSessionSource) CurrentSession(context.Context) (*agent.Session, 
 }
 
 // TestCompactor_LoadSessionToCompact_PreloadedSessionBypassesSource pins the
-// container-harp distill fix (paced-gift): when only the mounted transcript
+// container-harp distill fix: when only the mounted transcript
 // path is known host-side (no bound session_id), the caller loads the
 // session by path itself and hands it to the compactor via
 // CompactionConfig.PreloadedSession. loadSessionToCompact must return it
@@ -1233,7 +1233,7 @@ func TestCompact_BySessionID(t *testing.T) {
 	assert.Equal(t, "specific-session", result.SessionID)
 }
 
-// TestCompact_CurrentSession_PrefersIdentityBoundOverMtime is the seedy-apron
+// TestCompact_CurrentSession_PrefersIdentityBoundOverMtime is the
 // regression test: when compacting "the current session" (no SessionID given),
 // the compactor must use the harp's session-index binding — recorded once at
 // session-start and never touched again — rather than whatever the backend's
@@ -1323,7 +1323,7 @@ func TestCompact_CurrentSession_FallsBackToMtimeWhenNoHarp(t *testing.T) {
 	assert.Equal(t, "mtime-current-session", result.SessionID)
 }
 
-// TestCompact_IdentityBoundStaleFallsBackToCurrentSession is the FINDING #5
+// TestCompact_IdentityBoundStaleFallsBackToCurrentSession is a
 // regression test: the harp is bound to a session id in the index, but that
 // id's transcript no longer exists in the backend's store (rotated/deleted —
 // a stale index entry). loadSessionToCompact must degrade to the
@@ -1751,7 +1751,7 @@ func TestNewCompactor_UnopenableSessionIndex_ReportsTheRealReason(t *testing.T) 
 // isEmptySession's entry count cannot see: entries are present, but the text
 // handed to distillation is empty. A session whose only main-thread entries
 // are `thinking` reaches exactly that, because appendEntryText suppresses
-// thinking by policy (proud-heap) unless IncludeThinking is set.
+// thinking by policy unless IncludeThinking is set.
 //
 // Without the render check the pipeline chunks the empty string into one
 // chunk and spawns an LLM subprocess to summarize a transcript containing

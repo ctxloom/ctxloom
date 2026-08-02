@@ -24,7 +24,7 @@ const vendoredSchemaSHA256 = "92c1dfcda10dd47e99127500a3763da2b471f9ac61e12b9bf0
 // changes, which is exactly when the package doc's Commit / Version /
 // Vendored lines stop being true.
 //
-// U015-F04's concern: re-vendoring fetches `main`, so it picks up whatever
+// The concern: re-vendoring fetches `main`, so it picks up whatever
 // the upstream branch holds today, while the provenance block keeps naming
 // the commit that was fetched months ago. Nothing forced the two to move
 // together, so the recorded commit could silently describe bytes that are no

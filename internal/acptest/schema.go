@@ -51,7 +51,7 @@ import (
 //go:embed acp-schema-v1.json
 var schemaJSON []byte
 
-// U015-F02: SchemaSourceURL/SchemaCommit/SchemaVersion/SchemaVendoredAt used
+// SchemaSourceURL/SchemaCommit/SchemaVersion/SchemaVendoredAt used
 // to be exported here too, documenting the vendored schema's provenance --
 // but the same provenance is already stated, in more detail, in the package
 // doc comment above (source URL, commit, version, vendor date), and these

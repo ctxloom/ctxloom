@@ -79,7 +79,7 @@ func TestEnvKeysCoversProductionReads(t *testing.T) {
 	}
 }
 
-// TestFindUncoveredEnvReads_CatchesConstantIdentifierReads pins U142-F01: a
+// TestFindUncoveredEnvReads_CatchesConstantIdentifierReads pins that a
 // CTXLOOM_* variable read only through a named constant
 // (os.Getenv(pkg.EnvFoo), the exact shape of coord.EnvMCPSocket and friends)
 // must be just as visible to the sweep as a literal os.Getenv("CTXLOOM_FOO")

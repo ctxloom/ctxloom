@@ -9,9 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestValidator_ConcurrentValidateDef pins U015-F01: NewValidator's doc
-// comment promises the Validator is "Safe for concurrent use after
-// construction", and a conformance harness that validates a whole captured
+// TestValidator_ConcurrentValidateDef pins the promise in NewValidator's doc
+// comment that the Validator is "Safe for concurrent use after
+// construction": a conformance harness that validates a whole captured
 // session will fan its frames out across goroutines on the strength of that
 // promise. Before the fix the promise was false — def() read v.cache, then
 // wrote it, with no synchronisation at all, and drove jsonschema.Compiler

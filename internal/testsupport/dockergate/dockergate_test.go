@@ -27,7 +27,7 @@ func (f *fakeTB) Skipf(format string, args ...any) {
 }
 
 // TestRequireRuntime_UnreachableAndRequired_Fails and its sibling below pin
-// U143-F05's two branches directly (the package that guarantees "a skip is
+// both branches directly (the package that guarantees "a skip is
 // never silent" previously had zero tests proving its own two branches) —
 // available is orthogonal to `required`, this test manipulates `required`
 // directly rather than the real CTXLOOM_REQUIRE_DOCKER env var, since

@@ -7,8 +7,10 @@
 // once — mirror struct, converter, published schema — and every time one of
 // those was forgotten the result was SILENT field loss: the writer succeeded,
 // the bytes went out, and the field simply was not in them. That has now
-// happened on three separate mirrors (U144-F01, U144-F02, and the `--format
-// json` entry/session DTOs, found out of corpus by batch 18/19).
+// happened on three separate mirrors — SessionPayload silently dropping
+// Resumable, PermissionPayload silently dropping ToolCallID, and the
+// `--format json` entry/session DTOs — each found out of corpus rather than
+// by review.
 //
 // The engine turns "someone forgot one of the three" into a test failure. It
 // has THREE halves, deliberately different in kind so no one of them can be
@@ -32,7 +34,8 @@
 //     is_error and sidechain slots still emits two `true` leaves. Half 3
 //     closes that: each bool field is set true ALONE, and must produce exactly
 //     one true leaf, at a JSON key distinct from every other bool field's.
-//     This is the blind spot batch 18 declared and batch 19 closed.
+//     This closes a real blind spot: count-based bool parity alone missed
+//     exactly this.
 //
 //  4. ROUND TRIP (CheckRoundTrip) — the READ side. Halves 1-3 gate the
 //     agent → mirror direction only; a mirror → agent converter that drops a

@@ -125,29 +125,28 @@ func isLeafIdentByte(b byte) bool {
 var knownUncoveredCLI = []string{
 	// The publisher-signing surface is now covered by J18 (steps_j18_signing.go,
 	// j18_signing.feature): `ctxloom bundle sign` (bare ref, --all, an item ref,
-	// and the empty-publish-set failure), the deprecated `ctxloom sign` twin,
-	// `ctxloom signer list` and its canonical `trust signer list`,
-	// `trust signer add|show|remove`, `trust accept`, `trust reject`, and
+	// and the empty-publish-set failure), `ctxloom trust signer list`,
+	// `trust signer create|show|delete`, `trust accept`, `trust reject`, and
 	// `bundle move` (verbatim relocation plus the refused-move path). Every one
 	// runs against a real ssh-agent (testenv.StartSSHAgent) and asserts payload:
 	// each `.sig` is verified independently against bundle bytes read fresh off
 	// disk, `--all` is counted against the publish set, and `--project`'s store
 	// location is asserted on BOTH the project and the user path.
 	//
-	// "ctxloom signer add"/"ctxloom signer remove" left this list earlier: J3
-	// (steps_j3.go, j3_corporate_signed.feature) drives both — the Background's
-	// "Alice trusts the company key" step runs `ctxloom signer add ...
-	// --project`, and scenario 6's "Alice revokes her trust in the company key"
-	// runs `ctxloom signer remove ... --project`. "ctxloom signer show" left it
-	// when J7 (steps_j7.go, j7_incident.feature)'s irrevocable-embedded-key
-	// scenario started driving it before and after the removal attempt.
+	// "ctxloom trust signer create"/"ctxloom trust signer delete" left this
+	// list earlier: J3 (steps_j3.go, j3_corporate_signed.feature) drives both —
+	// the Background's "Alice trusts the company key" step runs
+	// `ctxloom trust signer create ... --project`, and scenario 6's "Alice
+	// revokes her trust in the company key" runs
+	// `ctxloom trust signer delete ... --project`. "ctxloom trust signer show"
+	// left it when J7 (steps_j7.go, j7_incident.feature)'s
+	// irrevocable-embedded-key scenario started driving it before and after the
+	// removal attempt.
 	//
 	// Long-lived watcher with no bounded/hermetic exit in this harness yet.
-	// Backfill: task cheap-pug.
 	"ctxloom session watch",
 	// Hidden machine callbacks that run on every session (SessionStart/tool
 	// hooks) but have no scenario driving their stdin payload directly.
-	// Backfill: task weary-crowd.
 	"ctxloom hook inject-context",
 	"ctxloom hook session-bind",
 	"ctxloom hook stamp-plan",
@@ -167,7 +166,7 @@ var knownUncoveredCLI = []string{
 	// that reason).
 	"ctxloom mcp server edit",
 	// Engine-matrix variants: only the claude-code path is exercised;
-	// codex/kiro/antigravity need their own fixtures. Backfill: task glad-skid.
+	// codex/kiro/antigravity need their own fixtures.
 	"ctxloom manage install --engine codex",
 	"ctxloom manage install --engine kiro",
 	"ctxloom manage install --engine antigravity",
@@ -186,13 +185,13 @@ var knownUncoveredTools = []string{
 	// agent_send/agent_recv are now exercised by J17
 	// (steps_j17_cross_engine_delegation.go, j17_cross_engine_delegation.feature
 	// — the real two-way bus, both directions, content asserted on each side).
-	// agent_stop is now exercised by J6's failure-path scenario
-	// (flow/delegation-wave1: idempotent double-stop + a refused stop on a
-	// run id that was never spawned — U024-F04's own regression). Trigger
-	// evaluation remains unexercised. Backfill: task spry-niece.
+	// agent_stop is now exercised by J6's failure-path scenario: idempotent
+	// double-stop plus a refused stop on a run id that was never spawned (a
+	// real regression this scenario now pins). Trigger evaluation remains
+	// unexercised.
 	"evaluate_triggers",
 	// Session-memory tools named only in mcp_tools.feature's prose, never
-	// actually invoked (see ranAsTool's doc comment). Backfill: task spry-niece.
+	// actually invoked (see ranAsTool's doc comment).
 	"compact_session",
 	"get_previous_session",
 	"list_sessions",
@@ -201,12 +200,11 @@ var knownUncoveredTools = []string{
 // knownUncoveredRunnerOnlyTools is the exact set of tools that exist ONLY on
 // the documented (runner-terminated, cli.NewDocMCPServer) MCP surface -- not
 // on the standalone `ctxloom mcp serve` surface knownUncoveredTools governs
-// -- and are not yet exercised by any scenario (U156-F01). roster,
+// -- and are not yet exercised by any scenario. roster,
 // agent_report, and agent_fetch_artifact are named explicitly in
 // scripts/gendocs/main.go's mcpIntro as existing only on this surface;
 // before this list and its subtest existed, they had no completeness
-// coverage of any kind. Backfill: task spry-niece (same task as
-// knownUncoveredTools's evaluate_triggers/session-memory entries).
+// coverage of any kind.
 var knownUncoveredRunnerOnlyTools = []string{
 	"agent_fetch_artifact",
 	"agent_report",
@@ -384,7 +382,7 @@ func TestCompleteness(t *testing.T) {
 
 	tools, resources, templates := liveSurface(t)
 
-	// U163-F05: listNames/ListToolDetails used to return (nil, nil) when the
+	// listNames/ListToolDetails used to return (nil, nil) when the
 	// server's response array was missing or malformed, so "the server
 	// advertised zero tools" and "the response never parsed" looked
 	// identical — and the loop below iterates an empty slice and passes
@@ -414,14 +412,14 @@ func TestCompleteness(t *testing.T) {
 		toolsUncovered = assertExactUncovered(t, "mcp tools", uncovered, knownUncoveredTools)
 	})
 
-	// U156-F01: everything above measures the STANDALONE `ctxloom mcp
+	// Everything above measures the STANDALONE `ctxloom mcp
 	// serve` surface (liveSurface spawns it via env.StartMCP()). That is
 	// NOT the surface ctxloom documents: scripts/gendocs/main.go's
 	// mcpIntro states outright that the standalone surface is a reduced
 	// agent-delegation surface with different schemas, and points its
 	// generated reference page at cli.NewDocMCPServer() instead -- the
 	// RUNNER-terminated surface every harness actually sees through
-	// `ctxloom run`/`ctxloom acp`. Before this subtest, the tools that
+	// `ctxloom run`/`ctxloom acp serve`. Before this subtest, the tools that
 	// exist ONLY on that documented surface (roster, agent_report,
 	// agent_fetch_artifact -- named explicitly in mcpIntro's own caution
 	// block) had ZERO completeness coverage: they never appeared in
@@ -537,7 +535,7 @@ func liveSurface(t *testing.T) (tools, resources, templates []string) {
 	if err != nil {
 		t.Fatalf("test env: %v", err)
 	}
-	// U163-F03: Cleanup's error used to be discarded here too.
+	// Cleanup's error used to be discarded here too.
 	t.Cleanup(func() {
 		if err := env.Cleanup(); err != nil {
 			t.Errorf("test environment cleanup: %v", err)

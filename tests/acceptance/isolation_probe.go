@@ -272,8 +272,8 @@ func probeDecideAuthPath(backendType string) (probeAuthPath, string) {
 	// function's whole job is to DECIDE whether a host credential file
 	// exists, and the census emptiness check right below is that decision —
 	// a copy error (zero files copied) and "no census entries" are the same
-	// outcome for this purpose (see U158-F07's evidence: this call site
-	// already gates on the copy's real effect, unlike the @live gate steps).
+	// outcome for this purpose (this call site already gates on the copy's
+	// real effect, unlike the @live gate steps).
 	_ = a.copyCreds(realHomeDir, probe)
 	roots, _ := probeCensusRoots(backendType)
 	census, _ := probeCensus(probe, roots)
@@ -433,7 +433,7 @@ func watchContainerDiff(ctx context.Context, runtimeBin string) <-chan probeCont
 				case <-ctx.Done():
 					break loop
 				case <-ticker.C:
-					// U158-F01: len(lines) >= 0 is tautological (a slice
+					// len(lines) >= 0 is tautological (a slice
 					// length is never negative), so this used to overwrite
 					// snap.Diff on EVERY successful poll, including a
 					// genuinely empty enumeration -- silently erasing a
@@ -648,7 +648,7 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 	key := backendTypeToLiveKey(backendType)
 	agent, ok := liveAgents[key]
 	if !ok {
-		// U158-F04: liveAgents[key] with no ok check silently produced a
+		// liveAgents[key] with no ok check used to silently produce a
 		// zero-value liveAgent (empty base config), so an unregistered engine
 		// name -- a new @live Examples row added without a matching
 		// liveAgents entry -- rendered a config.yaml missing the engine's own
@@ -711,7 +711,7 @@ func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
 //     that authenticates the WORKTREE axis cannot authenticate a
 //     containerized kiro today.
 //   - antigravity: a mounted host credential file ONLY, no env-key path at
-//     all (fatal-amino, 2026-07-22: resolveAntigravityContainerAuth has no
+//     all (2026-07-22: resolveAntigravityContainerAuth has no
 //     known ANTIGRAVITY_*/AGY_* trigger of its own, and deliberately never
 //     accepts ANTHROPIC_API_KEY — the wrong-provider security edge). The
 //     file it mounts is ~/.gemini/antigravity-cli/antigravity-oauth-token —
@@ -750,7 +750,7 @@ type probeResult struct {
 
 	// worktree axis
 	Scratch  probeScratchSnapshot
-	HostDiff []string // U158-F03: the before/after censuses themselves were written but never read anywhere; only their diff is consumed
+	HostDiff []string // the before/after censuses themselves are written but never read anywhere; only their diff is consumed
 
 	// container axis
 	Container     probeContainerSnapshot

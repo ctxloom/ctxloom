@@ -25,7 +25,7 @@ import (
 // TestEnvKeysCoversProductionReads enforces that every CTXLOOM_* variable read
 // in production appears here.
 //
-// This IS taskstest.EnvKeys (not a copy) — see that package's doc (U127-F01):
+// This IS taskstest.EnvKeys (not a copy) — see that package's doc:
 // two separate lists here and there is exactly how one drifted to cover only
 // 3 of ~18 variables with nothing to catch it. One list, referenced from
 // both names, cannot drift.

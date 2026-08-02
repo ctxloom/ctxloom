@@ -55,7 +55,7 @@ func TestWarnErrors_NonEmptyWarnsAndFails(t *testing.T) {
 // TestFwarnOnce_DedupKeyIsProgScoped pins that FwarnOnce (via WarnOnce, its
 // only production caller — clidiag.go:172-174) builds its dedup key with
 // Line, which splices prog INTO the key, not just the format+args. This is
-// the concrete internal wiring the U103-F01/F02 findings mischaracterized as
+// the concrete internal wiring that was mischaracterized as
 // DEAD: Line has zero callers OUTSIDE this package, but FwarnOnce (its sole
 // caller) is on 12 production WarnOnce sites, and this test is what breaks
 // if that wiring is ever removed or "simplified" to a prog-blind key.
@@ -192,7 +192,7 @@ func TestSetSink_NilRestoresDefault(t *testing.T) {
 // the FORMAT STRING while fwarn passes it as a %s ARGUMENT, so a prog carrying a
 // percent sign was reinterpreted as a verb in one path and not the other: the
 // key and the emitted line diverge, and the stray verb can even consume the
-// caller's args. (U103-F05.)
+// caller's args.
 func TestLine_MatchesFwarnForAProgContainingAPercent(t *testing.T) {
 	for _, prog := range []string{"ctxloom", "taskloom", "100%-native", "ctx%sloom", "a%!b"} {
 		var b strings.Builder
@@ -209,7 +209,7 @@ func TestLine_MatchesFwarnForAProgContainingAPercent(t *testing.T) {
 // ErrInvalid (*os.File), and fwarn discards the write error — the diagnostic is
 // gone with no trace, this project's signature failure shape. A typed nil must
 // be treated exactly like an untyped one: fall back to the default sink.
-// (U103-F08. warnSink's identity is asserted rather than driving a real Warn,
+// (warnSink's identity is asserted rather than driving a real Warn,
 // which would print onto the suite's own stderr.)
 func TestSetSink_TypedNilFallsBackToTheDefault(t *testing.T) {
 	var file *os.File
@@ -243,7 +243,7 @@ func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
 // (in production that writer is an *os.File the owner closes right after
 // restoring, so the warning is written to a closed fd and the error discarded).
 // Restore must remove only its OWN redirect and hand the channel to whichever
-// redirect is still active. (U103-F06.)
+// redirect is still active.
 func TestSetSink_OutOfOrderRestoreLeavesTheLiveRedirectAlone(t *testing.T) {
 	var early, late bytes.Buffer
 	restoreEarly := SetSink(&early)
@@ -268,7 +268,7 @@ func TestSetSink_OutOfOrderRestoreLeavesTheLiveRedirectAlone(t *testing.T) {
 
 // Restore is idempotent: calling it twice must not pop somebody else's redirect.
 // Several tests in this tree both `defer restore()` and register a cleanup that
-// restores again. (U103-F06.)
+// restores again.
 func TestSetSink_RestoreIsIdempotent(t *testing.T) {
 	var outer, inner bytes.Buffer
 	restoreOuter := SetSink(&outer)
@@ -293,7 +293,7 @@ func (f failingWriter) Write([]byte) (int, error) { return 0, f.err }
 // fwarn drops its write error DELIBERATELY — "warnings never block" is the
 // fault-tolerance rule this package exists to implement, and the documented
 // escape hatch is that a writer which records its own errors still observes the
-// failure. U103-F07 claims the structured branch is different, leaving "no trace
+// failure. The structured branch might seem different, leaving "no trace
 // anywhere". It is NOT: clifmt.EncodeWarning is json.Encoder.Encode, which
 // marshals a two-string envelope (never a marshal error) and performs exactly
 // one w.Write — so the wrapping writer sees the failure in structured mode on
@@ -323,10 +323,10 @@ func TestFwarn_WriteFailureIsObservableThroughAWrappingWriterInBothModes(t *test
 
 // The other half of the same contract: a failing sink must never block, panic or
 // propagate. This is what makes dropping the error the right call rather than an
-// oversight, and it is why the remedy U103-F07 implies (surface the error from
+// oversight, and it is why the natural remedy (surface the error from
 // the write path) cannot simply be applied — Warn has 448 call sites, none of
 // which can act on it, and the one place a fallback could go is os.Stderr, which
-// under `ctxloom run` is the TUI SetSink exists to protect. (U103-F07.)
+// under `ctxloom run` is the TUI SetSink exists to protect.
 func TestWarn_FailingSinkNeverBlocksOrPanics(t *testing.T) {
 	resetStructured(t)
 	restore := SetSink(failingWriter{err: errors.New("sink is gone")})
@@ -340,8 +340,8 @@ func TestWarn_FailingSinkNeverBlocksOrPanics(t *testing.T) {
 	})
 }
 
-// U103-F09's PREMISE — "the value is a per-binary constant", so prog could be
-// hoisted out of the signature — is false, and this pins the callers that make it
+// The premise that "the value is a per-binary constant", so prog could be
+// hoisted out of the signature, is false, and this pins the callers that make it
 // false. Inside the ctxloom binary ALONE two distinct progs are in production
 // use: "ctxloom" and "ctxloom hook inject-context" (internal/cli's
 // inject-context hook names itself so a warning surfacing inside a Claude Code

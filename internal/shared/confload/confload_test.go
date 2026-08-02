@@ -225,8 +225,8 @@ func TestEnvOverlay_CoercesBoolIntAndList(t *testing.T) {
 	assert.Equal(t, []any{"a", "b", "c"}, out["tags"])
 }
 
-// TestEnvOverlay_ZeroAndOneStayIntegers is the regression guard for U108-F06:
-// strconv.ParseBool accepts "0" and "1", so a bool-first type detection turned
+// TestEnvOverlay_ZeroAndOneStayIntegers is the regression guard: strconv.ParseBool
+// accepts "0" and "1", so a bool-first type detection turned
 // EVERY 0/1 integer override into a boolean and left the schema's five
 // integer-typed keys with no way to express their smallest values at all.
 // ctxloom's own `agent_turn_cap` is `{"type":"integer","minimum":1}`, so
@@ -539,8 +539,8 @@ func TestOverrides_Stamp_ChangesWithContent(t *testing.T) {
 	assert.NotEqual(t, withEnv.Stamp(), withDifferentEnv.Stamp())
 }
 
-// TestLoad_WarnsWhenAConfigFileExistsButDefinesNoKeys is the regression guard
-// for U108-F03. readYAMLFile used to collapse four distinct states -- layer not
+// TestLoad_WarnsWhenAConfigFileExistsButDefinesNoKeys is the regression guard:
+// readYAMLFile used to collapse four distinct states -- layer not
 // configured (path ""), file missing, file empty, file comment-only -- into a
 // single (nil, nil), so Load could not tell "you have no config" from "your
 // config file is being ignored". A user who comments out their whole
@@ -583,8 +583,8 @@ func TestLoad_WarnsWhenAConfigFileExistsButDefinesNoKeys(t *testing.T) {
 	}
 }
 
-// TestLoad_DoesNotWarnForAbsentOrPopulatedLayers is the other half of
-// U108-F03: the presence signal must distinguish "exists but keyless" from the
+// TestLoad_DoesNotWarnForAbsentOrPopulatedLayers is the other half: the
+// presence signal must distinguish "exists but keyless" from the
 // two legitimately-silent states. A layer that was never configured (empty
 // path) and a layer whose file simply is not there are both normal -- config
 // files are optional -- and a layer that actually defines keys is obviously

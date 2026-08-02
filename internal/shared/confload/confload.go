@@ -337,7 +337,7 @@ func Merge(layers ...map[string]any) (map[string]any, error) {
 		// confmap.Provider with an empty delim treats layer as an
 		// already-nested map (never unflattened) and hands it to k.Load with
 		// a nil Parser — believed unable to fail for an in-memory provider
-		// (U108-F01/F02: the prior "continue"/empty-map handling of this
+		// (the prior "continue"/empty-map handling of this
 		// branch treated that belief as certainty, silently dropping the
 		// WHOLE layer — and every layer after it, since the loop kept
 		// going — on the day it turns out to be wrong). Propagate instead:

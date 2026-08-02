@@ -69,7 +69,7 @@ func TestEmit_UnknownFormatErrorsWithoutWriting(t *testing.T) {
 	assert.Empty(t, buf.Bytes())
 }
 
-// TestEmit_EmptyBundleErrorsInBothFormats (U107-F01) proves a companion
+// TestEmit_EmptyBundleErrorsInBothFormats proves a companion
 // embedding zero bytes (a build mistake — forgot the go:embed directive,
 // wrong glob, empty loadout.yaml) fails loud instead of emitting a
 // well-formed-looking envelope contributing nothing, in EITHER format.
@@ -132,7 +132,7 @@ func TestReadEmbeddedSig_DistinguishesAbsentFromEmpty(t *testing.T) {
 // TestEmit_EmptyButPresentSignatureErrorsInBothFormats is the half that acts on
 // the distinction. Emitting a zero-byte signature as merely "unsigned" makes a
 // half-completed signing run indistinguishable from a build never meant to be
-// signed — the same shape U107-F01 fixed for an empty BUNDLE, applied to the
+// signed — the same shape fixed for an empty BUNDLE, applied to the
 // signature. A nil sig must still emit cleanly, or the guard would break every
 // genuinely unsigned companion.
 func TestEmit_EmptyButPresentSignatureErrorsInBothFormats(t *testing.T) {

@@ -192,7 +192,7 @@ func Warn(prog, format string, args ...any) {
 //	}
 //	return nil
 //
-// pattern (T9/R1, "exit 0 on a real failure"): that shape prints the same
+// pattern ("exit 0 on a real failure"): that shape prints the same
 // warnings but always returns nil, so cli.Run never learns the command
 // failed. WarnErrors prints identically, then returns a non-nil error when
 // errs is non-empty (nil when it's empty), so the caller can simply

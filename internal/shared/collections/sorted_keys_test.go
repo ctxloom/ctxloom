@@ -55,10 +55,10 @@ func TestSortedKeys_EmptyAndNilYieldNonNilSlice(t *testing.T) {
 	})
 }
 
-// U106-F05 argues this package holds two unrelated concerns because "SortedKeys
-// is never called on a Set". That was TRUE when the finding was taken and still
-// true at this wave's base — and it is the load-bearing evidence for the
-// cohesion claim, so it is worth exercising rather than merely asserting.
+// It might be argued this package holds two unrelated concerns because
+// "SortedKeys is never called on a Set". That was true, and it is the
+// load-bearing evidence for the cohesion claim, so it is worth exercising
+// rather than merely asserting.
 //
 // A Set[T] IS a map[T]struct{}, so SortedKeys applies to one directly: reading a
 // Set in a stable order is exactly what SortedKeys is for, and it is now what

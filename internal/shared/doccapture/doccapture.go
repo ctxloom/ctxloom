@@ -3,13 +3,13 @@
 // tag) and its reader (scripts/gendocs/livingdocs, a standalone `go run`
 // tool) — the JSON contract for one Gherkin scenario's per-step evidence.
 //
-// U158-F06: these two packages cannot import each other (a test package and
+// These two packages cannot import each other (a test package and
 // a standalone script live on opposite sides of a process boundary — the
 // writer runs inside `go test`, the reader runs afterward as a separate
 // `go run` invocation reading the files the writer left behind) so the two
 // structs used to be declared twice, byte-for-byte identical down to the json
 // tags, with only a comment ("MUST match that struct's json tags exactly")
-// holding the two copies in sync. That is exactly this campaign's
+// holding the two copies in sync. That is exactly this project's
 // characteristic defect shape: a dropped or renamed field on one side is
 // invisible to the other until a generated page silently comes up short.
 // internal/shared is the one tree both a tests/ package and a scripts/

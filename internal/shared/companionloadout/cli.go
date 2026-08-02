@@ -21,13 +21,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// U107-F02: this trio is a cross-process wire contract — ctxloom's own
+// This trio is a cross-process wire contract — ctxloom's own
 // probe (internal/config/companions.go) execs a companion binary as
 // `<bin> Subcommand --FormatFlag FormatJSON` — previously duplicated as bare
 // string literals on BOTH sides with no shared constant and no test
 // exercising both real sides together. Because a broken probe took a silent
-// bare-return path (see companions.go's own U047-F04 fix for the OTHER half
-// of this finding), renaming any of these three strings on either side alone
+// bare-return path (see companions.go's own fix for the OTHER half
+// of this), renaming any of these three strings on either side alone
 // used to pass the entire test suite while silently removing all companion
 // contribution in production. Exporting them here and having the consumer
 // build its argv from them makes a one-sided rename a compile error instead.
@@ -146,7 +146,7 @@ func ReadEmbeddedSig(files fs.ReadFileFS) []byte {
 // no filesystem access beyond the bytes already in hand. Exported so each
 // companion's own tests can drive it directly without going through cobra.
 func Emit(w io.Writer, format string, bundleYAML, sig []byte) error {
-	// U107-F01: a companion binary embedding zero bytes (a build mistake:
+	// A companion binary embedding zero bytes (a build mistake:
 	// forgot the go:embed directive, wrong glob, empty loadout.yaml) used
 	// to emit a well-formed envelope carrying nothing, in BOTH formats —
 	// and every downstream stage (ctxloom's discovery decode, ParseBundle,

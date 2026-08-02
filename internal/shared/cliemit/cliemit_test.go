@@ -103,7 +103,7 @@ func TestResolve_UnknownFormatErrors(t *testing.T) {
 
 // TestResolve_AcceptsAllFiveEncodings pins Resolve's full accepted vocabulary
 // (json/yaml/toml/text/markdown), formerly covered only through
-// internal/cli's now-deleted resolveFormat pass-through (U035-F24).
+// internal/cli's now-deleted resolveFormat pass-through.
 func TestResolve_AcceptsAllFiveEncodings(t *testing.T) {
 	for _, want := range []clifmt.Format{
 		clifmt.FormatJSON, clifmt.FormatYAML, clifmt.FormatTOML, clifmt.FormatText, clifmt.FormatMarkdown,
@@ -122,12 +122,12 @@ func TestResolve_AcceptsAllFiveEncodings(t *testing.T) {
 	}
 }
 
-// U104-F06 claimed Emit with a nil text closure over an EMPTY SCALAR SLICE
-// writes zero bytes and returns nil under text, while --format json writes
-// `[]` — so "nothing to show" and "the command produced no output at all"
-// are indistinguishable in exactly one format. That premise no longer holds:
-// clifmt's renderText prints a "(none)" marker for an empty slice (fixed
-// under U154-F02), and Emit routes there whenever text == nil.
+// It used to be the case that Emit with a nil text closure over an EMPTY
+// SCALAR SLICE wrote zero bytes and returned nil under text, while --format
+// json wrote `[]` — so "nothing to show" and "the command produced no output
+// at all" were indistinguishable in exactly one format. That is fixed now:
+// clifmt's renderText prints a "(none)" marker for an empty slice, and
+// Emit routes there whenever text == nil.
 //
 // This pins the claim at THIS package's seam, which is where the row is
 // filed: the nil-closure affordance advertised in Emit's own doc ("a call
@@ -151,7 +151,7 @@ func TestEmit_NilClosureOverEmptySliceIsNeverZeroBytes(t *testing.T) {
 	}
 }
 
-// U104-F02 claimed Resolve swallows the one error that separates "the user
+// It might seem like Resolve swallows the one error that separates "the user
 // asked for text" from "this command has no --format flag". Measured, the
 // error has TWO causes and they are not the same defect:
 //
@@ -174,7 +174,7 @@ func TestResolve_NonStringFormatFlagIsAWiringError(t *testing.T) {
 	}
 }
 
-// U104-F08: Resolve reads cmd.Flags(), and cobra merges a PARENT's persistent
+// Resolve reads cmd.Flags(), and cobra merges a PARENT's persistent
 // flags into a child's flag set during ParseFlags, inside Execute. So Resolve
 // is only correct once execution has begun; called earlier against a
 // subcommand it cannot see the root's --format and answers text. That
@@ -216,7 +216,7 @@ func TestResolve_OnlySeesInheritedFormatOnceExecutionHasBegun(t *testing.T) {
 	}
 }
 
-// U104-F04: this package called itself "the cross-binary --format output
+// This package called itself "the cross-binary --format output
 // filter" while implementing only the SUCCESS half — clifmt.RenderError had
 // exactly one call site in the whole tree, inside internal/cli's Execute, so
 // the error half lived in one binary and not in the package that claims it.

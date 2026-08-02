@@ -10,7 +10,7 @@ import (
 
 type unmarshalable struct{ Ch chan int }
 
-// U013-F02: marshalResult turned a result-marshalling failure into a
+// marshalResult turned a result-marshalling failure into a
 // SUCCESSFUL response carrying "result":null — the peer is told the request
 // succeeded and receives zero payload.
 func TestMarshalResult_FailureIsAnError(t *testing.T) {
@@ -24,7 +24,7 @@ func TestMarshalResult_FailureIsAnError(t *testing.T) {
 	assert.Equal(t, json.RawMessage("null"), raw)
 }
 
-// U013-F03: mustParams dropped params on a marshal failure and the frame went
+// mustParams dropped params on a marshal failure and the frame went
 // out anyway — an outbound request/notification with its payload silently
 // removed.
 func TestMarshalParams_FailureRefusesTheFrame(t *testing.T) {
@@ -32,7 +32,7 @@ func TestMarshalParams_FailureRefusesTheFrame(t *testing.T) {
 	assert.Error(t, err, "a frame whose params cannot be marshalled must not be sent stripped")
 }
 
-// U013-F17: Notify("") emitted {"jsonrpc":"2.0"} — a frame with no method and
+// Notify("") emitted {"jsonrpc":"2.0"} — a frame with no method and
 // no id, which the peer must drop as garbage. Nothing validated the method.
 func TestNotify_EmptyMethodIsRefused(t *testing.T) {
 	c := &Conn{}

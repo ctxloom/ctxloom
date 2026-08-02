@@ -17,7 +17,7 @@ import (
 // the editor-chained path can become a second, unconfined way out, and a
 // future fs/* handler has exactly one function to call.
 //
-// WHY (finding S3 / FINDINGS.md T13). The handlers used to hand req.Path
+// WHY. The handlers used to hand req.Path
 // straight to os.ReadFile / os.WriteFile. That is survivable only while the
 // engine is guaranteed to sit on the same host, in the same trust domain,
 // as this driver — which is true today ONLY because ChatStart drops the
@@ -40,7 +40,7 @@ import (
 //   - Symlinks are resolved BEFORE the decision, on both the root and the
 //     candidate, so containment is judged on real paths. A lexical check
 //     passes a link that lives inside the root and points out of it — the
-//     shape that already shipped once here as copyCredentialFile (S5).
+//     shape that already shipped once here as copyCredentialFile.
 //   - A missing FINAL component is tolerated (a write creating a new file);
 //     a missing or unreadable ancestor, an unresolvable root, or a symlink
 //     loop denies. os.WriteFile would fail on a missing parent anyway, so

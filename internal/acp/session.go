@@ -72,7 +72,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 		out:         out,
 		autoApprove: req.Permissions.AllowsWithoutPrompt(),
 		clock:       b.clock(),
-		// T13 (finding S3): the fs/* boundary is the same WorkDir handed to
+		// The fs/* boundary is the same WorkDir handed to
 		// the transport two statements above, so it can never name a
 		// different directory than the engine actually runs in.
 		workspaceRoot: req.WorkDir,
@@ -101,7 +101,7 @@ func (b *ACP) Chat(parentCtx context.Context, req agent.ChatRequest, in <-chan a
 
 	// teardown cancels (unblocking any handler parked on an out-send), closes the
 	// transport (unblocking a parked reader), then waits for the read loop to exit
-	// — and, critically (U012-F01), for every in-flight forwardPermission/
+	// — and, critically, for every in-flight forwardPermission/
 	// forwardTerminal goroutine to finish too. conn.Done() alone only proves the
 	// READ LOOP stopped; a permission/terminal forwarder spawned with a bare `go`
 	// runs independently of it and can still be mid-flight (or not yet scheduled)
@@ -318,7 +318,7 @@ func (b *ACP) envOverlay(req agent.ChatRequest) map[string]string {
 // support. Before this slice the struct was captured but never read past
 // LoadSession/AuthMethods.
 //
-// U012-F09: Session/Auth fields (initResp.AgentCapabilities.
+// Session/Auth fields (initResp.AgentCapabilities.
 // SessionCapabilities/Auth) used to be captured here too, write-only —
 // `rg -o 'caps\.[A-Za-z]+'` over the package found 11 reads across Prompt/Mcp/
 // AuthMethods/LoadSession and neither of them. Deleted; re-add if a real
@@ -343,7 +343,7 @@ const authRequiredCode = -32000
 // under, the engine's advertised capabilities, and the MCP servers dropped
 // for lacking a capability the engine didn't advertise.
 //
-// U012-F08: setup used to also return whatever SessionConfigOption entries
+// setup used to also return whatever SessionConfigOption entries
 // the connected engine itself advertised (CO1 client-role passthrough READ
 // half), stashed on chatSession.engineConfigOptions — but nothing ever read
 // that field (the SET half, forwarding it onward to a ctxloom-acp editor,
@@ -506,7 +506,7 @@ func authMethodNames(methods []api.AuthMethod) string {
 // ModelEnvVar) is left to do the job alone, as expected. A NAME match with a
 // VERSION miss is different: it means this IS the targeted agent, just at an
 // unverified version (e.g. after an adapter upgrade) — that combination
-// warns (see wasting-crinkle) instead of failing silently, since it is the
+// warns instead of failing silently, since it is the
 // one no-op path that signals a broken expectation rather than business as
 // usual.
 func (b *ACP) applyModelQuirk(ctx context.Context, conn *jsonrpc.Conn, sessionID api.SessionId, info *api.Implementation, req agent.ChatRequest) error {
@@ -522,7 +522,7 @@ func (b *ACP) applyModelQuirk(ctx context.Context, conn *jsonrpc.Conn, sessionID
 		// verified version. Every other no-op path (nil quirk, name
 		// mismatch) is unremarkable and stays silent; THIS one means a user
 		// upgraded claude-code-acp and silently lost model selection, this
-		// project's signature failure mode (see wasting-crinkle) — so it's
+		// project's signature failure mode — so it's
 		// the one case worth a warning.
 		warnf("model-delivery quirk %s: connected %s %s is not a verified version (only %v verified) — the requested model %q will NOT be applied via this quirk; relying on spec-standard delivery (--model argv, ModelConfigKey, ModelEnvVar) alone", q.Method, q.AgentName, info.Version, q.AdapterVersions, req.Model)
 		return nil
@@ -925,7 +925,7 @@ type chatSession struct {
 	caps engineCapabilities
 
 	// forwardGoroutines counts every in-flight forwardPermission/forwardTerminal
-	// goroutine (U012-F01). Chat's `defer close(out)` used to race them: each is
+	// goroutine. Chat's `defer close(out)` used to race them: each is
 	// spawned with a bare `go` and never joined, so a goroutine's own s.send()
 	// call — its first statement, before it ever parks on ctx.Done() — could
 	// still be running (or not yet scheduled) after Chat's teardown() cancelled
@@ -949,7 +949,7 @@ type chatSession struct {
 	// as its cmd.Dir (Chat's `open(ctx, argv, env, req.WorkDir)`), so the
 	// boundary and the engine's own working directory cannot drift apart.
 	// Every fs/* handler resolves against it via confineToWorkspace
-	// (fsconfine.go) — T13, finding S3. Set once in Chat, before conn's read
+	// (fsconfine.go). Set once in Chat, before conn's read
 	// loop starts, and never mutated: no lock needed, same as fsUpstream.
 	//
 	// Empty means the caller named no workspace, which is precisely when the
@@ -1277,7 +1277,7 @@ func stripSessionID(params json.RawMessage) (json.RawMessage, error) {
 //     only the ENGINE's own subprocess is containerized), so local disk
 //     is already correct.
 //
-// CONFINEMENT (T13, finding S3) applies on every one of those axes and is
+// CONFINEMENT applies on every one of those axes and is
 // decided BEFORE the branch: req.Path is resolved against s.workspaceRoot by
 // confineToWorkspace (fsconfine.go) and rewritten to the checked real path,
 // so an engine cannot reach outside the session's workspace by any axis —
@@ -1292,7 +1292,7 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 	if err := json.Unmarshal(params, &req); err != nil {
 		return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: err.Error()}
 	}
-	// U012-F02: the spec types Limit as "maximum number of lines to read" and
+	// The spec types Limit as "maximum number of lines to read" and
 	// Line as "1-based" — a negative limit and a sub-1 line are both
 	// unexpressable per that contract, not degenerate-but-valid requests.
 	// Rejecting them here, loudly, is what stops sliceLines from ever seeing
@@ -1340,7 +1340,7 @@ func (s *chatSession) handleFsRead(params json.RawMessage) (any, *jsonrpc.Error)
 // its doc, and fsconfine.go) — one boundary, both directions. The write half
 // is where symlink resolution earns its keep: os.WriteFile follows a
 // dangling link out of the workspace and CREATES the target, the same
-// primitive finding S5 records against copyCredentialFile.
+// primitive recorded against copyCredentialFile.
 func (s *chatSession) handleFsWrite(params json.RawMessage) (any, *jsonrpc.Error) {
 	var req api.WriteTextFileRequest
 	if err := json.Unmarshal(params, &req); err != nil {
@@ -1394,7 +1394,7 @@ func sliceLines(content string, line, limit *int) string {
 		return ""
 	}
 	end := len(lines)
-	// U012-F02: handleFsRead already rejects a negative limit before this ever
+	// handleFsRead already rejects a negative limit before this ever
 	// runs, but this function has no other guard of its own — clamped here too
 	// so a negative limit can never again reach `lines[start:end]` with
 	// end < start (a slice-bounds panic) no matter what a future caller does.

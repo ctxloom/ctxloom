@@ -81,7 +81,7 @@
 //
 // # Surface-delivery seam assessment (no filesystem surfaces)
 //
-// The generic ACP backend has NO filesystem surfaces (U012-F22: this used to
+// The generic ACP backend has NO filesystem surfaces (this used to
 // be its own surfaces.go, a file with no code, existing only to sit alongside
 // the other backends' surfaces.go — folded in here instead). It shares the
 // one cell-based Setup path (so there is a single Setup), but delivers an

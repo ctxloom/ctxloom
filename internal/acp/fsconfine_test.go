@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// This file is the executable specification for T13 / finding S3: the ACP
+// This file is the executable specification: the ACP
 // client's fs/read_text_file and fs/write_text_file handlers must serve ONLY
 // paths inside the session's workspace root (agent.ChatRequest.WorkDir).
 //
@@ -65,7 +65,7 @@ func startConfinedChat(t *testing.T, f fsFixture) (*chatHarness, func() []agent.
 
 // TestFsRead_DeniesAbsolutePathOutsideWorkspace is the headline case: the
 // engine asks for a well-formed absolute host path that simply is not in the
-// workspace (the ~/.claude/.credentials.json shape from S3).
+// workspace (the ~/.claude/.credentials.json shape).
 func TestFsRead_DeniesAbsolutePathOutsideWorkspace(t *testing.T) {
 	f := newFsFixture(t)
 	h, events := startConfinedChat(t, f)
@@ -92,7 +92,7 @@ func TestFsRead_DeniesDotDotTraversal(t *testing.T) {
 // TestFsRead_DeniesSymlinkInsideWorkspacePointingOutside: a lexical check
 // passes this one — every component is under the root — and only resolving
 // the link catches it. ctxloom has already shipped one symlink-following
-// defect (copyCredentialFile, finding S5); this pins the ACP handlers against
+// defect (copyCredentialFile); this pins the ACP handlers against
 // the same shape.
 func TestFsRead_DeniesSymlinkInsideWorkspacePointingOutside(t *testing.T) {
 	f := newFsFixture(t)
@@ -265,7 +265,7 @@ func TestFsWrite_DeniesDotDotTraversal(t *testing.T) {
 // TestFsWrite_DeniesSymlinkInsideWorkspacePointingOutside: a DANGLING
 // symlink inside the root whose target does not exist yet. os.WriteFile
 // follows it and creates the target outside the root — the exact
-// copyCredentialFile (S5) primitive, here in the ACP handler.
+// copyCredentialFile primitive, here in the ACP handler.
 func TestFsWrite_DeniesSymlinkInsideWorkspacePointingOutside(t *testing.T) {
 	f := newFsFixture(t)
 	victim := filepath.Join(f.outside, "victim.txt")
@@ -449,11 +449,11 @@ func requireDenied(t *testing.T, resp rpcMessage, mustNotContain string) {
 	assert.NotContains(t, string(resp.Result), mustNotContain, "the denial must not carry the protected content")
 }
 
-// TestFsRead_RejectsNegativeLimit pins U012-F02: a negative `limit` from the
+// TestFsRead_RejectsNegativeLimit pins that a negative `limit` from the
 // engine used to reach sliceLines unguarded — `end := start + *limit` with a
 // negative limit yields end < start, and `lines[start:end]` panics ("slice
-// bounds out of range") on the read-loop goroutine, which has no recover
-// (U013-F01), taking the whole process down over one malformed fs/*
+// bounds out of range") on the read-loop goroutine, which has no recover,
+// taking the whole process down over one malformed fs/*
 // callback. It must be refused as invalid params instead.
 func TestFsRead_RejectsNegativeLimit(t *testing.T) {
 	f := newFsFixture(t)
@@ -468,7 +468,7 @@ func TestFsRead_RejectsNegativeLimit(t *testing.T) {
 	closeChat(t, h, events)
 }
 
-// TestFsRead_RejectsSubOneLine is U012-F02's other half: `line` is documented
+// TestFsRead_RejectsSubOneLine is the other half: `line` is documented
 // 1-based, so 0 (and negative) are malformed input, not "start of file" —
 // silently treating them as such is the wrong direction for a boundary that
 // should fail closed on anything it cannot honor.
@@ -485,8 +485,8 @@ func TestFsRead_RejectsSubOneLine(t *testing.T) {
 	closeChat(t, h, events)
 }
 
-// TestFsRead_LimitZero_IsAValidEmptyRead pins the DELIBERATE non-fix half of
-// U012-F02: limit 0 means "at most zero lines" per the spec's own wording
+// TestFsRead_LimitZero_IsAValidEmptyRead pins the DELIBERATE non-fix half:
+// limit 0 means "at most zero lines" per the spec's own wording
 // ("Maximum number of lines to read"), so an empty, successful read is the
 // CORRECT answer here, not the silent-noop the finding's title suggested —
 // only the negative case above is the actual defect.

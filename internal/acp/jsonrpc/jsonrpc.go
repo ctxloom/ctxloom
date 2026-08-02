@@ -63,7 +63,7 @@ type Error struct {
 // reply with a generic message ("Internal error") and put the actual cause in
 // data (the ACP TS SDK wraps any thrown handler exception exactly that way),
 // so dropping data here would reduce a root cause to an opaque -32603 — the
-// child-obituary blindness the agentcoord Wave B1 debugging hit.
+// child-obituary blindness an agentcoord debugging session once hit.
 func (e *Error) Error() string {
 	s := "acp: rpc error " + strconv.Itoa(e.Code) + ": " + e.Message
 	if len(e.Data) > 0 && string(e.Data) != "null" {
@@ -200,7 +200,7 @@ func (c *Conn) Call(ctx context.Context, method string, params, result any) erro
 // request — plus an await that blocks for the response. Exactly one await call
 // must follow a successful Go (it owns the pending slot's cleanup).
 func (c *Conn) Go(method string, params any) (func(ctx context.Context, result any) error, error) {
-	// A frame with no method is garbage the peer must drop (U013-F17): refuse
+	// A frame with no method is garbage the peer must drop: refuse
 	// it here rather than emitting {"jsonrpc":"2.0"} and reporting success.
 	if method == "" {
 		return nil, errors.New("acp: refusing to send a request with no method")
@@ -349,7 +349,7 @@ func isRecoverableFrameErr(err error) bool {
 }
 
 // serveNotification dispatches an inbound notification with the same panic
-// recovery serveRequest gives requests (U013-F01). A notification has no
+// recovery serveRequest gives requests. A notification has no
 // reply slot to carry an error back on, so a panic here can only be warned,
 // not answered — but warning and continuing still beats taking the whole
 // read loop (and the process) down over one malformed notification.
@@ -385,7 +385,7 @@ func (c *Conn) serveRequest(ctx context.Context, m rpcMessage) {
 			}
 		})
 	}
-	// U013-F01: HandleRequest runs INLINE on this read-loop goroutine. Without a
+	// HandleRequest runs INLINE on this read-loop goroutine. Without a
 	// recover, any panic inside a handler — a slice bounds error deep in a fs/*
 	// handler, say — is unrecovered on this goroutine and terminates the whole
 	// ctxloom process, mid-conversation, with no reply ever written. The
@@ -511,7 +511,7 @@ func (c *Conn) writeFrame(m rpcMessage) error {
 // marshalParams marshals a params value to raw JSON. A marshal failure is an
 // ERROR, not a stripped frame: this used to warn and return nil, and the
 // caller sent the request/notification anyway — with its entire payload
-// silently removed, which the peer answers as best it can (U013-F03).
+// silently removed, which the peer answers as best it can.
 func marshalParams(method string, params any) (json.RawMessage, error) {
 	if params == nil {
 		return nil, nil
@@ -526,8 +526,7 @@ func marshalParams(method string, params any) (json.RawMessage, error) {
 // marshalResult renders a handler's return value as a response result. A nil
 // result is JSON null — a valid, content-less success. An UNMARSHALABLE result
 // is an internal error, not a null success: telling the peer the request
-// succeeded while handing it zero payload is the house lie in wire form
-// (U013-F02).
+// succeeded while handing it zero payload is the house lie in wire form.
 func marshalResult(result any) (json.RawMessage, *Error) {
 	if result == nil {
 		return json.RawMessage("null"), nil

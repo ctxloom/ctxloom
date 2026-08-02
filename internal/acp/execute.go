@@ -40,8 +40,8 @@ func (b *ACP) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, st
 		workDir = b.WorkDir()
 	}
 
-	// U080-F01 (this Execute's twin defect, reprise-flagged byte-for-byte
-	// identical to internal/opencode/backend.go's Execute before this fix):
+	// This Execute's twin defect, reprise-flagged byte-for-byte
+	// identical to internal/opencode/backend.go's Execute before this fix:
 	// this used to inline its own send/drain loop with no empty-prompt check
 	// and no diagnostic for a textless turn (exit 0, zero bytes, silent).
 	// Both now share this one plumbing.

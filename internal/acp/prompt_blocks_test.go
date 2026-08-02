@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// U012-F04: a ChatMessage carrying no Text and no ContentBlocks used to be
+// A ChatMessage carrying no Text and no ContentBlocks used to be
 // delivered as a single TextBlock("") — a turn that runs on zero bytes and
 // returns a normal completion. Delivering nothing must be a loud failure, not
 // a successful empty turn.
@@ -43,7 +43,7 @@ func TestBuildPromptBlocksKeepsTextPath(t *testing.T) {
 	assert.Equal(t, "hello", blocks[0].Text.Text)
 }
 
-// U012-F06: deliverBlock's default branch flattened ANY unrecognized kind to
+// deliverBlock's default branch flattened ANY unrecognized kind to
 // TextBlock(b.Text) — for a block whose kind we do not understand that is an
 // empty text block, a silent drop, exactly what the function's doc promises
 // never to do. An unknown kind must render a visible placeholder naming it.
@@ -58,7 +58,7 @@ func TestDeliverBlockUnknownKindIsVisible(t *testing.T) {
 	assert.Contains(t, out.Text.Text, "hologram", "the placeholder must name the kind that was not delivered")
 }
 
-// U012-F12: the flatten placeholder is read by the MODEL and by the user as
+// The flatten placeholder is read by the MODEL and by the user as
 // the REASON the content is missing. When the engine DID advertise the
 // capability and the block's own Raw bytes failed to decode, blaming the
 // engine's capabilities is a false explanation — it sends a user hunting a
@@ -99,7 +99,7 @@ func TestDeliverBlockUnadvertisedCapabilityStillBlamesEngine(t *testing.T) {
 	assert.Contains(t, out.Text.Text, "the connected engine does not advertise image support")
 }
 
-// U012-F13: mediaBlockDetail's "N bytes" is read by the MODEL and by a human
+// mediaBlockDetail's "N bytes" is read by the MODEL and by a human
 // as the size of the media that did not get delivered. It must be the size of
 // the DECODED payload, not the length of its base64 transport encoding —
 // base64 inflates by 4/3, so reporting the character count overstates every

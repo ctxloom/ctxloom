@@ -188,7 +188,7 @@ func TestServeInboundRequest_UnknownMethod(t *testing.T) {
 	assert.Equal(t, CodeMethodNotFound, resp.Error.Code)
 }
 
-// TestServeRequest_HandlerPanicRecovered pins U013-F01: a panic inside
+// TestServeRequest_HandlerPanicRecovered pins that a panic inside
 // HandleRequest used to run unrecovered on the read-loop goroutine, killing
 // the whole process. It must instead answer the panicking request with a
 // -32603 error (the reference ACP TS SDK's own contract — this package's doc
@@ -223,7 +223,7 @@ func TestServeRequest_HandlerPanicRecovered(t *testing.T) {
 
 // TestServeNotification_HandlerPanicRecovered is TestServeRequest_HandlerPanicRecovered's
 // twin for the notification dispatch path (readLoop's other inline call,
-// HandleNotification — U013-F01 named both).
+// HandleNotification — both were named together).
 func TestServeNotification_HandlerPanicRecovered(t *testing.T) {
 	calls := 0
 	notified := make(chan string, 1)

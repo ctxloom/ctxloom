@@ -195,7 +195,7 @@ func TestChat_TurnMetaAccounting(t *testing.T) {
 	assert.Positive(t, meta.DurationMs, "duration is self-measured (ACP carries no timing)")
 }
 
-// U012-F11: ACP's usage_update is CUMULATIVE by specification —
+// ACP's usage_update is CUMULATIVE by specification —
 // api.UsageUpdate types `cost` as "Cumulative session cost" and `used` as
 // "Tokens currently in context" — and TurnMeta.InputTokens/CostUSD carry those
 // values through UNCHANGED. That is deliberate, not an accident of naming, and
@@ -558,7 +558,7 @@ func TestChat_ForwardedPermission_InputClosed(t *testing.T) {
 	}
 }
 
-// TestChat_ForwardedPermission_NoRaceOnConcurrentCancel pins U012-F01: Chat's
+// TestChat_ForwardedPermission_NoRaceOnConcurrentCancel pins that Chat's
 // `defer close(out)` used to race the forwardPermission goroutine it spawns
 // with a bare `go` and never joins. registerPermission's Add(1)/forwardPermission's
 // Done() (via forwardGoroutines, session.go) close that window — teardown()
@@ -655,7 +655,7 @@ func TestChat_CancelTurnKeepsConversation(t *testing.T) {
 	assert.Equal(t, []string{"still here"}, texts)
 }
 
-// U012-F18: messages arriving while a turn is in flight queue with no bound.
+// Messages arriving while a turn is in flight queue with no bound.
 // That is reachable from off-box: a gRPC client streams ChatInput_UserMessage
 // frames (internal/lm/grpc/chat.go's chatMessageFromInput), each able to carry
 // full ContentBlocks including base64 media, and every one lands in `queued`.
@@ -734,7 +734,7 @@ func TestChat_ShallowQueueIsSilent(t *testing.T) {
 	assert.Empty(t, warnings.String(), "an ordinary conversation must not warn about its queue")
 }
 
-// U012-F10: the spawned engine's exit status is captured — spawnHostTransport's
+// The spawned engine's exit status is captured — spawnHostTransport's
 // close returns cmd.Wait's error — and then thrown away by teardown's
 // `_ = conn.Close()`. An ACP agent that dies non-zero after a conversation was
 // reported as an unqualified success, with the one piece of evidence about why
@@ -793,7 +793,7 @@ func TestChat_CleanEngineExitIsSilent(t *testing.T) {
 	assert.Empty(t, warnings.String(), "a clean shutdown must not warn")
 }
 
-// U012-F20: chatSession.caps is assigned AFTER conn.Start has already launched
+// chatSession.caps is assigned AFTER conn.Start has already launched
 // the read loop, so "never mutated afterward" cannot be what makes it safe to
 // read — a reader that started before the write is racing it regardless of what
 // happens later. What actually makes it safe is narrower: the write and every
@@ -850,7 +850,7 @@ func TestChat_CapsAreNotReadFromTheReadLoop(t *testing.T) {
 	assert.Equal(t, 1, complete, "the conversation must complete normally while the read loop was busy")
 }
 
-// U012-F17: a CancelTurn that arrives with no turn in flight used to be
+// A CancelTurn that arrives with no turn in flight used to be
 // dropped on the floor — no session/cancel, no event, no diagnostic. That is
 // a genuine race for any client driving this over the gRPC or ACP door: the
 // turn completes in the instant between the user pressing cancel and the
@@ -1564,7 +1564,7 @@ func TestChat_ForwardedTerminal_InputClosed(t *testing.T) {
 	}
 }
 
-// U012-F21: input close must resolve EVERY parked forwarded request, of every
+// Input close must resolve EVERY parked forwarded request, of every
 // kind, in one pass. The permission and terminal brokers are the same algorithm
 // twice over, so the close half has to remember to walk both maps — and every
 // other input-closed test parks exactly ONE kind, which means a version that
@@ -1637,7 +1637,7 @@ func TestChat_InputClosedResolvesBothBrokersAtOnce(t *testing.T) {
 	}
 }
 
-// U012-F21: both brokers hand out sequential ids under their own kind's
+// Both brokers hand out sequential ids under their own kind's
 // prefix, and an answer naming an id neither of them knows is dropped with a
 // warning that says which kind it was. Pinned at the seam so it survives the
 // two brokers being collapsed into one.
@@ -1735,7 +1735,7 @@ var testModelQuirk = &agent.ModelDeliveryQuirk{
 	AdapterVersions: []string{"1.0.0"},
 }
 
-// TestChat_ModelQuirk_VersionMismatch_WarnsAndSkips pins wasting-crinkle's
+// TestChat_ModelQuirk_VersionMismatch_WarnsAndSkips pins the
 // fix: the connected agent IS the one the quirk targets (name matches) but
 // at a version nobody verified — this is the silent-no-op-turned-loud case.
 // Before the fix this path (like the other three below) returned nil with

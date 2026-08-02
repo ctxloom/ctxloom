@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// TestACP_NoSessionHistory pins U011-F02: the acp backend carried a placeholder
+// TestACP_NoSessionHistory pins that the acp backend carried a placeholder
 // SessionHistory whose ListSessions returned (nil, nil) while its three
 // siblings on the same type returned "acp session history not yet supported".
 // A caller therefore got a clean EMPTY session list and could not tell

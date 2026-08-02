@@ -82,7 +82,7 @@ func waitDone(t *testing.T, c *Conn) {
 	}
 }
 
-// TestRouteResponse_DuplicateResponseDoesNotWedgeTheReadLoop pins U013-F04: a
+// TestRouteResponse_DuplicateResponseDoesNotWedgeTheReadLoop pins that a
 // peer that sends two responses for one id must not be able to park the read
 // loop forever. routeResponse ran `ch <- m` on the read-loop goroutine against
 // a cap-1 buffer, so the second response blocked until someone drained the
@@ -120,7 +120,7 @@ func TestRouteResponse_DuplicateResponseDoesNotWedgeTheReadLoop(t *testing.T) {
 	}
 }
 
-// TestRouteResponse_NullIDErrorIsSurfaced pins U013-F05: JSON-RPC 2.0 mandates
+// TestRouteResponse_NullIDErrorIsSurfaced pins that JSON-RPC 2.0 mandates
 // `"id": null` on an error the peer cannot attribute to a request — a Parse
 // error (-32700) or an Invalid Request (-32600), i.e. exactly the cases where
 // the peer could not read what WE sent. Unmarshalling JSON null into an int64
@@ -143,7 +143,7 @@ func TestRouteResponse_NullIDErrorIsSurfaced(t *testing.T) {
 	assert.NotContains(t, got, "unknown id 0", "a null id is not id 0")
 }
 
-// TestRouteResponse_StringEchoedIDIsMatched pins U013-F15: JSON-RPC 2.0 permits
+// TestRouteResponse_StringEchoedIDIsMatched pins that JSON-RPC 2.0 permits
 // a String id, and peers that echo our numeric id back stringified ("1") are
 // common enough to matter. routeResponse unmarshalled the member into an int64
 // and dropped anything else, so such a response never reached its caller — the
@@ -174,7 +174,7 @@ type eofAfter struct{ err error }
 
 func (r eofAfter) Read([]byte) (int, error) { return 0, r.err }
 
-// TestClosedErr_WrappedEOFIsAClosedConnection pins U013-F13: closedErr compared
+// TestClosedErr_WrappedEOFIsAClosedConnection pins that closedErr compared
 // the stored read error to io.EOF with !=, so a clean end-of-stream that
 // arrives WRAPPED — any reader in the chain that annotates its error, which is
 // the idiomatic thing for one to do — was reported to every parked caller as a
@@ -196,7 +196,7 @@ func TestClosedErr_WrappedEOFIsAClosedConnection(t *testing.T) {
 	assert.ErrorIs(t, aerr, ErrConnClosed, "a wrapped EOF is still a closed connection, not a transport failure")
 }
 
-// TestReadLoop_MalformedFrameDoesNotEndTheSession pins U013-F06: the package
+// TestReadLoop_MalformedFrameDoesNotEndTheSession pins that the package
 // doc promises "it warns and continues on a malformed frame rather than tearing
 // the session down", and for the malformed frames a stream can actually recover
 // from that promise was false — ANY decode error ended the read loop, failed
@@ -220,7 +220,7 @@ func TestReadLoop_MalformedFrameDoesNotEndTheSession(t *testing.T) {
 	waitDone(t, conn)
 }
 
-// TestReadLoop_UnrecoverableFrameEndsTheSession is the other half of U013-F06:
+// TestReadLoop_UnrecoverableFrameEndsTheSession is the other half:
 // a SYNTAX error leaves json.Decoder at an undefined position in the byte
 // stream, so there is no honest way to resume — the session must end and every
 // parked caller must be released rather than left hanging. This pins the limit
@@ -242,7 +242,7 @@ func TestReadLoop_UnrecoverableFrameEndsTheSession(t *testing.T) {
 	waitDone(t, conn)
 }
 
-// TestReadLoop_WrongProtocolVersionIsReported pins U013-F11(a): the spec makes
+// TestReadLoop_WrongProtocolVersionIsReported pins that the spec makes
 // the jsonrpc member MUST-be-exactly-"2.0", and this codec decoded it and then
 // never looked at it — so a peer speaking a different protocol was served in
 // silence and any resulting confusion had no first clue attached to it. The
@@ -280,7 +280,7 @@ func TestReadLoop_CorrectProtocolVersionIsSilent(t *testing.T) {
 	assert.Empty(t, warnings(), "a conforming frame must warn about nothing")
 }
 
-// TestAwait_TimeoutNamesTheRequest pins U013-F09: a caller whose RPC ran out of
+// TestAwait_TimeoutNamesTheRequest pins that a caller whose RPC ran out of
 // time saw a bare "context deadline exceeded" with nothing identifying which
 // request died. On a connection that multiplexes session/prompt, session/cancel
 // and every fs/* round trip, that error is unattributable — the one thing the
@@ -303,7 +303,7 @@ func TestAwait_TimeoutNamesTheRequest(t *testing.T) {
 	assert.Contains(t, aerr.Error(), "session/prompt", "the error must name the RPC that died")
 }
 
-// TestAwait_ConnectionCloseNamesTheRequest is U013-F09's other reported shape: a
+// TestAwait_ConnectionCloseNamesTheRequest is the other reported shape: a
 // caller released because the transport died learned only that "the connection
 // closed", never which in-flight request it lost.
 func TestAwait_ConnectionCloseNamesTheRequest(t *testing.T) {
@@ -321,7 +321,7 @@ func TestAwait_ConnectionCloseNamesTheRequest(t *testing.T) {
 	assert.Contains(t, aerr.Error(), "fs/read_text_file", "the error must name the RPC that died")
 }
 
-// TestAwait_PeerErrorIsNotWrapped guards the limit of U013-F09's fix: a peer's
+// TestAwait_PeerErrorIsNotWrapped guards the limit of the fix above: a peer's
 // own JSON-RPC error object is returned verbatim so callers can keep type-
 // asserting it to *Error and reading its code. Annotating THAT one would break
 // every caller that branches on the peer's code.
@@ -343,7 +343,7 @@ func TestAwait_PeerErrorIsNotWrapped(t *testing.T) {
 	assert.Equal(t, CodeMethodNotFound, rerr.Code)
 }
 
-// TestConn_NextIDIsAlignmentSafe pins U013-F12. A bare int64 field reached with
+// TestConn_NextIDIsAlignmentSafe pins that a bare int64 field reached with
 // atomic.AddInt64 must be 64-bit aligned, and Go guarantees that only for the
 // first word of an allocated struct on 32-bit platforms. nextID sits behind a
 // pointer, two interfaces and a Mutex — offset 28 on a 32-bit layout, which is
@@ -384,7 +384,7 @@ func TestGo_AllocatesIdsFromOne(t *testing.T) {
 	assert.Equal(t, []int64{1, 2}, ids)
 }
 
-// TestClose_TearsDownThroughTheCloser pins the half of U013-F07 that is true:
+// TestClose_TearsDownThroughTheCloser pins the half of the contract that is true:
 // Close unblocks a parked reader and every parked caller EXACTLY when the
 // closer it was given ends the stream. That is the contract NewConn's closer
 // parameter now states, and this is what it buys.
@@ -403,8 +403,8 @@ func TestClose_TearsDownThroughTheCloser(t *testing.T) {
 	assert.ErrorIs(t, await(ctx, nil), ErrConnClosed, "the parked caller must be released by the teardown")
 }
 
-// TestClose_WithoutACloserCannotStopTheReadLoop pins the LIMIT that U013-F07
-// reported was undocumented: nothing in the type gives a Conn the power to
+// TestClose_WithoutACloserCannotStopTheReadLoop pins the LIMIT that was once
+// reported as undocumented: nothing in the type gives a Conn the power to
 // unblock a reader it does not own, so a Conn built with a nil closer reports
 // a successful Close and tears down nothing. That is a real property of the
 // type, not a bug to be fixed inside it — the caller chose it — but the doc
@@ -424,7 +424,7 @@ func TestClose_WithoutACloserCannotStopTheReadLoop(t *testing.T) {
 	}
 }
 
-// TestStart_CtxIsDispatchScopeNotConnectionLifetime pins U013-F08's subject as
+// TestStart_CtxIsDispatchScopeNotConnectionLifetime pins its subject as
 // it actually stands: the ctx handed to Start scopes handler dispatch and
 // NOTHING else — cancelling it leaves the read loop parked in Decode, and the
 // connection ends only when the peer ends the stream or the owner pulls the
@@ -491,7 +491,7 @@ type failingWriter struct{}
 
 func (failingWriter) Write([]byte) (int, error) { return 0, errors.New("transport gone") }
 
-// TestGo_DroppedAwaitLeaksOnlyUntilTheConnectionDies bounds U013-F14. Go's
+// TestGo_DroppedAwaitLeaksOnlyUntilTheConnectionDies bounds a real leak. Go's
 // contract — exactly one await per successful Go, which owns the slot's
 // cleanup — is connascence of execution the type genuinely cannot enforce: the
 // cleanup lives in the await's own defer, so a caller that drops the closure
@@ -516,7 +516,7 @@ func TestGo_DroppedAwaitLeaksOnlyUntilTheConnectionDies(t *testing.T) {
 	assert.Zero(t, pendingCount(conn), "connection death must reclaim every abandoned slot")
 }
 
-// TestGo_FailedWriteLeavesNoPendingSlot pins the one part of U013-F14's cleanup
+// TestGo_FailedWriteLeavesNoPendingSlot pins the one part of that cleanup
 // the CODEC owns rather than the caller: when Go fails, no await is ever handed
 // out, so nothing else could ever release the slot it had already registered.
 func TestGo_FailedWriteLeavesNoPendingSlot(t *testing.T) {

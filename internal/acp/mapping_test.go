@@ -18,7 +18,7 @@ import (
 // SessionUpdate union. It exists only for these tests: production
 // (HandleNotification, session.go) inlines this same two-step
 // rawSessionUpdate+json.Unmarshal itself, with its own meta-update check
-// spliced between the steps, rather than calling a shared helper (U012-F07 —
+// spliced between the steps, rather than calling a shared helper —
 // decodeSessionUpdate had no production caller and was deleted; this pins the
 // same decode shape for the tests that need it).
 func testDecodeSessionUpdate(t *testing.T, params json.RawMessage) (*api.SessionUpdate, error) {
@@ -208,7 +208,7 @@ func TestMapSessionUpdate_Dropped(t *testing.T) {
 	})
 
 	t.Run("unknown sessionUpdate variant never crashes the stream", func(t *testing.T) {
-		// RESTORED (shiny-drool, acp-go-sdk fork commit 48f638c): the
+		// RESTORED (acp-go-sdk fork commit 48f638c): the
 		// hand-rolled union this SDK replaced rejected any unmodeled
 		// discriminator outright — a decode error the live handler turned
 		// into a logged warning. The fork's GENERATED SessionUpdate.

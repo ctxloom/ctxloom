@@ -49,7 +49,7 @@ type l0ClientCapture struct {
 // PASSES" until the entry was removed.
 //
 // The map went back to non-empty when L0 switched from acptest.NewValidator
-// to acptest.NewStrictValidator (U014-F24): as vendored, schema-v1.19.0
+// to acptest.NewStrictValidator: as vendored, schema-v1.19.0
 // closes no object shape, so the harness could see a MISSING required field
 // but never an EXTRA one. The strict Validator measures that second half, and
 // found one thing on this side.

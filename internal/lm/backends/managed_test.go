@@ -160,10 +160,10 @@ func TestAssembleManagedMCP_MergesProfileServers(t *testing.T) {
 	assert.Contains(t, mcp.Servers, "profile-mcp")
 }
 
-// U057-F05: a BROKEN inline profile (circular parent inheritance) must be
-// diagnosed as such — not silently mistaken for "not an inline profile" and
-// retried against the directory loader, whose own (unrelated) not-found error
-// then masks the real cause. Before the fix, all three managed.go resolvers
+// A BROKEN inline profile (circular parent inheritance) must be diagnosed as
+// such — not silently mistaken for "not an inline profile" and retried
+// against the directory loader, whose own (unrelated) not-found error then
+// masks the real cause. Before the fix, all three managed.go resolvers
 // (`if resolved, err := config.ResolveProfile(...); err == nil`) discarded
 // ANY non-nil error the same way, inline or not.
 func TestAssembleManagedMCP_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
@@ -231,11 +231,11 @@ func TestAssembleManagedDenyTools_CircularInlineProfileIsWarnedNotMasked(t *test
 		"the real cause (inheritance) must reach the warning: got %q", buf.String())
 }
 
-// U057-F08: the "default profile %q unresolved" warning must not say
-// "default" when the caller passed an EXPLICIT --profile/-p selection — only
-// a name pulled from the config's own defaults (scopedProfiles' fallback
-// branch, no profileNames given) is a "default profile". AssembleManagedHooks
-// already gets this right ("profile %q unresolved"); AssembleManagedMCP and
+// The "default profile %q unresolved" warning must not say "default" when
+// the caller passed an EXPLICIT --profile/-p selection — only a name pulled
+// from the config's own defaults (scopedProfiles' fallback branch, no
+// profileNames given) is a "default profile". AssembleManagedHooks already
+// gets this right ("profile %q unresolved"); AssembleManagedMCP and
 // AssembleManagedDenyTools did not.
 func TestAssembleManagedMCP_ExplicitProfileWarningOmitsDefault(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{

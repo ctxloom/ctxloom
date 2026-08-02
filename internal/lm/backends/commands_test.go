@@ -14,9 +14,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// U057-F02: a builtin slash command that failed to load used to be dropped
-// with `continue` and zero diagnostics. Because the command writers reconcile
-// by removing every ctxloom-managed file then re-adding the assembled set, a
+// A builtin slash command that failed to load used to be dropped with
+// `continue` and zero diagnostics. Because the command writers reconcile by
+// removing every ctxloom-managed file then re-adding the assembled set, a
 // silently dropped builtin simply vanishes from the next materialize with no
 // signal at all. It must now warn.
 func TestBuiltinCommands_LoadFailureIsWarned(t *testing.T) {
@@ -43,14 +43,14 @@ func TestBuiltinCommands_RealResourcesLoad(t *testing.T) {
 	require.NotEmpty(t, prompts, "the real embedded builtin commands must still load")
 }
 
-// U057-F04: forceExport must force-enable a curated command for EVERY engine
-// with a per-prompt opt-out flag, not just claude/antigravity/codex. Before
-// the fix, a bundle that set `kiro: {enabled: false}` (or opencode) on a
-// prompt a profile explicitly curates via `commands:` still exported nothing
-// for that engine — contradicting forceExport's own doc ("the per-prompt
-// opt-out flag is overridden"). forceExportSkill (skillfiles.go) already does
-// this correctly for all five engines; forceExport is its command-side twin
-// and must match.
+// forceExport must force-enable a curated command for EVERY engine with a
+// per-prompt opt-out flag, not just claude/antigravity/codex. Before the
+// fix, a bundle that set `kiro: {enabled: false}` (or opencode) on a prompt
+// a profile explicitly curates via `commands:` still exported nothing for
+// that engine — contradicting forceExport's own doc ("the per-prompt
+// opt-out flag is overridden"). forceExportSkill (skillfiles.go) already
+// does this correctly for all five engines; forceExport is its command-side
+// twin and must match.
 func TestForceExport_EnablesEveryEngine(t *testing.T) {
 	off := false
 	c := &bundles.LoadedContent{Name: "x", Content: "body"}
@@ -63,21 +63,21 @@ func TestForceExport_EnablesEveryEngine(t *testing.T) {
 	assert.True(t, c.LLM.Opencode.IsEnabled(), "forceExport must override opencode's opt-out, like every other engine")
 }
 
-// U057-F06: LoadCommandExports(nil, ...) must not panic. Before the fix, it
-// nil-checked cfg twice (once to skip the trust-gate wiring, once redundantly
-// before resolveProfilePromptRefs, which itself already returns nil for a nil
-// cfg) but then dereferenced cfg unguarded at the final
-// cfg.ResolveBundleCommands(...) call — contrast LoadSkillExports, its sibling,
-// which returns nil cleanly for a nil cfg.
+// LoadCommandExports(nil, ...) must not panic. Before the fix, it
+// nil-checked cfg twice (once to skip the trust-gate wiring, once
+// redundantly before resolveProfilePromptRefs, which itself already returns
+// nil for a nil cfg) but then dereferenced cfg unguarded at the final
+// cfg.ResolveBundleCommands(...) call — contrast LoadSkillExports, its
+// sibling, which returns nil cleanly for a nil cfg.
 func TestLoadCommandExports_NilConfigDoesNotPanic(t *testing.T) {
 	require.NotPanics(t, func() {
 		LoadCommandExports(nil, nil)
 	})
 }
 
-// U057-F08: an explicitly-selected (non-default) profile that fails to
-// resolve must not be warned as a "default profile" — mirrors the managed.go
-// regression tests for the same wording bug.
+// An explicitly-selected (non-default) profile that fails to resolve must
+// not be warned as a "default profile" — mirrors the managed.go regression
+// tests for the same wording bug.
 func TestResolveProfilePromptRefs_ExplicitProfileWarningOmitsDefault(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{})
 
@@ -91,10 +91,10 @@ func TestResolveProfilePromptRefs_ExplicitProfileWarningOmitsDefault(t *testing.
 		"an explicitly-selected profile must not be misreported as a default: got %q", buf.String())
 }
 
-// U057-F05: resolveProfilePromptRefs must diagnose a BROKEN inline profile
-// (circular parent inheritance) instead of silently retrying it as a
-// directory profile, whose own unrelated not-found error then masks the real
-// cause. Mirrors the managed.go regression tests for the same defect.
+// resolveProfilePromptRefs must diagnose a BROKEN inline profile (circular
+// parent inheritance) instead of silently retrying it as a directory
+// profile, whose own unrelated not-found error then masks the real cause.
+// Mirrors the managed.go regression tests for the same defect.
 func TestResolveProfilePromptRefs_CircularInlineProfileIsWarnedNotMasked(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		DefaultAgent: "default",

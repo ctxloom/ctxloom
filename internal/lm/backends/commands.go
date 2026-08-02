@@ -57,10 +57,10 @@ import (
 func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
 	prompts := builtinCommands()
 
-	// U057-F06: a nil cfg has nothing further to resolve — mirrors
-	// LoadSkillExports' guard (skillfiles.go). Without this, the uncurated
-	// branch's cfg.ResolveBundleCommands(...) below dereferences cfg unguarded
-	// and panics; the two earlier `if cfg != nil` guards never protected that
+	// A nil cfg has nothing further to resolve — mirrors LoadSkillExports'
+	// guard (skillfiles.go). Without this, the uncurated branch's
+	// cfg.ResolveBundleCommands(...) below dereferences cfg unguarded and
+	// panics; the two earlier `if cfg != nil` guards never protected that
 	// call.
 	if cfg == nil {
 		return prompts
@@ -150,8 +150,8 @@ func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []strin
 		// is either "not an inline profile" (errs.ErrProfileNotFound — fall
 		// through to the directory loader) or a REAL inline-profile defect
 		// (circular inheritance, depth exceeded) the directory fallback cannot
-		// explain — U057-F05: this used to treat both the same, so a broken
-		// inline profile's real cause was discarded for the directory loader's
+		// explain: this used to treat both the same, so a broken inline
+		// profile's real cause was discarded for the directory loader's
 		// unrelated not-found error.
 		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
 		if inlineErr == nil {
@@ -207,9 +207,9 @@ func loadCuratedPrompts(loader *bundles.Loader, refs []string) []*bundles.Loaded
 // export. A profile that curates a prompt is an explicit request to export it,
 // so the per-prompt opt-out flag is overridden; all other export metadata
 // (description, hints, model, …) is reused as-is. Mirrors forceExportSkill
-// (skillfiles.go), which force-enables all five engines — U057-F04: this used
-// to cover only claude/antigravity/codex, so a profile-curated command whose
-// bundle set `kiro: {enabled: false}` or `opencode: {enabled: false}` silently
+// (skillfiles.go), which force-enables all five engines: this used to cover
+// only claude/antigravity/codex, so a profile-curated command whose bundle
+// set `kiro: {enabled: false}` or `opencode: {enabled: false}` silently
 // exported nothing for those two engines despite the explicit curation.
 // Deliberately parallel with forceExportSkill (skillfiles.go): same shape by
 // design (force-enable every engine), different item types (LoadedContent vs
@@ -246,12 +246,13 @@ func builtinCommands() []*bundles.LoadedContent {
 	for _, name := range names {
 		content, err := getBuiltinCommandFn(name)
 		if err != nil {
-			// U057-F02: this used to `continue` with zero diagnostics. Because
-			// the command writers reconcile by removing every ctxloom-managed
-			// file then re-adding the assembled set, a dropped builtin simply
-			// vanishes from the next materialize with no signal at all — warn
-			// so the loss is visible even though degrading (never blocking
-			// launch over one missing embedded file) is still right.
+			// This used to `continue` with zero diagnostics. Because the
+			// command writers reconcile by removing every ctxloom-managed
+			// file then re-adding the assembled set, a dropped builtin
+			// simply vanishes from the next materialize with no signal at
+			// all — warn so the loss is visible even though degrading
+			// (never blocking launch over one missing embedded file) is
+			// still right.
 			clidiag.Warn("ctxloom", "builtin command %q unavailable: %v", name, err)
 			continue
 		}

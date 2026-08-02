@@ -26,7 +26,7 @@ type Mock struct {
 	fragments []*agent.Fragment
 	// managed is the host-assembled setup payload from the last Setup call —
 	// stashed so Execute's recordMockInput can prove fields like DenyTools/
-	// Skills actually survived the wire (T2's launch-flow regression guard).
+	// Skills actually survived the wire (the launch-flow regression guard).
 	// nil is a legitimate value (skip_setup/distill paths send none).
 	managed *agent.ManagedConfig
 }
@@ -84,8 +84,8 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 	promptContent := agent.GetPromptContent(req.Prompt)
 
 	if err := recordMockInput(getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE"), req, b.managed, contextStr, promptContent, len(b.fragments)); err != nil {
-		// U057-F22: a record-file write failure used to only warn to stderr
-		// and return nothing, so Execute reported success with no record
+		// A record-file write failure used to only warn to stderr and
+		// return nothing, so Execute reported success with no record
 		// file — a hermetic test asserting against it would then silently
 		// read a STALE file from a previous run instead of failing loudly.
 		return &agent.ExecuteResult{ExitCode: 1, ModelInfo: modelInfo}, err
@@ -108,8 +108,7 @@ var configHomeEnvKeys = []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIRO_HOME"}
 
 // recordMockInput writes the assembled request to recordFile when one is set
 // (via CTXLOOM_MOCK_RECORD_FILE), returning the write error (if any) so the
-// caller can fail loudly instead of reporting success with no record file
-// (U057-F22).
+// caller can fail loudly instead of reporting success with no record file.
 //
 // Records BOTH the process's actual cwd (os.Getwd) and req.WorkDir, plus
 // whichever config-home env vars are set, so a hermetic test can prove WHERE
@@ -151,7 +150,7 @@ func recordMockInput(recordFile string, req *agent.ExecuteRequest, managed *agen
 		}
 	}
 	// Managed setup payload — proves the launch-flow wire actually carried
-	// these fields (T2: deny_tools/skills were silently dropped here; see
+	// these fields (deny_tools/skills were silently dropped here; see
 	// TestArch_ProtoConverters_MirrorEveryStructField in internal/lm/grpc).
 	// Recorded even when empty, so a scenario asserting ABSENCE is possible too.
 	input.WriteString("=== DenyTools ===\n")
@@ -254,7 +253,7 @@ func (b *Mock) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteReq
 		}
 	}
 
-	// U057-F23: ReadString blocks until a line arrives, so a cancelled ctx
+	// ReadString blocks until a line arrives, so a cancelled ctx
 	// checked only AFTER it returns can never interrupt a stdin that never
 	// produces a line (a pty rarely EOFs — see the doc above). Reading on a
 	// goroutine and selecting on ctx.Done() lets THIS function return

@@ -95,7 +95,7 @@ func TestAntigravityRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
 	assert.Contains(t, mustMarshal(t, mcp), "user-server")
 }
 
-// U057-F16: a settings-writer failure surfaced through RemoveSettings must
+// A settings-writer failure surfaced through RemoveSettings must
 // name the backend it came from — a caller looping over multiple backends
 // (operations.RemoveHooks) cannot otherwise attribute the failure.
 func TestRemoveSettings_FailureNamesBackend(t *testing.T) {
@@ -111,7 +111,7 @@ func TestRemoveSettings_FailureNamesBackend(t *testing.T) {
 		"a settings-writer failure must name the backend it came from: got %q", err.Error())
 }
 
-// U057-F27: BackendStatus must be able to tell "typo'd/unregistered name"
+// BackendStatus must be able to tell "typo'd/unregistered name"
 // apart from "registered backend that genuinely has no settings support"
 // (acp, mock) — both used to return a zero SettingsStatus and a nil error,
 // so a caller passing a typo got a clean, empty, successful-looking read.

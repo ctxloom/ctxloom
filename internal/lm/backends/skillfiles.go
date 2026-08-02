@@ -80,7 +80,7 @@ func resolveProfileSkillRefs(cfg *config.Config, profileNames []string) []string
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		// Same real-vs-not-found error distinction as resolveProfilePromptRefs
-		// (commands.go, U057-F05): a broken inline profile must not be silently
+		// (commands.go): a broken inline profile must not be silently
 		// retried as a directory profile.
 		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
 		if inlineErr == nil {
@@ -123,7 +123,7 @@ func loadCuratedSkills(loader *bundles.Loader, refs []string) []*bundles.LoadedS
 // forceExportSkill marks a loaded skill enabled for every engine's export. A
 // profile that curates a skill is an explicit request to export it, so the
 // per-skill per-engine opt-out flag is overridden — the skill mirror of
-// forceExport (commands.go). Deliberately parallel with it (U057-F04): same
+// forceExport (commands.go). Deliberately parallel with it: same
 // shape by design, different item types with no shared supertype to factor
 // through without a cross-file generics refactor.
 // reprise:ignore

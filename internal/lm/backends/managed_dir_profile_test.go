@@ -177,11 +177,10 @@ func TestAssembleManagedMCP_DirProfileHonorsExcludeMCP(t *testing.T) {
 	assert.NotContains(t, mcp.Servers, "drop-srv", "exclude_mcp drops the directory profile's own declared server")
 }
 
-// U057-F20: a profile MCP server / hook the executable trust gate DENIES
-// must be diagnosable — a warning naming the withheld ref, not a silent drop.
-// SAFE fix per the brief: add a warning on denial; the gate's allow/deny
-// decision itself (keep-hash matches keep-srv only) is unchanged from
-// TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate.
+// A profile MCP server / hook the executable trust gate DENIES must be
+// diagnosable — a warning naming the withheld ref, not a silent drop. The
+// gate's allow/deny decision itself (keep-hash matches keep-srv only) is
+// unchanged from TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate.
 func TestAssembleManagedMCP_DeniedServerIsWarned(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirMCPBody}, nil)
 	keepHash := bundles.HashPayload(mcpExecPayload(wire.MCPServer{Command: "keep-cmd"}))

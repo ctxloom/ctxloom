@@ -59,9 +59,9 @@ func TestRegistry_List(t *testing.T) {
 	assert.Contains(t, names, "mock")
 }
 
-// U057-F07: List() must return a deterministic (sorted) order on its own —
-// callers must not have to defensively sort a randomised Go map-iteration
-// order themselves (e.g. shell-completion filtering, internal/cli/completion.go,
+// List() must return a deterministic (sorted) order on its own — callers
+// must not have to defensively sort a randomised Go map-iteration order
+// themselves (e.g. shell-completion filtering, internal/cli/completion.go,
 // does not sort today). Run repeatedly since a single run cannot distinguish
 // "sorted" from "map iteration happened to come out sorted."
 func TestRegistry_List_IsSorted(t *testing.T) {
@@ -71,7 +71,7 @@ func TestRegistry_List_IsSorted(t *testing.T) {
 	}
 }
 
-// U057-F07: BackendsWithSettings() is List()'s settings-scoped twin and must
+// BackendsWithSettings() is List()'s settings-scoped twin and must
 // be equally deterministic.
 func TestBackendsWithSettings_IsSorted(t *testing.T) {
 	for i := 0; i < 20; i++ {
@@ -106,7 +106,7 @@ func TestIsAvailable(t *testing.T) {
 	})
 }
 
-// U057-F26: IsAvailable collapses shellenv.Resolve's error to a bool, so
+// IsAvailable used to collapse shellenv.Resolve's error to a bool, so
 // "unregistered backend", "no default binary", and "binary not resolvable on
 // PATH" were indistinguishable to any caller. AvailabilityOf is the new,
 // diagnosable form IsAvailable is now a thin wrapper over — no existing
@@ -134,7 +134,7 @@ func TestAvailabilityOf(t *testing.T) {
 func TestDecodeLLMConfig(t *testing.T) {
 	t.Run("claude-code decodes its fields", func(t *testing.T) {
 		// "model" is deliberately included even though ClaudeConfig has no
-		// Model field (U032-F14, deleted as dead): mapstructure ignores
+		// Model field (deleted as dead): mapstructure ignores
 		// unknown body keys, so a config carrying "model" alongside
 		// "binary_path" must still decode cleanly.
 		bc, err := DecodeLLMConfig("claude-code", map[string]interface{}{
@@ -165,7 +165,7 @@ func TestDecodeLLMConfig(t *testing.T) {
 	})
 }
 
-// U057-F16: a decode failure from a backend's own decoder must name the
+// A decode failure from a backend's own decoder must name the
 // backend, so a multi-backend config load can attribute a mapstructure
 // failure to the right entry instead of surfacing a bare, unattributed
 // mapstructure error.
@@ -215,7 +215,7 @@ func TestDescriptorTable_Invariants(t *testing.T) {
 
 // TestDescriptorTable_ConfigDecodesToItsOwnType is what makes every backend's
 // `cfg.(*XConfig); if !ok` arm unreachable in production, and is therefore the
-// invariant that must be pinned rather than the arm hardened (U055-F11).
+// invariant that must be pinned rather than the arm hardened.
 //
 // Both production Configure call sites pair a backend with a config chosen by
 // TYPE — ConfiguredBackend does Get(cfg.BackendType()), and cli's
@@ -237,10 +237,10 @@ func TestDescriptorTable_ConfigDecodesToItsOwnType(t *testing.T) {
 	}
 }
 
-// U057-F25: registerDescriptor must not silently overwrite an existing
-// same-name entry — a duplicate registration is a programming error at
-// init time (a future backend accidentally reusing a name), and the losing
-// descriptor's writer/surfaces/exports would otherwise vanish with no signal.
+// registerDescriptor must not silently overwrite an existing same-name
+// entry — a duplicate registration is a programming error at init time (a
+// future backend accidentally reusing a name), and the losing descriptor's
+// writer/surfaces/exports would otherwise vanish with no signal.
 func TestRegisterDescriptor_DuplicateNamePanics(t *testing.T) {
 	const name = "u057-f25-dup-test"
 	t.Cleanup(func() { UnregisterForTesting(name) })

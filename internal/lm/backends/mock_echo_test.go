@@ -48,7 +48,7 @@ func TestMock_EchoDisabledByDefault(t *testing.T) {
 	assert.Contains(t, out.String(), "prompt=hi", "default prompt echo preserved")
 }
 
-// U057-F23: a cancelled context must interrupt executeInteractiveEcho even
+// A cancelled context must interrupt executeInteractiveEcho even
 // while it is blocked waiting for input — before the fix, ctx.Err() was only
 // checked AFTER a ReadString call returned, so a stdin that never produces a
 // line (a pty that never EOFs, or here a pipe nobody writes to) left the

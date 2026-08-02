@@ -57,8 +57,8 @@ func TestWriteContextFile(t *testing.T) {
 
 	})
 
-	// U101-F01: no fragments at all is legitimately nothing to do; fragments
-	// that EXIST but assemble to nothing is a delivery failure wearing the same
+	// No fragments at all is legitimately nothing to do; fragments that
+	// EXIST but assemble to nothing is a delivery failure wearing the same
 	// clothes. The two must not be reported identically.
 	t.Run("fragments that assemble to nothing are an error", func(t *testing.T) {
 		tmpDir := t.TempDir()
@@ -258,10 +258,10 @@ func TestReadContextFile(t *testing.T) {
 		assert.Equal(t, "Test content", content)
 	})
 
-	// U101-F02: a reaped or never-written context file used to read as
-	// ("", nil) — indistinguishable from "no context configured". Callers are
-	// only ever here because a hash exists, so the file's absence is a real
-	// fact they must be able to report.
+	// A reaped or never-written context file used to read as ("", nil) —
+	// indistinguishable from "no context configured". Callers are only ever
+	// here because a hash exists, so the file's absence is a real fact they
+	// must be able to report.
 	t.Run("missing file is reported, not silently empty", func(t *testing.T) {
 		tmpDir := t.TempDir()
 

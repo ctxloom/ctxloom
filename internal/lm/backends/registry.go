@@ -88,7 +88,7 @@ type agentDescriptor struct {
 	// = the backend's model passes through untouched (every backend but
 	// claude-code today). Read by ResolveModelFor (delegate_seams.go), the
 	// polymorphic replacement for operations' old claude-only branch
-	// (T12/ADR-0026).
+	// (ADR-0026).
 	resolveModel func(model string) (resolved string, ok bool)
 	// hookGlobalScopePaths resolves this backend's project-scoped config path
 	// (under a workDir) and its bare user-GLOBAL path, for backends that carry
@@ -110,7 +110,7 @@ type agentDescriptor struct {
 var descriptors = make(map[string]*agentDescriptor)
 
 // registerDescriptor installs a backend's complete descriptor. Panics on a
-// duplicate name (U057-F25): this only ever runs at init() time from the
+// duplicate name: this only ever runs at init() time from the
 // literal calls below, so a collision is a programming error (a new backend
 // accidentally reusing an existing name) — silently letting the second
 // registration win would drop the first's writer/surfaces/exports with no
@@ -125,7 +125,7 @@ func registerDescriptor(d agentDescriptor) {
 // descriptorFor returns the named descriptor, creating an empty one if absent.
 // It backs RegisterHookGlobalScopeForTesting (delegate_seams.go) — a test-only
 // piecemeal registration seam. The piecemeal Register/RegisterConfig entry
-// points it originally backed were deleted as dead (U057-F03: zero callers
+// points it originally backed were deleted as dead (zero callers
 // anywhere, repo-wide); built-in backends register their complete descriptor
 // via registerDescriptor (below) in one call.
 func descriptorFor(name string) *agentDescriptor {
@@ -145,7 +145,7 @@ func Get(name string) agent.Backend {
 	return nil
 }
 
-// List returns all registered backend names, sorted — U057-F07: map
+// List returns all registered backend names, sorted — map
 // iteration order is randomized per Go's spec, so every caller (shell
 // completion, help output) previously had to sort defensively or accept
 // nondeterministic output; several already did (llm_list.go, operations/llm.go,
@@ -204,9 +204,9 @@ func ACPTransportFor(name string) agent.ACPTransport {
 
 // BinaryPathProvider is implemented by backends that expose their binary path.
 // agent.BaseBackend satisfies it (see agent.BaseBackend.GetBinaryPath), so
-// every backend registered in THIS package's descriptor table is a provider —
-// U057-F11 flagged the type assertion below as buying nothing on that
-// evidence alone, but it is not: agent.Backend itself does not require
+// every backend registered in THIS package's descriptor table is a provider.
+// The type assertion below might look like it buys nothing on that
+// evidence alone, but it is not dead: agent.Backend itself does not require
 // GetBinaryPath (internal/lm/grpc/server_test.go's fakeBackend implements
 // agent.Backend without it), so widening the interface directly would break
 // that non-BaseBackend-embedding implementor. The optional-capability
@@ -230,7 +230,7 @@ func GetDefaultBinary(name string) string {
 
 // AvailabilityOf resolves the named backend's default binary and reports
 // where it was found on PATH (or the login-shell PATH fallback), or the
-// reason it could not be — U057-F26: IsAvailable's plain bool collapsed
+// reason it could not be — IsAvailable's plain bool used to collapse
 // "unregistered backend", "backend has no default binary", and "binary not
 // resolvable on PATH" into the same false, leaving a caller like
 // `ctxloom init` (which uses IsAvailable to decide which engines to offer)
@@ -345,7 +345,7 @@ func init() {
 		resolveModel:         claude.ResolveModel,
 		// claude's project settings.json (claude.ProjectSettingsPath) collapses
 		// onto its user-global one (claude.GlobalSettingsPath) exactly when
-		// workDir == $HOME — MEMORY: prim-guy, found live 2026-07-14 (`manage
+		// workDir == $HOME — found live 2026-07-14 (`manage
 		// hooks install` run from $HOME silently went global).
 		hookGlobalScopePaths: func(workDir string) (string, string, error) {
 			global, err := claude.GlobalSettingsPath()
@@ -374,7 +374,7 @@ func init() {
 
 	// LIVE-UNTESTED: codex has never been run against a real account on any
 	// dev host (see the package doc in internal/codex for what's proven vs
-	// unverified; taskloom bold-smirk tracks the revive).
+	// unverified).
 	registerDescriptor(agentDescriptor{
 		name: "codex",
 		newBackend: func() agent.Backend {
@@ -399,7 +399,7 @@ func init() {
 		acpTransport:         codex.CodexACPTransport,
 		// codex's project config-home (codex.ProjectHome) collapses onto its
 		// bare GLOBAL home (codex.GlobalHome) exactly when workDir == $HOME --
-		// comfy-lion, the same collision class prim-guy found for claude.
+		// the same collision class found for claude.
 		hookGlobalScopePaths: func(workDir string) (string, string, error) {
 			global, err := codex.GlobalHome()
 			return codex.ProjectHome(workDir), global, err
@@ -414,8 +414,7 @@ func init() {
 	// engine where those two surfaces collide (D6 skill-wins, see
 	// kiro.filterClaimedCommands in kiro/surfaces.go).
 	// LIVE-UNTESTED: never run against a logged-in kiro-cli on any dev host
-	// (see the package doc in internal/kiro for what's proven vs unverified;
-	// taskloom numb-panda / bold-smirk track the revive).
+	// (see the package doc in internal/kiro for what's proven vs unverified).
 	registerDescriptor(agentDescriptor{
 		name: "kiro",
 		newBackend: func() agent.Backend {
@@ -431,7 +430,7 @@ func init() {
 		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return kiro.NewSurfaces(in, fs) },
 		exports:      kiroExports,
 		skillExports: kiroSkillExports,
-		// LIVE VERIFIED 2026-07-15 (authenticated kiro-cli 2.12.1, tangy-fox):
+		// LIVE VERIFIED 2026-07-15 (authenticated kiro-cli 2.12.1):
 		// `--trust-tools=fs_read` genuinely denies a headless fs_write — a
 		// sentinel-file overwrite left the file byte-unchanged and kiro-cli
 		// printed "Command fs_write is rejected because it matches one or
@@ -442,7 +441,7 @@ func init() {
 		acpTransport:         kiroACPTransport,
 		// kiro's project .kiro dir (kiro.ProjectHome) collapses onto its bare
 		// GLOBAL home (kiro.GlobalHome) exactly when workDir == $HOME --
-		// flaky-spool, the same collision class prim-guy found for claude.
+		// the same collision class found for claude.
 		hookGlobalScopePaths: func(workDir string) (string, string, error) {
 			global, err := kiro.GlobalHome()
 			return kiro.ProjectHome(workDir), global, err

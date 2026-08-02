@@ -30,7 +30,7 @@ type launcherInjector interface {
 	SetLauncher(agent.Launcher)
 }
 
-// TestAllEngines_LaunchNativeTUI is WS-4's completeness bar: "ctxloom run
+// TestAllEngines_LaunchNativeTUI is the completeness bar: "ctxloom run
 // must launch every engine's native TUI/CLI" is not best-effort. For every
 // backend the registry (internal/lm/backends/registry.go) knows about — other
 // than the documented exemptions above — an INTERACTIVE Execute must:

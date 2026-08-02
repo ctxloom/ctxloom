@@ -32,7 +32,7 @@ func GetSettingsWriter(name string, fs afero.Fs) agent.SettingsWriter {
 }
 
 // BackendsWithSettings returns the names of all backends that support
-// settings, sorted (U057-F07 — List()'s settings-scoped twin).
+// settings, sorted (List()'s settings-scoped twin).
 func BackendsWithSettings() []string {
 	names := make([]string, 0, len(descriptors))
 	for name, d := range descriptors {

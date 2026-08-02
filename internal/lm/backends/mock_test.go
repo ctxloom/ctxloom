@@ -74,9 +74,9 @@ func TestRecordMockInput_CapturesCwdAndConfigHome(t *testing.T) {
 }
 
 // TestRecordMockInput_CapturesDenyToolsAndSkills pins the mock backend's half
-// of the flow-level regression guard for T2 (deny_tools/skills were silently
+// of the flow-level regression guard for deny_tools/skills that were silently
 // dropped crossing internal/lm/grpc's proto wire — see
-// TestArch_ProtoConverters_MirrorEveryStructField). Before this test's fix,
+// TestArch_ProtoConverters_MirrorEveryStructField. Before this test's fix,
 // recordMockInput had no way to see req.Managed at all — b.managed did not
 // exist on Mock, so an acceptance scenario had nothing to assert against even
 // once the wire itself carried the fields correctly. This proves the LAST
@@ -122,7 +122,7 @@ func TestRecordMockInput_NilManaged_RecordsEmptySections(t *testing.T) {
 	assert.Contains(t, content, "=== DenyTools ===\n=== Skills ===\n")
 }
 
-// U057-F22: recordMockInput's write failure must not be swallowed. Before the
+// recordMockInput's write failure must not be swallowed. Before the
 // fix it only warned to stderr and returned nothing, so Execute reported
 // success with no record file — a hermetic test asserting against the record
 // file would then silently read a STALE file from a previous run instead of

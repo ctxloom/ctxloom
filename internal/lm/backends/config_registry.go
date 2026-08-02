@@ -21,7 +21,7 @@ func DecodeLLMConfig(backendType string, body map[string]interface{}) (agent.Bac
 	}
 	cfg, err := d.decodeConfig(body)
 	if err != nil {
-		// U057-F16: decodeBody's mapstructure error names no backend, so a
+		// decodeBody's mapstructure error names no backend, so a
 		// multi-backend config load could not attribute a decode failure to
 		// its source entry.
 		return nil, fmt.Errorf("backend %q: %w", backendType, err)

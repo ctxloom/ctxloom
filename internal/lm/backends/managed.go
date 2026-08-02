@@ -29,7 +29,7 @@ import (
 // Fault tolerant per CLAUDE.md: a config load failure yields a nil payload — the
 // agent's Setup then writes an empty managed set rather than blocking launch.
 // The gate gates the executable surfaces (bundle MCP servers + hooks + prompt
-// exports) for the `ctxloom run` setup payload (trust rework, TR5). It is built
+// exports) for the `ctxloom run` setup payload (trust rework). It is built
 // by the run command (which can reach operations.EffectiveTrust); attaching it
 // to the loaded config flows it to ResolveBundleMCPServers / AssembleManagedHooks
 // / LoadCommandExports. nil = no gating.
@@ -127,8 +127,8 @@ func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 		// inlineErr is either "not an inline profile" (errs.ErrProfileNotFound —
 		// fall through to the directory loader below, same as before) or a REAL
 		// inline-profile defect (circular inheritance, depth exceeded) the
-		// directory fallback cannot explain: U057-F05, this used to treat both
-		// cases identically, so a broken inline profile's actual cause was
+		// directory fallback cannot explain: this used to treat both cases
+		// identically, so a broken inline profile's actual cause was
 		// discarded in favor of the directory loader's unrelated not-found error.
 		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
 		if inlineErr == nil {
@@ -184,7 +184,7 @@ func AssembleManagedDenyTools(cfg *config.Config, profileNames []string) []strin
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range scopedProfiles(cfg, profileNames) {
 		// Inline profile (config.yaml) wins, trusted-local (ungated) — see the
-		// same-shaped loop in AssembleManagedMCP, including the U057-F05 real-vs-
+		// same-shaped loop in AssembleManagedMCP, including the real-vs-
 		// not-found error distinction.
 		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
 		if inlineErr == nil {
@@ -253,8 +253,8 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 	profiles := scopedProfiles(cfg, profileNames)
 	profileDefs := cfg.GetProfileDefinitions()
 	for _, profileName := range profiles {
-		// Same real-vs-not-found error distinction as AssembleManagedMCP's loop
-		// (U057-F05): a broken inline profile must not be silently retried as a
+		// Same real-vs-not-found error distinction as AssembleManagedMCP's loop:
+		// a broken inline profile must not be silently retried as a
 		// directory profile.
 		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
 		if inlineErr == nil {
@@ -320,10 +320,9 @@ func excludeMCPServers(mcp wire.MCPConfig, exclude []string) wire.MCPConfig {
 
 // profileGateRef is the identity gateProfileMCP/gateProfileHooks key the
 // executable trust gate by — the profile's own SOURCE, never its display
-// name (the shared root cause of ugly-sake and uncut-grub: a display name is
-// neither honestly local nor a parseable trust ref). Base is the ref the gate
-// composes "#<kind>/<name>" onto; Signer is the origin bundle's verified
-// publisher identity when known (B2, gateProfileExec parity with
+// name (a display name is neither honestly local nor a parseable trust
+// ref). Base is the ref the gate composes "#<kind>/<name>" onto; Signer is
+// the origin bundle's verified publisher identity when known (B2, gateProfileExec parity with
 // bundle-declared execs) — empty falls through to local (a genuinely local
 // profile) or pending review, never auto-allow.
 type profileGateRef struct {
@@ -335,8 +334,8 @@ type profileGateRef struct {
 // resolved provenance: resolved.SourceRef (profiles.ResolvedProfile) when the
 // profile is bundle-shipped — the origin bundle's canonical ref, WITHOUT the
 // "#profiles/<name>" selector, so the composed "<SourceRef>#hooks/..." ref
-// carries exactly one '#' and parses (uncut-grub fixed) — and never keys
-// IsLocal for a remote origin (ugly-sake fixed). A genuinely local/
+// carries exactly one '#' and parses — and never keys IsLocal for a
+// remote origin. A genuinely local/
 // project-authored profile has an empty SourceRef, so Base falls back to the
 // bare profileName — exactly what parseTrustItemRef's bare-token fallback
 // resolves to IsLocal, honestly, because it IS local.
@@ -366,8 +365,8 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Content
 			if gateProfileExec(gate, itemRef, mcpExecPayload(srv), ref.Signer) {
 				out.Servers[name] = srv
 			} else {
-				// U057-F20: fail-closed is right, fail-SILENT is not — the
-				// gate's decision is unchanged, this only makes the withhold
+				// Fail-closed is right, fail-SILENT is not — the gate's
+				// decision is unchanged, this only makes the withhold
 				// diagnosable.
 				clidiag.Warn("ctxloom", "profile MCP server %q withheld by trust gate (%s); its executable is pending review", name, itemRef)
 			}
@@ -411,8 +410,8 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Conte
 			if gateProfileExec(gate, hookRef, hookExecPayload(hook), ref.Signer) {
 				out = append(out, hook)
 			} else {
-				// U057-F20: same fail-closed-but-diagnosable shape as
-				// gateProfileMCP's warn — the gate's decision is unchanged.
+				// Same fail-closed-but-diagnosable shape as gateProfileMCP's
+				// warn — the gate's decision is unchanged.
 				clidiag.Warn("ctxloom", "profile hook %q withheld by trust gate (%s); its executable is pending review", hook.Command, hookRef)
 			}
 		}
@@ -456,10 +455,10 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Conte
 // (profiles.ResolvedProfile.Signer, B2) — empty for a genuinely local profile
 // (judged local at step 3) or an unsigned/untrusted bundle (falls through to
 // pending review at step 7). This is parity with bundle-declared execs, which
-// DO carry their document's verified signer: without it, fixing ugly-sake
-// would send every trusted-publisher profile's inline hooks/mcp to manual
-// review even when the publisher key is already trusted — a usability
-// regression the ref-keying fix alone would otherwise cause.
+// DO carry their document's verified signer: without it, keying gate refs by
+// source alone would send every trusted-publisher profile's inline hooks/mcp
+// to manual review even when the publisher key is already trusted — a
+// usability regression the ref-keying fix alone would otherwise cause.
 //
 // A nil payload (the preimage could not be built) withholds: an executable we
 // cannot even describe is one we certainly cannot justify running.

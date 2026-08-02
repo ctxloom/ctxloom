@@ -19,7 +19,7 @@ var (
 	// ErrPeerRouting rejects executor→executor addressing (hub-and-spoke).
 	ErrPeerRouting = errors.New(`agent_send: executors may only address "parent"; route via coordinator`)
 	// ErrRecvPreempted completes the OLDER of two long-polls for one role:
-	// one active long-poll per role, newest preempts (review R6).
+	// one active long-poll per role, newest preempts.
 	ErrRecvPreempted = errors.New("agent_recv: preempted by a newer receive for this session")
 	// ErrRevoked completes a parked long-poll whose credential was revoked
 	// (run ended / agent_stop): revocation severs parked polls.
@@ -41,7 +41,7 @@ const KindUserInjected = "user_injected"
 
 // KindExited marks the synthesized terminal notice the coordinator queues to
 // a parent when a child run ends (runner loss, chat-stream close, stop) —
-// blue-paper (2): the orchestrator, and now the parent, always learns.
+// the orchestrator, and now the parent, always learns.
 const KindExited = "exited"
 
 // parkedPoll is one held agent_recv long-poll. done flips under c.mu so the
@@ -82,7 +82,7 @@ func (c *Coordinator) queueMailPayload(from, to, kind, body string, structured j
 // somewhere before the mail is observable: this function publishes, and after
 // it returns (indeed, from inside it — a parked recv completes synchronously)
 // a reply quoting the id can already arrive. relayApproval is the case that
-// forced it; see its comment (pulpy-whiff).
+// forced it; see its comment.
 func (c *Coordinator) queueMailPayloadID(msgID, from, to, kind, body string, structured json.RawMessage, inReplyTo string) (string, bool, error) {
 	// Role "" is undrainable by construction — agent_recv drains the caller's
 	// own harp and no session has the empty harp — so queuing it fsyncs a fact
@@ -163,7 +163,7 @@ func (c *Coordinator) deliverToPoll(role string, msg Message) bool {
 // into what the fold handed back only works while mailFold.pendingFor returns a
 // copy — an invariant that lives in another file, guards a mutation of the
 // fold's live queue, and would fail silently if pendingFor were ever made to
-// return its backing array (U023-F16). The message count here is a mailbox
+// return its backing array. The message count here is a mailbox
 // depth, not a hot loop; a fold whose state the read path can corrupt is not
 // worth the saved allocation.
 func (c *Coordinator) undeliveredLocked(role string) []Message {
@@ -197,7 +197,7 @@ func (c *Coordinator) pendingCount(role string) int {
 // between take and the engine seeing the turn is accepted and documented —
 // the recv path is where the at-least-once guarantee lives.
 //
-// The error return is load-bearing (U023-F03). "No mail" and "the take
+// The error return is load-bearing. "No mail" and "the take
 // FAILED" are different facts and every caller acts on them differently: a
 // caller that reads a failure as an empty mailbox drives a child with no
 // prompt, or parks it idle holding mail the fold still calls deliverable.
@@ -217,7 +217,7 @@ func (c *Coordinator) takeNextMail(role string) (Message, bool, error) {
 	if err := c.mail.Exec(func() ([]Fact, error) {
 		return []Fact{factAt(factMailConsumed, c.now(), mailConsumed{Role: role, MessageIDs: []string{msg.ID}})}, nil
 	}); err != nil {
-		// RELEASE THE RESERVATION (U023-F03). The id was reserved above so a
+		// RELEASE THE RESERVATION. The id was reserved above so a
 		// racing poll delivery could not double-take it; if the consume never
 		// journaled, nothing consumed it, and leaving it reserved makes the
 		// message permanently INVISIBLE — undeliveredLocked filters reserved
@@ -254,7 +254,7 @@ func (c *Coordinator) unreserve(role string, ids []string) {
 }
 
 // ackDelivered appends the consume fact for everything previously delivered
-// to role — the cursor-ack a SUBSEQUENT recv carries (review R6: consume
+// to role — the cursor-ack a SUBSEQUENT recv carries (consume
 // facts append only then; a crash before the ack re-delivers, at-least-once).
 func (c *Coordinator) ackDelivered(role string) error {
 	c.mu.Lock()

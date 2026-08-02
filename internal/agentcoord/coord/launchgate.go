@@ -272,7 +272,7 @@ func (c *Coordinator) noteLaunchAttached(harp string) {
 // reason terminateRun's tail re-arms, so the message leaving it is the whole
 // reason to forgive the attempts spent getting there.
 //
-// Deliberately NOT reset by an attach (noteLaunchAttached): U023-F02 is
+// Deliberately NOT reset by an attach (noteLaunchAttached): this is
 // exactly the loop where every cycle attaches and none of them drains.
 func (c *Coordinator) noteMailConsumed(harp string) {
 	c.mu.Lock()
@@ -362,7 +362,7 @@ func (c *Coordinator) relaunchForLeftoverMail(rec RunRecord, cause, detail strin
 	delay, ok, exhausted := c.nextRelaunch(rec.Harp)
 	if !ok {
 		// Budget exhaustion is LOUD whatever burned it. Restricting the notice
-		// to CauseLaunchFailed left the attach-then-die loop (U023-F02) ending
+		// to CauseLaunchFailed left the attach-then-die loop ending
 		// in silence with the child's mail still queued — a stranded mailbox
 		// nobody is told about is the same 49-minute blind spot in slower
 		// motion.

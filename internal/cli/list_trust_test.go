@@ -171,7 +171,7 @@ func TestStampMCPTrust_RejectedServerJSON(t *testing.T) {
 	assert.Equal(t, "rejected", rows[0].State)
 }
 
-// TestMcpListRows_StampBelongsToItsOwnServer is the U037-F14 pin. The trust
+// TestMcpListRows_StampBelongsToItsOwnServer pins that the trust
 // stamp used to be applied by a second function that walked `rows` and indexed
 // `servers` at the same position — connascence of position across a function
 // boundary, with no length check, so a shorter servers slice panicked and a

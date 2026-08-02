@@ -62,12 +62,12 @@ var (
 	initForge          string
 )
 
-// initPromptCmd is the real home (Decision 6 of the CLI-primary reorg plan)
-// for the setup-interview re-entry pointer: 'ctxloom agent setup' printed the
-// whole interview but was misfiled under 'agent' (it configures companions,
-// profiles, and agents together, not just agents). RunE is shared with the
-// now-Deprecated 'agent setup' alias (agent.go's runSetupPromptCmd) — one
-// body, two doors, so they can never drift.
+// initPromptCmd is the real home for the setup-interview re-entry pointer:
+// 'ctxloom agent setup' printed the whole interview but was misfiled under
+// 'agent' (it configures companions, profiles, and agents together, not just
+// agents). RunE is shared with the now-Deprecated 'agent setup' alias
+// (agent.go's runSetupPromptCmd) — one body, two doors, so they can never
+// drift.
 var initPromptCmd = &cobra.Command{
 	Use:   "prompt",
 	Short: "Print ctxloom's setup prompt (companions, profiles, agents) for the LLM to follow",
@@ -112,7 +112,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	selectedEngine := initEngine
 	if alreadyExists {
 		selectedEngine = engineForExistingDir(selectedEngine, appDir)
-		// U036-F04: --remote/--forge were silently ignored here — the only
+		// --remote/--forge were silently ignored here — the only
 		// consumer of initRemotes/initForge (addPersonalRemotes) lived
 		// exclusively inside setupNewCtxloomDir's fresh-init branch below,
 		// so `ctxloom init --remote <repo>` against an existing .ctxloom
@@ -385,7 +385,7 @@ var applyHooksFn = operations.ApplyHooks
 // ctxloom reachable from a session at all, so "applied to nothing" must never
 // render as a success line with an empty payload.
 func applyInitHooks(cmd *cobra.Command, appDir string) {
-	// U084-F04: ApplyHooks used to take a *config.Config and never read it, so
+	// ApplyHooks used to take a *config.Config and never read it, so
 	// the appDir-scoped config init had just built was silently discarded and
 	// ApplyHooks re-discovered one by walking up from cwd — the wrong project
 	// whenever `init` targeted a directory other than the working one.

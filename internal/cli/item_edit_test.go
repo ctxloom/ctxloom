@@ -94,7 +94,7 @@ func TestEditItem_NoDistillClearsDistilledAndWarns(t *testing.T) {
 
 			ref := "demo#" + itemRefPrefix(tc.itemType) + "x"
 			// The renderer writes to cmd.OutOrStdout(), not the process's real
-			// stdout, so this buffer IS the delivered payload (U037-F18).
+			// stdout, so this buffer IS the delivered payload.
 			cmd, buf := testCmd()
 			require.NoError(t, editItem(cmd, ref, tc.itemType, true))
 			out := buf.String()

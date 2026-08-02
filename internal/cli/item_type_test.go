@@ -12,12 +12,12 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// U037-F07: switches over ItemType fell through to `return nil, nil` / `return
+// Switches over ItemType used to fall through to `return nil, nil` / `return
 // "", "", nil` — success with zero payload — instead of erroring on an
 // unrecognized kind. Unreachable with today's two constants, but it is the wrong
 // shape to leave for the third. Both surviving sites are pinned here: the CLI's
 // own listing enumerator, and the read path the item flow collapsed onto
-// (U037-F10 folded itemDisplayContent into operations.GetItemContent, whose kind
+// (itemDisplayContent was folded into operations.GetItemContent, whose kind
 // validation enforces the same invariant one layer earlier).
 func TestUnknownItemTypeIsAFailureNotAnEmptyItem(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{t.TempDir()}})
@@ -32,7 +32,7 @@ func TestUnknownItemTypeIsAFailureNotAnEmptyItem(t *testing.T) {
 	assert.Error(t, err, "an unrecognized item kind must not read as an item with empty content")
 }
 
-// TestItemType_IsTheSameVocabularyAsOperations is the U037-F09 pin. cli.ItemType
+// TestItemType_IsTheSameVocabularyAsOperations pins that cli.ItemType
 // was a second declaration of operations.ItemKind — the same two string literals,
 // cross-converted at four call sites, with nothing but a convention keeping them
 // equal. Two enums over one vocabulary that must agree and get no compiler help
@@ -65,7 +65,7 @@ func TestItemType_IsTheSameVocabularyAsOperations(t *testing.T) {
 	}
 }
 
-// TestShowItem_MissingItemStillListsWhatExists pins the UX that U037-F10's
+// TestShowItem_MissingItemStillListsWhatExists pins the UX that the
 // collapse had to carry across rather than drop: itemDisplayContent's not-found
 // error named every item that DOES exist, and folding it into
 // operations.GetItemContent must keep that — a name that isn't there is a typo,

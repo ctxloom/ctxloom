@@ -132,8 +132,8 @@ func listItemRows(cfg *config.Config, itemType ItemType) ([]itemRow, error) {
 		return rows, nil
 	}
 	// Unreachable while ItemType has exactly two constants — but "success with
-	// zero payload" is the wrong shape to leave behind for the third one
-	// (U037-F07): a listing that cannot tell what it was asked to list must
+	// zero payload" is the wrong shape to leave behind for the third one: a
+	// listing that cannot tell what it was asked to list must
 	// say so, not return an empty list that reads as "there are none".
 	return nil, fmt.Errorf("cannot list items: unrecognized item type %q", itemType)
 }
@@ -211,7 +211,7 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 	if filtered == nil {
 		filtered = []itemRow{}
 	}
-	// A --bundle that names nothing is a typo, not an empty result (U037-F06).
+	// A --bundle that names nothing is a typo, not an empty result.
 	// The enumeration is only consulted when the filter matched nothing, and a
 	// failure to enumerate leaves the listing alone rather than inventing a
 	// verdict.
@@ -232,7 +232,7 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 		stampItemTrust(cfg, itemType, filtered)
 	}
 	return emit(cmd, filtered, func() error {
-		// Tested on the FILTERED slice, not the unfiltered one (U037-F06): the
+		// Tested on the FILTERED slice, not the unfiltered one: the
 		// old `len(rows) == 0` was false whenever any item existed anywhere, so
 		// a filter that matched nothing fell through to "Fragments (0):".
 		if len(filtered) == 0 {

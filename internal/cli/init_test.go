@@ -114,7 +114,7 @@ func TestPersonalRemoteRequests(t *testing.T) {
 	})
 }
 
-// TestRunInit_ExistingDir_HonoursRemoteFlags (U036-F04) proves `ctxloom init
+// TestRunInit_ExistingDir_HonoursRemoteFlags proves `ctxloom init
 // --remote <repo>` against a PRE-EXISTING .ctxloom is honoured, not silently
 // dropped. Before the fix, addPersonalRemotes was reachable only from
 // setupNewCtxloomDir's fresh-init branch — runInit's alreadyExists branch
@@ -204,7 +204,7 @@ func TestSetupPromptDoors_EmitTheSameBody(t *testing.T) {
 		"`init prompt` and the discovery session must emit the same setup body")
 }
 
-// TestReadCleanLine (U036-F12) pins what init's prompt reader keeps and what it
+// TestReadCleanLine pins what init's prompt reader keeps and what it
 // throws away. It exists to strip terminal noise — CSI escapes from focus
 // events, cursor reports, stray control bytes — from a line the user typed, and
 // the two things it takes are repo names and filesystem paths, both of which
@@ -235,7 +235,7 @@ func TestReadCleanLine(t *testing.T) {
 	}
 }
 
-// TestPromptAllEngines_LeavesTheCallersSliceAlone (U036-F14) pins that
+// TestPromptAllEngines_LeavesTheCallersSliceAlone pins that
 // building the combined menu never writes through the caller's slice.
 // `append(primary, secondary...)` reuses primary's backing array whenever it
 // has spare capacity, so the combined list would overwrite whatever the caller
@@ -272,7 +272,7 @@ func writeEngineConfig(t *testing.T, appDir, engine string) {
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), body, 0o644))
 }
 
-// TestEngineForExistingDir (U036-F05) pins the engine precedence on the
+// TestEngineForExistingDir pins the engine precedence on the
 // RE-INIT path. `ctxloom init --engine codex` in a project whose config names
 // another engine used to launch the CONFIG's engine: the resolver consulted the
 // stored value first and returned it whenever it was set, so the flag the user
@@ -295,7 +295,7 @@ func TestEngineForExistingDir(t *testing.T) {
 		"an explicit --engine must win over the engine recorded in the config")
 }
 
-// TestInitPostScaffoldStepsUseTheDirTheyJustWrote (U036-F06) pins that init's
+// TestInitPostScaffoldStepsUseTheDirTheyJustWrote pins that init's
 // post-scaffold steps read the config for the .ctxloom THIS init targets, not
 // whatever .ctxloom the ambient discovery walk finds from the cwd. The two are
 // different directories whenever `ctxloom init --home` runs inside a project (or
@@ -331,7 +331,7 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 	var gotAppDir string
 	orig := applyHooksFn
 	applyHooksFn = func(_ context.Context, req operations.ApplyHooksRequest) (*operations.ApplyHooksResult, error) {
-		// U084-F04: this used to read the appDir off the *config.Config
+		// This used to read the appDir off the *config.Config
 		// parameter — which ApplyHooks never read, so the assertion held
 		// while production re-discovered an ambient config by walking up
 		// from cwd. Read it off ConfigLoader instead: the seam ApplyHooks
@@ -349,7 +349,7 @@ func TestInitPostScaffoldStepsUseTheDirTheyJustWrote(t *testing.T) {
 		"hooks must be applied from the config this init wrote, not the ambient one")
 }
 
-// TestDirtyTreeHandlerOptions_AreTheOperationsHandlers (U036-F11) pins the
+// TestDirtyTreeHandlerOptions_AreTheOperationsHandlers pins the
 // menu to the handler set that reads its answer back. The interview writes
 // dirty_tree_handler and internal/operations/delegate.go dispatches on it, so
 // "which four values exist" and "which one needs the commit acknowledgement"

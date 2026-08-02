@@ -36,8 +36,8 @@ func itemFormatProject(t *testing.T) *config.Config {
 	return cfg
 }
 
-// TestItemCommands_HonourFormatJSON is the U037-F18 pin for the item half of the
-// row. `fragment create|delete|distill` (and their `command` twins) printed human
+// TestItemCommands_HonourFormatJSON pins the item half of this invariant:
+// `fragment create|delete|distill` (and their `command` twins) printed human
 // text with bare fmt.Printf straight to the process's stdout and exited 0
 // whatever --format asked for: the flag was accepted and discarded, so a
 // frontend that asked for JSON got prose it could not parse and no error saying

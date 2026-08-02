@@ -279,7 +279,7 @@ func distillItem(cmd *cobra.Command, ref string, itemType ItemType, force bool) 
 	})
 }
 
-// checkEditedContent rejects an editor buffer that came back empty (U037-F01).
+// checkEditedContent rejects an editor buffer that came back empty.
 // editItem's only guard was "did it change?", so an editor that crashed, wrote
 // a truncated file, or never wrote at all replaced the item's entire body with
 // nothing — and the command printed "Updated <type> ..." and exited 0.
@@ -295,7 +295,7 @@ func checkEditedContent(itemType ItemType, itemName, edited string) error {
 }
 
 // checkBundleFilter tells a MISTYPED --bundle from one that legitimately holds
-// no items of this kind (U037-F06). The empty-listing branch used to test the
+// no items of this kind. The empty-listing branch used to test the
 // UNFILTERED row slice, which is non-empty whenever any item exists anywhere, so
 // `fragment list --bundle nosuchbundle` printed "Fragments (0):" and exited 0
 // with nothing to suggest the name was wrong.

@@ -146,7 +146,7 @@ func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	}
 }
 
-// TestApplyInitHooks_EmptyBackendListIsNotSuccess (U036-F07) pins the PAYLOAD
+// TestApplyInitHooks_EmptyBackendListIsNotSuccess pins the PAYLOAD
 // of init's hook-apply report. `Applied hooks for: []` is this project's
 // signature silent no-op: a success sentence whose payload is empty. Registering
 // zero backends means no engine settings surface was written at all, so nothing

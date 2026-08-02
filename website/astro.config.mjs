@@ -57,7 +57,6 @@ export default defineConfig({
 						{ label: 'Profiles', link: '/concepts/profiles/' },
 						{ label: 'Agents & Isolation', link: '/concepts/agents/' },
 						{ label: 'Agent Delegation', link: '/concepts/agent-delegation/' },
-						{ label: 'Weave (ensembles)', link: '/concepts/weave/' },
 						{ label: 'Remotes', link: '/concepts/remotes/' },
 						{ label: 'Review and Trust', link: '/concepts/review-and-trust/' },
 						{ label: 'Sessions and Tasks', link: '/concepts/sessions-and-tasks/' },

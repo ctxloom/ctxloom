@@ -12,7 +12,7 @@ Every command accepts the global `--format text|json` flag; `json` emits machine
 
 ## Command groups
 
-- **Workflow** — [`init`](/reference/cli/ctxloom_init/), [`run`](/reference/cli/ctxloom_run/), [`map`](/reference/cli/ctxloom_map/), [`weave`](/reference/cli/ctxloom_weave/)
+- **Workflow** — [`init`](/reference/cli/ctxloom_init/), [`run`](/reference/cli/ctxloom_run/)
 - **Content** — [`fragment`](/reference/cli/ctxloom_fragment/), [`command`](/reference/cli/ctxloom_command/), [`profile`](/reference/cli/ctxloom_profile/), [`search`](/reference/cli/ctxloom_search/)
 - **Agents** — [`agent`](/reference/cli/ctxloom_agent/), [`container`](/reference/cli/ctxloom_container/), [`acp`](/reference/cli/ctxloom_acp/)
 - **Remotes & trust** — [`remote`](/reference/cli/ctxloom_remote/), [`bundle`](/reference/cli/ctxloom_bundle/), [`trust`](/reference/cli/ctxloom_trust/), [`blacklist`](/reference/cli/ctxloom_blacklist/), [`tooling`](/reference/cli/ctxloom_tooling/)
@@ -23,23 +23,14 @@ Every command accepts the global `--format text|json` flag; `json` emits machine
 
 With no `-p`/`-f`/`-t` and no default profile configured, `ctxloom run` shows an interactive picker of installed profiles (skipped when not on a terminal).
 
-With `--print` and no prompt argument, the prompt is read from **stdin** when piped — making `run --print` a universal reducer over any input (e.g. the output of `ctxloom map`, or text from another tool):
+With `--print` and no prompt argument, the prompt is read from **stdin** when piped — making `run --print` a universal reducer over any input (e.g. output collected from other tools or an earlier run):
 
 ```bash
 # Synthesize piped input with a high-power profile:
 cat findings.txt | ctxloom run -p code-review/synthesis --print
 ```
 
-`weave` is equivalent to `ctxloom map -p A -p B "task" | ctxloom run -p SYNTH --print`, but portable and single-invocation. Use the components directly when you want to inspect or post-process the intermediate parts; use `weave --part` / `--parts-from` to synthesize **non-ctxloom outputs** alongside (or instead of) live members:
-
-```bash
-git diff | ctxloom map -p code-review/security -p code-review/performance
-ctxloom map -p a -p b -p c --concurrency 3 "review this change" \
-  | ctxloom run -p code-review/synthesis --print
-ctxloom weave -p a -p b -s synth --part legacy=old-report.txt "audit"
-```
-
-A profile may declare its own preferred LLM (`llm:`); `run -l`/`--llm` overrides it. In an ensemble, each member runs on its own `llm:` and the synthesizer on its own (typically high-power) one.
+A profile may declare its own preferred LLM (`llm:`); `run -l`/`--llm` overrides it. To fan a task across several agents in parallel, a running coordinator spawns them as children with the `agent_run` MCP tool and reads their reports back itself — see [Agent Delegation](/concepts/agent-delegation/).
 
 ## Reference grammar
 

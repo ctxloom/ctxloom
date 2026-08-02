@@ -50,8 +50,8 @@ first.
 
 By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
-`ctxloom run`/`map`/`weave` also build this image automatically when it
-is absent (honoring the same base/engine resolution); this command is the
+`ctxloom run`/`acp` (and delegated `agent_run` children) also build this image
+automatically when it is absent (honoring the same base/engine resolution); this command is the
 explicit path (refresh, custom base). To run a fully user-provided image
 instead, set isolation_images in config — those are run as-is and never built.
 

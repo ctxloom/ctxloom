@@ -153,12 +153,13 @@ so it's fine to point it out again on a later reconfigure too.
 Bind **ctxloom agents** — named, LOCAL bindings of an **engine** (LLM
 backend/model) to one or more **profiles**, optionally a **runtime**
 (host | container) — right after phase 3, same conversation. `ctxloom run
---agent <name>` drives one; `ctxloom map`/`weave` fan a task across several.
-Agents live only in this project's `.ctxloom` — never shipped in bundles or
+--agent <name>` drives one directly; a running coordinator fans work across
+several by spawning them as children with the `agent_run` MCP tool. Agents
+live only in this project's `.ctxloom` — never shipped in bundles or
 remotes; engine choice is always the user's, you facilitate. (Workspace
 isolation is a separate, per-invocation choice — `--workspace worktree` on
-run/map/weave — not an agent property.) Work this the same shape as phase 3:
-**SCAN → DISCUSS → SET**.
+`run`/`acp`, or the `workspace` field on an `agent_run` spawn — not an agent
+property.) Work this the same shape as phase 3: **SCAN → DISCUSS → SET**.
 
 ### 4a. Scan
 
@@ -173,8 +174,8 @@ build`.
 ### 4b. Discuss
 
 Lead with the standard trio, bound to the phase-3 profiles:
-- **coordinator** — the session the user drives, delegating via
-  `map`/`weave`. Most powerful engine.
+- **coordinator** — the session the user drives, delegating to children via
+  `agent_run`. Most powerful engine.
 - **developer** — the implementer the coordinator delegates to. Powerful
   engine, `--runtime container`, plus an escalation-discipline fragment
   (ctxloom-default ships `agent-roles#fragments/developer-escalation`, or
@@ -185,17 +186,18 @@ Lead with the standard trio, bound to the phase-3 profiles:
   `agent-roles#fragments/finder` fragment (or an equivalent).
 
 Then the open palette. **Code-review agents** are the notable one: build the
-ensemble THIS project needs now and persist it, so `weave-review` can fan it
-later. The pattern is one tight, single-lens profile per lens × language
-present — composed from the code-review base fragment plus that lens's and
-that language's fragments (search_library surfaces the exact refs) — plus a
-`cr-synthesis` reduce step on a high-power engine. Prefer many narrow lenses
-over one broad reviewer. Beyond that: docs writer, migration runner, test
-author, whatever the user wants — same pattern each time: tight scope, a
+ensemble THIS project needs now and persist it, so the coordinator can fan it
+out later via `agent_run`. The pattern is one tight, single-lens profile per
+lens × language present — composed from the code-review base fragment plus
+that lens's and that language's fragments (search_library surfaces the exact
+refs). Prefer many narrow lenses over one broad reviewer; the coordinator
+reads each child's `agent_report` back and synthesizes the findings itself —
+no separate reduce agent needed. Beyond that: docs writer, migration runner,
+test author, whatever the user wants — same pattern each time: tight scope, a
 composed profile, a fitting engine.
 
 Steer HARD toward tight, single-responsibility agents — many small focused
-members keep map/weave fan-out cheap and accurate; push back if the user
+children keep `agent_run` fan-out cheap and accurate; push back if the user
 proposes one big do-everything agent. As a rule of thumb: cheap engine →
 finders and breadth review; powerful → coordinator/developers; per-lens →
 code review (often cheaper than the developer).
@@ -214,7 +216,8 @@ container` needs a reachable container runtime, else fall back to host and
 say why; change an existing one with `agent edit <name>`, drop one with
 `agent delete <name>`. Confirm
 with `ctxloom agent list`, then tell the user how to use what they built
-(`ctxloom run --agent coordinator`, `weave-review` for the review ensemble).
+(`ctxloom run --agent coordinator`, which fans the review ensemble out via
+`agent_run` when asked).
 
 If they want to stop, that's fine — `/ctxloom-init` reconfigures any time.
 Don't write anything the user didn't agree to.

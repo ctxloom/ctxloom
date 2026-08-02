@@ -265,7 +265,7 @@ section exists so a missing one is a documented prerequisite, not a confusing fa
 
 ### Running an AI engine
 
-`ctxloom run` (and `agent run`, `weave`) launches the **vendor's own CLI** as a child process —
+`ctxloom run` (and `acp`, delegated `agent_run` children) launches the **vendor's own CLI** as a child process —
 ctxloom holds no model API client of its own (this is a licensing requirement, not a choice; see
 [Architecture](/concepts/architecture/)). Each backend needs its own binary installed and on
 `PATH`:

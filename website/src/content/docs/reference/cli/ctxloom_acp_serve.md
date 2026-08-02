@@ -42,7 +42,7 @@ from the editor — 'ctxloom acp list' prints the entries ready to paste.
 worktree path (the editor's own view stays unaware of it). Requires --agent:
 worktree isolation is for a deliberately-configured agent entry, never the
 plain 'ctxloom acp serve' one, even when the project's 'workspace:' default
-is "worktree" for map/weave.
+is "worktree" for run/agent_run.
 
 Stdout carries the protocol; all diagnostics go to stderr.
 

@@ -256,7 +256,7 @@
     },
     "workspace": {
       "type": "string",
-      "description": "Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/map/weave --workspace. Deliberately not an agent trait — needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning).",
+      "description": "Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/acp --workspace (or an agent_run spawn's workspace field). Deliberately not an agent trait — needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning).",
       "enum": ["none", "worktree"]
     },
     "dirty_tree_handler": {
@@ -319,7 +319,7 @@
           },
           "runtime": {
             "type": "string",
-            "description": "Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/map/weave --workspace), never declared on an agent.",
+            "description": "Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/acp --workspace, or an agent_run spawn's workspace field), never declared on an agent.",
             "enum": ["host", "container"]
           },
           "permissions": {

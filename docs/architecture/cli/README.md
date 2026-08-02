@@ -55,7 +55,7 @@ flowchart TD
 | Largest single unit of logic | `runCmd.RunE`, an anonymous closure spanning `run.go:367-1300` (~930 lines) |
 | Package sub-structure | none — no subpackages, no internal layering; files are grouped only by name prefix |
 | Command registration | ~30 separate `init()` funcs, each calling `rootCmd.AddCommand(...)` from its own file |
-| Shared mutable state | package-level flag globals (20 in `run.go` alone, `run.go:43-81`; ~30 more across `weave.go`/`skill_cmd.go`/`util_config_write.go`) |
+| Shared mutable state | package-level flag globals (20 in `run.go` alone, `run.go:43-81`; more across `skill_cmd.go`/`util_config_write.go` and others) |
 
 The idealised picture — thin cobra frontends over `operations` — is accurate for
 roughly 70 of the 93 files. It is **not** accurate for the six exceptions below,
@@ -84,7 +84,6 @@ command's help text:
 | [llm-runners.md](llm-runners.md) | `ctxloom llm list/default/serve/host/turn` and the shared runner standup |
 | [bundles-items-skills.md](bundles-items-skills.md) | `bundle`, `fragment`, `command`, `skill`, distillation, `search` |
 | [profiles-and-agents.md](profiles-and-agents.md) | `profile *`, `agent *` |
-| [weave.md](weave.md) | `ctxloom weave` |
 | [sessions-and-memory.md](sessions-and-memory.md) | `session *`, deprecated `memory *`, memory MCP tools, `plan watch` |
 | [remotes.md](remotes.md) | `remote add/remove/list/default/pull/browse/discover/update/upgrade` |
 | [trust-signing-review.md](trust-signing-review.md) | `trust`, `blacklist`, `sign`, `signer`, `review`, interactive trust prompts |
@@ -103,7 +102,7 @@ the rule lives.
 | I3 | **One buffered reader over stdin.** `stdinReader` (`run.go:1692-1696`) is the single `bufio.Reader` over `os.Stdin`; every interactive y/N prompt goes through `promptLine`/`promptYesNo` (`run.go:1703,1716`). A fresh `bufio.Reader` per prompt would discard bytes a previous reader buffered past its line. *Real behaviour:* `remote_discover.go:110` opens its own `bufio.NewReader(os.Stdin)` — the only violation in the package. | `run.go:1692-1696` |
 | I4 | **`--format` is a presentation choice, never a branch in business logic.** Commands build one result value and hand both it and a text closure to `emit()` (`format.go:43`). See [output-and-format.md](output-and-format.md) for the (large) set of commands that accept `--format` and ignore it. | `format.go:43,62` |
 | I5 | **Process-wide flags are applied once, in `PersistentPreRun`** (`root.go:87`): `--degraded`, `--no-companions`, the `CTXLOOM_CONFIG_*` override funnel, and `clidiag`'s structured-diagnostics mode. This depends on no subcommand defining its own `PersistentPreRun` (cobra runs only the closest one; `EnableTraverseRunHooks` is not set anywhere in the repo). | `root.go:86-115` |
-| I6 | **Process-owning entry points gate on strictness.** Any command that spawns an engine must take a `strictness.Mark` and call `failOnFindings` (`startup_helpers.go:96`, returns `ExitError{3}`). Honoured by `run` (`run.go:606,1020,1071`), `mcp serve` (`mcp_server.go:144`) and `profile materialize` (`profile_materialize.go:59`). *Real behaviour:* `weave`, `llm serve`, `llm host`, `llm turn` and `acp server` spawn engines without it. | `startup_helpers.go:96` |
+| I6 | **Process-owning entry points gate on strictness.** Any command that spawns an engine must take a `strictness.Mark` and call `failOnFindings` (`startup_helpers.go:96`, returns `ExitError{3}`). Honoured by `run` (`run.go:606,1020,1071`), `mcp serve` (`mcp_server.go:144`) and `profile materialize` (`profile_materialize.go:59`). *Real behaviour:* `llm serve`, `llm host`, `llm turn` and `acp server` spawn engines without it. | `startup_helpers.go:96` |
 | I7 | **The runner is the one credential holder.** `standUpRunner` scrubs the coordinator credential env from its own process before the engine spawns (`llm_runner_common.go:53-55`), then exports only the socket path. | `llm_runner_common.go:35-121` |
 | I8 | **Relayed MCP handlers must derive identity from the caller, not from process env.** `coordCustomHandlers` (`coord_host.go:58`) binds each handler to the caller's credential-derived `coord.Identity`. *Real behaviour:* `handleEvaluateTriggers` (`mcp_tools_triggers.go:59-63`) and `handleResourceSessionsRecent` (`mcp_resources.go:169`) still read process env / `os.Getwd()`. | `coord_host.go:19-21,56-57` |
 | I9 | **Exit codes travel as `ExitError`,** not `os.Exit`, so deferred cleanup runs. `Execute` (`root.go:159`) unwraps it with `errors.As`; exit 3 is reserved for a strictness abort. | `root.go:38,159` |
@@ -130,7 +129,7 @@ Grouped so a reader can tell at a glance whether invoking something is safe.
 
 **Publishes to a remote:** `bundle push`, `fragment push`, `command push`, `bundle move --to <remote>`, `skill export`.
 
-**Spawns an engine process:** `run`, `weave`, `acp server`, `acp client`,
+**Spawns an engine process:** `run`, `acp server`, `acp client`,
 `llm serve`/`host`/`turn`, `init` (launches the vendor TUI for the setup interview),
 `bundle distill` / `fragment distill` / `command distill` (spawn an LLM for compression),
 `session distill` and the memory MCP tools (spawn a compactor).
@@ -166,7 +165,7 @@ Documented here because a reader will otherwise assume uniformity that does not 
 - **Cyclomatic complexity.** CI runs `lizard -C 10`; on this tree that command
   exits 1 with 251 warnings, so exceeding CCN 10 is the norm in this package and
   carries no signal. The highest here: `renderOwnedRunEvents` 21 (`run_owned.go:226`),
-  `runWeave` 19 (`weave.go:75`), `runConfigWrite` 18 (`util_config_write.go:111`),
+  `runConfigWrite` 18 (`util_config_write.go:111`),
   `standUpRunner` 17 (`llm_runner_common.go:35`), `newRunnerMCPServer` 16
   (`mcp_runner.go:219`), `runPlanWatch` 16 (`plan_watch.go:48`),
   `adaptChildWatch` 16 (`acp_children.go:55`). `runCmd.RunE` is larger than all of

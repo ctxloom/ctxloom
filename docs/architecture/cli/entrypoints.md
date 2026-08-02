@@ -130,7 +130,7 @@ state — a side effect their names disclaim.
   `startup_helpers.go:44-54`: *every startup path that consumes a loaded config
   must surface its warnings, otherwise a corrupted `config.yaml` silently
   launches an empty-context session.* Honoured by `run`, `mcp serve`,
-  `profile materialize`. Not honoured by `weave` (`weave.go:84-87`),
+  `profile materialize`. Not honoured by
   `llm serve`/`host`/`turn` (`llm_runner_common.go:62`), or `acp server`.
 - **I9 (exit codes).** Exit 3 = strictness abort. Exit 1 = any other error, via
   `reportExecuteError`. A wrapped engine's own exit code arrives as

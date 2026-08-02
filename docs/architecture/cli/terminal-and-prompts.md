@@ -93,7 +93,7 @@ Defined in `init.go`, consumed almost entirely from elsewhere.
 | Predicate | file:line | Production call sites |
 |---|---|---|
 | `isInteractiveTerminal` | `init.go:122` | 10 — `run.go`, `review.go`, `mcp.go`, `signer.go`, `bundle_list.go`, `item_helpers.go` |
-| `stdinIsPiped` | `init.go:129` | 2 — `run.go:432`, `weave.go:90` (neither in `init.go`) |
+| `stdinIsPiped` | `init.go:129` | 1 — `run.go:631` (not in `init.go`) |
 | `stderrIsTerminal` | `init.go:136` | 1 — `run.go:816` |
 | `stdoutIsTerminal` | `init.go:144` | 1 — `pager.go:66` |
 

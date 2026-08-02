@@ -25,7 +25,7 @@ never a local file.
 
 ## Profile references
 
-Accepted wherever a profile is named (`run -p`, `map`/`weave -p`, `weave -s`,
+Accepted wherever a profile is named (`run -p`,
 `--parent`, `agents:` profile lists (including the default agent's), `acp --profile`,
 MCP `assemble_context`):
 
@@ -50,8 +50,6 @@ Resolution rules:
    identity as the URL spelling; local bundle names canonicalize to
    `ctxloom:local`. A seed miss reports "bundle profile has no lockfile entry
    — run 'ctxloom remote pull'".
-3. In `map`/`weave`, `-p`/`--agents` member names are checked against
-   **agents first**, then profiles. `weave -s` is profile-only.
 
 ## Bundle references
 

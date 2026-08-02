@@ -108,7 +108,7 @@ choosing one says nothing about the other:
 
 | Axis | Values | Set where |
 |---|---|---|
-| **Workspace** | `none` \| `worktree` | Per invocation (`run`/`map`/`weave --workspace`), or the project's `workspace:` default |
+| **Workspace** | `none` \| `worktree` | Per invocation (`run`/`acp --workspace`, or an `agent_run` spawn's workspace field), or the project's `workspace:` default |
 | **Runtime** | `host` \| `container` | On the agent (`agent set --runtime`), or the project's `runtime:` default |
 
 `workspace: worktree` on `runtime: host` gets you an isolated checkout and a shared, negotiated

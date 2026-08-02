@@ -196,7 +196,7 @@ func registerJ1SetupSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// U160-F02: the four Then/And steps below used to re-guard on w.j1Live
+	// The four Then/And steps below used to re-guard on w.j1Live
 	// with `return godog.ErrSkip`, redundant with (and hiding behind) the
 	// scenario's own first Given already skipping via ErrSkip when the live
 	// agent isn't available (godog stops running a scenario's remaining

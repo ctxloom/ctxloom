@@ -8,7 +8,7 @@ import (
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
-// TestPromptSection_MissingMarkerFailsLoud pins U159-F06: promptSection used
+// TestPromptSection_MissingMarkerFailsLoud pins that promptSection used
 // to return "" when the "=== Prompt ===" marker was absent from the mock's
 // recorded input — a mock that recorded something other than a prompt (or a
 // record-file format change) then looked identical to "the prompt really is
@@ -33,18 +33,17 @@ func TestPromptSection_ExtractsAfterMarker(t *testing.T) {
 	}
 }
 
-// TestEnsureProjectWithEngine_WritesBuildJ1ConfigVerbatim pins U159-F08 as
-// REFUTED, not dead: the per-unit review (U159.md) flagged
-// ensureProjectWithEngine as "a single pass-through expression" but explicitly
-// said to KEEP it — it names the common case and is used at 9 call sites
-// across steps_j1_setup.go, steps_j1b.go, steps_j3.go, steps_j7.go, and
-// steps_trust_surface.go. This confirms the pass-through actually composes
-// its two named callees (buildJ1Config, scaffoldProjectWithConfig) correctly
-// — the written .ctxloom/config.yaml is exactly buildJ1Config's rendered
-// output, byte for byte — and that scaffoldProjectWithConfig's own
-// idempotency contract ("a second call on an already-initialized World is a
-// no-op") survives the wrapper: calling it twice does not re-render or
-// truncate the config.
+// TestEnsureProjectWithEngine_WritesBuildJ1ConfigVerbatim pins that
+// ensureProjectWithEngine, once flagged by review as "a single pass-through
+// expression" but explicitly kept — it names the common case and is used at
+// 9 call sites across steps_j1_setup.go, steps_j1b.go, steps_j3.go,
+// steps_j7.go, and steps_trust_surface.go. This confirms the pass-through
+// actually composes its two named callees (buildJ1Config,
+// scaffoldProjectWithConfig) correctly — the written .ctxloom/config.yaml is
+// exactly buildJ1Config's rendered output, byte for byte — and that
+// scaffoldProjectWithConfig's own idempotency contract ("a second call on an
+// already-initialized World is a no-op") survives the wrapper: calling it
+// twice does not re-render or truncate the config.
 //
 // Confirmed test-only-vs-live-caller via `go vet -tags acceptance`: renaming
 // ensureProjectWithEngine to a bogus name produced RED at all 9 call sites

@@ -192,7 +192,7 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 		return err
 	})
 
-	// U160-F02: same shape as steps_j1_setup.go's live scenario — these
+	// Same shape as steps_j1_setup.go's live scenario — these
 	// re-guard on w.j1Live, redundant with the scenario's own first Given
 	// already skipping via ErrSkip when the live agent isn't available.
 	// Failing loud instead of re-skipping turns "should be unreachable" into

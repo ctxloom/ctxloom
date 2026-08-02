@@ -179,7 +179,7 @@ func (c *GRPCClient) RunWithModelInfo(ctx context.Context, req *RunStart, stdin 
 // so every wire operation (Info/Run/RunWithModelInfo/GetSession/ListSessions/
 // GetPlans/WatchSession/Chat) is promoted for free; Kill is the one method
 // LLMRunner defines itself, because it targets the runner's OS process, not
-// the gRPC connection (U059-F08).
+// the gRPC connection.
 type LLMRunner struct {
 	conn llmConnection
 	*GRPCClient
@@ -226,9 +226,9 @@ func (r *realLLMConnection) Client() (plugin.ClientProtocol, error) { return r.c
 // (close the RPC connection, let the runner exit on its own) or, failing
 // that, a raw cmd.Process.Kill() fallback. Neither reaches a grandchild the
 // runner deliberately isolated into its own process group (internal/acp's
-// setpgid'd claude-code-acp, moral-scorn) — a hard kill never gives the
+// setpgid'd claude-code-acp) — a hard kill never gives the
 // runner a chance to run ITS OWN cleanup for that. killSession is the
-// defensive sweep for that gap (damp-pupil 3): the runner was spawned via
+// defensive sweep for that gap: the runner was spawned via
 // isolateRunner (dialLLMConnection), so its pid doubles as its session id, and
 // every descendant that never called setsid(2) itself — including one in a
 // separate process group — stays tagged with it. A no-op for a container
@@ -262,7 +262,7 @@ var dialLLMConnection = func(cmd string, args []string, env []string, logger hcl
 		// a non-nil cmd.Env, so the base environment must ride along.
 		c.Env = append(os.Environ(), env...)
 	}
-	// Fresh session leader (damp-pupil 3): gives killSession a safe,
+	// Fresh session leader: gives killSession a safe,
 	// scoped boundary — see realLLMConnection.Kill's doc comment.
 	isolateRunner(c)
 	return &realLLMConnection{client: plugin.NewClient(&plugin.ClientConfig{

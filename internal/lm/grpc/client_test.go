@@ -134,8 +134,8 @@ func (s *fakeStream) SendMsg(m any) error      { return nil }
 func (s *fakeStream) RecvMsg(m any) error      { return nil }
 
 // TestVerbosityToHclogLevel_MappingMatchesItsDoc pins the verbosity->level
-// ladder the doc comment on verbosityToHclogLevel states. U059-F14 reported the
-// doc and the code disagreeing (the doc claimed 1=Warn, 2=Info, 3+=Debug/Trace
+// ladder the doc comment on verbosityToHclogLevel states. The doc and the
+// code used to disagree (the doc claimed 1=Warn, 2=Info, 3+=Debug/Trace
 // while the code returned Info/Debug/Trace); the code is the intended ladder, so
 // this table is what stops the two drifting apart again in either direction.
 func TestVerbosityToHclogLevel_MappingMatchesItsDoc(t *testing.T) {
@@ -209,7 +209,7 @@ func TestGRPCClient_RunWithModelInfo_CapturesExitAndModel(t *testing.T) {
 	assert.Equal(t, "haiku", result.ModelInfo.ModelName)
 }
 
-// TestGRPCClient_RunWithModelInfo_ClosesSendWhenNoStdinNoResize pins the T2
+// TestGRPCClient_RunWithModelInfo_ClosesSendWhenNoStdinNoResize pins the
 // fix: a caller with neither a stdin source nor a resize source (oneshot, or
 // an interactive run whose frontend has no real tty) will never send
 // anything past the initial RunStart, so RunWithModelInfo must half-close
@@ -232,7 +232,7 @@ func TestGRPCClient_RunWithModelInfo_ClosesSendWhenNoStdinNoResize(t *testing.T)
 }
 
 // TestGRPCClient_RunWithModelInfo_DoesNotCloseSendWithLiveResize guards the
-// other half of the T2 fix: a caller that DOES have a resize source (even if
+// other half of the fix: a caller that DOES have a resize source (even if
 // stdin is nil) still intends to send more input, so CloseSend must not fire
 // — the resize pump goroutine below needs the send half to stay open.
 func TestGRPCClient_RunWithModelInfo_DoesNotCloseSendWithLiveResize(t *testing.T) {
@@ -378,8 +378,8 @@ func TestRunnerFromConn_HappyPath(t *testing.T) {
 // two things NewContainerClient contributes to the dial (the in-container argv
 // is built inside the RunnerFunc, which already knows the backend and label),
 // and a dispense failure must still tear the connection down so a started
-// container never leaks. U059-F06 removed the two parameters this proves are
-// not consulted; the assertions below are unchanged by that removal.
+// container never leaks. A prior fix removed the two parameters this proves
+// are not consulted; the assertions below are unchanged by that removal.
 func TestNewContainerClient_ThreadsRunnerFuncAndSocketDir(t *testing.T) {
 	grpcClient := &GRPCClient{client: &fakeLLMClient{}}
 	fake := &fakeLLMConnection{clientResult: &fakeClientProtocol{dispenseResult: grpcClient}}
@@ -505,7 +505,7 @@ func TestLLMRunner_InfoAndRunDelegate(t *testing.T) {
 }
 
 // TestLLMRunner_DelegatesSessionAndPlanOperations pins the same
-// pass-through behavior for GetSession/ListSessions/GetPlans (U059-F08):
+// pass-through behavior for GetSession/ListSessions/GetPlans:
 // LLMRunner has no logic of its own here, it must reach the exact data its
 // embedded GRPCClient decoded from the wire.
 func TestLLMRunner_DelegatesSessionAndPlanOperations(t *testing.T) {
@@ -538,7 +538,7 @@ type failingWriter struct{ err error }
 
 func (w failingWriter) Write([]byte) (int, error) { return 0, w.err }
 
-// TestGRPCClient_RunWithModelInfo_StdoutWriteErrorSurfaces pins U059-F17: the
+// TestGRPCClient_RunWithModelInfo_StdoutWriteErrorSurfaces pins that the
 // client discarded the error from every write to the caller's stdout/stderr, so
 // a redirected run that could not persist its output still exited 0 with a
 // silently truncated transcript. The write failure is the run's failure.
@@ -571,7 +571,7 @@ func TestGRPCClient_RunWithModelInfo_StderrWriteErrorSurfaces(t *testing.T) {
 	assert.ErrorIs(t, err, want)
 }
 
-// TestGRPCClient_Run_StreamEndsWithoutExitCode_IsAnError pins U059-F05. The
+// TestGRPCClient_Run_StreamEndsWithoutExitCode_IsAnError pins that the
 // server sends the exit code as the FINAL message of every completed run
 // (server.go's Run ends with exactly that Send), so a stream that reaches EOF
 // without one means the plugin connected and died mid-run. Zero-valuing
@@ -604,7 +604,7 @@ func TestGRPCClient_Run_PartialOutputThenNoExitCode_IsAnError(t *testing.T) {
 	assert.Equal(t, "half a run\n", stdout.String(), "output seen before the truncation is still delivered")
 }
 
-// TestContainerRunnerFunc_IsADefinedType pins U059-F19: ContainerRunnerFunc was
+// TestContainerRunnerFunc_IsADefinedType pins that ContainerRunnerFunc was
 // a type ALIAS, so it named go-plugin's runner signature without introducing a
 // type at all — every unrelated three-argument function of the same shape was
 // silently the same type, and the name existed only in the source text. As a
@@ -624,7 +624,7 @@ func TestContainerRunnerFunc_IsADefinedType(t *testing.T) {
 	assert.Nil(t, cfg.RunnerFunc)
 }
 
-// TestContainerClientConfig_SkipsHostEnv pins U064-F03's fix at the seam where
+// TestContainerClientConfig_SkipsHostEnv pins the fix at the seam where
 // the container transport's environment is decided. containerHandshakeEnv (the
 // isolation runner's curation) promises "ONLY the go-plugin handshake vars …
 // never the host's full environment", but its third arm is a PLUGIN_ PREFIX

@@ -18,8 +18,8 @@
 // to say "full hook-event coverage", which reads as the stronger claim.
 //
 // opencode and kiro also implement agent.SettingsWriter and are DELIBERATELY
-// absent (U058-F03), each for its own structural reason spelled out at
-// agentCases' definition — not because nobody got around to adding them.
+// absent, each for its own structural reason spelled out at agentCases'
+// definition — not because nobody got around to adding them.
 // This sentence used to read "every supported agent's SettingsWriter", which
 // was true when written but stopped being true once opencode/kiro shipped;
 // say "three" here, not "every", so this comment cannot silently drift back

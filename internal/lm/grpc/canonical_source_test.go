@@ -71,8 +71,8 @@ func writeCorruptCanonicalFixture(t *testing.T, harp string) {
 	require.NoError(t, os.WriteFile(path, []byte(`{"v":9999,"ts":"2026-01-01T00:00:00Z"}`+"\n"), 0o600))
 }
 
-// TestCanonicalFallbackSource_GetSession_NoLegacy_CorruptCanonicalSurfaces pins
-// U059-F10: the FIRST canonical read's error was discarded outright. For a
+// TestCanonicalFallbackSource_GetSession_NoLegacy_CorruptCanonicalSurfaces
+// pins that the FIRST canonical read's error was discarded outright. For a
 // retired-scraper backend (legacy == nil) that turned "your transcript is
 // corrupt and I refuse to guess at it" into "there is no canonical transcript
 // for this session" — the one message that tells the user to stop looking.
@@ -124,7 +124,7 @@ func mintBoundHarp(t *testing.T, store *sessions.MemStore, harp, projectDir, ses
 }
 
 // TestCanonicalFallbackSource_GetSession_PrefersCanonical is the core
-// tough-cloud S4 selection-rule proof: a backend-native session id that
+// S4 selection-rule proof: a backend-native session id that
 // resolves to a harp WITH a captured canonical transcript is served from
 // canonical — the legacy source is wired to fail the test if consulted at
 // all, so this also proves canonical genuinely short-circuits legacy rather
@@ -172,8 +172,8 @@ func TestCanonicalFallbackSource_GetSession_FallsBackWhenNoCanonical(t *testing.
 	assert.Equal(t, "REAL-LEGACY-PAYLOAD", sess.Entries[0].Content)
 }
 
-// TestCanonicalFallbackSource_GetSession_ResolvesHarpDirectly is the
-// early-crane proof: `memory list`'s SESSION ID column literally displays the
+// TestCanonicalFallbackSource_GetSession_ResolvesHarpDirectly proves that
+// `memory list`'s SESSION ID column literally displays the
 // HARP for a canonical-backed session (CanonicalHistory.ListSessions sets
 // meta.ID = harp, never the backend-native session id), so `memory show
 // <that harp>` must resolve — not just the never-surfaced backend-native id
@@ -324,7 +324,7 @@ func (e *erroringListStore) ListForProject(projectDir string) ([]sessions.Entry,
 }
 
 // TestCanonicalFallbackSource_ListSessions_NoLegacy_CanonicalErrorPropagates
-// pins U059-F03: legacy==nil is the retired-scraper case (codex, kiro,
+// pins that legacy==nil is the retired-scraper case (codex, kiro,
 // antigravity, claude-code — S5, canonical is the ONLY source). Before the
 // fix, `canonMetas, _ := f.canonical.ListSessions(ctx)` discarded the error
 // and returned (nil, nil) — a confident "no sessions" indistinguishable from
@@ -407,7 +407,7 @@ func listSessionsIndexReads(t *testing.T, n int) int {
 	return store.reads
 }
 
-// TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale pins U059-F13:
+// TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale pins that
 // the dedup set was built by calling store.Find once per canonical session, and
 // every Find re-reads and re-parses the entire index file. Listing a project
 // with N sessions cost N index reads on top of the enumeration — work that is
@@ -422,7 +422,7 @@ func TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale(t *testing.T)
 		"index reads grew with the session count: %d for 1 session, %d for 6", few, many)
 }
 
-// TestRetiredScraperRoster_IsClosedAndImmutable pins U059-F21. The roster used
+// TestRetiredScraperRoster_IsClosedAndImmutable pins that the roster used
 // to be an exported package-level MAP, so every importer could add or remove a
 // backend from it at run time — silently deciding, for the whole process,
 // whether some engine gets a legacy scraper leg. The accessors expose exactly

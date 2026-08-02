@@ -52,7 +52,7 @@ func TestChatMCPServer_ProtoRoundTrip_HttpSse(t *testing.T) {
 	assert.Equal(t, req.MCPServers, back.MCPServers, "http/sse Transport/URL/Headers must survive the relay round trip byte for byte")
 }
 
-// TestTurnMetaToProto_SaturatesInsteadOfWrapping pins U059-F15: every int field
+// TestTurnMetaToProto_SaturatesInsteadOfWrapping pins that every int field
 // of agent.TurnMeta was narrowed to the proto's int32 with an unchecked
 // conversion, so a value past the field's range WRAPPED — a token count over
 // 2.1e9, or a turn longer than ~24.9 days, arrived as a small or negative
@@ -207,8 +207,8 @@ func TestGRPCServer_Chat_UnimplementedWhenBackendLacksCapability(t *testing.T) {
 	assert.Equal(t, codes.Unimplemented, status.Code(err))
 }
 
-// TestGRPCServer_Chat_FirstMessageMustBeStart pins U059-F04 alongside the
-// original rejection: a first frame that carries no start is the CLIENT's
+// TestGRPCServer_Chat_FirstMessageMustBeStart pins the original rejection
+// alongside its own: a first frame that carries no start is the CLIENT's
 // protocol violation, and a bare fmt.Errorf reaches the client as
 // codes.Unknown — indistinguishable from "the transport died". The same
 // function already proves the right shape three lines down, where a backend
@@ -258,7 +258,7 @@ func (b *ctxObliviousChatBackend) Chat(_ context.Context, _ agent.ChatRequest, _
 
 var _ agent.StructuredChat = (*ctxObliviousChatBackend)(nil)
 
-// TestGRPCServer_Chat_SendFailureDrainsBackendOutput pins U059-F12: when the
+// TestGRPCServer_Chat_SendFailureDrainsBackendOutput pins that when the
 // client went away, the server returned from its `for ev := range out` loop
 // immediately and never read `out` again. A backend mid-burst was left blocked
 // on a channel send forever — a leaked goroutine holding the whole engine
@@ -410,7 +410,7 @@ func TestGRPCClient_Chat_SendsStartAndMessages_ReceivesEvents(t *testing.T) {
 	assert.Equal(t, []string{"hello"}, texts)
 }
 
-// TestGRPCClient_Chat_SendFailureKeepsDrainingInput pins U059-F07: when a
+// TestGRPCClient_Chat_SendFailureKeepsDrainingInput pins that when a
 // stream Send failed, the inbound pump broke out of its loop and returned,
 // leaving `in` with NO reader at all. Every later write to `in` — the channel
 // this method hands the caller and documents as "write messages here" — blocked
@@ -492,7 +492,7 @@ func readCanonicalTranscript(t *testing.T, harp string) []transcript.Record {
 	return recs
 }
 
-// TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent pins the tough-cloud
+// TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent pins the
 // S2 seam: when the caller stamps req.Env[agent.SessionHarpEnv] (exactly what
 // acp_cmd.go does today), GRPCClient.Chat must (a) forward every event on the
 // returned channel UNCHANGED (lossless passthrough) and (b) ALSO have written
@@ -544,7 +544,7 @@ func TestGRPCClient_Chat_CapturesTranscriptWhenHarpPresent(t *testing.T) {
 	assert.Equal(t, transcript.KindComplete, recs[2].Kind)
 }
 
-// TestGRPCClient_Chat_CapturesUserTurn pins edgy-ivory: the canonical
+// TestGRPCClient_Chat_CapturesUserTurn pins that the canonical
 // transcript must carry the USER's own turns, not just the backend's
 // outbound events. Tee only ever wraps the OUTBOUND events channel, so
 // without a tap on the INBOUND `in` channel a structured session's
@@ -724,12 +724,12 @@ func TestGRPCClient_Chat_InfoFailureDegradesGracefully(t *testing.T) {
 }
 
 // TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq pins
-// outer-petal's regression coverage: many user turns fired concurrently
+// the regression coverage: many user turns fired concurrently
 // (simulating a caller that doesn't wait for a reply before sending the
 // next message, e.g. piped/pasted stdin in run_structured.go's
 // readMessagesLoop) racing many backend events, must all land in the
 // canonical transcript — none dropped, none double-recorded, and Seq must
-// be a gapless, non-duplicated 0..N-1 run. Before outer-petal's fix this
+// be a gapless, non-duplicated 0..N-1 run. Before the fix this
 // held only because fileRecorder's own mutex happened to serialize writes;
 // after the fix it holds because GRPCClient.Chat funnels both producers
 // through a single transcript.CoordinatedRecorder owner — this test proves

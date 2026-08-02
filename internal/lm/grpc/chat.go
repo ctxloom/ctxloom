@@ -389,7 +389,7 @@ type chatRecvStream interface {
 // recorder could not be opened — capture is best-effort and never blocks,
 // delays or alters the chat it shadows.
 //
-// Tough-cloud S2: this is THE host seam behind `ctxloom run --structured` and
+// S2: this is THE host seam behind `ctxloom run --structured` and
 // `ctxloom acp` (plan §2c). The harp rides req.Env[SessionHarpEnv]: acp_cmd.go
 // already stamps it there for the engine subprocess's own env, and it is
 // equally available here without any ChatRequest field addition.
@@ -403,14 +403,14 @@ type chatRecvStream interface {
 // `ctxloom run --structured` session mints a harp and writes a non-empty
 // persist/transcript.jsonl.
 //
-// edgy-ivory: ONE recorder is opened here and shared by both producers — the
+// ONE recorder is opened here and shared by both producers — the
 // inbound pump (records the user's own turns; the outbound tee only ever sees
 // the OUTBOUND events channel, so without that tap a structured transcript
 // carried assistant output but no `user` entries at all) and the outbound tee
 // (records everything else). One Recorder, one seq counter, one file — a second
 // NewRecorder would race the first for the file and reset Seq to 0.
 //
-// outer-petal: those two producers used to call rec.Record (directly, or via
+// Those two producers used to call rec.Record (directly, or via
 // transcript.RecordUserText/Tee) from their own independent goroutines — safe
 // from data corruption (fileRecorder's own mutex) but with no coordination over
 // record ORDER beyond raw mutex-acquisition scheduling (found via the H1b
@@ -498,7 +498,7 @@ func pumpChatEvents(ctx context.Context, stream chatRecvStream, events chan<- ag
 // its way through, and the returned channel closes only once the capture is
 // durably complete — the completion barrier Chat's own doc promises.
 //
-// naval-snarl #3 / TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq:
+// See TestGRPCClient_Chat_ConcurrentTurnsRecordAllWithoutGapsOrDuplicateSeq:
 // this tee is only ONE of the capture's two registered producers — the inbound
 // pump (user turns) is the other, and its ProducerDone is keyed to when the
 // CALLER closes `in`, not to anything observable here. Closing the returned
@@ -605,7 +605,7 @@ func chatMessageFromInput(in *ChatInput) (agent.ChatMessage, bool) {
 	}
 }
 
-// Chat is promoted from LLMRunner's embedded *GRPCClient (U059-F08) — no
+// Chat is promoted from LLMRunner's embedded *GRPCClient — no
 // forwarder needed.
 
 // userTapEntry renders one outbound user message as the transcript entry the
@@ -613,7 +613,7 @@ func chatMessageFromInput(in *ChatInput) (agent.ChatMessage, bool) {
 //
 // The tap used to require msg.Text != "", so a ContentBlocks-only turn was
 // delivered to the engine and recorded NOWHERE — the transcript then showed an
-// assistant reply to a prompt that never appears (U059-F11). Blocks are
+// assistant reply to a prompt that never appears. Blocks are
 // flattened for the Content string AND carried structurally on the entry, so
 // nothing about the turn is invented and nothing is lost.
 func userTapEntry(msg agent.ChatMessage) *agent.SessionEntry {

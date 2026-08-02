@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
-// This file is the tough-cloud S4 consumer cutover: CanonicalFallbackSource is
+// This file is the S4 consumer cutover: CanonicalFallbackSource is
 // the transitional pb.SessionSource every production reader (compactor, MCP
 // memory tools, `memory`/`session` CLI commands) is flipped onto. It prefers
 // ctxloom's own captured transcript.jsonl (transcript.CanonicalHistory,
@@ -28,10 +28,10 @@ import (
 // transcript for Tee) — but the reverse direction is fine, and pb.SessionSource
 // is defined here anyway.
 //
-// tough-cloud S5: the four broken per-engine scrapers (codex, kiro,
+// S5: the four broken per-engine scrapers (codex, kiro,
 // antigravity, claude-code) were DELETED outright (the user's explicit
 // decision — not demoted to a fixture-pinned importer, §4c/§4d of the
-// tough-cloud plan). retiredScraperBackends names them. A caller building a
+// removal plan). retiredScraperBackends names them. A caller building a
 // source for one of those backends passes legacy=nil: canonical capture is
 // the ONLY source, matching the delete decision (no legacy leg to ever fall
 // back to, since there is no reader left to fall back onto). opencode is
@@ -40,8 +40,8 @@ import (
 // fallback leg.
 
 // retiredScraperBackends names the backends whose legacy per-engine
-// SessionHistory scraper was removed in tough-cloud S5 (proven broken:
-// lived-zone's codex envelope-vs-flat parse, tall-grab's claude
+// SessionHistory scraper was removed in S5 (proven broken:
+// codex's envelope-vs-flat parse, claude's
 // wrong-filename / kiro v1-vs-v2-sqlite / antigravity global-store mis-key).
 // A backend named here has no History() implementation left — its
 // Backend.History() now returns nil — so a caller resolving a SessionSource
@@ -137,7 +137,7 @@ func (f *CanonicalFallbackSource) harpForSessionID(sessionID string) string {
 // canonical transcript for a resolvable harp, or an unresolvable id, is a
 // genuine "no session" rather than a scrape attempt.
 //
-// early-crane: id is resolved HARP-FIRST, not just as a backend-native
+// id is resolved HARP-FIRST, not just as a backend-native
 // session id. `memory list`'s SESSION ID column literally displays the harp
 // for any canonical-backed session (CanonicalHistory.ListSessions sets
 // meta.ID = harp — the sessionID field never surfaces to a user at all), so
@@ -220,7 +220,7 @@ func (f *CanonicalFallbackSource) ListSessions(ctx context.Context) ([]agent.Ses
 	if f.legacy == nil {
 		// No legacy leg to fall back to (retired scrapers: codex, kiro,
 		// antigravity, claude-code): a failed canonical read is the WHOLE
-		// listing's failure, not "zero sessions" (U059-F03). Discarding canonErr
+		// listing's failure, not "zero sessions". Discarding canonErr
 		// here used to report a confident empty list indistinguishable from a
 		// project that genuinely has none.
 		if canonErr != nil {

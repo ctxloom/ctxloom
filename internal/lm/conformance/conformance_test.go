@@ -44,7 +44,7 @@ type agentCase struct {
 
 // agentCases returns the THREE agents this suite actually covers today
 // (claude-code, antigravity, codex) — NOT every agent.SettingsWriter
-// implementation in the repo (U058-F03): opencode and kiro both implement
+// implementation in the repo: opencode and kiro both implement
 // the interface (internal/opencode/settings.go:465,
 // internal/kiro/settings.go:48) and are absent, for two DIFFERENT reasons,
 // not one shared oversight:
@@ -201,7 +201,7 @@ func TestConformance_RefusesToOverwriteUnparseableSettings(t *testing.T) {
 // destination is never itself opened for writing and no reader can ever
 // observe it half-written. A writer that truncated the live file and wrote
 // into it would leave the same final bytes and the same backup — identical to
-// every assertion this suite made before (U058-F05).
+// every assertion this suite made before.
 type recordingFs struct {
 	afero.Fs
 	mu       sync.Mutex
@@ -249,7 +249,7 @@ func (r *recordingFs) reset() {
 // TestConformance_AtomicWriteBackup: overwriting an existing settings file
 // leaves a .ctxloom.bak of the prior content AND replaces the file atomically —
 // both halves of the contract doc.go names, where the suite used to assert only
-// the backup and take the atomicity on trust (U058-F05).
+// the backup and take the atomicity on trust.
 func TestConformance_AtomicWriteBackup(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
@@ -292,8 +292,7 @@ func TestConformance_AtomicWriteBackup(t *testing.T) {
 // asserted — in the per-agent tests: claude/hooks_wire_test.go and
 // claude/surfacedelivery_test.go on "PreToolUse", codex/settings_test.go on
 // "[[hooks.PreToolUse]]", antigravity/hooks_wire_test.go likewise. doc.go used
-// to call this "full hook-event coverage", which reads as the stronger claim
-// (U058-F04).
+// to call this "full hook-event coverage", which reads as the stronger claim.
 func TestConformance_HookEventCoverage(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {
@@ -318,7 +317,7 @@ func TestConformance_HookEventCoverage(t *testing.T) {
 // or one that cross-wires two events into a single slot — every marker is
 // present either way. Configuring exactly one event and requiring that exactly
 // one marker appears separates those cases, which is as close to per-event
-// attachment as a format-agnostic assertion can get (U058-F04).
+// attachment as a format-agnostic assertion can get.
 func TestConformance_HookEventsAreEmittedIndependently(t *testing.T) {
 	for _, a := range agentCases() {
 		for _, ev := range coveredEvents {
@@ -350,7 +349,7 @@ func TestConformance_HookEventsAreEmittedIndependently(t *testing.T) {
 // writer whose Status were wrong in the same direction as its writer — a
 // registration that never lands and a probe that reports it anyway — passes a
 // Status-only assertion in both directions at once, which is the tautology
-// this suite must not rest on (U058-F06). Walking the filesystem is the
+// this suite must not rest on. Walking the filesystem is the
 // independent evidence, and it stays format-agnostic (JSON, TOML) and
 // location-agnostic (antigravity keeps its MCP registration in a different
 // file from its hooks) precisely because it looks at bytes rather than at a
@@ -405,7 +404,7 @@ func TestConformance_MCPAutoRegister(t *testing.T) {
 // artifact while preserving the user's own settings. The managed hook commands
 // are asserted PRESENT after the write and ABSENT after the removal, so the
 // same predicate is shown to flip — a removal test that only asks Status()
-// cannot tell "stripped" from "never written" (U058-F06).
+// cannot tell "stripped" from "never written".
 func TestConformance_RemovePreservesUser(t *testing.T) {
 	for _, a := range agentCases() {
 		t.Run(a.name, func(t *testing.T) {

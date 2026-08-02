@@ -28,9 +28,8 @@ import (
 //     contiguous would silently reroute those bytes to unknown fields — a
 //     forwarded terminal request would vanish and its answer would never come.
 //     The interleaving is the ordinary shape of additive proto evolution here
-//     (raw arrived with IR3, terminal with B1/gap G6), and the review finding
-//     U060-F10 that calls it an error is a readability objection whose only
-//     remedy is a wire break.
+//     (raw arrived with IR3, terminal with B1/gap G6), and calling it an
+//     error is a readability objection whose only remedy is a wire break.
 func TestChatEvent_TagsAreStableAndRawIsOutsideTheOneof(t *testing.T) {
 	fields := (&ChatEvent{}).ProtoReflect().Descriptor().Fields()
 

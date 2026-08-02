@@ -110,7 +110,7 @@ func resolveEnvOrMountAuth(triggers []string, envVars []string, mountFn func() (
 }
 
 // noContainerAuthProfile is the resolveAuth for a backend with NO registered
-// container-auth profile at all (U064-F01): it always returns ok=false, so an
+// container-auth profile at all: it always returns ok=false, so an
 // unrecognized/unprofiled engine's containerized run degrades honestly
 // (a fatal ClassIsolation finding down the isolation chain, same as any other
 // unresolvable auth) instead of silently inheriting the DEFAULT profile's
@@ -147,7 +147,7 @@ func resolveClaudeContainerAuth(containerHome, scratchDir string) (containerAuth
 // NOT ~/.claude/.credentials.json — that file does not exist there, so naming
 // it (the non-darwin hint below) is unfollowable advice. Extracting the
 // Keychain token into a per-run scratch file is a real fix but needs a real
-// Mac to verify (task sudsy-sip, a separate follow-up); until it lands, the
+// Mac to verify (a separate follow-up); until it lands, the
 // only WORKING container auth on darwin is ANTHROPIC_API_KEY (or
 // ANTHROPIC_AUTH_TOKEN), so the darwin hint names that instead of the file.
 func claudeContainerAuthHint() string {
@@ -163,8 +163,8 @@ func claudeContainerAuthHint() string {
 // is set); the AWS_* vars ride ALONG when present (a Bedrock-backed kiro
 // configuration reads them like any AWS SDK client) but are deliberately NOT a
 // standalone trigger of their own yet — whether AWS credentials alone (no
-// KIRO_API_KEY) authenticate a containerized kiro needs a live kiro verification
-// (task numb-panda) this package cannot run hermetically; treating them as a
+// KIRO_API_KEY) authenticate a containerized kiro needs a live kiro
+// verification this package cannot run hermetically; treating them as a
 // trigger without that confirmation risks launching a container that starts but
 // never actually authenticates, a NEW silent-no-op. AWS_PROFILE alone is
 // forwarded but is likely insufficient on its own: profile-based auth resolves
@@ -218,12 +218,12 @@ var codexAuthEnvVars = []string{
 }
 
 // resolveCodexContainerAuth builds the auth plan for a containerized codex run
-// whose fresh HOME is containerHome (bony-spoof). It PREFERS env passthrough
+// whose fresh HOME is containerHome. It PREFERS env passthrough
 // (OPENAI_API_KEY) and otherwise falls back to mounting the host's
 // ~/.codex/auth.json READ-ONLY into the container HOME (codexCredentialMounts).
 // Unlike claude's subscription refresh, the read-only mount is SAFE here:
 // `codex exec`/non-interactive mode never refreshes the ChatGPT auth token in
-// place (balmy-comic), so there is no write-back to collide with — codex does
+// place, so there is no write-back to collide with — codex does
 // not need claude's copy-then-mount-rw treatment. Returns ok=false when
 // neither is available, so the caller degrades rather than launching an
 // unauthenticated engine.
@@ -239,8 +239,8 @@ func resolveCodexContainerAuth(containerHome, _ string) (containerAuth, bool) {
 // authenticates a subscription codex inside the container:
 // ~/.codex/auth.json mapped into containerHome/.codex/auth.json. It reuses
 // credentialSeedSpecs["codex"]'s sourceFiles descriptor — the SAME host-file
-// location the host+worktree credential seed path (grave-prize,
-// hostCredentialSeed below) already knows — instead of hard-coding the path a
+// location the host+worktree credential seed path
+// (hostCredentialSeed below) already knows — instead of hard-coding the path a
 // second time, per the plan's "one source-discovery, not two"
 // (container-image-auth-delivery.plan.md §2.2). Returns ok=false when the
 // file is absent or the codex spec is missing/has no sourceFiles (defensive;
@@ -352,7 +352,7 @@ const antigravityOAuthTokenRel = "antigravity-cli/antigravity-oauth-token"
 // carries a refresh_token: a plain read-only bind would collide with a
 // refresh writing back to that same file, same as claude's case. It
 // deliberately does NOT fall back to resolveClaudeContainerAuth or accept any
-// ANTHROPIC_* trigger: that would be the paced-even security edge (a
+// ANTHROPIC_* trigger: that would be a security edge (a
 // containerized antigravity run silently authenticating with the user's
 // ANTHROPIC_* credentials — the wrong provider entirely). There is no known
 // env-var trigger of agy's own (no ANTIGRAVITY_*/AGY_* var is documented or
@@ -459,7 +459,7 @@ func presentEnvKeys(getenv func(string) string, keys []string) []string {
 // file's package doc above). Returns ok=false when the host OAuth token file
 // is absent (nothing to copy) or the scratch copy cannot be written.
 //
-// tangy-heave: this used to ALSO copy+mount ~/.claude.json — not a narrow
+// This used to ALSO copy+mount ~/.claude.json — not a narrow
 // OAuth-association record but claude's WHOLE top-level config, including
 // the host user's OWN mcpServers registrations (and whatever secrets those
 // carry) on a real machine. That handed every isolated agent read access to
@@ -570,10 +570,10 @@ type credentialSeedSpec struct {
 	// per-agent home var relocates; see HonoursVarForCreds).
 	sourceFiles func(hostHome string) []seedFile
 	// HomeVars is the FULL set of isolation env vars this engine's per-agent
-	// config-home contributes to worktreeWorkspace.Env() — grave-prize's
-	// creds-only descriptor widened to the full config/state/creds home map
-	// per the per-engine-isolation-home plan §6, so white-dawn/legal-hula's
-	// var wiring rides the SAME struct as the credential seed instead of a
+	// config-home contributes to worktreeWorkspace.Env() — the creds-only
+	// descriptor widened to the full config/state/creds home map per the
+	// per-engine-isolation-home plan §6, so the var wiring rides the SAME
+	// struct as the credential seed instead of a
 	// second hardcoded map. claude/codex: one entry each (their whole home
 	// moves with the var). kiro: two — KIRO_HOME (sessions only, always
 	// isolated) and XDG_DATA_HOME (the credential store, GatedOnCreds).
@@ -650,10 +650,10 @@ type seedFile struct {
 //     ONE credential-seed mechanism: codex's prior seed path
 //     (linkUserCodexAuth, a SYMLINK into a cell-scoped
 //     <WorkDir>/.codex — a DIFFERENT directory than this package's
-//     configHome) is deleted (balmy-comic) in favour of this COPY, and
+//     configHome) is deleted in favour of this COPY, and
 //     internal/codex/backend.go's resolveCodexHome makes the isolation-
 //     provided CODEX_HOME (this spec's HomeVars entry) the single owner for
-//     an isolated run, resolving the two-mechanism conflict grave-prize's
+//     an isolated run, resolving the two-mechanism conflict this package's
 //     own doc used to warn about here. destSubdir/HomeVars both use ".codex"
 //     (dot-prefixed) — see homeVar's doc for why the leaf name matters.
 //   - kiro: HonoursVarForCreds FALSE — subscription auth lives in a GLOBAL
@@ -665,11 +665,11 @@ type seedFile struct {
 //     (live-verified: a fresh XDG_DATA_HOME + KIRO_API_KEY authenticates
 //     headlessly, no browser), and records a ClassIsolation fail-loud
 //     finding + omits it otherwise — turning kiro's previously-SILENT
-//     shared-sqlite non-isolation (legal-hula) into a real per-agent
+//     shared-sqlite non-isolation into a real per-agent
 //     isolation on the KIRO_API_KEY path and a loud, degradable error
 //     otherwise. Its KIRO_HOME entry (session jsonl only, no creds) stays
 //     unconditional.
-//   - opencode: HonoursVarForCreds TRUE (sunny-saga) — the OPPOSITE of
+//   - opencode: HonoursVarForCreds TRUE — the OPPOSITE of
 //     kiro's shape immediately above, despite both engines relocating via
 //     XDG_DATA_HOME: opencode's auth.json genuinely lives under
 //     $XDG_DATA_HOME/opencode (live-verified against opencode 1.18.1 — see
@@ -690,7 +690,7 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 		destSubdir: "claude",
 		envTrigger: "ANTHROPIC_API_KEY",
 		sourceFiles: func(hostHome string) []seedFile {
-			// tangy-heave: ~/.claude.json used to be seeded here too
+			// ~/.claude.json used to be seeded here too
 			// (optional, "carries over account association/trust-dialog
 			// state instead of re-onboarding"). Dropped: on a real host
 			// that file is claude's WHOLE top-level config, including the
@@ -748,7 +748,7 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 	// shape from kiro's entry immediately above: opencode's XDG_DATA_HOME
 	// genuinely relocates its credential file, not a global unrelocatable
 	// store, so it seeds via sourceFiles/destSubdir exactly like claude/codex
-	// rather than gating via GatedOnCreds (sunny-saga; see
+	// rather than gating via GatedOnCreds (see
 	// resolveOpencodeContainerAuth's doc for the container-axis half of this
 	// same engine's auth story).
 	//
@@ -828,7 +828,7 @@ var credentialSeedSpecs = map[string]credentialSeedSpec{
 }
 
 // CredentialSeedEngineNames returns the backend names credentialSeedSpecs
-// covers (T12: one of the four independently-maintained engine-identity
+// covers (one of the four independently-maintained engine-identity
 // rosters found spread across the codebase — see
 // tests/arch/engine_identity_arch_test.go's TestArch_EngineIdentityRosters_
 // MembersAreRegisteredBackends, which validates every name returned here is
@@ -851,7 +851,7 @@ func CredentialSeedEngineNames() []string {
 // isolation Policy at all: codex ALWAYS relocates CODEX_HOME to
 // <WorkDir>/.codex even under the plain None/host axis (its own in-tree
 // fallback) — a relocated home this package's Policy machinery never sees
-// or seeds, so it starts empty and codex 401s silently (warm-yodel).
+// or seeds, so it starts empty and codex 401s silently.
 //
 // This reuses the EXACT SAME copy-based credentialSeedSpecs["codex"]
 // descriptor and hostCredentialSeed mechanics worktree.go's
@@ -998,7 +998,7 @@ func copyCredentialFile(src, dst string) error {
 	if err != nil {
 		return err
 	}
-	// U062-F01: os.WriteFile follows a symlink at the destination (it is
+	// os.WriteFile follows a symlink at the destination (it is
 	// OpenFile(dst, O_WRONLY|O_CREATE|O_TRUNC, perm) under the hood), so an
 	// unvalidated destination — e.g. a repo-tracked `.codex/auth.json` symlink
 	// pointing at the real `~/.codex/auth.json` — turns this seed into an

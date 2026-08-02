@@ -133,7 +133,7 @@ type runChan struct {
 
 	// completed closes exactly once, the moment this channel's run_completed
 	// item has been FLUSHED (durably journaled) — D4's terminal-tail drain
-	// race fix (damp-pupil 1) waits on it before severing the channel.
+	// race fix waits on it before severing the channel.
 	// completedOnce guards the close (handleAgentEvent runs on this
 	// channel's single recv goroutine, but drainTerminalTail's safety-net
 	// timeout path must never double-close on a concurrent late arrival).
@@ -177,8 +177,8 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 			Accepted: true,
 			// NOT an independent watermark: the coordinator keeps no durable
 			// event log, so it echoes the runner's own claim back. The proto
-			// says so at Hello.resume_from_seq / HelloAck.committed_seq
-			// (U016-F10) — nobody should build a client that trusts this as
+			// says so at Hello.resume_from_seq / HelloAck.committed_seq's
+			// doc — nobody should build a client that trusts this as
 			// confirmation.
 			CommittedSeq: hello.GetResumeFromSeq(),
 			Capabilities: []string{CapPeerMessaging},
@@ -234,7 +234,7 @@ func (s *coordService) RunChannel(stream grpc.BidiStreamingServer[agentcoordpb.A
 	defer c.releaseRunChan(id.Harp, ch)
 
 	// Single writer pump: everything outbound funnels through ch.send.
-	// goTracked (flaky-agentcoord S1): terminates once streamCtx is
+	// goTracked terminates once streamCtx is
 	// cancelled — either locally (a newer reconnect, or this func's own
 	// deferred cancel()) or when srv.close()'s GracefulStop/Stop tears the
 	// underlying gRPC transport down (streamCtx derives from the STREAM's
@@ -326,7 +326,7 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 		c.flushItems(ch)
 	default:
 		if kind := itemKind(ev); kind != "" {
-			// Result bridging (blunt-whiff): a MIGRATED child's answer for
+			// Result bridging: a MIGRATED child's answer for
 			// this turn is assembled from its own FINAL-channel message
 			// events as they stream, so the turn boundary below already
 			// holds the text to deliver to the parent.
@@ -334,7 +334,7 @@ func (c *Coordinator) handleAgentEvent(ch *runChan, ev *agentcoordpb.AgentEvent)
 			c.captureRunFailure(ch.role, ev)
 			c.bufferItem(ch, ev, kind)
 			if kind == "run_completed" {
-				// D4 (damp-pupil 1): bufferItem flushes run_completed
+				// D4: bufferItem flushes run_completed
 				// synchronously (it is not a delta kind) — mark the channel
 				// completed the moment it is DURABLE, so terminateRun's
 				// drain wait (drainTerminalTail) can stop waiting the
@@ -456,7 +456,7 @@ func (c *Coordinator) handleCustomEvent(ch *runChan, ev *agentcoordpb.CustomEven
 // turn machinery's to deliver (delivery-by-state, §6a), and pushing then
 // would hand the harness the same message twice.
 //
-// A saturated send pump ROLLS THE RESERVATION BACK (U024-F02). The reservation
+// A saturated send pump ROLLS THE RESERVATION BACK. The reservation
 // is taken under c.mu before the send so a concurrent push or turn-boundary
 // drain cannot select the same message twice, and released again for exactly
 // the ids the pump refused — which were never delivered, so leaving them
@@ -480,7 +480,7 @@ func (c *Coordinator) pushMail(role string) {
 		return
 	}
 	// Project BEFORE reserving: a message whose wire shape cannot be built was
-	// never handed to anyone, so it must not be marked delivered (U024-F07).
+	// never handed to anyone, so it must not be marked delivered.
 	type outbound struct {
 		id     string
 		notice *agentcoordpb.CoordinatorFrame
@@ -539,7 +539,7 @@ func (c *Coordinator) pushMail(role string) {
 // ApprovalRequest projection, Wave C2) merges under it — kind always wins on
 // a key collision, so a caller cannot spoof the message's own kind.
 //
-// A payload that cannot be carried is an ERROR, not an empty result (U024-F07).
+// A payload that cannot be carried is an ERROR, not an empty result.
 // Both failures were previously swallowed — the json.Unmarshal error by an
 // `if err == nil` with no else, structpb.NewStruct's by assignment to `_` — and
 // each produced a PeerMessage with the caller's payload silently missing. For a
@@ -585,7 +585,7 @@ func peerMessageProto(m Message) (*agentcoordpb.PeerMessage, error) {
 //
 // Deregistration IS conditional — only this channel's own registration may be
 // removed, never a successor's. Un-reserving is NOT, and that asymmetry is the
-// whole point (U024-F01). A reconnect registers the new channel and cancels its
+// whole point. A reconnect registers the new channel and cancels its
 // predecessor inside one c.mu window, so the OLD handler's teardown ALWAYS
 // observes the successor and the old `if registered` guard around the unreserve
 // was always false on exactly the path where mail was in flight. ch.pushed was
@@ -629,7 +629,7 @@ func (c *Coordinator) unreserveRuntime(role string, ids []string) {
 // shutdown indefinitely.
 const terminalDrainWindow = 500 * time.Millisecond
 
-// drainTerminalTail closes the terminal-tail race (D4, damp-pupil 1): the
+// drainTerminalTail closes the terminal-tail race (D4): the
 // runner emits a normal exit's final run_completed item on the RunChannel
 // and reports RunExited on the SEPARATE RunnerChannel back-to-back (see
 // enginehost.go's adapt: emitEvent(RunCompleted) then ReportRunExited) — two
@@ -648,7 +648,7 @@ const terminalDrainWindow = 500 * time.Millisecond
 // production emitter (enginehost.go's adapt) is contractually guaranteed to
 // have just attempted a run_completed. CauseStopped (agent_stop / KillRun)
 // and CauseRunnerLoss (disconnect/heartbeat silence — the runner and its
-// harness died together, R3) have no such guarantee and must not pay this
+// harness died together) have no such guarantee and must not pay this
 // wait for no benefit.
 func (c *Coordinator) drainTerminalTail(role string) {
 	c.mu.Lock()
@@ -766,7 +766,7 @@ const responseQueueWindow = 5 * time.Second
 
 // respond queues one response frame on the channel's writer pump.
 //
-// A saturated pump must NOT block the caller (U024-F08). respond runs on the
+// A saturated pump must NOT block the caller. respond runs on the
 // channel's own RECEIVE goroutine for two paths — a request arriving with no
 // request_id, and re-delivery of an already-cached response to a reissue — and
 // waiting there stalls every inbound frame on that channel behind one slow
@@ -954,7 +954,7 @@ func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAg
 	}
 	// The launch runs on its own goroutine, so "spawned" was historically a
 	// claim, not an observation: a child whose launch had ALREADY failed by
-	// the time this answer was composed still reported as spawned (U024-F05).
+	// the time this answer was composed still reported as spawned.
 	// Read the run's terminal state before answering — a settled failure is
 	// reported as a failure, and everything else keeps the exact wording that
 	// shipped.
@@ -1039,7 +1039,7 @@ func (c *Coordinator) serveStopRun(caller Identity, req *agentcoordpb.StopRun) *
 	if rec == nil || rec.ParentHarp != caller.Harp {
 		return &agentcoordpb.CoordinatorResponse{Status: statusErr(codes.PermissionDenied, fmt.Sprintf("agent_stop: run %q is not a child of this session", runID))}
 	}
-	// U024-F04: cancel the LAUNCH before anything else, on BOTH agent_stop
+	// Cancel the LAUNCH before anything else, on BOTH agent_stop
 	// surfaces — this is plane-2's twin of Coordinator.AgentStop's own fix
 	// for the 2026-07-24 incident (coordinator.go), where a stop landed on
 	// an already-ended run with a relaunch already armed behind it,
@@ -1063,7 +1063,7 @@ func (c *Coordinator) serveStopRun(caller Identity, req *agentcoordpb.StopRun) *
 			Kind:   &agentcoordpb.CoordinatorResponse_StopRun{StopRun: &agentcoordpb.StopRunResult{}},
 		}
 	}
-	// U016-F04: `reason` was advertised to the model and thrown away. It is
+	// `reason` was advertised to the model and thrown away. It is
 	// now the run's terminal DETAIL — what the roster, the journal and the
 	// audit record show for this stop. Absent, the detail keeps the exact
 	// wording that shipped.

@@ -135,7 +135,7 @@ func TestL0_ClientEmittedFrames(t *testing.T) {
 	fa := executeHarness(t, b)
 
 	// A REAL workspace directory, not the fictional "/proj" this used to
-	// pass: T13's fs confinement (fsconfine.go) resolves every fs/* path
+	// pass: the fs confinement (fsconfine.go) resolves every fs/* path
 	// against it, and a root that does not exist denies (fail closed). The
 	// two fs/* captures below therefore live inside it.
 	workspace := t.TempDir()

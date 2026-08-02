@@ -117,9 +117,9 @@ func FromEnv(fs afero.Fs) (string, bool) {
 // through to the bare cwd (found=false; see RootFromFallback). This is the
 // ONE implementation of that three-step chain: WorkDir, RootFromFallback, and
 // internal/taskloom/workdir.ResolveBoundary all resolve to it rather than
-// each carrying their own copy (U140-F01 — three separate copies, one of
+// each carrying their own copy — three separate copies used to exist, one of
 // which additionally duplicated the env-reading step verbatim, warning
-// string included, so a bad override could warn twice in one process).
+// string included, so a bad override could warn twice in one process.
 //
 // Only "this directory is not inside a repository" is a silent fall-through.
 // Every other git failure — a .git that exists and cannot be read, a path
@@ -129,7 +129,7 @@ func FromEnv(fs afero.Fs) (string, bool) {
 // reporting when there is one the process simply could not use.
 //
 // Unlike the three prior copies, a failing os.Getwd is a returned error, not
-// silently treated as "." (U140-F02): "." is a directory name meaning
+// silently treated as ".": "." is a directory name meaning
 // "wherever any future process happens to be", and minting a project
 // identity keyed on it (as internal/shared/tasks/projectid's registry would)
 // lets two completely unrelated projects collide onto one task log the

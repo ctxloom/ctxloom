@@ -104,7 +104,7 @@ func TestDetectWorktree(t *testing.T) {
 	})
 
 	t.Run("bare_clone_worktree_has_no_derivable_main_root", func(t *testing.T) {
-		// U092-F01: a `git clone --bare url repo.git; git worktree add ../wt`
+		// A `git clone --bare url repo.git; git worktree add ../wt`
 		// layout — the gitdir pointer is /p/repo.git/worktrees/wt, so the
 		// naive filepath.Dir(filepath.Dir(commonDir)) derivation used to
 		// compute mainRoot=/p, an EXISTING, unrelated directory (the parent
@@ -154,7 +154,7 @@ func TestDetectWorktree(t *testing.T) {
 	})
 }
 
-// TestDetectWorktree_EmptyDirIsRefused pins U092-F07: dir was never validated,
+// TestDetectWorktree_EmptyDirIsRefused pins that dir was never validated,
 // and filepath.Join("", ".git") is the BARE RELATIVE ".git" — so an empty dir
 // silently stopped naming a directory at all and started probing whatever
 // working directory the process happened to hold. The answer then depends on
@@ -177,7 +177,7 @@ func TestDetectWorktree_EmptyDirIsRefused(t *testing.T) {
 }
 
 // TestTaskStoreRoot_EmptyDirIsRefused pins the same defect at the other entry
-// point named by U092-F07. TaskStoreRoot's first act is
+// point. TaskStoreRoot's first act is
 // filepath.Join(dir, ".ctxloom"), which for an empty dir tests the cwd's
 // .ctxloom and can return "" as a project root — a task store keyed on nothing.
 func TestTaskStoreRoot_EmptyDirIsRefused(t *testing.T) {
@@ -189,7 +189,7 @@ func TestTaskStoreRoot_EmptyDirIsRefused(t *testing.T) {
 	assert.Empty(t, got, "a refused resolution must not hand back a root")
 }
 
-// TestDetectWorktree_UnstattableGitSurfacesAsError pins U092-F04. The stat of
+// TestDetectWorktree_UnstattableGitSurfacesAsError pins that the stat of
 // dir/.git treated EVERY failure as "no .git here — not a worktree", while the
 // ReadFile ten lines below surfaces the identical permission fault as an error.
 // The asymmetry fails OPEN in the direction that loses data: a linked worktree

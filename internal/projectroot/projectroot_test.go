@@ -77,7 +77,7 @@ func TestResolve(t *testing.T) {
 }
 
 // TestResolve_RelativeAnchorsToProcessCwdNotInjectedFs pins the deliberate
-// split that U092-F05 read as an accident: the injected afero.Fs decides
+// split: the injected afero.Fs decides
 // whether the resolved root EXISTS, but a relative CTXLOOM_ROOT is anchored to
 // the launching process's cwd via filepath.Abs — never to the injected fs's
 // own root. The two are different filesystems on purpose. CTXLOOM_ROOT is an
@@ -147,7 +147,7 @@ func TestFromEnv(t *testing.T) {
 	})
 }
 
-// TestFromEnv_EachDistinctInvalidRootWarns pins U092-F08. The suppression was a
+// TestFromEnv_EachDistinctInvalidRootWarns pins that the suppression was a
 // package-level sync.Once keyed on NOTHING, so the first invalid CTXLOOM_ROOT a
 // process ever saw permanently silenced every later one — including a
 // completely different offending value. The suppression that is actually wanted
@@ -221,7 +221,7 @@ func pkgSourceDir(t *testing.T) string {
 }
 
 // TestPackageDocNamesEveryExportedSurface pins the invariant the package doc
-// asserts after U092-F10: that a reader of the doc comment can discover
+// asserts: that a reader of the doc comment can discover
 // everything this package does. The package grew from one responsibility
 // (CTXLOOM_ROOT-first root resolution) to three -- root resolution, git
 // worktree classification, and the task-store redirect -- while the doc still

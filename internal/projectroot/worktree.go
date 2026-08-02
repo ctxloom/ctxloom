@@ -109,7 +109,7 @@ func DetectWorktree(fs afero.Fs, dir string) (WorktreeInfo, error) {
 	}
 	commonDir := filepath.Dir(worktreesParent)
 
-	// U092-F01: mainRoot=filepath.Dir(commonDir) only names a real MAIN
+	// mainRoot=filepath.Dir(commonDir) only names a real MAIN
 	// WORKTREE when commonDir is the standard "<main>/.git" layout. For a
 	// bare clone (`git clone --bare url repo.git; git worktree add ../wt`)
 	// or `git init --separate-git-dir=...`, commonDir is a bare repo/

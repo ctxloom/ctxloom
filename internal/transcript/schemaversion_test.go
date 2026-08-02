@@ -24,8 +24,8 @@ func futureVersionLine() []byte {
 		SchemaVersion+7)
 }
 
-// TestParseTranscriptFile_VersionMismatchIsDiscriminable pins the seam
-// U144-F08 says the fail-loud version contract lacks.
+// TestParseTranscriptFile_VersionMismatchIsDiscriminable pins a seam the
+// fail-loud version contract used to lack.
 //
 // "Refusing to guess at an unrecognized shape" is the right call, but every
 // consumer downstream reduced it to `err != nil` and handled it exactly like a

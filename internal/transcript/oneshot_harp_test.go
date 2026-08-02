@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// U144-F15: RecordOneshot returned nil when harp == "", so a run that failed
+// RecordOneshot returned nil when harp == "", so a run that failed
 // to mint a harp reported full capture success with ZERO bytes recorded —
 // callers check only the error.
 func TestRecordOneshot_NoHarpWithContentIsAnError(t *testing.T) {

@@ -12,7 +12,8 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// U144-F10 — the class gate behind U144-F01 and U144-F02.
+// This is the class gate behind two real defects found by hand: an agent
+// field silently dropped on its way to disk, twice.
 //
 // record.go:9-12 claims the on-disk payload structs mirror agent.ChatEvent's
 // variants "field-for-field". Nothing enforced that claim, and it had already
@@ -104,7 +105,7 @@ func TestArch_TranscriptPayload_BoolFieldsLandDistinctly(t *testing.T) {
 // consumer of the canonical transcript (memory distillation, session-load
 // replay, `session list`, the resume picker).
 //
-// This is the same defect class that produced U144-F01 and U144-F02 on the
+// This is the same defect class that produced two real drops on the
 // write side, and it has exactly one honest assertion: fill an agent value
 // totally by reflection, write it, read it back through the REAL bytes, and
 // require the whole struct. A named per-field check covers what its author

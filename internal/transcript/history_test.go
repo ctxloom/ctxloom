@@ -263,7 +263,7 @@ func TestCanonicalHistory_GetSession_FallsBackToLegacyFilename(t *testing.T) {
 }
 
 // TestParseTranscriptFile_TruncatedLine_DegradesToPartial pins the crash/
-// partial contract (tough-cloud plan §6.4): a transcript truncated mid-line
+// partial contract: a transcript truncated mid-line
 // (the process died mid-write) must yield everything readable BEFORE the
 // break, never an error for the whole session — matching the same
 // degrade-to-partial guarantee agent.SessionStore.ParseSessionFile already
@@ -391,7 +391,7 @@ func splitLines(data []byte) []string {
 	return lines
 }
 
-// TestParseTranscriptFile_NothingDecoded_FailsLoud pins U144-F03: three states
+// TestParseTranscriptFile_NothingDecoded_FailsLoud pins that three states
 // must stay distinguishable at this seam, and before this test only two of
 // them were.
 //

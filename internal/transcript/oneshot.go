@@ -4,7 +4,7 @@
 // returns prose on stdout with no ChatEvent stream at all, so the tee at
 // GRPCClient.Chat (internal/lm/grpc/chat.go) and coord/enginehost.startRun
 // never fires for it — the structured-capture win of S2/S3 leaves this path
-// silently uncaptured (tough-cloud plan §2d "Oneshot Execute", slice S6).
+// silently uncaptured (slice S6, "Oneshot Execute").
 //
 // RecordOneshot writes a deliberately LOW-FIDELITY two-entry canonical
 // transcript instead: one `user` entry from the request prompt, one
@@ -49,7 +49,7 @@ func RecordOneshot(harp, engine, prompt, output string) error {
 	}
 	// There IS something to capture and no harp to file it under. Returning
 	// nil here reported full success for a run whose entire transcript was
-	// dropped on the floor — callers only check the error (U144-F15).
+	// dropped on the floor — callers only check the error.
 	if harp == "" {
 		return fmt.Errorf("transcript: oneshot capture: no harp for this run, so %d bytes of prompt and %d bytes of output cannot be recorded", len(prompt), len(output))
 	}

@@ -4,7 +4,7 @@
 // paths.ResolveHarpCanonicalTranscriptPath so a pre-rename
 // transcript.acp.jsonl still resolves) back into the normalized
 // agent.Session/agent.SessionMeta shape ctxloom's memory consumers already
-// depend on (tough-cloud plan §4a, slice S3).
+// depend on (slice S3).
 //
 // CanonicalHistory is engine-agnostic by construction: every structured
 // engine's frames already folded through internal/acp/mapping.go before the
@@ -109,7 +109,7 @@ func (e *SchemaVersionError) Newer() bool { return e.Found > e.Known }
 // transcript was ever captured for this harp: the mirror image of the
 // Recorder's empty-input contract (NewRecorder leaves no file for a chat that
 // produced zero events, recorder.go), so "no file" and "captured, empty"
-// never get confused on the read side either — and, since U144-F03, nor does
+// never get confused on the read side either — and nor does
 // "a file that decoded to nothing", which ParseTranscriptFile now also
 // errors on rather than returning as an empty conversation.
 func (h *CanonicalHistory) GetSession(_ context.Context, harpName string) (*agent.Session, error) {
@@ -253,7 +253,7 @@ func warnSkippedTranscript(harp, path string, err error) {
 //     exactly the silent-mis-parse failure mode the versioned envelope exists
 //     to prevent ("isolation-must-not-negotiate": fail loud, never guess).
 //   - A file from which NOT ONE record decoded — every line corrupt, or zero
-//     bytes — is a HARD error too (U144-F03). Degrading to partial only means
+//     bytes — is a HARD error too. Degrading to partial only means
 //     anything when there IS a part; "the whole file was unreadable" and "the
 //     conversation was empty" are different facts, and returning an empty
 //     Session with a nil error asserted the second when only the first was
@@ -267,7 +267,7 @@ func ParseTranscriptFile(path, id string) (*agent.Session, error) {
 	// agent.NewSessionStore() used to be the OS-filesystem constructor here,
 	// but a zero-value SessionStore{} is identical: every FS use goes through
 	// agent.GetFS, which already defaults a nil Fs to afero.NewOsFs()
-	// (U102-F17 deleted the redundant constructor).
+	// (the redundant constructor was deleted).
 	store := agent.SessionStore{}
 
 	var (

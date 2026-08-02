@@ -34,7 +34,7 @@ func TestRecordOneshot_WritesTwoEntryTranscript(t *testing.T) {
 	assert.Equal(t, "4.", sess.Entries[1].Content)
 }
 
-// TestRecordOneshot_NoHarpWritesNothing pins the corrected contract (U144-F15):
+// TestRecordOneshot_NoHarpWritesNothing pins the corrected contract:
 // an empty harp still writes no file — there is nothing to key it to — but it
 // no longer reports SUCCESS while dropping a real prompt and output on the
 // floor. Callers check only the error, so silence there was a lie.

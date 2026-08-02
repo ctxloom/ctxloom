@@ -48,7 +48,7 @@ func readRecordedRawLines(t *testing.T, harp string) []string {
 }
 
 // TestRecorder_EngineIsWrittenVerbatimAndClaudeFailsThePublishedSchema is the
-// standing tripwire for U144-F05, which is ESCALATED rather than fixed: the
+// standing tripwire for the engine-name discrepancy, which is ESCALATED rather than fixed: the
 // registered-backend-name vocabulary ("claude-code") and the published
 // transcript schema's `engine` enum ("claude") disagree, and deciding which
 // one is canonical is a contract call, not a sweep's.
@@ -79,7 +79,7 @@ func TestRecorder_EngineIsWrittenVerbatimAndClaudeFailsThePublishedSchema(t *tes
 	// The enum's own membership, stated once so the rest of the test is about
 	// the recorder rather than about JSON Schema.
 	require.Error(t, schema.Validate(engineProbeLine(t, registeredClaudeBackendName)),
-		"schema must reject the registered backend name; if this passes the enum was widened and U144-F05 was decided")
+		"schema must reject the registered backend name; if this passes the enum was widened and the engine-name discrepancy was decided")
 	require.NoError(t, schema.Validate(engineProbeLine(t, schemaEngineNameForClaude)),
 		"schema must accept the fixtures' spelling")
 
@@ -92,7 +92,7 @@ func TestRecorder_EngineIsWrittenVerbatimAndClaudeFailsThePublishedSchema(t *tes
 	var decoded Record
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &decoded))
 	assert.Equal(t, registeredClaudeBackendName, decoded.Engine,
-		"the recorder passes engine through verbatim; a mismatch here means normalization was added and U144-F05 was decided")
+		"the recorder passes engine through verbatim; a mismatch here means normalization was added and the engine-name discrepancy was decided")
 
 	var onDisk interface{}
 	require.NoError(t, json.Unmarshal([]byte(lines[0]), &onDisk))

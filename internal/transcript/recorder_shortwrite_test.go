@@ -45,7 +45,7 @@ func entryEvent(label string) agent.ChatEvent {
 }
 
 // TestRecorder_ShortWriteBoundsTheDamageAndShowsTheGap pins both halves of
-// U144-F14.
+// a partial-write defect.
 //
 // A partial write left an unterminated JSON fragment on disk AND left seq
 // unadvanced. The fragment had no trailing newline, so the NEXT record's bytes

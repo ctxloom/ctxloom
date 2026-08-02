@@ -52,7 +52,7 @@ type fileRecorder struct {
 	sessionID string // latched from the first KindSession line seen
 
 	// failures counts events handed to Record that were NOT captured, and
-	// warned/closeWarned keep that observable without flooding (U144-F04).
+	// warned/closeWarned keep that observable without flooding.
 	// Every live capture seam — tee, TeeAndClose, RecordUserText,
 	// CoordinatedRecorder — deliberately discards Record's error so a
 	// transcript failure can never perturb the chat it shadows. That is the
@@ -168,7 +168,7 @@ func openAppendFile(path string) (io.WriteCloser, error) {
 
 // ensureFile lazily creates the persist dir and opens the append-only file.
 // Extracted from record so the write path stays under the project's
-// complexity gate (U144-F09).
+// complexity gate.
 func (r *fileRecorder) ensureFile() error {
 	if r.file != nil {
 		return nil
@@ -276,7 +276,7 @@ func (r *fileRecorder) Close() error {
 	// Report the total ONCE, even when no file was ever opened — the
 	// "couldn't create the dir at all" case is precisely the one that leaves
 	// zero bytes and would otherwise pass for a chat that simply had nothing
-	// to record (U144-F04).
+	// to record.
 	if r.failures > 0 && !r.closeWarned {
 		r.closeWarned = true
 		clidiag.Warn("ctxloom", "transcript capture for harp %q lost %d event(s); %s is incomplete or absent", r.harp, r.failures, r.path)
@@ -295,7 +295,7 @@ func (r *fileRecorder) Close() error {
 // INBOUND ChatMessage channel instead, so without an explicit tap at each
 // host seam (GRPCClient.Chat's `in` pump, coord/enginehost.go's SetTurnSink
 // and briefing sends) a structured session's canonical transcript carries
-// assistant output but no user turns at all (edgy-ivory). Mirrors the `user`
+// assistant output but no user turns at all. Mirrors the `user`
 // entry oneshot.RecordOneshot synthesizes for the oneshot-Execute regime.
 //
 // rec may be nil (no harp / capture disabled) and text may be empty (a
@@ -318,12 +318,11 @@ func RecordUserText(rec Recorder, text string) {
 // event before forwarding it unchanged, and returns the forwarding channel.
 // This is the exact shape S2 drops in at its two host seams
 // (GRPCClient.Chat's returned events channel, and coord/enginehost.adapt's
-// consumed `out`) — see docs/transcript-schema.md and the tough-cloud plan
-// §2c. Recording happens BEFORE forwarding so a consumer that stops reading
+// consumed `out`) — see docs/transcript-schema.md §2c. Recording happens BEFORE forwarding so a consumer that stops reading
 // early never causes an event to be forwarded-but-not-recorded. Unexported:
 // TeeAndClose is the only production shape any host seam needs (a bare tee
 // would leak the Recorder's fd), so this stays a package-private helper
-// (U144-F13 — no external caller, only TeeAndClose and this package's tests
+// (no external caller; only TeeAndClose and this package's tests
 // used the exported name).
 //
 // A Record error is deliberately swallowed except for a debug-log style

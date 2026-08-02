@@ -34,7 +34,7 @@ func unwritableHarpDir(t *testing.T, harp string) string {
 	return path
 }
 
-// TestRecorder_WriteFailure_IsObservable pins U144-F04. A transcript write
+// TestRecorder_WriteFailure_IsObservable pins that a transcript write
 // that fails — full disk, EACCES, a path that cannot be created — used to
 // produce a completely green chat, zero captured bytes, and NOT ONE
 // diagnostic anywhere: Tee, TeeAndClose, RecordUserText and

@@ -2,7 +2,7 @@
 // canonical transcript.jsonl file under a harp's persist/ dir
 // (paths.HarpCanonicalTranscriptPath). It is the runner-side alternative to
 // scraping each engine's private, version-unstable session-store file (see
-// docs/transcript-schema.md for the full design rationale, "tough-cloud").
+// docs/transcript-schema.md for the full design rationale).
 //
 // This file (record.go) defines the ON-DISK SCHEMA: one JSON object per JSONL
 // line, an envelope (v/harp/session_id/engine/seq/ts/kind) wrapping exactly one
@@ -191,7 +191,7 @@ type SessionPayload struct {
 	// one-shot resume gate (the connected adapter's own handshake advertising
 	// session/load), as distinct from the static per-backend capability
 	// table. Without it on disk, a transcript cannot answer "could this
-	// native session have been resumed?" after the fact (U144-F01).
+	// native session have been resumed?" after the fact.
 	Resumable      bool        `json:"resumable,omitempty"`
 	Model          string      `json:"model,omitempty"`
 	PermissionMode string      `json:"permission_mode,omitempty"`
@@ -240,7 +240,7 @@ type PermissionPayload struct {
 	// ToolCallID mirrors agent.PermissionRequest.ToolCallID — the
 	// engine-native tool-call id this request refers to. Without it a
 	// recorded permission request cannot be re-paired with the tool call it
-	// gated, leaving only name-based guessing (U144-F02). The published
+	// gated, leaving only name-based guessing. The published
 	// schema (docs/transcript.schema.json) already declared this key before
 	// the Go struct carried it.
 	ToolCallID string `json:"tool_call_id,omitempty"`

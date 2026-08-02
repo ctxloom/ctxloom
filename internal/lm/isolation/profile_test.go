@@ -58,7 +58,7 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 // TestContainerProfileFor_UnknownIsDefault: a genuinely unknown/unregistered
 // backend name keeps the pre-profile semantics for image/overlay/build shape
 // — the generic image, NO local build (run if the image is present, degrade
-// if not) — but, per U064-F01, no longer fails OPEN on credentials. Before
+// if not) — but no longer fails OPEN on credentials. Before
 // the fix the default wired resolveClaudeContainerAuth, so any unrecognized
 // engine (registry.go's generic "acp" backend; container_transport.go's own
 // doc names this exact fallthrough) got the user's ANTHROPIC_API_KEY/
@@ -81,8 +81,8 @@ func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
 	}
 }
 
-// TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault is the
-// paced-even regression guard: every REGISTERED backend (the composable set
+// TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault is a
+// regression guard: every REGISTERED backend (the composable set
 // plus antigravity) must resolve its OWN auth — none of them may reach
 // resolveClaudeContainerAuth/defaultOverlayDirs, the security edge where a
 // containerized codex/opencode/antigravity run would silently authenticate
@@ -109,7 +109,7 @@ func TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault(t *testing.T
 	}
 }
 
-// TestContainerProfileFor_Codex pins bony-spoof: codex is composable (its own
+// TestContainerProfileFor_Codex pins that codex is composable (its own
 // official-installer fragment) AND has its own auth/overlay set — no longer
 // inheriting the default (claude) profile's auth axis.
 func TestContainerProfileFor_Codex(t *testing.T) {
@@ -146,10 +146,10 @@ func TestContainerProfileFor_Opencode(t *testing.T) {
 	assert.Contains(t, auth.envPassthrough, "OPENROUTER_API_KEY")
 }
 
-// TestContainerProfileFor_Antigravity pins the paced-even fix for
-// antigravity plus task sweet-fruit's image-half landing: antigravity is now
+// TestContainerProfileFor_Antigravity pins the security fix for
+// antigravity plus its image-half landing: antigravity is now
 // COMPOSABLE (its own official-installer fragment, live-verified against
-// https://antigravity.google/cli/install.sh), and (fatal-amino, 2026-07-22)
+// https://antigravity.google/cli/install.sh), and (2026-07-22)
 // its AUTH half is now a REAL resolver — it must NOT silently reuse claude's
 // auth/overlay, and must degrade (not authenticate) when the host has no
 // seedable antigravity OAuth token, even with ANTHROPIC_API_KEY set.
@@ -157,7 +157,7 @@ func TestContainerProfileFor_Antigravity(t *testing.T) {
 	withFakeHome(t) // hermetic: no real ~/.gemini/antigravity-cli/antigravity-oauth-token to accidentally pick up
 	p := containerProfileFor("antigravity")
 	assert.Equal(t, defaultContainerImage, p.image, "fallback tag only — the real tag is the composed multi-engine one")
-	assert.NotNil(t, p.engineInstall, "antigravity is composable as of task sweet-fruit")
+	assert.NotNil(t, p.engineInstall, "antigravity is composable")
 	assert.Equal(t, "agy --version", p.validate)
 	assert.Nil(t, p.overlayDirs, "no known project-relative managed-config surface for antigravity yet")
 	require.NotNil(t, p.resolveAuth)
@@ -217,7 +217,7 @@ func TestResolveKiroContainerAuth_AWSRidesAlongOnlyWhenTriggered(t *testing.T) {
 }
 
 // TestEveryComposableEngineGatesItsACPSurfaceByExecution is the generalization
-// of the 2026-07-24 container-delegation defect (task minty-wilt): NO composable
+// of the 2026-07-24 container-delegation defect: NO composable
 // engine's install fragment may validate its structured-chat surface by PATH
 // presence, or by a `--version` that exercises a DIFFERENT code path from the
 // one delegation actually spawns.
@@ -276,8 +276,8 @@ func TestNativeACPRunGate_ProbesTheSubcommandNotTheClient(t *testing.T) {
 	assert.Contains(t, g, "exit 1")
 }
 
-// TestContainerProfileFor_EveryProfileMapsATranscriptStore is U064-F05's
-// pinning test. The row claimed an empty profile.transcriptStoreRel silently
+// TestContainerProfileFor_EveryProfileMapsATranscriptStore pins that a
+// review row claimed an empty profile.transcriptStoreRel silently
 // skips the transcript mount, so a containerized run writes a transcript that
 // dies at --rm teardown with nothing said. sessionStateMounts' `if
 // c.profile.transcriptStoreRel != ""` guard is real, but the empty case is

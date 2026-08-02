@@ -16,10 +16,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// configCmd is the top-level home of ctxloom configuration (CLI-primary
-// reorg plan, Decision 6: `manage config *` promoted to top-level `config
-// *`). The old `manage config` path is kept working as a deprecated alias
-// namespace (manage.go's manageConfigCmd), sharing the RunE bodies below.
+// configCmd is the top-level home of ctxloom configuration; the old `manage
+// config *` path was removed, not kept as an alias.
 var configCmd = &cobra.Command{
 	Use:   "config",
 	Short: "Show or modify ctxloom configuration",
@@ -73,8 +71,7 @@ func configPayload(v any) (any, error) {
 	return payload, nil
 }
 
-// configGetLong is shared by configGetCmd (real home) and
-// manageConfigGetCmd (deprecated alias, manage.go).
+// configGetLong is configGetCmd's Long text.
 const configGetLong = `Get a specific configuration section.
 
 Available sections:
@@ -191,8 +188,7 @@ func configFileExists(path string) (bool, error) {
 	return true, nil
 }
 
-// configInitLong is shared by configInitCmd (real home) and
-// manageConfigInitCmd (deprecated alias, manage.go).
+// configInitLong is configInitCmd's Long text.
 const configInitLong = `Write a default config.yaml AND a default remotes.yaml into the project
 .ctxloom directory.
 
@@ -256,10 +252,8 @@ func openInEditor(path string) error {
 }
 
 func init() {
-	// Top-level (CLI-primary reorg plan, Decision 6): `manage config` used to
-	// be the only home; manage.go now wires a deprecated alias namespace
-	// instead of re-parenting this same *cobra.Command (a command has exactly
-	// one parent).
+	// Top-level: `manage config` used to be the only home; it has since been
+	// removed in favor of this command.
 	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configGetCmd)

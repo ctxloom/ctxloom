@@ -320,10 +320,10 @@ func viewBundle() *bundles.Bundle {
 }
 
 // TestRenderBundleViewItem_Profile_YAMLOutput and the two not-found cases below
-// are characterization coverage added before U035-F09 split
-// renderBundleViewItem's switch into per-type renderers: the profiles arm and
-// the mcp/profile not-found paths had no test, so the split would otherwise have
-// been unguarded.
+// are characterization coverage added before renderBundleViewItem's switch
+// was split into per-type renderers: the profiles arm and the mcp/profile
+// not-found paths had no test, so the split would otherwise have been
+// unguarded.
 func TestRenderBundleViewItem_Profile_YAMLOutput(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, renderBundleViewItem(&buf, viewBundle(), "profiles/dev", false))

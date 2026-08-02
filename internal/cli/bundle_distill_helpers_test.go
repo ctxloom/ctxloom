@@ -20,7 +20,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-// TestRunBundleDistill_AllFilesFailedExitsNonZero pins U034-F02: per-file
+// TestRunBundleDistill_AllFilesFailedExitsNonZero pins that per-file
 // distill errors were appended to result.Errors and printed, but nothing
 // converted a non-empty result.Errors into a non-nil error for the command —
 // `ctxloom bundle distill` over files that ALL fail to parse exited 0.
@@ -239,9 +239,9 @@ func TestRunBundleDistill_TextPathReportsWriteFailuresAndUsesCommandWriters(t *t
 	})
 }
 
-// U034-F10 reads loadDistillPrompt as swallowing its config-load error into a
+// loadDistillPrompt used to swallow its config-load error into a
 // permanently-nil error the caller then branches on. It no longer has an error
-// to return: the error return was removed (U035-F06) precisely because every
+// to return: the error return was removed precisely because every
 // unavailable source falls back to the embedded default, so there is never a
 // failure to report and no caller has to decide what to do about one.
 //

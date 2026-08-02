@@ -148,7 +148,7 @@ func runBundleDistill(cmd *cobra.Command, args []string) error {
 	}); err != nil {
 		return err
 	}
-	// U034-F02: every per-file failure above only ever appended to
+	// Every per-file failure above only ever appended to
 	// result.Errors and `continue`d — nothing converted a non-empty Errors
 	// into a non-nil error for THIS command, so `ctxloom bundle distill` over
 	// a directory where every file failed still printed to stderr and exited
@@ -271,7 +271,7 @@ var defaultDistillPrompt = resources.MustGetPromptText("distill-default")
 // any trusted bundle, an empty one) falls back to the embedded default prompt,
 // so there is always a usable prompt and never an error to report. It returns
 // no error rather than a permanently-nil one, so no caller has to decide what
-// to do about a failure that cannot happen (U035-F06: the discarded error was
+// to do about a failure that cannot happen (the discarded error was
 // one of three "silent return nil" paths in newLLMDistillerForLabel).
 func loadDistillPrompt() string {
 	cfg, err := config.Load()

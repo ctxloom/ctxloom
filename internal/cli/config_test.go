@@ -134,7 +134,7 @@ func TestRenderConfigYAML_OmitsRuntimeOnlyFields(t *testing.T) {
 	}
 }
 
-// TestConfigFileExists_DistinguishesAbsentFromUnknown pins U035-F15's core:
+// TestConfigFileExists_DistinguishesAbsentFromUnknown pins the core invariant:
 // os.Stat has three outcomes, and only two of them are a boolean.
 func TestConfigFileExists_DistinguishesAbsentFromUnknown(t *testing.T) {
 	dir := t.TempDir()
@@ -165,7 +165,7 @@ func TestConfigFileExists_DistinguishesAbsentFromUnknown(t *testing.T) {
 	})
 }
 
-// TestRunConfigEdit_InconclusiveStatDoesNotLaunchTheEditor is U035-F15's
+// TestRunConfigEdit_InconclusiveStatDoesNotLaunchTheEditor pins the
 // reachable half: `os.IsNotExist(err)` alone let every OTHER stat failure fall
 // straight through to $EDITOR, so `config edit` opened an editor on a path it
 // had just failed to read — and, with the editor exiting 0, reported success.
@@ -183,7 +183,7 @@ func TestRunConfigEdit_InconclusiveStatDoesNotLaunchTheEditor(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot determine whether")
 }
 
-// TestRunConfigInit_InconclusiveStatIsReportedByTheGuard is U035-F15's write
+// TestRunConfigInit_InconclusiveStatIsReportedByTheGuard pins the write
 // half: `if err == nil` treated every stat failure as "no config here", so the
 // one thing config init promises — never overwriting an existing config.yaml —
 // rested on the downstream writer happening to fail too. The guard now reports
@@ -200,7 +200,7 @@ func TestRunConfigInit_InconclusiveStatIsReportedByTheGuard(t *testing.T) {
 }
 
 // TestRunConfigInit_WritesTheScaffoldPayload is the characterization test for
-// U035-F16 (context.Background() -> cmd.Context()). The ctx swap is not
+// the context.Background() -> cmd.Context() swap. That swap is not
 // observable: operations.InitializeProject's signature is
 // `InitializeProject(_ context.Context, ...)` — it DISCARDS the context
 // entirely (init.go), so no cancellation test can discriminate the two, and
@@ -226,10 +226,11 @@ func TestRunConfigInit_WritesTheScaffoldPayload(t *testing.T) {
 	require.Error(t, runConfigInit(cmd, nil))
 }
 
-// TestConfigShowGet_HonorEveryFormatWithARealPayload is U035-F07's pin. The
-// row's SILENTNOOP framing is refuted — U104-F01's PersistentPostRunE guard
-// already turns `config show --format json` into a loud exit-1 refusal (see
-// format_test.go's TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly) rather
+// TestConfigShowGet_HonorEveryFormatWithARealPayload pins that a SILENTNOOP
+// framing is refuted — the PersistentPostRunE guard (formatWasHonored,
+// format.go) already turns `config show --format json` into a loud exit-1
+// refusal (see format_test.go's
+// TestConfigShow_UnwiredCommand_FormatJSONErrorsLoudly) rather
 // than a silent YAML-instead-of-JSON lie — but the underlying gap was real, and
 // this is what paying it down has to deliver: EVERY format carries the actual
 // configuration, never an empty envelope. Config's fields are unexported and it

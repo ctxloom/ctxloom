@@ -75,7 +75,7 @@ func TestRenderTooling(t *testing.T) {
 	})
 }
 
-// TestRenderContainerCheck_UnresolvedBackend pins U035-F04's rendering half:
+// TestRenderContainerCheck_UnresolvedBackend pins the rendering half:
 // with no backend argument and an unloadable config the backend genuinely does
 // not resolve, and the header must say so rather than printing an empty
 // parenthesis that reads as a formatting bug.
@@ -86,7 +86,7 @@ func TestRenderContainerCheck_UnresolvedBackend(t *testing.T) {
 	assert.NotContains(t, buf.String(), "backend: )")
 }
 
-// TestContainerCheckConfigGap pins U035-F04: `container check` discarded BOTH
+// TestContainerCheckConfigGap pins that `container check` discarded BOTH
 // GetConfig errors, so an unloadable config produced a report about the empty
 // backend (or, with a backend named, one that silently ignored the project's
 // isolation_images override) and still exited 0 with no mention of the config
@@ -115,7 +115,7 @@ func TestContainerCheckConfigGap(t *testing.T) {
 	})
 }
 
-// TestDiagnosticCommandsDoNotPromiseAnUnconditionalZeroExit pins U035-F22:
+// TestDiagnosticCommandsDoNotPromiseAnUnconditionalZeroExit pins that
 // `container check` and `doctor` both advertised "always exits 0", yet both
 // end in `return emit(...)`, which propagates cliemit.Resolve's error for an
 // unrenderable --format (pinned by TestEmit_UnknownFormat_WrapsErrUnsupported

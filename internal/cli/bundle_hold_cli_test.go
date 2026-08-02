@@ -14,14 +14,14 @@ import (
 
 // `bundle hold` / `bundle unhold` flip a flag on the ACTIVE LOCKFILE entry, so
 // when the named item has no such entry nothing is flipped and nothing is
-// persisted. U034-F09 read that whole branch as the project's signature silent
-// no-op and made it a hard error. It is really two situations the lockfile
+// persisted. That whole branch used to read as the project's signature silent
+// no-op and was made a hard error. It is really two situations the lockfile
 // cannot tell apart, and only one of them is a failure — see
 // reportNothingToHold. These two tests pin both arms so neither can drift back
 // into the other.
 
 // A name that resolves to NOTHING — a typo, the wrong project, a `remote pull`
-// that never ran — is the real U034-F09 case: the caller asked to freeze a
+// that never ran — is the real failure case: the caller asked to freeze a
 // dependency, nothing was frozen, and exit 0 would tell them it was. No
 // acceptance scenario ever covered this arm.
 func TestBundleHoldUnhold_UnknownItemFailsInsteadOfNoOpping(t *testing.T) {
@@ -56,8 +56,8 @@ func TestBundleHoldUnhold_UnknownItemFailsInsteadOfNoOpping(t *testing.T) {
 // guarantee hold exists to give already holds, and unhold has nothing to
 // release. That is a benign no-op, not a user error — exit 0.
 //
-// The notice is still about work NOT done, so it must ride STDERR (the half of
-// U034-F09 that was right); stdout stays empty because nothing was pinned.
+// The notice is still about work NOT done, so it must ride STDERR; stdout
+// stays empty because nothing was pinned.
 func TestBundleHoldUnhold_LocalBundleSucceedsWithANoticeOnStderr(t *testing.T) {
 	for _, verb := range []string{"hold", "unhold"} {
 		t.Run(verb, func(t *testing.T) {

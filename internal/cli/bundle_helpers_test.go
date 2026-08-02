@@ -271,10 +271,9 @@ func TestValidateExplicitLLM(t *testing.T) {
 	})
 }
 
-// TestPrintPushReminder_WritesToTheGivenWriter pins U035-F17 for the
-// edit-flow reminder: it printed straight to os.Stdout, so neither this
-// package's cobra output-capture tests nor an embedding frontend could see or
-// redirect it.
+// TestPrintPushReminder_WritesToTheGivenWriter pins the edit-flow reminder:
+// it printed straight to os.Stdout, so neither this package's cobra
+// output-capture tests nor an embedding frontend could see or redirect it.
 func TestPrintPushReminder_WritesToTheGivenWriter(t *testing.T) {
 	var buf bytes.Buffer
 	printPushReminder(&buf, "mybundle")

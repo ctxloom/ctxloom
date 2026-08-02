@@ -12,7 +12,7 @@ import (
 )
 
 // TestContainerBuildOptions_ExplicitBaseImageDoesNotInheritConfigBaseContainerfile
-// pins U035-F02: isolation.BuildAgentImage rejects BaseImage+BaseContainerfile
+// pins that isolation.BuildAgentImage rejects BaseImage+BaseContainerfile
 // as mutually exclusive, so inheriting a project's
 // isolation_base_containerfile while --base-image is set made `container build
 // --base-image X` hard-fail on every project that configures a base
@@ -90,7 +90,7 @@ func TestContainerBuildOptions_NilConfigResolvesFromFlagsAlone(t *testing.T) {
 }
 
 // TestContainerBuildOptions_ConfiguredIsolationImageWarnsThatTheBuildIsUnused
-// pins U035-F03: an isolation_images entry is run AS-IS and never built, so a
+// pins that an isolation_images entry is run AS-IS and never built, so a
 // build for that backend produces an image no run will ever use. Silence there
 // is this project's characteristic failure — a success message for work with
 // no effect — so the mismatch must be reported.

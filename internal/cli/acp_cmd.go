@@ -88,27 +88,24 @@ Stdout carries the protocol; all diagnostics go to stderr.`,
 	RunE: runACPServer,
 }
 
-// runACPServer is the ACP-server RunE, shared by acpServeCmd (the real home)
-// and the Deprecated bare acpCmd alias, so the two can never drift.
+// runACPServer is acpServeCmd's RunE.
 func runACPServer(cmd *cobra.Command, args []string) error {
-	// U034-F03: --workspace is documented (acpServeCmd's Long text, above) as
-	// "Requires --agent" — worktree isolation is for a deliberately-configured
-	// agent entry, never the plain, agent-less server. acpWorkspaceAxis
+	// --workspace is documented (acpServeCmd's Long text, above) as "Requires
+	// --agent" — worktree isolation is for a deliberately-configured agent
+	// entry, never the plain, agent-less server. acpWorkspaceAxis
 	// (internal/operations/engine_session.go) already silently returns the
 	// empty axis whenever acpAgent is empty; left unchecked, a user who
 	// passes --workspace worktree with no --agent gets NO isolation and is
 	// told nothing — the worst failure direction for an isolation flag.
-	// Checked here (not a PreRunE) so the bare `acp` alias and `acp serve`
-	// share one enforcement point without duplicating the wiring.
 	if err := validateACPWorkspaceRequiresAgent(cmd, acpAgent); err != nil {
 		return err
 	}
-	// COORDINATOR HOSTING (agentcoord Wave B1, review R1): an ACP-launched
-	// session has no run wrapper — acp opens engines directly — so it
-	// stands the runtime coordinator up itself, one per acp process,
-	// keyed by the process cwd's project. Each session/new mints its own
-	// owner credential and injects the reach-back trio. A standup failure
-	// degrades to no delegation (warned): the editor's chat still opens.
+	// COORDINATOR HOSTING: an ACP-launched session has no run wrapper — acp
+	// opens engines directly — so it stands the runtime coordinator up
+	// itself, one per acp process, keyed by the process cwd's project. Each
+	// session/new mints its own owner credential and injects the reach-back
+	// trio. A standup failure degrades to no delegation (warned): the
+	// editor's chat still opens.
 	var acpCoord = newACPCoordinator()
 	defer acpCoord.close()
 	// ISO0: the session opener itself lives in operations.OpenEngineSession
@@ -121,7 +118,7 @@ func runACPServer(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// validateACPWorkspaceRequiresAgent enforces U034-F03: --workspace only means
+// validateACPWorkspaceRequiresAgent enforces that --workspace only means
 // anything paired with --agent (acpWorkspaceAxis silently returns the empty
 // axis otherwise). Split out from runACPServer so it can be unit tested
 // without going anywhere near acpagent.Serve's blocking stdio read loop.
@@ -132,11 +129,7 @@ func validateACPWorkspaceRequiresAgent(cmd *cobra.Command, agent string) error {
 	return nil
 }
 
-// registerACPServerFlags binds the ACP-server flag set to cmd. Shared by the
-// top-level `acp` (deprecated bare-serve alias) and `acp serve` so both
-// surfaces accept the same options against the same package-level flag vars:
-// a cobra command has exactly one parent, so the alias must be a distinct
-// command sharing the flags/RunE, not the same *cobra.Command.
+// registerACPServerFlags binds the ACP-server flag set to cmd.
 func registerACPServerFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&acpProfile, "profile", "p", "", "profile to assemble context from (default: the configured defaults)")
 	cmd.Flags().StringVarP(&acpLLM, "llm", "l", "", "LLM config label to drive (default: the agent's/profile's llm, then the primary)")

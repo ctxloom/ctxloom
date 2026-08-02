@@ -438,8 +438,8 @@ func init() {
 	containerCmd.AddCommand(containerCheckCmd)
 	containerCmd.AddCommand(containerScaffoldCmd)
 	containerCmd.AddCommand(containerProvenanceCmd)
-	// Real home of the deprecated top-level `ctxloom tooling` (Decision 4/6):
-	// the container image is (today) where declarations land.
+	// Real home of the deprecated top-level `ctxloom tooling`: the container
+	// image is (today) where declarations land.
 	containerCmd.AddCommand(containerToolingCmd)
 	rootCmd.AddCommand(containerCmd)
 }

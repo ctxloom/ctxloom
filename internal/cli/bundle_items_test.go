@@ -32,7 +32,7 @@ func seedBundleMCP(t *testing.T, cfg *config.Config, name string) {
 	require.NoError(t, err)
 }
 
-// TestRunBundleMCPEdit_EmptiedBufferAborts pins U034-F01: an emptied editor
+// TestRunBundleMCPEdit_EmptiedBufferAborts pins that an emptied editor
 // buffer (the user deleted everything and saved) used to silently gut the MCP
 // entry — yaml.Unmarshal("", &edited) succeeds with a zero-value struct, no
 // error of its own — and report "Updated" success. It must instead abort,
@@ -51,9 +51,10 @@ func TestRunBundleMCPEdit_EmptiedBufferAborts(t *testing.T) {
 	assert.Equal(t, "real-mcp-server", after.MCP.Command, "the bundle must be UNCHANGED after an aborted edit")
 }
 
-// TestRunBundleMCPEdit_NoCommandAborts is U034-F01's sibling case: valid YAML
-// that simply carries no `command:` (e.g. the user deleted just that line)
-// is just as unusable as an empty buffer and must abort the same way.
+// TestRunBundleMCPEdit_NoCommandAborts is the sibling case of an emptied
+// buffer: valid YAML that simply carries no `command:` (e.g. the user
+// deleted just that line) is just as unusable as an empty buffer and must
+// abort the same way.
 func TestRunBundleMCPEdit_NoCommandAborts(t *testing.T) {
 	cfg := setupEditProject(t)
 	seedBundleMCP(t, cfg, "srv")

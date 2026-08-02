@@ -41,7 +41,7 @@ func unknownFormatError(format string) error {
 // frontend (CLI, the VSCode companion, scripts) reading the same backend
 // results.
 //
-// Also marks formatWasHonored (U104-F01): calling emit() at all is this
+// Also marks formatWasHonored: calling emit() at all is this
 // invocation's proof that its command actually read the resolved --format
 // value, regardless of which branch it took.
 func emit(cmd *cobra.Command, data any, text func() error) error {
@@ -52,7 +52,7 @@ func emit(cmd *cobra.Command, data any, text func() error) error {
 // outputFormatOf reads the raw inherited --format flag value, unparsed. An
 // unset flag (e.g. a unit test that never registered it) reads as "".
 //
-// Also marks formatWasHonored (U104-F01), same reasoning as emit(): every
+// Also marks formatWasHonored, same reasoning as emit(): every
 // current caller (session watch, plan watch, run's structured REPL/chat
 // stream) is one of the streaming commands the const block above documents
 // as reading --format itself instead of going through emit() — this is
@@ -87,11 +87,11 @@ func reviewWantsListing(cmd *cobra.Command, listFlag, interactive bool) bool {
 	return err != nil || format != clifmt.FormatText
 }
 
-// formatWasHonored is the runtime half of U104-F01 ("--format is registered
-// globally but honoured opt-in, with nothing binding the two — so it is
-// accepted and silently ignored on dozens of commands"). --format is a
-// PERSISTENT flag (registered once below, on rootCmd) inherited by every
-// descendant, so it is ACCEPTED by every command whether or not that
+// formatWasHonored is the runtime guard against --format being registered
+// globally but honoured opt-in, with nothing binding the two — so it would
+// otherwise be accepted and silently ignored on dozens of commands. --format
+// is a PERSISTENT flag (registered once below, on rootCmd) inherited by
+// every descendant, so it is ACCEPTED by every command whether or not that
 // command's RunE ever reads it. This tracks whether the invoked command
 // actually did — via emit() or the streaming commands' outputFormatOf escape
 // valve, the only two paths through this package that read --format — and
@@ -119,7 +119,7 @@ func resetFormatGuard() { formatWasHonored = false }
 // command has its own, louder error to report — this never overrides that),
 // and never at all for --help/--version/completion (cobra returns before any
 // Run hook in those cases), so this fires exactly in the "exited 0 having
-// silently ignored --format" window U104-F01 describes. format == FormatText
+// silently ignored --format" window described above. format == FormatText
 // (the default, or an explicit `--format text`) is always fine: there is
 // nothing to honor.
 func checkFormatWasHonored(cmd *cobra.Command) error {

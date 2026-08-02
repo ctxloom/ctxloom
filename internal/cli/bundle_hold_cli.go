@@ -67,12 +67,12 @@ func holdItem(cfg *config.Config, name string, out, errOut io.Writer) error {
 //
 //   - The name resolves to NOTHING — a typo, the wrong project, or a `remote
 //     pull` that never ran. Here the user asked to freeze a dependency, nothing
-//     was frozen, and exit 0 tells them it was: the exit-0-on-failure family
-//     (U034-F09). Refuse, and name the recovery.
+//     was frozen, and exit 0 tells them it was: the exit-0-on-failure family.
+//     Refuse, and name the recovery.
 //
 // The notice is a diagnostic about work NOT done, so it rides stderr even on the
 // exit-0 path — `ctxloom bundle hold x > pins.txt` should not collect it. (The
-// pre-U034-F09 code sent it to stdout; that part of the finding was right.)
+// old code sent it to stdout on this exit-0 path, which was the wrong stream.)
 func reportNothingToHold(cfg *config.Config, name, verb string, errOut io.Writer) error {
 	if _, err := operations.GetBundle(cfg, name); err != nil {
 		return fmt.Errorf("%q is neither a local bundle nor an entry in the active lockfile, so there was nothing to %s — run `ctxloom remote pull` to lock it, or `ctxloom bundle list` to check the name", name, verb)

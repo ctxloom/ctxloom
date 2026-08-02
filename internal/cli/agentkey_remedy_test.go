@@ -66,7 +66,7 @@ func resolveSuggested(root *cobra.Command, tokens []string) (*cobra.Command, []s
 // agentkey error tells the user to run resolves to a real, RUNNABLE command in
 // the actual command tree — not to a command group, and not to nothing.
 //
-// The defect this pins (U135-F15): NoKeyError's last line read
+// The defect this pins: NoKeyError's last line read
 // "To publish unsigned anyway: ctxloom fragment push my-frag --no-sign".
 // `ctxloom fragment` has no `push` subcommand at all — publishing is
 // `ctxloom bundle push <bundle>` — so the one escape hatch offered to a user

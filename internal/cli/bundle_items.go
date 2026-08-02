@@ -62,7 +62,7 @@ func runBundleMCPEdit(cmd *cobra.Command, args []string) error {
 		w.Println("No changes made.")
 		return w.Err()
 	}
-	// U034-F01: an emptied editor buffer (the user deleted everything and
+	// An emptied editor buffer (the user deleted everything and
 	// saved, or the editor exited leaving a blank temp file) still differs
 	// from mcpYAML, so it fell straight past the "No changes made" guard
 	// above. yaml.Unmarshal("", &edited) succeeds with a ZERO-VALUE struct —

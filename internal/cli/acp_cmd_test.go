@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestValidateACPWorkspaceRequiresAgent pins U034-F03: `--workspace worktree`
+// TestValidateACPWorkspaceRequiresAgent pins that `--workspace worktree`
 // with no `--agent` used to be silently accepted and then silently discarded
 // by acpWorkspaceAxis (internal/operations/engine_session.go) — the user
 // asks for worktree isolation, gets none, and is told nothing. It must be

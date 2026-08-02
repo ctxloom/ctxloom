@@ -129,7 +129,7 @@ func TestAcpAgentsCmd_FormatJSON_EmitsMachineReadableEntries(t *testing.T) {
 	assert.Empty(t, got[2].Engine, "unset engine stays empty, not a synthesized default")
 }
 
-// U034-F15 reads zedAgentServersBlock's two discarded json.Marshal errors as an
+// zedAgentServersBlock's two discarded json.Marshal errors look like an
 // ERRHANDLING defect. The discards are real, but the harm is not: encoding/json
 // cannot fail for these operands. Both are built from string and []string only
 // — no channels, funcs, complex values, cyclic pointers, NaN/Inf, or custom

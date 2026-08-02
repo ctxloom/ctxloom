@@ -11,8 +11,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// TestCompletionCmd_UnsupportedShellFailsInsteadOfWritingNothing pins
-// U035-F18: the RunE switch had no default, so any unmatched shell fell through
+// TestCompletionCmd_UnsupportedShellFailsInsteadOfWritingNothing pins that
+// the RunE switch had no default, so any unmatched shell fell through
 // to `return nil` — exit 0, zero bytes, no message, and a user sourcing an
 // empty completion file. cobra's ValidArgs+OnlyValidArgs makes that unreachable
 // TODAY, which is the whole hazard: adding a shell to ValidArgs without adding
@@ -35,10 +35,10 @@ func TestCompletionCmd_ValidArgsMatchTheGeneratorArms(t *testing.T) {
 		"a new entry here needs a new arm in the RunE switch")
 }
 
-// TestCompleteLLMNames_BackendFallbackIsAdmissible REFUTES U035-F19, which
-// reads completeLLMNames' fallback to backends.List() as an inconsistency with
+// TestCompleteLLMNames_BackendFallbackIsAdmissible refutes the claim that
+// completeLLMNames' fallback to backends.List() is an inconsistency with
 // completeFragmentNames/ProfileNames/TagNames/PromptNames (all of which return
-// nil when the config does not load) and would have it return nil too.
+// nil when the config does not load), which would have it return nil too.
 //
 // The divergence is justified, and removing it would delete a working
 // completion. The four siblings complete names that exist ONLY inside a config

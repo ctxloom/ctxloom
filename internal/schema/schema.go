@@ -282,7 +282,7 @@ func convertToJSON(v interface{}) interface{} {
 			m[k] = convertToJSON(val)
 		}
 		return m
-	// U096-F03: yaml.v3 hands back exactly two shapes that are NOT already
+	// yaml.v3 hands back exactly two shapes that are NOT already
 	// JSON-native, and this function's whole reason to exist is to convert
 	// them. Both used to fall through to `default` untouched, so the schema
 	// validator saw a *jsonType* error (not a *jsonschema.ValidationError*)

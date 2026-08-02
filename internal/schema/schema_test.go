@@ -71,8 +71,8 @@ config:
 	})
 }
 
-// TestConfigValidator_RejectsTypoedHookKey (U050-F01) is the concrete
-// regression: $defs/hook set additionalProperties:true, so a typo'd key
+// TestConfigValidator_RejectsTypoedHookKey is the concrete
+// regression: $defs/hook used to set additionalProperties:true, so a typo'd key
 // inside a hook definition (e.g. "commnd" for "command") validated
 // successfully with zero warning and the hook silently never fired. Now the
 // hook object is closed, so a typo is a validation error.
@@ -140,7 +140,7 @@ func TestConvertToJSON(t *testing.T) {
 		assert.Equal(t, "tag2", tags[1])
 	})
 
-	// U096-F03: these are the two shapes yaml.v3 hands back that are NOT
+	// These are the two shapes yaml.v3 hands back that are NOT
 	// already JSON-native — the only two conversions this function exists to
 	// perform. Both used to fall through `default` untouched (verified:
 	// reflect.DeepEqual(in, convertToJSON(in)) was true for every case here),
@@ -179,7 +179,7 @@ func TestConvertToJSON(t *testing.T) {
 	})
 }
 
-// U096-F03: end-to-end through ValidateBytes (not just convertToJSON in
+// End-to-end through ValidateBytes (not just convertToJSON in
 // isolation) — the shapes above must reach the validator as JSON-native
 // values instead of surfacing a bare Go jsonType error that
 // classifyValidationError's errors.As on *jsonschema.ValidationError cannot

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U096-F04: schemaChild handled no array keyword, so the walk stopped dead at
+// schemaChild used to handle no array keyword, so the walk stopped dead at
 // the first array and KnownPath/KnownKeys answered "unknown" for everything
 // beneath one.
 //

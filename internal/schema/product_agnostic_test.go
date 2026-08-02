@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// U096-F11 claimed the type and its error strings are named for ctxloom
+// The type and its error strings are named for ctxloom
 // config while the type is product-agnostic. The naming half does not hold —
 // `ConfigValidator`, "failed to add config schema resource" and "failed to
 // compile config schema" all say *config*, and the only mention of ctxloom in

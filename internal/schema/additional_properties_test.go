@@ -7,15 +7,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U096-F05: `AdditionalProperties` is a three-way union -- nil, a bool, or a
-// *Schema -- and schemaChild type-asserted only the *Schema arm. The other two
+// `AdditionalProperties` is a three-way union -- nil, a bool, or a
+// *Schema -- and schemaChild used to type-assert only the *Schema arm. The other two
 // arms fell through to "not recognized", so `additionalProperties: true`, which
 // says every key name here is permitted, was walked as though it said the
 // opposite.
 //
-// The row's own cited instance of that (config-schema.json's $defs/hook, which
-// carried `additionalProperties: true` at census time) is gone: U050-F01 closed
-// the hook object, and no schema in this repo declares `true` today. These
+// The one instance of that in this repo (config-schema.json's $defs/hook, which
+// used to carry `additionalProperties: true`) is gone: the hook object was
+// closed, and no schema in this repo declares `true` today. These
 // cases therefore go through NewValidatorFromSchema, the public seam a second
 // product's schema arrives on, which is where the union is still live.
 func TestConfigValidator_KnownPath_AdditionalPropertiesUnion(t *testing.T) {

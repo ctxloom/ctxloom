@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U096-F06: the walker followed `$ref` by replacing the referring schema with
+// The walker used to follow `$ref` by replacing the referring schema with
 // its referent, which throws away every keyword declared ALONGSIDE the $ref.
 // Draft 2020-12 makes $ref an in-place applicator: the siblings still apply,
 // so a schema that says `{"$ref": base, "properties": {...}}` names both sets

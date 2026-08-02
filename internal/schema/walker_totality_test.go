@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-// U096-F10: schemaChild is not total over JSON Schema's applicators, and the
+// schemaChild is not total over JSON Schema's applicators, and the
 // unhandled set was SILENT — a schema could grow an `if`/`then`, a
 // `dependentSchemas` or a `propertyNames` and KnownPath would simply start
 // answering "unknown" for everything underneath it, with nothing to say so.

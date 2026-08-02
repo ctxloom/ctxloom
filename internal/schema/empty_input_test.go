@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U096-F12: ValidateBytes never checked for empty input. Handed a file with
+// ValidateBytes used to never check for empty input. Handed a file with
 // nothing in it, it parsed nil, validated nil, and returned nil — "validated,
 // no problems found", having examined no document at all.
 //

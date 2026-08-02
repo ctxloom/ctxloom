@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRemoveHooks_UnknownBackendIsRejected pins U085-F02: `ctxloom manage hooks
+// TestRemoveHooks_UnknownBackendIsRejected pins that `ctxloom manage hooks
 // uninstall --backend <typo>` reported Status "removed" listing the typo'd name
 // while removing nothing. manageBackendNames passed the name straight through
 // unvalidated, and every layer below then treated the unknown backend as a

@@ -78,7 +78,7 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	// entries when the closure is incomplete.
 	//
 	// An UNREADABLE previous lockfile degrades to an empty one here, which
-	// means none of those three can be carried forward (U085-F01). That
+	// means none of those three can be carried forward. That
 	// degrade is survivable only because it can no longer be PERSISTED: the
 	// Save below reads back what is on disk and refuses to overwrite a file it
 	// cannot parse (remote.ErrLockfileUnreadable), so the corrupt file — and
@@ -190,8 +190,8 @@ type RepoUpdater interface {
 
 // refreshRepoCaches advances each unique clone to live HEAD before SHA
 // resolution, so a stale shallow clone doesn't pin/report the old SHA. Per-URL
-// failures warn and continue — stale data beats aborting. Shared by Relock and
-// CheckOutdated.
+// failures warn and continue — stale data beats aborting. Shared by
+// UpgradeDependencies (upgrade.go) and the sync path (sync.go).
 func refreshRepoCaches(ctx context.Context, cache RepoUpdater, urls []string) {
 	for _, url := range urls {
 		forgeType, _, err := remote.DetectForge(url)

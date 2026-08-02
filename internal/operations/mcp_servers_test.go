@@ -16,8 +16,8 @@
 //
 // # Test Injection Patterns
 //
-// Read-only operations (List/Get) take a *config.Config directly (U085-F12
-// deleted the redundant TestConfig request field — cfg IS the injection
+// Read-only operations (List/Get) take a *config.Config directly (the
+// redundant TestConfig request field was deleted — cfg IS the injection
 // seam). Write operations (Add/Remove/SetMCPAutoRegister) take a
 // *config.Manager instead:
 // they perform a real Manager.Update transaction, so their tests build a
@@ -785,7 +785,7 @@ func TestAddMCPServer_WithFS(t *testing.T) {
 	assert.Contains(t, string(data), "npx")
 }
 
-// TestAddMCPServer_WithFS_InvalidYAML pins the CORRECTED contract (U049-F04).
+// TestAddMCPServer_WithFS_InvalidYAML pins the CORRECTED contract.
 //
 // This test previously asserted the opposite, describing it as "ctxloom's
 // fault-tolerant behavior: a pre-existing config.yaml with invalid YAML never

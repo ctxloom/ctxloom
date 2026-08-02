@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// U085-F01, the same defect from the READ side. LockDependencies rebuilds the
+// The same defect from the READ side. LockDependencies rebuilds the
 // whole lockfile from the closure and carries the two things the closure
 // cannot know — the user's holds (Pinned) and the publisher's retractions
 // (Retracted) — forward by reading the PREVIOUS lockfile. When that read

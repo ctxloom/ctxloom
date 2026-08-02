@@ -157,7 +157,7 @@ type Profile struct {
 	Bundles []string `yaml:"bundles,omitempty"`
 
 	// Commands curates the slash-command exports for this directory profile,
-	// the mirror of config.Profile.Commands for inline profiles (b626431, D2).
+	// the mirror of config.Profile.Commands for inline profiles (D2).
 	// When a resolved active profile declares a NON-EMPTY list, ONLY these
 	// commands are exported (each optionally version-pinned with a trailing
 	// "@<commit>"), suppressing the global flag-based auto-export for that
@@ -435,7 +435,7 @@ func (l *Loader) List() ([]*Profile, error) {
 	// .yaml-stripped relative path that never contains that substring, so
 	// `seen[profileName]` there can never match a seeded entry — both a
 	// same-named seeded and on-disk profile are emitted, unlike Load's
-	// (lookupSeeded) precedence. See U091-F17.
+	// (lookupSeeded) precedence.
 	for _, p := range l.seeded {
 		profiles = append(profiles, p)
 	}
@@ -657,7 +657,7 @@ func (l *Loader) loadFile(path, remoteAlias string) (*Profile, error) {
 	// A zero-byte, `{}`, or fully-commented-out profile parses cleanly into a
 	// profile that selects NOTHING, and used to load with err=nil and record
 	// zero strictness findings — a session launches on it, gets no context at
-	// all, and every surface reports success (U091-F01). It is reported
+	// all, and every surface reports success. It is reported
 	// through the fail-loudly gate rather than as a hard load error: `List`
 	// and the pickers must still be able to ENUMERATE a hollow profile (a
 	// half-authored one is a normal intermediate state), but nothing may
@@ -723,7 +723,7 @@ func (l *Loader) Save(profile *Profile) error {
 	}
 	// A profile with NOTHING in it — no selection and not even a description
 	// or tags — serializes to "{}\n", and writing that reported success while
-	// creating a file that can only ever compose nothing (U091-F08). Refuse
+	// creating a file that can only ever compose nothing. Refuse
 	// it. A profile that carries labels but selects nothing is a normal
 	// half-authored state: it saves, and the fail-loudly gate says what it
 	// will (not) do, exactly as Load does for the same shape.
@@ -834,7 +834,7 @@ const maxProfileDepth = 64
 // - Clones visited set for each parent to handle diamond inheritance correctly
 // - Enforces depth limit to prevent stack overflow
 func (l *Loader) ResolveProfile(name string, visited map[string]bool) (*ResolvedProfile, error) {
-	// U091-F02: memo is the per-call result cache that turns diamond-shaped
+	// memo is the per-call result cache that turns diamond-shaped
 	// parent inheritance from exponential (each shared ancestor re-Load()ed,
 	// re-parsed, and re-resolved once per path to it) into linear (each
 	// distinct profile resolved once, however many branches reach it). It is
@@ -865,7 +865,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	}
 	visited[name] = true
 
-	// U091-F02: a shared ancestor reached through a second (or third, or
+	// A shared ancestor reached through a second (or third, or
 	// Nth) branch is resolved once, not re-Load()ed/re-parsed/re-resolved
 	// per path — this is what turns the diamond-inheritance case from
 	// Θ(2^n) into Θ(n). Only reachable here for a node NOT already in the
@@ -884,8 +884,8 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 		Variables: make(map[string]string),
 	}
 	// SourceRef/Signer are THIS profile's own provenance — never inherited
-	// from (or overwritten by) a parent's Merge below (ugly-sake/uncut-grub
-	// fix): a profile's directly-declared hooks/mcp must key the executable
+	// from (or overwritten by) a parent's Merge below: a profile's
+	// directly-declared hooks/mcp must key the executable
 	// trust gate by ITS OWN origin, not a parent's. profile.Name is already
 	// the canonical identity here — a bare local name for a genuinely local
 	// profile, or the "<bundle>#profiles/<name>" seed key
@@ -992,7 +992,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 	resolved.ExcludeMCP = appendUnique(resolved.ExcludeMCP, profile.ExcludeMCP...)
 	resolved.DenyTools = appendUnique(resolved.DenyTools, profile.DenyTools...)
 
-	// U091-F02: cache the finished result for any sibling branch that
+	// Cache the finished result for any sibling branch that
 	// reaches this same profile. Safe to share the pointer: Merge only ever
 	// READS from its "other" argument (appendUnique/appendUniqueFragments
 	// append into the receiver's own slice; MergeHooksConfig/MergeMCPConfig
@@ -1029,14 +1029,14 @@ type ResolvedProfile struct {
 	// SourceRef is this profile's OWN canonical origin ref, for keying the
 	// executable trust gate on its directly-declared hooks/mcp
 	// (internal/lm/backends/managed.go's gateProfileMCP/gateProfileHooks) by
-	// SOURCE rather than display name — the ugly-sake/uncut-grub fix. It is
+	// SOURCE rather than display name. It is
 	// the origin bundle's canonical ref ("<url>@bundles/<bundle>", WITHOUT
 	// the "#profiles/<name>" selector — carrying that selector into the gate
-	// ref is exactly what produced uncut-grub's double-'#') for a
+	// ref is exactly what once produced a double-'#') for a
 	// bundle-shipped profile, or "" for a genuinely local/project-authored
 	// profile — which then keys the gate honestly IsLocal via
 	// parseTrustItemRef's bare-token fallback, never auto-allowing a
-	// remote-sourced profile's inline executables (ugly-sake). Populated by
+	// remote-sourced profile's inline executables. Populated by
 	// resolveProfileRecursive from THIS profile's own load name; Merge below
 	// deliberately never touches it, so a parent's SourceRef can never leak
 	// onto a child's directly-declared execs.
@@ -1046,7 +1046,7 @@ type ResolvedProfile struct {
 	// unsigned/untrusted bundle. Threaded to gateProfileExec so a
 	// trusted-publisher profile's inline hooks/mcp are trusted-signer-allowed
 	// exactly like bundle-declared ones, rather than every one of them
-	// falling to manual review the moment ugly-sake is fixed. Like
+	// falling to manual review the moment that gap is fixed. Like
 	// SourceRef, this is the profile's OWN signer and is never inherited
 	// from a parent by Merge.
 	Signer string

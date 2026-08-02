@@ -21,11 +21,11 @@
 //   - 4.E: ControlInitiatorKind — the closed HUMAN/AGENT privilege
 //     discriminator for control verbs, journaled into durable facts.
 //   - Comment-only: SteerResult.APPLIED_IMMEDIATE no longer claims "injected
-//     into the current turn" (review finding F4). It means IDLE TARGET, NEW
+//     into the current turn". It means IDLE TARGET, NEW
 //     TURN NOW; no engine surface supports genuine mid-turn injection.
 //
 // Changelog rev 10 -> rev 11 (pre-release, additive):
-//   - F1 (taskloom spare-chevy): ListRunsResult.RunInfo gains permission_mode
+//   - F1: ListRunsResult.RunInfo gains permission_mode
 //     and mcp_servers so the roster — a real operator's ONLY black-box view
 //     of a live delegation — can audit the central delegation security
 //     claim ("a child only ever gets its own tools"), which until now was
@@ -178,9 +178,7 @@
 // agent as StatusChanged / InteractionResolved events, and the
 // coordinator journals its own decisions on its side.
 //
-// Design lineage (full mapping in the design notes under
-// ~/.ctxloom/sessions/minty-calm-diary/ — agent_coordination.proto
-// (rev 5) + agentcoord-migration.plan.md):
+// Design lineage:
 //   - Claude Agent SDK stream-json: system/assistant/result taxonomy,
 //     parent_tool_use_id attribution, Result usage/cost/num_turns.
 //   - Codex app-server: Thread/Turn/Item primitives; item lifecycle

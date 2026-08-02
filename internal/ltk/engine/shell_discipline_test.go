@@ -69,7 +69,7 @@ func TestClaudeSubstringOnlyMatchesAreUngated(t *testing.T) {
 		}
 		if !req.ToolUngated {
 			t.Errorf("%q is claimed by the substring discipline but not by the gated list, "+
-				"and is no longer marked ungated — its shell hint can now reach a decision", tool)
+				"and is no longer marked ungated — its shell hint can now reach a decision (U067-F11)", tool)
 		}
 	}
 }

@@ -51,7 +51,7 @@ func TestEncodeUnanalyzedAllowWritesStderr(t *testing.T) {
 			}
 			if len(out.Stderr) == 0 {
 				t.Fatalf("an unanalyzed allow must write a diagnostic to Output.Stderr, got a zero Output " +
-					"— byte-identical to a clean allow")
+					"— byte-identical to a clean allow (U067-F03)")
 			}
 			// The note must name the cause, or it tells the operator nothing
 			// they can act on.

@@ -54,7 +54,7 @@ func uploadRaw(t *testing.T, client agentcoordpb.ArtifactTransferServiceClient, 
 	// server has ALREADY closed the stream before this Send lands — e.g. the
 	// auth interceptor rejecting a consumer credential's UploadArtifact
 	// under load, server-close winning the race against the client's first
-	// frame (a require.NoError here was
+	// frame (hoary-amigo: a require.NoError here was
 	// asserting on a race outcome, not a real client bug). The authoritative
 	// status always rides CloseAndRecv, never a Send error — so a header
 	// Send failure here is tolerated, not fatal: fall straight through to

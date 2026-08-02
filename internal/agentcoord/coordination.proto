@@ -65,9 +65,9 @@
 //     transcripts serve history). Consumer credentials are a distinct,
 //     read-only class — see coord/consumer.go.
 //   - D1/D5: ListRunsResult.RunInfo gains parent_run_id so a roster consumer
-//     can render the delegation tree; StartRun/RunStarted already carried
-//     parent_run_id (rev 5) — this only exposes it on the read-side roster
-//     projection.
+//     can render the delegation tree (depth-2 children close manly-grant);
+//     StartRun/RunStarted already carried parent_run_id (rev 5) — this only
+//     exposes it on the read-side roster projection.
 //
 // Changelog rev 7 -> rev 8 (pre-release, additive; comment-only — no field
 // changes):

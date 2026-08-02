@@ -22,7 +22,7 @@ type RunRecord struct {
 	Harp       string
 	Agent      string
 	ParentHarp string
-	// ParentRunID is the SPAWNING run's run_id (D5's durable
+	// ParentRunID is the SPAWNING run's run_id (D5/manly-grant (5) durable
 	// lineage) — empty for a depth-1 (top-level) child spawned by the
 	// session owner (depth 0 has no run_id of its own to be a parent of);
 	// set for a depth-2+ grandchild. Mirrors StartRun/RunStarted.parent_run_id

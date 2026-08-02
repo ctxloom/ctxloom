@@ -42,7 +42,7 @@ const (
 	// operator asking again, not the loop retrying itself.
 	//
 	// This is the DEFAULT only — EnvLaunchMaxAttempts overrides it per
-	// process. Nobody signed off on "4" as exactly right;
+	// process. Nobody signed off on "4" as exactly right (lunar-boat item 1);
 	// the env override exists so it can be tuned without a rebuild once real
 	// container-daemon behavior is observed.
 	defaultMaxLaunchAttempts = 4

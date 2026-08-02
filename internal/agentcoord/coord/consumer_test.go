@@ -351,10 +351,10 @@ func TestConsumer_CredentialRejectedOnCoordinatorService(t *testing.T) {
 	// The stream interceptor rejects BEFORE the RunnerChannel handler ever
 	// runs, so the server can close the stream before this Send's Hello
 	// frame lands — Send legitimately surfaces io.EOF/Unavailable in that
-	// race under load, not a real client bug (the same classic gRPC
-	// client-streaming antipattern artifacts_test.go's uploadRaw had). The
-	// authoritative status always
-	// rides Recv, never a Send error, so a Send failure here is tolerated.
+	// race under load, not a real client bug (hoary-amigo — the same classic
+	// gRPC client-streaming antipattern artifacts_test.go's uploadRaw had).
+	// The authoritative status always rides Recv, never a Send error, so a
+	// Send failure here is tolerated.
 	_ = stream.Send(&agentcoordpb.RunnerFrame{Kind: &agentcoordpb.RunnerFrame_Hello{Hello: &agentcoordpb.RunnerHello{}}})
 	_, err = stream.Recv()
 	require.Error(t, err)

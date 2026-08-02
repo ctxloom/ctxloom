@@ -25,7 +25,7 @@ import (
 
 const (
 	// maxAgentDepth is the recursion guard: depth 0 (the session owner)
-	// spawns depth 1; depth 1 spawns depth 2 (D5: the
+	// spawns depth 1; depth 1 spawns depth 2 (D5, manly-grant (4): the
 	// B-window grandchild refusal is lifted — flat-hub semantics, each hop
 	// addresses only its own direct parent via peerSend's ParentHarp lookup,
 	// generic at any depth). depth 2 may not spawn depth 3 — the guard still
@@ -108,7 +108,7 @@ type childRt struct {
 	// child (the depth-0 session owner has no run_id of its own); set for
 	// a depth-2+ grandchild. Threaded onto the outgoing StartRun request
 	// (runChildViaStartRun) so RunStarted.parent_run_id carries durable
-	// lineage on the log — mirrors RunRecord.ParentRunID.
+	// lineage on the log (manly-grant (5)) — mirrors RunRecord.ParentRunID.
 	parentRunID string
 	plan        *SpawnPlan
 
@@ -762,7 +762,7 @@ func (c *Coordinator) issueStartRun(ctx context.Context, rt *childRt, credHash s
 			Harness:     spec,
 			Input:       input,
 			Role:        rt.agentName,
-			ParentRunId: rt.parentRunID, // D5: durable lineage on the log — enginehost.go echoes this into RunStarted
+			ParentRunId: rt.parentRunID, // D5: durable lineage on the log (manly-grant (5)) — enginehost.go echoes this into RunStarted
 		}},
 	})
 	rcancel()
@@ -1040,7 +1040,7 @@ func (c *Coordinator) bridgeTurnResult(rt *childRt) {
 		return
 	}
 	if oneshot {
-		// Durable event-log record (Wave C4) ALONGSIDE the
+		// Durable event-log record (Wave C4, manly-grant (7)) ALONGSIDE the
 		// mailbox bridge below — not a replacement for it; PublishEvents is
 		// event-plane only and carries no delivery semantics of its own. A
 		// MIGRATED child already emits its own RunCompleted on the
@@ -1240,7 +1240,7 @@ func (c *Coordinator) onTurnBoundary(rt *childRt) {
 
 // publishOneshotResult journals ONE oneshot turn's stdout-bridged output as a
 // self-contained, FRESH-run_id sub-run over the unary PublishEvents fallback
-// (Wave C4 deliverable 1: "Oneshot-fallback
+// (Wave C4 deliverable 1, closing manly-grant (7): "Oneshot-fallback
 // children → unary PublishEvents is a natural fit"). A oneshot backend has no
 // persistent engine or RunChannel of its own — startOneshot's own doc says
 // "no session continuity between turns beyond the composed context" — so each

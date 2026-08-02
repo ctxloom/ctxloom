@@ -10,7 +10,7 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
-// TestRunOneshot_EmptyStdoutIsLoud pins U085-F06: the launch tail every headless
+// TestRunOneshot_EmptyStdoutIsLoud pins that the launch tail every headless
 // run shares (a delegated oneshot turn, `acp client`, mirrored by run --print)
 // used to accept exit 0 with nothing on stdout as a successful run, publishing
 // Output:"" into RunOneshotResult.Output / a child's assistant entry with no
@@ -39,7 +39,7 @@ func TestRunOneshot_EmptyStdoutIsLoud(t *testing.T) {
 	}
 }
 
-// TestRunResolvedAgent_EmptyContextForNamedProfilesIsLoud pins U085-F07: the
+// TestRunResolvedAgent_EmptyContextForNamedProfilesIsLoud pins that the
 // `if req.Context != ""` guard let a member whose named profiles assemble to
 // nothing launch context-free — the agent still runs and produces plausible
 // output. Naming profiles and delivering none of them is never what the caller
@@ -64,7 +64,7 @@ func TestRunResolvedAgent_EmptyContextForNamedProfilesIsLoud(t *testing.T) {
 
 // A member that names NO profile is legitimately context-free (the bare
 // `ctxloom run --print` with no profile, a defaults-only agent): it must keep
-// running. This is the discriminator that keeps F07's fix from becoming a
+// running. This is the discriminator that keeps the fix above from becoming a
 // blanket refusal.
 func TestRunResolvedAgent_NoProfilesRunsContextFree(t *testing.T) {
 	stub := &stubClient{out: "fine"}

@@ -363,7 +363,7 @@ func effectiveMemberPermission(req resolvedRunRequest) (agent.PermissionMode, er
 // for a single profile, ResolveAgent for an agent/bare-profile member) — so
 // the two paths share one backend-launch tail and can never drift.
 func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotResult, error) {
-	// U085-F07: naming a specialisation and delivering none of it is never what
+	// Naming a specialisation and delivering none of it is never what
 	// the caller asked for. `if req.Context != ""` alone would launch the engine
 	// unspecialised — it still runs and still produces plausible output, so the
 	// loss is invisible at every consumer. The discriminator is whether a profile
@@ -512,12 +512,12 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	}
 	// Every non-zero exit returns an error above, so RunOneshotResult is only
 	// ever constructed for exitCode==0 — it used to carry that (always-0)
-	// value as an ExitCode field nothing read (U085-F21); deleted.
+	// value as an ExitCode field nothing read; deleted.
 	if exitCode != 0 {
 		return nil, fmt.Errorf("agent exited with code %d: %s", exitCode, strings.TrimSpace(stderr.String()))
 	}
 
-	// U085-F06: a oneshot exists ONLY to capture output — this tail is shared by
+	// A oneshot exists ONLY to capture output — this tail is shared by
 	// a delegated oneshot turn and `acp client` (and mirrored by `run --print`),
 	// and every one of them publishes res.Output as the run's whole product
 	// (a child's assistant SessionEntry, RunOneshotResult.Output). Exit 0

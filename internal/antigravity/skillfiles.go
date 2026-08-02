@@ -11,9 +11,9 @@ import (
 // directory, .agents/skills — the SAME parent directory WriteCommandFiles
 // targets (both render `<name>/SKILL.md`). See surfaces.go's NewSurfaces doc
 // comment for the canonical account of that shared-parent resolution
-// (U029-F21 deduped this from three near-identical tellings; the version this
-// comment used to carry described the RETIRED flat `<name>.md` command shape
-// and was wrong).
+// (deduped from three near-identical tellings; the version this comment
+// used to carry described the RETIRED flat `<name>.md` command shape and
+// was wrong).
 //
 // VERIFIED against agy's own bundled documentation
 // (~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/skills.md,

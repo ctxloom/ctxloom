@@ -97,7 +97,7 @@ func newChatTestBackend(t *testing.T, binaryPath, home string) *Antigravity {
 	b.InitLaunch(
 		agent.NewBaseLifecycle("antigravity"),
 		agent.NewBaseContextProvider(),
-		nil, // SessionHistory: deleted, tough-cloud S5 — resolveChatConversationID uses b.convMap instead
+		nil, // SessionHistory: deleted — resolveChatConversationID uses b.convMap instead
 		&agent.CellDelivery{Build: agent.BuildWellKnown(NewSurfaces), RawContext: true},
 	)
 	return b
@@ -283,7 +283,7 @@ func TestChat_ConversationContinuity(t *testing.T) {
 	assert.True(t, sawResolvedSession, "the resolved conversation id was surfaced as a Session event")
 }
 
-// TestChat_CorruptConversationCacheIsLoud pins U029-F07: agyConversationMap.read
+// TestChat_CorruptConversationCacheIsLoud pins a real bug: agyConversationMap.read
 // deliberately distinguishes an ABSENT cache file (nil map, no error — nothing
 // to resume) from one that EXISTS but does not parse (agy changed the format, or
 // the file is corrupt), and its doc says the latter is surfaced rather than
@@ -458,7 +458,7 @@ func TestChat_InputClosedWithNoTurns(t *testing.T) {
 }
 
 // TestChat_PermissionAnswerIsInert characterizes the input arm no other test
-// reaches, ahead of U029-F11's split of Chat's loop: a PermissionAnswer is
+// reaches, ahead of a later split of Chat's loop: a PermissionAnswer is
 // accepted and does nothing — agy -p never forwards a permission request, so
 // there is nothing for an answer to resolve — and in particular it is NOT
 // treated as a turn's text. It must not spawn agy, must not emit an Entry, and

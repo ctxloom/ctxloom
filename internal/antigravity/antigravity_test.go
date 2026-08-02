@@ -120,7 +120,7 @@ func TestAntigravityHookWriter_SkipsNonCommandHooks(t *testing.T) {
 // `command` REQUIRED (verified against agy's own bundled documentation,
 // ~/.gemini/antigravity-cli/builtin/skills/agy-customizations/docs/hooks.md on
 // agy 1.1.5: "command (string, required)"), so an entry without one is a
-// live-looking handler that executes nothing — U029-F05's silent no-op.
+// live-looking handler that executes nothing — a real silent no-op.
 //
 // The reachable path is a hook authored with a prompt and NO explicit type:
 // the wire default for Type is "" which MEANS command, so the non-command
@@ -228,7 +228,7 @@ func jsonProbeObject(t *testing.T, shape any) []byte {
 	return data
 }
 
-// TestHookShapes_UnknownCaptureExcludesEveryDeclaredField pins U029-F13: the
+// TestHookShapes_UnknownCaptureExcludesEveryDeclaredField pins a real bug: the
 // round-trip preservation in UnmarshalJSON captures unknown keys by REMOVING the
 // known ones from the raw object, so the set it removes has to be exactly the
 // set of fields the struct declares. Enumerating that set by hand — as two
@@ -487,7 +487,7 @@ func TestAntigravityHookWriter_Idempotent(t *testing.T) {
 }
 
 // This test used to assert the OPPOSITE — that a corrupt hooks.json did not
-// block hook application, under a "fault-tolerance contract" (U029-F06). What
+// block hook application, under a "fault-tolerance contract". What
 // it actually pinned was the destruction of the user's hook configuration:
 // loadHooksFile returned an empty structure and saveHooksFile wrote it back
 // as a ctxloom-only file. Not blocking the launch is worth having; achieving
@@ -593,8 +593,8 @@ func (f failFS) Open(name string) (afero.File, error) {
 	return f.Fs.Open(name)
 }
 
-// TestAntigravityHookWriter_UnreadableFilesAreReportedNotAssumedAbsent pins
-// U029-F10: four filesystem errors were discarded with `_`, each collapsing "I
+// TestAntigravityHookWriter_UnreadableFilesAreReportedNotAssumedAbsent pins a
+// real bug: four filesystem errors were discarded with `_`, each collapsing "I
 // could not tell whether this file is there" into "it is not there". The
 // consequences are all silent: RemoveSettings reports success having cleared
 // nothing, Status reports an unwired project, and WriteSettings decides not to
@@ -804,7 +804,7 @@ func readHooks(t *testing.T, fs afero.Fs) map[string][]antigravityHookGroup {
 	return hooks
 }
 
-// U029-F06, the antigravity twin of U032-F03/F05 and of taskloom lone-taste:
+// The antigravity twin of the same bug class in the claude and codex writers:
 // loadHooksFile returned an empty-but-valid structure on a parse failure and
 // saveHooksFile then persisted it, so an unparseable hooks.json was replaced
 // with a ctxloom-only file — the user's entire hook configuration destroyed,

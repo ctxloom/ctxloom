@@ -162,8 +162,8 @@ func TestHooksSurface_DeliverWritesHooksJSON(t *testing.T) {
 	assert.False(t, exists, "hooks surface never writes AGENTS.md")
 }
 
-// TestHooksSurface_NilFSDefaultsToOSFilesystem pins U029-F09: every other agy
-// surface hands its (possibly nil) fs to a writer and reads it back through
+// TestHooksSurface_NilFSDefaultsToOSFilesystem pins a real bug: every other
+// agy surface hands its (possibly nil) fs to a writer and reads it back through
 // AntigravityHookWriter.getFS, which defaults nil to the OS filesystem, but the
 // hooks surface dereferenced s.fs directly for its MkdirAll — so a
 // zero-valued hooksSurface nil-panicked on the FIRST filesystem call instead of
@@ -328,9 +328,9 @@ func TestSharedCell_AcceptsOnlyUnsafeAntigravitySurfaces(t *testing.T) {
 	assert.Contains(t, stderr, "warning:", "every agy surface warns when DeliverShared delivers it")
 }
 
-// ---- approach dispatch (vital-tiger v2) -------------------------------------
+// ---- approach dispatch (v2) -------------------------------------
 
-// TestSurfaces_EnumerationsAgree pins U029-F19: agy's surface set was written
+// TestSurfaces_EnumerationsAgree pins a real bug: agy's surface set was written
 // out four times — the named struct fields, the kind→surface dispatch map, the
 // declared approach table, and the prose table on this file's header comment —
 // with nothing tying them together. The failure that costs the most is silent: a

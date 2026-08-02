@@ -62,9 +62,9 @@ type AntigravityHookWriter struct {
 	FS afero.Fs
 	// mcpCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
 	// the ctxloom-managed mcp_config.json entry's command (see
-	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell (the
-	// dire-five fix). Empty (the default) preserves the host self-exec-
-	// absolute behavior exactly.
+	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell.
+	// Empty (the default) preserves the host self-exec-absolute behavior
+	// exactly.
 	mcpCommandOverride string
 }
 
@@ -300,9 +300,9 @@ func (w *AntigravityHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire
 // blocks launch on a schema change") described the intent but not the effect:
 // saveHooksFile persists whatever this returns, so continuing with an empty
 // structure replaced the user's entire hooks.json with a ctxloom-only file.
-// The same defect was fixed in the claude writer as taskloom lone-taste; this
-// is its twin (U029-F06). Both now route through agent.RefuseCorrupt, which
-// backs the original bytes up and points the user at them.
+// The same defect was fixed in the claude writer; this is its twin. Both now
+// route through agent.RefuseCorrupt, which backs the original bytes up and
+// points the user at them.
 func (w *AntigravityHookWriter) loadHooksFile(path string) (*antigravityHooksFile, error) {
 	hf := &antigravityHooksFile{
 		Hooks: make(map[string][]antigravityHookGroup),
@@ -593,7 +593,7 @@ func (w *AntigravityHookWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 // context bleed/clobber. Unlike claude (per-invocation flags) and kiro (per-agent
 // agent-JSON `--agent`), antigravity has NO redirection lever, so per-agent
 // CONCURRENT isolation requires a per-agent cwd (git worktree) or container.
-// See taskloom loyal-eel / memory per-agent-config-delivery (ISOLATION AXIS).
+// See the per-agent-config-delivery memory note (ISOLATION AXIS).
 // managedContextBegin/End alias the shared markers (internal/shared/agent) so
 // this package's existing references (including its tests) keep working
 // unchanged after the marker-merge logic moved to the shared core.

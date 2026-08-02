@@ -33,9 +33,9 @@ type agyConversationMap struct {
 }
 
 // newAgyConversationMap builds the conversation-map reader over the OS
-// filesystem (a zero-value agent.SessionStore{} — U102-F17 deleted
-// NewSessionStore as a redundant "default to the OS fs" mechanism:
-// agent.GetFS already defaults a nil Fs to afero.NewOsFs()). Tests override
+// filesystem (a zero-value agent.SessionStore{} — NewSessionStore was
+// deleted as a redundant "default to the OS fs" mechanism: agent.GetFS
+// already defaults a nil Fs to afero.NewOsFs()). Tests override
 // the home dir with a plain struct literal.
 func newAgyConversationMap() agyConversationMap {
 	return agyConversationMap{SessionStore: agent.SessionStore{}}

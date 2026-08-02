@@ -103,7 +103,7 @@ func TestDecodeHookPayload_Malformed(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// TestDecodeHookPayload_MalformedErrorIsAttributed pins U029-F08: the decode
+// TestDecodeHookPayload_MalformedErrorIsAttributed pins a real gap: the decode
 // error reaches a user through a hook process whose only output channel is
 // stderr, where a bare `encoding/json` message ("invalid character 'o' ...")
 // names neither the payload nor the engine. Consumers (ltk's antigravity

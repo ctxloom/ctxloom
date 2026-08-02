@@ -27,7 +27,7 @@ import (
 // The two hook events ctxloom routes to, and the single source of truth for both
 // the wire contract and antigravity.go's own hooks.json event routing
 // (addUnifiedHooks) — routing through these constants instead of duplicating the
-// string literals is what U029-F03 fixed.
+// string literals is what fixed a real bug here.
 //
 // SessionStart/SessionEnd are not agy events at all: entries for them are
 // silently skipped (no handler loads, no error, probed on v1.0.7). agy's 1.1.5

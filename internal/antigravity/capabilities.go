@@ -43,5 +43,5 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 
 // The command/skill name-collision resolution (both now want
 // .agents/skills/<name>/SKILL.md) is documented once, canonically, on
-// surfaces.go's NewSurfaces — see that doc comment (U029-F21 deduped this
-// from three near-identical tellings).
+// surfaces.go's NewSurfaces — see that doc comment (deduped from three
+// near-identical tellings).

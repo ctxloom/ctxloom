@@ -10,9 +10,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// TestAntigravityHookWriter_UnresolvableContextHashIsLoud pins U029-F01, the
-// twin of kiro's U055-F06 at the same seam: an unreadable context file was
-// downgraded to content == "", and empty content is how the caller says "no
+// TestAntigravityHookWriter_UnresolvableContextHashIsLoud pins a real bug,
+// the twin of kiro's identical one at the same seam: an unreadable context
+// file was downgraded to content == "", and empty content is how the caller says "no
 // context" — so WriteManagedContext STRIPPED the managed section (removing
 // AGENTS.md when nothing user-authored remained) and WriteSettings returned nil.
 // The agent then launched with zero delivered context, exit 0, and the last good

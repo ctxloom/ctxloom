@@ -1,5 +1,16 @@
 # Journey coverage gaps: prose journeys for the uncovered CLI surface
 
+> **SUPERSEDED 2026-08-01 by `docs/journey-narrative-review.md`. Do not cite
+> command spellings from this document.** It was written before the verb-spine
+> reorg and contains 43+ references to spellings that no longer exist
+> (`trust signer add`, `mcp server add`, `manage config init`, `acp entries`,
+> `session query`, `remote add/remove/browse`, `agent set`, `session forget`,
+> bare `ctxloom acp`, and all 20 deprecated aliases). Its premise is also
+> obsolete: it proposes journeys to retire a 43-item allowlist that is now 22,
+> a third of which retired through mechanical re-spelling rather than any new
+> journey. Retained as the pre-reorg record; `docs/cli-surface-recommendation.md`
+> §5 is the authoritative rename mapping.
+
 ctxloom's acceptance suite is organised as user **journeys** — end-to-end
 narratives a real person would actually perform, expressed as Gherkin. J1–J17
 exist; J1–J12 and J16–J17 are wired, J13–J15 are prose/Gherkin drafts under

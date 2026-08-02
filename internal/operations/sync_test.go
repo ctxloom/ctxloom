@@ -100,7 +100,7 @@ type syncMockRetractionPuller struct {
 	reason    string
 	checkedAt time.Time // echoed back by CheckRetraction; defaults to time.Now() below when zero
 	checkErr  error
-	recordErr error // returned by RecordRetraction, e.g. to drive U088-F11
+	recordErr error // returned by RecordRetraction, e.g. to drive a save-failure test
 
 	checkCalls []string
 	recorded   []recordedRetraction
@@ -584,7 +584,7 @@ remotes:
 }
 
 // TestSyncDependencies_UnreachableRemoteHonorsFallbackVerdict is the
-// sync-layer half of the fail-stale fix (U088-F01/U095-F02): when the puller
+// sync-layer half of the fail-stale fix: when the puller
 // cannot reach the remote, Puller.CheckRetraction (the real implementation)
 // falls back to the last recorded verdict instead of erroring — reflected
 // here as the mock reporting a RETRACTED verdict stamped with a PAST
@@ -641,7 +641,7 @@ remotes:
 		"the fallback's own (past) checkedAt must be persisted verbatim, never bumped to now")
 }
 
-// U088-F11: checkInstalledRetraction used to discard RecordRetraction's own
+// checkInstalledRetraction used to discard RecordRetraction's own
 // error (`_ = rc.RecordRetraction(...)`) — a failure to PERSIST a genuine
 // retraction verdict is a different failure than "couldn't reach the remote
 // to check" (which this function is deliberately fault-tolerant about); it
@@ -1332,7 +1332,7 @@ func TestAddSyncItem_FailedStatus(t *testing.T) {
 	}
 }
 
-// U088-F27: addSyncItem's switch had no default arm, so an item with an
+// addSyncItem's switch had no default arm, so an item with an
 // unrecognized Status silently vanished from every result bucket and
 // counter — result.Total (bumped by the caller for every item) and the sum
 // of the buckets would then disagree with no diagnostic at all.
@@ -1503,7 +1503,7 @@ func (p *revealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOp
 	p.pulled = append(p.pulled, refStr)
 	if refStr == p.reveals {
 		// Every read of a Config's profiles is copy-on-read — ToFixture
-		// included, since U049-F05 — so making a definition appear mid-run
+		// included — so making a definition appear mid-run
 		// means rebuilding the config the sync loop is holding. Assigning into
 		// a returned map would be exactly the silent no-op this test exists to
 		// catch, just relocated into the test double.
@@ -1581,7 +1581,7 @@ func (p *chainRevealingPuller) Pull(_ context.Context, refStr string, _ remote.P
 	return &remote.PullResult{LocalPath: paths.CacheBundlesPath(testBaseDir) + "/chain.yaml"}, nil
 }
 
-// TestSyncDependencies_NoUnconvergedWarningWhenLastPassConverges pins U088-F25:
+// TestSyncDependencies_NoUnconvergedWarningWhenLastPassConverges:
 // the "still revealing new references" warning must describe the GRAPH, not
 // the loop counter. A chain that needs every allowed pass and then converges
 // on the last one is a fully-converged sync — warning there tells the user to

@@ -174,7 +174,7 @@ func TestUpgrade_UnreachableParentPreservesEntries(t *testing.T) {
 	})
 	assert.GreaterOrEqual(t, advanced, 1, "repo A advanced")
 	assert.Contains(t, stderr, "could not expand remote parent profile")
-	// U040-F12: the caller (runRemoteUpgrade) needs this to avoid claiming
+	// The caller (runRemoteUpgrade) needs this to avoid claiming
 	// "Everything is up to date" on a round where part of the closure was
 	// never actually reached.
 	assert.True(t, incomplete, "an unreachable parent must be reported as an incomplete closure")

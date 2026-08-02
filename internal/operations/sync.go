@@ -270,8 +270,8 @@ func syncRefs(ctx context.Context, puller Puller, refs []string, itemType remote
 var (
 	syncLockStep func(context.Context, *config.Config, LockDependenciesRequest) (*LockDependenciesResult, error)
 	// syncHooksStep takes no *config.Config: ApplyHooks reloads config from
-	// disk itself (U084-F04), so passing one here would be the same silent
-	// discard the parameter removal fixed.
+	// disk itself, so passing one here would be the same silent discard the
+	// parameter removal fixed.
 	syncHooksStep func(context.Context, ApplyHooksRequest) (*ApplyHooksResult, error)
 )
 
@@ -348,7 +348,7 @@ func collectRemoteReferences(cfg *config.Config, profileNames []string) (bundleR
 
 		// Also get directory-based profiles. A List failure must actually
 		// reach this function's own (previously always-nil) err return
-		// (U088-F06) rather than being discarded (U088-F10) — every call site
+		// rather than being discarded — every call site
 		// already handles a non-nil err from collectRemoteReferences
 		// correctly (abort, or warn-and-continue on a re-collect pass).
 		loader := cfg.GetProfileLoader()
@@ -573,10 +573,10 @@ func syncItem(ctx context.Context, puller Puller, ref string, itemType remote.It
 // sync — retraction is a security IMPROVEMENT layered on top of sync, never a
 // new way for sync itself to fail.
 //
-// An UNREACHABLE remote is no longer in that "silently not retracted" bucket
-// (U088-F01/U095-F02): CheckRetraction itself now falls back to the last
-// verdict this project recorded for ref (fail-stale), so retracted here
-// reflects that fallback, not a false "clean". Only a genuinely
+// An UNREACHABLE remote is no longer in that "silently not retracted" bucket:
+// CheckRetraction itself now falls back to the last verdict this project
+// recorded for ref (fail-stale), so retracted here reflects that fallback,
+// not a false "clean". Only a genuinely
 // undeterminable manifest (parse failure) still resolves to "not retracted"
 // here — CheckRetracted already turns that into a hard error, and this
 // function's contract stays "never a new way for sync to fail", so it swallows
@@ -604,9 +604,8 @@ func checkInstalledRetraction(ctx context.Context, puller Puller, ref string, it
 	// A failure to PERSIST the verdict (distinct from a failure to check it)
 	// is not the "tolerate an unreachable remote" case this function's
 	// contract carves out — it silently drops a security improvement (or,
-	// worse, a genuine retraction) on the floor with no diagnostic at all
-	// (U088-F11). Still best-effort (never blocks or fails sync), just no
-	// longer silent.
+	// worse, a genuine retraction) on the floor with no diagnostic at all.
+	// Still best-effort (never blocks or fails sync), just no longer silent.
 	if rerr := rc.RecordRetraction(itemType, ref, retracted, reason, checkedAt); rerr != nil {
 		clidiag.Warn("ctxloom", "record retraction verdict for %s: %v", ref, rerr)
 	}
@@ -631,7 +630,7 @@ func addSyncItem(result *SyncDependenciesResult, item SyncItem) {
 		result.Errors++
 	default:
 		// An unrecognized Status must never just vanish from every bucket and
-		// counter (U088-F27) — file it as failed and say why, rather than
+		// counter — file it as failed and say why, rather than
 		// silently disagreeing with result.Total.
 		clidiag.Warn("ctxloom", "sync: item %q has unrecognized status %q; recording as failed", item.Reference, item.Status)
 		item.Error = fmt.Sprintf("unrecognized sync status %q", item.Status)
@@ -725,7 +724,7 @@ func resolveProfilesToCheck(cfg *config.Config, requested []string) []string {
 	loader := cfg.GetProfileLoader()
 	dirProfiles, err := loader.List()
 	if err != nil {
-		// U088-F10: this used to discard the error outright, so an unreadable
+		// This used to discard the error outright, so an unreadable
 		// profiles directory silently shrank the probed set with no
 		// diagnostic at all.
 		clidiag.Warn("ctxloom", "list directory profiles: %v", err)

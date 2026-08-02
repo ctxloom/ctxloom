@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U019-F04 claimed a DECIDED approval "can be blocked indefinitely by peer
+// A finding claimed a DECIDED approval "can be blocked indefinitely by peer
 // slot contention": serveApproval parks the child (yielding its execution
 // slot) for the relay, and onRoleUnpark then makes a blocking
 // turnSlots.acquire before the decision can be returned.
@@ -20,7 +20,7 @@ import (
 // and the wait is bounded by executing peers finishing, because a parked
 // child holds no slot and so cannot be part of what it is waiting on. The
 // project has already ruled on the identical claim in the recv-park path
-// (U023-F05, TestRecvTimeout_DeliveryThatWonTheRaceIsStillDelivered): the
+// (TestRecvTimeout_DeliveryThatWonTheRaceIsStillDelivered): the
 // invariant is that a decision which won the race IS delivered, however late
 // — not that the wait should expire.
 //

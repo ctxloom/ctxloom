@@ -10,7 +10,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U023-F01: a future-added ApprovalKind silently converted a TARGETED ladder
+// A future-added ApprovalKind silently converted a TARGETED ladder
 // rung into a CATCH-ALL on journal replay — a privilege escalation.
 //
 // approvalKindName falls back to the wire enum's own String() (e.g.

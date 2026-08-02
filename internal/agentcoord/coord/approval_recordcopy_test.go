@@ -10,7 +10,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U019-F10 claimed serveApproval's `rec = *r` copies a RunRecord whose
+// A finding claimed serveApproval's `rec = *r` copies a RunRecord whose
 // Ladder is a slice header, so the later rec.Ladder.matchingRungs(kind) reads
 // the fold's backing array OUTSIDE the View window — a data race.
 //
@@ -79,7 +79,7 @@ func TestMatchingRungs_DoesNotAliasTheLadder(t *testing.T) {
 	assert.Equal(t, "owner", l[0].Role)
 }
 
-// U019-F16 claimed serveApproval uses TWO names for one identity — the audit
+// A finding claimed serveApproval uses TWO names for one identity — the audit
 // actor is caller.Harp while every detail field comes from rec, and
 // relayApproval warns with rec.Harp.
 //

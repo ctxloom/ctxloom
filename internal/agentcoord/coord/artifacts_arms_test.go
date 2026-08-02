@@ -14,7 +14,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U019-F09 characterization: the guard arms of UploadArtifact and
+// Characterization: the guard arms of UploadArtifact and
 // DownloadArtifact that no test reached, pinned BEFORE those two functions
 // are split (both were over the project's CCN-10 gate). A pure complexity
 // reduction cannot be red by definition, so the honest discriminator is
@@ -113,8 +113,8 @@ func TestDownloadArtifact_UnknownArtifactIsNotFound(t *testing.T) {
 	assert.Equal(t, codes.NotFound, statusCode(err))
 }
 
-// The server's resumable-download arm. The shipped client never sets offset
-// (U019-F17), so this is the only thing exercising the seek.
+// The server's resumable-download arm. The shipped client never sets offset,
+// so this is the only thing exercising the seek.
 func TestDownloadArtifact_OffsetStreamsTheTail(t *testing.T) {
 	resetStrictness(t)
 	c := newTestCoordinator(t, researcherSpawner(), nil)

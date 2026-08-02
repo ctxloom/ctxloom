@@ -132,7 +132,7 @@ func TestBindSession_UnknownHarpErrors(t *testing.T) {
 	assert.Error(t, m.BindSession("nope-nope-nope", "uuid", ""))
 }
 
-// U099-F04: BindSession(harp, "", "") on a not-yet-bound entry used to
+// BindSession(harp, "", "") on a not-yet-bound entry used to
 // acquire the file lock, load, assign SessionID = "" (no actual change),
 // and perform a full index rewrite anyway — wasted I/O under lock for a
 // call that changes nothing, on what should be the ordinary "the hook
@@ -280,7 +280,7 @@ func TestListAll_SpansProjectsSortedByActivity(t *testing.T) {
 // TranscriptPath, so ActivityTime must read the canonical file's mtime for
 // its last-activity signal. Statting only TranscriptPath (the old behavior)
 // pinned every ACP session to StartedAt and mis-ranked it below stale legacy
-// false-starts (the viral-equal / icy-apron ordering bug). Mirrors
+// false-starts (an ordering bug). Mirrors
 // SourceStale's canonical-first preference so ordering and staleness agree on
 // which file is the source of truth.
 func TestActivityTime_PrefersCanonicalTranscriptPath(t *testing.T) {
@@ -407,7 +407,7 @@ func TestEntry_SourceStale_DelegatesToFingerprint(t *testing.T) {
 	assert.False(t, stale)
 }
 
-// TestEntry_SourceStale_PrefersCanonicalTranscriptPath pins the tough-cloud
+// TestEntry_SourceStale_PrefersCanonicalTranscriptPath pins the
 // S4 fix: once a harp has a captured canonical transcript, THAT is the file
 // SourceSize was fingerprinted against (memory.transcriptSize's matching
 // preference) — so staleness must compare against it, not the legacy
@@ -672,7 +672,7 @@ func TestForget(t *testing.T) {
 	assert.Equal(t, b.HarpName, idx.Sessions[0].HarpName)
 }
 
-// TestRename_RefusesUnsafeNewName is U087-F04 at the index: the new name
+// TestRename_RefusesUnsafeNewName pins a safe-rename rule at the index: the new name
 // becomes both an index KEY and a filesystem path component, and Rename is
 // the only place a harp name arrives from user argv. Asserted on the index
 // state, not the error text — a refused rename must leave the original entry

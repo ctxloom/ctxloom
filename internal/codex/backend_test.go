@@ -23,7 +23,7 @@ func TestCodex_Capabilities(t *testing.T) {
 	// codex's SessionHistory scraper was deleted outright (it had an
 	// envelope-vs-flat parse mismatch); History() is nil now that canonical
 	// capture is the only transcript source for codex.
-	assert.Nil(t, codex.History(), "session history scraper retired")
+	assert.Nil(t, codex.History(), "session history scraper retired, tough-cloud S5")
 }
 
 func TestCodex_Configure(t *testing.T) {
@@ -560,7 +560,7 @@ func TestCodex_SetupExecute_NoneCellUnchanged(t *testing.T) {
 	_ = b.Setup(context.Background(), setupReq)
 	assert.Equal(t, "/proj", b.resolvedProjectDir)
 	assert.Empty(t, b.resolvedTrustAbsPath, "in-tree config.toml is never trust-pre-seeded")
-	assert.Equal(t, "/proj", seededDir, "Setup actively seeds the in-tree CODEX_HOME")
+	assert.Equal(t, "/proj", seededDir, "Setup actively seeds the in-tree CODEX_HOME (warm-yodel)")
 	assert.NoError(t, b.credentialErr)
 
 	execEnv := b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: "/proj"})

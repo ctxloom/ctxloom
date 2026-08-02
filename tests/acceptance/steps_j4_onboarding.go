@@ -171,7 +171,7 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 		// never does (see EffectiveTrust step 3, LOCAL). Mirrors
 		// steps_j2_team.go's "it reached him without any review" check.
 		//
-		// U160-F08: asserts the structured total from --format json rather
+		// Asserts the structured total from --format json rather
 		// than grepping for the exact prose sentence "Nothing is pending
 		// review." (a wording change would silently break the assertion into
 		// a false red, or a false green if the new wording still contained

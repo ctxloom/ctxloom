@@ -48,7 +48,7 @@ func j5Of(w *World) *j5State {
 }
 
 // j5TargetFor is the one definition of J5's per-engine materialize target
-// dir (U161-F10: this used to be "out-"+engine, independently written at two
+// dir (this used to be "out-"+engine, independently written at two
 // step handlers -- one connascence-of-meaning bug waiting for the two copies
 // to drift).
 func j5TargetFor(engine string) string {
@@ -123,7 +123,7 @@ func registerJ5Steps(ctx *godog.ScenarioContext) {
 		return j5AssertCommand(worldFrom(c), engine)
 	})
 
-	// --- Regression: lanky-plop (P0 data loss) --------------------------------
+	// --- Regression: hand-authored content survives (P0 data loss) -----------
 	//
 	// A hand-authored context file must survive materialization byte-for-byte
 	// outside ctxloom's managed markers. The hand-authored step writes directly
@@ -135,7 +135,7 @@ func registerJ5Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice's team already hand-authored (\S+) for (\S+) with their own conventions$`, func(c context.Context, file, engine string) error {
 		w := worldFrom(c)
 		j5 := j5Of(w)
-		// U161-F10: this hand-authored step MUST run before "Alice
+		// This hand-authored step MUST run before "Alice
 		// materializes the team profile for <engine>" for the byte-for-byte
 		// regression it sets up to mean anything -- previously enforced only
 		// by a comment ("Given/And ordering, not execution order inferred
@@ -466,7 +466,7 @@ func j5AssertHook(w *World, engine string) error {
 	// "agentSpawn" event name, which the note below makes visible rather than
 	// leaving it as a fact only findable by re-reading the Go source.
 	//
-	// U161-F03: this used to print j5HookCommand (the WANT, restating the
+	// This used to print j5HookCommand (the WANT, restating the
 	// claim) rather than cmds (what was actually parsed out of the generated
 	// file) — so a failing assertion published evidence that looked
 	// identical whether the real command matched or not. Now prints cmds,

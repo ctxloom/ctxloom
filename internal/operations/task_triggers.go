@@ -376,7 +376,7 @@ func buildBatch(ctx context.Context, deferred, other []tasks.Task, since map[str
 		// The bounds are passed EXPLICITLY rather than left to the git seam's
 		// defaults: a caller that does not own the bound cannot tell a
 		// complete listing from one that stopped at it, and both bounds cut
-		// alphabetically (U053-F11). Same shape as gitLogPathScanCap.
+		// alphabetically. Same shape as gitLogPathScanCap.
 		if dirs, derr := gitClient.RepoDirs(ctx, req.RepoDir, repoDirsScanCap); derr == nil {
 			batch.Repo.Dirs = dirs
 			batch.Repo.DirsTruncated = len(dirs) >= repoDirsScanCap
@@ -584,7 +584,7 @@ func runTriageChunk(ctx context.Context, c taskChunk, batch triggers.Batch, fact
 	// model can hallucinate or cross-contaminate an id from another chunk's
 	// evidence, and triggers.ParseVerdicts only checks that harp_id is
 	// non-empty, never membership in the request. An out-of-chunk verdict
-	// must never reach cacheable/the verdict cache (U088-F09); the task it
+	// must never reach cacheable/the verdict cache; the task it
 	// claims to answer for gets its normal cannot-determine fallback below,
 	// same as any other omission.
 	inChunk := make(map[string]bool, len(c.tasks))
@@ -635,7 +635,7 @@ type escalationParams struct {
 	// repo and otherTasks are the batch's repo-global evidence, carried into
 	// round 2 unchanged. Round 2 is the FINAL look: settling a trigger on
 	// less evidence than the round that escalated it is a regression, and an
-	// existence-style trigger is answerable from repo state alone (U128-F11).
+	// existence-style trigger is answerable from repo state alone.
 	repo       triggers.RepoState
 	otherTasks []triggers.OtherTask
 
@@ -678,7 +678,7 @@ type escalationParams struct {
 // response omitted them (the same omission-visibility contract as round 1),
 // whether/why at least one round-2 chunk's LLM call or parse failed outright
 // — the escalation-round counterpart of chunkResult.degraded/warning, folded
-// by the caller into EvaluateTriggersResult.Degraded/Warning (U088-F08) — and
+// by the caller into EvaluateTriggersResult.Degraded/Warning — and
 // how many follow-up queries were refused before they ever ran.
 func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdicts []triggers.Verdict) escalationOutcome {
 	budget := maxQueriesPerBatch
@@ -730,7 +730,7 @@ func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdict
 			}
 			// A call/parse failure is a transient degradation, not a genuine
 			// answer — it must never freeze the task's verdict in the cache
-			// until the evidence changes (U088-F03). Round 1 may already have
+			// until the evidence changes. Round 1 may already have
 			// marked this harp id cacheable (a needs-investigation with valid
 			// queries IS a genuine round-1 answer); round 2 failing to settle
 			// it must retract that.
@@ -752,7 +752,7 @@ func escalateNeedsInvestigation(ctx context.Context, p escalationParams, verdict
 			}
 			// Same reasoning as the degraded branch above: an omission is the
 			// model silently dropping this task from an otherwise-valid
-			// response, not a genuine answer for it (U088-F03).
+			// response, not a genuine answer for it.
 			if p.cacheable != nil {
 				delete(p.cacheable, v.HarpID)
 			}
@@ -907,7 +907,7 @@ func fillMissingVerdicts(deferred []tasks.Task, got []triggers.Verdict, reason s
 	for _, v := range got {
 		seen[v.HarpID] = true
 	}
-	// Copy rather than alias got's backing array (U088-F22): appending onto
+	// Copy rather than alias got's backing array: appending onto
 	// `got` directly would let a later in-place rewrite through the returned
 	// slice (e.g. escalateNeedsInvestigation's verdicts[i] = ...) silently
 	// mutate the caller's own parsed/got slice too.

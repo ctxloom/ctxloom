@@ -66,7 +66,7 @@ func TestResolveRef_ShortAgainstLocalSource(t *testing.T) {
 	}
 }
 
-// TestResolveRef_MalformedCanonicalNotReclassified pins U094-F17: ResolveRef
+// TestResolveRef_MalformedCanonicalNotReclassified pins that ResolveRef
 // used to reclassify ANY ParseReference failure as "this must be a short
 // same-repo ref" and silently re-expand it against sourceURL — so a malformed
 // scheme-qualified ref never surfaced its real error, it just produced a

@@ -8,8 +8,8 @@ import (
 
 // This file is the ONE place the repo-URL grammar lives.
 //
-// It replaced three independent re-implementations that had drifted apart
-// (unranked-mouth): NormalizeURL (identity), normalizeCloneURL (transport) and
+// It replaced three independent re-implementations that had drifted apart:
+// NormalizeURL (identity), normalizeCloneURL (transport) and
 // RepoDirForURL's own url.Parse (filesystem). The four concerns below are
 // legitimately distinct — a trust key is not a clone argument is not a cache
 // path — but they were each re-deriving "what shape is this string?", and the
@@ -131,7 +131,7 @@ type RepoURL struct {
 // The rule is: a GitHub OWNER name cannot contain a dot, so a dot in the FIRST
 // segment means the first segment is a hostname. Testing the first segment
 // rather than the whole token keeps "owner/repo.js" and "owner/repo.git"
-// shorthand — the latter being U095-F13, which is why the ".git" suffix is
+// shorthand — the latter being why the ".git" suffix is
 // stripped before this is consulted.
 func shorthandFirstSegment(token string) bool {
 	first, _, ok := strings.Cut(token, "/")
@@ -225,8 +225,9 @@ func ParseRepoURL(raw string) (RepoURL, error) {
 // order trailing-slash → ".git" → trailing-slash, and reports whether a ".git"
 // was present.
 //
-// The ORDER is the U095-F13 fix generalised. normalizeCloneURL trimmed ".git"
-// first so that "owner/repo.git" could still be recognised as shorthand;
+// The ORDER is an earlier per-function fix, generalised. normalizeCloneURL
+// trimmed ".git" first so that "owner/repo.git" could still be recognised as
+// shorthand;
 // NormalizeURL trimmed it per-arm and so left ".git" on "…/repo.git/", where
 // the trailing slash hid it — connascence of order that trust.CanonicalRepoURL
 // had to compensate for from another package. Doing all three here, once,
@@ -311,13 +312,13 @@ func (r RepoURL) CloneArg() string {
 // CacheSegments returns the path segments naming this repo's clone directory
 // under the cache root, host first. It is the FILESYSTEM concern: the host is
 // lowercased (a mixed-case host must not key a second, distinct clone — and
-// the auth header is keyed on the lowercased host, U095-F12) and the ".git"
+// the auth header is keyed on the lowercased host) and the ".git"
 // suffix never appears, so the two spellings of one repo share one clone.
 //
 // It returns an error for a sentinel or a degenerate URL that yields no
 // segments: the returned directory is later RemoveAll'd, so "resolves to the
 // cache root itself" is exactly as dangerous as "escapes the cache root"
-// (U095-F01) and must never be answered with a silent fallback.
+// and must never be answered with a silent fallback.
 func (r RepoURL) CacheSegments() ([]string, error) {
 	if r.form == formSentinel || r.form == formVerbatim || r.form == formOpaque {
 		return nil, fmt.Errorf("%q is not a clonable repository URL", r.raw)

@@ -12,7 +12,7 @@ import (
 // side by side.
 //
 // Asserting them SIDE BY SIDE is the point. The defect this refactor exists to
-// close (unranked-mouth) was invisible in any single-function test, because
+// close was invisible in any single-function test, because
 // each function was individually self-consistent — NormalizeURL and
 // normalizeCloneURL each had a passing test suite while disagreeing about what
 // "gitlab.com/alice/repo" meant. A table with one column per concern makes a
@@ -47,7 +47,7 @@ func repoURLCases() []repoURLCase {
 		{name: "shorthand with dash", in: "my-org/my-repo",
 			identity: "https://github.com/my-org/my-repo", transport: "https://github.com/my-org/my-repo",
 			cacheDir: "/base/github.com/my-org/my-repo", kind: SourceKindRemote},
-		// U095-F13: ".git" is stripped BEFORE the shorthand test, or the dot it
+		// ".git" is stripped BEFORE the shorthand test, or the dot it
 		// contributes disqualifies the token and `git clone` reads it as a path.
 		{name: "shorthand with .git", in: "owner/repo.git",
 			identity: "https://github.com/owner/repo", transport: "https://github.com/owner/repo",
@@ -61,7 +61,7 @@ func repoURLCases() []repoURLCase {
 			identity: "https://github.com/a/b/c", transport: "https://github.com/a/b/c",
 			cacheDir: "/base/github.com/a/b/c", kind: SourceKindRemote},
 
-		// --- host-qualified, scheme omitted (starry-debtor, RULED) ------------
+		// --- host-qualified, scheme omitted (ruled) ----------------------------
 		// A dot in the FIRST segment means it is a hostname: GitHub owner names
 		// cannot contain one. NormalizeURL used to prefix these onto github.com.
 		{name: "host-qualified other forge", in: "gitlab.com/alice/repo",
@@ -282,7 +282,7 @@ func TestRepoURL_NonHTTPPathsAreBytePreserved(t *testing.T) {
 	}
 }
 
-// TestRepoURL_CacheDirNeverResolvesToRoot pins U095-F01 across the grammar: the
+// TestRepoURL_CacheDirNeverResolvesToRoot pins, across the grammar, that the
 // returned directory is RemoveAll'd and cloned into, so "equals the cache root"
 // is exactly as dangerous as "escapes it", and neither may be answered with a
 // silent fallback.

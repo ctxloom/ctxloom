@@ -83,7 +83,7 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}, Workspace: "worktree"})
 }
 
-// TestRunOneshot_SurfacesWithheldExecutable pins U085-F16: RunOneshot builds an
+// TestRunOneshot_SurfacesWithheldExecutable pins that RunOneshot builds an
 // ExecutableTrustGate for an isolated oneshot and then discarded the object,
 // keeping only its Gate() closure — so every executable the gate withheld from
 // the member's per-member config was withheld with no diagnostic at all.
@@ -102,7 +102,7 @@ func TestRunOneshot_SurfacesWithheldExecutable(t *testing.T) {
 		"the withheld MCP executable must be named in an advisory, not dropped silently")
 }
 
-// TestRunResolvedAgent_RejectsUnknownPermissionPosture pins U085-F25: the ok
+// TestRunResolvedAgent_RejectsUnknownPermissionPosture pins that the ok
 // bool from agent.ParsePermissionMode was discarded, so a MISSPELLED posture
 // was indistinguishable from an unset one. Both parsed to PermissionDefault,
 // which is not SafeHeadless, so both floored to PermissionBypass — a member
@@ -147,7 +147,7 @@ func TestRunResolvedAgent_RejectsUnknownPermissionPosture(t *testing.T) {
 	})
 }
 
-// TestRunResolvedAgent_ScalesVerbosityToWireLevel pins U085-F24 at the PUBLIC
+// TestRunResolvedAgent_ScalesVerbosityToWireLevel pins the PUBLIC
 // SEAM above the duplication. The row is a verbatim-identical duplicate — the
 // literal 16 appeared as `uint32(v * 16)` in both `ctxloom run` and this
 // oneshot/fan tail — so no parity test between the two could ever be red, and a

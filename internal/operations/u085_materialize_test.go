@@ -55,7 +55,7 @@ func emptyContextMaterializeFixture(t *testing.T) (*config.Config, string) {
 	return config.NewFixture(f), target
 }
 
-// TestMaterializeProfile_RefusesEmptyAssembledContext pins U085-F05, this
+// TestMaterializeProfile_RefusesEmptyAssembledContext pins this
 // project's signature silent no-op: measured pre-fix, MaterializeProfile
 // returned a nil error, reported Wrote: [context mcp settings commands skills]
 // — naming the context surface — and wrote NO CLAUDE.md at all. Zero bytes, a
@@ -81,7 +81,7 @@ func TestMaterializeProfile_RefusesEmptyAssembledContext(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(target, "CLAUDE.md"))
 }
 
-// TestMaterializeProfile_RestoresCallersTrustGate pins U085-F15:
+// TestMaterializeProfile_RestoresCallersTrustGate pins that
 // MaterializeProfile installs its own executable trust gate on the CALLER's
 // shared *config.Config and used to leave it there, so every later consumer of
 // that config — in a long-lived process, every subsequent operation — silently

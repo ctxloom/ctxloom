@@ -32,7 +32,7 @@ func holdFSFixture(t *testing.T) (*config.Config, *remote.LockfileManager) {
 	return cfg, mgr
 }
 
-// TestLoadActiveLockfile_ReadsInjectedFS pins U085-F27 for the read half:
+// TestLoadActiveLockfile_ReadsInjectedFS pins the read half:
 // LoadActiveLockfile built its lockfile manager without WithLockfileFS, so under
 // an injected filesystem it read a DIFFERENT lock.yaml (the real one on the host)
 // than every other lockfile call site in this package resolves against.
@@ -46,7 +46,7 @@ func TestLoadActiveLockfile_ReadsInjectedFS(t *testing.T) {
 		"the active lockfile must come from the config's filesystem, not the OS fs")
 }
 
-// TestSetItemPin_PersistsToInjectedFS pins U085-F27 for the write half: the hold
+// TestSetItemPin_PersistsToInjectedFS pins the write half: the hold
 // must land in the injected filesystem's lock.yaml. Pre-fix SetItemPin loaded an
 // empty lockfile from the OS fs and reported "not found", so the user's hold was
 // silently not recorded anywhere the rest of the run can see.

@@ -22,7 +22,7 @@ func entryNames(servers []MCPServerEntry) []string {
 	return out
 }
 
-// TestSortMCPServers_UnknownSortByIsDeterministicAndLoud pins U085-F23: an
+// TestSortMCPServers_UnknownSortByIsDeterministicAndLoud pins that an
 // unrecognised sort_by fell through every switch arm and left the slice in
 // whatever order collectMCPServers built it — and that order comes from Go MAP
 // ITERATION over the unified and per-backend scopes, so the same input could

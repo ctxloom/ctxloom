@@ -27,7 +27,7 @@ func u085ProfileProject(t *testing.T) *config.Config {
 	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 }
 
-// TestUpdateProfile_PreservesLoaderError pins U085-F14 for the write path:
+// TestUpdateProfile_PreservesLoaderError pins the write path:
 // UpdateProfile flattened the loader's error to a bare "profile %q not found",
 // discarding the errs.ErrProfileNotFound sentinel every caller matches on and
 // the actionable detail the loader attaches (the remote-pull hint for a
@@ -53,7 +53,7 @@ func TestUpdateProfile_PreservesLoaderError(t *testing.T) {
 	assert.True(t, errors.Is(gerr, errs.ErrProfileNotFound))
 }
 
-// TestLoadLocalProfile_PreservesLoaderError pins U085-F14 for the edit/export
+// TestLoadLocalProfile_PreservesLoaderError pins the edit/export
 // path. The remote-reference branch is deliberate and stays; the LOCAL branch
 // flattened the loader error the same way UpdateProfile did.
 func TestLoadLocalProfile_PreservesLoaderError(t *testing.T) {
@@ -72,7 +72,7 @@ func TestLoadLocalProfile_PreservesLoaderError(t *testing.T) {
 	assert.Contains(t, rerr.Error(), "local-only")
 }
 
-// TestProfileLoaderFactories_AgreeUnderInjectedFS is U085-F11's parity test
+// TestProfileLoaderFactories_AgreeUnderInjectedFS is a parity test
 // across BOTH loader factories, written before the collapse. They are near-
 // identical, and where they DIVERGE the divergence is the defect: config's
 // GetProfileLoader threads WithFS(c.fs) while operations' profileLoader never

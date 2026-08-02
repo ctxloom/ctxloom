@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// TestDropConflicted_LeavesCallerSliceIntact pins U085-F26: dropConflicted must
+// TestDropConflicted_LeavesCallerSliceIntact pins that dropConflicted must
 // build its own backing array. The in-place `pins[:0]` filter it used to run
 // overwrote the caller's slice as it went, so the argument the caller still
 // holds and the value returned aliased one array — a caller that kept the
@@ -38,8 +38,8 @@ func TestDropConflicted_LeavesCallerSliceIntact(t *testing.T) {
 }
 
 // TestFlattenDependencies_OnlyEverPinsBundles pins the construction that makes
-// U085-F26's sibling claim (a non-bundle pin vanishing inside
-// remote.Lockfile.AddEntry, U085-F28) unreachable: every PinnedRef the closure
+// a sibling claim (a non-bundle pin vanishing inside
+// remote.Lockfile.AddEntry) unreachable: every PinnedRef the closure
 // walk emits carries remote.ItemTypeBundle, which is also the only ItemType the
 // remote package declares. AddEntry's documented non-bundle no-op therefore has
 // no input that reaches it. If a second item type is ever added to the closure,

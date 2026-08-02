@@ -49,7 +49,7 @@ type j9Record struct {
 type j9State struct {
 	recordDir string
 	records   []j9Record
-	// lastContainerRecPath is the mock-container run's own record file (U161-F06):
+	// lastContainerRecPath is the mock-container run's own record file:
 	// distinct from records above, which only the workspace-axis "mock agent"
 	// steps append to. Lets "the run runs on the host" check WHERE the
 	// degraded run actually executed, not merely that it exited 0.
@@ -285,7 +285,7 @@ func registerJ9Steps(ctx *godog.ScenarioContext) {
 		if code := w.env.LastExitCode(); code != 0 {
 			return fmt.Errorf("expected exit 0 (degraded host run), got %d; output:\n%s", code, out)
 		}
-		// U161-F06: exit 0 alone does not prove WHERE the run executed -- a
+		// Exit 0 alone does not prove WHERE the run executed -- a
 		// silently container-bound (or nowhere-run) "success" would pass this
 		// check too, in a journey whose entire subject is where the run
 		// landed. Read the mock's own recorded workdir=, the same observable

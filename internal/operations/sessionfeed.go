@@ -122,7 +122,7 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 		if source == FeedSourceLive {
 			return nil, fmt.Errorf("no live tap for %q (only children an orchestrator currently holds are tappable): %w", req.Harp, lerr)
 		}
-		// U087-F11: auto mode used to discard lerr entirely here — a
+		// Auto mode used to discard lerr entirely here — a
 		// coordinator that is up but rejecting the bearer credential (a real
 		// D1 auth problem) was indistinguishable from one that simply isn't
 		// holding the harp. Warn before falling back so the failure has SOME
@@ -138,7 +138,7 @@ func WatchSessionFeed(ctx context.Context, req SessionFeedRequest) (*SessionFeed
 // live on, or that's unreachable, just moves to the next.
 func watchLiveFeed(ctx context.Context, entry *sessions.Entry, backend string) (*SessionFeed, error) {
 	endpoints, skipped := discover.List()
-	// U025-F02: skipped candidates (unreadable/undecodable endpoint.json, or
+	// Skipped candidates (unreadable/undecodable endpoint.json, or
 	// discovery itself failing) used to be indistinguishable from "no
 	// endpoint file exists at all" — surface them so a permission error or a
 	// corrupt state dir does not masquerade as "nothing is running".
@@ -481,7 +481,7 @@ func feedScrollback(ctx context.Context, entry *sessions.Entry, backend string) 
 		return nil
 	}
 	if sess == nil {
-		// U087-F16: a nil session with no error produces the exact same
+		// A nil session with no error produces the exact same
 		// user-visible outcome as the warned-error branch above (no
 		// scrollback) but used to say nothing at all — the one case that
 		// looked like a bug (or a genuinely empty transcript) was the one

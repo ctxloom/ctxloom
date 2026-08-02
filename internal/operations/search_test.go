@@ -715,9 +715,9 @@ func TestSearchContent_ProfileByDescription(t *testing.T) {
 // Local Search Tests
 // =============================================================================
 // SearchContent searches local content (fragments, prompts, profiles,
-// mcp_servers) only — remote discovery is search_library's job (U086-F06
-// deleted the unreachable SearchRemote branch and its SearchLocal/SearchRemote
-// scope-flag fields; the CLI's own concurrent local+remote fan-out in
+// mcp_servers) only — remote discovery is search_library's job (the
+// unreachable SearchRemote branch and its SearchLocal/SearchRemote
+// scope-flag fields were deleted; the CLI's own concurrent local+remote fan-out in
 // cli/search.go never routed through them anyway).
 
 func TestSearchContent_LocalScope(t *testing.T) {
@@ -763,8 +763,8 @@ func TestSearchResult_RemoteSource(t *testing.T) {
 	assert.Equal(t, "personal", result.Source)
 }
 
-// TestSortResults_RelevanceTiesAreDeterministic is a regression guard for
-// U086-F22: sortResults used sort.Slice (unstable) and relevanceScore has
+// TestSortResults_RelevanceTiesAreDeterministic is a regression guard:
+// sortResults used sort.Slice (unstable) and relevanceScore has
 // only 3 distinct values, so a set of results tied on relevance had NO
 // deterministic secondary order — whatever order the (randomized)
 // map-iteration producers (searchProfiles, searchMCPServers) happened to
@@ -796,7 +796,7 @@ func TestSortResults_RelevanceTiesAreDeterministic(t *testing.T) {
 }
 
 // TestSortResults_TypeTiesAreDeterministic mirrors the relevance case for
-// the "type" sort, which — per the U086-F22 finding — ties even more often
+// the "type" sort, which ties even more often
 // (every same-type result ties).
 func TestSortResults_TypeTiesAreDeterministic(t *testing.T) {
 	a := SearchResult{Type: "fragment", Name: "bravo"}

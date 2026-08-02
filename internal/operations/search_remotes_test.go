@@ -13,8 +13,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 )
 
-// TestSearchRemotes_ManifestFallsThroughOnNoMatches is a regression guard for
-// U086-F15: searchSingleRemote used to return the manifest search result
+// TestSearchRemotes_ManifestFallsThroughOnNoMatches is a regression guard:
+// searchSingleRemote used to return the manifest search result
 // UNCONDITIONALLY whenever manifest.yaml fetched successfully, even when it
 // yielded zero matches — so a stale/partial manifest permanently hid bundles
 // actually present in the directory, since the directory fallback could then

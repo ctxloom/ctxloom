@@ -68,7 +68,7 @@ func SearchContent(ctx context.Context, cfg *config.Config, req SearchContentReq
 		loader = bundleLoader(cfg)
 	}
 
-	// Search is LOCAL only (U086-F06: the remote-search branch, gated on
+	// Search is LOCAL only (the remote-search branch, gated on
 	// SearchContentRequest.SearchRemote, was unreachable in production —
 	// remote discovery is search_library's job, and the CLI's own concurrent
 	// local+remote fan-out in cli/search.go never routed through here).
@@ -275,7 +275,7 @@ func searchMCPServers(cfg *config.Config, query string) []SearchResult {
 // "relevance"); reverse flips the order. Relevance ranks name matches above
 // tag/description matches.
 //
-// U086-F22: "type" and "relevance" tie constantly (relevanceScore has only 3
+// "type" and "relevance" tie constantly (relevanceScore has only 3
 // distinct values; every same-type result ties under "type"), and some
 // producers (searchProfiles, searchMCPServers) range over a Go map — an
 // input order that is NOT stable across calls. sort.SliceStable alone only

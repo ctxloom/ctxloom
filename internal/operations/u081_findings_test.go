@@ -19,7 +19,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// U081-F01 — SetAgent silently destroys fields the caller did not set.
+// SetAgent silently destroys fields the caller did not set.
 // ---------------------------------------------------------------------------
 
 // TestSetAgent_OmittedFieldsSurvive is the CORRECTED contract for `agent set`
@@ -93,7 +93,7 @@ func TestSetAgent_ExplicitEmptyClears(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U081-F04 — an empty distillation is reported as a success.
+// An empty distillation is reported as a success.
 // ---------------------------------------------------------------------------
 
 // emptyDistiller returns no error and no content — the shape a structural
@@ -150,14 +150,14 @@ func TestDistillOutcome_CannotReportSuccessForZeroBytes(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U082-F01 — a truncated (non-empty) distillation is stamped as accepted,
+// A truncated (non-empty) distillation is stamped as accepted,
 // with no length/ratio floor at all.
 // ---------------------------------------------------------------------------
 
 // truncatingDistiller returns a fixed, tiny non-empty result regardless of
 // input — the shape a degenerate/truncated model response takes: not empty
-// (the already-guarded U081-F04 case), but implausibly short next to what it
-// claims to have distilled.
+// (the already-guarded empty-distillation case), but implausibly short next
+// to what it claims to have distilled.
 type truncatingDistiller struct{ result string }
 
 func (d truncatingDistiller) Distill(context.Context, DistillRequest) (DistillResult, error) {
@@ -219,7 +219,7 @@ func TestDistillPrompts_TruncatedResultRejected(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U081-F06 — a stat error on the .sig silently downgrades a signed bundle.
+// A stat error on the .sig silently downgrades a signed bundle.
 // ---------------------------------------------------------------------------
 
 // denyStatFs fails Stat (and therefore afero.Exists) for the named paths with
@@ -278,7 +278,7 @@ func TestImportBundle_UnreadableSignatureFailsLoudly(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U081-F10 — ImportBundle "validates a bundle file" but validates almost
+// ImportBundle "validates a bundle file" but validates almost
 // nothing.
 // ---------------------------------------------------------------------------
 
@@ -301,7 +301,7 @@ func TestImportBundle_RejectsEmptyBundle(t *testing.T) {
 	}
 }
 
-// TestImport_RejectsNameTheLoaderCannotFind is the CLASS gate for U081-F10.
+// TestImport_RejectsNameTheLoaderCannotFind is the CLASS gate for the same defect.
 //
 // Every importer here writes the SOURCE basename into the target directory
 // verbatim, and every loader filters that directory by extension. So the
@@ -386,7 +386,7 @@ func TestImportBundle_DoesNotDestroyOnRejection(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U081-F08 — a degenerate remote URL escapes the bundle cache root, and the
+// A degenerate remote URL escapes the bundle cache root, and the
 // escaped path is handed straight to fs.Remove.
 // ---------------------------------------------------------------------------
 
@@ -455,8 +455,8 @@ func TestRemoveLocalItems_DoesNotRemoveOutsideCache(t *testing.T) {
 func ptr[T any](v T) *T { return &v }
 
 // refLockfile builds a minimal lockfile from a bundle-ref map. Moved here from
-// the now-deleted bundle_refs_test.go (U081-F03 deleted AnalyzeBundleReferences
-// and its test file, but this helper is still needed by
+// the now-deleted bundle_refs_test.go (AnalyzeBundleReferences and its test
+// file were deleted, but this helper is still needed by
 // TestRemoveLocalItems_DoesNotRemoveOutsideCache above).
 func refLockfile(bundles map[string]remote.LockEntry) *remote.Lockfile {
 	return &remote.Lockfile{Bundles: bundles}

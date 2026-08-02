@@ -21,7 +21,7 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// U081-F14 — the bundle read/export/move trio must canonicalize a short bundle
+// The bundle read/export/move trio must canonicalize a short bundle
 // name against the SAME filesystem they load it from.
 // ---------------------------------------------------------------------------
 
@@ -76,7 +76,7 @@ func TestCanonicalizeBundleArg_ResolvesAgainstTheInjectedFS(t *testing.T) {
 		canonicalizeBundleArg(cfgLocal, "personal/tool", dirsLocal, fsLocal))
 }
 
-// TestShortNameLocalWins_ReadAndExport is the SHARED behaviour the U081-F14
+// TestShortNameLocalWins_ReadAndExport is the SHARED behaviour the
 // cleanup must preserve at the public seam: `bundle view` and `bundle export`
 // both accept a per-remote short name whose spelling is claimed by a local
 // file, and both serve that local file (decision E). The two call sites spelled
@@ -98,7 +98,7 @@ func TestShortNameLocalWins_ReadAndExport(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U081-F13 — an unreadable lockfile silently empties the removed-upstream walk.
+// An unreadable lockfile silently empties the removed-upstream walk.
 // ---------------------------------------------------------------------------
 
 // TestBundleListDeletedResolver_WarnsOnUnreadableLockfile pins the LOUD path.
@@ -151,7 +151,7 @@ func TestBundleListDeletedResolver_SilentOnGoodLockfile(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U081-F07 — a nil BundleByteSource means "nothing is installed", silently.
+// A nil BundleByteSource means "nothing is installed", silently.
 // ---------------------------------------------------------------------------
 
 // TestNewBundleReaderForConfig_WarnsWhenLockfileUnreadable pins the loud path
@@ -205,7 +205,7 @@ func TestNewBundleReaderForConfig_SilentOnGoodLockfile(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U081-F12 — the destination switch must be exhaustive, not default-to-copy.
+// The destination switch must be exhaustive, not default-to-copy.
 // ---------------------------------------------------------------------------
 
 // TestMoveByDest_UnrecognisedKindRefuses is the guard on a move's most
@@ -257,7 +257,7 @@ func TestMoveByDest_KnownKindsStillRoute(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U081-F09 — a move that fully happened must not read as a move that did not.
+// A move that fully happened must not read as a move that did not.
 // ---------------------------------------------------------------------------
 
 // failRemoveFs fails Remove for paths matching a predicate — a disk that will
@@ -332,7 +332,7 @@ func TestMoveBundle_UnremovableSourceYAML_ErrorSaysBothPlaces(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U081-F05 — a distill run where everything failed must not rewrite the file.
+// A distill run where everything failed must not rewrite the file.
 // ---------------------------------------------------------------------------
 
 // TestDistillBundleFile_AllFailuresLeaveTheFileByteIdentical is the payload

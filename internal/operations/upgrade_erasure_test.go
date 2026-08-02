@@ -78,7 +78,7 @@ func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
 }
 
 // The security-relevant payload: a wipe silently un-holds every hold and, far
-// worse, UN-RETRACTS content the publisher withdrew (finding S12 — retraction
+// worse, UN-RETRACTS content the publisher withdrew (retraction
 // state is cleared by `remote upgrade`).
 func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 	baseDir, ref, cfg := setupInlineOnlyProject(t)
@@ -112,7 +112,7 @@ func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 	assert.Equal(t, "withdrawn by the publisher", after.RetractedReason)
 }
 
-// TestUpgrade_RetractionSurvivesNonEmptyReresolve pins U089-F01: a full
+// TestUpgrade_RetractionSurvivesNonEmptyReresolve pins that a full
 // re-resolve that DOES produce results (unlike the empty-closure case above)
 // must not silently un-retract an item the publisher withdrew. Only a fresh
 // CheckRetracted (sync's installed-ref re-check, or the next Pull) is
@@ -154,7 +154,7 @@ func TestUpgrade_RetractionSurvivesNonEmptyReresolve(t *testing.T) {
 	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
 	require.True(t, ok)
 	assert.Equal(t, c2, after.SHA, "the SHA still advances")
-	assert.True(t, after.Retracted, "a wholesale re-resolve must not silently un-retract content the publisher withdrew (U089-F01)")
+	assert.True(t, after.Retracted, "a wholesale re-resolve must not silently un-retract content the publisher withdrew")
 	assert.Equal(t, "withdrawn by the publisher", after.RetractedReason)
 }
 
@@ -175,10 +175,10 @@ func TestUpgrade_GenuinelyEmptyProjectStillSucceeds(t *testing.T) {
 	assert.Equal(t, 0, advanced)
 }
 
-// TestUpgrade_HonoursInjectedLockfileFS pins U089-F10 (escalated from wave-1):
-// UpgradeDependencies must read AND write the lockfile through cfg.FS() when
-// one is injected, not silently fall back to the real OS filesystem for one
-// half of the read-modify-write. Before the fix, both NewLockfileManager
+// TestUpgrade_HonoursInjectedLockfileFS pins that UpgradeDependencies must
+// read AND write the lockfile through cfg.FS() when one is injected, not
+// silently fall back to the real OS filesystem for one half of the
+// read-modify-write. Before the fix, both NewLockfileManager
 // constructions here omitted WithLockfileFS, so an injected FS's lock.yaml was
 // invisible to Load/Save even though profileLoader/closure resolution (via
 // cfg) is FS-scoped elsewhere — the exact mismatch the reviewer called the

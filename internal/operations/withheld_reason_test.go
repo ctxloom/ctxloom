@@ -154,7 +154,7 @@ fragments:
 }
 
 // TestAssembleContext_WarnWithheld_InjectedLoaderIsSilentAboutWhy pins the
-// current (U089-F14-simplified) behavior: when the caller injects its own
+// current behavior: when the caller injects its own
 // *bundles.Loader (a test seam — see gatedAcmeLoader — every real production
 // call site always builds through exposureLoaderGated instead), warnWithheld
 // has no *contentGate to consult and now emits NO advisory at all — it used

@@ -20,7 +20,7 @@ import (
 // file (trust.go has ~60 of them). The key is the condition EXACTLY as
 // go/printer renders it; the value is the cascade step it implements, used
 // as the mutant's name so a survivor is self-describing in the report.
-// U164-F03: this used to be an anonymous map literal inline in
+// This used to be an anonymous map literal inline in
 // newGuardNegate, while two doc comments referred to a "cascadeGuards"
 // identifier that did not exist anywhere in the file — promoted to a real
 // package-level var so the name is real.
@@ -67,7 +67,7 @@ type guardNegate struct {
 	// different set without touching package state).
 	targets map[string]string
 	// matched records which targets' labels actually fired during the
-	// Incubate walk. Nothing counted matches before U164-F01 and nothing
+	// Incubate walk. Nothing counted matches before this and nothing
 	// asserted a minimum: a refactor of any of the five conditions
 	// (extracting a variable, inverting a guard, renaming a parameter,
 	// reordering arguments) silently drops that step's matches to zero, the
@@ -88,11 +88,8 @@ func newGuardNegate() *guardNegate {
 // render turns an ast.Expr back into its source text so it can be matched
 // against cascadeGuards. A fresh empty FileSet is fine here: we only need the
 // expression's own text, never its position.
-// render turns an ast.Expr back into its source text so it can be matched
-// against cascadeGuards. A fresh empty FileSet is fine here: we only need the
-// expression's own text, never its position.
 //
-// U164-F02: printer.Fprint's error used to be swallowed, returning "" -- an
+// printer.Fprint's error used to be swallowed, returning "" -- an
 // unprintable expression then fell through the targets[""] lookup as
 // "not a target", indistinguishable from an ordinary non-cascade if, and
 // silently lowering the mutation floor this virus exists to enforce. A
@@ -146,7 +143,7 @@ func (v *guardNegate) missingTargets() []string {
 }
 
 // AssertAllTargetsMatched fails t unless every cascade guard this virus
-// targets fired at least once during the AST walk (U164-F01). Call it AFTER
+// targets fired at least once during the AST walk. Call it AFTER
 // ooze.Release has walked the whole file — a missing target means a refactor
 // of trust.go silently moved that guard's rendered source text out from
 // under cascadeGuards' literal keys, so this virus attacked nothing for that

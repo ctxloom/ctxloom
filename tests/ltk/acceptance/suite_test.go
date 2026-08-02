@@ -122,7 +122,7 @@ func (w *world) theCommandIsAllowed() error {
 // step above stops at app.Decide, which is one layer short of what the operator
 // actually experiences: the decision still has to be encoded onto the hook's
 // wire (stdout document, stderr diagnostic, exit code) before anyone sees it.
-// U067-F03 lived precisely in that gap — Output.Stderr was consumed by
+// A real bug lived precisely in that gap — Output.Stderr was consumed by
 // cmd/ltk/evaluate.go and produced by nothing — so a scenario about what the
 // operator is TOLD has to cross this boundary rather than stop at the verdict.
 func (w *world) encodedOutput() (engine.Output, error) {

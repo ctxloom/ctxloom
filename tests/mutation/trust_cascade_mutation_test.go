@@ -6,7 +6,7 @@
 // ctxloom BINARY from the mutated source and drives the acceptance suite
 // against it via github.com/gtramontina/ooze's WithTestCommand.
 //
-// WHY THIS EXISTS (do not re-litigate — see taskloom `happy-wise`):
+// WHY THIS EXISTS (do not re-litigate):
 // gremlins mutates source then runs `go test`, but the acceptance suite
 // drives a PRE-BUILT ctxloom binary via exec.Command
 // (tests/integration/testenv/environment.go). A gremlins mutant compiled
@@ -225,7 +225,7 @@ func TestTrustCascadeGuardMutation(t *testing.T) {
 		ooze.WithViruses(v),
 		ooze.WithMinimumThreshold(0),
 	)
-	// U164-F01: a clean mutation report from the line above is not evidence
+	// A clean mutation report from the line above is not evidence
 	// this virus actually attacked all five cascade guards — it could mean
 	// a refactor silently moved a guard's rendered source text out from
 	// under cascadeGuards' literal keys, so ooze walked the file and this

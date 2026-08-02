@@ -25,7 +25,7 @@ func parseIfStmt(t *testing.T, cond string) *ast.IfStmt {
 	return fn.Body.List[0].(*ast.IfStmt)
 }
 
-// TestGuardNegate_MissingTargets_ReportsAnUnfiredGuard pins U164-F01: before
+// TestGuardNegate_MissingTargets_ReportsAnUnfiredGuard pins that, before
 // tracking matches, nothing recorded which of the five cascade guards
 // Incubate actually found, so a guard whose rendered source text drifted
 // (a refactor extracting a variable, inverting the condition, renaming a

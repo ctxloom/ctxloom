@@ -55,7 +55,7 @@ func TestExecuteQuery_PathExists_RejectsSymlinkEscape(t *testing.T) {
 	assert.NotEmpty(t, got.Err, "a symlink escaping the repo must be rejected, not followed")
 }
 
-// U088-F23: safeRepoPath treated EVERY EvalSymlinks error as "doesn't exist
+// safeRepoPath treated EVERY EvalSymlinks error as "doesn't exist
 // yet" and returned the unresolved path unresolved-but-unrejected — including
 // a genuine resolution failure like a symlink loop (ELOOP), where the
 // containment question was never actually answered. A symlink loop is a
@@ -167,7 +167,7 @@ func TestQueryGrep_CompletedScanWithNoHitsIsARealNoMatch(t *testing.T) {
 	assert.Empty(t, got.Output)
 }
 
-// U088-F02: a literal (non-glob) path_glob naming a hidden directory (e.g.
+// A literal (non-glob) path_glob naming a hidden directory (e.g.
 // ".github") must actually be searched. skipGrepDir exists to keep tool/
 // vendor state encountered while DESCENDING out of the search, but it used
 // to be applied to the walk ROOT too — so a scope naming a hidden directory
@@ -183,7 +183,7 @@ func TestQueryGrep_LiteralScopeNamingAHiddenDirectoryIsSearched(t *testing.T) {
 	assert.Contains(t, got.Output, "ci.yml", "a literal path_glob naming a hidden directory must actually be searched, not silently voided")
 }
 
-// U088-F14: maxGrepFilesScanned is documented as a bound on WORK ("a
+// maxGrepFilesScanned is documented as a bound on WORK ("a
 // zero-match pattern over a huge tree still terminates promptly"), but the
 // old scanned counter only incremented AFTER the scope filter — so a glob
 // matching nothing walked every file in the tree before the budget check
@@ -285,7 +285,7 @@ func TestExecuteQuery_GitLogPath_NoMatchesSaysSo(t *testing.T) {
 	assert.NotEmpty(t, got.Output)
 }
 
-// U088-F07: queryGitLogPath scans only the most recent gitLogPathScanCap
+// queryGitLogPath scans only the most recent gitLogPathScanCap
 // commits (via LogSince). A zero-match result from a window that hit that
 // cap did not finish looking, so it must not read as a confident "no commits
 // found touching this path" — the exact hazard queryGrep already guards
@@ -303,7 +303,7 @@ func TestExecuteQuery_GitLogPath_TruncatedWindowIsInconclusive(t *testing.T) {
 	assert.NotEmpty(t, got.Err, "a fully-truncated commit window with zero matches is inconclusive, not evidence of absence")
 }
 
-// U053-F13: a commit whose changed-file list could not be gathered
+// A commit whose changed-file list could not be gathered
 // (FilesUnknown) is not a commit that touched nothing. Filtering it out
 // silently turns "we never found out" into "it did not touch the path", so a
 // zero-match result over such a window is inconclusive, exactly like the
@@ -335,8 +335,8 @@ func TestExecuteQuery_GitLogPath_UnknownFileListDoesNotSuppressAMatch(t *testing
 	assert.Contains(t, got.Output, "touch signing")
 }
 
-// TestBuildBatch_DeclaresTruncatedRepoState pins the gathering half of
-// U053-F11: the repo-state lists are bounded, and only the caller that owns
+// TestBuildBatch_DeclaresTruncatedRepoState pins the gathering half: the
+// repo-state lists are bounded, and only the caller that owns
 // the bound can notice a listing that hit it. A batch built from a full-cap
 // result must carry the truncation flags the prompt renders, or the model is
 // handed a partial inventory presented as a complete one.

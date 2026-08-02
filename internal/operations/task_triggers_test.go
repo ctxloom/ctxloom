@@ -236,7 +236,7 @@ func TestEvaluateTriggers_RepoStateReachesThePrompt(t *testing.T) {
 // Round 2 is the FINAL look at an escalated trigger — it may not settle one on
 // LESS evidence than the tentative round that escalated it, and the
 // existence-style trigger that motivated repo state in the first place is
-// exactly the kind that escalates (U128-F11).
+// exactly the kind that escalates.
 func TestEvaluateTriggers_RepoStateReachesTheEscalationPrompt(t *testing.T) {
 	tc := newTaskContext(t, "proj-repo-state-round2")
 	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "the internal/shared/tasks/triggers package exists")
@@ -503,8 +503,8 @@ func TestEvaluateTriggers_ChunkOmissionIsCountedSeparatelyFromDegrade(t *testing
 // of round 1: if the escalation chunk containing a needs-investigation task
 // fails, that task must land on cannot-determine (never fired/not-fired),
 // without disturbing round 1's own Degraded/Warning bookkeeping.
-// TestEvaluateTriggers_DegradedEscalationChunkSetsTopLevelDegraded fixes
-// U088-F08: EvaluateTriggersResult.Degraded is documented as "true when at
+// TestEvaluateTriggers_DegradedEscalationChunkSetsTopLevelDegraded:
+// EvaluateTriggersResult.Degraded is documented as "true when at
 // least one CHUNK's LLM call/parse failed even after its one retry"
 // (task_triggers.go:106-116), and a round-2 (escalation) chunk's failure is
 // not less real than a round-1 one — escalateNeedsInvestigation now folds
@@ -578,8 +578,7 @@ func TestEvaluateTriggers_EscalatesAndSettlesInRoundTwo(t *testing.T) {
 // to judge nothing and paying for the call. Nothing in production can build
 // one, and THESE are the guards that make it so — an empty task set yields no
 // chunk, so no prompt is ever constructed for it. They are load-bearing:
-// remove either "return nil" and an empty-batch model call becomes reachable
-// (U128-F07).
+// remove either "return nil" and an empty-batch model call becomes reachable.
 func TestChunking_AnEmptySetYieldsNoChunkSoNoPromptIsEverBuilt(t *testing.T) {
 	assert.Empty(t, chunkMissTasks(nil, nil, defaultTriageChunkSize), "no cache misses means no round-1 call")
 	assert.Empty(t, chunkMissTasks([]tasks.Task{}, []triggers.TaskInput{}, 0), "…including at the unbounded chunk size")
@@ -605,7 +604,7 @@ func TestChunking_AnEmptySetYieldsNoChunkSoNoPromptIsEverBuilt(t *testing.T) {
 // outside, exactly like one that asked for nothing: no escalation call, the
 // verdict left as-is. They are not the same event — the second is a model
 // asking for shapes outside the whitelist, or paths that escape the repo — and
-// the counts are the only thing that tells them apart (U128-F12).
+// the counts are the only thing that tells them apart.
 func TestEvaluateTriggers_RefusedQueriesAreCountedNotSwallowed(t *testing.T) {
 	tc := newTaskContext(t, "proj-refused-queries")
 	deferred, err := tasksops.AddTask(tc, "park me", "Deferred", "when x happens")
@@ -749,7 +748,7 @@ func TestEvaluateTriggers_DegradedEscalationRoundBecomesCannotDetermine(t *testi
 	assert.Equal(t, triggers.CannotDetermine, res.Verdicts[0].Outcome)
 }
 
-// U088-F03: a round-2 (escalation) chunk failure marks that task
+// A round-2 (escalation) chunk failure marks that task
 // cannot-determine, but round 1 had already marked its harp id cacheable (a
 // needs-investigation with valid queries IS a genuine round-1 answer) — and
 // nothing cleared that mark on the round-2 failure path, so the transient
@@ -799,7 +798,7 @@ func TestEvaluateTriggers_DegradedEscalationRoundIsNeverCached(t *testing.T) {
 	assert.False(t, res2.Verdicts[0].Cached)
 }
 
-// U088-F09: triggers.ParseVerdicts only checks that harp_id is non-empty,
+// triggers.ParseVerdicts only checks that harp_id is non-empty,
 // never that it belongs to the chunk that was actually asked about — a
 // hallucinated (or cross-chunk) harp id must be dropped before it can ever
 // reach the verdict cache, where it would sit forever (nothing prunes
@@ -1070,7 +1069,7 @@ func TestEvaluateTriggers_MixedCacheHitAndMissOnlyCallsModelForTheMiss(t *testin
 // fillMissingVerdicts
 // ---------------------------------------------------------------------------
 
-// U088-F22: fillMissingVerdicts used to do `out := got` and append onto it —
+// fillMissingVerdicts used to do `out := got` and append onto it —
 // when got carries spare capacity, append reuses its backing array, so a
 // later in-place rewrite through the returned slice (e.g.
 // escalateNeedsInvestigation's verdicts[i] = ...) silently mutates the

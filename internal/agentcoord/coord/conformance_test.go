@@ -150,10 +150,10 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 	assert.Contains(t, sp.engine(1).recordedTexts()[0], "task two")
 }
 
-// TestAgentRun_GrandchildAllowed pins D5 (manly-grant (4)): the B-window
+// TestAgentRun_GrandchildAllowed pins D5: the B-window
 // refusal is lifted — a depth-1 delegated child MAY now spawn a depth-2
 // grandchild, through the exact same AgentRun/enqueueRun path a depth-0
-// session owner uses (the credential-derived depth guard, review R11, is
+// session owner uses (the credential-derived depth guard is
 // generic in the caller's depth — nothing here is grandchild-specific).
 func TestAgentRun_GrandchildAllowed(t *testing.T) {
 	resetStrictness(t)

@@ -426,7 +426,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 	// Search bundle directories recursively
 	for _, dir := range l.searchDirs {
 		// "Does not exist" and "cannot be read" are different facts and must
-		// not share an exit (U030-F06). A configured bundles root that is
+		// not share an exit. A configured bundles root that is
 		// absent is ordinary — most searchDirs are speculative — but one that
 		// errors on stat is a fault, and folding it into the same `continue`
 		// produced an empty list with a nil error, so every downstream sweep

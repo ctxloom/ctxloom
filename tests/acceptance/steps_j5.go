@@ -246,8 +246,8 @@ func j5Excerpt(body, marker string, context int) string {
 // second copy of the same per-engine path table (steps_j4_onboarding.go's
 // "Bob starts a session on <engine>" outline). codex is now a case here:
 // `profile materialize` used to leave its context surface a silent no-op
-// (taskloom tiny-ooze — keyed on agent.SurfaceInputs.Fragments, which
-// materialize never populates); codex's context surface now ALSO writes
+// (keyed on agent.SurfaceInputs.Fragments, which materialize never
+// populates); codex's context surface now ALSO writes
 // AGENTS.md from agent.SurfaceInputs.Context, which materialize does
 // populate (internal/codex/surfaces.go's agentsMDSurface).
 func engineContextRelPath(dir, engine string) (string, error) {

@@ -296,7 +296,7 @@ var excludedLeaves = map[string]string{
 // recover_session used to be listed here too ("requires a real backend
 // transcript"), which was also unearned: a MOCK backend plus a directly
 // seeded canonical transcript.jsonl (see steps_recover_session.go) reaches it
-// hermetically, no real backend needed. quit-eagle's flow-level regression
+// hermetically, no real backend needed. A flow-level regression
 // scenario in mcp_tools.feature now drives it for real — pruned.
 var excludedTools = map[string]string{}
 

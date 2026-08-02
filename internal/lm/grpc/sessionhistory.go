@@ -323,4 +323,4 @@ func (c *GRPCClient) ListSessions(ctx context.Context) ([]agent.SessionMeta, err
 }
 
 // GetSession and ListSessions are promoted from LLMRunner's embedded
-// *GRPCClient (U059-F08) — no forwarder needed.
+// *GRPCClient — no forwarder needed.

@@ -25,7 +25,7 @@ import (
 // concurrently inside Execute. os/exec drives the real backends this way (it
 // copies the child's stdout and stderr on separate goroutines), so this is the
 // condition that makes the two streamWriters call stream.Send concurrently —
-// the exact situation distant-matchless-eclair guards with a shared mutex.
+// the exact situation a shared mutex guards against.
 type concurrentWriteBackend struct {
 	chunks int // chunks written to EACH of stdout and stderr
 }
@@ -128,7 +128,7 @@ func TestGRPCServer_Run_RealTransport_ConcurrentSends(t *testing.T) {
 }
 
 // TestPluginTransport_ServesHealthAndReflection REFUTES the "no standard
-// mechanisms" half of U059-F20, which claimed this transport registers no
+// mechanisms" claim that this transport registers no
 // grpc.health.v1 health service and no server reflection.
 //
 // It registers neither ITSELF, and must not: the LLM service is always served

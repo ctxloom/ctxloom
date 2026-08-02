@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// U059-F11: the inbound user-turn tap required msg.Text != "", so a
+// The inbound user-turn tap required msg.Text != "", so a
 // ContentBlocks-only turn was delivered to the engine but recorded NOWHERE —
 // the transcript shows an assistant reply to a prompt that never appears.
 func TestUserTapEntry_ContentBlocksOnlyTurnIsRecorded(t *testing.T) {

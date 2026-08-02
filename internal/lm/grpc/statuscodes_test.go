@@ -21,7 +21,7 @@ func (noHistoryBackend) History() agent.SessionHistory { return nil }
 
 // The Chat handler already answers a missing capability with
 // codes.Unimplemented and a client protocol violation with
-// codes.InvalidArgument (U059-F04), because a bare fmt.Errorf reaches the
+// codes.InvalidArgument, because a bare fmt.Errorf reaches the
 // caller as codes.Unknown — indistinguishable from "the transport died". The
 // session-history and Run handlers on the same service answered every one of
 // those the second way. A host that cannot tell "this backend has no session
@@ -90,8 +90,8 @@ func TestGetSession_AbsentSessionIsNotFound(t *testing.T) {
 }
 
 // A first Run frame that carries no start is the CLIENT's protocol violation,
-// exactly as it is on Chat (chat.go answers that with codes.InvalidArgument
-// under U059-F04). Reported as codes.Unknown it is indistinguishable from the
+// exactly as it is on Chat (chat.go answers that with codes.InvalidArgument).
+// Reported as codes.Unknown it is indistinguishable from the
 // transport dying mid-handshake.
 func TestRun_FirstMessageMustCarryStart_IsInvalidArgument(t *testing.T) {
 	srv := &GRPCServer{Impl: &fakeBackend{name: "claude-code"}}

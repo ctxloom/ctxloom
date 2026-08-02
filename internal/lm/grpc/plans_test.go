@@ -81,7 +81,7 @@ func TestSessionReader_GetPlans(t *testing.T) {
 	assert.Equal(t, 1, mock.KillCalls)
 }
 
-// U061-F03: an unreadable plan file is dropped from the result. The listing
+// An unreadable plan file is dropped from the result. The listing
 // succeeded and the file IS there, so "no plans" is a lie — the omission must
 // at minimum be reported.
 func TestReadPlanFilesReportsUnreadableFile(t *testing.T) {

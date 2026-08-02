@@ -119,5 +119,5 @@ func (c *GRPCClient) GetPlans(ctx context.Context, harp string) ([]agent.PlanFil
 	return planFilesFromProto(resp.GetPlans()), nil
 }
 
-// GetPlans is promoted from LLMRunner's embedded *GRPCClient (U059-F08) — no
+// GetPlans is promoted from LLMRunner's embedded *GRPCClient — no
 // forwarder needed.

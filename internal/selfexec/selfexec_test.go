@@ -52,7 +52,7 @@ func TestPath_OSExecutableError(t *testing.T) {
 	defer restore()
 
 	assert.Equal(t, "ctxloom", Path())
-	// U098-F01: a resolution failure used to be indistinguishable from a
+	// A resolution failure used to be indistinguishable from a
 	// correctly-resolved absolute path — agent.CtxloomCommand's own invariant
 	// is that the bare-name fallback is a stated exception, not a silent one.
 	assert.Contains(t, buf.String(), "could not resolve", "the fallback must be visible, not silent")
@@ -87,7 +87,7 @@ func TestPath_DeletedAndMissingFallsBack(t *testing.T) {
 	defer restore()
 
 	assert.Equal(t, "ctxloom", Path())
-	// U098-F01: this fallback must be visible too, not just the osExecutable
+	// This fallback must be visible too, not just the osExecutable
 	// error branch — both failures were mapped onto the same silent success
 	// value before the fix.
 	assert.Contains(t, buf.String(), "no longer points at a live file")

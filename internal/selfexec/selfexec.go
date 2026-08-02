@@ -73,7 +73,7 @@ func Path() string {
 	}
 	exe, err := osExecutable()
 	if err != nil {
-		// U098-F01: this fallback IS the one place agent.CtxloomCommand's own
+		// This fallback IS the one place agent.CtxloomCommand's own
 		// invariant ("a surface names the absolute path of the binary that
 		// materialized it... falls back to the bare name only if self-lookup
 		// fails") gets violated — and until now nothing told the caller it

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestPath_ConcurrentOverrideAccessIsRaceFree pins U098-F02's invariant: the
+// TestPath_ConcurrentOverrideAccessIsRaceFree pins that the
 // override global is written by an EXPORTED test-only mutator and read by
 // Path, which every production spawn path calls (the MCP server entry, hook
 // command materialization, agent launch). Nothing about the seam confines

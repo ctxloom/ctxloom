@@ -141,7 +141,7 @@ func (b *Bundle) contentSourceRef() string {
 // nonFilesystemPathPrefixes are the synthetic Bundle.Path sentinels. None of
 // them is a filesystem path, and none may be handed to filepath.Dir and used
 // as one. They are listed here rather than at their producers so a new sentinel
-// added anywhere fails FSDir loudly instead of silently reopening U030-F03 —
+// added anywhere fails FSDir loudly instead of silently reopening this hazard —
 // the values are matched by prefix, and every current producer uses the
 // "<word>:" shape (config/config.go's "<remote>:", loader_version.go's
 // "<remote-version>:", loader.go's seededPath "<seeded>:").
@@ -431,8 +431,7 @@ func resolveEffective(preferDistilled bool, content, distilled string, noDistill
 // distillable item's distilled form is stale relative to its raw content (the
 // re-distillation check). It compares the RECORDED hash against a freshly
 // computed one — independent of trust, which never reads the author-supplied
-// recorded field. Sharing it keeps fragments and prompts from drifting
-// (review finding ctxloom-code-09-003).
+// recorded field. Sharing it keeps fragments and prompts from drifting.
 func staleDistill(noDistill bool, distilled, recordedHash, content string) bool {
 	if noDistill {
 		return false
@@ -549,7 +548,7 @@ func (s *BundleSkill) ToManifest() SkillManifest {
 // BundleSkill.EffectiveManifest) — authored if the skill has been synced,
 // derived from the source tree if not. It is never empty: an empty manifest
 // would make every unsynced skill share one preimage, which is exactly the
-// trust hole fixed in T4.
+// trust hole this design closes.
 type skillContentPayload struct {
 	Preimage string        `json:"preimage"`
 	Manifest SkillManifest `json:"manifest"`
@@ -609,7 +608,7 @@ func (s *BundleSkill) EffectiveManifest(fsys afero.Fs, bundleDir, skillName stri
 // unresolvableSkillDir stands in for "this bundle has no directory, and this
 // caller provably does not need one". It is deliberately NOT "" and not ".":
 // both of those resolve through ResolveSkillDir onto the PROCESS WORKING
-// DIRECTORY, which is the entire substance of U030-F03. A caller that uses
+// DIRECTORY, which is exactly the hazard this guards against. A caller that uses
 // this value anyway gets a not-found error naming an obviously synthetic path,
 // never somebody's cwd.
 const unresolvableSkillDir = "<no-bundle-directory>"
@@ -626,7 +625,7 @@ const unresolvableSkillDir = "<no-bundle-directory>"
 //   - A manifest-LESS skill derives its preimage by parsing the real tree, and
 //     for that the directory is load-bearing. A bundle without one must fail
 //     loudly rather than derive from whatever sits in the process working
-//     directory (U030-F03) — which, for these callers, means hashing cwd files
+//     directory — which, for these callers, means hashing cwd files
 //     into a TRUST GRANT.
 //
 // Callers that genuinely always need the tree (the loader's skillContent,
@@ -742,9 +741,9 @@ func (m *BundleMCP) ComputeContentHash() string {
 		// Unreachable: the struct holds only strings/[]string/map[string]string,
 		// none of which json.Marshal can fail on. Fail closed rather than
 		// panic — and to a digest DISTINCT per server/failure, not a shared
-		// constant: one constant standing in for many different items is the
-		// T4 defect, and an unreachable branch is a poor place to keep its
-		// shape alive.
+		// constant: one constant standing in for many different items is
+		// exactly the defect this guards against, and an unreachable branch is
+		// a poor place to keep its shape alive.
 		return hashContent(fmt.Appendf(nil, "ctxloom:mcp-content-hash-error:%s:%v", m.Command, err))
 	}
 	return hashContent(data)

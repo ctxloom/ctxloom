@@ -94,7 +94,7 @@ type Agent struct {
 	// permissions and finally the built-in default. The `run --permissions` flag
 	// overrides it.
 	Permissions string `yaml:"permissions,omitempty"`
-	// Escalation is the agent's approval-request policy (Wave C2): an
+	// Escalation is the agent's approval-request policy: an
 	// ORDERED ladder of rungs, each naming which ApprovalRequest kinds it
 	// answers and how. Empty derives the ladder from Permissions — the
 	// degenerate two-rung preset (bypass accepts everything; plan declines
@@ -232,7 +232,7 @@ func ParseAgent(data []byte) (*Agent, error) {
 	if err := ValidateDriving(s.Driving); err != nil {
 		return nil, err
 	}
-	// U028-F03: a named agent binding "one or more composed profiles" (see
+	// A named agent binding "one or more composed profiles" (see
 	// the package doc) that declares zero is not a degenerate-but-valid
 	// binding, it is the signature of a mistyped key (`profils:` for
 	// `profiles:`) or a zero-byte/comments-only file — reject it loudly

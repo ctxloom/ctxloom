@@ -114,7 +114,7 @@ func TestLoader_FaultTolerantBadDriving(t *testing.T) {
 	assert.Equal(t, "good", list[0].Name)
 }
 
-// TestParseAgent_NoProfilesRejected (U028-F03) proves an empty, comments-only,
+// TestParseAgent_NoProfilesRejected proves an empty, comments-only,
 // or mistyped-key agent file is REJECTED rather than silently producing a
 // blank binding that composes nothing (agents.go's own doc: a binding of an
 // engine to "one or more composed profiles").
@@ -133,14 +133,14 @@ func TestParseAgent_NoProfilesRejected(t *testing.T) {
 	}
 }
 
-// TestParseAgent_UnknownKeyRejected (U028-F03) proves a typo'd top-level key
+// TestParseAgent_UnknownKeyRejected proves a typo'd top-level key
 // is caught at parse time (KnownFields) instead of being silently dropped.
 func TestParseAgent_UnknownKeyRejected(t *testing.T) {
 	_, err := ParseAgent([]byte("engine: fast\nprofils: [p1]\n"))
 	require.Error(t, err)
 }
 
-// TestLoader_FaultTolerantNoProfiles (U028-F03) proves the Loader's
+// TestLoader_FaultTolerantNoProfiles proves the Loader's
 // warn-and-skip fault tolerance extends to a profile-less agent file: it is
 // skipped rather than emitted as a blank binding, and the rest of the
 // directory still loads.
@@ -190,7 +190,7 @@ func TestGetAgentDirs(t *testing.T) {
 	assert.Empty(t, GetAgentDirs(nil, []string{filepath.Join(root, "absent")}))
 }
 
-// TestLoader_CorruptFileDoesNotShadowLaterValidAgent pins U028-F04: the
+// TestLoader_CorruptFileDoesNotShadowLaterValidAgent pins that the
 // first-directory-wins rule is about a NAME that RESOLVED, not a name that was
 // merely encountered. A file that fails to parse is skipped with a warning, so
 // it must not also claim the name — otherwise a corrupt agent in an
@@ -214,7 +214,7 @@ func TestLoader_CorruptFileDoesNotShadowLaterValidAgent(t *testing.T) {
 }
 
 // TestLoader_ValidFileStillWinsOverLaterDuplicate pins the other half of the
-// same rule, so the U028-F04 fix cannot be "stop deduplicating": a SUCCESSFUL
+// same rule, so the fix cannot be "stop deduplicating": a SUCCESSFUL
 // load in the first directory still shadows a later same-named agent.
 func TestLoader_ValidFileStillWinsOverLaterDuplicate(t *testing.T) {
 	first := t.TempDir()
@@ -247,7 +247,7 @@ func (f statErrorFs) Stat(name string) (os.FileInfo, error) {
 	return f.Fs.Stat(name)
 }
 
-// TestLoader_UnstattableDirectoryWarns pins U028-F05 (loader half): an agents
+// TestLoader_UnstattableDirectoryWarns pins the loader half: an agents
 // directory that cannot be statted is skipped, and that skip must be VISIBLE.
 // Swallowing the stat error makes "you have no agents configured" and "your
 // agents directory is unreadable" the same observable outcome — an empty list,
@@ -272,7 +272,7 @@ func TestLoader_UnstattableDirectoryWarns(t *testing.T) {
 	assert.Contains(t, sink.String(), "permission denied")
 }
 
-// TestGetAgentDirs_UnstattableDirectoryWarns pins U028-F05 (discovery half).
+// TestGetAgentDirs_UnstattableDirectoryWarns pins the discovery half.
 // GetAgentDirs drops the directory on a stat error with `err == nil &&`, which
 // is the same silence one layer earlier: discovery reports "no agent
 // directories" and the loader is never even asked.
@@ -294,7 +294,7 @@ func TestGetAgentDirs_UnstattableDirectoryWarns(t *testing.T) {
 }
 
 // TestGetAgentDirs_AbsentDirectoryIsSilent guards the other side of the
-// U028-F05 fix: a directory that simply does not exist is the ordinary case
+// fix: a directory that simply does not exist is the ordinary case
 // for every project without agents, and must stay quiet. Only a stat FAILURE
 // is worth a warning.
 func TestGetAgentDirs_AbsentDirectoryIsSilent(t *testing.T) {
@@ -306,7 +306,7 @@ func TestGetAgentDirs_AbsentDirectoryIsSilent(t *testing.T) {
 	assert.Empty(t, sink.String())
 }
 
-// TestAgent_FromConfig pins U028-F07: Source is a control-flow discriminator,
+// TestAgent_FromConfig pins that Source is a control-flow discriminator,
 // not a diagnostic string. Exactly the SourceConfig sentinel means "config.yaml
 // owns this"; every other value is a file path the config-key writer must not
 // claim to own. A file path that merely happens to contain "config" is still a
@@ -318,7 +318,7 @@ func TestAgent_FromConfig(t *testing.T) {
 	assert.False(t, Agent{}.FromConfig(), "an unsourced binding is not config-owned")
 }
 
-// TestParseAgent_ValidationBoundary pins U028-F06's answer: which of an
+// TestParseAgent_ValidationBoundary pins the answer to which of an
 // agent's user-settable fields THIS package validates, and which it
 // deliberately leaves to a later phase. The split is a decision, not an
 // oversight, and it is invisible in the code because it is spread across four

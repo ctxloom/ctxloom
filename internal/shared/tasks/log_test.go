@@ -565,7 +565,7 @@ func TestLogRepairReintroducesDisplacedAdd(t *testing.T) {
 	}
 }
 
-// TestLogRepairPreservesTagsAndCreatedAt pins U120-F14: repair()'s re-add
+// TestLogRepairPreservesTagsAndCreatedAt pins the fix: repair()'s re-add
 // event dropped the displaced task's Tags and Ts entirely, so the
 // recovered task came back detagged and with CreatedAt silently reset to
 // the repair's own timestamp — a payload-dropping "success" and, per
@@ -604,7 +604,7 @@ func TestLogRepairPreservesTagsAndCreatedAt(t *testing.T) {
 	}
 }
 
-// TestEventLog_WriteFailsLoudOnUnresolvedAnomaly pins U122-F02: every read
+// TestEventLog_WriteFailsLoudOnUnresolvedAnomaly pins the fix: every read
 // in this package went dark on an unresolved harp collision (via
 // snapshot()/deferredSince()'s anomalyError gate) while every write kept
 // succeeding — task_add, tag, status, and text mutations landed silently
@@ -642,7 +642,7 @@ func TestEventLog_WriteFailsLoudOnUnresolvedAnomaly(t *testing.T) {
 	}
 }
 
-// TestAppendLine_LeavesFileUnchangedOnWriteFailure pins U120-F05: append()
+// TestAppendLine_LeavesFileUnchangedOnWriteFailure pins the fix: append()
 // had no rollback, so a write that failed partway (ENOSPC, EIO, ...) left a
 // torn line on disk — and fold() treats ANY unparseable line as fatal for
 // the WHOLE log, so one failed append from this process alone would brick
@@ -739,7 +739,7 @@ func TestLogRemove_HarpIsNeverReissued(t *testing.T) {
 // described a lenient fold that fold() has never had, and the difference
 // matters to the reason for taking the shared lock: the hazard a concurrent
 // append creates is a hard, transient read failure for every task in the
-// store, not one silently missing task (U120-F11).
+// store, not one silently missing task.
 func TestLogFold_TruncatedFinalLineFailsLoud(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
 	raw := `{"op":"add","task":"alpha","text":"good one","status":"To Do","ts":"2026-01-01T00:00:00Z"}
@@ -767,7 +767,7 @@ func TestLogFold_TruncatedFinalLineFailsLoud(t *testing.T) {
 // refuses an event with no op or no task identity, and refuses it BEFORE any
 // bytes reach the file: the payload assertion below (file still absent /
 // unchanged) is the real contract, since exit-status-only checking is exactly
-// how a silent no-op survives here (U120-F06).
+// how a silent no-op survives here.
 func TestAppend_RejectsAnEventTheFoldCouldNeverRead(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -814,12 +814,12 @@ func TestAppend_RejectedEventLeavesAReadableStore(t *testing.T) {
 // TestFold_BlankIdentityAddIsCharacterizedNotRejected records what the READER
 // does today with an `add` line carrying no harp and no text: it mints a task
 // with a blank id and blank text rather than failing. This is characterization,
-// not endorsement (U120-F04). The write seam now refuses to create such a line
+// not endorsement. The write seam now refuses to create such a line
 // (see TestAppend_RejectsAnEventTheFoldCouldNeverRead), so the only source is a
 // hand-edited or foreign log — and making the READER reject it is a
 // persisted-format decision, not a sweep's call: it would convert a file that
 // loads today into one that never loads again, which is precisely the
-// permanently-unreadable-store failure U120-F01 existed to remove. If that
+// permanently-unreadable-store failure this design existed to remove. If that
 // decision is ever taken, this test is the one to invert.
 func TestFold_BlankIdentityAddIsCharacterizedNotRejected(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "taskloom.jsonl")
@@ -847,8 +847,8 @@ func TestFold_BlankIdentityAddIsCharacterizedNotRejected(t *testing.T) {
 }
 
 // TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite pins the log's only
-// write path against reporting success for an event that may not be on disk
-// (U120-F08). A close error after a SUCCEEDED write is the result; a close
+// write path against reporting success for an event that may not be on disk.
+// A close error after a SUCCEEDED write is the result; a close
 // error after a failed one is noise, and the original diagnosis must survive.
 func TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite(t *testing.T) {
 	open := func() *os.File {
@@ -881,7 +881,7 @@ func TestCloseAfter_ReportsACloseFailureOnASuccessfulWrite(t *testing.T) {
 // deliberate decision the three read paths document: the cross-process shared
 // lock is BEST-EFFORT, and a lock failure downgrades to an unlocked read
 // rather than failing, because a read must never block or die on lock
-// acquisition (U120-F10). Turning that into a hard error is the change this
+// acquisition. Turning that into a hard error is the change this
 // test exists to catch: it would make every read of a store whose .lock is
 // unusable fail, on a path whose whole point is that it stays available.
 //
@@ -917,7 +917,7 @@ func TestReads_FallBackToUnlockedWhenTheSharedLockCannotBeTaken(t *testing.T) {
 	}
 }
 
-// TestApply_EventsForAnUnknownHarpAreSilentlyDropped measures U120-F03: the
+// TestApply_EventsForAnUnknownHarpAreSilentlyDropped measures that the
 // fold's own doc says "a reader must never silently drop a record", and
 // apply()'s status/text/tag/untag arms do exactly that whenever byID has no
 // entry for the event's harp. All three ways that happens are recorded here,
@@ -933,7 +933,7 @@ func TestReads_FallBackToUnlockedWhenTheSharedLockCannotBeTaken(t *testing.T) {
 // Escalated rather than fixed: what an event addressed to an unknown harp
 // MEANS is a persisted-format decision, and the obvious remedy (fatal fold)
 // would turn a merge artifact into a permanently unreadable store — the
-// failure U120-F01 was filed to remove.
+// exact failure this design was meant to remove.
 func TestApply_EventsForAnUnknownHarpAreSilentlyDropped(t *testing.T) {
 	statusOf := func(t *testing.T, raw string) map[string]string {
 		t.Helper()

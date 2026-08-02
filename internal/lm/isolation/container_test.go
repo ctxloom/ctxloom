@@ -50,12 +50,12 @@ func (fakeRuntime) ExposeIdentical(hostPath string, readOnly bool) Mount {
 	return Mount{Host: hostPath, Container: hostPath, ReadOnly: readOnly}
 }
 
-// mapper is always identity — fakeRuntime never carries a lanky-pod mapper;
+// mapper is always identity — fakeRuntime never carries a non-identity mapper;
 // tests that need to exercise a non-identity mapper inject one directly at
 // buildRunSpec (see runner_test.go), not through this fake.
 func (fakeRuntime) mapper() pathMapper { return identityMapper{} }
 
-// TestContainer_MCPCommandOverride pins dire-five's fix at its source: a
+// TestContainer_MCPCommandOverride pins a fix at its source: a
 // container policy (either base tier — hostBase and worktreeBase share the
 // same binaryPath field) reports the in-container ctxloom binary
 // (defaultContainerBinary) as its MCP command override, the single source of
@@ -165,8 +165,9 @@ func TestContainerWorkspace_WorktreeBaseCleanupSurfacesResidue(t *testing.T) {
 	assert.Contains(t, stderr, "sudo rm", "…and the manual fix")
 }
 
-// TestContainer_GitdirMirrorMount is finding-2's unit: when the LIVE project is
-// itself a linked worktree (or submodule) its .git is a POINTER FILE whose common
+// TestContainer_GitdirMirrorMount is the unit test for the case where the LIVE
+// project is itself a linked worktree (or submodule) whose .git is a POINTER
+// FILE whose common
 // dir lives OUTSIDE the identical-path project mount, so the plain container must
 // mirror that common dir (same fix the worktree base uses) — but a normal .git
 // DIRECTORY (main-repo checkout) is already covered by the project mount and needs
@@ -267,7 +268,7 @@ func TestContainerName_AgreesWithSanitizeAgentID(t *testing.T) {
 	}
 }
 
-// TestContainer_NilBaseIsUnreachable is U062-F17's pin. The row claimed Name()
+// TestContainer_NilBaseIsUnreachable pins a claim. A review row claimed Name()
 // nil-guards a base that PrepareWorkspace "would panic on" — the guard in the
 // harmless method, absent from the dangerous one. MEASURED here, both halves of
 // that are wrong:
@@ -308,7 +309,7 @@ func TestContainer_NilBaseIsUnreachable(t *testing.T) {
 	})
 }
 
-// TestContainer_ExecSpecRefusesEmptyCommand is U062-F19's regression. ExecSpec
+// TestContainer_ExecSpecRefusesEmptyCommand pins a regression. ExecSpec
 // used to accept a nil/empty command and hand back a perfectly valid-looking
 // RunSpec whose Command was nil — renderRunSpec then emits nothing after the
 // image, so the container silently runs the IMAGE's default entrypoint instead
@@ -338,7 +339,7 @@ func TestContainer_ExecSpecRefusesEmptyCommand(t *testing.T) {
 	assert.Equal(t, []string{"claude-code-acp"}, spec.Command)
 }
 
-// TestContainer_WithImageRunsAsIs is U062-F12's regression. A caller-supplied
+// TestContainer_WithImageRunsAsIs pins a regression. A caller-supplied
 // image is USER-OWNED: nothing ctxloom authored — the identity-remap entrypoint
 // included — is guaranteed to be in it, so it must be run AS-IS (never locally
 // rebuilt) and it must face checkRunAsIsIdentity's pre-start contract check, the
@@ -362,7 +363,7 @@ func TestContainer_WithImageRunsAsIs(t *testing.T) {
 		"without an override the profile's own recipe still builds the agent image")
 }
 
-// TestContainer_GitdirMirrorMountUnreadableGit is U062-F08's regression. The
+// TestContainer_GitdirMirrorMountUnreadableGit pins a regression. The
 // guard was `if err != nil || info.IsDir()` — one branch for two opposite facts.
 // "no .git" and "a .git directory" genuinely need no mirror, but an UNREADABLE
 // .git means we could not tell which case we are in, and answering "no mirror
@@ -386,7 +387,7 @@ func TestContainer_GitdirMirrorMountUnreadableGit(t *testing.T) {
 	assert.Contains(t, err.Error(), ".git")
 }
 
-// TestContainerWorkspace_CleanupSurfacesBaseError is U062-F18's regression. The
+// TestContainerWorkspace_CleanupSurfacesBaseError pins a regression. The
 // base teardown's error was discarded with `_ =` under a comment asserting it
 // "never contributes an error" — true today only because worktreeWorkspace.
 // Cleanup happens to return nil unconditionally (it warns instead), which is a
@@ -413,7 +414,7 @@ func TestContainerWorkspace_CleanupSurfacesBaseError(t *testing.T) {
 	assert.Contains(t, err.Error(), "remove container scratch")
 }
 
-// TestHostBase_PrunesOverlayTargetsItCreated is U062-F20's regression. The
+// TestHostBase_PrunesOverlayTargetsItCreated pins a regression. The
 // overlay TARGET dirs must be pre-created as the invoking user — otherwise a
 // rootful daemon creates the bind mountpoint as ROOT inside the identical-path
 // project bind, EACCES-ing every later host run. But they were created inside the
@@ -472,8 +473,8 @@ func TestHostBase_KeepsOverlayTargetsThatGainedContent(t *testing.T) {
 		"a target that gained content is never removed")
 }
 
-// TestGitCommonDirMount_WholeCommonDirReadWrite pins the ACCEPTED posture
-// U062-F22 re-opens. The row's facts are correct: the entire git common dir is
+// TestGitCommonDirMount_WholeCommonDirReadWrite pins the ACCEPTED posture a
+// review row re-opened. The row's facts are correct: the entire git common dir is
 // bind-mounted READ-WRITE at its identical path, so a low-trust
 // container-worktree member can reach the main checkout's refs/objects/index and
 // every other worktree's admin dir. That exposure is real and was adjudicated in

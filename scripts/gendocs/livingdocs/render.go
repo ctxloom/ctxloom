@@ -225,19 +225,9 @@ func (e *EvidenceGapError) Error() string {
 // same-type steps to "And" after the first (see that function's own doc
 // comment) — so an "And" step's real governing keyword is whichever
 // Given/When/Then most recently preceded it in THIS capture's own step list,
-// not a fixed value. A step whose keyword this generator can't classify
-// (empty — the capture side never produced one) is treated as non-assertion:
-// there is nothing to conservatively enforce evidence against.
-// stepIsAssertion reports whether the step at index i is governed by "Then"
-// — an assertion — as opposed to "Given"/"When" (setup/action). godog's
-// pickle steps carry only a coarse Context/Action/Outcome type, and
-// tests/acceptance/steps_doc_capture.go's gherkinKeyword collapses a run of
-// same-type steps to "And" after the first (see that function's own doc
-// comment) — so an "And" step's real governing keyword is whichever
-// Given/When/Then most recently preceded it in THIS capture's own step list,
 // not a fixed value.
 //
-// U157-F01: a step whose OWN keyword the capture side could not classify
+// A step whose OWN keyword the capture side could not classify
 // (empty — gherkinKeyword returns "" for any pickle type outside
 // Context/Action/Outcome) used to be treated as non-assertion: "there is
 // nothing to conservatively enforce evidence against." That is backwards —

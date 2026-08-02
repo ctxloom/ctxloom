@@ -14,7 +14,7 @@ import (
 // DocCapture and DocCaptureStep are this package's names for the shared
 // living-docs wire contract (internal/shared/doccapture) tests/acceptance/
 // steps_doc_capture.go writes per scenario (one file per pickle) when
-// CTXLOOM_DOC_CAPTURE_DIR is set (U158-F06: these used to be a second,
+// CTXLOOM_DOC_CAPTURE_DIR is set (these used to be a second,
 // independently-declared copy of that writer's structs, held in sync only by
 // a comment demanding field-for-field agreement). Aliased, not copied, so
 // every existing field access below is unaffected.

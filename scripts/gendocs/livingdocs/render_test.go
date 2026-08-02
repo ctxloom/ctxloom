@@ -187,7 +187,7 @@ func TestGeneratePage_GivenAndWhenStepsExemptFromEvidenceRequirement(t *testing.
 	assert.Contains(t, page, "the real payload")
 }
 
-// U157-F01: a step whose OWN keyword the capture side could not classify
+// A step whose OWN keyword the capture side could not classify
 // (empty -- steps_doc_capture.go's gherkinKeyword returns "" for any pickle
 // type outside Context/Action/Outcome, e.g. a godog version change or an
 // unrecognized step type) used to be silently treated as non-assertion --
@@ -267,7 +267,7 @@ func TestFenced_WrapsWithSafeFence(t *testing.T) {
 // above an empty list, publishing a provenance claim about nothing.
 //
 // The producer of such a file is already blocked (flushDocCapture refuses a
-// zero-step capture as of U158-F09), but LoadCaptures reads whatever *.json
+// zero-step capture), but LoadCaptures reads whatever *.json
 // sits in the capture directory — a file left by an older build, or truncated
 // — so the reader must not be the half that trusts.
 func TestGeneratePage_RefusesZeroStepCapture(t *testing.T) {
@@ -301,15 +301,15 @@ func TestGeneratePage_NoCaptureIsStillNotAnError(t *testing.T) {
 }
 
 // TestHasEvidence_IsAPresenceCheckNotAQualityJudgement pins hasEvidence's
-// contract deliberately, because U157-F05 proposed narrowing it and the
-// narrowing is wrong.
+// contract deliberately: a narrower, shape-based check was once proposed and
+// the narrowing is wrong.
 //
 // The gate asks one question — did this step capture ANY of the three evidence
 // streams? — and nothing else. It is not a quality judgement, and it must not
 // become one: a terse capture like "exit=0" from a command that legitimately
 // prints nothing is real, run-produced proof, while any length or shape
-// heuristic that rejected it would refuse to publish a true page. The row's
-// premise that "several acceptance steps set exactly that shape" does not hold
+// heuristic that rejected it would refuse to publish a true page. The claim
+// that "several acceptance steps set exactly that shape" does not hold
 // — every exit= evidence site in tests/acceptance appends the command's own
 // output ("exit=%d\n%s").
 func TestHasEvidence_IsAPresenceCheckNotAQualityJudgement(t *testing.T) {

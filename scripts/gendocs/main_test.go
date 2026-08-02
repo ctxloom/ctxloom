@@ -61,8 +61,8 @@ func TestCtxloomProduct(t *testing.T) {
 	}
 }
 
-// TestRun_ReportsAGeneratorFailure pins U156-F03: main discarded Execute's
-// error and exited 1 with nothing of its own to say. Cobra does print errors by
+// TestRun_ReportsAGeneratorFailure pins that main used to discard Execute's
+// error and exit 1 with nothing of its own to say. Cobra does print errors by
 // default, so this was not usually silent — but "usually" was the whole
 // guarantee: the default belongs to the command this entrypoint is handed, and
 // a command with SilenceErrors set (or a generator that returns an error
@@ -86,12 +86,11 @@ func TestRun_ReportsAGeneratorFailure(t *testing.T) {
 	}
 }
 
-// TestRun_ReportsAnAssemblyFailureInsteadOfPanicking pins U156-F04. The row's
-// premise — that ctxloomProduct calls cli.NewDocMCPServer, which PANICS on two
-// internal failure paths, so a bug in the runner MCP assembly surfaces as a
-// panic from a function whose signature promises no failure — was true at the
-// census and is already fixed, under a SIBLING finding's ID: 2e9df890
-// "fix(U038-F15): release the docgen Home and return its failures" gave
+// TestRun_ReportsAnAssemblyFailureInsteadOfPanicking pins a fix already
+// landed: ctxloomProduct calls cli.NewDocMCPServer, which used to PANIC on two
+// internal failure paths, so a bug in the runner MCP assembly surfaced as a
+// panic from a function whose signature promised no failure. Commit 2e9df890
+// "release the docgen Home and return its failures" gave
 // NewDocMCPServer an error return and threaded it through ctxloomProduct.
 //
 // What that fix did not ship is any check that the entrypoint DOES something
@@ -140,7 +139,7 @@ var undocumentedHidden = map[string]bool{
 	"util":       true,
 }
 
-// TestEveryHiddenTopLevelCommandIsDecided pins U156-F05. `Unhide` is a
+// TestEveryHiddenTopLevelCommandIsDecided pins that `Unhide` is a
 // hand-maintained list in THIS package keyed on a `Hidden` flag set in
 // internal/cli, and the two are joined by nothing. The coupling fails in both
 // directions and both are silent: a command newly marked `Hidden: true` for the
@@ -212,7 +211,7 @@ var differingParamTools = []string{"agent_run", "agent_send", "agent_stop"}
 // It is matched literally so that re-measuring and re-wording stay one change.
 const differingParamsClause = "`agent_run`, `agent_send` and `agent_stop` take different parameters there than documented here"
 
-// TestMCPIntro_StandaloneSurfaceClaimsAreTrue pins U156-F02. mcpIntro's caution
+// TestMCPIntro_StandaloneSurfaceClaimsAreTrue pins that mcpIntro's caution
 // block makes checkable factual claims about a surface generated NOWHERE on
 // this page: which delegation tools standalone `ctxloom mcp serve` exposes
 // (agent_run/send/recv/stop), which it does not (roster, agent_report,

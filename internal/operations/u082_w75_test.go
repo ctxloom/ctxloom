@@ -62,7 +62,7 @@ commands:
 	return bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
 }
 
-// TestGetCommand_StripsOnlyAnATXH1 pins U082-F10: the "drop a single leading H1
+// TestGetCommand_StripsOnlyAnATXH1 pins that the "drop a single leading H1
 // title line" cleanup must recognise an ATX H1 (a run of exactly one '#'
 // followed by space/tab or end of line) and nothing else. A prefix test on "#"
 // alone also eats an H2 sub-heading, a shebang, and a "#tag" word — silently
@@ -73,7 +73,7 @@ func TestGetCommand_StripsOnlyAnATXH1(t *testing.T) {
 	cases := []struct {
 		name    string
 		cmd     string
-		rawLead string // §11k: what the loader hands the code under test
+		rawLead string // what the loader hands the code under test
 		want    string
 	}{
 		{
@@ -104,7 +104,7 @@ func TestGetCommand_StripsOnlyAnATXH1(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			// §11k: prove the fixture is hostile from GetCommand's vantage —
+			// Prove the fixture is hostile from GetCommand's vantage —
 			// the loader really does deliver the leading line under test.
 			raw, err := loader.GetCommand(tc.cmd)
 			require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestGetCommand_StripsOnlyAnATXH1(t *testing.T) {
 	}
 }
 
-// TestUpdateBundle_FailedRedistillDropsStaleDistillation pins U082-F12: the
+// TestUpdateBundle_FailedRedistillDropsStaleDistillation pins the
 // invariant the corrected distillFragments prose now asserts. On the
 // UpdateBundle path applyFragmentEdits has ALREADY cleared
 // Distilled/DistilledBy/ContentHash for any item whose content changed, so a
@@ -143,7 +143,7 @@ func TestUpdateBundle_FailedRedistillDropsStaleDistillation(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// §11k: prove the fixture is hostile — there really IS a prior
+	// Prove the fixture is hostile — there really IS a prior
 	// distillation on disk for the failed re-distill to be asked to preserve.
 	before := readBundleFile(t, created.Path)
 	require.Equal(t, "OLD DISTILLED SUMMARY", before.Fragments["intro"].Distilled)
@@ -182,7 +182,7 @@ func readBundleFile(t *testing.T, path string) bundles.Bundle {
 	return b
 }
 
-// TestUpdateBundle_IdenticalSetIsNoChanges pins U082-F13: UpdateBundleResult's
+// TestUpdateBundle_IdenticalSetIsNoChanges pins that UpdateBundleResult's
 // documented contract is `"updated"` when at least one mutation took effect,
 // otherwise `"no_changes"`, so callers can detect idempotent operations.
 // apply{Fragment,Prompt,MCP}Edits appended a change line for EVERY name in the
@@ -205,7 +205,7 @@ func TestUpdateBundle_IdenticalSetIsNoChanges(t *testing.T) {
 	}
 
 	// First application really mutates: this both establishes the entries and
-	// proves (§11k) that the second, identical request is being compared
+	// proves that the second, identical request is being compared
 	// against an existing entry rather than creating one.
 	first, err := UpdateBundle(context.Background(), cfg, UpdateBundleRequest{
 		Name: "seed", SetFragments: frag, SetPrompts: cmd, SetMCPServers: mcp,
@@ -258,7 +258,7 @@ func (d *plantingDistiller) Distill(context.Context, DistillRequest) (DistillRes
 	return DistillResult{Distilled: "a plausible distillation of the fragment", ModelID: "m"}, nil
 }
 
-// TestCreateBundle_ConcurrentCreateIsNotClobbered pins U082-F20: CreateBundle
+// TestCreateBundle_ConcurrentCreateIsNotClobbered pins that CreateBundle
 // checked for an existing bundle with os.Stat and then wrote with a plain
 // Save, so anything appearing at the path in between was silently overwritten.
 // The window is not microseconds — distillation runs inside it, one LLM round
@@ -278,7 +278,7 @@ func TestCreateBundle_ConcurrentCreateIsNotClobbered(t *testing.T) {
 		},
 	})
 
-	// §11k: the fixture is only hostile if the distiller actually ran — that
+	// The fixture is only hostile if the distiller actually ran — that
 	// is what puts the rival file inside the check-to-write window.
 	require.True(t, d.planted, "distiller never ran; nothing occupied the TOCTOU window")
 
@@ -292,7 +292,7 @@ func TestCreateBundle_ConcurrentCreateIsNotClobbered(t *testing.T) {
 	assert.Contains(t, err.Error(), "already exists")
 }
 
-// TestConstraintResolver_SkipWarningNamesTheCause pins U082-F07. When a
+// TestConstraintResolver_SkipWarningNamesTheCause pins that when a
 // dependency drops out of the lockfile the user gets one line, and it is the
 // only signal that anything went wrong — the walk continues and the build
 // proceeds without the item. Three unrelated failures reached that line with
@@ -367,7 +367,7 @@ func TestConstraintResolver_SkipWarningNamesTheCause(t *testing.T) {
 			resolve := newConstraintResolver(context.Background(), nil, tc.factory, remote.AuthConfig{}, false)
 			_, _, _, ok := resolve(tc.ref)
 
-			// §11k: the fixture is only hostile if the resolver actually took
+			// The fixture is only hostile if the resolver actually took
 			// the skip path — otherwise there is no warning to inspect.
 			require.False(t, ok, "this fixture must reach the skip-with-warning path")
 			require.NotEmpty(t, sink.String(), "the skip path must warn")
@@ -380,7 +380,7 @@ func TestConstraintResolver_SkipWarningNamesTheCause(t *testing.T) {
 	}
 }
 
-// TestResolveProfile_BrokenInlineProfileIsReported pins U082-F08.
+// TestResolveProfile_BrokenInlineProfileIsReported pins that
 // resolveProfile threw away config.ResolveProfile's error to trigger the
 // directory fallback, so "config.yaml has no such profile" and "config.yaml
 // HAS this profile and it is broken" were the same event. A circular parent
@@ -398,7 +398,7 @@ func TestResolveProfile_BrokenInlineProfileIsReported(t *testing.T) {
 		"other":  {Parents: []string{"looper"}},
 	}
 
-	// §11k: the fixture is only hostile if config.ResolveProfile fails for a
+	// The fixture is only hostile if config.ResolveProfile fails for a
 	// reason that is NOT "no such name" — that is the whole distinction the
 	// discarded error carried.
 	_, inlineErr := config.ResolveProfile(defs, "looper")
@@ -426,7 +426,7 @@ func TestResolveProfile_BrokenInlineProfileIsReported(t *testing.T) {
 }
 
 // TestCreateUpdateBundle_DistillFailuresAreStderrOnly is the characterization
-// pin for U082-F16, which is ESCALATED: CreateBundle and UpdateBundle discard
+// pin for an ESCALATED finding: CreateBundle and UpdateBundle discard
 // the failure set distillFragments/distillPrompts return, so their result DTOs
 // report "created"/"updated" with a change line per item and carry no field a
 // programmatic consumer could read to learn that an item has no distillation.
@@ -457,7 +457,7 @@ func TestCreateUpdateBundle_DistillFailuresAreStderrOnly(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	// §11k: the fixture is only hostile if distillation was actually attempted
+	// The fixture is only hostile if distillation was actually attempted
 	// and actually failed.
 	require.Len(t, failing.calls, 2, "both items must have been offered to the distiller")
 	require.Empty(t, readBundleFile(t, created.Path).Fragments["intro"].Distilled,
@@ -490,11 +490,11 @@ func TestCreateUpdateBundle_DistillFailuresAreStderrOnly(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// U082-F14 — parity pins taken BEFORE the fragment/command clone collapse.
+// Parity pins taken BEFORE the fragment/command clone collapse.
 //
-// §4 case 2: the clones are behaviourally equivalent modulo the item type, so
+// The clones are behaviourally equivalent modulo the item type, so
 // a parity test CANNOT be red. Its job is the other one — pin the shared
-// behaviour so the collapse is provably behaviour-preserving. §11o: two
+// behaviour so the collapse is provably behaviour-preserving, at two
 // altitudes, labelled.
 // ---------------------------------------------------------------------------
 
@@ -529,7 +529,7 @@ func TestDistillParity_PublicSeam(t *testing.T) {
 			})
 			require.NoError(t, err)
 
-			// §11k: both kinds must actually have been offered to the
+			// Both kinds must actually have been offered to the
 			// distiller, or the arms below compare two no-ops.
 			require.Len(t, d.calls, 2)
 
@@ -633,7 +633,7 @@ func TestDistillParity_InternalSeam(t *testing.T) {
 	})
 }
 
-// TestMustacheTagClassification pins U082-F05's behaviour before the local
+// TestMustacheTagClassification pins the behaviour before the local
 // TagType re-declaration is removed. Three untyped ints mirrored
 // cbroglie/mustache's exported TagType enum by value, which is connascence of
 // value with a third-party library — and it had already gone wrong once: the
@@ -666,7 +666,7 @@ func TestMustacheTagClassification(t *testing.T) {
 			tags := tmpl.Tags()
 			require.Len(t, tags, 1, "fixture must parse to exactly one top-level tag")
 
-			// §11k: the fixture is only hostile if the library really reports
+			// The fixture is only hostile if the library really reports
 			// the type this case is about — otherwise every arm below is
 			// asserting against the same tag shape.
 			require.Equal(t, tc.wantType, tags[0].Type(),
@@ -705,14 +705,14 @@ func TestMustacheTagClassification(t *testing.T) {
 	})
 }
 
-// TestListBundles_ThreadsTheCallersContext pins U082-F17. ListBundles used to
+// TestListBundles_ThreadsTheCallersContext pins that ListBundles used to
 // manufacture context.Background(), severing cancellation for the whole
 // remote-aware listing path — including the removed-upstream pass, which walks
 // git history across every installed clone and is the slow part a user
 // interrupting `bundle list` means to stop. Both CLI callers had cmd.Context()
 // in hand.
 //
-// This is a missing-seam row (brief §4 class 1): the defect WAS the absent
+// This is a missing-seam row: the defect WAS the absent
 // parameter, so an honest pre-fix pin does not compile rather than going red.
 // What is pinned here is the contract the threading must not break — listing
 // stays fault-tolerant, so a dead context still returns the locally-authored
@@ -725,7 +725,7 @@ func TestListBundles_ThreadsTheCallersContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// §11k: the fixture is only hostile if the context is genuinely dead by
+	// The fixture is only hostile if the context is genuinely dead by
 	// the time ListBundles is called.
 	require.ErrorIs(t, ctx.Err(), context.Canceled)
 
@@ -740,7 +740,7 @@ func TestListBundles_ThreadsTheCallersContext(t *testing.T) {
 		"locally-authored bundles do not depend on the cancellable remote pass")
 }
 
-// TestMissingFrom_BuiltinNamesWouldMaskAnExplicitMiss pins U082-F19. The
+// TestMissingFrom_BuiltinNamesWouldMaskAnExplicitMiss pins that the
 // missing-explicit-asks calculation carried connascence of execution order: it
 // HAD to run before appendBuiltinFragments reassigned loadedNames, and nothing
 // but a comment said so. AssembleContext now computes it against loaderNames,
@@ -748,7 +748,7 @@ func TestListBundles_ThreadsTheCallersContext(t *testing.T) {
 // textual — but the hazard that made the ordering matter is real, and this
 // records it so a future edit cannot re-fold builtin names in by accident.
 //
-// Pure refactor (brief §4 class 2): behaviour is unchanged, so this is green
+// Pure refactor: behaviour is unchanged, so this is green
 // before and after. What it demonstrates is WHY the order mattered.
 func TestMissingFrom_BuiltinNamesWouldMaskAnExplicitMiss(t *testing.T) {
 	requested := []string{"asked-for", "also-asked-for"}

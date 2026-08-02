@@ -827,7 +827,7 @@ func TestDeleteProfile_NotFound(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestProfileLoader_HonoursTheInjectedFSLikeItsTwin is U083-F10's parity
+// TestProfileLoader_HonoursTheInjectedFSLikeItsTwin is the parity
 // test, run across BOTH implementations of the same factory. config's
 // GetProfileLoader and operations' profileLoader build the same
 // profiles.Loader from the same config, and GetProfileLoader's own doc names

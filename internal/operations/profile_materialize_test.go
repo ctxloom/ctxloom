@@ -139,7 +139,7 @@ func TestMaterializeProfile_OverwritesEachRun(t *testing.T) {
 func TestMaterializeProfile_FoldsProfileInlineMCP(t *testing.T) {
 	cfg, target := materializeFixture(t, "X")
 	// Give the inline reviewer profile its own MCP server (trusted-local, ungated).
-	// Both GetProfilesConfig and ToFixture are copy-on-read (U049-F05), so the
+	// Both GetProfilesConfig and ToFixture are copy-on-read, so the
 	// amended definition has to be installed by rebuilding the config.
 	p := cfg.GetProfilesConfig().Definitions["reviewer"]
 	p.MCP = wire.MCPConfig{Servers: map[string]wire.MCPServer{

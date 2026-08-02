@@ -22,7 +22,7 @@ var emptyProfileDocs = map[string]string{
 	"explicit null":   "null\n",
 }
 
-// TestSetProfileContent_EmptyContentIsRejected pins U085-F03: `ctxloom profile
+// TestSetProfileContent_EmptyContentIsRejected pins that `ctxloom profile
 // edit` writes the editor's buffer back through SetProfileContent, whose only
 // guard is that the YAML parses — and empty, whitespace-only and comment-only
 // documents all parse. An editor exited with an emptied buffer therefore
@@ -47,7 +47,7 @@ func TestSetProfileContent_EmptyContentIsRejected(t *testing.T) {
 	}
 }
 
-// TestImportProfile_EmptyFileIsRejected pins U085-F04: the same yaml.v3 hole let
+// TestImportProfile_EmptyFileIsRejected pins that the same yaml.v3 hole let
 // `ctxloom profile import` accept an empty or comment-only file as a valid
 // profile and report Status "imported".
 func TestImportProfile_EmptyFileIsRejected(t *testing.T) {

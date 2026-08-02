@@ -18,7 +18,7 @@ import (
 // CreateProfile decides a name is free from Store.Exists, which used to answer
 // by attempting a full Load — so a YAML syntax error read as "absent", Save
 // wrote a brand-new profile over the top, and the user's file was gone with a
-// success message (U091-F06).
+// success message.
 func TestCreateProfile_DoesNotClobberAnUnparseableProfile(t *testing.T) {
 	const authored = "bundles: [unclosed\ndescription: hand written\n"
 
@@ -47,7 +47,7 @@ func TestCreateProfile_DoesNotClobberAnUnparseableProfile(t *testing.T) {
 // its directories through cfg.FS() but then constructed a loader with no
 // WithFS, so the loader defaulted to the OS filesystem: with an injected
 // filesystem the directories were discovered and then found empty, and
-// `profile list` reported zero profiles with no error at all (U091-F22).
+// `profile list` reported zero profiles with no error at all.
 func TestProfileLoader_HonoursTheInjectedFilesystem(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/app/profiles", 0o755))
@@ -70,8 +70,7 @@ func TestProfileLoader_HonoursTheInjectedFilesystem(t *testing.T) {
 // seeded-profile ownership contract: Load hands back the ONE shared instance of a
 // bundle-shipped profile, so an edit that reached the mutation step would corrupt
 // it for every later reader in the same run. The guard refuses first; this pin
-// asserts the seed's own fields afterwards, not merely that an error came back
-// (U091-F09).
+// asserts the seed's own fields afterwards, not merely that an error came back.
 func TestUpdateProfile_LeavesTheSharedSeedUntouched(t *testing.T) {
 	const key = "https://github.com/owner/repo@bundles/tools#profiles/dev"
 	seeded := &profiles.Profile{

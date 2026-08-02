@@ -140,7 +140,7 @@ func ImportProfile(_ context.Context, cfg *config.Config, req ImportProfileReque
 	fs := getFS(req.FS)
 	// The destination basename is the source basename, and the profile scan
 	// filters on .yaml/.yml — anything else imports to a path nothing ever
-	// reads (U081-F10, same class as ImportBundle).
+	// reads, same class as ImportBundle.
 	if err := requireLoadableName(req.SourcePath, "profile", ".yaml", ".yml"); err != nil {
 		return nil, err
 	}

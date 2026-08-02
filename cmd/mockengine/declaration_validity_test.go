@@ -6,8 +6,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
-// U079-F09 observes that run() never calls EngineCLI.Validate() on the
-// declaration it is about to impersonate, and that a self-inconsistent one
+// run() never calls EngineCLI.Validate() on the
+// declaration it is about to impersonate, and a self-inconsistent one
 // would degrade silently: a probe naming an undeclared flag never finds a value
 // in argv, so it becomes an ordinary present:false row rather than a refusal.
 //

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U009-F01 / U096-F08: the pre-build schema gate validated ZERO files in CI, on
+// The pre-build schema gate validated ZERO files in CI, on
 // every run, and exited 0. `.ctxloom/config.yaml` is gitignored, so it does not
 // exist in a fresh clone; the gate found nothing to read, printed "No files
 // found to validate" to stdout, and returned nil. The one thing it exists to do
@@ -22,7 +22,7 @@ import (
 // really does ship are REQUIRED targets, the gitignored project config is an
 // optional one, and a run that validates zero documents is a failure.
 
-// TestValidateAll_ZeroDocumentsIsAFailure pins the core of U009-F01: reporting
+// TestValidateAll_ZeroDocumentsIsAFailure pins the core rule: reporting
 // success having validated nothing is the silent no-op.
 func TestValidateAll_ZeroDocumentsIsAFailure(t *testing.T) {
 	dir := t.TempDir()
@@ -48,7 +48,7 @@ func TestValidateAll_MissingRequiredTargetFails(t *testing.T) {
 	assert.Contains(t, err.Error(), "gone.yaml")
 }
 
-// TestValidateAll_UnreadableOptionalTargetFails is U009-F02: `err == nil`
+// TestValidateAll_UnreadableOptionalTargetFails pins that `err == nil`
 // treated EVERY read failure as "the file isn't there", so a config that exists
 // but cannot be read was skipped exactly like an absent one — and if it was the
 // only candidate the gate reported "no files found" and exited 0.

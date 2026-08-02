@@ -80,7 +80,7 @@ func runWatch(cmd *cobra.Command, args []string) error {
 	// Watch the tasks directory (not the file directly): the log may not
 	// exist yet, and watching the dir catches its creation too. Filter to
 	// this project's log so other projects' churn — and the .lock — are
-	// ignored. watch.New no longer creates the root itself (U132-F03) —
+	// ignored. watch.New no longer creates the root itself —
 	// this IS the reviewable call site that genuinely needs it to exist
 	// before the log's first append.
 	tasksDir := filepath.Dir(logPath)

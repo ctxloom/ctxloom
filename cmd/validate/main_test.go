@@ -25,7 +25,7 @@ func projectOnly() []target {
 }
 
 // TestProjectConfig_AbsentWithNothingElseIsAFailure is the rewritten
-// TestRun_NoConfigFile, which pinned U009-F01 as intended behaviour: it asserted
+// TestRun_NoConfigFile, which pinned as intended behaviour: it asserted
 // that finding no config was "a valid state ... and should not return an error".
 // An uninitialised project genuinely has no config -- but a GATE that validated
 // nothing has not gated anything, and in CI that was every single run. The

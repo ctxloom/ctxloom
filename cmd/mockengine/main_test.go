@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 )
 
-// TestRun_PersonalityFromEnv pins U006-F03. envPersonality
+// TestRun_PersonalityFromEnv pins that envPersonality
 // (MOCKENGINE_PERSONALITY) is documented as "the clean channel when the mock
 // is installed via a config `env:` block and the driver owns the argv" — but
 // before this test, nothing exercised it: every real invocation, including

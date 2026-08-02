@@ -177,7 +177,7 @@ func TestListAllProjects_AggregatesAcrossProjectFilesSortedDeterministically(t *
 	assert.Equal(t, "b's active task", got.Rows[1].Text)
 }
 
-// TestListAllProjects_LimitCapsRowsAndReportsOmitted pins U007-F01: a
+// TestListAllProjects_LimitCapsRowsAndReportsOmitted pins that a
 // global listing previously ignored `limit` outright (the parameter didn't
 // even exist), always returning every row from every project with no cap
 // and omitted_by_limit permanently 0 — exactly the case the MCP task_list
@@ -263,8 +263,8 @@ func TestListAllProjects_TermFilterAppliesPerProject(t *testing.T) {
 	assert.True(t, strings.Contains(got.Rows[0].Text, "parser"))
 }
 
-// TestResolveListScope_HonorsTheCallersBoundaryRatherThanReResolving is
-// U007-F23's pin. The working directory is resolved once, by taskContext, and
+// TestResolveListScope_HonorsTheCallersBoundaryRatherThanReResolving pins
+// that the working directory is resolved once, by taskContext, and
 // its boundary half travels on the context; resolveListScope used to throw
 // that away and call workdir.ResolveBoundary() a second time, so the scope
 // decision was made against a fresh resolution of the PROCESS cwd rather than

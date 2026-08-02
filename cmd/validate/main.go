@@ -49,8 +49,7 @@ func run() error {
 // validateAll checks every target against the embedded config schema and
 // reports how many documents it actually validated.
 //
-// It fails rather than reporting a hollow success in three cases (U009-F01,
-// U009-F02, U096-F08):
+// It fails rather than reporting a hollow success in three cases:
 //
 //   - a REQUIRED target that is absent — the gate's own inputs are missing, so
 //     it cannot have gated anything;

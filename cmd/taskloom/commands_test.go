@@ -131,7 +131,7 @@ func TestRunListCmd_DefaultScopesToCurrentProjectOnly(t *testing.T) {
 // TestRunListCmd_GlobalAggregatesAcrossProjects is the CLI-side mirror of
 // TestHandleTaskList_GlobalAggregatesAcrossProjects: `taskloom list --global`
 // shows every project's tasks, grouped by project, but ALWAYS carries the
-// scope-limitation notice on stderr (see smart-veal/globalScopeLimitationNote)
+// scope-limitation notice on stderr (see globalScopeLimitationNote)
 // — an aggregation that silently under-reports repo-homed stores is worse
 // than one that declares its scope, even for an explicit opt-in.
 func TestRunListCmd_GlobalAggregatesAcrossProjects(t *testing.T) {
@@ -370,7 +370,7 @@ func TestRenderTaskDetail_ShowsFullTextAndMetadata(t *testing.T) {
 	assert.Contains(t, out, "trigger: the v2 API ships")
 }
 
-// U008-F04's hazard made concrete. operations.ListTasks took six positional
+// A real hazard made concrete: operations.ListTasks took six positional
 // arguments including two ADJACENT same-typed booleans — includeDone and
 // includeSummary — and this package called it both ways, two files apart:
 // `show`/`run` pass (true, false) and `summary` passes (false, true). Those

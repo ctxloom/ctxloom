@@ -83,7 +83,7 @@ func TestStatusesFormatMatrix(t *testing.T) {
 	})
 }
 
-// U104-F05 claimed Emit's signature cannot express "the payload itself depends
+// Emit's signature cannot express "the payload itself depends
 // on the format/flags", so every such call site hand-rolls Emit's own format
 // branch. The signature limitation is real - renderGlobalListing and
 // renderProjectListing (commands.go) switch the PAYLOAD on opts.Compact as
@@ -124,7 +124,7 @@ func TestFormatBranchParity_HandRolledSitesAgreeWithEmit(t *testing.T) {
 	}
 }
 
-// TestJSONShorthand_IsAvailableOnEveryCommand pins U007-F21's remedy: --json
+// TestJSONShorthand_IsAvailableOnEveryCommand pins the remedy: --json
 // is documented as "shorthand for --format json", and --format is a persistent
 // root flag, so the shorthand must be resolvable wherever --format is. It used
 // to be registered locally on five commands (list, tags, statuses, lint, plan

@@ -14,7 +14,7 @@ import (
 )
 
 // TestRunRepairCmd_ReintroducesDisplacedTaskAndUnblocksList pins the shipped
-// half of U120-F01/U007-F11: the fatal harp-collision error names
+// half: the fatal harp-collision error names
 // `taskloom repair` as the remedy, but before this command existed, that
 // remedy was unreachable from anywhere a user could actually act on it — a
 // collision made list/lint/tag-query/priority all fail loud forever, with

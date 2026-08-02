@@ -54,8 +54,8 @@ func TestNoteTaskProject_RendersTheSharedLabelNotATransposition(t *testing.T) {
 		"the arguments are transposed: the directory and the id have swapped places")
 }
 
-// TestRootCommandTree_ShipsEveryCommandAndInitOrderNeverReachesTheUser is
-// U007-F24's pin. Twelve init() functions in twelve files each mutate the one
+// TestRootCommandTree_ShipsEveryCommandAndInitOrderNeverReachesTheUser
+// pins that twelve init() functions in twelve files each mutate the one
 // package-level rootCmd, so the command surface is assembled by a convention
 // (Go runs init() in filename order) that nothing checks. Two things follow,
 // and this pins both.

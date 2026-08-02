@@ -280,7 +280,7 @@ func isEstablishedProject(workDir string) (bool, error) {
 // project configured `homing: repo` mints no project-id and consults no
 // registry at all (see paths.ModeRepo's doc) — so listAllProjects has no way
 // to find one even in principle. An aggregation that silently under-reports
-// is worse than one that declares its scope (see smart-veal): every --global
+// is worse than one that declares its scope: every --global
 // read carries this note rather than presenting an incomplete answer as if
 // it were complete.
 const globalScopeGeneralLimitation = "--global lists privately-homed projects only (under ~/.ctxloom/tasks); a repo-homed project (homing: repo, its log checked into <repo>/.taskloom/tasks.jsonl) is not registered anywhere global and cannot be included"
@@ -330,7 +330,7 @@ type globalListResult struct {
 	// limit was silently ignored entirely whenever a listing went global
 	// (explicit --global or the no-project fallback): the caller got back
 	// every row from every project with no cap and no signal that anything
-	// was supposed to have been capped (U007-F01).
+	// was supposed to have been capped.
 	OmittedByLimit int
 }
 

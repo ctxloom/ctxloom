@@ -4,7 +4,7 @@ package acceptance
 
 import "testing"
 
-// TestParseTaskloomAddHarp_ExtractsFirstTabField pins U159-F10: "parse the
+// TestParseTaskloomAddHarp_ExtractsFirstTabField pins that "parse the
 // harp id out of `taskloom add` stdout" was duplicated verbatim at two call
 // sites (steps_j11_taskloom.go:99-103 and :199-203) instead of sharing one
 // implementation.

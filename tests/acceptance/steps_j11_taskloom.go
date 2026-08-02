@@ -474,7 +474,7 @@ func (j11 *j11State) foldedTask(w *World) (*tasks.Task, error) {
 // scenarios assert against directly (proving the log records BOTH a
 // collapsing untag and the new tag, not just the folded Task.Tags view).
 //
-// U159-F03: this used to decode into a local j11RawEvent subset-of-Event
+// This used to decode into a local j11RawEvent subset-of-Event
 // type, justified by a comment claiming "this file doesn't need to import
 // the tasks package for a build-tagged acceptance test" — false even at the
 // time it was written, since the file already imports
@@ -508,7 +508,7 @@ func readTaskLogLines(w *World, mustExist bool) ([]string, error) {
 		return nil, fmt.Errorf("glob task log: %w", err)
 	}
 	if len(matches) == 0 {
-		// U159-F04: absence used to be unconditionally tolerant ((nil, nil)),
+		// Absence used to be unconditionally tolerant ((nil, nil)),
 		// which is right for the pre-mutation baseline (snapshotTaskLog, before
 		// the first taskloom mutation ever ran) but wrong for taskEvents, which
 		// is only ever called AFTER a mutation this scenario itself just
@@ -565,7 +565,7 @@ func j11ToolDetail(w *World, toolName string) (*testenv.ToolDetail, error) {
 // parseTaskloomAddHarp extracts the harp id `taskloom add` printed to
 // stdout — its first tab-separated field. Shared by both "taskloom has
 // tasks:" (a table of several) and "taskloom adds a task ..." (a single
-// one), which previously duplicated this verbatim (U159-F10).
+// one), which previously duplicated this verbatim.
 func parseTaskloomAddHarp(out string) (string, error) {
 	fields := strings.SplitN(strings.TrimSpace(out), "\t", 2)
 	if len(fields) == 0 || fields[0] == "" {

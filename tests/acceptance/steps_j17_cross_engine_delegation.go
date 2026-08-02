@@ -202,7 +202,7 @@ func j17TranscriptPath(w *World, harp string) string {
 // transcript, in file (append) order.
 // j17ReadTranscriptEntries parses every `kind:"entry"` line of harp's
 // transcript. skipped and firstSkipErr report any line that failed to
-// unmarshal (U159-F05: this used to `continue` past those silently, with no
+// unmarshal (this used to `continue` past those silently, with no
 // counter or diagnostic, so a corrupted or schema-drifted transcript read as
 // merely "fewer entries" and surfaced as a 10-second timeout in
 // j17TranscriptAssistantCount instead of naming the real parse failure).

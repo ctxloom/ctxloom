@@ -39,7 +39,7 @@ func probeStateOf(w *World) *probeCellState {
 // probeSkip prints the loud, specific skip line (engine, axis, authPath,
 // reason) and returns godog.ErrSkip — so a run where every cell skips is
 // grep-distinct from a run where every cell passed, per this feature's own
-// doc. authPath is the SKIP's real resolved auth path (U158-F12: this used to
+// doc. authPath is the SKIP's real resolved auth path (this used to
 // be hardcoded to probeAuthNone regardless of caller, so the forced-env-key
 // scenario's skip -- which fires precisely because a credential IS present
 // but not the one this scenario forces -- misreported authPath=no-credentials
@@ -147,7 +147,7 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 		case probeAxisWorktree:
 			res, err = runProbeWorktree(w, p.Engine, p.ForcedPath, false)
 		case probeAxisContainer:
-			// U159-F02: this used to hardcode "docker" with no reachability
+			// This used to hardcode "docker" with no reachability
 			// check at all, so a podman-only host (or any host with neither
 			// runtime) failed the cell as a probe FAILURE rather than
 			// skipping with a named reason -- the opposite of this file's own
@@ -228,7 +228,7 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 			// (b) the token file, for the container axis, is a plain bind
 			// mount at the project dir's own identical path — checked
 			// directly against the TestEnvironment, no race involved.
-			// U159-F09: previously an if/else-if pair whose second branch's
+			// Previously an if/else-if pair whose second branch's
 			// own `assertErr == nil` guard was only ever reachable when
 			// FileExists had already returned true (the correct outcome, but
 			// easy to misread as a fallthrough); restructured as a single

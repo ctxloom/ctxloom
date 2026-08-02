@@ -33,7 +33,7 @@ func completesFrom(t *testing.T, src string) []*transcript.CompletePayload {
 	return out
 }
 
-// TestConvert_IDlessUsageLineDoesNotSwallowThePendingBoundary pins U147-F04.
+// TestConvert_IDlessUsageLineDoesNotSwallowThePendingBoundary pins a real defect.
 //
 // handleAssistant only flushed the pending turn boundary when the incoming
 // message.id was NON-EMPTY. An assistant line carrying `usage` but an empty

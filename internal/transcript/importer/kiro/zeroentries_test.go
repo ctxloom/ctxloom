@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
-// U149-F01/F02: a conversation whose every history turn parses as
+// A conversation whose every history turn parses as
 // historyTurn but whose user/assistant content unions are BOTH unrecognized
 // still emitted a Complete boundary for each turn (mapping.go's handleTurn
 // unconditionally records one), so a fully drifted conversation "converted"

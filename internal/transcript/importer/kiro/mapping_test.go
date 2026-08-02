@@ -184,7 +184,7 @@ func TestNz(t *testing.T) {
 	assert.Equal(t, 0, nz(nil))
 }
 
-// U149-F03: the locator's conversationID is Convert's own lookup key, known
+// The locator's conversationID is Convert's own lookup key, known
 // unconditionally for EVERY call — including a document that carries no
 // session metadata of its own. Falling back to it unconditionally used to
 // make sessionInfo non-nil for every conversation, defeating

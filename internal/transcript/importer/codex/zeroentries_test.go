@@ -21,10 +21,10 @@ func writeLines(t *testing.T, name, content string) string {
 	return src
 }
 
-// U148-F01/U145-F01: convertLines (via importer.ConvertJSONLLines) returns
+// convertLines (via importer.ConvertJSONLLines) returns
 // nil after producing zero canonical records for a file whose every
 // response_item/event_msg line is one this build cannot map to an entry —
-// the same shape as the already-fixed claude adapter (U147-F01), missing
+// the same shape as the already-fixed claude adapter, missing
 // here.
 func TestConvert_ResponseItemsWithNoEntriesIsAnError(t *testing.T) {
 	testsupport.Isolate(t)

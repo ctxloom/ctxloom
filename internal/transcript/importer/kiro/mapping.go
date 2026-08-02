@@ -9,9 +9,9 @@ import (
 )
 
 // converter carries the streamed per-turn pass's state: the record func, and
-// (U149-F01/F02's fix) a count of real conversation entries recorded so
+// a count of real conversation entries recorded so
 // Convert's checkFloor can tell drift from a genuinely empty conversation
-// (U149-F07 — this is why the type is not vacuous). Unlike codex's
+// (this is why the type is not vacuous). Unlike codex's
 // converter, kiro's needs NO pending-boundary buffer across turns — every
 // historyTurn already carries its own complete request_metadata alongside
 // its content (schema.go's historyTurn doc comment), so there is nothing to
@@ -209,7 +209,7 @@ func sessionInfo(conversationID string, doc *conversationDoc) *agent.ChatSession
 	var b importer.SessionInfoBuilder
 
 	// Only the DOCUMENT's own conversation_id counts toward
-	// SessionInfoBuilder's "found" contract here — U149-F03: the locator's
+	// SessionInfoBuilder's "found" contract here: the locator's
 	// conversationID is Convert's own lookup key, known unconditionally for
 	// every call, so latching it via SetSessionID would make found() true
 	// even for a document that carried NO session metadata of its own,

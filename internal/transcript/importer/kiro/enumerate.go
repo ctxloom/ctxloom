@@ -51,7 +51,7 @@ func EnumerateConversations(ctx context.Context, dbPath string) ([]ConversationR
 	for rows.Next() {
 		var ref ConversationRef
 		// created_at is selected (it's part of conversations_v2's row shape)
-		// but not scanned into ConversationRef: nothing reads it (U149-F13).
+		// but not scanned into ConversationRef: nothing reads it.
 		var createdMs, updatedMs int64
 		if err := rows.Scan(&ref.ConversationID, &ref.WorkDir, &createdMs, &updatedMs); err != nil {
 			return nil, fmt.Errorf("kiro: scan row in %s: %w", dbPath, err)

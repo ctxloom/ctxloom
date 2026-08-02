@@ -14,14 +14,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript/importer"
 )
 
-// Characterization pins for U146-F05, the DUPLICATE row that collapses this
+// Characterization pins for the collapse of this
 // package's hand-rolled scan/stream loop onto importer.ConvertJSONLLines (the
 // shared shell codex and claude already delegate to).
 //
 // These cannot be red. The two implementations are behaviourally EQUIVALENT —
 // same ctx check in the same place, same "no Session event", same in-order
 // dispatch — so a parity test between them has nothing to disagree about.
-// Their job is the other one wave-template §4 names for that case: pin the
+// Their job is instead to pin the
 // SHARED behaviour before the collapse so the collapse is provably
 // behaviour-preserving, and pin the parts of it the existing fixture/golden
 // tests do NOT reach.

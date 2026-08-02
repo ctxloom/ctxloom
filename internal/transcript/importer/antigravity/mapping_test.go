@@ -62,7 +62,7 @@ func TestStepEvent(t *testing.T) {
 	})
 
 	// ERROR_MESSAGE is deliberately NOT in this list: it is mapped, to
-	// entry.type "system" (U146-F06). Every type below is administrative or
+	// entry.type "system". Every type below is administrative or
 	// tool narration whose omission the package doc justifies; a failure
 	// notice never belonged with them.
 	t.Run("an unmapped type contributes nothing, even with content", func(t *testing.T) {
@@ -77,7 +77,7 @@ func TestStepEvent(t *testing.T) {
 	})
 }
 
-// TestStepEvent_ErrorMessageBecomesASystemEntry pins U146-F06: an
+// TestStepEvent_ErrorMessageBecomesASystemEntry pins that an
 // ERROR_MESSAGE step is antigravity's own record that something in the
 // session FAILED. Dropping it silently makes a failed session import as a
 // clean transcript with no trace of the failure anywhere — this project's

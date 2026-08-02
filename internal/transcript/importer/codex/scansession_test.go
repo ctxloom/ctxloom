@@ -10,8 +10,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// Characterization pins for U148-F03, the COMPLEXITY row that splits
-// scanSessionInfo's three-envelope switch apart. Wave-template §4's pure
+// Characterization pins for a complexity-motivated split of
+// scanSessionInfo's three-envelope switch apart. A pure
 // reduction case: behaviour is unchanged by definition, so nothing here can be
 // red. Their job is to cover EVERY arm before the split, so "behaviour
 // preserving" is a checked claim rather than an assertion — including the
@@ -19,7 +19,8 @@ import (
 // `continue` into a `return`.
 //
 // The measured premise, for the record: `lizard -C 10` put scanSessionInfo at
-// CCN 12 at census and 13 today, genuinely over the repo's declared gate.
+// CCN 12 when first measured and CCN 13 since, genuinely over the repo's
+// declared gate.
 
 func scan(t *testing.T, raw ...string) *agent.ChatSessionInfo {
 	t.Helper()

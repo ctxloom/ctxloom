@@ -24,7 +24,7 @@ func writeLines(t *testing.T, name, content string) string {
 	return src
 }
 
-// U146-F01: convertLines returns nil after discarding every line of a file
+// convertLines once returned nil after discarding every line of a file
 // (e.g. every step's Status has drifted away from "DONE"), producing zero
 // entries with no floor check — combined with the lazy Recorder (a file is
 // only created on the first SUCCESSFUL Record) this is a permanent,
@@ -33,7 +33,7 @@ func writeLines(t *testing.T, name, content string) string {
 func TestConvert_AllStepsWrongStatusIsAnError(t *testing.T) {
 	testsupport.Isolate(t)
 	// Both steps ARE the two types this adapter converts, but neither is
-	// "DONE" (see U146-F02: the status gate applies before the type switch),
+	// "DONE" (the status gate applies before the type switch),
 	// so both are skipped and zero entries come out.
 	src := writeLines(t, "wrong-status.jsonl",
 		`{"type":"USER_INPUT","status":"RUNNING","content":"<USER_REQUEST>hi</USER_REQUEST>"}`+"\n"+
@@ -83,7 +83,7 @@ func TestConvert_UnconvertedStepTypesOnlyIsLegitimatelyEmpty(t *testing.T) {
 		"no USER_INPUT/PLANNER_RESPONSE lines at all is 'nothing to import', not a failure")
 }
 
-// TestConvert_ErrorMessageStepIsRecorded is the other half of U146-F06's pin,
+// TestConvert_ErrorMessageStepIsRecorded is the other half of the ERROR_MESSAGE pin,
 // at the convertLines seam rather than the pure mapper: it proves the
 // type/status gating actually LETS an ERROR_MESSAGE step reach stepEvent.
 // The status is deliberately NOT "DONE" — no ERROR_MESSAGE step exists in any
@@ -118,8 +118,8 @@ func TestConvert_ErrorMessageStepIsRecorded(t *testing.T) {
 	assert.True(t, sawError, "an ERROR_MESSAGE step must leave a trace in the canonical transcript, not vanish")
 }
 
-// TestConvert_DriftedContentIsNotReportedAsUnparseableJSON pins U146-F08.
-// Every line below is perfectly well-formed JSON; what changed is the SHAPE of
+// TestConvert_DriftedContentIsNotReportedAsUnparseableJSON pins a drifted-content
+// diagnostic. Every line below is perfectly well-formed JSON; what changed is the SHAPE of
 // `content` — a structured object where this build expects a bare string. With
 // `Content string`, json.Unmarshal fails on the whole line and it is discarded
 // through the identical `continue` a truncated, genuinely corrupt line takes,
@@ -148,7 +148,7 @@ func TestConvert_DriftedContentIsNotReportedAsUnparseableJSON(t *testing.T) {
 }
 
 // TestConvert_DriftedContentKeepsReadableStepsAndWarns is the degrade-to-partial
-// half of U146-F08: one step's `content` has drifted, the other's has not. The
+// half of the same pin: one step's `content` has drifted, the other's has not. The
 // readable step must still import (importer.VendorAdapter's contract), and the
 // dropped one must be reported rather than vanishing — the same "a drop nobody
 // can observe is indistinguishable from content that was never there"

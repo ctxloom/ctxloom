@@ -11,7 +11,7 @@ import (
 )
 
 // TestFixtureProvenanceIsDocumented pins the invariant this suite's corrected
-// header now asserts (U148-F11): the tests validate a FROZEN, checked-in
+// header now asserts: the tests validate a FROZEN, checked-in
 // capture whose provenance is recorded, not a fresh rollout file. The header
 // used to claim the opposite — that running the package validated codex
 // "against a fresh rollout file" — which would have let a release-monitoring

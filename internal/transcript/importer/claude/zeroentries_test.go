@@ -23,7 +23,7 @@ func writeLines(t *testing.T, name, content string) string {
 	return src
 }
 
-// U147-F01: the importer could parse a whole file, produce ZERO canonical
+// The importer could parse a whole file, produce ZERO canonical
 // entries, and return a nil error — every layer above then reports a
 // successful import of nothing. A file whose conversational lines all failed
 // to yield entries is a parse failure, and must say so.
@@ -74,7 +74,7 @@ func TestConvert_AdminOnlyFileIsLegitimatelyEmpty(t *testing.T) {
 		"no user/assistant lines at all is 'nothing to import', not a failure")
 }
 
-// U147-F03: vendor content dropped on the floor — an unmodeled content block
+// Vendor content dropped on the floor — an unmodeled content block
 // and a non-text tool_result element — used to vanish with no counter, no
 // diagnostic, and no way for an operator to learn anything was dropped.
 func TestConvert_DroppedVendorContentIsReported(t *testing.T) {
@@ -99,7 +99,7 @@ func TestConvert_DroppedVendorContentIsReported(t *testing.T) {
 		"dropped vendor content must be reported, naming what was dropped")
 }
 
-// U147-F02: a vendor `usage` shape ctxloom does not control (Anthropic
+// A vendor `usage` shape ctxloom does not control (Anthropic
 // renames/drops a key) degrades every counter to its Go zero value via plain
 // json.Unmarshal, with no error — and previously no test pinned that this is
 // what actually happens. This is NOT a bug to fix: agent.TurnMeta's own

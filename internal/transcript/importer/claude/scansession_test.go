@@ -9,8 +9,8 @@ import (
 )
 
 // Characterization pins for scanSessionInfo, the first of the two decode
-// passes U147-F09 is about. They are green before and after the scan learns to
-// stop early: wave-template §4's pure-reduction case, where behaviour is
+// passes an early exit was added to. They are green before and after the scan learns to
+// stop early: a pure-reduction case, where behaviour is
 // unchanged by definition and no test can be red. Their job is to make that
 // claim checkable rather than asserted — every arm the early exit could
 // plausibly break has an arm here.

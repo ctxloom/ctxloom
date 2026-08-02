@@ -157,13 +157,13 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 }
 
 // checkFloor is codex's counterpart to claude's identically-shaped method
-// (claude/session.go, U147-F01's fix): a rollout file that decodes cleanly
+// (claude/session.go's floor check): a rollout file that decodes cleanly
 // and even contains response_item lines this adapter claims to understand,
 // yet converts to zero canonical entries, must not report success — the
 // vendor format drifted out from under this build. transcript.Recorder only
 // creates its file on the first SUCCESSFUL Record (recorder.go's NewRecorder
 // doc), so without this the same drifted file would silently "succeed"
-// again on every future retry, forever (U148-F01).
+// again on every future retry, forever.
 func (c *converter) checkFloor(total int) error {
 	if c.entries > 0 {
 		return nil
@@ -466,7 +466,7 @@ func joinSummaryText(items []json.RawMessage) string {
 // tool_use entry.
 func functionCallEvents(p responseItemPayload) []agent.ChatEvent {
 	input := argumentsToRaw(p.Arguments)
-	// U148-F02: ToolUseEvent (unlike TextEntry) always returns a populated
+	// ToolUseEvent (unlike TextEntry) always returns a populated
 	// event, even when name/call_id/input all decoded empty — a fully
 	// drifted function_call payload would otherwise still emit a hollow
 	// tool_use entry, breaking the emptiness discipline TextEntry enforces
@@ -511,7 +511,7 @@ func argumentsToRaw(args string) json.RawMessage {
 // This adapter does not fabricate a boolean from prose — an honest gap, not
 // a silent guess.
 func functionCallOutputEvents(p responseItemPayload) []agent.ChatEvent {
-	// U148-F02: mirror functionCallEvents' emptiness discipline — a
+	// Mirror functionCallEvents' emptiness discipline — a
 	// call_id-less, output-less function_call_output is nothing recognizable,
 	// not a hollow tool_result to emit anyway.
 	if p.CallID == "" && p.Output == "" {

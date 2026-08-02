@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
-// TestConvert_CancelledContextIsObservedBeforeTheFileIsRead pins U148-F08 at
+// TestConvert_CancelledContextIsObservedBeforeTheFileIsRead pins a fix at
 // the outermost seam. Convert opened the file and read every byte of it into
 // memory before anything looked at ctx: the first check lived inside
 // importer.ConvertJSONLLines' per-line loop, which cannot run until the whole

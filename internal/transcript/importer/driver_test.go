@@ -73,8 +73,8 @@ func TestConvertJSONLLines_ContextCancelledStopsBeforeDispatch(t *testing.T) {
 // only one no existing test covers: the cancellation check runs before EVERY
 // line, not once before the first.
 //
-// This is the substance behind U145-F04's "adapters re-implement the shared
-// driver" claim. Hoisting the ctx.Err() check out of the loop is a plausible
+// This is the substance behind an earlier finding that adapters re-implemented
+// this shared driver logic independently. Hoisting the ctx.Err() check out of the loop is a plausible
 // tidy-up that leaves every other assertion in this file green while turning a
 // cancelled import of a large transcript into one that runs to completion —
 // and cancellation is one of only three conditions VendorAdapter's contract

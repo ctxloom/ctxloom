@@ -85,7 +85,7 @@ func TestFunctionCallOutputEvents_NeverGuessesIsError(t *testing.T) {
 	assert.False(t, evs[0].Entry.IsError, "codex's function_call_output carries no explicit error field; a nonzero exit code in free text must not be sniffed into a fabricated boolean")
 }
 
-// TestScanSessionInfo_FallsBackToSessionIDOnOlderBuilds pins U148-F06: older
+// TestScanSessionInfo_FallsBackToSessionIDOnOlderBuilds pins that older
 // codex CLI builds' session_meta payload carries the session id ONLY under
 // the legacy "session_id" key (never observed with an empty "id" AND no
 // "session_id" on this box, but the fallback exists specifically because a

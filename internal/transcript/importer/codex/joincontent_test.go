@@ -8,8 +8,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/transcript/importer"
 )
 
-// Parity pins for U148-F04, the DUPLICATE row that collapses joinContentText
-// onto importer.JoinNonEmpty. Wave-template §4's equivalence case: the two
+// Parity pins for the collapse of joinContentText
+// onto importer.JoinNonEmpty. An equivalence case: the two
 // agree on every input, so the parity test cannot be red and its job is to
 // pin the SHARED behaviour before the collapse.
 //

@@ -178,7 +178,7 @@ func convertLines(ctx context.Context, rec transcript.Recorder, lines [][]byte) 
 			// entries: see line's doc comment. Those are ADMINISTRATIVE, so
 			// contributing nothing is correct and silent — but a type this
 			// build has never heard of is vendor content going on the floor,
-			// and gets counted so the operator hears about it (U147-F03).
+			// and gets counted so the operator hears about it.
 			if !adminLineTypes[l.Type] {
 				c.drops.add("line:" + l.Type)
 			}
@@ -206,7 +206,7 @@ var adminLineTypes = map[string]bool{
 }
 
 // checkFloor is the answer to "can this importer produce zero entries and
-// still report success?" (U147-F01). It can — legitimately — for a transcript
+// still report success?" It can — legitimately — for a transcript
 // that holds nothing but administrative lines, and that stays a success. What
 // must NOT stay a success is zero entries out of a file that DID contain
 // lines this adapter claims to understand, or whose lines all failed to
@@ -230,7 +230,7 @@ func (c *converter) checkFloor(total int) error {
 
 // reportDrops tells the operator what vendor content this build could not
 // represent. Dropping is the honest outcome for a block type ctxloom's
-// canonical schema has no field for — dropping it SILENTLY is not (U147-F03).
+// canonical schema has no field for — dropping it SILENTLY is not.
 func (c *converter) reportDrops() {
 	if c.drops.total() == 0 {
 		return
@@ -470,7 +470,7 @@ func (c *converter) recordAll(evs []agent.ChatEvent, sidechain bool) error {
 func messageEntries(role string, isMeta bool, blocks []contentBlock, drops *dropTally) []agent.ChatEvent {
 	// isMeta can only ever be true on the "user" call path — handleAssistant
 	// (below) hardcodes isMeta=false at its call site, so the role=="user"
-	// half of this guard was always true whenever isMeta was (U147-F08).
+	// half of this guard was always true whenever isMeta was.
 	if isMeta {
 		return nil
 	}
@@ -505,7 +505,7 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock, drops *drop
 			// into a user turn — observed but rare on this box): skip, not
 			// fatal, same as codex's unrecognized response_item variant. It is
 			// COUNTED, though — a drop nobody can observe is indistinguishable
-			// from content that was never there (U147-F03).
+			// from content that was never there.
 			drops.add("block:" + b.Type)
 		}
 	}

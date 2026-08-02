@@ -59,12 +59,12 @@ func latchCases() []latchCase {
 }
 
 // TestSessionInfoBuilder_EverySetterObeysTheSameLatchRule is the
-// characterization pin for U145-F09's collapse. The four setters were four
-// copies of one rule — "take the first non-zero value, and only then record
+// characterization pin for a collapse of four duplicated setters onto one
+// shared rule — "take the first non-zero value, and only then record
 // that something was found" — differing only in the field and its zero test,
 // and the collapse onto a single generic helper is behaviour-preserving BY
-// CONSTRUCTION, so no test can be red for it (template section 4, third case:
-// a new canonical symbol cannot be tested before it compiles). This pins the
+// CONSTRUCTION, so no test can be red for it (a new canonical symbol cannot
+// be tested before it compiles). This pins the
 // shared rule at the PUBLIC seam above the duplication instead, unchanged by
 // the collapse and red only if one setter's behaviour ever diverges from the
 // others'.

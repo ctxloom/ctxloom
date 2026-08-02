@@ -31,8 +31,8 @@ func completesFrom(t *testing.T, src string) []*transcript.CompletePayload {
 	return out
 }
 
-// TestConvert_LaterTokenCountWithoutContextWindowKeepsTheKnownOne pins
-// U148-F09. codex emits SEVERAL token_count events before the task_complete
+// TestConvert_LaterTokenCountWithoutContextWindowKeepsTheKnownOne pins that
+// codex emits SEVERAL token_count events before the task_complete
 // that closes one turn (rollout.go's converter doc comment says so, and the
 // shipped fixture has two). handleEventMsg assigned
 // c.pending.ContextWindow = p.Info.ModelContextWindow unconditionally, so a

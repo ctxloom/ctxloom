@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// U045-F02: an unparseable config.toml degrades to an EMPTY table (load warns
+// An unparseable config.toml used to degrade to an EMPTY table (load warns
 // and returns map[string]any{}), which save then wrote back over the real
 // file — a 0-byte config.toml, the user's codex configuration destroyed, exit
 // 0 and a success path. The write must refuse instead.
@@ -41,7 +41,7 @@ type statErrFs struct {
 
 func (f statErrFs) Stat(string) (os.FileInfo, error) { return nil, f.err }
 
-// U045-F11: an UNREADABLE config.toml must not be reported as an ABSENT one.
+// An UNREADABLE config.toml must not be reported as an ABSENT one.
 // RemoveSettings returning nil there claims to have removed ctxloom's hooks and
 // MCP servers from a file it never opened, and Status reports the engine as
 // unconfigured — both are answers about a file nobody could look at.

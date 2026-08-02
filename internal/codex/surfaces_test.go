@@ -139,8 +139,8 @@ func TestContextSurface_EmptyContextIsNoOp(t *testing.T) {
 	assert.False(t, exists, "no context, nothing written")
 }
 
-// U045-F17 claimed contextSurface.Deliver's (nil, nil) on empty fragments is a
-// silent no-op — "success with zero bytes delivered". It is the opposite: the
+// A past review claimed contextSurface.Deliver's (nil, nil) on empty fragments
+// is a silent no-op — "success with zero bytes delivered". It is the opposite: the
 // nil handle is how "nothing was asked for" is REPORTED (agent.DeliverAll skips
 // a nil handle by contract, and the composed route still delivers AGENTS.md
 // from the context STRING). The delivery that WOULD be a silent no-op — asking
@@ -159,8 +159,8 @@ func TestContextSurface_ZeroBytesFromRealFragmentsIsAnError(t *testing.T) {
 
 // ---- agentsMD surface (the OTHER, native context route) --------------------
 
-// taskloom tiny-ooze: the materialize path only ever populates
-// SurfaceInputs.Context (the assembled STRING) — never Fragments, because
+// The materialize path only ever populates SurfaceInputs.Context (the
+// assembled STRING) — never Fragments, because
 // AssembleContext only returns a flattened string, not resolved Fragment
 // objects (see internal/operations/profile_materialize.go). Before codex had
 // a ContextWriter, this meant materialize silently delivered ZERO context to
@@ -208,8 +208,8 @@ func TestAgentsMDSurface_EmptyContextStillDelivers(t *testing.T) {
 }
 
 // Hand-authored AGENTS.md content outside the managed markers survives
-// materialize's write byte-for-byte (the other half of lanky-plop's fix:
-// AGENTS.md is a file codex users may already hand-author).
+// materialize's write byte-for-byte (the other half of the managed-markers
+// fix: AGENTS.md is a file codex users may already hand-author).
 func TestAgentsMDSurface_DeliverPreservesHandWrittenAGENTSmd(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
@@ -419,7 +419,7 @@ func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 	assert.True(t, exists, "DeliverShared's context surface wrote AGENTS.md too, not just the cache file")
 }
 
-// ---- approach dispatch (vital-tiger v2) -------------------------------------
+// ---- approach dispatch (v2) -------------------------------------
 
 // SupportedApproaches pins codex's per-surface table: context is Hook-only (codex
 // has no CLAUDE.md-style native file), settings/commands are native-file-only, and
@@ -458,8 +458,8 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 // SurfaceFor(context, Hook) resolves to the composed agent.ComposedDelivery, which performs BOTH the
 // real cache-file write (codex's ONLY DECLARED context approach performs real
 // work, unlike claude's Hook no-op) AND the native AGENTS.md write — this is
-// the fix for taskloom tiny-ooze (materialize) AND steep-lapel (the live
-// run/launch path: `ctxloom run` resolves surfaces through this SAME
+// the fix for both the materialize path AND the live run/launch path
+// (`ctxloom run` resolves surfaces through this SAME
 // SurfaceFor(SurfaceContext, Hook) call, so codex's context now genuinely
 // reaches the model on both paths). Naming UnsafeFile for codex's context is
 // unsupported — codex's native AGENTS.md write rides the SAME Hook-declared
@@ -485,15 +485,16 @@ func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 	assert.Error(t, err, "UnsafeFile is not a separately-selectable approach for codex's context")
 }
 
-// U045-F16 claimed the exported Context/AgentsMD fields let a caller bypass the
-// routes composition and drop the AGENTS.md write. No production caller touches
-// either field (the launch and materialize paths both resolve through
-// SurfaceFor / Select().Build(), pinned above), and every sibling backend
-// exports the same shape. What actually protects the AGENTS.md write is that
-// the exported fields ARE the composed route's parts — one instance each, as
-// SurfaceSet.SurfaceFor's contract requires. That is what this pins: a future
-// NewSurfaces that hands the field a different instance than the route delivers
-// through is the divergence the row feared, and it fails here.
+// A past review claimed the exported Context/AgentsMD fields let a caller
+// bypass the routes composition and drop the AGENTS.md write. No production
+// caller touches either field (the launch and materialize paths both resolve
+// through SurfaceFor / Select().Build(), pinned above), and every sibling
+// backend exports the same shape. What actually protects the AGENTS.md write
+// is that the exported fields ARE the composed route's parts — one instance
+// each, as SurfaceSet.SurfaceFor's contract requires. That is what this
+// pins: a future NewSurfaces that hands the field a different instance than
+// the route delivers through is the divergence that review feared, and it
+// fails here.
 func TestSurfaces_ExportedContextFieldsAreTheComposedRouteParts(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), "", "", afero.NewMemMapFs())
 

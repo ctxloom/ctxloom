@@ -27,7 +27,7 @@
 // (TestStartRun_BackendParity) and CLI/JSON-RPC-level probing (codex-acp
 // advertises loadSession:true; `-c model=` is accepted at parse). NOT proven:
 // a live authenticated delegated echo — parse-acceptance is not honor.
-// Revive once codex credentials exist on a dev host (taskloom bold-smirk).
+// Revive once codex credentials exist on a dev host.
 package codex
 
 import (
@@ -56,9 +56,9 @@ type CodexHookWriter struct {
 	FS afero.Fs
 	// MCPCommandOverride, when non-empty, replaces agent.CtxloomCommand() as
 	// the ctxloom-managed [mcp_servers] entry's command (see
-	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell (the
-	// dire-five fix). Empty (the default) preserves the host self-exec-
-	// absolute behavior exactly.
+	// agent.ResolveMCPCommand) — set ONLY for an isolated-container cell.
+	// Empty (the default) preserves the host self-exec-absolute behavior
+	// exactly.
 	MCPCommandOverride string
 }
 
@@ -73,8 +73,8 @@ func (w *CodexHookWriter) SettingsPath(projectDir string) string {
 // start for repo-level instructions (see internal/codex/backend.go /
 // surfaces.go: codex "natively reads a workspace-fixed AGENTS.md"). ctxloom
 // historically did not write it: an unmanaged whole-file write would have
-// clobbered hand-authored content the same way claude's CLAUDE.md was
-// (taskloom lanky-plop). Managed-section markers make it safe — see
+// clobbered hand-authored content the same way claude's CLAUDE.md was.
+// Managed-section markers make it safe — see
 // agentsMDPath / WriteContext below.
 const AgentsMDFile = "AGENTS.md"
 
@@ -95,7 +95,7 @@ func (w *CodexHookWriter) agentsMDPath(projectDir string) string {
 // materialize`, no active run) a real context surface it never had — that
 // path only ever had the assembled Context STRING (SurfaceInputs.Context), not
 // resolved Fragment objects, so the fragments-only cache-file route silently
-// delivered nothing there (taskloom tiny-ooze). Preserves hand-authored
+// delivered nothing there. Preserves hand-authored
 // content outside the markers byte-for-byte; empty content removes the managed
 // section (and the file, when it was wholly ctxloom's).
 func (w *CodexHookWriter) WriteContext(req agent.ContextWriteRequest) (agent.ContextReport, error) {
@@ -110,7 +110,7 @@ func (w *CodexHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCo
 }
 
 // WriteSettingsWithTrust is WriteSettings plus an optional project-trust
-// pre-seed (white-dawn §2.2A): when trustAbsPath is non-empty, it appends
+// pre-seed: when trustAbsPath is non-empty, it appends
 // `[projects."<trustAbsPath>"] trust_level = "trusted"` to the written
 // config.toml so codex does not re-prompt for trust the FIRST time it reads a
 // config.toml it has never seen before (either EPHEMERAL home — an
@@ -190,7 +190,7 @@ func (w *CodexHookWriter) load(path string) (map[string]any, error) {
 		// Was: warn and return an EMPTY table. Every caller then wrote that
 		// table back, so an unparseable config.toml was silently REPLACED by
 		// one containing ctxloom's keys and nothing else — the user's codex
-		// configuration destroyed on a success path (U045-F02). "I could not
+		// configuration destroyed on a success path. "I could not
 		// read it" is not "it was empty"; refuse and say so.
 		return nil, fmt.Errorf("cannot parse %s (%w) — refusing to write over a config.toml ctxloom could not read; fix or move the file and re-run", path, err)
 	}
@@ -203,14 +203,14 @@ func (w *CodexHookWriter) save(path string, cfg map[string]any, allowEmpty bool)
 	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return fmt.Errorf("failed to marshal config.toml: %w", err)
 	}
-	// A 0-byte write over a real file is a wipe wearing a success's clothes
-	// (U045-F02). RemoveSettings may legitimately empty the file — stripping
-	// ctxloom's keys from a config that held nothing else — and says so with
+	// A 0-byte write over a real file is a wipe wearing a success's clothes.
+	// RemoveSettings may legitimately empty the file — stripping ctxloom's
+	// keys from a config that held nothing else — and says so with
 	// allowEmpty; nothing else may. This mirrors (and, via AllowEmptyWrite,
-	// now composes with) agent.AtomicWriteFile's own zero-byte refusal guard
-	// (U102-F08): this check gives the more specific error naming the
-	// existing byte count, AllowEmptyWrite tells the shared guard not to
-	// override the decision this function already made.
+	// now composes with) agent.AtomicWriteFile's own zero-byte refusal guard:
+	// this check gives the more specific error naming the existing byte
+	// count, AllowEmptyWrite tells the shared guard not to override the
+	// decision this function already made.
 	if !allowEmpty && len(bytes.TrimSpace(buf.Bytes())) == 0 {
 		if existing, rerr := afero.ReadFile(w.getFS(), path); rerr == nil && len(bytes.TrimSpace(existing)) > 0 {
 			return fmt.Errorf("refusing to overwrite %s (%d bytes) with an empty config", path, len(existing))
@@ -398,7 +398,7 @@ func hasManagedHook(cfg map[string]any) bool {
 
 // addUnifiedHooks translates unified hooks to Codex event names and adds them.
 // Codex lacks a SessionEnd event, so unified SessionEnd hooks cannot be emitted
-// — the route declares that gap explicitly (U045-F05) so a configured
+// — the route declares that gap explicitly so a configured
 // session_end hook is announced as inert instead of vanishing.
 func addUnifiedHooks(cfg map[string]any, u wire.UnifiedHooks) {
 	agent.RouteUnifiedHooks("codex", []agent.HookRoute{
@@ -524,7 +524,7 @@ func addMCPServers(cfg map[string]any, mcp *wire.MCPConfig, bundleMCP map[string
 	// Auto-register ctxloom's own MCP server unless disabled. Command names
 	// the self-exec absolute path (agent.CtxloomCommand) so this session's
 	// MCP server can never diverge from the binary that materialized it —
-	// unless override substitutes the in-container path (dire-five).
+	// unless override substitutes the in-container path.
 	if mcp == nil || mcp.ShouldAutoRegisterCtxloom() {
 		servers[agent.MCPServerName] = mcpServerToTOMLEntry(wire.MCPServer{Command: agent.ResolveMCPCommand(override), Args: agent.CtxloomMCPArgs})
 	}

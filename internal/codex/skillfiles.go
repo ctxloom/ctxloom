@@ -16,8 +16,8 @@ const codexSkillManifest = ".ctxloom-skills-manifest"
 // writeCodexSkillPackages is the shared manifest-scoped skill-package write,
 // parameterized on the target skills dir. Used by the CELL-SCOPED commands
 // surface (surfaces.go); the GLOBAL WriteSkillFiles writer that used to share
-// this render mapping was deleted as dead (U045-F07 — test-only, dragging
-// skillsDirFor/codexSkillsDir with it).
+// this render mapping was deleted as dead — test-only, dragging
+// skillsDirFor/codexSkillsDir with it.
 func writeCodexSkillPackages(fs afero.Fs, skillsDir string, skills []agent.SkillExport) error {
 	return agent.WriteManagedPackageFiles(fs, skillsDir, codexSkillManifest, skills,
 		func(s agent.SkillExport) bool { return s.Enabled },

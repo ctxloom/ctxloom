@@ -417,7 +417,7 @@ func mustCLI(t *testing.T, clis []agent.EngineCLI, surface agent.CLISurface) age
 // takes one of three tiers, and the bypass escape hatch may not accompany it.
 // Without these the mock accepts `--sandbox nonsense` and both flags together
 // — argv lines the real binary exits 2 on — and reports a green run for a
-// launch that never started (U079-F01).
+// launch that never started.
 func TestEngineCLI_DeclaresCodexArgvConstraints(t *testing.T) {
 	oneshot, ok := agent.EngineCLIFor(CodexEngineCLIs(), agent.CLISurfaceOneshot)
 	require.True(t, ok)

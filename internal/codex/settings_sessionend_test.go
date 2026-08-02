@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// TestWriteSettings_SessionEndIsAnnounced pins U045-F05: codex has no
+// TestWriteSettings_SessionEndIsAnnounced pins a real gap: codex has no
 // session-end event, so a configured unified SessionEnd hook is written nowhere
 // — and used to be warned nowhere either. Every sibling engine routes the kind,
 // so a user who configured one has no way to learn it is inert on codex. The

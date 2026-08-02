@@ -13,7 +13,7 @@ import (
 // TestWriteCodexSkillPackages_CleanupPreservesForeignSkill proves
 // re-materializing with fewer skills reverts only the manifest-tracked set —
 // a foreign, user-authored skill directory survives. Ported off the deleted
-// global WriteSkillFiles wrapper (U045-F07: that wrapper, skillsDirFor, and
+// global WriteSkillFiles wrapper (that wrapper, skillsDirFor, and
 // codexSkillsDir were test-only dead code) onto writeCodexSkillPackages
 // directly, the still-live shared mechanics both the deleted global writer
 // and the cell-scoped commands surface (surfaces.go) used — surfaces_test.go

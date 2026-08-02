@@ -27,7 +27,7 @@ const codexAuthFileName = "auth.json"
 // CodexConfig is codex's typed LLM config. The backend owns this struct; the
 // config package only carries the raw body that decodes into it.
 type CodexConfig struct {
-	// Model is intentionally NOT a field here (U045-F10): it would be decoded
+	// Model is intentionally NOT a field here: it would be decoded
 	// and read by nothing — the model actually reaches the run through
 	// config.Body["model"] (config.ResolveLLM), and mapstructure ignores an
 	// unmatched "model" key in the raw body without complaint.
@@ -53,7 +53,7 @@ func (CodexConfig) BackendType() string { return "codex" }
 type Codex struct {
 	agent.LaunchBackend
 	// resolvedProjectDir is the "virtual project dir" cellScopedCodexHome joins
-	// ".codex" onto for THIS run — computed once per Setup (white-dawn §2.2A)
+	// ".codex" onto for THIS run — computed once per Setup
 	// and read by both buildSurfaces (Setup's delivery target) and
 	// cellCodexHomeEnv (Execute's env), so the two can never disagree about
 	// where CODEX_HOME points. See resolveCodexProjectDir.
@@ -69,8 +69,8 @@ type Codex struct {
 	resolvedTrustAbsPath string
 	// credentialErr is set by Setup (ensureCodexCredentials) when this run's
 	// CODEX_HOME has no usable codex credentials AND Setup could not seed/
-	// verify them — warm-yodel (in-tree host run) / dense-amaze (container
-	// fresh-$HOME). Execute checks it FIRST and refuses to launch codex at
+	// verify them, on either axis (in-tree host run / container fresh-$HOME).
+	// Execute checks it FIRST and refuses to launch codex at
 	// all when set, rather than the historical silent 401/exit-0: Setup's own
 	// errors are fault-tolerantly warned-and-ignored by the grpc server (see
 	// its doc), so a credential failure can only surface loudly from Execute.
@@ -90,8 +90,8 @@ type Codex struct {
 // alone needs Setup-time state (resolvedProjectDir/resolvedTrustAbsPath, see
 // buildSurfaces) threaded into its CellDelivery.Build, so it supplies a bound
 // method instead of the shared agent.BuildWellKnown every other well-known-
-// file backend uses — a deliberate, reviewed divergence (white-dawn §2.2A),
-// not a missed sibling update.
+// file backend uses — a deliberate, reviewed divergence, not a missed sibling
+// update.
 // reprise:accept-drift
 func NewCodex() *Codex {
 	b := &Codex{}
@@ -110,7 +110,7 @@ func NewCodex() *Codex {
 	b.InitLaunch(
 		agent.NewBaseLifecycle("codex"),
 		agent.NewBaseContextProvider(),
-		nil, // SessionHistory: codex's rollout-*.jsonl scraper deleted, tough-cloud S5 — canonical capture is the only transcript source now
+		nil, // SessionHistory: codex's rollout-*.jsonl scraper deleted — canonical capture is the only transcript source now
 		&agent.CellDelivery{Build: b.buildSurfaces, RawContext: true, ContextHook: true},
 	)
 	b.SetExecuteEnv(b.cellCodexHomeEnv)
@@ -152,12 +152,12 @@ func NewCodex() *Codex {
 //     into every container spawn) that the isolation layer already bind-
 //     mounted codex's auth.json into (codexCredentialMounts, auth.go) — so
 //     $HOME/.codex IS the correct, already-authenticated CODEX_HOME
-//     (dense-amaze's fix: this used to fall through to the WorkDir case
+//     (this used to fall through to the WorkDir case
 //     below, landing on the bind-mounted PROJECT dir instead — empty, no
 //     auth.json, hence the 401 mismatch).
 //   - anything else (None/shared-cwd, or no backend context) falls back to
 //     today's default: WorkDir itself, in-tree — a relocation codex has
-//     always silently performed but never seeded (warm-yodel).
+//     always silently performed but never seeded.
 func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agent.CellKind) (dir string, source codexHomeSource) {
 	if home := env[CodexHomeEnv]; home != "" {
 		if stripped := strings.TrimSuffix(home, string(filepath.Separator)+ConfigDirName); stripped != home {
@@ -201,7 +201,7 @@ const (
 	// codexHomeInTree: plain host run, no isolation-provided CODEX_HOME, not
 	// a container cell — <WorkDir>/.codex. NOTHING upstream ever prepared
 	// this directory, so Setup must ACTIVELY COPY host credentials into it
-	// (warm-yodel). Never trust-pre-seeded (today's behavior, unchanged).
+	// Never trust-pre-seeded (today's behavior, unchanged).
 	codexHomeInTree codexHomeSource = iota
 	// codexHomeIsolationProvided: env["CODEX_HOME"] came from the isolation
 	// package (worktree.go's Env(), gated through credentialSeedSpecs
@@ -222,7 +222,7 @@ const (
 // (resolvedProjectDir/resolvedTrustAbsPath, computed by Setup below) threaded
 // into NewSurfaces so its config/commands/skills surfaces target the SAME
 // isolation-provided CODEX_HOME cellCodexHomeEnv points the launched child
-// at — the single-owner fix (white-dawn §2.2A). isolatedDir (the generic
+// at — the single-owner fix. isolatedDir (the generic
 // per-backend placement channel) is intentionally unused here: codex's
 // resolution is backend-specific (env-derived, not cell-kind-derived).
 func (b *Codex) buildSurfaces(in agent.SurfaceInputs, _ string) agent.SurfaceSet {
@@ -247,7 +247,7 @@ func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
 			b.resolvedTrustAbsPath = req.WorkDir
 		}
 	}
-	// FAIL-LOUD credential check (warm-yodel/dense-amaze): resolved and
+	// FAIL-LOUD credential check: resolved and
 	// stashed here (Setup errors are fault-tolerantly warned-and-ignored by
 	// the grpc server — see its doc — so a credential failure recorded here
 	// alone would never surface); Execute checks b.credentialErr FIRST and
@@ -287,12 +287,12 @@ func resolveOpenAIAPIKey(reqEnv, backendEnv map[string]string) string {
 // even starts and already fails loud at isolation.Prepare's own choke gate,
 // so it is a deliberate no-op here:
 //
-//   - codexHomeInTree (warm-yodel): nothing upstream ever prepared this
+//   - codexHomeInTree: nothing upstream ever prepared this
 //     directory, so this ACTIVELY COPIES the host's ~/.codex/auth.json into
 //     it via isolation.SeedCodexHome — the SAME copy-based
 //     credentialSeedSpecs mechanism worktree.go's fan-out path already
 //     relies on, reused rather than reinvented.
-//   - codexHomeContainerFresh (dense-amaze): the container's fresh $HOME
+//   - codexHomeContainerFresh: the container's fresh $HOME
 //     already has auth.json bind-mounted in by codexCredentialMounts
 //     (isolation/auth.go) before this process even started — copying here
 //     would read AND write the SAME read-only-mounted file, so this only
@@ -349,7 +349,7 @@ func codexFileExists(path string) bool {
 //
 // A ProcessIsolatedCell (container) is handled the SAME way as any other
 // axis: resolveCodexProjectDir resolves it to the container's own fresh
-// $HOME (dense-amaze), which is a real, in-namespace, already-authenticated
+// $HOME, which is a real, in-namespace, already-authenticated
 // path (see resolveCodexProjectDir's doc and codexHomeContainerFresh) — not
 // redundant and not non-existent, so no container-specific branch is needed
 // here; the OPEN QUESTION this comment used to raise is resolved.
@@ -383,7 +383,7 @@ func (b *Codex) Configure(cfg agent.BackendConfig) {
 
 // Execute runs the backend with the given request.
 func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, stderr io.Writer) (*agent.ExecuteResult, error) {
-	// FAIL LOUD (warm-yodel/dense-amaze): Setup already resolved this run's
+	// FAIL LOUD: Setup already resolved this run's
 	// CODEX_HOME and checked it for usable credentials (ensureCodexCredentials).
 	// A non-nil credentialErr means codex would otherwise launch straight into
 	// a silent 401/exit-0 — refuse to spawn it at all and return the error
@@ -410,10 +410,10 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	//   - codexHomeInTree (plain host run): COPIED by Setup itself via
 	//     isolation.SeedCodexHome — a container is NOT required for this
 	//     seeding to matter; a bare host run relocates CODEX_HOME too
-	//     (warm-yodel) and needed its own seed path.
+	//     and needed its own seed path.
 	//   - codexHomeContainerFresh (container): VERIFIED by Setup against the
 	//     bind-mounted auth.json in the container's own fresh $HOME
-	//     (dense-amaze) — container alone does NOT isolate/seed CODEX_HOME by
+	//     — container alone does NOT isolate/seed CODEX_HOME by
 	//     itself; it only provides the fresh $HOME namespace the mount lands
 	//     in, and CODEX_HOME must actually be pointed there (see
 	//     resolveCodexProjectDir) for the mount to be reachable at all.
@@ -433,8 +433,8 @@ func (b *Codex) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, 
 	// rewrite config.toml — last writer wins → cross-agent context clobber. Unlike
 	// claude (per-invocation flags) and kiro (per-agent agent-JSON `--agent`), codex
 	// has NO redirection lever, so per-agent CONCURRENT isolation requires a
-	// per-agent cwd (git worktree) or container. See taskloom loyal-eel / memory
-	// per-agent-config-delivery (ISOLATION AXIS).
+	// per-agent cwd (git worktree) or container. See the
+	// per-agent-config-delivery memory note (ISOLATION AXIS).
 	return b.ExecuteCLI(ctx, req, b.buildArgs(req), nil, modelInfo, stdout, stderr)
 }
 

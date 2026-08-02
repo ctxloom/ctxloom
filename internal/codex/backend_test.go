@@ -20,10 +20,10 @@ import (
 func TestCodex_Capabilities(t *testing.T) {
 	codex := NewCodex()
 	assert.Equal(t, "codex", codex.Name())
-	// tough-cloud S5: codex's SessionHistory scraper was deleted outright
-	// (lived-zone: envelope-vs-flat parse mismatch); History() is nil now that
-	// canonical capture is the only transcript source for codex.
-	assert.Nil(t, codex.History(), "session history scraper retired, tough-cloud S5")
+	// codex's SessionHistory scraper was deleted outright (it had an
+	// envelope-vs-flat parse mismatch); History() is nil now that canonical
+	// capture is the only transcript source for codex.
+	assert.Nil(t, codex.History(), "session history scraper retired")
 }
 
 func TestCodex_Configure(t *testing.T) {
@@ -44,7 +44,7 @@ type foreignBackendConfig struct{}
 
 func (foreignBackendConfig) BackendType() string { return "not-codex" }
 
-// U045-F15 called Configure's missing else a silent swallow. The branch is
+// A past review called Configure's missing else a silent swallow. The branch is
 // unreachable by construction, not merely untaken: every caller resolves the
 // config BY the backend's own name — backends.ConfiguredBackend does
 // Get(cfg.BackendType()), llm_serve's serveBackendConfig gates on
@@ -264,14 +264,13 @@ func TestCodex_buildArgs_NoModelWhenEmpty(t *testing.T) {
 }
 
 // =============================================================================
-// CODEX_HOME single ownership (white-dawn §2.2A) — resolveCodexProjectDir is
-// the one function Setup's delivery target and Execute's env both read, so
-// they can never disagree about where CODEX_HOME points. codex's credential
-// seeding is now three-way (ensureCodexCredentials below): the isolation
-// package's copy-based framework (credentialSeedSpecs["codex"], balmy-comic)
-// for the worktree fan-out axis, plus codex's OWN active seed (in-tree host
-// run, warm-yodel) and verify (container fresh-$HOME, dense-amaze) for the
-// two axes the isolation package never sees.
+// CODEX_HOME single ownership — resolveCodexProjectDir is the one function
+// Setup's delivery target and Execute's env both read, so they can never
+// disagree about where CODEX_HOME points. codex's credential seeding is now
+// three-way (ensureCodexCredentials below): the isolation package's
+// copy-based framework (credentialSeedSpecs["codex"]) for the worktree
+// fan-out axis, plus codex's OWN active seed (in-tree host run) and verify
+// (container fresh-$HOME) for the two axes the isolation package never sees.
 // =============================================================================
 
 // TestResolveCodexProjectDir_NoIsolation_FallsBackToWorkDir pins today's
@@ -323,7 +322,7 @@ func TestResolveCodexProjectDir_IsolationProvided_UnexpectedShape(t *testing.T) 
 	assert.Equal(t, codexHomeIsolationProvided, source)
 }
 
-// TestResolveCodexProjectDir_ProcessIsolated_UsesHomeEnv is dense-amaze's
+// TestResolveCodexProjectDir_ProcessIsolated_UsesHomeEnv pins the container
 // core case: a container cell (no isolation-provided CODEX_HOME — the
 // isolation package's Env() never sets one for a container workspace) lands
 // on the container's OWN fresh $HOME instead of falling through to WorkDir
@@ -351,7 +350,7 @@ func TestResolveCodexProjectDir_ProcessIsolated_NoHomeFallsBackToWorkDir(t *test
 }
 
 // =============================================================================
-// ensureCodexCredentials — the fail-loud gate warm-yodel/dense-amaze added:
+// ensureCodexCredentials — the fail-loud gate added for both credential axes:
 // Setup resolves it and stashes b.credentialErr; Execute refuses to launch
 // codex at all when it is set (see the Execute tests further below).
 // =============================================================================
@@ -383,7 +382,7 @@ func TestEnsureCodexCredentials_EnvTrigger_SkipsEverything(t *testing.T) {
 	assert.NoError(t, ensureCodexCredentials(t.TempDir(), codexHomeContainerFresh, resolveOpenAIAPIKey(nil, nil)))
 }
 
-// TestEnsureCodexCredentials_InTree_SeedsViaIsolation is warm-yodel's core
+// TestEnsureCodexCredentials_InTree_SeedsViaIsolation pins the core
 // assertion: the in-tree axis actively calls the copy-based seed seam.
 func TestEnsureCodexCredentials_InTree_SeedsViaIsolation(t *testing.T) {
 	var calledWith string
@@ -408,8 +407,8 @@ func TestEnsureCodexCredentials_InTree_SeedFailureIsLoud(t *testing.T) {
 	assert.ErrorContains(t, err, "no host ~/.codex/auth.json credentials found")
 }
 
-// TestEnsureCodexCredentials_ContainerFresh_VerifiesMount is dense-amaze's
-// core assertion: the container axis VERIFIES the bind-mounted auth.json
+// TestEnsureCodexCredentials_ContainerFresh_VerifiesMount pins the core
+// assertion: the container axis VERIFIES the bind-mounted auth.json
 // rather than copying (copying would collide with the read-only mount).
 func TestEnsureCodexCredentials_ContainerFresh_VerifiesMount(t *testing.T) {
 	restoreSeed := stubSeedCodexHomeFn(t, func(string) (bool, error) {
@@ -544,10 +543,10 @@ func TestCodex_SetupExecute_AgreeOnIsolatedCodexHome(t *testing.T) {
 // TestCodex_SetupExecute_NoneCellUnchanged pins the deliberately-scoped
 // residual: with NO isolation-provided CODEX_HOME (None/shared-cwd), Setup
 // and Execute both still land on <WorkDir>/.codex — today's behavior,
-// unchanged by this fix's dir RESOLUTION. Credential SEEDING is new
-// (warm-yodel): the in-tree axis now actively calls seedCodexHomeFn, stubbed
-// here to keep the test hermetic (never touches the real host's ~/.codex or
-// writes into the fake "/proj").
+// unchanged by this fix's dir RESOLUTION. Credential SEEDING is new: the
+// in-tree axis now actively calls seedCodexHomeFn, stubbed here to keep the
+// test hermetic (never touches the real host's ~/.codex or writes into the
+// fake "/proj").
 func TestCodex_SetupExecute_NoneCellUnchanged(t *testing.T) {
 	var seededDir string
 	restoreSeed := stubSeedCodexHomeFn(t, func(dir string) (bool, error) {
@@ -561,14 +560,14 @@ func TestCodex_SetupExecute_NoneCellUnchanged(t *testing.T) {
 	_ = b.Setup(context.Background(), setupReq)
 	assert.Equal(t, "/proj", b.resolvedProjectDir)
 	assert.Empty(t, b.resolvedTrustAbsPath, "in-tree config.toml is never trust-pre-seeded")
-	assert.Equal(t, "/proj", seededDir, "Setup actively seeds the in-tree CODEX_HOME (warm-yodel)")
+	assert.Equal(t, "/proj", seededDir, "Setup actively seeds the in-tree CODEX_HOME")
 	assert.NoError(t, b.credentialErr)
 
 	execEnv := b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: "/proj"})
 	assert.Equal(t, filepath.Join("/proj", ".codex"), execEnv["CODEX_HOME"])
 }
 
-// TestCodex_SetupExecute_ProcessIsolatedUsesContainerHome is dense-amaze's
+// TestCodex_SetupExecute_ProcessIsolatedUsesContainerHome is the
 // end-to-end Setup/Execute agreement test: a container cell's CODEX_HOME
 // resolves to $HOME/.codex on BOTH the Setup (delivery) and Execute (env)
 // sides, matching where codexCredentialMounts (isolation/auth.go) bind-mounts

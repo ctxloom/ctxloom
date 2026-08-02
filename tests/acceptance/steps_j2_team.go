@@ -108,7 +108,7 @@ func registerJ2Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^it reached him without any review, because the project is first-party$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// U160-F08: this used to grep for the exact prose sentence "Nothing
+		// This used to grep for the exact prose sentence "Nothing
 		// is pending review." -- a wording change would silently break the
 		// assertion into a false red, or (if the new wording still contained
 		// that substring) a false green. review --list --format json emits

@@ -371,7 +371,7 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 		// The retraction notice lives in the pull's OWN output — the run
 		// immediately before the materialize that followed it in "Alice
 		// syncs her project", so NthLastOutput(1) reaches it even though
-		// LastOutput() now reflects the later materialize (U163-F01).
+		// LastOutput() now reflects the later materialize.
 		out := w.env.NthLastOutput(1)
 		w.docStepMaterialized = out
 		if !strings.Contains(out, "retracted") {

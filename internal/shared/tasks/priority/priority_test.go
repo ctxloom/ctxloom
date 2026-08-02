@@ -542,7 +542,7 @@ func TestRankNormalize_EmptyPopulationYieldsEmptyMap(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// TestRankNormalize_NaNRawDoesNotHang pins U121-F08/U122-F12/U124-F01: a
+// TestRankNormalize_NaNRawDoesNotHang pins the fix: a
 // stored tag value of the literal string "NaN" survives both the write-time
 // validator and the lint sweep (both use ParseFloat then a `<`/`>` bounds
 // test, and every comparison against NaN is false) and reaches priority as a
@@ -570,7 +570,7 @@ func TestRankNormalize_NaNRawDoesNotHang(t *testing.T) {
 			assert.False(t, math.IsNaN(got[id]), "a NaN raw score must not propagate into the displayed priority for %s", id)
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("rankNormalize did not return within 2s — NaN raw score hung the tie-grouping loop (U124-F01)")
+		t.Fatal("rankNormalize did not return within 2s — NaN raw score hung the tie-grouping loop")
 	}
 }
 
@@ -606,12 +606,12 @@ func TestCompute_NaNTagValueDoesNotHang(t *testing.T) {
 			}
 		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("Compute did not return within 2s given a NaN-valued tag (U124-F01)")
+		t.Fatal("Compute did not return within 2s given a NaN-valued tag")
 	}
 }
 
-// TestCompute_ExploitedInWildOverride_NotAppliedToTerminalTask pins
-// U124-F02: Result.Priority's own doc says a terminal (Done/Archived) task
+// TestCompute_ExploitedInWildOverride_NotAppliedToTerminalTask pins the fix:
+// Result.Priority's own doc says a terminal (Done/Archived) task
 // is left at 0 because it never enters the normalization population — but
 // the exploited-in-wild override was applied unconditionally, before the
 // terminal check, forcing a closed task's Priority to Max.
@@ -629,9 +629,9 @@ func TestCompute_ExploitedInWildOverride_NotAppliedToTerminalTask(t *testing.T) 
 	assert.False(t, closed.Overridden, "the exploited-in-wild override must not fire for a terminal task")
 }
 
-// TestCompute_ZeroCreatedAtIsAnError pins the first half of U124-F03: a
+// TestCompute_ZeroCreatedAtIsAnError pins the first half of the fix: a
 // task whose CreatedAt folded to the zero time.Time (e.g. log.go's repair()
-// re-add, which drops Ts — see U120-F14) must not silently pin to the
+// re-add, which drops Ts) must not silently pin to the
 // decay curve's extreme; Compute has the only vantage point that can
 // notice the corrupt input, and must say so.
 func TestCompute_ZeroCreatedAtIsAnError(t *testing.T) {
@@ -642,7 +642,7 @@ func TestCompute_ZeroCreatedAtIsAnError(t *testing.T) {
 }
 
 // TestCompute_FutureCreatedAtClampsAgeToZero pins the second half of
-// U124-F03: clock skew or a hand-edited log can produce a CreatedAt in the
+// the fix: clock skew or a hand-edited log can produce a CreatedAt in the
 // future. The shipped default decay_fn evaluates 1 + age/(age+90), which is
 // -Inf at age == -90 exactly — age must clamp at 0 rather than go negative.
 func TestCompute_FutureCreatedAtClampsAgeToZero(t *testing.T) {

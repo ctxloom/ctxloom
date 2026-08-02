@@ -17,7 +17,7 @@
 //
 // The session-history reader (formerly internal/kiro/session.go) was DELETED
 // outright, not demoted to an importer — the user's explicit decision. It was
-// CONFIRMED BROKEN against real session files: it read the v1
+// CONFIRMED BROKEN against real session files (tall-grab): it read the v1
 // sessions/cli/*.jsonl store, but a real `kiro-cli chat --no-interactive`
 // oneshot — the mode ctxloom's own oneshot Execute path uses — persists into
 // a structurally different v2 SQLite blob this reader never parsed. Kiro's

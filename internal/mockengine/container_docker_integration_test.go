@@ -5,13 +5,13 @@
 // exactly the surfaces that were delivered (present:true, matching hashes) and
 // correctly reports the ones that were NOT (present:false).
 //
-// ============================ SCOPE BOUNDARY ============================
+// ============================ SCOPE BOUNDARY (fiery-pasta) ============================
 // This test proves CONTEXT DELIVERY — that ctxloom put the right bytes at the
 // paths the claude CLI probes, reachable from inside the container, delivered
 // through the argv/stdin contract L1 declares. It proves NOTHING about whether
 // the REAL claude engine can RUN in any image: the mock is a Go binary and runs
-// fine regardless of the image's Node version, npm graph, or auth — a blind
-// spot no in-process mock can close. The 2026-07-24 container-delegation
+// fine regardless of the image's Node version, npm graph, or auth — the exact
+// blind spot task fiery-pasta records. The 2026-07-24 container-delegation
 // incident (an image whose Node was too old to load claude-code-acp) would have
 // sailed through this test green. Image runtime health is a SEPARATE,
 // non-skippable check: adapterRunGate / TestACPAdapterRuns_* in
@@ -295,7 +295,7 @@ func materializeCodexContext(t *testing.T, workspace, context string) string {
 // through codex's OWN argv contract (the `exec` subcommand, the POSITIONAL
 // prompt, no stdin). It proves NOTHING about whether the REAL codex engine can
 // RUN in any image: the mock is a Go binary and runs regardless of the image's
-// codex install or auth — the same blind spot as its claude peer above. Image
+// codex install or auth — the exact blind spot fiery-pasta records. Image
 // runtime health is a SEPARATE, non-skippable check (adapterRunGate /
 // TestACPAdapterRuns_* in internal/lm/isolation, which validates the real engine
 // by EXECUTION). Do not cite a green run here as evidence codex's image works.

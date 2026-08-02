@@ -767,21 +767,21 @@ func TestModel_RosterLinesWindowAroundSelection(t *testing.T) {
 	assert.NotContains(t, view, "h0", "the far-scrolled-past first row leaves the visible window")
 }
 
-// TestModel_RosterLinesShowAgentNameAtRealisticDepth is DEFECT C's
-// verification: a live incident reported the agents pane's agent-name column
-// rendering blank. A prior finder assessed this as an OCCLUSION artifact of
-// the overlay geometry bug (DEFECT D — the panel's mispositioned bottom edge
-// let the child engine's own held screen bleed through where the roster
-// pane's agent-name text should have been), not missing roster data — the
+// TestModel_RosterLinesShowAgentNameAtRealisticDepth verifies: a live
+// incident reported the agents pane's agent-name column rendering blank. A
+// prior finder assessed this as an OCCLUSION artifact of a separate overlay
+// geometry bug — the panel's mispositioned bottom edge let the child
+// engine's own held screen bleed through where the roster pane's
+// agent-name text should have been — not missing roster data — the
 // same coord-fed rows already render fine in the surround's status bar. This
 // test pins the DATA/RENDER path directly (independent of any real terminal
 // paint): production-realistic three-word harp names, one root and one
 // lineage-indented child (the incident's actual shape — a coordinator with a
 // finder child), must show their "·agent" suffix in rosterLines' output.
-// This passes both before and after the DEFECT D geometry fix (rosterLines is
+// This passes both before and after the geometry fix (rosterLines is
 // a pure string builder untouched by OverlayGeometry), which is exactly the
 // point: it demonstrates the blank column was never a data/render bug, so
-// DEFECT D's geometry fix — which stops the overlay from ever sharing the
+// the geometry fix — which stops the overlay from ever sharing the
 // reserved row with stale/held screen content — is what resolves it.
 func TestModel_RosterLinesShowAgentNameAtRealisticDepth(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
@@ -810,7 +810,7 @@ func TestModel_RosterLinesShowAgentNameAtRealisticDepth(t *testing.T) {
 // comes first) is never the part that disappears, and the line is never
 // empty/whitespace-only. This is the evidence that rosterLines cannot
 // produce the incident's fully-blank column on its own — supporting the
-// occlusion (DEFECT D geometry) explanation over a data/render bug.
+// occlusion (overlay geometry) explanation over a data/render bug.
 func TestModel_RosterLinesTruncateNeverBlank(t *testing.T) {
 	f := newFakeSources(t.TempDir(),
 		RosterRow{Harp: "aloof-mean-stove", Agent: "coordinator", State: "executing", Depth: 0},

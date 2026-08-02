@@ -9,8 +9,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// These tests pin the identity-first session-selection logic added for
-// seedy-apron: recover_session and get_previous_session must prefer the
+// These tests pin the identity-first session-selection logic:
+// recover_session and get_previous_session must prefer the
 // harp->SessionID binding recorded in the session index over an mtime-position
 // pick from the backend's own transcript listing. A backend (Claude Code and
 // others) rewrites/touches a transcript file's mtime when a session is
@@ -101,7 +101,7 @@ func TestRecoverTargetSessionID_NoTranscriptPathTrustsIdentity(t *testing.T) {
 }
 
 func TestPreviousSessionFromMtime_ExcludesActiveSessionRegardlessOfPosition(t *testing.T) {
-	// Reproduces the seedy-apron root cause directly: an OLDER, already-ended
+	// Reproduces the root cause directly: an OLDER, already-ended
 	// session was touched again (e.g. resumed) and now has a NEWER mtime than
 	// the still-active session, so the active session is NOT positionally
 	// first. A blind metas[1] pick (the old behavior) would return the active

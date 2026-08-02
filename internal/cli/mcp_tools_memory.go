@@ -397,7 +397,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 		// touched again. An mtime-position pick is unreliable here because Claude
 		// Code (and other backends) rewrite/touch a transcript file when a session
 		// is resumed, so "newest by mtime" is not reliably "the session that just
-		// ended" (seedy-apron). Only fall back to the mtime pick when the harp is
+		// ended". Only fall back to the mtime pick when the harp is
 		// unbound (the SessionStart bind hook never fired) or its bound backend
 		// doesn't match the one being read from.
 		activeEntry, _ := operations.GetSession(s.self.Harp)
@@ -537,7 +537,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 // Distillation goes through compactEntry, which resolves the canonical
 // transcript by HarpName and writes essence under the harp dir — fixing the
 // old bug where a canonical session's essence was written to a sessionID-keyed
-// path under the project workdir (viral-equal). get_previous_session keeps an
+// path under the project workdir. get_previous_session keeps an
 // indeterminate cache (a finished session rarely changes), the same bias the
 // backend path applies with redistillWhenUnknown=false.
 //
@@ -545,7 +545,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 // cfg.GetCompactionModel()). Honoring it ONLY on the backend path meant an
 // explicit override was silently ignored whenever the previous session was
 // canonical/ACP — the caller got a distill from a model it did not ask for,
-// with no indication (sour-scoop).
+// with no indication.
 func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model string) (*mcp.CallToolResult, *loadSessionResult, error) {
 	entry, err := operations.GetSession(harp)
 	if err != nil {
@@ -674,9 +674,9 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		// Degrade a lookup failure to a usable "couldn't load" message rather than a
 		// tool error — recovery must never block the agent (CLAUDE.md).
 		//
-		// quit-eagle #3: a harp with no captured canonical transcript (an
-		// interactive session — capture itself is a separate, tracked gap,
-		// petty-green) gets a special-cased message naming the harp AND the
+		// A harp with no captured canonical transcript (an
+		// interactive session — capture itself is a separate, tracked gap)
+		// gets a special-cased message naming the harp AND the
 		// concrete remedy, instead of making the caller decode a bare
 		// "no canonical transcript captured"/"legacy scraper reader retired"
 		// wrapper error.
@@ -716,7 +716,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	transcriptPath := ""
 	if harp != "" {
 		if entry, _ := operations.GetSession(harp); entry != nil {
-			// Prefer the canonical transcript (tough-cloud S4): once captured,
+			// Prefer the canonical transcript: once captured,
 			// that's the file Compact actually distilled from, so staleness must
 			// compare against it, not the legacy engine file (see
 			// memory.transcriptSize's matching preference).
@@ -729,13 +729,14 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 
 	// Cached path: reuse the essence when the transcript hasn't moved past it —
 	// UNLESS the cached body itself is over MaxEssenceChars. That should never
-	// happen for anything Compact wrote after quit-eagle (Compact now refuses
-	// to save an oversized body at all), but an essence written by an older
-	// binary, or by some other writer, could still be sitting on disk; treating
-	// it as unusable and falling through to a fresh (now-bounded) distill is
-	// the fail-loud backstop for recover_session specifically — a cache hit is
-	// exactly the path that would otherwise hand back stale, oversized content
-	// with no compaction pipeline in the loop at all to catch it.
+	// happen for anything Compact wrote since the size cap was added (Compact
+	// now refuses to save an oversized body at all), but an essence written by
+	// an older binary, or by some other writer, could still be sitting on
+	// disk; treating it as unusable and falling through to a fresh
+	// (now-bounded) distill is the fail-loud backstop for recover_session
+	// specifically — a cache hit is exactly the path that would otherwise
+	// hand back stale, oversized content with no compaction pipeline in the
+	// loop at all to catch it.
 	if cached, stampedSize := loadCachedDistilledSession(sessionsDir, sessionID); cached != nil {
 		stale, known := sessions.TranscriptStale(transcriptPath, stampedSize)
 		withinBound := len(cached.Content) <= memory.MaxEssenceChars

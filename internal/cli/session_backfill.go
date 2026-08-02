@@ -15,9 +15,9 @@ import (
 // interactive-pty exit seam uses (internal/cli/run.go's
 // convertVendorTranscriptOnExit) over already-indexed sessions instead of a
 // just-exited one — the backfill leg of docs/transcript-schema.md §8's
-// interactive-pty gap (petty-green): a session run before this wiring
-// existed, or one whose exit-seam import failed/was skipped, gets one more
-// chance without re-running it.
+// interactive-pty gap: a session run before this wiring existed, or one
+// whose exit-seam import failed/was skipped, gets one more chance without
+// re-running it.
 var sessionBackfillCmd = &cobra.Command{
 	Use:   "backfill [<harp-name>]",
 	Short: "Import vendor-native transcripts for sessions ctxloom has no canonical memory of",

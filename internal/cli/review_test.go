@@ -245,7 +245,7 @@ func TestReviewApplier_WritesStoreStates(t *testing.T) {
 	assert.True(t, store.HasUnsignedContentReject(signing.AttestFragmentRaw, []byte("rm -rf danger")))
 }
 
-// TestPrintReviewItem_ShowsBothCountersignedForms closes boned-stole: an
+// TestPrintReviewItem_ShowsBothCountersignedForms closes a gap: an
 // approval countersigns BOTH forms of a distillable item, so the reviewer must
 // see both. Showing only the effective form meant approving a fragment you read
 // in raw also blessed distilled bytes you never saw.
@@ -284,7 +284,7 @@ func TestPrintReviewItem_UpdateShowsAlternateForm(t *testing.T) {
 	assert.Contains(t, text, "the raw body")
 }
 
-// TestResolveReviewSigner_HonoursSignKeyConfig closes trim-gloss: `ctxloom
+// TestResolveReviewSigner_HonoursSignKeyConfig closes a gap: `ctxloom
 // sign` merges cfg.SignKey() into the discovery chain's explicit-key slot but
 // `ctxloom review` passed "", so approve never consulted sign.key. With
 // several ssh-agent identities and no git user.signingkey, sign worked and the

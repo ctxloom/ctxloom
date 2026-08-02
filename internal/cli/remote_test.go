@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// TestRenderPullSummary_SkippedDoesNotClaimCurrency closes rare-vixen: `remote
+// TestRenderPullSummary_SkippedDoesNotClaimCurrency closes a gap: `remote
 // pull` reported "Skipped (already installed)" for items whose UPSTREAM
 // CONTENT HAD CHANGED. Pull installs exactly the pinned set — moving a pin is
 // `remote upgrade`'s job — so the skip is correct, but the wording claimed

@@ -200,7 +200,7 @@ func resumeDistillEnv(harp string, essenceFn func(string) ([]byte, error), disti
 // (activeHarp). Tasks are project-scoped now (ADR 0025), so seeding is a status
 // change rather than a move between per-session stores.
 //
-// A failure is a FATAL ClassTask finding, not a bare warning (worst-pony).
+// A failure is a FATAL ClassTask finding, not a bare warning.
 // Seeding only runs when the user passed --seed-task, so this is an explicit
 // ask: if the task log is corrupt or the harp does not resolve, the session
 // would otherwise launch looking successful while the task silently stayed
@@ -507,8 +507,8 @@ func (st *runState) loadConfig() error {
 	// If loading upgraded an older config schema in memory, offer to persist
 	// it (interactive + consented only; never a silent rewrite).
 	confirmUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)
-	// The HOME layer gets the same offer when a project config also exists
-	// (long-ice). Without this, a stale ~/.ctxloom/config.yaml was upgraded
+	// The HOME layer gets the same offer when a project config also exists.
+	// Without this, a stale ~/.ctxloom/config.yaml was upgraded
 	// in memory on every load forever and never converged. The prompt names
 	// the path, so consenting to rewrite HOME is an informed choice rather
 	// than a surprise side effect of a project-scoped run.
@@ -590,8 +590,8 @@ func (st *runState) runStartupTasks() {
 		reportCompanions(os.Stderr)
 	}
 
-	// Startup reaper (bony-carry bug #2): sweep any per-agent worktree
-	// checkout left behind by a crashed/killed prior run — teardown()'s
+	// Startup reaper: sweep any per-agent worktree checkout left behind by a
+	// crashed/killed prior run — teardown()'s
 	// WIP-safe removal only ever fires on a graceful Cleanup(), so nothing
 	// else ever reaps these. Best-effort, silent unless it found something.
 	if !runDryRun {
@@ -1229,7 +1229,7 @@ func (st *runState) stampWorkspaceOnRequest() {
 	// (launch_backend.go) consumes it to pick the delivery cell.
 	st.req.Options.CellKind = pb.CellKindToProto(operations.CellKindForPolicy(st.policy))
 
-	// dire-five: for a container policy ONLY, stamp the in-container
+	// For a container policy ONLY, stamp the in-container
 	// ctxloom binary path so the MCP-surface writer (running inside the
 	// container, per agentcoord B1.6's runner-terminated MCP) emits a
 	// `command` the container can actually exec, instead of the host
@@ -1395,8 +1395,9 @@ func (st *runState) prepareSessionIO() sessionIO {
 	// prompt is already known (st.prompt), and this captures the returned
 	// half by teeing the SAME bytes already bound for the terminal into a
 	// buffer, alongside (never instead of) the user-visible stdout. Never
-	// allocated for INTERACTIVE (the pty path, out of scope — petty-green)
-	// or when mode==ONESHOT via --structured (returns earlier, in drive).
+	// allocated for INTERACTIVE (the pty path, out of scope — a separate,
+	// tracked gap) or when mode==ONESHOT via --structured (returns earlier,
+	// in drive).
 	if st.mode == pb.ExecutionMode_ONESHOT {
 		sio.capture = &bytes.Buffer{}
 		sio.stdout = io.MultiWriter(sio.stdout, sio.capture)
@@ -1411,9 +1412,9 @@ func (st *runState) prepareSessionIO() sessionIO {
 		// signal-cancelled ctx) unwinds scroll region, held output, and
 		// raw mode together.
 		if sio.stdin != nil && !runPlainTerminal {
-			// The TUI is about to own this terminal, so clidiag warnings
-			// must stop writing to it (large-album). Diverted to the
-			// session's diagnostics log, announced before the handover.
+			// The TUI is about to own this terminal, so clidiag warnings must
+			// stop writing to it. Diverted to the session's diagnostics log,
+			// announced before the handover.
 			restoreDiag := redirectDiagnosticsForTUI(st.activeHarp, os.Stderr)
 			if ui := setupTerminalUI(st.ctx, st.cfg, st.sessionCoord, terminalUIIdentity{
 				WorkDir: st.workDir,
@@ -1470,7 +1471,7 @@ func (st *runState) launchSession(sio sessionIO) error {
 	}
 
 	// Interactive-pty exit seam for vendor-transcript import
-	// (docs/transcript-schema.md §8's "interactive-pty gap", petty-green):
+	// (docs/transcript-schema.md §8's "interactive-pty gap"):
 	// the structured tee (transcript.Tee/TeeAndClose) never reaches a pty,
 	// so this is the ONLY place ctxloom can turn the just-exited engine's
 	// OWN transcript into canonical memory. Mirrors oneshotCapture's own
@@ -1613,7 +1614,7 @@ func stampHostTerminalEnv(req *pb.RunStart) {
 // two files and inferring what neither covered.
 //
 //   - armGoPlugin: SpawnClient + go-plugin. Every host/worktree run of any
-//     mode; none of them had the mauve-state problem the container arms fix.
+//     mode; none of them had the container-state problem the container arms fix.
 //   - armDockerExecInteractive: Phase 2a-A. The interactive turn runs via
 //     `docker exec` against a StartRunner keepalive container.
 //   - armOwnedRunContainer: Phase 2a-B. An owner-owned run watched over the

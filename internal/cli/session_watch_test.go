@@ -279,19 +279,20 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 	return entry.HarpName
 }
 
-// TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly: tough-cloud S5
+// TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly: a prior change
 // deleted the by-location legacy-file readers for claude-code/codex/kiro/
 // antigravity outright (the user's DELETE decision, not a demoted importer —
 // see each package's backend.go doc). A watch addressed by HARP whose only
 // association is a located legacy-format transcript (no hook-bound session,
 // no captured canonical transcript.jsonl — the containerized-child
 // by-location shape this test used to successfully parse for all four
-// engines pre-S5) must now fail CLEANLY through operations.HistoryForBackend
-// ("no session history") rather than hang, panic, or silently stream zero
-// entries — matching the task's explicit acceptance that a retired-scraper
-// backend with no canonical transcript "simply has no legacy reader" this
-// release (interactive-pty/by-location memory for these four is scoped out
-// to a later task, petty-green). opencode is deliberately absent — its
+// engines before that change) must now fail CLEANLY through
+// operations.HistoryForBackend ("no session history") rather than hang,
+// panic, or silently stream zero entries — matching the task's explicit
+// acceptance that a retired-scraper backend with no canonical transcript
+// "simply has no legacy reader" this release (interactive-pty/by-location
+// memory for these four is scoped out to a later task). opencode is
+// deliberately absent — its
 // native reader was never file/path-addressable to begin with
 // (GetSessionByPath always errored, see opencode/capabilities.go), so it was
 // never covered by this by-location mechanism.

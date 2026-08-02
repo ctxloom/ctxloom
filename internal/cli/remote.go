@@ -279,7 +279,7 @@ func pullResultErr(result *operations.SyncDependenciesResult) error {
 
 // renderPullSummary prints a completed pull.
 //
-// The skipped line deliberately does NOT say "already installed" (rare-vixen).
+// The skipped line deliberately does NOT say "already installed".
 // Pull installs exactly the PINNED set; moving an existing pin is `remote
 // upgrade`'s job. So an item whose upstream content has changed is skipped and
 // was being reported as "already installed" — which reads as "you are current"

@@ -96,7 +96,7 @@ func situateForEntry(e *sessions.Entry, origWd string) error {
 // caller override wins, and "" falls back to the configured compaction model.
 // Kept as a named function despite the single call site (compactEntry, which
 // is itself the single funnel) because it is the one unit-testable statement
-// of the sour-scoop rule — honoring the override on only some distill paths
+// of the override rule — honoring the override on only some distill paths
 // is exactly the bug this exists to prevent — and compactEntry needs a live
 // session entry and compactor to exercise.
 func compactionModelFor(cfg *config.Config, override string) string {
@@ -128,9 +128,8 @@ func compactionModelFor(cfg *config.Config, override string) string {
 // captured transcript — genuinely nothing to distill.
 // model overrides the compaction model for THIS call; "" uses
 // cfg.GetCompactionModel(). It exists so a caller-supplied model override
-// reaches the canonical/harp distill path too, not just the backend one
-// (sour-scoop) — the same "empty means config default" shape distillSession
-// already uses.
+// reaches the canonical/harp distill path too, not just the backend one —
+// the same "empty means config default" shape distillSession already uses.
 // compactEntryFn is compactEntry behind a package var so a caller's wiring —
 // notably the context bound a long-running distillation is handed — can be
 // observed in a test. Production never reassigns it.
@@ -191,14 +190,14 @@ func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 // before the deprecated `memory` command group was deleted, by
 // `memory list`/`memory show` too. The legacy leg (pb.SessionReader) reads
 // over gRPC to the agent server (self-situated, no workspace passed, works
-// for a remote agent); it is wrapped in CanonicalFallbackSource (tough-cloud
-// S4) so any harp with a captured canonical transcript is read from that
-// instead — workDir scopes the canonical side to this project. A
-// session-index open failure degrades to the legacy-only reader rather than
-// failing the caller outright.
+// for a remote agent); it is wrapped in CanonicalFallbackSource so any harp
+// with a captured canonical transcript is read from that instead — workDir
+// scopes the canonical side to this project. A session-index open failure
+// degrades to the legacy-only reader rather than failing the caller
+// outright.
 //
-// tough-cloud S5: a retired-scraper backend (codex/kiro/antigravity/
-// claude-code — their scrapers were deleted, not demoted) never gets a legacy
+// A retired-scraper backend (codex/kiro/antigravity/claude-code — their
+// scrapers were deleted, not demoted) never gets a legacy
 // leg at all: there is no plugin-side History() left to ask, so this never
 // even spawns the plugin for that purpose. Every other backend (opencode's
 // native reader included) keeps its legacy leg unchanged.

@@ -218,10 +218,10 @@ func printSignerListings(w io.Writer, listings []operations.SignerListing) error
 }
 
 // embeddedAnnotation renders the trailing note for an "embedded" trust-root
-// entry (oozy-plod (a)): always not-removable via this CLI, and — when a
-// local suppression record exists (oozy-plod (b), `trust signer delete
-// <embedded-principal>`) — that it is DISTRUSTED and no longer actually
-// trusted despite still being listed. Visibility never regresses just
+// entry: always not-removable via this CLI, and — when a local suppression
+// record exists (`trust signer delete <embedded-principal>`) — that it is
+// DISTRUSTED and no longer actually trusted despite still being listed.
+// Visibility never regresses just
 // because an entry was suppressed: an operator must be able to see both that
 // the key exists and that they already acted on it. Empty for any
 // non-embedded entry.

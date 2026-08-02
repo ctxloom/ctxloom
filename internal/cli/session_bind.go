@@ -133,7 +133,7 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 			payload.TranscriptPath = p.TranscriptPath
 		}
 	}
-	// dizzy-zoom, confirmed live 2026-07-21 against real kiro-cli 2.12.1:
+	// Confirmed live 2026-07-21 against real kiro-cli 2.12.1:
 	// kiro's agentSpawn hook stdin payload carries NO session identifier at
 	// all ({"hook_event_name":"agentSpawn","cwd":...,"prompt":...} — no
 	// session_id/conversation_id field), unlike Claude/Codex/Antigravity's

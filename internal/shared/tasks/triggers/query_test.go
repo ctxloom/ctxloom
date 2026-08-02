@@ -96,7 +96,7 @@ func TestSanitizeQueries_DropsInvalidKeepsValid(t *testing.T) {
 // one was rejected" reach the caller as the same empty slice, yet they mean
 // opposite things: the first is a model declining to escalate, the second is
 // ctxloom refusing every request it made. Only the second is a diagnosable
-// fault, and it must not vanish (U128-F12).
+// fault, and it must not vanish.
 func TestSanitizeQueries_ReportsWhatItRejected(t *testing.T) {
 	kept, rejected := SanitizeQueries([]Query{
 		{Type: "shell_exec", Path: "internal/foo"},

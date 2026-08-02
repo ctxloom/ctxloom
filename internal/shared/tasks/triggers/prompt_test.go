@@ -216,7 +216,7 @@ func TestWriteRepoState_RendersOnlyTheHalvesThatHaveContent(t *testing.T) {
 	}
 }
 
-// TestWriteRepoState_TruncationIsDeclared pins U053-F11. Both repo-state
+// TestWriteRepoState_TruncationIsDeclared pins that both repo-state
 // lists are BOUNDED and cut alphabetically, so on a large repo the tail
 // simply disappears — and rendered without a word about it, a partial
 // inventory reads to the model as a complete one. An existence trigger over a
@@ -344,7 +344,7 @@ func TestBuildFollowupPrompt_EmptyBatchDoesNotPanic(t *testing.T) {
 // show a thing that predates the window or is uncommitted. Round 1 says so in
 // writeRepoState's doc comment; round 2 must therefore carry the same
 // repo-global evidence and the same cross-reference, or the escalation round
-// judges on strictly LESS than the round it escalated from (U128-F11).
+// judges on strictly LESS than the round it escalated from.
 func TestBuildFollowupPrompt_CarriesTheSameGlobalEvidenceAsRound1(t *testing.T) {
 	b := sampleFollowupBatch()
 	b.Repo = RepoState{
@@ -412,7 +412,7 @@ func TestPrompts_ResponseContractIsIdenticalWhereItMustBe(t *testing.T) {
 // the parser and never offered to the model, and a renamed one would be asked
 // for and then rejected. This asserts the menu by membership against
 // Outcomes(), not against a literal, so adding an Outcome without reaching the
-// prompt fails here (U128-F05).
+// prompt fails here.
 func TestResponseContract_OutcomeMenuIsDerivedFromOutcomes(t *testing.T) {
 	menu := func(prompt string) []string {
 		section := responseFormatSection(t, prompt)

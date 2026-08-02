@@ -117,7 +117,7 @@ func TestParseVerdicts_TableDriven(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			// U128-F01: the exact one-field-short shape that used to parse
+			// The exact one-field-short shape that used to parse
 			// clean and reach a human as a proposal to revive a task with
 			// zero justification.
 			name:    "fired with no reasoning at all",
@@ -245,7 +245,7 @@ func TestStripCodeFence(t *testing.T) {
 	}
 }
 
-// The end-to-end shape U128-F02 describes: a well-formed verdict array written
+// The end-to-end shape this pins: a well-formed verdict array written
 // on the fence-opener line must parse, not vanish. stripCodeFence's unit cases
 // above pin the stripping; this pins that the payload actually reaches a
 // caller, because a zero-payload parse error is what the model's whole answer
@@ -306,7 +306,7 @@ func TestExtractJSONArray(t *testing.T) {
 	}
 }
 
-// The end-to-end shape U128-F03 describes: a model that cites a bracketed
+// The end-to-end shape this pins: a model that cites a bracketed
 // reference in its lead-in prose and then emits a well-formed array must still
 // be parsed. Anchoring on the first "[" anywhere in the response spans from the
 // citation to the array's closer, which unmarshals as nothing.

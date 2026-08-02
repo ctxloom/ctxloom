@@ -40,7 +40,7 @@ func ParseVerdicts(raw string) ([]Verdict, error) {
 		// Reasoning (Verdict's own doc comment) — a verdict carrying
 		// neither is one field short of the guard that would catch it: it
 		// parses clean and reaches the human as a proposal to revive a
-		// task with zero justification (U128-F01). Reasoning is required
+		// task with zero justification. Reasoning is required
 		// for every outcome. Evidence is required only when Outcome is
 		// Fired — "the evidence shows…" is self-contradictory with none —
 		// CannotDetermine legitimately has none by definition, and

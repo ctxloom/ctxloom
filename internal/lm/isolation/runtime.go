@@ -84,13 +84,13 @@ type Runtime interface {
 // site"): identical-path (Host==Container) is ONE configuration of this seam
 // — identityMapper, the default — not a hardcoded assumption. An inverse
 // toHost method used to sit on this interface for a future consumer that
-// never arrived (U064-F09: zero production callers, only a test); deleted
+// never arrived (zero production callers, only a test); deleted
 // rather than kept as a speculative hook — add it back with the first real
 // need for the reverse direction.
 //
 // Two non-identity mappers are anticipated (both DEFERRED past this task,
 // which builds only the seam + identity default — see the container-runtime-
-// bugs plan, lanky-pod §4/§5):
+// bugs plan §4/§5):
 //   - Windows: a drive-letter host path (C:\Users\foo\proj) needs a POSIX
 //     in-container target (e.g. /workspace); a real implementation must also
 //     handle the Docker-Desktop `/host_mnt/c/...` SOURCE form and rewrite the
@@ -98,11 +98,11 @@ type Runtime interface {
 //     mapping — see swapPrefix's doc. The linked-worktree case additionally
 //     needs the worktree's `gitdir:` FILE content rewritten (a Windows
 //     absolute path is unresolvable as a mounted POSIX path unchanged) — a
-//     known hard edge, explicitly deferred to sudsy-sip Tier C.
+//     known hard edge, explicitly deferred to a later Tier C.
 //   - DooD (docker-outside-of-docker): ctxloom itself runs inside a
 //     container that shares the HOST daemon, so this process's paths are not
 //     the daemon's paths; a mapper derived from /proc/self/mountinfo or
-//     `docker inspect <self>` would translate them (snug-dawn, optional/
+//     `docker inspect <self>` would translate them (optional/
 //     deferred — the shared-fs probe already detects and degrades this case
 //     loudly rather than mounting the wrong path).
 type pathMapper interface {
@@ -202,7 +202,7 @@ type Mount struct {
 // rootless-specific run-arg head (identityEnvArgs stays shared, called from each
 // head). The rootless flag itself stays on the concrete types: it is consulted
 // solely by that per-type head, so the base never needs it.
-// pathMap, when set, is this runtime's non-identity pathMapper (lanky-pod's
+// pathMap, when set, is this runtime's non-identity pathMapper (the pathMapper
 // seam) — nil (the zero value, every construction path today) is identity via
 // runtimeMapper. No constructor in this package sets it yet; it is the
 // injection point a future Windows/DooD-aware SelectRuntime would populate.
@@ -266,7 +266,7 @@ func (rt ociRuntime) mapper() pathMapper { return runtimeMapper(rt.pathMap) }
 // host and container share ONE kernel (Linux). The forked TCP-over-loopback
 // transport that bridged the Docker Desktop VM boundary on macOS/Windows was
 // deleted in 0.7 (it opened a routable in-container plugin listener on the shared
-// bridge — mauve-state), so this path is now Linux-only. Its only residual callers
+// bridge), so this path is now Linux-only. Its only residual callers
 // are NON-top-level: the legacy degraded/fallback delegation and the oneshot
 // fallback a delegated child takes on a backend without structured-chat support.
 // Top-level container runs (docker-exec / Transport 2) and delegated agents

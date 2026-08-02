@@ -9,7 +9,7 @@ import (
 )
 
 // TestCaptureRunFailure_ReadsTerminalStatusAsAnAllowList pins the second half
-// of U016-F06: captureRunFailure tested `!= RUN_STATUS_FAILED` and returned,
+// of a finding: captureRunFailure tested `!= RUN_STATUS_FAILED` and returned,
 // so a run that ended UNSPECIFIED (the enum's zero value — what an engine that
 // never set a status produces) or TIMED_OUT/BUDGET_EXCEEDED had its dying
 // words silently dropped and the parent got no reason at all. Success is the

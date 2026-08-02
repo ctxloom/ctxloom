@@ -217,11 +217,11 @@ func TestRunChannel_CrashBeforeConsumeRedelivers(t *testing.T) {
 	h.crash()
 	sp := c.spawner.(*fakeSpawner)
 
-	// naval-snarl #1 (2026-07-22/23): this assertion used to be ONE
+	// This assertion used to be ONE
 	// require.Eventually spanning the FULL crash→loss-detect→terminateRun→
 	// goTracked resumeChild→spawner.Resolve→enqueueRun→new engine spawn→new
 	// Home dial-home→HelloAck→redeliver pipeline against a wall-clock guess
-	// (crashRedeliverWait, widened to 20s by damp-pupil (2026-07-21) after it
+	// (crashRedeliverWait, widened to 20s on 2026-07-21 after it
 	// flaked at 5s under real host contention). That band-aid is now
 	// REMOVED: the real fix is the SAME S3 pattern already proven in
 	// TestStartRun_ResumeUsesJournaledHarnessSessionID — replace the
@@ -321,7 +321,7 @@ func TestRunChannel_StopRunLineage(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, codes.PermissionDenied, resp.GetStatus().GetCode())
 
-	// The parent may, and its `reason` is HONOURED (U016-F04): it used to be
+	// The parent may, and its `reason` is HONOURED: it used to be
 	// advertised in agent_stop's tool schema and discarded. It must reach the
 	// run's durable terminal detail, and a second stop must report it back.
 	resp, err = owner.Request(context.Background(), &agentcoordpb.AgentRequest{
@@ -435,7 +435,7 @@ func TestRunChannel_ForeignRunIDRejected(t *testing.T) {
 }
 
 // TestReleaseRunChan_ReconnectDoesNotStrandTentativeDeliveries is the
-// regression guard for U024-F01. When a RunChannel RECONNECTS, the new stream
+// regression guard: when a RunChannel RECONNECTS, the new stream
 // registers itself under c.chans[harp] and cancels its predecessor in one c.mu
 // window -- so by the time the OLD handler's deferred teardown runs, it always
 // observes the successor and `registered := c.chans[harp] == ch` is FALSE.
@@ -518,7 +518,7 @@ func TestReleaseRunChan_AfterSeverChanIsANoOp(t *testing.T) {
 }
 
 // TestPushMail_SaturatedPumpReleasesTheDroppedReservation is the regression
-// guard for U024-F02. pushMail reserved every selected id in the runtime
+// guard: pushMail reserved every selected id in the runtime
 // delivery ledger BEFORE attempting the send, and the saturated-pump branch
 // then dropped the notice while leaving the reservation standing. A reserved id
 // is invisible to undeliveredLocked, so no later push -- not the next park, not
@@ -526,7 +526,7 @@ func TestReleaseRunChan_AfterSeverChanIsANoOp(t *testing.T) {
 // common case: a busy child, not a dying one) that is permanent silent loss of
 // a message agent_send already reported delivered.
 //
-// releaseRunChan's unconditional un-reserve (U024-F01, ff151a53) only rescues
+// releaseRunChan's unconditional un-reserve (ff151a53) only rescues
 // the message if the channel DIES; it is not a fix for this one.
 //
 // The channel is synthetic and its pump is UNBUFFERED with no reader, which is
@@ -580,7 +580,7 @@ func TestPushMail_SaturatedPumpReleasesTheDroppedReservation(t *testing.T) {
 }
 
 // TestPushMail_UnprojectableStructuredIsNotPushedHollow is the regression guard
-// for U024-F07, and the push-side twin of U024-F06. peerMessageProto swallowed
+// for the push-side twin of the servePeerSend case below. peerMessageProto swallowed
 // the json.Unmarshal error on m.Structured (`if err == nil` with no else) and
 // discarded structpb.NewStruct's error entirely, so a message whose structured
 // payload could not be projected was pushed anyway -- as a PeerMessage carrying
@@ -643,8 +643,8 @@ func reservedIDs(c *Coordinator, role string) []string {
 	return append([]string(nil), c.delivered[role]...)
 }
 
-// TestServePeerSend_UnmarshalableStructuredIsRefused is the regression guard
-// for U024-F06. servePeerSend marshalled the caller's Struct with
+// TestServePeerSend_UnmarshalableStructuredIsRefused is the regression guard:
+// servePeerSend marshalled the caller's Struct with
 // `if raw, merr := protojson.Marshal(s); merr == nil { structured = raw }` and
 // NEVER inspected merr. On failure `structured` stayed nil and the message was
 // queued WITHOUT its structured payload, reported as a successful send.
@@ -682,7 +682,7 @@ func TestServePeerSend_UnmarshalableStructuredIsRefused(t *testing.T) {
 	}
 }
 
-// TestServeStopRun_CancelsLaunch (U024-F04) is plane-2 agent_stop's twin of
+// TestServeStopRun_CancelsLaunch is plane-2 agent_stop's twin of
 // Coordinator.AgentStop's own fix for the 2026-07-24 incident: a stop that
 // only ends the run record cannot stop a LAUNCHER — an armed relaunch or an
 // in-flight container prepare (a seconds-wide window) carries on behind a

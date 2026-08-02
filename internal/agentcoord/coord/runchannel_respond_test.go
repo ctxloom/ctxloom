@@ -11,7 +11,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U024-F08: respond blocked its CALLER for up to five seconds on a full send
+// respond blocked its CALLER for up to five seconds on a full send
 // pump, and respond runs on the channel's own RECEIVE goroutine for two paths —
 // a request arriving with no request_id, and re-delivery of a cached response to
 // a reissue. Stalling there stops every inbound frame on that channel: acks,

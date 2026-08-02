@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// U024-F21: a malformed ctxloom/* custom event was indistinguishable from an
+// A malformed ctxloom/* custom event was indistinguishable from an
 // absent one. `ctxloom/mail_consumed` with no usable message_ids simply
 // returned, and `ctxloom/harness_session` with no session_id fell through
 // recordHarnessSession's empty-id guard — so a runner that lost its consumption

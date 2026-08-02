@@ -12,7 +12,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U024-F20: the host-relay handler table was written by SetCustomHandlers with
+// The host-relay handler table was written by SetCustomHandlers with
 // no lock and read by serveCustom on every child's own dispatch goroutine, so
 // its safety rested entirely on the unenforced convention "called once at
 // hosting setup, before any runner connects". A convention is not a

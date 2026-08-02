@@ -34,7 +34,7 @@ func artifactFactAt(harp, artifactID string, rev uint32, sha string) Fact {
 	})
 }
 
-// U023-F26: latestSummary truncated the roster line with text[:200] — a BYTE
+// latestSummary truncated the roster line with text[:200] — a BYTE
 // slice of a UTF-8 string. A report written in any non-ASCII script (or one
 // that merely contains an emoji or a typographic dash near the boundary) had
 // its final rune cut in half, so the roster rendered a U+FFFD replacement
@@ -64,7 +64,7 @@ func TestLatestSummary_ShortAndASCIILinesUnchanged(t *testing.T) {
 	assert.Empty(t, f.latestSummary("nobody"), "no report, no line")
 }
 
-// U023-F25: the artifact arm of reportsFold.apply overwrote
+// The artifact arm of reportsFold.apply overwrote
 // byID[artifact_id] unconditionally, so a manifest fact carrying a LOWER
 // revision than the one already folded replaced it — and recordArtifact trusts
 // a producer-supplied non-zero revision without checking it. A replayed or
@@ -98,7 +98,7 @@ func TestReportsFold_ArtifactRevisionNeverGoesBackwards(t *testing.T) {
 	assert.Equal(t, "sha-three", f.artifacts["child-a"]["plan"].SHA256)
 }
 
-// U023-F28: Artifacts ranged over a Go map, so it returned the harp's
+// Artifacts ranged over a Go map, so it returned the harp's
 // manifests in a different order on every call. Any caller rendering them as a
 // list (roster, agent_fetch_artifact's discovery listing) shows a different
 // order each time, which reads as churn and makes two listings impossible to

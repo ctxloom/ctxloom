@@ -11,7 +11,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U023-F24: the report dedupe key was (harp, seq), but seq is a PER-RUN
+// The report dedupe key was (harp, seq), but seq is a PER-RUN
 // counter. Home.seq starts at 0 in each runner process, and a resume revokes
 // the credential, severs the runner and spawns a fresh one — so run 2's first
 // report arrives as seq 1, at or below run 1's watermark, and is silently

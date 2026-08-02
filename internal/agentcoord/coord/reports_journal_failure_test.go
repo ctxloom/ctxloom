@@ -12,7 +12,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U023-F27: recordSummary/recordArtifact warn on a journal failure and carry
+// recordSummary/recordArtifact warn on a journal failure and carry
 // straight on — and the two things they carried on to both assert something
 // that did not happen:
 //

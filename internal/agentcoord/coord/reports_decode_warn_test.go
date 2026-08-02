@@ -10,7 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// U023-F23: both arms of reportsFold.apply discarded an undecodable fact with
+// Both arms of reportsFold.apply discarded an undecodable fact with
 // a bare `if fact.decode(&p) != nil { return }` — no warning, no counter, no
 // trace. A corrupt or truncated line in the reports journal therefore looks
 // EXACTLY like an agent that never filed a report: the roster shows the

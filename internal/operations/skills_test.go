@@ -24,7 +24,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
 
-// This file is Part B6a's TDD suite for `ctxloom skill` core operations:
+// This file is the TDD suite for `ctxloom skill` core operations:
 // create scaffolds a package ParseSkillPackage/the loader accepts; sync
 // writes a manifest whose hashes match the tree and updates on edit; export
 // then import round-trips byte-identically with the exec bit intact; import
@@ -141,8 +141,8 @@ func TestSyncSkill_UnknownNameIsNotFound(t *testing.T) {
 // TestExportImportSkill_RoundTrip_ByteIdenticalTreeAndExecBit proves export
 // (tree -> Anthropic-shaped zip) then import (zip -> tree) round-trips every
 // file's exact bytes and the scripts/ exec bit, into a DIFFERENT bundle —
-// the archive interchange guarantee B1b built, now reachable end to end
-// through the live CLI-facing operations.
+// the archive interchange guarantee, now reachable end to end through the
+// live CLI-facing operations.
 func TestExportImportSkill_RoundTrip_ByteIdenticalTreeAndExecBit(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeDirFormBundle(t, appDir, "src")
@@ -256,10 +256,10 @@ func (f failingSigner) Sign(io.Reader, []byte) (*ssh.Signature, error) {
 	return nil, fmt.Errorf("signing backend unavailable")
 }
 
-// TestExportSkill_RefusesToOverwriteWithoutForce pins U087-F24 (part 1):
-// ExportSkill used to silently clobber any existing file at the output path —
-// the default "<name>.zip" lands in the process cwd, so a second export (or
-// any unrelated file already using that name) was destroyed with no warning.
+// TestExportSkill_RefusesToOverwriteWithoutForce: ExportSkill used to
+// silently clobber any existing file at the output path — the default
+// "<name>.zip" lands in the process cwd, so a second export (or any
+// unrelated file already using that name) was destroyed with no warning.
 func TestExportSkill_RefusesToOverwriteWithoutForce(t *testing.T) {
 	appDir, cfg := setupBundleTestDir(t)
 	writeDirFormBundle(t, appDir, "src")
@@ -285,7 +285,7 @@ func TestExportSkill_RefusesToOverwriteWithoutForce(t *testing.T) {
 	assert.Equal(t, zipPath, res.ZipPath)
 }
 
-// TestExportSkill_SignFailureLeavesNoPartialZip pins U087-F24 (part 2): a
+// TestExportSkill_SignFailureLeavesNoPartialZip: a
 // --sign failure used to leave the just-written zip on disk, unsigned, with no
 // indication anything had gone wrong — a caller retrying (or just listing the
 // directory) would find a zip indistinguishable from a successful unsigned
@@ -315,7 +315,7 @@ func TestExportSkill_SignFailureLeavesNoPartialZip(t *testing.T) {
 }
 
 // maliciousZipBytes builds a zip whose single entry escapes its own
-// directory via a path-traversal segment — the same zip-slip shape B1b's
+// directory via a path-traversal segment — the same zip-slip shape
 // HardenedExtract rejects (bundles/skill_archive_test.go covers the
 // extractor exhaustively; this is the smoke-level proof that ImportSkill
 // actually routes through it and refuses acceptance).
@@ -367,7 +367,7 @@ func writeMalformedSkillZip(t *testing.T, topDir string) string {
 	return path
 }
 
-// TestImportSkill_MalformedArchiveLeavesTheExistingSkillIntact pins U087-F25:
+// TestImportSkill_MalformedArchiveLeavesTheExistingSkillIntact:
 // ImportSkillArchive computed the destination from the ARCHIVE's own top-level
 // directory name and RemoveAll'd it before anything validated the replacement,
 // so importing a malformed archive over a good skill left the skill gone from
@@ -404,7 +404,7 @@ func TestImportSkill_MalformedArchiveLeavesTheExistingSkillIntact(t *testing.T) 
 	assert.Contains(t, entry.Files, "SKILL.md")
 }
 
-// TestSkillReadPaths_NilConfigReturnsErrorNotPanic pins U087-F22: ListSkills,
+// TestSkillReadPaths_NilConfigReturnsErrorNotPanic: ListSkills,
 // GetSkill, and ExportSkill used to panic on a nil *config.Config (bundleLoader/
 // exposureLoader dereference it immediately), while every mutating sibling in
 // this file (CreateSkill, SyncSkill, ImportSkill — via loadBundleForUpdate) and
@@ -425,7 +425,7 @@ func TestSkillReadPaths_NilConfigReturnsErrorNotPanic(t *testing.T) {
 	assert.Contains(t, err.Error(), "no .ctxloom directory configured")
 }
 
-// TestSkillTemplate_MarshalFailureFallbackDeleted pins U087-F23: the
+// TestSkillTemplate_MarshalFailureFallbackDeleted: the
 // "unreachable" yaml.Marshal-failure fallback in skillTemplate built its SKILL.md
 // frontmatter via naive fmt.Sprintf string interpolation — exactly the injection
 // the function's own doc comment says yaml.Marshal exists to prevent. Since

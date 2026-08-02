@@ -16,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// This file is Part B6a's operations core for `ctxloom skill`: author (create),
+// This file is the operations core for `ctxloom skill`: author (create),
 // curate the per-file manifest (sync), inspect (list/show), and interchange
 // (export/import) an Agent Skill package. It plays the same frontend-agnostic
 // role for skills that items.go plays for fragments/commands, but a skill is a
@@ -210,10 +210,10 @@ func skillTemplate(name, description string) string {
 		// SkillFrontmatter holds only strings/slices/maps, so yaml.Marshal
 		// cannot fail on it — genuinely unreachable. A fallback here used to
 		// rebuild the frontmatter via naive fmt.Sprintf string interpolation
-		// (U087-F23): exactly the injection this function's own doc comment
-		// says yaml.Marshal exists to prevent, for zero benefit since the
-		// branch could never run. Panic loudly instead of silently
-		// reintroducing the bug it would be covering for.
+		// — exactly the injection this function's own doc comment says
+		// yaml.Marshal exists to prevent, for zero benefit since the branch
+		// could never run. Panic loudly instead of silently reintroducing the
+		// bug it would be covering for.
 		panic(fmt.Sprintf("skillTemplate: yaml.Marshal of SkillFrontmatter failed unexpectedly: %v", err))
 	}
 	return "---\n" + string(data) + "---\n\n# " + name + "\n\nTODO: describe what this skill does and how to use it.\n"
@@ -246,7 +246,7 @@ func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) 
 
 	// Bundle.Path is overloaded; FSDir refuses the values that are not
 	// filesystem paths rather than yielding "." and resolving this skill
-	// against the process working directory (U030-F03).
+	// against the process working directory.
 	bundleDir, err := bundle.FSDir()
 	if err != nil {
 		return nil, err
@@ -326,9 +326,9 @@ type SyncSkillResult struct {
 // source tree via bundles.ParseSkillPackage — the SAME parse the loader uses
 // to verify a tree against a previously-signed manifest — and writes it into
 // bundle.yaml's `skills.<name>.files` map. This is what activates the
-// install-time tamper check (B2's VerifyExtractedManifest /
+// install-time tamper check (VerifyExtractedManifest /
 // PublisherSkillSignatureVerifier): before a sync ever runs, `files:` is
-// empty and skillContent trusts a fresh parse unconditionally (B3's noted
+// empty and skillContent trusts a fresh parse unconditionally (a noted
 // gap); after sync, any drift between bundle.yaml's recorded manifest and the
 // on-disk tree is a loud withhold, not a silent pass-through. req.Name empty
 // syncs every skill the bundle ships.
@@ -346,7 +346,7 @@ func SyncSkill(_ context.Context, cfg *config.Config, req SyncSkillRequest) (*Sy
 	fs := getFS(req.FS)
 	// Bundle.Path is overloaded; FSDir refuses the values that are not
 	// filesystem paths rather than yielding "." and resolving this skill
-	// against the process working directory (U030-F03).
+	// against the process working directory.
 	bundleDir, err := bundle.FSDir()
 	if err != nil {
 		return nil, err
@@ -417,7 +417,7 @@ type ExportSkillRequest struct {
 
 	// Force allows overwriting an existing file at the output path (the zip,
 	// and its .sig sibling when Sign is set). Without it, ExportSkill refuses
-	// to clobber a pre-existing file at OutPath (U087-F24): the default
+	// to clobber a pre-existing file at OutPath: the default
 	// "<name>.zip" lands in the process cwd, so a second `ctxloom skill
 	// export foo` — or any unrelated file already named `foo.zip` — used to
 	// be silently destroyed.
@@ -461,7 +461,7 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 	fs := getFS(req.FS)
 	// Bundle.Path is overloaded; FSDir refuses the values that are not
 	// filesystem paths rather than yielding "." and resolving this skill
-	// against the process working directory (U030-F03).
+	// against the process working directory.
 	bundleDir, err := bundle.FSDir()
 	if err != nil {
 		return nil, err
@@ -474,7 +474,7 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 	if err != nil {
 		return nil, fmt.Errorf("skill %q: %w", req.Name, err)
 	}
-	// U087-F24: a --sign request with no signer is a caller-configuration
+	// A --sign request with no signer is a caller-configuration
 	// error, checked BEFORE any write — it used to run after the zip landed
 	// on disk, so a caller who fixed the missing signer and retried found a
 	// stale unsigned zip masquerading as a fresh export.
@@ -490,7 +490,7 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 	if outPath == "" {
 		outPath = req.Name + ".zip"
 	}
-	// U087-F24: refuse to silently clobber a pre-existing file at outPath
+	// Refuse to silently clobber a pre-existing file at outPath
 	// (the default "<name>.zip" lands in the process cwd, so a second export
 	// — or any unrelated file already using that name — used to be destroyed
 	// with no warning). --force opts into overwriting.
@@ -512,7 +512,7 @@ func ExportSkill(_ context.Context, cfg *config.Config, req ExportSkillRequest) 
 		// import without inventing a second preimage.
 		armored, err := signing.Sign(pkg.Manifest.Serialize(), req.Signer, signing.NamespacePublish)
 		if err != nil {
-			// U087-F24: a --sign failure used to leave the just-written zip
+			// A --sign failure used to leave the just-written zip
 			// on disk, unsigned, looking exactly like an export that never
 			// asked to be signed. Clean it up so a failed signed export
 			// leaves nothing behind to be mistaken for a successful one.
@@ -537,7 +537,7 @@ type ImportSkillRequest struct {
 	// SigPath, when set, is a detached signature covering the archive's
 	// manifest bytes (as ExportSkill --sign produces). VERIFIED against the
 	// trust root via bundles.PublisherSkillSignatureVerifier BEFORE
-	// acceptance — this is B2's PublisherSkillSignatureVerifier wired to a
+	// acceptance — this is PublisherSkillSignatureVerifier wired to a
 	// live command for the first time. No signature (SigPath empty) is not a
 	// failure: the import still lands, reported unsigned — ctxloom does not
 	// require signing to accept content, only to auto-trust it, which this
@@ -582,14 +582,14 @@ type ImportSkillResult struct {
 }
 
 // ImportSkill imports a `.zip`/`.tar.gz` Agent Skill archive into a bundle via
-// the B1b hardened extractor (bundles.ImportSkillArchive — zip-slip/symlink/
+// the hardened extractor (bundles.ImportSkillArchive — zip-slip/symlink/
 // entry-count/decompression-bomb rejections all apply, unconditionally,
 // before this function ever sees a byte), lands a reviewable tree, and
 // registers/updates the bundle.yaml `skills:` entry with the freshly-computed
 // manifest (so a subsequent `ctxloom skill sync` is a no-op until the tree
 // changes again). If SigPath is given, the signature is verified against the
 // tree's own recomputed manifest via bundles.PublisherSkillSignatureVerifier
-// — B2's verifier, wired to a live command for the first time — but a failed
+// — wired to a live command for the first time — but a failed
 // or absent verification never blocks the import: "do not auto-trust remote
 // content" means neither branch auto-accepts trust, not that an untrusted
 // import is destroyed. Only a structurally invalid archive/tree (extractor
@@ -618,7 +618,7 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 	// Read the signature BEFORE anything is extracted: an unreadable --sig
 	// path is a caller error that has nothing to do with the destination, and
 	// discovering it after the swap meant deleting a good skill tree over a
-	// typo'd path (U087-F25, second loss path).
+	// typo'd path (a second loss path).
 	var sigBytes []byte
 	if req.SigPath != "" {
 		var serr error
@@ -630,14 +630,14 @@ func ImportSkill(_ context.Context, cfg *config.Config, req ImportSkillRequest) 
 
 	// Bundle.Path is overloaded; FSDir refuses the values that are not
 	// filesystem paths rather than yielding "." and resolving this skill
-	// against the process working directory (U030-F03).
+	// against the process working directory.
 	bundleDir, err := bundle.FSDir()
 	if err != nil {
 		return nil, err
 	}
 	skillsParent := filepath.Join(bundleDir, "skills")
 	// Validation runs against the STAGING tree, so a malformed archive can
-	// never destroy the skill it was supposed to replace (U087-F25): the
+	// never destroy the skill it was supposed to replace: the
 	// destination is computed from the ARCHIVE's own top-level directory
 	// name, so "import this over the skill I already have" was the ordinary
 	// case, not an exotic one.

@@ -400,9 +400,8 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 			if err != nil {
 				return fmt.Errorf("read imported %s/%s: %w", importedDir, rel, err)
 			}
-			// U162-F06: comparing two empty reads is trivially "identical" --
-			// the campaign's characteristic defect expressed as a comparison
-			// that is vacuously true on empty input. Require real content
+			// Comparing two empty reads is trivially "identical" --
+			// a vacuously true comparison on empty input. Require real content
 			// before trusting the byte-for-byte claim.
 			if len(origData) == 0 {
 				return fmt.Errorf("original %s/%s is 0 bytes -- nothing to compare against", origDir, rel)

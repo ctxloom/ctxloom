@@ -8,12 +8,11 @@ import (
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
-// TestJ5FileContains_UnderliesCarriesTheMarkerStep pins U162-F10 as
-// REFUTED, not dead weight: the per-unit review (U162.md) flagged the
-// `^"([^"]*)" carries the marker "([^"]*)"$` step (steps_skill.go:288-290,
-// `return j5FileContains(worldFrom(c), rel, marker)`) as "a one-line
-// pass-through to j5FileContains", but explicitly said to KEEP it -- the
-// step text gives the trust/skill features their own attribution for the
+// TestJ5FileContains_UnderliesCarriesTheMarkerStep pins that the
+// `^"([^"]*)" carries the marker "([^"]*)"$` step (steps_skill.go:289,
+// `return j5FileContains(worldFrom(c), rel, marker)`), once flagged by
+// review as "a one-line pass-through to j5FileContains" but explicitly kept --
+// the step text gives the trust/skill features their own attribution for the
 // living-docs generator's evidence gate, and it is not a duplicate
 // implementation. It is also not merely a doc fixture: skill.feature:38,40,51
 // and j10_agent_skill.feature:78 all drive real scenarios through it.

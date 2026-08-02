@@ -27,10 +27,8 @@ func registerReviewSteps(ctx *godog.ScenarioContext) {
 
 // runTrustPlumbing runs `ctxloom <verb> file://<bare>@bundles/<item>` for a
 // seeded remote. item is "<bundle>#<kind>/<name>", e.g. "demo#fragments/x".
-// runTrustPlumbing runs `ctxloom <verb> file://<bare>@bundles/<item>` for a
-// seeded remote. item is "<bundle>#<kind>/<name>", e.g. "demo#fragments/x".
 //
-// U162-F08: this used to discard the run's error and return nil
+// This used to discard the run's error and return nil
 // unconditionally, deferring to a separate "the command succeeds" step every
 // current scenario happens to pair it with -- but neither of this function's
 // two step texts ("I accept/reject the pending item…") reads as an action

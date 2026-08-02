@@ -113,7 +113,7 @@ func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
 // (the caller asserts the client already lives there; no profile lookup is
 // needed to overlay onto it).
 //
-// U063-F21 deleted the LEGACY officialImage/user-Containerfile/embedded-
+// A prior fix deleted the LEGACY officialImage/user-Containerfile/embedded-
 // Containerfile fallback this profile shape used to fall through to: no
 // profile, registered or hypothetical, ever populated those fields (rg over
 // the whole repo found zero assignments), so the fallback's three append
@@ -251,8 +251,8 @@ func TestOverlayContainerfile(t *testing.T) {
 	assert.Contains(t, noValidate, "RUN /usr/local/bin/ctxloom version\n", "the ctxloom gate always runs")
 }
 
-// TestBuildSources_OverrideWithoutValidateWarns pins U063-F22, the sibling of
-// U063-F02: the overlay Containerfile emits its client-validation `RUN` only
+// TestBuildSources_OverrideWithoutValidateWarns pins that
+// the overlay Containerfile emits its client-validation `RUN` only
 // when the profile HAS a validate command, and the default (unprofiled)
 // profile has none. `ctxloom container build <unprofiled> --base-image X`
 // therefore shipped an agent image whose engine was never proven to exist —
@@ -274,7 +274,7 @@ func TestBuildSources_OverrideWithoutValidateWarns(t *testing.T) {
 }
 
 // TestBuildSources_OverrideWithValidateIsSilent: a profiled backend's override
-// DOES get its validate gate, so it must not draw the U063-F22 warning.
+// DOES get its validate gate, so it must not draw the missing-client-validation warning.
 func TestBuildSources_OverrideWithValidateIsSilent(t *testing.T) {
 	buf := captureWarnings(t)
 	sources := buildSources(containerProfileFor("claude-code"), buildSourcesOptions{baseOverride: "my-base:latest"})
@@ -436,7 +436,7 @@ func TestEnsureImage_UnbuildableBinaryDegrades(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot be built from this binary")
 }
 
-// TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding pins U063-F01:
+// TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding pins that
 // a STALE (present, provenance mismatch) image that cannot even be REBUILT
 // because resolveSelfExe fails (e.g. this dev host cannot serve in-container)
 // used to `return nil` here with NO warning and NO finding at all — silently
@@ -470,7 +470,7 @@ func TestEnsureImage_StaleUnbuildableFromThisBinary_RecordsFinding(t *testing.T)
 	assert.Contains(t, findings[0].FixIt, "--degraded")
 }
 
-// TestComposableBuildSources_EmptyEnginesFailsLoud pins U063-F02/U064-F02:
+// TestComposableBuildSources_EmptyEnginesFailsLoud pins that
 // isolation_engines resolving to NO known engine (every configured name
 // unknown or non-composable) used to silently produce a composed
 // Containerfile with zero engine-install layers — it builds, tags, passes
@@ -743,7 +743,7 @@ func clearProvenanceCache(t *testing.T) {
 	})
 }
 
-// TestEnsureImage_UnverifiableProvenanceIsNotCurrent pins U063-F23: the
+// TestEnsureImage_UnverifiableProvenanceIsNotCurrent pins that the
 // staleness gate must not FAIL OPEN. When the wanted provenance digest cannot
 // be computed at all — an unresolvable host binary, an unreadable base
 // Containerfile — imageStale answers "not stale", and accepting that as
@@ -778,7 +778,7 @@ func TestEnsureImage_UnverifiableProvenanceIsNotCurrent(t *testing.T) {
 	assert.Contains(t, findings[0].FixIt, "--degraded")
 }
 
-// TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded pins site 4: a PRESENT
+// TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded pins that a PRESENT
 // but STALE image whose refresh build fails still LAUNCHES the stale image
 // (ensureImage returns nil — the container axis is never taken down), but in
 // strict mode records a fatal ClassIsolation finding the choke owner aborts on
@@ -822,7 +822,7 @@ func TestEnsureImage_StaleRebuildFail_FatalUnlessDegraded(t *testing.T) {
 	})
 }
 
-// TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded pins site 6: a failed
+// TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded pins that a failed
 // build from an EXPLICITLY-configured base Containerfile
 // (isolation_base_containerfile) records a fatal ClassIsolation finding instead
 // of silently falling through to a DIFFERENT base. The fallback sources still
@@ -867,7 +867,7 @@ func TestEnsureImage_UserBaseBuildFail_FatalUnlessDegraded(t *testing.T) {
 	})
 }
 
-// TestSelectBuildRuntime_ExplicitPreferMustBeHonored pins site 5: an explicitly
+// TestSelectBuildRuntime_ExplicitPreferMustBeHonored pins that an explicitly
 // requested build runtime (--runtime) that isn't the one selected fails loud
 // rather than silently building into a DIFFERENT daemon; auto-detect (empty
 // prefer) accepts whatever is reachable and only errors when none is.
@@ -937,7 +937,7 @@ func TestSelfLinuxExe_ResolvedELFOrAnError(t *testing.T) {
 }
 
 // TestBuildAgentImage_Characterization covers BuildAgentImage's guard arms
-// before U063-F19's split: the mutually-exclusive base flags, an unresolvable
+// before a complexity-reduction split: the mutually-exclusive base flags, an unresolvable
 // devcontainer, a backend with no local build recipe, and the no-runtime
 // refusal. Complexity reduction cannot make any test go red — behaviour is
 // unchanged by definition — so these must be green on both sides of it.
@@ -994,11 +994,7 @@ func TestBuildAgentImage_Characterization(t *testing.T) {
 }
 
 // TestEnsureImage_FlightKeyDiscriminatesByRuntime completes the pin on
-// U063-F06's subject, the ensureImage single-flight key. The claim text is
-// TRUNCATED in the findings index — a literal '|' in the quoted key
-// (`runtime.Binary() + "` … ) ends the table cell — so only the key's
-// composition is legible, with no defect stated. Read against the code the
-// visible fragment is simply accurate.
+// the ensureImage single-flight key.
 //
 // TestEnsureImage_ParallelCallersShareOneBuild already pins the tag half of
 // that key (dedup for one tag; a different tag is its own flight). This pins
@@ -1034,7 +1030,7 @@ func TestEnsureImage_FlightKeyDiscriminatesByRuntime(t *testing.T) {
 		"the same tag in a DIFFERENT daemon is a different image and must build there too")
 }
 
-// TestBaseContentKeysBothTags PARTIALLY refutes U063-F10, which observed that
+// TestBaseContentKeysBothTags PARTIALLY refutes a finding, which observed that
 // buildBaseImage reads the base Containerfile a SECOND time after
 // composedIdentity's read and concluded the tag is derived from a read the
 // rest of the build may not share. The two reads are real. The consequence is

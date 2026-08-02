@@ -103,7 +103,7 @@ func TestClaudeCredentialCopyMounts_PresentAndAbsent(t *testing.T) {
 	writeCreds(t, home, true)
 	mounts, ok := claudeCredentialCopyMounts("/root", scratch)
 	require.True(t, ok)
-	require.Len(t, mounts, 1, "only the OAuth token file is ever mounted — never ~/.claude.json")
+	require.Len(t, mounts, 1, "only the OAuth token file is ever mounted — never ~/.claude.json (tangy-heave)")
 	assert.Equal(t, "/root/.claude/.credentials.json", mounts[0].Container)
 	assert.False(t, mounts[0].ReadOnly, "rw so claude's token refresh can write back into the scratch copy")
 	assert.NotEqual(t, filepath.Join(home, ".claude", ".credentials.json"), mounts[0].Host, "the mount targets a SCRATCH COPY, never the host original")
@@ -250,7 +250,7 @@ func TestCredentialSeedSpecs_CodexRegisteredKiroCredlessButHomed(t *testing.T) {
 	require.Len(t, kiroSpec.HomeVars, 2)
 
 	_, agyOK := credentialSeedSpecs["antigravity"]
-	assert.False(t, agyOK, "antigravity has no config-home lever at all")
+	assert.False(t, agyOK, "antigravity has no config-home lever at all (vast-rut)")
 }
 
 // TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →
@@ -301,7 +301,7 @@ func TestHostCredentialSeed_CopiesCredentialFileWhenPresent(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential is owner-only")
 
 	assert.NoFileExists(t, filepath.Join(dest, "claude", ".claude.json"),
-		"~/.claude.json must never be seeded, present on the host or not")
+		"~/.claude.json must never be seeded, present on the host or not (tangy-heave)")
 }
 
 // TestHostCredentialSeed_OnlyCredentialFileRequired: only the OAuth token
@@ -530,7 +530,7 @@ func writeOpencodeAuth(t *testing.T, home string, withMcpAuth bool) {
 // applies to a HonoursVarForCreds==false spec).
 func TestCredentialSeedSpecs_OpencodeRegistered(t *testing.T) {
 	spec, ok := credentialSeedSpecs["opencode"]
-	require.True(t, ok, "opencode must have a credentialSeedSpec")
+	require.True(t, ok, "opencode must have a credentialSeedSpec (sunny-saga)")
 	assert.Equal(t, "opencode", spec.engine)
 	assert.Equal(t, "OPENROUTER_API_KEY", spec.envTrigger)
 	assert.True(t, spec.HonoursVarForCreds, "opencode's XDG_DATA_HOME genuinely relocates auth.json — unlike kiro's partial lever")

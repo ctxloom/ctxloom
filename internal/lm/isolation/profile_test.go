@@ -157,7 +157,7 @@ func TestContainerProfileFor_Antigravity(t *testing.T) {
 	withFakeHome(t) // hermetic: no real ~/.gemini/antigravity-cli/antigravity-oauth-token to accidentally pick up
 	p := containerProfileFor("antigravity")
 	assert.Equal(t, defaultContainerImage, p.image, "fallback tag only — the real tag is the composed multi-engine one")
-	assert.NotNil(t, p.engineInstall, "antigravity is composable")
+	assert.NotNil(t, p.engineInstall, "antigravity is composable as of task sweet-fruit")
 	assert.Equal(t, "agy --version", p.validate)
 	assert.Nil(t, p.overlayDirs, "no known project-relative managed-config surface for antigravity yet")
 	require.NotNil(t, p.resolveAuth)

@@ -398,8 +398,7 @@ func TestLoad_NoResolverIsNoOp(t *testing.T) {
 // on it: the ledger is PRODUCED by the storage read path (loadFile), it is
 // COMMITTED through the loader's own filesystem, and its rewrites are DISCOVERED
 // from the loader's seed registry. Extracting the ledger to its own type would
-// have to carry all three, so the test is what makes that cost visible
-// (U091-F16).
+// have to carry all three, so the test is what makes that cost visible.
 func TestUpgradeLedger_IsWiredToStorageAndToTheSeed(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	const path = "/profiles/dev.yaml"
@@ -436,7 +435,7 @@ func TestUpgradeLedger_IsWiredToStorageAndToTheSeed(t *testing.T) {
 // mirrors. Skills are NOT among them and must not be added: the skills item kind
 // postdates the ':' grammar entirely, so no profile on disk can carry
 // "<bundle>:skills/<name>", and adding the marker here alone would split a
-// selector the bundle expander still cannot (U091-F20).
+// selector the bundle expander still cannot.
 func TestSplitBundleSelector_LegacyMarkersAreTheColonEraSections(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -86,7 +86,7 @@ func storeAdapters() []struct {
 // errors.Is(err, errs.ErrProfileNotFound) — the check callers actually use to
 // tell "absent" from "broken" — answers correctly whichever adapter is
 // installed. MemStore used to return a bare fmt.Errorf, so the sentinel check
-// silently reported false for a genuinely missing profile (U091-F05).
+// silently reported false for a genuinely missing profile.
 func TestProfileStoreParity_MissingProfileIsSentinel(t *testing.T) {
 	for _, a := range storeAdapters() {
 		t.Run(a.name, func(t *testing.T) {
@@ -108,7 +108,7 @@ func TestProfileStoreParity_MissingProfileIsSentinel(t *testing.T) {
 // filesystem *Loader rejects '#' (reserved for bundle refs) and traversal names
 // via validateProfileName, while MemStore accepted anything non-empty — so a
 // name that a MemStore-backed test proved acceptable would be refused the moment
-// the same code ran against the real store (U091-F21).
+// the same code ran against the real store.
 func TestProfileStoreParity_RejectsUnsafeNames(t *testing.T) {
 	unsafe := []string{
 		"a#profiles/b",

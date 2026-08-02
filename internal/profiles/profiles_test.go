@@ -242,7 +242,7 @@ func TestLoader_Save_RejectsTraversal(t *testing.T) {
 	}
 	// Legitimate dot-prefixed names are NOT traversal.
 	// Carries content: a profile with nothing at all in it is refused by Save
-	// on its own merits (U091-F08), which would mask what this test pins.
+	// on its own merits, which would mask what this test pins.
 	require.NoError(t, loader.Save(&Profile{Name: "..hidden", Bundles: []string{"go-development"}}))
 }
 
@@ -382,7 +382,7 @@ variables:
 
 // TestLoader_ResolveProfile_Commands verifies a directory profile's curated
 // commands: list round-trips through resolution and unions with a parent's,
-// the directory-side mirror of config.Profile.Commands (b626431, D2) that
+// the directory-side mirror of config.Profile.Commands (D2) that
 // feeds backends.LoadCommandExports' opt-in command curation.
 func TestLoader_ResolveProfile_Commands(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -612,7 +612,8 @@ variables:
 	assert.Equal(t, "a-value", resolved.Variables["from_a"])
 }
 
-// buildDuplicateParentChain reproduces U091-F02's own measurement probe: pN
+// buildDuplicateParentChain reproduces the shape that first measured the
+// exponential-resolution defect: pN
 // (N < depth) declares its NEXT profile as its parent TWICE — the shape that
 // turns naive per-branch resolution into Θ(2^depth) recursive calls with no
 // combinatorial diamond needed at all, since one node alone doubles the work
@@ -633,10 +634,10 @@ func buildDuplicateParentChain(t *testing.T, dir string, depth int) string {
 	return name(0)
 }
 
-// TestLoader_ResolveProfile_DuplicateParentChainIsMemoized (U091-F02) is the
+// TestLoader_ResolveProfile_DuplicateParentChainIsMemoized is the
 // regression for the exponential-resolution defect: resolveProfileRecursive
 // re-Load()ed, re-parsed, and re-resolved a shared ancestor once per path
-// reaching it. At the depth used here (24), the finding's own measurements
+// reaching it. At the depth used here (24), the original measurements
 // put the UNMEMOIZED cost at several minutes (clean 4x growth per +2 depth,
 // measured up to 41.8s at depth 20); memoized, this must complete in well
 // under a second regardless of depth, because a distinct profile in the

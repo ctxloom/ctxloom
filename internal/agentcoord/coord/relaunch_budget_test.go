@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// U023-F02: the launch-retry budget bounded LAUNCH FAILURES only.
+// The launch-retry budget bounded LAUNCH FAILURES only.
 //
 // `fails` is incremented by noteLaunchFailure and reset to zero by
 // noteLaunchAttached — so a child that ATTACHES and then dies without ever

@@ -50,7 +50,7 @@ func itemFactLines(t *testing.T, stateDir, runID string) int {
 	return n
 }
 
-// U023-F21: the (run_id, seq) dedupe inside PublishEvents' Exec closure read
+// The (run_id, seq) dedupe inside PublishEvents' Exec closure read
 // c.itemsF.maxSeq, which does not advance until the append COMMITS — so two
 // events carrying the same (run_id, seq) in ONE batch both passed the check and
 // both were journaled. The fold's own guard hides the double from every
@@ -93,7 +93,7 @@ func TestPublishEvents_DistinctSeqsInOneBatchAllLand(t *testing.T) {
 	assert.Equal(t, 3, itemFactLines(t, dir, runID), "three distinct seqs journal three facts")
 }
 
-// U023-F22: an EMPTY batch returned a success response with an empty
+// An EMPTY batch returned a success response with an empty
 // CommittedSeqByRun and no Rejected entries — byte-identical to "everything you
 // sent is committed", which for a publisher whose event assembly silently
 // produced nothing is this project's characteristic failure: a green signal

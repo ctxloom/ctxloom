@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// U023-F17: StartOwnedRun validated Harp, Backend and start — but not the
+// StartOwnedRun validated Harp, Backend and start — but not the
 // prompt. An empty prompt reached issueStartRun, which builds `input` only
 // `if first != ""`, so StartRun was issued with a NIL Input, round-tripped
 // fine, and StartOwnedRun returned a populated RunOutcome and nil. A

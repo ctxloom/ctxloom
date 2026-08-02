@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// U023-F19: the runner-launch failure path wrapped the error for failChild
+// The runner-launch failure path wrapped the error for failChild
 // ("owner run: runner launch failed: %w") and then returned the RAW error to
 // the caller, so the operator-facing message — the one that reaches `ctxloom
 // run`'s stderr — was the bare spawner error with no indication of which stage
@@ -46,7 +46,7 @@ func TestStartOwnedRun_LaunchFailureReturnsTheWrappedError(t *testing.T) {
 		"the caller must get the same wrapped context failChild got, not the bare spawner error")
 }
 
-// U023-F18 (REFUTED, pinned): the register claimed StartOwnedRun's
+// REFUTED, pinned: the register claimed StartOwnedRun's
 // issueStartRun error path is "the ONE path where the coordinator's own
 // internal cleanup never fires", because it returns bare while the two paths
 // above it call c.failChild. It is not: issueStartRun calls c.failChild itself
@@ -101,7 +101,7 @@ func TestStartOwnedRun_IssueStartRunFailureCountsOneLaunchFailure(t *testing.T) 
 			"StartOwnedRun call site would double-count it and halve the budget that bounds a runaway loop")
 }
 
-// U023-F31: SendOwnedRunTurn resolved ANY live run id from c.attach, so a
+// SendOwnedRunTurn resolved ANY live run id from c.attach, so a
 // delegated child's run id was accepted. That queues self-addressed mail
 // (from == to == the child's harp) which the child's own turn-boundary drain
 // then delivers to it as a user turn, with the coordinator's parent→child
@@ -125,7 +125,7 @@ func TestSendOwnedRunTurn_RefusesADelegatedChildsRun(t *testing.T) {
 		"nothing may be queued for the child — the refusal must happen before the enqueue")
 }
 
-// U023-F30 (REFUTED, pinned): the register claimed the three post-enqueueRun
+// REFUTED, pinned: the register claimed the three post-enqueueRun
 // mutations (viaStartRun/ownerRun/oneshot) leave a window in which "a dialing
 // runner or a racing terminal observes a half-built rt". They are applied under
 // c.mu (so never a data race) and, decisively, BEFORE the runner exists at all:

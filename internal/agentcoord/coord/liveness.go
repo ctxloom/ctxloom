@@ -47,7 +47,7 @@ func (c *Coordinator) livenessMonitor() *liveness.Monitor {
 			// The runner heartbeat is the ONLY process evidence this
 			// coordinator has. The host pid probe that used to sit beside it
 			// was inert: Spawner.StartEngine returns a Kill closure, never a
-			// pid, so no liveness.Target ever carried one (U056-F04).
+			// pid, so no liveness.Target ever carried one.
 			Probes: []liveness.Probe{c.runnerHeartbeatProbe()},
 		})
 	}

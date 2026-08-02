@@ -81,8 +81,8 @@ var approvalKindNames = map[string]agentcoordpb.ApprovalRequest_ApprovalKind{
 // substitutes for a journaled kind name this build's approvalKindNames does
 // not cover — a rung written by a LATER ctxloom that added an ApprovalKind.
 //
-// It exists because dropping such a name was a privilege escalation
-// (U023-F01): a rung whose only kind was unrecognised came back with
+// It exists because dropping such a name was a privilege escalation:
+// a rung whose only kind was unrecognised came back with
 // Kinds == nil, and matches() reads an empty Kinds list as a CATCH-ALL, so an
 // auto_accept rung meant for one narrow kind replayed as "auto-accept
 // everything". Keeping a value in the list preserves "this rung is targeted";
@@ -92,7 +92,7 @@ var approvalKindNames = map[string]agentcoordpb.ApprovalRequest_ApprovalKind{
 const unrecognisedApprovalKind = agentcoordpb.ApprovalRequest_ApprovalKind(-1)
 
 // presetLadder derives the degenerate ladder the existing permissions:
-// enum implies (kind-lilac compat — the enum keeps working unchanged for
+// enum implies (the enum keeps working unchanged for
 // every agent that declares no explicit escalation:):
 //
 //   - bypass: auto-accept every kind — mirrors decidePermission's old
@@ -264,7 +264,7 @@ func ladderToFact(l Ladder) []ladderRungFact {
 // rather than failing replay: a fold must never error on its own store's
 // history.
 //
-// An unrecognised kind name is NOT dropped. Dropping it was U023-F01: the rung
+// An unrecognised kind name is NOT dropped. Dropping it: the rung
 // came back with an empty Kinds list, which matches() reads as a catch-all, so
 // a narrowly-targeted auto_accept rung journaled by a later ctxloom replayed
 // as "auto-accept everything". It is replaced by unrecognisedApprovalKind

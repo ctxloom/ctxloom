@@ -36,7 +36,7 @@ type fold interface {
 }
 
 // Store binds one JSONL journal file to its folds under the journal
-// discipline (plan, review R6–R12):
+// discipline:
 //
 //   - exactly one writer goroutine per journal; every append is
 //     append-then-apply under that serialization;
@@ -121,7 +121,7 @@ func (s *Store) Offset() (int64, error) {
 // OffsetView is Offset and View fused into ONE locked window: it reads the
 // journal's current write position and runs read with the folds quiescent,
 // both under the SAME RLock acquisition, so a concurrent Exec cannot land
-// between the two (U019-F01). A caller that instead calls Offset() and View()
+// between the two. A caller that instead calls Offset() and View()
 // as two separate calls — as checkpoint.go's writeItemsSnapshot used to —
 // leaves a gap a concurrent append can land in: the read then observes fold
 // state NEWER than the recorded offset, so a later restore(snapshot) +

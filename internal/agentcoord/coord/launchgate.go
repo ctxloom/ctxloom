@@ -42,7 +42,7 @@ const (
 	// operator asking again, not the loop retrying itself.
 	//
 	// This is the DEFAULT only — EnvLaunchMaxAttempts overrides it per
-	// process. Nobody signed off on "4" as exactly right (lunar-boat item 1);
+	// process. Nobody signed off on "4" as exactly right;
 	// the env override exists so it can be tuned without a rebuild once real
 	// container-daemon behavior is observed.
 	defaultMaxLaunchAttempts = 4
@@ -152,7 +152,7 @@ type launchState struct {
 	fails int
 	// relaunches counts CONSECUTIVE automatic relaunches armed by
 	// relaunchForLeftoverMail. It exists because `fails` bounds LAUNCH
-	// FAILURES only (U023-F02): a child that ATTACHES and then dies without
+	// FAILURES only: a child that ATTACHES and then dies without
 	// draining its mailbox resets `fails` on every cycle (noteLaunchAttached),
 	// so terminateRun's tail re-arms forever at zero backoff — the 2026-07-24
 	// incident shape through a different door, and precisely the observed
@@ -315,7 +315,7 @@ func (c *Coordinator) launchBackoff(fails int) time.Duration {
 // harp, and after how long. It refuses once the harp has been stopped, once
 // c.maxLaunchAttempts consecutive attempts have FAILED, or once that many
 // consecutive relaunches have been armed WITHOUT the harp draining any mail
-// (U023-F02 — the attach-then-die loop, which the failure counter alone
+// (the attach-then-die loop, which the failure counter alone
 // cannot see because attaching resets it).
 //
 // It is not a pure predicate: authorising a relaunch SPENDS one, so the

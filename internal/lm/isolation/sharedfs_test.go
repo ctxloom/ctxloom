@@ -110,7 +110,7 @@ func TestSharedFSProbe_Memoizes(t *testing.T) {
 	assert.Equal(t, 3, *calls, "a different root set probes fresh even against the same runtime+image — a Docker Desktop file-sharing list grants sharing per host path, not per image")
 }
 
-// TestSharedFSProbe_TransientNotMemoized (finding 1): a transient run failure
+// TestSharedFSProbe_TransientNotMemoized: a transient run failure
 // (a cold Docker Desktop VM's first probe, a daemon stall, our timeout, a
 // cancelled ctx) must NOT be latched — a later call re-probes and can succeed,
 // so one cold start never pins a long-lived mcp/acp process to degrade forever.
@@ -135,7 +135,7 @@ func TestSharedFSProbe_TransientNotMemoized(t *testing.T) {
 	assert.Equal(t, 2, *calls, "a transient failure is re-probed, never latched")
 }
 
-// TestSharedFSProbe_DefinitiveOutcomesMemoized (finding 1 complement): success
+// TestSharedFSProbe_DefinitiveOutcomesMemoized is the complement: success
 // AND a genuine content mismatch are permanent verdicts — both latch, so a
 // fan-out pays for one probe container per (runtime, image).
 func TestSharedFSProbe_DefinitiveOutcomesMemoized(t *testing.T) {
@@ -149,7 +149,7 @@ func TestSharedFSProbe_DefinitiveOutcomesMemoized(t *testing.T) {
 	})
 }
 
-// TestSharedFSProbe_RunFailureSurfacesStderr (finding 3): a run failure is
+// TestSharedFSProbe_RunFailureSurfacesStderr: a run failure is
 // reported as its REAL cause — docker's stderr — not as a phantom fs-sharing
 // mismatch, and it is not a definitive (memoizable) verdict.
 func TestSharedFSProbe_RunFailureSurfacesStderr(t *testing.T) {
@@ -308,7 +308,7 @@ func TestMountProbeRoots(t *testing.T) {
 	assert.Equal(t, "secret", string(before), "deriving the probe root never touches the real credential file's content")
 }
 
-// TestProbeOneRoot_SweepsAbandonedProbeDirs pins U064-F12. The probe's scratch
+// TestProbeOneRoot_SweepsAbandonedProbeDirs pins that the probe's scratch
 // dir is created INSIDE the live mount root — the project directory itself —
 // deliberately: a Docker Desktop custom file-sharing list grants sharing per
 // host PATH, so probing anywhere else proves nothing about the path a run

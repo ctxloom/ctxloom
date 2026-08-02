@@ -332,8 +332,8 @@ func TestInContainerFrom_Markers(t *testing.T) {
 	}
 }
 
-// TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec is U064-F15's
-// pinning test. The row claimed renderRunSpec's `if spec.Home != ""` guard
+// TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec pins that a
+// review row claimed renderRunSpec's `if spec.Home != ""` guard
 // silently loses the "fresh HOME isolates engine global state" property for a
 // spec built without a home. The guard is real, but the empty case is
 // unreachable for any spec that launches an ENGINE: home is not a per-call
@@ -365,7 +365,7 @@ func TestRenderRunSpec_FreshHomeIsCarriedByEveryProductionSpec(t *testing.T) {
 		"a spec carrying a home must render the fresh-HOME env flag")
 }
 
-// TestContainerHandshakeEnv_PluginPrefixIsTheCallersGuarantee states U064-F03's
+// TestContainerHandshakeEnv_PluginPrefixIsTheCallersGuarantee states the
 // boundary explicitly, because the doc comment's "never the host's full
 // environment" reads as a promise this function alone keeps and it is not one.
 // The PLUGIN_ arm is a prefix match over whatever it is handed, so an ambient

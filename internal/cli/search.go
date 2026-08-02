@@ -116,7 +116,7 @@ func runUnifiedSearch(cmd *cobra.Command, query string, tags []string, itemType 
 		remoteScope: remoteScope,
 	})
 
-	// U042-F01: a search whose every attempted scope came back with an error
+	// A search whose every attempted scope came back with an error
 	// must not report "No results found." — that asserts a false fact (the
 	// library may be full of matches; the search just never reached it).
 	localAttempted := localScope && len(localTypes) > 0

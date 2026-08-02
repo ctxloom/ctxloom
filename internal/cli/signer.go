@@ -113,7 +113,7 @@ func confirmSignerAdd(cmd *cobra.Command, principal string, key operations.Signe
 // gate — because the gate made the prompt untestable: in any test process
 // isInteractiveTerminal() is false, so every existing test took the skip path
 // and the most consequential text in the product had nothing asserting it is
-// shown at all (U042-F25). It writes to cmd.ErrOrStderr() rather than
+// shown at all. It writes to cmd.ErrOrStderr() rather than
 // os.Stderr for the same reason; in production those are the same descriptor.
 func promptSignerAdd(cmd *cobra.Command, principal string, key operations.SignerKeyInfo, namespaces []string) bool {
 	consequence := signerConsequenceText(namespaces)
@@ -125,7 +125,7 @@ func promptSignerAdd(cmd *cobra.Command, principal string, key operations.Signer
 
 // hasPublishNamespace reports whether a grant includes the publish namespace —
 // the one conditional every publish-vs-review distinction in the confirmation
-// turns on (U042-F12). signerRoleWord and signerConsequenceText each used to
+// turns on. signerRoleWord and signerConsequenceText each used to
 // open-code this scan, so no test between them could catch the two disagreeing;
 // they now share this single answer.
 func hasPublishNamespace(namespaces []string) bool {

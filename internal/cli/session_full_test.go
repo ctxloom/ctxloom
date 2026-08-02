@@ -224,7 +224,7 @@ func TestNewSessionFullRow_EssenceAndPathAgree(t *testing.T) {
 	}
 }
 
-// U104-F05 names emitSessionRows as an instance of the hand-rolled format
+// emitSessionRows is an instance of the hand-rolled format
 // branch that bypasses emit(). The parity check across the family's other
 // hand-rolled sites (cmd/taskloom/format_test.go) found them all equivalent to
 // cliemit.Emit's own predicate — except this one, which additionally routes

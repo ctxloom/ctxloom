@@ -62,7 +62,7 @@ func TestSearchScopes(t *testing.T) {
 	}
 }
 
-// U042-F01: a search whose local AND remote halves both failed exited 0
+// A search whose local AND remote halves both failed used to exit 0
 // reporting "No results found." — indistinguishable from a genuinely empty
 // library. searchFullyFailed is the decision runUnifiedSearch defers to:
 // "every scope that was actually attempted came back with an error" — never
@@ -307,7 +307,7 @@ func TestPrintRemoteResults_TableGeometry(t *testing.T) {
 // A byte cap on a trailing field cannot misalign anything, whatever the script
 // — which is what this pins, with a column of CJK and emoji tags that measures
 // 2 display cells per rune and 3-4 bytes per rune, so byte, rune and width
-// counts all disagree (U129-F04).
+// counts all disagree.
 func TestPrintRemoteResults_TheTrailingColumnsCapCannotMisalignTheTable(t *testing.T) {
 	var ascii, wide bytes.Buffer
 	printRemoteResults(&ascii, []operations.SearchRemoteEntry{

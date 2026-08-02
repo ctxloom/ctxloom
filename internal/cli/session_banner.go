@@ -14,7 +14,7 @@ import (
 // shows is session-index data.
 
 // StartSessionInfo is the read-only pre-spawn summary `ctxloom run` prints
-// just before launching the engine (WS-5, Decision 11): this session's harp,
+// just before launching the engine: this session's harp,
 // an assembled-context summary, and a pointer to the previous session for
 // this project. Every field is something the caller already computed for
 // THIS launch (context assembly, harp assignment) or resolved via the SAME
@@ -30,7 +30,7 @@ type StartSessionInfo struct {
 	Tokens    int
 	// Previous is the project's prior session, or nil when there is none
 	// (first run in this project). Informational only — startup no longer
-	// offers to resume it (Decision 11); the in-engine "resume" skill
+	// offers to resume it; the in-engine "resume" skill
 	// (recover_session/load_session/get_previous_session) is how a user
 	// actually pulls it back, from inside the session that just started.
 	Previous *operations.PreviousSessionRef

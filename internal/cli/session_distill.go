@@ -51,7 +51,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 		// Situate in the entry's own project dir before loading config /
 		// reading the transcript (see runSessionDistill for why chdir is
 		// required and safe for a one-shot CLI) — or back in origWd when
-		// this entry has none of its own (U042-F04: leaving the PREVIOUS
+		// this entry has none of its own (leaving the PREVIOUS
 		// entry's chdir in place here meant config.Load() silently read the
 		// wrong project's config for THIS entry, using another project's
 		// cwd-bound legacy LLM/backend settings for a distillation that
@@ -74,7 +74,7 @@ func distillMissingOrStale(cmd *cobra.Command, entries []sessions.Entry, appDir 
 // situateForEntry chdirs the process to e's own ProjectDir, or back to
 // origWd when e has none — the shared cwd-management step distillMissingOrStale
 // needs before every config.Load()/compactEntry call, extracted so it is
-// independently testable (U042-F04) rather than living as an inline branch
+// independently testable rather than living as an inline branch
 // that only ever changed directory FORWARD and never restored it for an
 // entry with no ProjectDir of its own. A no-op when the process is already
 // in the wanted directory.
@@ -188,7 +188,7 @@ func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 // resolveSessionSource resolves the backend (defaulting when empty) and a
 // transcript source for it, returning the resolved backend name for display.
 // Shared by loadOrDistillSession's callers (mcp_tools_memory.go) — and,
-// before the deprecated `memory` command group was deleted (U039-F20), by
+// before the deprecated `memory` command group was deleted, by
 // `memory list`/`memory show` too. The legacy leg (pb.SessionReader) reads
 // over gRPC to the agent server (self-situated, no workspace passed, works
 // for a remote agent); it is wrapped in CanonicalFallbackSource (tough-cloud

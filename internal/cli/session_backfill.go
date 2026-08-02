@@ -78,7 +78,7 @@ func runSessionBackfill(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("session backfill stopped after %d converted, %d skipped: %w — re-run to continue",
 			len(result.Converted), result.Skipped, cerr)
 	}
-	// U042-F02: every entry that was actually attempted (i.e. not Skipped —
+	// Every entry that was actually attempted (i.e. not Skipped —
 	// no vendor transcript located, already canonical, unregistered backend)
 	// failing must not exit 0. The per-harp detail is already in the
 	// rendered/JSON result above; this only decides success vs failure.

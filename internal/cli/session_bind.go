@@ -115,7 +115,7 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 	}
 	var payload claude.SessionStartPayload
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		// U042-F03: this must never fail the host backend's tool call over a
+		// This must never fail the host backend's tool call over a
 		// bad hook message (returning nil is right), but a malformed payload
 		// silently skipping the harp->session_id bind with NOTHING reported
 		// anywhere left an operator no way to learn why a harp never got

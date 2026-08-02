@@ -112,7 +112,7 @@ func TestSignerConsequenceText_NamesConcreteConsequence(t *testing.T) {
 	assert.Contains(t, approve, "delegating your review decisions")
 }
 
-// --- the trust-consequence prompt (U042-F25) ------------------------------
+// --- the trust-consequence prompt -----------------------------------------
 
 // feedPromptStdin points the CLI's shared stdin reader (prompt.go's stdinReader,
 // the one primitive every interactive prompt funnels through) at a canned
@@ -180,7 +180,7 @@ func TestSignerPromptPins_AreTheProductionSentences(t *testing.T) {
 		promptLines(signerConsequenceText([]string{signing.NamespaceApprove})))
 }
 
-// TestPromptSignerAdd_ShowsFingerprintRoleAndConsequence is U042-F25's pin.
+// TestPromptSignerAdd_ShowsFingerprintRoleAndConsequence pins the prompt.
 // The prompt this renders is the most consequential confirmation in the
 // product — it is the moment a user grants a key the right to reach their
 // agent unreviewed, forever — and until this test nothing asserted it is
@@ -280,11 +280,11 @@ func TestPrintSignerListings_EmptyReportsNone(t *testing.T) {
 }
 
 // TestSignerConsequenceText_PublishWinsInAMixedGrant completes the pin on the
-// publish-conditional both signerRoleWord and signerConsequenceText open-code
-// (U042-F13's sibling, U042-F12): a grant that includes publish alongside
-// approve/reject is a PUBLISH grant, and must be described with the broader,
-// more dangerous consequence rather than the delegated-review one. Order in
-// the namespace slice must not change the answer.
+// publish-conditional both signerRoleWord and signerConsequenceText open-code:
+// a grant that includes publish alongside approve/reject is a PUBLISH grant,
+// and must be described with the broader, more dangerous consequence rather
+// than the delegated-review one. Order in the namespace slice must not
+// change the answer.
 func TestSignerConsequenceText_PublishWinsInAMixedGrant(t *testing.T) {
 	for _, ns := range [][]string{
 		{signing.NamespacePublish, signing.NamespaceApprove},

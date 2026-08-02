@@ -88,7 +88,7 @@ func TestSessionBackfill_UnknownHarp(t *testing.T) {
 	assert.Contains(t, err.Error(), "no-such-harp")
 }
 
-// U042-F02: `session backfill` returned exit 0 even when every entry
+// `session backfill` used to return exit 0 even when every entry
 // failed. A bound path that exists (passes os.Stat) but is a directory, not
 // a file, makes ConvertVendorTranscript genuinely attempt and fail —
 // distinct from "nothing bound" (Skipped), which must NOT fail the command.

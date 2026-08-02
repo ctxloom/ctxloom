@@ -185,7 +185,7 @@ func writeWatchText(out io.Writer, events <-chan operations.SessionFeedEvent) er
 			// Idle keepalive — nothing to show a human.
 		}
 	}
-	// U113-F03: ErrWriter's write methods are void-returning by design (so
+	// ErrWriter's write methods are void-returning by design (so
 	// call sites above can chain freely without per-line error checks), which
 	// makes an unchecked Err() invisible to errcheck. Surfacing it here is
 	// the one place that must not skip it: a failed write must not silently

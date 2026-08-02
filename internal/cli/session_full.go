@@ -116,10 +116,10 @@ func emitSessionRows(cmd *cobra.Command, entries []sessions.Entry, full bool, ap
 	if err != nil {
 		return err
 	}
-	// U104-F01's runtime guard (format.go) only sees emit()/outputFormatOf;
+	// The runtime guard (format.go) only sees emit()/outputFormatOf;
 	// both branches below are the direct clifmt.Render/renderSessionFullText
-	// bypass U104-F05 already names as a hand-rolled duplicate of emit()'s own
-	// format branch, so this marks the guard on their behalf.
+	// bypass, a hand-rolled duplicate of emit()'s own format branch, so this
+	// marks the guard on their behalf.
 	formatWasHonored = true
 	if format != clifmt.FormatText && format != clifmt.FormatMarkdown {
 		return clifmt.Render(cmd.OutOrStdout(), fullRows, format)

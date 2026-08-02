@@ -22,8 +22,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// TestRenderSessionRows_ProjectionShape pins the WS-6 default listing shape
-// (CLI-primary reorg plan, decision 13): the table shows HARP, SUMMARY, and
+// TestRenderSessionRows_ProjectionShape pins the default listing shape
+// (CLI-primary reorg plan): the table shows HARP, SUMMARY, and
 // START — never a LAST ACTIVITY column, which belonged to the old
 // Entry-keyed renderSessionTable this replaces. A title-less row still
 // renders (as "(no summary)"), and the caller's pre-sorted row order is
@@ -221,7 +221,7 @@ func TestBindSessionFromPayload(t *testing.T) {
 
 	t.Run("malformed_json_is_noop", func(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
-		// U042-F03: a malformed SessionStart hook payload silently skipped the
+		// A malformed SessionStart hook payload used to silently skip the
 		// harp->session_id bind with NOTHING reported anywhere — not even the
 		// caller's own warning, since bindSessionFromPayload returned nil (no
 		// error to warn about). This is one of the two live-reproducible
@@ -278,7 +278,7 @@ func (errReader) Read([]byte) (int, error) {
 	return 0, assert.AnError
 }
 
-// U042-F04: distillMissingOrStale's per-entry chdir used to only ever go
+// distillMissingOrStale's per-entry chdir used to only ever go
 // FORWARD (into e.ProjectDir when non-empty) and never restore origWd for an
 // entry with no ProjectDir of its own — so an entry with an empty ProjectDir
 // silently ran config.Load() from whatever directory the PREVIOUS entry in

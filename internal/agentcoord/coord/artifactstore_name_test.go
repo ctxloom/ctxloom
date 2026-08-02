@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U019-F13 — the store's file name is a content hash by contract, so the
+// The store's file name is a content hash by contract, so the
 // store must ENFORCE that rather than assume it.
 //
 // artifactStore.open joined its argument onto the store directory with no

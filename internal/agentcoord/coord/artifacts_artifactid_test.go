@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// U019-F08 claimed the upload's artifact_id "is never used to store, key or
+// A finding claimed the upload's artifact_id "is never used to store, key or
 // resolve anything" and is therefore gratuitous coupling. Refuted: it is the
 // only thing that correlates a blob receipt with the manifest that arrives
 // separately.

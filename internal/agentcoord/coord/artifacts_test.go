@@ -54,7 +54,7 @@ func uploadRaw(t *testing.T, client agentcoordpb.ArtifactTransferServiceClient, 
 	// server has ALREADY closed the stream before this Send lands — e.g. the
 	// auth interceptor rejecting a consumer credential's UploadArtifact
 	// under load, server-close winning the race against the client's first
-	// frame (flaky-agentcoord S3, hoary-amigo: a require.NoError here was
+	// frame (a require.NoError here was
 	// asserting on a race outcome, not a real client bug). The authoritative
 	// status always rides CloseAndRecv, never a Send error — so a header
 	// Send failure here is tolerated, not fatal: fall straight through to
@@ -371,8 +371,8 @@ func sha256Sum(b []byte) []byte {
 	return s[:]
 }
 
-// TestUploadArtifact_RefusesAZeroByteArtifact pins the server half of
-// U016-F18: the upload service capped the maximum size and never the
+// TestUploadArtifact_RefusesAZeroByteArtifact pins the server half of a
+// finding: the upload service capped the maximum size and never the
 // minimum, so a 0-byte artifact uploaded, journaled, and returned a success
 // receipt carrying a content-addressed id.
 func TestUploadArtifact_RefusesAZeroByteArtifact(t *testing.T) {
@@ -386,8 +386,8 @@ func TestUploadArtifact_RefusesAZeroByteArtifact(t *testing.T) {
 	assert.Contains(t, err.Error(), "empty artifact")
 }
 
-// TestUploadArtifact_RejectsSizeMismatch pins U019-F02's surviving slice: the
-// zero-byte floor (U016-F18, above) only refuses a DECLARED size of 0. A
+// TestUploadArtifact_RejectsSizeMismatch pins a surviving slice: the
+// zero-byte floor (above) only refuses a DECLARED size of 0. A
 // client that declares a non-zero header.size_bytes but then delivers fewer
 // (here, zero) actual chunk bytes sails past both the cap and the floor
 // checks — writeAtomic happily hashes an empty reader and the handler used
@@ -425,7 +425,7 @@ func TestUploadArtifact_RejectsSizeMismatch(t *testing.T) {
 	assert.Empty(t, entries, "a size-mismatched upload must not be published to the store")
 }
 
-// TestDownloadArtifact_RefusesAZeroByteStoredBlob pins U022-F08's download
+// TestDownloadArtifact_RefusesAZeroByteStoredBlob pins the download
 // half: the upload-side floor (TestUploadArtifact_RefusesAZeroByteArtifact,
 // above) means no NEW empty artifact can be published, but a project's
 // coordinator state can already hold one from BEFORE that fix landed (or a

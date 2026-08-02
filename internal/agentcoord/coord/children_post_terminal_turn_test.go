@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U024-F09: the RunChannel's receive goroutine outlives RunChannel's return, and
+// The RunChannel's receive goroutine outlives RunChannel's return, and
 // neither severChan nor terminateRun synchronises with it — so a frame already in
 // flight when a channel is severed is still dispatched. handleCustomEvent then
 // runs the turn-state arms for a run that has ALREADY ended, and c.byHarp still

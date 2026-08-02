@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// U019-F06 — the manifest is fsynced; the blob it names must be too.
+// The manifest is fsynced; the blob it names must be too.
 //
 // writeAtomic fsyncs the temp file's CONTENT, then renames. The rename makes
 // the blob visible but not durable: nothing fsyncs the directory entry. The

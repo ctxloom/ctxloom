@@ -13,7 +13,7 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// U019-F03 — when the STORE fails, the caller must be told what the store
+// When the STORE fails, the caller must be told what the store
 // said.
 //
 // UploadArtifact bridges the Recv loop onto writeAtomic through an io.Pipe.

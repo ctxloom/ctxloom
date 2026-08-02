@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// U019-F11 — "no checkpoint yet" and "the checkpoint is there but I could
+// "No checkpoint yet" and "the checkpoint is there but I could
 // not read it" are DIFFERENT facts, and only one of them is normal.
 //
 // A missing snapshot is the ordinary first-boot case and must stay silent:

@@ -295,7 +295,7 @@ func TestWriteContextFile(t *testing.T) {
 
 // TestWriteContextFile_Empty pins the distinction WriteContextFile must draw:
 // NO fragments is legitimately nothing to deliver, while fragments that exist
-// but assemble to zero bytes is a delivery failure (U101-F01). Reporting both
+// but assemble to zero bytes is a delivery failure. Reporting both
 // as a silent success made "no context configured" indistinguishable from
 // "every fragment resolved empty".
 func TestWriteContextFile_Empty(t *testing.T) {
@@ -715,11 +715,11 @@ func TestApplyHooks_ForceOverridesKiroHomeCollision(t *testing.T) {
 	assert.True(t, exists, "--force must actually write kiro's agent config")
 }
 
-// TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend is T12's
+// TestApplyHooks_TargetScopeGuardAppliesToAnyRegisteredBackend is the
 // flow-level proof: the target-scope guard is a property of the
 // internal/lm/backends descriptor table, not a hardcoded claude/codex/kiro
-// list operations maintains its own copy of. Before T12, checkHookTargetScope
-// was a literal 3-way if/else naming exactly those three backends and calling
+// list operations maintains its own copy of. Before this fix,
+// checkHookTargetScope was a literal 3-way if/else naming exactly those three backends and calling
 // claude/codex/kiro package functions directly (the ADR-0026 violation) — a
 // FOURTH backend with the identical $HOME==global collision class got NO
 // protection no matter how it registered itself, because operations' copy of
@@ -1062,7 +1062,7 @@ fragments:
 // same fragments — without substitution the agent-injected context ships
 // literal {{var}} tags whenever profiles define variables.
 // TestApplyHooks_RegenerateContextFailure_PreservesExistingNativeContext
-// pins U084-F01: a genuine context-regeneration FAILURE (RegenerateContext:
+// pins that a genuine context-regeneration FAILURE (RegenerateContext:
 // true, but the regen write itself errors — degraded mode warns and does
 // not abort) must never silently strip a native-file backend's
 // PREVIOUSLY-installed managed context (.agents/AGENTS.md), and must never

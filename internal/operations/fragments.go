@@ -136,7 +136,7 @@ func GetFragment(ctx context.Context, cfg *config.Config, req GetFragmentRequest
 }
 
 // containsTag reports whether any tag contains query, case-insensitively.
-// U084-F13: both operands are folded HERE. Folding only the tag left an
+// Both operands are folded HERE. Folding only the tag left an
 // undocumented "caller must lowercase query" precondition — every current
 // caller happens to honour it, so the next one would inherit a silent
 // false-negative with nothing to warn them.
@@ -151,7 +151,7 @@ func containsTag(tags []string, query string) bool {
 }
 
 // sortContentInfos sorts content infos by the specified field and order.
-// U084-F13: an unrecognised sortBy used to fall out of the switch and leave the
+// An unrecognised sortBy used to fall out of the switch and leave the
 // slice in loader order — a silent no-op for a caller that explicitly asked for
 // an ordering. It now warns and falls back to name, matching ListProfiles'
 // existing taxonomy for the same mistake (profiles.go).

@@ -14,8 +14,8 @@ import (
 // initLocalRepoWithFile creates a non-bare git repo at dir, writes filePath
 // with content, commits, and returns the resulting commit SHA. Used to build
 // file:// remotes for cache integration tests across the package. Moved here
-// from lockfile_test.go when U085-F08 deleted CheckOutdated (its original
-// consumer) since several other test files (remotes_test.go,
+// from lockfile_test.go when CheckOutdated (its original consumer) was
+// deleted, since several other test files (remotes_test.go,
 // search_remotes_test.go, upgrade_test.go, upgrade_erasure_test.go,
 // sync_security_test.go) still need it.
 func initLocalRepoWithFile(t *testing.T, dir, filePath, content string) string {

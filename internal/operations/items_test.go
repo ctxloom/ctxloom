@@ -135,7 +135,7 @@ func TestSetItemContent_NotFound(t *testing.T) {
 	require.ErrorIs(t, err, ErrItemNotFound)
 }
 
-// TestSetItemContent_EmptyContentRefuses pins U084-F02: SetItemContent used
+// TestSetItemContent_EmptyContentRefuses pins that SetItemContent used
 // to accept Content: "" unconditionally, silently overwriting an authored
 // fragment's content with zero bytes and reporting status: "updated" — this
 // is the frontend-agnostic operations layer (ADR-0026), so the floor belongs

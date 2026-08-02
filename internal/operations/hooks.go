@@ -46,13 +46,13 @@ type ApplyHooksResult struct {
 	// Errors holds per-backend failures. Non-empty alongside a non-empty
 	// Backends means partial success; non-empty with an EMPTY Backends means
 	// nothing was configured at all, which ApplyHooks reports as
-	// Status "failed" and a non-nil error (U084-F11).
+	// Status "failed" and a non-nil error.
 	Errors []string `json:"errors,omitempty"`
 }
 
 // ApplyHooks applies ctxloom hooks to backend configuration files.
 //
-// It deliberately takes NO *config.Config. U084-F04: it used to accept one and
+// It deliberately takes NO *config.Config. It used to accept one and
 // never read it — every caller handed over a Config it had just built and had
 // it silently discarded, because ApplyHooks reloads from disk via
 // resolveHookConfig. That reload is correct and load-bearing (`manage install`
@@ -118,7 +118,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 
 	contextHash, regenFailed := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
 
-	// U084-F01: skipContext is true whenever this round must NOT touch a
+	// skipContext is true whenever this round must NOT touch a
 	// native-file backend's managed context surface at all — covering BOTH
 	// the legitimate "don't regenerate" request (req.RegenerateContext ==
 	// false, which deliberately means leave existing context alone) AND a
@@ -172,7 +172,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 		return nil, err
 	}
 
-	// U084-F01: a genuine regen failure must never be reported as a clean
+	// A genuine regen failure must never be reported as a clean
 	// "applied" — fold it into the same partial-success accounting a
 	// per-backend apply failure already uses, rather than inventing a
 	// second status taxonomy. maybeRegenerateContext already recorded the
@@ -198,7 +198,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// Partial success is success: report which backends took and which
 	// failed rather than collapsing the whole call to an error.
 	//
-	// U084-F11: but TOTAL failure is not partial success. When every backend
+	// But TOTAL failure is not partial success. When every backend
 	// the request asked for failed, `applied` is empty and nothing at all was
 	// written — yet the old code still answered Status "partial", Backends []
 	// and a nil error, so `ctxloom manage hooks install` printed
@@ -318,7 +318,7 @@ func checkHookTargetScope(workDir, backend string, force bool) error {
 // failure is fatal-class in strict mode (the SessionStart-injected context
 // silently going stale/absent is exactly what fail-loudly exists to catch);
 // in degraded mode it stays a warning and the injection hook is simply
-// omitted this round — but regenFailed (U084-F01) still tells the caller
+// omitted this round — but regenFailed still tells the caller
 // this was a genuine FAILURE, not the legitimate "don't regenerate" request
 // (req.RegenerateContext == false), so ApplyHooks can refuse to let a
 // failure silently strip a native-file backend's existing managed context
@@ -351,7 +351,7 @@ type hookApplyParams struct {
 	workDir          string
 	contextHash      string
 	assembledContext string
-	// skipContext (U084-F01): true whenever this apply must not touch the
+	// skipContext: true whenever this apply must not touch the
 	// context surface at all — see ApplyHooks' skipContext doc for the two
 	// cases this covers (no-op request, genuine regen failure).
 	skipContext bool
@@ -425,7 +425,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 	}, p.fs)
 
 	sel := agent.Select(set).WithSettings(agent.SettingsWriteUnsafeFile).WithMCP(agent.MCPWriteUnsafeFile)
-	// U084-F01: skipContext omits WithContext entirely rather than selecting
+	// skipContext omits WithContext entirely rather than selecting
 	// it with empty content — Select's opt-in model means an unselected
 	// surface is never delivered at all (cells.go), so this is a true no-op:
 	// nothing is written, nothing is stripped. Selecting ContextWriteUnsafeFile
@@ -519,7 +519,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	}
 
 	if len(backendFrags) == 0 {
-		// U084-F01 (second trigger): this is NOT an error — regenerateContext
+		// This is NOT an error — regenerateContext
 		// legitimately produced nothing (an empty default profile set is a
 		// valid configuration) — but it silently reached the exact same
 		// downstream effect as a real failure (native-file backends strip
@@ -535,7 +535,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 
 	contextHash, err := agent.WriteContextFile(workDir, backendFrags, opts...)
 	if err != nil {
-		// U084-F01: this used to be swallowed here (strictness.Fail + return
+		// This used to be swallowed here (strictness.Fail + return
 		// "", nil), collapsing a genuine write failure into the SAME shape
 		// maybeRegenerateContext sees for a legitimately-empty fragment set —
 		// nil error either way, so its caller could not tell "nothing to

@@ -61,7 +61,7 @@ func seedRemoteFragmentFixture(t *testing.T) (cfg *config.Config, canonicalRef, 
 	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}}), canonicalRef, "tooling/tools"
 }
 
-// TestItemRead_BundleResolutionParity is the U037-F10 parity test, run across
+// TestItemRead_BundleResolutionParity is the parity test, run across
 // BOTH implementations of "load a bundle, then read one item out of it": the CLI
 // flow's loadBundleForItem + itemDisplayContent (which resolves the bundle
 // through GetBundle) and GetItemContent (which resolved it through the raw

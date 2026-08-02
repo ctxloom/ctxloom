@@ -36,7 +36,7 @@ func (k ItemKind) valid() bool { return k == ItemKindFragment || k == ItemKindCo
 var (
 	ErrItemExists   = errors.New("item already exists")
 	ErrItemNotFound = errors.New("item not found")
-	// ErrItemContentEmpty guards SetItemContent's floor (U084-F02): this is the
+	// ErrItemContentEmpty guards SetItemContent's floor: this is the
 	// frontend-agnostic operations layer any caller (CLI, MCP, a future
 	// frontend) reaches directly, so the empty-buffer floor belongs here, not
 	// only in the CLI's own editItem/checkEditedContent pre-check.
@@ -230,7 +230,7 @@ func SetItemContent(ctx context.Context, cfg *config.Config, req SetItemContentR
 	if !req.Kind.valid() {
 		return nil, fmt.Errorf("invalid item kind: %q", req.Kind)
 	}
-	// U084-F02: this used to accept Content: "" unconditionally, silently
+	// This used to accept Content: "" unconditionally, silently
 	// overwriting an authored fragment/command with zero bytes and reporting
 	// status: "updated" — the CLI's own editItem path is guarded by
 	// checkEditedContent, but that guard sits above this frontend-agnostic

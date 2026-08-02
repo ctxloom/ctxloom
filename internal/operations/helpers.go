@@ -24,7 +24,7 @@ func getFS(fs afero.Fs) afero.Fs {
 // github clone token-injection reads the per-forge token_env; resolver setup is
 // best-effort and a missing registry simply falls back to ambient auth.
 //
-// U084-F09: an UNREADABLE or malformed registry is not the same thing as a
+// An UNREADABLE or malformed registry is not the same thing as a
 // missing one and no longer takes the same silent path. remote.NewRegistry
 // already swallows os.IsNotExist itself, so a non-nil error from it means the
 // file is there and could not be parsed or read — in which case every

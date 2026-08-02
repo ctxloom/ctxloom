@@ -36,7 +36,7 @@ func PurgeExtractedBundles(cfg *config.Config) (int, error) {
 	bundlesRoot := paths.CacheBundlesPath(cfg.GetAppPaths()[0])
 	info, err := os.Stat(bundlesRoot)
 	switch {
-	// U084-F18: "the directory isn't there" is the ordinary case and a genuine
+	// "The directory isn't there" is the ordinary case and a genuine
 	// no-op. Every OTHER stat failure — permissions, a broken mount, an I/O
 	// error — used to take the same silent `return 0, nil` path, so a cleanup
 	// that could not even LOOK reported the same thing as a cleanup with
@@ -92,7 +92,7 @@ func PurgeExtractedBundles(cfg *config.Config) (int, error) {
 	// Prune now-empty subdirectories so `ls .ctxloom/cache/bundles` stops
 	// showing ghosts. Top-level dir stays.
 	//
-	// U084-F18: WalkDir is PRE-order, so removing in the walk callback only
+	// WalkDir is PRE-order, so removing in the walk callback only
 	// ever cleared the deepest level — a parent holding one empty child is not
 	// itself empty when it is visited, so it survived and needed a second run
 	// to go. Collect first, then remove DEEPEST-FIRST, so a whole empty chain

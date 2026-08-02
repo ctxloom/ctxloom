@@ -236,7 +236,7 @@ func roleLabel(registry config.LMConfig, engine, role string) string {
 
 // readResource reads an embedded resource, naming it in any failure.
 //
-// U084-F17: this replaces `mustResource`, which was named for a contract it
+// This replaces `mustResource`, which was named for a contract it
 // did not implement — it discarded the error and returned nil bytes. Nothing
 // downstream caught that: config.ParseConfig(nil) is yaml.Unmarshal of nil,
 // which succeeds and yields an EMPTY config, so a build with a broken embed

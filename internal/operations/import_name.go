@@ -13,7 +13,7 @@ import (
 // directory verbatim, and every loader that later reads that directory filters
 // by extension. So importing "seed.txt" wrote a file nothing would ever open:
 // exit 0, Status "imported", zero usable content, and with --force a real file
-// of the same basename destroyed to make room for it (U081-F10). "Nothing
+// of the same basename destroyed to make room for it. "Nothing
 // happened because the name was unusable" is a failure, not a success.
 //
 // The accepted extensions differ by kind and are passed in rather than assumed,

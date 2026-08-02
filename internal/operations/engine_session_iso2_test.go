@@ -426,9 +426,9 @@ func iso2GitRun(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// TestAcpWorkspaceAxis_DiscardedFlagIsAnnounced pins U083-F07. The posture
-// rule itself is deliberate — the plain `ctxloom acp` entry never isolates,
-// whatever --workspace says — but a user who TYPED `--workspace worktree` and
+// TestAcpWorkspaceAxis_DiscardedFlagIsAnnounced pins the discard-must-say-so
+// fix. The posture rule itself is deliberate — the plain `ctxloom acp` entry
+// never isolates, whatever --workspace says — but a user who TYPED `--workspace worktree` and
 // got a shared-checkout session was told nothing at all. An isolation posture
 // silently weaker than the one asked for is the one belief that is actively
 // dangerous to hold wrongly (this file's own `coder`-typo scenario), so the
@@ -463,10 +463,10 @@ func stubAssignSession(t *testing.T, err error) {
 	t.Cleanup(func() { assignSession = prev })
 }
 
-// TestOpenEngineSession_FailedHarpMintNamesEveryConsequence pins U083-F18. A
-// failed AssignSession degrades to harp == "", and that single empty string
-// switches off THREE separate facilities at once: session recording (so no
-// resume, and no MarkSessionEnded), CTXLOOM_SESSION_HARP for the engine and
+// TestOpenEngineSession_FailedHarpMintNamesEveryConsequence pins the
+// every-consequence-named fix. A failed AssignSession degrades to harp == "",
+// and that single empty string switches off THREE separate facilities at
+// once: session recording (so no resume, and no MarkSessionEnded), CTXLOOM_SESSION_HARP for the engine and
 // its SessionStart hooks, and the coordinator reach-back trio (so the session
 // cannot delegate at all). The warning named only the first, leaving the other
 // two to be discovered as unexplained absences mid-session.
@@ -497,9 +497,9 @@ func TestOpenEngineSession_FailedHarpMintNamesEveryConsequence(t *testing.T) {
 	assert.Contains(t, out, "delegation", "…and the delegation reach-back consequence")
 }
 
-// TestOpenEngineSession_NilCoordinatorOpensUnisolated pins U083-F25. The
-// opener dereferenced acpCoord twice (SessionEnv, WatchChildren) with no nil
-// guard, so an exported, frontend-neutral entry point forced every caller
+// TestOpenEngineSession_NilCoordinatorOpensUnisolated pins the nil-coordinator
+// fix. The opener dereferenced acpCoord twice (SessionEnv, WatchChildren)
+// with no nil guard, so an exported, frontend-neutral entry point forced every caller
 // that legitimately hosts no coordinator to hand in a no-op implementation
 // just to avoid a panic — while "no coordinator stood up" is a state the
 // interface's own contract already models with nil returns. A nil coordinator

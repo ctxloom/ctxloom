@@ -220,7 +220,7 @@ type OpenRequest struct {
 // two literal copies of one string for the identical reason — see that const's
 // doc in internal/shared/agent/chat.go.)
 //
-// U084-F10: the copies are NOT unbound. internal/acp/constants_binding_test.go
+// The copies are NOT unbound. internal/acp/constants_binding_test.go
 // — an external test package, which is outside that cycle and so may import
 // both sides — asserts they are equal (TestFsUpstreamEnvVarMatchesOperations),
 // so a rename on either side fails a test instead of silently serving fs/*

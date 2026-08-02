@@ -127,8 +127,8 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		fragmentsLoaded []string
 		// assemblyFailed is non-nil when context assembly FAILED, as opposed
 		// to succeeding with nothing to load. Without it the init summary
-		// renders a failed assembly as the authoritative "fragments : none"
-		// (U083-F06) — the one artifact whose job is to say what ctxloom
+		// renders a failed assembly as the authoritative "fragments : none" —
+		// the one artifact whose job is to say what ctxloom
 		// assembled, claiming it assembled nothing when it does not know.
 		assemblyFailed error
 		// requestedAgent is the RAW name resolution was attempted against
@@ -522,7 +522,7 @@ func MCPServerNames(servers []agent.ChatMCPServer) []string {
 // buildSessionModes/buildSessionLLMs do on an empty listing rather than
 // refusing the session open — but a listing FAILURE is returned as an error
 // too, so the init summary can tell "no commands" from "could not find out"
-// instead of printing the authoritative word "none" for both (U083-F06).
+// instead of printing the authoritative word "none" for both.
 func buildSessionCommands(ctx context.Context, cfg *config.Config) (*SessionCommands, error) {
 	res, err := ListCommands(ctx, cfg, ListCommandsRequest{})
 	if err != nil {
@@ -564,7 +564,7 @@ func buildSessionCommands(ctx context.Context, cfg *config.Config) (*SessionComm
 // which re-loads config from the process cwd) so the session's own config and
 // its attached trust gate are honored.
 func acpSessionMCPServers(cfg *config.Config, backendName string, profiles []string, existing []agent.ChatMCPServer) []agent.ChatMCPServer {
-	// U100-F03: ComposeChatMCPServers now takes a command override so a
+	// ComposeChatMCPServers now takes a command override so a
 	// runtime:container agent's structured chat can emit the in-container
 	// ctxloom path instead of the host's. An ACP session (this flow) has no
 	// isolation.Policy in scope to resolve one from — out of scope for the
@@ -688,7 +688,7 @@ func assembleModeFunc(cfg *config.Config, sessionLabel string) func(ctx context.
 		// A zero-byte assembly is NOT a mode with nothing to say — it is an
 		// assembly that produced nothing while reporting success, and handing
 		// it back BLANKS the session's lead context while the editor is told
-		// the mode switch worked (U083-F17). Refuse it: the session keeps the
+		// the mode switch worked. Refuse it: the session keeps the
 		// context it already had, and the editor sees a real failure.
 		if strings.TrimSpace(res.Context) == "" {
 			return "", fmt.Errorf("mode %q assembled to zero bytes of context — refusing to blank this session's lead context (check the mode's profiles with `ctxloom profile show`)", mode.ID)
@@ -977,7 +977,7 @@ func namesOrCount(l nameListing, listCmd string) string {
 // produced it actually succeeded. A failed listing degrading to nil, rendered
 // as the authoritative word "none", is this codebase's signature lie in the
 // one artifact whose stated purpose is "what did ctxloom assemble on my
-// behalf?" (U083-F06) — "I assembled nothing" and "I could not find out" are
+// behalf?" — "I assembled nothing" and "I could not find out" are
 // different answers and the editor is entitled to both.
 type nameListing struct {
 	names []string

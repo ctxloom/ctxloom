@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-// U083-F17: session/set_mode replaced the session's lead context with
+// session/set_mode replaced the session's lead context with
 // res.Context UNCHECKED — an assembly that succeeds while producing zero
 // bytes silently blanks the mode's context, and the editor is told the mode
 // switch worked.
@@ -34,7 +34,7 @@ func TestAssembleModeFunc_ZeroByteAssemblyIsRefused(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// U083-F06: a listing/assembly FAILURE degraded to nil, which the init
+// A listing/assembly FAILURE degraded to nil, which the init
 // summary rendered as the authoritative word "none" — the one artifact whose
 // job is to say what ctxloom assembled claims it assembled nothing, when the
 // truth is it does not know.

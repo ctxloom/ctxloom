@@ -19,9 +19,8 @@ import (
 // newTestWalker builds a depWalker whose remote reads are served by fetcher.
 // resolveHash is the identity resolver — a ref's already-concrete version
 // expression IS its hash for these unit tests, which construct refs with a
-// pre-pinned "@<hash>" suffix directly (U083-F21: production no longer
-// carries a nil-means-identity mode; this is the resolver that used to be
-// implicit).
+// pre-pinned "@<hash>" suffix directly (production no longer carries a
+// nil-means-identity mode; this is the resolver that used to be implicit).
 func newTestWalker(fetcher remote.Fetcher) *depWalker {
 	return &depWalker{
 		ctx:     context.Background(),
@@ -103,7 +102,7 @@ func TestDepWalker_WalksRemoteParentClosure(t *testing.T) {
 	assert.Equal(t, []string{"h1111111", "h2222222"}, conflicts[0].Hashes)
 }
 
-// TestDepWalker_RecurseParent_MalformedRefRecordsUnexpanded pins U083-F02's
+// TestDepWalker_RecurseParent_MalformedRefRecordsUnexpanded pins the
 // worst-of-the-three gap: a parent ref that fails to even PARSE used to lose
 // its whole subtree with NO diagnostic at all (not even a warning) — worse
 // than the remote-fetch failures a few lines below it in the same function,
@@ -149,8 +148,8 @@ func TestDepWalker_RecurseParent_NotBundleProfileRefRecordsUnexpanded(t *testing
 	assert.Equal(t, ref, unexpanded[0])
 }
 
-// TestNamedRoots_LoadFailureRecordsUnexpanded pins the root-level half of
-// U083-F02: a profile root that fails to load NARROWS the closure (the entry
+// TestNamedRoots_LoadFailureRecordsUnexpanded pins the root-level half of the
+// gap: a profile root that fails to load NARROWS the closure (the entry
 // is silently dropped from `roots`), but before this fix nothing recorded
 // which name was lost — only the warning printed to stderr. Callers rebuild
 // the lockfile wholesale from `roots`, and the `unexpanded` return is the ONE
@@ -203,8 +202,8 @@ func TestConflictError(t *testing.T) {
 	assert.Contains(t, err.Error(), "aaaaaaa") // short form
 }
 
-// TestFlattenDependencies_UnreadableLockfileIsReported is U083-F09's pin, and
-// the row is PARTIAL: the mechanism is real, the consequence is not.
+// TestFlattenDependencies_UnreadableLockfileIsReported pins a claim that is
+// PARTIAL: the mechanism is real, the consequence is not.
 //
 // Real: flattenProfileRoots loads the active lockfile with `active, _ :=`,
 // discarding the error, and that lockfile is the closure walk's RESOLUTION
@@ -216,7 +215,7 @@ func TestConflictError(t *testing.T) {
 // (strictness ClassBundle) naming the file and the fix — every time, before
 // this load is ever reached. In strict mode the session refuses outright; in
 // degraded mode the anchorless rebuild is still barred from being PERSISTED by
-// Save's unreadable-file refusal (U085-F01).
+// Save's unreadable-file refusal.
 //
 // The comparison to the sibling upgrade path is also not actionable here:
 // FlattenDependencies returns no error at all, and its signature is a public

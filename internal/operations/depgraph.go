@@ -62,7 +62,7 @@ func FlattenDependencies(ctx context.Context, cfg *config.Config, profileNames [
 		roots, rootsUnexpanded = namedRoots(cfg, loader, profileNames)
 	}
 	pins, conflicts, unexpanded := flattenProfileRoots(ctx, cfg, loader, roots)
-	// U083-F02: merge root-build failures (a profile/directory-listing that
+	// Merge root-build failures (a profile/directory-listing that
 	// couldn't be loaded, discovered BEFORE the walker even exists) into the
 	// same unexpanded-set contract the walker's own failures use, so every
 	// caller of FlattenDependencies gets ONE complete signal instead of two
@@ -94,7 +94,7 @@ func namedRoots(cfg *config.Config, loader *profiles.Loader, names []string) ([]
 			// (remote.ErrLockfileWouldErase); a PARTIAL narrowing like this one
 			// still gets through, so it must at least be visible.
 			clidiag.Warn("ctxloom", "profile %q could not be loaded (%v); dependencies reached only through it are missing from the closure", name, err)
-			// U083-F02: warning alone did not feed the `unexpanded` protection
+			// The warning alone did not feed the `unexpanded` protection
 			// FlattenDependencies' caller relies on (UpgradeDependencies) to
 			// preserve existing lockfile entries under a narrowed closure — a
 			// root failing to load here was narrowing the closure with NOTHING
@@ -128,7 +128,7 @@ func closureRoots(cfg *config.Config, loader *profiles.Loader) ([]*profiles.Prof
 		// losing a single root, one order of magnitude larger: every directory
 		// profile drops out of the closure at once. Never silent.
 		clidiag.Warn("ctxloom", "could not list directory profiles (%v); every dependency rooted only in one is missing from the closure", err)
-		// U083-F02: as above, feed the unexpanded-set protection so a wholesale
+		// As above, feed the unexpanded-set protection so a wholesale
 		// lockfile rewrite built from this narrowed closure preserves existing
 		// entries instead of silently erasing every directory-profile-rooted one.
 		unexpanded = append(unexpanded, "<directory-profiles>")
@@ -184,7 +184,7 @@ func flattenProfileRoots(ctx context.Context, cfg *config.Config, loader *profil
 	// is ever reached. Repeating it here would say the same thing twice, and
 	// this function cannot do anything better with it: FlattenDependencies
 	// returns no error, and an anchorless rebuild is barred from being
-	// PERSISTED downstream by Save's unreadable-file refusal (U085-F01) rather
+	// PERSISTED downstream by Save's unreadable-file refusal rather
 	// than by anything decidable here. A nil lockfile resolves as no anchor,
 	// which is exactly the empty-lock behaviour of a first-ever lock.
 	active, _ := remote.NewLockfileManager(getBaseDir(cfg)).Load()
@@ -227,7 +227,7 @@ type depWalker struct {
 	// constructors (FlattenProfileRoots, upgrade.go) always set this; unit
 	// tests that need "treat the ref's version expression as already
 	// concrete" pass an identity resolver explicitly rather than relying on a
-	// nil-means-identity production fallback (U083-F21).
+	// nil-means-identity production fallback.
 	resolveHash func(ref *remote.Reference) (hash, version string, kind remote.SelectorKind, ok bool)
 
 	pins    map[string]PinnedRef           // identity -> first-seen pin
@@ -314,7 +314,7 @@ func (w *depWalker) recurseParent(parentRef string) {
 	// Local parent (ctxloom:local) — recurse via the loader.
 	ref, err := remote.ParseReference(parentRef)
 	if err != nil {
-		// U083-F02: a malformed parent ref used to lose its whole subtree with
+		// A malformed parent ref used to lose its whole subtree with
 		// NO diagnostic at all — worse than the remote-fetch failures below,
 		// which already warn-and-record. Same hazard: a wholesale lockfile
 		// rewrite built from this narrowed closure would erase entries this
@@ -326,7 +326,7 @@ func (w *depWalker) recurseParent(parentRef string) {
 		if child, lerr := w.loader.Load(ref.Path); lerr == nil {
 			w.walkProfile(child, remote.LocalSource, "")
 		} else {
-			// U083-F02: an unreadable LOCAL parent profile is the same
+			// An unreadable LOCAL parent profile is the same
 			// "subtree missing from pins" hazard as an unreadable remote one
 			// (lines below) — it was silently skipped instead of recorded.
 			w.markUnexpanded(ref.Path, lerr)
@@ -342,7 +342,7 @@ func (w *depWalker) recurseParent(parentRef string) {
 	if !ok {
 		// Not a bundle-profile ref — a retired top-level @profiles/ parent (or a
 		// malformed ref). No longer distributable; its subtree is gone.
-		// U083-F02: this used to be silent — record it so a caller rebuilding
+		// This used to be silent — record it so a caller rebuilding
 		// the lockfile wholesale doesn't erase entries this subtree owned.
 		w.markUnexpanded(parentRef, errors.New("not a bundle-profile reference (<url>@bundles/x#profiles/y) — top-level @profiles/ parents are retired"))
 		return

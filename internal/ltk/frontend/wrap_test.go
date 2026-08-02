@@ -60,7 +60,7 @@ func TestExpandWrappers_BashDashC(t *testing.T) {
 // argv[0] regardless of case, for BOTH wrapper families: wrappedCommand
 // (interpreter wrappers like bash -c) and prefixWrapped (argv-prepending
 // wrappers like env). This is the behavior containsFold's own case-folding is
-// there to preserve (U068-F10) — argv[0] is already lowercased via
+// there to preserve — argv[0] is already lowercased via
 // strings.ToLower(path.Base(argv[0])) before either family's program-list
 // lookup runs, so a simplification of that lookup must not regress this.
 func TestExpandWrappers_MixedCaseProgramName(t *testing.T) {
@@ -242,8 +242,8 @@ func TestExpandWrappers_NotAWrapper(t *testing.T) {
 	}
 }
 
-// TestExpandWrappers_DepthCap pins the fail-CLOSED depth cap (lusty-probe,
-// second finding): a frontend that always reports a nested wrapper would
+// TestExpandWrappers_DepthCap pins the fail-CLOSED depth cap: a frontend
+// that always reports a nested wrapper would
 // recurse forever without the cap, so first ensure it terminates, then assert
 // the cap is reported as truncated=true — the signal app.Decide uses to deny
 // the command rather than silently evaluating an incomplete expansion.
@@ -279,7 +279,7 @@ func (recursiveWrapper) Parse(_ context.Context, shell ir.Shell, _ string) (*ir.
 	return cmdScript(shell, "bash", "-c", "bash -c x"), nil
 }
 
-// ---- argv-prepending wrappers (lusty-probe) --------------------------------
+// ---- argv-prepending wrappers -----------------------------------------------
 //
 // Unlike the interpreter wrappers above (whose inner command is a STRING that
 // must be re-parsed), these wrap by PREPENDING themselves to an otherwise
@@ -450,8 +450,8 @@ func (f *erroringFrontend) Parse(_ context.Context, shell ir.Shell, _ string) (*
 	return &ir.Script{Shell: shell}, fmt.Errorf("simulated parse failure")
 }
 
-// TestExpandWrappers_NestedParseFailureReportsUnanalyzed pins U066-F01 /
-// U068-F01 / U070-F01 / U071-F01: a wrapper whose inner command string fails
+// TestExpandWrappers_NestedParseFailureReportsUnanalyzed pins that a
+// wrapper whose inner command string fails
 // to parse must not be silently dropped from the IR with no trace. Before the
 // fix, expandWrappers discarded the error from the nested r.Parse call
 // entirely (`nested, _ := r.Parse(...)`), so a `bash -c "<unparseable>"` was
@@ -484,7 +484,7 @@ func TestExpandWrappers_UnsupportedNestedShellReportsUnanalyzed(t *testing.T) {
 	}
 }
 
-// TestJoinWords_PreservesAlreadyQuotedMultiWordToken pins U069-F10: a wrapper
+// TestJoinWords_PreservesAlreadyQuotedMultiWordToken pins that a wrapper
 // whose inner command is reconstructed from ALREADY-TOKENIZED argv must not
 // lose word boundaries that were only visible before that tokenization.
 // `cmd.exe /c bash -c "go test"` is parsed by the OUTER shell first, which
@@ -671,7 +671,7 @@ func TestExpandWrappers_NestedArgvDoesNotAliasParent(t *testing.T) {
 	}
 }
 
-// TestExpandWrappers_DependsOnTheRegistrysDispatchTable refutes U068-F08's
+// TestExpandWrappers_DependsOnTheRegistrysDispatchTable refutes the
 // premise that the wrapper-expansion algorithm "touches none of Registry's
 // fields". It reaches the dispatch table through Registry.Parse — the type's
 // own API rather than its field, which is what a method is for — and the

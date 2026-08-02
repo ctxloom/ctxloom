@@ -88,7 +88,7 @@ func (rule wrapperRule) matches(prog string, sh ir.Shell) bool {
 //     wrapper's inner command vanished from the IR with no signal — the
 //     nested command was simply invisible to every rule, `on_parse_error`
 //     included, because that policy is only ever consulted at the TOP-level
-//     parse (U066-F01/U068-F01/U070-F01/U071-F01). Whatever the frontend
+//     parse. Whatever the frontend
 //     managed to salvage is still appended (dropping it would fail OPEN in
 //     the other direction), but the caller now learns the view is incomplete.
 func (r *Registry) ExpandWrappers(ctx context.Context, s *ir.Script) (truncated, unanalyzed bool) {
@@ -278,18 +278,7 @@ func (rule wrapperRule) extract(args []string) (string, bool) {
 // joinWords reassembles an already-tokenized argv slice into a single command
 // string for another frontend's Parse to re-tokenize. A bare space-join loses
 // word boundaries whenever a token itself contains whitespace — the exact
-// mechanism behind U069-F10: `cmd.exe /c bash -c "go test"` is parsed by the
-// OUTER shell first, which already collapses `"go test"` into one argv
-// element; naively re-joining `[bash -c "go test"]` with spaces and handing
-// that to another frontend re-splits it into `go` and `test`, so a rule
-// matching `go test` (but not bare `go`) never fires even though `go test` IS
-// the command that actually runs. Double-quoting any token that contains
-// whitespace, a quote, or is empty round-trips through every registered
-// frontend (POSIX shells, cmd.exe, and PowerShell all treat "…" as one word).
-// joinWords reassembles an already-tokenized argv slice into a single command
-// string for another frontend's Parse to re-tokenize. A bare space-join loses
-// word boundaries whenever a token itself contains whitespace — the exact
-// mechanism behind U069-F10: `cmd.exe /c bash -c "go test"` is parsed by the
+// mechanism behind a real bypass: `cmd.exe /c bash -c "go test"` is parsed by the
 // OUTER shell first, which already collapses `"go test"` into one argv
 // element; naively re-joining `[bash -c "go test"]` with spaces and handing
 // that to another frontend re-splits it into `go` and `test`, so a rule
@@ -423,7 +412,7 @@ func innerShell(prog string, outer ir.Shell) ir.Shell {
 	return outer
 }
 
-// ---- argv-prepending wrappers (lusty-probe) --------------------------------
+// ---- argv-prepending wrappers -----------------------------------------------
 //
 // wrapperRule (above) covers INTERPRETER wrappers, whose inner command is a
 // single STRING argument that must be re-parsed (`sh -c "…"`). A different
@@ -479,7 +468,7 @@ var prefixWrapperRules = []prefixWrapperRule{
 // program and recognized options/operands stripped off. Unlike wrappedCommand
 // (interpreter wrappers, which switch dialect), a prefix wrapper's inner
 // command runs in the same shell as the wrapper itself, so there is no shell
-// parameter to carry (U068-F11 — a prior speculative `_ ir.Shell` parameter
+// parameter to carry (a prior speculative `_ ir.Shell` parameter
 // had no reader anywhere and was dropped; re-add it if a future wrapper
 // actually needs to know the dialect).
 func prefixWrapped(argv []string) ([]string, bool) {

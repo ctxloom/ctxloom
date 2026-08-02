@@ -32,14 +32,13 @@ func New() *Frontend { return &Frontend{} }
 // Shells reports the dialects handled by this frontend.
 func (f *Frontend) Shells() []ir.Shell { return []ir.Shell{ir.ShellCmd} }
 
-// Parse lowers src into a Script. It is best-effort and never errors.
 // Parse lowers src into a Script. It is best-effort: whatever it recovers is
-// always returned, but it now DOES report an error (U069-F01) when tokens are
+// always returned, but it now DOES report an error when tokens are
 // left over after a full parseSequence — the only way that happens is an
 // unmatched ')' at the top level (parseSequence stops there so a group's
 // caller, parsePipeline, can consume it; at the true top there is no such
 // caller). Previously this silently dropped every token after the stray ')'
-// with no signal at all (U069-F02): `echo hi) & del /f /q important-file`
+// with no signal at all: `echo hi) & del /f /q important-file`
 // parsed as just `echo hi`, so a deny rule targeting `del` never even saw it,
 // while real cmd.exe still runs everything after the ')' verbatim (it has no
 // special meaning there). Reporting it as a parse error routes it through the

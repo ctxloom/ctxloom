@@ -27,8 +27,8 @@ import (
 // parseTimeout bounds a single shell-out to the PowerShell parser.
 const parseTimeout = 5 * time.Second
 
-// errUnavailable means no PowerShell executable was found on PATH. Unexported
-// (U070-F02): it was previously an exported sentinel with zero errors.Is/
+// errUnavailable means no PowerShell executable was found on PATH. Unexported:
+// it was previously an exported sentinel with zero errors.Is/
 // comparison sites anywhere in the repo, including tests — nothing ever
 // distinguished "PowerShell missing" from any other run failure, so it
 // carried no identity-comparison contract worth publishing. Its message still

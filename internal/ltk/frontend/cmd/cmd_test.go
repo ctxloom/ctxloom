@@ -89,8 +89,8 @@ func TestQuotedArgument(t *testing.T) {
 	}
 }
 
-// TestUnterminatedQuoteKeepsRestOfLineLiteral pins the behaviour U069-F03
-// reads as a defect: an unterminated `"` swallows the rest of the line into
+// TestUnterminatedQuoteKeepsRestOfLineLiteral pins behaviour that could be
+// misread as a defect: an unterminated `"` swallows the rest of the line into
 // one word, so `del` is not surfaced as a further command.
 //
 // That is what cmd.exe itself does. Its parser tracks quote state across the
@@ -98,7 +98,7 @@ func TestQuotedArgument(t *testing.T) {
 // open, so an odd number of quotes leaves the remainder literal and no second
 // command ever runs. Splitting here would make ltk match rules against a
 // command cmd.exe will not execute — a false denial invented by ltk's own
-// parser. Do not "fix" this by re-lexing the tail; see U069-F03.
+// parser. Do not "fix" this by re-lexing the tail.
 func TestUnterminatedQuoteKeepsRestOfLineLiteral(t *testing.T) {
 	s := parse(t, `echo "hi & del /f /q important-file`)
 	if got := programs(s); !reflect.DeepEqual(got, []string{"echo"}) {
@@ -164,7 +164,7 @@ func TestPercentExpansionKeptLiteral(t *testing.T) {
 	}
 }
 
-// TestSameLineSetIsNotVariableIndirection records what U069-F04's cited
+// TestSameLineSetIsNotVariableIndirection records what a cited same-line-set
 // evasion actually does. cmd.exe expands every %VAR% on a line when it READS
 // the line, before running any part of it, so `%X%` here takes X's value from
 // before `set X=go` ran — and an unset name is left verbatim rather than
@@ -233,7 +233,7 @@ func TestShells(t *testing.T) {
 	}
 }
 
-// TestUnmatchedCloseParenErrors pins U069-F01/F02: a stray ')' at the top
+// TestUnmatchedCloseParenErrors pins that a stray ')' at the top
 // level (no enclosing '(') must be reported as a parse error, not silently
 // swallow every token that follows it. Before the fix, Parse never returned
 // an error at all, and parseSequence simply stopped at the ')', dropping

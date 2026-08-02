@@ -75,7 +75,7 @@ const protocolFloor = api.ProtocolVersion(api.ProtocolVersionNumber)
 // These are type ALIASES, not new types — every existing acpagent.X reference
 // in this package (and any external caller) keeps compiling unchanged.
 //
-// U014-F13: LLMInfo and CommandInfo used to be aliased here too, referenced
+// LLMInfo and CommandInfo used to be aliased here too, referenced
 // only by this package's own tests (never production) — deleted; tests now
 // spell out operations.LLMInfo/operations.CommandInfo directly.
 type (
@@ -480,7 +480,7 @@ func (s *Server) handleSessionLoad(params json.RawMessage, reply func(any, *json
 		reply(nil, rerr)
 		return
 	}
-	// U014-F03: count what actually reached the wire against what the
+	// Count what actually reached the wire against what the
 	// recorded history HAD, rather than trusting the loop ran. replayEntry
 	// (mapping.go) returns nil for entry types/shapes it does not map — a
 	// history recorded entirely in unmapped shapes replays zero frames and,
@@ -663,7 +663,7 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 		return
 	}
 
-	// U014-F02 (route a): a session/prompt whose blocks are ALL unrecognized
+	// A session/prompt whose blocks are ALL unrecognized
 	// variants flattens to text == "" via promptText's switch (no default
 	// case) and blocks == nil via contentBlocksFromACP's identical switch — a
 	// zero-byte message forwarded to the engine as an ordinary, successful
@@ -686,7 +686,7 @@ func (s *Server) handlePrompt(params json.RawMessage, reply func(any, *jsonrpc.E
 	case <-sess.cancelTurnCh: // drop a stale signal from a cancel that raced a completed turn
 	default:
 	}
-	// U014-F01: whether THIS turn carries the lead-context prefix is decided
+	// Whether THIS turn carries the lead-context prefix is decided
 	// here, but committing sess.contextSent = true must wait until runTurn
 	// proves the message actually reached the engine (its own send to
 	// sess.engine.In succeeds) — see runTurn's doc. Deciding and committing in
@@ -782,7 +782,7 @@ func turnEnds(result any, err *jsonrpc.Error) *turnOutcome {
 func (s *Server) deliverTurn(sess *session, text string, blocks []agent.ContentBlock, prependsContext bool) *turnOutcome {
 	select {
 	case sess.engine.In <- agent.ChatMessage{Text: text, ContentBlocks: blocks}:
-		// U014-F01: ONLY now, having proven the engine actually received this
+		// ONLY now, having proven the engine actually received this
 		// turn's message, is it true that the lead context (if this turn
 		// carried it — see handlePrompt) was delivered. Committing this
 		// earlier (handlePrompt used to, unconditionally, before this send

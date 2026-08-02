@@ -100,7 +100,7 @@ func expandCommand(ctx context.Context, commands *SessionCommands, text string) 
 	if !ok {
 		return text, false, nil
 	}
-	// U014-F02 (route b): a matched command resolving to an empty string used
+	// A matched command resolving to an empty string used
 	// to be treated as a successful expansion — handlePrompt would then
 	// overwrite the turn's text with "" and send the engine a zero-byte
 	// message, reporting success. An empty resolution is exactly as much a

@@ -265,7 +265,7 @@ func TestServe_PromptCommandResolveError(t *testing.T) {
 	assert.Contains(t, resp.Error.Message, "bundle vanished mid-session")
 }
 
-// TestServe_PromptCommandResolveEmpty pins U014-F02 (route b): a MATCHED
+// TestServe_PromptCommandResolveEmpty pins that a MATCHED
 // command that resolves to an EMPTY string used to be treated as a
 // successful expansion — handlePrompt would overwrite the turn's text with
 // "" and forward a zero-byte message to the engine, reporting success. An
@@ -297,7 +297,7 @@ func TestServe_PromptCommandResolveEmpty(t *testing.T) {
 	require.Nil(t, resp.Error)
 }
 
-// TestServe_PromptEmptyBlocks_Refused pins U014-F02 (route a): a
+// TestServe_PromptEmptyBlocks_Refused pins that a
 // session/prompt with no recognized content flattens to text=="" (promptText
 // over zero/unrecognized blocks) and blocks==nil (contentBlocksFromACP's own
 // explicit empty-input return) — a zero-byte message that used to be
@@ -326,7 +326,7 @@ func TestServe_PromptEmptyBlocks_Refused(t *testing.T) {
 }
 
 // TestServe_CommandInvokedWithMediaBlock_ArgumentsExcludeThePlaceholder pins
-// U014-F16. promptText flattens an image/audio block into a labeled
+// that promptText flattens an image/audio block into a labeled
 // placeholder line and joins it to the user's text; handlePrompt then handed
 // that whole joined string to expandCommand. So a "/name ..." invocation sent
 // alongside an attachment passed the placeholder to the command as part of

@@ -23,7 +23,7 @@ import (
 // SessionMode/CurrentModeUpdate, which the current spec defines identically
 // to what H1 confirmed ctxloom already emitted.
 
-// U014-F13: DefaultModeID used to be aliased here too (it lives in
+// DefaultModeID used to be aliased here too (it lives in
 // internal/operations, engine_types.go, alongside SessionModes, as the
 // synthetic mode ID for the configured default profile set), referenced only
 // by this package's own tests — deleted; tests now spell out
@@ -39,7 +39,7 @@ import (
 // the models advertisement TODAY and almost certainly do not speak
 // session/set_config_option yet.
 //
-// U014-F11 RETIREMENT TRIGGER (recorded, not yet met): drop the `models`
+// RETIREMENT TRIGGER (recorded, not yet met): drop the `models`
 // field from this struct and loadSessionResult, and delete modelState/
 // modelWire/modelStateWire entirely, once BOTH named target clients
 // (agentic.nvim, formulahendry's picker) speak session/set_config_option's

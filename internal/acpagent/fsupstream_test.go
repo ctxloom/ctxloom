@@ -122,7 +122,7 @@ func TestServe_FsUpstream_NotOfferedWhenClientDeclinesFs(t *testing.T) {
 	assert.Empty(t, gotAddr, "no fs capability declared -> no fs-upstream address offered at all")
 }
 
-// TestFsUpstream_CloseRemovesTheTempDir pins U014-F09: startFsUpstream mints a
+// TestFsUpstream_CloseRemovesTheTempDir pins that startFsUpstream mints a
 // private temp DIRECTORY to hold its socket, but Close removed only the socket
 // FILE — so every fs-upstream session left an empty ctxloom-acp-fs-* directory
 // behind in TMPDIR for the life of the machine. Both failure paths inside
@@ -145,8 +145,8 @@ func TestFsUpstream_CloseRemovesTheTempDir(t *testing.T) {
 		"Close must remove the temp DIRECTORY it created, not just the socket inside it; %s still exists", dir)
 }
 
-// TestOpenSessionWithFsUpstream_ListenerAttachedBeforePublication pins
-// U014-F08. openSession publishes the session into s.sessions — and starts
+// TestOpenSessionWithFsUpstream_ListenerAttachedBeforePublication pins that
+// openSession publishes the session into s.sessions — and starts
 // its child-watch goroutine — while sess.fsUpstream is still unset;
 // openSessionWithFsUpstream assigns that field only AFTER openSession
 // returns, under no lock at all. closeAllSessions reads the same field from
@@ -195,7 +195,7 @@ func TestOpenSessionWithFsUpstream_ListenerAttachedBeforePublication(t *testing.
 	}
 }
 
-// TestServe_FsUpstream_WriteRefusedWhenEditorDeclaredOnlyRead pins U014-F10:
+// TestServe_FsUpstream_WriteRefusedWhenEditorDeclaredOnlyRead pins that
 // the reach-back listener is stood up on the editor's readTextFile capability
 // ALONE, but the handler relays fs/write_text_file as well — and the editor's
 // own writeTextFile capability was read nowhere in the repo. An editor that

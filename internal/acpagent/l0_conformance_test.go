@@ -50,7 +50,7 @@ type l0Capture struct {
 // instead of silently starting to pass a check that no longer means what it
 // used to — that is the signal to shrink this map, not to delete the test.
 // The map went back to non-empty when L0 switched from acptest.NewValidator
-// to acptest.NewStrictValidator (U014-F24): as vendored, schema-v1.19.0
+// to acptest.NewStrictValidator: as vendored, schema-v1.19.0
 // closes no object shape at all, so the harness could see a MISSING required
 // field but never an EXTRA one. The strict Validator derives a closed copy of
 // the same vendored bytes and measures that second half; `models` below is
@@ -91,7 +91,7 @@ var l0KnownDivergences = map[string]string{
 	// not open-ended, removal condition.
 	//
 	// WHEN THIS ENTRY COMES OFF — DO NOT DELETE IT AS STALE: it goes when
-	// U014-F11's retirement trigger fires, i.e. when wire.go's
+	// the retirement trigger fires, i.e. when wire.go's
 	// newSessionResult/loadSessionResult drop the `models` field and
 	// modelState/modelWire/modelStateWire are deleted. That trigger, and its
 	// two named preconditions, are recorded in full on newSessionResult's doc
@@ -360,15 +360,15 @@ func TestL0_KnownDivergenceSubstringsAreDistinct(t *testing.T) {
 	}
 }
 
-// TestCheckL0_StaleKnownDivergenceFailsLoudly pins U014-F21's refutation.
+// TestCheckL0_StaleKnownDivergenceFailsLoudly pins a refutation.
 // The unit review flagged l0KnownDivergences (empty at the time) and this
 // map's ratchet branch in checkL0 as NOPAY — "guards an empty map, pays for
 // nothing" — because with zero entries at that moment, checkL0's
 // known-divergence branch never executed and
 // TestL0_KnownDivergenceSubstringsAreDistinct iterated nothing. The map is
-// non-empty again (U014-F24's strict validator found `models`), so the
+// non-empty again (the strict validator found `models`), so the
 // premise no longer even holds; but the refutation stands on its own and the
-// map will empty out again when U014-F11 lands. This test arms it
+// map will empty out again when the retirement trigger lands. This test arms it
 // synthetically to prove the ratchet still bites: if checkL0 didn't require
 // a LISTED divergence to still be failing, a real regression (an emitter
 // silently starting to conform where it used to knowingly diverge, or vice
@@ -385,8 +385,8 @@ func TestCheckL0_StaleKnownDivergenceFailsLoudlySubprocess(t *testing.T) {
 		t.Skip("only runs when re-invoked by TestCheckL0_StaleKnownDivergenceFailsLoudly")
 	}
 	v := mustValidator(t)
-	// SetSessionModeResponse has no required fields in schema-v1.19.0 (see
-	// U014-F23's finding), so `{}` validates cleanly — i.e. exactly the
+	// SetSessionModeResponse has no required fields in schema-v1.19.0, so
+	// `{}` validates cleanly — i.e. exactly the
 	// "listed divergence stopped reproducing" case checkL0 must catch.
 	l0KnownDivergences = map[string]string{"synthetic-stale-divergence": "this substring can never appear because the payload validates cleanly"}
 	checkL0(t, v, l0Capture{
@@ -396,15 +396,15 @@ func TestCheckL0_StaleKnownDivergenceFailsLoudlySubprocess(t *testing.T) {
 	})
 }
 
-// TestCheckL0_StaleKnownDivergenceFailsLoudly pins U014-F21's refutation.
+// TestCheckL0_StaleKnownDivergenceFailsLoudly pins a refutation.
 // The unit review flagged l0KnownDivergences (empty at the time) and this
 // map's ratchet branch in checkL0 as NOPAY — "guards an empty map, pays for
 // nothing" — because with zero entries at that moment, checkL0's
 // known-divergence branch never executed and
 // TestL0_KnownDivergenceSubstringsAreDistinct iterated nothing. The map is
-// non-empty again (U014-F24's strict validator found `models`), so the
+// non-empty again (the strict validator found `models`), so the
 // premise no longer even holds; but the refutation stands on its own and the
-// map will empty out again when U014-F11 lands. This test re-invokes this
+// map will empty out again when the retirement trigger lands. This test re-invokes this
 // binary (`go test -run`) with a synthetic listed divergence armed against a
 // payload that validates cleanly, and asserts the SUBPROCESS exits non-zero —
 // proving checkL0 still fails loud when a listed divergence stops

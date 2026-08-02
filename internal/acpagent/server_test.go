@@ -370,7 +370,7 @@ func TestServe_CancelRace(t *testing.T) {
 	assert.Contains(t, string(resp.Result), `"cancelled"`)
 }
 
-// TestServe_ContextNotMarkedSentUntilEngineReceivesIt pins U014-F01: the
+// TestServe_ContextNotMarkedSentUntilEngineReceivesIt pins that the
 // server used to commit sess.contextSent = true synchronously in
 // handlePrompt, BEFORE the turn's message was actually handed to the engine
 // in runTurn's own select. A turn that lost that race — cancelled before the
@@ -683,7 +683,7 @@ func TestServe_SessionLoad(t *testing.T) {
 	require.Nil(t, resp.Error)
 }
 
-// TestServe_SessionLoad_ReplaysNothingWarnsVisibly pins U014-F03: a recorded
+// TestServe_SessionLoad_ReplaysNothingWarnsVisibly pins that a recorded
 // history whose every entry maps to ZERO session/update frames (here: a
 // user entry with empty Content, which replayEntry explicitly drops) used to
 // let session/load reply success having replayed nothing — the editor sees
@@ -1039,7 +1039,7 @@ func TestMcpServersFromACP_RejectsUnreachableVariants(t *testing.T) {
 	assert.Equal(t, "kept", got[0].Name)
 }
 
-// TestServe_CancelWithUndecodableParamsWarns pins U014-F19: a session/cancel
+// TestServe_CancelWithUndecodableParamsWarns pins that a session/cancel
 // notification whose params fail to decode used to return with no trace at
 // all, so a user's cancel disappeared silently — while an UNKNOWN method on
 // the very same path already warned. A cancel that cannot be decoded is
@@ -1109,7 +1109,7 @@ func (w *errAfterHandshakeWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// TestOpenSession_FailureAfterRegistrationReleasesTheSession pins U014-F04: a
+// TestOpenSession_FailureAfterRegistrationReleasesTheSession pins that a
 // step that fails AFTER openSession has published the session into s.sessions
 // (the init summary, the commands update, the history replay) replied with an
 // error but left the session registered, holding a live engine conversation
@@ -1145,7 +1145,7 @@ func TestOpenSession_FailureAfterRegistrationReleasesTheSession(t *testing.T) {
 		"a session/load that failed after registration must not keep the harp occupied — the client was never given this session")
 }
 
-// TestOpenSession_LostRaceOnFixedIDIsRefusedNotRenamed pins U014-F05:
+// TestOpenSession_LostRaceOnFixedIDIsRefusedNotRenamed pins that
 // openSession's duplicate check for a FIXED (session/load) id ran before the
 // engine was opened, and the registration that followed re-tested the map
 // under the lock with a fallback that MINTED a generated "ctxloom-N" id. So a
@@ -1177,8 +1177,8 @@ func TestOpenSession_LostRaceOnFixedIDIsRefusedNotRenamed(t *testing.T) {
 	assert.Contains(t, rerr.Message, "tidy-old-harp")
 }
 
-// TestRunTurn_EventsClosedWithoutErrsStillResolvesTheTurn pins U014-F06.
-// When the engine's Events channel closes mid-turn and the turn was not
+// TestRunTurn_EventsClosedWithoutErrsStillResolvesTheTurn pins that
+// when the engine's Events channel closes mid-turn and the turn was not
 // cancelled, runTurn replied with engineError(<-sess.engine.Errs) — a BARE
 // blocking receive. That is only safe if whoever closed Events also closed
 // (or wrote) Errs. The production producer does close both from one defer,
@@ -1230,7 +1230,7 @@ func (w *frameFailingWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// TestSwitchProfile_FailedModeNotificationFailsTheRequest pins U014-F07:
+// TestSwitchProfile_FailedModeNotificationFailsTheRequest pins that
 // switchProfile warned and continued when either of its two session/update
 // notifications failed, then returned nil — so session/set_mode and
 // session/set_config_option answered SUCCESS to a client that never received
@@ -1270,7 +1270,7 @@ func TestSwitchProfile_FailedModeNotificationFailsTheRequest(t *testing.T) {
 		"the client never got the current_mode_update, so set_mode must not answer success")
 }
 
-// TestInitialize_AgentInfoVersionIsTheBuildStamp pins U014-F18. agentVersion
+// TestInitialize_AgentInfoVersionIsTheBuildStamp pins that agentVersion
 // used to be the constant "1.0.0", reported to every connected editor as
 // agentInfo.version: not the build stamp internal/cli.Version carries, never
 // bumped, and naming a release ctxloom has never made — so the one field the
@@ -1316,7 +1316,7 @@ func TestSetAgentVersion_EmptyKeepsTheDefault(t *testing.T) {
 	assert.Equal(t, "v1.2.3", agentVersion)
 }
 
-// TestServe_SessionLoad_ResponseBodyCarriesTheSessionState pins U014-F23:
+// TestServe_SessionLoad_ResponseBodyCarriesTheSessionState pins that
 // session/load's response BODY was asserted nowhere. TestServe_SessionLoad
 // checked only that resp.Error was nil and then moved on to the replay
 // notifications; TestL1_SessionLoad_ReplaysBeforeResponse discards the raw

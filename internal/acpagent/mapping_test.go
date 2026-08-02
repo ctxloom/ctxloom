@@ -175,7 +175,7 @@ func TestMapEvent_RawOnlyPassthrough(t *testing.T) {
 	})
 }
 
-// TestContentBlocksFromACP_MarshalFailureIsLoud pins U014-F17: when
+// TestContentBlocksFromACP_MarshalFailureIsLoud pins that when
 // json.Marshal of a prompt block failed, contentBlocksFromACP `continue`d,
 // dropping that block from the structured payload entirely — the exact silent
 // drop the function exists to prevent, and with nothing said anywhere.
@@ -204,7 +204,7 @@ func TestContentBlocksFromACP_MarshalFailureIsLoud(t *testing.T) {
 		"dropping a prompt block must be reported, never silent")
 }
 
-// TestUsageUpdateWire_CostOnlyTurnReportsNoGauge pins U014-F14: a turn that
+// TestUsageUpdateWire_CostOnlyTurnReportsNoGauge pins that a turn that
 // reports only cost (no InputTokens, no ContextWindow) passes
 // usageUpdateWire's guard and used to emit {"used":0,"size":0,"cost":{...}}.
 // api.SessionUsageUpdate declares `used` and `size` without omitempty, so

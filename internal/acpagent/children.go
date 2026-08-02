@@ -7,7 +7,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// D3 (manly-grant (2), Wave D playbook): Tier A push — a delegated child's
+// D3: Tier A push — a delegated child's
 // live activity surfaces in the connected editor's transcript as it happens,
 // not only via agent_recv/roster polling. This file is deliberately
 // decoupled from internal/agentcoord/coord (the same layering EngineChat
@@ -21,7 +21,7 @@ import (
 // it. An alias, not a new type — every existing acpagent.ChildUpdate
 // reference keeps compiling unchanged.
 //
-// U014-F13: ChildUpdateKind used to be aliased here too, with zero
+// ChildUpdateKind used to be aliased here too, with zero
 // references anywhere in the repo outside its own declaration (not even
 // test-only) — deleted; use operations.ChildUpdateKind directly if a
 // consumer ever needs it.

@@ -113,3 +113,51 @@ Feature: A new engineer clones the repo and is already set up
       | kiro        |
       | antigravity |
       | codex       |
+
+  # U3's axis-aware row (FLOWS-UNIFIED.md §3, finding class (b)): "what Bob
+  # does NOT inherit on engine X". The outline above is the reassuring half —
+  # four engines, same context, each in its own idiom. This is the other
+  # half, and it is the one that bit somebody: Bob's deskmate uses opencode,
+  # got the same bundle, and did NOT get the team's guardrails.
+  #
+  # The loss is STRUCTURAL, not a bug: internal/opencode's NewSurfaces
+  # registers a context surface, a folded settings+MCP surface, commands and
+  # skills — and no hook surface at all, because opencode has no
+  # ctxloom-managed hook mechanism to write into. Three of the four things
+  # the team shares do cross; the fourth cannot.
+  #
+  # Asserting the loss on the payload matters more here than usual, because
+  # the deceiving signal is so strong: `profile materialize --backend
+  # opencode` exits 0 and prints "wrote context / wrote settings / wrote
+  # commands / wrote skills". Every line is true. Nothing is false. The
+  # guardrail is simply not in the list, and no reader was ever going to
+  # notice an absence in a success report.
+  Scenario: Bob's opencode deskmate inherits the team's context and commands, but its hooks cannot follow
+    Given Carol's team profile carries a shared fragment, command, MCP server, and hook
+    When Alice materializes the team profile for opencode
+    Then the materialized opencode context carries the shared fragment's marker, in its own native shape
+    And the materialized opencode MCP configuration carries the shared server's command, in its own native shape
+    And the materialized opencode command file carries the shared command's body, in its own native shape
+    And no opencode surface anywhere in the materialized tree carries the shared hook's command
+
+  # @wip — THE PRODUCT GAP, stated as the scenario that would prove it fixed.
+  # The scenario above proves the loss is real; this one asks for the thing
+  # that would have saved Bob's deskmate an afternoon: the materialize report
+  # naming what it could not deliver. There is no per-engine capability-loss
+  # report at materialize time today (FLOWS-UNIFIED.md §4 finding class (b),
+  # boundary B7's axis face), so this cannot honestly go green and is not
+  # pretended into one.
+  #
+  # It fails on the RIGHT thing: `profile materialize --backend opencode`
+  # never mentions hooks in any form, so the assertion is not sensitive to
+  # the eventual wording — only to whether the loss is reported at all.
+  #
+  # UNTAG CONDITION: when `profile materialize` reports the surfaces an
+  # engine cannot carry, and the opencode run's report mentions the hook it
+  # dropped. Until then this journey's honest state is "one silent per-engine
+  # loss, discovered by accident rather than by tool".
+  @wip
+  Scenario: Materializing for an engine that cannot carry hooks says so
+    Given Carol's team profile carries a shared fragment, command, MCP server, and hook
+    When Alice materializes the team profile for opencode
+    Then the materialize report names the hook it could not deliver to opencode

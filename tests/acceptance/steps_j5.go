@@ -14,6 +14,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -122,6 +123,33 @@ func registerJ5Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the materialized (\S+) command file carries the shared command's body, in its own native shape$`, func(c context.Context, engine string) error {
 		return j5AssertCommand(worldFrom(c), engine)
 	})
+
+	// --- U3: per-engine capability LOSS, asserted as a payload absence -----
+	//
+	// The inverse of the four "carries ... in its own native shape" steps: it
+	// walks EVERY file the materialize wrote and proves the hook command is
+	// in none of them. Deliberately not a "the file X does not contain"
+	// assertion against one guessed path — an absence claim is only worth
+	// something if it covers the whole output tree, since the interesting
+	// failure mode is "it landed somewhere I did not think to look".
+	ctx.Step(`^no (\S+) surface anywhere in the materialized tree carries the shared hook's command$`,
+		func(c context.Context, engine string) error {
+			return j5AssertNoHookAnywhere(worldFrom(c), engine)
+		})
+
+	// The other half of the same finding, and the one that is @wip: the loss
+	// above is STRUCTURAL and fine to have, but silent. This asserts the
+	// materialize report says so.
+	ctx.Step(`^the materialize report names the hook it could not deliver to (\S+)$`,
+		func(c context.Context, engine string) error {
+			w := worldFrom(c)
+			out := w.env.LastOutput()
+			w.docStepMaterialized = fmt.Sprintf("materialize report for %s:\n%s", engine, out)
+			if !strings.Contains(strings.ToLower(out), "hook") {
+				return fmt.Errorf("the %s materialize report never mentions hooks at all, so a team inheriting this profile is never told its guardrails did not come with it; report:\n%s", engine, out)
+			}
+			return nil
+		})
 
 	// --- Regression: hand-authored content survives (P0 data loss) -----------
 	//
@@ -260,6 +288,11 @@ func engineContextRelPath(dir, engine string) (string, error) {
 		return filepath.Join(dir, ".kiro", "steering", "ctxloom-context.md"), nil
 	case "antigravity":
 		return filepath.Join(dir, ".agents", "AGENTS.md"), nil
+	case "opencode":
+		// opencode's ctxloom-owned context file, referenced from
+		// opencode.json's `instructions` key (internal/opencode's
+		// contextSurface / OpencodeWriter.WriteContext).
+		return filepath.Join(dir, ".opencode", "ctxloom-context.md"), nil
 	default:
 		return "", fmt.Errorf("unknown engine %q for native context surface", engine)
 	}
@@ -309,36 +342,11 @@ func j5ReadTOML(w *World, rel string) (map[string]any, error) {
 // "mcp_servers" table folded into config.toml) and asserts the shared
 // server's command landed under its name.
 func j5AssertMCP(w *World, engine string) error {
-	j5 := j5Of(w)
-	dir := j5.target
-	var (
-		doc map[string]any
-		err error
-		key string
-		rel string
-	)
-	switch engine {
-	case "claude-code":
-		rel = filepath.Join(dir, ".mcp.json")
-		doc, err = j5ReadJSON(w, rel)
-		key = "mcpServers"
-	case "kiro":
-		rel = filepath.Join(dir, ".kiro", "settings", "mcp.json")
-		doc, err = j5ReadJSON(w, rel)
-		key = "mcpServers"
-	case "antigravity":
-		rel = filepath.Join(dir, ".agents", "mcp_config.json")
-		doc, err = j5ReadJSON(w, rel)
-		key = "mcpServers"
-	case "codex":
-		// codex has NO distinct MCP file — it folds "mcp_servers" into the
-		// SAME config.toml the hooks assertion below also reads.
-		rel = filepath.Join(dir, ".codex", "config.toml")
-		doc, err = j5ReadTOML(w, rel)
-		key = "mcp_servers"
-	default:
-		return fmt.Errorf("j5: unknown engine %q", engine)
+	rel, key, err := j5MCPRegistryFor(j5Of(w).target, engine)
+	if err != nil {
+		return err
 	}
+	doc, err := j5ReadMCPRegistry(w, rel)
 	if err != nil {
 		return err
 	}
@@ -350,7 +358,7 @@ func j5AssertMCP(w *World, engine string) error {
 	if !ok {
 		return fmt.Errorf("%s: no %q server entry under %q; parsed: %+v", engine, "toolserver", key, top)
 	}
-	cmd, _ := srv["command"].(string)
+	cmd := j5ServerCommand(srv)
 	// Surface the real parsed server entry — the actual command (and args, if
 	// any) this engine's OWN file carries under its own table name (mcpServers
 	// vs codex's mcp_servers) — to the @doc capture sidecar (set-and-consume;
@@ -365,6 +373,54 @@ func j5AssertMCP(w *World, engine string) error {
 		return fmt.Errorf("%s's MCP server %q has command %q, want %q", engine, "toolserver", cmd, j5MCPCommand)
 	}
 	return nil
+}
+
+// j5MCPRegistryFor names the file an engine keeps its MCP registry in, and the
+// table key inside it. Three engines share JSON's "mcpServers" (one
+// agent.MCPFileConfig reconciler backs all of them); codex folds "mcp_servers"
+// into the same config.toml its hooks live in; opencode folds "mcp" into the
+// same opencode.json its `instructions` context reference lives in.
+func j5MCPRegistryFor(dir, engine string) (rel, key string, err error) {
+	switch engine {
+	case "claude-code":
+		return filepath.Join(dir, ".mcp.json"), "mcpServers", nil
+	case "kiro":
+		return filepath.Join(dir, ".kiro", "settings", "mcp.json"), "mcpServers", nil
+	case "antigravity":
+		return filepath.Join(dir, ".agents", "mcp_config.json"), "mcpServers", nil
+	case "codex":
+		return filepath.Join(dir, ".codex", "config.toml"), "mcp_servers", nil
+	case "opencode":
+		return filepath.Join(dir, "opencode.json"), "mcp", nil
+	default:
+		return "", "", fmt.Errorf("j5: unknown engine %q", engine)
+	}
+}
+
+// j5ReadMCPRegistry decodes an MCP registry file by its extension — TOML for
+// codex's config.toml, JSON for everyone else — so the caller does not repeat
+// the format choice alongside the path choice.
+func j5ReadMCPRegistry(w *World, rel string) (map[string]any, error) {
+	if filepath.Ext(rel) == ".toml" {
+		return j5ReadTOML(w, rel)
+	}
+	return j5ReadJSON(w, rel)
+}
+
+// j5ServerCommand reads one MCP server entry's executable, tolerating the two
+// native shapes in play. Most engines carry a "command" STRING beside a
+// separate "args" list; opencode carries a single "command" ARRAY whose first
+// element is the binary. Reading both keeps the per-engine dispatch honest
+// about each engine's OWN idiom rather than asserting a shape it does not use.
+func j5ServerCommand(srv map[string]any) string {
+	if cmd, ok := srv["command"].(string); ok && cmd != "" {
+		return cmd
+	}
+	if argv, ok := srv["command"].([]any); ok && len(argv) > 0 {
+		first, _ := argv[0].(string)
+		return first
+	}
+	return ""
 }
 
 // j5FormatArgs renders a decoded JSON/TOML args array (a []any of strings) as
@@ -490,6 +546,46 @@ func j5AssertHook(w *World, engine string) error {
 // directories (G3 fix: the old flat `<name>.md` was a silent no-op agy's
 // skill scanner never discovered — see capabilities.go's WriteCommandFiles
 // doc comment), the SAME shape kiro already used.
+// j5AssertNoHookAnywhere proves a capability LOSS on the payload: it walks the
+// whole materialized tree and fails if ANY file carries the shared hook's
+// command. Used by U3's opencode row, where hooks are structurally absent —
+// internal/opencode's NewSurfaces dispatch table registers context, settings
+// (MCP folded in), commands and skills, and no hook surface at all.
+//
+// It also guards the opposite regression: should opencode ever GAIN a hook
+// surface, this goes red and whoever adds it is pointed straight at the
+// journey scenario whose premise their change invalidates.
+func j5AssertNoHookAnywhere(w *World, engine string) error {
+	j5 := j5Of(w)
+	root := filepath.Join(w.env.ProjectDir, j5.target)
+	var found []string
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		body, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
+		}
+		if strings.Contains(string(body), j5HookCommand) {
+			rel, _ := filepath.Rel(root, path)
+			found = append(found, rel)
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("j5: walking the materialized %s tree (%s): %w", engine, j5.target, err)
+	}
+	if len(found) > 0 {
+		return fmt.Errorf("expected %s to carry NO hook surface, but the shared hook's command appears in: %s -- if %s genuinely gained a hook mechanism, this journey's premise changed and the scenario needs rewriting, not silencing", engine, strings.Join(found, ", "), engine)
+	}
+	w.docStepMaterialized = fmt.Sprintf("%s: walked the whole materialized tree; the shared hook's command appears in no file", engine)
+	return nil
+}
+
 func j5AssertCommand(w *World, engine string) error {
 	j5 := j5Of(w)
 	dir := j5.target
@@ -503,6 +599,8 @@ func j5AssertCommand(w *World, engine string) error {
 		rel = filepath.Join(dir, ".kiro", "skills", "team", "onboarding", "SKILL.md")
 	case "antigravity":
 		rel = filepath.Join(dir, ".agents", "skills", "team", "onboarding", "SKILL.md")
+	case "opencode":
+		rel = filepath.Join(dir, ".opencode", "command", "team", "onboarding.md")
 	default:
 		return fmt.Errorf("j5: unknown engine %q", engine)
 	}

@@ -3,8 +3,10 @@ package content
 import (
 	"fmt"
 	"path"
+	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -236,30 +238,42 @@ func (t mcpType) Encode(s Surface) ([]Component, error) {
 // position: inserting a hook at the top of an event silently changed the identity
 // of every hook below it, invalidating approvals for items that had not changed.
 //
-// # There is deliberately NO order field
+// # Order IS a field, and here is why the earlier retraction no longer holds
 //
-// An earlier draft of this design kept the ordinal as "declared metadata". It is
-// gone, because VERIFIED against the merge path it would have been a field that
-// looks load-bearing and is silently ignored — this project's characteristic bug:
+// An earlier draft proposed a per-hook `order:` and then RETRACTED it on the
+// correct grounds that nothing read it: within an event, hooks merged by pure
+// APPEND across every source, so sequence was a property of merge order that a
+// single hook's file could not express. A field nobody reads is this project's
+// characteristic bug — it looks load-bearing and is silently ignored.
 //
-//   - The ONLY thing that ever read a per-hook ordinal was IDENTITY:
-//     HookEntry.ID() rendering "<event>/<index>" and EntryByID parsing it back
-//     (internal/bundles/bundles.go, consumed by operations/trust.go). Name
-//     identity removes both readers.
-//   - hookEventOrder orders EVENTS, not hooks within an event, and it stays.
-//   - Within an event, hooks are merged by pure APPEND across every source
-//     (wire.UnifiedHooks.Append, agent.MergeHooksConfig). Nothing sorts, and
-//     nothing consults a per-hook field. Sequence is a property of the order
-//     bundles and profiles are merged in, which a single hook's file cannot
-//     express and must not appear to.
+// That reasoning was sound and is now obsolete, because the field HAS readers:
 //
-// So hooks enumerate by NAME within an event, and a hook has no metadata of its
-// own — hence no sidecar.
+//   - SortHooks, which is how a tree's hooks resolve into execution order at all.
+//     The tree enumerates by SORTED FILENAME, and names now carry identity only,
+//     so without this field the tree has NO carrier for order — the alternative
+//     is the retired `<NN>-` filename ordinal, which is positional identity under
+//     another name.
+//   - The apply path: bundles.BundleHook carries the same field, and
+//     config.extractHooksFromBundle orders each event by it before appending.
+//   - The inspection surface (`ctxloom manage hooks list`), which reports the
+//     resolved order and the value that produced it.
+//
+// The division of labour is the part worth holding onto: a bundle's own order
+// field sequences ITS hooks WITHIN an event; the order sources are merged in
+// sequences the bundles. Append across bundles is unchanged.
+//
+// Order lives in a metadata SIDECAR, not in the content file — see hookType.Meta.
 type Hook struct {
 	// Event is the lifecycle event, and the first path segment of the ref.
 	Event string
 	// Name is the hook's name within the event, and the second segment.
 	Name string
+
+	// Order is this hook's declared position within its event, sparse (see
+	// wire.HookOrderStep). A POINTER, because "declared 0" and "declared
+	// nothing" resolve differently — see wire.HookOrderLess — and a plain int
+	// could not tell them apart.
+	Order *int
 
 	Matcher         string
 	Type            string
@@ -270,18 +284,37 @@ type Hook struct {
 	PreToolFallback bool
 }
 
+// HookOrderStep is re-exported so a caller ordering content.Hooks does not have
+// to reach past this package for the spacing that produced the values.
+const HookOrderStep = wire.HookOrderStep
+
+// SortHooks sorts one event's hooks into execution order, in place.
+//
+// It is a STABLE sort over a TOTAL rule, which matters more than it looks: the
+// failure this whole change guards against is a tree that holds the right bytes
+// in the wrong order, and such a tree is byte-identical to a correct one. Nothing
+// downstream can detect it, so the ordering has to be deterministic here.
+//
+// Callers must pass hooks from a SINGLE event. Ordering is only meaningful within
+// an event, and a slice spanning events would interleave them into a sequence no
+// engine ever executes.
+func SortHooks(hooks []Hook) {
+	sort.SliceStable(hooks, func(i, j int) bool {
+		return wire.HookOrderLess(hooks[i].Order, hooks[i].Name, hooks[j].Order, hooks[j].Name)
+	})
+}
+
 func (Hook) Kind() trust.ItemKind      { return trust.KindHook }
 func (Hook) TrustKind() trust.ItemKind { return trust.KindHook }
 
 // Ref name is "<event>/<name>".
 func (h Hook) refName() string { return h.Event + "/" + h.Name }
 
-// hookContent is the hook's behavioural configuration — the whole of a hook's
-// authored data. It deliberately carries NO name: the filename is the identity,
-// and keeping the name out of the content file keeps it out of any payload a later
-// layer builds from those bytes, which is what lets existing hook approvals and
-// content-rejections survive the identity change with no exec-preimage contract
-// bump.
+// hookContent is the hook's behavioural configuration. It deliberately carries
+// NEITHER the name NOR the order: the filename is the identity, order is ctxloom
+// bookkeeping, and keeping both out of the content file keeps them out of any
+// payload a later layer builds from those bytes — which is what lets existing hook
+// approvals and content-rejections survive with no exec-preimage contract bump.
 type hookContent struct {
 	Matcher         string `yaml:"matcher,omitempty"`
 	Type            string `yaml:"type,omitempty"`
@@ -292,14 +325,28 @@ type hookContent struct {
 	PreToolFallback bool   `yaml:"pre_tool_fallback,omitempty"`
 }
 
+// hookMeta is the sidecar's shape: our keys only, which today is exactly one.
+//
+// Residency follows encodeExecItem's rule verbatim — the content file stays PURE
+// hook configuration with none of ctxloom's keys in it. `order` is ours: it says
+// nothing about what the hook DOES, only about when we run it relative to its
+// siblings. There is a second payoff, and it is the one that matters at apply
+// time: reordering an event rewrites SIDECARS, leaving every hook's behavioural
+// bytes untouched, so a reader diffing what a hook actually executes sees nothing.
+type hookMeta struct {
+	Order *int `yaml:"order,omitempty"`
+}
+
 type hookType struct{}
 
 func (hookType) Name() string { return trust.KindHook.Dir() }
 func (hookType) Dir() string  { return trust.KindHook.Dir() }
 
-// Meta: none. A hook's whole authored data is its behavioural config, and it has
-// no ctxloom metadata now that order is gone — so a stray sidecar is an error.
-func (hookType) Meta() MetaStore { return InlineMeta{} }
+// Meta: a sidecar, so hooks/<event>/<name>.yaml stays pure hook configuration.
+// The sidecar is a COMPONENT and therefore hashed — changing a hook's order
+// invalidates that hook's signature, exactly as changing its command does, rather
+// than order riding along unattested.
+func (hookType) Meta() MetaStore { return SidecarMeta{} }
 
 func (t hookType) Detect(src Source) bool {
 	_, ok := detectSingleYAML(t.Dir(), src, 1)
@@ -323,7 +370,8 @@ func (t hookType) RefFor(bundle string, src Source) (trust.Ref, error) {
 
 func (t hookType) Decode(src Source) (Surface, error) {
 	var content hookContent
-	name, err := readExecItem(t, src, 1, &content, nil)
+	var meta hookMeta
+	name, err := readExecItem(t, src, 1, &content, &meta)
 	if err != nil {
 		return nil, err
 	}
@@ -331,6 +379,7 @@ func (t hookType) Decode(src Source) (Surface, error) {
 	return Hook{
 		Event:           event,
 		Name:            hookName,
+		Order:           meta.Order,
 		Matcher:         content.Matcher,
 		Type:            content.Type,
 		Command:         content.Command,
@@ -362,5 +411,10 @@ func (t hookType) Encode(s Surface) ([]Component, error) {
 			Async:           h.Async,
 			PreToolFallback: h.PreToolFallback,
 		},
-		nil)
+		// marshalYAML renders an all-omitempty struct as nothing, so a hook that
+		// declares no order writes NO sidecar — absence is represented by the
+		// absence of a file, not by an empty one. An empty `{}` per hook would be
+		// bytes in the digest that mean nothing, and would make "authored before
+		// the field existed" indistinguishable from "deliberately unordered".
+		hookMeta{Order: h.Order})
 }

@@ -35,8 +35,16 @@ func MetaPath(contentPath string) string {
 // kind directory, for the case where the item has no single content file of its
 // own to derive it from — a skill package, whose sidecar sits BESIDE the package
 // directory so the package itself stays a pure Agent Skill tree.
+//
+// The dot goes on the LAST segment, not the first. An item name may contain a
+// separator ("pre_tool/guard" for a hook), and dotting the whole name would
+// produce "hooks/.pre_tool/guard.meta.yaml" — a HIDDEN DIRECTORY holding a file
+// that IsMetaPath does not recognise, so the walker would neither group it into
+// the item nor refuse it. That is the shape in which bytes ride along a tree
+// unattested, which is exactly what sidecar recognition exists to prevent.
 func MetaPathForName(dir, name string) string {
-	return dir + "/." + name + MetaSuffix
+	parent, base := path.Split(name)
+	return dir + "/" + parent + "." + base + MetaSuffix
 }
 
 // IsMetaPath reports whether a path is a metadata sidecar.

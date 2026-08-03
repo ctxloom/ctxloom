@@ -867,16 +867,15 @@ func TestDecode_RefusesUnexplainedSidecars(t *testing.T) {
 	root := fixtureRoot + "/code-quality"
 	writeFile(t, store.fsys, root+"/fragments/.solid.meta.yaml", "tags:\n  - smuggled\n")
 	writeFile(t, store.fsys, root+"/profiles/.strict.meta.yaml", "owner: nobody\n")
-	writeFile(t, store.fsys, root+"/hooks/pre_tool/.guard.meta.yaml", "order: 10\n")
 
 	bundle, _ := store.Open(ctx, "code-quality")
 	for name, ref := range map[string]trust.Ref{
 		"fragment": {Bundle: "code-quality", Kind: trust.KindFragment, Name: "solid"},
 		"profile":  {Bundle: "code-quality", Kind: KindProfile, Name: "strict"},
-		// A hook has no metadata of its own. A leftover `order:` sidecar from the
-		// retired ordinal scheme must be REFUSED, not silently hashed-and-ignored:
-		// silently ignoring it is how a migration leaves data that looks honoured.
-		"hook": {Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"},
+		// Hooks are deliberately NOT in this table any more: `order` gave them
+		// legitimate metadata, so their sidecar is explained. That it decodes
+		// rather than being refused is pinned by
+		// TestHook_OrderRoundTripsThroughTheTree.
 	} {
 		item, err := bundle.Item(ctx, ref)
 		if err != nil {
@@ -945,7 +944,10 @@ func TestSurfaceType_MetaResidencyIsPerType(t *testing.T) {
 	}{
 		{trust.KindFragment, false, ""},
 		{trust.KindPrompt, false, ""},
-		{trust.KindHook, false, ""},
+		// A hook DOES keep a sidecar: `order` is ctxloom's key, not the hook's
+		// behavioural config, so encodeExecItem's purity rule puts it beside the
+		// content file rather than in it.
+		{trust.KindHook, true, "hooks/.postgres.meta.yaml"},
 		{KindProfile, false, ""},
 		{trust.KindMCP, true, "mcp/.postgres.meta.yaml"},
 		{trust.KindSkill, true, "skills/.postgres.meta.yaml"},

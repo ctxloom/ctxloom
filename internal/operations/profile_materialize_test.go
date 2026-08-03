@@ -159,6 +159,82 @@ func TestMaterializeProfile_FoldsProfileInlineMCP(t *testing.T) {
 		"the profile's inline mcp: server must be folded into the exported .mcp.json")
 }
 
+// materializeHookFixture is materializeFixture plus a config-level session_start
+// hook — the "team ships a guardrail" shape whiny-exclusive was filed about.
+func materializeHookFixture(t *testing.T) (cfg *config.Config, target string) {
+	t.Helper()
+	cfg, target = materializeFixture(t, "HOOKED-CONTENT")
+	f := cfg.ToFixture()
+	f.Hooks = wire.HooksConfig{Unified: wire.UnifiedHooks{
+		SessionStart: []wire.Hook{{Type: "command", Command: "echo team-guardrail"}},
+	}}
+	return config.NewFixture(f), target
+}
+
+// TestMaterializeProfile_ReportsHooksAnEngineCannotCarry is the whiny-exclusive
+// characterization: opencode has no hook mechanism at all, so a profile's
+// session_start hook lands NOWHERE — and pre-fix the report said only "wrote
+// context / settings / commands / skills", every line true and the loss absent
+// from all of them. A reader could not tell "this engine has no hooks" from
+// "this profile declared no hooks"; both were silence.
+//
+// The report must now carry the loss STRUCTURALLY, so `--format json` consumers
+// see it too.
+func TestMaterializeProfile_ReportsHooksAnEngineCannotCarry(t *testing.T) {
+	cfg, target := materializeHookFixture(t)
+
+	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: []string{"reviewer"}, Target: target, Backend: "opencode",
+	})
+	require.NoError(t, err, "the loss is REPORTED, not fatal: the rest of the tree is still worth having")
+	require.Contains(t, res.Wrote, "settings",
+		"precondition: opencode's folded settings surface IS written — the hook is what does not ride it")
+
+	require.Len(t, res.NotCarried, 1,
+		"opencode's one structural loss (hooks) must appear in the report")
+	assert.Equal(t, "hooks", res.NotCarried[0].Surface)
+	assert.Contains(t, res.NotCarried[0].Detail, "session_start",
+		"the report must name WHICH hooks were dropped, not just that some were")
+	assert.NotEmpty(t, res.NotCarried[0].Reason,
+		"a loss with no stated reason is indistinguishable from a bug")
+}
+
+// TestMaterializeProfile_ReportsNoLossForAnEngineThatCarriesHooks is the other
+// half: the loss report must be silent when there IS no loss. claude-code writes
+// the same hook into .claude/settings.json, so a "not carried" line there would
+// be a false alarm — and a report that cries wolf gets ignored, taking the real
+// opencode case with it.
+func TestMaterializeProfile_ReportsNoLossForAnEngineThatCarriesHooks(t *testing.T) {
+	cfg, target := materializeHookFixture(t)
+
+	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: []string{"reviewer"}, Target: target, Backend: "claude-code",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, res.NotCarried, "claude-code carries hooks; nothing is lost")
+
+	data, err := os.ReadFile(filepath.Join(target, ".claude", "settings.json"))
+	require.NoError(t, err, "precondition: claude-code's settings surface must exist")
+	assert.Contains(t, string(data), "team-guardrail",
+		"precondition: the hook this test says is NOT lost must actually be delivered")
+}
+
+// TestMaterializeProfile_ReportsNoHookLossWhenNoHooksDeclared pins the third
+// case: opencode still cannot carry hooks, but a profile that declares none has
+// lost nothing. Reporting a capability gap nobody asked to use is noise, and the
+// same rule the unified hook router already applies (RouteUnifiedHooks warns
+// only when hooks of the unsupported kind were actually configured).
+func TestMaterializeProfile_ReportsNoHookLossWhenNoHooksDeclared(t *testing.T) {
+	cfg, target := materializeFixture(t, "NO-HOOKS")
+
+	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: []string{"reviewer"}, Target: target, Backend: "opencode",
+	})
+	require.NoError(t, err)
+	assert.Empty(t, res.NotCarried,
+		"a gap nobody asked to use costs nothing and must stay quiet")
+}
+
 // TestMaterializeProfile_WritesSkills is the PERSISTENT-path proof of the
 // skill/command split's Part B3-seam: a directory profile's bundle-shipped
 // Agent Skill package lands at <target>/.claude/skills/<name>/SKILL.md (+

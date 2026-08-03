@@ -29,13 +29,18 @@ type MaterializeProfileRequest struct {
 }
 
 // MaterializeProfileResult reports which managed surfaces were written under
-// Target, plus any per-surface warnings (a partial export still succeeds).
+// Target, which parts of the profile the chosen engine could not carry at all,
+// plus any per-surface warnings (a partial export still succeeds).
 type MaterializeProfileResult struct {
 	Target   string   `json:"target"`
 	Backend  string   `json:"backend"`
 	Profiles []string `json:"profiles"`
 	Wrote    []string `json:"wrote"`
-	Warnings []string `json:"warnings,omitempty"`
+	// NotCarried is the loss half of the report: everything the profile
+	// declared that this engine has no structural place for. Wrote alone is
+	// true and incomplete — see agent.SurfaceLoss.
+	NotCarried []agent.SurfaceLoss `json:"not_carried,omitempty"`
+	Warnings   []string            `json:"warnings,omitempty"`
 }
 
 // resolveMaterializeTarget validates the request and resolves the backend whose

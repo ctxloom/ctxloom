@@ -1,0 +1,53 @@
+bundle code-quality
+  file fragments/solid.distilled.md size=67 sha=90832d65b4da7783
+  file fragments/solid.md size=226 sha=b892863d268d2025
+  file fragments/tricky.md size=162 sha=b82c90f1ec73dcf9
+  file hooks/pre_tool/audit.yaml size=67 sha=223677fdb8a197b5
+  file hooks/pre_tool/guard.yaml size=59 sha=49f02465f8f1b8a1
+  file hooks/session_start/greet.yaml size=71 sha=80af5afea3917edd
+  file mcp/.postgres.meta.yaml size=175 sha=0d4bf37253ec893c
+  file mcp/postgres.yaml size=103 sha=df88d5aac0034c16
+  file profiles/strict.yaml size=200 sha=55ef991164b57152
+  file prompts/review.md size=452 sha=8557ac68b6c7ba84
+  file skills/.code-reviewer.meta.yaml size=158 sha=5928c309562f9b41
+  file skills/code-reviewer/SKILL.md size=153 sha=3582f100e65d3b5c
+  file skills/code-reviewer/references/checklist.md size=36 sha=488f9de396885e7c
+  file skills/code-reviewer/scripts/run.sh size=27 sha=02c24da2e817c3e8
+  ref code-quality#fragments/solid local=true builtin=false repo=""
+    form raw key=4cd1402a7da13f54ff4b837d8a8d327014d9a7287af270751953a183e2292ea8
+      component fragments/solid.md mode=regular size=226 sha=b892863d268d2025
+    form distilled key=4a2e290421dc8032def05ea940b5e811a4a89ed6cde3f25f88cfc47e41bf1e46
+      component fragments/solid.distilled.md mode=regular size=67 sha=90832d65b4da7783
+  ref code-quality#fragments/tricky local=true builtin=false repo=""
+    form raw key=95d899660d914e6061120ba92d7d0cb4e3ec73eaddd59696b5e9fe147e8f7812
+      component fragments/tricky.md mode=regular size=162 sha=b82c90f1ec73dcf9
+  ref code-quality#hooks/pre_tool/audit local=true builtin=false repo=""
+    form raw key=701db1020aa60191634c3e0431b02cd07345bdd07780b6c8be6855c8a6817b78
+      component hooks/pre_tool/audit.yaml mode=regular size=67 sha=223677fdb8a197b5
+  ref code-quality#hooks/pre_tool/guard local=true builtin=false repo=""
+    form raw key=787c703f9791f20be672370c097f4940e835b71af1fb0fa9a1c61a57b462c245
+      component hooks/pre_tool/guard.yaml mode=regular size=59 sha=49f02465f8f1b8a1
+  ref code-quality#hooks/session_start/greet local=true builtin=false repo=""
+    form raw key=ec51da269ec08167adbba2ce94155f26d714b7137441cc8f38ba4da18b2d0908
+      component hooks/session_start/greet.yaml mode=regular size=71 sha=80af5afea3917edd
+  ref code-quality#mcp/postgres local=true builtin=false repo=""
+    form raw key=1ed2ae6431b12f78ebdbf73249af6ccda1ff338ab02e898841e41e0b3f12c672
+      component mcp/.postgres.meta.yaml mode=regular size=175 sha=0d4bf37253ec893c
+      component mcp/postgres.yaml mode=regular size=103 sha=df88d5aac0034c16
+  ref code-quality#profiles/strict local=true builtin=false repo=""
+    form raw key=96b9093c9b3390b5790eeb22c18b498463d6b11a8401689361deb5ed8dadf420
+      component profiles/strict.yaml mode=regular size=200 sha=55ef991164b57152
+  ref code-quality#prompts/review local=true builtin=false repo=""
+    form raw key=156e273235d19c3b8193f1abe3790a31a3f5ab78d5c556c3b29289f7b527a48b
+      component prompts/review.md mode=regular size=452 sha=8557ac68b6c7ba84
+  ref code-quality#skills/code-reviewer local=true builtin=false repo=""
+    form raw key=bf09f6a17f0d8af3b6c4eeca42ef87114bc62f027b1d0b6abff69c5adabd0eb3
+      component skills/.code-reviewer.meta.yaml mode=regular size=158 sha=5928c309562f9b41
+      component skills/code-reviewer/SKILL.md mode=regular size=153 sha=3582f100e65d3b5c
+      component skills/code-reviewer/references/checklist.md mode=regular size=36 sha=488f9de396885e7c
+      component skills/code-reviewer/scripts/run.sh mode=executable size=27 sha=02c24da2e817c3e8
+bundle tooling
+  file mcp/redis.yaml size=19 sha=5dd30bb2eb290e8f
+  ref tooling#mcp/redis local=true builtin=false repo=""
+    form raw key=c76a0d2289bdeb324b64bbf82ed28ee56ef6d5360aaa89858e389cf7848dde88
+      component mcp/redis.yaml mode=regular size=19 sha=5dd30bb2eb290e8f

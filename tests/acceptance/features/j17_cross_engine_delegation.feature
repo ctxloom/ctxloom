@@ -89,6 +89,33 @@ Feature: Cross-engine delegation — different engines, different context, a rea
     And the tool result field "disposition" is set
     And "librarian"'s next reported turn carries "J17-ROUNDTRIP-ECHO-TOKEN-6d2e73"
 
+  # LOCKED — the CHILD->coordinator half of requirement 4, hermetically. The
+  # header finding above claims this direction "is provable only against a
+  # REAL reasoning engine". That claim is FALSE, and this scenario is the
+  # counter-example: a chat child never calls agent_send itself, but
+  # coord/children.go's bridgeTurnResult ALREADY queues every child's turn
+  # output to its parent's mailbox automatically, so the coordinator's own
+  # agent_recv observes the child's words over the real, durable bus with no
+  # model reasoning involved. The observable is the mailbox message body —
+  # the same payload class the @live tier asserts — never a transcript read
+  # and never an in-process struct.
+  #
+  # BREAK-POINT: this is the regression gate for the empty-coordinator-harp
+  # defect (see the @live scenario's comment). Revert
+  # internal/cli/selfIdentityFromEnv's minted-harp fallback and this goes red
+  # for exactly that reason — agent_recv drains role "" forever while
+  # agent_run still reports success.
+  Scenario: A delegated child's own turn result reaches the coordinator's mailbox over the bus
+    Given Alice's coordinator can delegate to two agents, "librarian" and "cartographer", each carrying its own distinct guidance in its own profile
+    When the agent calls tool "agent_run" with:
+      | agent  | librarian |
+      | prompt | go        |
+    Then the tool call succeeds
+    And "librarian"'s session harp is remembered
+    When the agent calls tool "agent_recv" repeatedly, waiting up to 20s total, until "librarian" reports
+    Then the tool call succeeds
+    And the received message is from "librarian" and its body carries its own guidance, not "cartographer"'s
+
   # @live, both requirement 2 (genuine cross-ENGINE, the claim the hermetic
   # tier above explicitly declines — claude-code and codex, the two
   # proven-working pair; the isolation probe just passed both, both axes)

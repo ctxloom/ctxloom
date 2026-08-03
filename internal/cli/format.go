@@ -122,20 +122,15 @@ func resetFormatGuard() { formatWasHonored = false }
 // silently ignored --format" window described above. format == FormatText
 // (the default, or an explicit `--format text`) is always fine: there is
 // nothing to honor.
+//
+// A namespace never reaches the debt error below, and needs no exemption from
+// it: groupNode's own RunE refuses a machine-readable --format outright, and
+// cobra skips PersistentPostRunE entirely once a RunE has returned an error.
+// The refusal lives there rather than here so the caller gets the error alone
+// instead of a screenful of help followed by one — see groupNodeFormatRefusal.
 func checkFormatWasHonored(cmd *cobra.Command) error {
 	format, ferr := cliemit.Resolve(cmd)
 	if ferr != nil || format == clifmt.FormatText || formatWasHonored {
-		return nil
-	}
-	// A namespace is exempt. `ctxloom manage --format json` answers with
-	// manage's help — help is not a payload, and there is no version of it
-	// that renders as json, so "this command does not support --format yet"
-	// would name a gap that will never close. It reaches this hook at all
-	// only because groupNode made namespaces runnable to close the
-	// unknown-subcommand hole; before that cobra returned ErrHelp before any
-	// Run hook fired. Exempting them keeps that fix to the one outcome it
-	// meant to change.
-	if isGroupNode(cmd) {
 		return nil
 	}
 	return fmt.Errorf("%s: --format %s was accepted but this command does not support it yet (nothing was rendered through it) — rerun without --format, or see format_coverage_test.go's formatDebtAllowlist for the tracked fix", cmd.CommandPath(), format)

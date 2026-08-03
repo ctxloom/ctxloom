@@ -159,17 +159,75 @@ func TestGroupNode_BareInvocationStillPrintsHelp(t *testing.T) {
 	assert.Contains(t, out, "Available Commands:", "and it answers with the namespace's help")
 }
 
-// TestGroupNode_BareInvocationIgnoresFormat pins the one place the guard
-// brushed against an unrelated contract. checkFormatWasHonored turns "--format
-// was accepted and silently discarded" into an error, and making namespaces
-// runnable is what first exposed them to that hook — cobra used to return
-// ErrHelp before any Run hook fired. `ctxloom manage --format json` answers
-// with help, which has no json rendering and never will, so it stays the
-// exit-0 it has always been rather than becoming collateral of the
-// unknown-subcommand fix.
-func TestGroupNode_BareInvocationIgnoresFormat(t *testing.T) {
-	out, err := runRoot(t, "manage", "--format", "json")
+// TestGroupNode_BareInvocationRejectsFormat is the opposite side of the test
+// above, and the pair is the whole contract: a namespace named alone prints
+// help and succeeds; a namespace named alone WITH a machine-readable --format
+// fails.
+//
+// Asking for json and receiving prose with a 0 exit is the same silent no-op
+// as a mistyped subcommand reporting success — nothing in the status tells the
+// caller it got something it cannot parse.
+//
+// The refusal replaces the help output rather than following it, which is why
+// it lives in groupNode's RunE and not in checkFormatWasHonored: cobra runs
+// that hook only after a successful RunE, so siting it there would print the
+// whole help text and then refuse it.
+func TestGroupNode_BareInvocationRejectsFormat(t *testing.T) {
+	for _, format := range []string{"json", "yaml", "toml", "markdown"} {
+		t.Run(format, func(t *testing.T) {
+			out, err := runRoot(t, "manage", "--format", format)
 
-	require.NoError(t, err, "a namespace is exempt from the --format debt guard")
+			require.Error(t, err, "--format %s on a namespace must fail, not print prose and exit 0", format)
+			assert.Contains(t, err.Error(), "cannot be honored by a command group")
+			assert.Contains(t, err.Error(), "name a subcommand", "the message says what to do instead")
+			assert.NotContains(t, out, "Available Commands:",
+				"the refusal replaces the help dump; printing prose AND refusing it is the worst of both")
+		})
+	}
+}
+
+// TestGroupNode_ExplicitTextFormatStillPrintsHelp keeps `--format text` on the
+// success side. text is what help already is, so nothing is being silently
+// dropped — the refusal is about encodings that cannot carry prose, not about
+// the flag appearing at all.
+func TestGroupNode_ExplicitTextFormatStillPrintsHelp(t *testing.T) {
+	out, err := runRoot(t, "manage", "--format", "text")
+
+	require.NoError(t, err, "`--format text` asks for exactly what help is")
 	assert.Contains(t, out, "Available Commands:")
+}
+
+// TestGroupNode_UnresolvableFormatIsRefused covers the value that parses as a
+// flag but names no encoding. Every other command reports this from its own
+// emit() call, which is why checkFormatWasHonored lets an unresolvable value
+// through; a namespace never calls emit(), so without this it would exit 0
+// having ignored the flag entirely.
+func TestGroupNode_UnresolvableFormatIsRefused(t *testing.T) {
+	_, err := runRoot(t, "manage", "--format", "zzznotaformat")
+
+	require.Error(t, err, "an unknown --format value on a namespace must fail")
+	assert.Contains(t, err.Error(), "zzznotaformat")
+}
+
+// TestGroupNode_PersistentFormatAheadOfSubcommandStillWorks is the guard on
+// the guard, and the one that would hurt most to get wrong. --format is a
+// persistent ROOT flag, so `ctxloom --format json manage status` is an
+// ordinary scripted invocation: the flag is typed ahead of a namespace, but
+// the command it lands on is `manage status`, which honors json. The refusal
+// keys on the INVOKED command, never on where the flag was typed — otherwise
+// every script that sets --format globally would break at once.
+func TestGroupNode_PersistentFormatAheadOfSubcommandStillWorks(t *testing.T) {
+	for _, args := range [][]string{
+		{"--format", "json", "manage", "status"},
+		{"manage", "--format", "json", "status"},
+		{"manage", "status", "--format", "json"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			out, err := runRoot(t, args...)
+
+			require.NoError(t, err,
+				"--format json reaches `manage status`, which honors it, whatever the flag's position")
+			assert.Contains(t, out, "{", "and the payload really is json")
+		})
+	}
 }

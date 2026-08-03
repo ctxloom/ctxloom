@@ -5,6 +5,9 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
+	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
 // groupNode marks cmd as a pure GROUP node — a namespace whose only job is to
@@ -39,26 +42,71 @@ import (
 //
 // WHAT IT DOES NOT CHANGE. A bare `ctxloom manage` still prints help and exits
 // 0 — that is a legitimate way to ask what a namespace holds, and the only
-// invocation that reaches this RunE with no arguments. `--help` never reaches
-// here at all (cobra intercepts it earlier). Only a NAMED subcommand that does
-// not exist changes outcome, from 0 to 1.
+// invocation that reaches this RunE with no arguments and nothing to refuse.
+// `--help` never reaches here at all (cobra intercepts it earlier). Exactly two
+// outcomes go from 0 to 1: a NAMED subcommand that does not exist, and a
+// machine-readable --format aimed at the namespace itself
+// (groupNodeFormatRefusal).
 //
 // Applied at each declaration site rather than by walking the tree, because a
 // walk would have to run after every AddCommand in every init() in the package
-// and Go does not order those for you. TestArch_GroupNodesFailOnUnknownSubcommand
-// is what keeps the 22 sites from becoming 21.
+// and Go does not order those for you. TestGroupNodes_AreAllGuarded is what
+// keeps the 22 sites from becoming 21.
 func groupNode(cmd *cobra.Command) *cobra.Command {
 	if cmd.Annotations == nil {
 		cmd.Annotations = map[string]string{}
 	}
 	cmd.Annotations[groupNodeAnnotation] = "true"
 	cmd.RunE = func(c *cobra.Command, args []string) error {
-		if len(args) == 0 {
-			return c.Help()
+		if len(args) > 0 {
+			return unknownSubcommandError(c, args[0])
 		}
-		return unknownSubcommandError(c, args[0])
+		if err := groupNodeFormatRefusal(c); err != nil {
+			return err
+		}
+		return c.Help()
 	}
 	return cmd
+}
+
+// groupNodeFormatRefusal rejects a machine-readable --format aimed at a
+// namespace, and is the second half of the same principle as the guard above.
+// `ctxloom manage --format json` used to print manage's help — prose — and
+// exit 0: a caller that asked for json to parse got something it cannot parse,
+// with nothing in the status to say so. Same silent-no-op shape as the
+// unknown subcommand, same answer.
+//
+// Help is not a payload and no encoding will ever carry it, so unlike
+// checkFormatWasHonored's error this promises no tracked fix — the only thing
+// that produces a payload is a subcommand, which is what the message asks for.
+//
+// ONLY A TERMINAL NAMESPACE, which is the distinction that matters most here.
+// --format is a persistent ROOT flag, so it may legitimately be typed anywhere;
+// what decides the outcome is the command it lands on, never the flag's
+// position. `ctxloom --format json manage status` runs `manage status`, whose
+// own RunE honors json — this never sees it. Only a namespace as the ENTIRE
+// command reaches this.
+//
+// It lives in the RunE rather than in checkFormatWasHonored (rootCmd's
+// PersistentPostRunE, the natural-looking home) for two reasons: cobra runs
+// that hook only AFTER a successful RunE, so the caller would read the whole
+// help text and then be told it was refused; and keeping it here leaves the
+// shared format guard exactly as it was for every other command.
+//
+// An unresolvable value (`--format bogus`) is refused too. Every other command
+// reports that from its own emit() call, which is why checkFormatWasHonored
+// lets it pass; a namespace never calls emit(), so nothing else would, and it
+// would exit 0 having ignored the flag twice over.
+func groupNodeFormatRefusal(cmd *cobra.Command) error {
+	format, err := cliemit.Resolve(cmd)
+	if err != nil {
+		return fmt.Errorf("%s: %w", cmd.CommandPath(), err)
+	}
+	if format == clifmt.FormatText {
+		return nil
+	}
+	return fmt.Errorf("%s: --format %s cannot be honored by a command group: %s prints help, and help is not a payload any encoding can carry — name a subcommand that produces one (see '%s --help')",
+		cmd.CommandPath(), format, cmd.CommandPath(), cmd.CommandPath())
 }
 
 // groupNodeAnnotation marks a command as carrying only the groupNode guard.

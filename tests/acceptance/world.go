@@ -54,6 +54,7 @@ type World struct {
 	j20       *j20State       // J20: publishing a whole bundle tree and receiving every surface kind (steps_j20_bundle_distribution.go)
 	j18       *j18State       // J18: the publisher-signing journey's fixture state (steps_j18_signing.go)
 	j21       *j21State       // J21: the diagnosis-walk journey's fixture state (steps_j21_diagnosis.go)
+	j22       *j22State       // J22: the close-out journey's fixture state (steps_j22_closeout.go)
 	ts        *tsState        // trust-surface matrix: fixture state (steps_trust_surface.go)
 	contract  *contractState  // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
@@ -161,6 +162,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ18Steps(ctx)
 	registerJ20Steps(ctx)
 	registerJ21Steps(ctx)
+	registerJ22Steps(ctx)
 	registerTrustSurfaceSteps(ctx)
 	registerTrustVocabularySteps(ctx)
 	registerSkillSteps(ctx)

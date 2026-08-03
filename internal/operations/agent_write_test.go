@@ -62,6 +62,104 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	assert.Equal(t, []string{"p1", "p2"}, sub.Profiles)
 }
 
+// llmLabelsFixture is a config body declaring a config-only LLM LABEL
+// ("claude-fast") alongside the built-in backend names. Engine validation is a
+// membership test over operations.AvailableLLMNames — registered backends UNION
+// the labels this config declares — so a fixture that wants to bind a label has
+// to declare it, exactly as a user's config.yaml does.
+const llmLabelsFixture = `version: 5
+llm:
+  configs:
+    claude-fast:
+      type: claude-code
+`
+
+// TestSetAgent_RejectsUnknownEngine pins the binding-time engine check.
+//
+// `ctxloom agent edit dev --engine bogus-engine` used to exit 0 and WRITE the
+// nonexistent engine into config.yaml: nothing validated the name at the moment
+// it became the team's configuration, so the failure surfaced later and
+// somewhere else, as whatever a missing engine happens to look like downstream.
+// This is the same class as the silent-no-op bugs elsewhere in this codebase —
+// a success message over a broken result.
+//
+// SetAgent is `agent create` and `agent edit`'s single shared body, so this one
+// assertion covers both verbs; the CLI layer only differs in the
+// name-already-taken precondition it enforces before calling.
+func TestSetAgent_RejectsUnknownEngine(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
+
+	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+		Name:     "dev",
+		Engine:   ptr("bogus-engine"),
+		Profiles: ptr([]string{"default"}),
+	})
+	require.Error(t, err, "an engine no backend and no config label defines must be refused, not written")
+	assert.Contains(t, err.Error(), "bogus-engine", "the refusal must name the value that was wrong")
+	assert.Contains(t, err.Error(), "claude-code",
+		"the refusal must list engines that DO exist — otherwise the user learns their spelling was wrong but not what the right spellings are")
+
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	_, ok := reloaded.Agent("dev")
+	assert.False(t, ok, "a rejected SetAgent call must persist nothing")
+}
+
+// TestSetAgent_UnknownEngineLeavesExistingBindingIntact is the edit half of the
+// same defect, and the damaging one: the agent already exists and works, and a
+// typo'd `--engine` used to overwrite a live binding with a broken value. The
+// rejection has to happen before the write, not after it.
+func TestSetAgent_UnknownEngineLeavesExistingBindingIntact(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, llmLabelsFixture)
+	mgr := managerFor(appDir)
+
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{
+		Name:     "dev",
+		Engine:   ptr("claude-code"),
+		Profiles: ptr([]string{"default"}),
+	})
+	require.NoError(t, err)
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Engine: ptr("bogus-engine")})
+	require.Error(t, err)
+
+	final, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok := final.Agent("dev")
+	require.True(t, ok, "the existing agent must survive a refused edit")
+	assert.Equal(t, "claude-code", sub.Engine, "a refused edit must not corrupt the binding it was editing")
+	assert.Equal(t, []string{"default"}, sub.Profiles)
+}
+
+// TestSetAgent_AcceptsBackendNamesAndConfigLabels pins the ACCEPTING side of
+// the check, which is the half a too-narrow fix would break. An agent's engine
+// is a LABEL resolved through resolveOneshotLabel/ResolveBackend, not a backend
+// name: `ctxloom agent create finder --engine claude-fast` is in this command's
+// own help examples and binds a label the config declares. Validating against
+// the backend registry ALONE would reject the documented invocation, so the
+// membership set has to be the same one `llm default` accepts and lists.
+func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
+	_, appDir := loadConfigDir(t, llmLabelsFixture)
+	mgr := managerFor(appDir)
+
+	for _, engine := range []string{
+		"claude-code", // a registered backend
+		"claude-fast", // a config-declared label, no such backend
+		"",            // explicit clear: fall back to the project default
+	} {
+		reloaded, err := config.Load(config.WithAppDir(appDir))
+		require.NoError(t, err)
+		_, err = SetAgent(mgr, reloaded, SetAgentRequest{
+			Name:     "dev",
+			Engine:   ptr(engine),
+			Profiles: ptr([]string{"default"}),
+		})
+		require.NoErrorf(t, err, "engine %q must be accepted", engine)
+	}
+}
+
 // TestSetAgent_PersistsRuntime proves the runtime axis written by
 // `agent set --runtime` survives the config round-trip — the developer
 // binding of the standard trio depends on `runtime: container` persisting.

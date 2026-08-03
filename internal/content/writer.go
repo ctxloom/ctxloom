@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -24,6 +25,9 @@ import (
 // that would otherwise store one item's bytes at another item's address.
 func (s *TreeStore) Put(ctx context.Context, ref trust.Ref, f signing.Form, surface Surface) error {
 	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := s.writable(); err != nil {
 		return err
 	}
 	if err := validateBundleID(BundleID(ref.Bundle)); err != nil {
@@ -67,7 +71,7 @@ func (s *TreeStore) Put(ctx context.Context, ref trust.Ref, f signing.Form, surf
 		return fmt.Errorf("content: forms of %s: %w", ref.Key(), err)
 	}
 	written := 0
-	bundleDir := filepath.Join(s.root, ref.Bundle)
+	bundleDir := s.osPath(ref.Bundle)
 	for _, c := range components {
 		if formOf(c.Path, forms) != f {
 			continue
@@ -108,6 +112,9 @@ func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := s.writable(); err != nil {
+		return err
+	}
 	bundle, err := s.Open(ctx, BundleID(ref.Bundle))
 	if err != nil {
 		return err
@@ -126,7 +133,7 @@ func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
 	}
 	dirs := map[string]struct{}{}
 	for _, p := range paths {
-		target := filepath.Join(ti.bundle.dir, filepath.FromSlash(p))
+		target := s.osPath(path.Join(ti.bundle.dir, p))
 		if err := s.fsys.Remove(target); err != nil {
 			return fmt.Errorf("content: removing %q: %w", target, err)
 		}
@@ -146,7 +153,7 @@ func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
 		ordered = append(ordered, d)
 	}
 	sort.Slice(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })
-	kindRoot := filepath.Join(ti.bundle.dir, filepath.FromSlash(ti.stype.Dir()))
+	kindRoot := s.osPath(path.Join(ti.bundle.dir, ti.stype.Dir()))
 	for _, d := range ordered {
 		if d == kindRoot || !strings.HasPrefix(d, kindRoot+string(filepath.Separator)) {
 			continue
@@ -166,6 +173,9 @@ func (s *TreeStore) PutSignature(ctx context.Context, ref trust.Ref, f signing.F
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := s.writable(); err != nil {
+		return err
+	}
 	bundle, err := s.Open(ctx, BundleID(ref.Bundle))
 	if err != nil {
 		return err
@@ -182,7 +192,7 @@ func (s *TreeStore) PutSignature(ctx context.Context, ref trust.Ref, f signing.F
 	if err != nil {
 		return err
 	}
-	return writeSignature(s.fsys, filepath.Join(s.root, ref.Bundle), contentKey(digest), ns, sig)
+	return writeSignature(s.fsys, s.osPath(ref.Bundle), contentKey(digest), ns, sig)
 }
 
 // PutManifest writes a bundle's manifest.
@@ -196,21 +206,23 @@ func (s *TreeStore) PutManifest(ctx context.Context, id BundleID, m Manifest) er
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := s.writable(); err != nil {
+		return err
+	}
 	if err := validateBundleID(id); err != nil {
 		return err
 	}
 	if m.IsZero() {
 		return fmt.Errorf("content: refusing to write an empty manifest for bundle %q", id)
 	}
-	bundleDir := filepath.Join(s.root, string(id))
-	ok, err := afero.DirExists(s.fsys, bundleDir)
+	ok, err := s.dirExists(string(id))
 	if err != nil {
 		return fmt.Errorf("content: opening bundle %q: %w", id, err)
 	}
 	if !ok {
 		return fmt.Errorf("%w: bundle %q", ErrNotFound, id)
 	}
-	target := filepath.Join(bundleDir, ManifestPath)
+	target := s.osPath(path.Join(string(id), ManifestPath))
 	if err := afero.WriteFile(s.fsys, target, m.Bytes(), 0o644); err != nil {
 		return fmt.Errorf("content: writing manifest %q: %w", target, err)
 	}
@@ -225,11 +237,14 @@ func (s *TreeStore) PutBundleSignature(ctx context.Context, id BundleID, ns Name
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := s.writable(); err != nil {
+		return err
+	}
 	if err := validateBundleID(id); err != nil {
 		return err
 	}
-	bundleDir := filepath.Join(s.root, string(id))
-	ok, err := afero.DirExists(s.fsys, bundleDir)
+	bundleDir := s.osPath(string(id))
+	ok, err := s.dirExists(string(id))
 	if err != nil {
 		return fmt.Errorf("content: opening bundle %q: %w", id, err)
 	}

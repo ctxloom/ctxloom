@@ -23,6 +23,14 @@ import (
 // an unbounded walk.
 const maxWalkDepth = 8
 
+// maxFileDepth caps how far filesUnder descends below a bundle root.
+//
+// It is generous — a skill package's references/ or scripts/ subtree is
+// legitimately several levels down — and exists only so that a TreeFS
+// describing an unbounded tree fails loudly instead of recursing forever.
+// afero.Walk got this for free from a real filesystem; two functions do not.
+const maxFileDepth = 32
+
 // Provenance is the source attribution a store stamps onto every ref it
 // produces. A SurfaceType never guesses it: the same registered type serves an
 // authored local tree, a pinned remote and an embedded builtin, and only the
@@ -59,6 +67,13 @@ func (p Provenance) stamp(r trust.Ref) trust.Ref {
 // unchanged. Addressing is untouched by this package — only RESOLUTION changes,
 // from a lookup in a parsed document to a path.
 type TreeStore struct {
+	// tfs is the READ path, and is always present. Every enumeration in this
+	// file goes through it, which is what lets a bytes-only backend reuse this
+	// walker instead of copying it (see TreeFS).
+	tfs TreeFS
+	// fsys and root are the WRITE path, and are nil/empty for a store with no
+	// writable backing. Every Writer method refuses loudly in that case rather
+	// than writing into something nothing reads back.
 	fsys afero.Fs
 	root string
 	prov Provenance
@@ -69,18 +84,70 @@ var (
 	_ Writer = (*TreeStore)(nil)
 )
 
-// NewTreeStore opens a store rooted at root on fsys.
+// NewTreeStore opens a read-write store rooted at root on fsys.
 func NewTreeStore(fsys afero.Fs, root string, prov Provenance) (*TreeStore, error) {
-	if fsys == nil {
-		return nil, errors.New("content: nil filesystem")
-	}
-	if root == "" {
-		return nil, errors.New("content: empty store root")
+	tfs, err := NewAferoTreeFS(fsys, root)
+	if err != nil {
+		return nil, err
 	}
 	if err := prov.validate(); err != nil {
 		return nil, err
 	}
-	return &TreeStore{fsys: fsys, root: root, prov: prov}, nil
+	return &TreeStore{tfs: tfs, fsys: fsys, root: root, prov: prov}, nil
+}
+
+// newReadOnlyTreeStore opens a store over a bare TreeFS. It has no writable
+// backing, so its Writer half refuses; NewFSStore wraps it so that refusal is
+// unreachable rather than merely correct.
+func newReadOnlyTreeStore(tfs TreeFS, prov Provenance) (*TreeStore, error) {
+	if tfs == nil {
+		return nil, ErrNoFS
+	}
+	if err := prov.validate(); err != nil {
+		return nil, err
+	}
+	return &TreeStore{tfs: tfs, prov: prov}, nil
+}
+
+// writable reports whether the store has a writable backing, or ErrReadOnly.
+func (s *TreeStore) writable() error {
+	if s.fsys == nil {
+		return fmt.Errorf("%w: no writable backing", ErrReadOnly)
+	}
+	return nil
+}
+
+// osPath resolves a store-relative slash path to a native path for the WRITE
+// side. Only writer.go and the signature writer use it; every read goes through
+// the TreeFS.
+func (s *TreeStore) osPath(rel string) string {
+	return filepath.Join(s.root, filepath.FromSlash(rel))
+}
+
+// dirExists reports whether a store-relative path names a directory, by listing
+// its PARENT rather than by trying to list the path itself. Listing a
+// non-directory is not uniformly an error across backends — some report
+// ErrNotDir, some an empty listing — and "the bundle is empty" and "the bundle
+// is a file" must not collapse into one answer.
+func (s *TreeStore) dirExists(rel string) (bool, error) {
+	parent, name := path.Split(rel)
+	parent = strings.TrimSuffix(parent, "/")
+	if parent == "" {
+		parent = "."
+	}
+	entries, err := s.tfs.ReadDir(parent)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+	for _, e := range entries {
+		if e.Name == name {
+			return e.IsDir, nil
+		}
+	}
+	return false, nil
 }
 
 // Bundles lists the store's bundles: every immediate subdirectory of the root
@@ -94,7 +161,7 @@ func (s *TreeStore) Bundles(ctx context.Context) ([]BundleID, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	entries, err := afero.ReadDir(s.fsys, s.root)
+	entries, err := s.tfs.ReadDir(".")
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("%w: store root %q", ErrNotFound, s.root)
@@ -103,10 +170,10 @@ func (s *TreeStore) Bundles(ctx context.Context) ([]BundleID, error) {
 	}
 	var out []BundleID
 	for _, e := range entries {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+		if !e.IsDir || strings.HasPrefix(e.Name, ".") {
 			continue
 		}
-		out = append(out, BundleID(e.Name()))
+		out = append(out, BundleID(e.Name))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out, nil
@@ -120,15 +187,14 @@ func (s *TreeStore) Open(ctx context.Context, id BundleID) (Bundle, error) {
 	if err := validateBundleID(id); err != nil {
 		return nil, err
 	}
-	dir := filepath.Join(s.root, string(id))
-	ok, err := afero.DirExists(s.fsys, dir)
+	ok, err := s.dirExists(string(id))
 	if err != nil {
 		return nil, fmt.Errorf("content: opening bundle %q: %w", id, err)
 	}
 	if !ok {
 		return nil, fmt.Errorf("%w: bundle %q", ErrNotFound, id)
 	}
-	return &treeBundle{store: s, id: id, dir: dir}, nil
+	return &treeBundle{store: s, id: id, dir: string(id)}, nil
 }
 
 // validateBundleID refuses an id that is not a single path segment. A bundle id
@@ -149,7 +215,9 @@ func validateBundleID(id BundleID) error {
 	return nil
 }
 
-// treeBundle is one bundle directory.
+// treeBundle is one bundle directory. dir is STORE-relative and slash-separated
+// (it is the bundle id), not a filesystem path: a bundle reads only through the
+// store's TreeFS, which is what makes it backend-agnostic.
 type treeBundle struct {
 	store *TreeStore
 	id    BundleID
@@ -229,7 +297,7 @@ func (b *treeBundle) Item(ctx context.Context, ref trust.Ref) (Item, error) {
 	if len(paths) == 0 {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, ref.Key())
 	}
-	src := newTreeSource(b.store.fsys, b.dir, paths)
+	src := newTreeSource(b.store.tfs, b.dir, paths)
 	if !t.Detect(src) {
 		return nil, fmt.Errorf("%w: %s (files present but not recognised as %s)", ErrNotFound, ref.Key(), t.Name())
 	}
@@ -249,28 +317,25 @@ func (b *treeBundle) Item(ctx context.Context, ref trust.Ref) (Item, error) {
 // group returns the bundle-relative paths of one candidate group: the files in
 // relDir whose stem matches, plus everything under a same-named subdirectory.
 func (b *treeBundle) group(relDir, stem string) ([]string, error) {
-	entries, err := afero.ReadDir(b.store.fsys, b.abs(relDir))
+	entries, err := b.readDir(relDir)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("content: reading %q: %w", relDir, err)
+		return nil, err
 	}
 	var paths []string
 	for _, e := range entries {
-		if e.IsDir() {
-			if e.Name() != stem {
+		if e.IsDir {
+			if e.Name != stem {
 				continue
 			}
-			sub, err := b.filesUnder(relDir + "/" + e.Name())
+			sub, err := b.filesUnder(relDir + "/" + e.Name)
 			if err != nil {
 				return nil, err
 			}
 			paths = append(paths, sub...)
 			continue
 		}
-		if stemOf(e.Name()) == stem {
-			paths = append(paths, relDir+"/"+e.Name())
+		if stemOf(e.Name) == stem {
+			paths = append(paths, relDir+"/"+e.Name)
 		}
 	}
 	return paths, nil
@@ -331,7 +396,7 @@ func (b *treeBundle) ReadFile(ctx context.Context, relPath string) ([]byte, erro
 	if err := validateDigestPath(relPath); err != nil {
 		return nil, err
 	}
-	data, err := afero.ReadFile(b.store.fsys, b.abs(relPath))
+	data, err := b.store.tfs.ReadFile(b.abs(relPath))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, fmt.Errorf("%w: %s/%s", ErrNotFound, b.id, relPath)
@@ -362,7 +427,7 @@ func (b *treeBundle) BundleSignatures(ctx context.Context) (SigSet, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	return readSignatures(b.store.fsys, b.dir, BundleSigKey)
+	return readSignatures(b.store.tfs, b.dir, BundleSigKey)
 }
 
 // walk groups the files under relDir into candidates and asks the type to claim
@@ -383,22 +448,19 @@ func (b *treeBundle) walk(t SurfaceType, relDir string, depth int) ([]*treeSourc
 	if depth > maxWalkDepth {
 		return nil, nil
 	}
-	entries, err := afero.ReadDir(b.store.fsys, b.abs(relDir))
+	entries, err := b.readDir(relDir)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("content: reading %q: %w", relDir, err)
+		return nil, err
 	}
 	groups := map[string][]string{}
 	var dirs []string
 	for _, e := range entries {
-		if e.IsDir() {
-			dirs = append(dirs, e.Name())
+		if e.IsDir {
+			dirs = append(dirs, e.Name)
 			continue
 		}
-		stem := stemOf(e.Name())
-		groups[stem] = append(groups[stem], relDir+"/"+e.Name())
+		stem := stemOf(e.Name)
+		groups[stem] = append(groups[stem], relDir+"/"+e.Name)
 	}
 	sort.Strings(dirs)
 
@@ -413,7 +475,7 @@ func (b *treeBundle) walk(t SurfaceType, relDir string, depth int) ([]*treeSourc
 			groups[d] = append(groups[d], sub...)
 			continue
 		}
-		src := newTreeSource(b.store.fsys, b.dir, sub)
+		src := newTreeSource(b.store.tfs, b.dir, sub)
 		if len(sub) > 0 && t.Detect(src) {
 			out = append(out, src)
 			continue
@@ -433,7 +495,7 @@ func (b *treeBundle) walk(t SurfaceType, relDir string, depth int) ([]*treeSourc
 	}
 	sort.Strings(stems)
 	for _, stem := range stems {
-		src := newTreeSource(b.store.fsys, b.dir, groups[stem])
+		src := newTreeSource(b.store.tfs, b.dir, groups[stem])
 		if t.Detect(src) {
 			out = append(out, src)
 		}
@@ -441,39 +503,62 @@ func (b *treeBundle) walk(t SurfaceType, relDir string, depth int) ([]*treeSourc
 	return out, nil
 }
 
-// filesUnder lists every regular file below relDir, bundle-relative and sorted.
-// It walks the directory itself rather than globbing: filepath.Glob("*") does not
-// match dot-prefixed names, and a sidecar missed here would silently leave the
-// digest.
-func (b *treeBundle) filesUnder(relDir string) ([]string, error) {
-	var out []string
-	base := b.abs(relDir)
-	err := afero.Walk(b.store.fsys, base, func(p string, info fs.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		rel, relErr := filepath.Rel(base, p)
-		if relErr != nil {
-			return relErr
-		}
-		out = append(out, path.Join(relDir, filepath.ToSlash(rel)))
-		return nil
-	})
+// readDir lists one bundle-relative directory through the store's TreeFS. A
+// directory that is not there yields NO entries rather than an error: a bundle
+// with no hooks/ has no hooks, and that is the common case, not a failure.
+func (b *treeBundle) readDir(relDir string) ([]TreeEntry, error) {
+	entries, err := b.store.tfs.ReadDir(b.abs(relDir))
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("content: walking %q: %w", relDir, err)
+		return nil, fmt.Errorf("content: reading %q: %w", relDir, err)
+	}
+	return entries, nil
+}
+
+// filesUnder lists every regular file below relDir, bundle-relative and sorted.
+//
+// It recurses through readDir rather than globbing: filepath.Glob("*") does not
+// match dot-prefixed names, and a sidecar missed here would silently leave the
+// digest. The depth cap is the one thing the old afero.Walk got for free from
+// the filesystem and this does not: a TreeFS is a pair of functions, and a
+// hostile or buggy backend can describe a tree that nests forever. It is
+// therefore an ERROR rather than a silent stop, because a silent stop is a file
+// that leaves the digest.
+func (b *treeBundle) filesUnder(relDir string) ([]string, error) {
+	out, err := b.appendFilesUnder(nil, relDir, 0)
+	if err != nil {
+		return nil, err
 	}
 	sort.Strings(out)
 	return out, nil
 }
 
+func (b *treeBundle) appendFilesUnder(out []string, relDir string, depth int) ([]string, error) {
+	if depth > maxFileDepth {
+		return nil, fmt.Errorf("content: %q nests more than %d levels deep", relDir, maxFileDepth)
+	}
+	entries, err := b.readDir(relDir)
+	if err != nil {
+		return nil, err
+	}
+	for _, e := range entries {
+		child := path.Join(relDir, e.Name)
+		if !e.IsDir {
+			out = append(out, child)
+			continue
+		}
+		out, err = b.appendFilesUnder(out, child, depth+1)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
 func (b *treeBundle) abs(rel string) string {
-	return filepath.Join(b.dir, filepath.FromSlash(rel))
+	return path.Join(b.dir, rel)
 }
 
 // treeItem is one resolved item.
@@ -606,7 +691,7 @@ func (f *treeForm) Signatures(ctx context.Context) (SigSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	return readSignatures(f.item.bundle.store.fsys, f.item.bundle.dir, contentKey(digest))
+	return readSignatures(f.item.bundle.store.tfs, f.item.bundle.dir, contentKey(digest))
 }
 
 // itemPath is the bundle-relative path a name resolves to inside a kind

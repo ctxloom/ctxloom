@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -88,10 +89,12 @@ func parseSigFileName(contentKey, name string) (Namespace, bool) {
 	return ns, true
 }
 
-// readSignatures loads every signature stored against a content key.
-func readSignatures(fsys afero.Fs, bundleDir, key string) (SigSet, error) {
-	dir := filepath.Join(bundleDir, sigDirName)
-	entries, err := afero.ReadDir(fsys, dir)
+// readSignatures loads every signature stored against a content key. bundleDir
+// is store-relative and slash-separated: signatures are READ through the TreeFS
+// seam, so a pinned remote serves them exactly as an authored tree does.
+func readSignatures(tfs TreeFS, bundleDir, key string) (SigSet, error) {
+	dir := path.Join(bundleDir, sigDirName)
+	entries, err := tfs.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			// No signature directory is NORMAL, not an error: whole-bundle
@@ -105,16 +108,16 @@ func readSignatures(fsys afero.Fs, bundleDir, key string) (SigSet, error) {
 	}
 	var out SigSet
 	for _, e := range entries {
-		if e.IsDir() {
+		if e.IsDir {
 			continue
 		}
-		ns, ok := parseSigFileName(key, e.Name())
+		ns, ok := parseSigFileName(key, e.Name)
 		if !ok {
 			continue
 		}
-		data, err := afero.ReadFile(fsys, filepath.Join(dir, e.Name()))
+		data, err := tfs.ReadFile(path.Join(dir, e.Name))
 		if err != nil {
-			return nil, fmt.Errorf("content: reading signature %q: %w", e.Name(), err)
+			return nil, fmt.Errorf("content: reading signature %q: %w", e.Name, err)
 		}
 		out = append(out, Signature{Namespace: ns, Bytes: data})
 	}

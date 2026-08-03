@@ -2,11 +2,9 @@ package content
 
 import (
 	"fmt"
-	"path/filepath"
+	"path"
 	"slices"
 	"sort"
-
-	"github.com/spf13/afero"
 )
 
 // treeSource is a Source over one candidate group in an authored directory
@@ -18,16 +16,16 @@ import (
 // files the walker grouped together, including dot-prefixed sidecars that a
 // glob would have silently dropped.
 type treeSource struct {
-	fsys  afero.Fs
-	root  string   // filesystem path of the bundle root
+	tfs   TreeFS
+	root  string   // store-relative slash path of the bundle root
 	paths []string // bundle-relative, forward slashes, sorted, deduplicated
 }
 
-func newTreeSource(fsys afero.Fs, root string, paths []string) *treeSource {
+func newTreeSource(tfs TreeFS, root string, paths []string) *treeSource {
 	cleaned := slices.Clone(paths)
 	sort.Strings(cleaned)
 	cleaned = slices.Compact(cleaned)
-	return &treeSource{fsys: fsys, root: root, paths: cleaned}
+	return &treeSource{tfs: tfs, root: root, paths: cleaned}
 }
 
 func (s *treeSource) List() ([]string, error) {
@@ -44,7 +42,7 @@ func (s *treeSource) Open(relPath string) ([]byte, error) {
 	if err := validateDigestPath(relPath); err != nil {
 		return nil, err
 	}
-	data, err := afero.ReadFile(s.fsys, filepath.Join(s.root, filepath.FromSlash(relPath)))
+	data, err := s.tfs.ReadFile(path.Join(s.root, relPath))
 	if err != nil {
 		return nil, fmt.Errorf("content: reading %q: %w", relPath, err)
 	}

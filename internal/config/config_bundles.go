@@ -683,8 +683,31 @@ func extractHooksFromBundle(bundle *bundles.Bundle, source string, gate bundles.
 		if len(in) == 0 {
 			return nil
 		}
-		out := make([]wire.Hook, 0, len(in))
+		// A bundle's `order:` sequences ITS hooks within this event. Across
+		// bundles nothing changes: UnifiedHooks.Append still concatenates, and
+		// the merge sequence is still the bundles' order, not any hook's.
+		//
+		// This sorts a permutation of AUTHORED INDICES rather than the hooks
+		// themselves, because the authored index is a hook's trust identity on
+		// this path ("<bundle>#hooks/<event>/<index>", shared with the migration
+		// baseline and every recorded grant). Resolving to a new position must
+		// not renumber that ref, or every existing hook approval silently
+		// detaches from the hook it was granted for.
+		//
+		// SliceStable over an already-ascending permutation is what makes ties —
+		// and a bundle where nothing declares an order at all — resolve to
+		// authored position, byte-for-byte as this path behaved before the field
+		// existed. Hence the empty tie-break keys: stability IS the tie-break.
+		order := make([]int, len(in))
 		for i := range in {
+			order[i] = i
+		}
+		sort.SliceStable(order, func(a, b int) bool {
+			return wire.HookOrderLess(in[order[a]].Order, "", in[order[b]].Order, "")
+		})
+
+		out := make([]wire.Hook, 0, len(in))
+		for _, i := range order {
 			h := in[i]
 			if gate != nil {
 				// Key by the bundle's source ref (canonical for a remote/cloned

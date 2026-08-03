@@ -20,15 +20,15 @@ func walkCommands(cmd *cobra.Command, visit func(*cobra.Command)) {
 	}
 }
 
-// runRoot drives the real rootCmd with args and returns its error plus
-// everything it wrote.
+// runRoot drives the real rootCmd with args and returns everything it wrote
+// plus its error.
 //
 // rootCmd is package-global and its persistent flags KEEP whatever the last
 // test set — --format in particular, which other suites in this package leave
 // on markdown. That is not this test's state to inherit, so the flag is put
 // back to its default here as well as after; a namespace test that quietly
 // depended on a neighbour's leftovers would be measuring the neighbour.
-func runRoot(t *testing.T, args ...string) (error, string) {
+func runRoot(t *testing.T, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
 	resetFormat := func() {
@@ -54,7 +54,8 @@ func runRoot(t *testing.T, args ...string) (error, string) {
 		// helper's to undo.
 		clidiag.SetStructured(false)
 	})
-	return rootCmd.Execute(), out.String()
+	err := rootCmd.Execute()
+	return out.String(), err
 }
 
 // TestGroupNodes_AreAllGuarded is the gate that keeps the fix from decaying.
@@ -121,7 +122,7 @@ func TestGroupNodes_UnknownSubcommandFails(t *testing.T) {
 		t.Run(g.CommandPath(), func(t *testing.T) {
 			args := append(strings.Fields(g.CommandPath())[1:], "zzznotasubcommand")
 
-			err, out := runRoot(t, args...)
+			out, err := runRoot(t, args...)
 
 			require.Error(t, err,
 				"%s zzznotasubcommand must fail, not print help and exit 0 (output was: %s)",
@@ -152,7 +153,7 @@ func TestUnknownSubcommandError_Message(t *testing.T) {
 // change. Asking a namespace what it holds by naming it alone is legitimate
 // and stays a success; only a named verb that does not exist became an error.
 func TestGroupNode_BareInvocationStillPrintsHelp(t *testing.T) {
-	err, out := runRoot(t, "manage")
+	out, err := runRoot(t, "manage")
 
 	require.NoError(t, err, "bare `ctxloom manage` is a legitimate request for its help")
 	assert.Contains(t, out, "Available Commands:", "and it answers with the namespace's help")
@@ -167,7 +168,7 @@ func TestGroupNode_BareInvocationStillPrintsHelp(t *testing.T) {
 // exit-0 it has always been rather than becoming collateral of the
 // unknown-subcommand fix.
 func TestGroupNode_BareInvocationIgnoresFormat(t *testing.T) {
-	err, out := runRoot(t, "manage", "--format", "json")
+	out, err := runRoot(t, "manage", "--format", "json")
 
 	require.NoError(t, err, "a namespace is exempt from the --format debt guard")
 	assert.Contains(t, out, "Available Commands:")

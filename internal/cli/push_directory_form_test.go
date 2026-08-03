@@ -29,9 +29,10 @@ import (
 // needs no multi-artifact handling. (Signing a bundle's whole tree — per-file
 // .sig plus a signed manifest-of-hashes — is excusable-flatness's job.)
 //
-// Getting there measured a PRE-EXISTING DEFECT, characterized here and not
-// fixed: publishing a directory-form bundle addresses it by the basename of its
-// manifest. See the second test.
+// Getting there measured a PRE-EXISTING DEFECT, since fixed: publishing a
+// directory-form bundle addressed it by the basename of its manifest, so every
+// one of them collided at `bundles/bundle.yaml`. See the second test for what
+// the corrected publish writes, and for what it still does NOT write.
 
 // writeDirFormBundle hand-builds a directory-form bundle (there is no CLI path
 // that creates one — operations.CreateBundle only ever writes `<name>.yaml`)
@@ -94,24 +95,27 @@ func TestPushBundleCfg_DirectoryFormBundle_CarriesTheManifestSidecar(t *testing.
 		"and it covers exactly the bytes that were published — the MANIFEST, nothing else")
 }
 
-// FOUND DEFECT, characterized not fixed, and NOT caused by this change —
-// publishing addresses a bundle by the basename of the file it resolved to,
-// and for a directory-form bundle that file is always `bundle.yaml`:
+// `ctxloom bundle push dir-form` lands at bundles/dir-form.yaml. It used to
+// land at bundles/bundle.yaml, because publishing addressed a bundle by the
+// basename of the file it resolved to and for this shape that file is always
+// `bundle.yaml` — so every directory-form bundle in a project published to the
+// SAME remote path and silently overwrote the last one. The name now comes from
+// bundles.ExtractBundleName (parent directory for a `bundle.yaml` leaf), the
+// same rule the loader names bundles by, computed ONCE in operations.PushBundle
+// and handed to publish rather than re-derived there.
 //
-//	operations.PushBundle:
-//	  bundleName := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
-//	  targetPath := path.Join(paths.RepoContentPrefix, "bundles", bundleName+".yaml")
-//
-// So `ctxloom bundle push dir-form` lands at bundles/bundle.yaml, not
-// bundles/dir-form.yaml — every directory-form bundle in a project publishes to
-// the SAME remote path and silently overwrites the last one. The skills subtree
-// that is the entire reason this shape exists is not published at all.
+// STILL TRUE, and deliberately so: only the MANIFEST is published. The skills
+// subtree — the entire reason this shape exists, since bundles.Loader refuses
+// `skills:` in single-file form — does not travel. Publishing a bundle's whole
+// tree is a multi-artifact publish that the fetch side cannot yet resolve
+// (engaged-chivalry: the fetcher resolves a ref to a single `<name>.yaml`); it
+// is excusable-flatness's atomic-publish work. Asserted here so the boundary
+// between "publishes under the right name" and "publishes the whole tree" stays
+// a stated fact rather than an assumption.
 //
 // `bundle move --to <remote>` goes through the same PushBundle and inherits
-// both. Pinned so the fix (bundles.ExtractBundleName already computes the right
-// name, and the tree publish is excusable-flatness's atomic-publish work) is
-// visible as a change rather than a surprise.
-func TestPushBundleCfg_DirectoryFormBundle_PublishesAsBundleYamlAndDropsSkills(t *testing.T) {
+// both halves.
+func TestPushBundleCfg_DirectoryFormBundle_PublishesUnderItsOwnNameManifestOnly(t *testing.T) {
 	cfg, pub, mgr := pushSignTestSetup(t)
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 	writeDirFormBundle(t, cfg, "dir-form")
@@ -120,14 +124,14 @@ func TestPushBundleCfg_DirectoryFormBundle_PublishesAsBundleYamlAndDropsSkills(t
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "dir-form", "", false, "", false, false))
 
 	_, named := pub.files[".ctxloom/content/bundles/dir-form.yaml"]
-	assert.False(t, named,
-		"CHARACTERIZED: the bundle does NOT publish under its own name")
+	assert.True(t, named,
+		"the bundle publishes under its own name")
 	_, collides := pub.files[".ctxloom/content/bundles/bundle.yaml"]
-	assert.True(t, collides,
-		"CHARACTERIZED: it publishes as bundles/bundle.yaml — every directory-form bundle collides here")
+	assert.False(t, collides,
+		"and no longer at the shared bundles/bundle.yaml every directory-form bundle collided on")
 
 	for path := range pub.files {
 		assert.NotContains(t, path, "skills/",
-			"CHARACTERIZED: the skills subtree is not published at all")
+			"BOUNDARY: the skills subtree is still not published — tree publish is excusable-flatness's work")
 	}
 }

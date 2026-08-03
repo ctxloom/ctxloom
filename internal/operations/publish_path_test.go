@@ -110,11 +110,14 @@ func TestPushBundle_ReportedPathIsTheWrittenPath_DirectoryForm(t *testing.T) {
 		"the reported target path IS the path published to, for directory form too")
 }
 
-// CHARACTERIZED, NOT DESIRED: two directory-form bundles publish to the same
-// remote path and overwrite each other, because the published name is the
-// basename of the resolved file and for this shape that file is always
-// `bundle.yaml`.
-func TestPushBundle_DirectoryFormBundles_CollideAtOneRemotePath(t *testing.T) {
+// A directory-form bundle publishes under the BUNDLE's name, not its manifest
+// file's. Naming it after the file made every such bundle land on
+// `bundles/bundle.yaml` and silently overwrite the last one — a data-loss
+// collision with no error and no warning, since each push succeeded on its own
+// terms. The name now comes from bundles.ExtractBundleName, the same rule the
+// loader itself names a bundle by, so the remote name matches the name the user
+// pushed.
+func TestPushBundle_DirectoryFormBundles_PublishUnderTheirOwnNames(t *testing.T) {
 	cfg, fix := newPushManagerFixture(t)
 	first := writeDirFormBundleFixture(t, cfg, "alpha-form")
 	second := writeDirFormBundleFixture(t, cfg, "beta-form")
@@ -122,8 +125,8 @@ func TestPushBundle_DirectoryFormBundles_CollideAtOneRemotePath(t *testing.T) {
 	_, firstWritten := pushOneBundle(t, cfg, fix, first)
 	_, secondWritten := pushOneBundle(t, cfg, fix, second)
 
-	assert.Equal(t, []string{".ctxloom/content/bundles/bundle.yaml"}, firstWritten,
-		"CHARACTERIZED: named after the manifest file, not the bundle")
-	assert.Equal(t, firstWritten, secondWritten,
-		"CHARACTERIZED: every directory-form bundle lands on the same remote path")
+	assert.Equal(t, []string{".ctxloom/content/bundles/alpha-form.yaml"}, firstWritten,
+		"named after the bundle, not after its bundle.yaml manifest")
+	assert.Equal(t, []string{".ctxloom/content/bundles/beta-form.yaml"}, secondWritten,
+		"a second directory-form bundle gets its own remote path instead of overwriting the first")
 }

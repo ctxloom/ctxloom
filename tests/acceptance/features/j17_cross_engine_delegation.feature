@@ -30,9 +30,19 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # emits ChatEvents; it is not an MCP client and has no path to invoke the
   # coordinator's own agent_send tool) structurally cannot do that.
   #
-  # So: the child->coordinator direction of the bus is provable only against
-  # a REAL reasoning engine — the @live scenario below. Hermetically, this
-  # journey instead reads each child's OWN canonical transcript
+  # CORRECTED 2026-08-03 — the paragraph above is right about agent_send and
+  # WRONG about the direction as a whole. A chat child indeed cannot decide
+  # to call agent_send without a reasoning loop, but that was never the only
+  # child->parent path: coord/children.go's bridgeTurnResult queues EVERY
+  # child's turn output to its parent's mailbox unconditionally, reasoning or
+  # not. So the direction IS hermetically provable, via the coordinator's own
+  # agent_recv — see "A delegated child's own turn result reaches the
+  # coordinator's mailbox over the bus" below. What had hidden this is that
+  # the bridge was silently failing for every scenario in this suite (the
+  # empty-coordinator-harp defect, fixed 2026-08-03; see the @live scenario's
+  # comment). Only agent_send-by-model-decision needs a real engine.
+  #
+  # Hermetically, this journey ALSO reads each child's OWN canonical transcript
   # (~/.ctxloom/sessions/<harp>/persist/transcript.jsonl —
   # internal/transcript/record.go's documented, first-party schema, not a
   # scrape) to prove distinct context and the coordinator->child half of the
@@ -155,23 +165,36 @@ Feature: Cross-engine delegation — different engines, different context, a rea
   # reports its marker over the real bus — the two claude assertions here
   # pass.
   #
-  # REMAINING blocker (codex-child, NOT claude): codex-child now RUNS and
-  # its result reaches the parent (via the automatic child->parent bridge,
-  # coord/children.go bridgeTurnResult — blunt-whiff, also fixed), but its
-  # own agent_send(to:"parent") is REJECTED with "this session is the
-  # coordinator — it has no parent": codex's forwarder shim is STILL in
-  # local mode. The socket IS delivered on the ctxloom MCP entry's own env
-  # now (coord.injectMCPSocketEnv, over ACP session/new mcpServers), which
-  # is what fixed reach-back robustness for claude — but codex-acp DROPS the
-  # stdio server's `env` array on session/new (it honors name+command+args
-  # but not env), so the value never reaches the shim's process env. A
-  # chat child delivers MCP only via session/new (the ACP driver
-  # materializes no config.toml), so there is no runtime hook to route
-  # around a vendor that ignores the env we send. This is a codex-acp
-  # limitation, the isolation-must-not-negotiate pattern again: fixing it
-  # needs either a codex-acp env fix or a runtime config.toml write whose
-  # mcp_servers-vs-session/new precedence is unverified — out of scope here.
-  # Untag @wip once codex-child's own agent_send reaches the coordinator.
+  # SUPERSEDED 2026-08-03 — the "codex-acp drops the stdio server's env"
+  # diagnosis recorded here previously is NOT what blocks this scenario, and
+  # a live re-run found no evidence for it: no "this session is the
+  # coordinator — it has no parent" was raised by either child, and no rogue
+  # local coordinator stood up. What was actually broken was
+  # ENGINE-INDEPENDENT and had been failing silently in the hermetic suite
+  # too: the bare-`ctxloom mcp` coordinator ran with an EMPTY Identity.Harp
+  # (internal/cli's selfIdentityFromEnv read CTXLOOM_SESSION_HARP, which
+  # `ctxloom run` exports but the .mcp.json entry `manage install` writes
+  # does not). The harp IS the coordinator's mailbox address, so with it
+  # empty, bridgeTurnResult's mail was refused at queueMailPayloadID's
+  # `to == ""` guard and childSend's `parent == ""` arm rejected any
+  # agent_send(to:"parent") — while agent_run kept returning success. Fixed
+  # 2026-08-03 by minting a harp when no ambient session supplies one;
+  # gated hermetically by the bridge scenario above.
+  #
+  # STATE AFTER THAT FIX, live-verified 2026-08-03 on this host:
+  #   - CLAUDE half: GREEN end to end. The claude child decided to call
+  #     agent_send, the coordinator's agent_recv returned its OWN marker,
+  #     and the round-trip ECHO token came back over the bus. All four
+  #     claude assertions pass (12 of 18 steps, up from 4).
+  #   - CODEX half: the BUS works — agent_recv really did return a message
+  #     from codex-child — but the body is a runner-exit report, not the
+  #     marker, because the codex ENGINE could not authenticate:
+  #     "Your access token could not be refreshed because your refresh
+  #     token was already used" (401 refresh_token_reused). That is a
+  #     credential-environment failure on this host, not a ctxloom defect,
+  #     and it is the one thing still keeping this scenario @wip.
+  # Untag @wip once a codex-child with WORKING credentials returns its own
+  # marker phrase here. No product change is known to be required.
   @live @wip
   Scenario: A coordinator delegates the same kind of task to two real, differently-vendored engines, and each proves it saw its own context over the real bus
     Given real "claude" and "codex" engines are both available for cross-engine delegation

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -108,6 +109,29 @@ func TestPushBundle_ReportedPathIsTheWrittenPath_DirectoryForm(t *testing.T) {
 	require.Len(t, written, 1)
 	assert.Equal(t, written[0], reported,
 		"the reported target path IS the path published to, for directory form too")
+}
+
+// `bundle move --to <remote>` is the highest-stakes reader of the reported
+// path: it publishes, derives SigDest from what PushBundle SAYS it wrote, and
+// then DELETES the local source. If the reported path and the written path ever
+// diverged, the user would be left with the source gone, a signature recorded
+// at a path nobody wrote, and no local copy to re-publish from. Bound here to
+// what the publisher actually received.
+func TestMoveBundle_ToRemote_ReportedDestIsTheWrittenPath(t *testing.T) {
+	mock := &mockPublisher{returnCommitSHA: "abc1234"}
+	cfg, bundlePath, mgr := pushTestSetup(t, mock)
+	signOnDisk(t, afero.NewOsFs(), bundlePath)
+
+	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{
+		Name: "for-push", To: "personal", PublishManager: mgr,
+	})
+	require.NoError(t, err)
+
+	require.Len(t, mock.createOrUpdateCalls, 2, "bundle + detached signature sibling")
+	assert.Equal(t, mock.createOrUpdateCalls[0].Path, res.Dest,
+		"the destination reported to the user is the one the bundle was written to")
+	assert.Equal(t, mock.createOrUpdateCalls[1].Path, res.SigDest,
+		"and the reported SigDest is the path the signature was written to")
 }
 
 // A directory-form bundle publishes under the BUNDLE's name, not its manifest

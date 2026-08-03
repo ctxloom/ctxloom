@@ -19,14 +19,15 @@ import (
 // ctxloom's OWN ACP client driver (the half that drives kiro/claude/codex) —
 // both ends of the protocol conformance-tested against each other over a real
 // subprocess boundary, fully hermetic via the mock engine: outer driver →
-// `ctxloom acp` → plugin (mock) chat → echo → session/update → outer driver.
+// `ctxloom acp serve` → plugin (mock) chat → echo → session/update → outer
+// driver.
 // The mock's echo proves exactly what the server delivered to the engine.
 func TestACPAgent_SelfConformance(t *testing.T) {
 	env := setupTestEnv(t)
 	_, err := env.SetupMockLM()
 	require.NoError(t, err)
 
-	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp"})
+	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp serve"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -93,7 +94,7 @@ func TestACPAgent_AnnouncementArrivesAtConnect_NoPromptSent(t *testing.T) {
 	_, err := env.SetupMockLM()
 	require.NoError(t, err)
 
-	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp"})
+	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp serve"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -155,7 +156,7 @@ bundles:
 	existing += "agents:\n  reviewer:\n    engine: mock\n    profiles: [reviewer-profile]\n"
 	require.NoError(t, env.WriteFile(cfgPath, existing))
 
-	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp --agent reviewer"})
+	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp serve --agent reviewer"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -234,7 +235,7 @@ func TestACPAgent_PermissionPassThrough(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp"})
+			drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp serve"})
 
 			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 			defer cancel()
@@ -276,7 +277,7 @@ func TestACPAgent_PerTurnCancel(t *testing.T) {
 	_, err := env.SetupMockLM()
 	require.NoError(t, err)
 
-	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp"})
+	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp serve"})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

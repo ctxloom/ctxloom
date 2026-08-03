@@ -792,35 +792,18 @@ func TestFragment_Create_WithTags(t *testing.T) {
 	assert.Contains(t, env.LastOutput(), "tagged-frag")
 }
 
-func TestFragment_Search(t *testing.T) {
-	env := setupTestEnv(t)
-
-	writeFragment(t, env, "golang-tips", []string{"golang"}, "Go best practices and tips")
-	writeFragment(t, env, "python-tips", []string{"python"}, "Python best practices")
-
-	_ = env.Run("fragment", "search", "tips")
-
-	assert.Equal(t, 0, env.LastExitCode())
-	output := env.LastOutput()
-	assert.Contains(t, output, "golang-tips")
-	assert.Contains(t, output, "python-tips")
-}
-
-func TestFragment_Search_ByTag(t *testing.T) {
-	env := setupTestEnv(t)
-
-	writeFragment(t, env, "golang-1", []string{"golang", "backend"}, "Go content 1")
-	writeFragment(t, env, "golang-2", []string{"golang", "frontend"}, "Go content 2")
-	writeFragment(t, env, "python-1", []string{"python"}, "Python content")
-
-	_ = env.Run("fragment", "search", "-t", "golang")
-
-	assert.Equal(t, 0, env.LastExitCode())
-	output := env.LastOutput()
-	assert.Contains(t, output, "golang-1")
-	assert.Contains(t, output, "golang-2")
-	assert.NotContains(t, output, "python-1")
-}
+// TestFragment_Search and TestFragment_Search_ByTag lived here and drove
+// `ctxloom fragment search` — a command that has never existed. Searching is
+// the top-level `ctxloom search`, and its two arms are already covered, by the
+// same fixtures and the same assertions, in TestSearch_Fragments and
+// TestSearch_WithTags below. Repointing these would have produced two verbatim
+// duplicates of those, so they are gone rather than restated.
+//
+// They were RED, not falsely green: the `-t` arm died on an unknown shorthand
+// and the plain arm on a payload assertion the help text could not satisfy.
+// That is only because both happened to assert on OUTPUT — the neighbouring
+// exit-code-only tests in this file survived the identical mistake silently
+// for as long.
 
 // =============================================================================
 // Prompt Command - Critical Paths

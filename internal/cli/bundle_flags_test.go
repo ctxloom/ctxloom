@@ -34,8 +34,13 @@ func TestBundleSubcommandFlags(t *testing.T) {
 		{bundlePushCmd, []flagSpec{
 			{"pr", "", "false", "Create a pull request instead of pushing directly"},
 			{"message", "m", "", "Commit message"},
-			{"sign", "", "false", "sign the published bundle (spec §3.1)"},
-			{"no-sign", "", "false", "don't sign, even if sign.default is true"},
+			// The wording is load-bearing, which is why it is pinned here: a
+			// signature belongs to the BUNDLE, so --sign describes signing
+			// FIRST and --no-sign describes publishing BARE. The old text
+			// ("don't sign, even if sign.default is true") described signing as
+			// a property of the push, which is the model this replaced.
+			{"sign", "", "false", "sign the bundle first, then publish that signature (same as `ctxloom bundle sign <name>` before pushing)"},
+			{"no-sign", "", "false", "publish unsigned: do not carry an existing signature, and do not sign even if sign.default is true"},
 		}},
 		{bundleImportCmd, []flagSpec{
 			{"force", "f", "false", "Overwrite existing bundle"},

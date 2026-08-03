@@ -25,8 +25,12 @@ var (
 func registerPushFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVar(&bundlePushPR, "pr", false, "Create a pull request instead of pushing directly")
 	cmd.Flags().StringVarP(&bundlePushMessage, "message", "m", "", "Commit message")
-	cmd.Flags().BoolVar(&bundlePushSign, "sign", false, "sign the published bundle (spec §3.1)")
-	cmd.Flags().BoolVar(&bundlePushNoSign, "no-sign", false, "don't sign, even if sign.default is true")
+	// The help text is normative about WHERE a signature comes from: publishing
+	// carries the sidecar `ctxloom bundle sign` wrote, so --sign is sugar for
+	// signing first and --no-sign means "publish bare", not "skip a signing
+	// step this publish would otherwise have done".
+	cmd.Flags().BoolVar(&bundlePushSign, "sign", false, "sign the bundle first, then publish that signature (same as `ctxloom bundle sign <name>` before pushing)")
+	cmd.Flags().BoolVar(&bundlePushNoSign, "no-sign", false, "publish unsigned: do not carry an existing signature, and do not sign even if sign.default is true")
 }
 
 var bundlePushCmd = &cobra.Command{
@@ -39,10 +43,21 @@ a pull request instead.
 
 If no remote is specified, uses the default remote.
 
+SIGNATURES: a signature belongs to the bundle, not to the publish.
+'ctxloom bundle sign' writes a detached <name>.yaml.sig sibling, and push
+CARRIES it — so the key that signs never has to be on the machine that
+publishes, and CI can ship signed content it cannot itself forge. A
+signature that no longer covers the bundle (edited after signing) stops
+the push rather than shipping a pair every consumer reads as tampering.
+Publishing unsigned is fine and supported; consumers review it.
+
 Examples:
   ctxloom bundle push my-bundle
   ctxloom bundle push my-bundle ctxloom-default
   ctxloom bundle push my-bundle --pr
+  ctxloom bundle sign my-bundle && ctxloom bundle push my-bundle  # sign here, publish there
+  ctxloom bundle push my-bundle --sign                            # the same thing in one command
+  ctxloom bundle push my-bundle --no-sign                         # publish bare
   ctxloom bundle push my-bundle ctxloom-default --message "Add my bundle"`,
 	Args: cobra.RangeArgs(1, 2),
 	RunE: runBundlePush,

@@ -101,13 +101,7 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 	// Apply through the same batch machinery as `update --apply`, so the
 	// single-ref path shares the constraint-pinned pull (ref@LatestSHA with
 	// RequestedVersion carried into the lock) and the removed/skip handling.
-	puller := remote.NewPuller(registry, auth,
-		remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)),
-		// Same seam `remote pull` is wired through (operations.resolveSyncDeps):
-		// an update that could not re-fetch a directory-form bundle would leave
-		// its pin advanced and its content behind.
-		remote.WithTreeFetcher(remotetree.PullTreeFetcher),
-	)
+	puller := newUpdatePuller(cfg, registry, auth, lockManager)
 	_, failed, removed := applyUpdateBatch(cmd.Context(), os.Stdout, puller, "\n--- Updating ---", updateForce, []updateInfo{u})
 	// Reload after the apply so cleanup prunes from the freshly-pulled lockfile
 	// rather than reverting it (see updateAll).
@@ -123,6 +117,40 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 		return fmt.Errorf("update failed for %s", refStr)
 	}
 	return nil
+}
+
+// newUpdatePuller builds the Puller `remote update --apply` pulls through. It is
+// ONE constructor for both apply paths (single-ref and batch): they were two
+// identical literals, and a literal that has to be kept in sync with another is
+// the shape a divergence hides in.
+//
+// lockManager is a parameter rather than a default because the default is WRONG
+// here: remote.NewPuller falls back to NewLockfileManager(".ctxloom"), a
+// RELATIVE path resolved against the process cwd, while this command resolves
+// the lockfile it DETECTS against through projectAppDir(cfg) — the project root
+// config.Load walked up to. Run from a subdirectory those are two different
+// files, so apply wrote its pin into a brand-new <cwd>/.ctxloom while the
+// project lockfile kept the old SHA, and the post-apply reload read that stale
+// file back. Exit 0, "Updated to <sha>", nothing moved.
+//
+// The directory-form tree install inherits the same base dir
+// (Puller.installTree → lockfileManager.BaseDir()), so the CONTENT landed in
+// the wrong tree too — which is exactly what BaseDir's own doc warns about:
+// "two configuration axes for one directory is how a pin and the content it
+// pins end up in different trees."
+// extra is applied LAST, so a test can substitute the fetcher factory (which
+// otherwise reaches the network) without standing up a second construction that
+// could drift from this one — the drift that produced the bug in the first
+// place.
+func newUpdatePuller(cfg *config.Config, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager, extra ...remote.PullerOption) *remote.Puller {
+	opts := []remote.PullerOption{
+		remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)),
+		// Same seam `remote pull` is wired through (operations.resolveSyncDeps):
+		// an update that could not re-fetch a directory-form bundle would leave
+		// its pin advanced and its content behind.
+		remote.WithTreeFetcher(remotetree.PullTreeFetcher),
+	}
+	return remote.NewPuller(registry, auth, append(opts, extra...)...)
 }
 
 // parseUpdateRef parses a single-ref `remote update` argument and rejects one
@@ -282,13 +310,7 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	}
 
 	fmt.Println("\nApplying updates...")
-	puller := remote.NewPuller(registry, auth,
-		remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)),
-		// Same seam `remote pull` is wired through (operations.resolveSyncDeps):
-		// an update that could not re-fetch a directory-form bundle would leave
-		// its pin advanced and its content behind.
-		remote.WithTreeFetcher(remotetree.PullTreeFetcher),
-	)
+	puller := newUpdatePuller(cfg, registry, auth, lockManager)
 	updated, failed, removedFromRemote := applyUpdates(cmd.Context(), os.Stdout, puller, updateForce, bundleUpdates)
 
 	// applyUpdates persisted the new SHAs to disk (each Pull load/AddEntry/Save).

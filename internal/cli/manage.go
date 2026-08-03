@@ -515,8 +515,9 @@ companion tools, and each bundle your profiles reference — by pure APPEND, and
 bundle's own 'order:' sequences only its own hooks within an event. The result is
 emergent: no single file states it. This is where you read it.
 
-Each hook is reported with where it came from, so a sequence you dislike points
-at something you can go and change.`,
+Each hook is reported with where it came from — your config, which profile, or
+which bundle, builtin or companion — so a sequence you dislike points at one
+place you can go and change.`,
 	Args: cobra.NoArgs,
 	RunE: runManageHooksList,
 }
@@ -548,16 +549,27 @@ func renderResolvedHooks(w io.Writer, result *operations.ResolveHooksResult) err
 			continue
 		}
 		for _, h := range ev.Hooks {
-			fmt.Fprintf(w, "  %d. %-24s [%s]\n", h.Position, resolvedHookLabel(h), resolvedHookOrigin(h))
+			fmt.Fprintf(w, "  %d.%s %-24s [%s]\n", h.Position, resolvedHookMoved(h), resolvedHookLabel(h), resolvedHookOrigin(h))
 		}
 	}
 	for _, bn := range result.BackendNative {
 		fmt.Fprintf(w, "%s (%s native)\n", bn.Event, bn.Backend)
 		for _, h := range bn.Hooks {
-			fmt.Fprintf(w, "  %d. %-24s [%s]\n", h.Position, resolvedHookLabel(h), resolvedHookOrigin(h))
+			fmt.Fprintf(w, "  %d.%s %-24s [%s]\n", h.Position, resolvedHookMoved(h), resolvedHookLabel(h), resolvedHookOrigin(h))
 		}
 	}
 	return nil
+}
+
+// resolvedHookMoved marks a hook whose position was CHOSEN rather than merely
+// emergent, naming where the merge had put it. Empty — not "(declared 3)" on
+// every row — when nothing moved the hook, which is every row until something
+// reorders: a marker on everything marks nothing.
+func resolvedHookMoved(h operations.ResolvedHook) string {
+	if h.Declared == 0 || h.Declared == h.Position {
+		return ""
+	}
+	return fmt.Sprintf(" (declared %d)", h.Declared)
 }
 
 // resolvedHookLabel names a hook by what it DOES. A hook with neither a command

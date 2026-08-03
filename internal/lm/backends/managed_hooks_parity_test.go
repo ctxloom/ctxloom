@@ -261,8 +261,8 @@ func hookParityCases() []hookParityCase {
 				})
 			},
 			profiles: []string{"other"},
-			present: []string{"other-pre"},
-			absent:  []string{"p-pre"},
+			present:  []string{"other-pre"},
+			absent:   []string{"p-pre"},
 		},
 		{
 			name: "directory profile hooks, ungated",
@@ -294,8 +294,8 @@ func hookParityCases() []hookParityCase {
 			absent: []string{"keep-hook", "drop-hook"},
 		},
 		{
-			name: "bundle-shipped profile hooks through the directory fallback",
-			cfg:  func(t *testing.T) *config.Config { return bundleShippedProfileCfg(t, nil) },
+			name:    "bundle-shipped profile hooks through the directory fallback",
+			cfg:     func(t *testing.T) *config.Config { return bundleShippedProfileCfg(t, nil) },
 			present: []string{"bundle-shipped-hook", "bundle-shipped-second"},
 		},
 		{
@@ -322,7 +322,7 @@ func hookParityCases() []hookParityCase {
 			},
 			workDir:     "/tmp/work",
 			contextHash: "deadbeefcafe",
-			present: []string{"bundled-start"},
+			present:     []string{"bundled-start"},
 		},
 		{
 			name: "context hash with no other source",

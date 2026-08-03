@@ -76,6 +76,46 @@ Feature: Manage the project harness
     And the output matches "HOOKLIST-FIRST[\s\S]*HOOKLIST-SECOND"
     And the output contains "bundle hooked"
 
+  # Provenance used to be three coarse labels, and one of them — "local" —
+  # covered both config.yaml's own hooks: block and every inline profile's,
+  # because the merge appended into a settings-shaped value and discarded the
+  # source as it went. A user told "local" still had to search two blocks of one
+  # file. Assembly now resolves into a model that keeps what the merge knows, so
+  # each hook names ONE place to go.
+  Scenario: The hook list names the specific place each hook was declared
+    Given an initialized ctxloom project
+    And the project already has the file ".ctxloom/config.yaml":
+      """
+      version: 4
+      editor:
+        command: "true"
+      hooks:
+        unified:
+          pre_tool:
+            - type: command
+              command: echo PROV-FROM-CONFIG
+      profiles:
+        definitions:
+          inline-prov:
+            hooks:
+              unified:
+                pre_tool:
+                  - type: command
+                    command: echo PROV-FROM-INLINE-PROFILE
+      """
+    When I run "ctxloom manage hooks list --event pre_tool --profile inline-prov"
+    Then the command succeeds
+    And the output matches "PROV-FROM-CONFIG\s+\[config\]"
+    And the output matches "PROV-FROM-INLINE-PROFILE\s+\[profile-inline inline-prov\]"
+    And the output does not contain "[local]"
+    # The machine form carries the same specific kind, plus the position the
+    # MERGE gave each hook — so a later reordering is visible as a move rather
+    # than as an unexplained final number.
+    When I run "ctxloom manage hooks list --event pre_tool --profile inline-prov --format json"
+    Then the command succeeds
+    And the output contains "profile-inline"
+    And the output contains "declared"
+
   Scenario: The hook list has a machine-readable form
     Given an initialized ctxloom project
     When I run "ctxloom manage hooks list --format json"

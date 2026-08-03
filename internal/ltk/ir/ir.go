@@ -113,9 +113,6 @@ type Redirect struct {
 }
 
 // Walk visits every SimpleCommand in the script in source (pre-)order,
-// descending into nested scripts. The visitor returns false to stop the walk
-// early; Walk then returns false too. Returns true if the walk completed.
-// Walk visits every SimpleCommand in the script in source (pre-)order,
 // descending into nested scripts. fn also receives the *Script that directly
 // owns the command being visited — which, for a nested script (a wrapper body,
 // a substitution, ...), is NOT necessarily the top-level script Walk was
@@ -146,8 +143,6 @@ func (s *Script) Walk(fn func(owner *Script, c SimpleCommand) bool) bool {
 	return true
 }
 
-// Commands flattens every SimpleCommand reachable from the script, nested
-// scripts included, in walk order.
 // Commands flattens every SimpleCommand reachable from the script, nested
 // scripts included, in walk order.
 func (s *Script) Commands() []SimpleCommand {

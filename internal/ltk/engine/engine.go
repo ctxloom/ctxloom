@@ -104,7 +104,6 @@ func encodeDecision(resp Response, encodeDeny func(string) ([]byte, error)) (Out
 	return Output{Stdout: body, ExitCode: 0}, nil
 }
 
-// Message renders the reason and suggestion into a single human-facing string.
 // Message renders the reason and suggestion into a single human-facing
 // string. Never empty: both Adapters' Encode call this only when rendering a
 // DENY, and a deny that renders to zero bytes tells the agent

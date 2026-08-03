@@ -597,8 +597,6 @@ func resolvedHookOrigin(h operations.ResolvedHook) string {
 
 // --- manage mcp -------------------------------------------------------------
 
-// setMcpAutoRegister toggles ctxloom's MCP auto-registration and prints the
-// resulting state.
 // setMcpAutoRegister toggles ctxloom's MCP auto-registration and renders the
 // resulting state through emit() (text/json/yaml/toml/markdown).
 func setMcpAutoRegister(cmd *cobra.Command, enabled bool) error {
@@ -660,7 +658,6 @@ func runManageStatuslineUninstall(cmd *cobra.Command, _ []string) error {
 	return setStatusline(cmd, false)
 }
 
-// setStatusline persists the statusline preference and prints the resulting state.
 // setStatusline persists the statusline preference and renders the resulting
 // state through emit() (text/json/yaml/toml/markdown).
 func setStatusline(cmd *cobra.Command, enabled bool) error {

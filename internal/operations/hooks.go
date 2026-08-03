@@ -309,11 +309,6 @@ func checkHookTargetScope(workDir, backend string, force bool) error {
 }
 
 // maybeRegenerateContext regenerates the injected context when requested,
-// returning its hash. A regen failure is fatal-class in strict mode (the
-// SessionStart-injected context silently going stale/absent is exactly what
-// fail-loudly exists to catch); in degraded mode it stays a warning and the
-// injection hook is simply omitted this round.
-// maybeRegenerateContext regenerates the injected context when requested,
 // returning its hash and whether the attempt genuinely failed. A regen
 // failure is fatal-class in strict mode (the SessionStart-injected context
 // silently going stale/absent is exactly what fail-loudly exists to catch);

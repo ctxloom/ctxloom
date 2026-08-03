@@ -101,9 +101,6 @@ type watchSub struct {
 	ch     chan *agentcoordpb.AgentEvent
 }
 
-// subscribe registers a subscriber and returns its event channel plus a
-// cancel func that unregisters it. Call cancel exactly once, when the
-// watching stream ends.
 // subscribe registers a subscriber and returns its event channel, a cancel
 // func that unregisters it (call exactly once, when the watching stream
 // ends), and a narrow func that re-scopes an already-live subscription to

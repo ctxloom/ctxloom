@@ -363,12 +363,6 @@ func (c *RepoCache) RepoDirForURL(repoURL string) (string, error) {
 	return c.safeRepoPath(segs...)
 }
 
-// safeRepoPath joins parts under baseDir, guaranteeing the result stays inside
-// baseDir. SECURITY: the returned dir is later RemoveAll'd and cloned into, so
-// a crafted repo URL with ".." segments must not traverse out of the cache.
-// We drop empty, ".", and ".." segments before joining (so filepath.Join can't
-// collapse a "../" back out), then verify containment with filepath.Rel as
-// defense in depth, falling back to baseDir if anything still escapes.
 // safeRepoPath joins parts under baseDir, guaranteeing the result stays
 // STRICTLY INSIDE baseDir. SECURITY: the returned dir is later
 // os.RemoveAll'd and cloned into — so "escapes baseDir" is not the only

@@ -50,21 +50,12 @@ func TestArch_DocCommentsDoNotRestateTheirOwnOpening(t *testing.T) {
 	var scanned int
 
 	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
+		switch {
+		case err != nil:
 			return err
-		}
-		name := d.Name()
-		if d.IsDir() {
-			// Same exclusions as scan(): dot-dirs (which is also what keeps
-			// .claude/worktrees — another agent's checkout — out of this
-			// module's gate), underscore dirs, fixtures and vendored trees.
-			if p != root && (strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") ||
-				name == "testdata" || name == "vendor" || name == "node_modules") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if !strings.HasSuffix(name, ".go") {
+		case d.IsDir() && p != root && skippedDir(d.Name()):
+			return filepath.SkipDir
+		case d.IsDir() || !strings.HasSuffix(d.Name(), ".go"):
 			return nil
 		}
 		f, perr := parser.ParseFile(fset, p, nil, parser.ParseComments)
@@ -78,15 +69,9 @@ func TestArch_DocCommentsDoNotRestateTheirOwnOpening(t *testing.T) {
 		if rerr != nil {
 			return rerr
 		}
-		for _, decl := range f.Decls {
-			for _, dd := range declDocs(decl) {
-				scanned++
-				if at := restatedOpening(dd.name, dd.doc); at != "" {
-					findings = append(findings,
-						filepath.ToSlash(rel)+": "+dd.name+" — "+at)
-				}
-			}
-		}
+		n, found := scanFileDocs(f, filepath.ToSlash(rel))
+		scanned += n
+		findings = append(findings, found...)
 		return nil
 	})
 	if err != nil {
@@ -106,6 +91,29 @@ func TestArch_DocCommentsDoNotRestateTheirOwnOpening(t *testing.T) {
 			"    one of the two copies is stale. Delete it — keeping both leaves a reader "+
 			"who stops at the first paragraph reading the wrong one.", f)
 	}
+}
+
+// skippedDir reports the directory names the sweep does not descend into —
+// the same exclusions scan() uses. The dot-dir rule is also what keeps
+// .claude/worktrees (another agent's checkout of this repo) out of this
+// module's gate.
+func skippedDir(name string) bool {
+	return strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") ||
+		name == "testdata" || name == "vendor" || name == "node_modules"
+}
+
+// scanFileDocs checks every documented declaration in one parsed file,
+// returning how many it looked at and one finding line per violation.
+func scanFileDocs(f *ast.File, rel string) (scanned int, findings []string) {
+	for _, decl := range f.Decls {
+		for _, dd := range declDocs(decl) {
+			scanned++
+			if at := restatedOpening(dd.name, dd.doc); at != "" {
+				findings = append(findings, rel+": "+dd.name+" — "+at)
+			}
+		}
+	}
+	return scanned, findings
 }
 
 // restatedRunes is how far a second "Name ..." sentence must continue
@@ -132,22 +140,30 @@ func declDocs(decl ast.Decl) []documented {
 		}
 		return []documented{{d.Name.Name, d.Doc.Text()}}
 	case *ast.GenDecl:
-		var out []documented
-		for _, spec := range d.Specs {
-			name, doc := specNameDoc(spec)
-			if name == "" {
-				continue
-			}
-			if doc == "" && len(d.Specs) == 1 && d.Doc != nil {
-				doc = d.Doc.Text()
-			}
-			if doc != "" {
-				out = append(out, documented{name, doc})
-			}
-		}
-		return out
+		return genDeclDocs(d)
 	}
 	return nil
+}
+
+// genDeclDocs is declDocs' type/var/const arm. A spec with no doc of its own
+// inherits the BLOCK's doc only when the block declares exactly one spec —
+// which is how a lone `var x = ...` with a comment above it is written; in a
+// grouped block the block doc describes the group, not any one member.
+func genDeclDocs(d *ast.GenDecl) []documented {
+	var out []documented
+	for _, spec := range d.Specs {
+		name, doc := specNameDoc(spec)
+		if name == "" {
+			continue
+		}
+		if doc == "" && len(d.Specs) == 1 && d.Doc != nil {
+			doc = d.Doc.Text()
+		}
+		if doc != "" {
+			out = append(out, documented{name, doc})
+		}
+	}
+	return out
 }
 
 // specNameDoc pulls one spec's declared name and its own doc, if any.

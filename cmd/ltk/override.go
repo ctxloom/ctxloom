@@ -40,9 +40,6 @@ func applyConfirmOverride(resp engine.Response, req engine.Request, resolvedConf
 // confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
 // using the wall clock, and notes on stderr when a repeat was honored. The logic
 // lives in internal/state so the acceptance suite can exercise it too.
-// confirmByRepeat applies the "run it again to permit" override (state.ConfirmByRepeat)
-// using the wall clock, and notes on stderr when a repeat was honored. The logic
-// lives in internal/state so the acceptance suite can exercise it too.
 func confirmByRepeat(resp engine.Response, command, stateFile string, delay, window time.Duration) engine.Response {
 	out, overridden, err := state.ConfirmByRepeat(afero.NewOsFs(), resp, command, stateFile, time.Now(), delay, window)
 	if overridden {

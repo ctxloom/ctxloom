@@ -226,10 +226,17 @@ func TestRun_DryRun(t *testing.T) {
 	assert.Contains(t, env.LastOutput(), "Dry run content")
 }
 
-// TestRun_Agent_DryRun drives the --agent arm end-to-end: `agent set` writes
-// the binding (engine defaulted, runtime declared), and `run --agent X
+// TestRun_Agent_DryRun drives the --agent arm end-to-end: `agent create`
+// writes the binding (engine defaulted, runtime declared), and `run --agent X
 // --dry-run` previews THAT binding — its composed profile context, and the
 // session axes header (workspace from the invocation, runtime from the agent).
+//
+// It used to drive `agent set`, a verb the verb-spine reorg replaced with the
+// create/edit pair. That left the suite RED rather than falsely green only by
+// luck: `--profiles` is not a flag on the bare `agent` group node the unknown
+// verb fell through to, so cobra failed the flag parse. Had the invocation
+// carried no flags it would have printed `agent`'s help and exited 0, exactly
+// like TestConfig_Show/TestConfig_Get below.
 func TestRun_Agent_DryRun(t *testing.T) {
 	env := setupTestEnv(t)
 
@@ -240,8 +247,10 @@ bundles:
   - local#fragments/agent-frag
 `)
 
-	_ = env.Run("agent", "set", "dev", "--profiles", "agent-profile", "--runtime", "container")
-	require.Equal(t, 0, env.LastExitCode(), "agent set: %s", env.LastOutput())
+	_ = env.Run("agent", "create", "dev", "--profiles", "agent-profile", "--runtime", "container")
+	require.Equal(t, 0, env.LastExitCode(), "agent create: %s", env.LastOutput())
+	require.Contains(t, env.LastOutput(), "dev",
+		"agent create must report the binding it wrote, not print the agent group's help")
 
 	_ = env.Run("run", "--agent", "dev", "--dry-run", "agent test")
 
@@ -971,20 +980,75 @@ func TestInit_GitMissing_FailsLoudBeforeClone(t *testing.T) {
 // Config Command
 // =============================================================================
 
+// writeConfig writes a .ctxloom/config.yaml carrying values distinctive enough
+// that finding them in a command's output proves that command READ THIS FILE —
+// not merely that it exited 0 with something plausible on stdout.
+func writeConfig(t *testing.T, env *testenv.TestEnvironment) {
+	t.Helper()
+	require.NoError(t, env.WriteFile(".ctxloom/config.yaml", `version: 6
+llm:
+  configs:
+    payload-probe-engine:
+      type: claude-code
+      model: payload-probe-model
+  defaults:
+    primary: payload-probe-engine
+config:
+  use_distilled: true
+`), "write config.yaml")
+}
+
+// TestConfig_Show and TestConfig_Get assert on the PAYLOAD, not the exit code.
+//
+// Both used to drive `manage config show` / `manage config get llm`. There is
+// no `manage config` subtree — configuration lives at the top-level `config`
+// command — so cobra printed `manage`'s help and exited 0, and an
+// exit-code-only assertion cannot tell that apart from the command having run.
+// They passed for their whole life while exercising nothing. The exit code is
+// still checked, but it is the weakest of the assertions here on purpose: the
+// value written into config.yaml is what proves the command did the work.
 func TestConfig_Show(t *testing.T) {
 	env := setupTestEnv(t)
+	writeConfig(t, env)
 
-	_ = env.Run("manage", "config", "show")
+	_ = env.Run("config", "show")
 
-	assert.Equal(t, 0, env.LastExitCode())
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	out := env.LastOutput()
+	assert.Contains(t, out, "payload-probe-engine", "config show renders the configured llm label")
+	assert.Contains(t, out, "payload-probe-model", "config show renders the configured model")
+	assert.Contains(t, out, "use_distilled", "config show renders the `config` section too, not just llm")
+	assert.NotContains(t, out, "Usage:", "a cobra help dump is the false-green this test exists to catch")
 }
 
 func TestConfig_Get(t *testing.T) {
 	env := setupTestEnv(t)
+	writeConfig(t, env)
 
 	// Sections are config/llm/mcp/profiles in schema v3 (the old "defaults"
 	// section was folded into "config").
-	_ = env.Run("manage", "config", "get", "llm")
+	_ = env.Run("config", "get", "llm")
 
-	assert.Equal(t, 0, env.LastExitCode())
+	require.Equal(t, 0, env.LastExitCode(), env.LastOutput())
+	out := env.LastOutput()
+	assert.Contains(t, out, "payload-probe-engine", "config get llm renders the llm section")
+	assert.Contains(t, out, "payload-probe-model")
+	// Section scoping is the whole point of `get` over `show`: a sibling
+	// section's keys must NOT come along.
+	assert.NotContains(t, out, "use_distilled", "config get llm is scoped to the llm section")
+	assert.NotContains(t, out, "Usage:", "a cobra help dump is the false-green this test exists to catch")
+}
+
+// TestConfig_ManageSubtreeIsGone pins the product half of the same defect: the
+// removed `manage config` path must FAIL, naming the typo, rather than
+// printing manage's help and exiting 0. Any unknown subcommand of any group
+// node behaves this way — see TestCLI_UnknownSubcommandFails.
+func TestConfig_ManageSubtreeIsGone(t *testing.T) {
+	env := setupTestEnv(t)
+
+	_ = env.Run("manage", "config", "show")
+
+	assert.NotEqual(t, 0, env.LastExitCode(),
+		"a removed subcommand must fail loudly, not print help and exit 0: %s", env.LastOutput())
+	assert.Contains(t, env.LastOutput(), "config", "the error names the subcommand that does not exist")
 }

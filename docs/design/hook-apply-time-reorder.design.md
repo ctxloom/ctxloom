@@ -8,6 +8,25 @@ Written against `internal/config.extractHooksFromBundle`,
 `backends.AssembleManagedHooks`, `operations.ResolveHooks`, and
 `wire.HookOrderLess` as they exist at this commit.
 
+> **Superseded in part, 2026-08-03.** `AssembleManagedHooks` now returns a
+> resolved model, `backends.ManagedHooks`, whose lifecycle is resolve → inspect
+> (`For`, `BackendNative`) → work with (`Reorder`) → assemble (`Wire`). Reorder
+> is therefore a METHOD ON THE OBJECT, not a mechanism layered around assembly,
+> and §4's `wire.ApplyHookOrder` / `backends.applyHookOrderOverrides` are
+> replaced by `(*ManagedHooks).Reorder(event, HookRanker)`. §5's
+> permutation requirement survives, promoted from a test obligation into the
+> signature: a ranker can only answer questions about hooks that are already
+> there, so dropping, inventing, or editing one is not expressible. §6's
+> unmatched-rule reporting becomes the CALLER's job — a ranker is asked about
+> each hook rather than naming hooks itself, and `For` gives a rule-driven
+> caller everything it needs to notice its own stale rules.
+>
+> §2 is unchanged and is the reason the object is mutable and reordered in
+> place: whatever reorders must run inside `AssembleManagedHooks`, before
+> either caller observes the object. What remains unbuilt is the `hook_order:`
+> config key of §3–4 — now a small caller of `Reorder` rather than a special
+> path through assembly.
+
 ---
 
 ## 1. The problem, stated precisely

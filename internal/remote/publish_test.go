@@ -367,6 +367,26 @@ func TestPublishPath(t *testing.T) {
 	}
 }
 
+// PUBLISH AND FETCH MUST NAME THE SAME FILE. PublishPath decides where a
+// bundle lands; Reference.BuildFilePath decides where a consumer looks for it
+// by name. Nothing structural ties the two expressions together, and they were
+// out of step for directory-form bundles for as long as publishing named them
+// after their `bundle.yaml` manifest: they published as "bundle" and so were
+// reachable only under that name, if at all.
+//
+// This asserts the agreement for the MANIFEST, which is all that publishing
+// writes. A directory-form bundle's skills/ subtree is still neither published
+// nor resolvable by ref — that gap is real and remains open.
+func TestPublishPath_MatchesFetchSideRefResolution(t *testing.T) {
+	for _, name := range []string{"security", "dir-form", "lang/go/testing"} {
+		t.Run(name, func(t *testing.T) {
+			ref := &Reference{Path: name, ItemType: ItemTypeBundle}
+			assert.Equal(t, ref.BuildFilePath(ItemTypeBundle), PublishPath(ItemTypeBundle, name),
+				"a bundle published under a name must be the file a ref to that name resolves to")
+		})
+	}
+}
+
 // --- Exact-bytes publishing (signature-envelope spec §3.0, §3.1) -----------
 
 // publishOnce runs a single publish of content through a fresh mock publisher

@@ -266,17 +266,9 @@ func spec(root string) remotetree.Spec {
 // root, synthesising the directory listings a forge would return.
 func mockOf(files map[string][]byte, root string) *remote.MockFetcher {
 	m := remote.NewMockFetcher()
-	dirs := map[string]map[string]bool{}
-	ensure := func(d string) {
-		if _, ok := dirs[d]; !ok {
-			dirs[d] = map[string]bool{}
-		}
-	}
-	repoRoot := root
-	if repoRoot == "" {
-		repoRoot = "."
-	}
-	ensure(repoRoot)
+	// Keyed by the repository path ListDir is called with; the repository root
+	// is the empty string, which is what repoPath yields for an empty Root.
+	dirs := map[string]map[string]bool{"": {}}
 	for p, data := range files {
 		full := p
 		if root != "" {
@@ -284,17 +276,16 @@ func mockOf(files map[string][]byte, root string) *remote.MockFetcher {
 		}
 		m.WithFile(full, data)
 		segments := strings.Split(full, "/")
-		dir := repoRoot
-		if root == "" {
-			dir = "."
-		}
+		dir := ""
 		for i, seg := range segments {
-			ensure(dir)
+			if dirs[dir] == nil {
+				dirs[dir] = map[string]bool{}
+			}
 			dirs[dir][seg] = i < len(segments)-1
 			if i == len(segments)-1 {
 				break
 			}
-			if dir == "." {
+			if dir == "" {
 				dir = seg
 			} else {
 				dir += "/" + seg
@@ -307,11 +298,7 @@ func mockOf(files map[string][]byte, root string) *remote.MockFetcher {
 			entries = append(entries, remote.DirEntry{Name: n, IsDir: isDir})
 		}
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
-		key := d
-		if root == "" && d == "." {
-			key = ""
-		}
-		m.WithDir(key, entries)
+		m.WithDir(d, entries)
 	}
 	return m
 }
@@ -391,31 +378,38 @@ func snapshot(t *testing.T, s content.Store) string {
 			if err != nil {
 				t.Fatalf("Item %s: %v", ref.Key(), err)
 			}
-			forms, err := item.Forms(ctx)
-			if err != nil {
-				t.Fatalf("Forms %s: %v", ref.Key(), err)
-			}
-			for _, f := range forms {
-				form, err := item.Form(ctx, f)
-				if err != nil {
-					t.Fatalf("Form %s: %v", ref.Key(), err)
-				}
-				digest, err := form.Content(ctx)
-				if err != nil {
-					t.Fatalf("Content %s: %v", ref.Key(), err)
-				}
-				fmt.Fprintf(&b, "    form %s digest=%s\n", f, sum(digest))
-				components, err := form.Components(ctx)
-				if err != nil {
-					t.Fatalf("Components %s: %v", ref.Key(), err)
-				}
-				for _, c := range components {
-					fmt.Fprintf(&b, "      component %s mode=%s sha=%s\n", c.Path, c.Mode, sum(c.Bytes))
-				}
-			}
+			snapshotItem(t, &b, item)
 		}
 	}
 	return b.String()
+}
+
+func snapshotItem(t *testing.T, b *strings.Builder, item content.Item) {
+	t.Helper()
+	ctx := context.Background()
+	key := item.Ref().Key()
+	forms, err := item.Forms(ctx)
+	if err != nil {
+		t.Fatalf("Forms %s: %v", key, err)
+	}
+	for _, f := range forms {
+		form, err := item.Form(ctx, f)
+		if err != nil {
+			t.Fatalf("Form %s: %v", key, err)
+		}
+		digest, err := form.Content(ctx)
+		if err != nil {
+			t.Fatalf("Content %s: %v", key, err)
+		}
+		fmt.Fprintf(b, "    form %s digest=%s\n", f, sum(digest))
+		components, err := form.Components(ctx)
+		if err != nil {
+			t.Fatalf("Components %s: %v", key, err)
+		}
+		for _, c := range components {
+			fmt.Fprintf(b, "      component %s mode=%s sha=%s\n", c.Path, c.Mode, sum(c.Bytes))
+		}
+	}
 }
 
 func sum(data []byte) string {

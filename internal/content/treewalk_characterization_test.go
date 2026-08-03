@@ -90,32 +90,39 @@ func snapshotStore(t *testing.T, s Store) string {
 			if err != nil {
 				t.Fatalf("Item %s: %v", ref.Key(), err)
 			}
-			forms, err := item.Forms(ctx)
-			if err != nil {
-				t.Fatalf("Forms %s: %v", ref.Key(), err)
-			}
-			for _, f := range forms {
-				form, err := item.Form(ctx, f)
-				if err != nil {
-					t.Fatalf("Form %s %s: %v", ref.Key(), f, err)
-				}
-				digest, err := form.Content(ctx)
-				if err != nil {
-					t.Fatalf("Content %s %s: %v", ref.Key(), f, err)
-				}
-				fmt.Fprintf(&b, "    form %s key=%s\n", f, contentKey(digest))
-				components, err := form.Components(ctx)
-				if err != nil {
-					t.Fatalf("Components %s %s: %v", ref.Key(), f, err)
-				}
-				for _, c := range components {
-					fmt.Fprintf(&b, "      component %s mode=%s size=%d sha=%s\n",
-						c.Path, c.Mode, len(c.Bytes), shortSum(c.Bytes))
-				}
-			}
+			snapshotItem(t, &b, item)
 		}
 	}
 	return b.String()
+}
+
+func snapshotItem(t *testing.T, b *strings.Builder, item Item) {
+	t.Helper()
+	ctx := context.Background()
+	key := item.Ref().Key()
+	forms, err := item.Forms(ctx)
+	if err != nil {
+		t.Fatalf("Forms %s: %v", key, err)
+	}
+	for _, f := range forms {
+		form, err := item.Form(ctx, f)
+		if err != nil {
+			t.Fatalf("Form %s %s: %v", key, f, err)
+		}
+		digest, err := form.Content(ctx)
+		if err != nil {
+			t.Fatalf("Content %s %s: %v", key, f, err)
+		}
+		fmt.Fprintf(b, "    form %s key=%s\n", f, contentKey(digest))
+		components, err := form.Components(ctx)
+		if err != nil {
+			t.Fatalf("Components %s %s: %v", key, f, err)
+		}
+		for _, c := range components {
+			fmt.Fprintf(b, "      component %s mode=%s size=%d sha=%s\n",
+				c.Path, c.Mode, len(c.Bytes), shortSum(c.Bytes))
+		}
+	}
 }
 
 func shortSum(data []byte) string {

@@ -24,10 +24,7 @@ import (
 // own name disagrees with the ref it is being written under, that is a caller bug
 // that would otherwise store one item's bytes at another item's address.
 func (s *TreeStore) Put(ctx context.Context, ref trust.Ref, f signing.Form, surface Surface) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := s.writable(); err != nil {
+	if err := s.beginWrite(ctx); err != nil {
 		return err
 	}
 	if err := validateBundleID(BundleID(ref.Bundle)); err != nil {
@@ -109,10 +106,7 @@ func fileMode(m ComponentMode) os.FileMode {
 // precisely so that they outlive the file, and a rejection that a file deletion
 // could remove would mean you could un-blacklist content by deleting it.
 func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := s.writable(); err != nil {
+	if err := s.beginWrite(ctx); err != nil {
 		return err
 	}
 	bundle, err := s.Open(ctx, BundleID(ref.Bundle))
@@ -170,10 +164,7 @@ func (s *TreeStore) Delete(ctx context.Context, ref trust.Ref) error {
 // PutSignature stores signature bytes against a form's content digest. It does
 // not verify anything: layer 0 knows only where signature bytes live.
 func (s *TreeStore) PutSignature(ctx context.Context, ref trust.Ref, f signing.Form, ns Namespace, sig []byte) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := s.writable(); err != nil {
+	if err := s.beginWrite(ctx); err != nil {
 		return err
 	}
 	bundle, err := s.Open(ctx, BundleID(ref.Bundle))
@@ -203,10 +194,7 @@ func (s *TreeStore) PutSignature(ctx context.Context, ref trust.Ref, f signing.F
 // success is this project's characteristic failure and is exactly what a
 // zero-value Manifest would produce here.
 func (s *TreeStore) PutManifest(ctx context.Context, id BundleID, m Manifest) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := s.writable(); err != nil {
+	if err := s.beginWrite(ctx); err != nil {
 		return err
 	}
 	if err := validateBundleID(id); err != nil {
@@ -234,10 +222,7 @@ func (s *TreeStore) PutManifest(ctx context.Context, id BundleID, m Manifest) er
 // It files them under the FIXED BundleSigKey rather than a content-derived one
 // — see BundleSigKey for why the bundle level diverges from content-keying.
 func (s *TreeStore) PutBundleSignature(ctx context.Context, id BundleID, ns Namespace, sig []byte) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	if err := s.writable(); err != nil {
+	if err := s.beginWrite(ctx); err != nil {
 		return err
 	}
 	if err := validateBundleID(id); err != nil {

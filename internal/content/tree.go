@@ -109,8 +109,15 @@ func newReadOnlyTreeStore(tfs TreeFS, prov Provenance) (*TreeStore, error) {
 	return &TreeStore{tfs: tfs, prov: prov}, nil
 }
 
-// writable reports whether the store has a writable backing, or ErrReadOnly.
-func (s *TreeStore) writable() error {
+// beginWrite reports the two reasons a write must not start: a cancelled
+// context, and a store with no writable backing (a builtin, an archive, a
+// pinned remote). They are checked together because every Writer method must
+// check both first, and a separate guard for each would be two places to forget
+// one of them.
+func (s *TreeStore) beginWrite(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if s.fsys == nil {
 		return fmt.Errorf("%w: no writable backing", ErrReadOnly)
 	}

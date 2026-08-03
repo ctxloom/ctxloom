@@ -82,7 +82,10 @@ func TestTreeFS_MissingDirectoryIsErrNotExist(t *testing.T) {
 	}
 }
 
-func TestMapTreeFS_SynthesizesDirectoriesFromPaths(t *testing.T) {
+// nestedMapTreeFS is a tree whose directories exist ONLY by implication of its
+// file paths — the shape a remote tree listing or an archive index arrives in.
+func nestedMapTreeFS(t *testing.T) *MapTreeFS {
+	t.Helper()
 	tfs, err := NewMapTreeFS(map[string][]byte{
 		"b/skills/x/SKILL.md":             []byte("s"),
 		"b/skills/x/scripts/run.sh":       []byte("r"),
@@ -95,6 +98,11 @@ func TestMapTreeFS_SynthesizesDirectoriesFromPaths(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMapTreeFS: %v", err)
 	}
+	return tfs
+}
+
+func TestMapTreeFS_SynthesizesDirectoriesFromPaths(t *testing.T) {
+	tfs := nestedMapTreeFS(t)
 	for dir, want := range map[string]string{
 		".":          "b,other",
 		"b":          "hooks,skills",
@@ -110,7 +118,14 @@ func TestMapTreeFS_SynthesizesDirectoriesFromPaths(t *testing.T) {
 			t.Errorf("ReadDir %q = %q, want %q", dir, got, want)
 		}
 	}
-	entries, err := tfs.ReadDir("b/skills")
+}
+
+// TestMapTreeFS_SynthesizedEntriesCarryTheRightKind: the walker decides whether
+// to descend, to merge a directory into a stem's group, or to offer it whole
+// entirely on IsDir. Getting the flag wrong on a synthesized entry would put a
+// skill package and its sidecar in different groups.
+func TestMapTreeFS_SynthesizedEntriesCarryTheRightKind(t *testing.T) {
+	entries, err := nestedMapTreeFS(t).ReadDir("b/skills")
 	if err != nil {
 		t.Fatalf("ReadDir: %v", err)
 	}

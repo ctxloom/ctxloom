@@ -176,34 +176,11 @@ func NewMapTreeFS(files map[string][]byte) (*MapTreeFS, error) {
 		paths = append(paths, p)
 	}
 	sort.Strings(paths)
-	seen := map[string]bool{}
+	kinds := map[string]bool{}
 	for _, p := range paths {
 		m.files[p] = files[p]
-		// Register every ancestor directory, then the file itself, so a listing
-		// exists for each level even though only leaves were supplied.
-		segments := strings.Split(p, "/")
-		dir := "."
-		for i, seg := range segments {
-			isDir := i < len(segments)-1
-			key := dir + "/" + seg
-			if dir == "." {
-				key = seg
-			}
-			if was, ok := seen[key]; ok {
-				if was != isDir {
-					return nil, fmt.Errorf("%w: %q is both a file and a directory", ErrBadPath, key)
-				}
-			} else {
-				seen[key] = isDir
-				m.dirs[dir] = append(m.dirs[dir], TreeEntry{Name: seg, IsDir: isDir})
-			}
-			if !isDir {
-				break
-			}
-			dir = key
-			if _, ok := m.dirs[dir]; !ok {
-				m.dirs[dir] = nil
-			}
+		if err := m.register(p, kinds); err != nil {
+			return nil, err
 		}
 	}
 	for dir := range m.dirs {
@@ -211,6 +188,38 @@ func NewMapTreeFS(files map[string][]byte) (*MapTreeFS, error) {
 		sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	}
 	return m, nil
+}
+
+// register records a file and every ancestor directory it implies, so a listing
+// exists at each level even though only leaves were supplied. kinds remembers
+// what each path has already been seen as, which is what makes the
+// both-file-and-directory conflict detectable at all.
+func (m *MapTreeFS) register(p string, kinds map[string]bool) error {
+	segments := strings.Split(p, "/")
+	dir := "."
+	for i, seg := range segments {
+		isDir := i < len(segments)-1
+		key := seg
+		if dir != "." {
+			key = dir + "/" + seg
+		}
+		was, seen := kinds[key]
+		if seen && was != isDir {
+			return fmt.Errorf("%w: %q is both a file and a directory", ErrBadPath, key)
+		}
+		if !seen {
+			kinds[key] = isDir
+			m.dirs[dir] = append(m.dirs[dir], TreeEntry{Name: seg, IsDir: isDir})
+		}
+		if !isDir {
+			return nil
+		}
+		dir = key
+		if _, ok := m.dirs[dir]; !ok {
+			m.dirs[dir] = nil
+		}
+	}
+	return nil
 }
 
 func (m *MapTreeFS) ReadDir(dir string) ([]TreeEntry, error) {

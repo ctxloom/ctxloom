@@ -620,24 +620,33 @@ type PushBundleRequest struct {
 	// nil so a real network-backed manager is constructed from cfg.
 	PublishManager *remote.PublishManager `json:"-"`
 
-	// Signer, when non-nil, makes this push a SIGNED publish: the exact
-	// bytes of the local bundle file — which are also, verbatim, the bytes
-	// that land at the remote path — are signed under
+	// Signer, when non-nil, MINTS a signature during the publish: the exact
+	// bytes of the local bundle file are signed under
 	// signing.NamespacePublish and a detached "<path>.sig" sibling is
-	// published alongside (spec §3.1, §4.1). PushBundle never resolves a
-	// signer itself — key discovery (internal/signing/agentkey) is the
-	// CLI's job, so this stays a pure DI seam and Signer==nil unambiguously
-	// means "not signing" (--no-sign, or sign.default is off).
+	// published alongside (spec §3.1, §4.1), without any sidecar being
+	// written locally.
+	//
+	// NO PRODUCTION CALLER SETS THIS. A signature belongs to the bundle, not
+	// to the publish: `ctxloom bundle sign` is the only producer, and both
+	// `bundle push` and `bundle move` carry the sidecar it leaves on disk via
+	// Signature below. `push --sign` is sugar that runs the signing operation
+	// first and then carries the result, so the signing key never has to be on
+	// the publishing machine and what shipped can be verified at rest. The
+	// field survives as the DI seam PushBundle's own tests drive; a frontend
+	// reaching for it is choosing a model this codebase has moved off.
 	Signer ssh.Signer `json:"-"`
 
 	// Signature, when non-empty, is a PRE-EXISTING detached signature over
 	// this bundle file's exact bytes (its "<path>.sig" sibling), carried
-	// verbatim to the remote instead of being recomputed. `ctxloom bundle
-	// move` uses this: publish writes the local file's bytes unchanged (spec
-	// §3.0 — no re-serialization anywhere between publisher and verifier), so
-	// a signature over those bytes stays valid at the destination, and
-	// re-signing would be pointless churn needing a key the mover may not
-	// hold. Mutually exclusive with Signer; Signer wins if both are set.
+	// verbatim to the remote instead of being recomputed. This is how every
+	// production publish signs: publish writes the local file's bytes
+	// unchanged (spec §3.0 — no re-serialization anywhere between publisher
+	// and verifier), so a signature over those bytes stays valid at the
+	// destination, and re-signing would be pointless churn needing a key the
+	// publisher may not hold. Callers get it from
+	// operations.PublisherSignature, the one seam that reads the sidecar and
+	// proves it covers the bytes. Mutually exclusive with Signer; Signer wins
+	// if both are set.
 	//
 	// PushBundle VERIFIES it covers the bytes being published before carrying
 	// it, and refuses the push otherwise (a bundle edited after signing). The

@@ -57,6 +57,21 @@ var engineMatrixLeaves = map[string][]string{
 // hardening already applied to the hidden and engine-matrix leaves.
 var strictRunLeaves = []string{
 	"ctxloom doctor",
+	// Same hazard, same fix, different quoter: `ctxloom acp serve` is the
+	// command an editor spawns, so j25_editor.feature and its steps NAME it
+	// repeatedly — in the feature's prose, in the step file's header, and
+	// inside a failure message that checks whether `acp list` emitted a
+	// pasteable block mentioning it. Every one of those is inert text. None of
+	// them serves anything, and none of them could: the leaf is a long-running
+	// stdio server that needs a live ACP client on the other end, which is
+	// exactly why j25 records it as unverifiable rather than faking it.
+	//
+	// Under the plain substring check those mentions silently flipped the leaf
+	// from "allowlisted uncovered" to "covered", which would have converted an
+	// honest statement of a coverage gap into a false claim that the gap had
+	// been closed by a file that explicitly says it has not been. Listed here
+	// so only a genuine `I run "ctxloom acp serve"` counts.
+	"ctxloom acp serve",
 }
 
 // ranAsCommand reports whether path was actually invoked by a scenario (a

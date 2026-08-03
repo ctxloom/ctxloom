@@ -56,6 +56,8 @@ type World struct {
 	j21       *j21State       // J21: the diagnosis-walk journey's fixture state (steps_j21_diagnosis.go)
 	j22       *j22State       // J22: the close-out journey's fixture state (steps_j22_closeout.go)
 	j23       *j23State       // J23: the recall/archaeologist journey's fixture state (steps_j23_recall.go)
+	j24       *j24State       // J24: the engine-switch journey's fixture state (steps_j24_engine_switch.go)
+	j25       *j25State       // J25: the editor/ACP journey's fixture state (steps_j25_editor.go)
 	ts        *tsState        // trust-surface matrix: fixture state (steps_trust_surface.go)
 	contract  *contractState  // coordination_contract.feature: the advertised runner-terminated tool surface (steps_coordination_contract.go)
 
@@ -165,6 +167,8 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ21Steps(ctx)
 	registerJ22Steps(ctx)
 	registerJ23Steps(ctx)
+	registerJ24Steps(ctx)
+	registerJ25Steps(ctx)
 	registerTrustSurfaceSteps(ctx)
 	registerTrustVocabularySteps(ctx)
 	registerSkillSteps(ctx)

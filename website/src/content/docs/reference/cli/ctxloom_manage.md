@@ -23,12 +23,12 @@ command files, .gitignore, and configuration.
   ctxloom manage uninstall    Remove ctxloom's hooks, MCP entry, and commands
   ctxloom manage status       Show what ctxloom has wired in
   ctxloom manage hooks        Install/uninstall/inspect backend hooks
-  ctxloom manage mcp          Manage MCP registration and server configs
   ctxloom manage gitignore    Maintain ctxloom's .gitignore entries
 
-Configuration lives at the top-level 'ctxloom config' (CLI-primary reorg plan,
-Decision 6); the duplicate 'manage init' setup entry point was removed, root
-'ctxloom init' is the sole bootstrap.
+MCP registration lives at the top-level 'ctxloom mcp register'/'unregister';
+configuration lives at the top-level 'ctxloom config'; the duplicate
+'manage init' setup entry point was removed, root 'ctxloom init' is the sole
+bootstrap.
 
 ### Options
 

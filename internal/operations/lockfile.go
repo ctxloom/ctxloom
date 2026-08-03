@@ -88,23 +88,30 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 	if prevErr != nil {
 		prev = &remote.Lockfile{Bundles: map[string]remote.LockEntry{}}
 	}
-	prevPinned := map[string]bool{}
-	// prevRetracted carries the previous lockfile's retraction verdict forward
-	// across a full closure rebuild, exactly like prevPinned does for holds.
-	// Without this, a relock triggered right after syncItem's lightweight
-	// installed-ref retraction re-check (operations.checkInstalledRetraction)
-	// would silently drop the Retracted flag it just recorded — this rebuild
-	// has no live manifest in hand, so it must never CLEAR a retraction only a
-	// fresh check (sync's own re-check, or the next Pull) is entitled to lift.
-	prevRetracted := map[string]string{} // key -> reason; presence means retracted
+	// prevEntries is the previous lockfile keyed the same way the rebuild keys
+	// its pins, so every field that must OUTLIVE a closure rebuild is read from
+	// one place. It replaced a set of parallel per-field maps: each new field
+	// that had to survive a relock meant another map and another chance to
+	// forget one, and forgetting one is silent — the rebuild writes a valid
+	// lockfile with the field simply gone.
+	//
+	// What must survive, and why:
+	//   Pinned    — the user's "do not upgrade this" hold is a decision, and a
+	//               relock is not entitled to reverse it.
+	//   Retracted — this rebuild has no live manifest in hand, so it must never
+	//               CLEAR a retraction only a fresh check (sync's own re-check,
+	//               or the next Pull) is entitled to lift. Without it a relock
+	//               triggered right after syncItem's installed-ref re-check
+	//               (operations.checkInstalledRetraction) would drop the flag
+	//               that check had just recorded.
+	//   Tree      — the SHAPE that was installed. A rebuild has no fetcher and
+	//               cannot re-derive it, and losing it sends BundleReader after
+	//               a "<name>.yaml" the publisher never wrote, reporting
+	//               "remote content not found" for a bundle sitting installed
+	//               on disk.
+	prevEntries := map[string]remote.LockEntry{}
 	for _, e := range prev.AllEntries() {
-		key := string(e.Type) + "\x00" + e.Ref
-		if e.Entry.Pinned {
-			prevPinned[key] = true
-		}
-		if e.Entry.Retracted {
-			prevRetracted[key] = e.Entry.RetractedReason
-		}
+		prevEntries[string(e.Type)+"\x00"+e.Ref] = e.Entry
 	}
 
 	lockfile := &remote.Lockfile{
@@ -117,12 +124,11 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		// carry this SHA forward while the constraint is unchanged; Version records
 		// the tag a semver constraint chose, for display and satisfaction checks.
 		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
-		if prevPinned[key] {
-			entry.Pinned = true
-		}
-		if reason, ok := prevRetracted[key]; ok {
-			entry.Retracted = true
-			entry.RetractedReason = reason
+		if prevEntry, ok := prevEntries[key]; ok {
+			entry.Pinned = prevEntry.Pinned
+			entry.Retracted = prevEntry.Retracted
+			entry.RetractedReason = prevEntry.RetractedReason
+			entry.Tree = prevEntry.Tree
 		}
 		lockfile.AddEntry(p.Type, p.Identity, entry)
 	}

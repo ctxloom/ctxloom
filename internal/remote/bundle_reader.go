@@ -12,6 +12,16 @@ import (
 // bundle, fall back to local fs lookup" from real errors.
 var ErrBundleNotInLockfile = errors.New("bundle not in lockfile")
 
+// ErrTreeBundleUnreadable reports a bundle that pulled successfully in
+// DIRECTORY form and whose tree is on disk, but whose items cannot be read
+// because the tree read path does not exist yet.
+//
+// It is a distinct sentinel rather than another not-found because the two call
+// for opposite actions. A not-found means "pull it"; this means "the pull
+// worked, and the missing piece is in ctxloom". Callers that collapse them
+// print a fix that cannot fix anything (taskloom: engaged-chivalry).
+var ErrTreeBundleUnreadable = errors.New("directory-form bundle: reading items from a tree is not implemented")
+
 // BundleByteSource is the read surface every bundle-byte producer must
 // satisfy. BundleReader is the canonical implementation (git-cache-backed,
 // SHA-pinned); CachingBundleReader is the in-memory decorator. Callers that
@@ -160,6 +170,17 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 	// no error anywhere. A pinned reader must refuse to read unpinned.
 	if entry.SHA == "" {
 		return nil, fmt.Errorf("bundle %q has no SHA pinned in the lockfile — refusing to read (a pinned reader must never resolve an empty ref to the latest commit)", bundleName)
+	}
+	// A DIRECTORY-form bundle has no "<name>.yaml" to read, and never did.
+	// Falling through would send this reader after a file the publisher never
+	// wrote and report "remote content not found" — pointing the user at a pull
+	// that already succeeded, and at a file that does not exist upstream. Say
+	// what is actually true instead: the bytes are installed, and reading a
+	// bundle's items OUT of a tree is the half that is not built.
+	if entry.Tree {
+		return nil, fmt.Errorf("%w: bundle %q was published in directory form and its tree is installed at the pinned SHA %s, "+
+			"but this reader only reads single-file bundles — reading a bundle's items from a tree is not implemented, so its content cannot be assembled (do NOT re-pull; the pull worked)",
+			ErrTreeBundleUnreadable, bundleName, entry.SHA)
 	}
 
 	// Lockfile keys are canonical refs ("<url>@bundles/<path>"); parse out the

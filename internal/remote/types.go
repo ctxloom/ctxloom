@@ -208,6 +208,19 @@ type LockEntry struct {
 	// fresher than it is) nor as "definitely stale" (a fresh check with no
 	// prior fallback has nothing to be stale relative to).
 	RetractionCheckedAt time.Time `yaml:"retraction_checked_at,omitempty" json:"retraction_checked_at,omitempty"`
+
+	// Tree records that this bundle was published in DIRECTORY form and
+	// installed as a tree under the cache (Reference.LocalTreePath), rather than
+	// fetched as a single "<name>.yaml" out of the clone on demand.
+	//
+	// It is recorded rather than re-derived because the two forms are read
+	// through completely different machinery, and a reader that guessed wrong
+	// fails in the least useful way available: BundleReader would go looking for
+	// a "<name>.yaml" that was never published and report "remote content not
+	// found" against a bundle that pulled perfectly, sending the user to re-run
+	// the pull that already worked. The pin knows which shape it installed, so
+	// the pin says so.
+	Tree bool `yaml:"tree,omitempty" json:"tree,omitempty"`
 }
 
 // Lockfile represents the .ctxloom/lock.yaml file for pinning dependencies.

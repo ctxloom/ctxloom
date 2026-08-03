@@ -1784,7 +1784,7 @@ func (c *Config) GetBundleDirs() []string {
 	fs := c.getFS()
 	var dirs []string
 	for _, appPath := range c.appPaths {
-		legacyCacheBundlesSignpost(fs, appPath)
+		c.legacyCacheBundlesSignpost(fs, appPath)
 		bundleDir := paths.LocalBundlesPath(appPath)
 		if info, err := fs.Stat(bundleDir); err == nil && info.IsDir() {
 			dirs = append(dirs, bundleDir)
@@ -1805,11 +1805,23 @@ func (c *Config) GetBundleDirs() []string {
 // same marker operations.PurgeExtractedBundles keys on) are genuine cache and
 // never fire this: they are regenerable from the lockfile + clone cache.
 //
+// A pulled DIRECTORY-FORM bundle is regenerable cache too, and it carries no
+// `_source` block — it cannot: its files are the publisher's exact bytes, and
+// stamping a marker into them would mean the tree a consumer holds is not the
+// tree that was published. The lockfile is asked instead, which is the actual
+// authority on what was pulled, and it is asked LAZILY: only once a walk has
+// already found something it would otherwise complain about, so the ordinary
+// path (nothing stranded) still costs no lockfile read.
+//
 // FailOnce, because GetBundleDirs is called many times per process (every
 // loader build) and the finding must not stack up inside one startup window.
-func legacyCacheBundlesSignpost(fs afero.Fs, appPath string) {
+func (c *Config) legacyCacheBundlesSignpost(fs afero.Fs, appPath string) {
 	cacheBundles := paths.CacheBundlesPath(appPath)
 	stranded := strandedAuthoredBundles(fs, cacheBundles)
+	if len(stranded) == 0 {
+		return
+	}
+	stranded = withoutPulledTrees(stranded, c.pulledTreeRoots(appPath))
 	if len(stranded) == 0 {
 		return
 	}
@@ -1818,6 +1830,57 @@ func legacyCacheBundlesSignpost(fs afero.Fs, appPath string) {
 			paths.LocalBundlesPath(appPath), cacheBundles, paths.LocalBundlesPath(appPath)),
 		"%s holds %d authored bundle(s) (%s) but authored bundles now live in %s — the cache is gitignored and is no longer read, so these are invisible to `bundle list`, `run`, and `sign --all`",
 		cacheBundles, len(stranded), strings.Join(stranded, ", "), paths.LocalBundlesPath(appPath))
+}
+
+// pulledTreeRoots returns the cache-relative directories that lockfile-pinned
+// DIRECTORY-FORM bundles install into, as forward-slash prefixes.
+//
+// A failure to read the lockfile yields nothing, which makes the caller's
+// filter a no-op and every cache YAML stranded again. That is the safe
+// direction: the signpost's whole bias is that anything it cannot prove is
+// regenerable gets named, and a lockfile it could not read proves nothing.
+func (c *Config) pulledTreeRoots(appPath string) []string {
+	lock, err := remote.NewLockfileManager(appPath, c.lockfileFSOptions()...).Load()
+	if err != nil || lock == nil {
+		return nil
+	}
+	cacheBundles := paths.CacheBundlesPath(appPath)
+	var roots []string
+	for key := range lock.Bundles {
+		ref, perr := remote.ParseReference(key)
+		if perr != nil || !ref.IsCanonical() {
+			continue
+		}
+		rel, rerr := filepath.Rel(cacheBundles, ref.LocalTreePath(appPath))
+		if rerr != nil {
+			continue
+		}
+		roots = append(roots, filepath.ToSlash(rel)+"/")
+	}
+	return roots
+}
+
+// withoutPulledTrees drops every stranded entry that lies inside one of the
+// pulled tree roots. Matching is on the SLASH-TERMINATED root so a bundle named
+// "atelier" cannot swallow a stranded "atelier-notes.yaml" beside it.
+func withoutPulledTrees(stranded, roots []string) []string {
+	if len(roots) == 0 {
+		return stranded
+	}
+	kept := stranded[:0:0]
+	for _, s := range stranded {
+		pulled := false
+		for _, root := range roots {
+			if strings.HasPrefix(s, root) {
+				pulled = true
+				break
+			}
+		}
+		if !pulled {
+			kept = append(kept, s)
+		}
+	}
+	return kept
 }
 
 // strandedAuthoredBundles walks a legacy cache/bundles tree and returns the
@@ -2111,7 +2174,17 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		// mode (the user pinned it; content silently missing from a session is
 		// the failure fail-loudly exists to catch). Warns and continues in
 		// degraded mode.
-		strictness.FailOnce(strictness.ClassBundle, "ctxloom remote pull (or remove the bundle from its profiles)",
+		//
+		// The suggested fix is CONDITIONAL because the default one is actively
+		// wrong for a directory-form bundle: its tree pulled fine and is on
+		// disk, so "run remote pull" sends the user to repeat a command that
+		// already succeeded and will keep succeeding. A fix line that cannot fix
+		// the thing it is attached to is worse than none.
+		fix := "ctxloom remote pull (or remove the bundle from its profiles)"
+		if errors.Is(err, remote.ErrTreeBundleUnreadable) {
+			fix = "nothing to do locally — this bundle's tree is installed and the tree read path is not built yet; remove the bundle from its profiles to proceed, or re-publish it in single-file form"
+		}
+		strictness.FailOnce(strictness.ClassBundle, fix,
 			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 

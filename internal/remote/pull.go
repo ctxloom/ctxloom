@@ -578,7 +578,7 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// creating a new one. It is the real signal for "updated" vs "installed"
 	// (PullResult.Overwritten used to be hard-coded false, making
 	// operations/sync.go's "updated" status unreachable).
-	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt)
+	hadExisting, err := p.updateLockfile(item.localName, opts, item.rem, item.sha, requestedVersion, item.resolvedVersion, item.kind, item.retracted, item.retractedReason, item.retractionCheckedAt, item.tree != nil)
 	if err != nil {
 		return nil, fmt.Errorf("pulled %s but failed to record its lockfile pin (the only on-disk record of this pull): %w", item.localName, err)
 	}
@@ -682,7 +682,7 @@ func promptConfirmation(w io.Writer, r io.Reader, prompt string) (bool, error) {
 // hadExisting reports whether localName already had a lockfile entry before
 // this write — the caller (installPulledItem) surfaces it as
 // PullResult.Overwritten.
-func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time) (hadExisting bool, err error) {
+func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remote, sha string, requestedVersion, resolvedVersion string, kind SelectorKind, retracted bool, retractedReason string, retractionCheckedAt time.Time, tree bool) (hadExisting bool, err error) {
 	itemType := opts.ItemType
 	target := p.lockfileManager
 	lockfile, err := target.Load()
@@ -702,6 +702,9 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 		Retracted:           retracted,
 		RetractedReason:     retractedReason,
 		RetractionCheckedAt: retractionCheckedAt,
+		// Which SHAPE was installed, so the reader does not have to guess (see
+		// LockEntry.Tree).
+		Tree: tree,
 	}
 
 	// A hold ("do not upgrade this") is a deliberate decision; a content re-pull

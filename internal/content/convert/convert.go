@@ -155,18 +155,52 @@ func PlanWithReport(id content.BundleID, b *bundles.Bundle, opts Options) ([]Ite
 	if b == nil {
 		return nil, nil, fmt.Errorf("convert: nil bundle")
 	}
-	bundle := string(id)
-	rep := &Report{HookNames: map[string]int{}}
-	var items []Item
-
-	ref := func(kind trust.ItemKind, name string) trust.Ref {
-		return trust.Ref{Bundle: bundle, Kind: kind, Name: name}
+	p := &planner{bundle: string(id), rep: &Report{HookNames: map[string]int{}}}
+	// Kind order is fixed so a conversion is reproducible from the same
+	// document.
+	p.fragments(b)
+	p.commands(b)
+	p.mcp(b)
+	p.hooks(b)
+	if err := p.skills(b, opts); err != nil {
+		return nil, nil, err
 	}
+	p.profiles(b)
+	return p.items, p.rep, nil
+}
 
-	// --- fragments ---------------------------------------------------------
+// planner accumulates one conversion. The per-kind methods are separate rather
+// than one long function so each kind's rule is readable on its own — and so
+// adding a kind means adding a method rather than growing a branch.
+type planner struct {
+	bundle string
+	rep    *Report
+	items  []Item
+}
+
+func (p *planner) add(kind trust.ItemKind, name string, form signing.Form, s content.Surface) {
+	p.items = append(p.items, Item{
+		Ref:     trust.Ref{Bundle: p.bundle, Kind: kind, Name: name},
+		Form:    form,
+		Surface: s,
+	})
+}
+
+// addForms emits the raw form always and the distilled form only when a
+// distilled rewrite exists. Emitting it unconditionally would make Item.Forms
+// claim a form whose file is empty; omitting it when one exists would silently
+// downgrade every consumer on distilled context back to the verbose original.
+func (p *planner) addForms(kind trust.ItemKind, name, distilled string, s content.Surface) {
+	p.add(kind, name, signing.FormRaw, s)
+	if distilled != "" {
+		p.add(kind, name, signing.FormDistilled, s)
+	}
+}
+
+func (p *planner) fragments(b *bundles.Bundle) {
 	for _, name := range sortedKeys(b.Fragments) {
 		f := b.Fragments[name]
-		surface := content.Fragment{
+		p.addForms(trust.KindFragment, name, f.Distilled, content.Fragment{
 			Name:         name,
 			Tags:         f.Tags,
 			Notes:        f.Notes,
@@ -176,21 +210,14 @@ func PlanWithReport(id content.BundleID, b *bundles.Bundle, opts Options) ([]Ite
 			NoDistill:    f.NoDistill,
 			Distilled:    f.Distilled,
 			DistilledBy:  f.DistilledBy,
-		}
-		items = append(items, Item{Ref: ref(trust.KindFragment, name), Form: signing.FormRaw, Surface: surface})
-		// A distilled rewrite is a SEPARATE FORM of the same item, stored as a
-		// sibling file. Emitting it only when it exists is what keeps
-		// Item.Forms honest: a fragment that was never distilled must report
-		// one form, not two with one empty.
-		if f.Distilled != "" {
-			items = append(items, Item{Ref: ref(trust.KindFragment, name), Form: signing.FormDistilled, Surface: surface})
-		}
+		})
 	}
+}
 
-	// --- commands ----------------------------------------------------------
+func (p *planner) commands(b *bundles.Bundle) {
 	for _, name := range sortedKeys(b.Commands) {
 		c := b.Commands[name]
-		surface := content.Command{
+		p.addForms(trust.KindPrompt, name, c.Distilled, content.Command{
 			Name:         name,
 			Description:  c.Description,
 			Tags:         c.Tags,
@@ -202,94 +229,89 @@ func PlanWithReport(id content.BundleID, b *bundles.Bundle, opts Options) ([]Ite
 			Distilled:    c.Distilled,
 			DistilledBy:  c.DistilledBy,
 			Exports:      commandExports(c.LLM),
-		}
-		items = append(items, Item{Ref: ref(trust.KindPrompt, name), Form: signing.FormRaw, Surface: surface})
-		if c.Distilled != "" {
-			items = append(items, Item{Ref: ref(trust.KindPrompt, name), Form: signing.FormDistilled, Surface: surface})
-		}
-	}
-
-	// --- mcp ---------------------------------------------------------------
-	for _, name := range sortedKeys(b.MCP) {
-		m := b.MCP[name]
-		items = append(items, Item{
-			Ref:  ref(trust.KindMCP, name),
-			Form: signing.FormRaw,
-			Surface: content.MCP{
-				Name:         name,
-				Command:      m.Command,
-				Args:         m.Args,
-				Env:          m.Env,
-				Notes:        m.Notes,
-				Installation: m.Installation,
-				ContentHash:  m.ContentHash,
-			},
 		})
 	}
+}
 
-	// --- hooks -------------------------------------------------------------
+func (p *planner) mcp(b *bundles.Bundle) {
+	for _, name := range sortedKeys(b.MCP) {
+		m := b.MCP[name]
+		p.add(trust.KindMCP, name, signing.FormRaw, content.MCP{
+			Name:         name,
+			Command:      m.Command,
+			Args:         m.Args,
+			Env:          m.Env,
+			Notes:        m.Notes,
+			Installation: m.Installation,
+			ContentHash:  m.ContentHash,
+		})
+	}
+}
+
+func (p *planner) hooks(b *bundles.Bundle) {
 	for _, ev := range hookEvents(b.Hooks) {
 		width := ordinalWidth(len(ev.Hooks))
 		for i, h := range ev.Hooks {
 			name := hookName(i, width, h)
-			rep.HookNames[ev.Event+"/"+name] = i
-			items = append(items, Item{
-				Ref:  ref(trust.KindHook, ev.Event+"/"+name),
-				Form: signing.FormRaw,
-				Surface: content.Hook{
-					Event:           ev.Event,
-					Name:            name,
-					Matcher:         h.Matcher,
-					Type:            h.Type,
-					Command:         h.Command,
-					Prompt:          h.Prompt,
-					Timeout:         h.Timeout,
-					Async:           h.Async,
-					PreToolFallback: h.PreToolFallback,
-				},
+			p.rep.HookNames[ev.Event+"/"+name] = i
+			p.add(trust.KindHook, ev.Event+"/"+name, signing.FormRaw, content.Hook{
+				Event:           ev.Event,
+				Name:            name,
+				Matcher:         h.Matcher,
+				Type:            h.Type,
+				Command:         h.Command,
+				Prompt:          h.Prompt,
+				Timeout:         h.Timeout,
+				Async:           h.Async,
+				PreToolFallback: h.PreToolFallback,
 			})
 		}
 	}
+}
 
-	// --- skills ------------------------------------------------------------
+func (p *planner) skills(b *bundles.Bundle, opts Options) error {
 	for _, name := range sortedKeys(b.Skills) {
 		s := b.Skills[name]
-		if opts.SkillFiles == nil {
-			return nil, nil, fmt.Errorf("convert: bundle %q declares skill %q but no SkillFiles reader was supplied, "+
-				"so its package files cannot be read; converting it would write an EMPTY skill package", bundle, name)
-		}
-		files, err := opts.SkillFiles(name)
+		files, err := readSkillFiles(p.bundle, name, opts)
 		if err != nil {
-			return nil, nil, fmt.Errorf("convert: read skill %q package files: %w", name, err)
+			return err
 		}
-		if len(files) == 0 {
-			return nil, nil, fmt.Errorf("convert: skill %q has NO package files; refusing to convert it to an empty package "+
-				"(an empty skill converts, signs and materializes without complaint and delivers nothing)", name)
-		}
-		sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
-		items = append(items, Item{
-			Ref:  ref(trust.KindSkill, name),
-			Form: signing.FormRaw,
-			Surface: content.Skill{
-				Name:    name,
-				Tags:    s.Tags,
-				Notes:   s.Notes,
-				Exports: skillExports(s.LLM),
-				Files:   files,
-			},
+		p.add(trust.KindSkill, name, signing.FormRaw, content.Skill{
+			Name:    name,
+			Tags:    s.Tags,
+			Notes:   s.Notes,
+			Exports: skillExports(s.LLM),
+			Files:   files,
 		})
 	}
+	return nil
+}
 
-	// --- profiles ----------------------------------------------------------
+// readSkillFiles reads one skill package, refusing every route to an EMPTY
+// package. An empty skill converts, signs and materializes without complaint
+// and delivers the model nothing, so both "no reader supplied" and "the reader
+// returned nothing" are hard errors rather than an empty Files slice.
+func readSkillFiles(bundle, name string, opts Options) ([]content.SkillFile, error) {
+	if opts.SkillFiles == nil {
+		return nil, fmt.Errorf("convert: bundle %q declares skill %q but no SkillFiles reader was supplied, "+
+			"so its package files cannot be read; converting it would write an EMPTY skill package", bundle, name)
+	}
+	files, err := opts.SkillFiles(name)
+	if err != nil {
+		return nil, fmt.Errorf("convert: read skill %q package files: %w", name, err)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("convert: skill %q has NO package files; refusing to convert it to an empty package "+
+			"(an empty skill converts, signs and materializes without complaint and delivers nothing)", name)
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	return files, nil
+}
+
+func (p *planner) profiles(b *bundles.Bundle) {
 	for _, name := range sortedKeys(b.Profiles) {
-		items = append(items, Item{
-			Ref:     ref(content.KindProfile, name),
-			Form:    signing.FormRaw,
-			Surface: content.Profile{Name: name, Def: b.Profiles[name]},
-		})
+		p.add(content.KindProfile, name, signing.FormRaw, content.Profile{Name: name, Def: b.Profiles[name]})
 	}
-
-	return items, rep, nil
 }
 
 // Apply writes planned items through a content.Writer.

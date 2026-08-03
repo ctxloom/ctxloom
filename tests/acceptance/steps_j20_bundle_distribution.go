@@ -132,7 +132,7 @@ func j20AuthoredTree() map[string]j20File {
 
 		// mcp — executable kind, .yaml, metadata in a sidecar. Structured:
 		// command/args/env are asserted as PARSED FIELDS, not as a substring.
-		"mcp/ledger.yaml": f("command: /usr/bin/ledger-mcp\nargs:\n  - --serve\n  - --marker\n  - ATELIER-MCP-1f88b0\nenv:\n  LEDGER_MODE: readonly\n"),
+		"mcp/ledger.yaml":       f("command: /usr/bin/ledger-mcp\nargs:\n  - --serve\n  - --marker\n  - ATELIER-MCP-1f88b0\nenv:\n  LEDGER_MODE: readonly\n"),
 		"mcp/.ledger.meta.yaml": f("description: ATELIER-MCP-DESC\n"),
 
 		// hooks — one file per hook under hooks/<event>/<name>.yaml. Two under
@@ -144,9 +144,9 @@ func j20AuthoredTree() map[string]j20File {
 
 		// skill — the only MULTI-FILE item and the only one carrying a
 		// load-bearing POSIX mode.
-		"skills/reviewer/SKILL.md":     f("---\nname: reviewer\ndescription: ATELIER-SKILL-3e77da\n---\n\nATELIER-SKILL-3e77da\n"),
+		"skills/reviewer/SKILL.md":       f("---\nname: reviewer\ndescription: ATELIER-SKILL-3e77da\n---\n\nATELIER-SKILL-3e77da\n"),
 		"skills/reviewer/scripts/run.sh": {Body: "#!/bin/sh\necho ATELIER-SKILL-SCRIPT-8b21ce\n", Mode: 0o755},
-		"skills/.reviewer.meta.yaml":   f("description: ATELIER-SKILL-DESC\n"),
+		"skills/.reviewer.meta.yaml":     f("description: ATELIER-SKILL-DESC\n"),
 
 		// profile — the sixth kind. Never trust-gated as an item, but still a
 		// file in the tree that must arrive intact.
@@ -166,16 +166,8 @@ func j20SeedTreeRemote(w *World, st *j20State) error {
 	bare := filepath.Join(root, "remote.git")
 	work := filepath.Join(root, "work")
 
-	git := func(dir string, args ...string) error {
-		cmd := exec.Command("git", args...)
-		cmd.Dir = dir
-		if out, gerr := cmd.CombinedOutput(); gerr != nil {
-			return fmt.Errorf("git %s in %s: %w: %s", strings.Join(args, " "), dir, gerr, out)
-		}
-		return nil
-	}
 	for _, a := range [][]string{{"init", "--bare", "-b", "main", bare}, {"init", "-b", "main", work}} {
-		if err := git("", a...); err != nil {
+		if err := j20Git("", a...); err != nil {
 			return err
 		}
 	}
@@ -184,12 +176,49 @@ func j20SeedTreeRemote(w *World, st *j20State) error {
 		{"config", "user.name", "Trent"},
 		{"config", "commit.gpgsign", "false"},
 	} {
-		if err := git(work, a...); err != nil {
+		if err := j20Git(work, a...); err != nil {
 			return err
 		}
 	}
+	if err := j20WriteTree(work, st.authored); err != nil {
+		return err
+	}
+	for _, a := range [][]string{
+		{"add", "-A"},
+		{"commit", "-m", "publish atelier tree"},
+		{"remote", "add", "origin", bare},
+		{"push", "origin", "main"},
+	} {
+		if err := j20Git(work, a...); err != nil {
+			return err
+		}
+	}
+	if err := j20Git(bare, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
+		return err
+	}
+	st.bare = bare
+	st.url = "file://" + bare
+	return nil
+}
 
-	for rel, file := range st.authored {
+// j20Git runs one git command, surfacing its combined output on failure so a
+// seeding problem is diagnosable rather than a bare exit status.
+func j20Git(dir string, args ...string) error {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("git %s in %s: %w: %s", strings.Join(args, " "), dir, err, out)
+	}
+	return nil
+}
+
+// j20WriteTree writes the authored bundle tree into a working clone WITH each
+// file's declared mode. The explicit Chmod is not redundant: os.WriteFile
+// applies a mode only at CREATION, so a rewrite would silently drop the exec
+// bit — the same trap internal/shared/agent/packagefiles.go documents on the
+// delivery side.
+func j20WriteTree(work string, authored map[string]j20File) error {
+	for rel, file := range authored {
 		full := filepath.Join(work, filepath.FromSlash(j20BundleRel(rel)))
 		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 			return fmt.Errorf("mkdir for %s: %w", rel, err)
@@ -197,29 +226,10 @@ func j20SeedTreeRemote(w *World, st *j20State) error {
 		if err := os.WriteFile(full, []byte(file.Body), file.Mode); err != nil {
 			return fmt.Errorf("write %s: %w", rel, err)
 		}
-		// os.WriteFile applies the mode only at CREATION; an explicit Chmod is
-		// what makes a re-seed carry the exec bit too. The same trap
-		// internal/shared/agent/packagefiles.go documents on the delivery side.
 		if err := os.Chmod(full, file.Mode); err != nil {
 			return fmt.Errorf("chmod %s: %w", rel, err)
 		}
 	}
-
-	for _, a := range [][]string{
-		{"add", "-A"},
-		{"commit", "-m", "publish atelier tree"},
-		{"remote", "add", "origin", bare},
-		{"push", "origin", "main"},
-	} {
-		if err := git(work, a...); err != nil {
-			return err
-		}
-	}
-	if err := git(bare, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
-		return err
-	}
-	st.bare = bare
-	st.url = "file://" + bare
 	return nil
 }
 
@@ -573,47 +583,11 @@ func registerJ20Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^no pulled "([^"]*)" hook appears under an event it was not declared in$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
-		st := j20Of(w)
-		declared := map[string]string{} // hook name -> its declared event
-		for rel := range st.authored {
-			if !strings.HasPrefix(rel, "hooks/") {
-				continue
-			}
-			parts := strings.Split(strings.TrimPrefix(rel, "hooks/"), "/")
-			if len(parts) != 2 {
-				continue
-			}
-			declared[strings.TrimSuffix(parts[1], ".yaml")] = parts[0]
-		}
+		declared := j20DeclaredHookEvents(j20Of(w).authored)
 		if len(declared) == 0 {
 			return fmt.Errorf("fixture declared no hooks, so this assertion would be vacuous")
 		}
-		dir, ok := j20ConsumerTreePath(w, "hooks")
-		if !ok {
-			return fmt.Errorf("the consumer received no hooks/ directory at all\n%s", st.j20PullDiagnostic())
-		}
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return fmt.Errorf("read consumer hooks dir: %w", err)
-		}
-		for _, ev := range entries {
-			if !ev.IsDir() {
-				continue
-			}
-			hooks, rerr := os.ReadDir(filepath.Join(dir, ev.Name()))
-			if rerr != nil {
-				return fmt.Errorf("read consumer hook event %q: %w", ev.Name(), rerr)
-			}
-			for _, h := range hooks {
-				hn := strings.TrimSuffix(h.Name(), ".yaml")
-				if want, known := declared[hn]; !known {
-					return fmt.Errorf("hook %q arrived under event %q but was never declared", hn, ev.Name())
-				} else if want != ev.Name() {
-					return fmt.Errorf("hook %q was declared under event %q but arrived under %q — event bucketing was lost", hn, want, ev.Name())
-				}
-			}
-		}
-		return nil
+		return j20CheckHookBuckets(w, declared)
 	})
 
 	// --- When/Then: the isolation delivery matrix ---------------------------
@@ -716,6 +690,63 @@ func j20AgentVisiblePath(w *World, rel string) (string, error) {
 		return filepath.Join(st.agentRoot, "CLAUDE.md"), nil
 	}
 	return "", fmt.Errorf("this journey does not yet know where a %q artifact is delivered for an agent to read", rel)
+}
+
+// j20DeclaredHookEvents maps each authored hook's name to the event it was
+// declared under.
+func j20DeclaredHookEvents(authored map[string]j20File) map[string]string {
+	declared := map[string]string{}
+	for rel := range authored {
+		if !strings.HasPrefix(rel, "hooks/") {
+			continue
+		}
+		parts := strings.Split(strings.TrimPrefix(rel, "hooks/"), "/")
+		if len(parts) != 2 {
+			continue
+		}
+		declared[strings.TrimSuffix(parts[1], ".yaml")] = parts[0]
+	}
+	return declared
+}
+
+// j20CheckHookBuckets asserts every hook the consumer received sits under the
+// event it was declared in, and that none arrived that was never declared.
+func j20CheckHookBuckets(w *World, declared map[string]string) error {
+	dir, ok := j20ConsumerTreePath(w, "hooks")
+	if !ok {
+		return fmt.Errorf("the consumer received no hooks/ directory at all\n%s", j20Of(w).j20PullDiagnostic())
+	}
+	events, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read consumer hooks dir: %w", err)
+	}
+	for _, ev := range events {
+		if !ev.IsDir() {
+			continue
+		}
+		if err := j20CheckOneEvent(filepath.Join(dir, ev.Name()), ev.Name(), declared); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func j20CheckOneEvent(dir, event string, declared map[string]string) error {
+	hooks, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("read consumer hook event %q: %w", event, err)
+	}
+	for _, h := range hooks {
+		name := strings.TrimSuffix(h.Name(), ".yaml")
+		want, known := declared[name]
+		if !known {
+			return fmt.Errorf("hook %q arrived under event %q but was never declared", name, event)
+		}
+		if want != event {
+			return fmt.Errorf("hook %q was declared under event %q but arrived under %q — event bucketing was lost", name, want, event)
+		}
+	}
+	return nil
 }
 
 // j20ConsumerHookOrder returns the hook names the consumer received under one

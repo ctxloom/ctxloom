@@ -13,10 +13,10 @@ import (
 
 func builtinFS() fstest.MapFS {
 	return fstest.MapFS{
-		"core/fragments/style.md":          {Data: []byte("STYLE-BODY\n")},
-		"core/mcp/ledger.yaml":             {Data: []byte("command: /bin/ledger\n")},
+		"core/fragments/style.md":           {Data: []byte("STYLE-BODY\n")},
+		"core/mcp/ledger.yaml":              {Data: []byte("command: /bin/ledger\n")},
 		"core/hooks/pre_tool/00-guard.yaml": {Data: []byte("type: command\ncommand: guard\n")},
-		"extra/fragments/other.md":         {Data: []byte("OTHER\n")},
+		"extra/fragments/other.md":          {Data: []byte("OTHER\n")},
 	}
 }
 

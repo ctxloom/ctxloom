@@ -3,30 +3,45 @@ package operations
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
-	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
-// Hook source kinds, as reported by ResolvedHook.SourceKind.
+// Hook source kinds, as reported by ResolvedHook.SourceKind. Each is a distinct
+// place a user can go and edit, which is the only reason to report a source at
+// all — and each is carried by the resolved model (backends.HookOrigin) rather
+// than guessed after the fact.
 //
-// These are deliberately COARSE, because the merge path genuinely does not
-// preserve more. Claiming a precision the data does not have would be worse than
-// admitting the limit: a user acting on a confident wrong attribution edits the
-// wrong file and concludes the tool lied.
+// These used to be three coarse labels, because the merge appended into a wire
+// config and discarded the source as it went, leaving config-level and
+// inline-profile hooks genuinely indistinguishable. The model keeps what the
+// merge knows, so the limit is gone rather than papered over.
 const (
-	// SourceKindBundle: the hook came from a bundle, and Source names it.
-	SourceKindBundle = "bundle"
+	// SourceKindConfig: the `hooks:` block of .ctxloom/config.yaml.
+	SourceKindConfig = string(backends.HookOriginConfig)
+	// SourceKindProfileInline: an inline profile's `hooks:` block (under
+	// `profiles:` in config.yaml). Source names the profile.
+	SourceKindProfileInline = string(backends.HookOriginProfileInline)
+	// SourceKindProfileDirectory: a directory profile's own `hooks:` block.
+	// Source names the profile.
+	SourceKindProfileDirectory = string(backends.HookOriginProfileDirectory)
+	// SourceKindBuiltin: a bundle compiled into the ctxloom binary. Source is
+	// "builtin:<name>".
+	SourceKindBuiltin = string(backends.HookOriginBuiltin)
+	// SourceKindCompanion: a companion binary's loadout, discovered on PATH.
+	// Source is "ctxloom:companion@<bin>".
+	SourceKindCompanion = string(backends.HookOriginCompanion)
+	// SourceKindBundle: a bundle a selected profile references, and Source
+	// names it.
+	SourceKindBundle = string(backends.HookOriginBundle)
 	// SourceKindContext: ctxloom's own context-injection hook, synthesised per
 	// apply rather than authored anywhere. Nothing to go and edit.
-	SourceKindContext = "context"
-	// SourceKindLocal: config.yaml or an inline profile. These are
-	// INDISTINGUISHABLE after the merge — neither stamps a marker on its hooks —
-	// so this one label honestly covers both rather than guessing between them.
-	SourceKindLocal = "local"
+	SourceKindContext = string(backends.HookOriginContext)
+	// SourceKindUnattributed: a bundle-resolved hook carrying no origin marker.
+	// Unreachable in practice, and reported as "I do not know" rather than
+	// rounded to the nearest plausible source — see backends.HookOriginUnattributed.
+	SourceKindUnattributed = string(backends.HookOriginUnattributed)
 )
 
 // ResolveHooksRequest asks what hooks will actually fire, and in what order.
@@ -46,8 +61,14 @@ type ResolveHooksRequest struct {
 type ResolvedHook struct {
 	// Position is 1-based within its event: the order this hook fires in.
 	Position int `json:"position"`
-	// SourceKind is one of the SourceKind* constants; Source names the bundle
-	// when SourceKind is SourceKindBundle, and is empty otherwise.
+	// Declared is the 1-based position the MERGE gave this hook, before any
+	// reordering. It equals Position unless something moved the hook, and
+	// reporting both is what turns "why does my hook run third" into an answer
+	// rather than a fact.
+	Declared int `json:"declared,omitempty"`
+	// SourceKind is one of the SourceKind* constants; Source names the profile
+	// or bundle the kind refers to, and is empty for the kinds that name
+	// nothing (config, context).
 	SourceKind string `json:"source_kind"`
 	Source     string `json:"source,omitempty"`
 
@@ -81,13 +102,10 @@ type ResolveHooksResult struct {
 	BackendNative []ResolvedBackendHooks `json:"backend_native,omitempty"`
 }
 
-// resolvedHookEventOrder is the order events are reported in. It matches
-// bundles' canonical event order so a reader comparing this output against a
-// bundle's own hooks does not have to re-map anything.
-var resolvedHookEventOrder = []string{
-	bundles.HookEventPreTool, bundles.HookEventPostTool, bundles.HookEventSessionStart,
-	bundles.HookEventSessionEnd, bundles.HookEventPreShell, bundles.HookEventPostFileEdit,
-}
+// resolvedHookEventOrder is the order events are reported in: the resolved
+// model's own canonical order, so the report cannot enumerate a different set
+// of events than the assembly resolved.
+func resolvedHookEventOrder() []string { return backends.HookEvents() }
 
 // ResolveHooks reports the hooks that will fire, per event, in their final order,
 // with where each came from.
@@ -114,9 +132,9 @@ var resolvedHookEventOrder = []string{
 // withheld from the report too. Showing a hook that will not run is the same lie
 // in the other direction.
 func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksResult, error) {
-	if req.Event != "" && !isKnownHookEvent(req.Event) {
+	if req.Event != "" && !backends.IsHookEvent(req.Event) {
 		return nil, fmt.Errorf("unknown hook event %q; the lifecycle events are %s",
-			req.Event, strings.Join(resolvedHookEventOrder, ", "))
+			req.Event, strings.Join(resolvedHookEventOrder(), ", "))
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -146,114 +164,72 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 	assembled := backends.AssembleManagedHooks(cfg, workDir, "", req.Profiles)
 
 	out := &ResolveHooksResult{}
-	for _, event := range resolvedHookEventOrder {
+	for _, event := range resolvedHookEventOrder() {
 		if req.Event != "" && event != req.Event {
 			continue
 		}
 		out.Events = append(out.Events, ResolvedHookEvent{
 			Event: event,
-			Hooks: describeHooks(unifiedEventHooks(assembled.Unified, event)),
+			Hooks: describeHooks(assembled.For(event)),
 		})
 	}
-	out.BackendNative = describeBackendNative(assembled.Plugins, req.Event)
+	out.BackendNative = describeBackendNative(assembled.BackendNative(), req.Event)
 	return out, nil
 }
 
-func isKnownHookEvent(event string) bool {
-	for _, e := range resolvedHookEventOrder {
-		if e == event {
-			return true
-		}
-	}
-	return false
-}
-
-// unifiedEventHooks selects one event's slice. A switch rather than reflection so
-// a seventh event added to wire.UnifiedHooks and not added here is a compile-time
-// hole a reader can see, not a silently absent row in the report.
-func unifiedEventHooks(u wire.UnifiedHooks, event string) []wire.Hook {
-	switch event {
-	case bundles.HookEventPreTool:
-		return u.PreTool
-	case bundles.HookEventPostTool:
-		return u.PostTool
-	case bundles.HookEventSessionStart:
-		return u.SessionStart
-	case bundles.HookEventSessionEnd:
-		return u.SessionEnd
-	case bundles.HookEventPreShell:
-		return u.PreShell
-	case bundles.HookEventPostFileEdit:
-		return u.PostFileEdit
-	}
-	return nil
-}
-
-// describeHooks numbers a resolved slice and attributes each entry. Position is
-// the slice index because on this path position IS the answer: merge order is
-// execution order, and the per-bundle order field has already been consumed
-// upstream in config.extractHooksFromBundle.
-func describeHooks(hooks []wire.Hook) []ResolvedHook {
+// describeHooks projects the resolved model onto the reportable DTO. Position is
+// the slice index because on this path position IS the answer: the model holds
+// each event's hooks in the order they will fire, and the per-bundle order field
+// has already been consumed upstream in config.extractHooksFromBundle.
+func describeHooks(hooks []backends.ResolvedHook) []ResolvedHook {
 	out := make([]ResolvedHook, 0, len(hooks))
 	for i, h := range hooks {
-		kind, source := attributeHook(h)
 		out = append(out, ResolvedHook{
 			Position:   i + 1,
-			SourceKind: kind,
-			Source:     source,
-			Type:       h.Type,
-			Matcher:    h.Matcher,
-			Command:    h.Command,
-			Prompt:     h.Prompt,
-			Timeout:    h.Timeout,
-			Async:      h.Async,
+			Declared:   h.Declared,
+			SourceKind: string(h.Source.Origin),
+			Source:     hookSourceName(h.Source),
+			Type:       h.Hook.Type,
+			Matcher:    h.Hook.Matcher,
+			Command:    h.Hook.Command,
+			Prompt:     h.Hook.Prompt,
+			Timeout:    h.Hook.Timeout,
+			Async:      h.Hook.Async,
 		})
 	}
 	return out
 }
 
-// attributeHook reads back the only provenance the merge preserves: the
-// "bundle:<ref>" marker config.extractHooksFromBundle stamps into wire.Hook.SCM.
-func attributeHook(h wire.Hook) (kind, source string) {
-	if h.ContextHash != "" {
-		return SourceKindContext, ""
+// hookSourceName is the thing a SourceKind refers to: the profile for the two
+// profile kinds, the bundle ref for the bundle kinds, nothing for the kinds that
+// name nothing. A bundle-shipped directory profile carries both; the PROFILE is
+// what a user selected and what they would deselect, so it wins.
+func hookSourceName(s backends.HookSource) string {
+	if s.Profile != "" {
+		return s.Profile
 	}
-	if ref, ok := strings.CutPrefix(h.SCM, "bundle:"); ok {
-		return SourceKindBundle, ref
-	}
-	return SourceKindLocal, ""
+	return s.Ref
 }
 
-// describeBackendNative flattens the backend-keyed plugin map into a sorted
-// slice. Sorted because a map's range order is random and an inspect command
-// whose output reshuffles between runs cannot be diffed.
+// describeBackendNative projects the model's backend-native hooks, already
+// sorted by backend then event (a map's range order is random, and an inspect
+// command whose output reshuffles between runs cannot be diffed).
 //
 // The event filter is applied by NAME here too, even though these are a
 // backend's own event names rather than the unified six — so `--event pre_tool`
 // on a backend that happens to spell an event that way still narrows honestly,
 // and one that does not simply reports nothing native.
-func describeBackendNative(plugins map[string]wire.BackendHooks, eventFilter string) []ResolvedBackendHooks {
+func describeBackendNative(native []backends.BackendNativeHooks, eventFilter string) []ResolvedBackendHooks {
 	var out []ResolvedBackendHooks
-	for backend, events := range plugins {
-		for event, hooks := range events {
-			if eventFilter != "" && event != eventFilter {
-				continue
-			}
-			if len(hooks) == 0 {
-				continue
-			}
-			out = append(out, ResolvedBackendHooks{
-				Backend: backend,
-				Event:   event,
-				Hooks:   describeHooks(hooks),
-			})
+	for _, n := range native {
+		if eventFilter != "" && n.Event != eventFilter {
+			continue
 		}
+		out = append(out, ResolvedBackendHooks{
+			Backend: n.Backend,
+			Event:   n.Event,
+			Hooks:   describeHooks(n.Hooks),
+		})
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Backend != out[j].Backend {
-			return out[i].Backend < out[j].Backend
-		}
-		return out[i].Event < out[j].Event
-	})
 	return out
 }

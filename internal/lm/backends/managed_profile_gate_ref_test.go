@@ -159,8 +159,8 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	require.Len(t, gotRefs, 1)
 	assert.Equal(t, remote.LocalBundleRef("kit")+"#hooks/pre_tool/0", gotRefs[0],
 		"the composed ref must carry exactly one '#' (uncut-grub fixed)")
-	require.Len(t, assembled.Unified.PreTool, 1, "an ALLOWED bundle-shipped profile hook must reach the managed set")
-	assert.Equal(t, "bundle-shipped-hook", assembled.Unified.PreTool[0].Command)
+	require.Len(t, assembled.Wire().Unified.PreTool, 1, "an ALLOWED bundle-shipped profile hook must reach the managed set")
+	assert.Equal(t, "bundle-shipped-hook", assembled.Wire().Unified.PreTool[0].Command)
 }
 
 // TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld is the
@@ -186,5 +186,5 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
-	assert.Empty(t, assembled.Unified.PreTool, "a denied bundle-shipped profile hook must be withheld from the produced settings, not merely fail silently in a way that still ships it")
+	assert.Empty(t, assembled.Wire().Unified.PreTool, "a denied bundle-shipped profile hook must be withheld from the produced settings, not merely fail silently in a way that still ships it")
 }

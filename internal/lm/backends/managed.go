@@ -52,7 +52,7 @@ func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate
 	return &agent.ManagedConfig{
 		Commands:         CommandExportsFor(backendName, LoadCommandExports(cfg, profileNames)),
 		Skills:           SkillExportsFor(backendName, LoadSkillExports(cfg, profileNames)),
-		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames),
+		Hooks:            AssembleManagedHooks(cfg, workDir, "", profileNames).Wire(),
 		MCP:              AssembleManagedMCP(cfg, profileNames),
 		BundleMCP:        cfg.ResolveBundleMCPServers(profileNames),
 		ManageStatusline: managedStatuslineEnabled(cfg),
@@ -231,17 +231,22 @@ func scopedProfiles(cfg *config.Config, profileNames []string) []string {
 // class that once broke forward-bind. Keeping the full assembly here guarantees
 // both writers produce an identical, complete set.
 //
-// Returns a fresh HooksConfig each call (never aliases cfg.Hooks), so callers
+// Returns a fresh ManagedHooks each call (never aliases cfg.Hooks), so callers
 // that invoke it in a loop — e.g. apply-hooks across every backend — cannot
 // accumulate duplicate hooks by mutating shared config state.
-func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profileNames []string) *wire.HooksConfig {
-	hooks := &wire.HooksConfig{Plugins: make(map[string]wire.BackendHooks)}
+//
+// The return value is the RESOLVED MODEL (managed_hooks.go), not a wire config:
+// it keeps each hook's provenance and declared position, which the pure-append
+// merge used to discard at every step, and it is what any project-level hook
+// ORDERING has to act on. Writers take the projection, ManagedHooks.Wire, which
+// is byte-for-byte the wire config this function used to return.
+func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profileNames []string) *ManagedHooks {
+	hooks := newManagedHooks()
 	if cfg == nil {
 		return hooks
 	}
 	// Config-level hooks.
-	configHooks := cfg.GetHooksConfig()
-	agent.MergeHooksConfig(hooks, &configHooks)
+	hooks.mergeHooks(cfg.GetHooksConfig(), fixedSource(HookSource{Origin: HookOriginConfig}))
 	// Selected-profile-shipped hooks (defaults when none are passed). A profile
 	// resolves the SAME way operations.resolveProfile / AssembleManagedMCP do:
 	// inline definitions (config.yaml) win and are trusted-local (ungated); a name
@@ -258,7 +263,8 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 		// directory profile.
 		inlineResolved, inlineErr := config.ResolveProfile(profileDefs, profileName)
 		if inlineErr == nil {
-			agent.MergeHooksConfig(hooks, &inlineResolved.Hooks)
+			hooks.mergeHooks(inlineResolved.Hooks,
+				fixedSource(HookSource{Origin: HookOriginProfileInline, Profile: profileName}))
 			continue
 		}
 		if !errors.Is(inlineErr, errs.ErrProfileNotFound) {
@@ -271,10 +277,18 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 			continue
 		}
 		gated := gateProfileHooks(profileGateRefFor(resolved, profileName), resolved.Hooks, gate)
-		agent.MergeHooksConfig(hooks, &gated)
+		// Ref carries the ORIGIN BUNDLE for a bundle-shipped profile (empty for
+		// a genuinely local one) — the same distinction the gate keys on, so the
+		// report names the bundle a remote-sourced profile came from rather than
+		// only the ref a user pasted into their agent's profile list.
+		hooks.mergeHooks(gated, fixedSource(HookSource{
+			Origin:  HookOriginProfileDirectory,
+			Profile: profileName,
+			Ref:     resolved.SourceRef,
+		}))
 	}
 	// Bundle-shipped hooks + (optional) the context-injection hook.
-	appendManagedDynamicHooks(&hooks.Unified, cfg, workDir, contextHash, profiles)
+	appendManagedDynamicHooks(hooks, cfg, workDir, contextHash, profiles)
 	return hooks
 }
 
@@ -284,13 +298,19 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 // when contextHash is non-empty, the SessionStart context-injection hook. The
 // `ctxloom run` path passes contextHash "" here and lets the agent append its
 // own injection hook from the plugin-side hash; apply-hooks passes the hash.
-func appendManagedDynamicHooks(unified *wire.UnifiedHooks, cfg *config.Config, workDir, contextHash string, profileNames []string) {
-	if unified == nil || cfg == nil {
+//
+// The bundle set arrives FLAT — builtins, companion loadouts, and each selected
+// profile's bundles in one slice — so it is attributed per hook off the marker
+// config.extractHooksFromBundle stamped (bundleSource), not from this call site.
+func appendManagedDynamicHooks(m *ManagedHooks, cfg *config.Config, workDir, contextHash string, profileNames []string) {
+	if m == nil || cfg == nil {
 		return
 	}
-	unified.Append(cfg.ResolveBundleHooks(profileNames))
+	m.mergeUnified(cfg.ResolveBundleHooks(profileNames), bundleSource)
 	if contextHash != "" {
-		unified.SessionStart = append(unified.SessionStart, agent.NewContextInjectionHooks(contextHash, workDir)...)
+		m.mergeUnified(
+			wire.UnifiedHooks{SessionStart: agent.NewContextInjectionHooks(contextHash, workDir)},
+			fixedSource(HookSource{Origin: HookOriginContext}))
 	}
 }
 

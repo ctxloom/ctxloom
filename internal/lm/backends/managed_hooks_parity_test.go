@@ -364,7 +364,7 @@ func TestAssembleManagedHooks_WireMatchesFrozenReference(t *testing.T) {
 			defer restore()
 
 			want := assembleManagedHooksReference(tc.cfg(t), tc.workDir, tc.contextHash, tc.profiles)
-			got := AssembleManagedHooks(tc.cfg(t), tc.workDir, tc.contextHash, tc.profiles)
+			got := AssembleManagedHooks(tc.cfg(t), tc.workDir, tc.contextHash, tc.profiles).Wire()
 
 			assert.Equal(t, want, got,
 				"Wire() must project the resolved model onto exactly the wire config the writers were fed before the model existed")
@@ -394,7 +394,7 @@ func TestAssembleManagedHooks_WireDistinguishesNilFromEmpty(t *testing.T) {
 		},
 	}})
 
-	got := AssembleManagedHooks(cfg, "", "", nil)
+	got := AssembleManagedHooks(cfg, "", "", nil).Wire()
 
 	require.Contains(t, got.Plugins, "claude")
 	require.Contains(t, got.Plugins["claude"], "PostToolUse", "an empty event list must survive as a PRESENT key")

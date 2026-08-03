@@ -405,7 +405,11 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 // contextViaNativeFile bool. Commands are delivered only when there are prompts,
 // preserving the prior guard (no prompts ⇒ command files left untouched).
 func applyHooksToBackend(backendName string, p hookApplyParams) error {
-	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil)
+	// The resolved model is what AssembleManagedHooks returns; a settings writer
+	// takes its Wire() projection. Ordering and provenance stay in the model, so
+	// what `manage hooks list` reports and what lands in this backend's settings
+	// file are the same resolution, read twice.
+	hooksCfg := backends.AssembleManagedHooks(p.freshCfg, p.workDir, p.contextHash, nil).Wire()
 	mcpCfg := p.freshCfg.GetMCPConfig()
 	settings := p.freshCfg.GetSettings()
 

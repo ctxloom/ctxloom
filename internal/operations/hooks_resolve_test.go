@@ -71,12 +71,20 @@ func TestResolveHooks_ReportsAllSixEventsEvenWhenEmpty(t *testing.T) {
 // Provenance is half the answer. "Which hooks, in what order" without "from
 // where" leaves a user who dislikes the order with nowhere to go: they cannot
 // tell which bundle to talk to, or whether the hook is even theirs to change.
+//
+// A hook declared in config.yaml is reported as CONFIG — not as "local", which
+// used to cover config-level and inline-profile hooks alike because the merge
+// discarded which it was. The resolved model keeps the merge site, so the
+// answer names one file and one block.
 func TestResolveHooks_NamesEachHooksSource(t *testing.T) {
 	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
 		ConfigLoader: func() (*config.Config, error) {
 			return cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{
-				{Type: "command", Command: "local-one"},
-				{Type: "command", Command: "from-bundle", SCM: "bundle:acme/tools"},
+				{Type: "command", Command: "config-one"},
+				// A hand-written `_ctxloom:` marker in config.yaml. It is not
+				// evidence of anything — a bundle marker is stamped by the
+				// bundle EXTRACTOR, and this hook was read out of config.yaml.
+				{Type: "command", Command: "config-two", SCM: "bundle:acme/tools"},
 			}}), nil
 		},
 		WorkDir: t.TempDir(),
@@ -85,12 +93,36 @@ func TestResolveHooks_NamesEachHooksSource(t *testing.T) {
 
 	ev := eventNamed(t, res, "pre_tool")
 	require.Len(t, ev.Hooks, 2)
-	assert.Equal(t, SourceKindLocal, ev.Hooks[0].SourceKind,
-		"a hook with no bundle marker is local config or an inline profile, and must say so rather than claim a bundle")
-	assert.Empty(t, ev.Hooks[0].Source)
-	assert.Equal(t, SourceKindBundle, ev.Hooks[1].SourceKind)
-	assert.Equal(t, "acme/tools", ev.Hooks[1].Source,
-		"the bundle ref must be reported bare, not as the internal 'bundle:' marker")
+	for _, h := range ev.Hooks {
+		assert.Equal(t, SourceKindConfig, h.SourceKind,
+			"a hook read out of config.yaml's hooks: block is config-level, and provenance comes from the merge site rather than from a marker anyone can type")
+		assert.Empty(t, h.Source, "config-level hooks name no profile and no bundle")
+	}
+}
+
+// Position and Declared are both reported so a user can see whether a hook's
+// position was CHOSEN or merely happened. With nothing reordering them, every
+// hook's declared position is its position — and the report says so rather than
+// leaving the reader to assume it.
+func TestResolveHooks_ReportsDeclaredPositionAlongsideFinal(t *testing.T) {
+	res, err := ResolveHooks(context.Background(), ResolveHooksRequest{
+		ConfigLoader: func() (*config.Config, error) {
+			return cfgWithHooks(t, wire.UnifiedHooks{PreTool: []wire.Hook{
+				{Type: "command", Command: "one"},
+				{Type: "command", Command: "two"},
+				{Type: "command", Command: "three"},
+			}}), nil
+		},
+		WorkDir: t.TempDir(),
+	})
+	require.NoError(t, err)
+
+	ev := eventNamed(t, res, "pre_tool")
+	require.Len(t, ev.Hooks, 3)
+	for _, h := range ev.Hooks {
+		assert.Equal(t, h.Position, h.Declared,
+			"with no reorder in force the merge's position IS the final position")
+	}
 }
 
 // Filtering to one event must not change the ANSWER for that event, only what is

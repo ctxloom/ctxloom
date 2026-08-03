@@ -93,7 +93,7 @@ func TestAssembleManagedMCP_DirProfileInlineServers_FlowAndGate(t *testing.T) {
 func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
-	cmds := preToolCommandSet(assembled.Unified)
+	cmds := preToolCommandSet(assembled.Wire().Unified)
 	assert.Contains(t, cmds, "keep-hook", "directory profile inline hooks reach the managed set")
 	assert.Contains(t, cmds, "drop-hook")
 
@@ -102,7 +102,7 @@ func TestAssembleManagedHooks_DirProfileInlineHooks_FlowAndGate(t *testing.T) {
 	cfg2.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
 		return bundles.HashPayload(payload) == keepHash
 	})
-	gated := preToolCommandSet(AssembleManagedHooks(cfg2, "/tmp", "", nil).Unified)
+	gated := preToolCommandSet(AssembleManagedHooks(cfg2, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, gated, "keep-hook", "a granted directory-profile hook is applied")
 	assert.NotContains(t, gated, "drop-hook", "an un-granted directory-profile hook is withheld by the exec gate")
 }
@@ -144,7 +144,7 @@ func TestAssembleManagedHooks_DirProfileMergesWithInlineDefault(t *testing.T) {
 		return bundles.HashPayload(payload) == dirHash
 	})
 
-	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Unified)
+	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, cmds, "inline-hook", "inline default profile's hook (trusted-local) is applied")
 	assert.Contains(t, cmds, "dir-hook", "directory default profile's granted hook is applied")
 }
@@ -159,7 +159,7 @@ func TestAssembleManagedHooks_DirProfileInheritsParentHooks(t *testing.T) {
 		"child": "parents:\n  - base\nhooks:\n  unified:\n    pre_tool:\n      - command: child-hook\n        type: command\n",
 	}, nil)
 
-	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Unified)
+	cmds := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Wire().Unified)
 	assert.Contains(t, cmds, "base-hook", "a directory profile inherits its parent's inline hooks")
 	assert.Contains(t, cmds, "child-hook")
 }
@@ -209,7 +209,7 @@ func TestAssembleManagedHooks_DeniedHookIsWarned(t *testing.T) {
 	restore := clidiag.SetSink(&buf)
 	defer restore()
 
-	gated := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Unified)
+	gated := preToolCommandSet(AssembleManagedHooks(cfg, "/tmp", "", nil).Wire().Unified)
 	assert.NotContains(t, gated, "drop-hook", "the gate's deny decision is unchanged")
 	assert.Contains(t, buf.String(), "drop-hook",
 		"a denied hook must be warned by name, not silently dropped: got %q", buf.String())

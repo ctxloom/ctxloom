@@ -132,7 +132,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// the exported config, mirroring what a live run assembles; bundleMCP rides
 	// alongside. Each write reconciles (managed entries overwritten, foreign ones
 	// preserved).
-	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles)
+	hooks := backends.AssembleManagedHooks(cfg, req.Target, "", req.Profiles).Wire()
 	mcp := backends.AssembleManagedMCP(cfg, req.Profiles)
 	bundleMCP := cfg.ResolveBundleMCPServers(req.Profiles)
 	commands := backends.CommandExportsFor(backend, backends.LoadCommandExports(cfg, req.Profiles))

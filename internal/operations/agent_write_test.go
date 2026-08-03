@@ -62,11 +62,11 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	assert.Equal(t, []string{"p1", "p2"}, sub.Profiles)
 }
 
-// llmLabelsFixture is a config body declaring a config-only LLM LABEL
-// ("claude-fast") alongside the built-in backend names. Engine validation is a
-// membership test over operations.AvailableLLMNames — registered backends UNION
-// the labels this config declares — so a fixture that wants to bind a label has
-// to declare it, exactly as a user's config.yaml does.
+// llmLabelsFixture declares a config-only LLM LABEL — a name that is NOT a
+// registered backend — so the accepting-side assertion below does not depend on
+// resources/default-config.yaml happening to ship one. Engine validation is a
+// membership test over operations.AvailableLLMNames: registered backends UNION
+// the labels the loaded config declares.
 const llmLabelsFixture = `version: 5
 llm:
   configs:
@@ -264,18 +264,20 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := managerFor(appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Engine: ptr("a"), Profiles: ptr([]string{"x"})})
+	// Real engine names, not "a"/"b" placeholders: SetAgent now validates the
+	// engine against the known set, so a stand-in string no longer stands in.
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Engine: ptr("claude-code"), Profiles: ptr([]string{"x"})})
 	require.NoError(t, err)
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Engine: ptr("b"), Profiles: ptr([]string{"y", "z"})})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Engine: ptr("codex"), Profiles: ptr([]string{"y", "z"})})
 	require.NoError(t, err)
 
 	final, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
 	sub, ok := final.Agent("dev")
 	require.True(t, ok)
-	assert.Equal(t, "b", sub.Engine, "engine replaced")
+	assert.Equal(t, "codex", sub.Engine, "engine replaced")
 	assert.Equal(t, []string{"y", "z"}, sub.Profiles, "profiles replaced, not unioned")
 }
 

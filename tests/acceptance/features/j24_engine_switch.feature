@@ -86,9 +86,14 @@ Feature: Engine switch day
   # configuration, so the failure surfaces later, somewhere else, as whatever a
   # missing engine happens to look like downstream.
   #
-  # UNTAG WHEN: `agent edit --engine` validates its argument and names the
-  # configured engines.
-  @wip
+  # UNTAGGED: `agent edit --engine` now validates its argument and names the
+  # engines it knows. The check lives in operations.SetAgent — `agent create`
+  # and `agent edit`'s single shared body, so both verbs are covered — and
+  # rejects before the write, so a typo'd edit cannot corrupt a live binding.
+  # Membership is operations.AvailableLLMNames (registered backends UNION the
+  # config's declared labels), the same set `llm default` accepts and offers,
+  # because an agent's engine is a LABEL and `--engine claude-fast` is one of
+  # this command's own documented examples.
   Scenario: Binding an agent to an engine that does not exist is refused
     When I run "ctxloom agent edit dev --engine bogus-engine"
     Then ctxloom refuses and names the engines it knows

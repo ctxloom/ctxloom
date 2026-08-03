@@ -102,7 +102,12 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 // NOT settable here — it is a session trait chosen at invocation time, never
 // stored on a binding.
 type SetAgentRequest struct {
-	Name        string    `json:"name"`
+	Name string `json:"name"`
+	// Engine is the LLM engine/label to bind. A non-empty value is REJECTED
+	// unless it names something operations.AvailableLLMNames knows (a
+	// registered backend or a config-declared label) — see checkAgentWrite.
+	// Empty CLEARS the override, falling back to the profiles' llm and then
+	// the project default.
 	Engine      *string   `json:"engine,omitempty"`
 	Profiles    *[]string `json:"profiles,omitempty"`
 	Runtime     *string   `json:"runtime,omitempty"`
@@ -129,6 +134,79 @@ func orKeep[T any](set *T, existing T) T {
 	return *set
 }
 
+// A binding write's axes split two ways, and which side an axis falls on is a
+// judgement about what an unknown value DOES. warnAgentAxisTypos holds the
+// advisory half, validateAgentAxes the refusing half; SetAgent runs both before
+// it opens its write transaction.
+//
+// warnAgentAxisTypos covers the axes whose unknown values still resolve to a
+// working default at run time (Runtime → host, Permissions → the default
+// posture), so they are stored as written per fault tolerance — but warned about
+// NOW, so a typo surfaces at write time rather than at the first run. The
+// shadowed-definition notice rides along: it is likewise about where a
+// definition lives, not about whether the binding works.
+func warnAgentAxisTypos(cfg *config.Config, name string, req SetAgentRequest) {
+	// A directory-sourced agent of the same name would be shadowed by this
+	// config-key entry (config wins, see config.LoadAgents). Surface it so the
+	// user knows the file is now inert rather than silently double-defining.
+	if existing, ok := cfg.Agent(name); ok && !existing.FromConfig() {
+		clidiag.Warn("ctxloom",
+			"agent %q is also defined in %s; the config.yaml entry written now takes precedence",
+			name, existing.Source)
+	}
+
+	if req.Runtime != nil && *req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), *req.Runtime) {
+		clidiag.Warn("ctxloom",
+			"agent %q declares unknown runtime %q (known: %s); it will run on the host",
+			name, *req.Runtime, strings.Join(isolation.RuntimeNames(), "|"))
+	}
+
+	if req.Permissions != nil && *req.Permissions != "" {
+		if _, ok := agent.ParsePermissionMode(*req.Permissions); !ok {
+			clidiag.Warn("ctxloom",
+				"agent %q declares unknown permissions %q (known: %s); it will use the default posture",
+				name, *req.Permissions, strings.Join(agent.PermissionModeNames(), "|"))
+		}
+	}
+}
+
+// validateAgentAxes covers the axes an unknown value BREAKS rather than
+// degrades, so a non-nil return means nothing may be written:
+//
+//   - Engine: a name nothing defines leaves the binding broken. `agent edit dev
+//     --engine <typo>` used to exit 0 and print "Updated agent" over exactly
+//     that; the failure then surfaced later, somewhere else, as whatever a
+//     missing engine happens to look like downstream — the silent-no-op shape
+//     this codebase treats as a bug rather than a shortcut.
+//   - Driving: it changes execution semantics (whether the child's engine
+//     process survives a turn boundary). Reasoning in agents.ValidateDriving.
+//
+// The engine membership set is AvailableLLMNames — registered backends UNION
+// the labels this config declares — because an agent's engine is a LABEL
+// resolved through resolveOneshotLabel/ResolveBackend, not a backend name:
+// `agent create finder --engine claude-fast` is one of this command's own help
+// examples. That is the SAME set `llm default` accepts and the same one it
+// offers on rejection, so this message can never list a name it would refuse.
+// Checking backends.Exists alone (init's guard, where a freshly scaffolded
+// config.yaml genuinely has no labels yet) would reject the documented
+// invocation. An explicitly empty engine stays legal: it CLEARS the override,
+// falling back to the composed profiles' llm and then the project default.
+func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) error {
+	if req.Engine != nil && *req.Engine != "" {
+		if available := AvailableLLMNames(cfg); !slices.Contains(available, *req.Engine) {
+			return fmt.Errorf("agent %q: unknown engine %q; valid engines: %s",
+				name, *req.Engine, strings.Join(available, ", "))
+		}
+	}
+
+	if req.Driving != nil {
+		if err := agents.ValidateDriving(agents.DrivingMode(*req.Driving)); err != nil {
+			return fmt.Errorf("agent %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // SetAgent adds or updates a LOCAL agent under the `agents:` config key,
 // inside one Manager.Update transaction — the write is a single locked,
 // freshly-reloaded read-modify-write rather than a Load, a mutation, and a
@@ -149,11 +227,13 @@ func orKeep[T any](set *T, existing T) T {
 // under the same lock, so a concurrent writer cannot land
 // between the read of the existing record and the write of the merged one.
 //
-// Name-agnostic by construction: it stores whatever name/engine/profiles the
-// caller passes — the role taxonomy (developer/finder/code-review, per-language ×
+// Name-agnostic by construction: it stores whatever name/profiles the caller
+// passes — the role taxonomy (developer/finder/code-review, per-language ×
 // lens) is the user's choice from the live scan, never enumerated here. Engine
-// is accepted as-is (the user's call); resolution/backend mapping happens later
-// in ResolveAgent.
+// is the one exception: it is checked for MEMBERSHIP (see validateAgentAxes)
+// against the engines this config actually exposes, because an engine nothing
+// defines leaves the binding broken. Which backend it maps to, and the
+// override precedence, still resolve later in ResolveAgent.
 func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*AgentEntry, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("config is required")
@@ -166,45 +246,12 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		return nil, fmt.Errorf("agent name is required")
 	}
 
-	// A directory-sourced agent of the same name would be shadowed by this
-	// config-key entry (config wins, see config.LoadAgents). Surface it so the
-	// user knows the file is now inert rather than silently double-defining.
-	if existing, ok := cfg.Agent(name); ok && !existing.FromConfig() {
-		clidiag.Warn("ctxloom",
-			"agent %q is also defined in %s; the config.yaml entry written now takes precedence",
-			name, existing.Source)
-	}
-
-	// Runtime is stored as written — validation is advisory only (an unknown
-	// value acts as host at resolve time, per fault tolerance), but warn NOW
-	// so a typo is caught at write time rather than at the first run.
-	if req.Runtime != nil && *req.Runtime != "" && !slices.Contains(isolation.RuntimeNames(), *req.Runtime) {
-		clidiag.Warn("ctxloom",
-			"agent %q declares unknown runtime %q (known: %s); it will run on the host",
-			name, *req.Runtime, strings.Join(isolation.RuntimeNames(), "|"))
-	}
-
-	// Permissions is likewise stored as written; validation is advisory (an
-	// unknown value resolves to the default posture at run time), but warn NOW so
-	// a typo is caught at write time rather than at the first run.
-	if req.Permissions != nil && *req.Permissions != "" {
-		if _, ok := agent.ParsePermissionMode(*req.Permissions); !ok {
-			clidiag.Warn("ctxloom",
-				"agent %q declares unknown permissions %q (known: %s); it will use the default posture",
-				name, *req.Permissions, strings.Join(agent.PermissionModeNames(), "|"))
-		}
-	}
-
-	// Driving is REJECTED outright on an unknown value (not advisory like
-	// Runtime/Permissions above): it changes execution semantics (whether
-	// the child's engine process survives a turn boundary), so a typo must
-	// never silently persist and later silently resolve to the default — see
-	// agents.ValidateDriving's doc. Nothing is written to config.yaml when
-	// this fails.
-	if req.Driving != nil {
-		if err := agents.ValidateDriving(agents.DrivingMode(*req.Driving)); err != nil {
-			return nil, fmt.Errorf("agent %q: %w", name, err)
-		}
+	// Pre-flight, both halves BEFORE the Manager.Update transaction opens, so
+	// a refusal writes nothing and a typo'd `agent edit` cannot half-apply over
+	// a live binding.
+	warnAgentAxisTypos(cfg, name, req)
+	if err := validateAgentAxes(cfg, name, req); err != nil {
+		return nil, err
 	}
 
 	// Canonicalize-on-store (decision B): a per-remote short profile ref

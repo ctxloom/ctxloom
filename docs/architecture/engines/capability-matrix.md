@@ -155,6 +155,54 @@ plugin wire (§3 above), so the skills surface receives an empty list on every
 (`registry.go:292`, `:315`, `:341`, `:369`, `:436`) and the machinery is otherwise
 complete — it is starved at the wire, not unimplemented.
 
+## 5b. Hooks — and the one engine that has none
+
+Five of the six engines carry ctxloom's unified hooks into a native settings
+surface. `opencode` carries none: `opencode.json` has no hook key and there is no
+event vocabulary to route the six unified events onto, so
+`OpencodeWriter.WriteSettings` takes a `*wire.HooksConfig` it can do nothing with
+(`internal/opencode/settings.go:513`).
+
+| Backend | Hooks land in | Routed by |
+|---|---|---|
+| `claude-code` | `.claude/settings.json` | `internal/claude/claude.go:680` |
+| `codex` | `.codex/config.toml` | `internal/codex/settings.go:404` |
+| `antigravity` | `.agents/hooks.json` | `internal/antigravity/antigravity.go:463` |
+| `kiro` | `.kiro/agents/ctxloom.json` | `internal/kiro/settings.go` |
+| `opencode` | **nowhere** | — (`noHooksReason`, `registry.go`) |
+| `acp` (generic) | nowhere (no surfaces at all) | — |
+
+The loss is structural and fine to have; the **silence** was not.
+`ctxloom profile materialize --backend opencode` used to print four true `wrote`
+lines with the dropped hook nowhere among them, so a team could ship a guardrail
+and a deskmate could inherit the profile without either being told the guardrail
+did not come with it (`whiny-exclusive`).
+
+The gap is now DECLARED (`agentDescriptor.noHooksReason`) and reported:
+`backends.UncarriedSurfaces` turns it into an `agent.SurfaceLoss` whenever the
+run actually carries hooks, materialize puts it in
+`MaterializeProfileResult.NotCarried` (so `--format json` sees it as data), and
+the CLI prints it beside the `wrote` lines:
+
+```
+Materialized team → ./out (opencode)
+  wrote context
+  wrote settings
+  wrote commands
+  wrote skills
+  NOT carried: hooks (1 session_start) — opencode has no hook mechanism
+```
+
+A capability gap nobody asked to use stays quiet — a profile declaring no hooks
+gets no line, the same rule `agent.RouteUnifiedHooks` applies one level down for
+a single unsupported event. `TestDeliveryApproach_HookCarriageMatchesDeclaration`
+(`tests/integration`) holds the declaration against the delivered payload for
+every registered backend, so it cannot drift into claiming a loss that isn't real
+or missing one that is.
+
+**Still silent elsewhere:** `ctxloom run` and `manage hooks install` deliver to
+the same hookless engine and say nothing. Only materialize reports the loss today.
+
 ## 6. Session history and transcripts
 
 | Backend | `History()` | Mechanism | Note |

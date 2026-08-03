@@ -593,21 +593,24 @@ type scratchPlacement struct{ dir string }
 
 func (p scratchPlacement) Dir() string { return p.dir }
 
-// TestDeliveryApproach_OpencodeDropsHooksWithoutSaying pins TODAY'S SILENCE for
-// the one structurally-unsupported surface in the matrix: opencode has no hooks
-// mechanism at all, so a profile's session_start hook is dropped — and the
-// delivery report still names every surface it did write, each line true, with
-// the omission nowhere in it (filed as whiny-exclusive).
+// TestDeliveryApproach_OpencodeSaysWhatItCannotCarry covers the one
+// structurally-unsupported surface in the matrix: opencode has no hooks
+// mechanism at all, so a profile's session_start hook is dropped. The delivery
+// report itself CANNOT show that — it lists what landed, and every one of its
+// lines is true — so the loss is read from the declaration instead, alongside
+// it (whiny-exclusive).
 //
-// UNTAG CONDITION: when opencode gains a hooks surface, or when the delivery
-// report names the dropped hook, this test FAILS and must be rewritten to assert
-// the honest behaviour instead of the silence. That failure is the point.
-func TestDeliveryApproach_OpencodeDropsHooksWithoutSaying(t *testing.T) {
+// This test used to assert the opposite: that the drop happened with nothing
+// said about it, with an untag condition naming exactly this fix. The delivered
+// tree half is unchanged (the hook still reaches no file, and everything else
+// still arrives); what changed is that the omission is now REPORTABLE.
+func TestDeliveryApproach_OpencodeSaysWhatItCannotCarry(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	root := "/cell"
 	require.NoError(t, fs.MkdirAll(root, 0o755))
 
-	set := backends.BuildSurfaces("opencode", matrixSentinelInputs(), fs)
+	inputs := matrixSentinelInputs()
+	set := backends.BuildSurfaces("opencode", inputs, fs)
 
 	// Structural: opencode declares no approach for a hooks-bearing surface
 	// beyond the folded settings file.
@@ -615,14 +618,22 @@ func TestDeliveryApproach_OpencodeDropsHooksWithoutSaying(t *testing.T) {
 		"opencode folds MCP into settings; if that changed, this test's premise moved")
 
 	_, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(root)
-	require.Empty(t, errs, "the delivery reports NO error — that is the silence under test")
+	require.Empty(t, errs, "a structural gap is not a write failure — nothing errored")
 
 	var wrote []string
 	for _, k := range kinds {
 		wrote = append(wrote, k.String())
 	}
 	assert.Equal(t, []string{"context", "settings", "commands", "skills"}, wrote,
-		"every reported line is true; the hook is simply absent from the report")
+		"the delivery report is unchanged: it lists what landed, and the hook did not")
+
+	// The loss the report structurally cannot hold, held beside it.
+	losses := backends.UncarriedSurfaces("opencode", inputs)
+	require.Len(t, losses, 1, "opencode's dropped hooks must be reportable")
+	assert.Equal(t, "hooks", losses[0].Surface)
+	assert.Equal(t, "1 session_start", losses[0].Detail,
+		"the loss names WHICH hooks, by the config key the user wrote")
+	assert.Equal(t, "opencode has no hook mechanism", losses[0].Reason)
 
 	tree := matrixTree(t, fs, root)
 	require.NotEmpty(t, tree)
@@ -631,7 +642,44 @@ func TestDeliveryApproach_OpencodeDropsHooksWithoutSaying(t *testing.T) {
 	assert.NotEmpty(t, findSentinel(tree, slotMCPCmd), "MCP must still be delivered (folded into opencode.json)")
 	assert.NotEmpty(t, findSentinel(tree, slotCommand), "commands must still be delivered")
 	assert.NotEmpty(t, findSentinel(tree, slotSkill), "skills must still be delivered")
-	// ...and the hook did not, with nothing said about it.
+	// ...and the hook still did not, which is what the loss line is FOR.
 	assert.Empty(t, findSentinel(tree, slotHook),
 		"opencode has no hooks surface, so the session_start hook reaches no file")
+}
+
+// TestDeliveryApproach_HookCarriageMatchesDeclaration is the drift guard on the
+// declaration the loss report reads: a backend's noHooksReason is a claim about
+// what its settings writer DOES, and a claim nobody checks is how the silence
+// came back. Derived over every registered backend, so a seventh one is held to
+// it the day it registers.
+//
+// Both directions are asserted from the PAYLOAD (never from a "delivered"
+// report): a backend that declares no hook mechanism must land the hook
+// sentinel in no file, and a backend that declares nothing must land it in one.
+func TestDeliveryApproach_HookCarriageMatchesDeclaration(t *testing.T) {
+	for _, name := range matrixBackends(t) {
+		t.Run(name, func(t *testing.T) {
+			fs := afero.NewMemMapFs()
+			root := "/cell"
+			require.NoError(t, fs.MkdirAll(root, 0o755))
+
+			inputs := matrixSentinelInputs()
+			set := backends.BuildSurfaces(name, inputs, fs)
+			_, _, errs := agent.Select(set).WithEverything().DeliverUnder(root)
+			require.Empty(t, errs)
+
+			hookFiles := findSentinel(matrixTree(t, fs, root), slotHook)
+			declaredLoss := backends.UncarriedSurfaces(name, inputs)
+
+			if len(declaredLoss) > 0 {
+				assert.Empty(t, hookFiles,
+					"%s declares it cannot carry hooks (%v) but the hook sentinel reached %v — "+
+						"the loss report would be telling users something false", name, declaredLoss, hookFiles)
+				return
+			}
+			assert.NotEmpty(t, hookFiles,
+				"%s declares no hook loss, so the configured session_start hook must reach a file; "+
+					"it reached none, which is the silent drop whiny-exclusive was filed about", name)
+		})
+	}
 }

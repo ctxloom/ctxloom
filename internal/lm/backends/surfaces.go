@@ -1,9 +1,14 @@
 package backends
 
 import (
+	"fmt"
+	"sort"
+	"strings"
+
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
 // This file is the name→SurfaceSet seam: the single place a caller that holds
@@ -37,3 +42,52 @@ type wellKnownPlacement struct{}
 
 // Dir returns the empty string: the well-known Deliveries() path never reads it.
 func (wellKnownPlacement) Dir() string { return "" }
+
+// UncarriedSurfaces is BuildSurfaces' inverse over the SAME inputs: the parts of
+// a run's assembled loadout the named backend has NO structural place for. A
+// delivery report can only list what it wrote — every line of it true — so the
+// loss is invisible in it by construction; this is where a caller gets the other
+// half (whiny-exclusive).
+//
+// It reports a loss ONLY when the inputs actually carry the thing that cannot be
+// delivered. A capability gap nobody asked to use costs nothing and stays quiet,
+// which is the rule agent.RouteUnifiedHooks already applies one level down.
+//
+// Hooks are the only genuine loss today. A surface KIND a backend declares no
+// approach for is not one: every such absence is a FOLD (codex's and opencode's
+// MCP both ride their settings surface), and reporting a folded surface as lost
+// would be a false alarm — the fastest way to get the real line ignored.
+func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss {
+	d, ok := descriptors[name]
+	if !ok || d.noHooksReason == "" || in.Hooks == nil {
+		return nil
+	}
+	detail := droppedHookDetail(name, *in.Hooks)
+	if detail == "" {
+		return nil
+	}
+	return []agent.SurfaceLoss{{Surface: "hooks", Detail: detail, Reason: d.noHooksReason}}
+}
+
+// droppedHookDetail names what a hookless backend loses, in the user's own
+// vocabulary: the six unified events by their config keys (in HookEvents order,
+// so the line is stable run to run) plus any backend-native passthrough hooks
+// addressed at THIS engine, which are equally undeliverable. "" when the config
+// carries nothing.
+func droppedHookDetail(name string, hooks wire.HooksConfig) string {
+	var parts []string
+	for _, event := range HookEvents() {
+		if n := len(unifiedEventHooks(hooks.Unified, event)); n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", n, event))
+		}
+	}
+	var native []string
+	for event, hs := range hooks.Plugins[name] {
+		if len(hs) > 0 {
+			native = append(native, fmt.Sprintf("%d %s", len(hs), event))
+		}
+	}
+	sort.Strings(native) // map range order is random; a report that reshuffles cannot be diffed
+	parts = append(parts, native...)
+	return strings.Join(parts, ", ")
+}

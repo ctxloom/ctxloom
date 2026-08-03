@@ -145,7 +145,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	denyTools := backends.AssembleManagedDenyTools(cfg, req.Profiles)
 	settings := cfg.GetSettings()
 
-	set := backends.BuildSurfaces(backend, agent.SurfaceInputs{
+	inputs := agent.SurfaceInputs{
 		Context:          asm.Context,
 		MCP:              mcp,
 		BundleMCP:        bundleMCP,
@@ -162,7 +162,17 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 		Skills:                skills,
 		SelfContainedSkills:   true,
 		DenyTools:             denyTools,
-	}, fs)
+	}
+	set := backends.BuildSurfaces(backend, inputs, fs)
+
+	// The LOSS half of the report, read from the SAME inputs the delivery is
+	// built from. res.Wrote can only ever list what landed — every line true —
+	// so a surface this engine has no place for is invisible in it by
+	// construction: materializing a team profile onto opencode dropped the
+	// team's session_start guardrail and said nothing (whiny-exclusive).
+	// Reported, not fatal: the rest of the tree is still worth having, and the
+	// decision to ship it anyway belongs to whoever now knows.
+	res.NotCarried = backends.UncarriedSurfaces(backend, inputs)
 
 	// Materialize delivers EVERY native surface (the full opt-in selection). Fail
 	// loud, fail early (CLAUDE.md): each surface is attempted and each write failure

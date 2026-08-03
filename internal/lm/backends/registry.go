@@ -104,6 +104,20 @@ type agentDescriptor struct {
 	// "Claude Code's user-global settings file"). Empty when
 	// hookGlobalScopePaths is nil.
 	hookGlobalScopeLabel string
+	// noHooksReason declares, in one clause, that this backend has NO hook
+	// mechanism AT ALL and says why ("opencode has no hook mechanism"). Empty
+	// means the backend carries hooks — every backend but opencode today.
+	//
+	// It is the whole-mechanism twin of agent.HookRoute.Unsupported (which says
+	// the same thing about ONE unified event on a backend that does have hooks)
+	// and exists for the same reason: a hook set written nowhere is
+	// indistinguishable from a hook set nobody declared, so the absence has to
+	// be DECLARED to be reportable. Read by UncarriedSurfaces.
+	//
+	// TestDeliveryApproach_HookCarriageMatchesDeclaration (tests/integration)
+	// holds this field honest against the delivered payload, so it cannot drift
+	// from what the backend's settings writer actually does.
+	noHooksReason string
 }
 
 // descriptors holds the per-agent descriptor table, keyed by backend name.
@@ -508,6 +522,13 @@ func init() {
 		skillExports:         opencodeSkillExports,
 		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
 		acpTransport:         opencodeACPTransport,
+		// opencode is the one backend with no hooks surface of any shape:
+		// opencode.json has no hook key, there is no settings event vocabulary
+		// to route the six unified events onto, and OpencodeWriter.WriteSettings
+		// accepts a *wire.HooksConfig it cannot do anything with. Declared here
+		// so `profile materialize` can SAY so instead of writing four true
+		// "wrote" lines over a silently dropped guardrail (whiny-exclusive).
+		noHooksReason: "opencode has no hook mechanism",
 	})
 
 	// Mock registers only backend+config: no settings writer, no command

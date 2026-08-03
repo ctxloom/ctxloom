@@ -197,6 +197,20 @@ type BundleHook struct {
 	// fire on PreToolUse instead on agents without a session-start event.
 	// See wire.Hook.PreToolFallback.
 	PreToolFallback bool `yaml:"pre_tool_fallback,omitempty"`
+
+	// Order sequences this hook against its siblings WITHIN its event, sparsely
+	// (see wire.HookOrderStep). It does NOT sequence against other bundles:
+	// across bundles hooks still merge by pure APPEND, and the merge sequence is
+	// the bundles' order, not any hook's. A bundle says where ITS hooks go
+	// relative to each other and nothing more.
+	//
+	// A POINTER, because "declared 0" and "declared nothing" resolve differently
+	// (wire.HookOrderLess sorts an undeclared hook LAST) and a plain int could
+	// not tell them apart. It is also why this field is invisible to
+	// ContentPayload: the executable preimage names its fields explicitly, so
+	// adding order here changes no hook's content hash and stales no approval —
+	// order is scheduling, not behaviour.
+	Order *int `yaml:"order,omitempty"`
 }
 
 // BundleHooks mirrors wire.UnifiedHooks. Same lifecycle events; backend-

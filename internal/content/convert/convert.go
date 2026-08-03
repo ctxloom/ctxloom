@@ -39,33 +39,29 @@
 // In the tree, hooks are one file per hook at "hooks/<event>/<name>.yaml", and
 // an item enumeration is a DIRECTORY WALK, which yields entries sorted by
 // filename. Those two facts do not agree. A converter that emitted content-
-// derived names ("guard", "audit", "stamp") would produce a tree whose walk
-// order is alphabetical and therefore, for most real bundles, NOT the declared
-// execution order — while being byte-identical, file for file, to a tree that
-// got it right. Nothing downstream could detect the difference.
+// derived names ("guard", "audit", "stamp") and left it there would produce a
+// tree whose walk order is alphabetical and therefore, for most real bundles,
+// NOT the declared execution order — while being byte-identical, file for file,
+// to a tree that got it right. Nothing downstream could detect the difference.
 //
-// The design document rejected an "NN-" filename prefix as "magic filenames
-// where explicit data is clearer", and separately RETRACTED the per-hook
-// `order:` field it had proposed instead, on the correct grounds that nothing
-// reads it: sequence is a property of merge order, which a single hook's own
-// file cannot express. Both of those cannot be true at once and still preserve
-// meaning. With no field to carry order and enumeration fixed to sorted-by-
-// name, THE NAME IS THE ONLY CARRIER LEFT.
+// An earlier revision of this package solved that with an "NN-" filename prefix,
+// zero-padded, because with no field to carry order and enumeration fixed to
+// sorted-by-name, the name was the only carrier left. That prefix is GONE. It
+// worked, and its cost was the reason to remove it: it made identity POSITIONAL,
+// so inserting a hook at the top of an event renamed every hook below it,
+// changing bytes and staling countersignatures for items that had not changed —
+// the exact connascence the name-based scheme existed to delete.
 //
-// So this package emits "hooks/<event>/<NN>-<slug>.yaml", zero-padded, and the
-// ordinal is load-bearing rather than decorative. The cost is real and is
-// stated rather than hidden: this reintroduces positional identity, which is
-// the connascence the name-based scheme existed to remove — inserting a hook at
-// the top of an event renumbers every hook below it and invalidates their
-// approvals. That is a worse property than the design wanted. It is a better
-// property than silently executing a user's hooks in the wrong order, which is
-// the only alternative available without a format change.
+// Order is now DATA: content.Hook.Order, a sparse integer in the hook's metadata
+// sidecar, resolved by content.SortHooks. The field is not a decoration nobody
+// reads (the failure mode that got its first draft retracted) — SortHooks is how
+// a tree's hooks resolve at all, config.extractHooksFromBundle applies the same
+// rule on the apply path, and `ctxloom manage hooks list` reports it.
 //
-// FLAGGED FOR A HUMAN DECISION: the alternative is to make enumeration order
-// explicit somewhere the walk can read it (a per-event ordering file, say),
-// which IS a format change and therefore out of scope for a converter. Until
-// that is decided, Plan reports every synthesised name so the renaming is
-// visible rather than discovered.
+// So this package emits "hooks/<event>/<slug>.yaml" for identity and writes the
+// declared sequence into the order field, spaced by content.HookOrderStep. Plan
+// still reports every synthesised name so the renaming is visible rather than
+// discovered.
 package convert
 
 import (
@@ -108,7 +104,7 @@ type Options struct {
 
 // Report describes what a conversion did that a caller could not have predicted
 // from the input alone. Today that is exactly one thing: the hook names this
-// package synthesised, and the ordinal prefix it had to attach to them.
+// package synthesised from hook content.
 type Report struct {
 	// HookNames maps "<event>/<synthesised-name>" to the hook's ZERO-BASED
 	// declared position within its event, so a caller can show the renaming.
@@ -142,9 +138,10 @@ func hookEvents(h bundles.BundleHooks) []struct {
 // Plan converts a bundle document into the ordered items it becomes, without
 // touching a filesystem.
 //
-// The returned order is the order items should be written, and for hooks it is
-// also the order a directory walk will yield them back in — that equivalence is
-// the whole point of the ordinal prefix and is asserted directly by the tests.
+// The returned order is the order items should be WRITTEN. For hooks it is also
+// their declared execution sequence, which a directory walk will NOT reproduce —
+// the walk yields them by name. Resolving a walk's hooks back into this sequence
+// is content.SortHooks' job, and both directions are asserted by the tests.
 func Plan(id content.BundleID, b *bundles.Bundle, opts Options) ([]Item, error) {
 	items, _, err := PlanWithReport(id, b, opts)
 	return items, err
@@ -250,13 +247,14 @@ func (p *planner) mcp(b *bundles.Bundle) {
 
 func (p *planner) hooks(b *bundles.Bundle) {
 	for _, ev := range hookEvents(b.Hooks) {
-		width := ordinalWidth(len(ev.Hooks))
+		used := map[string]bool{}
 		for i, h := range ev.Hooks {
-			name := hookName(i, width, h)
+			name := uniqueHookName(used, h)
 			p.rep.HookNames[ev.Event+"/"+name] = i
 			p.add(trust.KindHook, ev.Event+"/"+name, signing.FormRaw, content.Hook{
 				Event:           ev.Event,
 				Name:            name,
+				Order:           hookOrder(i, h),
 				Matcher:         h.Matcher,
 				Type:            h.Type,
 				Command:         h.Command,
@@ -267,6 +265,25 @@ func (p *planner) hooks(b *bundles.Bundle) {
 			})
 		}
 	}
+}
+
+// hookOrder returns the order value to record for a hook at declared position i.
+//
+// An AUTHORED order wins outright. It is the only statement of intent the source
+// document carries about sequence beyond position, and overwriting it would
+// discard the more specific fact in favour of the less specific one.
+//
+// Otherwise the position becomes the order, spaced by content.HookOrderStep. That
+// spacing is not decoration: assigning 0,1,2 would mean the very first hook
+// inserted afterwards renumbers the tail, which is the problem this field exists
+// to solve, arriving one edit later.
+func hookOrder(i int, h bundles.BundleHook) *int {
+	if h.Order != nil {
+		v := *h.Order
+		return &v
+	}
+	v := (i + 1) * content.HookOrderStep
+	return &v
 }
 
 func (p *planner) skills(b *bundles.Bundle, opts Options) error {
@@ -337,37 +354,32 @@ func Convert(ctx context.Context, w content.Writer, id content.BundleID, b *bund
 	return Apply(ctx, w, items)
 }
 
-// hookName synthesises a hook's filename from its ordinal and its own content.
+// uniqueHookName synthesises a hook's filename from its CONTENT, and only from
+// its content: the name is identity, never sequence. Sequence is the order field.
 //
-// The ORDINAL leads, zero-padded, because sorted-by-name is how the tree
-// enumerates and the ordinal is the only thing that can make that order match
-// the declared one (see the package doc). The slug follows so the file is
-// still identifiable by a human reading a directory listing rather than being a
-// bare number.
+// Today's bundle hooks have no name of their own (bundles.BundleHook has no such
+// field), so a name has to be derived, and content is the only honest source —
+// deriving it from position is what the retired `<NN>-` prefix did, and that is
+// precisely the positional identity being removed.
 //
-// A synthesised name IS positional identity under a different spelling, and
-// this is the honest place to say so: today's hooks have NO name field at all
-// (bundles.BundleHook has none), so there is nothing else to derive identity
-// from. Naming it after its position is not a choice this converter made; it is
-// the only information the source document carries.
-func hookName(index, width int, h bundles.BundleHook) string {
+// Content-derived names COLLIDE, which the ordinal used to hide. Two hooks
+// running the same command produce the same slug, and a collision here means one
+// hook silently overwrites the other: it converts, signs and materializes without
+// complaint and is simply not there. So collisions take a "-2", "-3" suffix in
+// declaration order. That is still weakly positional among IDENTICAL hooks, and
+// it is the narrowest place to put the residue — two byte-identical hooks are
+// interchangeable, so which one keeps the bare name cannot matter.
+func uniqueHookName(used map[string]bool, h bundles.BundleHook) string {
 	slug := slugify(firstNonEmpty(h.Matcher, h.Command, h.Prompt, h.Type))
 	if slug == "" {
 		slug = "hook"
 	}
-	return fmt.Sprintf("%0*d-%s", width, index, slug)
-}
-
-// ordinalWidth returns how many digits the ordinals need so that STRING
-// comparison of the padded numbers matches NUMERIC order. Without this, "10-x"
-// sorts before "2-x" and an event with ten or more hooks silently reorders —
-// the exact bug the ordinal exists to prevent, reintroduced by the ordinal.
-func ordinalWidth(n int) int {
-	w := 1
-	for max := 10; max <= n-1; max *= 10 {
-		w++
+	name := slug
+	for n := 2; used[name]; n++ {
+		name = fmt.Sprintf("%s-%d", slug, n)
 	}
-	return w
+	used[name] = true
+	return name
 }
 
 // slugify reduces arbitrary text to a single safe path segment. It is

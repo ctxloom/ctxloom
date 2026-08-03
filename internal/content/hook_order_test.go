@@ -99,25 +99,13 @@ func TestHookOrder_TiesBreakByName(t *testing.T) {
 // is a COMPONENT, so it is hashed — an order change stales that hook's own
 // countersignature, which is correct, rather than riding along unattested.
 func TestHook_OrderLivesInTheSidecarNotTheContentFile(t *testing.T) {
-	ctx := context.Background()
-	comps, err := hookType{}.Encode(Hook{
+	comps := encodeHook(t, Hook{
 		Event: "pre_tool", Name: "guard", Type: "command", Command: "echo hi", Order: intp(300),
 	})
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
-	_ = ctx
 	if len(comps) != 2 {
 		t.Fatalf("components = %v, want a content file and an order sidecar", componentPaths(comps))
 	}
-	var content, meta *Component
-	for i := range comps {
-		if IsMetaPath(comps[i].Path) {
-			meta = &comps[i]
-		} else {
-			content = &comps[i]
-		}
-	}
+	content, meta := splitHookComponents(comps)
 	if content == nil || meta == nil {
 		t.Fatalf("components = %v, want one content file and one sidecar", componentPaths(comps))
 	}
@@ -140,10 +128,7 @@ func TestHook_OrderLivesInTheSidecarNotTheContentFile(t *testing.T) {
 // bytes in the digest that mean nothing, and would make "authored before the
 // field" indistinguishable from "deliberately unordered".
 func TestHook_NoOrderWritesNoSidecar(t *testing.T) {
-	comps, err := hookType{}.Encode(Hook{Event: "pre_tool", Name: "guard", Type: "command", Command: "x"})
-	if err != nil {
-		t.Fatalf("Encode: %v", err)
-	}
+	comps := encodeHook(t, Hook{Event: "pre_tool", Name: "guard", Type: "command", Command: "x"})
 	if len(comps) != 1 {
 		t.Fatalf("components = %v, want only the content file", componentPaths(comps))
 	}
@@ -156,17 +141,9 @@ func TestHook_NoOrderWritesNoSidecar(t *testing.T) {
 func TestHook_OrderRoundTripsThroughTheTree(t *testing.T) {
 	ctx := context.Background()
 	store := fixtureStore(t)
-	root := fixtureRoot + "/code-quality"
-	writeFile(t, store.fsys, root+"/hooks/pre_tool/.guard.meta.yaml", "order: 700\n")
+	writeFile(t, store.fsys, fixtureRoot+"/code-quality/hooks/pre_tool/.guard.meta.yaml", "order: 700\n")
 
-	bundle, err := store.Open(ctx, "code-quality")
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	item, err := bundle.Item(ctx, trust.Ref{Bundle: "code-quality", Kind: trust.KindHook, Name: "pre_tool/guard"})
-	if err != nil {
-		t.Fatalf("Item: %v", err)
-	}
+	item := mustHookItem(t, store, "code-quality", "pre_tool/guard")
 	surf, err := item.Surface(ctx)
 	if err != nil {
 		t.Fatalf("Surface: %v", err)
@@ -181,6 +158,53 @@ func TestHook_OrderRoundTripsThroughTheTree(t *testing.T) {
 
 	// And the sidecar must be a COMPONENT of the item, or its bytes are in the
 	// tree, outside the digest, explained by nothing.
+	comps := mustComponents(t, item)
+	if _, meta := splitHookComponents(comps); meta == nil {
+		t.Fatalf("components = %v, want the order sidecar among them", componentPaths(comps))
+	}
+}
+
+// --- helpers ----------------------------------------------------------------
+
+func encodeHook(t *testing.T, h Hook) []Component {
+	t.Helper()
+	comps, err := hookType{}.Encode(h)
+	if err != nil {
+		t.Fatalf("Encode(%s): %v", h.Name, err)
+	}
+	return comps
+}
+
+// splitHookComponents separates an item's content file from its metadata
+// sidecar. Either may be nil, which is itself the assertion in several tests.
+func splitHookComponents(comps []Component) (content, meta *Component) {
+	for i := range comps {
+		if IsMetaPath(comps[i].Path) {
+			meta = &comps[i]
+		} else {
+			content = &comps[i]
+		}
+	}
+	return content, meta
+}
+
+func mustHookItem(t *testing.T, store *TreeStore, bundleID BundleID, name string) Item {
+	t.Helper()
+	ctx := context.Background()
+	bundle, err := store.Open(ctx, bundleID)
+	if err != nil {
+		t.Fatalf("Open(%s): %v", bundleID, err)
+	}
+	item, err := bundle.Item(ctx, trust.Ref{Bundle: string(bundleID), Kind: trust.KindHook, Name: name})
+	if err != nil {
+		t.Fatalf("Item(%s): %v", name, err)
+	}
+	return item
+}
+
+func mustComponents(t *testing.T, item Item) []Component {
+	t.Helper()
+	ctx := context.Background()
 	form, err := item.Form(ctx, signing.FormRaw)
 	if err != nil {
 		t.Fatalf("Form: %v", err)
@@ -189,15 +213,7 @@ func TestHook_OrderRoundTripsThroughTheTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Components: %v", err)
 	}
-	var sawMeta bool
-	for _, c := range comps {
-		if IsMetaPath(c.Path) {
-			sawMeta = true
-		}
-	}
-	if !sawMeta {
-		t.Fatalf("components = %v, want the order sidecar among them", componentPaths(comps))
-	}
+	return comps
 }
 
 // TestHook_InsertingAHookLeavesItsNeighboursBytesUntouched is the property the
@@ -216,12 +232,8 @@ func TestHook_InsertingAHookLeavesItsNeighboursBytesUntouched(t *testing.T) {
 	inserted := Hook{Event: "pre_tool", Name: "stamp", Type: "command", Command: "stamp", Order: intp(150)}
 
 	encode := func(h Hook) map[string]string {
-		comps, err := hookType{}.Encode(h)
-		if err != nil {
-			t.Fatalf("Encode(%s): %v", h.Name, err)
-		}
 		out := map[string]string{}
-		for _, c := range comps {
+		for _, c := range encodeHook(t, h) {
 			out[c.Path] = string(c.Bytes)
 		}
 		return out

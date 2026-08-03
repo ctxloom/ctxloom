@@ -172,9 +172,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// Read-only: resolves the hook set in memory and writes nothing, so unlike
 	// its install/uninstall siblings it is genuinely exercisable here.
 	"manage hooks list": {extraArgs: noExtraArgs},
-	"doctor":        {extraArgs: noExtraArgs},
-	"review":        {extraArgs: func(string) []string { return []string{"--list"} }},
-	"search":        {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
+	"doctor":            {extraArgs: noExtraArgs},
+	"review":            {extraArgs: func(string) []string { return []string{"--list"} }},
+	"search":            {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
 
 	// --- exercised: canonical spine leaves ---
 	"trust signer list": {extraArgs: noExtraArgs},

@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -752,9 +751,21 @@ func PushBundle(ctx context.Context, cfg *config.Config, req PushBundleRequest) 
 		return nil, fmt.Errorf("remote %q not found: %w", req.Remote, err)
 	}
 
-	// Bundle name in target repo = filename without .yaml extension.
-	bundleName := strings.TrimSuffix(filepath.Base(absPath), filepath.Ext(absPath))
-	targetPath := path.Join(paths.RepoContentPrefix, "bundles", bundleName+".yaml")
+	// Bundle name in the target repo = the name the LOADER knows this bundle by,
+	// not the basename of the file it happens to live in. The two differ for
+	// directory form (`<name>/bundle.yaml`), where the basename is always
+	// "bundle.yaml" — so every directory-form bundle used to publish as
+	// "bundle", collide at one remote path, and silently overwrite the last one.
+	// ExtractBundleName is the loader's own rule (bundles.Loader sets
+	// Bundle.Name from it), so what you push is filed under the name you pushed.
+	//
+	// The path is computed ONCE, here, and then both reported (result.TargetPath
+	// — printed by the CLI, and turned into SigDest by moveToRemote) and written
+	// (handed to publish as PublishOptions.RemotePath by runPush). It used to be
+	// spelled out a second time inside remote.preparePublish, with nothing
+	// binding the two together.
+	bundleName := bundles.ExtractBundleName(absPath)
+	targetPath := remote.PublishPath(remote.ItemTypeBundle, bundleName)
 
 	// Resolve title/body the same way publish.go does, so the result accurately
 	// reflects what the PR will look like (title may be lifted from message).
@@ -827,6 +838,9 @@ func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry,
 		Title:    result.Title,
 		Message:  result.Message,
 		ItemType: remote.ItemTypeBundle,
+		// The reported destination IS the published destination: one value,
+		// computed in PushBundle, handed to publish rather than recomputed there.
+		RemotePath: result.TargetPath,
 	}
 	switch {
 	case req.Signer != nil:

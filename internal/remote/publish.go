@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -109,6 +108,27 @@ type PublishOptions struct {
 
 	// ItemType specifies what type of item to publish.
 	ItemType ItemType
+
+	// RemotePath is the repo-relative path to write, e.g.
+	// ".ctxloom/content/bundles/security.yaml". REQUIRED — an empty value is a
+	// hard error, never a guess.
+	//
+	// It is supplied by the caller rather than derived here because the caller
+	// also REPORTS it (operations.PushBundleResult.TargetPath, which the CLI
+	// prints and which operations.moveToRemote turns into SigDest). This used to
+	// be computed twice — once there, once here — from two copies of the same
+	// expression over the local file's basename, with nothing binding them. They
+	// agreed only by coincidence of spelling, so a change to either alone would
+	// have made `bundle push` report one path and publish to another, and
+	// `bundle move` would have deleted the local source after naming a SigDest
+	// nobody wrote. Now there is one value: the caller computes it with
+	// PublishPath and hands the same string to both.
+	//
+	// It is also why a directory-form bundle publishes correctly. Deriving the
+	// name from filepath.Base(localPath) made every `<name>/bundle.yaml` publish
+	// as "bundle"; the caller uses bundles.ExtractBundleName, which package
+	// remote cannot call itself (bundles imports remote).
+	RemotePath string
 
 	// SignPayload, when non-nil, is called with the EXACT bytes about to be
 	// written to remotePath — the local file's bytes, verbatim, which are also
@@ -239,8 +259,18 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}
 
-	itemName := strings.TrimSuffix(filepath.Base(localPath), ".yaml")
-	remotePath := buildPublishPath(opts.ItemType, itemName)
+	// The path to write is the caller's single computed value (see
+	// PublishOptions.RemotePath), never re-derived from localPath. Empty is a
+	// hard error: publishing to "" would write a repo-root file — or, with a
+	// forge that tolerates it, nothing at all — and report success either way.
+	remotePath := opts.RemotePath
+	if remotePath == "" {
+		return nil, fmt.Errorf("refusing to publish %s: PublishOptions.RemotePath is empty (compute it with remote.PublishPath so the path reported and the path written are the same value)", localPath)
+	}
+	// The display name is READ BACK from the path being written, so the commit
+	// subject, PR branch and signature commit message can never name a different
+	// item than the one being published.
+	itemName := strings.TrimSuffix(path.Base(remotePath), ".yaml")
 
 	branch, err := pm.resolvePublishBranch(ctx, rem.URL, owner, repo, opts.Branch)
 	if err != nil {
@@ -452,12 +482,17 @@ func buildPRBody(msgBody, fullTitleIfOverflow string, itemType ItemType, itemNam
 	return strings.Join(sections, "\n\n---\n\n")
 }
 
-// buildPublishPath constructs the remote file path for an item. itemType is
-// currently unused: ItemTypeBundle is the only distributed item type (see
-// types.go), so every publish target lives under "bundles"; the parameter is
-// kept so a future second ItemType doesn't require re-widening the signature
-// (the switch this replaced had an identical case and default arm).
-func buildPublishPath(_ ItemType, name string) string {
+// PublishPath constructs the remote file path an item of the given name
+// publishes to. It is the ONE definition of the remote layout for publishing:
+// callers use it to fill PublishOptions.RemotePath and to report where the
+// item went, so the reported path and the written path are the same string
+// rather than two expressions that happen to match.
+//
+// itemType is currently unused: ItemTypeBundle is the only distributed item
+// type (see types.go), so every publish target lives under "bundles"; the
+// parameter is kept so a future second ItemType doesn't require re-widening the
+// signature (the switch this replaced had an identical case and default arm).
+func PublishPath(_ ItemType, name string) string {
 	return path.Join(paths.RepoContentPrefix, "bundles", name+".yaml")
 }
 

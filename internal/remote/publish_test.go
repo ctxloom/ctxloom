@@ -111,6 +111,12 @@ func TestNewPublishManager(t *testing.T) {
 	})
 }
 
+// mybundleRemotePath is where every "/local/mybundle.yaml" fixture below
+// publishes to. Publish no longer derives the remote path from the local
+// filename — the caller computes it once, with PublishPath, and hands the same
+// string to publish and to whatever reports the destination.
+const mybundleRemotePath = ".ctxloom/content/bundles/mybundle.yaml"
+
 func TestPublishManager_Publish(t *testing.T) {
 	t.Run("publishes bundle successfully", func(t *testing.T) {
 		fs := afero.NewMemMapFs()
@@ -136,8 +142,9 @@ func TestPublishManager_Publish(t *testing.T) {
 		)
 
 		result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType: ItemTypeBundle,
-			Branch:   "main",
+			ItemType:   ItemTypeBundle,
+			RemotePath: mybundleRemotePath,
+			Branch:     "main",
 		})
 
 		require.NoError(t, err)
@@ -169,9 +176,10 @@ func TestPublishManager_Publish(t *testing.T) {
 		)
 
 		result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType: ItemTypeBundle,
-			Branch:   "main",
-			CreatePR: true,
+			ItemType:   ItemTypeBundle,
+			RemotePath: mybundleRemotePath,
+			Branch:     "main",
+			CreatePR:   true,
 		})
 
 		require.NoError(t, err)
@@ -189,7 +197,8 @@ func TestPublishManager_Publish(t *testing.T) {
 		pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs))
 
 		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "nonexistent", PublishOptions{
-			ItemType: ItemTypeBundle,
+			ItemType:   ItemTypeBundle,
+			RemotePath: mybundleRemotePath,
 		})
 
 		require.Error(t, err)
@@ -204,7 +213,8 @@ func TestPublishManager_Publish(t *testing.T) {
 		pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs))
 
 		_, err := pm.Publish(context.Background(), "/nonexistent.yaml", "alice", PublishOptions{
-			ItemType: ItemTypeBundle,
+			ItemType:   ItemTypeBundle,
+			RemotePath: mybundleRemotePath,
 		})
 
 		require.Error(t, err)
@@ -236,8 +246,9 @@ func TestPublishManager_Publish(t *testing.T) {
 		)
 
 		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType: ItemTypeBundle,
-			Branch:   "main",
+			ItemType:   ItemTypeBundle,
+			RemotePath: mybundleRemotePath,
+			Branch:     "main",
 		})
 
 		require.Error(t, err, "publishing a 0-byte file must be refused, not overwrite the remote with nothing")
@@ -266,8 +277,9 @@ func TestPublishManager_Publish(t *testing.T) {
 		)
 
 		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType: ItemTypeBundle,
-			Branch:   "main",
+			ItemType:   ItemTypeBundle,
+			RemotePath: mybundleRemotePath,
+			Branch:     "main",
 		})
 
 		require.Error(t, err, "a GetFileSHA failure must not be silently treated as \"file doesn't exist\"")
@@ -293,16 +305,50 @@ func TestPublishManager_Publish(t *testing.T) {
 		)
 
 		result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-			ItemType: ItemTypeBundle,
-			Branch:   "main",
+			ItemType:   ItemTypeBundle,
+			RemotePath: mybundleRemotePath,
+			Branch:     "main",
 		})
 
 		require.NoError(t, err)
 		assert.False(t, result.Created)
 	})
+
+	// RemotePath is REQUIRED. Publish used to derive it from the local
+	// filename, so there was no way to omit it; now that the caller supplies
+	// it, a caller who forgets must be told rather than have a destination
+	// guessed for them — a zero value here would address the repo root, and the
+	// publish would report success for a file nobody meant to write.
+	t.Run("refuses to publish with no remote path", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		require.NoError(t, fs.MkdirAll("/local", 0755))
+		require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: Test\n"), 0644))
+
+		registry, _ := NewRegistry("", WithRegistryFS(fs))
+		require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+
+		mp := newMockPublisher()
+		mf := newMockFetcher()
+		mf.defaultBranch = "main"
+
+		pm := NewPublishManager(registry, AuthConfig{},
+			WithPublishFS(fs),
+			WithPublisherFactory(mockPublisherFactory(mp)),
+			WithPublishFetcherFactory(mockFetcherFactory(mf)),
+		)
+
+		_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
+			ItemType: ItemTypeBundle,
+			Branch:   "main",
+		})
+
+		require.Error(t, err, "an unset RemotePath must be refused, not guessed")
+		assert.Contains(t, err.Error(), "RemotePath")
+		assert.Empty(t, mp.createdFiles, "nothing must reach the remote")
+	})
 }
 
-func TestBuildPublishPath(t *testing.T) {
+func TestPublishPath(t *testing.T) {
 	tests := []struct {
 		itemType ItemType
 		name     string
@@ -315,7 +361,7 @@ func TestBuildPublishPath(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
-			result := buildPublishPath(tt.itemType, tt.name)
+			result := PublishPath(tt.itemType, tt.name)
 			assert.Equal(t, tt.expected, result)
 		})
 	}
@@ -344,7 +390,7 @@ func publishOnce(t *testing.T, content string, opts ...func(*PublishOptions)) []
 		WithPublishFetcherFactory(mockFetcherFactory(mf)),
 	)
 
-	po := PublishOptions{ItemType: ItemTypeBundle, Branch: "main"}
+	po := PublishOptions{ItemType: ItemTypeBundle, RemotePath: mybundleRemotePath, Branch: "main"}
 	for _, o := range opts {
 		o(&po)
 	}
@@ -495,8 +541,9 @@ func TestPublishManager_Publish_SignPayloadWritesSiblingSig(t *testing.T) {
 
 	var signedPayload []byte
 	result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-		ItemType: ItemTypeBundle,
-		Branch:   "main",
+		ItemType:   ItemTypeBundle,
+		RemotePath: mybundleRemotePath,
+		Branch:     "main",
 		SignPayload: func(payload []byte) ([]byte, error) {
 			signedPayload = payload
 			return []byte("FAKE-SIGNATURE"), nil
@@ -533,8 +580,9 @@ func TestPublishManager_Publish_SignPayloadFailureAbortsBeforeAnyWrite(t *testin
 	)
 
 	_, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-		ItemType: ItemTypeBundle,
-		Branch:   "main",
+		ItemType:   ItemTypeBundle,
+		RemotePath: mybundleRemotePath,
+		Branch:     "main",
 		SignPayload: func(payload []byte) ([]byte, error) {
 			return nil, fmt.Errorf("no signing key found")
 		},
@@ -563,8 +611,9 @@ func TestPublishManager_Publish_NoSignPayloadMeansNoSigWritten(t *testing.T) {
 	)
 
 	result, err := pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
-		ItemType: ItemTypeBundle,
-		Branch:   "main",
+		ItemType:   ItemTypeBundle,
+		RemotePath: mybundleRemotePath,
+		Branch:     "main",
 	})
 	require.NoError(t, err)
 	assert.False(t, result.Signed)

@@ -2,6 +2,7 @@ package bundles
 
 import (
 	"io"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -83,4 +84,29 @@ func (l *Loader) warnUnresolvedBundle(ref string, err error) {
 
 func (l *Loader) warnAmbiguousFragment(name string, matches []string, chosen string) {
 	unresolvedBundleWarner.ambiguous(l.warnOut, name, matches, chosen)
+}
+
+func (l *Loader) warnStaleSignature(path, name, detail string) {
+	unresolvedBundleWarner.staleSignature(l.warnOut, path, name, detail)
+}
+
+// staleSignature warns to out that path's sibling `.sig` does not (or cannot be
+// shown to) cover path's current bytes, once per path for this warner's life.
+//
+// The wording states the outcome first — the content is DELIVERED — because the
+// reader's first question on seeing the word "signature" in a warning is "did I
+// just lose my context?", and for local content the answer is always no. What
+// they have actually lost is the ability to publish it, which is what the
+// remedy names.
+// name is the bundle's resolution name (ExtractBundleName), never the file's
+// basename: a directory-form bundle's file is always "bundle.yaml", and telling
+// the user to run `ctxloom bundle sign bundle` would be a remedy that fails.
+func (b *bundleWarner) staleSignature(out io.Writer, path, name, detail string) {
+	if !b.first("stale-signature", path) {
+		return
+	}
+	base := filepath.Base(path)
+	clidiag.Fwarn(out, "ctxloom", "%s%s no longer covers %s (%s) — the bundle is local, so its content is still delivered, "+
+		"but publishing it would be refused: re-sign with `ctxloom bundle sign %s`",
+		base, SigSuffix, base, detail, name)
 }

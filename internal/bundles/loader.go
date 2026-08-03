@@ -1,8 +1,10 @@
 package bundles
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -16,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
 // ContentGate is the per-item trust gate for resolved fragment/prompt content.
@@ -386,6 +389,8 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 		return nil, fmt.Errorf("bundle %s: skills require a directory-form bundle (bundle.yaml + skills/<name>/), not a single-file bundle (%s)", bundle.Name, filepath.Base(path))
 	}
 
+	l.checkLocalSignature(path, bundle.Name, data)
+
 	// Cache for future loads (write lock)
 	l.mu.Lock()
 	// Double-check in case another goroutine cached it while we were loading
@@ -397,6 +402,48 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 	l.mu.Unlock()
 
 	return bundle, nil
+}
+
+// checkLocalSignature reports — and only reports — a sibling `.sig` that does
+// not cover the bundle bytes just read from path.
+//
+// IT IS NOT A GATE, and deliberately cannot become one: it returns nothing, and
+// LoadFile calls it for its side effect alone. A bundle reached through this
+// function is project-authored local content in the tree's own bundles
+// directory (every bundles.Loader is built over cfg.GetBundleDirs() /
+// paths.LocalBundlesPath — remote content never resolves here, it is seeded
+// pre-parsed by config.loadRemoteBundleSeed with its publisher signature already
+// verified at fetch). Local content is trusted by LOCALITY, at
+// operations.EffectiveTrust's local step, above every signature step. A
+// signature on it is metadata for the day it is promoted, never permission to
+// read it.
+//
+// So why say anything? Because the metadata has one consumer and it is
+// unforgiving: `bundle push` and `bundle move --to` both verify the pair before
+// bytes leave the machine and REFUSE a stale one — publishing it would hand
+// every consumer a trusted key over non-matching bytes, which reads as an
+// attack that never happened. Without this line the author learns that at
+// publish time, having forgotten the edit that caused it. Here they learn it at
+// the edit.
+//
+// Cheap by construction: it runs only on a cache MISS (LoadFile caches per
+// path), and the overwhelmingly common case — no sidecar at all — costs one
+// failed open and returns silently.
+func (l *Loader) checkLocalSignature(path, name string, data []byte) {
+	sig, err := afero.ReadFile(l.fs, path+SigSuffix)
+	if errors.Is(err, fs.ErrNotExist) {
+		return // Unsigned: the common case, and nothing to say about it.
+	}
+	if err != nil {
+		// A sidecar that EXISTS but cannot be read is not the same as none: we
+		// cannot show it covers these bytes, so it is exactly as unpublishable
+		// as a stale one, and just as silent without this.
+		l.warnStaleSignature(path, name, fmt.Sprintf("it could not be read: %v", err))
+		return
+	}
+	if verr := signing.CoversBytes(data, sig, signing.NamespacePublish); verr != nil {
+		l.warnStaleSignature(path, name, verr.Error())
+	}
 }
 
 // List returns all available bundles. Seeded bundles are listed first so

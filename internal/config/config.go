@@ -2134,6 +2134,29 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 // profiles author canonical refs and resolve straight to these seeded bundles.
 // Returns nil when there is no lockfile or registry — caller treats nil as "no
 // remote bundles, just walk fs."
+// reportBundleLoadFailures records one fatal-class finding per lockfile-active
+// bundle whose bytes could not be read.
+//
+// Fatal-class in strict mode because the user PINNED these: content silently
+// missing from a session is exactly the failure fail-loudly exists to catch. It
+// warns and continues in degraded mode.
+//
+// The suggested fix is CONDITIONAL, because the default one is actively wrong
+// for a directory-form bundle: its tree pulled fine and is sitting on disk, so
+// "run remote pull" sends the user to repeat a command that already succeeded
+// and will keep succeeding. A fix line that cannot fix the thing it is attached
+// to is worse than no fix line at all.
+func reportBundleLoadFailures(failures map[string]error) {
+	for name, err := range failures {
+		fix := "ctxloom remote pull (or remove the bundle from its profiles)"
+		if errors.Is(err, remote.ErrTreeBundleUnreadable) {
+			fix = "nothing to do locally — this bundle's tree is installed and the tree read path is not built yet; remove the bundle from its profiles to proceed, or re-publish it in single-file form"
+		}
+		strictness.FailOnce(strictness.ClassBundle, fix,
+			"failed to load remote bundle %q from cache: %v", name, err)
+	}
+}
+
 func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 	if len(c.appPaths) == 0 {
 		return nil
@@ -2169,24 +2192,7 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 	reader := remote.NewCachingBundleReader(remote.NewBundleReader(registry, factory, auth, lock))
 
 	rawBytes, failures := remote.LoadAllBytes(context.Background(), reader)
-	for name, err := range failures {
-		// A lockfile-active bundle that fails to load is fatal-class in strict
-		// mode (the user pinned it; content silently missing from a session is
-		// the failure fail-loudly exists to catch). Warns and continues in
-		// degraded mode.
-		//
-		// The suggested fix is CONDITIONAL because the default one is actively
-		// wrong for a directory-form bundle: its tree pulled fine and is on
-		// disk, so "run remote pull" sends the user to repeat a command that
-		// already succeeded and will keep succeeding. A fix line that cannot fix
-		// the thing it is attached to is worse than none.
-		fix := "ctxloom remote pull (or remove the bundle from its profiles)"
-		if errors.Is(err, remote.ErrTreeBundleUnreadable) {
-			fix = "nothing to do locally — this bundle's tree is installed and the tree read path is not built yet; remove the bundle from its profiles to proceed, or re-publish it in single-file form"
-		}
-		strictness.FailOnce(strictness.ClassBundle, fix,
-			"failed to load remote bundle %q from cache: %v", name, err)
-	}
+	reportBundleLoadFailures(failures)
 
 	// The trust root (embedded + user + project allowed_signers) is resolved once
 	// for the whole seed. This is the ONLY place the raw bundle bytes and their

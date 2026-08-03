@@ -49,34 +49,44 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # ============================================================================
 
   # ============================================================================
-  # WHY EVERY SCENARIO BELOW IS @wip, AND WHAT UNTAGS IT
+  # WHAT IS STILL @wip HERE, AND WHAT UNTAGS IT
   #
-  # THE PRIMARY BLOCKER (all scenarios): a directory-form bundle cannot be
-  # fetched from a remote at all. Verified in source, both halves:
+  # THE PRIMARY BLOCKER IS FIXED. It was: a directory-form bundle could not be
+  # fetched from a remote at all — fetchAtLockedSHA resolved a ref to ONE file
+  # path and called FetchFile on it, there was no tree fetch anywhere in
+  # internal/remote, and a remote bundle WAS "<name>.yaml" by construction —
+  # while internal/bundles/loader.go:389 refuses skills in a single-file
+  # bundle. Jointly unsatisfiable, which is what taskloom task
+  # `engaged-chivalry` recorded as impossible.
   #
-  #   - internal/remote/bundle_reader.go's fetchAtLockedSHA resolves a ref to
-  #     ONE file path (ref.BuildFilePath(ref.ItemType) + suffix) and calls
-  #     fetcher.FetchFile on it. There is no tree fetch anywhere in
-  #     internal/remote. A remote bundle IS "<name>.yaml", by construction.
-  #   - internal/bundles/loader.go:389 refuses skills in a single-file bundle:
-  #     "skills require a directory-form bundle (bundle.yaml + skills/<name>/),
-  #     not a single-file bundle".
+  # `remote pull` now probes the directory form when the single file is absent,
+  # walks the tree at the pinned SHA through internal/content/remotetree, and
+  # installs it under the consumer's cache with the publisher's exec bit
+  # intact. Every scenario asserting the PUBLICATION SIDE — the payload landing
+  # in the consumer's tree, per-kind metadata placement, MCP structure, and the
+  # whole skill package with its executable script — is untagged and green.
   #
-  # Those two facts are jointly unsatisfiable: a skill REQUIRES the directory
-  # form and the directory form is UNFETCHABLE. internal/bundles/bundles.go's
-  # own FSDir doc already records the consequence — "a remote bundle's skills
-  # were unloadable with no diagnostic". This is the capability taskloom task
-  # `engaged-chivalry` records as impossible.
+  # THREE THINGS REMAIN RED, for three different reasons.
   #
-  # UNTAG CONDITION (primary): the bundle-as-tree chain reaching S3
-  # (distribution/trust surfaces) — specifically, when the remote fetcher can
-  # fetch a bundle TREE at a pinned SHA rather than a single <name>.yaml, and
-  # `remote pull` lands that tree in the consumer's cache. Until then every
-  # scenario here fails at the same place, and that place is the point.
+  # (a) THE TREE READ PATH (the six "reaches Alice's assistant" rows). The
+  #     bytes now arrive; nothing yet reads a bundle's ITEMS back out of a tree
+  #     and hands them to assembly. remote.BundleReader serves single-file
+  #     bundles only and now fails with remote.ErrTreeBundleUnreadable rather
+  #     than inventing a missing file. internal/content/convert goes one way
+  #     (document -> tree) and has no inverse.
+  #     UNTAG CONDITION: a tree -> bundles.Bundle read path feeding
+  #     config.loadRemoteBundleSeed. NOTE that this is not purely mechanical:
+  #     that seed site verifies a publisher signature over the exact file bytes
+  #     of "<name>.yaml" BEFORE parse, and a tree has no single file to be the
+  #     preimage. What a tree signature attests, and when it is checked, is an
+  #     open decision — not something to settle by writing the reader.
   #
-  # A SECOND, INDEPENDENT BLOCKER applies only to the delivery-matrix scenario
-  # at the bottom; it is stated there rather than here, because untagging the
-  # primary blocker will NOT untag that one.
+  # (b) HOOK ORDER (one scenario). See the block above that scenario; the
+  #     reason it is red is NOT the fetch gap and never was.
+  #
+  # (c) THE DELIVERY MATRIX (twelve rows), on the second, independent blocker
+  #     stated at that scenario. Fixing the fetch gap did not untag it, exactly
+  #     as predicted there.
   # ============================================================================
 
   # NOTE ON STEP WORDING: J3 already owns `Alice trusts the company key`, and
@@ -137,7 +147,6 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # FILE that a tree walk must remember to carry. A publication path that
   # copied content files and forgot sidecars would pass every byte-for-byte
   # assertion above and still lose every mcp and skill description.
-  @wip
   Scenario Outline: Each kind's metadata survives publication in the place that kind stores it
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     When Alice references the company's "atelier" bundle and pulls it
@@ -155,7 +164,6 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # reordered into a shape the resolver cannot read, or had a field dropped —
   # which is exactly the failure a YAML round-trip through an intermediate
   # representation produces. Assert the parsed structure.
-  @wip
   Scenario: A published MCP server's configuration structure survives, not merely its text
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     When Alice references the company's "atelier" bundle and pulls it
@@ -167,7 +175,6 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # entirely, and one that checked bytes alone would ship a script the model
   # cannot execute. internal/shared/agent/packagefiles.go goes out of its way
   # to re-Chmod on every materialize precisely because this bit drifts.
-  @wip
   Scenario: A published skill package arrives whole, with its script still executable
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     When Alice references the company's "atelier" bundle and pulls it
@@ -196,6 +203,24 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # ALPHABETICAL ORDER AND DECLARED ORDER DISAGREE ("stamp" is declared first,
   # "audit" second) — a fixture whose names happened to sort correctly would
   # pass while proving nothing.
+  #
+  # STILL RED AFTER THE FETCH GAP CLOSED, and the reason is not the one above.
+  # The delivery is byte-perfect: both hooks arrive, under the right event, and
+  # the observed failure is exactly "got [audit stamp], want [stamp audit]".
+  # But the tree format DOES have an order carrier — content.Hook.Order, a
+  # sparse integer in the hook's metadata sidecar, resolved by
+  # content.SortHooks (see internal/content/convert's package doc, which
+  # records that an earlier "NN-" filename-prefix scheme was retracted in
+  # favour of it). This fixture uses neither: it authors bare hook files with
+  # no sidecar and no order field, and the assertion reads raw directory order
+  # rather than resolving through SortHooks. So what is red here is a fixture
+  # that declares order by LIST POSITION in a format that has no list, checked
+  # against an enumeration that never consults the field the format provides.
+  #
+  # That is left as-is rather than quietly repaired, because repairing it
+  # changes what the scenario proves — from "declared order survives the trip"
+  # to "the Order sidecar field survives the trip", which is a different and
+  # narrower claim. Someone who owns the spec should choose.
   # --------------------------------------------------------------------------
   @wip
   Scenario: Hooks arrive in the right event buckets AND in their declared order within each

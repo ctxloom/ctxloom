@@ -149,18 +149,21 @@ func (r *BundleReader) ReadBundleSignature(ctx context.Context, bundleName strin
 	return r.fetchAtLockedSHA(ctx, bundleName, SignatureSuffix)
 }
 
-// fetchAtLockedSHA resolves bundleName to its repo/path/SHA and fetches
-// <path><suffix> at that SHA. The suffix is the ONLY difference between reading
-// a bundle and reading its detached signature, which is exactly the property
-// that makes the sibling-.sig carrier free: same fetcher, same tree, same
-// commit.
-func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix string) ([]byte, error) {
+// readableEntry returns bundleName's lockfile entry once it has established
+// that this reader can honestly serve it: the entry exists, it is PINNED, and
+// it is the single-file shape this reader understands.
+//
+// The three refusals live together because they are one question — "may these
+// bytes be read at all" — asked before any transport work happens, and because
+// each of them is a case where carrying on would produce a plausible-looking
+// wrong answer rather than an error.
+func (r *BundleReader) readableEntry(bundleName string) (LockEntry, error) {
 	if r == nil || r.lock == nil {
-		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
+		return LockEntry{}, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
 	entry, ok := r.lock.Bundles[bundleName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
+		return LockEntry{}, fmt.Errorf("%w: %s", ErrBundleNotInLockfile, bundleName)
 	}
 	// The pin IS the security control — EffectiveTrust's content
 	// gate keys on bytes read at THIS exact commit. An empty SHA is not "no
@@ -169,7 +172,7 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 	// lockfile) would silently convert a pinned read into a latest read with
 	// no error anywhere. A pinned reader must refuse to read unpinned.
 	if entry.SHA == "" {
-		return nil, fmt.Errorf("bundle %q has no SHA pinned in the lockfile — refusing to read (a pinned reader must never resolve an empty ref to the latest commit)", bundleName)
+		return LockEntry{}, fmt.Errorf("bundle %q has no SHA pinned in the lockfile — refusing to read (a pinned reader must never resolve an empty ref to the latest commit)", bundleName)
 	}
 	// A DIRECTORY-form bundle has no "<name>.yaml" to read, and never did.
 	// Falling through would send this reader after a file the publisher never
@@ -178,9 +181,22 @@ func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix 
 	// what is actually true instead: the bytes are installed, and reading a
 	// bundle's items OUT of a tree is the half that is not built.
 	if entry.Tree {
-		return nil, fmt.Errorf("%w: bundle %q was published in directory form and its tree is installed at the pinned SHA %s, "+
+		return LockEntry{}, fmt.Errorf("%w: bundle %q was published in directory form and its tree is installed at the pinned SHA %s, "+
 			"but this reader only reads single-file bundles — reading a bundle's items from a tree is not implemented, so its content cannot be assembled (do NOT re-pull; the pull worked)",
 			ErrTreeBundleUnreadable, bundleName, entry.SHA)
+	}
+	return entry, nil
+}
+
+// fetchAtLockedSHA resolves bundleName to its repo/path/SHA and fetches
+// <path><suffix> at that SHA. The suffix is the ONLY difference between reading
+// a bundle and reading its detached signature, which is exactly the property
+// that makes the sibling-.sig carrier free: same fetcher, same tree, same
+// commit.
+func (r *BundleReader) fetchAtLockedSHA(ctx context.Context, bundleName, suffix string) ([]byte, error) {
+	entry, err := r.readableEntry(bundleName)
+	if err != nil {
+		return nil, err
 	}
 
 	// Lockfile keys are canonical refs ("<url>@bundles/<path>"); parse out the

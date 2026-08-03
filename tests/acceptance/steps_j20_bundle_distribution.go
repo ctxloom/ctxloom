@@ -4,13 +4,21 @@
 // carrying EVERY surface kind, and a consumer receiving each kind's payload
 // intact — across the two isolation axes.
 //
-// Every scenario in this file is @wip and RED, on purpose. The feature file
-// records why and what untags it; the short version is that a directory-form
-// bundle is not fetchable at all (internal/remote/bundle_reader.go's
-// fetchAtLockedSHA resolves a ref to ONE file and calls FetchFile on it),
-// while skills REQUIRE the directory form (internal/bundles/loader.go:389).
+// The publication half is GREEN. A directory-form bundle used to be
+// unfetchable — fetchAtLockedSHA resolved a ref to ONE file and called
+// FetchFile on it — while skills REQUIRE the directory form
+// (internal/bundles/loader.go:389). `remote pull` now probes the directory
+// form, walks the tree at the pinned SHA through internal/content/remotetree,
+// and installs it under the consumer's cache with the publisher's exec bit
+// intact, so every payload assertion below holds.
 //
-// TWO DELIBERATE CHOICES ABOUT HOW IT FAILS:
+// What is still @wip, and why, is stated in the feature file rather than
+// duplicated here: the tree READ path (items back out of a tree, which runs
+// into an open question about what a tree signature attests), the hook-order
+// row, and the delivery matrix's own separate blocker.
+//
+// TWO DELIBERATE CHOICES ABOUT HOW IT FAILS — they still matter, because the
+// rows that remain red must keep naming the gap rather than an exit code:
 //
 //  1. The pull step does NOT use runOK. If it aborted on a non-zero exit, the
 //     scenario would fail at the WHEN with a CLI error and never state what

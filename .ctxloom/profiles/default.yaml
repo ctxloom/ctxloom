@@ -1,15 +1,11 @@
 description: 'Local default coding profile scaffolded by `ctxloom init`: your project''s primary heavy-implementer context. Inherits the ctxloom-default baseline (conduct + sequential-thinking) and developer practices. Edit it freely; the agents bound during setup (coordinator, containerized developer, cheap finder, ...) compose it — `ctxloom agent setup` re-enters that interview any time.'
 parents:
+    - project-base
     - https://github.com/ctxloom/ctxloom-default@bundles/default#profiles/default
     - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer
 tags:
     - default
 bundles:
-# Project-wide: how ctxloom itself resolves configuration
-# (home < project < ENV < --config-set). Baked into every profile so no
-# role re-derives the precedence chain or bridges a flag name to a
-# config key by convention.
-    - ctxloom-project#fragments/config-hierarchy
     - https://github.com/benjaminabbitt/ctxloom-personal@bundles/serena
     - https://github.com/ctxloom/ctxloom-default@bundles/go-ai-practices
     - https://github.com/benjaminabbitt/ctxloom-personal@bundles/go-development

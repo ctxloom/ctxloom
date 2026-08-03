@@ -1,0 +1,16 @@
+description: 'Project-wide base: context every role working in this repo needs, regardless of what it is doing. Inherited by every other local profile — add shared context HERE, once, rather than to each profile.'
+# This profile exists to keep project-wide context DRY. Before it, adding one
+# shared fragment meant editing all 18 profiles; the second such addition would
+# have meant 18 more. A local profile may name a bare sibling as a parent
+# (internal/profiles: "a parent is either a bare local-profile name (passes
+# through) or a remote ref"), so every profile lists `project-base` first and
+# inherits whatever accumulates here.
+#
+# Keep this SMALL. Everything added here is delivered to every role — the
+# coordinator, every code-review lens, the finder. Context that only one role
+# needs belongs in that role's own profile, not here.
+bundles:
+    # How ctxloom itself resolves configuration: home < project < ENV <
+    # --config-set, the two override channels, and why a command's own flags
+    # are deliberately NOT a config source.
+    - ctxloom-project#fragments/config-hierarchy

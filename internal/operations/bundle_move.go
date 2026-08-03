@@ -272,12 +272,14 @@ func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req Move
 	// and withholds the bundle. PushBundle verifies the pair and refuses it, so a
 	// stale signature stops here rather than at the user's tamper alarm.
 	//
-	// Read through readSignature rather than a local exists-then-read: a stat
-	// error on the .sig used to be discarded, which left signature nil, which
-	// skipped the "published but its signature did not" guard below, which let
+	// Read through PublisherSignature — the one seam every publishing boundary
+	// shares — rather than a local exists-then-read: a stat error on the .sig
+	// used to be discarded, which left signature nil, which skipped the
+	// "published but its signature did not" guard below, which let
 	// removeMoveSource delete the signed local source. An unreadable signature
-	// now stops the move.
-	signature, err := readSignature(fs, src)
+	// now stops the move, and so does a stale one (PushBundle re-checks below,
+	// but the refusal belongs at the boundary that decided to carry it).
+	signature, err := PublisherSignature(fs, src, nil)
 	if err != nil {
 		return nil, fmt.Errorf("move %q: %w", name, err)
 	}

@@ -22,11 +22,13 @@ import (
 // is already sitting beside the bundle on disk — the state `ctxloom bundle
 // sign` leaves behind.
 //
-// They are CHARACTERIZATION, not specification: two of them pin behaviour that
-// is arguably wrong (see each test's own note). Pinning it is the point — the
-// gap is invisible today, and a test that fails when someone fixes it is a
-// cheaper alarm than a user discovering their published bundle lost its
-// signature.
+// They were CHARACTERIZATION when written — two of them pinned a `push` that
+// dropped the author's signature on the floor. That gap is now closed: a
+// signature belongs to the BUNDLE, so every publishing path carries a valid
+// sidecar and refuses a stale one. These tests pin the OUTCOME a user sees
+// (what reached the remote, what the command said, what the refusal tells them
+// to do); the full sidecar x flags x sign.default grid, and its equality with
+// `bundle move`, lives in publish_carry_matrix_test.go.
 
 // localSigPath returns the on-disk path of the "for-push" bundle's detached
 // signature sibling in a pushSignTestSetup project.
@@ -51,21 +53,17 @@ func signLocalBundleOnDisk(t *testing.T, cfg *config.Config) []byte {
 	return armored
 }
 
-// FOUND GAP, characterized not fixed. `ctxloom bundle move --to <remote>` reads
-// the sibling `.sig`, proves it covers the bytes, and publishes the pair
-// (operations.moveToRemote). `ctxloom bundle push` never looks at the sidecar
-// at all: pushBundleCfg populates PushBundleRequest.Signer from --sign, and
-// leaves PushBundleRequest.Signature nil unconditionally.
+// THE GAP THAT WAS: `ctxloom bundle move --to <remote>` read the sibling
+// `.sig`, proved it covered the bytes and published the pair, while `ctxloom
+// bundle push` never looked at the sidecar at all — so `ctxloom bundle sign foo
+// && ctxloom bundle push foo` published UNSIGNED, exit 0, output silent, and
+// the signature the author deliberately made was irrelevant.
 //
-// The consequence is a SILENT trust downgrade at exactly the moment trust
-// starts mattering: a bundle the author signed is published without its
-// signature, the command exits 0, and the output says nothing. Consumers see
-// unsigned content and route it to review; nobody is told a signature existed.
-//
-// Two commands that both promote the same bundle to the same remote disagree
-// about whether its signature travels. Which one is right is a product
-// decision — this test only makes the disagreement visible.
-func TestPushBundleCfg_LocallySignedBundle_PlainPushDropsTheSignature(t *testing.T) {
+// Now both carry. What this test adds over the matrix row of the same shape is
+// the USER-VISIBLE half: the command says "Signed: yes", the bytes that reached
+// the remote verify under a real trust root, and the local sidecar was not
+// disturbed by the publish.
+func TestPushBundleCfg_LocallySignedBundle_PlainPushCarriesTheSignature(t *testing.T) {
 	cfg, pub, mgr := pushSignTestSetup(t)
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 	armored := signLocalBundleOnDisk(t, cfg)
@@ -74,33 +72,34 @@ func TestPushBundleCfg_LocallySignedBundle_PlainPushDropsTheSignature(t *testing
 	cmd, out := testCmd()
 	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false))
 
-	_, published := pub.files[".ctxloom/content/bundles/for-push.yaml"]
+	main, published := pub.files[".ctxloom/content/bundles/for-push.yaml"]
 	require.True(t, published, "the bundle itself is published")
-	_, sigPublished := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
-	assert.False(t, sigPublished,
-		"CHARACTERIZED: a valid local signature is silently dropped by `bundle push` (move carries it)")
-	assert.NotContains(t, out.String(), "Signed: yes")
-	assert.NotContains(t, out.String(), "signature",
-		"CHARACTERIZED: nothing tells the author their signature did not travel")
+	sig, sigPublished := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
+	require.True(t, sigPublished, "the author's signature travels with the bundle")
+	assert.Equal(t, armored, sig, "carried byte-for-byte, never re-signed")
+	assert.NoError(t, signing.CoversBytes(main, sig, signing.NamespacePublish),
+		"the published pair verifies over the published bytes")
+	assert.Contains(t, out.String(), "Signed: yes", "and the author is told it travelled")
 
-	// The local signature is still on disk and still valid — the loss is
-	// entirely at the destination, which is why nobody notices locally.
+	// A publish is not an edit: the local sidecar is exactly as `bundle sign`
+	// left it.
 	onDisk, err := os.ReadFile(localSigPath(cfg))
 	require.NoError(t, err)
 	assert.Equal(t, armored, onDisk)
 }
 
-// The stale variant of the same gap. `bundle move --to <remote>` REFUSES a
-// bundle edited after signing (operations.TestMoveBundle_ToRemote_
-// StaleSignature_RefusesAndPublishesNothing pins that, and it is correct:
-// publishing a trusted key over non-matching bytes hands every consumer a
-// tamper alarm for an attack that never happened).
+// The stale variant. A bundle edited after signing leaves a signature over
+// bytes that no longer exist; publishing that pair hands every consumer a
+// tamper alarm for an attack that never happened, and publishing the bytes
+// alone silently discards the author's own signal that they are about to ship
+// something they did not re-review.
 //
-// `bundle push` never reads the sidecar, so it neither refuses nor carries —
-// it publishes the edited bytes unsigned. That is SAFE (no broken pair reaches
-// anyone) but silent: the author's stale signature is exactly the signal that
-// they published something they had not re-reviewed.
-func TestPushBundleCfg_StaleLocalSignature_PlainPushPublishesUnsignedWithoutComment(t *testing.T) {
+// `bundle move --to <remote>` has always refused it
+// (operations.TestMoveBundle_ToRemote_StaleSignature_RefusesAndPublishesNothing);
+// push now refuses identically. The assertion that matters beyond "it errors"
+// is that the message names the two ways out — there are exactly two, and a
+// refusal that does not say so just blocks the user.
+func TestPushBundleCfg_StaleLocalSignature_PlainPushRefusesAndNamesTheRemedy(t *testing.T) {
 	cfg, pub, mgr := pushSignTestSetup(t)
 	discoverer, _ := discovererWithSoleAgentIdentity(t)
 	signLocalBundleOnDisk(t, cfg)
@@ -115,14 +114,44 @@ func TestPushBundleCfg_StaleLocalSignature_PlainPushPublishesUnsignedWithoutComm
 		"precondition: the signature must not cover the edited bytes")
 
 	cmd, _ := testCmd()
-	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false),
-		"CHARACTERIZED: push does not refuse a bundle whose local signature is stale")
+	err = pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", false, false)
+	require.Error(t, err, "push refuses a bundle whose local signature is stale")
+	assert.Contains(t, err.Error(), "no longer covers")
+	assert.Contains(t, err.Error(), "ctxloom sign for-push", "remedy 1: re-sign")
+	assert.Contains(t, err.Error(), "publish it unsigned", "remedy 2: drop the sidecar")
 
-	got, published := pub.files[".ctxloom/content/bundles/for-push.yaml"]
-	require.True(t, published)
-	assert.Equal(t, edited, got, "the edited bytes are published")
-	_, sigPublished := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
-	assert.False(t, sigPublished, "no broken pair reaches consumers — the stale signature is simply not carried")
+	assert.Empty(t, pub.files, "a refused push publishes nothing at all")
+	assert.FileExists(t, localSigPath(cfg), "and touches nothing on disk")
+}
+
+// --sign on a stale sidecar is the one-command way out: it re-signs first, so
+// the sidecar covers the current bytes again and the push proceeds. This is
+// strictly better than the old mint model, which published a fresh signature
+// while leaving the STALE one on disk — local and remote disagreeing about what
+// was signed, with nothing saying so.
+func TestPushBundleCfg_StaleLocalSignature_SignFlagResignsAndProceeds(t *testing.T) {
+	cfg, pub, mgr := pushSignTestSetup(t)
+	discoverer, _ := discovererWithSoleAgentIdentity(t)
+	stale := signLocalBundleOnDisk(t, cfg)
+
+	bundlePath := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "for-push.yaml")
+	edited := []byte("version: 2.0.0\nfragments:\n  intro:\n    content: rewritten\n")
+	require.NoError(t, os.WriteFile(bundlePath, edited, 0o644))
+
+	cmd, _ := testCmd()
+	require.NoError(t, pushBundleCfg(cmd, cfg, discoverer, mgr, "for-push", "", false, "", true, false))
+
+	main := pub.files[".ctxloom/content/bundles/for-push.yaml"]
+	sig, ok := pub.files[".ctxloom/content/bundles/for-push.yaml.sig"]
+	require.True(t, ok)
+	assert.Equal(t, edited, main)
+	assert.NoError(t, signing.CoversBytes(main, sig, signing.NamespacePublish))
+
+	// The local sidecar was REPLACED, so the tree and the remote now agree.
+	onDisk, err := os.ReadFile(localSigPath(cfg))
+	require.NoError(t, err)
+	assert.NotEqual(t, stale, onDisk, "the stale sidecar must not survive a --sign push")
+	assert.Equal(t, sig, onDisk, "what is on disk is what was published")
 }
 
 // The other half, and the one that must NOT change without a decision: an

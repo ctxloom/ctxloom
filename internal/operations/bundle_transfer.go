@@ -77,14 +77,9 @@ func ExportBundle(_ context.Context, cfg *config.Config, req ExportBundleRequest
 	// the destination: half-exporting a signed bundle as a bare YAML would be the
 	// silent trust downgrade this function exists to prevent, only with the export
 	// reported as failed.
-	sig, err := readSignature(fs, bundle.Path)
+	sig, err := PublisherSignature(fs, bundle.Path, srcData)
 	if err != nil {
 		return nil, fmt.Errorf("export %s: %w", req.Name, err)
-	}
-	if sig != nil {
-		if verr := signing.CoversBytes(srcData, sig, signing.NamespacePublish); verr != nil {
-			return nil, fmt.Errorf("export %s: %w", req.Name, staleSignatureError(bundle.Path, verr))
-		}
 	}
 
 	var dest string
@@ -133,6 +128,51 @@ func staleSignatureError(bundlePath string, err error) error {
 		"re-sign with `ctxloom sign %s`, or delete %s to publish it unsigned "+
 		"(publishing this pair would make every consumer see tampering): %w",
 		base+sigSuffix, base, name, base+sigSuffix, err)
+}
+
+// PublisherSignature is THE answer to "what signature artifact travels with
+// this bundle, and does it cover the bytes about to be published?" — the one
+// seam every publishing boundary asks, so that `bundle push`, `bundle move` and
+// `bundle export` cannot drift apart again (which is exactly what they had
+// done: move carried the sidecar, push ignored it).
+//
+// It returns nil for an unsigned bundle (normal, and the input to the review
+// model — unsigned third-party content defaults to pending, it is never
+// refused), the sidecar bytes verbatim when they cover bundleBytes, and
+// staleSignatureError when they do not. Never a silent downgrade to unsigned:
+// an unreadable sidecar and a non-covering one are both hard errors, because
+// "publish it without the signature" is precisely the move an attacker would
+// make (spec §10.2) and precisely the mistake an author would not notice.
+//
+// It answers only the PUBLISHER question. Whether the signer is TRUSTED is the
+// consumer's decision at review time (operations.EffectiveTrust) and is
+// deliberately not consulted here — a publisher must be able to ship content
+// signed by a key their own machine does not trust for install.
+//
+// bundleBytes may be nil, in which case bundlePath is read; callers that
+// already hold the exact bytes they will publish should pass them, so the
+// verification and the publication cannot be looking at different files.
+//
+// FUTURE (excusable-flatness): when a bundle becomes a tree and signing becomes
+// per-file `.sig`s plus a signed manifest-of-hashes, THIS is the function that
+// grows a multi-artifact return; the publishing paths above it should not have
+// to change.
+func PublisherSignature(fs afero.Fs, bundlePath string, bundleBytes []byte) ([]byte, error) {
+	fs = getFS(fs)
+	sig, err := readSignature(fs, bundlePath)
+	if err != nil || sig == nil {
+		return nil, err
+	}
+	if bundleBytes == nil {
+		bundleBytes, err = afero.ReadFile(fs, bundlePath)
+		if err != nil {
+			return nil, fmt.Errorf("read bundle %s: %w", bundlePath, err)
+		}
+	}
+	if verr := signing.CoversBytes(bundleBytes, sig, signing.NamespacePublish); verr != nil {
+		return nil, staleSignatureError(bundlePath, verr)
+	}
+	return sig, nil
 }
 
 // readSignature returns srcBundle's detached `.sig` sibling, or nil when the

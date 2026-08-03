@@ -2,7 +2,9 @@ package cli
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -122,7 +124,7 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 		initialized = true
 	}
 
-	if err := ensureHarnessGitignore(projectDir); err != nil {
+	if _, err := ensureHarnessGitignore(projectDir); err != nil {
 		return err
 	}
 
@@ -208,17 +210,124 @@ func printInstallPlan(appDir, projectDir string) {
 	fmt.Println("  - apply hooks, statusline, and MCP registration for all backends")
 }
 
+// gitignoreOutcome is what ensureHarnessGitignore actually did to the file:
+// the rules it removed and the patterns it appended.
+//
+// It is measured from the file's BYTES before and after the call, not from what
+// the write path decided to do. That distinction is the point. Both halves of
+// this command's history are cases of a report that described an intention
+// rather than a file: it once printed "Updated <path>" when the write had
+// FAILED, and it went on printing it when the write had changed NOTHING —
+// including for every project whose blanket `.ctxloom/*` an older binary did
+// not recognise, which is how a migration that never ran came to look identical
+// to one that succeeded. A summary derived from the bytes cannot drift from
+// them.
+type gitignoreOutcome struct {
+	Retired []string
+	Added   []string
+}
+
+// changed reports whether the file's rule lines differ from what they were.
+func (o gitignoreOutcome) changed() bool { return len(o.Retired) > 0 || len(o.Added) > 0 }
+
+// status is the machine-readable verdict: a caller parsing --format json must be
+// able to tell a no-op from a write without diffing the file itself.
+func (o gitignoreOutcome) status() string {
+	if !o.changed() {
+		return "unchanged"
+	}
+	return "updated"
+}
+
+// summary is the human line. It leads with the verb for what happened rather
+// than a fixed "Updated", and names the retired rules — a retirement is a
+// removal from a user-authored file, so the user is owed the list.
+func (o gitignoreOutcome) summary(path string) string {
+	retired := fmt.Sprintf("Retired %d superseded %s (%s)",
+		len(o.Retired), plural(len(o.Retired), "rule", "rules"), strings.Join(o.Retired, ", "))
+	added := fmt.Sprintf("%d %s", len(o.Added), plural(len(o.Added), "pattern", "patterns"))
+	switch {
+	case len(o.Retired) > 0 && len(o.Added) > 0:
+		return fmt.Sprintf("%s and added %s in %s", retired, added, path)
+	case len(o.Retired) > 0:
+		return fmt.Sprintf("%s in %s", retired, path)
+	case len(o.Added) > 0:
+		return fmt.Sprintf("Added %s to %s", added, path)
+	default:
+		return fmt.Sprintf("No change: %s already carries ctxloom's ignore rules", path)
+	}
+}
+
 // ensureHarnessGitignore excludes ctxloom's private state and transient
-// artifacts from git. Returns the write failure instead of swallowing it —
-// callers must not report success when the file was never updated
-// (`manage gitignore install` used to print "Updated <path>" and
+// artifacts from git, reporting what it actually did. Returns the write failure
+// instead of swallowing it — callers must not report success when the file was
+// never updated (`manage gitignore install` used to print "Updated <path>" and
 // exit 0 even when the write failed).
-func ensureHarnessGitignore(projectDir string) error {
+func ensureHarnessGitignore(projectDir string) (gitignoreOutcome, error) {
+	path := filepath.Join(projectDir, ".gitignore")
+	// A pre-read failure is not reported here: an absent .gitignore is the
+	// normal first-run case, and any other read problem is the same one
+	// gitignore.Ensure is about to hit and report with its own context.
+	before, _ := os.ReadFile(path)
+
 	patterns := append(append([]string{}, gitignore.PrivateStatePatterns...), gitignore.TransientArtifactPatterns...)
 	if err := gitignore.Ensure(projectDir, gitignore.Comment, patterns...); err != nil {
-		return fmt.Errorf("failed to update .gitignore: %w", err)
+		return gitignoreOutcome{}, fmt.Errorf("failed to update .gitignore: %w", err)
 	}
-	return nil
+
+	// Ensure returned nil, so the file it was asked to maintain must be
+	// readable. Failing to read it back is not something to soften into "no
+	// change" — that is exactly the claim this function exists to stop being
+	// made without evidence.
+	after, err := os.ReadFile(path)
+	if err != nil {
+		return gitignoreOutcome{}, fmt.Errorf("failed to read back %s after updating it: %w", path, err)
+	}
+
+	retired, added := ignoreLineDiff(before, after)
+	return gitignoreOutcome{Retired: retired, Added: added}, nil
+}
+
+// ignoreLineDiff reports the rule lines dropped from before and the ones added
+// in after, as multisets so a duplicated line is not silently absorbed.
+//
+// Comments and blank lines are excluded: only rules affect what git tracks, and
+// counting the block header ctxloom appends as an "added pattern" would make
+// the count the user is shown wrong by one.
+func ignoreLineDiff(before, after []byte) (retired, added []string) {
+	beforeLines, afterLines := ignoreRuleLines(before), ignoreRuleLines(after)
+	return missingFrom(beforeLines, afterLines), missingFrom(afterLines, beforeLines)
+}
+
+// missingFrom returns the members of want that other does not cover, honouring
+// multiplicity and preserving want's order.
+func missingFrom(want, other []string) []string {
+	remaining := make(map[string]int, len(other))
+	for _, line := range other {
+		remaining[line]++
+	}
+	var out []string
+	for _, line := range want {
+		if remaining[line] > 0 {
+			remaining[line]--
+			continue
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// ignoreRuleLines returns content's trimmed, non-empty, non-comment lines.
+func ignoreRuleLines(content []byte) []string {
+	var out []string
+	for line := range strings.SplitSeq(string(content), "\n") {
+		s := strings.TrimSpace(line)
+		if s == "" || strings.HasPrefix(s, "#") {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out
 }
 
 func runManageUninstall(cmd *cobra.Command, _ []string) error {
@@ -492,17 +601,26 @@ func runManageGitignoreInstall(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	projectDir := filepath.Dir(appDir)
-	if err := ensureHarnessGitignore(projectDir); err != nil {
+	outcome, err := ensureHarnessGitignore(projectDir)
+	if err != nil {
 		return err
 	}
 	path := filepath.Join(projectDir, ".gitignore")
 
 	type manageGitignoreInstallResult struct {
-		Status string `json:"status"`
-		Path   string `json:"path"`
+		Status  string   `json:"status"`
+		Path    string   `json:"path"`
+		Retired []string `json:"retired,omitempty"`
+		Added   []string `json:"added,omitempty"`
 	}
-	return emit(cmd, manageGitignoreInstallResult{Status: "updated", Path: path}, func() error {
-		fmt.Fprintf(cmd.OutOrStdout(), "Updated %s\n", path)
+	out := manageGitignoreInstallResult{
+		Status:  outcome.status(),
+		Path:    path,
+		Retired: outcome.Retired,
+		Added:   outcome.Added,
+	}
+	return emit(cmd, out, func() error {
+		fmt.Fprintln(cmd.OutOrStdout(), outcome.summary(path))
 		return nil
 	})
 }

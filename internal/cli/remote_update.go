@@ -138,6 +138,7 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 // the wrong tree too — which is exactly what BaseDir's own doc warns about:
 // "two configuration axes for one directory is how a pin and the content it
 // pins end up in different trees."
+//
 // extra is applied LAST, so a test can substitute the fetcher factory (which
 // otherwise reaches the network) without standing up a second construction that
 // could drift from this one — the drift that produced the bug in the first
@@ -145,6 +146,10 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 func newUpdatePuller(cfg *config.Config, registry *remote.Registry, auth remote.AuthConfig, lockManager *remote.LockfileManager, extra ...remote.PullerOption) *remote.Puller {
 	opts := []remote.PullerOption{
 		remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)),
+		// The lockfile detect reads, apply writes, reload re-reads and cleanup
+		// prunes is ONE file. Mirrors operations.resolveSyncDeps, which has
+		// always passed its own manager for exactly this reason.
+		remote.WithLockfileManager(lockManager),
 		// Same seam `remote pull` is wired through (operations.resolveSyncDeps):
 		// an update that could not re-fetch a directory-form bundle would leave
 		// its pin advanced and its content behind.

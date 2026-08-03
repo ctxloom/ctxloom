@@ -85,20 +85,9 @@ func pushBundleCfg(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.
 		CreatePR:       createPR,
 		PublishManager: mgr,
 	}
-	if !noSign {
-		if sign || cfg.ShouldSignByDefault() {
-			if err := mintPushSignature(cmd, cfg, discoverer, bundleName, bundle.Path); err != nil {
-				return err
-			}
-		}
-		// One seam, shared with `bundle move` and `bundle export`: read the
-		// sidecar and prove it covers the bytes about to be published, or
-		// refuse. Never a quiet downgrade to unsigned.
-		signature, err := operations.PublisherSignature(nil, bundle.Path, nil)
-		if err != nil {
-			return err
-		}
-		req.Signature = signature
+	req.Signature, err = resolvePushSignature(cmd, cfg, discoverer, bundleName, bundle.Path, sign, noSign)
+	if err != nil {
+		return err
 	}
 
 	result, err := operations.PushBundle(cmd.Context(), cfg, req)
@@ -107,6 +96,26 @@ func pushBundleCfg(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.
 	}
 
 	return emit(cmd, result, func() error { return printPushResult(cmd.OutOrStdout(), result) })
+}
+
+// resolvePushSignature decides WHICH signature travels with this publish, and
+// is the only place the three inputs (--sign, --no-sign, sign.default) meet.
+// It returns nil for "publish bare" — which is a legitimate, supported outcome,
+// not a failure — and an error rather than nil for anything it could not
+// resolve, so a signing problem can never degrade into a quiet unsigned
+// publish.
+func resolvePushSignature(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discoverer, bundleName, bundlePath string, sign, noSign bool) ([]byte, error) {
+	if noSign {
+		return nil, nil
+	}
+	if sign || cfg.ShouldSignByDefault() {
+		if err := mintPushSignature(cmd, cfg, discoverer, bundleName, bundlePath); err != nil {
+			return nil, err
+		}
+	}
+	// One seam, shared with `bundle move` and `bundle export`: read the sidecar
+	// and prove it covers the bytes about to be published, or refuse.
+	return operations.PublisherSignature(nil, bundlePath, nil)
 }
 
 // mintPushSignature is the `--sign` / sign.default SUGAR: it runs exactly the

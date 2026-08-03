@@ -161,7 +161,15 @@ var knownUncoveredCLI = []string{
 	// remains is genuinely uncovered. Backfill: one task.
 	"ctxloom acp client",
 	"ctxloom acp serve",
-	"ctxloom session search",
+	// `ctxloom session search` was pruned from this list when
+	// j23_recall.feature landed, because THIS GATE READS THE FEATURE CORPUS AS
+	// TEXT and its scenarios drive the leaf — but read that credit narrowly:
+	// every scenario in j23_recall.feature is @wip and therefore excluded from
+	// the default run, so the leaf is SPECIFIED rather than exercised today.
+	// The gate has no notion of @wip and cannot make that distinction itself;
+	// this comment is where the distinction lives. Real execution arrives when
+	// those scenarios are untagged one at a time, which is the workflow that
+	// file was written for.
 	// `mcp server edit` is the new home of the deleted `bundle mcp edit`; it
 	// opens $EDITOR on a bundle-scoped MCP entry, which the harness has no
 	// fixture for (its predecessor was `excludedLeaves`-excluded for exactly

@@ -25,9 +25,21 @@ go.work.sum
 # Generated protobuf (source .proto files are kept)
 *.pb.go
 
-# Local config
-.ctxloom/*
-# ...but keep the consolidation/design plans under version control
+# ctxloom private state — the granular rules that REPLACE the old blanket
+# `.ctxloom/*`. The blanket predates version-controlled content living under
+# .ctxloom/content/, and left in place it silently un-tracks the project's own
+# authored bundles: `git add` reports nothing and a content repo publishes an
+# empty tree. These patterns are gitignore.PrivateStatePatterns; keep them in
+# sync with that list rather than re-broadening to a blanket.
+.ctxloom/cache/
+.ctxloom/pieces/
+.ctxloom/sessions/
+.ctxloom/ephemeral/
+.ctxloom/project-id
+# Transient advisory lock files (not gitignore.PrivateStatePatterns; added
+# here because retiring the blanket exposed them).
+.ctxloom/*.lock
+# Design plans stay under version control (kept from the retired block).
 !.ctxloom/plans/
 # Defense-in-depth: a NESTED .ctxloom under a package dir is test/tool pollution
 # (the root `.ctxloom/*` above is anchored by its slash, so nested dirs slip

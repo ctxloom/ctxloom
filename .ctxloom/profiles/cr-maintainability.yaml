@@ -1,0 +1,10 @@
+description: 'Code-review lens: maintainability.'
+bundles:
+# Project-wide: how ctxloom itself resolves configuration
+# (home < project < ENV < --config-set). Baked into every profile so no
+# role re-derives the precedence chain or bridges a flag name to a
+# config key by convention.
+    - ctxloom-project#fragments/config-hierarchy
+    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-base#fragments/conduct
+    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-base#fragments/thorough
+    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-maintainability#fragments/general

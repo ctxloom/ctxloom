@@ -1,0 +1,34 @@
+description: 'Coordinator role: sequences, brainstorms, architects, writes sub-agent prompts, and delegates; rarely edits code; carries no dev-language bundles. Inherits the personal agent-ensemble coordinator profile (single source of truth).'
+parents:
+    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/agent-ensemble#profiles/coordinator
+# serena is the ONE exception to "carries no dev-language bundles" above: it is
+# not a language bundle but a code-intelligence MCP server, and the coordinator
+# still reads code to plan against it. Note its --context claude-code prompt
+# declares native Read forbidden for discovery — deliberately accepted here so
+# the symbolic tools actually get used. Revisit with taskloom wispy-rise.
+bundles:
+# Project-wide: how ctxloom itself resolves configuration
+# (home < project < ENV < --config-set). Baked into every profile so no
+# role re-derives the precedence chain or bridges a flag name to a
+# config key by convention.
+    - ctxloom-project#fragments/config-hierarchy
+    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/serena
+    # unattended carries the good-night skill: work an admitted queue while the
+    # human is asleep, stopping at anything hard to reverse or environment-
+    # endangering. Coordinator-only by design — it merges, reaps worktrees and
+    # owns the morning report, all of which are this role's job, not a leaf's.
+    #
+    # LOCAL COPY, not the remote ref, and that is NOT a preference: the remote
+    # fetcher resolves a bundle ref to `<name>.yaml`, a single file, so
+    # directory-form bundles cannot be fetched — and a bundle carrying a skill
+    # MUST be directory-form. Source of truth remains ctxloom-personal
+    # @bundles/unattended (pushed, signed by ben@abbitt.me); this is a copy that
+    # will drift. Swap this back to the remote URL once the fetcher supports
+    # directory bundles. See taskloom.
+    - unattended
+# NOTE (2026-07-22): deny_tools deliberately does NOT list Task. Task is
+# claude-code's internal coordination mechanism and stays available. The
+# coordinator-persona leak it exposes (in-process sub-agents inheriting the
+# --append-system-prompt-file persona) must be fixed by giving those
+# sub-agents their own persona, not by denying the tool. The deny_tools
+# mechanism itself is wired and available for genuine cases.

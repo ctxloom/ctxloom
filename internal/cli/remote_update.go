@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -100,7 +101,13 @@ func updateSingle(cmd *cobra.Command, cfg *config.Config, refStr string, registr
 	// Apply through the same batch machinery as `update --apply`, so the
 	// single-ref path shares the constraint-pinned pull (ref@LatestSHA with
 	// RequestedVersion carried into the lock) and the removed/skip handling.
-	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
+	puller := remote.NewPuller(registry, auth,
+		remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)),
+		// Same seam `remote pull` is wired through (operations.resolveSyncDeps):
+		// an update that could not re-fetch a directory-form bundle would leave
+		// its pin advanced and its content behind.
+		remote.WithTreeFetcher(remotetree.PullTreeFetcher),
+	)
 	_, failed, removed := applyUpdateBatch(cmd.Context(), os.Stdout, puller, "\n--- Updating ---", updateForce, []updateInfo{u})
 	// Reload after the apply so cleanup prunes from the freshly-pulled lockfile
 	// rather than reverting it (see updateAll).
@@ -275,7 +282,13 @@ func updateAll(cmd *cobra.Command, cfg *config.Config, registry *remote.Registry
 	}
 
 	fmt.Println("\nApplying updates...")
-	puller := remote.NewPuller(registry, auth, remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)))
+	puller := remote.NewPuller(registry, auth,
+		remote.WithFetcherFactory(operations.NewCachedFetcherFactory(cfg)),
+		// Same seam `remote pull` is wired through (operations.resolveSyncDeps):
+		// an update that could not re-fetch a directory-form bundle would leave
+		// its pin advanced and its content behind.
+		remote.WithTreeFetcher(remotetree.PullTreeFetcher),
+	)
 	updated, failed, removedFromRemote := applyUpdates(cmd.Context(), os.Stdout, puller, updateForce, bundleUpdates)
 
 	// applyUpdates persisted the new SHAs to disk (each Pull load/AddEntry/Save).

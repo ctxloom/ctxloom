@@ -50,6 +50,15 @@ func (t ItemType) DirName() string {
 type DirEntry struct {
 	Name  string `json:"name"`
 	IsDir bool   `json:"is_dir"`
+	// Executable reports that the entry is a file the publisher committed as
+	// mode 100755. It is the ONLY mode bit git records for a blob, so it is the
+	// only one a listing can honestly carry — and it is carried because a
+	// bundle tree ships skill scripts the model runs itself, which arrive
+	// useless if the bit is dropped in transit. Always false for directories,
+	// and for any forge whose listing does not report file modes (see
+	// GitHubFetcher.ListDir): a fetcher that cannot tell must say "not
+	// executable" rather than guess a bit on.
+	Executable bool `json:"executable,omitempty"`
 }
 
 // RepoInfo contains metadata about a discovered remote repository.

@@ -150,11 +150,11 @@ func New(ctx context.Context, f remote.Fetcher, spec Spec) (*content.FSStore, er
 	if spec.RepoURL == "" {
 		return nil, errors.New("content/remotetree: spec has no repo URL, so its content would claim no origin")
 	}
-	files, err := Fetch(ctx, f, spec)
+	files, err := FetchFiles(ctx, f, spec)
 	if err != nil {
 		return nil, err
 	}
-	tfs, err := content.NewMapTreeFS(files)
+	tfs, err := content.NewMapTreeFS(bytesOf(files))
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +168,25 @@ func New(ctx context.Context, f remote.Fetcher, spec Spec) (*content.FSStore, er
 // signature check both run over exactly this map — and re-deriving it by
 // walking the store back out would be a second fetch of the same commit.
 func Fetch(ctx context.Context, f remote.Fetcher, spec Spec) (map[string][]byte, error) {
+	files, err := FetchFiles(ctx, f, spec)
+	if err != nil {
+		return nil, err
+	}
+	return bytesOf(files), nil
+}
+
+// FetchFiles is Fetch with the publisher's exec bit still attached.
+//
+// The two exist separately because their callers want genuinely different
+// things. The content layer wants BYTES: a store enumerates items, digests them
+// and hands them to a signature check, and a mode is not part of any of that.
+// An INSTALLER wants the file as published — a skill package ships scripts the
+// model runs on its own, and a 0755 script that lands 0644 is delivered content
+// the agent cannot use, with nothing anywhere reporting a failure.
+//
+// Only the exec bit is carried, because only the exec bit exists: git records a
+// blob as 100644 or 100755 and nothing else (see remote.TreeFile).
+func FetchFiles(ctx context.Context, f remote.Fetcher, spec Spec) (map[string]remote.TreeFile, error) {
 	if f == nil {
 		return nil, errors.New("content/remotetree: nil fetcher")
 	}
@@ -175,7 +194,7 @@ func Fetch(ctx context.Context, f remote.Fetcher, spec Spec) (map[string][]byte,
 		return nil, fmt.Errorf("%w: %q is not a full 40-hex commit SHA", ErrNotPinned, spec.SHA)
 	}
 	limits := spec.Limits.withDefaults()
-	out := map[string][]byte{}
+	out := map[string]remote.TreeFile{}
 	var bytesFetched int64
 	if err := fetchDir(ctx, f, spec, limits, "", 0, out, &bytesFetched); err != nil {
 		return nil, err
@@ -190,9 +209,18 @@ func Fetch(ctx context.Context, f remote.Fetcher, spec Spec) (map[string][]byte,
 	return out, nil
 }
 
+// bytesOf drops the mode, for the callers whose question is only "what bytes".
+func bytesOf(files map[string]remote.TreeFile) map[string][]byte {
+	out := make(map[string][]byte, len(files))
+	for rel, f := range files {
+		out[rel] = f.Data
+	}
+	return out
+}
+
 // fetchDir lists one directory of the pinned tree and recurses, accumulating
 // files keyed by STORE-relative path.
-func fetchDir(ctx context.Context, f remote.Fetcher, spec Spec, limits Limits, rel string, depth int, out map[string][]byte, bytesFetched *int64) error {
+func fetchDir(ctx context.Context, f remote.Fetcher, spec Spec, limits Limits, rel string, depth int, out map[string]remote.TreeFile, bytesFetched *int64) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -214,7 +242,7 @@ func fetchDir(ctx context.Context, f remote.Fetcher, spec Spec, limits Limits, r
 		if e.IsDir {
 			err = fetchDir(ctx, f, spec, limits, child, depth+1, out, bytesFetched)
 		} else {
-			err = fetchFile(ctx, f, spec, limits, child, out, bytesFetched)
+			err = fetchFile(ctx, f, spec, limits, child, e.Executable, out, bytesFetched)
 		}
 		if err != nil {
 			return err
@@ -227,7 +255,7 @@ func fetchDir(ctx context.Context, f remote.Fetcher, spec Spec, limits Limits, r
 // budgets. The count is checked BEFORE the fetch and the byte total AFTER it:
 // a file's size is not known until it arrives, so the only honest place to
 // notice an over-budget one is once it has.
-func fetchFile(ctx context.Context, f remote.Fetcher, spec Spec, limits Limits, rel string, out map[string][]byte, bytesFetched *int64) error {
+func fetchFile(ctx context.Context, f remote.Fetcher, spec Spec, limits Limits, rel string, executable bool, out map[string]remote.TreeFile, bytesFetched *int64) error {
 	if len(out) >= limits.MaxFiles {
 		return fmt.Errorf("%w: more than %d files", ErrTooLarge, limits.MaxFiles)
 	}
@@ -239,7 +267,10 @@ func fetchFile(ctx context.Context, f remote.Fetcher, spec Spec, limits Limits, 
 	if *bytesFetched > limits.MaxBytes {
 		return fmt.Errorf("%w: more than %d bytes", ErrTooLarge, limits.MaxBytes)
 	}
-	out[rel] = data
+	// The exec bit comes from the LISTING, not from a second stat: git already
+	// told us the blob's mode when it named the entry, and asking again would be
+	// a second read of the same tree that could answer differently.
+	out[rel] = remote.TreeFile{Data: data, Executable: executable}
 	return nil
 }
 
@@ -295,3 +326,31 @@ func repoPath(spec Spec, rel string) string {
 		return path.Join(spec.Root, rel)
 	}
 }
+
+// PullTreeFetcher is this package as a remote.TreeFetchFunc: the seam a Puller
+// installs a directory-form bundle through.
+//
+// It exists so the pull path and the content path walk a pinned tree with ONE
+// implementation. internal/remote cannot import this package (the content layer
+// sits above it), so the alternative was a second recursive fetcher inside
+// remote — a duplicate of the budget checks, the traversal-refusal rule and the
+// three-way listing-error diagnosis, free to drift from this one in exactly the
+// cases nobody tests.
+//
+// The Spec is assembled rather than taken because a pull already knows every
+// field of it and there is nothing left to choose: root is ONE bundle's
+// directory (not a bundles root holding many), and the SHA is the lockfile pin,
+// which FetchFiles refuses unless it is a full commit SHA.
+func PullTreeFetcher(ctx context.Context, f remote.Fetcher, owner, repo, root, sha, repoURL string) (map[string]remote.TreeFile, error) {
+	return FetchFiles(ctx, f, Spec{
+		Owner:   owner,
+		Repo:    repo,
+		SHA:     sha,
+		Root:    root,
+		RepoURL: repoURL,
+	})
+}
+
+// Compile-time proof that this package satisfies the pull seam. Without it the
+// two signatures could drift and only the wiring site would notice.
+var _ remote.TreeFetchFunc = PullTreeFetcher

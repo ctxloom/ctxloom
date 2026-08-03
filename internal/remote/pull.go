@@ -3,11 +3,16 @@ package remote
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -96,10 +101,24 @@ type Puller struct {
 	// bare time.Now() call) so tests can inject a fixed/advancing clock
 	// instead of sleeping past RetractionStaleAfter (see WithPullerClock).
 	now func() time.Time
+	// treeFetch is the pinned-remote tree walker, wired in from above (see
+	// TreeFetchFunc). Nil means this Puller can fetch only single-file bundles,
+	// which is what every Puller could do before the seam existed.
+	treeFetch TreeFetchFunc
 }
 
 // PullerOption is a functional option for configuring a Puller.
 type PullerOption func(*Puller)
+
+// WithTreeFetcher supplies the pinned-remote tree walker a directory-form
+// bundle needs. Without it a Puller fetches single-file bundles only — the
+// behaviour every Puller had before this seam — so omitting it degrades to the
+// old capability rather than to a half-installed tree.
+func WithTreeFetcher(tf TreeFetchFunc) PullerOption {
+	return func(p *Puller) {
+		p.treeFetch = tf
+	}
+}
 
 // WithLockfileManager sets a custom lockfile manager (for testing).
 func WithLockfileManager(lm *LockfileManager) PullerOption {
@@ -159,9 +178,11 @@ type fetchedItem struct {
 	resolvedVersion     string       // concrete tag a semver constraint resolved to, "" otherwise
 	kind                SelectorKind // classified selector kind (sha/tag/version/branch)
 	content             []byte
-	retracted           bool      // this fetch's own confirmRetraction verdict (fresh or fail-stale fallback)
-	retractedReason     string    // the publisher's stated reason, when retracted
-	retractionCheckedAt time.Time // when THIS verdict was established (see LockEntry.RetractionCheckedAt)
+	tree                map[string]TreeFile // non-nil when the bundle was published in DIRECTORY form
+	treeRoot            string              // the repo path that tree was fetched from, for diagnostics
+	retracted           bool                // this fetch's own confirmRetraction verdict (fresh or fail-stale fallback)
+	retractedReason     string              // the publisher's stated reason, when retracted
+	retractionCheckedAt time.Time           // when THIS verdict was established (see LockEntry.RetractionCheckedAt)
 }
 
 // Pull downloads an item from a remote and records its pin. It is the
@@ -286,23 +307,78 @@ func (p *Puller) fetchForPull(ctx context.Context, ref *Reference, opts PullOpti
 	}
 
 	filePath := ref.BuildFilePath(opts.ItemType)
-	content, err := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
+	content, tree, treeRoot, err := p.fetchItemBytes(ctx, fetcher, owner, repo, repoURL, ref, filePath, sha, opts)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch: %w", err)
-	}
-	// A zero-byte remote file must never be pinned as a successful install:
-	// the lockfile entry installPulledItem is about to write would
-	// otherwise report a real SHA and "installed" status for content that is
-	// empty — a silent no-op indistinguishable from a genuine pull.
-	if len(content) == 0 {
-		return nil, fmt.Errorf("refusing to pull %s: remote file %s is empty at %s", ref.String(), filePath, sha)
+		return nil, err
 	}
 
 	return &fetchedItem{
 		rem: rem, localName: localName, sha: sha, requestedVersion: requestedVersion,
 		resolvedVersion: resolvedVersion, kind: kind, content: content,
+		tree: tree, treeRoot: treeRoot,
 		retracted: retracted, retractedReason: retractedReason, retractionCheckedAt: retractionCheckedAt,
 	}, nil
+}
+
+// fetchItemBytes reads the item at filePath, falling back to its DIRECTORY form
+// when the single file is absent.
+//
+// The single file is tried FIRST and the tree only on a genuine
+// not-found. That ordering is not a preference between the two shapes: it is
+// what makes the addition invisible to every publisher who already ships single
+// files. A tree probe in front would issue an extra listing on every pull in the
+// world to serve the rarer case, and — worse — would let a stray directory
+// beside a real bundle.yaml decide which of the two a pull installed.
+//
+// A fetcher error that is NOT "not found" propagates unchanged. Falling through
+// to a tree probe on an auth failure or a transport error would convert one
+// diagnosable error into a second, more confusing one about a directory nobody
+// asked for.
+func (p *Puller) fetchItemBytes(ctx context.Context, fetcher Fetcher, owner, repo, repoURL string, ref *Reference, filePath, sha string, opts PullOptions) (content []byte, tree map[string]TreeFile, treeRoot string, err error) {
+	content, fileErr := fetcher.FetchFile(ctx, owner, repo, filePath, sha)
+	switch {
+	case fileErr == nil:
+		// A zero-byte remote file must never be pinned as a successful install:
+		// the lockfile entry installPulledItem is about to write would
+		// otherwise report a real SHA and "installed" status for content that
+		// is empty — a silent no-op indistinguishable from a genuine pull.
+		if len(content) == 0 {
+			return nil, nil, "", fmt.Errorf("refusing to pull %s: remote file %s is empty at %s", ref.String(), filePath, sha)
+		}
+		return content, nil, "", nil
+	case !errors.Is(fileErr, errs.ErrRemoteContentNotFound):
+		return nil, nil, "", fmt.Errorf("failed to fetch: %w", fileErr)
+	case opts.ItemType != ItemTypeBundle:
+		// Only bundles have a directory form. Anything else that is missing is
+		// simply missing, and must say so rather than reporting a tree gap.
+		return nil, nil, "", fmt.Errorf("failed to fetch: %w", fileErr)
+	case p.treeFetch == nil:
+		// No walker was wired in, so this Puller genuinely cannot tell whether a
+		// tree is there. Say that, rather than reporting the file's absence as
+		// the whole story — a bare "not found" against a repo that DOES publish
+		// the directory form is the diagnostic that cost this capability its
+		// first attempt.
+		return nil, nil, "", fmt.Errorf("failed to fetch: %w (and this puller has no tree fetcher wired in, so %s could not be checked for a directory-form bundle)",
+			fileErr, BundleTreeRoot(filePath))
+	}
+
+	treeRoot = BundleTreeRoot(filePath)
+	tree, terr := p.treeFetch(ctx, fetcher, owner, repo, treeRoot, sha, repoURL)
+	if terr != nil {
+		// Quote BOTH failures. Either one alone is misleading: the file error
+		// alone hides that a directory form was looked for, and the tree error
+		// alone reads as though the directory were the only shape a bundle has.
+		return nil, nil, "", fmt.Errorf("failed to fetch: neither %s (%v) nor the directory-form bundle at %s: %w", filePath, fileErr, treeRoot, terr)
+	}
+	manifest, ok := TreeManifest(tree)
+	if !ok {
+		return nil, nil, "", fmt.Errorf("refusing to pull %s: the directory %s exists at %s but carries no %s, so nothing can load it as a bundle (it has %d file(s))",
+			ref.String(), treeRoot, sha, BundleManifestName, len(tree))
+	}
+	if len(manifest) == 0 {
+		return nil, nil, "", fmt.Errorf("refusing to pull %s: %s is empty at %s", ref.String(), treeRepoPath(treeRoot, BundleManifestName), sha)
+	}
+	return manifest, tree, treeRoot, nil
 }
 
 // resolveRemoteTarget maps a reference to its repo URL, remote, and lockfile
@@ -465,6 +541,22 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 	// sha).
 	localPath := fmt.Sprintf("<remote>:%s@%s", item.localName, item.sha)
 
+	// A DIRECTORY-form bundle is the one exception to "nothing is
+	// materialized". A single-file bundle is one blob a reader can pull out of
+	// the clone's object store on demand; a tree is a package — multi-file,
+	// mode-bearing, and read by machinery (skill materialization, hook
+	// enumeration) that takes a real directory, not bytes. Serving that from an
+	// object store would mean re-deriving a filesystem on every read. The
+	// install root is the CACHE (gitignored, regenerable): the pin in the
+	// lockfile stays the authority, and this tree is derived from it.
+	if item.tree != nil {
+		dir, werr := p.installTree(ref, opts, item)
+		if werr != nil {
+			return nil, werr
+		}
+		localPath = dir
+	}
+
 	// Update lockfile with provenance (local name as key). For bundles, the
 	// lockfile is the *only* on-disk record — read sites resolve content via
 	// the SHA recorded here, and this is also where THIS pull's own fresh
@@ -499,6 +591,62 @@ func (p *Puller) installPulledItem(ctx context.Context, ref *Reference, opts Pul
 		Retracted:       item.retracted,
 		RetractedReason: item.retractedReason,
 	}, nil
+}
+
+// installTree writes a fetched directory-form bundle into the cache and returns
+// the directory it landed in.
+//
+// The destination is REPLACED, not merged. A merge would leave a file the
+// publisher deleted upstream sitting in the consumer's tree forever, still
+// enumerated by every directory walk that reads the bundle — and, for hooks and
+// MCP servers, still applied. "What arrived is what is there" is the only
+// property that makes a re-pull mean anything.
+func (p *Puller) installTree(ref *Reference, opts PullOptions, item *fetchedItem) (string, error) {
+	baseDir := opts.LocalDir
+	if baseDir == "" {
+		baseDir = p.lockfileManager.BaseDir()
+	}
+	fs := p.lockfileManager.FS()
+	dir := ref.LocalTreePath(baseDir)
+
+	if err := fs.RemoveAll(dir); err != nil {
+		return "", fmt.Errorf("clear the previous %s tree at %s: %w", item.localName, dir, err)
+	}
+	// Sorted, so a failure part-way through names a deterministic file and two
+	// runs over the same tree fail identically.
+	rels := make([]string, 0, len(item.tree))
+	for rel := range item.tree {
+		rels = append(rels, rel)
+	}
+	sort.Strings(rels)
+	for _, rel := range rels {
+		if err := writeTreeFile(fs, dir, rel, item.tree[rel]); err != nil {
+			return "", fmt.Errorf("install %s into %s: %w", treeRepoPath(item.treeRoot, rel), dir, err)
+		}
+	}
+	return dir, nil
+}
+
+// writeTreeFile writes one file of a bundle tree at its published mode.
+//
+// The explicit Chmod after the write is not redundant. afero (like os.WriteFile
+// under it) applies a mode only when it CREATES the file, and the umask masks
+// what it does apply — so a 0755 script can land 0644 and the model is shipped
+// something it cannot run, with no error anywhere. internal/shared/agent's
+// packagefiles.go re-Chmods on every materialize for exactly this reason.
+func writeTreeFile(fs afero.Fs, dir, rel string, file TreeFile) error {
+	mode := os.FileMode(0o644)
+	if file.Executable {
+		mode = 0o755
+	}
+	full := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := fs.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		return err
+	}
+	if err := afero.WriteFile(fs, full, file.Data, mode); err != nil {
+		return err
+	}
+	return fs.Chmod(full, mode)
 }
 
 // promptConfirmation asks the user for yes/no confirmation.

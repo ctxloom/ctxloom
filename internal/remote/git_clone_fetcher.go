@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/filemode"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 
@@ -95,6 +96,10 @@ func (f *GitCloneFetcher) ListDir(ctx context.Context, owner, repo, dirPath, ref
 		entries = append(entries, DirEntry{
 			Name:  entry.Name,
 			IsDir: !entry.Mode.IsFile(),
+			// The exec bit as the publisher committed it. git records exactly
+			// two blob modes, so this is a faithful reading of the tree rather
+			// than a mapping from a richer mode that isn't there.
+			Executable: entry.Mode == filemode.Executable,
 		})
 	}
 

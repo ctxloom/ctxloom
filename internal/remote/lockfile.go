@@ -50,6 +50,26 @@ func NewLockfileManager(baseDir string, opts ...LockfileOption) *LockfileManager
 	return m
 }
 
+// BaseDir returns the .ctxloom directory this manager was bound to.
+//
+// It exists so a caller that must write BESIDE the lockfile — Puller's
+// directory-form bundle install, which lands a fetched tree under
+// <baseDir>/cache/bundles — resolves its root from the same value the lockfile
+// did rather than carrying a second, separately-configured copy of it. Two
+// configuration axes for one directory is how a pin and the content it pins end
+// up in different trees.
+func (m *LockfileManager) BaseDir() string {
+	return m.baseDir
+}
+
+// FS returns the filesystem this manager reads and writes through, for the same
+// reason BaseDir exists: a caller writing alongside the lockfile must use the
+// same filesystem, or a test that swapped in a memory fs would find its pins
+// there and its content on the real disk.
+func (m *LockfileManager) FS() afero.Fs {
+	return m.fs
+}
+
 // Path returns the path to the managed (active) lockfile.
 //
 // The layout comes from paths.LockPath, the package that exists precisely to

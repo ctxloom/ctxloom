@@ -583,6 +583,18 @@ func (r *Reference) LocalPath(baseDir string, itemType ItemType) string {
 	return filepath.Join(paths.CacheBundlesPath(baseDir), remoteName, file)
 }
 
+// LocalTreePath returns the local directory a DIRECTORY-form bundle installs
+// into: exactly LocalPath minus the ".yaml", so the two shapes of one bundle
+// occupy the same name in the cache and cannot both exist under it.
+//
+// That collision is deliberate. A bundle that changes shape upstream must
+// REPLACE its predecessor, not sit beside it — two installs of the same
+// reference resolving to two different trees is precisely the ambiguity a
+// pinned reference exists to remove.
+func (r *Reference) LocalTreePath(baseDir string) string {
+	return strings.TrimSuffix(r.LocalPath(baseDir, ItemTypeBundle), ".yaml")
+}
+
 // LocalRemoteName returns a filesystem-safe name for the remote.
 // For canonical URLs, this extracts a meaningful identifier; for URL-less
 // (local) refs it is empty.

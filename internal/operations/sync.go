@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content/remotetree"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
@@ -245,6 +246,10 @@ func resolveSyncDeps(cfg *config.Config, req SyncDependenciesRequest, baseDir st
 		puller = remote.NewPuller(registry, auth,
 			remote.WithFetcherFactory(NewCachedFetcherFactory(cfg)),
 			remote.WithLockfileManager(remote.NewLockfileManager(baseDir, remote.WithLockfileFS(fs))),
+			// The directory-form half of the fetch. remote cannot reach the
+			// content layer that owns the pinned-tree walker, so composition
+			// happens here — the one place that already knows both.
+			remote.WithTreeFetcher(remotetree.PullTreeFetcher),
 		)
 	}
 	return puller, nil

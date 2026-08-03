@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -9,7 +10,45 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
+
+// TestRecordedSessionEntries_UnknownHarpErrorsRatherThanPanicking pins the
+// UNRESOLVABLE half of the resume contract.
+//
+// GetSession documents "returns the entry for harp, or nil if absent" and
+// returns (nil, nil) for an absent harp; RecordedSessionEntries checked only
+// the error before dereferencing entry.SessionID, so `ctxloom run --session
+// <typo>` died on a nil pointer. A harp is three random words — mistyping one
+// is the single most ordinary error available on this command, and it took the
+// process down with a stack trace.
+//
+// resumeFullContext's own documented contract ("an unresolvable or unbound harp
+// warns and returns existing unchanged; a typo'd or stale --session must never
+// block the launch") was only honoured for the UNBOUND half. This is the other
+// half, asserted at the shared primitive rather than at one caller, because the
+// same call also serves the ACP resume path (engine_session.go) and the
+// coordinator's ended-child resume (coord/spawner.go ResumeContext).
+//
+// NotPanics, not a bare call: an unrecovered panic here would take the whole
+// test binary down and report as an unrelated package failure, which is a worse
+// signal than a named assertion.
+func TestRecordedSessionEntries_UnknownHarpErrorsRatherThanPanicking(t *testing.T) {
+	testsupport.ProjectDir(t) // isolated HOME: the session index must be empty
+
+	var entries []agent.SessionEntry
+	var err error
+	require.NotPanics(t, func() {
+		entries, err = RecordedSessionEntries(context.Background(), "no-such-harp-anywhere")
+	}, "a harp absent from the session index must not nil-deref")
+
+	require.Error(t, err, "an unknown harp is an error, not a silent empty resume")
+	assert.Nil(t, entries)
+	assert.Contains(t, err.Error(), "no-such-harp-anywhere",
+		"the error must name the harp the user typed — that is the whole diagnostic")
+	assert.Contains(t, err.Error(), "session list",
+		"it must say where to find the real harps; three random words are not guessable")
+}
 
 // TestRenderResumedTranscript_EmptyEntriesWarns is a regression guard: a
 // transcript that yields zero substantive (user/assistant/

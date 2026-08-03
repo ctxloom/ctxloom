@@ -380,9 +380,8 @@ func TestRunCharacterization_UnknownSavedCommandFails(t *testing.T) {
 //
 // The harp used here is one AssignSession actually minted, so it exists in the
 // session index but has no bound transcript yet — the "nothing to prime" arm.
-// A harp that is not in the index at all cannot be exercised here: it PANICS
-// (see the FINDING note below), which is a pre-existing defect this refactor
-// deliberately does not fix.
+// TestRunCharacterization_UnknownResumeSessionDegrades below covers the other
+// arm, a harp that is not in the index at all.
 func TestRunCharacterization_UnboundResumeSessionDegrades(t *testing.T) {
 	dir := runCLIFixture(t)
 
@@ -403,16 +402,36 @@ func TestRunCharacterization_UnboundResumeSessionDegrades(t *testing.T) {
 	assert.Contains(t, res.stderr, "no recorded history to prime", "the degrade is announced, not silent")
 }
 
-// FINDING (reported, NOT fixed by this refactor): `ctxloom run --session
-// <harp-that-is-not-in-the-index>` panics with a nil pointer dereference
-// instead of degrading. operations.GetSession documents "returns the entry for
-// harp, or nil if absent" and returns (nil, nil) for an absent harp, but
-// operations.RecordedSessionEntries (internal/operations/resume.go:22) checks
-// only the error before dereferencing entry.SessionID. resumeFullContext's own
-// contract — "an unresolvable or unbound harp ... warns and returns existing
-// unchanged" — is therefore only honoured for the UNBOUND half, pinned above;
-// the UNRESOLVABLE half never reaches the warn. The same call is shared by the
-// ACP resume path and the coordinator's ended-child resume.
+// The UNRESOLVABLE arm of the same contract: a harp that is not in the session
+// index at all. This used to panic with a nil pointer dereference —
+// operations.GetSession returns (nil, nil) for an absent harp and
+// RecordedSessionEntries dereferenced entry.SessionID without checking — so a
+// mistyped harp name, on a command whose argument is three random words, took
+// the process down with a stack trace instead of reaching the warn
+// resumeFullContext documents for exactly this case.
+//
+// Asserted at the CLI surface a user actually touches, because that is where
+// the stack trace appeared. The primitive itself is pinned in
+// operations.TestRecordedSessionEntries_UnknownHarpErrorsRatherThanPanicking,
+// which also covers the ACP resume path and the coordinator's ended-child
+// resume, both of which share the call.
+func TestRunCharacterization_UnknownResumeSessionDegrades(t *testing.T) {
+	runCLIFixture(t)
+
+	base := runCLI(t, "run", "--dry-run", "--format", "json", "-p", "dev", "hi")
+	require.NoError(t, base.err, base.all())
+	var without dryRunJSON
+	require.NoError(t, json.Unmarshal([]byte(base.out), &without))
+
+	res := runCLI(t, "run", "--dry-run", "--format", "json", "--session", "no-such-harp-anywhere", "-p", "dev", "hi")
+	require.NoError(t, res.err, "a harp that is not in the index must not block the run: %s", res.all())
+	var with dryRunJSON
+	require.NoError(t, json.Unmarshal([]byte(res.out), &with))
+
+	assert.Equal(t, without.Context, with.Context, "an unresolvable harp leaves the assembled context untouched")
+	assert.Contains(t, res.stderr, "no-such-harp-anywhere", "the degrade must name the harp it could not find")
+	assert.Contains(t, res.stderr, "session list", "and say where the real harps are")
+}
 
 // -----------------------------------------------------------------------------
 // Project-root resolution

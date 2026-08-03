@@ -11,7 +11,7 @@ import (
 // subcommands, keeping the user-visible `--help` surface small while still
 // giving an agent a real, tested command to call instead of hand-rolling
 // dangerous mechanics itself. See config-write for the first resident.
-var utilCmd = &cobra.Command{
+var utilCmd = groupNode(&cobra.Command{
 	Use:    "util",
 	Short:  "Internal safety primitives for agents (not for direct use)",
 	Hidden: true,
@@ -19,7 +19,7 @@ var utilCmd = &cobra.Command{
 calls instead of hand-rolling dangerous mechanics itself — starting with a
 guarded config-file merge-write. These are not intended for direct user
 invocation.`,
-}
+})
 
 func init() {
 	rootCmd.AddCommand(utilCmd)

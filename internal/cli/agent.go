@@ -35,7 +35,7 @@ import (
 // — one file, two consumption paths, never two copies to drift.
 var ctxloomInitPrompt = resources.MustGetBuiltinCommandBody("ctxloom-init")
 
-var agentCmd = &cobra.Command{
+var agentCmd = groupNode(&cobra.Command{
 	Use:   "agent",
 	Short: "Inspect local agents (engine↔profile bindings)",
 	Long: `Inspect agents — named, LOCAL-ONLY bindings of an LLM engine to one or
@@ -46,7 +46,7 @@ constituent profiles' own llm) and a list of 'profiles' that compose into one
 assembled context. Agents are defined solely in your .ctxloom — under the
 'agents:' key of config.yaml and/or as .ctxloom/agents/<name>.yaml files.
 They are never shipped in bundles or remotes: the engine choice is yours.`,
-}
+})
 
 var agentListCmd = &cobra.Command{
 	Use:     "list",

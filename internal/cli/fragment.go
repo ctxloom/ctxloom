@@ -4,7 +4,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var fragmentCmd = &cobra.Command{
+var fragmentCmd = groupNode(&cobra.Command{
 	Use:   "fragment",
 	Short: "Manage context fragments",
 	Long: `Manage context fragments - reusable context snippets for AI coding assistants.
@@ -18,7 +18,7 @@ Examples:
   ctxloom fragment show core#fragments/tdd           # Show fragment content
   ctxloom fragment edit core#fragments/tdd           # Edit fragment content
   ctxloom fragment create my-bundle coding-standards # Create new fragment`,
-}
+})
 
 var fragmentListCmd = &cobra.Command{
 	Use:   "list",

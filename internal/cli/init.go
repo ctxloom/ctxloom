@@ -50,6 +50,15 @@ Examples:
   ctxloom init --home              # Initialize in ~/.ctxloom
   ctxloom init --engine antigravity # Pre-select engine
   ctxloom init --non-interactive   # Skip all prompts`,
+	// init is configured entirely by flags and reads no positional argument,
+	// so anything positional is a mistyped subcommand. Without this it was the
+	// most destructive instance of the silent-namespace defect groupNode
+	// documents: init is RUNNABLE as well as a namespace, so `ctxloom init
+	// prmopt` did not print help — it scaffolded .ctxloom, seeded remotes and
+	// cloned them, then exited 0, having ignored the argument entirely. Here
+	// NoArgs works where it cannot work on a pure group node, precisely
+	// because init is runnable and so reaches ValidateArgs at all.
+	Args: cobra.NoArgs,
 	RunE: runInit,
 }
 

@@ -24,12 +24,12 @@ type planChangeEvent struct {
 	Kind  string `json:"kind"`  // "plans"
 }
 
-var planCmd = &cobra.Command{
+var planCmd = groupNode(&cobra.Command{
 	Use:   "plan",
 	Short: "Work with session plan documents (~/.ctxloom/sessions/<harp>/*.plan.md)",
 	// GUI-facing (only the plan watch stream lives here); hidden from CLI help.
 	Hidden: true,
-}
+})
 
 var planWatchCmd = &cobra.Command{
 	Use:   "watch",

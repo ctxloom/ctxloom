@@ -11,7 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-var remoteCmd = &cobra.Command{
+var remoteCmd = groupNode(&cobra.Command{
 	Use:   "remote",
 	Short: "Manage remotes and discover content",
 	Long: `Manage remote sources and discover bundles/profiles.
@@ -38,7 +38,7 @@ Examples:
   ctxloom remote create alice alice/ctxloom
   ctxloom search "golang testing"
   ctxloom remote show ctxloom-default`,
-}
+})
 
 var remoteAddForge string
 

@@ -18,7 +18,7 @@ import (
 // .gitignore, and config. Runtime entrypoints (`mcp serve`) and machine
 // callbacks (all consolidated under the hidden `hook` namespace) deliberately
 // stay out of this user-facing namespace.
-var manageCmd = &cobra.Command{
+var manageCmd = groupNode(&cobra.Command{
 	Use:   "manage",
 	Short: "Install and manage ctxloom's project harness",
 	Long: `Install, inspect, and remove ctxloom's integration with a project.
@@ -37,7 +37,7 @@ MCP registration lives at the top-level 'ctxloom mcp register'/'unregister';
 configuration lives at the top-level 'ctxloom config'; the duplicate
 'manage init' setup entry point was removed, root 'ctxloom init' is the sole
 bootstrap.`,
-}
+})
 
 // --- manage install / uninstall / status -----------------------------------
 
@@ -286,10 +286,10 @@ func printHarnessStatus(r *operations.HarnessStatusResult) {
 
 // --- manage hooks -----------------------------------------------------------
 
-var manageHooksCmd = &cobra.Command{
+var manageHooksCmd = groupNode(&cobra.Command{
 	Use:   "hooks",
 	Short: "Install, uninstall, or inspect ctxloom backend hooks",
-}
+})
 
 var (
 	manageHooksBackend string
@@ -412,7 +412,7 @@ func setMcpAutoRegister(cmd *cobra.Command, enabled bool) error {
 
 // --- manage statusline ------------------------------------------------------
 
-var manageStatuslineCmd = &cobra.Command{
+var manageStatuslineCmd = groupNode(&cobra.Command{
 	Use:   "statusline",
 	Short: "Enable or disable ctxloom's HUD statusline",
 	Long: `Control whether ctxloom installs and maintains its HUD statusline.
@@ -420,7 +420,7 @@ var manageStatuslineCmd = &cobra.Command{
 Disable it to keep your own (or no) statusline — ctxloom will stop managing the
 statusline and clear any it previously installed. The change takes effect on the
 next 'ctxloom manage hooks install' or 'ctxloom run'.`,
-}
+})
 
 var manageStatuslineInstallCmd = &cobra.Command{
 	Use:   "install",
@@ -474,10 +474,10 @@ func setStatusline(cmd *cobra.Command, enabled bool) error {
 
 // --- manage gitignore --------------------------------------------------------
 
-var manageGitignoreCmd = &cobra.Command{
+var manageGitignoreCmd = groupNode(&cobra.Command{
 	Use:   "gitignore",
 	Short: "Maintain ctxloom's .gitignore entries",
-}
+})
 
 var manageGitignoreInstallCmd = &cobra.Command{
 	Use:   "install",

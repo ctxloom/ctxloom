@@ -302,7 +302,7 @@ func runSignerRemoveCmd(cmd *cobra.Command, args []string) error {
 
 // --- trust signer: the canonical spine over the allowed_signers store -------
 
-var trustSignerCmd = &cobra.Command{
+var trustSignerCmd = groupNode(&cobra.Command{
 	Use:   "signer",
 	Short: "Manage trusted signers (allowed_signers)",
 	Long: `Manage who ctxloom trusts to publish or approve/reject content: entries in
@@ -314,7 +314,7 @@ feature: everything that key ever publishes (or approves, for an
 approve-namespace key) reaches your agent WITHOUT REVIEW, forever, until
 you remove it. 'trust signer create' names that consequence and shows the
 fingerprint you are supposed to verify out of band before continuing.`,
-}
+})
 
 var trustSignerCreateCmd = &cobra.Command{
 	Use:   "create <principal>",

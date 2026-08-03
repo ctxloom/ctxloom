@@ -4,7 +4,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var commandCmd = &cobra.Command{
+var commandCmd = groupNode(&cobra.Command{
 	Use:   "command",
 	Short: "Manage commands",
 	Long: `Manage commands - reusable prompt/command templates for AI coding assistants.
@@ -18,7 +18,7 @@ Examples:
   ctxloom command show core#commands/code-review        # Show command content
   ctxloom command edit core#commands/code-review        # Edit command content
   ctxloom command create my-bundle code-review          # Create new command`,
-}
+})
 
 var commandListCmd = &cobra.Command{
 	Use:   "list",

@@ -48,6 +48,10 @@ import (
 // and Go does not order those for you. TestArch_GroupNodesFailOnUnknownSubcommand
 // is what keeps the 22 sites from becoming 21.
 func groupNode(cmd *cobra.Command) *cobra.Command {
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[groupNodeAnnotation] = "true"
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		if len(args) == 0 {
 			return c.Help()
@@ -55,6 +59,22 @@ func groupNode(cmd *cobra.Command) *cobra.Command {
 		return unknownSubcommandError(c, args[0])
 	}
 	return cmd
+}
+
+// groupNodeAnnotation marks a command as carrying only the groupNode guard.
+//
+// The guard makes a namespace Runnable() — that is the whole mechanism — and
+// cobra.Command exposes no way to ask "runnable only because of the guard".
+// Tree walkers that mean "every command that DOES something" (the --format
+// coverage registry, and anything like it) would otherwise start demanding a
+// per-namespace entry for a RunE whose entire behaviour is printing help or
+// refusing a typo. isGroupNode is how they ask.
+const groupNodeAnnotation = "ctxloom.group-node"
+
+// isGroupNode reports whether cmd is a namespace whose RunE is nothing but the
+// unknown-subcommand guard.
+func isGroupNode(cmd *cobra.Command) bool {
+	return cmd.Annotations[groupNodeAnnotation] == "true"
 }
 
 // unknownSubcommandError is the message a mistyped namespace verb earns. It

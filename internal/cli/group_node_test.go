@@ -8,6 +8,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // walkCommands visits cmd and every command beneath it.
@@ -16,6 +18,43 @@ func walkCommands(cmd *cobra.Command, visit func(*cobra.Command)) {
 	for _, sub := range cmd.Commands() {
 		walkCommands(sub, visit)
 	}
+}
+
+// runRoot drives the real rootCmd with args and returns its error plus
+// everything it wrote.
+//
+// rootCmd is package-global and its persistent flags KEEP whatever the last
+// test set — --format in particular, which other suites in this package leave
+// on markdown. That is not this test's state to inherit, so the flag is put
+// back to its default here as well as after; a namespace test that quietly
+// depended on a neighbour's leftovers would be measuring the neighbour.
+func runRoot(t *testing.T, args ...string) (error, string) {
+	t.Helper()
+	var out bytes.Buffer
+	resetFormat := func() {
+		if f := rootCmd.PersistentFlags().Lookup("format"); f != nil {
+			require.NoError(t, f.Value.Set(f.DefValue))
+			f.Changed = false
+		}
+	}
+	resetFormat()
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs(args)
+	t.Cleanup(func() {
+		rootCmd.SetArgs(nil)
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+		resetFormat()
+		// rootPersistentPreRun flips clidiag's structured channel on for a
+		// json/yaml/toml --format and nothing ever flips it back; a later
+		// test asserting on a plain "ctxloom: warning: ..." line would then
+		// find structured output and fail for a reason that has nothing to
+		// do with it. Process-global state set by an Execute() is this
+		// helper's to undo.
+		clidiag.SetStructured(false)
+	})
+	return rootCmd.Execute(), out.String()
 }
 
 // TestGroupNodes_AreAllGuarded is the gate that keeps the fix from decaying.
@@ -44,6 +83,22 @@ func TestGroupNodes_AreAllGuarded(t *testing.T) {
 		unguarded)
 }
 
+// TestGroupNodes_MarkAndStructureAgree shuts the door the group-node
+// annotation opens. Tree walkers that mean "commands that DO something" skip
+// anything isGroupNode reports true for — the --format coverage registry is
+// one — so marking a LEAF would silently excuse a real command from those
+// gates without deleting a single assertion. A group node has subcommands, by
+// definition; nothing else may claim to be one.
+func TestGroupNodes_MarkAndStructureAgree(t *testing.T) {
+	walkCommands(rootCmd, func(c *cobra.Command) {
+		if isGroupNode(c) {
+			assert.True(t, c.HasSubCommands(),
+				"%s is marked a group node but holds no subcommands — groupNode() is not a way out of a coverage gate",
+				c.CommandPath())
+		}
+	})
+}
+
 // TestGroupNodes_UnknownSubcommandFails drives every namespace in the tree
 // with a subcommand name nothing could plausibly own, and requires a real
 // error. Structure (the test above) says the guard is installed; this says the
@@ -66,21 +121,11 @@ func TestGroupNodes_UnknownSubcommandFails(t *testing.T) {
 		t.Run(g.CommandPath(), func(t *testing.T) {
 			args := append(strings.Fields(g.CommandPath())[1:], "zzznotasubcommand")
 
-			var out bytes.Buffer
-			rootCmd.SetOut(&out)
-			rootCmd.SetErr(&out)
-			rootCmd.SetArgs(args)
-			t.Cleanup(func() {
-				rootCmd.SetArgs(nil)
-				rootCmd.SetOut(nil)
-				rootCmd.SetErr(nil)
-			})
-
-			err := rootCmd.Execute()
+			err, out := runRoot(t, args...)
 
 			require.Error(t, err,
 				"%s zzznotasubcommand must fail, not print help and exit 0 (output was: %s)",
-				g.CommandPath(), out.String())
+				g.CommandPath(), out)
 			assert.Contains(t, err.Error(), "zzznotasubcommand",
 				"the error names the verb the caller actually typed")
 		})
@@ -107,16 +152,23 @@ func TestUnknownSubcommandError_Message(t *testing.T) {
 // change. Asking a namespace what it holds by naming it alone is legitimate
 // and stays a success; only a named verb that does not exist became an error.
 func TestGroupNode_BareInvocationStillPrintsHelp(t *testing.T) {
-	var out bytes.Buffer
-	rootCmd.SetOut(&out)
-	rootCmd.SetErr(&out)
-	rootCmd.SetArgs([]string{"manage"})
-	t.Cleanup(func() {
-		rootCmd.SetArgs(nil)
-		rootCmd.SetOut(nil)
-		rootCmd.SetErr(nil)
-	})
+	err, out := runRoot(t, "manage")
 
-	require.NoError(t, rootCmd.Execute(), "bare `ctxloom manage` is a legitimate request for its help")
-	assert.Contains(t, out.String(), "Available Commands:", "and it answers with the namespace's help")
+	require.NoError(t, err, "bare `ctxloom manage` is a legitimate request for its help")
+	assert.Contains(t, out, "Available Commands:", "and it answers with the namespace's help")
+}
+
+// TestGroupNode_BareInvocationIgnoresFormat pins the one place the guard
+// brushed against an unrelated contract. checkFormatWasHonored turns "--format
+// was accepted and silently discarded" into an error, and making namespaces
+// runnable is what first exposed them to that hook — cobra used to return
+// ErrHelp before any Run hook fired. `ctxloom manage --format json` answers
+// with help, which has no json rendering and never will, so it stays the
+// exit-0 it has always been rather than becoming collateral of the
+// unknown-subcommand fix.
+func TestGroupNode_BareInvocationIgnoresFormat(t *testing.T) {
+	err, out := runRoot(t, "manage", "--format", "json")
+
+	require.NoError(t, err, "a namespace is exempt from the --format debt guard")
+	assert.Contains(t, out, "Available Commands:")
 }

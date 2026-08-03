@@ -17,7 +17,7 @@ import (
 // core instead of the fragment/command ItemType machinery: a skill is a
 // directory tree, not a single text blob, so it does not fit that shape.
 
-var skillCmd = &cobra.Command{
+var skillCmd = groupNode(&cobra.Command{
 	Use:   "skill",
 	Short: "Manage Agent Skills (SKILL.md packages)",
 	Long: `Manage Agent Skills — model-invoked SKILL.md packages (instructions plus
@@ -35,7 +35,7 @@ Examples:
   ctxloom skill sync my-bundle#skills/code-reviewer      # Recompute + write the manifest
   ctxloom skill export my-bundle#skills/code-reviewer    # Pack to an Anthropic-shaped .zip
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle`,
-}
+})
 
 var skillListBundle string
 

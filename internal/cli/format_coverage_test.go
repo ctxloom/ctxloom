@@ -71,13 +71,19 @@ type formatCoverageEntry struct {
 // llm serve, container provenance) are excluded here rather than requiring
 // a per-command skip entry — "hidden-internal" is structural, not a
 // judgment call per command.
+//
+// Group nodes are excluded on the same structural grounds. A namespace is
+// Runnable() only because groupNode gave it the guard that makes an unknown
+// subcommand fail instead of silently printing help; its RunE emits no
+// payload, so there is nothing for the five encodings to render and a skip
+// entry per namespace would say only "this is a namespace" twenty times over.
 func formatCoverageWalk(t *testing.T) []string {
 	t.Helper()
 	var paths []string
 	var walk func(cmd *cobra.Command, prefix string)
 	walk = func(cmd *cobra.Command, prefix string) {
 		full := strings.TrimSpace(prefix + " " + cmd.Name())
-		if cmd.Runnable() && !cmd.Hidden {
+		if cmd.Runnable() && !cmd.Hidden && !isGroupNode(cmd) {
 			paths = append(paths, full)
 		}
 		for _, c := range cmd.Commands() {

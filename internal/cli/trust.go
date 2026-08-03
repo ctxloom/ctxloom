@@ -43,11 +43,11 @@ Reject an item with 'ctxloom trust reject <ref>'.`
 // accept`, which is deleted — an imperative bare noun that silently means
 // "accept" is exactly the surface a user cannot guess safely (verb-spine
 // reorg §6).
-var trustCmd = &cobra.Command{
+var trustCmd = groupNode(&cobra.Command{
 	Use:   "trust",
 	Short: "Accept, reject, or manage the signers of item content",
 	Long:  trustCmdLong,
-}
+})
 
 // runTrustAcceptCmd is trustAcceptCmd's RunE.
 func runTrustAcceptCmd(cmd *cobra.Command, args []string) error {

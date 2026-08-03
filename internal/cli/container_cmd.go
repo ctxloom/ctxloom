@@ -19,12 +19,12 @@ import (
 	"github.com/ctxloom/ctxloom/resources"
 )
 
-var containerCmd = &cobra.Command{
+var containerCmd = groupNode(&cobra.Command{
 	Use:   "container",
 	Short: "Manage agent container images",
 	Long: `Manage the per-backend agent images a containerized engine runs in
 (agents with 'runtime: container', or the project 'runtime:' default).`,
-}
+})
 
 var (
 	containerBuildBaseImage           string

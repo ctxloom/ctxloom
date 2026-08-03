@@ -28,7 +28,7 @@ var (
 // runnable alias for `acp serve` that printed its own deprecation pointer;
 // that alias and its wrapper are gone, matching bare `ctxloom trust`. One
 // spelling per concept, no shims.
-var acpCmd = &cobra.Command{
+var acpCmd = groupNode(&cobra.Command{
 	Use:   "acp",
 	Short: "ACP (Agent Client Protocol): serve ctxloom to an editor, or connect ctxloom out to an ACP-speaking agent",
 	Long: `Experimental — interfaces may change and it is not yet verified against all editors.
@@ -44,7 +44,7 @@ subcommand:
                         drives one headless turn against it.
   ctxloom acp list      Lists the ACP agent-server entries to paste into an
                         editor's config for the server direction.`,
-}
+})
 
 // acpServeCmd is the real home of ctxloom-as-ACP-server: ctxloom serves the
 // protocol over stdio so an ACP client connects in. Spelled `serve` to match

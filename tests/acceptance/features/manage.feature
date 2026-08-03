@@ -47,6 +47,50 @@ Feature: Manage the project harness
     Then the command succeeds
     And the file ".claude/settings.json" contains "ctxloom hook session-bind" exactly 1 times
 
+  # Hooks merge across sources by pure APPEND, and each bundle's own `order:`
+  # sequences only its own hooks within an event. Nothing states the result, so
+  # before this leaf the order a user actually got was invisible. The fixture
+  # makes DECLARATION ORDER DISAGREE with `order:` on purpose: "second" is
+  # written first in the YAML and ordered last, so a build that ignored the field
+  # would print them the other way round.
+  Scenario: Listing hooks shows the resolved order and where each hook came from
+    Given an initialized ctxloom project
+    And the project already has the file ".ctxloom/content/bundles/hooked.yaml":
+      """
+      name: hooked
+      description: ships two pre_tool hooks whose order contradicts their position
+      hooks:
+        pre_tool:
+          - type: command
+            command: echo HOOKLIST-SECOND
+            order: 200
+          - type: command
+            command: echo HOOKLIST-FIRST
+            order: 100
+      """
+    And a profile "hooky" with bundle "hooked"
+    When I run "ctxloom manage hooks list --event pre_tool --profile hooky"
+    Then the command succeeds
+    And the output contains "HOOKLIST-FIRST"
+    And the output contains "HOOKLIST-SECOND"
+    And the output matches "HOOKLIST-FIRST[\s\S]*HOOKLIST-SECOND"
+    And the output contains "bundle hooked"
+
+  Scenario: The hook list has a machine-readable form
+    Given an initialized ctxloom project
+    When I run "ctxloom manage hooks list --format json"
+    Then the command succeeds
+    And the output contains "post_file_edit"
+    And the output contains "session_start"
+
+  # A typo must not resolve to "nothing runs on that event" — a confident wrong
+  # answer from an inspect command is worse than no inspect command.
+  Scenario: An unknown event name is refused rather than answered empty
+    Given an initialized ctxloom project
+    When I run "ctxloom manage hooks list --event pre_toll"
+    Then the command fails
+    And the output contains "pre_toll"
+
   Scenario: Gitignore install excludes ctxloom's private state
     Given an initialized ctxloom project
     When I run "ctxloom manage gitignore install"

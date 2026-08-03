@@ -169,6 +169,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	}},
 	"remote list":   {extraArgs: noExtraArgs},
 	"manage status": {extraArgs: noExtraArgs},
+	// Read-only: resolves the hook set in memory and writes nothing, so unlike
+	// its install/uninstall siblings it is genuinely exercisable here.
+	"manage hooks list": {extraArgs: noExtraArgs},
 	"doctor":        {extraArgs: noExtraArgs},
 	"review":        {extraArgs: func(string) []string { return []string{"--list"} }},
 	"search":        {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},

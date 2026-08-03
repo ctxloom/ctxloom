@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -488,6 +489,100 @@ var manageHooksStatusCmd = &cobra.Command{
 	RunE:  runManageStatus,
 }
 
+var (
+	manageHooksListEvent    string
+	manageHooksListProfiles []string
+)
+
+// manageHooksListCmd is `list` from the canonical verb spine (enumerate the
+// noun's instances — docs/cli-surface-recommendation.md §3), on the `manage
+// hooks` noun that already exists.
+//
+// It is a NEW LEAF rather than an extension of `manage hooks status` on purpose,
+// having checked what status does: status answers "which BACKENDS have ctxloom
+// wired in" — a question about installation, whose result is one row per backend
+// and no hooks at all. This answers "which HOOKS run, and in what order" — one
+// row per hook and no backends. Folding them together would give one command two
+// unrelated answers and one output shape that suits neither, and would take
+// `status`'s existing JSON contract with it.
+var manageHooksListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List the hooks that will fire, per event, in their resolved order",
+	Long: `List the hooks that will actually fire, in the order they will fire in.
+
+Hooks merge across every source — your config, your profiles, ctxloom's builtins,
+companion tools, and each bundle your profiles reference — by pure APPEND, and a
+bundle's own 'order:' sequences only its own hooks within an event. The result is
+emergent: no single file states it. This is where you read it.
+
+Each hook is reported with where it came from, so a sequence you dislike points
+at something you can go and change.`,
+	Args: cobra.NoArgs,
+	RunE: runManageHooksList,
+}
+
+func runManageHooksList(cmd *cobra.Command, _ []string) error {
+	if _, err := GetConfig(); err != nil {
+		return err
+	}
+	result, err := operations.ResolveHooks(cmd.Context(), operations.ResolveHooksRequest{
+		Event:    manageHooksListEvent,
+		Profiles: manageHooksListProfiles,
+		WorkDir:  projectroot.WorkDir(),
+	})
+	if err != nil {
+		return err
+	}
+	return emit(cmd, result, func() error { return renderResolvedHooks(cmd.OutOrStdout(), result) })
+}
+
+// renderResolvedHooks writes the human form. An event with NO hooks is printed
+// with "(none)" rather than skipped: silence would be indistinguishable from
+// ctxloom having failed to look, and "nothing runs here" is a real answer someone
+// asked for.
+func renderResolvedHooks(w io.Writer, result *operations.ResolveHooksResult) error {
+	for _, ev := range result.Events {
+		fmt.Fprintf(w, "%s\n", ev.Event)
+		if len(ev.Hooks) == 0 {
+			fmt.Fprintln(w, "  (none)")
+			continue
+		}
+		for _, h := range ev.Hooks {
+			fmt.Fprintf(w, "  %d. %-24s [%s]\n", h.Position, resolvedHookLabel(h), resolvedHookOrigin(h))
+		}
+	}
+	for _, bn := range result.BackendNative {
+		fmt.Fprintf(w, "%s (%s native)\n", bn.Event, bn.Backend)
+		for _, h := range bn.Hooks {
+			fmt.Fprintf(w, "  %d. %-24s [%s]\n", h.Position, resolvedHookLabel(h), resolvedHookOrigin(h))
+		}
+	}
+	return nil
+}
+
+// resolvedHookLabel names a hook by what it DOES. A hook with neither a command
+// nor a prompt is reported as its type rather than as blank space — a blank row
+// reads as a rendering bug and hides a hook that is genuinely there.
+func resolvedHookLabel(h operations.ResolvedHook) string {
+	switch {
+	case h.Command != "":
+		return h.Command
+	case h.Prompt != "":
+		return h.Prompt
+	case h.Type != "":
+		return "(" + h.Type + ")"
+	default:
+		return "(hook)"
+	}
+}
+
+func resolvedHookOrigin(h operations.ResolvedHook) string {
+	if h.Source != "" {
+		return h.SourceKind + " " + h.Source
+	}
+	return h.SourceKind
+}
+
 // --- manage mcp -------------------------------------------------------------
 
 // setMcpAutoRegister toggles ctxloom's MCP auto-registration and prints the
@@ -640,6 +735,11 @@ func init() {
 	manageHooksCmd.AddCommand(manageHooksInstallCmd)
 	manageHooksCmd.AddCommand(manageHooksUninstallCmd)
 	manageHooksCmd.AddCommand(manageHooksStatusCmd)
+	manageHooksCmd.AddCommand(manageHooksListCmd)
+	manageHooksListCmd.Flags().StringVar(&manageHooksListEvent, "event", "",
+		"Report only this lifecycle event (pre_tool, post_tool, session_start, session_end, pre_shell, post_file_edit)")
+	manageHooksListCmd.Flags().StringSliceVar(&manageHooksListProfiles, "profile", nil,
+		"Resolve against these profiles instead of the configured defaults (repeatable)")
 	manageHooksInstallCmd.Flags().BoolVar(&manageHooksForce, "force", false, "Proceed even if the resolved project directory would write Claude Code's user-global settings (not inside a project / $HOME)")
 	for _, c := range []*cobra.Command{manageHooksInstallCmd, manageHooksUninstallCmd} {
 		c.Flags().StringVar(&manageHooksBackend, "backend", "all", "Backend to target (claude-code, antigravity, or all)")

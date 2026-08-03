@@ -24,12 +24,14 @@ import (
 //
 // `bundle move` takes no signing flags at all: it has always CARRIED whatever
 // sidecar was on disk and REFUSED a stale one. So its rows vary only in sidecar
-// state, and they are the target the push rows converge on — the goal is that
-// push's "no flags, sign.default off" rows read exactly like the move rows.
+// state, and they are the target the push rows converge on: push's "no flags,
+// sign.default off" rows now read exactly like the move rows with the same
+// sidecar state. That equality IS the unification — check it by eye.
 //
-// This commit records the table as it behaves TODAY (characterization). The
-// three push rows that disagree with their move counterparts are labelled
-// CHARACTERIZED; the next commit flips them.
+// A signature belongs to the BUNDLE, not to the publish. `ctxloom bundle sign`
+// is the only producer; publishing carries a valid sidecar and refuses a stale
+// one; --sign is sugar for sign-then-publish (it mints the sidecar on disk,
+// then carries it); --no-sign publishes bare even when a valid sidecar exists.
 //
 // Every assertion is on the PAYLOAD the fake publisher recorded and on the
 // bytes left on disk, never on a success message: "published, exit 0, no
@@ -326,12 +328,15 @@ func publishCarryCases() []carryCase {
 			wantBundleSent: true, wantSigRelation: sigNotPublished, wantSidecar: sidecarStillAbsent,
 		},
 		{
+			// The sugar: sign, THEN publish. The sidecar it mints is the same
+			// artifact `ctxloom bundle sign` writes, and it stays on disk — so
+			// what shipped is verifiable at rest afterwards.
 			name: "push/absent/sign/default-off", via: viaPush, sidecar: sidecarAbsent, sign: true,
-			wantBundleSent: true, wantSigRelation: sigMintedTransiently, wantSidecar: sidecarStillAbsent,
+			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
 		},
 		{
 			name: "push/absent/no-flags/default-on", via: viaPush, sidecar: sidecarAbsent, signDefault: true,
-			wantBundleSent: true, wantSigRelation: sigMintedTransiently, wantSidecar: sidecarStillAbsent,
+			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
 		},
 		{
 			name: "push/absent/no-sign/default-on", via: viaPush, sidecar: sidecarAbsent, noSign: true, signDefault: true,
@@ -340,18 +345,21 @@ func publishCarryCases() []carryCase {
 
 		// --- push, a VALID sidecar sits beside the bundle --------------------
 		{
-			// THE GAP, characterized: `bundle sign foo && bundle push foo`
-			// publishes UNSIGNED. move with the same sidecar carries it.
+			// THE FIX, and identical to move/valid: `bundle sign foo &&
+			// bundle push foo` publishes the signature the author made.
 			name: "push/valid/no-flags/default-off", via: viaPush, sidecar: sidecarValid,
-			wantBundleSent: true, wantSigRelation: sigNotPublished, wantSidecar: sidecarUntouched,
+			wantBundleSent: true, wantSigRelation: sigEqualsPreSidecar, wantSidecar: sidecarUntouched,
 		},
 		{
+			// --sign RE-signs rather than carrying what is there: it is an
+			// explicit instruction to sign, and the key it signs with (sign.key
+			// / --key / agent) may not be the one that made the old sidecar.
 			name: "push/valid/sign/default-off", via: viaPush, sidecar: sidecarValid, sign: true,
-			wantBundleSent: true, wantSigRelation: sigMintedTransiently, wantSidecar: sidecarUntouched,
+			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
 		},
 		{
 			name: "push/valid/no-flags/default-on", via: viaPush, sidecar: sidecarValid, signDefault: true,
-			wantBundleSent: true, wantSigRelation: sigMintedTransiently, wantSidecar: sidecarUntouched,
+			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
 		},
 		{
 			// --no-sign means publish BARE, even though a perfectly good
@@ -362,21 +370,24 @@ func publishCarryCases() []carryCase {
 
 		// --- push, a STALE sidecar (bundle edited after signing) -------------
 		{
-			// CHARACTERIZED: move REFUSES this; push publishes the edited
-			// bytes unsigned and says nothing.
+			// Identical to move/stale. A signature over bytes that no longer
+			// exist is the author's own signal that they are about to ship
+			// something they did not re-review; move has always stopped there
+			// and push now does too.
 			name: "push/stale/no-flags/default-off", via: viaPush, sidecar: sidecarStale,
-			wantBundleSent: true, wantSigRelation: sigNotPublished, wantSidecar: sidecarUntouched,
+			wantErrContains: "no longer covers",
+			wantBundleSent:  false, wantSigRelation: sigNotPublished, wantSidecar: sidecarUntouched,
 		},
 		{
-			// CHARACTERIZED: the remote gets a fresh signature over the edited
-			// bytes while the STALE sidecar stays on disk — local and remote
-			// now disagree about what was signed.
+			// --sign re-signs FIRST, so the stale sidecar is replaced by one
+			// that covers the current bytes and the push proceeds — and local
+			// and remote now agree, which the mint model never achieved.
 			name: "push/stale/sign/default-off", via: viaPush, sidecar: sidecarStale, sign: true,
-			wantBundleSent: true, wantSigRelation: sigMintedTransiently, wantSidecar: sidecarUntouched,
+			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
 		},
 		{
 			name: "push/stale/no-flags/default-on", via: viaPush, sidecar: sidecarStale, signDefault: true,
-			wantBundleSent: true, wantSigRelation: sigMintedTransiently, wantSidecar: sidecarUntouched,
+			wantBundleSent: true, wantSigRelation: sigEqualsPostSidecar, wantSidecar: sidecarWritten,
 		},
 		{
 			// --no-sign does not carry, so there is no pair to be stale.

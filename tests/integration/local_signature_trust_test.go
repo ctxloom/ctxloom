@@ -161,6 +161,16 @@ func TestLocalBundle_StaleSignature_Delivers(t *testing.T) {
 
 			assert.Contains(t, delivered, localSigFragmentBody,
 				"local content with a stale signature must still be delivered — locality is the trust decision")
+
+			// Delivered, but not silently. The signature is now worthless to
+			// the only thing that consumes it (promotion), and the author is
+			// the only person who can fix that.
+			assert.Contains(t, env.LastOutput(), "local.yaml.sig",
+				"a stale signature must be reported, or the author learns of it at publish time")
+			assert.Contains(t, env.LastOutput(), "still delivered",
+				"the diagnostic must say the content was NOT withheld — that is the reader's first question")
+			assert.Contains(t, env.LastOutput(), "ctxloom bundle sign local",
+				"the diagnostic must name the command that fixes it")
 		})
 	}
 }

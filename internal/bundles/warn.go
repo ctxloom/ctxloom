@@ -107,6 +107,6 @@ func (b *bundleWarner) staleSignature(out io.Writer, path, name, detail string) 
 	}
 	base := filepath.Base(path)
 	clidiag.Fwarn(out, "ctxloom", "%s%s no longer covers %s (%s) — the bundle is local, so its content is still delivered, "+
-		"but publishing it would be refused: re-sign with `ctxloom bundle sign %s`",
+		"but it can no longer be published as signed content: re-sign with `ctxloom bundle sign %s`",
 		base, SigSuffix, base, detail, name)
 }

@@ -418,13 +418,15 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 // signature on it is metadata for the day it is promoted, never permission to
 // read it.
 //
-// So why say anything? Because the metadata has one consumer and it is
-// unforgiving: `bundle push` and `bundle move --to` both verify the pair before
-// bytes leave the machine and REFUSE a stale one — publishing it would hand
-// every consumer a trusted key over non-matching bytes, which reads as an
-// attack that never happened. Without this line the author learns that at
-// publish time, having forgotten the edit that caused it. Here they learn it at
-// the edit.
+// So why say anything? Because the metadata has exactly one consumer —
+// PROMOTION — and a stale sidecar is worthless to it in every direction:
+// `bundle move` (and ExportBundle beneath it) verifies the pair before bytes
+// leave the machine and REFUSES a stale one, since publishing a trusted key
+// over non-matching bytes hands every consumer a tamper alarm for an attack
+// that never happened; `bundle push` never reads the sidecar and simply
+// publishes the bytes unsigned. Either way the signature does not travel, and
+// without this line the author finds that out at publish time, long after the
+// edit that caused it.
 //
 // Cheap by construction: it runs only on a cache MISS (LoadFile caches per
 // path), and the overwhelmingly common case — no sidecar at all — costs one

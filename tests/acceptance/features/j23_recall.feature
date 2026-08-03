@@ -136,18 +136,19 @@ Feature: The archaeologist — what did we decide in March?
 
   # A FILED DEFECT (task diffusive-dazzler), reproduced here at the surface a
   # user actually touches. A harp is three random words; mistyping one is the
-  # single most ordinary error available on this command. Today an unknown harp
-  # takes the process down with a nil dereference — operations.GetSession
+  # single most ordinary error available on this command. An unknown harp used
+  # to take the process down with a nil dereference — operations.GetSession
   # returns (nil, nil) for an absent harp and RecordedSessionEntries
-  # dereferences entry.SessionID without checking — while the UNBOUND case
-  # (a harp that exists with no transcript) degrades correctly. The contract
-  # resumeFullContext documents for itself covers both halves; only one is
+  # dereferenced entry.SessionID without checking — while the UNBOUND case
+  # (a harp that exists with no transcript) degraded correctly. The contract
+  # resumeFullContext documents for itself covers both halves; only one was
   # honoured.
   #
-  # UNTAG WHEN: an unknown harp warns and runs. The same call is shared by the
-  # ACP resume path and the coordinator's ended-child resume, so the blast
-  # radius is wider than this one flag.
-  @wip
+  # UNTAGGED: RecordedSessionEntries now returns an error naming the harp and
+  # pointing at `session list`, and resumeFullContext's existing warn-and-carry-
+  # on path does the rest. Fixed at the shared primitive, so the ACP resume path
+  # and the coordinator's ended-child resume — which had the same hole — are
+  # covered by the same change.
   Scenario: A mistyped harp warns instead of taking the process down
     When I run "ctxloom run --session no-such-harp-anywhere --dry-run -p default"
     Then ctxloom warns and runs anyway, naming the harp it could not find

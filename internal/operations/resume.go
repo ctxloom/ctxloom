@@ -14,10 +14,24 @@ import (
 // via the owning backend's session reader (the plugin reassembles and
 // normalizes its own native transcript). Shared by the ACP resume path and
 // the coordinator's ended-child resume.
+//
+// Every failure here is an ERROR, never a panic and never a silent empty
+// slice: the three callers all treat an error as "warn and carry on with the
+// context you have" (see cli/run.go's resumeFullContext), and a typo'd or
+// stale --session must never block a launch.
 func RecordedSessionEntries(ctx context.Context, harp string) ([]agent.SessionEntry, error) {
 	entry, err := GetSession(harp)
 	if err != nil {
-		return nil, fmt.Errorf("unknown session %q: %w", harp, err)
+		return nil, fmt.Errorf("look up session %q: %w", harp, err)
+	}
+	// GetSession reports an ABSENT harp as (nil, nil) — "no such entry" is not
+	// an error to it. Dereferencing without this check is what turned a
+	// mistyped harp (three random words; the most ordinary mistake available
+	// on this command) into a nil-pointer stack trace, and it did so on the
+	// shared primitive, so the ACP resume path and the coordinator's
+	// ended-child resume inherited the same crash.
+	if entry == nil {
+		return nil, fmt.Errorf("unknown session %q: no recorded session by that name; `ctxloom session list` shows the ones there are", harp)
 	}
 	if entry.SessionID == "" {
 		return nil, fmt.Errorf("session %q has no bound transcript to load", harp)

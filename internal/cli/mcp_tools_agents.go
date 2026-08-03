@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/agentcoord/mcpschema"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/harp"
 )
 
 // Agent-delegation tools (agent_run / agent_send / agent_recv / agent_stop),
@@ -41,9 +42,47 @@ type agentDelegation struct {
 // selfIdentityFromEnv is the stdio server's ambient identity: the serving
 // session's harp, always depth 0 — the executor role died with the shim
 // (children run in forward mode and never reach this constructor).
+//
+// THE HARP IS NOT OPTIONAL, and an absent one used to be accepted silently.
+// `ctxloom run` exports CTXLOOM_SESSION_HARP into the engine's env, so an
+// engine it launched spawns this server WITH a harp. But that is only one of
+// the two shipping ways to reach here: `manage install` registers this server
+// in .mcp.json as a bare `ctxloom mcp` with NO env at all
+// (agent.WriteMCPConfig's generated entry), so a plain engine session — the
+// most common installation — starts a coordinator whose Harp is "".
+//
+// An empty owner harp does not fail; it silently breaks every child->parent
+// delivery, because the harp IS the coordinator's mailbox address:
+//
+//   - agent_run journals AgentSpawned.ParentHarp = "" (coord/children.go's
+//     childRt.parentHarp), so the child's lineage has no parent;
+//   - coord's bridgeTurnResult then queues the child's whole turn output to
+//     "" and queueMailPayloadID refuses it ("no session can drain role"),
+//     leaving the report only in a stderr warning the coordinator — an agent
+//     whose sole input is its mailbox — structurally cannot read;
+//   - a child that calls agent_send(to:"parent") itself hits childSend's
+//     `parent == ""` arm and is told it is "not a child of this coordinator".
+//
+// Every cheap signal stays green throughout: agent_run returns success with a
+// harp, the child really runs, its transcript really appears. Only the
+// delivery is gone — this codebase's characteristic exit-0-with-zero-bytes
+// shape, on the bus.
+//
+// So a serving process with no ambient session mints its own harp rather than
+// running as an unaddressable one. It is a real, distinct identity for the
+// lifetime of this coordinator process, which is exactly the lifetime over
+// which its mailbox is meaningful: the same process both spawns the children
+// and drains the mailbox via agent_recv, so a per-process identity closes the
+// loop. It is deliberately NOT persisted — inventing a durable session
+// identity for a session ctxloom did not launch would be a stronger claim
+// than the evidence supports.
 func selfIdentityFromEnv(projectDir string) coord.Identity {
+	sessionHarp := os.Getenv("CTXLOOM_SESSION_HARP")
+	if sessionHarp == "" {
+		sessionHarp = harp.GenerateName()
+	}
 	return coord.Identity{
-		Harp:    os.Getenv("CTXLOOM_SESSION_HARP"),
+		Harp:    sessionHarp,
 		Depth:   0,
 		Project: projectDir,
 	}

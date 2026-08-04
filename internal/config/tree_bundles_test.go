@@ -204,3 +204,72 @@ func TestSeedTreeBundles_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *testin
 	assert.Equal(t, other, failures["https://github.com/acme/ctx@bundles/other"],
 		"a failure that is not a tree refusal must be left untouched")
 }
+
+// stageLoaderFormTree writes the LOADER's directory form — the shape every real
+// directory bundle in the wild actually has: bundle.yaml declares `skills:`
+// metadata inline, and the skill's FILES live in skills/<name>/. The inline key
+// is the manifest FOR those files, not a second copy of them.
+func stageLoaderFormTree(t *testing.T) (*Config, afero.Fs, string) {
+	t.Helper()
+	fsys := afero.NewMemMapFs()
+	dir, err := treeBundleDir(treeBase, treeCanonical)
+	require.NoError(t, err)
+	require.NoError(t, fsys.MkdirAll(filepath.Join(dir, "skills", "good-night"), 0o755))
+	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "bundle.yaml"), []byte(
+		"version: 1.0.0\ndescription: unattended\nskills:\n  good-night:\n    notes: overnight\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "skills", "good-night", "SKILL.md"),
+		[]byte("---\nname: good-night\ndescription: d\n---\n\nGOOD-NIGHT-BODY\n"), 0o644))
+
+	c := &Config{appPaths: []string{treeBase}}
+	c.SetFS(fsys)
+	return c, fsys, dir
+}
+
+// THE REGRESSION. Every directory-form bundle that actually exists is in the
+// loader's shape, and the tree reader refused all of them ("still declares
+// skills inline"). Publishing one and pulling it therefore withheld it entirely
+// — including the bundle that carries the good-night skill.
+//
+// The tree read path must ROUTE by shape rather than assume the tree form.
+func TestLoadTreeBundle_LoaderDirectoryFormIsReadableNotRefused(t *testing.T) {
+	c, _, _ := stageLoaderFormTree(t)
+	_, pub := treeTestSigner(t)
+
+	b, _, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	require.NoError(t, err, "the loader's directory form is a legitimate published shape, not a half-migrated tree")
+	assert.Equal(t, "1.0.0", b.Version)
+	require.Contains(t, b.Skills, "good-night", "the inline skills metadata must survive")
+	assert.Equal(t, "overnight", b.Skills["good-night"].Notes)
+}
+
+// A loader-form bundle's skills are FILES on disk, so its Path must resolve to
+// the installed directory exactly as a tree-form bundle's does — otherwise the
+// package cannot be materialized and the skill silently does not exist.
+func TestLoadTreeBundle_LoaderDirectoryFormResolvesItsSkillDirectory(t *testing.T) {
+	c, _, dir := stageLoaderFormTree(t)
+	_, pub := treeTestSigner(t)
+
+	b, _, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	require.NoError(t, err)
+	got, err := b.FSDir()
+	require.NoError(t, err)
+	assert.Equal(t, dir, got)
+}
+
+// The guard the refusal existed for must SURVIVE the fix: an envelope declaring
+// a fragment inline while a fragments/ file also exists genuinely has two
+// answers for one item, and picking one silently is how a stale inline copy
+// outlives the file that superseded it.
+func TestLoadTreeBundle_GenuinelyHalfMigratedTreeIsStillRefused(t *testing.T) {
+	c, fsys, dir := stageLoaderFormTree(t)
+	require.NoError(t, fsys.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
+	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "bundle.yaml"), []byte(
+		"version: 1.0.0\nfragments:\n  house-style:\n    content: STALE-INLINE-COPY\n"), 0o644))
+	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "fragments", "house-style.md"),
+		[]byte("---\ndescription: d\n---\n\nTHE-FILE-COPY\n"), 0o644))
+
+	_, pub := treeTestSigner(t)
+	_, _, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "fragments")
+}

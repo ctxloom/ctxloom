@@ -1,34 +1,42 @@
 package bundles
 
 import (
-	"errors"
+	"context"
 	"fmt"
 	"io"
-	"io/fs"
-	"maps"
 	"os"
-	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
-	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// Loader loads bundles from disk (and an optional in-memory seed), caching
-// parsed results for the lifetime of the loader.
+// Loader composes Readers into one addressable view of everything this session
+// can see: project bundles, builtins, companion loadouts and pinned remote
+// content, each reported by the reader that owns that source.
+//
+// It carries NO policy — no form preference and no trust gate. Both are
+// PROCESS-stage decisions (docs/design/engine-delivery-seam.design.md, "ALL
+// processing lives in the middle") and both live on Pipeline. What the loader
+// keeps is the trust FACTS its readers established: a publisher signature is
+// verified at read, before any parse, and what that turned out to be travels
+// with the content for the process stage to decide on. Verification is reading;
+// withholding is not.
+//
+// One loader therefore serves everyone: management, listing and every exposure
+// surface alike.
 type Loader struct {
-	searchDirs []string
-	fs         afero.Fs
-	mu         sync.RWMutex       // Protects cache
-	cache      map[string]*Bundle // Cache of loaded bundles by path
-	seeded     map[string]*Bundle // Canonical-ref → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
+	readers []Reader
+
+	mu     sync.RWMutex
+	loaded bool
+	reads  []BundleRead          // every read, in resolution order
+	byRef  map[string]BundleRead // resolution identity → read
+	byPath map[string]BundleRead // filesystem path → read
 
 	// versionResolver materializes a specific historical commit-version of a
 	// bundle (multi-version coexistence, trust rework, TR5). nil = no per-version
@@ -54,58 +62,17 @@ type Loader struct {
 // (fail-closed) — the loader never falls back to a different version on failure.
 type BundleVersionResolver func(canonicalRef, commit string) (*Bundle, error)
 
-// seededPathPrefix is the sentinel that marks BundleInfo.Path entries whose
-// content lives only in Loader.seeded. LoadFile uses the prefix to short-
-// circuit straight back to the seeded bundle without touching the fs.
-const seededPathPrefix = "<seeded>:"
+// remotePathSentinel marks a Bundle.Path that is NOT a filesystem path: pinned
+// remote content that lives in a tree, not in a directory this process can walk.
+// FSDir refuses it rather than resolving it against the working directory.
+const remotePathSentinel = "<remote>:"
 
-// LoaderOption is a functional option for configuring a Loader.
-type LoaderOption func(*Loader)
-
-// WithFS sets a custom filesystem implementation (for testing).
-func WithFS(fs afero.Fs) LoaderOption {
-	return func(l *Loader) {
-		l.fs = fs
-	}
-}
-
-// WithSeededBundles pre-populates the loader with parsed bundles indexed by
-// name. Seeded entries win over fs hits with the same name, which lets
-// remote-pinned bundles served from a git clone cache (see operations.
-// BundleReader) shadow any stale extracted copy left over from a previous
-// install. Each call merges its map into any prior seed.
-func WithSeededBundles(seeded map[string]*Bundle) LoaderOption {
-	return func(l *Loader) {
-		if l.seeded == nil {
-			l.seeded = make(map[string]*Bundle, len(seeded))
-		}
-		// The seed key is the bundle's resolution identity; a bundle that
-		// doesn't carry its own name would compose broken item names
-		// ("/<item>"), so backfill from the key. The key is also the bundle's
-		// canonical (cloned) source ref, recorded so the content gate keys by it
-		// (honest local-vs-clone locality) instead of the short bundle.Name.
-		for name, b := range seeded {
-			if b == nil {
-				continue
-			}
-			if b.Name == "" {
-				b.Name = name
-			}
-			b.sourceRef = name
-		}
-		maps.Copy(l.seeded, seeded)
-	}
-}
-
-// WithVersionResolver attaches the per-commit-version resolver (multi-version
-// coexistence, trust rework, TR5) so the loader can materialize a specific
-// historical version of a bundle via the version-aware methods. A nil resolver
-// (the default) leaves the loader version-unaware: the lockfile-pinned default
-// is the only version, and a pinned-version request fails closed.
-func WithVersionResolver(resolver BundleVersionResolver) LoaderOption {
-	return func(l *Loader) {
-		l.versionResolver = resolver
-	}
+// NewLoader composes readers into one loader. Readers are consulted in order
+// and a LATER reader's bundle wins a name collision — the same precedence the
+// seed map had, where pinned remote content shadowed a stale extracted copy on
+// disk.
+func NewLoader(readers ...Reader) *Loader {
+	return &Loader{readers: readers, warnOut: os.Stderr}
 }
 
 // WithWarnWriter redirects this loader/store's user-facing diagnostics (the
@@ -113,260 +80,261 @@ func WithVersionResolver(resolver BundleVersionResolver) LoaderOption {
 // the user would have been told. The default is os.Stderr: a warning nobody
 // sees is the bug these diagnostics exist to prevent.
 //
-// ALL of them: the signature a Save invalidated, an unresolved bundle ref, and
-// an ambiguous bare fragment ask. The last two dedup process-wide (see
+// ALL of them: the stale local signature a read found, an unresolved bundle
+// ref, and an ambiguous bare fragment ask. The last two dedup process-wide (see
 // bundleWarner) but still emit through this writer — dedup is the process's
 // business, the sink is the caller's.
-func WithWarnWriter(w io.Writer) LoaderOption {
-	return func(l *Loader) {
-		l.warnOut = w
-	}
-}
-
-// NewLoader creates a bundle reader.
-// The reader caches loaded bundles in memory to avoid redundant disk reads.
-//
-// It carries NO policy — no form preference and no trust gate. Both are
-// PROCESS-stage decisions (docs/design/engine-delivery-seam.design.md, "ALL
-// processing lives in the middle") and both live on Pipeline. What the reader
-// does keep is its ability to ESTABLISH trust facts: a publisher signature is
-// verified at load, before any parse, and the verified identity travels with
-// the content (Bundle.Signer) for the process stage to decide on. Verification
-// is reading; withholding is not.
-//
-// One reader therefore serves everyone: management, listing and every exposure
-// surface alike.
-func NewLoader(searchDirs []string, opts ...LoaderOption) *Loader {
-	l := &Loader{
-		searchDirs: searchDirs,
-		fs:         afero.NewOsFs(),
-		cache:      make(map[string]*Bundle),
-		warnOut:    os.Stderr,
-	}
-	for _, opt := range opts {
-		opt(l)
-	}
+func (l *Loader) WithWarnWriter(w io.Writer) *Loader {
+	l.warnOut = w
 	return l
 }
 
-// FS returns the filesystem this loader reads bundle trees from. A skill's
-// trust preimage is derived from its on-disk tree (BundleSkill.ContentPayload),
-// so a caller computing that preimage for an item this loader resolved MUST
-// use this same filesystem — computing it against a different fs would produce
-// a different hash for the same skill and silently withhold it.
-func (l *Loader) FS() afero.Fs {
-	return l.fs
+// WithVersionResolver attaches the per-commit-version resolver (multi-version
+// coexistence, trust rework, TR5) so the loader can materialize a specific
+// historical version of a bundle via the version-aware methods. A nil resolver
+// (the default) leaves the loader version-unaware: the lockfile-pinned default
+// is the only version, and a pinned-version request fails closed.
+func (l *Loader) WithVersionResolver(resolver BundleVersionResolver) *Loader {
+	l.versionResolver = resolver
+	return l
 }
 
-// seededPath builds the synthetic path used in BundleInfo for seeded bundles.
-// LoadFile inverts the encoding to recover the name.
-func seededPath(name string) string { return seededPathPrefix + name }
-
-// seededNameFromPath returns ("name", true) when path is a sentinel produced
-// by seededPath. Returns ("", false) for real fs paths.
-func seededNameFromPath(path string) (string, bool) {
-	if rest, ok := strings.CutPrefix(path, seededPathPrefix); ok {
-		return rest, true
+// FS returns the filesystem this loader's local content was read from. A
+// skill's trust preimage is derived from its on-disk tree
+// (BundleSkill.ContentPayload), so a caller computing that preimage for an item
+// this loader resolved MUST use this same filesystem — computing it against a
+// different fs would produce a different hash for the same skill and silently
+// withhold it.
+//
+// It comes from the first reader that has one (the project reader in every real
+// wiring), and falls back to the OS filesystem for a loader composed entirely
+// of sources that are not filesystems.
+func (l *Loader) FS() afero.Fs {
+	for _, r := range l.readers {
+		if fsr, ok := r.(interface{ FS() afero.Fs }); ok {
+			return fsr.FS()
+		}
 	}
-	return "", false
+	return afero.NewOsFs()
+}
+
+// index reads every reader once and builds the addressable view.
+//
+// The read is memoized for the loader's life, which is what makes repeated
+// resolution cheap and what keeps a companion probe (an EXEC per companion)
+// from running per lookup. A write through fsStore invalidates it, so a
+// save-then-read within one command sees the new bytes.
+func (l *Loader) index() {
+	l.mu.RLock()
+	loaded := l.loaded
+	l.mu.RUnlock()
+	if loaded {
+		return
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.loaded {
+		return
+	}
+	byRef := make(map[string]BundleRead)
+	byPath := make(map[string]BundleRead)
+	var order []string
+	for _, r := range l.readers {
+		reads, err := r.Read(context.Background())
+		if err != nil {
+			// A source that could not be read is NOT an empty source. Reporting
+			// it is the difference between "you have no bundles" and "we could
+			// not find out what bundles you have"; the reads it did produce
+			// before failing are kept.
+			strictness.Fail(strictness.ClassBundle, "check the source named in the error, then re-run",
+				"a bundle source could not be read in full; some content may be missing: %v", err)
+		}
+		for _, read := range reads {
+			if !l.admit(read) {
+				continue
+			}
+			if _, seen := byRef[read.ref]; !seen {
+				order = append(order, read.ref)
+			}
+			byRef[read.ref] = read
+			if path := read.Bundle.Path; path != "" && !isSyntheticPath(path) {
+				byPath[path] = read
+			}
+		}
+	}
+	sort.Strings(order)
+	l.reads = make([]BundleRead, 0, len(order))
+	for _, ref := range order {
+		l.reads = append(l.reads, byRef[ref])
+	}
+	l.byRef, l.byPath, l.loaded = byRef, byPath, true
+}
+
+// admit decides whether one read becomes addressable content, and is the ONLY
+// place in the read path that can answer no.
+//
+// It holds exactly two rules, and both exist to preserve a property that
+// predates the readers:
+//
+//   - An UNCLAIMED read — one whose axes were never populated — is not content
+//     with unknown trust, it is a value nobody established anything about. Zero
+//     means unset and unset means withhold, or a struct literal would read as
+//     "local, unsigned, no signer".
+//   - REMOTE content whose signature is INVALID is tamper, and must never
+//     degrade to the unsigned/review path: degrading it would let an attacker
+//     downgrade a signed bundle to a merely-reviewable one by corrupting its
+//     `.sig`. This is the decision table's remote|invalid row, applied here as a
+//     CARRY-OVER because the gate does not key on TrustCtx yet; when
+//     operations.EffectiveTrust does, this rule moves there and this function
+//     keeps only the unclaimed check.
+//
+// Everything else — including a local bundle whose signature is stale — is
+// admitted, and the stale one is told about.
+func (l *Loader) admit(read BundleRead) bool {
+	if !read.Claimed() {
+		strictness.Fail(strictness.ClassTrust, "report this: a bundle reached the loader without established provenance",
+			"withholding a bundle read that established no trust facts (provenance %s, context %s, signature %s, signer %s)",
+			read.Provenance, read.trustCtx, read.signature, read.signer)
+		return false
+	}
+	if read.trustCtx == TrustCtxRemote && read.signature == SignatureInvalid {
+		strictness.FailOnce(strictness.ClassTrust,
+			"re-pull the bundle, or investigate the source — its signature does not cover its bytes",
+			"remote bundle %q has a signature that does not verify over its content; withholding it: %s",
+			read.ref, read.signatureDetail)
+		return false
+	}
+	if read.trustCtx == TrustCtxLocal && read.signature == SignatureInvalid {
+		// The stale-sidecar diagnostic: admit, and tell the author their
+		// signature no longer covers their bytes. Losing this line sends the
+		// edit-without-re-signing failure downstream to a consumer who cannot
+		// fix it — `bundle move` refuses to publish the pair, and `bundle push`
+		// publishes the bytes unsigned, so without this the author finds out at
+		// publish time, long after the edit that caused it.
+		l.warnStaleSignature(read.Bundle.Path, read.Bundle.Name, read.signatureDetail)
+	}
+	return true
+}
+
+// isSyntheticPath reports whether a Bundle.Path is one of the non-filesystem
+// sentinels, so the loader never indexes one as though it were a real path.
+func isSyntheticPath(path string) bool {
+	for _, prefix := range nonFilesystemPathPrefixes {
+		if len(path) >= len(prefix) && path[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+// invalidate drops the memoized read so the next resolution re-reads every
+// source. fsStore calls it after a write: a save followed by a read within one
+// command must see the bytes that were just written.
+func (l *Loader) invalidate() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.loaded, l.reads, l.byRef, l.byPath = false, nil, nil, nil
+}
+
+// Reads returns every bundle this loader can see, with the trust facts its
+// reader established. It is the honest shape of the read stage — content plus
+// facts, nothing dropped on policy grounds — and the seam the process stage
+// will decide on.
+func (l *Loader) Reads() []BundleRead {
+	l.index()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return append([]BundleRead(nil), l.reads...)
 }
 
 // Load reads a bundle by name.
 // Name can be:
-//   - Simple name: "go-tools" -> searches for go-tools.yaml or go-tools/bundle.yaml
-//   - Remote-qualified: "alice/go-tools" -> searches in alice/ subdirectory
-//   - Local canonical: "ctxloom:local@bundles/go-tools" -> same fs search as the
-//     simple name; this is the qualified identity the assembly pipeline carries
-//     (see remote.CanonicalBundleRef).
-//
-// Seeded bundles (see WithSeededBundles) win over fs hits with the same
-// name; this is how remote-pinned bundles delivered by operations.
-// BundleReader shadow any stale extracted copy still on disk.
+//   - Simple name: "go-tools"
+//   - Remote-qualified: "alice/go-tools"
+//   - Canonical: "https://…@bundles/go-tools", "ctxloom:companion@ltk"
+//   - Local canonical: "ctxloom:local@bundles/go-tools" — the qualified identity
+//     the assembly pipeline carries (see remote.CanonicalBundleRef), resolved to
+//     the same project bundle as the simple name.
 func (l *Loader) Load(name string) (*Bundle, error) {
-	if b, ok := l.lookupSeeded(name); ok {
-		return b, nil
+	read, ok := l.lookup(name)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
 	}
-	if ref, err := remote.ParseReference(name); err == nil && ref.IsLocal && ref.ItemType == remote.ItemTypeBundle {
-		name = ref.Path
-	}
-	path, err := l.Find(name)
-	if err != nil {
-		return nil, err
-	}
-	return l.LoadFile(path)
+	return read.Bundle, nil
 }
 
-// lookupSeeded returns the seeded bundle for name, if any. Cheap read-only.
-// Seeded bundles are keyed by their version-less canonical ref (the lockfile
-// key shape), so a ref carrying a content version ("...@<sha>") is normalized
-// to that form when the exact lookup misses.
-func (l *Loader) lookupSeeded(name string) (*Bundle, bool) {
-	if l.seeded == nil {
-		return nil, false
-	}
-	if b, ok := l.seeded[name]; ok {
-		return b, true
+// lookup resolves a ref to a read: exact identity first, then the version-less
+// canonical key (a ref carrying a content version resolves to the pinned one),
+// then the local-canonical form's plain path.
+func (l *Loader) lookup(name string) (BundleRead, bool) {
+	l.index()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	if read, ok := l.byRef[name]; ok {
+		return read, true
 	}
 	if key, ok := remote.CanonicalKey(name); ok && key != name {
-		b, ok := l.seeded[key]
-		return b, ok
+		if read, ok := l.byRef[key]; ok {
+			return read, true
+		}
 	}
-	return nil, false
+	if ref, err := remote.ParseReference(name); err == nil && ref.IsLocal && ref.ItemType == remote.ItemTypeBundle {
+		if read, ok := l.byRef[ref.Path]; ok {
+			return read, true
+		}
+	}
+	return BundleRead{}, false
 }
 
-// Find locates a bundle file by name (supports paths with slashes like "github.com/user/repo/bundle").
+// Find locates the FILE backing a bundle. It exists for the two callers that
+// need the path itself — deleting a bundle, and reporting whether a short name
+// resolves — and refuses a bundle that has no file, because a synthetic path is
+// not one.
 func (l *Loader) Find(name string) (string, error) {
-	// Security: validate name
 	if err := ValidateBundleName(name); err != nil {
 		return "", err
 	}
-
-	// Convert forward slashes to OS-specific separator
-	osName := filepath.FromSlash(name)
-
-	for _, dir := range l.searchDirs {
-		// Try direct path: name.yaml
-		path := filepath.Join(dir, osName+".yaml")
-		if _, err := l.fs.Stat(path); err == nil {
-			return path, nil
-		}
-
-		// Try directory path: name/bundle.yaml
-		path = filepath.Join(dir, osName, DirectoryFormManifest)
-		if _, err := l.fs.Stat(path); err == nil {
-			return path, nil
-		}
+	read, ok := l.lookup(name)
+	if !ok {
+		return "", fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
 	}
-
-	return "", fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
+	if read.Bundle.Path == "" || isSyntheticPath(read.Bundle.Path) {
+		return "", fmt.Errorf("bundle %q has no file on this machine (it came from %s)", name, read.Provenance)
+	}
+	return read.Bundle.Path, nil
 }
 
-// LoadFile reads a bundle from a specific path.
-// Results are cached to avoid redundant disk reads when the same bundle
-// is referenced multiple times (e.g., by multiple profiles).
+// LoadFile returns the bundle backed by a specific file path — the inverse of
+// the Path a listing reported.
 //
-// CONCURRENCY, precisely. The CALL is safe from any goroutine: the cache map
-// is mutex-protected and a concurrent miss resolves to one shared entry. The
-// RESULT is not a private copy — every caller asking for the same path gets
-// the SAME *Bundle, and a seeded bundle is a pointer the seeder still holds.
-// Bundle's item maps are exported and StampSigner mutates in place, so a
-// caller that writes through the returned pointer races every other holder.
-// Treat what LoadFile hands back as READ-ONLY; mutate a bundle before it is
-// seeded or cached (which is what the signer-stamping load paths do), never
-// after.
-//
-// Synthetic seeded-bundle paths (see seededPath) bypass the fs and return
-// the corresponding seeded bundle. Real fs paths use the on-disk cache.
+// CONCURRENCY, precisely. The CALL is safe from any goroutine. The RESULT is
+// not a private copy — every caller asking for the same bundle gets the SAME
+// *Bundle. Bundle's item maps are exported and StampSigner mutates in place, so
+// a caller that writes through the returned pointer races every other holder.
+// Treat what this hands back as READ-ONLY.
 func (l *Loader) LoadFile(path string) (*Bundle, error) {
-	if name, ok := seededNameFromPath(path); ok {
-		if b, ok := l.lookupSeeded(name); ok {
-			return b, nil
-		}
-		return nil, fmt.Errorf("seeded bundle %q not found", name)
-	}
-
-	// Check cache first (read lock)
+	l.index()
 	l.mu.RLock()
-	if cached, ok := l.cache[path]; ok {
-		l.mu.RUnlock()
-		return cached, nil
-	}
+	read, ok := l.byPath[path]
 	l.mu.RUnlock()
-
-	// Load from disk (no lock held during I/O)
-	data, err := afero.ReadFile(l.fs, path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read bundle: %w", err)
+	if !ok {
+		return nil, fmt.Errorf("%w: no bundle was read from %s", errs.ErrBundleNotFound, path)
 	}
-
-	bundle, err := ParseBundle(data)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse bundle %s: %w", path, err)
-	}
-
-	bundle.Path = path
-	bundle.Name = ExtractBundleName(path)
-
-	// Skills are a PACKAGE (a directory tree: SKILL.md + optional sibling
-	// files), which a single-file bundle ("<name>.yaml") has no filesystem
-	// room to hold alongside it. Fail loud here rather than let a skill entry
-	// silently resolve against a directory that doesn't exist.
-	if len(bundle.Skills) > 0 && filepath.Base(path) != DirectoryFormManifest {
-		return nil, fmt.Errorf("bundle %s: skills require a directory-form bundle (bundle.yaml + skills/<name>/), not a single-file bundle (%s)", bundle.Name, filepath.Base(path))
-	}
-
-	l.checkLocalSignature(path, bundle.Name, data)
-
-	// Cache for future loads (write lock)
-	l.mu.Lock()
-	// Double-check in case another goroutine cached it while we were loading
-	if cached, ok := l.cache[path]; ok {
-		l.mu.Unlock()
-		return cached, nil
-	}
-	l.cache[path] = bundle
-	l.mu.Unlock()
-
-	return bundle, nil
+	return read.Bundle, nil
 }
 
-// checkLocalSignature reports — and only reports — a sibling `.sig` that does
-// not cover the bundle bytes just read from path.
-//
-// IT IS NOT A GATE, and deliberately cannot become one: it returns nothing, and
-// LoadFile calls it for its side effect alone. A bundle reached through this
-// function is project-authored local content in the tree's own bundles
-// directory (every bundles.Loader is built over cfg.GetBundleDirs() /
-// paths.LocalBundlesPath — remote content never resolves here, it is seeded
-// pre-parsed by config.loadRemoteBundleSeed with its publisher signature already
-// verified at fetch). Local content is trusted by LOCALITY, at
-// operations.EffectiveTrust's local step, above every signature step. A
-// signature on it is metadata for the day it is promoted, never permission to
-// read it.
-//
-// So why say anything? Because the metadata has exactly one consumer —
-// PROMOTION — and a stale sidecar is worthless to it in every direction:
-// `bundle move` (and ExportBundle beneath it) verifies the pair before bytes
-// leave the machine and REFUSES a stale one, since publishing a trusted key
-// over non-matching bytes hands every consumer a tamper alarm for an attack
-// that never happened; `bundle push` never reads the sidecar and simply
-// publishes the bytes unsigned. Either way the signature does not travel, and
-// without this line the author finds that out at publish time, long after the
-// edit that caused it.
-//
-// Cheap by construction: it runs only on a cache MISS (LoadFile caches per
-// path), and the overwhelmingly common case — no sidecar at all — costs one
-// failed open and returns silently.
-func (l *Loader) checkLocalSignature(path, name string, data []byte) {
-	sig, err := afero.ReadFile(l.fs, path+SigSuffix)
-	if errors.Is(err, fs.ErrNotExist) {
-		return // Unsigned: the common case, and nothing to say about it.
-	}
-	if err != nil {
-		// A sidecar that EXISTS but cannot be read is not the same as none: we
-		// cannot show it covers these bytes, so it is exactly as unpublishable
-		// as a stale one, and just as silent without this.
-		l.warnStaleSignature(path, name, fmt.Sprintf("it could not be read: %v", err))
-		return
-	}
-	if verr := signing.CoversBytes(data, sig, signing.NamespacePublish); verr != nil {
-		l.warnStaleSignature(path, name, verr.Error())
-	}
-}
-
-// List returns all available bundles. Seeded bundles are listed first so
-// that when an fs walk turns up a stale extracted copy with the same name,
-// the seeded entry stays authoritative.
+// List returns every bundle this loader can see, as listing metadata.
 func (l *Loader) List() ([]*BundleInfo, error) {
-	var bundles []*BundleInfo
-	seen := collections.NewSet[string]()
-
-	// Seeded bundles take precedence — emit them with a sentinel path that
-	// LoadFile knows how to short-circuit.
-	for name, b := range l.seeded {
-		bundles = append(bundles, &BundleInfo{
-			Name:          name,
-			Path:          seededPath(name),
+	l.index()
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	out := make([]*BundleInfo, 0, len(l.reads))
+	for _, read := range l.reads {
+		b := read.Bundle
+		out = append(out, &BundleInfo{
+			Name:          read.ref,
+			Path:          b.Path,
 			Version:       b.Version,
 			Description:   b.Description,
 			Tags:          b.Tags,
@@ -376,96 +344,8 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 			ProfileCount:  b.ProfileCount(),
 			Signer:        b.Signer(),
 		})
-		seen.Add(name)
 	}
-
-	// Search bundle directories recursively
-	for _, dir := range l.searchDirs {
-		// "Does not exist" and "cannot be read" are different facts and must
-		// not share an exit. A configured bundles root that is
-		// absent is ordinary — most searchDirs are speculative — but one that
-		// errors on stat is a fault, and folding it into the same `continue`
-		// produced an empty list with a nil error, so every downstream sweep
-		// then told the user their fragment did not exist when the truth was
-		// that their bundles directory could not be read.
-		exists, err := afero.DirExists(l.fs, dir)
-		if err != nil {
-			strictness.Fail(strictness.ClassBundle, "check the permissions on your bundles directory",
-				"cannot read bundles directory %s: %v", dir, err)
-			continue
-		}
-		if !exists {
-			continue
-		}
-
-		if werr := afero.Walk(l.fs, dir, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				// Per-entry walk failure: report and keep walking, so one
-				// unreadable subdirectory cannot hide every other bundle —
-				// the same warn-and-continue shape the per-bundle failure
-				// paths below use, but no longer SILENT.
-				strictness.Fail(strictness.ClassBundle, "check the permissions on your bundles directory",
-					"skipping unreadable bundle path %s: %v", path, err)
-				return nil
-			}
-			if info.IsDir() {
-				// Check for bundle.yaml in directories
-				bundlePath := filepath.Join(path, DirectoryFormManifest)
-				if _, err := l.fs.Stat(bundlePath); err == nil {
-					relPath, _ := filepath.Rel(dir, path)
-					bundleName := filepath.ToSlash(relPath)
-					if seen.Has(bundleName) {
-						return nil
-					}
-					bundleInfo, err := l.loadBundleInfo(bundlePath, bundleName)
-					if err == nil {
-						bundles = append(bundles, bundleInfo)
-						seen.Add(bundleName)
-					} else {
-						// A local bundle that fails to load is fatal-class in
-						// strict mode (fail-loudly): the warning streams either
-						// way, and a startup choke owner aborts on the finding.
-						// Degraded mode keeps the warn-and-skip so a corrupt
-						// bundle never silently vanishes from list output.
-						strictness.Fail(strictness.ClassBundle, "fix or remove the bundle file",
-							"skipping bundle %s: %v", bundlePath, err)
-					}
-				}
-				return nil
-			}
-
-			name := info.Name()
-			// Check for .yaml files (bundle files)
-			if strings.HasSuffix(name, ".yaml") && name != DirectoryFormManifest {
-				relPath, _ := filepath.Rel(dir, path)
-				bundleName := strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml")
-				if seen.Has(bundleName) {
-					return nil
-				}
-				bundleInfo, err := l.loadBundleInfo(path, bundleName)
-				if err == nil {
-					bundles = append(bundles, bundleInfo)
-					seen.Add(bundleName)
-				} else {
-					strictness.Fail(strictness.ClassBundle, "fix or remove the bundle file",
-						"skipping bundle %s: %v", path, err)
-				}
-			}
-			return nil
-		}); werr != nil {
-			// Walk itself gave up (the root could not be opened at all — the
-			// callback never even runs for that case). Previously `_`-assigned.
-			strictness.Fail(strictness.ClassBundle, "check the permissions on your bundles directory",
-				"cannot walk bundles directory %s: %v", dir, werr)
-		}
-	}
-
-	// Sort by name
-	sort.Slice(bundles, func(i, j int) bool {
-		return bundles[i].Name < bundles[j].Name
-	})
-
-	return bundles, nil
+	return out, nil
 }
 
 // BundleInfo holds metadata about a bundle without loading full content.
@@ -517,23 +397,4 @@ type BundleInfo struct {
 	// pending-review list (unsigned is not pending), so nothing named the bundle
 	// or the reason. See doctorCheckContentTrust.
 	Signer string
-}
-
-func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {
-	bundle, err := l.LoadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	return &BundleInfo{
-		Name:          name,
-		Path:          path,
-		Version:       bundle.Version,
-		Description:   bundle.Description,
-		Tags:          bundle.Tags,
-		FragmentCount: bundle.FragmentCount(),
-		CommandCount:  bundle.CommandCount(),
-		MCPCount:      bundle.MCPCount(),
-		ProfileCount:  bundle.ProfileCount(),
-	}, nil
 }

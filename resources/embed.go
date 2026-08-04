@@ -228,3 +228,26 @@ func GetBuiltinBundle(name string) ([]byte, error) {
 func ListBuiltinBundles() ([]string, error) {
 	return listEmbeddedNames(resourcesFS, "builtin_bundles", ".yaml")
 }
+
+// BuiltinBundlesFS returns the embedded builtin_bundles/ directory as a
+// filesystem, so the one reader that reads bundle documents out of directories
+// can serve the builtins too rather than a second body doing the same walk,
+// parse and signature check.
+//
+// A build that embedded nothing is a build defect, not an empty set — but this
+// accessor cannot report it and must not invent an alternative, so it hands
+// back an empty FS and lets the reader's own "no bundles here" reporting say
+// so. fs.Sub over an embed.FS with a literal, always-present path cannot fail;
+// the error is folded into an empty FS rather than a panic in a library.
+func BuiltinBundlesFS() fs.FS {
+	sub, err := fs.Sub(resourcesFS, "builtin_bundles")
+	if err != nil {
+		return emptyFS{}
+	}
+	return sub
+}
+
+// emptyFS is the unreachable fallback above: a filesystem holding nothing.
+type emptyFS struct{}
+
+func (emptyFS) Open(string) (fs.File, error) { return nil, fs.ErrNotExist }

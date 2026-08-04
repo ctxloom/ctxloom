@@ -134,7 +134,7 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 	// preimage and skip the verification below, so a manifest-less skill got
 	// a constant hash AND no tamper check — two failures of one trust gate.
 	// A failure to resolve the manifest withholds.
-	manifest, err := entry.EffectiveManifest(l.fs, bundleDir, name)
+	manifest, err := entry.EffectiveManifest(l.FS(), bundleDir, name)
 	if err != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, err)
 		return nil
@@ -149,12 +149,12 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 	// this is the tamper check against what was signed; for a derived one it
 	// re-confirms the tree still matches the preimage carried out below, so the
 	// bytes the process stage decides on are the bytes just verified.
-	if verr := VerifyExtractedManifest(l.fs, dir, manifest); verr != nil {
+	if verr := VerifyExtractedManifest(l.FS(), dir, manifest); verr != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, verr)
 		return nil
 	}
 
-	pkg, err := ParseSkillPackage(l.fs, dir, 0)
+	pkg, err := ParseSkillPackage(l.FS(), dir, 0)
 	if err != nil {
 		clidiag.Warn("ctxloom", "skipping skill %q: %v", name, err)
 		return nil
@@ -162,7 +162,7 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 
 	files := make([]LoadedSkillFile, 0, len(pkg.Manifest))
 	for _, m := range pkg.Manifest {
-		data, rerr := afero.ReadFile(l.fs, filepath.Join(dir, filepath.FromSlash(m.Path)))
+		data, rerr := afero.ReadFile(l.FS(), filepath.Join(dir, filepath.FromSlash(m.Path)))
 		if rerr != nil {
 			clidiag.Warn("ctxloom", "skipping skill %q: reading %s: %v", name, m.Path, rerr)
 			return nil

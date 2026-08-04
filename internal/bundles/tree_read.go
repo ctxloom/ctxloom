@@ -1,30 +1,20 @@
-package convert
+package bundles
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// EnvelopePath is the bundle-relative file carrying a tree's BUNDLE-LEVEL
-// fields — version, description, tags, author. It is the same name a
-// directory-form bundle has always used, and the same one remote.TreeManifest
-// refuses a fetched tree without.
-//
-// It is not an item and never appears in Refs: it sits at the tree root rather
-// than in a kind directory, so no SurfaceType claims it. That is deliberate —
-// the envelope describes the bundle, the items describe themselves.
-const EnvelopePath = "bundle.yaml"
-
-// Read assembles a monolithic bundles.Bundle from a tree-form content.Bundle:
+// ReadTree assembles a monolithic Bundle from a tree-form content.Bundle:
 // the inverse of Convert, and the half the tree format shipped without.
 //
-// It exists because the rest of ctxloom still consumes a bundles.Bundle —
+// It exists because the rest of ctxloom still consumes a Bundle —
 // assembly, the trust gate, profile resolution and materialize all take one —
 // so a tree has to become one somewhere. Doing it HERE, in the package that
 // already owns the other direction, is what keeps the two mappings adjacent:
@@ -42,17 +32,17 @@ const EnvelopePath = "bundle.yaml"
 //     no rule for which wins, which is how a stale inline copy outlives the file
 //     that superseded it;
 //   - no items at all — an empty bundle delivers nothing, loudly to no one.
-func Read(ctx context.Context, b content.Bundle) (*bundles.Bundle, error) {
+func ReadTree(ctx context.Context, b content.Bundle) (*Bundle, error) {
 	out, err := readEnvelope(ctx, b)
 	if err != nil {
 		return nil, err
 	}
 	refs, err := b.Refs(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("convert: enumerating tree bundle %q: %w", b.ID(), err)
+		return nil, fmt.Errorf("bundles: enumerating tree bundle %q: %w", b.ID(), err)
 	}
 	if len(refs) == 0 {
-		return nil, fmt.Errorf("convert: tree bundle %q declares no items; refusing to read it as an empty bundle "+
+		return nil, fmt.Errorf("bundles: tree bundle %q declares no items; refusing to read it as an empty bundle "+
 			"(an empty bundle loads, assembles and materializes without complaint and delivers nothing)", b.ID())
 	}
 
@@ -60,11 +50,11 @@ func Read(ctx context.Context, b content.Bundle) (*bundles.Bundle, error) {
 	for _, ref := range refs {
 		item, err := b.Item(ctx, ref)
 		if err != nil {
-			return nil, fmt.Errorf("convert: reading %s: %w", ref.Key(), err)
+			return nil, fmt.Errorf("bundles: reading %s: %w", ref.Key(), err)
 		}
 		surface, err := item.Surface(ctx)
 		if err != nil {
-			return nil, fmt.Errorf("convert: decoding %s: %w", ref.Key(), err)
+			return nil, fmt.Errorf("bundles: decoding %s: %w", ref.Key(), err)
 		}
 		if err := r.add(ref, surface); err != nil {
 			return nil, err
@@ -76,20 +66,20 @@ func Read(ctx context.Context, b content.Bundle) (*bundles.Bundle, error) {
 
 // readEnvelope parses the tree's bundle.yaml into the bundle value the items are
 // then filled into, and refuses one that still declares items inline.
-func readEnvelope(ctx context.Context, b content.Bundle) (*bundles.Bundle, error) {
-	raw, err := b.ReadFile(ctx, EnvelopePath)
+func readEnvelope(ctx context.Context, b content.Bundle) (*Bundle, error) {
+	raw, err := b.ReadFile(ctx, DirectoryFormManifest)
 	if err != nil {
-		return nil, fmt.Errorf("convert: tree bundle %q has no %s, so it carries no version or description "+
-			"and cannot be read as a bundle: %w", b.ID(), EnvelopePath, err)
+		return nil, fmt.Errorf("bundles: tree bundle %q has no %s, so it carries no version or description "+
+			"and cannot be read as a bundle: %w", b.ID(), DirectoryFormManifest, err)
 	}
-	env, err := bundles.ParseBundle(raw)
+	env, err := ParseBundle(raw)
 	if err != nil {
-		return nil, fmt.Errorf("convert: parsing %s of tree bundle %q: %w", EnvelopePath, b.ID(), err)
+		return nil, fmt.Errorf("bundles: parsing %s of tree bundle %q: %w", DirectoryFormManifest, b.ID(), err)
 	}
 	if inline := inlineKeys(env); len(inline) > 0 {
-		return nil, fmt.Errorf("convert: %s of tree bundle %q still declares %s inline while the tree also holds item files; "+
+		return nil, fmt.Errorf("bundles: %s of tree bundle %q still declares %s inline while the tree also holds item files; "+
 			"a half-migrated bundle has two answers for one item and no rule for which wins — "+
-			"finish the migration by removing the inline keys", EnvelopePath, b.ID(), strings.Join(inline, ", "))
+			"finish the migration by removing the inline keys", DirectoryFormManifest, b.ID(), strings.Join(inline, ", "))
 	}
 	return env, nil
 }
@@ -97,7 +87,7 @@ func readEnvelope(ctx context.Context, b content.Bundle) (*bundles.Bundle, error
 // inlineKeys names the item-bearing envelope keys that are populated. It is
 // exhaustive over the kinds Read fills in, which is what makes the ambiguity
 // check total rather than a spot-check on whichever key someone remembered.
-func inlineKeys(b *bundles.Bundle) []string {
+func inlineKeys(b *Bundle) []string {
 	var out []string
 	if len(b.Fragments) > 0 {
 		out = append(out, "fragments")
@@ -125,7 +115,7 @@ func inlineKeys(b *bundles.Bundle) []string {
 // finishHooks.
 type reader struct {
 	bundle string
-	out    *bundles.Bundle
+	out    *Bundle
 	hooks  map[string][]content.Hook
 }
 
@@ -153,7 +143,7 @@ func (r *reader) add(ref trust.Ref, s content.Surface) error {
 	case content.Profile:
 		r.addProfile(v)
 	default:
-		return fmt.Errorf("convert: tree bundle %q holds %s, a surface kind this reader does not know how to fold into a bundle document; "+
+		return fmt.Errorf("bundles: tree bundle %q holds %s, a surface kind this reader does not know how to fold into a bundle document; "+
 			"teach Read about it rather than letting it be dropped silently", r.bundle, ref.Key())
 	}
 	return nil
@@ -161,9 +151,9 @@ func (r *reader) add(ref trust.Ref, s content.Surface) error {
 
 func (r *reader) addFragment(v content.Fragment) {
 	if r.out.Fragments == nil {
-		r.out.Fragments = map[string]bundles.BundleFragment{}
+		r.out.Fragments = map[string]BundleFragment{}
 	}
-	r.out.Fragments[v.Name] = bundles.BundleFragment{
+	r.out.Fragments[v.Name] = BundleFragment{
 		Tags:         v.Tags,
 		Notes:        v.Notes,
 		Installation: v.Installation,
@@ -177,9 +167,9 @@ func (r *reader) addFragment(v content.Fragment) {
 
 func (r *reader) addCommand(v content.Command) {
 	if r.out.Commands == nil {
-		r.out.Commands = map[string]bundles.BundleCommand{}
+		r.out.Commands = map[string]BundleCommand{}
 	}
-	r.out.Commands[v.Name] = bundles.BundleCommand{
+	r.out.Commands[v.Name] = BundleCommand{
 		Description:  v.Description,
 		Tags:         v.Tags,
 		Notes:        v.Notes,
@@ -195,9 +185,9 @@ func (r *reader) addCommand(v content.Command) {
 
 func (r *reader) addMCP(v content.MCP) {
 	if r.out.MCP == nil {
-		r.out.MCP = map[string]bundles.BundleMCP{}
+		r.out.MCP = map[string]BundleMCP{}
 	}
-	r.out.MCP[v.Name] = bundles.BundleMCP{
+	r.out.MCP[v.Name] = BundleMCP{
 		Command:      v.Command,
 		Args:         v.Args,
 		Env:          v.Env,
@@ -209,13 +199,13 @@ func (r *reader) addMCP(v content.MCP) {
 
 func (r *reader) addSkill(v content.Skill) error {
 	if r.out.Skills == nil {
-		r.out.Skills = map[string]bundles.BundleSkill{}
+		r.out.Skills = map[string]BundleSkill{}
 	}
 	files, err := skillManifest(v)
 	if err != nil {
-		return fmt.Errorf("convert: skill %q in tree bundle %q: %w", v.Name, r.bundle, err)
+		return fmt.Errorf("bundles: skill %q in tree bundle %q: %w", v.Name, r.bundle, err)
 	}
-	r.out.Skills[v.Name] = bundles.BundleSkill{
+	r.out.Skills[v.Name] = BundleSkill{
 		// Path is left DEFAULT ("skills/<name>"), which is exactly where the
 		// tree puts it. Writing it out explicitly would pin a layout the
 		// surface type already owns, and the two could then disagree.
@@ -229,7 +219,7 @@ func (r *reader) addSkill(v content.Skill) error {
 
 func (r *reader) addProfile(v content.Profile) {
 	if r.out.Profiles == nil {
-		r.out.Profiles = map[string]bundles.BundleProfile{}
+		r.out.Profiles = map[string]BundleProfile{}
 	}
 	r.out.Profiles[v.Name] = v.Def
 }
@@ -243,11 +233,11 @@ func (r *reader) addProfile(v content.Profile) {
 // are byte-identical to a correct one and fire in the wrong order, which nothing
 // downstream can detect.
 func (r *reader) finishHooks() {
-	for _, event := range sortedKeys(r.hooks) {
+	for _, event := range sortedTreeKeys(r.hooks) {
 		hooks := r.hooks[event]
 		content.SortHooks(hooks)
 		for _, h := range hooks {
-			r.appendHook(event, bundles.BundleHook{
+			r.appendHook(event, BundleHook{
 				Matcher:         h.Matcher,
 				Command:         h.Command,
 				Type:            h.Type,
@@ -266,32 +256,32 @@ func (r *reader) finishHooks() {
 }
 
 // appendHook puts one hook in its event's list. The switch mirrors hookEvents
-// and is the write-side counterpart to bundles.BundleHooks.eventHooks; an
+// and is the write-side counterpart to BundleHooks.eventHooks; an
 // unknown event is DROPPED here only because the tree walker cannot produce one
 // — hooks live under hooks/<event>/ and an unrecognised directory never decodes
 // to a Hook at all.
-func (r *reader) appendHook(event string, h bundles.BundleHook) {
+func (r *reader) appendHook(event string, h BundleHook) {
 	switch event {
-	case bundles.HookEventPreTool:
+	case HookEventPreTool:
 		r.out.Hooks.PreTool = append(r.out.Hooks.PreTool, h)
-	case bundles.HookEventPostTool:
+	case HookEventPostTool:
 		r.out.Hooks.PostTool = append(r.out.Hooks.PostTool, h)
-	case bundles.HookEventSessionStart:
+	case HookEventSessionStart:
 		r.out.Hooks.SessionStart = append(r.out.Hooks.SessionStart, h)
-	case bundles.HookEventSessionEnd:
+	case HookEventSessionEnd:
 		r.out.Hooks.SessionEnd = append(r.out.Hooks.SessionEnd, h)
-	case bundles.HookEventPreShell:
+	case HookEventPreShell:
 		r.out.Hooks.PreShell = append(r.out.Hooks.PreShell, h)
-	case bundles.HookEventPostFileEdit:
+	case HookEventPostFileEdit:
 		r.out.Hooks.PostFileEdit = append(r.out.Hooks.PostFileEdit, h)
 	}
 }
 
 // skillManifest renders a skill package's files as the generated per-file
-// manifest bundle.yaml records — the shape bundles.VerifyExtractedManifest
+// manifest bundle.yaml records — the shape VerifyExtractedManifest
 // later checks the extracted tree against, field by field.
 //
-// It goes through bundles.SkillManifestEntryFor rather than hashing here: the
+// It goes through SkillManifestEntryFor rather than hashing here: the
 // verifier builds its side with the same function, so the two cannot disagree
 // about the hash's "sha256:" prefix or the mode's octal width. Spelling either
 // from memory produces a package that extracts, fails verification, and is
@@ -301,15 +291,15 @@ func (r *reader) appendHook(event string, h bundles.BundleHook) {
 // The mode comes from the DECLARED ComponentMode, never from a filesystem: that
 // declaration is inside the signed bytes, and the filesystem's bit is not
 // portable.
-func skillManifest(s content.Skill) (map[string]bundles.SkillFileMeta, error) {
+func skillManifest(s content.Skill) (map[string]SkillFileMeta, error) {
 	if len(s.Files) == 0 {
 		return nil, fmt.Errorf("the package has NO files; refusing to read it as an empty skill " +
 			"(an empty skill materializes without complaint and delivers nothing)")
 	}
-	out := make(map[string]bundles.SkillFileMeta, len(s.Files))
+	out := make(map[string]SkillFileMeta, len(s.Files))
 	for _, f := range s.Files {
-		e := bundles.SkillManifestEntryFor(f.Path, f.Bytes, skillFilePerm(f.Mode))
-		out[e.Path] = bundles.SkillFileMeta{SHA256: e.SHA256, Mode: e.Mode}
+		e := SkillManifestEntryFor(f.Path, f.Bytes, skillFilePerm(f.Mode))
+		out[e.Path] = SkillFileMeta{SHA256: e.SHA256, Mode: e.Mode}
 	}
 	return out, nil
 }
@@ -332,33 +322,33 @@ func skillFilePerm(m content.ComponentMode) os.FileMode {
 // ArgumentHint is the one field bundles declares and the forward mapping drops,
 // so reading it back here would invent a value the tree never held — the
 // asymmetry belongs in commandExports, where the field is lost, not here.
-func commandLLM(e content.EngineExports) bundles.LLMExports {
-	var out bundles.LLMExports
+func commandLLM(e content.EngineExports) LLMExports {
+	var out LLMExports
 	if x, ok := e.For("claude-code"); ok {
-		out.ClaudeCode = bundles.ClaudeCodeConfig{
+		out.ClaudeCode = ClaudeCodeConfig{
 			Enabled: x.Enabled, Description: x.Description,
 			ArgumentHint: x.ArgumentHint, AllowedTools: x.AllowedTools, Model: x.Model,
 		}
 	}
 	if x, ok := e.For("antigravity"); ok {
-		out.Antigravity = bundles.AntigravityConfig{Enabled: x.Enabled, Description: x.Description}
+		out.Antigravity = AntigravityConfig{Enabled: x.Enabled, Description: x.Description}
 	}
 	if x, ok := e.For("codex"); ok {
-		out.Codex = bundles.CodexConfig{Enabled: x.Enabled, Description: x.Description}
+		out.Codex = CodexConfig{Enabled: x.Enabled, Description: x.Description}
 	}
 	if x, ok := e.For("kiro"); ok {
-		out.Kiro = bundles.KiroConfig{Enabled: x.Enabled, Description: x.Description}
+		out.Kiro = KiroConfig{Enabled: x.Enabled, Description: x.Description}
 	}
 	if x, ok := e.For("opencode"); ok {
-		out.Opencode = bundles.OpencodeConfig{Enabled: x.Enabled, Description: x.Description}
+		out.Opencode = OpencodeConfig{Enabled: x.Enabled, Description: x.Description}
 	}
 	return out
 }
 
 // skillLLM is the same inverse for a skill, where only enablement is meaningful.
-func skillLLM(e content.EngineExports) bundles.SkillLLMExports {
-	var out bundles.SkillLLMExports
-	set := func(dst *bundles.SkillEngineExport, engine string) {
+func skillLLM(e content.EngineExports) SkillLLMExports {
+	var out SkillLLMExports
+	set := func(dst *SkillEngineExport, engine string) {
 		if x, ok := e.For(engine); ok {
 			dst.Enabled = x.Enabled
 		}
@@ -368,5 +358,17 @@ func skillLLM(e content.EngineExports) bundles.SkillLLMExports {
 	set(&out.Codex, "codex")
 	set(&out.Kiro, "kiro")
 	set(&out.Opencode, "opencode")
+	return out
+}
+
+// sortedTreeKeys keeps map iteration deterministic. It is a local copy rather
+// than a shared helper because internal/content/convert owns the other
+// direction and this package must not import it — convert imports this one.
+func sortedTreeKeys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
 	return out
 }

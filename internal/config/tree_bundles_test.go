@@ -68,7 +68,7 @@ func stageInstalledTree(t *testing.T) (*Config, *content.TreeStore, content.Bund
 	}
 	require.NoError(t, convert.Convert(ctx, store, content.BundleID(filepath.Base(dir)), src, convert.Options{}))
 	require.NoError(t, afero.WriteFile(fsys,
-		filepath.Join(dir, convert.EnvelopePath), []byte("version: 1.0.0\ndescription: atelier\n"), 0o644))
+		filepath.Join(dir, bundles.DirectoryFormManifest), []byte("version: 1.0.0\ndescription: atelier\n"), 0o644))
 
 	tree, err := store.Open(ctx, content.BundleID(filepath.Base(dir)))
 	require.NoError(t, err)

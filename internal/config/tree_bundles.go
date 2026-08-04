@@ -10,7 +10,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
-	"github.com/ctxloom/ctxloom/internal/content/convert"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
@@ -109,7 +108,7 @@ func (c *Config) loadTreeBundle(ctx context.Context, canonical string, entry rem
 	if err != nil {
 		return nil, "", err
 	}
-	b, err := convert.Read(ctx, tree)
+	b, err := bundles.ReadTree(ctx, tree)
 	if err != nil {
 		return nil, "", fmt.Errorf("read the installed tree for %q at %s: %w", canonical, dir, err)
 	}
@@ -117,7 +116,7 @@ func (c *Config) loadTreeBundle(ctx context.Context, canonical string, entry rem
 	// directory — which is what makes a tree bundle's SKILL packages loadable.
 	// A single-file remote bundle gets the synthetic "<remote>:…" sentinel here
 	// precisely because it has no directory; a tree does.
-	b.Path = filepath.Join(dir, convert.EnvelopePath)
+	b.Path = filepath.Join(dir, bundles.DirectoryFormManifest)
 	return b, signer, nil
 }
 

@@ -77,11 +77,11 @@ func stageTree(t *testing.T, ctx context.Context, b *bundles.Bundle, envelope st
 // The inverse must return the SAME document, not a plausible one. Every kind is
 // asserted because a converter that dropped one would still produce a bundle
 // that loads, assembles and materializes — silently short one surface.
-func TestRead_ReturnsEveryKindTheTreeHolds(t *testing.T) {
+func TestReadTree_ReturnsEveryKindTheTreeHolds(t *testing.T) {
 	ctx := context.Background()
 	tree := stageTree(t, ctx, everyKindBundle(), "version: 1.2.3\ndescription: the vault bundle\n")
 
-	got, err := Read(ctx, tree)
+	got, err := bundles.ReadTree(ctx, tree)
 	require.NoError(t, err)
 
 	assert.Equal(t, "1.2.3", got.Version, "the envelope's version must survive")
@@ -116,11 +116,11 @@ func TestRead_ReturnsEveryKindTheTreeHolds(t *testing.T) {
 // yields "echo-audit" before "echo-stamp"; declared order is the reverse. A
 // reader that trusted the walk would produce a byte-identical-looking bundle
 // whose hooks fire in the wrong sequence, and nothing downstream could tell.
-func TestRead_HooksComeBackInDeclaredOrderNotAlphabeticalOrder(t *testing.T) {
+func TestReadTree_HooksComeBackInDeclaredOrderNotAlphabeticalOrder(t *testing.T) {
 	ctx := context.Background()
 	tree := stageTree(t, ctx, everyKindBundle(), "version: 1.2.3\n")
 
-	got, err := Read(ctx, tree)
+	got, err := bundles.ReadTree(ctx, tree)
 	require.NoError(t, err)
 
 	require.Len(t, got.Hooks.PostFileEdit, 2)
@@ -139,11 +139,11 @@ func TestRead_HooksComeBackInDeclaredOrderNotAlphabeticalOrder(t *testing.T) {
 // the verifier rejected: bare hex where it wanted a "sha256:" prefix. A test
 // that restates a format instead of deriving it from the code that consumes it
 // pins the implementation, not the contract.
-func TestRead_SkillManifestCarriesEveryFileWithItsHashAndMode(t *testing.T) {
+func TestReadTree_SkillManifestCarriesEveryFileWithItsHashAndMode(t *testing.T) {
 	ctx := context.Background()
 	tree := stageTree(t, ctx, everyKindBundle(), "version: 1.2.3\n")
 
-	got, err := Read(ctx, tree)
+	got, err := bundles.ReadTree(ctx, tree)
 	require.NoError(t, err)
 
 	skill := got.Skills["reviewer"]
@@ -160,14 +160,14 @@ func TestRead_SkillManifestCarriesEveryFileWithItsHashAndMode(t *testing.T) {
 // A tree with no envelope has no version, no description and no author, and
 // nothing else in the tree can supply them. Reading it as a bundle would produce
 // one that claims a version it does not have.
-func TestRead_RefusesATreeWithNoEnvelope(t *testing.T) {
+func TestReadTree_RefusesATreeWithNoEnvelope(t *testing.T) {
 	ctx := context.Background()
 	st, _ := newStore(t)
 	require.NoError(t, Convert(ctx, st, "vault", everyKindBundle(), everyKindOptions()))
 	tree, err := st.Open(ctx, "vault")
 	require.NoError(t, err)
 
-	_, err = Read(ctx, tree)
+	_, err = bundles.ReadTree(ctx, tree)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bundle.yaml", "the error must name the file that is missing")
 }
@@ -176,12 +176,12 @@ func TestRead_RefusesATreeWithNoEnvelope(t *testing.T) {
 // has two answers for the same item and no rule for which wins. Silently
 // preferring one is how a stale inline copy keeps being served after the file
 // was edited.
-func TestRead_RefusesAnEnvelopeThatAlsoDeclaresInlineItems(t *testing.T) {
+func TestReadTree_RefusesAnEnvelopeThatAlsoDeclaresInlineItems(t *testing.T) {
 	ctx := context.Background()
 	tree := stageTree(t, ctx, everyKindBundle(),
 		"version: 1.2.3\nfragments:\n  house-style:\n    content: STALE-INLINE-COPY\n")
 
-	_, err := Read(ctx, tree)
+	_, err := bundles.ReadTree(ctx, tree)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fragments",
 		"the error must name which inline key made the tree ambiguous")
@@ -190,7 +190,7 @@ func TestRead_RefusesAnEnvelopeThatAlsoDeclaresInlineItems(t *testing.T) {
 // Read must not invent a bundle out of an empty directory: an empty bundle
 // loads, assembles and materializes perfectly happily while delivering nothing,
 // which is this codebase's characteristic silent failure.
-func TestRead_RefusesATreeThatHoldsNoItemsAtAll(t *testing.T) {
+func TestReadTree_RefusesATreeThatHoldsNoItemsAtAll(t *testing.T) {
 	ctx := context.Background()
 	st, fsys := newStore(t)
 	require.NoError(t, fsys.MkdirAll("/tree/vault", 0o755))
@@ -198,7 +198,7 @@ func TestRead_RefusesATreeThatHoldsNoItemsAtAll(t *testing.T) {
 	tree, err := st.Open(ctx, "vault")
 	require.NoError(t, err)
 
-	_, err = Read(ctx, tree)
+	_, err = bundles.ReadTree(ctx, tree)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no items")
 }

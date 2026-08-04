@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -244,7 +243,21 @@ func admitCompanion(bin string, consent *companionConsent, prompt bool) Companio
 			bin, resolved, resolved)
 		return a
 	}
-	answer := askCompanionConsent(bin, resolved, sum)
+	answer, answered := askCompanionConsent(bin, resolved, sum)
+	a.Allowed = answer
+	if answer {
+		a.Reason = CompanionAdmissionConsented
+	} else {
+		a.Reason = CompanionAdmissionDeclined
+	}
+	if !answered {
+		// The question was asked and no answer came back (EOF, a read error).
+		// Withhold — the default of a security question is never the permissive
+		// one — but do NOT persist that as a decision: a transient must not
+		// become a permanent refusal the user has to discover and undo.
+		a.Reason = CompanionAdmissionUnconfirmed
+		return a
+	}
 	rec := CompanionConsentRecord{
 		Bin:        bin,
 		Path:       resolved,
@@ -260,12 +273,6 @@ func admitCompanion(bin string, consent *companionConsent, prompt bool) Companio
 		clidiag.Warn("ctxloom", "companion %q: could not record your decision, it will be asked again: %v", bin, serr)
 	} else {
 		consent.records = append(consent.records, rec)
-	}
-	a.Allowed = answer
-	if answer {
-		a.Reason = CompanionAdmissionConsented
-	} else {
-		a.Reason = CompanionAdmissionDeclined
 	}
 	return a
 }
@@ -289,19 +296,47 @@ Allow ctxloom to run it? [y/N]: `
 // askCompanionConsent puts the question and reads one line. Anything that is
 // not an explicit yes is a NO — including EOF, a read error, and an empty line
 // — because the default of a security question must never be the permissive
-// answer.
-func askCompanionConsent(bin, path, sha string) bool {
+// answer. answered distinguishes "the human said no" (record it) from "nothing
+// came back" (do not).
+func askCompanionConsent(bin, path, sha string) (allowed, answered bool) {
 	fmt.Fprintf(companionPromptOut, companionConsentPrompt, bin, path, sha)
-	line, err := bufio.NewReader(companionPromptIn).ReadString('\n')
+	line, err := readCompanionAnswerLine(companionPromptIn)
 	if err != nil && line == "" {
 		fmt.Fprintln(companionPromptOut, "no answer read — not running it")
-		return false
+		return false, false
 	}
 	switch strings.ToLower(strings.TrimSpace(line)) {
 	case "y", "yes":
-		return true
+		return true, true
 	default:
 		fmt.Fprintf(companionPromptOut, "not running %s (undo with 'ctxloom trust companion forget %s')\n", bin, path)
-		return false
+		return false, true
 	}
+}
+
+// readCompanionAnswerLine reads ONE line, one byte at a time, deliberately
+// unbuffered.
+//
+// A bufio.Reader would be the obvious choice and would be wrong here: it reads
+// ahead by up to its buffer size, and this prompt shares stdin with whatever
+// runs next — a second consent question, and then the engine ctxloom is about
+// to launch. Bytes swallowed into a buffer that is then discarded are input
+// the user typed and nobody ever sees. Reading exactly to the newline leaves
+// the rest of stdin untouched for its real owner.
+func readCompanionAnswerLine(r io.Reader) (string, error) {
+	var line []byte
+	buf := make([]byte, 1)
+	for len(line) < 64 { // an answer is "y" or "n"; anything longer is not one
+		n, err := r.Read(buf)
+		if n > 0 {
+			if buf[0] == '\n' {
+				return string(line), nil
+			}
+			line = append(line, buf[0])
+		}
+		if err != nil {
+			return string(line), err
+		}
+	}
+	return string(line), nil
 }

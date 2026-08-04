@@ -769,6 +769,16 @@ func ImportSkillArchive(fsys afero.Fs, archive []byte, destParent string, opts E
 // "grant binds the whole package" precedent as the executable preimage a
 // countersignature over an "exec/mcp" or "exec/hook" item covers), so a partial
 // or tampered tree is never accepted silently.
+//
+// Three of those four are integrity: the file list and the hashes are what a
+// signature attests, so a difference there is tampering or corruption and is
+// named as such. A MODE difference is not. A mode bit is not portable, the
+// digest deliberately excludes it, and the manifest's mode comes from the
+// package's own `executable:` DECLARATION — so the two sides of a mode
+// comparison are a declaration and a filesystem, and disagreement means the
+// author has not said what they meant. Calling that tampering sent authors
+// hunting for an attacker over a missing YAML line; skillModeDisagreement says
+// what is actually wrong.
 func VerifyExtractedManifest(fsys afero.Fs, dir string, manifest SkillManifest) error {
 	name := filepath.Base(filepath.Clean(dir))
 	actual, err := buildSkillManifest(fsys, dir, name, DefaultMaxSkillPackageBytes)
@@ -788,10 +798,46 @@ func VerifyExtractedManifest(fsys afero.Fs, dir string, manifest SkillManifest) 
 			return fmt.Errorf("skill archive: file %q content does not match the signed manifest (sha256 mismatch) — rejected (integrity mismatch)", expected[i].Path)
 		}
 		if actual[i].Mode != expected[i].Mode {
-			return fmt.Errorf("skill archive: file %q mode %s does not match the signed manifest mode %s — rejected (integrity mismatch)", expected[i].Path, actual[i].Mode, expected[i].Mode)
+			return skillModeDisagreement(expected[i].Path, expected[i].Mode, actual[i].Mode)
 		}
 	}
 	return nil
+}
+
+// skillModeDisagreement reports a file whose DECLARED mode and on-disk mode
+// disagree, in the terms the author can act on.
+//
+// It never says "integrity mismatch". The declaration lives inside the hashed,
+// signed bytes; the filesystem's bit does not, and no signature covers it — so
+// a mode difference is never evidence of tampering, and the one case that
+// produces it in practice is an author who chmod +x'd a script and did not add
+// it to `executable:`. The package is still refused (the declaration and the
+// tree have to agree before anything is delivered), but refused for the reason
+// it is actually refused for, naming the line to add.
+func skillModeDisagreement(path, declared, onDisk string) error {
+	const (
+		exec  = "0755"
+		plain = "0644"
+	)
+	switch {
+	case declared == plain && onDisk == exec:
+		return fmt.Errorf("skill package: file %q is DECLARED non-executable (mode %s) but is executable (mode %s) on disk — "+
+			"the declaration is what travels (a mode bit is not portable and no signature covers it), so this file would be "+
+			"delivered non-executable and would not run; add %q to the package sidecar's executable: list and re-sign, "+
+			"or clear its exec bit. This is a declaration that disagrees with the tree, NOT tampering: the file's contents verify",
+			path, declared, onDisk, path)
+	case declared == exec && onDisk == plain:
+		return fmt.Errorf("skill package: file %q is DECLARED executable (mode %s) but is non-executable (mode %s) on disk — "+
+			"the exec bit was lost somewhere between authoring and here (a checkout on a filesystem without one, an archive "+
+			"that dropped it, a umask); restore it, or remove %q from the package sidecar's executable: list. "+
+			"This is a declaration that disagrees with the tree, NOT tampering: the file's contents verify",
+			path, declared, onDisk, path)
+	default:
+		return fmt.Errorf("skill package: file %q is DECLARED mode %s but is mode %s on disk — "+
+			"the declaration and the tree must agree before the package is delivered; fix whichever is wrong and re-sign. "+
+			"This is a declaration that disagrees with the tree, NOT tampering: the file's contents verify",
+			path, declared, onDisk)
+	}
 }
 
 // PublisherSkillSignatureVerifier is the PRODUCTION skill-manifest signature

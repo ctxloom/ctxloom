@@ -59,6 +59,13 @@ const (
 	// committable) — see HomeApprovalsPath / ApprovalsPath.
 	ApprovalsDirName = "approvals"
 
+	// PublishRemotesDirName is the name of the confirmed-publish-remote store
+	// directory: one marker file per remote URL the user has explicitly
+	// confirmed as a destination for their signed content. USER-SCOPED ONLY —
+	// unlike ApprovalsDirName there is no committable twin; see
+	// HomePublishRemotesPath for why.
+	PublishRemotesDirName = "publish-remotes"
+
 	// LockFileName is the name of the lock file (without extension).
 	LockFileName = "lock"
 
@@ -402,6 +409,30 @@ func HomeApprovalsPath() (string, error) {
 		return "", fmt.Errorf("resolve the user countersignature store ~/%s/%s: %w", AppDirName, ApprovalsDirName, err)
 	}
 	return filepath.Join(home, AppDirName, ApprovalsDirName), nil
+}
+
+// HomePublishRemotesPath returns ~/.ctxloom/publish-remotes — the record of
+// which remotes this user has explicitly confirmed as publish destinations
+// (one marker file per remote; see remote.ConfirmedRemotes).
+//
+// IT IS PERSONAL AND HAS NO COMMITTABLE TWIN, deliberately, and the asymmetry
+// with ApprovalsPath is the point. An approval says "these bytes are good",
+// which a team genuinely can share. A publish-remote confirmation says "I meant
+// to push MY signed content HERE" — an answer only the person at the keyboard
+// can give, about their own credentials. Committing one would ship it to
+// everyone who clones the repo and pre-answer the question for them, which is
+// exactly one of the three mistakes the confirmation exists to catch: a
+// .ctxloom/ config that arrived carrying a remote the user never chose.
+//
+// It is also, like the approvals store's unsigned markers (spec §9.5), a record
+// whose mere EXISTENCE is the whole answer — nothing here is signed. A
+// forgeable record is tolerable strictly locally and never shareable.
+func HomePublishRemotesPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve the confirmed publish-remote store ~/%s/%s: %w", AppDirName, PublishRemotesDirName, err)
+	}
+	return filepath.Join(home, AppDirName, PublishRemotesDirName), nil
 }
 
 // AllowedSignersPath returns the path to the trust-root file (at appPath root,

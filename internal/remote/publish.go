@@ -46,6 +46,14 @@ type PublishManager struct {
 	publisherFactory PublisherFactory
 	fetcherFactory   FetcherFactory
 	fs               afero.Fs
+
+	// confirmed is the record of remotes a human already approved as publish
+	// destinations; nil means the production store
+	// (~/.ctxloom/publish-remotes). ask puts the question to a human, and nil
+	// — the DEFAULT — means there is nobody to ask, so an unconfirmed remote
+	// is refused rather than assumed. See publish_confirm.go.
+	confirmed *ConfirmedRemotes
+	ask       PublishRemoteAsk
 }
 
 // PublishManagerOption configures a PublishManager.
@@ -69,6 +77,28 @@ func WithPublisherFactory(pf PublisherFactory) PublishManagerOption {
 func WithPublishFetcherFactory(ff FetcherFactory) PublishManagerOption {
 	return func(pm *PublishManager) {
 		pm.fetcherFactory = ff
+	}
+}
+
+// WithRemoteAsk attaches the human who answers "is this the remote you meant?"
+// the first time content is published to a given non-GitHub remote.
+//
+// A frontend supplies this ONLY when it actually has an interactive terminal.
+// Leaving it unset is the fail-closed default and the correct state for an
+// agent, an MCP tool call, an editor session, a CI job or a piped command:
+// those get a refusal that names the remote and says how to confirm it, never
+// a prompt written into a pipe and never an assumed yes.
+func WithRemoteAsk(ask PublishRemoteAsk) PublishManagerOption {
+	return func(pm *PublishManager) {
+		pm.ask = ask
+	}
+}
+
+// WithConfirmedRemotes overrides the store of already-confirmed publish
+// remotes (tests point it at a temp directory instead of the user's home).
+func WithConfirmedRemotes(store *ConfirmedRemotes) PublishManagerOption {
+	return func(pm *PublishManager) {
+		pm.confirmed = store
 	}
 }
 
@@ -190,10 +220,25 @@ func (pm *PublishManager) Publish(ctx context.Context, localPath string, remoteN
 	if err != nil {
 		return nil, err
 	}
+	defer closePublisher(prep.publisher)
 	if opts.CreatePR {
 		return pm.publishViaPR(ctx, prep, opts)
 	}
 	return pm.publishDirect(ctx, prep)
+}
+
+// closePublisher releases a publisher that holds resources — GitPublisher's
+// working clone is a temp directory that must not outlive the publish. It is
+// an OPTIONAL capability: the GitHub publisher holds nothing and does not
+// implement it, so nothing about that path changes.
+//
+// A close failure is deliberately swallowed: it means a temp directory
+// survived, which is untidy, and turning it into a publish error would report
+// a successful push as a failure.
+func closePublisher(p Publisher) {
+	if c, ok := p.(interface{ Close() error }); ok {
+		_ = c.Close()
+	}
 }
 
 // loadPublishContent reads the local file's bytes. It does not transform them
@@ -220,11 +265,42 @@ func (pm *PublishManager) loadPublishContent(localPath string) ([]byte, error) {
 	return content, nil
 }
 
+// defaultBrancher is the optional Publisher capability of answering its own
+// repository's default branch.
+//
+// It exists because the generic git adapter has NO API fetcher at all
+// (NewFetcher says so outright), so the fetcher route below cannot answer for
+// a non-GitHub remote — while GitPublisher, which is about to clone the
+// repository anyway, can answer for free by reading what git checked out.
+//
+// Unexported on purpose: it adds no exported surface, and GitHubPublisher does
+// not implement it, so the GitHub path keeps going through the fetcher exactly
+// as before.
+type defaultBrancher interface {
+	defaultBranch(ctx context.Context) (string, error)
+}
+
+// pullRequestRefuser is the optional Publisher capability of declaring, up
+// front, that it cannot open pull requests. Unexported for the same reason as
+// defaultBrancher: it adds no exported surface, and GitHubPublisher does not
+// implement it, so the PR strategy is unchanged there.
+type pullRequestRefuser interface {
+	pullRequestSupport() error
+}
+
 // resolvePublishBranch returns opts.Branch, or the repo's default branch when
-// the caller didn't pin one.
-func (pm *PublishManager) resolvePublishBranch(ctx context.Context, repoURL, owner, repo, optBranch string) (string, error) {
+// the caller didn't pin one — asking the publisher itself when it can answer,
+// otherwise the forge fetcher.
+func (pm *PublishManager) resolvePublishBranch(ctx context.Context, publisher Publisher, repoURL, owner, repo, optBranch string) (string, error) {
 	if optBranch != "" {
 		return optBranch, nil
+	}
+	if db, ok := publisher.(defaultBrancher); ok {
+		branch, err := db.defaultBranch(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to get default branch: %w", err)
+		}
+		return branch, nil
 	}
 	fetcher, err := pm.fetcherFactory(repoURL, pm.auth)
 	if err != nil {
@@ -240,7 +316,7 @@ func (pm *PublishManager) resolvePublishBranch(ctx context.Context, repoURL, own
 // preparePublish resolves the publisher, repo coordinates, target branch,
 // content (the local file's bytes, verbatim), and commit subject/body shared by
 // both push strategies.
-func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteName string, opts PublishOptions) (*publishPrep, error) {
+func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteName string, opts PublishOptions) (prep *publishPrep, err error) {
 	content, err := pm.loadPublishContent(localPath)
 	if err != nil {
 		return nil, err
@@ -250,12 +326,44 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	if err != nil {
 		return nil, fmt.Errorf("remote not found: %w", err)
 	}
+
+	// The forge decides two things below: whether this destination needs a
+	// human's confirmation, and whether owner/repo have to parse at all.
+	forge, _, ferr := DetectForge(rem.URL)
+	if ferr != nil {
+		return nil, fmt.Errorf("invalid remote URL: %w", ferr)
+	}
+
+	// Confirm the destination BEFORE anything is created or written. Signed
+	// content is about to leave this machine, and "which remote did I just
+	// push signed content to" must have been answered by a human at least
+	// once per remote. See publish_confirm.go for the scope and the reasoning.
+	if err := pm.authorizeRemote(ctx, rem.URL, forge); err != nil {
+		return nil, err
+	}
+
 	publisher, err := pm.publisherFactory(rem.URL, pm.auth)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create publisher: %w", err)
 	}
+	// Everything below can still fail — branch resolution, signing, the
+	// existing-file probe — and a publisher that has already made a working
+	// clone would leak it. Publish closes the one that reaches it; this closes
+	// the one that never does.
+	defer func() {
+		if err != nil {
+			closePublisher(publisher)
+		}
+	}()
+
+	// owner/repo are a forge API's PATH SEGMENTS ("/repos/<owner>/<repo>/…").
+	// Plain git has no such pair — a git URL is one whole clone argument — and
+	// a perfectly valid destination like file:///srv/bundles.git names only
+	// one segment. So a parse failure is fatal exactly where the value is
+	// spent: on the GitHub path, unchanged. Elsewhere the empty strings travel
+	// to a publisher and a clone-backed fetcher that both ignore them.
 	owner, repo, err := ParseOwnerRepo(rem.URL)
-	if err != nil {
+	if err != nil && forge == ForgeGitHub {
 		return nil, fmt.Errorf("invalid remote URL: %w", err)
 	}
 
@@ -272,7 +380,7 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	// item than the one being published.
 	itemName := strings.TrimSuffix(path.Base(remotePath), ".yaml")
 
-	branch, err := pm.resolvePublishBranch(ctx, rem.URL, owner, repo, opts.Branch)
+	branch, err := pm.resolvePublishBranch(ctx, publisher, rem.URL, owner, repo, opts.Branch)
 	if err != nil {
 		return nil, err
 	}
@@ -374,6 +482,17 @@ func (pm *PublishManager) publishDirect(ctx context.Context, prep *publishPrep) 
 // publishViaPR creates a feature branch, commits the content there, and opens a
 // pull request against the target branch.
 func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, opts PublishOptions) (*PublishResult, error) {
+	// A publisher that cannot open pull requests says so HERE, before the
+	// branch, the commits or the base-ref lookup — otherwise the first thing
+	// the caller sees is whatever incidental step failed first (the generic
+	// git adapter has no API fetcher, so it used to surface as "failed to
+	// create fetcher", which names neither the real limitation nor the fix).
+	if r, ok := prep.publisher.(pullRequestRefuser); ok {
+		if err := r.pullRequestSupport(); err != nil {
+			return nil, err
+		}
+	}
+
 	branchName := fmt.Sprintf("ctxloom/%s/%s-%d", opts.ItemType, prep.itemName, time.Now().Unix())
 
 	fetcher, err := pm.fetcherFactory(prep.repoURL, pm.auth)
@@ -496,7 +615,15 @@ func PublishPath(_ ItemType, name string) string {
 	return path.Join(paths.RepoContentPrefix, "bundles", name+".yaml")
 }
 
-// NewPublisher creates a publisher for the given repository URL.
+// NewPublisher creates a publisher for the given repository URL: the GitHub
+// forge API for github.com, and plain git (clone, write, commit, push) for
+// every other host — file://, ssh://, git://, a self-hosted https forge.
+//
+// AuthConfig carries the GitHub token and NOTHING ELSE, deliberately. The
+// generic path takes no credential from ctxloom at all: it runs the git
+// binary, whose ~/.ssh/config, ssh-agent, credential helpers and known_hosts
+// are already configured and already trusted by the user for every other
+// repository. See GitPublisher.
 func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
 	forgeType, _, err := DetectForge(repoURL)
 	if err != nil {
@@ -507,7 +634,7 @@ func NewPublisher(repoURL string, auth AuthConfig) (Publisher, error) {
 	case ForgeGitHub:
 		return NewGitHubPublisher(auth.GitHub), nil
 	case ForgeGitGeneric:
-		return nil, fmt.Errorf("publishing to generic git hosts is not supported")
+		return NewGitPublisher(repoURL)
 	default:
 		return nil, fmt.Errorf("unsupported forge for publishing: %s", repoURL)
 	}

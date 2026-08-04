@@ -146,6 +146,46 @@ type Git interface {
 	// half-apply and continue.
 	ApplyPatch(ctx context.Context, dir, patch string) (applied bool, err error)
 
+	// Clone clones url into dir, which must not exist yet. branch, when
+	// non-empty, is the branch checked out (git clone --branch); empty takes
+	// the remote's own default branch, so the caller can ASK what that is by
+	// cloning and reading HEAD rather than guessing "main" or "master". Only
+	// the checked-out branch is fetched (--single-branch).
+	//
+	// AUTHENTICATION IS THE USER'S GIT, NOT CTXLOOM'S. This runs the git
+	// binary, which resolves ~/.ssh/config, ssh-agent, credential helpers and
+	// known_hosts exactly as it does for every other repository on the
+	// machine. ctxloom holds no key material and installs no host-key policy:
+	// a HostKeyCallback is the easy-to-get-quietly-wrong part, and getting it
+	// wrong means a silent MITM on a path that pushes SIGNED content.
+	Clone(ctx context.Context, url, dir, branch string) error
+
+	// HeadSHA returns dir's current HEAD commit.
+	HeadSHA(ctx context.Context, dir string) (string, error)
+
+	// FileBlobSHA returns the blob SHA of path as it exists at ref, or ""
+	// when ref's tree has no such path. The two outcomes a caller must never
+	// conflate are separated at the type level: "" with a nil error means
+	// ABSENT, and an error means the question could not be ANSWERED (bad ref,
+	// unreadable repository). It is read from `git ls-tree`, which exits 0
+	// with empty output for a missing path — unlike `rev-parse ref:path`,
+	// which fails identically for "no such file" and "no such ref", so a
+	// publisher using it would report an existing file as new the moment the
+	// branch name was wrong.
+	FileBlobSHA(ctx context.Context, dir, ref, path string) (string, error)
+
+	// Push pushes refspec (e.g. "HEAD:refs/heads/main") to the named remote
+	// from dir. Same ambient-credential story as Clone.
+	Push(ctx context.Context, dir, remote, refspec string) error
+
+	// RemoteRefSHA asks the REMOTE (git ls-remote) what commit ref points at,
+	// or "" when the remote has no such ref. This is the only way to check
+	// what actually landed on the far side: a `git push` that exits 0 and a
+	// remote holding the new commit are two different facts, and this codebase
+	// has a documented history of writes that report success while nothing
+	// moves.
+	RemoteRefSHA(ctx context.Context, dir, remote, ref string) (string, error)
+
 	// HasIgnoredContent reports whether dir contains any file git considers
 	// ignored/excluded (.gitignore OR .git/info/exclude) — the exact class of
 	// content IsDirty deliberately does NOT count as WIP. IsDirty's blindness

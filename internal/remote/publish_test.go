@@ -489,9 +489,29 @@ func TestNewPublisher(t *testing.T) {
 		// The publisher should be a GitHubPublisher (though we can't check the exact type)
 	})
 
-	t.Run("rejects publishing to a generic git host", func(t *testing.T) {
-		_, err := NewPublisher("https://gitlab.com/owner/repo", AuthConfig{})
-		require.Error(t, err)
+	// This used to assert a REFUSAL ("publishing to generic git hosts is not
+	// supported"), which is why publish only ever ran against GitHub and why
+	// whole-tree publish could only be verified against a mock Publisher.
+	t.Run("builds a git publisher for a generic git host", func(t *testing.T) {
+		publisher, err := NewPublisher("https://gitlab.com/owner/repo", AuthConfig{})
+		require.NoError(t, err)
+		assert.IsType(t, &GitPublisher{}, publisher,
+			"a non-GitHub host must publish through plain git, not the forge API")
+	})
+
+	t.Run("builds a git publisher for a file:// remote", func(t *testing.T) {
+		publisher, err := NewPublisher("file:///srv/bundles.git", AuthConfig{})
+		require.NoError(t, err)
+		assert.IsType(t, &GitPublisher{}, publisher)
+	})
+
+	t.Run("builds a git publisher for an scp-style ssh remote", func(t *testing.T) {
+		publisher, err := NewPublisher("git@git.example.com:team/bundles.git", AuthConfig{})
+		require.NoError(t, err)
+		gp, ok := publisher.(*GitPublisher)
+		require.True(t, ok)
+		assert.Equal(t, "git@git.example.com:team/bundles.git", gp.repoURL,
+			"the scp transport must survive: rewriting it to https would discard the user's ssh key with it")
 	})
 
 	t.Run("creates GitHub publisher for shorthand", func(t *testing.T) {
@@ -508,9 +528,10 @@ func TestDefaultPublisherFactory(t *testing.T) {
 		assert.NotNil(t, publisher)
 	})
 
-	t.Run("rejects a generic git host", func(t *testing.T) {
-		_, err := defaultPublisherFactory("https://gitlab.com/owner/repo", AuthConfig{})
-		require.Error(t, err)
+	t.Run("creates a git publisher for a generic git host", func(t *testing.T) {
+		publisher, err := defaultPublisherFactory("https://gitlab.com/owner/repo", AuthConfig{})
+		require.NoError(t, err)
+		assert.IsType(t, &GitPublisher{}, publisher)
 	})
 }
 

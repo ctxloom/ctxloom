@@ -47,12 +47,12 @@ type PublishManager struct {
 	fetcherFactory   FetcherFactory
 	fs               afero.Fs
 
-	// confirmed is the record of remotes a human already approved as publish
-	// destinations; nil means the production store
-	// (~/.ctxloom/publish-remotes). ask puts the question to a human, and nil
-	// — the DEFAULT — means there is nobody to ask, so an unconfirmed remote
-	// is refused rather than assumed. See publish_confirm.go.
-	confirmed *ConfirmedRemotes
+	// confirmed is the record of remotes a human already decided about as
+	// publish destinations; nil means the production store
+	// (~/.ctxloom/publish_remotes.yaml). ask puts the question to a human, and
+	// nil — the DEFAULT — means there is nobody to ask, so an unconfirmed
+	// remote is refused rather than assumed. See publish_confirm.go.
+	confirmed *PublishRemoteStore
 	ask       PublishRemoteAsk
 }
 
@@ -94,9 +94,9 @@ func WithRemoteAsk(ask PublishRemoteAsk) PublishManagerOption {
 	}
 }
 
-// WithConfirmedRemotes overrides the store of already-confirmed publish
-// remotes (tests point it at a temp directory instead of the user's home).
-func WithConfirmedRemotes(store *ConfirmedRemotes) PublishManagerOption {
+// WithPublishRemoteStore overrides the record of publish-destination
+// decisions (tests point it at a temp file instead of the user's home).
+func WithPublishRemoteStore(store *PublishRemoteStore) PublishManagerOption {
 	return func(pm *PublishManager) {
 		pm.confirmed = store
 	}

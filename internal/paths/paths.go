@@ -59,12 +59,12 @@ const (
 	// committable) — see HomeApprovalsPath / ApprovalsPath.
 	ApprovalsDirName = "approvals"
 
-	// PublishRemotesDirName is the name of the confirmed-publish-remote store
-	// directory: one marker file per remote URL the user has explicitly
-	// confirmed as a destination for their signed content. USER-SCOPED ONLY —
-	// unlike ApprovalsDirName there is no committable twin; see
-	// HomePublishRemotesPath for why.
-	PublishRemotesDirName = "publish-remotes"
+	// PublishRemotesFileName is the name (without extension) of the
+	// confirmed-publish-remote record: which remote URLs the user has
+	// explicitly confirmed as destinations for their signed content.
+	// USER-SCOPED ONLY — unlike ApprovalsDirName there is no committable twin;
+	// see HomePublishRemotesPath for why.
+	PublishRemotesFileName = "publish_remotes"
 	// CompanionConsentFileName is the name (without extension) of the
 	// trust-on-first-use record for EXECUTING a companion binary — see
 	// HomeCompanionConsentPath. It is deliberately a PERSONAL-only file with no
@@ -420,9 +420,9 @@ func HomeApprovalsPath() (string, error) {
 	return filepath.Join(home, AppDirName, ApprovalsDirName), nil
 }
 
-// HomePublishRemotesPath returns ~/.ctxloom/publish-remotes — the record of
-// which remotes this user has explicitly confirmed as publish destinations
-// (one marker file per remote; see remote.ConfirmedRemotes).
+// HomePublishRemotesPath returns ~/.ctxloom/publish_remotes.yaml — the record
+// of which remotes this user has explicitly confirmed as publish destinations
+// (see remote.PublishRemoteStore, an internal/shared/admission store).
 //
 // IT IS PERSONAL AND HAS NO COMMITTABLE TWIN, deliberately, and the asymmetry
 // with ApprovalsPath is the point. An approval says "these bytes are good",
@@ -433,15 +433,15 @@ func HomeApprovalsPath() (string, error) {
 // exactly one of the three mistakes the confirmation exists to catch: a
 // .ctxloom/ config that arrived carrying a remote the user never chose.
 //
-// It is also, like the approvals store's unsigned markers (spec §9.5), a record
-// whose mere EXISTENCE is the whole answer — nothing here is signed. A
+// It is also, like the approvals store's unsigned markers (spec §9.5), an
+// UNSIGNED record — anything that can write the user's home can forge one. A
 // forgeable record is tolerable strictly locally and never shareable.
 func HomePublishRemotesPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", fmt.Errorf("resolve the confirmed publish-remote store ~/%s/%s: %w", AppDirName, PublishRemotesDirName, err)
+		return "", fmt.Errorf("resolve the confirmed publish-remote store ~/%s/%s.yaml: %w", AppDirName, PublishRemotesFileName, err)
 	}
-	return filepath.Join(home, AppDirName, PublishRemotesDirName), nil
+	return filepath.Join(home, AppDirName, PublishRemotesFileName+".yaml"), nil
 }
 
 // HomeCompanionConsentPath returns ~/.ctxloom/companion_consent.yaml — the

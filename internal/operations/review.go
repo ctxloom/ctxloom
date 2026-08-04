@@ -65,11 +65,59 @@ type ReviewItem struct {
 	AlternateForm string `json:"-"`
 }
 
+// ReviewPublisher is what review can honestly say about WHO signed a bundle's
+// bytes. It exists because "pending" and "pending because I do not trust who
+// signed it" are different diagnoses with different fixes — the first wants
+// `ctxloom review`, the second wants `trust signer create` — and the exposure
+// gate, correctly, treats them identically (operations.EffectiveTrust step 7:
+// "this is where unsigned content lands, where signed-but-untrusted-key content
+// lands"). The gate collapses them; the surface whose whole job is helping a
+// human decide must not.
+//
+// It is a REPORT, never an input: nothing in the trust cascade reads it.
+type ReviewPublisher string
+
+const (
+	// ReviewPublisherUnsigned: no signature accompanied these bytes.
+	ReviewPublisherUnsigned ReviewPublisher = "unsigned"
+	// ReviewPublisherUntrustedSigner: a signature exists and names a key this
+	// machine does not trust to publish. ReviewBundle.SignerFingerprint names
+	// that key — for comparison, never as an identity.
+	ReviewPublisherUntrustedSigner ReviewPublisher = "untrusted-signer"
+	// ReviewPublisherTrustedSigner: a key this machine trusts for the publish
+	// namespace signed exactly these bytes, and ReviewBundle.Signer is the
+	// principal the TRUST ROOT resolved.
+	//
+	// Unreachable through PendingReview today, and deliberately kept: a trusted
+	// publisher's items are allowed at EffectiveTrust step 5, so they are never
+	// pending and the bundle never reaches this listing. It is here so the
+	// state space is total — a future pending-despite-trusted item (or any
+	// caller of the JSON) gets its own answer instead of being mislabelled
+	// "unsigned", which is the exact conflation this type exists to end.
+	ReviewPublisherTrustedSigner ReviewPublisher = "trusted-signer"
+)
+
 // ReviewBundle groups a bundle's pending items for the per-bundle walk.
 type ReviewBundle struct {
 	Ref    string       `json:"ref"`              // bundle source ref
 	Remote string       `json:"remote,omitempty"` // registered remote name, when resolvable
 	Items  []ReviewItem `json:"items"`
+
+	// Publisher is the bundle's signer state — see ReviewPublisher.
+	Publisher ReviewPublisher `json:"publisher"`
+	// Signer is the VERIFIED publisher principal, resolved from the trust root
+	// (bundles.Bundle.Signer). Set only for ReviewPublisherTrustedSigner, where
+	// it is a real identity.
+	Signer string `json:"signer,omitempty"`
+	// SignerFingerprint is the DISPLAY-ONLY fingerprint of the key that made an
+	// untrusted signature (bundles.Bundle.UntrustedSignerFingerprint). Set only
+	// for ReviewPublisherUntrustedSigner.
+	//
+	// It is a string to COMPARE against what the publisher stated out of band,
+	// and nothing else. It is not a name, not an endorsement, and not usable as
+	// an input to any decision; whatever renders it must say the key is not
+	// trusted in the same breath.
+	SignerFingerprint string `json:"signer_fingerprint,omitempty"`
 }
 
 // PendingReviewRequest carries the optional injection points (for testing).
@@ -146,10 +194,14 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 		if len(items) == 0 {
 			continue
 		}
+		publisher, principal, fingerprint := reviewPublisherOf(bundle)
 		result.Bundles = append(result.Bundles, ReviewBundle{
-			Ref:    info.Name,
-			Remote: remoteNameFor(registry, info.Name),
-			Items:  items,
+			Ref:               info.Name,
+			Remote:            remoteNameFor(registry, info.Name),
+			Items:             items,
+			Publisher:         publisher,
+			Signer:            principal,
+			SignerFingerprint: fingerprint,
 		})
 		result.Total += len(items)
 		for _, it := range items {
@@ -161,6 +213,31 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 	// loader.List() is name-sorted already; keep the guarantee explicit.
 	sort.Slice(result.Bundles, func(i, j int) bool { return result.Bundles[i].Ref < result.Bundles[j].Ref })
 	return result, nil
+}
+
+// reviewPublisherOf reads a loaded bundle's two publisher stamps and reports
+// which of the three states they spell, plus whichever of the principal /
+// fingerprint belongs to that state.
+//
+// It DERIVES, and never decides: both inputs were stamped by a load path that
+// had already asked the trust root, and this cannot promote either one. In
+// particular the fingerprint half is returned only for the untrusted state,
+// where the renderer is obliged to say the key is not trusted — it is never
+// returned as, or alongside, an identity.
+//
+// trust.BuiltinSigner is excluded from the trusted state for exactly the reason
+// EffectiveTrust step 5 excludes it: it is a SYNTHETIC identity, not a
+// cryptographic one, and reporting it as a trusted publisher key would launder
+// "shipped inside this binary" into "a publisher you verified". A builtin is
+// allowed as a builtin and never appears here anyway (step 4).
+func reviewPublisherOf(b *bundles.Bundle) (state ReviewPublisher, principal, fingerprint string) {
+	if signer := b.Signer(); signer != "" && signer != trust.BuiltinSigner {
+		return ReviewPublisherTrustedSigner, signer, ""
+	}
+	if fp := b.UntrustedSignerFingerprint(); fp != "" {
+		return ReviewPublisherUntrustedSigner, "", fp
+	}
+	return ReviewPublisherUnsigned, "", ""
 }
 
 // reviewEnumerator resolves items against the shared records/registry.

@@ -238,8 +238,9 @@ func warnIfSoftwareKey(out io.Writer, signer ssh.Signer) bool {
 	return strings.ToLower(strings.TrimSpace(answer)) != "q"
 }
 
-// renderReviewList prints the non-interactive pending table: bundle, ref,
-// kind, new|update — the refs are directly usable with trust/blacklist.
+// renderReviewList prints the non-interactive pending table: bundle, who signed
+// it, then ref, kind, new|update — the refs are directly usable with
+// trust/blacklist.
 func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 	if res.Total == 0 {
 		fmt.Fprintln(w, "Nothing is pending review.")
@@ -252,12 +253,52 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 			fmt.Fprintf(w, " (remote: %s)", b.Remote)
 		}
 		fmt.Fprintln(w)
+		renderReviewPublisher(w, b)
 		for _, it := range b.Items {
 			fmt.Fprintf(w, "  %-8s %s/%s\n", it.Status, it.Kind, it.Name)
 		}
 	}
 	fmt.Fprintln(w, "\nRun 'ctxloom review' in a terminal to review interactively, or use the")
 	fmt.Fprintln(w, "plumbing per item: ctxloom trust <bundle-ref>#<kind>/<name> / ctxloom blacklist <ref>.")
+}
+
+// renderReviewPublisher prints the two lines that say WHO signed a pending
+// bundle and what to do about it. Every item below is withheld either way, so
+// what separates the three states is the NEXT COMMAND: an unsigned or
+// trusted-signer bundle wants the human to read the content (`ctxloom review`),
+// while a bundle signed by a key this machine does not trust has a second,
+// entirely different fix available (`trust signer create`) that the pending
+// list is the only place to learn about.
+//
+// The untrusted wording carries the weight. A fingerprint printed in a surface
+// like this one must not read as an ENDORSEMENT or as an identity: it is a
+// string to compare against what the publisher told you out of band, exactly as
+// SSH prints one for an unknown host. So the line leads with "untrusted key",
+// never pairs the fingerprint with a name, and states the comparison as the
+// step BEFORE the trust command rather than after it. Rendering it as
+// "SHA256:… (Alice)" would be the failure: naming a principal nothing here has
+// verified is the claim the trust root exists to make and this surface cannot.
+func renderReviewPublisher(w io.Writer, b operations.ReviewBundle) {
+	switch b.Publisher {
+	case operations.ReviewPublisherUntrustedSigner:
+		fmt.Fprintf(w, "  signer:  untrusted key %s\n", b.SignerFingerprint)
+		fmt.Fprintln(w, "           Signed, but by a key this machine does not trust to publish.")
+		fmt.Fprintln(w, "           That fingerprint is a string to COMPARE, not a name: confirm it")
+		fmt.Fprintln(w, "           with the publisher out of band, then trust the key by principal:")
+		fmt.Fprintln(w, "             ctxloom trust signer create <principal> --key <key.pub>")
+	case operations.ReviewPublisherTrustedSigner:
+		fmt.Fprintf(w, "  signer:  %s — a key you trust to publish\n", b.Signer)
+		fmt.Fprintln(w, "           Read the items and decide: ctxloom review")
+	case operations.ReviewPublisherUnsigned:
+		fmt.Fprintln(w, "  signer:  none — these bytes carry no publisher signature")
+		fmt.Fprintln(w, "           Nothing to compare; read the items and decide: ctxloom review")
+	default:
+		// A state this build does not know how to describe. Say NOTHING rather
+		// than pick a wording: the whole point of the block above is that the
+		// three states must not be rendered as each other, and a default that
+		// guesses "unsigned" would reintroduce exactly the conflation being
+		// removed — silently, for whatever state came later.
+	}
 }
 
 // reviewDecision is the parsed per-item answer.

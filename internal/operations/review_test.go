@@ -537,3 +537,96 @@ func TestRenderHookSurface_NoCommandOrPromptShowsMarker(t *testing.T) {
 	assert.Contains(t, rendered, "nothing to display",
 		"a hook with no command and no prompt must say so explicitly")
 }
+
+// --- the three publisher states -------------------------------------------
+
+// The pair of stamps a load path leaves on a bundle spells exactly three
+// states, and reviewPublisherOf reads them without deciding anything. The
+// untrusted case is the one that did not exist before: signing.VerifyPublisher
+// reports it as "" — identical to unsigned — so the fingerprint stamp is the
+// only thing that can tell them apart.
+func TestReviewPublisherOf_ThreeStates(t *testing.T) {
+	unsigned := &bundles.Bundle{Version: "1.0"}
+	state, principal, fingerprint := reviewPublisherOf(unsigned)
+	assert.Equal(t, ReviewPublisherUnsigned, state)
+	assert.Empty(t, principal)
+	assert.Empty(t, fingerprint)
+
+	untrusted := &bundles.Bundle{Version: "1.0"}
+	untrusted.StampUntrustedSignerFingerprint("SHA256:abc")
+	state, principal, fingerprint = reviewPublisherOf(untrusted)
+	assert.Equal(t, ReviewPublisherUntrustedSigner, state)
+	assert.Empty(t, principal, "an untrusted key has no principal — that is the whole point")
+	assert.Equal(t, "SHA256:abc", fingerprint)
+
+	trusted := &bundles.Bundle{Version: "1.0"}
+	trusted.StampSigner("runbooks@acme.example")
+	state, principal, fingerprint = reviewPublisherOf(trusted)
+	assert.Equal(t, ReviewPublisherTrustedSigner, state)
+	assert.Equal(t, "runbooks@acme.example", principal)
+	assert.Empty(t, fingerprint, "a verified bundle shows its identity, never a fingerprint to compare")
+}
+
+// The synthetic builtin token is not a key and must never be reported as a
+// trusted publisher — the same exclusion EffectiveTrust step 5 makes, for the
+// same reason: "shipped inside this binary" is not "a publisher you verified".
+func TestReviewPublisherOf_BuiltinIsNotATrustedPublisher(t *testing.T) {
+	b := &bundles.Bundle{Version: "1.0"}
+	b.StampSigner(trust.BuiltinSigner)
+	state, principal, fingerprint := reviewPublisherOf(b)
+	assert.NotEqual(t, ReviewPublisherTrustedSigner, state)
+	assert.Empty(t, principal)
+	assert.Empty(t, fingerprint)
+}
+
+// Precedence, pinned: a VERIFIED bundle reports its verified identity even if a
+// display fingerprint is somehow also present. The reverse would let the
+// weaker, unverified value shadow the stronger one.
+func TestReviewPublisherOf_VerifiedIdentityBeatsADisplayFingerprint(t *testing.T) {
+	b := &bundles.Bundle{Version: "1.0"}
+	b.StampSigner("runbooks@acme.example")
+	b.StampUntrustedSignerFingerprint("SHA256:abc")
+	state, principal, fingerprint := reviewPublisherOf(b)
+	assert.Equal(t, ReviewPublisherTrustedSigner, state)
+	assert.Equal(t, "runbooks@acme.example", principal)
+	assert.Empty(t, fingerprint)
+}
+
+// The state travels all the way out of the enumeration, not just out of the
+// helper: a pending bundle whose signature was made by a key nothing trusts
+// reports the untrusted state and the key, on the ReviewBundle the renderer
+// actually reads.
+func TestPendingReview_CarriesTheUntrustedSignerThroughToTheBundle(t *testing.T) {
+	fx := newTrustFixture(t)
+	b := reviewBundle()
+	b.StampUntrustedSignerFingerprint("SHA256:qc0G8V6Bhw4mDeLpUEzGmxJmM8LDG1qFCkTgVoMcYpk")
+
+	res, err := PendingReview(nil, PendingReviewRequest{
+		UserStore: fx.user, Root: fx.root,
+		Registry: newRegistry(t),
+		Loader:   reviewLoader(b),
+		FS:       afero.NewMemMapFs(),
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Bundles, 1)
+	assert.Equal(t, ReviewPublisherUntrustedSigner, res.Bundles[0].Publisher)
+	assert.Equal(t, "SHA256:qc0G8V6Bhw4mDeLpUEzGmxJmM8LDG1qFCkTgVoMcYpk", res.Bundles[0].SignerFingerprint)
+	assert.Empty(t, res.Bundles[0].Signer, "no principal was verified, so none may be reported")
+	assert.NotZero(t, res.Total, "and the items stay pending — naming the key changes no decision")
+}
+
+// The ordinary case, pinned so the untrusted wording can never be shown for a
+// bundle that simply arrived without a signature.
+func TestPendingReview_UnsignedBundleReportsUnsignedAndNoKey(t *testing.T) {
+	fx := newTrustFixture(t)
+	res, err := PendingReview(nil, PendingReviewRequest{
+		UserStore: fx.user, Root: fx.root,
+		Registry: newRegistry(t),
+		Loader:   reviewLoader(reviewBundle()),
+		FS:       afero.NewMemMapFs(),
+	})
+	require.NoError(t, err)
+	require.Len(t, res.Bundles, 1)
+	assert.Equal(t, ReviewPublisherUnsigned, res.Bundles[0].Publisher)
+	assert.Empty(t, res.Bundles[0].SignerFingerprint)
+}

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -96,8 +97,9 @@ func walkFixture() *operations.PendingReviewResult {
 		Updates: 1,
 		Bundles: []operations.ReviewBundle{
 			{
-				Ref:    "https://github.com/acme/repo@bundles/one",
-				Remote: "acme",
+				Ref:       "https://github.com/acme/repo@bundles/one",
+				Remote:    "acme",
+				Publisher: operations.ReviewPublisherUnsigned,
 				Items: []operations.ReviewItem{
 					{Ref: "one#fragments/f1", Kind: "fragments", Name: "f1", Status: operations.ReviewStatusNew, CurrentContent: "f1 body"},
 					{Ref: "one#commands/s1", Kind: "commands", Name: "s1", Status: operations.ReviewStatusUpdate, CurrentContent: "s1 v2", PreviousContent: "s1 v1"},
@@ -105,7 +107,9 @@ func walkFixture() *operations.PendingReviewResult {
 				},
 			},
 			{
-				Ref: "https://github.com/acme/repo@bundles/two",
+				Ref:               "https://github.com/acme/repo@bundles/two",
+				Publisher:         operations.ReviewPublisherUntrustedSigner,
+				SignerFingerprint: "SHA256:qc0G8V6Bhw4mDeLpUEzGmxJmM8LDG1qFCkTgVoMcYpk",
 				Items: []operations.ReviewItem{
 					{Ref: "two#fragments/f2", Kind: "fragments", Name: "f2", Status: operations.ReviewStatusNew, CurrentContent: "f2 body"},
 					{Ref: "two#fragments/f3", Kind: "fragments", Name: "f3", Status: operations.ReviewStatusNew, CurrentContent: "f3 body"},
@@ -218,6 +222,77 @@ func TestRenderReviewList(t *testing.T) {
 	out.Reset()
 	renderReviewList(&out, &operations.PendingReviewResult{})
 	assert.Contains(t, out.String(), "Nothing is pending review.")
+}
+
+// The three publisher states, asserted as the BYTES a user reads rather than as
+// a field that was set. "Pending" and "pending because I do not trust who
+// signed it" are different diagnoses with different fixes, so each state is
+// pinned together with the command it sends the reader to; a rendering that
+// distinguished the states but named the same next command would leave the
+// diagnosis gap open.
+func TestRenderReviewPublisher_ThreeStatesNameTheirOwnNextCommand(t *testing.T) {
+	const fingerprint = "SHA256:qc0G8V6Bhw4mDeLpUEzGmxJmM8LDG1qFCkTgVoMcYpk"
+
+	render := func(b operations.ReviewBundle) string {
+		var out bytes.Buffer
+		renderReviewPublisher(&out, b)
+		return out.String()
+	}
+
+	assert.Equal(t,
+		"  signer:  none — these bytes carry no publisher signature\n"+
+			"           Nothing to compare; read the items and decide: ctxloom review\n",
+		render(operations.ReviewBundle{Publisher: operations.ReviewPublisherUnsigned}))
+
+	assert.Equal(t,
+		"  signer:  untrusted key "+fingerprint+"\n"+
+			"           Signed, but by a key this machine does not trust to publish.\n"+
+			"           That fingerprint is a string to COMPARE, not a name: confirm it\n"+
+			"           with the publisher out of band, then trust the key by principal:\n"+
+			"             ctxloom trust signer create <principal> --key <key.pub>\n",
+		render(operations.ReviewBundle{
+			Publisher:         operations.ReviewPublisherUntrustedSigner,
+			SignerFingerprint: fingerprint,
+		}))
+
+	assert.Equal(t,
+		"  signer:  runbooks@acme.example — a key you trust to publish\n"+
+			"           Read the items and decide: ctxloom review\n",
+		render(operations.ReviewBundle{
+			Publisher: operations.ReviewPublisherTrustedSigner,
+			Signer:    "runbooks@acme.example",
+		}))
+}
+
+// A fingerprint shown in the surface that decides whether to admit content must
+// never read as an ENDORSEMENT or as an identity. These are the properties that
+// keep it from doing so, asserted on the rendered bytes:
+//   - the word "untrusted" is adjacent to the key, not buried in prose below it;
+//   - the fingerprint is never paired with a principal or any other name;
+//   - the out-of-band comparison is stated BEFORE the trust command, so the
+//     command reads as the second step and not the offered action.
+func TestRenderReviewPublisher_UntrustedKeyReadsAsAWarningNotAnIdentity(t *testing.T) {
+	const fingerprint = "SHA256:qc0G8V6Bhw4mDeLpUEzGmxJmM8LDG1qFCkTgVoMcYpk"
+	var out bytes.Buffer
+	renderReviewPublisher(&out, operations.ReviewBundle{
+		Publisher:         operations.ReviewPublisherUntrustedSigner,
+		SignerFingerprint: fingerprint,
+		// A principal MUST NOT be rendered for this state even if one is
+		// somehow present: naming a party nothing verified is the failure.
+		Signer: "runbooks@acme.example",
+	})
+	text := out.String()
+
+	assert.Contains(t, text, "untrusted key "+fingerprint,
+		"the verdict must sit on the same line as the key it is about")
+	assert.NotContains(t, text, "runbooks@acme.example",
+		"a fingerprint must never be presented next to a principal this machine has not verified")
+	assert.NotContains(t, text, "trust to publish\n           "+fingerprint,
+		"the key must not be re-rendered as a bare identity line")
+	assert.Less(t,
+		strings.Index(text, "out of band"),
+		strings.Index(text, "ctxloom trust signer create"),
+		"the comparison must be stated before the command that acts on it")
 }
 
 // TestReviewApplier_WritesStoreStates proves the porcelain's apply hooks write

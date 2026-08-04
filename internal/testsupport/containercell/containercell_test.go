@@ -21,7 +21,7 @@ func TestDockerProbe_RootfulAndRootlessAreExclusive(t *testing.T) {
 		if full.Available && less.Available {
 			t.Fatalf("probe %+v reported BOTH rootful and rootless available", p)
 		}
-		if p.reachable && !(full.Available || less.Available) {
+		if p.reachable && !full.Available && !less.Available {
 			t.Fatalf("probe %+v is reachable but classified as neither rootful nor rootless", p)
 		}
 		if full.Detail == "" || less.Detail == "" {

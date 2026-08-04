@@ -145,11 +145,45 @@ This is why substitution belongs neither in the content layer nor in the engine:
   engine; putting them at delivery duplicates them per engine, which is the
   problem this seam exists to remove.
 
-The stage already exists, diffusely: `collectProfileFragments`,
-`dedupeFragmentRefs`, `sortFragmentsByPriority`, `substituteVariables` and the
-trust gate, spread across `internal/config` and `internal/operations`. Naming it
-and giving it one boundary — profiles + stores in, resolved ordered forms out —
-is what turns the engine interface from a refactor into a seam.
+### ALL processing lives in the middle
+
+The rule is exhaustive, not illustrative. Every derivation — anything where what
+comes out is not byte-identical to what was authored, and anything that decides
+what is included — belongs to the process stage:
+
+| processing | today | belongs |
+|---|---|---|
+| trust gating | `bundles.Loader` via `WithTrustGate` | **process** |
+| form selection (raw vs distilled) | `SeededBundleLoader(cfg.ShouldUseDistilled())` | **process** |
+| profile fragment collection | `collectProfileFragments` (operations) | process ✓ |
+| dedupe | `dedupeFragmentRefs` (operations) | process ✓ |
+| priority ordering | `sortFragmentsByPriority` (operations) | process ✓ |
+| variable substitution | `substituteVariables` (operations) | process ✓ |
+| builtin fragment injection | `ResolveBuiltinBundleFragments` (config) | process ✓ |
+| joining / framing | `assembleDedupedContext` | deliver (framing is engine-shaped) |
+
+**Two are on the wrong side today, and both sit in the READ stage — the one that
+must stay pure.**
+
+*Form selection.* The loader is constructed with `ShouldUseDistilled()`, so
+whether you get raw or distilled is decided while reading. A store should yield
+every form it holds and let the process stage pick; deciding at read time means
+the read stage carries a policy input, and the same store cannot serve two
+consumers who want different forms.
+
+*Trust gating.* `WithTrustGate` wires the gate into the loader, so withholding
+happens during read. Gating is a decision about what is INCLUDED, which is
+processing by this rule. Leaving it in the loader means every reader is either
+gated or not by construction, which is why management and listing loaders have
+to be built separately from exposure loaders today.
+
+Moving both is what makes the read stage a pure `Store` — bytes exactly as
+authored and attested, no policy — which in turn is what lets verification be
+meaningful there.
+
+Naming the stage and giving it one boundary — profiles + stores in, resolved
+ordered forms out — is what turns the engine interface from a refactor into a
+seam.
 
 **Consequence for attestation, worth stating:** a resolved form's bytes are NOT
 the attested bytes. Verification happens on the read side, before processing;

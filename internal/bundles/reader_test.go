@@ -15,6 +15,8 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -301,6 +303,13 @@ func TestNewCompanionReader_UnparseableLoadoutIsWarnedAndSkipped(t *testing.T) {
 // bytes is tamper and must never degrade to the unsigned/review path: degrading
 // it lets an attacker downgrade signed content to merely-reviewable content by
 // corrupting a `.sig`.
+//
+// The READ still reports it — no reader drops, and a bundle nobody can see is a
+// bundle nobody can diagnose — and the PROCESS stage withholds every item in it.
+// That is the half asserted here: the read carries remote|invalid honestly, the
+// delivery path answers ErrFragmentWithheld, and the withhold raises a trust
+// finding rather than vanishing. The production decision that returns
+// ReasonTampered lives in internal/operations and is pinned there.
 func TestLoader_RemoteInvalidSignatureIsWithheldNotDegradedToUnsigned(t *testing.T) {
 	strictness.Reset()
 	t.Cleanup(strictness.Reset)
@@ -313,9 +322,17 @@ func TestLoader_RemoteInvalidSignatureIsWithheldNotDegradedToUnsigned(t *testing
 	mark := strictness.Checkpoint()
 	l := NewLoader(NewRepoFSReader(tree, ref, WithTrustRoot(root)))
 
-	assert.Empty(t, l.Reads(), "tampered remote content must not be addressable at all")
-	_, lerr := l.Load(ref)
-	assert.Error(t, lerr, "and it must not resolve as an unsigned bundle awaiting review")
+	reads := l.Reads()
+	require.Len(t, reads, 1, "the reader REPORTS what it found; dropping it would hide the tamper")
+	assert.Equal(t, TrustCtxRemote, reads[0].TrustCtx())
+	assert.Equal(t, SignatureInvalid, reads[0].Signature(),
+		"reported as INVALID, never as none — that downgrade is the whole attack")
+
+	pipe := NewPipeline(l, signatureRowsFilter(), false)
+	_, ferr := pipe.GetFragment(ref + "#fragments/keeper")
+	assert.ErrorIs(t, ferr, errs.ErrFragmentWithheld,
+		"and it must not resolve as an unsigned bundle awaiting review")
+	assert.NotEmpty(t, pipe.Withheld(), "the withheld ref is tallied so a caller can report it")
 	assert.NotEmpty(t, strictness.Since(mark), "the withhold is a trust finding, not a silent drop")
 }
 
@@ -331,12 +348,15 @@ func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) 
 	require.NoError(t, afero.WriteFile(fsys, "/bundles/wave6-stale.yaml", edited, 0o644))
 
 	var warnings bytes.Buffer
-	l := NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root))).WithWarnWriter(&warnings)
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root))),
+		signatureRowsFilter(), false)
 
-	b, err := l.Load("wave6-stale")
+	lc, err := pipe.GetFragment("wave6-stale#fragments/keeper")
 
 	require.NoError(t, err, "locality already answered the trust question; a stale sidecar cannot withhold")
-	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content)
+	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content)
 	assert.Contains(t, warnings.String(), "wave6-stale.yaml.sig")
 	assert.Contains(t, warnings.String(), "ctxloom bundle sign wave6-stale", "the warning must name the command that fixes it")
 }

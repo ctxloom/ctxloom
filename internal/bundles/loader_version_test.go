@@ -21,17 +21,20 @@ func effHash(body string) string {
 // cascade: a single version-less ref can have one version trusted (its hash in
 // allowed) and another withheld (its hash absent), which is exactly how two
 // commit-versions of one ref are gated independently.
-func hashGate(allowed map[string]bool) ContentGate {
-	return func(_ref string, payload []byte, _form, _signer string) bool {
-		return allowed[HashPayload(payload)]
-	}
+func hashGate(allowed map[string]bool) Filter {
+	return filterFunc(func(e Exposure) Verdict {
+		if allowed[HashPayload(e.Bytes)] {
+			return admitVerdict()
+		}
+		return denyVerdict()
+	})
 }
 
 // versionedLoader builds a loader seeded with a default (lockfile-pinned) bundle
 // for canonicalRef and a fake version resolver serving the given per-commit
 // bundles. A commit absent from versions resolves to an error (simulating a
 // per-version fetch failure).
-func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions map[string]*Bundle, gate ContentGate) *Pipeline {
+func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions map[string]*Bundle, gate Filter) *Pipeline {
 	t.Helper()
 	resolver := func(_canonical, commit string) (*Bundle, error) {
 		b, ok := versions[commit]

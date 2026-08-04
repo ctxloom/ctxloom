@@ -26,9 +26,16 @@ import (
 )
 
 // TestTrustRefKindDirs_MatchTheTrustAuthority pins the ref segments the loader
-// actually emits against trust.ItemKind.Dir(). It drives real content through
-// the gate rather than comparing constants, so it covers the literals at the
+// actually emits against trust.ItemKind.Dir(). It reads real content out of a
+// real bundle rather than comparing constants, so it covers the literals at the
 // call sites — the thing that can drift — not merely the constants they equal.
+//
+// It asserts on the READ's own TrustRef rather than on what a filter was handed.
+// Exposure carries a parsed trust.Ref, and parsing is exactly what would hide
+// the drift this test exists to catch: trust.ParseSelector maps BOTH "commands"
+// and "prompts" onto KindPrompt, so a loader that emitted the wrong segment
+// would still arrive at the right Kind and the assertion would pass while the
+// emitted string was wrong.
 func TestTrustRefKindDirs_MatchTheTrustAuthority(t *testing.T) {
 	fsys := afero.NewMemMapFs()
 	bundlesDir := "/bundles"
@@ -42,22 +49,19 @@ func TestTrustRefKindDirs_MatchTheTrustAuthority(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/skills/sk/SKILL.md",
 		[]byte("---\nname: sk\ndescription: Does a thing well.\n---\n\nbody\n"), 0644))
 
-	var seen []string
-	gate := func(ref string, _ []byte, _, _ string) bool {
-		seen = append(seen, ref)
-		return true
-	}
-	l := bundles.NewPipeline(
-		bundles.NewLoader(bundles.NewProjectReader(fsys, []string{bundlesDir})), gate, false)
+	l := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{bundlesDir}))
 
-	_, err := l.GetFragment("kit#fragments/frag")
+	fragReads, err := l.ReadFragment("kit#fragments/frag")
 	require.NoError(t, err)
-	_, err = l.GetCommand("kit#commands/cmd")
+	require.Len(t, fragReads, 1)
+	cmdReads, err := l.ReadCommand("kit#commands/cmd")
 	require.NoError(t, err)
-	_, err = l.GetSkill("kit#skills/sk")
+	require.Len(t, cmdReads, 1)
+	skillReads, err := l.ReadSkill("kit#skills/sk")
 	require.NoError(t, err)
+	require.Len(t, skillReads, 1)
 
-	require.Len(t, seen, 3)
+	seen := []string{fragReads[0].TrustRef, cmdReads[0].TrustRef, skillReads[0].TrustRef}
 
 	// The prompt segment is deliberately "prompts", not "commands": the
 	// item-kind rename must not invalidate existing grants. That decision lives

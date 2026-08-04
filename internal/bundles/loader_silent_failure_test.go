@@ -159,7 +159,9 @@ func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
 			restore := clidiag.SetSink(&warnings)
 			t.Cleanup(restore)
 
-			got := l.skillContent(b, "helper", b.Skills["helper"])
+			read, ok := l.lookup("companion")
+			require.True(t, ok)
+			got := l.skillContent(read, "helper", b.Skills["helper"])
 
 			require.Nil(t, got,
 				"a bundle whose Path is not a real filesystem path has no directory to resolve "+

@@ -202,9 +202,12 @@ func TestSkillsFromBundleRef_ManifestLessTamperIsWithheld(t *testing.T) {
 	require.NoError(t, err)
 	approvedHash := hashContent(approvedPayload)
 
-	gate := func(_ string, payload []byte, _, _ string) bool {
-		return hashContent(payload) == approvedHash
-	}
+	gate := filterFunc(func(e Exposure) Verdict {
+		if hashContent(e.Bytes) == approvedHash {
+			return admitVerdict()
+		}
+		return denyVerdict()
+	})
 
 	pipe := gatedPipe(NewLoader(NewProjectReader(fsys, []string{bundlesDir})), gate, false)
 	got := pipe.SkillsFromBundleRef("skill-bundle")

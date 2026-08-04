@@ -169,45 +169,36 @@ func (l *Loader) index() {
 // admit decides whether one read becomes addressable content, and is the ONLY
 // place in the read path that can answer no.
 //
-// It holds exactly two rules, and both exist to preserve a property that
-// predates the readers:
+// It now holds exactly ONE rule, and that rule is not a policy about content: an
+// UNCLAIMED read — one whose axes were never populated — is not content with
+// unknown trust, it is a value nobody established anything about. Zero means
+// unset and unset means withhold, or a struct literal would read as "local,
+// unsigned, no signer".
 //
-//   - An UNCLAIMED read — one whose axes were never populated — is not content
-//     with unknown trust, it is a value nobody established anything about. Zero
-//     means unset and unset means withhold, or a struct literal would read as
-//     "local, unsigned, no signer".
-//   - REMOTE content whose signature is INVALID is tamper, and must never
-//     degrade to the unsigned/review path: degrading it would let an attacker
-//     downgrade a signed bundle to a merely-reviewable one by corrupting its
-//     `.sig`. This is the decision table's remote|invalid row, applied here as a
-//     CARRY-OVER because the gate does not key on TrustCtx yet; when
-//     operations.EffectiveTrust does, this rule moves there and this function
-//     keeps only the unclaimed check.
+// It stays HERE rather than moving to the Filter with the rest, and the
+// asymmetry is deliberate. Every other rule decides about CONTENT and belongs to
+// the process stage, where one verdict can serve the gate and the report alike.
+// This one decides about a structurally invalid VALUE: there is no honest
+// verdict to render for it, no user action it implies, and no reader that emits
+// one. Keeping it in the loader means such a value can never become addressable
+// at ALL — a strictly stronger guarantee than withholding it at exposure, which
+// would leave it resolvable by every management and listing path in between —
+// and it costs nothing, because production can never reach it.
 //
-// Everything else — including a local bundle whose signature is stale — is
-// admitted, and the stale one is told about.
+// The two rules that DID decide about content are gone from here:
+//
+//   - remote | invalid (tamper) now withholds at the Filter (ReasonTampered),
+//     where the caller can be told WHY and where a review listing sees the same
+//     verdict the delivery path saw.
+//   - local | invalid (a stale sidecar) now ADMITS with a warning riding the
+//     verdict (ReasonStaleLocalSignature), which is the decision table's
+//     `local | invalid | *` row.
 func (l *Loader) admit(read BundleRead) bool {
 	if !read.Claimed() {
 		strictness.Fail(strictness.ClassTrust, "report this: a bundle reached the loader without established provenance",
 			"withholding a bundle read that established no trust facts (provenance %s, context %s, signature %s, signer %s)",
 			read.Provenance, read.trustCtx, read.signature, read.signer)
 		return false
-	}
-	if read.trustCtx == TrustCtxRemote && read.signature == SignatureInvalid {
-		strictness.FailOnce(strictness.ClassTrust,
-			"re-pull the bundle, or investigate the source — its signature does not cover its bytes",
-			"remote bundle %q has a signature that does not verify over its content; withholding it: %s",
-			read.ref, read.signatureDetail)
-		return false
-	}
-	if read.trustCtx == TrustCtxLocal && read.signature == SignatureInvalid {
-		// The stale-sidecar diagnostic: admit, and tell the author their
-		// signature no longer covers their bytes. Losing this line sends the
-		// edit-without-re-signing failure downstream to a consumer who cannot
-		// fix it — `bundle move` refuses to publish the pair, and `bundle push`
-		// publishes the bytes unsigned, so without this the author finds out at
-		// publish time, long after the edit that caused it.
-		l.warnStaleSignature(read.Bundle.Path, read.Bundle.Name, read.signatureDetail)
 	}
 	return true
 }
@@ -241,6 +232,18 @@ func (l *Loader) Reads() []BundleRead {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
 	return append([]BundleRead(nil), l.reads...)
+}
+
+// Read resolves a bundle by name to the READ a reader produced for it — the
+// content plus the trust facts that reader established.
+//
+// It exists because the decision function keys on those facts (Filter's
+// Exposure carries a BundleRead), and the executable surfaces resolve a bundle
+// by ref without ever going through a Pipeline: config.loadMCPFromBundleRef and
+// config.loadHooksFromBundleRef both need the read, not just the content. Load
+// remains for callers that genuinely only want the bundle.
+func (l *Loader) Read(name string) (BundleRead, bool) {
+	return l.lookup(name)
 }
 
 // Load reads a bundle by name.

@@ -77,10 +77,10 @@ profiles:
 	b.Name = "kit"
 
 	var gated []string
-	denyGate := func(ref string, _ []byte, _, _ string) bool {
-		gated = append(gated, ref)
-		return false // withhold everything the choke is consulted about
-	}
+	denyGate := filterFunc(func(e Exposure) Verdict {
+		gated = append(gated, exposureRefKey(e))
+		return denyVerdict() // withhold everything the choke is consulted about
+	})
 	pipe := gatedPipe(NewLoader(seedLocal(map[string]*Bundle{"kit": b})), denyGate, false)
 
 	// The constituent fragment gates at content assembly: a deny gate withholds it.

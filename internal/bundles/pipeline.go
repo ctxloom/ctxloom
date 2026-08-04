@@ -6,7 +6,9 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // The PROCESS stage of the delivery pipeline
@@ -25,60 +27,25 @@ import (
 //
 //   - "Is this exposure gated" is a property of the PIPELINE, not of the
 //     reader. One Loader serves management, listing and exposure alike;
-//     exposure surfaces wrap it in a gated Pipeline, management surfaces wrap
-//     it in an ungated one.
-//   - The gate can no longer be forgotten by OMISSION. A caller holding a
+//     exposure surfaces wrap it in a filtered Pipeline, management surfaces wrap
+//     it in an unfiltered one.
+//   - The filter can no longer be forgotten by OMISSION. A caller holding a
 //     Loader cannot reach an exposed body at all — Loader's read methods are
 //     named Read* and return candidate sets, and every delivery-shaped Get*
-//     lives here. Not gating now requires writing the nil gate out loud.
+//     lives here. Not gating now requires writing the nil filter out loud.
 //
-// FAIL-CLOSED is preserved verbatim and is the gate's own contract: a resolve
-// or store error inside the gate returns false, and false here means withheld.
-// This stage adds no arm that can turn an error into an exposure — an item is
-// admitted only when the gate positively says so.
-
-// ContentGate is the per-item trust gate for resolved fragment/prompt content.
-// It receives:
-//
-//   - ref     — the item's full ref, "<bundle>#<kind>/<name>"
-//   - payload — the EXACT bytes about to be exposed (pre-mustache)
-//   - form    — the LAYOUT form: "raw" | "distilled"
-//   - signer  — the bundle's VERIFIED publisher identity, or "" for unsigned
-//
-// form is the layout axis ONLY. A countersignature binds a COMPOSITE
-// attestation form that also names the item's role ("fragment/raw",
-// "exec/hook", …), and that value is derived below the gate from the ref's kind
-// — never passed in here. A gate call site therefore cannot name its own role,
-// which is what stops a text item's approval from ever satisfying an
-// executable's gate over identical bytes: the caller does not get a say.
-//
-// and reports whether the item may be exposed (true) or must be withheld
-// (false).
-//
-// It takes BYTES, not a content hash, and that is the point: a hash can only be
-// compared against a recorded hash, and a recorded hash is a file anything can
-// write. Bytes can be VERIFIED against a signature. Handing the gate a
-// precomputed hash would make the fast path "is this hash in the store?" — which
-// is exactly the forgeable-file weakness the signature design exists to remove
-// (spec §9.3, trap #2). The hash still exists, as an index; it just stopped
-// being the authority.
-//
-// It is the PROCESS stage's decision function (see Pipeline), never the read
-// stage's: a Loader reports what it holds and attaches the trust facts, and a
-// Pipeline decides with this. A nil gate means no enforcement — the
-// management/listing shape, which still resolves pending items so a human can
-// review, accept or stamp them. Fail-closed semantics are the gate's own
-// responsibility: a resolve/store error must return false (withhold), never
-// default-allow.
-type ContentGate func(ref string, payload []byte, form, signer string) bool
+// FAIL-CLOSED is preserved verbatim and is the Filter's own contract: a resolve
+// or store error inside it withholds, and a withheld verdict here means the
+// item is not delivered. This stage adds no arm that can turn an error into an
+// exposure — an item is admitted only when the filter positively says so.
 
 // Pipeline pairs a read stage (a *Loader) with the process stage's two
-// policies: which trust gate decides admissibility, and which layout form to
-// serve. A nil gate means no gating — the management/listing shape, which
+// policies: which Filter decides admissibility, and which layout form to
+// serve. A nil filter means no gating — the management/listing shape, which
 // still resolves pending content so a human can review, accept or stamp it.
 type Pipeline struct {
 	loader *Loader
-	gate   ContentGate
+	filter Filter
 
 	// preferDistilled is the caller's raw-vs-distilled choice, held HERE
 	// because form selection is processing: the read stage reports every form
@@ -91,11 +58,11 @@ type Pipeline struct {
 	withheld   map[string]struct{}
 }
 
-// NewPipeline builds the process stage over loader. gate may be nil (no
+// NewPipeline builds the process stage over loader. filter may be nil (no
 // gating). Passing nil is a deliberate statement that this surface does not
 // gate, never an omission: there is no other way to reach an exposed body.
-func NewPipeline(loader *Loader, gate ContentGate, preferDistilled bool) *Pipeline {
-	return &Pipeline{loader: loader, gate: gate, preferDistilled: preferDistilled}
+func NewPipeline(loader *Loader, filter Filter, preferDistilled bool) *Pipeline {
+	return &Pipeline{loader: loader, filter: filter, preferDistilled: preferDistilled}
 }
 
 // Loader returns the read stage this pipeline processes. Callers that need
@@ -109,22 +76,22 @@ func (p *Pipeline) Loader() *Loader {
 	return p.loader
 }
 
-// Gate returns the trust gate this pipeline decides with (nil when it does not
-// gate). Lets a caller that must gate OTHER items through the IDENTICAL
+// Filter returns the filter this pipeline decides with (nil when it does not
+// gate). Lets a caller that must decide about OTHER items through the IDENTICAL
 // decision — builtin bundle fragments, which never resolve through a Loader at
-// all — share this gate rather than building a redundant one.
-func (p *Pipeline) Gate() ContentGate {
+// all — share this filter rather than building a redundant one.
+func (p *Pipeline) Filter() Filter {
 	if p == nil {
 		return nil
 	}
-	return p.gate
+	return p.filter
 }
 
 // PreferDistilled reports the form preference this pipeline serves.
 func (p *Pipeline) PreferDistilled() bool { return p != nil && p.preferDistilled }
 
-// Withheld returns the item refs this pipeline's gate withheld over its
-// lifetime, deduplicated and sorted. Empty when no gate is set or nothing was
+// Withheld returns the item refs this pipeline's filter withheld over its
+// lifetime, deduplicated and sorted. Empty when no filter is set or nothing was
 // withheld. Callers surface the COUNT (or the refs) so the user knows content
 // was hidden; returning refs and never bodies keeps the disclosure
 // content-free.
@@ -143,25 +110,51 @@ func (p *Pipeline) Withheld() []string {
 }
 
 // admit reports whether these bytes may be delivered, recording the ref when
-// they may not. A nil gate admits everything. The gate is handed the EXACT
-// bytes about to be exposed (pre-mustache) rather than a hash: a hash can only
-// be compared against a recorded hash, and a recorded hash is a file anything
-// can write, while bytes can be VERIFIED against a signature (spec §9.3, trap
-// #2).
-func (p *Pipeline) admit(ref string, payload []byte, form ContentForm, signer string) bool {
-	if p.gate == nil {
+// they may not and SURFACING a verdict that admits with a warning. A nil filter
+// admits everything.
+//
+// The filter is handed the EXACT bytes about to be exposed (pre-mustache)
+// rather than a hash: a hash can only be compared against a recorded hash, and a
+// recorded hash is a file anything can write, while bytes can be VERIFIED
+// against a signature (spec §9.3, trap #2).
+//
+// It also does the ONE thing a Filter deliberately cannot: emit. The filter is a
+// pure function and returns its warning in Verdict.Detail; this is the delivery
+// path's obligation to print it. A Detail nobody prints means an author never
+// learns their signature went stale, which is the whole point of the
+// admit-with-warning row.
+func (p *Pipeline) admit(read BundleRead, ref string, payload []byte, form ContentForm) bool {
+	if p.filter == nil {
 		return true
 	}
-	if p.gate(ref, payload, string(form), signer) {
+	tRef, _, _, err := trust.ParseItemRef(ref)
+	if err != nil {
+		// An item we cannot ADDRESS is one the decision function was never able
+		// to key on. Withhold rather than expose content nothing evaluated —
+		// the same fail-closed answer the filter itself gives for an
+		// unaddressable ref, decided here because there is no Ref to hand it.
+		clidiag.Warn("ctxloom", "withheld %s: %s", ref, ReasonUnaddressable.Explain(err.Error()))
+		p.recordWithheld(ref)
+		return false
+	}
+	v := p.filter.Admit(Exposure{Read: read, Ref: tRef, Bytes: payload, Form: form})
+	ReportVerdict(ref, v)
+	if v.Admit {
 		return true
 	}
+	p.recordWithheld(ref)
+	return false
+}
+
+// recordWithheld tallies a ref this pipeline did not deliver (deduplicated,
+// lazily allocated). Refs only, never bodies: the disclosure stays content-free.
+func (p *Pipeline) recordWithheld(ref string) {
 	p.withheldMu.Lock()
 	if p.withheld == nil {
 		p.withheld = make(map[string]struct{})
 	}
 	p.withheld[ref] = struct{}{}
 	p.withheldMu.Unlock()
-	return false
 }
 
 // deliver is the process stage in one function: SELECT a form from everything
@@ -177,7 +170,7 @@ func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
 		return nil
 	}
 	payload, form := r.Forms.Select(p.preferDistilled)
-	if !p.admit(r.TrustRef, payload, form, r.Signer) {
+	if !p.admit(r.Read, r.TrustRef, payload, form) {
 		return nil
 	}
 	return &LoadedContent{
@@ -208,7 +201,7 @@ func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
 	if ls == nil {
 		return false
 	}
-	return p.admit(ls.TrustRef, ls.TrustPayload, FormRaw, ls.Signer)
+	return p.admit(ls.Read, ls.TrustRef, ls.TrustPayload, FormRaw)
 }
 
 // firstAdmissible returns the first candidate the gate admits, gating every

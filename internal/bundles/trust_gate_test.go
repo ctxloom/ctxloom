@@ -12,18 +12,31 @@ import (
 // the (hash, form) of every item it sees — hashing the PAYLOAD the gate is now
 // handed — so a test can still assert the gate is fed the exact bytes about to
 // be exposed.
-func blockingGate(seen map[string][2]string, substrs ...string) ContentGate {
-	return func(ref string, payload []byte, form, _signer string) bool {
+func blockingGate(seen map[string][2]string, substrs ...string) Filter {
+	return filterFunc(func(e Exposure) Verdict {
+		key := exposureRefKey(e)
 		if seen != nil {
-			seen[ref] = [2]string{HashPayload(payload), form}
+			seen[key] = [2]string{HashPayload(e.Bytes), string(e.Form)}
 		}
 		for _, s := range substrs {
-			if strings.Contains(ref, s) {
-				return false
+			if strings.Contains(key, s) {
+				return denyVerdict()
 			}
 		}
-		return true
+		return admitVerdict()
+	})
+}
+
+// exposureRefKey re-spells an Exposure's parsed identity as the ref string the
+// old string-keyed gate received, so these tests keep asserting on the same
+// refs they always did — including the CANONICAL form for remote content, which
+// is the property TestLoaderGate_SeededBundleGatesByCanonicalRef exists to pin.
+func exposureRefKey(e Exposure) string {
+	base := e.Ref.Bundle
+	if !e.Ref.IsLocal && !e.Ref.IsBuiltin && e.Ref.RepoURL != "" {
+		base = e.Ref.RepoURL + "@bundles/" + e.Ref.Bundle
 	}
+	return base + "#" + e.Ref.Kind.Dir() + "/" + e.Ref.Name
 }
 
 func demoSeed() map[string]*Bundle {
@@ -126,16 +139,29 @@ func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
 	const canonical = "https://github.com/acme/repo@bundles/tooling"
 	seed := map[string]*Bundle{canonical: {Name: "tooling", Fragments: map[string]BundleFragment{"f": {Content: "body"}}}}
 	seen := map[string][2]string{}
-	l := gatedPipe(NewLoader(seedLocal(seed)), blockingGate(seen), true)
+	var local []bool
+	filter := filterFunc(func(e Exposure) Verdict {
+		seen[exposureRefKey(e)] = [2]string{HashPayload(e.Bytes), string(e.Form)}
+		local = append(local, e.Ref.IsLocal)
+		return admitVerdict()
+	})
+	l := gatedPipe(NewLoader(seedLocal(seed)), filter, true)
 
 	if _, err := l.GetFragment(canonical + "#fragments/f"); err != nil {
 		t.Fatalf("GetFragment: %v", err)
 	}
 	if _, ok := seen[canonical+"#fragments/f"]; !ok {
-		t.Errorf("gate not fed the canonical source ref; saw %v", seen)
+		t.Errorf("filter not fed the canonical source ref; saw %v", seen)
 	}
 	if _, ok := seen["tooling#fragments/f"]; ok {
 		t.Error("cloned content gated by short bundle.Name — would read as local (a trust hole)")
+	}
+	// The consequence, asserted directly rather than through the spelling: the
+	// Ref the decision keys on is NOT local.
+	for _, isLocal := range local {
+		if isLocal {
+			t.Error("a cloned bundle's content reached the filter as a LOCAL ref — it would auto-allow")
+		}
 	}
 }
 

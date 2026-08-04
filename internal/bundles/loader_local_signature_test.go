@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
@@ -28,9 +29,55 @@ import (
 // into an immediate, actionable one — and, unlike a withhold, costs the user
 // none of their content.
 //
-// Every test below therefore asserts BOTH halves: the bundle is returned, AND
+// Every test below therefore asserts BOTH halves: the content is delivered, AND
 // the diagnostic is (or is not) emitted. Asserting only the warning would let a
 // regression that withholds the content pass.
+//
+// The diagnostic now RIDES THE VERDICT. The loader no longer emits it: a Filter
+// answers the decision table's `local | invalid | *` row with
+// {Admit: true, Reason: ReasonStaleLocalSignature, Detail: StaleSignatureAdvice},
+// and the delivery path prints Detail. So these tests drive a Pipeline, which is
+// the only place both halves are observable at once. staleRowFilter below is the
+// row itself, spelled locally; the production decision that produces it is
+// pinned in internal/operations.
+
+// signatureRowsFilter is the two decision-table rows that key on the signature
+// axis, and nothing else:
+//
+//	local  | invalid | * -> ADMIT + WARN  (locality already answered the trust
+//	                                       question; the author has to be told)
+//	remote | invalid | * -> WITHHOLD      (tamper — never degraded to unsigned)
+//
+// Everything else admits plainly. It is the ROWS, spelled here so a test can
+// observe the delivery path acting on a Verdict; the production decision that
+// produces these verdicts is pinned in internal/operations.
+func signatureRowsFilter() Filter {
+	return filterFunc(func(e Exposure) Verdict {
+		if e.Read.Signature() != SignatureInvalid {
+			return admitVerdict()
+		}
+		if e.Read.TrustCtx() == TrustCtxRemote {
+			return Verdict{Reason: ReasonTampered, Detail: e.Read.SignatureDetail()}
+		}
+		return Verdict{Admit: true, Reason: ReasonStaleLocalSignature, Detail: StaleSignatureAdvice(e.Read)}
+	})
+}
+
+// deliverKeeper resolves the fixture bundle's one fragment through a pipeline
+// carrying staleRowFilter, capturing everything the user was told, and returns
+// the delivered content plus those diagnostics.
+func deliverKeeper(t *testing.T, fsys afero.Fs, bundleName string) (*LoadedContent, string) {
+	t.Helper()
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"})).WithWarnWriter(&warnings),
+		signatureRowsFilter(), false)
+	lc, err := pipe.GetFragment(bundleName + "#fragments/keeper")
+	require.NoError(t, err, "a signature fact about LOCAL content must never withhold it")
+	return lc, warnings.String()
+}
 
 // signBytesFor signs data under the publish namespace with a throwaway key and
 // returns the armored detached signature — real crypto, so "covers these bytes"
@@ -73,18 +120,14 @@ func TestLoader_LoadFile_StaleLocalSignature_WarnsAndDelivers(t *testing.T) {
 	edited := append(append([]byte{}, body...), []byte("# edited, never re-signed\n")...)
 	require.NoError(t, afero.WriteFile(mem, path, edited, 0o644))
 
-	var warnings bytes.Buffer
-	loader := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&warnings)
+	lc, warnings := deliverKeeper(t, mem, "stale-tools")
 
-	b, err := loader.Load("stale-tools")
-
-	require.NoError(t, err, "a stale signature must never stop local content loading")
-	require.NotNil(t, b)
-	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content,
+	require.NotNil(t, lc)
+	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content,
 		"the content must be delivered — locality already answered the trust question")
-	assert.Contains(t, warnings.String(), "ctxloom: warning:")
-	assert.Contains(t, warnings.String(), "stale-tools.yaml.sig")
-	assert.Contains(t, warnings.String(), "ctxloom bundle sign stale-tools",
+	assert.Contains(t, warnings, "ctxloom: warning:")
+	assert.Contains(t, warnings, "stale-tools.yaml.sig")
+	assert.Contains(t, warnings, "ctxloom bundle sign stale-tools",
 		"the warning must name the command that fixes it")
 }
 
@@ -95,14 +138,10 @@ func TestLoader_LoadFile_ValidLocalSignature_Silent(t *testing.T) {
 	mem, path, body := localSigFixture(t, "valid-tools")
 	require.NoError(t, afero.WriteFile(mem, path+SigSuffix, signBytesFor(t, body), 0o644))
 
-	var warnings bytes.Buffer
-	loader := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&warnings)
+	lc, warnings := deliverKeeper(t, mem, "valid-tools")
 
-	b, err := loader.Load("valid-tools")
-
-	require.NoError(t, err)
-	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content)
-	assert.Empty(t, warnings.String(), "a signature that still covers the bytes is not a problem")
+	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content)
+	assert.Empty(t, warnings, "a signature that still covers the bytes is not a problem")
 }
 
 // No signature at all is the overwhelmingly common case — and the state the
@@ -111,14 +150,10 @@ func TestLoader_LoadFile_ValidLocalSignature_Silent(t *testing.T) {
 func TestLoader_LoadFile_UnsignedLocalBundle_Silent(t *testing.T) {
 	mem, _, _ := localSigFixture(t, "plain-tools")
 
-	var warnings bytes.Buffer
-	loader := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&warnings)
+	lc, warnings := deliverKeeper(t, mem, "plain-tools")
 
-	b, err := loader.Load("plain-tools")
-
-	require.NoError(t, err)
-	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content)
-	assert.Empty(t, warnings.String())
+	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content)
+	assert.Empty(t, warnings)
 }
 
 // A `.sig` holding bytes that are not a signature at all is "invalid" rather
@@ -129,14 +164,10 @@ func TestLoader_LoadFile_CorruptLocalSignature_WarnsAndDelivers(t *testing.T) {
 	mem, path, _ := localSigFixture(t, "corrupt-tools")
 	require.NoError(t, afero.WriteFile(mem, path+SigSuffix, []byte("not a signature\n"), 0o644))
 
-	var warnings bytes.Buffer
-	loader := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&warnings)
+	lc, warnings := deliverKeeper(t, mem, "corrupt-tools")
 
-	b, err := loader.Load("corrupt-tools")
-
-	require.NoError(t, err)
-	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content)
-	assert.Contains(t, warnings.String(), "corrupt-tools.yaml.sig")
+	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content)
+	assert.Contains(t, warnings, "corrupt-tools.yaml.sig")
 }
 
 // A `.sig` that exists but cannot be READ is a third state: we cannot establish
@@ -148,33 +179,27 @@ func TestLoader_LoadFile_UnreadableLocalSignature_WarnsAndDelivers(t *testing.T)
 	sigPath := path + SigSuffix
 	require.NoError(t, afero.WriteFile(mem, sigPath, []byte("armored-signature-bytes"), 0o644))
 
-	var warnings bytes.Buffer
-	loader := NewLoader(NewProjectReader(&openFailFs{Fs: mem, failPath: filepath.ToSlash(sigPath)},
-		[]string{"/bundles"})).WithWarnWriter(&warnings)
+	lc, warnings := deliverKeeper(t, &openFailFs{Fs: mem, failPath: filepath.ToSlash(sigPath)}, "opaque-tools")
 
-	b, err := loader.Load("opaque-tools")
-
-	require.NoError(t, err, "an unreadable sidecar must not stop local content loading")
-	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content)
-	assert.Contains(t, warnings.String(), "opaque-tools.yaml.sig")
+	assert.Equal(t, "KEEPER-PAYLOAD", lc.Content)
+	assert.Contains(t, warnings, "opaque-tools.yaml.sig")
 }
 
-// Said ONCE. Context is assembled more than once per process (sync's
-// regeneration and the launch-time assembly, each through an independent
-// Loader), so a per-loader guard would still repeat the same line to the same
-// user in one run — which is how a diagnostic becomes noise.
+// Said ONCE. The sentence names the BUNDLE, so every item in a stale bundle
+// produces the identical line, and context is assembled more than once per
+// process (sync's regeneration and the launch-time assembly, each through an
+// independent Loader and Pipeline). Without process-wide dedup one broken
+// sidecar reports once per item per assembly, which is how a diagnostic becomes
+// noise.
 func TestLoader_LoadFile_StaleLocalSignature_WarnsOncePerBundle(t *testing.T) {
 	mem, path, body := localSigFixture(t, "repeat-tools")
 	require.NoError(t, afero.WriteFile(mem, path+SigSuffix, signBytesFor(t, body), 0o644))
 	edited := append(append([]byte{}, body...), []byte("# edited\n")...)
 	require.NoError(t, afero.WriteFile(mem, path, edited, 0o644))
 
-	var first, second bytes.Buffer
-	_, err := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&first).Load("repeat-tools")
-	require.NoError(t, err)
-	_, err = NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&second).Load("repeat-tools")
-	require.NoError(t, err)
+	_, first := deliverKeeper(t, mem, "repeat-tools")
+	_, second := deliverKeeper(t, mem, "repeat-tools")
 
-	assert.Contains(t, first.String(), "repeat-tools.yaml.sig")
-	assert.Empty(t, second.String(), "the same stale pair must not be reported twice in one process")
+	assert.Contains(t, first, "repeat-tools.yaml.sig")
+	assert.Empty(t, second, "the same stale pair must not be reported twice in one process")
 }

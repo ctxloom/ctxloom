@@ -77,7 +77,22 @@ type ItemRead struct {
 	//
 	// Establishing it is READING: the reader keeps its signature awareness. What
 	// it no longer does is act on it.
+	//
+	// It is the COLLAPSED form of two of Read's axes and cannot express the
+	// third: signing.VerifyPublisher returns "" for both "unsigned" and "signed
+	// by a key we do not trust", and nothing about it can say "invalid". Read is
+	// the un-collapsed truth and is what the Filter decides on; this stays
+	// because a DELIVERED item names its own publisher.
 	Signer string
+
+	// Read is the owning bundle's read — the trust FACTS its reader established,
+	// on all three axes. It is what Filter.Admit decides on (bundles.Exposure).
+	//
+	// Exported, and safe to be: BundleRead's axes are unexported and settable
+	// only by a reader, so an ItemRead built from a struct literal outside this
+	// package carries an UNCLAIMED read, which every Filter withholds. The field
+	// hands out facts; it cannot mint them.
+	Read BundleRead
 }
 
 // ExportName returns the short, slash-command-facing name for this item:
@@ -309,7 +324,8 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 // bundle's honest source ref (Bundle.contentSourceRef) — canonical for a cloned
 // bundle so its text gates like an executable, the local name for a project
 // bundle so its text auto-trusts — which is the SAME keying the exec gate uses.
-func (l *Loader) fragmentRead(bundle *Bundle, fragName string, frag BundleFragment) *ItemRead {
+func (l *Loader) fragmentRead(read BundleRead, fragName string, frag BundleFragment) *ItemRead {
+	bundle := read.Bundle
 	return &ItemRead{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
 		Bundle:       bundle.Name,
@@ -321,21 +337,22 @@ func (l *Loader) fragmentRead(bundle *Bundle, fragName string, frag BundleFragme
 		Forms:        frag.Forms(),
 		TrustRef:     bundle.contentSourceRef() + "#fragments/" + fragName,
 		Signer:       bundle.Signer(),
+		Read:         read,
 	}
 }
 
 // fragmentFromBundle loads a specific bundle and reports the named fragment —
 // the single-candidate case of ReadFragment.
 func (l *Loader) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, error) {
-	bundle, err := l.Load(bundleName)
-	if err != nil {
-		return nil, err
+	read, ok := l.lookup(bundleName)
+	if !ok {
+		return nil, l.missing(bundleName)
 	}
-	frag, ok := bundle.Fragments[fragName]
+	frag, ok := read.Bundle.Fragments[fragName]
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundleName)
 	}
-	return []*ItemRead{l.fragmentRead(bundle, fragName, frag)}, nil
+	return []*ItemRead{l.fragmentRead(read, fragName, frag)}, nil
 }
 
 // ResolveFragmentAsk resolves a user-supplied fragment ask to the canonical
@@ -373,9 +390,8 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 func (l *Loader) searchFragment(name string) ([]*ItemRead, error) {
 	var out []*ItemRead
 	for _, read := range l.Reads() {
-		bundle := read.Bundle
-		if frag, ok := bundle.Fragments[name]; ok {
-			out = append(out, l.fragmentRead(bundle, name, frag))
+		if frag, ok := read.Bundle.Fragments[name]; ok {
+			out = append(out, l.fragmentRead(read, name, frag))
 		}
 	}
 	if len(out) == 0 {
@@ -402,7 +418,8 @@ func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
 // read facts. TrustRef keeps the "prompts" kind segment (trust.KindPrompt.Dir())
 // even though the load selector is "#commands/", so the item-kind rename does
 // not invalidate existing trust grants.
-func (l *Loader) commandRead(bundle *Bundle, promptName string, prompt BundleCommand) *ItemRead {
+func (l *Loader) commandRead(read BundleRead, promptName string, prompt BundleCommand) *ItemRead {
+	bundle := read.Bundle
 	return &ItemRead{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
 		Bundle:       bundle.Name,
@@ -415,6 +432,7 @@ func (l *Loader) commandRead(bundle *Bundle, promptName string, prompt BundleCom
 		Forms:        prompt.Forms(),
 		TrustRef:     bundle.contentSourceRef() + "#prompts/" + promptName,
 		Signer:       bundle.Signer(),
+		Read:         read,
 	}
 }
 
@@ -427,15 +445,16 @@ func (l *Loader) commandRead(bundle *Bundle, promptName string, prompt BundleCom
 // command-file writes are reproducible. Nothing is dropped on policy grounds —
 // see Pipeline.CommandsFromBundleRef for the gated delivery.
 func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
-	bundle, err := l.Load(bundleRef)
-	if err != nil {
+	read, ok := l.lookup(bundleRef)
+	if !ok {
 		// Same silent-export defect as SkillsFromBundleRef, same fix, same
 		// warner expandBundleRef already uses: writing zero command
 		// files because the bundle would not load must not look like a bundle
 		// that ships no commands.
-		l.warnUnresolvedBundle(bundleRef, err)
+		l.warnUnresolvedBundle(bundleRef, l.missing(bundleRef))
 		return nil
 	}
+	bundle := read.Bundle
 	names := make([]string, 0, len(bundle.Commands))
 	for name := range bundle.Commands {
 		names = append(names, name)
@@ -443,7 +462,7 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 	sort.Strings(names)
 	out := make([]*ItemRead, 0, len(names))
 	for _, name := range names {
-		out = append(out, l.commandRead(bundle, name, bundle.Commands[name]))
+		out = append(out, l.commandRead(read, name, bundle.Commands[name]))
 	}
 	return out
 }
@@ -451,15 +470,15 @@ func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 // commandFromBundle loads a specific bundle and reports the named command —
 // the single-candidate case of ReadCommand.
 func (l *Loader) commandFromBundle(bundleName, promptName string) ([]*ItemRead, error) {
-	bundle, err := l.Load(bundleName)
-	if err != nil {
-		return nil, err
+	read, ok := l.lookup(bundleName)
+	if !ok {
+		return nil, l.missing(bundleName)
 	}
-	prompt, ok := bundle.Commands[promptName]
+	prompt, ok := read.Bundle.Commands[promptName]
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundleName)
 	}
-	return []*ItemRead{l.commandRead(bundle, promptName, prompt)}, nil
+	return []*ItemRead{l.commandRead(read, promptName, prompt)}, nil
 }
 
 // searchCommand scans every bundle for a command with the given name and
@@ -468,9 +487,8 @@ func (l *Loader) commandFromBundle(bundleName, promptName string) ([]*ItemRead, 
 func (l *Loader) searchCommand(name string) ([]*ItemRead, error) {
 	var out []*ItemRead
 	for _, read := range l.Reads() {
-		bundle := read.Bundle
-		if prompt, ok := bundle.Commands[name]; ok {
-			out = append(out, l.commandRead(bundle, name, prompt))
+		if prompt, ok := read.Bundle.Commands[name]; ok {
+			out = append(out, l.commandRead(read, name, prompt))
 		}
 	}
 	if len(out) == 0 {
@@ -607,7 +625,7 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 	// bundleAtVersion with no explicit commit re-derives the version from the
 	// ref itself: the lockfile-pinned default when nothing is pinned, or the
 	// exact historical version via the wired version resolver for "@<commit>".
-	b, err := l.bundleAtVersion(ref, "")
+	read, err := l.bundleAtVersion(ref, "")
 	if err != nil {
 		// A profile referenced this bundle but it didn't resolve (missing, or a
 		// pinned version that failed to fetch). Warn so the gap is diagnosable —
@@ -617,8 +635,8 @@ func (l *Loader) expandBundleRef(ref string) []ExpandedRef {
 		l.warnUnresolvedBundle(ref, err)
 		return nil
 	}
-	out := make([]ExpandedRef, 0, len(b.Fragments))
-	for fragName := range b.Fragments {
+	out := make([]ExpandedRef, 0, len(read.Bundle.Fragments))
+	for fragName := range read.Bundle.Fragments {
 		out = append(out, ExpandedRef{Name: canonical + remote.FragmentSelector + fragName, Version: version})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

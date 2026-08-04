@@ -36,7 +36,7 @@ import (
 // loader's lifetime. The returned bundle's Name is the VERSION-LESS canonical ref
 // so the content gate keys on the same identity regardless of which commit served
 // it (multiple grants per ref, one per content_hash).
-func (l *Loader) bundleAtVersion(bundleRef, commit string) (*Bundle, error) {
+func (l *Loader) bundleAtVersion(bundleRef, commit string) (BundleRead, error) {
 	// A bundleRef may itself carry the version ("<bundle>@<commit>"); an explicit
 	// commit argument wins, else fall back to the ref's own pinned version.
 	canonical, refVersion := splitBundleVersion(bundleRef)
@@ -44,11 +44,16 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (*Bundle, error) {
 		commit = refVersion
 	}
 	if commit == "" {
-		// No version pinned anywhere → the ordinary lockfile default.
-		return l.Load(bundleRef)
+		// No version pinned anywhere → the ordinary lockfile default, whose
+		// facts a real reader established.
+		read, ok := l.lookup(bundleRef)
+		if !ok {
+			return BundleRead{}, l.missing(bundleRef)
+		}
+		return read, nil
 	}
 	if l.versionResolver == nil {
-		return nil, fmt.Errorf("%w: cannot resolve %s@%s", errs.ErrNoVersionResolver, canonical, commit)
+		return BundleRead{}, fmt.Errorf("%w: cannot resolve %s@%s", errs.ErrNoVersionResolver, canonical, commit)
 	}
 
 	cacheKey := canonical + "@" + commit
@@ -56,16 +61,16 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (*Bundle, error) {
 	defer l.versionMu.Unlock()
 	if l.versionCache != nil {
 		if b, ok := l.versionCache[cacheKey]; ok {
-			return b, nil
+			return versionRead(canonical, commit, b), nil
 		}
 	}
 
 	b, err := l.versionResolver(canonical, commit)
 	if err != nil {
-		return nil, fmt.Errorf("resolve %s@%s: %w", canonical, commit, err)
+		return BundleRead{}, fmt.Errorf("resolve %s@%s: %w", canonical, commit, err)
 	}
 	if b == nil {
-		return nil, fmt.Errorf("resolve %s@%s: resolver returned nil bundle", canonical, commit)
+		return BundleRead{}, fmt.Errorf("resolve %s@%s: resolver returned nil bundle", canonical, commit)
 	}
 	// The version-less canonical ref is the trust/identity key: a historical
 	// version is gated by its own content_hash under the SAME ref, so grants
@@ -77,7 +82,35 @@ func (l *Loader) bundleAtVersion(bundleRef, commit string) (*Bundle, error) {
 		l.versionCache = make(map[string]*Bundle)
 	}
 	l.versionCache[cacheKey] = b
-	return b, nil
+	return versionRead(canonical, commit, b), nil
+}
+
+// versionRead states the trust facts of a HISTORICAL version, which no Reader
+// produced: BundleVersionResolver fetches one document's bytes at one commit
+// and parses them, and that is all it does.
+//
+// The facts it reports are therefore the honest ones for that fetch:
+//
+//   - TrustCtx comes from the ref. A ctxloom:local pin reads the PROJECT'S OWN
+//     git history, so it is local exactly as its unpinned twin is; anything else
+//     crossed a forge and is remote.
+//   - Signature/Signer are none/none, because no detached signature accompanied
+//     the fetch — the resolver asks for the document and nothing else. This is
+//     not a claim that the publisher did not sign; it is the claim that nothing
+//     here verified one, which is why a historical remote version is never
+//     admitted as trusted-signer. It reaches review like any unsigned remote
+//     content, which is exactly what it did before the readers existed
+//     (Bundle.Signer() was never stamped on this path either).
+//
+// It is unexported and takes the resolver's own output, so it cannot be used to
+// mint a posture for anything else.
+func versionRead(canonical, commit string, b *Bundle) BundleRead {
+	tctx, prov := TrustCtxRemote, ProvenanceRemote
+	if parsed, err := remote.ParseReference(canonical); err == nil && parsed.IsLocal {
+		tctx, prov = TrustCtxLocal, ProvenanceProject
+	}
+	return newRead(canonical+"@"+commit, b, prov, tctx,
+		signatureFacts{signature: SignatureNone, signer: SignerNone})
 }
 
 // splitBundleVersion separates a bundle reference's version-less canonical form
@@ -115,15 +148,15 @@ func (l *Loader) ReadFragmentAtVersion(ref, commit string) ([]*ItemRead, error) 
 	if !isRef {
 		return l.searchFragment(ref)
 	}
-	bundle, err := l.bundleAtVersion(bundleRef, commit)
+	read, err := l.bundleAtVersion(bundleRef, commit)
 	if err != nil {
 		return nil, err
 	}
-	frag, ok := bundle.Fragments[fragName]
+	frag, ok := read.Bundle.Fragments[fragName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundle.Name)
+		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, read.Bundle.Name)
 	}
-	return []*ItemRead{l.fragmentRead(bundle, fragName, frag)}, nil
+	return []*ItemRead{l.fragmentRead(read, fragName, frag)}, nil
 }
 
 // ReadCommandAtVersion is the command counterpart to ReadFragmentAtVersion: a
@@ -137,15 +170,15 @@ func (l *Loader) ReadCommandAtVersion(ref, commit string) ([]*ItemRead, error) {
 	if !isRef {
 		return l.searchCommand(ref)
 	}
-	bundle, err := l.bundleAtVersion(bundleRef, commit)
+	read, err := l.bundleAtVersion(bundleRef, commit)
 	if err != nil {
 		return nil, err
 	}
-	prompt, ok := bundle.Commands[promptName]
+	prompt, ok := read.Bundle.Commands[promptName]
 	if !ok {
-		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundle.Name)
+		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, read.Bundle.Name)
 	}
-	return []*ItemRead{l.commandRead(bundle, promptName, prompt)}, nil
+	return []*ItemRead{l.commandRead(read, promptName, prompt)}, nil
 }
 
 // ReadFragmentVersions reports the fragment named by ref at each requested

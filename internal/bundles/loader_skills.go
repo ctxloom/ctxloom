@@ -54,6 +54,11 @@ type LoadedSkill struct {
 	// Signer is the owning bundle's VERIFIED publisher identity, or "" — see
 	// LoadedContent.Signer.
 	Signer string
+
+	// Read is the owning bundle's read — the trust FACTS its reader established.
+	// Filter.Admit decides on it (bundles.Exposure); see ItemRead.Read for why
+	// exporting a value whose axes are unexported is safe.
+	Read BundleRead
 }
 
 // LoadedSkillFile is one file of a resolved skill package: its path relative
@@ -74,16 +79,17 @@ type LoadedSkillFile struct {
 // bundle's skills. Nothing is dropped on policy grounds; see
 // Pipeline.SkillsFromBundleRef.
 func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
-	bundle, err := l.Load(bundleRef)
-	if err != nil {
+	read, ok := l.lookup(bundleRef)
+	if !ok {
 		// This feeds the export path that WRITES per-engine skill files, so a
 		// bare `return nil` exported zero skills, exit 0, in silence —
 		// indistinguishable from a bundle that ships none. The
 		// sibling expandBundleRef already warns here through this same warner;
 		// that inconsistency was the tell.
-		l.warnUnresolvedBundle(bundleRef, err)
+		l.warnUnresolvedBundle(bundleRef, l.missing(bundleRef))
 		return nil
 	}
+	bundle := read.Bundle
 	names := make([]string, 0, len(bundle.Skills))
 	for name := range bundle.Skills {
 		names = append(names, name)
@@ -91,7 +97,7 @@ func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 	sort.Strings(names)
 	out := make([]*LoadedSkill, 0, len(names))
 	for _, name := range names {
-		if ls := l.skillContent(bundle, name, bundle.Skills[name]); ls != nil {
+		if ls := l.skillContent(read, name, bundle.Skills[name]); ls != nil {
 			out = append(out, ls)
 		}
 	}
@@ -111,7 +117,8 @@ func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 // It reports nothing, loudly, rather than a partial/tampered one. Deciding
 // whether the package may be DELIVERED is the process stage's call, over the
 // preimage carried out on TrustPayload.
-func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *LoadedSkill {
+func (l *Loader) skillContent(read BundleRead, name string, entry BundleSkill) *LoadedSkill {
+	bundle := read.Bundle
 	// NOT filepath.Dir(bundle.Path): Path is overloaded, and for a companion-
 	// or seeded bundle Dir() of it is ".", which resolved this skill against
 	// the process working directory and materialized whatever sat there as
@@ -186,6 +193,7 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 		TrustRef:     bundle.contentSourceRef() + "#skills/" + name,
 		TrustPayload: payload,
 		Signer:       bundle.Signer(),
+		Read:         read,
 	}
 }
 
@@ -210,7 +218,7 @@ func (l *Loader) ReadAllSkills() ([]*LoadedSkill, error) {
 	for _, read := range l.Reads() {
 		bundle := read.Bundle
 		for _, name := range bundle.SkillNames() {
-			if ls := l.skillContent(bundle, name, bundle.Skills[name]); ls != nil {
+			if ls := l.skillContent(read, name, bundle.Skills[name]); ls != nil {
 				out = append(out, ls)
 			}
 		}
@@ -266,15 +274,15 @@ func (l *Loader) ReadSkill(name string) ([]*LoadedSkill, error) {
 // success: a skill that does not materialize must never look like one that
 // materialized to nothing.
 func (l *Loader) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, error) {
-	bundle, err := l.Load(bundleName)
-	if err != nil {
-		return nil, err
+	read, ok := l.lookup(bundleName)
+	if !ok {
+		return nil, l.missing(bundleName)
 	}
-	entry, ok := bundle.Skills[skillName]
+	entry, ok := read.Bundle.Skills[skillName]
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrSkillNotFound, skillName, bundleName)
 	}
-	ls := l.skillContent(bundle, skillName, entry)
+	ls := l.skillContent(read, skillName, entry)
 	if ls == nil {
 		return nil, fmt.Errorf("%w: %s", errs.ErrSkillNotFound, skillName)
 	}
@@ -288,12 +296,11 @@ func (l *Loader) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, 
 func (l *Loader) searchSkill(name string) ([]*LoadedSkill, error) {
 	var out []*LoadedSkill
 	for _, read := range l.Reads() {
-		bundle := read.Bundle
-		entry, ok := bundle.Skills[name]
+		entry, ok := read.Bundle.Skills[name]
 		if !ok {
 			continue
 		}
-		if ls := l.skillContent(bundle, name, entry); ls != nil {
+		if ls := l.skillContent(read, name, entry); ls != nil {
 			out = append(out, ls)
 		}
 	}

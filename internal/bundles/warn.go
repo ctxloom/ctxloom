@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"fmt"
 	"io"
 	"path/filepath"
 	"strings"
@@ -71,8 +72,12 @@ func (b *bundleWarner) ambiguous(out io.Writer, name string, matches []string, c
 		name, strings.Join(matches, ", "), chosen)
 }
 
-// staleSignature warns to out that path's sibling `.sig` does not (or cannot be
-// shown to) cover path's current bytes, once per path for this warner's life.
+// StaleSignatureAdvice composes the sentence an author is told when their local
+// bundle's sibling `.sig` does not (or cannot be shown to) cover its current
+// bytes — the decision table's `local | invalid | *` row, which ADMITS.
+//
+// It takes the READ rather than loose strings, so nothing can compose this
+// sentence about content whose facts a reader did not establish.
 //
 // The wording states the OUTCOME first — the content is still delivered —
 // because the reader's first question on seeing the word "signature" in a
@@ -80,17 +85,21 @@ func (b *bundleWarner) ambiguous(out io.Writer, name string, matches []string, c
 // always no. What they have actually lost is the ability to publish it as
 // signed content, which is what the remedy names.
 //
-// name is the bundle's resolution name (ExtractBundleName), never the file's
-// basename: a directory-form bundle's file is always "bundle.yaml", and telling
-// the user to run `ctxloom bundle sign bundle` would be a remedy that fails.
-func (b *bundleWarner) staleSignature(out io.Writer, path, name, detail string) {
-	if !b.first("stale-signature", path) {
-		return
+// The remedy names the bundle's RESOLUTION name, never the file's basename: a
+// directory-form bundle's file is always "bundle.yaml", and telling the user to
+// run `ctxloom bundle sign bundle` would be a remedy that fails.
+//
+// It is a STRING and not an emission on purpose. It rides Verdict.Detail, and
+// the caller that received the verdict emits it — see Filter, "warnings ride the
+// verdict".
+func StaleSignatureAdvice(read BundleRead) string {
+	if read.Bundle == nil {
+		return ""
 	}
-	base := filepath.Base(path)
-	clidiag.Fwarn(out, "ctxloom", "%s%s no longer covers %s (%s) — the bundle is local, so its content is still delivered, "+
+	base := filepath.Base(read.Bundle.Path)
+	return fmt.Sprintf("%s%s no longer covers %s (%s) — the bundle is local, so its content is still delivered, "+
 		"but it can no longer be published as signed content: re-sign with `ctxloom bundle sign %s`",
-		base, SigSuffix, base, detail, name)
+		base, SigSuffix, base, read.signatureDetail, read.Bundle.Name)
 }
 
 // unresolvedBundleWarner is the process-wide dedup set. It holds no writer:
@@ -106,8 +115,4 @@ func (l *Loader) warnUnresolvedBundle(ref string, err error) {
 
 func (l *Loader) warnAmbiguousFragment(name string, matches []string, chosen string) {
 	unresolvedBundleWarner.ambiguous(l.warnOut, name, matches, chosen)
-}
-
-func (l *Loader) warnStaleSignature(path, name, detail string) {
-	unresolvedBundleWarner.staleSignature(l.warnOut, path, name, detail)
 }

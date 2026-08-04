@@ -104,7 +104,23 @@ func renderBundleListEntry(w *iox.ErrWriter, info *bundles.BundleInfo) {
 	if info.Version != "" {
 		w.Printf(" (v%s)", info.Version)
 	}
+	// State markers ride the name line so a scan of the listing surfaces them
+	// without reading each entry's body. Both are silent-loss modes: a held
+	// bundle looks exactly like a failing sync, and a retracted one is still
+	// installed and still being served while its publisher has said not to use
+	// it. Rendering neither is what made `bundle list` unable to tell a
+	// deliberate freeze from a broken pull (J21's B3 hop).
+	if info.Held {
+		w.Print(" [held]")
+	}
+	if info.Retracted {
+		w.Print(" [retracted]")
+	}
 	w.Println()
+
+	if info.Retracted && info.RetractedReason != "" {
+		w.Printf("    retracted by its publisher: %s\n", info.RetractedReason)
+	}
 
 	if info.Description != "" {
 		w.Printf("    %s\n", info.Description)

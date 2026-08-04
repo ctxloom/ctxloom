@@ -134,19 +134,23 @@ Feature: The day the assistant goes blind
   # hold nobody can see is indistinguishable from a broken pull. Inspector:
   # `bundle list`. Verdict OK.
   #
-  # MEASURED: RED, and a finding against B3's "OK" verdict. `ctxloom bundle
-  # hold` succeeds and does freeze the bundle — the payload half of this
-  # scenario is correct, the older guidance keeps arriving and the newer does
-  # not. But `ctxloom bundle list` renders the runbook as an ordinary entry at
-  # "(v1.0.0)" and says NOTHING about it being held. A deliberate freeze and a
-  # broken pull are the same two lines of output. Alice cannot tell "someone
-  # froze this on purpose" from "the sync is failing", which is precisely the
-  # distinction this hop's inspector exists to make.
+  # WAS RED, and was a finding against B3's "OK" verdict: `ctxloom bundle hold`
+  # froze the bundle correctly — the payload half always passed — but
+  # `ctxloom bundle list` rendered the runbook as an ordinary entry at "(v1.0.0)"
+  # and said NOTHING about the hold. A deliberate freeze and a broken pull were
+  # the same two lines of output, and the only way to tell them apart was
+  # diffing lockfiles by hand.
   #
-  # UNTAG WHEN: `bundle list` renders the hold state for a held entry. The
-  # payload half is asserted separately so a listing that says "held" while
+  # FIXED 2026-08-04: BundleInfo carries Held/Retracted, stamped from the
+  # lockfile entry by operations.stampLockState (the loader reads bundle CONTENT
+  # and knows nothing about pins, so the join can only happen there), and the
+  # listing renders "[held]" / "[retracted]" on the name line. Retraction was
+  # equally invisible and is a worse silence — the content is still installed and
+  # still being served while its publisher has said not to use it — so it is
+  # rendered here too, with the publisher's stated reason.
+  #
+  # The payload half is asserted separately, so a listing that says "held" while
   # actually delivering the new bytes could never pass.
-  @wip
   Scenario: The runbook is frozen at an older version, and the listing names the hold
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
     And Carol publishes a newer signed runbook while Alice's copy is held

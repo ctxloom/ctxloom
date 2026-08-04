@@ -489,3 +489,56 @@ func TestRenderBundleMCPEntry_EnvIsSortedAndStable(t *testing.T) {
 	assert.Less(t, strings.Index(got, "MIKE=13"), strings.Index(got, "ROMEO=18"))
 	assert.Less(t, strings.Index(got, "ROMEO=18"), strings.Index(got, "ZULU=26"))
 }
+
+// A HOLD is a decision someone made on purpose; a hold nobody can see is
+// indistinguishable from a broken pull. Rendering a held entry as an ordinary
+// one makes "someone froze this deliberately" and "the sync is failing" the same
+// two lines of output, which is exactly the distinction this listing exists to
+// make (J21's B3 hop).
+func TestRenderBundleList_HeldBundleNamesTheHold(t *testing.T) {
+	infos := []*bundles.BundleInfo{{
+		Name:    "team/deploy-runbook",
+		Version: "1.0.0",
+		Held:    true,
+	}}
+
+	var buf bytes.Buffer
+	assert.NoError(t, renderBundleList(&buf, infos))
+	out := buf.String()
+
+	assert.Contains(t, out, "team/deploy-runbook (v1.0.0)")
+	assert.Contains(t, out, "held",
+		"a frozen bundle must say so, or a deliberate hold looks like a failing sync")
+}
+
+// A RETRACTED bundle is the publisher saying "do not use this". Silence here is
+// worse than silence about a hold: the content is still installed and still
+// being served.
+func TestRenderBundleList_RetractedBundleNamesTheRetraction(t *testing.T) {
+	infos := []*bundles.BundleInfo{{
+		Name:            "team/deploy-runbook",
+		Version:         "1.0.0",
+		Retracted:       true,
+		RetractedReason: "superseded by v2",
+	}}
+
+	var buf bytes.Buffer
+	assert.NoError(t, renderBundleList(&buf, infos))
+	out := buf.String()
+
+	assert.Contains(t, out, "retracted")
+	assert.Contains(t, out, "superseded by v2", "the publisher's stated reason is the actionable part")
+}
+
+// An ordinary bundle must not grow noise. The state markers appear only when
+// there is state to report.
+func TestRenderBundleList_OrdinaryBundleSaysNeitherHeldNorRetracted(t *testing.T) {
+	infos := []*bundles.BundleInfo{{Name: "team/deploy-runbook", Version: "1.0.0"}}
+
+	var buf bytes.Buffer
+	assert.NoError(t, renderBundleList(&buf, infos))
+	out := buf.String()
+
+	assert.NotContains(t, out, "held")
+	assert.NotContains(t, out, "retracted")
+}

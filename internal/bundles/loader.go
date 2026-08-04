@@ -577,6 +577,28 @@ type BundleInfo struct {
 	// entry carries only Name (the canonical ref); metadata is unavailable since
 	// the content no longer exists to read.
 	Deleted bool
+
+	// Held marks a lockfile entry frozen at its recorded SHA (LockEntry.Pinned,
+	// toggled by `ctxloom bundle hold`/`unhold`): `remote upgrade` leaves it put
+	// even when its constraint would allow a newer commit.
+	//
+	// It is carried into the listing because a hold is a decision someone made
+	// ON PURPOSE, and a hold nobody can see is indistinguishable from a broken
+	// pull. Without it, "we froze this deliberately" and "the sync is failing"
+	// render as identical output, and the only way to tell them apart is diffing
+	// lockfiles by hand.
+	Held bool
+
+	// Retracted marks a bundle the publisher WITHDREW (LockEntry.Retracted),
+	// learned from the remote manifest at the last pull that had the network.
+	// RetractedReason is the publisher's stated reason — display only, never a
+	// decision input.
+	//
+	// Silence about this is worse than silence about a hold: the content is
+	// still installed and still being served while its publisher has said not to
+	// use it.
+	Retracted       bool
+	RetractedReason string
 }
 
 func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {

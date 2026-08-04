@@ -134,7 +134,7 @@ func TestAdmitCompanions_UnconfirmedThirdPartyRefusedNonInteractively(t *testing
 
 	got := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme")
 
-	assert.False(t, got.Allowed, "a companion nobody confirmed must never be exec'd")
+	assert.False(t, got.Allow, "a companion nobody confirmed must never be exec'd")
 	assert.Equal(t, CompanionAdmissionUnconfirmed, got.Reason)
 	assert.Contains(t, f.warnLog.String(), "never confirmed for execution",
 		"the refusal must be VISIBLE — a silently skipped companion is the silent no-op")
@@ -163,7 +163,7 @@ func TestAdmitCompanions_InteractiveYesRecordsPathAndHash(t *testing.T) {
 	f.interactive(t, "y")
 
 	got := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme")
-	require.True(t, got.Allowed)
+	require.True(t, got.Allow)
 	assert.Equal(t, CompanionAdmissionConsented, got.Reason)
 	assert.Equal(t, 1, f.prompted)
 	assert.Contains(t, f.promptLog.String(), "ctxloom EXECUTES this file",
@@ -173,14 +173,14 @@ func TestAdmitCompanions_InteractiveYesRecordsPathAndHash(t *testing.T) {
 	records, err := ListCompanionConsent()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
-	assert.Equal(t, path, records[0].Path)
+	assert.Equal(t, path, records[0].Key.Path)
 	assert.True(t, records[0].Approved)
-	assert.Len(t, records[0].SHA256, 64, "the record must carry the binary's full sha256, not a path alone")
+	assert.Len(t, records[0].Key.SHA256, 64, "the record must carry the binary's full sha256, not a path alone")
 
 	// Second call: the record answers, nothing is asked again.
 	f.prompted = 0
 	again := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme")
-	assert.True(t, again.Allowed)
+	assert.True(t, again.Allow)
 	assert.Equal(t, 0, f.prompted, "a recorded decision must not be re-asked")
 }
 
@@ -190,7 +190,7 @@ func TestAdmitCompanions_InteractiveNoRecordsDenialAndWithholds(t *testing.T) {
 	f.interactive(t, "n")
 
 	got := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme")
-	assert.False(t, got.Allowed)
+	assert.False(t, got.Allow)
 	assert.Equal(t, CompanionAdmissionDeclined, got.Reason)
 
 	records, err := ListCompanionConsent()
@@ -206,7 +206,7 @@ func TestAdmitCompanions_EmptyAnswerIsNo(t *testing.T) {
 	f.interactive(t, "")
 
 	got := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme")
-	assert.False(t, got.Allowed, "bare Enter must decline, never allow")
+	assert.False(t, got.Allow, "bare Enter must decline, never allow")
 }
 
 // --- The hash half of the key ----------------------------------------------
@@ -218,14 +218,14 @@ func TestAdmitCompanions_ApprovalIsBoundToTheBytes(t *testing.T) {
 	f := newConsentFixture(t)
 	path := f.writeBin(t, f.elsewhere, "ctxloom-companion-acme", "#!/bin/sh\noriginal\n")
 	f.interactive(t, "y")
-	require.True(t, admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme").Allowed)
+	require.True(t, admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme").Allow)
 
 	// Swap the file in place — the attacker who already had write access here.
 	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nSWAPPED\n"), 0o755)) //nolint:gosec // fixture
 	companionSessionInteractive = func() bool { return false }
 
 	got := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme")
-	assert.False(t, got.Allowed, "the bytes changed at an approved path — the approval must not carry over")
+	assert.False(t, got.Allow, "the bytes changed at an approved path — the approval must not carry over")
 	assert.Equal(t, CompanionAdmissionUnconfirmed, got.Reason)
 }
 
@@ -236,14 +236,14 @@ func TestAdmitCompanions_DenialSurvivesARebuild(t *testing.T) {
 	f := newConsentFixture(t)
 	path := f.writeBin(t, f.elsewhere, "ctxloom-companion-acme", "#!/bin/sh\nv1\n")
 	f.interactive(t, "n")
-	require.False(t, admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme").Allowed)
+	require.False(t, admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme").Allow)
 
 	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nv2\n"), 0o755)) //nolint:gosec // fixture
 	f.prompted = 0
 	f.answers = []string{"y"} // would say yes if asked
 
 	got := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme")
-	assert.False(t, got.Allowed, "a recorded refusal must survive the binary being rebuilt")
+	assert.False(t, got.Allow, "a recorded refusal must survive the binary being rebuilt")
 	assert.Equal(t, CompanionAdmissionDeclined, got.Reason)
 	assert.Equal(t, 0, f.prompted, "a refused path must not be re-asked into an approval")
 }
@@ -259,7 +259,7 @@ func TestFirstPartyCompanion_ExemptOnlyFromTheInstallDirectory(t *testing.T) {
 	f.writeBin(t, f.installDir, "ltk", "#!/bin/sh\nreal ltk\n")
 
 	got := admissionFor(t, AdmitCompanions([]string{"ltk"}, true), "ltk")
-	assert.True(t, got.Allowed, "`just install` must stay silent: ltk next to ctxloom is automatic")
+	assert.True(t, got.Allow, "`just install` must stay silent: ltk next to ctxloom is automatic")
 	assert.Equal(t, CompanionAdmissionFirstParty, got.Reason)
 	assert.Equal(t, 0, f.prompted)
 	assert.Empty(t, got.SHA256, "the first-party arm must not pay to hash a ~60MB binary on every startup")
@@ -270,7 +270,7 @@ func TestFirstPartyCompanion_ExemptOnlyFromTheInstallDirectory(t *testing.T) {
 	f2.writeBin(t, f2.elsewhere, "ltk", "#!/bin/sh\nimposter\n")
 
 	shadow := admissionFor(t, AdmitCompanions([]string{"ltk"}, true), "ltk")
-	assert.False(t, shadow.Allowed, "a first-party NAME outside the install directory is a third-party binary")
+	assert.False(t, shadow.Allow, "a first-party NAME outside the install directory is a third-party binary")
 	assert.Equal(t, CompanionAdmissionUnconfirmed, shadow.Reason)
 }
 
@@ -280,11 +280,11 @@ func TestFirstPartyCompanion_ExemptOnlyFromTheInstallDirectory(t *testing.T) {
 func TestFirstPartyCompanion_RebuildInPlaceStaysSilent(t *testing.T) {
 	f := newConsentFixture(t)
 	path := f.writeBin(t, f.installDir, "taskloom", "#!/bin/sh\nbuild 1\n")
-	require.True(t, admissionFor(t, AdmitCompanions([]string{"taskloom"}, true), "taskloom").Allowed)
+	require.True(t, admissionFor(t, AdmitCompanions([]string{"taskloom"}, true), "taskloom").Allow)
 
 	require.NoError(t, os.WriteFile(path, []byte("#!/bin/sh\nbuild 2\n"), 0o755)) //nolint:gosec // fixture
 	got := admissionFor(t, AdmitCompanions([]string{"taskloom"}, true), "taskloom")
-	assert.True(t, got.Allowed)
+	assert.True(t, got.Allow)
 	assert.Equal(t, 0, f.prompted, "rebuilding a first-party companion in place must not ask anything")
 }
 
@@ -298,7 +298,7 @@ func TestFirstPartyCompanion_RecordedRefusalBeatsTheExemption(t *testing.T) {
 	require.NoError(t, err)
 
 	got := admissionFor(t, AdmitCompanions([]string{"ltk"}, true), "ltk")
-	assert.False(t, got.Allowed, "a recorded refusal must reach even a first-party companion in the install directory")
+	assert.False(t, got.Allow, "a recorded refusal must reach even a first-party companion in the install directory")
 	assert.Equal(t, CompanionAdmissionDeclined, got.Reason)
 }
 
@@ -310,7 +310,7 @@ func TestFirstPartyCompanion_UnresolvableInstallDirGrantsNothing(t *testing.T) {
 	companionInstallDir = func() (string, error) { return "", os.ErrNotExist }
 
 	got := admissionFor(t, AdmitCompanions([]string{"ltk"}, true), "ltk")
-	assert.False(t, got.Allowed, "an unknown install location must not be treated as 'everywhere'")
+	assert.False(t, got.Allow, "an unknown install location must not be treated as 'everywhere'")
 }
 
 // --- The store's own fault path --------------------------------------------
@@ -326,7 +326,7 @@ func TestAdmitCompanions_UnreadableConsentRecordDeniesEverything(t *testing.T) {
 
 	got := AdmitCompanions([]string{"ltk", "ctxloom-companion-acme"}, true)
 	for _, a := range got {
-		assert.False(t, a.Allowed, "%s must be denied while the consent record is unreadable", a.Bin)
+		assert.False(t, a.Allow, "%s must be denied while the consent record is unreadable", a.Bin)
 		assert.Equal(t, CompanionAdmissionStoreFault, a.Reason, a.Bin)
 	}
 	assert.Contains(t, f.warnLog.String(), "companion consent record unreadable")
@@ -353,7 +353,7 @@ func TestAdmitCompanions_UnknownRecordVersionIsAFaultNotAnEmptyStore(t *testing.
 	require.NoError(t, os.WriteFile(f.recordPath, []byte("version: 99\ncompanions: []\n"), 0o600))
 
 	got := admissionFor(t, AdmitCompanions([]string{"ltk"}, true), "ltk")
-	assert.False(t, got.Allowed)
+	assert.False(t, got.Allow)
 	assert.Equal(t, CompanionAdmissionStoreFault, got.Reason)
 }
 
@@ -370,18 +370,18 @@ func TestAdmitCompanions_ConsentKeysOnTheResolvedPath(t *testing.T) {
 	require.NoError(t, os.Symlink(realA, link))
 
 	f.interactive(t, "y")
-	require.True(t, admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme").Allowed)
+	require.True(t, admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme").Allow)
 	records, err := ListCompanionConsent()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
-	assert.Equal(t, realA, records[0].Path, "the record must name the file that actually runs")
+	assert.Equal(t, realA, records[0].Key.Path, "the record must name the file that actually runs")
 
 	require.NoError(t, os.Remove(link))
 	require.NoError(t, os.Symlink(realB, link))
 	companionSessionInteractive = func() bool { return false }
 
 	got := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, true), "ctxloom-companion-acme")
-	assert.False(t, got.Allowed, "repointing the symlink is a different binary and must be asked about")
+	assert.False(t, got.Allow, "repointing the symlink is a different binary and must be asked about")
 }
 
 // TestAdmitCompanions_MissingBinaryIsSilentlyNotInstalled: most machines have
@@ -390,7 +390,7 @@ func TestAdmitCompanions_MissingBinaryIsSilentlyNotInstalled(t *testing.T) {
 	f := newConsentFixture(t)
 
 	got := admissionFor(t, AdmitCompanions([]string{"reprise"}, true), "reprise")
-	assert.False(t, got.Allowed)
+	assert.False(t, got.Allow)
 	assert.Equal(t, CompanionAdmissionNotInstalled, got.Reason)
 	assert.Empty(t, got.Path)
 	assert.Empty(t, f.warnLog.String(), "a companion that simply is not installed is ordinary, not a warning")
@@ -408,7 +408,7 @@ func TestCompanionConsentCLISurface_AllowListForget(t *testing.T) {
 
 	rec, err := SetCompanionConsent("ctxloom-companion-acme", true) // by bare NAME, via PATH
 	require.NoError(t, err)
-	assert.Equal(t, path, rec.Path, "a bare name must resolve through PATH to the same key the probe uses")
+	assert.Equal(t, path, rec.Key.Path, "a bare name must resolve through PATH to the same key the probe uses")
 
 	listed, err := ListCompanionConsent()
 	require.NoError(t, err)
@@ -538,6 +538,6 @@ func TestAdmitCompanions_PromptFalseNeverAsksEvenInteractively(t *testing.T) {
 	f.interactive(t, "y")
 
 	got := admissionFor(t, AdmitCompanions([]string{"ctxloom-companion-acme"}, false), "ctxloom-companion-acme")
-	assert.False(t, got.Allowed)
+	assert.False(t, got.Allow)
 	assert.Equal(t, 0, f.prompted, "a caller that passes prompt=false must never ask, even on a terminal")
 }

@@ -343,7 +343,7 @@ func TestContentGate_RecordsEveryDenyWithAReason(t *testing.T) {
 	require.Contains(t, byRef, solidRef)
 
 	for ref, v := range byRef {
-		assert.False(t, v.Admit, "only denials are recorded (%s)", ref)
+		assert.False(t, v.Allow, "only denials are recorded (%s)", ref)
 		assert.NotEqual(t, bundles.ReasonUnset, v.Reason, "a withhold with no reason is a withhold nobody can act on (%s)", ref)
 		assert.NotEmpty(t, v.Reason.Explain(v.Detail), "every withheld item must carry a reason a user can act on (%s)", ref)
 	}

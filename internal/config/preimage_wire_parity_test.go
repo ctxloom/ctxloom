@@ -174,7 +174,7 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 	var payloads [][]byte
 	gate := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		payloads = append(payloads, append([]byte(nil), e.Bytes...))
-		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	})
 
 	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), "parity-src", gate)
@@ -216,7 +216,7 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 	var payload []byte
 	gate := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		payload = append([]byte(nil), e.Bytes...)
-		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	})
 
 	servers := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), "parity-src", gate)

@@ -211,6 +211,16 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"trust companion allow":  {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
 	"trust companion forget": {skip: "needs a recorded decision to remove; covered by trust_cli.feature"},
 
+	// Read-only over ~/.ctxloom/publish_remotes.yaml, the same shape as
+	// `trust companion list` above.
+	"trust publish list": {extraArgs: noExtraArgs},
+	// Both WRITE the personal publish-destination record, and this harness
+	// isolates the project root but not $HOME — running them here would edit
+	// the developer's own store. Exercised end to end (in a scenario HOME) by
+	// trust_cli.feature instead.
+	"trust publish allow":  {skip: "writes the personal publish-destination record and this harness does not isolate $HOME; covered by trust_cli.feature"},
+	"trust publish forget": {skip: "needs a recorded decision to remove and writes the personal record; covered by trust_cli.feature"},
+
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	// All four of these ARE format debt too (bundleDeleteCmd's
 	// runBundleDelete, bundle_hold_cli.go's hold/unhold RunEs, and

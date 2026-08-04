@@ -242,8 +242,8 @@ func TestExecGate_FailClosed(t *testing.T) {
 	g := &contentGate{records: newTrustFixture(t).records()}
 	e := &ExecutableTrustGate{gate: g}
 	unsigned := execRead(t, "")
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Admit)
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Admit)
+	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Allow)
+	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Allow)
 	assert.Len(t, g.withheldRefs(), 2, "fail-closed: both executables recorded as withheld")
 	pending, rejected := withheldStateTally(g)
 	assert.Equal(t, 2, pending, "fail-closed withholds tally as pending")
@@ -328,14 +328,14 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	require.True(t, ok, "the on-disk bundle must resolve")
 
 	// A project-local bundle hook is first-party (no acceptance needed) → passes.
-	assert.True(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, ref, hookPayload, bundles.FormRaw).Admit,
+	assert.True(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, ref, hookPayload, bundles.FormRaw).Allow,
 		"a first-party local bundle hook must pass the exec gate")
 
 	// CLI rejection → the exec gate withholds it (rejection beats the local
 	// exemption).
 	_, err = SetBlacklist(cfg, SetBlacklistRequest{Ref: ref})
 	require.NoError(t, err)
-	assert.False(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, ref, hookPayload, bundles.FormRaw).Admit,
+	assert.False(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, ref, hookPayload, bundles.FormRaw).Allow,
 		"a CLI-rejected bundle hook must be withheld by the exec gate")
 }
 

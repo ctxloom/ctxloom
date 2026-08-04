@@ -31,7 +31,7 @@ func recordingGate(seen map[string]string, denySubstrs ...string) bundles.Author
 				return bundles.Verdict{Reason: bundles.ReasonPending}
 			}
 		}
-		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	})
 }
 

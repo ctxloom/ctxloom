@@ -64,3 +64,37 @@ Feature: Trust posture CLI
     When I run "ctxloom trust companion list"
     Then the command succeeds
     And the output does not contain "ctxloom-companion-acme"
+
+  # Publish destinations. The first publish to a given non-GitHub remote asks
+  # once and records the answer; a session with nobody to ask REFUSES. That
+  # refusal used to be a dead end for exactly the callers it fires for: the
+  # only way to record a confirmation was to "run the same publish once from an
+  # interactive terminal", which a CI runner and an agent host cannot do. These
+  # three leaves are the provisioning path, and the assertions are on the
+  # recorded DECISION each one produces — an empty listing and a listing that
+  # never mentions the remote are the same pixels and very different facts, so
+  # both the presence and the absence are asserted.
+  Scenario: Publish destinations are listable, allowable and revocable without a terminal
+    Given an initialized ctxloom project
+    When I run "ctxloom trust publish list"
+    Then the command succeeds
+    And the output contains "no publish destinations recorded"
+    When I run "ctxloom trust publish allow https://git.example.com/team/bundles"
+    Then the command succeeds
+    And the output contains "ctxloom will publish there without asking"
+    When I run "ctxloom trust publish list"
+    Then the command succeeds
+    And the output contains "allowed"
+    And the output contains "https://git.example.com/team/bundles"
+    # One repository is ONE destination: the ssh spelling of the URL just
+    # allowed must already be recorded, never asked about a second time.
+    When I run "ctxloom trust publish forget git@git.example.com:team/bundles.git"
+    Then the command succeeds
+    And the output contains "forgot 1 decision(s)"
+    When I run "ctxloom trust publish list"
+    Then the command succeeds
+    And the output contains "no publish destinations recorded"
+    # Undoing something nobody recorded reports zero rather than succeeding silently.
+    When I run "ctxloom trust publish forget https://git.example.com/team/bundles"
+    Then the command succeeds
+    And the output contains "forgot 0 decisions"

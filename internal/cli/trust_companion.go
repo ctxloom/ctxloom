@@ -91,9 +91,9 @@ func runTrustCompanionListCmd(cmd *cobra.Command, _ []string) error {
 	out := make([]trustCompanionListing, 0, len(records))
 	for _, r := range records {
 		out = append(out, trustCompanionListing{
-			Path:       r.Path,
-			Bin:        r.Bin,
-			SHA256:     r.SHA256,
+			Path:       r.Key.Path,
+			Bin:        r.Key.Bin,
+			SHA256:     r.Key.SHA256,
 			Allowed:    r.Approved,
 			RecordedAt: r.RecordedAt.Format("2006-01-02T15:04:05Z"),
 		})
@@ -135,10 +135,10 @@ func runTrustCompanionAllowCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	payload := trustCompanionDecision{Path: rec.Path, Bin: rec.Bin, SHA256: rec.SHA256, Allowed: true}
+	payload := trustCompanionDecision{Path: rec.Key.Path, Bin: rec.Key.Bin, SHA256: rec.Key.SHA256, Allowed: true}
 	return emit(cmd, payload, func() error {
 		_, werr := fmt.Fprintf(cmd.OutOrStdout(),
-			"allowed %s at %s (sha256 %s) — ctxloom will run it\n", rec.Bin, rec.Path, shortSHA(rec.SHA256))
+			"allowed %s at %s (sha256 %s) — ctxloom will run it\n", rec.Key.Bin, rec.Key.Path, shortSHA(rec.Key.SHA256))
 		return werr
 	})
 }

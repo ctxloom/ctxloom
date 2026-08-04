@@ -12,24 +12,17 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// testNow is the fixed instant recorded confirmations are stamped with, so a
-// store's contents are reproducible.
-func testNow() time.Time {
-	return time.Date(2026, 8, 4, 12, 0, 0, 0, time.UTC)
-}
-
 // unconfirmedFixture is newPublishFixture without the pre-recorded
 // confirmation, plus a counting asker the test can attach.
 type unconfirmedFixture struct {
 	*publishFixture
-	store *ConfirmedRemotes
+	store *PublishRemoteStore
 	asked []string
 }
 
@@ -47,17 +40,17 @@ func newUnconfirmedFixture(t *testing.T, opts ...PublishManagerOption) *unconfir
 	require.NoError(t, err)
 	require.NoError(t, registry.Add("shared", url))
 
-	confirmDir := filepath.Join(work, "publish-remotes")
-	store := NewConfirmedRemotes(confirmDir, fs)
+	confirmPath := filepath.Join(work, "publish_remotes.yaml")
+	store := NewPublishRemoteStore(confirmPath, fs)
 
 	f := &unconfirmedFixture{store: store}
-	all := append([]PublishManagerOption{WithPublishFS(fs), WithConfirmedRemotes(store)}, opts...)
+	all := append([]PublishManagerOption{WithPublishFS(fs), WithPublishRemoteStore(store)}, opts...)
 	f.publishFixture = &publishFixture{
-		pm:         NewPublishManager(registry, AuthConfig{}, all...),
-		localPath:  local,
-		remoteURL:  url,
-		bare:       bare,
-		confirmDir: confirmDir,
+		pm:          NewPublishManager(registry, AuthConfig{}, all...),
+		localPath:   local,
+		remoteURL:   url,
+		bare:        bare,
+		confirmPath: confirmPath,
 	}
 	return f
 }
@@ -71,6 +64,14 @@ func (f *unconfirmedFixture) publish(t *testing.T) (*PublishResult, error) {
 	})
 }
 
+// confirmed reports what the store says about a URL, as the gate reads it.
+func confirmedIn(t *testing.T, store *PublishRemoteStore, url string) bool {
+	t.Helper()
+	rec, found, err := store.Lookup(NewPublishRemoteKey(url))
+	require.NoError(t, err)
+	return found && rec.Approved
+}
+
 // A session with no human attached — an agent, an MCP call, a CI job, a piped
 // command — must REFUSE an unconfirmed remote. It must name the remote and say
 // how to confirm it, and it must not have published anything.
@@ -81,22 +82,21 @@ func TestPublishConfirm_NonInteractiveRefusesAndPublishesNothing(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), f.remoteURL, "the refusal must name the remote it refused")
 	assert.Contains(t, err.Error(), "never been confirmed")
-	assert.Contains(t, err.Error(), "interactive terminal", "the refusal must say how to confirm it")
-	assert.Contains(t, err.Error(), f.confirmDir, "the refusal must say where the answer is recorded")
+	assert.Contains(t, err.Error(), "ctxloom trust publish allow",
+		"the refusal must name a command a CI job or an agent host can actually run")
+	assert.Contains(t, err.Error(), f.confirmPath, "the refusal must say where the answer is recorded")
 
 	// Nothing was pushed and nothing was recorded.
 	gitFails(t, f.bare, "show", "main:"+mybundleRemotePath)
-	confirmed, cerr := f.store.Confirmed(f.remoteURL)
-	require.NoError(t, cerr)
-	assert.False(t, confirmed, "a refusal must not record a confirmation")
+	assert.False(t, confirmedIn(t, f.store, f.remoteURL), "a refusal must not record a confirmation")
 }
 
 // The first publish asks; the second, to the SAME remote, is silent.
 func TestPublishConfirm_AsksOncePerRemoteThenStaysSilent(t *testing.T) {
 	var f *unconfirmedFixture
-	ask := func(_ context.Context, url string) (bool, error) {
-		f.asked = append(f.asked, url)
-		return true, nil
+	ask := func(_ context.Context, k PublishRemoteKey) (bool, bool, error) {
+		f.asked = append(f.asked, k.URL)
+		return true, true, nil
 	}
 	f = newUnconfirmedFixture(t, WithRemoteAsk(ask))
 
@@ -113,21 +113,47 @@ func TestPublishConfirm_AsksOncePerRemoteThenStaysSilent(t *testing.T) {
 	assert.Equal(t, "description: guarded v2", f.remoteFile(t, "main", mybundleRemotePath))
 }
 
-// "No" refuses and publishes nothing — and does not record a confirmation, so
-// the next attempt asks again rather than inheriting the refusal as an answer.
-func TestPublishConfirm_DeclinedPublishesNothing(t *testing.T) {
+// "No" refuses and publishes nothing. It IS recorded — that is what makes it
+// different from "nobody could be asked" — and the refusal says how to undo it
+// rather than pretending nothing is there.
+func TestPublishConfirm_DeclinedPublishesNothingAndIsRecordedAsDeclined(t *testing.T) {
 	asked := 0
-	ask := func(context.Context, string) (bool, error) { asked++; return false, nil }
+	ask := func(context.Context, PublishRemoteKey) (bool, bool, error) { asked++; return false, true, nil }
 	f := newUnconfirmedFixture(t, WithRemoteAsk(ask))
 
 	_, err := f.publish(t)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), f.remoteURL)
 	gitFails(t, f.bare, "show", "main:"+mybundleRemotePath)
+	assert.False(t, confirmedIn(t, f.store, f.remoteURL))
+	assert.Equal(t, 1, asked)
 
-	confirmed, cerr := f.store.Confirmed(f.remoteURL)
-	require.NoError(t, cerr)
-	assert.False(t, confirmed)
+	// The recorded "no" answers on its own the next time — a declined remote
+	// is a decision, not an absence, and must not re-ask on every attempt.
+	_, err = f.publish(t)
+	require.Error(t, err)
+	assert.Equal(t, 1, asked, "a recorded decline must not be re-asked")
+	assert.Contains(t, err.Error(), "recorded as declined",
+		"a decline must not be reported as if nobody had ever been asked")
+	assert.Contains(t, err.Error(), "trust publish forget", "and must say how to undo it")
+}
+
+// A question that could not be PUT — a closed stdin behind a callback — is not
+// an answer, is never an affirmative, and is not recorded as a decline.
+func TestPublishConfirm_AQuestionThatCameBackEmptyIsNotADecline(t *testing.T) {
+	asked := 0
+	ask := func(context.Context, PublishRemoteKey) (bool, bool, error) { asked++; return false, false, nil }
+	f := newUnconfirmedFixture(t, WithRemoteAsk(ask))
+
+	_, err := f.publish(t)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "never been confirmed",
+		"nothing came back, so nobody was asked — not 'you declined'")
+	gitFails(t, f.bare, "show", "main:"+mybundleRemotePath)
+
+	recs, lerr := f.store.List()
+	require.NoError(t, lerr)
+	assert.Empty(t, recs, "a transient non-answer must not harden into a recorded refusal")
 	assert.Equal(t, 1, asked)
 }
 
@@ -135,12 +161,10 @@ func TestPublishConfirm_DeclinedPublishesNothing(t *testing.T) {
 // mistake the whole mechanism exists to catch, so it is pinned directly:
 // confirming one remote must not silently authorise a neighbouring one.
 func TestPublishConfirm_ATypoIsADifferentRemoteAndAsksAgain(t *testing.T) {
-	store := NewConfirmedRemotes(t.TempDir(), afero.NewOsFs())
-	require.NoError(t, store.Record("file:///srv/bundles.git", testNow()))
-
-	confirmed, err := store.Confirmed("file:///srv/bundles.git")
+	store := NewPublishRemoteStore(filepath.Join(t.TempDir(), "publish_remotes.yaml"), afero.NewOsFs())
+	_, err := store.Set(NewPublishRemoteKey("file:///srv/bundles.git"), true)
 	require.NoError(t, err)
-	assert.True(t, confirmed)
+	assert.True(t, confirmedIn(t, store, "file:///srv/bundles.git"))
 
 	for _, typo := range []string{
 		"file:///srv/bundle.git",
@@ -148,9 +172,8 @@ func TestPublishConfirm_ATypoIsADifferentRemoteAndAsksAgain(t *testing.T) {
 		"file:///srv/other/bundles.git",
 		"ssh://git@evil.example.com/srv/bundles.git",
 	} {
-		got, err := store.Confirmed(typo)
-		require.NoError(t, err)
-		assert.False(t, got, "%s is a different destination and must be confirmed on its own", typo)
+		assert.False(t, confirmedIn(t, store, typo),
+			"%s is a different destination and must be confirmed on its own", typo)
 	}
 }
 
@@ -158,17 +181,17 @@ func TestPublishConfirm_ATypoIsADifferentRemoteAndAsksAgain(t *testing.T) {
 // store keys on the same normalized identity that keys the trust namespace and
 // lockfile entries, so confirming the ssh spelling does not re-ask for https.
 func TestPublishConfirm_OneRepositoryIsOneConfirmationAcrossSpellings(t *testing.T) {
-	store := NewConfirmedRemotes(t.TempDir(), afero.NewOsFs())
-	require.NoError(t, store.Record("git@git.example.com:team/bundles.git", testNow()))
+	store := NewPublishRemoteStore(filepath.Join(t.TempDir(), "publish_remotes.yaml"), afero.NewOsFs())
+	_, err := store.Set(NewPublishRemoteKey("git@git.example.com:team/bundles.git"), true)
+	require.NoError(t, err)
 
 	for _, spelling := range []string{
 		"git@git.example.com:team/bundles.git",
 		"https://git.example.com/team/bundles",
 		"https://git.example.com/team/bundles.git",
 	} {
-		got, err := store.Confirmed(spelling)
-		require.NoError(t, err)
-		assert.True(t, got, "%s names the same repository that was confirmed", spelling)
+		assert.True(t, confirmedIn(t, store, spelling),
+			"%s names the same repository that was confirmed", spelling)
 	}
 }
 
@@ -196,7 +219,7 @@ func TestPublishConfirm_GitHubIsNotGated(t *testing.T) {
 		WithPublishFS(fs),
 		WithPublisherFactory(mockPublisherFactory(mp)),
 		WithPublishFetcherFactory(mockFetcherFactory(mf)),
-		WithConfirmedRemotes(NewConfirmedRemotes("", fs)),
+		WithPublishRemoteStore(NewPublishRemoteStore("", fs)),
 	)
 
 	_, err = pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
@@ -208,44 +231,132 @@ func TestPublishConfirm_GitHubIsNotGated(t *testing.T) {
 	assert.Contains(t, mp.createdFiles, mybundleRemotePath)
 }
 
-// A store with no directory is a MISCONFIGURATION (an unresolvable $HOME), not
-// an empty store. Because a marker's mere existence is the confirmation, and
-// filepath.Join("", x) == x, an unconfigured store that read paths relative to
-// the process working directory would let a stray file at a repo root
-// authorise a push. It must answer nothing and refuse every write instead.
-func TestConfirmedRemotes_UnconfiguredStoreRefusesRatherThanReadingTheWorkingDir(t *testing.T) {
+// A store with no path is a MISCONFIGURATION (an unresolvable $HOME), not an
+// empty store. Because filepath.Join("", x) == x, an unconfigured store that
+// resolved relative to the process working directory would let a stray file at
+// a repo root authorise a push. It must answer nothing and refuse every write.
+func TestPublishRemoteStore_UnconfiguredStoreRefusesRatherThanReadingTheWorkingDir(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// A file that WOULD be a confirmation if the store resolved "" to ".".
-	require.NoError(t, afero.WriteFile(fs, confirmKey("file:///srv/bundles.git"), []byte("x"), 0o644))
+	require.NoError(t, afero.WriteFile(fs, "publish_remotes.yaml", []byte(
+		"version: 1\nrecords:\n  - key:\n      url: file:///srv/bundles.git\n"+
+			"      identity: file:///srv/bundles.git\n    approved: true\n"), 0o600))
 
-	store := NewConfirmedRemotes("", fs)
+	store := NewPublishRemoteStore("", fs)
 
-	_, err := store.Confirmed("file:///srv/bundles.git")
+	_, _, err := store.Lookup(NewPublishRemoteKey("file:///srv/bundles.git"))
 	require.Error(t, err, "an unconfigured store must not answer from the working directory")
 
-	require.Error(t, store.Record("file:///srv/bundles.git", testNow()),
-		"an unconfigured store must not write into the working directory")
+	_, serr := store.Set(NewPublishRemoteKey("file:///srv/bundles.git"), true)
+	require.Error(t, serr, "an unconfigured store must not write into the working directory")
+
+	// And the gate built over it REFUSES rather than admitting on the planted file.
+	pm := &PublishManager{confirmed: store}
+	gerr := pm.authorizeRemote(context.Background(), "file:///srv/bundles.git", ForgeGitGeneric)
+	require.Error(t, gerr)
+	assert.Contains(t, gerr.Error(), "refusing to publish")
 }
 
-// A store whose directory does not exist yet is the normal fresh state:
-// nothing confirmed, no error. Recording creates it.
-func TestConfirmedRemotes_AbsentDirectoryIsEmptyAndRecordCreatesIt(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "never", "created")
-	store := NewConfirmedRemotes(dir, afero.NewOsFs())
+// A store whose file does not exist yet is the normal fresh state: nothing
+// confirmed, no error. Recording creates it, and the record is readable by a
+// human with `cat` — it names the URL it covers and when it was answered.
+func TestPublishRemoteStore_AbsentFileIsEmptyAndSetCreatesIt(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "never", "created", "publish_remotes.yaml")
+	store := NewPublishRemoteStore(path, afero.NewOsFs())
 
-	got, err := store.Confirmed("file:///srv/bundles.git")
+	recs, err := store.List()
 	require.NoError(t, err)
-	assert.False(t, got)
+	assert.Empty(t, recs)
+	assert.False(t, confirmedIn(t, store, "file:///srv/bundles.git"))
 
-	require.NoError(t, store.Record("file:///srv/bundles.git", testNow()))
-	got, err = store.Confirmed("file:///srv/bundles.git")
-	require.NoError(t, err)
-	assert.True(t, got)
+	rec, serr := store.Set(NewPublishRemoteKey("file:///srv/bundles.git"), true)
+	require.NoError(t, serr)
+	assert.Equal(t, "file:///srv/bundles.git", rec.Key.URL)
+	assert.True(t, confirmedIn(t, store, "file:///srv/bundles.git"))
 
-	// The record is readable by a human with `cat`: it names the URL it
-	// covers and when it was answered.
-	body, err := os.ReadFile(filepath.Join(dir, confirmKey("file:///srv/bundles.git")))
-	require.NoError(t, err)
+	body, rerr := os.ReadFile(path)
+	require.NoError(t, rerr)
 	assert.Contains(t, string(body), "file:///srv/bundles.git")
-	assert.Contains(t, string(body), "2026-08-04T12:00:00Z")
+	assert.Contains(t, string(body), "recorded_at")
+}
+
+// The PROVISIONING verbs — list, set, forget — are what a CI job and an agent
+// host have instead of "run it once interactively", which they cannot do.
+// Asserted on the DECISION each verb produces, not on a nil error.
+func TestPublishRemoteStore_ListSetForgetAreTheProvisioningPath(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "publish_remotes.yaml")
+	store := NewPublishRemoteStore(path, afero.NewOsFs())
+	url := "https://git.example.com/team/bundles"
+
+	// Nothing recorded: a non-interactive gate refuses.
+	pm := &PublishManager{confirmed: store}
+	require.Error(t, pm.authorizeRemote(context.Background(), url, ForgeGitGeneric))
+
+	// Provisioned by hand: the same gate now admits, with nobody asked.
+	_, err := store.Set(NewPublishRemoteKey(url), true)
+	require.NoError(t, err)
+	require.NoError(t, pm.authorizeRemote(context.Background(), url, ForgeGitGeneric),
+		"a confirmation recorded out of band must satisfy the gate exactly as a prompt would")
+
+	recs, lerr := store.List()
+	require.NoError(t, lerr)
+	require.Len(t, recs, 1)
+	assert.Equal(t, url, recs[0].Key.URL)
+	assert.True(t, recs[0].Approved)
+
+	// Revoked: back to refusing, and the count is reported.
+	n, ferr := store.Forget(NewPublishRemoteKey(url))
+	require.NoError(t, ferr)
+	assert.Equal(t, 1, n)
+	require.Error(t, pm.authorizeRemote(context.Background(), url, ForgeGitGeneric),
+		"a forgotten confirmation must stop admitting")
+
+	n, ferr = store.Forget(NewPublishRemoteKey(url))
+	require.NoError(t, ferr)
+	assert.Equal(t, 0, n, "forgetting nothing must report zero, never success-with-no-effect")
+}
+
+// A recorded DECLINE is honored by the gate on its own, without asking, and is
+// reported as a decline rather than as an absence.
+func TestPublishRemoteStore_ARecordedDeclineRefusesWithoutAsking(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "publish_remotes.yaml")
+	store := NewPublishRemoteStore(path, afero.NewOsFs())
+	url := "https://git.example.com/team/bundles"
+	_, err := store.Set(NewPublishRemoteKey(url), false)
+	require.NoError(t, err)
+
+	asked := 0
+	pm := &PublishManager{
+		confirmed: store,
+		ask: func(context.Context, PublishRemoteKey) (bool, bool, error) {
+			asked++
+			return true, true, nil
+		},
+	}
+	gerr := pm.authorizeRemote(context.Background(), url, ForgeGitGeneric)
+	require.Error(t, gerr)
+	assert.Equal(t, 0, asked, "a recorded decline must not be re-put to the human")
+	assert.Contains(t, gerr.Error(), "recorded as declined")
+}
+
+// An UNREADABLE store refuses, and says so as a fault rather than as "you never
+// confirmed it" — re-asking about a remote already approved is what teaches
+// people to answer the prompt on reflex.
+func TestPublishRemoteStore_AnUnreadableStoreRefusesAsAFault(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "publish_remotes.yaml")
+	require.NoError(t, os.WriteFile(path, []byte("version: 99\nrecords: []\n"), 0o600))
+	store := NewPublishRemoteStore(path, afero.NewOsFs())
+
+	asked := 0
+	pm := &PublishManager{
+		confirmed: store,
+		ask: func(context.Context, PublishRemoteKey) (bool, bool, error) {
+			asked++
+			return true, true, nil
+		},
+	}
+	gerr := pm.authorizeRemote(context.Background(), "file:///srv/bundles.git", ForgeGitGeneric)
+	require.Error(t, gerr)
+	assert.Equal(t, 0, asked, "an unreadable store must not fall through to a prompt")
+	assert.Contains(t, gerr.Error(), "cannot tell whether")
 }

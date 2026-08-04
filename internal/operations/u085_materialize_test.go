@@ -92,7 +92,7 @@ func TestMaterializeProfile_RestoresCallersTrustGate(t *testing.T) {
 	callersGateConsulted := 0
 	cfg.SetExecutableTrustGate(bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
 		callersGateConsulted++
-		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	}))
 
 	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{

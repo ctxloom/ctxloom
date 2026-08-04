@@ -149,7 +149,7 @@ func ProbeCompanions() []CompanionStatus {
 	var wg sync.WaitGroup
 	for i, adm := range admissions {
 		st := CompanionStatus{Bin: adm.Bin, Path: adm.Path, Admission: adm.Reason}
-		if !adm.Allowed {
+		if !adm.Allow {
 			// Present but refused: keep the Path so the report can say WHICH
 			// file was refused, and never exec it.
 			out[i] = st

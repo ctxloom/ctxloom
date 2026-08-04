@@ -26,5 +26,5 @@ func (f authorizerFunc) Admit(e Exposure) Verdict { return f(e) }
 
 // admitVerdict / denyVerdict spell the two outcomes a test authorizer returns, so
 // no test has to pick a Reason it does not care about.
-func admitVerdict() Verdict { return Verdict{Admit: true, Reason: ReasonLocal} }
+func admitVerdict() Verdict { return Verdict{Allow: true, Reason: ReasonLocal} }
 func denyVerdict() Verdict  { return Verdict{Reason: ReasonPending} }

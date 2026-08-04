@@ -88,11 +88,11 @@ func bareRemote(t *testing.T, branch string) (url, bare string) {
 // file:// remote, with the remote ALREADY confirmed (the confirmation itself is
 // exercised in publish_confirm_test.go).
 type publishFixture struct {
-	pm         *PublishManager
-	localPath  string
-	remoteURL  string
-	bare       string
-	confirmDir string
+	pm          *PublishManager
+	localPath   string
+	remoteURL   string
+	bare        string
+	confirmPath string
 }
 
 func newPublishFixture(t *testing.T, branch, body string) *publishFixture {
@@ -109,15 +109,16 @@ func newPublishFixture(t *testing.T, branch, body string) *publishFixture {
 	require.NoError(t, err)
 	require.NoError(t, registry.Add("shared", url))
 
-	confirmDir := filepath.Join(work, "publish-remotes")
-	store := NewConfirmedRemotes(confirmDir, fs)
-	require.NoError(t, store.Record(url, testNow()))
+	confirmPath := filepath.Join(work, "publish_remotes.yaml")
+	store := NewPublishRemoteStore(confirmPath, fs)
+	_, serr := store.Set(NewPublishRemoteKey(url), true)
+	require.NoError(t, serr)
 
 	pm := NewPublishManager(registry, AuthConfig{},
 		WithPublishFS(fs),
-		WithConfirmedRemotes(store),
+		WithPublishRemoteStore(store),
 	)
-	return &publishFixture{pm: pm, localPath: local, remoteURL: url, bare: bare, confirmDir: confirmDir}
+	return &publishFixture{pm: pm, localPath: local, remoteURL: url, bare: bare, confirmPath: confirmPath}
 }
 
 // remoteFile reads a path out of the BARE repository at branch — the
@@ -257,10 +258,11 @@ func TestGitPublisher_UnreachableRemoteFailsLoudly(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, registry.Add("gone", missing))
 
-	store := NewConfirmedRemotes(filepath.Join(work, "publish-remotes"), fs)
-	require.NoError(t, store.Record(missing, testNow()))
+	store := NewPublishRemoteStore(filepath.Join(work, "publish_remotes.yaml"), fs)
+	_, serr := store.Set(NewPublishRemoteKey(missing), true)
+	require.NoError(t, serr)
 
-	pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs), WithConfirmedRemotes(store))
+	pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs), WithPublishRemoteStore(store))
 	_, err = pm.Publish(context.Background(), local, "gone", PublishOptions{
 		ItemType:   ItemTypeBundle,
 		RemotePath: mybundleRemotePath,

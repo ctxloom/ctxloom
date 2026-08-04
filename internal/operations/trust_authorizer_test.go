@@ -51,7 +51,7 @@ func TestAuthorizer_RemoteInvalidSignatureIsTampered_NotDegradedToUnsigned(t *te
 
 	v := admitFragment(t, g, read, authorizerRemoteRef+"#fragments/keeper", "KEEPER-PAYLOAD")
 
-	assert.False(t, v.Admit, "tampered remote content must be withheld")
+	assert.False(t, v.Allow, "tampered remote content must be withheld")
 	assert.Equal(t, bundles.ReasonTampered, v.Reason,
 		"and reported as TAMPERED — 'unsigned' is the downgrade this row exists to close")
 	assert.NotEmpty(t, v.Detail, "the signature failure has to be nameable")
@@ -74,7 +74,7 @@ func TestAuthorizer_RemoteInvalidSignatureBeatsAnApproval(t *testing.T) {
 	g := &contentGate{cfg: cfg, records: fx.records()}
 	v := admitFragment(t, g, read, itemRef, "KEEPER-PAYLOAD")
 
-	assert.False(t, v.Admit, "an approval does not un-tamper a signature that no longer covers the bytes")
+	assert.False(t, v.Allow, "an approval does not un-tamper a signature that no longer covers the bytes")
 	assert.Equal(t, bundles.ReasonTampered, v.Reason)
 }
 
@@ -92,7 +92,7 @@ func TestAuthorizer_RejectionOutranksTamper(t *testing.T) {
 	g := &contentGate{cfg: cfg, records: fx.records()}
 	v := admitFragment(t, g, read, itemRef, "KEEPER-PAYLOAD")
 
-	assert.False(t, v.Admit)
+	assert.False(t, v.Allow)
 	assert.Equal(t, bundles.ReasonRejected, v.Reason,
 		"rejection is step 1; a user who rejected this must be told THAT, not a signature diagnosis")
 }
@@ -121,13 +121,13 @@ func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 
 			g := &contentGate{cfg: cfg, records: fx.records()}
 			allowed := g.Admit(bundles.Exposure{Read: tc.read, Ref: tc.ref, Bytes: []byte("KEEPER-PAYLOAD"), Form: bundles.FormRaw})
-			require.True(t, allowed.Admit, "sanity: first-party content is exempt from review")
+			require.True(t, allowed.Allow, "sanity: first-party content is exempt from review")
 
 			fx.rejectRef(tc.ref)
 			g2 := &contentGate{cfg: cfg, records: fx.records()}
 			v := g2.Admit(bundles.Exposure{Read: tc.read, Ref: tc.ref, Bytes: []byte("KEEPER-PAYLOAD"), Form: bundles.FormRaw})
 
-			assert.False(t, v.Admit, "a human's rejection must reach %s content", tc.name)
+			assert.False(t, v.Allow, "a human's rejection must reach %s content", tc.name)
 			assert.Equal(t, bundles.ReasonRejected, v.Reason)
 		})
 	}
@@ -178,7 +178,7 @@ func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T
 
 	v := bundles.Decide(g, read, ref.ItemRef(), []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
 
-	assert.True(t, v.Admit, "a companion's unverifiable signature must NOT withhold its content")
+	assert.True(t, v.Allow, "a companion's unverifiable signature must NOT withhold its content")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
 	assert.NotEmpty(t, v.Detail, "and the fact must be reportable")
 	assert.NotEmpty(t, warnings.String(), "and actually reported — a Detail nobody prints is a fact nobody learns")
@@ -201,9 +201,9 @@ func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
 
 	v := admitFragment(t, g, read, "stale-kit#fragments/keeper", "KEEPER-PAYLOAD")
 
-	require.True(t, v.Admit, "a stale sidecar over LOCAL bytes must never withhold — there is nothing to gate")
+	require.True(t, v.Allow, "a stale sidecar over LOCAL bytes must never withhold — there is nothing to gate")
 	assert.Equal(t, bundles.ReasonStaleLocalSignature, v.Reason)
-	assert.True(t, v.Warns(), "the verdict must announce that it carries something to say")
+	assert.True(t, bundles.Warns(v), "the verdict must announce that it carries something to say")
 	assert.Contains(t, v.Detail, "stale-kit.yaml.sig")
 	assert.Contains(t, v.Detail, "ctxloom bundle sign stale-kit", "the warning must name the command that fixes it")
 	assert.Contains(t, warnings.String(), "stale-kit.yaml.sig",
@@ -247,7 +247,7 @@ func TestAuthorizer_UnclaimedReadWithholds(t *testing.T) {
 		Form:  bundles.FormRaw,
 	})
 
-	assert.False(t, v.Admit, "an unclaimed read must withhold even for a ref that spells 'local'")
+	assert.False(t, v.Allow, "an unclaimed read must withhold even for a ref that spells 'local'")
 	assert.Equal(t, bundles.ReasonUnestablished, v.Reason)
 	assert.NotEmpty(t, v.Detail)
 }
@@ -305,11 +305,11 @@ func TestAuthorizer_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
 	g := &contentGate{cfg: cfg, records: fx.records()}
 
 	approved := admitFragment(t, g, read, itemRef, "KEEPER-PAYLOAD")
-	assert.True(t, approved.Admit, "the approved bytes are delivered")
+	assert.True(t, approved.Allow, "the approved bytes are delivered")
 	assert.Equal(t, bundles.ReasonApproved, approved.Reason)
 
 	swapped := admitFragment(t, g, read, itemRef, "SUBSTITUTED-PAYLOAD")
-	assert.False(t, swapped.Admit, "different bytes under the same ref must re-gate")
+	assert.False(t, swapped.Allow, "different bytes under the same ref must re-gate")
 	assert.Equal(t, bundles.ReasonUnsigned, swapped.Reason,
 		"and land where unsigned remote content lands: awaiting review")
 
@@ -319,7 +319,7 @@ func TestAuthorizer_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
 	var got []byte
 	bundles.Decide(bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		got = e.Bytes
-		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+		return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 	}), read, itemRef, []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
 	assert.Equal(t, []byte("KEEPER-PAYLOAD"), got, "the authorizer is handed BYTES, never a hash")
 }

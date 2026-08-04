@@ -10,7 +10,7 @@ import "github.com/ctxloom/ctxloom/internal/bundles"
 func testAuthorizer(admit bool) bundles.Authorizer {
 	return bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
 		if admit {
-			return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+			return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 		}
 		return bundles.Verdict{Reason: bundles.ReasonPending}
 	})
@@ -23,7 +23,7 @@ func recordingAuthorizer(admit bool, gotRefs *[]string) bundles.Authorizer {
 	return bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		*gotRefs = append(*gotRefs, e.RefString())
 		if admit {
-			return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+			return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 		}
 		return bundles.Verdict{Reason: bundles.ReasonPending}
 	})
@@ -34,7 +34,7 @@ func recordingAuthorizer(admit bool, gotRefs *[]string) bundles.Authorizer {
 func hashAuthorizer(want string) bundles.Authorizer {
 	return bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		if bundles.HashPayload(e.Bytes) == want {
-			return bundles.Verdict{Admit: true, Reason: bundles.ReasonApproved}
+			return bundles.Verdict{Allow: true, Reason: bundles.ReasonApproved}
 		}
 		return bundles.Verdict{Reason: bundles.ReasonPending}
 	})

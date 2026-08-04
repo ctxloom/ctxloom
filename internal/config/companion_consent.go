@@ -8,13 +8,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/admission"
 )
 
 // ===== Companion EXEC consent (trust-on-first-use) ===========================
@@ -34,10 +33,11 @@ import (
 // auto-exec convention in a directory that is already on it. Every OTHER
 // consumer of node_modules/.bin requires a human to TYPE the command.
 //
-// THE SHAPE. The first time a given companion would be exec'd, ctxloom asks and
-// RECORDS the answer — the ssh known_hosts pattern. A non-interactive session
-// (an agent, CI) never prompts: it SKIPS the unconfirmed companion with a
-// warning, fail-closed, matching how the probe already degrades on failure.
+// THE SHAPE is internal/shared/admission's, which is where the whole
+// trust-on-first-use flow, the personal-file store and its fail-closed
+// properties now live. What stays here is what is genuinely about companions:
+// how a name resolves to a file, what identifies that file, and the cascade's
+// order.
 //
 // THE KEY. A record is keyed on the RESOLVED ABSOLUTE PATH **and the binary's
 // SHA-256**. Path alone would let a replace-in-place swap inherit an existing
@@ -46,10 +46,31 @@ import (
 // usually sits EARLY in PATH, and companionsOnPathByConvention mirrors shell
 // order, first directory wins).
 //
-// THE ASYMMETRY. An APPROVAL requires an exact (path, sha256) match, so any
-// byte change at an approved path re-prompts. A DENIAL matches on PATH ALONE,
-// so "I never want this run" survives the attacker rebuilding — rejection is
-// supreme here for the same reason it is step 1 of EffectiveTrust.
+// THE ASYMMETRY is the shared store's scope/key split, and this is the domain
+// that needed it: an APPROVAL requires an exact (path, sha256) match, so any
+// byte change at an approved path re-prompts. A DENIAL matches the SCOPE, which
+// here is the PATH ALONE, so "I never want this run" survives the attacker
+// rebuilding — rejection is supreme here for the same reason it is step 1 of
+// EffectiveTrust.
+
+// CompanionKey identifies one companion binary to the consent store.
+//
+// It is also the whole record body on disk, so the file can be read, audited
+// and pruned with `cat`. Only Path and SHA256 are the KEY (see
+// companionConsentKey); Bin rides along as display metadata and is never
+// decided on, because a name is exactly what an attacker gets to choose.
+type CompanionKey struct {
+	// Bin is the companion name as discovered (filepath.Base of Path). Display
+	// and grouping only.
+	Bin string `yaml:"bin"`
+	// Path is the resolved, symlink-followed absolute path of the binary. The
+	// SCOPE: a denial recorded here covers this file whatever its bytes become.
+	Path string `yaml:"path"`
+	// SHA256 is the lowercase hex SHA-256 of the binary's bytes at the moment
+	// the decision was recorded. The other half of the key, and the half that
+	// makes a replace-in-place swap re-prompt.
+	SHA256 string `yaml:"sha256"`
+}
 
 // CompanionConsentRecord is one recorded human decision about executing a
 // companion binary. It is data, not a signature: its authority is the
@@ -58,36 +79,16 @@ import (
 // record is PERSONAL-only and has no committable project twin (see
 // paths.CompanionConsentFileName): a repo you cloned must never be able to
 // arrive carrying pre-approved binaries.
-type CompanionConsentRecord struct {
-	// Bin is the companion name as discovered (filepath.Base of Path). Display
-	// and grouping only — never the key, because a name is exactly what an
-	// attacker gets to choose.
-	Bin string `yaml:"bin"`
-	// Path is the resolved, symlink-followed absolute path of the approved
-	// binary. Half of the key.
-	Path string `yaml:"path"`
-	// SHA256 is the lowercase hex SHA-256 of the binary's bytes at the moment
-	// the decision was recorded. The other half of the key, and the half that
-	// makes a replace-in-place swap re-prompt.
-	SHA256 string `yaml:"sha256"`
-	// Approved is the decision. A false record is a DENIAL and is deliberately
-	// honored path-wide, hash-blind (see companionConsent.deniedPath).
-	Approved bool `yaml:"approved"`
-	// RecordedAt is untrusted display metadata for humans — never an input to
-	// any decision, the same standing every timestamp has in this codebase.
-	RecordedAt time.Time `yaml:"recorded_at"`
-}
+type CompanionConsentRecord = admission.Record[CompanionKey]
 
-// companionConsentDoc is the on-disk shape of the consent record.
-type companionConsentDoc struct {
-	// Version exists so a future format change fails loud instead of being
-	// silently misread as an empty (= "nothing consented") store.
-	Version    int                      `yaml:"version"`
-	Companions []CompanionConsentRecord `yaml:"companions"`
-}
+// companionConsentKey is the identity an APPROVAL binds to: the exact file at
+// the exact path, with the exact bytes. Bin is deliberately absent.
+func companionConsentKey(k CompanionKey) string { return k.Path + "\x00" + k.SHA256 }
 
-// companionConsentVersion is the only on-disk version this build understands.
-const companionConsentVersion = 1
+// companionConsentScope is what a DENIAL covers and what Forget removes by:
+// the path, hash-blind. A refusal that only held until one byte changed would
+// never have been a refusal.
+func companionConsentScope(k CompanionKey) string { return k.Path }
 
 // companionConsentPath is the seam for the record's location; production
 // resolves ~/.ctxloom/companion_consent.yaml.
@@ -97,126 +98,41 @@ var companionConsentPath = paths.HomeCompanionConsentPath
 // lives in (~/.ctxloom/companion_consent.yaml).
 func CompanionConsentPath() (string, error) { return companionConsentPath() }
 
-// companionConsent is the parsed record plus the fault flag. A store that
-// EXISTS but cannot be read or parsed is NOT "nothing consented": it may hold a
-// DENIAL, and reading that silence as permission would re-open a door a human
-// closed. Such a store denies every companion, first-party included — the same
-// fail-closed shape EffectiveTrust's unreadable-approvals-store gate has, for
-// the same reason.
-type companionConsent struct {
-	records []CompanionConsentRecord
-	fault   error
+// companionConsentReasons is this domain's half of the shared flow's
+// vocabulary: the four outcomes the STORE itself can produce, spelled in the
+// enum every companion surface already reports in. The other three reasons
+// (not-installed, first-party, unreadable) belong to cascade arms the store
+// never sees.
+func companionConsentReasons() admission.Reasons[CompanionAdmissionReason] {
+	return admission.Reasons[CompanionAdmissionReason]{
+		Approved: CompanionAdmissionConsented,
+		Declined: CompanionAdmissionDeclined,
+		Unasked:  CompanionAdmissionUnconfirmed,
+		Fault:    CompanionAdmissionStoreFault,
+	}
 }
 
-// loadCompanionConsent reads the record. An ABSENT file is the ordinary
-// "nobody has decided anything yet" state and is not a fault.
-func loadCompanionConsent() companionConsent {
+// companionConsentStore opens the personal consent record.
+//
+// An unresolvable home yields an UNCONFIGURED store rather than an error, so
+// construction stays total; the fault surfaces at the gate, where it fails
+// closed. That is not a convenience: filepath.Join("", x) == x, so a store
+// built from an empty path would key off the process working directory, and a
+// stray file at a repo root would authorise an exec. The shared store refuses
+// every read and write in that state.
+func companionConsentStore() *admission.Store[CompanionKey, CompanionAdmissionReason] {
 	path, err := companionConsentPath()
 	if err != nil {
-		return companionConsent{fault: err}
+		path = ""
 	}
-	data, err := os.ReadFile(path) //nolint:gosec // path is ctxloom's own home record
-	if errors.Is(err, os.ErrNotExist) {
-		return companionConsent{}
-	}
-	if err != nil {
-		return companionConsent{fault: fmt.Errorf("read %s: %w", path, err)}
-	}
-	var doc companionConsentDoc
-	if uerr := yaml.Unmarshal(data, &doc); uerr != nil {
-		return companionConsent{fault: fmt.Errorf("parse %s: %w", path, uerr)}
-	}
-	if doc.Version != companionConsentVersion {
-		return companionConsent{fault: fmt.Errorf(
-			"%s declares version %d, this build understands %d", path, doc.Version, companionConsentVersion)}
-	}
-	return companionConsent{records: doc.Companions}
-}
-
-// deniedPath reports whether a recorded DENIAL covers this path. Hash-blind on
-// purpose: a decline must survive the binary being rebuilt, or "no" would only
-// ever have meant "no, until you change one byte". It is also the arm that
-// needs no hash, which is what lets the admission cascade check a refusal
-// before it pays to hash anything.
-func (c companionConsent) deniedPath(path string) bool {
-	for _, r := range c.records {
-		if r.Path == path && !r.Approved {
-			return true
-		}
-	}
-	return false
-}
-
-// approved reports whether a recorded APPROVAL covers this exact path AND these
-// exact bytes. Both halves are required: that is the whole content of the
-// path+hash key.
-func (c companionConsent) approved(path, sha string) bool {
-	for _, r := range c.records {
-		if r.Approved && r.Path == path && r.SHA256 == sha {
-			return true
-		}
-	}
-	return false
-}
-
-// saveCompanionConsent writes rec into the record, replacing any prior entry
-// for the same (path, sha256) pair and dropping every other entry for the same
-// PATH — a path holds exactly one live decision, so re-deciding never leaves a
-// stale approval behind for an older build of the same binary.
-func saveCompanionConsent(rec CompanionConsentRecord) error {
-	path, err := companionConsentPath()
-	if err != nil {
-		return err
-	}
-	existing := loadCompanionConsent()
-	if existing.fault != nil {
-		// Refuse to overwrite a record we could not read: the file may hold
-		// decisions this write would silently erase.
-		return fmt.Errorf("companion consent record is unreadable, refusing to overwrite it: %w", existing.fault)
-	}
-	kept := make([]CompanionConsentRecord, 0, len(existing.records)+1)
-	for _, r := range existing.records {
-		if r.Path != rec.Path {
-			kept = append(kept, r)
-		}
-	}
-	kept = append(kept, rec)
-	return writeCompanionConsent(path, kept)
-}
-
-// writeCompanionConsent serializes recs to path, 0600 (it records decisions
-// about executing code — world-readable would leak the machine's companion
-// layout, and world-WRITABLE would hand the decision away).
-func writeCompanionConsent(path string, recs []CompanionConsentRecord) error {
-	sort.Slice(recs, func(i, j int) bool {
-		if recs[i].Path != recs[j].Path {
-			return recs[i].Path < recs[j].Path
-		}
-		return recs[i].SHA256 < recs[j].SHA256
-	})
-	data, err := yaml.Marshal(companionConsentDoc{Version: companionConsentVersion, Companions: recs})
-	if err != nil {
-		return fmt.Errorf("marshal companion consent: %w", err)
-	}
-	if mkErr := os.MkdirAll(filepath.Dir(path), 0o700); mkErr != nil {
-		return fmt.Errorf("create %s: %w", filepath.Dir(path), mkErr)
-	}
-	if werr := os.WriteFile(path, data, 0o600); werr != nil {
-		return fmt.Errorf("write %s: %w", path, werr)
-	}
-	return nil
+	return admission.NewStore(afero.NewOsFs(), path, companionConsentKey, companionConsentReasons(),
+		admission.WithScope(companionConsentScope))
 }
 
 // ListCompanionConsent returns every recorded decision, sorted by path. It is
 // the read half of the user-facing `ctxloom trust companion list`.
 func ListCompanionConsent() ([]CompanionConsentRecord, error) {
-	c := loadCompanionConsent()
-	if c.fault != nil {
-		return nil, c.fault
-	}
-	out := append([]CompanionConsentRecord(nil), c.records...)
-	sort.Slice(out, func(i, j int) bool { return out[i].Path < out[j].Path })
-	return out, nil
+	return companionConsentStore().List()
 }
 
 // SetCompanionConsent records an explicit decision for the binary at target
@@ -225,25 +141,18 @@ func ListCompanionConsent() ([]CompanionConsentRecord, error) {
 // the escape hatch a non-interactive CI run needs, deliberately requiring a
 // human to type it rather than inferring consent from the environment.
 func SetCompanionConsent(target string, approved bool) (CompanionConsentRecord, error) {
+	var zero CompanionConsentRecord
 	resolved, err := resolveCompanionTarget(target)
 	if err != nil {
-		return CompanionConsentRecord{}, err
+		return zero, err
 	}
 	sum, err := companionBinarySHA256(resolved)
 	if err != nil {
-		return CompanionConsentRecord{}, err
+		return zero, err
 	}
-	rec := CompanionConsentRecord{
-		Bin:        filepath.Base(resolved),
-		Path:       resolved,
-		SHA256:     sum,
-		Approved:   approved,
-		RecordedAt: time.Now().UTC(),
-	}
-	if serr := saveCompanionConsent(rec); serr != nil {
-		return CompanionConsentRecord{}, serr
-	}
-	return rec, nil
+	return companionConsentStore().Set(CompanionKey{
+		Bin: filepath.Base(resolved), Path: resolved, SHA256: sum,
+	}, approved)
 }
 
 // ForgetCompanionConsent drops every recorded decision for target's resolved
@@ -258,28 +167,7 @@ func ForgetCompanionConsent(target string) (int, error) {
 		// literal argument rather than refusing.
 		resolved = target
 	}
-	path, perr := companionConsentPath()
-	if perr != nil {
-		return 0, perr
-	}
-	c := loadCompanionConsent()
-	if c.fault != nil {
-		return 0, c.fault
-	}
-	kept := make([]CompanionConsentRecord, 0, len(c.records))
-	for _, r := range c.records {
-		if r.Path != resolved {
-			kept = append(kept, r)
-		}
-	}
-	removed := len(c.records) - len(kept)
-	if removed == 0 {
-		return 0, nil
-	}
-	if werr := writeCompanionConsent(path, kept); werr != nil {
-		return 0, werr
-	}
-	return removed, nil
+	return companionConsentStore().Forget(CompanionKey{Path: resolved})
 }
 
 // resolveCompanionTarget turns a user-supplied name or path into the resolved,

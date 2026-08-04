@@ -101,9 +101,9 @@ func TestExecutableTrustGate_WarnWithheld_NamesReason(t *testing.T) {
 	e := &ExecutableTrustGate{gate: g}
 
 	unsigned := execRead(t, "")
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Admit)
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Admit)
-	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePulledRef, pbytes("pulled"), bundles.FormRaw).Admit)
+	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Allow)
+	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Allow)
+	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePulledRef, pbytes("pulled"), bundles.FormRaw).Allow)
 
 	stderr := captureStderr(t, func() { e.WarnWithheld() })
 

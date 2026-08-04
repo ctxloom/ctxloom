@@ -136,7 +136,7 @@ func (g *contentGate) verdictFor(e bundles.Exposure, res EffectiveTrustResult) b
 		return g.record(e, bundles.Verdict{Reason: bundles.ReasonTampered, Detail: e.Read.SignatureDetail()})
 	}
 	if res.Trusted() {
-		return bundles.Verdict{Admit: true, Reason: admitReason(e, res.Source), Detail: admitDetail(e)}
+		return bundles.Verdict{Allow: true, Reason: admitReason(e, res.Source), Detail: admitDetail(e)}
 	}
 	return g.record(e, bundles.Verdict{Reason: pendingReason(e.Read)})
 }

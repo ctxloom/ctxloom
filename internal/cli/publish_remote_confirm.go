@@ -29,8 +29,12 @@ func publishRemoteAsk(cmd *cobra.Command) remote.PublishRemoteAsk {
 	if !isInteractiveTerminal() {
 		return nil
 	}
-	return func(_ context.Context, remoteURL string) (bool, error) {
-		return promptPublishRemote(cmd.ErrOrStderr(), remoteURL), nil
+	// answered is always true: this callback is only reached when a terminal
+	// is attached, and promptYesNo's own read failure is a NO the human is
+	// standing there for, not the "nobody could be asked" case — that one is
+	// the nil return above.
+	return func(_ context.Context, k remote.PublishRemoteKey) (approved, answered bool, err error) {
+		return promptPublishRemote(cmd.ErrOrStderr(), k.URL), true, nil
 	}
 }
 

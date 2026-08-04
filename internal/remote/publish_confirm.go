@@ -2,17 +2,13 @@ package remote
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/admission"
 )
 
 // The publish-remote confirmation: the first publish to a given remote URL
@@ -33,160 +29,180 @@ import (
 //     publish is what makes pushing signed content reachable from inside an
 //     agent session at all.
 //
-// It is consistent with the companion trust-on-first-use decision: ask once
-// per new thing, remember, refuse rather than assume when nobody can be asked.
+// It is the same trust-on-first-use decision the companion exec gate makes —
+// ask once per new thing, remember, refuse rather than assume when nobody can
+// be asked — and it is now literally the same code: internal/shared/admission.
+// What stays here is what is about PUBLISHING: which remotes are gated at all,
+// what makes two spellings of a URL one destination, and the refusal sentence.
 //
 // TWO ALTERNATIVES WERE REJECTED. Printing the destination and proceeding
 // leaves an agent free to publish and trains people to skim routine output.
 // An always-confirm with a `--yes` escape hatch puts the flag into every
 // script on day one and makes the prompt reflexive.
 
-// PublishRemoteAsk asks a human whether publishing to remoteURL — a remote
-// nothing has been published to before — may proceed. It returns the answer;
-// an error means the question could not be put (a closed stdin, a read
-// failure), which is never an affirmative.
+// PublishAdmissionReason names WHY a publish destination was or was not
+// admitted.
+//
+// The gate had no reason vocabulary at all before — a bool and an error — and
+// that absence is what left it with no way to say "this was declined" as
+// distinct from "nobody could be asked", and no way for a `list` surface to
+// report what it found. Every other admission decision in ctxloom names its
+// rule; this one now does too.
+type PublishAdmissionReason string
+
+const (
+	// PublishAdmissionForgeToken: a GitHub remote, reached through the forge
+	// API with a token that must already carry push rights to that specific
+	// repository. Not gated here — see authorizeRemote for why widening the
+	// gate to GitHub is a separate decision.
+	PublishAdmissionForgeToken PublishAdmissionReason = "forge-token"
+	// PublishAdmissionConfirmed: a recorded confirmation covers this remote.
+	PublishAdmissionConfirmed PublishAdmissionReason = "confirmed"
+	// PublishAdmissionDeclined: a recorded DECLINE covers this remote. A human
+	// said no, and that survives until they forget it.
+	PublishAdmissionDeclined PublishAdmissionReason = "declined"
+	// PublishAdmissionUnconfirmed: never confirmed, and nothing could ask — a
+	// non-interactive session, or a caller that does not prompt. Fail-closed,
+	// and deliberately NOT the same answer as declined: the fix is a terminal
+	// or `ctxloom trust publish allow`, not a change of mind.
+	PublishAdmissionUnconfirmed PublishAdmissionReason = "unconfirmed"
+	// PublishAdmissionStoreFault: the confirmation record exists but cannot be
+	// read. Refuses, because "I could not read the store" must never read as
+	// "you never confirmed it" — that asks a human to re-confirm a remote they
+	// already approved, teaching them to say yes on reflex.
+	PublishAdmissionStoreFault PublishAdmissionReason = "store-fault"
+)
+
+// PublishRemoteKey identifies one confirmed publish destination.
+//
+// It is also the whole record body on disk, so the file can be read, audited
+// and pruned with `cat`. Only Identity is the key: the same repository reached
+// as "git@host:o/r.git" and "https://host/o/r" is ONE destination, the same
+// identity rule that keys the trust namespace and lockfile entries. URL is the
+// spelling the human typed, kept for display and never decided on.
+type PublishRemoteKey struct {
+	// URL is the remote as written, for humans reading the record.
+	URL string `yaml:"url"`
+	// Identity is NormalizeURL(URL) — what two spellings of one repository
+	// agree on, and the whole key.
+	Identity string `yaml:"identity"`
+}
+
+// NewPublishRemoteKey builds the key for a remote URL. A URL that normalizes
+// to nothing (an unparseable spelling) falls back to its raw text, which cannot
+// silently collide two different destinations onto one confirmation.
+func NewPublishRemoteKey(remoteURL string) PublishRemoteKey {
+	id := NormalizeURL(remoteURL)
+	if id == "" {
+		id = strings.TrimSpace(remoteURL)
+	}
+	return PublishRemoteKey{URL: strings.TrimSpace(remoteURL), Identity: id}
+}
+
+// publishRemoteIdentity is the key AND the scope: a publish destination has
+// nothing finer than itself, so an approval and a denial cover exactly the
+// same thing and the store's scope/key asymmetry collapses to nothing here.
+func publishRemoteIdentity(k PublishRemoteKey) string { return k.Identity }
+
+// PublishRemoteRecord is one recorded decision about a publish destination.
+//
+// Nothing here is signed, so anything that can write the user's home can forge
+// one. That is the documented cost of a decision record that must work with no
+// key present — and it is exactly why the store is user-scoped
+// (paths.HomePublishRemotesPath) and has no committable twin. A shareable
+// "yes, publish there" with no signature would pre-answer the question for
+// everyone who clones the repo, which is one of the three mistakes this
+// mechanism exists to catch.
+type PublishRemoteRecord = admission.Record[PublishRemoteKey]
+
+// PublishRemoteStore is the personal record of confirmed publish destinations.
+type PublishRemoteStore = admission.Store[PublishRemoteKey, PublishAdmissionReason]
+
+// PublishRemoteAsk asks a human whether publishing to a remote nothing has
+// been published to before may proceed.
 //
 // A nil PublishRemoteAsk is the NON-INTERACTIVE case and is the deliberate
 // default: package remote has no terminal and must not acquire one. The
 // frontend supplies this only when it actually has a human attached (see
 // internal/cli), so an agent, an MCP tool call, a CI job and a piped
 // invocation all reach the refusal rather than a prompt written into a pipe.
-type PublishRemoteAsk func(ctx context.Context, remoteURL string) (bool, error)
+type PublishRemoteAsk = admission.Ask[PublishRemoteKey]
 
-// ConfirmedRemotes is the record of which remotes a human confirmed as publish
-// destinations: one marker file per confirmed remote URL, under a single
-// directory.
-//
-// The shape follows the approvals store's UNSIGNED-marker path (spec §9.5,
-// countersign.Store record kind 2): EXISTENCE IS THE ENTIRE RECORD. Nothing
-// here is signed, so anything that can write this directory can forge one.
-// That is the documented cost of a decision record that must work with no key
-// present — and it is exactly why the store is user-scoped
-// (paths.HomePublishRemotesPath) and has no committable twin. A shareable
-// "yes, publish there" with no signature would pre-answer the question for
-// everyone who clones the repo, which is one of the three mistakes this
-// mechanism exists to catch.
-type ConfirmedRemotes struct {
-	dir string
-	fs  afero.Fs
-}
-
-// NewConfirmedRemotes builds a store rooted at dir, backed by fs. dir need not
-// exist — it is created on the first Record, and a store over a nonexistent
-// directory reads as "nothing confirmed yet", which is the correct starting
-// state.
-//
-// An EMPTY dir is NOT that state: it is a store nobody managed to configure
-// (the real trigger is an unresolvable $HOME). Because filepath.Join("", x)
-// == x, such a store would read the PROCESS WORKING DIRECTORY — and since a
-// marker's mere existence is the confirmation, a stray file at a repo root
-// would authorise a push. An unconfigured store therefore answers nothing and
-// refuses every write, exactly as countersign.Store does for the same reason.
-func NewConfirmedRemotes(dir string, fs afero.Fs) *ConfirmedRemotes {
-	if fs == nil {
-		fs = afero.NewOsFs()
+// publishRemoteReasons is this domain's half of the shared flow's vocabulary.
+func publishRemoteReasons() admission.Reasons[PublishAdmissionReason] {
+	return admission.Reasons[PublishAdmissionReason]{
+		Approved: PublishAdmissionConfirmed,
+		Declined: PublishAdmissionDeclined,
+		Unasked:  PublishAdmissionUnconfirmed,
+		Fault:    PublishAdmissionStoreFault,
 	}
-	return &ConfirmedRemotes{dir: dir, fs: fs}
 }
 
-// DefaultConfirmedRemotes is the production store, at
-// ~/.ctxloom/publish-remotes. An unresolvable home yields an UNCONFIGURED
+// NewPublishRemoteStore builds a store over path, backed by fs. Tests point it
+// at a temp file instead of the user's home.
+//
+// An EMPTY path is a store nobody managed to configure (the real trigger is an
+// unresolvable $HOME) and the shared store refuses every read and write in
+// that state — see admission.NewStore for why that is a fault rather than an
+// empty store.
+func NewPublishRemoteStore(path string, fs afero.Fs) *PublishRemoteStore {
+	return admission.NewStore(fs, path, publishRemoteIdentity, publishRemoteReasons())
+}
+
+// DefaultPublishRemoteStore is the production store, at
+// ~/.ctxloom/publish_remotes.yaml. An unresolvable home yields an UNCONFIGURED
 // store rather than an error, so construction stays total; the fault surfaces
-// at the gate, where it fails closed with the home error attached.
-func DefaultConfirmedRemotes() *ConfirmedRemotes {
-	dir, err := paths.HomePublishRemotesPath()
+// at the gate, where it fails closed.
+func DefaultPublishRemoteStore() *PublishRemoteStore {
+	path, err := paths.HomePublishRemotesPath()
 	if err != nil {
-		return &ConfirmedRemotes{dir: "", fs: afero.NewOsFs()}
+		path = ""
 	}
-	return NewConfirmedRemotes(dir, afero.NewOsFs())
+	return NewPublishRemoteStore(path, afero.NewOsFs())
 }
 
-// Dir reports where this store lives, for messages that must tell a human
-// where the answer was (or would be) recorded. Empty means unconfigured.
-func (c *ConfirmedRemotes) Dir() string {
-	if c == nil {
+// ListPublishRemoteConsent returns every recorded decision about a publish
+// destination, sorted by identity. The read half of `ctxloom trust publish
+// list`.
+func ListPublishRemoteConsent() ([]PublishRemoteRecord, error) {
+	return DefaultPublishRemoteStore().List()
+}
+
+// SetPublishRemoteConsent records an explicit decision about remoteURL. It is
+// the scriptable form of the interactive prompt — the escape hatch a CI job or
+// an agent host needs, deliberately requiring a human to type it rather than
+// inferring consent from the environment.
+//
+// Before it existed, a non-interactive caller was told to "run the same
+// publish once from an interactive terminal", which a CI runner and an agent
+// host cannot do at all.
+func SetPublishRemoteConsent(remoteURL string, approved bool) (PublishRemoteRecord, error) {
+	var zero PublishRemoteRecord
+	if strings.TrimSpace(remoteURL) == "" {
+		return zero, fmt.Errorf("publish-remote consent: no remote named")
+	}
+	return DefaultPublishRemoteStore().Set(NewPublishRemoteKey(remoteURL), approved)
+}
+
+// ForgetPublishRemoteConsent drops the recorded decision for remoteURL and
+// reports how many entries were removed. Zero removed is reported as zero,
+// never as success-with-no-effect: forgetting a remote nobody recorded is the
+// caller's mistake to see.
+func ForgetPublishRemoteConsent(remoteURL string) (int, error) {
+	if strings.TrimSpace(remoteURL) == "" {
+		return 0, fmt.Errorf("publish-remote consent: no remote named")
+	}
+	return DefaultPublishRemoteStore().Forget(NewPublishRemoteKey(remoteURL))
+}
+
+// PublishRemoteConsentPath reports the file confirmations live in, for
+// messages that must tell a human where the answer was (or would be) recorded.
+func PublishRemoteConsentPath() string {
+	path, err := paths.HomePublishRemotesPath()
+	if err != nil {
 		return ""
 	}
-	return c.dir
-}
-
-// confirmKey is the marker filename for a remote URL: the sha256 of the URL's
-// NORMALIZED identity, hex, plus a fixed extension.
-//
-// Hashing keeps every URL spelling — ports, paths, scp colons, Windows drive
-// letters — inside one filesystem-safe name. It is a pure INDEX and never read
-// back as identity: the marker's body carries the URL for humans, and no code
-// path parses a filename to decide anything.
-//
-// The key is taken over NormalizeURL rather than the raw string, so the same
-// repository reached as "git@host:o/r.git" and "https://host/o/r" is ONE
-// confirmed destination — the same identity rule that keys the trust namespace
-// and lockfile entries. A URL that normalizes to nothing (an unparseable
-// spelling) falls back to its raw text, which cannot silently collide two
-// different destinations onto one confirmation.
-func confirmKey(remoteURL string) string {
-	id := NormalizeURL(remoteURL)
-	if id == "" {
-		id = strings.TrimSpace(remoteURL)
-	}
-	sum := sha256.Sum256([]byte(id))
-	return hex.EncodeToString(sum[:]) + ".confirmed"
-}
-
-// configured reports the "nobody gave this store a directory" fault. See
-// NewConfirmedRemotes for why it is a fault and not an empty store.
-func (c *ConfirmedRemotes) configured() error {
-	if c != nil && c.dir != "" {
-		return nil
-	}
-	dir, err := paths.HomePublishRemotesPath()
-	if err != nil {
-		return fmt.Errorf("confirmed publish-remote store: %w", err)
-	}
-	return fmt.Errorf("confirmed publish-remote store: no directory configured (expected %s)", dir)
-}
-
-// Confirmed reports whether remoteURL has already been confirmed.
-//
-// A directory that does not exist yet is "nothing confirmed" (false, nil). Any
-// OTHER read fault is returned rather than folded onto false: this store's
-// answer decides whether a push happens, and "I could not read the store" must
-// not read as "you never confirmed it" — that would ask a human to re-confirm
-// a remote they already approved, teaching them to say yes to the prompt on
-// reflex, which is the whole value of the mechanism.
-func (c *ConfirmedRemotes) Confirmed(remoteURL string) (bool, error) {
-	if err := c.configured(); err != nil {
-		return false, err
-	}
-	path := filepath.Join(c.dir, confirmKey(remoteURL))
-	ok, err := afero.Exists(c.fs, path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, fmt.Errorf("read confirmed publish-remote store %s: %w", c.dir, err)
-	}
-	return ok, nil
-}
-
-// Record persists the confirmation for remoteURL. The body is for HUMANS —
-// the URL as written, its normalized identity and when it was confirmed — so
-// the store can be read, audited and pruned with `ls` and `cat`. Nothing
-// parses it back.
-func (c *ConfirmedRemotes) Record(remoteURL string, now time.Time) error {
-	if err := c.configured(); err != nil {
-		return err
-	}
-	if err := c.fs.MkdirAll(c.dir, 0o755); err != nil {
-		return fmt.Errorf("create confirmed publish-remote store %s: %w", c.dir, err)
-	}
-	body := fmt.Sprintf("url: %s\nidentity: %s\nconfirmed_at: %s\n",
-		strings.TrimSpace(remoteURL), NormalizeURL(remoteURL), now.UTC().Format(time.RFC3339))
-	path := filepath.Join(c.dir, confirmKey(remoteURL))
-	if err := afero.WriteFile(c.fs, path, []byte(body), 0o644); err != nil {
-		return fmt.Errorf("record confirmed publish remote %s: %w", remoteURL, err)
-	}
-	return nil
+	return path
 }
 
 // authorizeRemote is the gate every non-GitHub publish passes before any
@@ -199,56 +215,91 @@ func (c *ConfirmedRemotes) Record(remoteURL string, now time.Time) error {
 // a new one. Widening the gate to GitHub is a separate decision with its own
 // migration for everyone already publishing there.
 func (pm *PublishManager) authorizeRemote(ctx context.Context, remoteURL string, forge ForgeType) error {
+	store := pm.publishRemoteStore()
+	d := pm.admitRemote(ctx, store, remoteURL, forge)
+	if d.Allow {
+		return nil
+	}
+	return publishRefusedError(remoteURL, d, store.Path())
+}
+
+// publishRemoteStore is the store this manager decides against: the one an
+// option supplied, or the production one.
+func (pm *PublishManager) publishRemoteStore() *PublishRemoteStore {
+	if pm != nil && pm.confirmed != nil {
+		return pm.confirmed
+	}
+	return DefaultPublishRemoteStore()
+}
+
+// admitRemote is the decision itself, as a Decision rather than as an error,
+// so the gate and any surface that has to REPORT what it would decide share
+// one vocabulary instead of re-deriving it from an error string.
+//
+// It is a pure function of its inputs plus the store: it renders nothing. The
+// sentence a human reads is assembled by publishRefusedError from the Reason.
+func (pm *PublishManager) admitRemote(
+	ctx context.Context, store *PublishRemoteStore, remoteURL string, forge ForgeType,
+) admission.Decision[PublishAdmissionReason] {
 	if forge == ForgeGitHub {
-		return nil
+		return admission.Decision[PublishAdmissionReason]{Allow: true, Reason: PublishAdmissionForgeToken}
 	}
-	store := pm.confirmed
-	if store == nil {
-		store = DefaultConfirmedRemotes()
-	}
-
-	confirmed, err := store.Confirmed(remoteURL)
-	if err != nil {
-		return fmt.Errorf("cannot tell whether %s is a confirmed publish remote, so refusing to publish to it: %w", remoteURL, err)
-	}
-	if confirmed {
-		return nil
-	}
-	if pm.ask == nil {
-		return unconfirmedRemoteError(remoteURL, store.Dir())
-	}
-
-	yes, err := pm.ask(ctx, remoteURL)
-	if err != nil {
-		return fmt.Errorf("refusing to publish to %s: its confirmation could not be put to a human: %w", remoteURL, err)
-	}
-	if !yes {
-		return fmt.Errorf("refusing to publish to %s: not confirmed", remoteURL)
-	}
-	// Record BEFORE publishing. A confirmation that is only written after a
-	// successful push is lost whenever the push fails, so the retry asks
+	// Recorded BEFORE publishing, by Decide. A confirmation only written after
+	// a successful push is lost whenever the push fails, so the retry asks
 	// again — and a prompt that reappears after every hiccup is one people
 	// learn to dismiss. The human answered the question that was asked ("is
 	// this the remote you meant"), and that answer is true regardless of
 	// whether the push then succeeded.
-	if err := store.Record(remoteURL, time.Now()); err != nil {
-		return fmt.Errorf("refusing to publish to %s: it was confirmed but the confirmation could not be recorded (it would be asked again every time): %w", remoteURL, err)
+	d, err := store.Decide(ctx, NewPublishRemoteKey(remoteURL), pm.ask)
+	if err != nil && d.Allow {
+		// Confirmed, but the confirmation could not be recorded. Unlike the
+		// companion gate — which honors the yes and warns — this one REFUSES:
+		// a confirmation that did not persist means the prompt reappears on
+		// every retry, which is exactly the reflex-training this mechanism
+		// exists to avoid.
+		return admission.Decision[PublishAdmissionReason]{
+			Reason: PublishAdmissionStoreFault,
+			Detail: fmt.Sprintf("it was confirmed but the confirmation could not be recorded "+
+				"(it would be asked again every time): %v", err),
+		}
 	}
-	return nil
+	return d
 }
 
-// unconfirmedRemoteError is the NON-INTERACTIVE refusal: it names the remote,
-// says why it stopped, and says how to confirm it. It never assumes yes and
-// never writes a prompt into a pipe.
-func unconfirmedRemoteError(remoteURL, storeDir string) error {
-	where := storeDir
+// publishRefusedError turns a refusal into the sentence a human reads. It
+// names the remote, says which rule stopped it, and says how to proceed —
+// including, for the non-interactive case, a command a CI job or an agent host
+// can actually run, which "run it once interactively" was not.
+func publishRefusedError(remoteURL string, d admission.Decision[PublishAdmissionReason], storePath string) error {
+	where := storePath
 	if where == "" {
-		where = "~/" + paths.AppDirName + "/" + paths.PublishRemotesDirName
+		where = "~/" + paths.AppDirName + "/" + paths.PublishRemotesFileName + ".yaml"
 	}
-	return fmt.Errorf(
-		"refusing to publish to %s: this remote has never been confirmed as a publish destination, "+
-			"and this session has no terminal to confirm it on (an agent, an editor, a CI job or a piped command). "+
-			"Check the URL is the one you meant, then run the same publish once from an interactive terminal and answer yes; "+
-			"the answer is recorded in %s and you will not be asked again",
-		remoteURL, where)
+	switch d.Reason {
+	case PublishAdmissionDeclined:
+		return fmt.Errorf(
+			"refusing to publish to %s: it is recorded as declined as a publish destination "+
+				"(undo with 'ctxloom trust publish forget %s')", remoteURL, remoteURL)
+	case PublishAdmissionStoreFault:
+		detail := d.Detail
+		if detail == "" {
+			detail = "the confirmation record could not be read"
+		}
+		return fmt.Errorf(
+			"refusing to publish to %s: cannot tell whether it is a confirmed publish remote: %s",
+			remoteURL, detail)
+	default:
+		// PublishAdmissionUnconfirmed, and the fail-closed default for any
+		// reason added without a case here.
+		detail := ""
+		if d.Detail != "" {
+			detail = " (" + d.Detail + ")"
+		}
+		return fmt.Errorf(
+			"refusing to publish to %s: this remote has never been confirmed as a publish destination, "+
+				"and this session has no terminal to confirm it on (an agent, an editor, a CI job or a piped command)%s. "+
+				"Check the URL is the one you meant, then run 'ctxloom trust publish allow %s'; "+
+				"the answer is recorded in %s and you will not be asked again",
+			remoteURL, detail, remoteURL, where)
+	}
 }

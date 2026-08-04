@@ -10,7 +10,7 @@ import "github.com/ctxloom/ctxloom/internal/bundles"
 func testAuthorizer(admit bool) bundles.Authorizer {
 	return bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
 		if admit {
-			return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+			return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 		}
 		return bundles.Verdict{Reason: bundles.ReasonPending}
 	})

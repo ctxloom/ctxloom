@@ -523,6 +523,12 @@ func TestConvert_WritesNothingTheSourceBundleDidNotDeclare(t *testing.T) {
 	files, err := bun.Files(ctx)
 	require.NoError(t, err)
 	for _, f := range files {
+		// The envelope is the one non-item file a conversion writes: it carries
+		// the bundle-level metadata no item can supply, and bundles.ReadTree
+		// refuses a tree without it.
+		if f == bundles.DirectoryFormManifest {
+			continue
+		}
 		assert.True(t, strings.HasPrefix(f, "fragments/"),
 			"unexpected file %q in a bundle that declared only a fragment", f)
 	}

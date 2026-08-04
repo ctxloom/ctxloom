@@ -183,6 +183,20 @@ type Writer interface {
 	// bundle, not to any item in it.
 	PutManifest(ctx context.Context, id BundleID, m Manifest) error
 
+	// PutRootFile writes one bundle-ROOT file that is not an item: the bundle
+	// envelope, a README, a LICENSE. It is the write-side counterpart to
+	// Bundle.ReadFile, added for the same stated reason ReadFile was — a caller
+	// reaching around the store to a filesystem is the signal this API is
+	// incomplete.
+	//
+	// It refuses a path with a directory component. Everything below the root is
+	// either a kind directory, where an item must go through Put so its surface
+	// type does the encoding, or the signature store, which PutBundleSignature
+	// owns. Without that guard this would be a way to place an unrecognised file
+	// inside a kind directory — which Refs then fails on, turning a write here
+	// into a bundle nobody can enumerate.
+	PutRootFile(ctx context.Context, id BundleID, name string, data []byte) error
+
 	// PutBundleSignature stores signature bytes over the bundle's manifest
 	// under the given namespace. It performs no verification, and it does not
 	// check that a manifest is present: layer 0 stores bytes, layer 2 decides

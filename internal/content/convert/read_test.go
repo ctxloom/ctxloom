@@ -12,10 +12,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/content"
 )
 
-// writeEnvelope puts a bundle.yaml at the tree root. Convert does not write one
-// (it plans ITEMS), so every read test that needs an envelope stages it here —
-// which is also how a published tree carries its version and description.
-func writeEnvelope(t *testing.T, fsys afero.Fs, bundle, yaml string) {
+// stageEnvelope OVERWRITES the bundle.yaml Convert wrote, so a test can pin an
+// exact envelope (including the half-migrated one Convert would never emit).
+func stageEnvelope(t *testing.T, fsys afero.Fs, bundle, yaml string) {
 	t.Helper()
 	require.NoError(t, afero.WriteFile(fsys, "/tree/"+bundle+"/bundle.yaml", []byte(yaml), 0o644))
 }
@@ -68,7 +67,7 @@ func stageTree(t *testing.T, ctx context.Context, b *bundles.Bundle, envelope st
 	t.Helper()
 	st, fsys := newStore(t)
 	require.NoError(t, Convert(ctx, st, "vault", b, everyKindOptions()))
-	writeEnvelope(t, fsys, "vault", envelope)
+	stageEnvelope(t, fsys, "vault", envelope)
 	tree, err := st.Open(ctx, "vault")
 	require.NoError(t, err)
 	return tree
@@ -162,8 +161,10 @@ func TestReadTree_SkillManifestCarriesEveryFileWithItsHashAndMode(t *testing.T) 
 // one that claims a version it does not have.
 func TestReadTree_RefusesATreeWithNoEnvelope(t *testing.T) {
 	ctx := context.Background()
-	st, _ := newStore(t)
+	st, fsys := newStore(t)
 	require.NoError(t, Convert(ctx, st, "vault", everyKindBundle(), everyKindOptions()))
+	// Convert writes an envelope; remove it to reach the no-envelope case.
+	require.NoError(t, fsys.Remove("/tree/vault/bundle.yaml"))
 	tree, err := st.Open(ctx, "vault")
 	require.NoError(t, err)
 
@@ -194,11 +195,60 @@ func TestReadTree_RefusesATreeThatHoldsNoItemsAtAll(t *testing.T) {
 	ctx := context.Background()
 	st, fsys := newStore(t)
 	require.NoError(t, fsys.MkdirAll("/tree/vault", 0o755))
-	writeEnvelope(t, fsys, "vault", "version: 1.2.3\n")
+	stageEnvelope(t, fsys, "vault", "version: 1.2.3\n")
 	tree, err := st.Open(ctx, "vault")
 	require.NoError(t, err)
 
 	_, err = bundles.ReadTree(ctx, tree)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no items")
+}
+
+// THE ROUND TRIP, closed. Convert used to write items and no envelope, so its
+// own output was a tree bundles.ReadTree refused — the converter produced a
+// shape its reader rejected, which is a trap for the migration this package
+// exists to perform.
+//
+// Nothing is staged by hand here: the tree is exactly what Convert wrote.
+func TestConvert_OutputIsReadableByReadTreeWithNothingStagedByHand(t *testing.T) {
+	ctx := context.Background()
+	st, _ := newStore(t)
+	src := everyKindBundle()
+	require.NoError(t, Convert(ctx, st, "vault", src, everyKindOptions()))
+
+	tree, err := st.Open(ctx, "vault")
+	require.NoError(t, err)
+
+	got, err := bundles.ReadTree(ctx, tree)
+	require.NoError(t, err, "a converted tree must be readable without hand-staging an envelope")
+
+	assert.Equal(t, src.Version, got.Version, "bundle-level metadata survives the round trip")
+	assert.Equal(t, src.Description, got.Description)
+	require.Contains(t, got.Fragments, "house-style")
+	require.Contains(t, got.Skills, "reviewer")
+	require.Len(t, got.Hooks.PostFileEdit, 2)
+	assert.Equal(t, "echo stamp", got.Hooks.PostFileEdit[0].Command,
+		"declared hook order survives document -> tree -> document")
+}
+
+// The envelope must carry ONLY bundle-level fields. An envelope that still
+// listed items would make every converted tree half-migrated by construction —
+// two answers for each item, which ReadTree then refuses.
+func TestConvert_EnvelopeCarriesNoItems(t *testing.T) {
+	ctx := context.Background()
+	st, fsys := newStore(t)
+	require.NoError(t, Convert(ctx, st, "vault", everyKindBundle(), everyKindOptions()))
+
+	raw, err := afero.ReadFile(fsys, "/tree/vault/"+bundles.DirectoryFormManifest)
+	require.NoError(t, err)
+	env, err := bundles.ParseBundle(raw)
+	require.NoError(t, err)
+
+	assert.Empty(t, env.Fragments)
+	assert.Empty(t, env.Commands)
+	assert.Empty(t, env.MCP)
+	assert.Empty(t, env.Skills)
+	assert.Empty(t, env.Profiles)
+	assert.False(t, env.Hooks.HasAny())
+	assert.Equal(t, "1.2.3", env.Version, "but the bundle-level metadata IS there")
 }

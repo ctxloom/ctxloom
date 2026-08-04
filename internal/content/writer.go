@@ -217,6 +217,47 @@ func (s *TreeStore) PutManifest(ctx context.Context, id BundleID, m Manifest) er
 	return nil
 }
 
+// PutRootFile writes one non-item file at the bundle root.
+func (s *TreeStore) PutRootFile(ctx context.Context, id BundleID, name string, data []byte) error {
+	if err := s.beginWrite(ctx); err != nil {
+		return err
+	}
+	if err := validateBundleID(id); err != nil {
+		return err
+	}
+	if err := validateRootFileName(name); err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		// A zero-byte envelope parses as a valid empty bundle and a zero-byte
+		// README is noise the manifest then attests. Neither is ever intended.
+		return fmt.Errorf("content: refusing to write an empty %q for bundle %q", name, id)
+	}
+	ok, err := s.dirExists(string(id))
+	if err != nil {
+		return fmt.Errorf("content: opening bundle %q: %w", id, err)
+	}
+	if !ok {
+		return fmt.Errorf("%w: bundle %q", ErrNotFound, id)
+	}
+	target := s.osPath(path.Join(string(id), name))
+	if err := afero.WriteFile(s.fsys, target, data, 0o644); err != nil {
+		return fmt.Errorf("content: writing %q: %w", target, err)
+	}
+	return nil
+}
+
+// validateRootFileName refuses anything that is not a single bare filename.
+// A directory component would place the file inside a kind directory (where an
+// item must go through Put so its surface type encodes it) or inside the
+// signature store (which PutBundleSignature owns).
+func validateRootFileName(name string) error {
+	if name == "" || name == "." || name == ".." || path.Base(name) != name {
+		return fmt.Errorf("%w: %q is not a bundle-root file name", ErrBadPath, name)
+	}
+	return nil
+}
+
 // PutBundleSignature stores signature bytes over the bundle's manifest.
 //
 // It files them under the FIXED BundleSigKey rather than a content-derived one

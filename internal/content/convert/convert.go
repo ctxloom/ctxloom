@@ -70,6 +70,8 @@ import (
 	"sort"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -345,13 +347,54 @@ func Apply(ctx context.Context, w content.Writer, items []Item) error {
 	return nil
 }
 
-// Convert is Plan followed by Apply.
+// Convert is Plan, then Apply, then the ENVELOPE.
+//
+// The envelope is not optional and not an afterthought: bundles.ReadTree
+// requires it, because version/description/tags/author have no other carrier —
+// no item can supply them. A conversion that wrote only items produced a tree
+// its own reader refuses, which is what this function used to do.
 func Convert(ctx context.Context, w content.Writer, id content.BundleID, b *bundles.Bundle, opts Options) error {
 	items, err := Plan(id, b, opts)
 	if err != nil {
 		return err
 	}
-	return Apply(ctx, w, items)
+	if len(items) == 0 {
+		// An empty bundle stays a no-op. Writing an envelope alone would create a
+		// tree with no items, which bundles.ReadTree refuses anyway — so it would
+		// be a directory that exists solely to be unreadable.
+		return nil
+	}
+	if err := Apply(ctx, w, items); err != nil {
+		return err
+	}
+	return writeEnvelope(ctx, w, id, b)
+}
+
+// writeEnvelope renders the bundle-level document a tree carries at
+// bundle.yaml: the source bundle with every ITEM map cleared, so the tree has
+// exactly one answer for each item — the file — and the envelope carries only
+// what is genuinely bundle-level.
+//
+// Clearing rather than hand-copying the six metadata fields is deliberate: a
+// field added to bundles.Bundle travels automatically, whereas a copy list is a
+// second place to forget it, and a forgotten field is silently dropped on
+// migration.
+func writeEnvelope(ctx context.Context, w content.Writer, id content.BundleID, b *bundles.Bundle) error {
+	env := *b
+	env.Fragments = nil
+	env.Commands = nil
+	env.MCP = nil
+	env.Skills = nil
+	env.Profiles = nil
+	env.Hooks = bundles.BundleHooks{}
+	raw, err := yaml.Marshal(&env)
+	if err != nil {
+		return fmt.Errorf("convert: rendering the %s envelope for %q: %w", bundles.DirectoryFormManifest, id, err)
+	}
+	if err := w.PutRootFile(ctx, id, bundles.DirectoryFormManifest, raw); err != nil {
+		return fmt.Errorf("convert: writing the envelope for %q: %w", id, err)
+	}
+	return nil
 }
 
 // uniqueHookName synthesises a hook's filename from its CONTENT, and only from

@@ -41,7 +41,7 @@ func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundl
 		return &clone, nil
 	}
 
-	l := bundles.NewLoader(nil, true,
+	l := bundles.NewLoader(nil,
 		bundles.WithSeededBundles(map[string]*bundles.Bundle{cqVersionRef: def}),
 		bundles.WithVersionResolver(resolver),
 		bundles.WithTrustGate(gate))

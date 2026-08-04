@@ -68,7 +68,7 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Loader {
 		Fragments: map[string]bundles.BundleFragment{"fmt": {Content: "WORKTREE-BODY"}},
 		Commands:  map[string]bundles.BundleCommand{"review": {Content: "WORKTREE-PROMPT"}},
 	}
-	return bundles.NewLoader(nil, false,
+	return bundles.NewLoader(nil,
 		bundles.WithSeededBundles(map[string]*bundles.Bundle{localGoTools: def}),
 		bundles.WithVersionResolver(resolver))
 }
@@ -81,11 +81,11 @@ func TestLocalRev_FragmentResolvesHistoricalVersion(t *testing.T) {
 	appDir, rev1, rev2 := localContentRepo(t)
 	loader := localResolverLoader(t, appDir)
 
-	v1, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", rev1)
+	v1, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", rev1, false)
 	require.NoError(t, err)
 	assert.Equal(t, "V1-BODY", v1.Content, "the pinned rev assembles the historical version")
 
-	v2, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", rev2)
+	v2, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", rev2, false)
 	require.NoError(t, err)
 	assert.Equal(t, "V2-BODY", v2.Content, "a different rev is its own version")
 }
@@ -98,7 +98,7 @@ func TestLocalRev_UnversionedRefUnchanged(t *testing.T) {
 	appDir, _, _ := localContentRepo(t)
 	loader := localResolverLoader(t, appDir)
 
-	lc, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "")
+	lc, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, "WORKTREE-BODY", lc.Content, "an unversioned local ref uses today's working-tree path")
 }
@@ -114,7 +114,7 @@ func TestLocalRev_PromptViaNameAddressedPath(t *testing.T) {
 
 	ref, version := remote.SplitPromptVersion(localGoTools + "#commands/review@" + rev1)
 	require.Equal(t, rev1, version, "the name-addressed @rev is split off")
-	lc, err := loader.GetPromptAtVersion(ref, version)
+	lc, err := loader.GetPromptAtVersion(ref, version, false)
 	require.NoError(t, err)
 	assert.Equal(t, "PV1-BODY", lc.Content, "the pinned local prompt resolves its historical version")
 }
@@ -127,11 +127,11 @@ func TestLocalRev_UnknownRevFailsClosed(t *testing.T) {
 	appDir, _, _ := localContentRepo(t)
 	loader := localResolverLoader(t, appDir)
 
-	_, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
+	_, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef", false)
 	require.Error(t, err, "an unknown local rev fails closed, never serving the working tree")
 
 	// The rest still assembles: an unversioned ref is unaffected.
-	lc, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "")
+	lc, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "", false)
 	require.NoError(t, err)
 	assert.Equal(t, "WORKTREE-BODY", lc.Content)
 }
@@ -146,10 +146,10 @@ func TestLocalRev_NonGitProjectFailsClosed(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(appDir, "content", "bundles"), 0o755))
 	loader := localResolverLoader(t, appDir)
 
-	_, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "abc123")
+	_, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "abc123", false)
 	require.Error(t, err, "a non-git project cannot serve a pinned version → withheld")
 
-	lc, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "")
+	lc, err := loader.GetFragmentAtVersion(localGoTools+"#fragments/fmt", "", false)
 	require.NoError(t, err, "the unversioned path is unaffected by the missing history")
 	assert.Equal(t, "WORKTREE-BODY", lc.Content)
 }

@@ -59,7 +59,7 @@ commands:
 	require.NoError(t, afero.WriteFile(fs,
 		paths.LocalBundlesPath(testBaseDir)+"/headings.yaml", []byte(bundleContent), 0644))
 
-	return bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
+	return bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, bundles.WithFS(fs))
 }
 
 // TestGetCommand_StripsOnlyAnATXH1 pins that the "drop a single leading H1
@@ -106,7 +106,7 @@ func TestGetCommand_StripsOnlyAnATXH1(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Prove the fixture is hostile from GetCommand's vantage —
 			// the loader really does deliver the leading line under test.
-			raw, err := loader.GetCommand(tc.cmd)
+			raw, err := loader.GetCommand(tc.cmd, false)
 			require.NoError(t, err)
 			require.True(t, strings.HasPrefix(raw.Content, tc.rawLead),
 				"fixture never reached the stripper: raw content = %q", raw.Content)

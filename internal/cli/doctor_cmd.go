@@ -897,7 +897,7 @@ func doctorCheckContentTrust(cfg *config.Config, cfgErr error) doctorCheck {
 	if cfgErr != nil {
 		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
-	infos, err := cfg.SeededBundleLoader(false).List()
+	infos, err := cfg.SeededBundleLoader().List()
 	if err != nil {
 		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "could not list bundles: " + err.Error()}
 	}

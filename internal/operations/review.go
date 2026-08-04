@@ -175,10 +175,7 @@ type reviewEnumerator struct {
 // pending ones.
 func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle) []ReviewItem {
 	var out []ReviewItem
-	preferDistilled := true
-	if e.cfg != nil {
-		preferDistilled = e.cfg.ShouldUseDistilled()
-	}
+	preferDistilled := cfgPreferDistilled(e.cfg)
 
 	// The bundle's verified publisher identity, carried into every item's
 	// decision so review shows exactly what the exposure gate would decide: an

@@ -33,7 +33,7 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 	if cfg == nil {
 		return builtin
 	}
-	loader := cfg.SeededBundleLoader(false)
+	loader := cfg.SeededBundleLoader()
 	if loader == nil {
 		return builtin
 	}
@@ -63,7 +63,7 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 
 	parts := []string{builtin}
 	for _, ref := range refs {
-		content, gerr := loader.GetCommand(ref)
+		content, gerr := loader.GetCommand(ref, false)
 		if gerr != nil {
 			// A per-ref GetCommand failure (e.g. the bundle vanished or
 			// became unreadable between the listing above and this read)

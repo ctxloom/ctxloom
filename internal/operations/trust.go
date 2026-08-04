@@ -1140,13 +1140,7 @@ func computeItemPayload(cfg *config.Config, loader *bundles.Loader, tRef trust.R
 	if err != nil {
 		return nil, "", "", err
 	}
-	// ShouldUseDistilled defaults true; guard a nil cfg so an injected-loader
-	// caller (tests) need not construct a full config.
-	preferDistilled := true
-	if cfg != nil {
-		preferDistilled = cfg.ShouldUseDistilled()
-	}
-	if preferDistilled && distilledPayload != nil {
+	if cfgPreferDistilled(cfg) && distilledPayload != nil {
 		return distilledPayload, bundles.FormDistilled, signer, nil
 	}
 	return rawPayload, bundles.FormRaw, signer, nil

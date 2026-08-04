@@ -119,7 +119,7 @@ func GetCommand(ctx context.Context, cfg *config.Config, req GetCommandRequest) 
 	// ref resolves that exact historical version via GetPromptAtVersion, gated
 	// by ITS OWN content hash (fail-closed on fetch/resolve error).
 	ref, version := remote.SplitPromptVersion(req.Name)
-	prompt, err := getPromptVersioned(loader, req.Name, ref, version)
+	prompt, err := getPromptVersioned(loader, req.Name, ref, version, cfgPreferDistilled(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -164,9 +164,9 @@ func isATXH1(line string) bool {
 // the canonical version-less ref), gated by ITS OWN effective-content hash. A
 // version fetch/resolve failure fails closed (returns the error so the surface
 // withholds), mirroring loadFragmentRef.
-func getPromptVersioned(loader *bundles.Loader, name, ref, version string) (*bundles.LoadedContent, error) {
+func getPromptVersioned(loader *bundles.Loader, name, ref, version string, preferDistilled bool) (*bundles.LoadedContent, error) {
 	if version == "" {
-		return loader.GetCommand(name)
+		return loader.GetCommand(name, preferDistilled)
 	}
-	return loader.GetPromptAtVersion(ref, version)
+	return loader.GetPromptAtVersion(ref, version, preferDistilled)
 }

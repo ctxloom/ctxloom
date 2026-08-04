@@ -126,7 +126,7 @@ func DistillBundleFile(ctx context.Context, req DistillBundleFileRequest) (*Dist
 	if anyDistilled(res.Items) {
 		store := req.Store
 		if store == nil {
-			store = bundles.NewFSStore(nil, false)
+			store = bundles.NewFSStore(nil)
 		}
 		if err := store.Save(bundle); err != nil {
 			return nil, fmt.Errorf("save %s: %w", req.Path, err)

@@ -149,7 +149,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// "lost in the middle" optimization.
 	orderedRefs := sortFragmentsByPriority(dedupeFragmentRefs(allFragments))
 
-	contextContent, loaderNames, err := loadAssembledContext(loader, orderedRefs, profileVars)
+	contextContent, loaderNames, err := loadAssembledContext(loader, orderedRefs, profileVars, cfgPreferDistilled(cfg))
 	if err != nil {
 		return nil, err
 	}
@@ -375,13 +375,13 @@ func normalizeFragmentRef(ref config.FragmentRef) config.FragmentRef {
 // footgun) can no longer swallow a NEIGHBORING fragment's real variables —
 // the escape state is scoped to one substituteVariables call, hence one
 // fragment, same as hooks.go's regenerateContext already did.
-func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, profileVars map[string]string) (string, []string, error) {
+func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, profileVars map[string]string, preferDistilled bool) (string, []string, error) {
 	if len(ordered) == 0 {
 		return "", nil, nil
 	}
 	var parts, loadedNames []string
 	for _, ref := range ordered {
-		lc, err := loadFragmentRef(loader, ref)
+		lc, err := loadFragmentRef(loader, ref, preferDistilled)
 		if err != nil {
 			warnFragmentLoadFailure(ref, err)
 			continue
@@ -443,11 +443,11 @@ func warnSubstitutionFor(fragmentName string) func(string) {
 // (GetFragmentAtVersion), gated by ITS OWN effective-content hash. A version
 // fetch/resolve failure fails closed (withholds the item) via the returned
 // error.
-func loadFragmentRef(loader *bundles.Loader, ref config.FragmentRef) (*bundles.LoadedContent, error) {
+func loadFragmentRef(loader *bundles.Loader, ref config.FragmentRef, preferDistilled bool) (*bundles.LoadedContent, error) {
 	if ref.Version == "" {
-		return loader.GetFragment(ref.Name)
+		return loader.GetFragment(ref.Name, preferDistilled)
 	}
-	return loader.GetFragmentAtVersion(ref.Name, ref.Version)
+	return loader.GetFragmentAtVersion(ref.Name, ref.Version, preferDistilled)
 }
 
 // warnFragmentLoadFailure surfaces a profile-pushed fragment that failed to

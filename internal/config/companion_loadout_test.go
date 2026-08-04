@@ -222,7 +222,7 @@ func TestSeededBundleLoader_MergesCompanionAlongsideRemote(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	cfg := &Config{appPaths: []string{appDir}}
 
-	loader := cfg.SeededBundleLoader(false)
+	loader := cfg.SeededBundleLoader()
 	infos, err := loader.List()
 	require.NoError(t, err)
 	var names []string
@@ -254,7 +254,7 @@ func TestSeededBundleLoader_NoAppPaths_SkipsCompanionProbing(t *testing.T) {
 	defer restoreLook()
 
 	cfg := &Config{}
-	_ = cfg.SeededBundleLoader(false)
+	_ = cfg.SeededBundleLoader()
 	assert.False(t, probed, "no AppPaths means no project to seed companion content into — must not probe at all")
 }
 

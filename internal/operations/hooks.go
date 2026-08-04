@@ -490,7 +490,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 
 	var backendFrags []*agent.Fragment
 	for _, ref := range orderedRefs {
-		content, err := loadFragmentRef(loader, ref)
+		content, err := loadFragmentRef(loader, ref, cfgPreferDistilled(cfg))
 		if err != nil {
 			warnFragmentLoadFailure(ref, err)
 			continue

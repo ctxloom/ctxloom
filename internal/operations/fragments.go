@@ -40,7 +40,7 @@ type ListFragmentsResult struct {
 // without on-disk extraction. Kept as a package-local helper so existing
 // call sites don't need to know about the seeding mechanism.
 func bundleLoader(cfg *config.Config) *bundles.Loader {
-	return cfg.SeededBundleLoader(cfg.ShouldUseDistilled())
+	return cfg.SeededBundleLoader()
 }
 
 // ListFragments returns all fragments matching the criteria.
@@ -123,7 +123,7 @@ func GetFragment(ctx context.Context, cfg *config.Config, req GetFragmentRequest
 		loader = exposureLoader(cfg)
 	}
 
-	content, err := loader.GetFragment(req.Name)
+	content, err := loader.GetFragment(req.Name, cfgPreferDistilled(cfg))
 	if err != nil {
 		return nil, err
 	}

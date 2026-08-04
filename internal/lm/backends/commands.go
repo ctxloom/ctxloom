@@ -80,8 +80,8 @@ func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...bundl
 	// the listed prompts (force-enabled), scoped to the SELECTED profiles. Even
 	// here, companion commands stay unconditional (see doc comment above).
 	if curated := resolveProfilePromptRefs(cfg, profileNames); len(curated) > 0 {
-		loader := cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...)
-		prompts = append(prompts, loadCuratedPrompts(loader, curated)...)
+		loader := cfg.SeededBundleLoader(opts...)
+		prompts = append(prompts, loadCuratedPrompts(loader, curated, cfg.ShouldUseDistilled())...)
 		prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(opts...))...)
 		return prompts
 	}
@@ -181,7 +181,7 @@ func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []strin
 // didn't flag it — the profile explicitly curates it. A ref that doesn't
 // resolve (not found, gate-withheld, or a pinned version that fails to fetch) is
 // warned and skipped (fault tolerance), never aborting the rest.
-func loadCuratedPrompts(loader *bundles.Loader, refs []string) []*bundles.LoadedContent {
+func loadCuratedPrompts(loader *bundles.Loader, refs []string, preferDistilled bool) []*bundles.LoadedContent {
 	var out []*bundles.LoadedContent
 	for _, ref := range refs {
 		name, version := remote.SplitPromptVersion(ref)
@@ -190,9 +190,9 @@ func loadCuratedPrompts(loader *bundles.Loader, refs []string) []*bundles.Loaded
 			err     error
 		)
 		if version == "" {
-			content, err = loader.GetCommand(ref)
+			content, err = loader.GetCommand(ref, preferDistilled)
 		} else {
-			content, err = loader.GetPromptAtVersion(name, version)
+			content, err = loader.GetPromptAtVersion(name, version, preferDistilled)
 		}
 		if err != nil {
 			clidiag.Warn("ctxloom", "skipping curated prompt %q: %v", ref, err)

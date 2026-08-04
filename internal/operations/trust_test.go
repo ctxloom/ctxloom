@@ -489,7 +489,7 @@ func seededLoader() (*bundles.Loader, string) {
 			}},
 		},
 	}
-	loader := bundles.NewLoader(nil, true, bundles.WithSeededBundles(map[string]*bundles.Bundle{seedKey: b}))
+	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{seedKey: b}))
 	mcp := b.MCP["postgres"]
 	return loader, mcp.ComputeContentHash()
 }

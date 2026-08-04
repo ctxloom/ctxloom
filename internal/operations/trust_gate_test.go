@@ -48,7 +48,7 @@ func gatedAcmeLoader(t *testing.T, records ReviewRecords) (*bundles.Loader, *con
 	t.Helper()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := (&contentGate{cfg: cfg, records: records}).allow
-	l := bundles.NewLoader(nil, true, bundles.WithSeededBundles(acmeToolingSeed()), bundles.WithTrustGate(gate))
+	l := bundles.NewLoader(nil, bundles.WithSeededBundles(acmeToolingSeed()), bundles.WithTrustGate(gate))
 	return l, cfg
 }
 
@@ -133,8 +133,8 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
 
 	// v1 stays exposed (accepted at this exact hash).
-	l1 := bundles.NewLoader(nil, true, bundles.WithSeededBundles(v1), bundles.WithTrustGate(gate))
-	got, err := l1.GetFragment(acmeBundle + "tooling#fragments/solid")
+	l1 := bundles.NewLoader(nil, bundles.WithSeededBundles(v1), bundles.WithTrustGate(gate))
+	got, err := l1.GetFragment(acmeBundle + "tooling#fragments/solid", true)
 	require.NoError(t, err)
 	assert.Equal(t, "v1 body", got.Content)
 
@@ -144,13 +144,13 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "v2 body"}}},
 	}
-	l2 := bundles.NewLoader(nil, true, bundles.WithSeededBundles(v2), bundles.WithTrustGate(gate))
-	_, err = l2.GetFragment(acmeBundle + "tooling#fragments/solid")
+	l2 := bundles.NewLoader(nil, bundles.WithSeededBundles(v2), bundles.WithTrustGate(gate))
+	_, err = l2.GetFragment(acmeBundle + "tooling#fragments/solid", true)
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "post-swap content must gate, got %v", err)
 
 	// An explicit `ctxloom trust` of the new version re-exposes it.
 	fx.approveFragment("tooling", "solid", "v2 body")
-	got2, err := l2.GetFragment(acmeBundle + "tooling#fragments/solid")
+	got2, err := l2.GetFragment(acmeBundle + "tooling#fragments/solid", true)
 	require.NoError(t, err)
 	assert.Equal(t, "v2 body", got2.Content)
 }
@@ -174,10 +174,10 @@ func TestExposureGate_FailClosed(t *testing.T) {
 	// A fresh, empty records store → every gated item withheld through the
 	// loader (nothing has ever been approved).
 	empty := &contentGate{records: newTrustFixture(t).records()}
-	l := bundles.NewLoader(nil, true,
+	l := bundles.NewLoader(nil,
 		bundles.WithSeededBundles(acmeToolingSeed()),
 		bundles.WithTrustGate(empty.allow))
-	_, err := l.GetFragment(solidRef)
+	_, err := l.GetFragment(solidRef, true)
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "an empty records store must withhold even a would-be-trusted item, got %v", err)
 }
 

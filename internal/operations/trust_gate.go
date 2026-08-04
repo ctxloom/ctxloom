@@ -226,7 +226,21 @@ func exposureLoader(cfg *config.Config, opts ...bundles.LoaderOption) *bundles.L
 func exposureLoaderGated(cfg *config.Config, opts ...bundles.LoaderOption) (*bundles.Loader, *contentGate) {
 	gate := buildContentGate(cfg, nil, cfgFS(cfg))
 	opts = append(opts, bundles.WithTrustGate(gate.allow))
-	return cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...), gate
+	return cfg.SeededBundleLoader(opts...), gate
+}
+
+// cfgPreferDistilled returns the caller's raw-vs-distilled form choice, nil-safe.
+//
+// Form selection is a PROCESS-stage decision (docs/design/engine-delivery-seam.
+// design.md, "ALL processing lives in the middle"): the read stage — the bundle
+// loader — carries no preference at all, so every operation that actually reads
+// item content names the form here, at the read. A nil cfg (an injected-loader
+// test) gets the same default an unset setting does, which is distilled.
+func cfgPreferDistilled(cfg *config.Config) bool {
+	if cfg == nil {
+		return true
+	}
+	return cfg.ShouldUseDistilled()
 }
 
 // cfgFS returns cfg's injected filesystem (nil for the OS default), nil-safe.

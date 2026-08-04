@@ -50,7 +50,7 @@ func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles
 		opts = append(opts, bundles.WithTrustGate(gate))
 	}
 	if curated := resolveProfileSkillRefs(cfg, profileNames); len(curated) > 0 {
-		loader := cfg.SeededBundleLoader(false, opts...)
+		loader := cfg.SeededBundleLoader(opts...)
 		return loadCuratedSkills(loader, curated)
 	}
 	return cfg.ResolveBundleSkills(profileNames, opts...)

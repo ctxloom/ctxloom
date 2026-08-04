@@ -173,7 +173,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// ctxloom:companion@<bin> ref; without it, MCP servers shipped in remote
 	// bundles (or a companion loadout) silently disappear after extraction is
 	// removed (see docs/bundle-review-plan.md Phase 1.2).
-	bundleLoader := c.SeededBundleLoader(false)
+	bundleLoader := c.SeededBundleLoader()
 
 	// Companion loadouts are resolved through loadMCPFromBundleRef — the SAME
 	// path a profile-referenced bundle uses (Load -> extractMCPFromBundle) —
@@ -317,7 +317,7 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	// reachable by a rejection).
 	result.Append(resolveBuiltinBundleHooks(c.execGate))
 
-	bundleLoader := c.SeededBundleLoader(false)
+	bundleLoader := c.SeededBundleLoader()
 
 	// Companion loadout hooks: same extraction+gate path a profile-referenced
 	// bundle uses, keyed and signed by the companion's OWN bundle — never the
@@ -388,7 +388,10 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 // thread the executable trust gate (WithTrustGate) so a withheld command is
 // not exported.
 func (c *Config) ResolveBundleCommands(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
-	bundleLoader := c.SeededBundleLoader(c.ShouldUseDistilled(), opts...)
+	bundleLoader := c.SeededBundleLoader(opts...)
+	// Form selection is this stage's call, not the loader's: the read path holds
+	// no preference, so name the configured one here (see ShouldUseDistilled).
+	preferDistilled := c.ShouldUseDistilled()
 
 	seen := make(map[string]bool)
 	var out []*bundles.LoadedContent
@@ -409,14 +412,14 @@ func (c *Config) ResolveBundleCommands(profileNames []string, opts ...bundles.Lo
 				continue
 			}
 			for _, bundleRef := range resolved.Bundles {
-				for _, prompt := range bundleLoader.CommandsFromBundleRef(bundleRef) {
+				for _, prompt := range bundleLoader.CommandsFromBundleRef(bundleRef, preferDistilled) {
 					add(prompt)
 				}
 			}
 		}
 	}
 
-	for _, command := range c.resolveCompanionCommandsWith(bundleLoader) {
+	for _, command := range c.resolveCompanionCommandsWith(bundleLoader, preferDistilled) {
 		add(command)
 	}
 	return out
@@ -434,7 +437,7 @@ func (c *Config) ResolveBundleCommands(profileNames []string, opts ...bundles.Lo
 // Deduped by skill item name (first occurrence wins), matching
 // ResolveBundleCommands' dedup key.
 func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedSkill {
-	bundleLoader := c.SeededBundleLoader(false, opts...)
+	bundleLoader := c.SeededBundleLoader(opts...)
 
 	seen := make(map[string]bool)
 	var out []*bundles.LoadedSkill
@@ -478,17 +481,19 @@ func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.Load
 // paths (ResolveBundleCommands only covers the uncurated one, since a
 // profile's commands: curation bypasses it entirely) — see prompts.go.
 func (c *Config) ResolveCompanionCommands(opts ...bundles.LoaderOption) []*bundles.LoadedContent {
-	bundleLoader := c.SeededBundleLoader(c.ShouldUseDistilled(), opts...)
-	return c.resolveCompanionCommandsWith(bundleLoader)
+	bundleLoader := c.SeededBundleLoader(opts...)
+	return c.resolveCompanionCommandsWith(bundleLoader, c.ShouldUseDistilled())
 }
 
 // resolveCompanionCommandsWith is the shared companion-command extraction
 // loop, taking an already-built loader so ResolveBundleCommands (which needs
 // its loader for the profile-scoped pass too) doesn't construct a second one.
-func (c *Config) resolveCompanionCommandsWith(bundleLoader *bundles.Loader) []*bundles.LoadedContent {
+// preferDistilled travels with it for the same reason: the loader no longer
+// carries a form, so both callers must agree on the one they read in.
+func (c *Config) resolveCompanionCommandsWith(bundleLoader *bundles.Loader, preferDistilled bool) []*bundles.LoadedContent {
 	var out []*bundles.LoadedContent
 	for _, ref := range sortedCompanionRefs(c) {
-		out = append(out, bundleLoader.CommandsFromBundleRef(ref)...)
+		out = append(out, bundleLoader.CommandsFromBundleRef(ref, preferDistilled)...)
 	}
 	return out
 }

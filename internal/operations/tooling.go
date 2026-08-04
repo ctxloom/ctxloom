@@ -73,7 +73,7 @@ func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclara
 		// of them to the first match. The ref also gives the user a traceable
 		// source per declaration.
 		ref := info.Bundle + "#commands/" + info.Name
-		content, gerr := loader.GetCommand(ref)
+		content, gerr := loader.GetCommand(ref, cfgPreferDistilled(cfg))
 		if gerr != nil || strings.TrimSpace(content.Content) == "" {
 			continue // withheld by the gate, or empty — skip, never block
 		}

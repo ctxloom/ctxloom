@@ -1784,7 +1784,7 @@ mcp:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test-bundle.yaml"), []byte(bundleContent), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir}, false)
+	loader := bundles.NewLoader([]string{bundlesDir})
 	result := loadMCPFromBundleRef("test-bundle", loader, nil)
 
 	assert.Len(t, result, 1)
@@ -1793,7 +1793,7 @@ mcp:
 
 func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 	tmpDir := t.TempDir()
-	loader := bundles.NewLoader([]string{tmpDir}, false)
+	loader := bundles.NewLoader([]string{tmpDir})
 
 	// Invalid bundle reference
 	result := loadMCPFromBundleRef("nonexistent-bundle", loader, nil)
@@ -1814,7 +1814,7 @@ func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 			},
 		},
 	}
-	loader := bundles.NewLoader(nil, false, bundles.WithSeededBundles(seeded))
+	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(seeded))
 
 	result := loadMCPFromBundleRef(ref, loader, nil)
 	assert.Contains(t, result, "sequential-thinking",
@@ -1846,7 +1846,7 @@ hooks:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir}, false)
+	loader := bundles.NewLoader([]string{bundlesDir})
 	result := loadHooksFromBundleRef("with-hooks", loader, nil)
 
 	require.Len(t, result.PostTool, 1)
@@ -1873,7 +1873,7 @@ mcp:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir}, false)
+	loader := bundles.NewLoader([]string{bundlesDir})
 	result := loadHooksFromBundleRef("no-hooks", loader, nil)
 
 	assert.Empty(t, result.PostTool)

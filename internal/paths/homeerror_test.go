@@ -49,6 +49,7 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 		"HomeSessionsDir":           HomeSessionsDir,
 		"SessionIndexPath":          SessionIndexPath,
 		"HomeApprovalsPath":         HomeApprovalsPath,
+		"HomePublishRemotesPath":    HomePublishRemotesPath,
 		"HomeAllowedSignersPath":    HomeAllowedSignersPath,
 		"HomeDistrustedSignersPath": HomeDistrustedSignersPath,
 		"TriggerCacheDir":           TriggerCacheDir,

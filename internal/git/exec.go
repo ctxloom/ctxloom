@@ -319,6 +319,83 @@ func diffNameOnly(ctx context.Context, dir, a, b string) ([]string, error) {
 	return splitNonEmptyLines(out), nil
 }
 
+// Clone clones url into dir, optionally pinning the branch to check out. Run
+// with an empty cwd: both url and dir are the command's own arguments, so
+// there is no repository to be "in" — and, per the package doc, cmd.Dir is the
+// only thing that selects one.
+func (execGit) Clone(ctx context.Context, url, dir, branch string) error {
+	args := []string{"clone", "--single-branch"}
+	if branch != "" {
+		args = append(args, "--branch", branch)
+	}
+	// "--" separates options from operands: a URL or directory beginning with
+	// "-" would otherwise be read as a flag.
+	args = append(args, "--", url, dir)
+	return run(ctx, "", args...)
+}
+
+// HeadSHA resolves dir's HEAD commit.
+func (execGit) HeadSHA(ctx context.Context, dir string) (string, error) {
+	out, err := output(ctx, dir, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// FileBlobSHA reads the blob SHA of path at ref from `git ls-tree`, whose
+// empty-output-on-missing-path behaviour is what separates ABSENT from
+// COULD-NOT-ASK (see the Git interface doc). Output shape:
+//
+//	100644 blob 0123abc…\tpath/to/file
+func (execGit) FileBlobSHA(ctx context.Context, dir, ref, path string) (string, error) {
+	out, err := output(ctx, dir, "ls-tree", ref, "--", path)
+	if err != nil {
+		return "", err
+	}
+	line := strings.TrimSpace(out)
+	if line == "" {
+		return "", nil
+	}
+	meta, _, _ := strings.Cut(line, "\t")
+	fields := strings.Fields(meta)
+	if len(fields) < 3 {
+		// git's own output, in a shape this parser does not know. Refuse
+		// rather than return "" — "" means ABSENT to every caller, and
+		// answering ABSENT from an unparsed line turns an update into an
+		// "Add" and hides whatever is really there.
+		return "", fmt.Errorf("git ls-tree %s -- %s: unparseable entry %q", ref, path, line)
+	}
+	return fields[2], nil
+}
+
+// Push pushes refspec to remote from dir.
+func (execGit) Push(ctx context.Context, dir, remote, refspec string) error {
+	return run(ctx, dir, "push", remote, refspec)
+}
+
+// RemoteRefSHA asks the remote what ref points at. Output shape:
+//
+//	0123abc…\trefs/heads/main
+//
+// Empty output means the remote has no such ref, which is a real answer and
+// not an error.
+func (execGit) RemoteRefSHA(ctx context.Context, dir, remote, ref string) (string, error) {
+	out, err := output(ctx, dir, "ls-remote", remote, ref)
+	if err != nil {
+		return "", err
+	}
+	line := strings.TrimSpace(out)
+	if line == "" {
+		return "", nil
+	}
+	sha, _, found := strings.Cut(line, "\t")
+	if !found || strings.TrimSpace(sha) == "" {
+		return "", fmt.Errorf("git ls-remote %s %s: unparseable entry %q", remote, ref, line)
+	}
+	return strings.TrimSpace(sha), nil
+}
+
 // DiffPatch returns a unified diff of dir's tracked changes against HEAD.
 func (execGit) DiffPatch(ctx context.Context, dir string) (string, error) {
 	return output(ctx, dir, "diff", "HEAD")

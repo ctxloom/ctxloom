@@ -85,6 +85,31 @@ type Fake struct {
 	ApplyPatchErr  error
 	AppliedPatches []string
 
+	// CloneErr/PushErr, when set, fail Clone/Push. The publish path drives
+	// them to prove a failed clone or a failed push is never reported as a
+	// successful publish.
+	CloneErr error
+	PushErr  error
+
+	// HeadSHAValue is what HeadSHA returns ("fake-head-sha" when empty);
+	// HeadSHAErr, when set, fails it instead.
+	HeadSHAValue string
+	HeadSHAErr   error
+
+	// BlobSHAs maps "<ref>:<path>" to the blob SHA FileBlobSHA reports; a
+	// missing key is the ABSENT answer ("" with no error), which is the
+	// created-vs-updated discriminator. BlobSHAErr, when set, fails instead —
+	// the only way to test a caller that must not read "could not ask" as
+	// "not there".
+	BlobSHAs   map[string]string
+	BlobSHAErr error
+
+	// RemoteRefSHAs maps "<remote>:<ref>" to what the REMOTE reports;
+	// a missing key means the remote has no such ref. RemoteRefSHAErr, when
+	// set, fails instead.
+	RemoteRefSHAs   map[string]string
+	RemoteRefSHAErr error
+
 	// Calls records every mutating call in order, e.g. "add /tmp/wt",
 	// "remove /tmp/wt/inner", "prune". Read for ordering assertions.
 	Calls []string
@@ -308,6 +333,59 @@ func (f *Fake) ApplyPatch(_ context.Context, dir, patch string) (bool, error) {
 		return false, f.ApplyPatchErr
 	}
 	return true, nil
+}
+
+// Clone records the clone and returns CloneErr. It creates nothing on disk —
+// tests that need a REAL clone/commit/push round trip drive execGit against a
+// file:// bare repository, which is the only way to assert what actually
+// landed on the far side.
+func (f *Fake) Clone(_ context.Context, url, dir, branch string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record(fmt.Sprintf("clone %s -> %s@%s", url, dir, branch))
+	return f.CloneErr
+}
+
+// HeadSHA returns HeadSHAValue (or "fake-head-sha"), or HeadSHAErr.
+func (f *Fake) HeadSHA(_ context.Context, _ string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.HeadSHAErr != nil {
+		return "", f.HeadSHAErr
+	}
+	if f.HeadSHAValue != "" {
+		return f.HeadSHAValue, nil
+	}
+	return "fake-head-sha", nil
+}
+
+// FileBlobSHA looks up "<ref>:<path>" in BlobSHAs; a miss is ABSENT.
+func (f *Fake) FileBlobSHA(_ context.Context, _, ref, path string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.BlobSHAErr != nil {
+		return "", f.BlobSHAErr
+	}
+	return f.BlobSHAs[ref+":"+path], nil
+}
+
+// Push records the push and returns PushErr.
+func (f *Fake) Push(_ context.Context, dir, remote, refspec string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record(fmt.Sprintf("push %s %s %s", dir, remote, refspec))
+	return f.PushErr
+}
+
+// RemoteRefSHA looks up "<remote>:<ref>" in RemoteRefSHAs; a miss means the
+// remote has no such ref.
+func (f *Fake) RemoteRefSHA(_ context.Context, _, remote, ref string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.RemoteRefSHAErr != nil {
+		return "", f.RemoteRefSHAErr
+	}
+	return f.RemoteRefSHAs[remote+":"+ref], nil
 }
 
 // HasIgnoredContent reports IgnoredContent[dir] (false when unconfigured).

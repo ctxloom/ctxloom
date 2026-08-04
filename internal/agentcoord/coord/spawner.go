@@ -168,7 +168,7 @@ type prodSpawner struct {
 func newProdSpawner(cfg *config.Config, projectDir string, factory pb.ClientFactory) *prodSpawner {
 	s := &prodSpawner{cfg: cfg, projectDir: projectDir, factory: factory}
 	s.gate = operations.NewExecutableTrustGate(cfg)
-	cfg.SetExecutableTrustGate(s.gate.Gate())
+	cfg.SetExecutableTrustGate(s.gate.Filter())
 	return s
 }
 
@@ -426,7 +426,7 @@ func (s *prodSpawner) chatRequest(plan *SpawnPlan, env, runnerEnv map[string]str
 		Env:              env,
 		RunnerEnv:        runnerEnv,
 		Permissions:      plan.Perm,
-		Gate:             s.gate.Gate(),
+		Gate:             s.gate.Filter(),
 		Verbosity:        childVerbosity(),
 		Factory:          s.factory,
 		Workspace:        plan.Workspace,

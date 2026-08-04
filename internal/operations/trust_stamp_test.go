@@ -202,7 +202,9 @@ func TestTrustStamper_ForLocalMCP(t *testing.T) {
 // `bundle show` renders: a project-authored (local) hook is first-party via the
 // local exemption, and a rejection — via the content denylist under any ref —
 // beats it. The hook is addressed by (source, HookEntry.ID) exactly as the exec
-// choke addresses it; the local name "hookb" resolves IsLocal.
+// choke addresses it. The bundle is seeded through the PROJECT reader, which is
+// what makes "hookb" local: posture comes from the reader that produced the
+// read, not from the shape of the name.
 func TestTrustStamper_ForHook(t *testing.T) {
 	fx := newTrustFixture(t)
 
@@ -212,7 +214,11 @@ func TestTrustStamper_ForHook(t *testing.T) {
 	fx.rejectRef(trust.Ref{Bundle: "hookb", Kind: trust.KindHook, Name: "session_start/0", IsLocal: true})
 	fx.rejectContent(trust.KindHook, signing.FormRaw, deniedPayload)
 
-	stamper := NewTrustStamper(nil, WithStampRecords(fx.records()))
+	loader := seedLoader(t, map[string]*bundles.Bundle{
+		"hookb": {Name: "hookb", Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {Content: "x"}}},
+		"other": {Name: "other", Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {Content: "x"}}},
+	})
+	stamper := NewTrustStamper(nil, WithStampLoader(loader), WithStampRecords(fx.records()))
 
 	tests := []struct {
 		name        string

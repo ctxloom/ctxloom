@@ -54,51 +54,177 @@ type contentGate struct {
 	// surfaces a content-free, reasoned advisory (ExecutableTrustGate.
 	// WarnWithheld, warnWithheld).
 	withheldMu sync.Mutex
-	withheld   map[string]EffectiveTrustResult
+	withheld   map[string]bundles.Verdict
 }
 
-// allow is the bundles.ContentGate the loader (and the executable resolvers)
-// call per resolved item. It is fail-closed: any path that cannot positively
-// justify exposure records the ref and withholds (returns false).
-func (g *contentGate) allow(ref string, payload []byte, form, signer string) bool {
-	tRef, _, _, err := trust.ParseItemRef(ref)
-	if err != nil {
-		// A ref we cannot address cannot be trusted — withhold rather than expose
-		// content the decision function never evaluated.
-		clidiag.Warn("ctxloom", "trust gate: withholding %q (unparseable ref): %v", ref, err)
-		g.record(ref, EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending})
-		return false
+// Admit implements bundles.Filter: the typed façade over the decision cascade.
+//
+// It WRAPS EffectiveTrust and does not replace it. The cascade's step order and
+// its outcomes are exactly what they were; what this adds is the two things the
+// cascade structurally cannot see, both of them read FACTS rather than steps:
+//
+//  1. TAMPER. Remote bytes whose signature does not cover them are withheld —
+//     the decision table's `remote | invalid | *` rows. This is applied AFTER
+//     the cascade so rejection and retraction still answer first (both withhold
+//     either way, and "rejected" is the more specific, actionable answer a user
+//     acts on). It overrides an ALLOW, which is the case that matters: an item
+//     a human once approved is not un-tampered by that approval, and letting a
+//     corrupted `.sig` demote signed content to merely-reviewable content is the
+//     spec §10.2 downgrade this row exists to close.
+//  2. WHY it is pending. EffectiveTrust resolves unsigned content and
+//     signed-by-an-untrusted-key content to the same SourcePending, correctly —
+//     both withhold. But they are different diagnoses with different fixes
+//     (`ctxloom review` vs `trust signer create`), and the surface whose job is
+//     helping a human decide must not collapse them. The read's Signature/Signer
+//     axes are what separate them, and they never reached the old bool gate.
+//
+// It is a PURE FUNCTION. The stale-local-signature row admits and returns its
+// warning in Verdict.Detail; nothing here emits (see bundles.ReportVerdict).
+//
+// FAIL-CLOSED throughout: an unclaimed read, an evaluation error, or a nil
+// result all withhold.
+func (g *contentGate) Admit(e bundles.Exposure) bundles.Verdict {
+	if !e.Read.Claimed() {
+		// A read that established nothing is not content of unknown trust, it is
+		// a value nobody spoke for. Withhold rather than let a zero value read
+		// as "local, unsigned, no signer".
+		return g.record(e, bundles.Verdict{Reason: bundles.ReasonUnestablished,
+			Detail: "no reader established this bundle's provenance"})
 	}
 	res, err := EffectiveTrust(g.cfg, EffectiveTrustRequest{
-		Ref:        tRef,
-		Payload:    payload,
-		Form:       form,
-		Signer:     signer,
+		Ref:        e.Ref,
+		Payload:    e.Bytes,
+		Form:       string(e.Form),
+		Signer:     e.Read.Bundle.Signer(),
+		Posture:    e.Read.TrustCtx(),
+		Provenance: e.Read.Provenance,
 		Records:    g.records,
 		Retraction: g.retraction,
 		FS:         g.fs,
 	})
 	if err != nil || res == nil {
-		clidiag.Warn("ctxloom", "trust gate: withholding %q (evaluation error): %v", ref, err)
-		g.record(ref, EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending})
-		return false
+		return g.record(e, bundles.Verdict{Reason: bundles.ReasonPending,
+			Detail: evaluationErrorDetail(err)})
 	}
-	if res.Trusted() {
-		return true
-	}
-	g.record(ref, *res)
-	return false
+	return g.verdictFor(e, *res)
 }
 
-// record marks ref as withheld with the FULL deciding result — Source plus any
-// Detail (e.g. a retraction reason) — so a later advisory can name why, not
-// just that, ref was withheld (deduplicated, lazily allocated).
-func (g *contentGate) record(ref string, res EffectiveTrustResult) {
+// evaluationErrorDetail renders the elaboration for a decision that could not be
+// evaluated at all. Never empty: "withheld, and I cannot tell you why" is the
+// one thing a withhold may never say.
+func evaluationErrorDetail(err error) string {
+	if err != nil {
+		return "the trust decision could not be evaluated: " + err.Error()
+	}
+	return "the trust decision returned no result"
+}
+
+// verdictFor turns a decided EffectiveTrustResult into the Verdict every surface
+// renders, applying the two read-fact refinements Admit documents.
+func (g *contentGate) verdictFor(e bundles.Exposure, res EffectiveTrustResult) bundles.Verdict {
+	remoteTamper := e.Read.TrustCtx() == bundles.TrustCtxRemote && e.Read.Signature() == bundles.SignatureInvalid
+
+	switch res.Source {
+	case trust.SourceRejected:
+		// Step 1, above everything including tamper: a human's own decision is
+		// the answer they need to see.
+		return g.record(e, bundles.Verdict{Reason: bundles.ReasonRejected})
+	case trust.SourceRetracted:
+		return g.record(e, bundles.Verdict{Reason: bundles.ReasonRetracted, Detail: res.Detail})
+	}
+	if remoteTamper {
+		return g.record(e, bundles.Verdict{Reason: bundles.ReasonTampered, Detail: e.Read.SignatureDetail()})
+	}
+	if res.Trusted() {
+		return bundles.Verdict{Admit: true, Reason: admitReason(e, res.Source), Detail: admitDetail(e)}
+	}
+	return g.record(e, bundles.Verdict{Reason: pendingReason(e.Read)})
+}
+
+// admitReason names WHICH rule allowed an exposure. The stale-local-signature
+// row is an ALLOW with something to say, so it wins the naming over the plain
+// first-party sources it is layered on: the author is told once, at the moment
+// their content stopped being publishable, instead of at publish time.
+func admitReason(e bundles.Exposure, source trust.Source) bundles.Reason {
+	if staleLocalSignature(e.Read) {
+		return bundles.ReasonStaleLocalSignature
+	}
+	switch source {
+	case trust.SourceLocal:
+		return bundles.ReasonLocal
+	case trust.SourceBuiltin:
+		return bundles.ReasonBuiltin
+	case trust.SourceCompanion:
+		return bundles.ReasonCompanion
+	case trust.SourceTrustedSigner:
+		return bundles.ReasonTrustedSigner
+	default:
+		return bundles.ReasonApproved
+	}
+}
+
+// admitDetail is the sentence an admit-with-warning carries; empty for a plain
+// allow, which has nothing to tell anyone.
+func admitDetail(e bundles.Exposure) string {
+	if staleLocalSignature(e.Read) {
+		return bundles.StaleSignatureAdvice(e.Read)
+	}
+	return ""
+}
+
+// staleLocalSignature reports the decision table's `local | invalid | *` row: a
+// signature over LOCAL bytes that no longer covers them. Almost always an author
+// who edited and did not re-sign, which is why it warns rather than withholds —
+// locality already answered the trust question and there is nothing to gate.
+func staleLocalSignature(read bundles.BundleRead) bool {
+	return read.TrustCtx() == bundles.TrustCtxLocal && read.Signature() == bundles.SignatureInvalid
+}
+
+// pendingReason says WHY nothing justified exposure, using the read facts the
+// cascade collapsed into one SourcePending.
+//
+// Only REMOTE content gets the finer answer. A local-posture item that reached
+// here was denied by something other than its provenance — an unreadable
+// approvals store is the reachable case — and telling that user "unsigned" would
+// name a fact that has nothing to do with why their content is missing.
+func pendingReason(read bundles.BundleRead) bundles.Reason {
+	if read.TrustCtx() != bundles.TrustCtxRemote {
+		return bundles.ReasonPending
+	}
+	switch {
+	case read.Signature() == bundles.SignatureNone:
+		return bundles.ReasonUnsigned
+	case read.Signer() == bundles.SignerUntrusted:
+		return bundles.ReasonUntrustedSigner
+	default:
+		return bundles.ReasonPending
+	}
+}
+
+// record tallies a withheld exposure with the FULL verdict — Reason plus any
+// Detail — so a later advisory can name why, not just that, it was withheld
+// (deduplicated, lazily allocated). It returns the verdict so every withholding
+// arm above is one line and none of them can forget to record.
+func (g *contentGate) record(e bundles.Exposure, v bundles.Verdict) bundles.Verdict {
 	g.withheldMu.Lock()
 	if g.withheld == nil {
-		g.withheld = make(map[string]EffectiveTrustResult)
+		g.withheld = make(map[string]bundles.Verdict)
 	}
-	g.withheld[ref] = res
+	g.withheld[e.Ref.ItemRef()] = v
+	g.withheldMu.Unlock()
+	return v
+}
+
+// Unaddressable implements bundles.UnaddressableReporter: it records a ref
+// nothing could parse under that ref VERBATIM, because the string the caller
+// used is the only identity such an item has. A withhold nothing recorded is a
+// withhold nothing can report.
+func (g *contentGate) Unaddressable(ref string, v bundles.Verdict) {
+	g.withheldMu.Lock()
+	if g.withheld == nil {
+		g.withheld = make(map[string]bundles.Verdict)
+	}
+	g.withheld[ref] = v
 	g.withheldMu.Unlock()
 }
 
@@ -117,16 +243,16 @@ func (g *contentGate) withheldRefs() []string {
 	return out
 }
 
-// withheldItem pairs a withheld ref with the full trust decision that
-// withheld it — enough for a caller to print a content-free line naming both
-// the item and WHY (via Result.Reason()).
+// withheldItem pairs a withheld ref with the full Verdict that withheld it —
+// enough for a caller to print a content-free line naming both the item and WHY
+// (via bundles.Reason.Explain).
 type withheldItem struct {
-	Ref    string
-	Result EffectiveTrustResult
+	Ref     string
+	Verdict bundles.Verdict
 }
 
-// withheldItems returns every ref this gate withheld, paired with its
-// deciding result, sorted by ref for stable output.
+// withheldItems returns every ref this gate withheld, paired with its verdict,
+// sorted by ref for stable output.
 func (g *contentGate) withheldItems() []withheldItem {
 	g.withheldMu.Lock()
 	defer g.withheldMu.Unlock()
@@ -134,8 +260,8 @@ func (g *contentGate) withheldItems() []withheldItem {
 		return nil
 	}
 	out := make([]withheldItem, 0, len(g.withheld))
-	for ref, res := range g.withheld {
-		out = append(out, withheldItem{Ref: ref, Result: res})
+	for ref, v := range g.withheld {
+		out = append(out, withheldItem{Ref: ref, Verdict: v})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Ref < out[j].Ref })
 	return out
@@ -168,8 +294,8 @@ func buildContentGate(cfg *config.Config, records ReviewRecords, fs afero.Fs) *c
 // content-free advisory.
 //
 // Construct ONCE per apply/run (it builds the review-records store up front).
-// A nil *ExecutableTrustGate is a no-op (Gate() returns nil = no gating),
-// matching the nil bundles.ContentGate convention.
+// A nil *ExecutableTrustGate is a no-op (Filter() returns nil = no gating),
+// matching the nil bundles.Filter convention.
 type ExecutableTrustGate struct {
 	gate *contentGate
 }
@@ -180,13 +306,13 @@ func NewExecutableTrustGate(cfg *config.Config) *ExecutableTrustGate {
 	return &ExecutableTrustGate{gate: buildContentGate(cfg, nil, cfgFS(cfg))}
 }
 
-// Gate returns the bundles.ContentGate the resolvers/loaders consult, or nil
+// Filter returns the bundles.Filter the resolvers/loaders consult, or nil
 // (no gating) for a nil receiver/gate.
-func (e *ExecutableTrustGate) Gate() bundles.ContentGate {
+func (e *ExecutableTrustGate) Filter() bundles.Filter {
 	if e == nil || e.gate == nil {
 		return nil
 	}
-	return e.gate.allow
+	return e.gate
 }
 
 // WarnWithheld surfaces one content-free advisory line PER bundle executable
@@ -231,7 +357,7 @@ func exposurePipeline(cfg *config.Config, opts ...config.BundleLoaderOption) *bu
 // advisory to print and keep using the simpler exposurePipeline.
 func exposurePipelineGated(cfg *config.Config, opts ...config.BundleLoaderOption) (*bundles.Pipeline, *contentGate) {
 	gate := buildContentGate(cfg, nil, cfgFS(cfg))
-	return bundles.NewPipeline(cfg.BundleLoader(opts...), gate.allow, cfgPreferDistilled(cfg)), gate
+	return bundles.NewPipeline(cfg.BundleLoader(opts...), gate, cfgPreferDistilled(cfg)), gate
 }
 
 // cfgPreferDistilled returns the caller's raw-vs-distilled form choice, nil-safe.
@@ -258,14 +384,14 @@ func cfgFS(cfg *config.Config) afero.Fs {
 
 // warnWithheldItems emits one content-free advisory line PER withheld item —
 // naming the item and WHY it was withheld (rejected, retracted by the
-// publisher, or pending review), via EffectiveTrustResult.Reason() — so a
+// publisher, tampered, or pending review), via bundles.Reason.Explain — so a
 // withhold can never be silent or reasonless (docs/trust-model.md). Shared by
 // the content-loader path (warnWithheld) and the executable path
 // (ExecutableTrustGate.WarnWithheld) so both surfaces render identical
 // wording for identical sources. A no-op for an empty set.
 func warnWithheldItems(items []withheldItem) {
 	for _, it := range items {
-		clidiag.Warn("ctxloom", "withheld %s: %s", it.Ref, it.Result.Reason())
+		clidiag.Warn("ctxloom", "withheld %s: %s", it.Ref, it.Verdict.Reason.Explain(it.Verdict.Detail))
 	}
 }
 

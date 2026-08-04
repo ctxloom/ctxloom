@@ -177,7 +177,7 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 		return true
 	}
 
-	got := extractHooksFromBundle(bundle, "parity-src", gate)
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), "parity-src", gate)
 
 	out := map[string][]byte{}
 	for label, hooks := range map[string][]wire.Hook{
@@ -219,7 +219,7 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 		return true
 	}
 
-	servers := extractMCPFromBundle(bundle, "parity-src", gate)
+	servers := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), "parity-src", gate)
 	srv, ok := servers["parity"]
 	if !ok {
 		t.Fatal("the production path produced no wire MCP server — nothing to compare against")

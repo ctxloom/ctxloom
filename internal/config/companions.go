@@ -83,7 +83,8 @@ func BuiltinCompanionBins() []string {
 	for _, bin := range DiscoverCompanions() {
 		seen[bin] = true
 	}
-	eachBuiltinBundle(func(_ string, b *bundles.Bundle) {
+	eachBuiltinBundle(func(read bundles.BundleRead) {
+		b := read.Bundle
 		for _, hs := range [][]bundles.BundleHook{
 			b.Hooks.PreTool, b.Hooks.PostTool, b.Hooks.SessionStart,
 			b.Hooks.SessionEnd, b.Hooks.PreShell, b.Hooks.PostFileEdit,

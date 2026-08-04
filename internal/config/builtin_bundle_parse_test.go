@@ -66,9 +66,9 @@ func TestEachBuiltinBundle_ParsesEveryEmbeddedBundle(t *testing.T) {
 	require.NotEmpty(t, names, "the binary must embed at least one builtin bundle, or this gate proves nothing")
 
 	seen := map[string]bool{}
-	eachBuiltinBundle(func(name string, b *bundles.Bundle) {
-		require.NotNil(t, b)
-		seen[name] = true
+	eachBuiltinBundle(func(read bundles.BundleRead) {
+		require.NotNil(t, read.Bundle)
+		seen[read.Ref()] = true
 	})
 
 	for _, name := range names {

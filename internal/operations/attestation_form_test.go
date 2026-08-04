@@ -160,6 +160,7 @@ func TestEffectiveTrust_ApprovingTextDoesNotApproveAnIdenticalExecutable(t *test
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: mcpRef, Payload: execPayload, Form: string(signing.FormRaw), Records: records,
+		Posture: postureCtxOf(mcpRef), Provenance: postureProvOf(mcpRef),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision, "the executable must stay withheld")
@@ -282,6 +283,7 @@ func TestSupersededApproval_DoesNotVerifyButIsStillVisibleAsAPriorApproval(t *te
 		"a record framed under the superseded contract must not verify")
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
+		Posture: postureCtxOf(ref), Provenance: postureProvOf(ref),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.SourcePending, res.Source)

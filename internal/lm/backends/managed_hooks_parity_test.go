@@ -288,7 +288,7 @@ func hookParityCases() []hookParityCase {
 			name: "directory profile hooks, gate withholds all",
 			cfg: func(t *testing.T) *config.Config {
 				cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
-				cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+				cfg.SetExecutableTrustGate(testFilter(false))
 				return cfg
 			},
 			absent: []string{"keep-hook", "drop-hook"},
@@ -301,7 +301,7 @@ func hookParityCases() []hookParityCase {
 		{
 			name: "bundle-shipped profile hooks, gate denies",
 			cfg: func(t *testing.T) *config.Config {
-				return bundleShippedProfileCfg(t, func(string, []byte, string, string) bool { return false })
+				return bundleShippedProfileCfg(t, testFilter(false))
 			},
 			absent: []string{"bundle-shipped-hook", "bundle-shipped-second"},
 		},

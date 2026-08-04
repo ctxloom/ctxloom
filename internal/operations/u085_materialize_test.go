@@ -90,10 +90,10 @@ func TestMaterializeProfile_RestoresCallersTrustGate(t *testing.T) {
 	cfg, target := materializeFixture(t, "MATERIALIZED-CONTENT")
 
 	callersGateConsulted := 0
-	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool {
+	cfg.SetExecutableTrustGate(bundles.FilterFunc(func(bundles.Exposure) bundles.Verdict {
 		callersGateConsulted++
-		return true
-	})
+		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+	}))
 
 	_, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
 		Profiles: []string{"reviewer"},
@@ -103,7 +103,7 @@ func TestMaterializeProfile_RestoresCallersTrustGate(t *testing.T) {
 
 	restored := cfg.ExecutableTrustGate()
 	require.NotNil(t, restored, "the caller's gate must survive the call")
-	restored("ref", nil, "raw", "")
+	restored.Admit(bundles.Exposure{})
 	assert.Equal(t, 1, callersGateConsulted,
 		"the config must still carry the CALLER's gate, not materialize's own")
 }

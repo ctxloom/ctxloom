@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
@@ -65,8 +66,10 @@ func TestGuttedProfiles(t *testing.T) {
 // names the profile — the thing the old generic tally never did.
 func TestWarnGuttedProfiles_NamesProfileAndWithheldItems(t *testing.T) {
 	gate := &contentGate{}
-	gate.record("https://github.com/acme/repo@bundles/ensemble#fragments/role",
-		EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending})
+	gate.record(
+		bundles.Exposure{Ref: trust.Ref{RepoURL: "https://github.com/acme/repo", Bundle: "ensemble",
+			Kind: trust.KindFragment, Name: "role"}},
+		bundles.Verdict{Reason: bundles.ReasonPending})
 
 	var out bytes.Buffer
 	warnGuttedProfilesTo(&out, map[string][]string{"coordinator": {"role"}}, nil, gate)

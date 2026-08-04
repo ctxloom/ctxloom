@@ -6,9 +6,7 @@ import (
 	"sync"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
-	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
-	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // The PROCESS stage of the delivery pipeline
@@ -118,27 +116,12 @@ func (p *Pipeline) Withheld() []string {
 // recorded hash is a file anything can write, while bytes can be VERIFIED
 // against a signature (spec §9.3, trap #2).
 //
-// It also does the ONE thing a Filter deliberately cannot: emit. The filter is a
-// pure function and returns its warning in Verdict.Detail; this is the delivery
-// path's obligation to print it. A Detail nobody prints means an author never
-// learns their signature went stale, which is the whole point of the
-// admit-with-warning row.
+// Decide is where the ref is parsed, the filter is consulted, and whatever the
+// verdict obliges the caller to say gets said. All this adds is the tally: a
+// withheld ref is recorded so the caller can report "N withheld" without leaking
+// content.
 func (p *Pipeline) admit(read BundleRead, ref string, payload []byte, form ContentForm) bool {
-	if p.filter == nil {
-		return true
-	}
-	tRef, _, _, err := trust.ParseItemRef(ref)
-	if err != nil {
-		// An item we cannot ADDRESS is one the decision function was never able
-		// to key on. Withhold rather than expose content nothing evaluated —
-		// the same fail-closed answer the filter itself gives for an
-		// unaddressable ref, decided here because there is no Ref to hand it.
-		clidiag.Warn("ctxloom", "withheld %s: %s", ref, ReasonUnaddressable.Explain(err.Error()))
-		p.recordWithheld(ref)
-		return false
-	}
-	v := p.filter.Admit(Exposure{Read: read, Ref: tRef, Bytes: payload, Form: form})
-	ReportVerdict(ref, v)
+	v := Decide(p.filter, read, ref, payload, form)
 	if v.Admit {
 		return true
 	}

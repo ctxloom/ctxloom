@@ -30,7 +30,7 @@ const cqVersionRef = acmeBundle + "cq" // https://github.com/acme/repo@bundles/c
 func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundle, versions map[string]*bundles.Bundle) (*bundles.Pipeline, *config.Config) {
 	t.Helper()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	gate := (&contentGate{cfg: cfg, records: records}).allow
+	gate := &contentGate{cfg: cfg, records: records}
 
 	resolver := func(_canonical, commit string) (*bundles.Bundle, error) {
 		b, ok := versions[commit]

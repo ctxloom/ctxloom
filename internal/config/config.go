@@ -265,9 +265,9 @@ type Config struct {
 	// command-file exports via LoadCommandExports) when set. nil = no enforcement,
 	// matching the gate-free management/listing paths. The operations/run
 	// consumers inject it before writing backend settings (trust rework, TR5);
-	// operations can't be imported here, so the gate is a plain bundles.ContentGate
+	// operations can't be imported here, so the gate is a plain bundles.Filter
 	// func. Never persisted.
-	execGate bundles.ContentGate
+	execGate bundles.Filter
 
 	// companionSeed memoizes the companion loadout probe for this Config's
 	// LIFETIME: probing execs a subprocess per discovered companion (and can

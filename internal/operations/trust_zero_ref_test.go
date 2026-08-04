@@ -49,6 +49,8 @@ func TestZeroRef_AddressesButIsInertAndUnreachable(t *testing.T) {
 	// 2. The decision function withholds it.
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref:        zero,
+		Posture:    postureCtxOf(zero),
+		Provenance: postureProvOf(zero),
 		Payload:    []byte("bytes"),
 		Form:       string(signing.FormRaw),
 		Records:    fakeRecords{},

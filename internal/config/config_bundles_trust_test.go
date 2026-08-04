@@ -20,19 +20,24 @@ import (
 // (ref → hash) it is fed, so a test can assert the executable choke passes the
 // ref shape "<bundle>#mcp/<name>" / "<bundle>#hooks/<event>/<index>" and the
 // item's ComputeContentHash. A nil seen map just decides.
-func recordingGate(seen map[string]string, denySubstrs ...string) bundles.ContentGate {
-	return func(ref string, payload []byte, _, _ string) bool {
+func recordingGate(seen map[string]string, denySubstrs ...string) bundles.Filter {
+	return bundles.FilterFunc(func(e bundles.Exposure) bundles.Verdict {
+		ref := e.RefString()
 		if seen != nil {
-			seen[ref] = bundles.HashPayload(payload)
+			seen[ref] = bundles.HashPayload(e.Bytes)
 		}
 		for _, s := range denySubstrs {
 			if strings.Contains(ref, s) {
-				return false
+				return bundles.Verdict{Reason: bundles.ReasonPending}
 			}
 		}
-		return true
-	}
+		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+	})
 }
+
+// localRead presents an already-parsed fixture bundle to the executable chokes
+// as project content, which is what these tests are about: the choke's ref shape
+// and preimage, not the posture.
 
 // TestExtractMCPFromBundle_GateOmitsDeniedKeepsTrusted proves the MCP-server
 // choke (TR5): a denied server is omitted from the resolved map while a trusted
@@ -47,7 +52,7 @@ func TestExtractMCPFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 		},
 	}
 	seen := map[string]string{}
-	got := extractMCPFromBundle(b, "remote/tools", recordingGate(seen, "#mcp/beta"))
+	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", recordingGate(seen, "#mcp/beta"))
 
 	require.Contains(t, got, "alpha", "trusted MCP server must survive the gate")
 	require.NotContains(t, got, "beta", "denied MCP server must be omitted from settings")
@@ -68,8 +73,8 @@ func TestExtractMCPFromBundle_FailClosed(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	denyAll := func(string, []byte, string, string) bool { return false }
-	got := extractMCPFromBundle(b, "remote/tools", denyAll)
+	denyAll := testFilter(false)
+	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", denyAll)
 	assert.Empty(t, got, "fail-closed: a deny-all gate withholds every MCP server")
 }
 
@@ -79,7 +84,7 @@ func TestExtractMCPFromBundle_NilGate_Ungated(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	got := extractMCPFromBundle(b, "builtin:tools", nil)
+	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "builtin:tools", nil)
 	assert.Len(t, got, 2, "nil gate must not gate anything")
 }
 
@@ -101,7 +106,7 @@ func TestExtractHooksFromBundle_GateOmitsDeniedKeepsTrusted(t *testing.T) {
 	}
 	seen := map[string]string{}
 	// Deny the second pre_tool hook ("echo b", index 1).
-	got := extractHooksFromBundle(b, "remote/tools", recordingGate(seen, "#hooks/pre_tool/1"))
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", recordingGate(seen, "#hooks/pre_tool/1"))
 
 	require.Len(t, got.PreTool, 1, "the denied pre_tool hook must be omitted")
 	assert.Equal(t, "echo a", got.PreTool[0].Command, "the trusted sibling hook survives")
@@ -126,8 +131,8 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 		PreTool:  []bundles.BundleHook{{Command: "echo a", Type: "command"}},
 		PostTool: []bundles.BundleHook{{Command: "echo b", Type: "command"}},
 	}}
-	denyAll := func(string, []byte, string, string) bool { return false }
-	got := extractHooksFromBundle(b, "remote/tools", denyAll)
+	denyAll := testFilter(false)
+	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", denyAll)
 	assert.Empty(t, got.PreTool, "fail-closed: deny-all withholds pre_tool hooks")
 	assert.Empty(t, got.PostTool, "fail-closed: deny-all withholds post_tool hooks")
 }

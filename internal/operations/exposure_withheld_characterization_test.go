@@ -108,7 +108,7 @@ func newExposureProbe(t *testing.T, cfg *config.Config, records ReviewRecords, s
 		cfg: cfg,
 		pipe: bundles.NewPipeline(
 			seedLoader(t, seed),
-			gate.allow, cfgPreferDistilled(cfg)),
+			gate, cfgPreferDistilled(cfg)),
 		gate: gate,
 	}
 }

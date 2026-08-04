@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -44,18 +45,18 @@ func TestContentGate_WithheldItems_ReportReason(t *testing.T) {
 
 	gate := &contentGate{cfg: cfg, records: fx.records(), retraction: retraction}
 
-	assert.False(t, gate.allow(gatePostgresRef, postgresPayload(), "raw", ""), "pending item must withhold")
-	assert.False(t, gate.allow(gateHookRef, toolingHookPayload(), "raw", ""), "rejected item must withhold")
-	assert.False(t, gate.allow(gatePulledRef, pbytes("pulled"), "raw", ""), "retracted item must withhold")
+	assert.False(t, admitExec(t, gate, execRead(t, ""), gatePostgresRef, postgresPayload(), "raw"), "pending item must withhold")
+	assert.False(t, admitExec(t, gate, execRead(t, ""), gateHookRef, toolingHookPayload(), "raw"), "rejected item must withhold")
+	assert.False(t, admitExec(t, gate, execRead(t, ""), gatePulledRef, pbytes("pulled"), "raw"), "retracted item must withhold")
 
 	items := gate.withheldItems()
 	require.Len(t, items, 3, "all three denied refs must be recorded as withheld")
 
 	reasons := make(map[string]string, len(items))
-	sources := make(map[string]trust.Source, len(items))
+	sources := make(map[string]bundles.Reason, len(items))
 	for _, it := range items {
-		reasons[it.Ref] = it.Result.Reason()
-		sources[it.Ref] = it.Result.Source
+		reasons[it.Ref] = it.Verdict.Reason.Explain(it.Verdict.Detail)
+		sources[it.Ref] = it.Verdict.Reason
 	}
 
 	// Each item's reason must actually SAY why — not a generic placeholder.
@@ -75,11 +76,13 @@ func TestContentGate_WithheldItems_ReportReason(t *testing.T) {
 	assert.NotEqual(t, reasons[gateHookRef], reasons[gatePulledRef])
 	assert.NotEqual(t, reasons[gatePostgresRef], reasons[gatePulledRef])
 
-	// Confirm the Source itself (not just the rendered string) is right —
-	// Reason() must be deriving from the real decision, not a fixture.
-	assert.Equal(t, trust.SourceRejected, sources[gateHookRef])
-	assert.Equal(t, trust.SourceRetracted, sources[gatePulledRef])
-	assert.Equal(t, trust.SourcePending, sources[gatePostgresRef])
+	// Confirm the Reason itself (not just the rendered string) is right —
+	// Explain must be deriving from the real decision, not a fixture.
+	assert.Equal(t, bundles.ReasonRejected, sources[gateHookRef])
+	assert.Equal(t, bundles.ReasonRetracted, sources[gatePulledRef])
+	assert.Equal(t, bundles.ReasonUnsigned, sources[gatePostgresRef],
+		"an unsigned REMOTE item now says so: the cascade's single SourcePending "+
+			"could not distinguish it from a signature by a key we distrust")
 }
 
 // TestExecutableTrustGate_WarnWithheld_NamesReason proves the actual UX
@@ -97,9 +100,10 @@ func TestExecutableTrustGate_WarnWithheld_NamesReason(t *testing.T) {
 	g := &contentGate{cfg: cfg, records: fx.records(), retraction: retraction}
 	e := &ExecutableTrustGate{gate: g}
 
-	assert.False(t, e.Gate()(gatePostgresRef, postgresPayload(), "raw", ""))
-	assert.False(t, e.Gate()(gateHookRef, toolingHookPayload(), "raw", ""))
-	assert.False(t, e.Gate()(gatePulledRef, pbytes("pulled"), "raw", ""))
+	unsigned := execRead(t, "")
+	assert.False(t, bundles.Decide(e.Filter(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Admit)
+	assert.False(t, bundles.Decide(e.Filter(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Admit)
+	assert.False(t, bundles.Decide(e.Filter(), unsigned, gatePulledRef, pbytes("pulled"), bundles.FormRaw).Admit)
 
 	stderr := captureStderr(t, func() { e.WarnWithheld() })
 

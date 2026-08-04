@@ -48,7 +48,7 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 func gatedAcmeLoader(t *testing.T, records ReviewRecords) (*bundles.Pipeline, *config.Config) {
 	t.Helper()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-	gate := (&contentGate{cfg: cfg, records: records}).allow
+	gate := &contentGate{cfg: cfg, records: records}
 	pipe := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), gate, true)
 	return pipe, cfg
 }
@@ -131,7 +131,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	fx := newTrustFixture(t)
 	// A human approved the v1 content (countersigned its bytes).
 	fx.approveFragment("tooling", "solid", "v1 body")
-	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
+	gate := &contentGate{cfg: cfg, records: fx.records()}
 
 	// v1 stays exposed (accepted at this exact hash).
 	l1 := bundles.NewPipeline(seedLoader(t, v1), gate, true)
@@ -169,13 +169,13 @@ func TestExposureGate_FailClosed(t *testing.T) {
 
 	// Unparseable ref → withhold (resolve error is fail-closed).
 	g := &contentGate{cfg: cfg, records: fx.records()}
-	assert.False(t, g.allow("garbage-without-selector", pbytes("abc"), "raw", ""),
+	assert.False(t, admitExec(t, g, execRead(t, ""), "garbage-without-selector", pbytes("abc"), "raw"),
 		"a ref the gate cannot address must be withheld")
 
 	// A fresh, empty records store → every gated item withheld through the
 	// loader (nothing has ever been approved).
 	empty := &contentGate{records: newTrustFixture(t).records()}
-	l := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), empty.allow, true)
+	l := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), empty, true)
 	_, err := l.GetFragment(solidRef)
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "an empty records store must withhold even a would-be-trusted item, got %v", err)
 }
@@ -245,7 +245,7 @@ func TestContentGate_UnrecognizedSourceRef_FailsClosed(t *testing.T) {
 	const unrecognizedSourceRef = "https://github.com/acme/repo"
 	ref := unrecognizedSourceRef + "#fragments/evil"
 
-	allowed := gate.allow(ref, []byte("evil body"), rawForm, "")
+	allowed := admitExec(t, gate, execRead(t, ""), ref, []byte("evil body"), rawForm)
 	assert.False(t, allowed,
 		"content seeded under an unrecognized source ref must be withheld, never silently treated as local")
 }
@@ -331,20 +331,21 @@ func TestContentGate_RecordsEveryDenyWithAReason(t *testing.T) {
 	g := &contentGate{cfg: cfg, records: fx.records()}
 
 	const unaddressable = "garbage-without-selector"
-	require.False(t, g.allow(unaddressable, pbytes("abc"), rawForm, ""))
-	require.False(t, g.allow(solidRef, pbytes("never-approved"), rawForm, ""))
+	require.False(t, admitExec(t, g, execRead(t, ""), unaddressable, pbytes("abc"), rawForm))
+	require.False(t, admitExec(t, g, execRead(t, ""), solidRef, pbytes("never-approved"), rawForm))
 
-	byRef := map[string]EffectiveTrustResult{}
+	byRef := map[string]bundles.Verdict{}
 	for _, it := range g.withheldItems() {
-		byRef[it.Ref] = it.Result
+		byRef[it.Ref] = it.Verdict
 	}
 	require.Contains(t, byRef, unaddressable,
 		"a ref the gate could not even parse must still be tallied — nothing downstream can report a withhold the gate did not record")
 	require.Contains(t, byRef, solidRef)
 
-	for ref, res := range byRef {
-		assert.False(t, res.Trusted(), "only denials are recorded (%s)", ref)
-		assert.NotEmpty(t, res.Reason(), "every withheld item must carry a reason a user can act on (%s)", ref)
+	for ref, v := range byRef {
+		assert.False(t, v.Admit, "only denials are recorded (%s)", ref)
+		assert.NotEqual(t, bundles.ReasonUnset, v.Reason, "a withhold with no reason is a withhold nobody can act on (%s)", ref)
+		assert.NotEmpty(t, v.Reason.Explain(v.Detail), "every withheld item must carry a reason a user can act on (%s)", ref)
 	}
 	assert.ElementsMatch(t, []string{unaddressable, solidRef}, g.withheldRefs(),
 		"withheldRefs and withheldItems must describe the same set")

@@ -254,7 +254,7 @@ func OpenEngineSession(ctx context.Context, req OpenRequest, acpCoord EngineSess
 		// trust (should ctxloom forward it) — B3 does not invent a new trust
 		// policy for either axis.
 		execGate := NewExecutableTrustGate(cfg)
-		cfg.SetExecutableTrustGate(execGate.Gate())
+		cfg.SetExecutableTrustGate(execGate.Filter())
 		mcpServers = append(append([]agent.ChatMCPServer{}, req.MCPServers...),
 			acpSessionMCPServers(cfg, backendName, sessionProfiles, req.MCPServers)...)
 		execGate.WarnWithheld()

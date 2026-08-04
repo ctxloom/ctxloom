@@ -42,23 +42,24 @@ func TestExecGate_MCP_CascadeResolves(t *testing.T) {
 	fx := newTrustFixture(t)
 
 	// Pending (never reviewed) + unsigned → DENY.
-	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
-	assert.False(t, gate(gatePostgresRef, postgresPayload(), "raw", ""),
+	gate := &contentGate{cfg: cfg, records: fx.records()}
+	unsigned := execRead(t, "")
+	assert.False(t, admitExec(t, gate, unsigned, gatePostgresRef, postgresPayload(), "raw"),
 		"an unreviewed unsigned MCP server must be withheld")
 
 	// Approval of the exact bytes → ALLOW.
 	postgresRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"}
 	fx.approve(postgresRef, signing.FormRaw, postgresPayload())
-	assert.True(t, gate(gatePostgresRef, postgresPayload(), "raw", ""),
+	assert.True(t, admitExec(t, gate, unsigned, gatePostgresRef, postgresPayload(), "raw"),
 		"an approved MCP server must be exposed")
 
 	// A content change (different bytes) returns it to pending → DENY.
-	assert.False(t, gate(gatePostgresRef, pbytes("changed"), "raw", ""),
+	assert.False(t, admitExec(t, gate, unsigned, gatePostgresRef, pbytes("changed"), "raw"),
 		"a changed MCP executable surface (new bytes) must re-gate")
 
 	// Rejection beats the approval → DENY.
 	fx.rejectItem(postgresRef, signing.FormRaw, postgresPayload())
-	assert.False(t, gate(gatePostgresRef, postgresPayload(), "raw", ""),
+	assert.False(t, admitExec(t, gate, unsigned, gatePostgresRef, postgresPayload(), "raw"),
 		"a rejected MCP server must be withheld even after a prior approval")
 }
 
@@ -68,17 +69,18 @@ func TestExecGate_Hook_CascadeResolves(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
 
-	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
-	assert.False(t, gate(gateHookRef, toolingHookPayload(), "raw", ""),
+	gate := &contentGate{cfg: cfg, records: fx.records()}
+	unsigned := execRead(t, "")
+	assert.False(t, admitExec(t, gate, unsigned, gateHookRef, toolingHookPayload(), "raw"),
 		"an unreviewed unsigned bundle hook must be withheld")
 
 	hookRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"}
 	fx.approve(hookRef, signing.FormRaw, toolingHookPayload())
-	assert.True(t, gate(gateHookRef, toolingHookPayload(), "raw", ""),
+	assert.True(t, admitExec(t, gate, unsigned, gateHookRef, toolingHookPayload(), "raw"),
 		"an approved bundle hook must be applied")
 
 	fx.rejectItem(hookRef, signing.FormRaw, toolingHookPayload())
-	assert.False(t, gate(gateHookRef, toolingHookPayload(), "raw", ""),
+	assert.False(t, admitExec(t, gate, unsigned, gateHookRef, toolingHookPayload(), "raw"),
 		"a rejected bundle hook must be withheld")
 }
 
@@ -89,16 +91,17 @@ func TestExecGate_Hook_CascadeResolves(t *testing.T) {
 func TestExecGate_TrustedSignerExemptsExecutables(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
-	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
+	gate := &contentGate{cfg: cfg, records: fx.records()}
+	signed := execRead(t, trustedPublisher)
 
-	assert.True(t, gate(gatePostgresRef, postgresPayload(), "raw", trustedPublisher),
+	assert.True(t, admitExec(t, gate, signed, gatePostgresRef, postgresPayload(), "raw"),
 		"a trusted publisher's MCP server is exempt from review")
-	assert.True(t, gate(gateHookRef, toolingHookPayload(), "raw", trustedPublisher),
+	assert.True(t, admitExec(t, gate, signed, gateHookRef, toolingHookPayload(), "raw"),
 		"a trusted publisher's bundle hook is exempt from review")
 
 	postgresRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindMCP, Name: "postgres"}
 	fx.rejectItem(postgresRef, signing.FormRaw, postgresPayload())
-	assert.False(t, gate(gatePostgresRef, postgresPayload(), "raw", trustedPublisher),
+	assert.False(t, admitExec(t, gate, signed, gatePostgresRef, postgresPayload(), "raw"),
 		"rejection beats the trusted-signer exemption")
 }
 
@@ -137,7 +140,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 		trust.Ref{Bundle: "mcp-bundle", Kind: trust.KindMCP, Name: "noisy-server", IsLocal: true},
 		signing.FormRaw, noisyPayload)
 
-	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
+	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Filter())
 	result := cfg.ResolveBundleMCPServers(nil)
 
 	assert.Contains(t, result, "quiet-server", "first-party local MCP server must be written to settings")
@@ -176,7 +179,7 @@ func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
 		trust.Ref{RepoURL: remote.CompanionSource, Bundle: "ltk", Kind: trust.KindMCP, Name: "ltk-server"},
 		signing.FormRaw, ltkPayload)
 
-	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
+	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Filter())
 	result := cfg.ResolveBundleMCPServers(nil)
 
 	assert.NotContains(t, result, "ltk-server",
@@ -211,7 +214,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 		trust.Ref{Bundle: "hook-bundle", Kind: trust.KindHook, Name: "session_start/0", IsLocal: true},
 		signing.FormRaw, denyPayload)
 
-	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Gate())
+	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Filter())
 	result := cfg.ResolveBundleHooks(nil)
 
 	keepApplied, denyApplied := false, false
@@ -238,8 +241,9 @@ func TestExecGate_FailClosed(t *testing.T) {
 	// as pending (nothing has ever been approved).
 	g := &contentGate{records: newTrustFixture(t).records()}
 	e := &ExecutableTrustGate{gate: g}
-	assert.False(t, e.Gate()(gatePostgresRef, postgresPayload(), "raw", ""))
-	assert.False(t, e.Gate()(gateHookRef, toolingHookPayload(), "raw", ""))
+	unsigned := execRead(t, "")
+	assert.False(t, bundles.Decide(e.Filter(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Admit)
+	assert.False(t, bundles.Decide(e.Filter(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Admit)
 	assert.Len(t, g.withheldRefs(), 2, "fail-closed: both executables recorded as withheld")
 	pending, rejected := withheldStateTally(g)
 	assert.Equal(t, 2, pending, "fail-closed withholds tally as pending")
@@ -247,13 +251,22 @@ func TestExecGate_FailClosed(t *testing.T) {
 
 	// Unparseable ref → withhold (no selector).
 	g2 := &contentGate{cfg: config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}}), records: newTrustFixture(t).records()}
-	assert.False(t, g2.allow("garbage-without-selector", pbytes("abc"), "raw", ""),
+	assert.False(t, admitExec(t, g2, unsigned, "garbage-without-selector", pbytes("abc"), "raw"),
 		"a ref the gate cannot address must be withheld")
+	// Recorded under the ref VERBATIM (bundles.UnaddressableReporter): the
+	// string the caller used is the only identity such an item has, and the
+	// executable surfaces read this tally to build their advisory.
 	assert.Contains(t, g2.withheldRefs(), "garbage-without-selector")
+
+	// An UNCLAIMED read — one no reader produced — withholds too, and is
+	// recorded, because it IS addressable.
+	assert.False(t, admitExec(t, g2, bundles.BundleRead{}, gatePostgresRef, postgresPayload(), "raw"),
+		"a read that established nothing must never be treated as local/unsigned")
+	assert.Contains(t, g2.withheldRefs(), gatePostgresRef)
 
 	// A nil *ExecutableTrustGate is a no-op (no gating, no panic).
 	var nilGate *ExecutableTrustGate
-	assert.Nil(t, nilGate.Gate())
+	assert.Nil(t, nilGate.Filter())
 	nilGate.WarnWithheld()
 }
 
@@ -265,22 +278,24 @@ func TestExecGate_WithheldTallySplitsRejected(t *testing.T) {
 	fx.rejectItem(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindHook, Name: "pre_tool/0"}, signing.FormRaw, toolingHookPayload())
 	g := &contentGate{cfg: config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}}), records: fx.records()}
 
-	assert.False(t, g.allow(gatePostgresRef, postgresPayload(), "raw", ""), "pending item withheld")
-	assert.False(t, g.allow(gateHookRef, toolingHookPayload(), "raw", ""), "rejected item withheld")
+	unsigned := execRead(t, "")
+	assert.False(t, admitExec(t, g, unsigned, gatePostgresRef, postgresPayload(), "raw"), "pending item withheld")
+	assert.False(t, admitExec(t, g, unsigned, gateHookRef, toolingHookPayload(), "raw"), "rejected item withheld")
 	pending, rejected := withheldStateTally(g)
 	assert.Equal(t, 1, pending)
 	assert.Equal(t, 1, rejected)
 }
 
-// withheldStateTally counts g's withheld items by disposition, via the
-// richer withheldItems() accessor (the now test-only withheldTally method
-// was deleted — this reproduces its exact pending/rejected split for these
-// two tests without carrying the dead method in production code).
+// withheldStateTally counts g's withheld items by disposition, via the richer
+// withheldItems() accessor. Rejection and retraction are the DECIDED
+// dispositions — nothing further is pending about either — and everything else
+// withheld is awaiting a human.
 func withheldStateTally(g *contentGate) (pending, rejected int) {
 	for _, item := range g.withheldItems() {
-		if item.Result.State() == trust.StateRejected {
+		switch item.Verdict.Reason {
+		case bundles.ReasonRejected, bundles.ReasonRetracted:
 			rejected++
-		} else {
+		default:
 			pending++
 		}
 	}
@@ -307,15 +322,20 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	hookPayload, err := (&bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"}).ContentPayload()
 	require.NoError(t, err)
 
+	// The hook's own bundle, read by the project reader — local posture,
+	// project provenance, which is what the first-party step now keys on.
+	localRead, ok := cfg.BundleLoader().Read("hookb")
+	require.True(t, ok, "the on-disk bundle must resolve")
+
 	// A project-local bundle hook is first-party (no acceptance needed) → passes.
-	assert.True(t, NewExecutableTrustGate(cfg).Gate()(ref, hookPayload, "raw", ""),
+	assert.True(t, bundles.Decide(NewExecutableTrustGate(cfg).Filter(), localRead, ref, hookPayload, bundles.FormRaw).Admit,
 		"a first-party local bundle hook must pass the exec gate")
 
 	// CLI rejection → the exec gate withholds it (rejection beats the local
 	// exemption).
 	_, err = SetBlacklist(cfg, SetBlacklistRequest{Ref: ref})
 	require.NoError(t, err)
-	assert.False(t, NewExecutableTrustGate(cfg).Gate()(ref, hookPayload, "raw", ""),
+	assert.False(t, bundles.Decide(NewExecutableTrustGate(cfg).Filter(), localRead, ref, hookPayload, bundles.FormRaw).Admit,
 		"a CLI-rejected bundle hook must be withheld by the exec gate")
 }
 

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -85,10 +86,17 @@ func seedWith(t *testing.T, repoDir, sha, allowedSigners string) map[string]*bun
 	require.NoError(t, lm.Save(lock))
 
 	cfg := &Config{appPaths: []string{appDir}}
-	raw := remoteBundleSeed(t, cfg)
+	readers := cfg.remoteBundleReaders()
 	out := map[string]*bundleForTest{}
-	for k, b := range raw {
-		out[k] = &bundleForTest{signer: b.Signer(), version: b.Version}
+	if len(readers) == 0 {
+		return out
+	}
+	for _, read := range bundles.NewLoader(readers...).Reads() {
+		out[read.Ref()] = &bundleForTest{
+			signer:    read.Bundle.Signer(),
+			version:   read.Bundle.Version,
+			publisher: bundles.PublisherOf(read),
+		}
 	}
 	return out
 }
@@ -96,6 +104,10 @@ func seedWith(t *testing.T, repoDir, sha, allowedSigners string) map[string]*bun
 type bundleForTest struct {
 	signer  string
 	version string
+	// publisher is what the READ says about the signature over these bytes.
+	// It is the axis the old signer string could not carry: "" meant BOTH
+	// unsigned and signed-by-a-key-we-distrust, and could never mean invalid.
+	publisher bundles.Reason
 }
 
 // TestSeed_VerifiedPublisherStampsSigner is the happy path: a bundle signed by a
@@ -152,11 +164,14 @@ func TestSeed_UntrustedKeyIsUnsigned(t *testing.T) {
 	assert.Empty(t, b.signer, "a signature by an untrusted key is unsigned content to us")
 }
 
-// TestSeed_TamperedSignatureWithholdsBundle is IMPLEMENTER TRAP #1 end to end:
-// a .sig present at the correct sibling path, by a TRUSTED key, but NOT over
-// these bytes, must NOT downgrade to unsigned/pending — the whole bundle is
-// withheld (absent from the seed). Corrupting a signature must never launder a
-// signed bundle into an unsigned one.
+// TestSeed_TamperedSignatureWithholdsBundle is IMPLEMENTER TRAP #1: a .sig
+// present at the correct sibling path, by a TRUSTED key, but NOT over these
+// bytes, must NOT downgrade to unsigned/pending. Corrupting a signature must
+// never launder a signed bundle into an unsigned one.
+//
+// The READ is where that fact is established and this is where it is asserted.
+// The withhold itself moved to the process stage, which is what let it acquire a
+// reason a user can act on; nothing about the read's honesty moved with it.
 func TestSeed_TamperedSignatureWithholdsBundle(t *testing.T) {
 	testsupport.Isolate(t)
 	repoDir, sha, pubLine := signedSeedRepo(t, func(_ []byte, s ssh.Signer) []byte {
@@ -170,9 +185,13 @@ func TestSeed_TamperedSignatureWithholdsBundle(t *testing.T) {
 
 	seed := seedWith(t, repoDir, sha, allowed)
 	canonical := "file://" + repoDir + "@bundles/secure"
-	_, ok := seed[canonical]
-	assert.False(t, ok,
-		"a trusted key's signature that does not cover these bytes is TAMPER — the bundle is withheld entirely, never degraded to unsigned")
+	got, ok := seed[canonical]
+	require.True(t, ok, "the READER reports what it found — a bundle nobody can see is a bundle nobody can diagnose")
+	assert.Equal(t, bundles.ReasonTampered, got.publisher,
+		"a trusted key's signature that does not cover these bytes is TAMPER, and must never be degraded to unsigned: "+
+			"the delivery path withholds every item in it (internal/operations pins the verdict)")
+	assert.Empty(t, got.signer,
+		"and it is stamped with NO publisher identity, so nothing downstream can mistake it for a verified one")
 }
 
 // TestSeed_CorruptedSignatureBodyWithholdsBundle is the trap-1 variant the brief
@@ -194,6 +213,9 @@ func TestSeed_CorruptedSignatureBodyWithholdsBundle(t *testing.T) {
 
 	seed := seedWith(t, repoDir, sha, allowed)
 	canonical := "file://" + repoDir + "@bundles/secure"
-	_, ok := seed[canonical]
-	assert.False(t, ok, "a corrupted signature body over a trusted key is tamper — the bundle is withheld")
+	got, ok := seed[canonical]
+	require.True(t, ok, "the reader reports it; the process stage is what withholds it")
+	assert.Equal(t, bundles.ReasonTampered, got.publisher,
+		"a corrupted signature body over a trusted key is tamper — reported as tampered, never as unsigned")
+	assert.Empty(t, got.signer)
 }

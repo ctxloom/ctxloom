@@ -38,7 +38,7 @@ import (
 // scoped context to), so the managed mcp/commands/hooks track the chosen profile
 // rather than always the configured defaults. An empty set falls back to the
 // defaults inside each resolver (scopedProfiles / resolveProfileScope).
-func AssembleManagedConfig(backendName, workDir string, gate bundles.ContentGate, profileNames []string) *agent.ManagedConfig {
+func AssembleManagedConfig(backendName, workDir string, gate bundles.Filter, profileNames []string) *agent.ManagedConfig {
 	cfg, err := config.Load()
 	if err != nil {
 		// The agent's Setup writes an EMPTY managed set from a nil payload —
@@ -147,7 +147,7 @@ func AssembleManagedMCP(cfg *config.Config, profileNames []string) *wire.MCPConf
 			clidiag.Warn("ctxloom", "profile %q unresolved; its MCP servers omitted: %v", profileName, err)
 			continue
 		}
-		gated := gateProfileMCP(profileGateRefFor(resolved, profileName), excludeMCPServers(resolved.MCP, resolved.ExcludeMCP), gate)
+		gated := gateProfileMCP(profileGateRefFor(cfg, resolved, profileName), excludeMCPServers(resolved.MCP, resolved.ExcludeMCP), gate)
 		wire.MergeMCPConfig(mcp, &gated)
 	}
 	return mcp
@@ -276,7 +276,7 @@ func AssembleManagedHooks(cfg *config.Config, workDir, contextHash string, profi
 			clidiag.Warn("ctxloom", "profile %q unresolved; its hooks omitted: %v", profileName, err)
 			continue
 		}
-		gated := gateProfileHooks(profileGateRefFor(resolved, profileName), resolved.Hooks, gate)
+		gated := gateProfileHooks(profileGateRefFor(cfg, resolved, profileName), resolved.Hooks, gate)
 		// Ref carries the ORIGIN BUNDLE for a bundle-shipped profile (empty for
 		// a genuinely local one) — the same distinction the gate keys on, so the
 		// report names the bundle a remote-sourced profile came from rather than
@@ -346,8 +346,18 @@ func excludeMCPServers(mcp wire.MCPConfig, exclude []string) wire.MCPConfig {
 // bundle-declared execs) — empty falls through to local (a genuinely local
 // profile) or pending review, never auto-allow.
 type profileGateRef struct {
-	Base   string
-	Signer string
+	Base string
+	// Read is the trust posture the decision keys on: the ORIGIN BUNDLE's read
+	// for a bundle-shipped profile, or the project's own posture for a
+	// genuinely project-authored one (bundles.ProjectAuthoredRead).
+	//
+	// It replaces Signer, which was the collapsed half of the same fact and the
+	// wrong half: a verified principal string cannot say whether the signature
+	// still covers the bytes, and an empty one meant BOTH "unsigned" and "signed
+	// by a key we do not trust". An unresolvable origin leaves this UNCLAIMED,
+	// which every Filter withholds — fail-closed, where the old empty Signer
+	// fell through to pending review.
+	Read bundles.BundleRead
 }
 
 // profileGateRefFor derives a directory profile's gate identity from its
@@ -359,11 +369,25 @@ type profileGateRef struct {
 // project-authored profile has an empty SourceRef, so Base falls back to the
 // bare profileName — exactly what trust.ParseItemRef's bare-token fallback
 // resolves to IsLocal, honestly, because it IS local.
-func profileGateRefFor(resolved *profiles.ResolvedProfile, profileName string) profileGateRef {
+func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, profileName string) profileGateRef {
 	if resolved == nil || resolved.SourceRef == "" {
-		return profileGateRef{Base: profileName}
+		// Genuinely project-authored: a .ctxloom/profiles/<name>.yaml file in
+		// this project's own tree. That posture is stated out loud now — it used
+		// to be asserted by handing the gate a bare-token ref and letting the ref
+		// grammar resolve it to IsLocal, which is the same claim made where
+		// nothing could see it.
+		return profileGateRef{Base: profileName, Read: bundles.ProjectAuthoredRead(profileName, &bundles.Bundle{Name: profileName})}
 	}
-	return profileGateRef{Base: resolved.SourceRef, Signer: resolved.Signer}
+	ref := profileGateRef{Base: resolved.SourceRef}
+	if cfg != nil {
+		// The ORIGIN BUNDLE's own read, from the loader that read it — not a
+		// posture this call site invents. An origin that will not resolve leaves
+		// the read unclaimed, and an unclaimed read withholds.
+		if read, ok := cfg.BundleLoader().Read(resolved.SourceRef); ok {
+			ref.Read = read
+		}
+	}
+	return ref
 }
 
 // gateProfileMCP returns the MCP servers of a directory-resolved profile that the
@@ -373,7 +397,7 @@ func profileGateRefFor(resolved *profiles.ResolvedProfile, profileName string) p
 // (config.extractMCPFromBundle), keyed "<ref.Base>#mcp/<name>" with the server's
 // executable-surface hash. A DENY omits the server (fail-closed). A nil gate
 // (management paths) admits everything unchanged.
-func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.ContentGate) wire.MCPConfig {
+func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Filter) wire.MCPConfig {
 	if gate == nil {
 		return mcp
 	}
@@ -382,7 +406,7 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Content
 		out.Servers = make(map[string]wire.MCPServer, len(mcp.Servers))
 		for name, srv := range mcp.Servers {
 			itemRef := ref.Base + "#mcp/" + name
-			if gateProfileExec(gate, itemRef, mcpExecPayload(srv), ref.Signer) {
+			if gateProfileExec(gate, ref, itemRef, mcpExecPayload(srv)) {
 				out.Servers[name] = srv
 			} else {
 				// Fail-closed is right, fail-SILENT is not — the gate's
@@ -400,7 +424,7 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Content
 			gated := make(map[string]wire.MCPServer)
 			for name, srv := range servers {
 				itemRef := ref.Base + "#mcp/" + backend + "/" + name
-				if gateProfileExec(gate, itemRef, mcpExecPayload(srv), ref.Signer) {
+				if gateProfileExec(gate, ref, itemRef, mcpExecPayload(srv)) {
 					gated[name] = srv
 				} else {
 					clidiag.Warn("ctxloom", "profile MCP server %q (backend %s) withheld by trust gate (%s); its executable is pending review", name, backend, itemRef)
@@ -419,7 +443,7 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Content
 // <index>" (the SAME identity scheme bundle hooks use, bundles.HookEntry) with
 // its executable-surface hash; a DENY omits it (fail-closed). A nil gate
 // (management paths) admits everything unchanged.
-func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.ContentGate) wire.HooksConfig {
+func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Filter) wire.HooksConfig {
 	if gate == nil {
 		return h
 	}
@@ -427,7 +451,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Conte
 		var out []wire.Hook
 		for i, hook := range hooks {
 			hookRef := ref.Base + "#hooks/" + event + "/" + strconv.Itoa(i)
-			if gateProfileExec(gate, hookRef, hookExecPayload(hook), ref.Signer) {
+			if gateProfileExec(gate, ref, hookRef, hookExecPayload(hook)) {
 				out = append(out, hook)
 			} else {
 				// Same fail-closed-but-diagnosable shape as gateProfileMCP's
@@ -466,27 +490,23 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Conte
 	return out
 }
 
-// gateProfileExec consults the executable trust gate for one directly-declared
-// profile executable, binding the raw form (no distilled variant for executables,
-// matching config.extractMCPFromBundle / extractHooksFromBundle).
+// gateProfileExec consults the executable trust filter for one directly-declared
+// profile executable, binding the raw form (no distilled variant for
+// executables, matching config.extractMCPFromBundle / extractHooksFromBundle).
 //
-// signer is the origin bundle's VERIFIED publisher identity when the profile
-// is bundle-shipped and that bundle is signed by a trusted key
-// (profiles.ResolvedProfile.Signer, B2) — empty for a genuinely local profile
-// (judged local at step 3) or an unsigned/untrusted bundle (falls through to
-// pending review at step 7). This is parity with bundle-declared execs, which
-// DO carry their document's verified signer: without it, keying gate refs by
-// source alone would send every trusted-publisher profile's inline hooks/mcp
-// to manual review even when the publisher key is already trusted — a
-// usability regression the ref-keying fix alone would otherwise cause.
+// The POSTURE comes from ref.Read — the origin bundle's own read for a
+// bundle-shipped profile, the project's for a project-authored one. That is
+// parity with bundle-declared execs, which are decided on their document's own
+// read: without it, a trusted publisher's profile would send its inline
+// hooks/mcp to manual review even when the publisher key is already trusted.
 //
 // A nil payload (the preimage could not be built) withholds: an executable we
 // cannot even describe is one we certainly cannot justify running.
-func gateProfileExec(gate bundles.ContentGate, ref string, payload []byte, signer string) bool {
+func gateProfileExec(gate bundles.Filter, ref profileGateRef, itemRef string, payload []byte) bool {
 	if payload == nil {
 		return false
 	}
-	return gate(ref, payload, string(bundles.FormRaw), signer)
+	return bundles.Decide(gate, ref.Read, itemRef, payload, bundles.FormRaw).Admit
 }
 
 // mcpExecPayload builds a profile MCP server's executable-surface preimage via

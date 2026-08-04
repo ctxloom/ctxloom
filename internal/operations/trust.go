@@ -48,6 +48,33 @@ type EffectiveTrustRequest struct {
 	// It is NEVER a claim read from content. See bundles.Bundle.signer.
 	Signer string
 
+	// Posture is the READ stage's answer to the only question the exemption
+	// steps ever really asked: did these bytes cross an intermediary on their
+	// way here, or not (bundles.BundleRead.TrustCtx).
+	//
+	// It REPLACES re-deriving locality from the shape of Ref. The two never
+	// disagreed in production — the only readers that produce local-posture
+	// content are the project, builtin and companion readers, and each of them
+	// leaves a ref that parses back to the matching flag — but "the gate keys on
+	// what the reader established" is a property, whereas "the ref string still
+	// spells the same thing" is a coincidence that has to be maintained. This is
+	// what lets the decision table's remote rows be decided HERE at all: nothing
+	// about a ref string can say whether a signature covered its bytes.
+	//
+	// ZERO IS UNSET AND UNSET WITHHOLDS. An unset posture never reaches the
+	// first-party arm, so it falls through to the signature/approval steps and
+	// out the fail-closed default. A caller that cannot state a posture gets
+	// LESS exposure, never more.
+	Posture bundles.TrustCtx
+
+	// Provenance names WHICH first-party source a local-posture item came from,
+	// so the allow can be reported as the specific exemption it is (local,
+	// builtin, companion) rather than as a generic "first party". It decides
+	// nothing on its own: Posture is the gate, this is the label, and a
+	// contradictory pair (local posture, remote provenance) matches no arm and
+	// falls through fail-closed.
+	Provenance bundles.ProvenanceClass
+
 	// Records is the review-record backing store: the countersignature stores
 	// (spec §9.2), reached through the ReviewRecords seam. Optional: nil builds
 	// the default (the user + project countersignature stores, verified against
@@ -219,8 +246,7 @@ func (r EffectiveTrustResult) Reason() string {
 //
 // 2a. UNREADABLE     DENY   retraction state could not be established (remote refs only)
 //  2. RETRACTED      DENY   the publisher withdrew this bundle (locally recorded at sync)
-//  3. LOCAL          ALLOW  authored in this project
-//  4. BUILTIN        ALLOW  compiled into this binary
+//  3. FIRST PARTY    ALLOW  local posture — project, builtin or companion
 //  5. TRUSTED SIGNER ALLOW  a key trusted to PUBLISH signed these bytes
 //  6. APPROVED       ALLOW  a human approved exactly these bytes, here, in this form
 //  7. otherwise      DENY   pending — withheld until a human reviews it
@@ -380,47 +406,50 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 		// elaboration (the publisher-stated reason).
 		return &EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourceRetracted, Detail: reason}, nil
 	}
-	// 3. LOCAL: authored in this project — first-party, every kind, including
-	//    executables. Locality is honest: a seeded or cloned bundle stamps its
-	//    canonical remote ref, so a COPY of remote content keys as remote and is
-	//    not local-trusted. "You wrote it here, you trust it; a clone of it is
-	//    not yours."
-	if req.Ref.IsLocal {
-		return decide(trust.Allow, trust.SourceLocal), nil
-	}
-	// 4. BUILTIN: compiled into this binary. Authenticated BY the binary —
-	//    trusting ctxloom trusts what it ships — and deliberately NOT signed
-	//    (signing bytes embedded in the binary doing the verifying is circular).
-	//    It is a distinct step, below rejection, precisely so step 1 can reach it.
-	if req.Ref.IsBuiltin {
-		return decide(trust.Allow, trust.SourceBuiltin), nil
-	}
-	// 4b. COMPANION: a loadout an installed companion binary advertised about
-	//     itself. LOCAL-EQUIVALENT, and the reasoning is order-of-operations
-	//     rather than deference: ctxloom reads a loadout by EXECUTING the
-	//     binary, so by the time this content exists that binary has already run
-	//     arbitrary code as the user. Gating the CONTENT afterwards buys ~nothing
-	//     and costs a review prompt for a tool the user deliberately installed.
-	//     The control point that DOES have purchase is exec, and that is where
-	//     the human decision lives (config.AdmitCompanions — trust-on-first-use
-	//     keyed on absolute path + binary hash, first-party names exempt only
-	//     from ctxloom's own install directory).
+	// 3/4/4b. FIRST PARTY: content that reached this machine WITHOUT crossing an
+	//    intermediary. One posture, three names — and the names are the whole
+	//    reason this is not a single arm:
 	//
-	//     A distinct step below rejection, exactly like builtin, so step 1 still
-	//     reaches it — and it does not escape the unreadable-approvals-store
-	//     gate above, which denies every item including this one.
+	//      3.  LOCAL: authored in this project. "You wrote it here, you trust
+	//          it; a clone of it is not yours" — a seeded or cloned bundle is
+	//          read by the repofs reader, which reports REMOTE posture, so a
+	//          copy of remote content never lands here.
+	//      4.  BUILTIN: compiled into this binary. Authenticated BY the binary —
+	//          trusting ctxloom trusts what it ships — and deliberately NOT
+	//          signed (signing bytes embedded in the binary doing the verifying
+	//          is circular).
+	//      4b. COMPANION: a loadout an installed companion binary advertised
+	//          about itself. Local-equivalent for a reason that is about ORDER
+	//          OF OPERATIONS, not deference: ctxloom reads a loadout by
+	//          EXECUTING the binary, so by the time this content exists that
+	//          binary has already run arbitrary code as the user. Gating the
+	//          CONTENT afterwards buys ~nothing and costs a review prompt for a
+	//          tool the user deliberately installed. The control point that DOES
+	//          have purchase is exec, and that is where the human decision lives
+	//          (config.AdmitCompanions — trust-on-first-use keyed on absolute
+	//          path + binary hash, first-party names exempt only from ctxloom's
+	//          own install directory). A companion's SIGNATURE does not enter
+	//          this decision in either direction: a publisher signature protects
+	//          bytes from an intermediary and a loadout has none, so a signature
+	//          that fails to verify there is a stale release, not an attack.
 	//
-	//     A companion's SIGNATURE does not enter this decision in either
-	//     direction. A publisher signature protects bytes from an intermediary,
-	//     and a loadout has none: it arrives on the stdout of a binary the user
-	//     already consented to run. config.ProbeCompanionLoadouts therefore
-	//     REPORTS a signature that fails to verify (a stale or mismatched
-	//     signature in the companion's own release — a bug signal, not an
-	//     attack signal) and seeds the content unattributed, rather than
-	//     withholding it. What catches a swapped companion binary is the
-	//     hash-keyed exec consent, not this step.
-	if req.Ref.IsCompanion {
-		return decide(trust.Allow, trust.SourceCompanion), nil
+	//    It sits BELOW rejection and retraction, deliberately, so step 1 still
+	//    reaches every one of the three — a user can reject a builtin — and it
+	//    does not escape the unreadable-approvals gate above, which denies every
+	//    item including these.
+	//
+	//    A contradictory pair (local posture, remote provenance) matches no arm
+	//    and falls through to the signature steps: fail-closed, never a fourth
+	//    exemption nobody wrote.
+	if req.Posture == bundles.TrustCtxLocal {
+		switch req.Provenance {
+		case bundles.ProvenanceProject:
+			return decide(trust.Allow, trust.SourceLocal), nil
+		case bundles.ProvenanceBuiltin:
+			return decide(trust.Allow, trust.SourceBuiltin), nil
+		case bundles.ProvenanceCompanion:
+			return decide(trust.Allow, trust.SourceCompanion), nil
+		}
 	}
 	// 5. TRUSTED SIGNER: a key this machine trusts for the PUBLISH namespace made
 	//    a signature over the exact bytes of the document this item came from,
@@ -1147,7 +1176,7 @@ func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
 	if err != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	return ts.resolve(tRef, payload, string(form), signer)
+	return ts.resolve(tRef, ts.readFor(loadRef), payload, string(form), signer)
 }
 
 // ForLocalMCP stamps a configured (project-local) MCP server, which carries no
@@ -1168,7 +1197,12 @@ func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) Effectiv
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
 	ref := trust.Ref{Kind: trust.KindMCP, Name: name, IsLocal: true}
-	return ts.resolve(ref, payload, string(bundles.FormRaw), "")
+	// The posture is stated, not looked up: a config.yaml MCP server is a line
+	// the user typed into this project's own configuration. There is no bundle
+	// to read it from and never was — the old path asserted the same thing by
+	// setting IsLocal on the ref.
+	return ts.resolve(ref, bundles.ProjectAuthoredRead(name, &bundles.Bundle{Name: name}),
+		payload, string(bundles.FormRaw), "")
 }
 
 // ForHook stamps a bundle hook addressed by its (source, HookEntry) identity,
@@ -1190,7 +1224,23 @@ func (ts *TrustStamper) ForHook(source string, entry bundles.HookEntry) Effectiv
 	if perr != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
-	return ts.resolve(tRef, payload, string(bundles.FormRaw), ts.signerFor(loadRef))
+	return ts.resolve(tRef, ts.readFor(loadRef), payload, string(bundles.FormRaw), ts.signerFor(loadRef))
+}
+
+// readFor returns the READ of the bundle at loadRef — the trust facts its reader
+// established, which is what the decision's first-party step keys on. An
+// unresolvable bundle yields an UNCLAIMED read, which reaches no exemption arm
+// and falls out the fail-closed default: MORE review, never more exposure,
+// matching signerFor's own fail-safe.
+func (ts *TrustStamper) readFor(loadRef string) bundles.BundleRead {
+	if ts.loader == nil || loadRef == "" {
+		return bundles.BundleRead{}
+	}
+	read, ok := ts.loader.Read(loadRef)
+	if !ok {
+		return bundles.BundleRead{}
+	}
+	return read
 }
 
 // signerFor returns the verified publisher identity of the bundle at loadRef,
@@ -1214,14 +1264,16 @@ func (ts *TrustStamper) signerFor(loadRef string) string {
 // trust_perkitem_io_test.go). Sharing that too would fix the sample point of
 // retraction state for a whole listing, which is a trust decision, not a
 // caching one.
-func (ts *TrustStamper) resolve(ref trust.Ref, payload []byte, form, signer string) EffectiveTrustResult {
+func (ts *TrustStamper) resolve(ref trust.Ref, read bundles.BundleRead, payload []byte, form, signer string) EffectiveTrustResult {
 	res, err := EffectiveTrust(ts.cfg, EffectiveTrustRequest{
-		Ref:     ref,
-		Payload: payload,
-		Form:    form,
-		Signer:  signer,
-		Records: ts.records,
-		FS:      ts.fs,
+		Ref:        ref,
+		Payload:    payload,
+		Form:       form,
+		Signer:     signer,
+		Posture:    read.TrustCtx(),
+		Provenance: read.Provenance,
+		Records:    ts.records,
+		FS:         ts.fs,
 	})
 	if err != nil || res == nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}

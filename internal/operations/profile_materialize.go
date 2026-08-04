@@ -104,7 +104,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// on it silently governs every later consumer of that config.
 	execGate := NewExecutableTrustGate(cfg)
 	callersGate := cfg.ExecutableTrustGate()
-	cfg.SetExecutableTrustGate(execGate.Gate())
+	cfg.SetExecutableTrustGate(execGate.Filter())
 	defer cfg.SetExecutableTrustGate(callersGate)
 
 	// context is the one HARD-error surface: an explicit profile set makes

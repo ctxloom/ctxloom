@@ -75,6 +75,7 @@ func TestCountersignRecords_PersonalRejectBeatsProjectApprove(t *testing.T) {
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
+		Posture: postureCtxOf(ref), Provenance: postureProvOf(ref),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision, "personal rejection must beat an inherited project approval")
@@ -108,6 +109,7 @@ func TestCountersignRecords_ProjectRejectBeatsPersonalApprove(t *testing.T) {
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
+		Posture: postureCtxOf(ref), Provenance: postureProvOf(ref),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision, "an org-wide rejection must beat a developer's own local approval")
@@ -136,6 +138,7 @@ func TestCountersignRecords_UntrustedKeyCountersigIsNotApproval(t *testing.T) {
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: ref, Payload: payload, Form: string(signing.FormRaw), Records: records,
+		Posture: postureCtxOf(ref), Provenance: postureProvOf(ref),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision, "a countersignature by an untrusted key must not allow")

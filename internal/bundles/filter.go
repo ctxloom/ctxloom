@@ -39,6 +39,15 @@ type Filter interface {
 	Admit(Exposure) Verdict
 }
 
+// FilterFunc adapts a plain function to Filter, for a decision that is genuinely
+// one expression (and for tests). It carries no state, which is the tell that a
+// real filter — one that opens countersignature stores — should be a named type
+// whose construction says what it reads.
+type FilterFunc func(Exposure) Verdict
+
+// Admit implements Filter.
+func (f FilterFunc) Admit(e Exposure) Verdict { return f(e) }
+
 // Exposure is one item's bytes, about to be delivered, with everything the
 // decision keys on.
 type Exposure struct {
@@ -68,6 +77,10 @@ type Exposure struct {
 	// executable's gate over identical bytes.
 	Form ContentForm
 }
+
+// Ref spells this exposure's item ref back as the string it was parsed from —
+// what an advisory names it by, and what a user types into `ctxloom trust`.
+func (e Exposure) RefString() string { return e.Ref.ItemRef() }
 
 // Verdict is what a Filter decided, and the ONLY vocabulary anything downstream
 // renders. A caller that prints "withheld" without printing Reason is printing
@@ -181,6 +194,50 @@ const (
 	// struct literal would read as "local, unsigned, no signer".
 	ReasonUnestablished
 )
+
+// NeedsReview reports whether a WITHHELD item is one a human can act on by
+// reviewing it — the predicate `ctxloom review` enumerates by.
+//
+// Rejected and retracted are decided: nothing is pending about them. Tampered is
+// deliberately NOT reviewable, and that is the point of separating it from
+// "unsigned": presenting tampered bytes for review is the spec §10.2 downgrade
+// completing itself — an attacker corrupts a `.sig`, the content lands in the
+// review queue looking like ordinary unsigned content, and a human approves it.
+// The two fail-closed reasons name a fault to fix, not content to read.
+func (r Reason) NeedsReview() bool {
+	switch r {
+	case ReasonUnsigned, ReasonUntrustedSigner, ReasonPending:
+		return true
+	default:
+		return false
+	}
+}
+
+// PublisherOf reports what a bundle's READ says about who signed it — the
+// bundle-level half of the same vocabulary, for a surface that groups items by
+// bundle and has to say what the human is deciding about.
+//
+// It is what operations.ReviewPublisher used to spell separately, off the
+// bundle's signer stamps, and it can say the thing that vocabulary could not:
+// INVALID. A stamp-derived report saw only "a principal" or "a fingerprint", so
+// a signature that failed to verify was indistinguishable from no signature at
+// all — which is precisely the state a reviewer most needs named.
+func PublisherOf(read BundleRead) Reason {
+	switch {
+	case read.Signature() == SignatureInvalid && read.TrustCtx() == TrustCtxRemote:
+		return ReasonTampered
+	case read.Signature() == SignatureInvalid:
+		return ReasonStaleLocalSignature
+	case read.Signature() == SignatureValid && read.Signer() == SignerTrusted:
+		return ReasonTrustedSigner
+	case read.Signature() == SignatureValid:
+		return ReasonUntrustedSigner
+	case read.Signature() == SignatureNone:
+		return ReasonUnsigned
+	default:
+		return ReasonUnset
+	}
+}
 
 // String renders the reason as its stable wire spelling — the token that
 // appears in `--format json` output. Changing one of these changes a
@@ -301,4 +358,55 @@ func ReportVerdict(ref string, v Verdict) {
 			"re-pull the bundle, or investigate the source — its signature does not cover its bytes",
 			"withholding %s: %s", ref, v.Reason.Explain(v.Detail))
 	}
+}
+
+// UnaddressableReporter is the OPTIONAL capability a Filter may expose: "record
+// this ref, which I could not even address".
+//
+// It exists because the ref is parsed ABOVE the Filter — Exposure carries a
+// parsed trust.Ref, which an unparseable string has no value for — and yet the
+// withheld TALLY belongs to the filter: the executable surfaces (bundle MCP
+// servers, hooks, prompt exports) call Decide with no Pipeline to tally them,
+// and their advisory reads the filter's own record. Without this seam an item
+// withheld because nobody could address it would be withheld SILENTLY on exactly
+// those surfaces, which is the one thing a withhold may never be.
+//
+// It is a type assertion rather than a method on Filter so a one-expression
+// FilterFunc stays one expression.
+type UnaddressableReporter interface {
+	Unaddressable(ref string, v Verdict)
+}
+
+// Decide is the ONE way an item addressed by a ref STRING reaches a Filter.
+//
+// Every exposure choke funnels through it — the delivery pipeline, the builtin
+// and companion fragment resolvers, the bundle MCP/hook resolvers, the profile
+// executable gate — so all of them parse the ref the same way, fail closed the
+// same way, and discharge the caller's obligation to SPEAK the same way (see
+// ReportVerdict). A surface that called a Filter directly would be one that
+// could forget the last of those.
+//
+// A nil filter admits: that is the management/listing shape, which still
+// resolves pending content so a human can review, accept or stamp it. It is a
+// statement written out loud at the construction site, never an omission here.
+//
+// An UNPARSEABLE ref withholds. An item nothing can address is an item the
+// decision function was never able to key on, and exposing it would be exposing
+// content no rule ever saw.
+func Decide(filter Filter, read BundleRead, ref string, payload []byte, form ContentForm) Verdict {
+	if filter == nil {
+		return Verdict{Admit: true, Reason: ReasonUnset}
+	}
+	tRef, _, _, err := trust.ParseItemRef(ref)
+	if err != nil {
+		v := Verdict{Reason: ReasonUnaddressable, Detail: err.Error()}
+		clidiag.Warn("ctxloom", "withheld %s: %s", ref, v.Reason.Explain(v.Detail))
+		if r, ok := filter.(UnaddressableReporter); ok {
+			r.Unaddressable(ref, v)
+		}
+		return v
+	}
+	v := filter.Admit(Exposure{Read: read, Ref: tRef, Bytes: payload, Form: form})
+	ReportVerdict(ref, v)
+	return v
 }

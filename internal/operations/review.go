@@ -65,37 +65,20 @@ type ReviewItem struct {
 	AlternateForm string `json:"-"`
 }
 
-// ReviewPublisher is what review can honestly say about WHO signed a bundle's
-// bytes. It exists because "pending" and "pending because I do not trust who
-// signed it" are different diagnoses with different fixes — the first wants
-// `ctxloom review`, the second wants `trust signer create` — and the exposure
-// gate, correctly, treats them identically (operations.EffectiveTrust step 7:
-// "this is where unsigned content lands, where signed-but-untrusted-key content
-// lands"). The gate collapses them; the surface whose whole job is helping a
-// human decide must not.
+// Review reports WHO signed a bundle through bundles.Reason, the same
+// vocabulary the exposure gate decides in. The separate ReviewPublisher
+// enumeration it replaces was derived a SECOND time, off the bundle's signer
+// stamps, and could not express INVALID at all: a stamp-derived report saw only
+// "a principal" or "a fingerprint", so a signature that failed to verify read as
+// no signature — the exact state a reviewer most needs named. See
+// bundles.PublisherOf.
 //
-// It is a REPORT, never an input: nothing in the trust cascade reads it.
-type ReviewPublisher string
-
-const (
-	// ReviewPublisherUnsigned: no signature accompanied these bytes.
-	ReviewPublisherUnsigned ReviewPublisher = "unsigned"
-	// ReviewPublisherUntrustedSigner: a signature exists and names a key this
-	// machine does not trust to publish. ReviewBundle.SignerFingerprint names
-	// that key — for comparison, never as an identity.
-	ReviewPublisherUntrustedSigner ReviewPublisher = "untrusted-signer"
-	// ReviewPublisherTrustedSigner: a key this machine trusts for the publish
-	// namespace signed exactly these bytes, and ReviewBundle.Signer is the
-	// principal the TRUST ROOT resolved.
-	//
-	// Unreachable through PendingReview today, and deliberately kept: a trusted
-	// publisher's items are allowed at EffectiveTrust step 5, so they are never
-	// pending and the bundle never reaches this listing. It is here so the
-	// state space is total — a future pending-despite-trusted item (or any
-	// caller of the JSON) gets its own answer instead of being mislabelled
-	// "unsigned", which is the exact conflation this type exists to end.
-	ReviewPublisherTrustedSigner ReviewPublisher = "trusted-signer"
-)
+// The distinction that vocabulary existed to preserve is kept: "pending" and
+// "pending because I do not trust who signed it" are different diagnoses with
+// different fixes (`ctxloom review` vs `trust signer create`), and the exposure
+// gate — correctly — treats them identically. ReasonUnsigned and
+// ReasonUntrustedSigner are how that survives, now in one vocabulary instead of
+// two that had to agree.
 
 // ReviewBundle groups a bundle's pending items for the per-bundle walk.
 type ReviewBundle struct {
@@ -103,15 +86,15 @@ type ReviewBundle struct {
 	Remote string       `json:"remote,omitempty"` // registered remote name, when resolvable
 	Items  []ReviewItem `json:"items"`
 
-	// Publisher is the bundle's signer state — see ReviewPublisher.
-	Publisher ReviewPublisher `json:"publisher"`
+	// Publisher is the bundle's signer state — see bundles.PublisherOf.
+	Publisher bundles.Reason `json:"publisher"`
 	// Signer is the VERIFIED publisher principal, resolved from the trust root
-	// (bundles.Bundle.Signer). Set only for ReviewPublisherTrustedSigner, where
+	// (bundles.Bundle.Signer). Set only for bundles.ReasonTrustedSigner, where
 	// it is a real identity.
 	Signer string `json:"signer,omitempty"`
 	// SignerFingerprint is the DISPLAY-ONLY fingerprint of the key that made an
-	// untrusted signature (bundles.Bundle.UntrustedSignerFingerprint). Set only
-	// for ReviewPublisherUntrustedSigner.
+	// untrusted signature (bundles.BundleRead.UntrustedSignerFingerprint). Set
+	// only for bundles.ReasonUntrustedSigner.
 	//
 	// It is a string to COMPARE against what the publisher stated out of band,
 	// and nothing else. It is not a name, not an endorsement, and not usable as
@@ -178,15 +161,16 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 	// has no file — a companion loadout, a pinned document — has no path to
 	// resolve back through, and asking for one dropped exactly that content
 	// from review with a "bundle not found" nobody could act on.
-	e := &reviewEnumerator{cfg: cfg, records: records, fs: req.FS}
+	e := &reviewEnumerator{cfg: cfg, records: records, fs: req.FS,
+		filter: &contentGate{cfg: cfg, records: records, fs: req.FS}}
 	result := &PendingReviewResult{}
 	for _, read := range loader.Reads() {
-		bundle, ref := read.Bundle, read.Ref()
-		items := e.pendingItems(ref, bundle)
+		ref := read.Ref()
+		items := e.pendingItems(ref, read)
 		if len(items) == 0 {
 			continue
 		}
-		publisher, principal, fingerprint := reviewPublisherOf(bundle)
+		publisher, principal, fingerprint := reviewPublisherOf(read)
 		result.Bundles = append(result.Bundles, ReviewBundle{
 			Ref:               ref,
 			Remote:            remoteNameFor(registry, ref),
@@ -207,29 +191,34 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 	return result, nil
 }
 
-// reviewPublisherOf reads a loaded bundle's two publisher stamps and reports
-// which of the three states they spell, plus whichever of the principal /
-// fingerprint belongs to that state.
+// reviewPublisherOf reports what a bundle's READ says about its publisher, plus
+// whichever of the principal / fingerprint belongs to that state.
 //
-// It DERIVES, and never decides: both inputs were stamped by a load path that
-// had already asked the trust root, and this cannot promote either one. In
-// particular the fingerprint half is returned only for the untrusted state,
-// where the renderer is obliged to say the key is not trusted — it is never
-// returned as, or alongside, an identity.
+// It DERIVES, and never decides: every value comes from the reader that already
+// asked the trust root, and nothing here can promote any of them. The
+// fingerprint half is returned only for the untrusted state, where the renderer
+// is obliged to say the key is not trusted — it is never returned as, or
+// alongside, an identity.
 //
-// trust.BuiltinSigner is excluded from the trusted state for exactly the reason
-// EffectiveTrust step 5 excludes it: it is a SYNTHETIC identity, not a
-// cryptographic one, and reporting it as a trusted publisher key would launder
-// "shipped inside this binary" into "a publisher you verified". A builtin is
-// allowed as a builtin and never appears here anyway (step 4).
-func reviewPublisherOf(b *bundles.Bundle) (state ReviewPublisher, principal, fingerprint string) {
-	if signer := b.Signer(); signer != "" && signer != trust.BuiltinSigner {
-		return ReviewPublisherTrustedSigner, signer, ""
+// trust.BuiltinSigner never appears as a principal here for exactly the reason
+// EffectiveTrust's trusted-signer step excludes it: it is a SYNTHETIC identity,
+// not a cryptographic one, and reporting it as a trusted publisher key would
+// launder "shipped inside this binary" into "a publisher you verified". A
+// builtin reads as unsigned, which is what it is; it is allowed as a builtin and
+// never appears in this listing anyway.
+func reviewPublisherOf(read bundles.BundleRead) (state bundles.Reason, principal, fingerprint string) {
+	state = bundles.PublisherOf(read)
+	switch state {
+	case bundles.ReasonTrustedSigner:
+		if signer := read.Bundle.Signer(); signer != trust.BuiltinSigner {
+			return state, signer, ""
+		}
+		return bundles.ReasonUnsigned, "", ""
+	case bundles.ReasonUntrustedSigner:
+		return state, "", read.UntrustedSignerFingerprint()
+	default:
+		return state, "", ""
 	}
-	if fp := b.UntrustedSignerFingerprint(); fp != "" {
-		return ReviewPublisherUntrustedSigner, "", fp
-	}
-	return ReviewPublisherUnsigned, "", ""
 }
 
 // reviewEnumerator resolves items against the shared records/registry.
@@ -237,25 +226,30 @@ type reviewEnumerator struct {
 	cfg     *config.Config
 	records countersignRecords
 	fs      afero.Fs
+	// filter is the SAME decision the exposure path uses, built once over the
+	// shared records store. Review asks it what would be delivered rather than
+	// re-deriving an opinion of its own.
+	filter bundles.Filter
 }
 
 // pendingItems walks one bundle's items in stable display order — fragments,
 // commands, MCP servers, hooks; name-sorted within each kind — and returns the
 // pending ones.
-func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle) []ReviewItem {
+func (e *reviewEnumerator) pendingItems(bundleRef string, read bundles.BundleRead) []ReviewItem {
 	var out []ReviewItem
+	bundle := read.Bundle
 	preferDistilled := cfgPreferDistilled(e.cfg)
 
-	// The bundle's verified publisher identity, carried into every item's
-	// decision so review shows exactly what the exposure gate would decide: an
-	// item from a trusted publisher is NOT pending and must not be presented for
-	// review as though it were.
-	signer := bundle.Signer()
+	// The bundle's READ is carried into every item's decision, so review resolves
+	// each item through the SAME Filter the exposure path does and shows exactly
+	// what would be delivered: an item from a trusted publisher is NOT pending
+	// and must not be presented for review as though it were, and a TAMPERED
+	// bundle's items are not "unsigned content awaiting a look" either.
 
 	for _, name := range bundle.FragmentNames() {
 		frag := bundle.Fragments[name]
 		payload, form := frag.ContentPayload(preferDistilled)
-		item, ok := e.classify(bundleRef, "fragments", name, payload, string(form), signer, false)
+		item, ok := e.classify(bundleRef, "fragments", name, read, payload, string(form), false)
 		if !ok {
 			continue
 		}
@@ -265,7 +259,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 	for _, name := range bundle.PromptNames() {
 		command := bundle.Commands[name]
 		payload, form := command.ContentPayload(preferDistilled)
-		item, ok := e.classify(bundleRef, "commands", name, payload, string(form), signer, false)
+		item, ok := e.classify(bundleRef, "commands", name, read, payload, string(form), false)
 		if !ok {
 			continue
 		}
@@ -283,7 +277,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 			clidiag.Warn("ctxloom", "review: skipping mcp %q in bundle %q: %v", name, bundleRef, perr)
 			continue
 		}
-		item, ok := e.classify(bundleRef, "mcp", name, payload, string(bundles.FormRaw), signer, true)
+		item, ok := e.classify(bundleRef, "mcp", name, read, payload, string(bundles.FormRaw), true)
 		if !ok {
 			continue
 		}
@@ -296,7 +290,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 			clidiag.Warn("ctxloom", "review: skipping hook %q in bundle %q: %v", entry.ID(), bundleRef, perr)
 			continue
 		}
-		item, ok := e.classify(bundleRef, "hooks", entry.ID(), payload, string(bundles.FormRaw), signer, true)
+		item, ok := e.classify(bundleRef, "hooks", entry.ID(), read, payload, string(bundles.FormRaw), true)
 		if !ok {
 			continue
 		}
@@ -337,7 +331,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, bundle *bundles.Bundle
 		// review_snapshots.go's itemContentPair), so editing any one file in
 		// the tree — SKILL.md or a scripts/ script — shows up as a per-file
 		// diff against what was previously accepted, not a bare "changed".
-		item, ok := e.classify(bundleRef, "skills", name, payload, string(bundles.FormRaw), signer, false)
+		item, ok := e.classify(bundleRef, "skills", name, read, payload, string(bundles.FormRaw), false)
 		if !ok {
 			continue
 		}
@@ -377,7 +371,7 @@ func setReviewForms(item *ReviewItem, shown []byte, shownForm bundles.ContentFor
 // pending, returns its ReviewItem shell (status + diff base resolved; content
 // filled by the caller, which has the item in hand). ok=false means the item
 // needs no review (allowed, rejected, or unaddressable).
-func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []byte, form, signer string, executable bool) (ReviewItem, bool) {
+func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundles.BundleRead, payload []byte, form string, executable bool) (ReviewItem, bool) {
 	ref := bundleRef + "#" + kindDir + "/" + name
 	tRef, _, _, err := trust.ParseItemRef(ref)
 	if err != nil {
@@ -386,21 +380,26 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []b
 		clidiag.Warn("ctxloom", "review: skipping unaddressable item %q: %v", ref, err)
 		return ReviewItem{}, false
 	}
-	// EffectiveTrust's error return is currently vestigial — every one of its
-	// return statements pairs a non-nil result with a nil error (verified
-	// across all 7 returns in EffectiveTrust's body) — so this checks only
-	// the State() outcome (the unreachable err!=nil/res==nil disjuncts were
-	// dropped). If EffectiveTrust's contract ever changes to return a real
-	// error, this must change with it.
-	res, _ := EffectiveTrust(e.cfg, EffectiveTrustRequest{
-		Ref:     tRef,
-		Payload: payload,
-		Form:    form,
-		Signer:  signer,
-		Records: e.records,
-		FS:      e.fs,
+	// THE SAME FILTER THE EXPOSURE PATH USES, not a second opinion about the
+	// same item. That is the whole point of the verdict: a status report is
+	// truthful by CONSTRUCTION rather than because two code paths that both
+	// re-derive a decision happen to agree. The old separate call into
+	// EffectiveTrust could — and, for a tampered remote bundle, did — reach a
+	// different answer than the one that decided delivery.
+	//
+	// NeedsReview is the predicate, not "denied": rejected and retracted are
+	// decided, and TAMPERED is deliberately not reviewable. Listing tampered
+	// bytes as pending is the spec §10.2 downgrade completing itself — the
+	// content arrives in the queue looking like ordinary unsigned content and a
+	// human approves it.
+	v := e.filter.Admit(bundles.Exposure{
+		Read:  read,
+		Ref:   tRef,
+		Bytes: payload,
+		Form:  bundles.ContentForm(form),
 	})
-	if res.State() != trust.StatePending {
+	bundles.ReportVerdict(ref, v)
+	if !v.Reason.NeedsReview() {
 		return ReviewItem{}, false
 	}
 

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -72,11 +73,13 @@ func TestEffectiveTrust_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 
 	mark := strictness.Checkpoint()
 	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:     retractionTestRef(),
-		Payload: pbytes("x"),
-		Form:    rawForm,
-		Signer:  "publisher@example.com",
-		FS:      fs,
+		Ref:        retractionTestRef(),
+		Posture:    postureCtxOf(retractionTestRef()),
+		Provenance: postureProvOf(retractionTestRef()),
+		Payload:    pbytes("x"),
+		Form:       rawForm,
+		Signer:     "publisher@example.com",
+		FS:         fs,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision,
@@ -108,11 +111,13 @@ func TestEffectiveTrust_AbsentLockfile_NormalDecision(t *testing.T) {
 
 	// A signed remote item resolves its ordinary ALLOW.
 	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:     retractionTestRef(),
-		Payload: pbytes("x"),
-		Form:    rawForm,
-		Signer:  "publisher@example.com",
-		FS:      fs,
+		Ref:        retractionTestRef(),
+		Posture:    postureCtxOf(retractionTestRef()),
+		Provenance: postureProvOf(retractionTestRef()),
+		Payload:    pbytes("x"),
+		Form:       rawForm,
+		Signer:     "publisher@example.com",
+		FS:         fs,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Allow, res.Decision, "an absent lockfile is not corruption — a project with no pins must keep working")
@@ -121,10 +126,12 @@ func TestEffectiveTrust_AbsentLockfile_NormalDecision(t *testing.T) {
 	// An unsigned remote item resolves the everyday "awaiting review" pending,
 	// not a fail-closed deny.
 	res2, err2 := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:     trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"},
-		Payload: pbytes("y"),
-		Form:    rawForm,
-		FS:      fs,
+		Ref:        trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"},
+		Posture:    postureCtxOf(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"}),
+		Provenance: postureProvOf(trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"}),
+		Payload:    pbytes("y"),
+		Form:       rawForm,
+		FS:         fs,
 	})
 	require.NoError(t, err2)
 	assert.Equal(t, trust.Deny, res2.Decision)
@@ -159,11 +166,13 @@ func TestEffectiveTrust_ValidLockfile_RetractionBehaviorUnchanged(t *testing.T) 
 	// The retracted bundle: denied, with the publisher's reason, beating an
 	// otherwise-winning trusted signature.
 	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:     retractionTestRef(),
-		Payload: pbytes("x"),
-		Form:    rawForm,
-		Signer:  "publisher@example.com",
-		FS:      fs,
+		Ref:        retractionTestRef(),
+		Posture:    postureCtxOf(retractionTestRef()),
+		Provenance: postureProvOf(retractionTestRef()),
+		Payload:    pbytes("x"),
+		Form:       rawForm,
+		Signer:     "publisher@example.com",
+		FS:         fs,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision)
@@ -172,11 +181,13 @@ func TestEffectiveTrust_ValidLockfile_RetractionBehaviorUnchanged(t *testing.T) 
 
 	// A sibling bundle with no retraction recorded is unaffected.
 	res2, err2 := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:     trust.Ref{RepoURL: trustRepo, Bundle: "fine", Kind: trust.KindFragment, Name: "helper"},
-		Payload: pbytes("y"),
-		Form:    rawForm,
-		Signer:  "publisher@example.com",
-		FS:      fs,
+		Ref:        trust.Ref{RepoURL: trustRepo, Bundle: "fine", Kind: trust.KindFragment, Name: "helper"},
+		Posture:    postureCtxOf(trust.Ref{RepoURL: trustRepo, Bundle: "fine", Kind: trust.KindFragment, Name: "helper"}),
+		Provenance: postureProvOf(trust.Ref{RepoURL: trustRepo, Bundle: "fine", Kind: trust.KindFragment, Name: "helper"}),
+		Payload:    pbytes("y"),
+		Form:       rawForm,
+		Signer:     "publisher@example.com",
+		FS:         fs,
 	})
 	require.NoError(t, err2)
 	assert.Equal(t, trust.Allow, res2.Decision, "a readable lockfile with no retraction for this bundle allows exactly as before")
@@ -202,20 +213,24 @@ func TestEffectiveTrust_CorruptLockfile_LocalAndBuiltinStillAllowed(t *testing.T
 	cfg := testConfigWithSCMPath(baseDir)
 
 	local, err := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:     trust.Ref{Bundle: "dev", Kind: trust.KindFragment, Name: "notes", IsLocal: true},
-		Payload: pbytes("x"),
-		Form:    rawForm,
-		FS:      fs,
+		Ref:        trust.Ref{Bundle: "dev", Kind: trust.KindFragment, Name: "notes", IsLocal: true},
+		Posture:    postureCtxOf(trust.Ref{Bundle: "dev", Kind: trust.KindFragment, Name: "notes", IsLocal: true}),
+		Provenance: postureProvOf(trust.Ref{Bundle: "dev", Kind: trust.KindFragment, Name: "notes", IsLocal: true}),
+		Payload:    pbytes("x"),
+		Form:       rawForm,
+		FS:         fs,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Allow, local.Decision, "a local ref can never carry a lockfile retraction, so an unreadable lockfile must not withhold it")
 	assert.Equal(t, trust.SourceLocal, local.Source)
 
 	builtin, err := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:     trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "shipped", IsBuiltin: true},
-		Payload: pbytes("y"),
-		Form:    rawForm,
-		FS:      fs,
+		Ref:        trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "shipped", IsBuiltin: true},
+		Posture:    postureCtxOf(trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "shipped", IsBuiltin: true}),
+		Provenance: postureProvOf(trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "shipped", IsBuiltin: true}),
+		Payload:    pbytes("y"),
+		Form:       rawForm,
+		FS:         fs,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Allow, builtin.Decision, "a builtin ref can never carry a lockfile retraction either")
@@ -238,11 +253,13 @@ func TestEffectiveTrust_CorruptLockfile_RejectionStillOutranks(t *testing.T) {
 
 	ref := retractionTestRef()
 	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:     ref,
-		Payload: pbytes("x"),
-		Form:    rawForm,
-		Records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool { return r.Bundle == "tooling" }},
-		FS:      fs,
+		Ref:        ref,
+		Posture:    postureCtxOf(ref),
+		Provenance: postureProvOf(ref),
+		Payload:    pbytes("x"),
+		Form:       rawForm,
+		Records:    fakeRecords{rejected: func(r trust.Ref, _ []byte) bool { return r.Bundle == "tooling" }},
+		FS:         fs,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision)
@@ -266,6 +283,7 @@ func TestEffectiveTrust_CorruptLockfile_FindingNamesTheRecovery(t *testing.T) {
 	mark := strictness.Checkpoint()
 	_, err := EffectiveTrust(cfg, EffectiveTrustRequest{
 		Ref: retractionTestRef(), Payload: pbytes("x"), Form: rawForm, Signer: "publisher@example.com", FS: fs,
+		Posture: postureCtxOf(retractionTestRef()), Provenance: postureProvOf(retractionTestRef()),
 	})
 	require.NoError(t, err)
 
@@ -301,13 +319,13 @@ func TestContentGate_CorruptLockfile_WithholdsRemoteContent(t *testing.T) {
 	// retraction left nil — exactly what buildContentGate produces.
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records(), fs: afero.NewOsFs()}
 
-	assert.False(t, g.allow(solidRef, pbytes("x"), rawForm, "publisher@example.com"),
+	assert.False(t, admitExec(t, g, execRead(t, "publisher@example.com"), solidRef, pbytes("x"), rawForm),
 		"the real gate entry point must withhold remote content when retraction state cannot be established")
 
 	items := g.withheldItems()
 	require.Len(t, items, 1, "the gate records the withheld ref, so the advisory can say WHY it was withheld")
 	assert.Equal(t, solidRef, items[0].Ref)
-	assert.Equal(t, trust.SourcePending, items[0].Result.Source)
+	assert.Equal(t, bundles.ReasonPending, items[0].Verdict.Reason)
 }
 
 // TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues pins the
@@ -328,6 +346,7 @@ func TestEffectiveTrust_CorruptLockfile_DegradedModeWarnsAndContinues(t *testing
 	mark := strictness.Checkpoint()
 	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
 		Ref: retractionTestRef(), Payload: pbytes("x"), Form: rawForm, Signer: "publisher@example.com", FS: fs,
+		Posture: postureCtxOf(retractionTestRef()), Provenance: postureProvOf(retractionTestRef()),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision, "degraded mode governs FATALITY, never whether unreadable trust state may be trusted")

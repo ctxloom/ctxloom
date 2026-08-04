@@ -47,10 +47,12 @@ func TestEffectiveTrust_AbsentApprovalsStore_NormalPending(t *testing.T) {
 
 	mark := strictness.Checkpoint()
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
-		Ref:     trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
-		Payload: pbytes("x"),
-		Form:    rawForm,
-		FS:      fs,
+		Ref:        trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
+		Posture:    postureCtxOf(trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}),
+		Provenance: postureProvOf(trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}),
+		Payload:    pbytes("x"),
+		Form:       rawForm,
+		FS:         fs,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision)
@@ -81,10 +83,12 @@ func TestEffectiveTrust_UnreadableApprovalsStore_DenyAllAndStrictFatal(t *testin
 
 	mark := strictness.Checkpoint()
 	res, err := EffectiveTrust(cfg, EffectiveTrustRequest{
-		Ref:     trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true},
-		Payload: pbytes("x"),
-		Form:    rawForm,
-		FS:      wrapped,
+		Ref:        trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true},
+		Posture:    postureCtxOf(trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}),
+		Provenance: postureProvOf(trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}),
+		Payload:    pbytes("x"),
+		Form:       rawForm,
+		FS:         wrapped,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision, "an unreadable approvals store must deny even an otherwise-local-allowed item")
@@ -146,6 +150,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	// rejected LOCAL item is denied, ref-level, beating the local exemption.
 	sanity, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: rejectedRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
+		Posture: postureCtxOf(rejectedRef), Provenance: postureProvOf(rejectedRef),
 	})
 	require.NoError(t, err)
 	require.Equal(t, trust.Deny, sanity.Decision)
@@ -163,6 +168,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	// exemption is exactly what a swallowed Rejected() falls through to.
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: rejectedRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
+		Posture: postureCtxOf(rejectedRef), Provenance: postureProvOf(rejectedRef),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision,
@@ -176,6 +182,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_CorruptedStore_DenyAll(t *test
 	untouchedLocalRef := trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}
 	res2, err2 := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: untouchedLocalRef, Payload: pbytes("y"), Form: rawForm, Records: records, FS: fs,
+		Posture: postureCtxOf(untouchedLocalRef), Provenance: postureProvOf(untouchedLocalRef),
 	})
 	require.NoError(t, err2)
 	assert.Equal(t, trust.Deny, res2.Decision, "a corrupted approvals store must deny even local content with no rejection history")
@@ -217,6 +224,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending(
 	remoteRef := trust.Ref{RepoURL: trustRepo, Bundle: "tooling", Kind: trust.KindFragment, Name: "never-reviewed"}
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: remoteRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
+		Posture: postureCtxOf(remoteRef), Provenance: postureProvOf(remoteRef),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision)
@@ -227,6 +235,7 @@ func TestEffectiveTrust_ProductionInjectedRecords_FreshEmptyStore_NormalPending(
 	localRef := trust.Ref{Bundle: "b", Kind: trust.KindFragment, Name: "f", IsLocal: true}
 	res2, err2 := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: localRef, Payload: pbytes("y"), Form: rawForm, Records: records, FS: fs,
+		Posture: postureCtxOf(localRef), Provenance: postureProvOf(localRef),
 	})
 	require.NoError(t, err2)
 	assert.Equal(t, trust.Allow, res2.Decision, "a fresh install must not deny local content — the readable() gate must not false-trip on 'never created yet'")
@@ -273,6 +282,7 @@ func TestEffectiveTrust_CorruptedRejectSignature_StaysDenied(t *testing.T) {
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref: rejectedRef, Payload: pbytes("x"), Form: rawForm, Records: records, FS: fs,
+		Posture: postureCtxOf(rejectedRef), Provenance: postureProvOf(rejectedRef),
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision,

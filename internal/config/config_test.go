@@ -1292,7 +1292,7 @@ func TestExtractMCPFromBundle(t *testing.T) {
 		},
 	}
 
-	result := extractMCPFromBundle(bundle, "my-bundle", nil)
+	result := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), "my-bundle", nil)
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -1899,9 +1899,9 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 	assert.Empty(t, hooks.PreShell)
 	assert.Empty(t, hooks.PostFileEdit, "no embedded builtin bundle ships a hook anymore")
 
-	synthetic := extractHooksFromBundle(&bundles.Bundle{
+	synthetic := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
 		Hooks: bundles.BundleHooks{PostFileEdit: []bundles.BundleHook{{Command: "echo hi", Type: "command"}}},
-	}, "builtin:future-bundle", nil)
+	}), "builtin:future-bundle", nil)
 	require.Len(t, synthetic.PostFileEdit, 1)
 	assert.Equal(t, "bundle:builtin:future-bundle", synthetic.PostFileEdit[0].SCM,
 		"extractHooksFromBundle prepends 'bundle:' to whatever source it gets, including builtin:")
@@ -1923,11 +1923,11 @@ func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 
 	// Pin the contract directly: a synthetic builtin source through
 	// extractMCPFromBundle produces the expected SCM tag.
-	synthetic := extractMCPFromBundle(&bundles.Bundle{
+	synthetic := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
 		MCP: map[string]bundles.BundleMCP{
 			"synthetic": {Command: "fake"},
 		},
-	}, "builtin:future-bundle", nil)
+	}), "builtin:future-bundle", nil)
 	require.Contains(t, synthetic, "synthetic")
 	assert.Equal(t, "bundle:builtin:future-bundle", synthetic["synthetic"].SCM,
 		"extractMCPFromBundle prepends 'bundle:' to whatever source it gets, including builtin:")

@@ -5,14 +5,17 @@ import (
 	"crypto/rand"
 	"path"
 	"sort"
+	"strings"
 	"testing"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
@@ -30,6 +33,15 @@ import (
 // key for the wanted principal. The stamp therefore survives the round trip the
 // only way it can — by being verified — which is the point of the field being
 // unexported and yaml:"-".
+//
+// THE SEED KEY DECIDES WHICH READER. A canonical ref is pinned REMOTE content
+// and gets the repofs reader; a bare bundle name is this project's own content
+// and gets the project reader. That distinction used to be free: the gate
+// re-derived locality from the ref string, so a "local" fixture read through the
+// remote reader still gated as local. It is not free any more — posture comes
+// from the reader that produced the read — and it should not have been: a
+// fixture whose reader disagrees with its identity is a fixture that cannot
+// exercise the rows that key on the difference.
 func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader {
 	t.Helper()
 	refs := make([]string, 0, len(seed))
@@ -38,6 +50,8 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 	}
 	sort.Strings(refs)
 
+	projectFS := afero.NewMemMapFs()
+	local := false
 	var out []bundles.Reader
 	for _, ref := range refs {
 		b := seed[ref]
@@ -46,6 +60,13 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 		}
 		data, err := yaml.Marshal(b)
 		require.NoError(t, err)
+
+		if !remote.IsSelfContainedRef(ref) && !strings.Contains(ref, "@") {
+			// A bare name is a bundle in this project's own tree.
+			require.NoError(t, afero.WriteFile(projectFS, "/bundles/"+ref+".yaml", data, 0o644))
+			local = true
+			continue
+		}
 
 		files := map[string][]byte{path.Base(ref) + ".yaml": data}
 		var opts []bundles.ReaderOption
@@ -57,6 +78,9 @@ func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader
 		tree, err := content.NewMapTreeFS(files)
 		require.NoError(t, err)
 		out = append(out, bundles.NewRepoFSReader(tree, ref, opts...))
+	}
+	if local {
+		out = append(out, bundles.NewProjectReader(projectFS, []string{"/bundles"}))
 	}
 	return out
 }
@@ -115,4 +139,43 @@ func signAs(t *testing.T, data []byte, principal string) ([]byte, signing.TrustR
 		Namespaces: []string{signing.NamespacePublish},
 		PublicKey:  sshPub,
 	})
+}
+
+// seedTrustedSigned is seedUntrustedSigned's counterpart: b as pinned content
+// signed by a key this machine DOES trust to publish as principal.
+func seedTrustedSigned(t *testing.T, ref, principal string, b *bundles.Bundle) *bundles.Loader {
+	t.Helper()
+	data, err := yaml.Marshal(b)
+	require.NoError(t, err)
+	sig, root := signAs(t, data, principal)
+	tree, err := content.NewMapTreeFS(map[string][]byte{
+		path.Base(ref) + ".yaml":                     data,
+		path.Base(ref) + ".yaml" + bundles.SigSuffix: sig,
+	})
+	require.NoError(t, err)
+	return bundles.NewLoader(bundles.NewRepoFSReader(tree, ref, bundles.WithTrustRoot(root)))
+}
+
+// seedTampered presents b as pinned content whose signature was made by a
+// trusted key over DIFFERENT bytes — the spec §10.2 downgrade attempt.
+func seedTampered(t *testing.T, ref, principal string, b *bundles.Bundle) *bundles.Loader {
+	t.Helper()
+	data, err := yaml.Marshal(b)
+	require.NoError(t, err)
+	sig, root := signAs(t, append(append([]byte{}, data...), []byte("# not these bytes\n")...), principal)
+	tree, err := content.NewMapTreeFS(map[string][]byte{
+		path.Base(ref) + ".yaml":                     data,
+		path.Base(ref) + ".yaml" + bundles.SigSuffix: sig,
+	})
+	require.NoError(t, err)
+	return bundles.NewLoader(bundles.NewRepoFSReader(tree, ref, bundles.WithTrustRoot(root)))
+}
+
+// readOf resolves ref through loader to the READ its reader produced — the
+// value every trust decision now keys on.
+func readOf(t *testing.T, loader *bundles.Loader, ref string) bundles.BundleRead {
+	t.Helper()
+	read, ok := loader.Read(ref)
+	require.True(t, ok, "the fixture bundle %q must resolve", ref)
+	return read
 }

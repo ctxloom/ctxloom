@@ -541,55 +541,58 @@ func TestRenderHookSurface_NoCommandOrPromptShowsMarker(t *testing.T) {
 
 // --- the three publisher states -------------------------------------------
 
-// The pair of stamps a load path leaves on a bundle spells exactly three
-// states, and reviewPublisherOf reads them without deciding anything. The
-// untrusted case is the one that did not exist before: signing.VerifyPublisher
-// reports it as "" — identical to unsigned — so the fingerprint stamp is the
-// only thing that can tell them apart.
-func TestReviewPublisherOf_ThreeStates(t *testing.T) {
-	unsigned := &bundles.Bundle{Version: "1.0"}
-	state, principal, fingerprint := reviewPublisherOf(unsigned)
-	assert.Equal(t, ReviewPublisherUnsigned, state)
+// A READ spells exactly four publisher states, and reviewPublisherOf reads them
+// without deciding anything. Two of them did not exist as separate answers
+// before: signing.VerifyPublisher reports an untrusted key as "" — identical to
+// unsigned — and NOTHING in the old stamp pair could say "invalid" at all, so a
+// signature that failed to verify read as no signature.
+const reviewPubRef = "https://example.test/repo@bundles/pub"
+
+func TestReviewPublisherOf_FourStates(t *testing.T) {
+	b := &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"f": {Content: "x"}}}
+
+	unsignedLoader := seedLoader(t, map[string]*bundles.Bundle{reviewPubRef: b})
+	state, principal, fingerprint := reviewPublisherOf(readOf(t, unsignedLoader, reviewPubRef))
+	assert.Equal(t, bundles.ReasonUnsigned, state)
 	assert.Empty(t, principal)
 	assert.Empty(t, fingerprint)
 
-	untrusted := &bundles.Bundle{Version: "1.0"}
-	untrusted.StampUntrustedSignerFingerprint("SHA256:abc")
-	state, principal, fingerprint = reviewPublisherOf(untrusted)
-	assert.Equal(t, ReviewPublisherUntrustedSigner, state)
+	untrustedLoader, wantFP := seedUntrustedSigned(t, reviewPubRef, b)
+	state, principal, fingerprint = reviewPublisherOf(readOf(t, untrustedLoader, reviewPubRef))
+	assert.Equal(t, bundles.ReasonUntrustedSigner, state)
 	assert.Empty(t, principal, "an untrusted key has no principal — that is the whole point")
-	assert.Equal(t, "SHA256:abc", fingerprint)
+	assert.Equal(t, wantFP, fingerprint)
 
-	trusted := &bundles.Bundle{Version: "1.0"}
-	trusted.StampSigner("runbooks@acme.example")
-	state, principal, fingerprint = reviewPublisherOf(trusted)
-	assert.Equal(t, ReviewPublisherTrustedSigner, state)
+	trustedLoader := seedTrustedSigned(t, reviewPubRef, "runbooks@acme.example", b)
+	state, principal, fingerprint = reviewPublisherOf(readOf(t, trustedLoader, reviewPubRef))
+	assert.Equal(t, bundles.ReasonTrustedSigner, state)
 	assert.Equal(t, "runbooks@acme.example", principal)
 	assert.Empty(t, fingerprint, "a verified bundle shows its identity, never a fingerprint to compare")
+
+	// The state the old vocabulary could not spell. A trusted key's signature
+	// that no longer covers these bytes is TAMPER, and reporting it as
+	// "unsigned" is the §10.2 downgrade told to a human.
+	tamperedLoader := seedTampered(t, reviewPubRef, "runbooks@acme.example", b)
+	state, principal, fingerprint = reviewPublisherOf(readOf(t, tamperedLoader, reviewPubRef))
+	assert.Equal(t, bundles.ReasonTampered, state)
+	assert.Empty(t, principal, "tampered bytes carry no verified identity")
+	assert.Empty(t, fingerprint)
 }
 
 // The synthetic builtin token is not a key and must never be reported as a
-// trusted publisher — the same exclusion EffectiveTrust step 5 makes, for the
-// same reason: "shipped inside this binary" is not "a publisher you verified".
+// trusted publisher — the same exclusion EffectiveTrust's trusted-signer step
+// makes, for the same reason: "shipped inside this binary" is not "a publisher
+// you verified".
 func TestReviewPublisherOf_BuiltinIsNotATrustedPublisher(t *testing.T) {
 	b := &bundles.Bundle{Version: "1.0"}
 	b.StampSigner(trust.BuiltinSigner)
-	state, principal, fingerprint := reviewPublisherOf(b)
-	assert.NotEqual(t, ReviewPublisherTrustedSigner, state)
-	assert.Empty(t, principal)
-	assert.Empty(t, fingerprint)
-}
+	loader := seedTrustedSigned(t, reviewPubRef, "runbooks@acme.example", b)
+	read := readOf(t, loader, reviewPubRef)
+	read.Bundle.StampSigner(trust.BuiltinSigner)
 
-// Precedence, pinned: a VERIFIED bundle reports its verified identity even if a
-// display fingerprint is somehow also present. The reverse would let the
-// weaker, unverified value shadow the stronger one.
-func TestReviewPublisherOf_VerifiedIdentityBeatsADisplayFingerprint(t *testing.T) {
-	b := &bundles.Bundle{Version: "1.0"}
-	b.StampSigner("runbooks@acme.example")
-	b.StampUntrustedSignerFingerprint("SHA256:abc")
-	state, principal, fingerprint := reviewPublisherOf(b)
-	assert.Equal(t, ReviewPublisherTrustedSigner, state)
-	assert.Equal(t, "runbooks@acme.example", principal)
+	state, principal, fingerprint := reviewPublisherOf(read)
+	assert.NotEqual(t, bundles.ReasonTrustedSigner, state)
+	assert.Empty(t, principal)
 	assert.Empty(t, fingerprint)
 }
 
@@ -609,7 +612,7 @@ func TestPendingReview_CarriesTheUntrustedSignerThroughToTheBundle(t *testing.T)
 	})
 	require.NoError(t, err)
 	require.Len(t, res.Bundles, 1)
-	assert.Equal(t, ReviewPublisherUntrustedSigner, res.Bundles[0].Publisher)
+	assert.Equal(t, bundles.ReasonUntrustedSigner, res.Bundles[0].Publisher)
 	assert.Equal(t, fingerprint, res.Bundles[0].SignerFingerprint,
 		"the fingerprint shown is the one from the key that actually signed these bytes")
 	assert.Empty(t, res.Bundles[0].Signer, "no principal was verified, so none may be reported")
@@ -628,6 +631,6 @@ func TestPendingReview_UnsignedBundleReportsUnsignedAndNoKey(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, res.Bundles, 1)
-	assert.Equal(t, ReviewPublisherUnsigned, res.Bundles[0].Publisher)
+	assert.Equal(t, bundles.ReasonUnsigned, res.Bundles[0].Publisher)
 	assert.Empty(t, res.Bundles[0].SignerFingerprint)
 }

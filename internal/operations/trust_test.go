@@ -434,6 +434,8 @@ func TestEffectiveTrust_Cascade(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 				Ref:        tt.ref,
+				Posture:    postureCtxOf(tt.ref),
+				Provenance: postureProvOf(tt.ref),
 				Payload:    tt.payload,
 				Form:       tt.form,
 				Signer:     tt.signer,
@@ -459,10 +461,12 @@ func TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	fs := afero.NewMemMapFs()
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
-		Ref:     trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
-		Payload: pbytes("x"),
-		Form:    rawForm,
-		FS:      fs,
+		Ref:        trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"},
+		Posture:    postureCtxOf(trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}),
+		Provenance: postureProvOf(trust.Ref{RepoURL: trustRepo, Bundle: "b", Kind: trust.KindFragment, Name: "f"}),
+		Payload:    pbytes("x"),
+		Form:       rawForm,
+		FS:         fs,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, trust.Deny, res.Decision)
@@ -841,6 +845,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	t.Run("unsigned companion content is ALLOWED as companion — installed is the consent act", func(t *testing.T) {
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
+			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: fakeRecords{},
 		})
 		require.NoError(t, err)
@@ -852,6 +857,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	t.Run("a signed companion is allowed at the COMPANION step, above trusted-signer", func(t *testing.T) {
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: trustedPublisher,
+			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: fakeRecords{},
 		})
 		require.NoError(t, err)
@@ -865,6 +871,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	t.Run("REJECTION still reaches companion content, ahead of the exemption", func(t *testing.T) {
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
+			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool {
 				return r.RepoURL == remote.CompanionSource && r.Bundle == "ltk"
 			}},
@@ -878,6 +885,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	t.Run("a rejection of the companion ref still wins over a trusted signer", func(t *testing.T) {
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: trustedPublisher,
+			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool {
 				return r.RepoURL == remote.CompanionSource && r.Bundle == "ltk"
 			}},
@@ -890,6 +898,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 	t.Run("an unreadable approvals store denies companion content too", func(t *testing.T) {
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
+			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records: unreadableRecords{},
 		})
 		require.NoError(t, err)
@@ -907,6 +916,7 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 		assert.True(t, retractable(tref), "a companion ref carries a RepoURL and stays in the step-2a scope")
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
+			Posture: postureCtxOf(tref), Provenance: postureProvOf(tref),
 			Records:    fakeRecords{},
 			Retraction: &lockfileRetraction{unreadable: assert.AnError, path: "lock.yaml"},
 		})
@@ -943,6 +953,8 @@ func TestEffectiveTrust_LocalExemptionSitsBelowRetraction(t *testing.T) {
 
 	res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 		Ref:        localRef,
+		Posture:    postureCtxOf(localRef),
+		Provenance: postureProvOf(localRef),
 		Payload:    []byte("local mcp payload"),
 		Form:       rawForm,
 		Records:    fakeRecords{},

@@ -178,7 +178,7 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 
 	// Gate denying the pinned version → withheld, so no bundle prompt exports
 	// (fail-closed; only builtins remain).
-	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+	cfg.SetExecutableTrustGate(testFilter(false))
 	denied := LoadCommandExports(cfg, nil, config.WithBundleVersionResolver(resolver))
 	assert.Empty(t, bundlePromptItems(denied), "an un-granted pinned curated version must be withheld")
 }

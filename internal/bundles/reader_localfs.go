@@ -83,6 +83,36 @@ func NewBuiltinReader(opts ...ReaderOption) Reader {
 	}
 }
 
+// ProjectAuthoredRead states the trust facts of content that IS in this
+// project's own tree but did not come out of a Reader, because it is not a
+// bundle: a `.ctxloom/profiles/<name>.yaml` profile's directly-declared hooks
+// and MCP servers.
+//
+// It reports exactly what NewProjectReader reports for any file it finds in the
+// project tree — ProvenanceProject, TrustCtxLocal, and no signature — so it
+// asserts nothing that reader would not.
+//
+// IT IS THE ONE EXPORTED CONSTRUCTOR THAT SETS THE AXES, and that is a
+// deliberate, narrow exception to the rule that provenance is never a caller's
+// to choose. Two things hold it in place:
+//
+//   - It can only ever say PROJECT/LOCAL/UNSIGNED. There is no argument for
+//     provenance, trust context or signature, so it cannot mint a builtin, a
+//     companion, or a trusted signer, and it cannot claim a signature covers
+//     anything.
+//   - It is no wider than what it replaced. Before the Filter, the same call
+//     site asserted the same thing by handing the gate a bare-token ref, which
+//     trust.ParseItemRef resolves to IsLocal — a claim of locality made in a
+//     string, where nothing could see it. This makes the claim visible and
+//     greppable; TestProjectAuthoredRead_CallSites pins the list.
+//
+// The principled fix is for profiles.ResolvedProfile to carry the read of the
+// bundle (or project tree) it came from, which is a slice of its own.
+func ProjectAuthoredRead(ref string, b *Bundle) BundleRead {
+	return newRead(ref, b, ProvenanceProject, TrustCtxLocal,
+		signatureFacts{signature: SignatureNone, signer: SignerNone})
+}
+
 // FS exposes the filesystem this reader read from, so a caller computing a
 // skill's trust preimage from its on-disk tree uses the SAME filesystem the
 // bundle was read through. Computing that preimage against a different fs

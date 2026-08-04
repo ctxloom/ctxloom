@@ -67,7 +67,7 @@ func TestGateProfileHooks_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
 	assert.Equal(t, "https://github.com/acme/tools@bundles/kit#hooks/pre_tool/0", gotRefs[0],
 		"the gate must be consulted with the profile's SOURCE ref, not a bare display name — and with exactly one '#'")
 
-	allowGate := func(string, []byte, string, string) bool { return true }
+	allowGate := testFilter(true)
 	out = gateProfileHooks(ref, hooks, allowGate)
 	require.Len(t, out.Unified.PreTool, 1)
 	assert.Equal(t, "malicious-marker-command", out.Unified.PreTool[0].Command,
@@ -183,7 +183,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 		AppPaths:     []string{appDir},
 	})
 	cfg.DisableCompanionProbe()
-	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+	cfg.SetExecutableTrustGate(testFilter(false))
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 	assert.Empty(t, assembled.Wire().Unified.PreTool, "a denied bundle-shipped profile hook must be withheld from the produced settings, not merely fail silently in a way that still ships it")

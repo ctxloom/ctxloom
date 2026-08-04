@@ -462,7 +462,7 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
 
 	t.Run("trusted gate: companion hook is included", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
+		cfg.SetExecutableTrustGate(testFilter(true))
 		result := cfg.ResolveBundleHooks(nil)
 		require.Len(t, result.PreTool, 1)
 		assert.Equal(t, "ltk evaluate", result.PreTool[0].Command)
@@ -471,7 +471,7 @@ func TestResolveBundleHooks_IncludesCompanionLoadoutHooks_Gated(t *testing.T) {
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+		cfg.SetExecutableTrustGate(testFilter(false))
 		result := cfg.ResolveBundleHooks(nil)
 		assert.Empty(t, result.PreTool, "a companion hook must be withheld by a denying gate — a builtin would NOT be (it's exempt below rejection)")
 	})
@@ -489,7 +489,7 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testin
 
 	t.Run("trusted gate: companion MCP server is included", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
+		cfg.SetExecutableTrustGate(testFilter(true))
 		result := cfg.ResolveBundleMCPServers(nil)
 		require.Contains(t, result, "ltk-server")
 		assert.Equal(t, "bundle:"+remote.CompanionSource+"@ltk", result["ltk-server"].SCM)
@@ -497,7 +497,7 @@ func TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated(t *testin
 
 	t.Run("denying gate withholds it", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+		cfg.SetExecutableTrustGate(testFilter(false))
 		result := cfg.ResolveBundleMCPServers(nil)
 		assert.NotContains(t, result, "ltk-server")
 	})
@@ -521,7 +521,7 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 
 	t.Run("trusted gate: companion command is included with no profile selected", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
+		cfg.SetExecutableTrustGate(testFilter(true))
 		result := cfg.ResolveBundleCommands(nil)
 		require.Len(t, result, 1)
 		assert.Equal(t, "task-runner", result[0].Item)
@@ -534,7 +534,7 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+		cfg.SetExecutableTrustGate(testFilter(false))
 		result := cfg.ResolveBundleCommands(nil)
 		assert.Empty(t, result, "a companion command must be withheld by a denying gate — a true builtin would NOT be")
 		assert.Empty(t, cfg.ResolveCompanionCommands())
@@ -553,11 +553,14 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 
 	t.Run("trusted gate: companion fragment is included, ref carries the companion source (not builtin:)", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		var seenRef, seenSigner string
-		got := cfg.ResolveBuiltinBundleFragments(func(ref string, _ []byte, _, signer string) bool {
-			seenRef, seenSigner = ref, signer
-			return true
-		})
+		var seenRef string
+		var seenSignature bundles.Signature
+		var seenSigner bundles.Signer
+		got := cfg.ResolveBuiltinBundleFragments(bundles.FilterFunc(func(e bundles.Exposure) bundles.Verdict {
+			seenRef = e.RefString()
+			seenSignature, seenSigner = e.Read.Signature(), e.Read.Signer()
+			return bundles.Verdict{Admit: true, Reason: bundles.ReasonCompanion}
+		}))
 		var found bool
 		for _, f := range got {
 			if f.Name == remote.CompanionSource+"@ltk#fragments/ltk" {
@@ -566,12 +569,16 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 		}
 		assert.True(t, found, "companion fragment must be present with the companion's own ref, not a builtin: ref")
 		assert.Equal(t, remote.CompanionSource+"@ltk#fragments/ltk", seenRef)
-		assert.Empty(t, seenSigner, "this loadout is unsigned")
+		// The read's own axes, not a collapsed signer string: an unsigned
+		// loadout reports none/none, which is a FACT, where the old gate's
+		// empty signer could equally have meant "signed by a key we distrust".
+		assert.Equal(t, bundles.SignatureNone, seenSignature, "this loadout is unsigned")
+		assert.Equal(t, bundles.SignerNone, seenSigner, "and so names no key")
 	})
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		got := cfg.ResolveBuiltinBundleFragments(func(string, []byte, string, string) bool { return false })
+		got := cfg.ResolveBuiltinBundleFragments(testFilter(false))
 		for _, f := range got {
 			assert.NotEqual(t, remote.CompanionSource+"@ltk#fragments/ltk", f.Name,
 				"a companion fragment must be withheld by a denying gate — a true builtin fragment is exempt and would NOT be")
@@ -609,7 +616,7 @@ func TestResolveBundleMCPServers_ExcludeMCP_AppliesToCompanionServers(t *testing
 			agents:       map[string]agents.Agent{"default": {Profiles: []string{"dev"}}},
 			appPaths:     []string{appDir},
 		}
-		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
+		cfg.SetExecutableTrustGate(testFilter(true))
 		return cfg
 	}
 

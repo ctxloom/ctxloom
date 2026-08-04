@@ -177,7 +177,7 @@ func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
 		"a granted directory-curated prompt is exported")
 
 	// Gate denying → withheld (fail-closed); only builtins remain.
-	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+	cfg.SetExecutableTrustGate(testFilter(false))
 	denied := LoadCommandExports(cfg, nil, seed)
 	assert.Empty(t, bundlePromptItems(denied),
 		"an un-granted directory-curated prompt must be withheld")

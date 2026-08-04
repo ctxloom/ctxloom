@@ -205,10 +205,11 @@ func TestSeedTreeBundles_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *testin
 		"a failure that is not a tree refusal must be left untouched")
 }
 
-// stageLoaderFormTree writes the LOADER's directory form — the shape every real
-// directory bundle in the wild actually has: bundle.yaml declares `skills:`
-// metadata inline, and the skill's FILES live in skills/<name>/. The inline key
-// is the manifest FOR those files, not a second copy of them.
+// stageLoaderFormTree writes the RETIRED loader directory form: bundle.yaml
+// declares `skills:` inline and the skill's files live in skills/<name>/.
+//
+// It is staged here only so the REFUSAL can be asserted. This shape is being
+// removed, not supported — see TestLoadTreeBundle_RetiredLoaderDirectoryFormIsRefused.
 func stageLoaderFormTree(t *testing.T) (*Config, afero.Fs, string) {
 	t.Helper()
 	fsys := afero.NewMemMapFs()
@@ -225,51 +226,19 @@ func stageLoaderFormTree(t *testing.T) (*Config, afero.Fs, string) {
 	return c, fsys, dir
 }
 
-// THE REGRESSION. Every directory-form bundle that actually exists is in the
-// loader's shape, and the tree reader refused all of them ("still declares
-// skills inline"). Publishing one and pulling it therefore withheld it entirely
-// — including the bundle that carries the good-night skill.
+// The loader directory form — bundle.yaml carrying inline items beside a
+// skills/ subtree — is RETIRED. A published bundle in that shape is refused
+// rather than accommodated, because accommodating it is a backward-compat shim
+// and this project's documented upgrade path is to migrate the content.
 //
-// The tree read path must ROUTE by shape rather than assume the tree form.
-func TestLoadTreeBundle_LoaderDirectoryFormIsReadableNotRefused(t *testing.T) {
+// The refusal has to NAME the migration, or a publisher who has never heard of
+// the tree form reads it as a bug in ctxloom rather than as work they owe.
+func TestLoadTreeBundle_RetiredLoaderDirectoryFormIsRefused(t *testing.T) {
 	c, _, _ := stageLoaderFormTree(t)
 	_, pub := treeTestSigner(t)
 
-	b, _, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
-	require.NoError(t, err, "the loader's directory form is a legitimate published shape, not a half-migrated tree")
-	assert.Equal(t, "1.0.0", b.Version)
-	require.Contains(t, b.Skills, "good-night", "the inline skills metadata must survive")
-	assert.Equal(t, "overnight", b.Skills["good-night"].Notes)
-}
-
-// A loader-form bundle's skills are FILES on disk, so its Path must resolve to
-// the installed directory exactly as a tree-form bundle's does — otherwise the
-// package cannot be materialized and the skill silently does not exist.
-func TestLoadTreeBundle_LoaderDirectoryFormResolvesItsSkillDirectory(t *testing.T) {
-	c, _, dir := stageLoaderFormTree(t)
-	_, pub := treeTestSigner(t)
-
-	b, _, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
-	require.NoError(t, err)
-	got, err := b.FSDir()
-	require.NoError(t, err)
-	assert.Equal(t, dir, got)
-}
-
-// The guard the refusal existed for must SURVIVE the fix: an envelope declaring
-// a fragment inline while a fragments/ file also exists genuinely has two
-// answers for one item, and picking one silently is how a stale inline copy
-// outlives the file that superseded it.
-func TestLoadTreeBundle_GenuinelyHalfMigratedTreeIsStillRefused(t *testing.T) {
-	c, fsys, dir := stageLoaderFormTree(t)
-	require.NoError(t, fsys.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
-	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "bundle.yaml"), []byte(
-		"version: 1.0.0\nfragments:\n  house-style:\n    content: STALE-INLINE-COPY\n"), 0o644))
-	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "fragments", "house-style.md"),
-		[]byte("---\ndescription: d\n---\n\nTHE-FILE-COPY\n"), 0o644))
-
-	_, pub := treeTestSigner(t)
 	_, _, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "fragments")
+	require.Error(t, err, "the retired shape must not load silently")
+	assert.Contains(t, err.Error(), "skills",
+		"the refusal must name the inline key that makes it the retired shape")
 }

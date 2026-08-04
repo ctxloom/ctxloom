@@ -106,3 +106,146 @@ func TestSkipCapability_AlwaysSkips_NeverPromoted(t *testing.T) {
 		t.Fatalf("Skipf message missing the reason: %q", tb.msg)
 	}
 }
+
+// --- named-runtime gating (runtimes.go) -------------------------------------
+
+// TestNamedRuntime_Unreachable_NotDeclared_Skips is the developer-laptop case
+// AND the asymmetric-CI case: no host is both rootful and rootless, so a matrix
+// cell for the runtime this host lacks must skip rather than fail.
+func TestNamedRuntime_Unreachable_NotDeclared_Skips(t *testing.T) {
+	old := requiredRuntimes
+	requiredRuntimes = nil
+	t.Cleanup(func() { requiredRuntimes = old })
+
+	d, msg := NamedRuntimeDecision("podman", false, "the container cell")
+	if d != Skip {
+		t.Fatalf("decision = %v, want Skip", d)
+	}
+	if !strings.Contains(msg, "podman") || !strings.Contains(msg, "the container cell") {
+		t.Fatalf("skip message names neither the runtime nor the test: %q", msg)
+	}
+	if !strings.Contains(msg, EnvRequireRuntimes) {
+		t.Fatalf("skip message does not name the variable that would promote it: %q", msg)
+	}
+}
+
+// TestNamedRuntime_Unreachable_Declared_Fails is the whole point of the second
+// variable: a lane that says it covers podman and does not is red.
+func TestNamedRuntime_Unreachable_Declared_Fails(t *testing.T) {
+	old := requiredRuntimes
+	requiredRuntimes = []string{"podman"}
+	t.Cleanup(func() { requiredRuntimes = old })
+
+	d, msg := NamedRuntimeDecision("podman", false, "the container cell")
+	if d != Fail {
+		t.Fatalf("decision = %v, want Fail", d)
+	}
+	if !strings.Contains(msg, "podman") || !strings.Contains(msg, "ran NOTHING") {
+		t.Fatalf("failure message does not state what was not covered: %q", msg)
+	}
+}
+
+// TestNamedRuntime_RequireDockerDoesNotPromote pins the boundary between the
+// two variables. CTXLOOM_REQUIRE_DOCKER=1 asserts SOME runtime is reachable; if
+// it also promoted named misses, every matrix would be permanently red on every
+// host, because no host is both rootful and rootless.
+func TestNamedRuntime_RequireDockerDoesNotPromote(t *testing.T) {
+	oldReq, oldRT := required, requiredRuntimes
+	required, requiredRuntimes = true, nil
+	t.Cleanup(func() { required, requiredRuntimes = oldReq, oldRT })
+
+	if d, _ := NamedRuntimeDecision("docker-rootful", false, "the container cell"); d != Skip {
+		t.Fatalf("decision = %v, want Skip: %s=1 must not promote a NAMED runtime miss", d, EnvRequireDocker)
+	}
+}
+
+// TestNamedRuntime_DeclaredAndReachable_Proceeds is the covered case.
+func TestNamedRuntime_DeclaredAndReachable_Proceeds(t *testing.T) {
+	old := requiredRuntimes
+	requiredRuntimes = []string{"podman"}
+	t.Cleanup(func() { requiredRuntimes = old })
+
+	if d, _ := NamedRuntimeDecision("podman", true, "the container cell"); d != Proceed {
+		t.Fatalf("decision = %v, want Proceed", d)
+	}
+}
+
+// TestValidateRequiredRuntimes_RejectsTypo: an unreachable-by-typo name matches
+// nothing, so every cell skips and the lane reports green having covered none of
+// what it declared. That must be loud at the gate, not silent in the result.
+func TestValidateRequiredRuntimes_RejectsTypo(t *testing.T) {
+	old := requiredRuntimes
+	requiredRuntimes = []string{"podmn"}
+	t.Cleanup(func() { requiredRuntimes = old })
+
+	err := ValidateRequiredRuntimes([]string{"docker-rootful", "docker-rootless", "podman"})
+	if err == nil {
+		t.Fatal("expected an error for an unprobeable runtime name")
+	}
+	if !strings.Contains(err.Error(), "podmn") || !strings.Contains(err.Error(), "podman") {
+		t.Fatalf("error names neither the typo nor the vocabulary: %v", err)
+	}
+}
+
+func TestValidateRequiredRuntimes_AcceptsKnown(t *testing.T) {
+	old := requiredRuntimes
+	requiredRuntimes = []string{"docker-rootless", "podman"}
+	t.Cleanup(func() { requiredRuntimes = old })
+
+	if err := ValidateRequiredRuntimes([]string{"docker-rootful", "docker-rootless", "podman"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestParseRuntimeList_TrimsAndSorts(t *testing.T) {
+	got := parseRuntimeList(" podman , docker-rootful ,, ")
+	want := []string{"docker-rootful", "podman"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+	if len(parseRuntimeList("")) != 0 {
+		t.Fatal("an unset variable must declare nothing")
+	}
+}
+
+// TestRuntimeDecision_MatchesRequireRuntime keeps the extracted policy and the
+// testing.TB wrapper from drifting: RequireRuntime IS RuntimeDecision + Apply,
+// and the godog steps that call RuntimeDecision directly must get the same rule.
+func TestRuntimeDecision_MatchesRequireRuntime(t *testing.T) {
+	oldReq := required
+	t.Cleanup(func() { required = oldReq })
+
+	for _, tc := range []struct {
+		required  bool
+		available bool
+		want      Decision
+	}{
+		{required: false, available: true, want: Proceed},
+		{required: true, available: true, want: Proceed},
+		{required: false, available: false, want: Skip},
+		{required: true, available: false, want: Fail},
+	} {
+		required = tc.required
+		d, _ := RuntimeDecision(tc.available, "the widget test")
+		if d != tc.want {
+			t.Fatalf("required=%v available=%v: decision = %v, want %v", tc.required, tc.available, d, tc.want)
+		}
+		tb := &fakeTB{}
+		RequireRuntime(tb, tc.available, "the widget test")
+		gotApplied := Proceed
+		switch {
+		case tb.fatalCalled:
+			gotApplied = Fail
+		case tb.skipCalled:
+			gotApplied = Skip
+		}
+		if gotApplied != tc.want {
+			t.Fatalf("required=%v available=%v: RequireRuntime applied %v, want %v", tc.required, tc.available, gotApplied, tc.want)
+		}
+	}
+}

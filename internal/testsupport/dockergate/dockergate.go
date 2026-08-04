@@ -27,9 +27,16 @@
 // (isolation.Docker{}.Available()) and its own tests are in `package
 // isolation`, so a probing dockergate would import isolation and close a
 // cycle. A bool keeps one gate usable from all four packages.
+//
+// WHICH runtime, not merely SOME runtime, is the second axis — see runtimes.go.
+// CTXLOOM_REQUIRE_DOCKER cannot express "this lane covers podman", so a lane
+// meant to cover podman on a host that has only docker would skip GREEN: the
+// aspiration is in the lane's name and nowhere a gate can read it.
+// CTXLOOM_REQUIRE_RUNTIMES names them, and RequireNamedRuntime enforces it.
 package dockergate
 
 import (
+	"fmt"
 	"os"
 	"testing"
 )
@@ -45,34 +52,59 @@ const EnvRequireDocker = "CTXLOOM_REQUIRE_DOCKER"
 // the exact failure this package exists to remove.
 var required = os.Getenv(EnvRequireDocker) == "1"
 
+// RuntimeDecision is RequireRuntime's policy WITHOUT a testing.TB: it returns
+// what the gate decided and the message that decision carries. It exists
+// because the acceptance suite is godog, not `go test` — a Gherkin step has no
+// *testing.T to Skipf on, and reimplementing the CTXLOOM_REQUIRE_DOCKER rule
+// there would be a second, drifting copy of exactly the policy this package
+// exists to centralise (the two-copies-of-one-recipe hole in
+// build/gates.justfile is the same mistake in the neighbouring file).
+//
+// RequireRuntime is this function plus Apply. Both callers therefore share one
+// rule and one wording.
+func RuntimeDecision(available bool, what string) (Decision, string) {
+	if available {
+		return Proceed, ""
+	}
+	if required {
+		return Fail, fmt.Sprintf("no container runtime is reachable, but %s=1 demands one: %s ran NOTHING. "+
+			"A skip here would report green for a suite that executed zero container tests; "+
+			"fix the runner's docker socket, or unset %s to go back to skipping.",
+			EnvRequireDocker, what, EnvRequireDocker)
+	}
+	return Skip, fmt.Sprintf("docker unavailable; skipping %s (set %s=1 to make this a failure instead)",
+		what, EnvRequireDocker)
+}
+
 // RequireRuntime gates a test on container-runtime REACHABILITY. available is
 // the caller's probe (isolation.Docker{}.Available()); what names the test in
 // the resulting message, e.g. "the container-progress integration test".
 //
 // Unreachable + CTXLOOM_REQUIRE_DOCKER=1 fails the test. Unreachable without
 // it skips, naming the env var so the reader knows the stricter mode exists.
+//
+// It answers "is SOME runtime reachable", never "is podman reachable" — see
+// RequireNamedRuntime for that.
 func RequireRuntime(t testing.TB, available bool, what string) {
 	t.Helper()
-	if available {
-		return
+	d, msg := RuntimeDecision(available, what)
+	Apply(t, d, msg)
+}
+
+// Apply turns a Decision into the testing.TB call it names. Fatalf before
+// Skipf is deliberate and load-bearing: a testing.TB that merely RECORDS a
+// failure instead of stopping the goroutine (this package's own fakeTB, found
+// by dockergate_test.go) must not fall through to a "skipped" report for what
+// CTXLOOM_REQUIRE_DOCKER=1 demands be a hard failure.
+func Apply(t testing.TB, d Decision, msg string) {
+	t.Helper()
+	switch d {
+	case Fail:
+		t.Fatalf("%s", msg)
+	case Skip:
+		t.Skipf("%s", msg)
+	case Proceed:
 	}
-	if required {
-		t.Fatalf("no container runtime is reachable, but %s=1 demands one: %s ran NOTHING. "+
-			"A skip here would report green for a suite that executed zero container tests; "+
-			"fix the runner's docker socket, or unset %s to go back to skipping.",
-			EnvRequireDocker, what, EnvRequireDocker)
-		// Real *testing.T.Fatalf never returns (it calls FailNow, which stops
-		// the goroutine via runtime.Goexit()) — this return is defensive
-		// documentation of that contract, not load-bearing against a real
-		// *testing.T, but it stops a testing.TB that merely RECORDS the
-		// failure (found by this package's own new test, dockergate_test.go)
-		// from silently falling through to the Skipf below and reporting
-		// "skipped" for what CTXLOOM_REQUIRE_DOCKER=1 demands must be a hard
-		// failure.
-		return
-	}
-	t.Skipf("docker unavailable; skipping %s (set %s=1 to make this a failure instead)",
-		what, EnvRequireDocker)
 }
 
 // SkipCapability skips for an environment CAPABILITY that a legitimate runner

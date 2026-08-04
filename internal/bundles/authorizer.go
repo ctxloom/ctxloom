@@ -1,6 +1,7 @@
 package bundles
 
 import (
+	"github.com/ctxloom/ctxloom/internal/shared/admission"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -31,18 +32,18 @@ import (
 // serve a delivery path, a listing path and a review report without any of them
 // having to re-derive it — and it is why every caller that receives a Verdict is
 // obliged to surface a non-empty Detail.
-type Authorizer interface {
-	Admit(Exposure) Verdict
-}
+//
+// It is content exposure's INSTANTIATION of the admission shape every gate in
+// ctxloom takes, not a parallel definition of it: the query is an Exposure and
+// the vocabulary is this package's Reason. Companion execution and publish
+// destinations instantiate the same shape with their own two types.
+type Authorizer = admission.Authorizer[Exposure, Reason]
 
 // AuthorizerFunc adapts a plain function to Authorizer, for a decision that is genuinely
 // one expression (and for tests). It carries no state, which is the tell that a
 // real authorizer — one that opens countersignature stores — should be a named type
 // whose construction says what it reads.
-type AuthorizerFunc func(Exposure) Verdict
-
-// Admit implements Authorizer.
-func (f AuthorizerFunc) Admit(e Exposure) Verdict { return f(e) }
+type AuthorizerFunc = admission.AuthorizerFunc[Exposure, Reason]
 
 // Exposure is one item's bytes, about to be delivered, with everything the
 // decision keys on.
@@ -81,30 +82,29 @@ func (e Exposure) RefString() string { return e.Ref.ItemRef() }
 // Verdict is what a Authorizer decided, and the ONLY vocabulary anything downstream
 // renders. A caller that prints "withheld" without printing Reason is printing
 // less than the decision knew.
-type Verdict struct {
-	// Admit reports whether these exact bytes may be delivered.
-	Admit bool
-	// Reason names WHICH rule decided. It is meaningful for admits as well as
-	// withholds: "allowed because it is builtin" and "allowed because a human
-	// countersigned it" are different facts, and a review surface needs both.
-	Reason Reason
-	// Detail is the human-readable elaboration on Reason — a publisher's stated
-	// retraction reason, the signature error behind an invalid signature. It is
-	// display-only and never an input to any decision.
-	//
-	// On an ADMITTED-WITH-WARNING verdict (ReasonStaleLocalSignature) it is the
-	// warning itself, and every caller must surface it: a Detail nobody prints
-	// means an author never learns their signature went stale, which is the
-	// exact failure that row exists to catch.
-	Detail string
-}
+//
+// Its three fields are the shared admission shape's: Allow is whether these
+// exact bytes may be delivered, Reason names WHICH rule decided (meaningful for
+// admits as well as withholds — "allowed because it is builtin" and "allowed
+// because a human countersigned it" are different facts a review surface needs),
+// and Detail is the display-only elaboration, never an input to any decision.
+//
+// On an ADMITTED-WITH-WARNING verdict (ReasonStaleLocalSignature) Detail is the
+// warning itself, and every caller must surface it: a Detail nobody prints means
+// an author never learns their signature went stale, which is the exact failure
+// that row exists to catch.
+type Verdict = admission.Decision[Reason]
 
-// Warns reports whether this verdict admits the content AND has something the
+// Warns reports whether a verdict admits the content AND has something the
 // author has to be told. It is the one predicate a caller needs to decide
 // whether to emit Detail, so no call site has to know which Reasons are the
 // warning ones.
-func (v Verdict) Warns() bool {
-	return v.Admit && v.Reason == ReasonStaleLocalSignature && v.Detail != ""
+//
+// A free function rather than a method because Verdict is an alias for a
+// generic instantiation from another package, and Go permits methods only on
+// locally-defined types.
+func Warns(v Verdict) bool {
+	return v.Allow && v.Reason == ReasonStaleLocalSignature && v.Detail != ""
 }
 
 // Reason names which rule decided an exposure. It is the single vocabulary the
@@ -340,11 +340,11 @@ func (r Reason) Explain(detail string) string {
 //     in strict mode and warn-and-continue under --degraded, exactly as it was
 //     when the loader raised it.
 func ReportVerdict(ref string, v Verdict) {
-	if v.Warns() {
+	if Warns(v) {
 		clidiag.WarnOnce("ctxloom", "%s", v.Detail)
 		return
 	}
-	if !v.Admit && v.Reason == ReasonTampered {
+	if !v.Allow && v.Reason == ReasonTampered {
 		strictness.FailOnce(strictness.ClassTrust,
 			"re-pull the bundle, or investigate the source — its signature does not cover its bytes",
 			"withholding %s: %s", ref, v.Reason.Explain(v.Detail))
@@ -386,7 +386,7 @@ type UnaddressableReporter interface {
 // content no rule ever saw.
 func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, form ContentForm) Verdict {
 	if authorizer == nil {
-		return Verdict{Admit: true, Reason: ReasonUnset}
+		return Verdict{Allow: true, Reason: ReasonUnset}
 	}
 	tRef, _, _, err := trust.ParseItemRef(ref)
 	if err != nil {

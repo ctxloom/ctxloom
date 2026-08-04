@@ -122,7 +122,7 @@ func (p *Pipeline) Withheld() []string {
 // content.
 func (p *Pipeline) admit(read BundleRead, ref string, payload []byte, form ContentForm) bool {
 	v := Decide(p.authorizer, read, ref, payload, form)
-	if v.Admit {
+	if v.Allow {
 		return true
 	}
 	p.recordWithheld(ref)

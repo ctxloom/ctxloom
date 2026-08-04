@@ -645,7 +645,7 @@ func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, source 
 		}
 		ref := source + "#fragments/" + fragName
 		payload, form := frag.ContentPayload(preferDistilled)
-		if !bundles.Decide(gate, read, ref, payload, form).Admit {
+		if !bundles.Decide(gate, read, ref, payload, form).Allow {
 			continue // withheld by the trust gate (e.g. rejected, or pending)
 		}
 		out = append(out, BuiltinFragment{
@@ -748,7 +748,7 @@ func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles
 				if perr != nil {
 					continue // cannot build the preimage → cannot evaluate → withhold
 				}
-				if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Admit {
+				if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Allow {
 					continue // withheld by the trust gate
 				}
 			}
@@ -795,7 +795,7 @@ func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.A
 			if perr != nil {
 				continue // cannot build the preimage → cannot evaluate → withhold
 			}
-			if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Admit {
+			if !bundles.Decide(gate, read, ref, payload, bundles.FormRaw).Allow {
 				continue // withheld by the trust gate
 			}
 		}

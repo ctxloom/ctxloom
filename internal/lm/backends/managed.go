@@ -505,7 +505,7 @@ func gateProfileExec(gate bundles.Authorizer, ref profileGateRef, itemRef string
 	if payload == nil {
 		return false
 	}
-	return bundles.Decide(gate, ref.Read, itemRef, payload, bundles.FormRaw).Admit
+	return bundles.Decide(gate, ref.Read, itemRef, payload, bundles.FormRaw).Allow
 }
 
 // mcpExecPayload builds a profile MCP server's executable-surface preimage via

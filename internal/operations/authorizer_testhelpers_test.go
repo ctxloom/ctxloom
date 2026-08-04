@@ -15,7 +15,7 @@ import (
 func testAuthorizer(admit bool) bundles.Authorizer {
 	return bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
 		if admit {
-			return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+			return bundles.Verdict{Allow: true, Reason: bundles.ReasonLocal}
 		}
 		return bundles.Verdict{Reason: bundles.ReasonPending}
 	})
@@ -46,7 +46,7 @@ func execRead(t *testing.T, principal string) bundles.BundleRead {
 // reports whether it may be delivered.
 func admitExec(t *testing.T, g *contentGate, read bundles.BundleRead, ref string, payload []byte, form string) bool {
 	t.Helper()
-	return bundles.Decide(g, read, ref, payload, bundles.ContentForm(form)).Admit
+	return bundles.Decide(g, read, ref, payload, bundles.ContentForm(form)).Allow
 }
 
 // postureCtxOf spells the READ POSTURE a decision-table row's ref implies, so a

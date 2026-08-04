@@ -34,7 +34,7 @@ import (
 // regression that withholds the content pass.
 //
 // The diagnostic RIDES THE VERDICT: the Authorizer answers the decision
-// table's `local | invalid | *` row with {Admit: true, Reason:
+// table's `local | invalid | *` row with {Allow: true, Reason:
 // ReasonStaleLocalSignature, Detail: StaleSignatureAdvice}, and the delivery
 // path prints Detail. So these tests drive a Pipeline, which is the only place
 // both halves are observable at once. signatureRowsAuthorizer below is the row
@@ -59,7 +59,7 @@ func signatureRowsAuthorizer() Authorizer {
 		if e.Read.TrustCtx() == TrustCtxRemote {
 			return Verdict{Reason: ReasonTampered, Detail: e.Read.SignatureDetail()}
 		}
-		return Verdict{Admit: true, Reason: ReasonStaleLocalSignature, Detail: StaleSignatureAdvice(e.Read)}
+		return Verdict{Allow: true, Reason: ReasonStaleLocalSignature, Detail: StaleSignatureAdvice(e.Read)}
 	})
 }
 

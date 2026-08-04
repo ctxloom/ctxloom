@@ -559,7 +559,7 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 		got := cfg.ResolveBuiltinBundleFragments(bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 			seenRef = e.RefString()
 			seenSignature, seenSigner = e.Read.Signature(), e.Read.Signer()
-			return bundles.Verdict{Admit: true, Reason: bundles.ReasonCompanion}
+			return bundles.Verdict{Allow: true, Reason: bundles.ReasonCompanion}
 		}))
 		var found bool
 		for _, f := range got {

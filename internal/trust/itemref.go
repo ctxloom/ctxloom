@@ -93,13 +93,12 @@ func ParseItemRef(ref string) (tRef Ref, loadRef, version string, err error) {
 
 // The fail-closed/fail-open boundary above — "does this string carry a marker
 // saying it was INTENDED as a scheme-qualified reference?" — is
-// remote.IsSelfContainedRef. It used to be a second, local copy named
-// looksLikeSourceRef, and the copies had drifted: this one recognised any
-// "://" but not ctxloom:companion@, so a malformed companion ref was
-// downgraded to a first-party local bundle name and auto-trusted at step 3 —
-// trusted MORE than a well-formed one. There is now exactly one list, in the
-// package that owns the ref grammar, and it is the union of what the two
-// copies recognised.
+// remote.IsSelfContainedRef, and it is the ONLY copy of this list, in the
+// package that owns the ref grammar. Two independent copies of this check
+// previously drifted: one recognised any "://" but not ctxloom:companion@, so
+// a malformed companion ref was downgraded to a first-party local bundle name
+// and auto-trusted at step 3 — trusted MORE than a well-formed one. A single
+// list cannot drift from itself.
 
 // ParseSelector parses a "<kind>/<name>" selector (the part after "#").
 func ParseSelector(sel string) (ItemKind, string, error) {

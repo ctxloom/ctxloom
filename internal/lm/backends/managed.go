@@ -351,12 +351,11 @@ type profileGateRef struct {
 	// for a bundle-shipped profile, or the project's own posture for a
 	// genuinely project-authored one (bundles.ProjectAuthoredRead).
 	//
-	// It replaces Signer, which was the collapsed half of the same fact and the
-	// wrong half: a verified principal string cannot say whether the signature
-	// still covers the bytes, and an empty one meant BOTH "unsigned" and "signed
-	// by a key we do not trust". An unresolvable origin leaves this UNCLAIMED,
-	// which every Authorizer withholds — fail-closed, where the old empty Signer
-	// fell through to pending review.
+	// A verified principal string alone cannot say whether the signature still
+	// covers the bytes, and an empty one means BOTH "unsigned" and "signed by a
+	// key we do not trust" — so this carries the read's own axes instead. An
+	// unresolvable origin leaves it UNCLAIMED, which every Authorizer
+	// withholds: fail-closed.
 	Read bundles.BundleRead
 }
 

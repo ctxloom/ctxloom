@@ -570,8 +570,9 @@ func TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated(t *testi
 		assert.True(t, found, "companion fragment must be present with the companion's own ref, not a builtin: ref")
 		assert.Equal(t, remote.CompanionSource+"@ltk#fragments/ltk", seenRef)
 		// The read's own axes, not a collapsed signer string: an unsigned
-		// loadout reports none/none, which is a FACT, where the old gate's
-		// empty signer could equally have meant "signed by a key we distrust".
+		// loadout reports none/none as a FACT. An empty signer string alone
+		// could not: it means both "unsigned" and "signed by a key we
+		// distrust" equally.
 		assert.Equal(t, bundles.SignatureNone, seenSignature, "this loadout is unsigned")
 		assert.Equal(t, bundles.SignerNone, seenSigner, "and so names no key")
 	})

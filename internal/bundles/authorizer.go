@@ -8,24 +8,20 @@ import (
 
 // The PROCESS stage's decision function, as a TYPE rather than as a bool.
 //
-// It replaces bundles.ContentGate, which returned a bare bool. The decision
-// underneath it (operations.EffectiveTrust) always computed a rich answer —
-// which step decided, and any elaboration on it — and the bool threw all of it
-// away. Everything downstream that had to SAY why an item was withheld then
-// re-derived the reason on its own path (operations.ReviewPublisher, read off
-// the bundle's signer stamps, was one such path), which is the defect
-// docs/trust-model.md names: a separate reporting path is free to disagree with
-// the one that delivered.
+// The decision underneath it (operations.EffectiveTrust) always computes a
+// rich answer — which step decided, and any elaboration on it — so a bare
+// bool would throw all of that away and force every caller that has to SAY
+// why an item was withheld to re-derive the reason on its own path. One
+// Verdict serves both the gate and every report instead: a status report is
+// truthful BY CONSTRUCTION rather than because two paths happen to agree
+// (docs/trust-model.md).
 //
-// One Verdict now serves both the gate and the report. A status report is
-// truthful BY CONSTRUCTION rather than because two paths happen to agree.
-//
-// The old gate could not express INVALID at all: its only signature input was a
-// `signer string`, and signing.VerifyPublisher deliberately collapses "unsigned"
-// and "signed by a key we do not trust" into "". Exposure carries the whole
-// BundleRead instead, so the three axes the reader established (TrustCtx,
-// Signature, Signer) reach the decision as facts rather than as one string that
-// cannot hold them.
+// Exposure carries the whole BundleRead rather than a bare signer string, so
+// the three axes the reader established (TrustCtx, Signature, Signer) reach
+// the decision as separate facts. A signer string alone cannot express
+// INVALID: signing.VerifyPublisher deliberately collapses "unsigned" and
+// "signed by a key we do not trust" into "", and a decision keyed on that
+// string cannot tell them apart.
 
 // Authorizer decides whether one exposure may be delivered.
 //
@@ -112,15 +108,10 @@ func (v Verdict) Warns() bool {
 }
 
 // Reason names which rule decided an exposure. It is the single vocabulary the
-// gate and every report share.
-//
-// It ABSORBS two vocabularies that used to be spelled separately:
-//
-//   - operations.ReviewPublisher (unsigned | untrusted-signer | trusted-signer),
-//     which review derived a SECOND time off the bundle's signer stamps and which
-//     — like the old ContentGate — could not express "invalid" at all.
-//   - operations.EffectiveTrustResult.Source, wherever it names the same fact
-//     (rejected, retracted, local, builtin, companion, trusted-signer, accepted).
+// gate and every report share: the bundle-level publisher state (PublisherOf)
+// and operations.EffectiveTrustResult.Source both project onto it, so a review
+// listing and a delivery decision never hold two separate opinions about the
+// same bytes.
 //
 // Source keeps one job Reason does not do: it is the persisted/stamped
 // "trust_source" projection, and it names the STEP of the cascade rather than
@@ -217,11 +208,11 @@ func (r Reason) NeedsReview() bool {
 // bundle-level half of the same vocabulary, for a surface that groups items by
 // bundle and has to say what the human is deciding about.
 //
-// It is what operations.ReviewPublisher used to spell separately, off the
-// bundle's signer stamps, and it can say the thing that vocabulary could not:
-// INVALID. A stamp-derived report saw only "a principal" or "a fingerprint", so
-// a signature that failed to verify was indistinguishable from no signature at
-// all — which is precisely the state a reviewer most needs named.
+// It can say INVALID, which a report derived only from a bundle's signer
+// stamps cannot: a stamp names "a principal" or "a fingerprint" and has no
+// value for a signature that failed to verify, so that state would read as
+// indistinguishable from no signature at all — precisely the state a reviewer
+// most needs named.
 func PublisherOf(read BundleRead) Reason {
 	switch {
 	case read.Signature() == SignatureInvalid && read.TrustCtx() == TrustCtxRemote:

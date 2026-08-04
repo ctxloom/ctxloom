@@ -21,11 +21,10 @@ func testAuthorizer(admit bool) bundles.Authorizer {
 	})
 }
 
-// The old ContentGate took (ref, payload, form, signer) and returned a bool.
-// The Authorizer takes an Exposure carrying the READ, because a signer string
-// cannot say whether a signature covered its bytes. These two helpers put the
-// read back where the tests below used to pass a signer, so each of them still
-// says what it always said.
+// The Authorizer takes an Exposure carrying the READ, not a signer string,
+// because a signer string cannot say whether a signature covered its bytes.
+// These two helpers build that read for the tests below, which only have a
+// principal to pass.
 
 // execRead is the read of a pinned REMOTE bundle at acmeBundle+"tooling": one
 // nothing has signed when principal is empty, one signed by a key this machine
@@ -53,11 +52,11 @@ func admitExec(t *testing.T, g *contentGate, read bundles.BundleRead, ref string
 // postureCtxOf spells the READ POSTURE a decision-table row's ref implies, so a
 // table that is about the CASCADE does not have to restate it per row.
 //
-// It is a test harness and nothing else. Production never derives posture from a
-// ref — that is exactly what this slice removed, because a ref string cannot say
-// whether a signature covered its bytes. Here the ref IS the row's statement of
-// where the content came from, and the reads that would carry it are pinned
-// separately (TestEffectiveTrust_UnsetPostureWithholds, and the reader tests in
+// It is a test harness and nothing else. Production never derives posture from
+// a ref — a ref string cannot say whether a signature covered its bytes — but
+// here the ref IS the row's statement of where the content came from, and the
+// reads that would carry it are pinned separately
+// (TestEffectiveTrust_UnsetPostureWithholds, and the reader tests in
 // internal/bundles).
 func postureCtxOf(ref trust.Ref) bundles.TrustCtx {
 	if ref.IsBuiltin || ref.IsCompanion || ref.IsLocal {

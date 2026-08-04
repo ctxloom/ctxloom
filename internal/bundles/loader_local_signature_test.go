@@ -33,13 +33,13 @@ import (
 // the diagnostic is (or is not) emitted. Asserting only the warning would let a
 // regression that withholds the content pass.
 //
-// The diagnostic now RIDES THE VERDICT. The loader no longer emits it: a Authorizer
-// answers the decision table's `local | invalid | *` row with
-// {Admit: true, Reason: ReasonStaleLocalSignature, Detail: StaleSignatureAdvice},
-// and the delivery path prints Detail. So these tests drive a Pipeline, which is
-// the only place both halves are observable at once. signatureRowsAuthorizer below is the
-// row itself, spelled locally; the production decision that produces it is
-// pinned in internal/operations.
+// The diagnostic RIDES THE VERDICT: the Authorizer answers the decision
+// table's `local | invalid | *` row with {Admit: true, Reason:
+// ReasonStaleLocalSignature, Detail: StaleSignatureAdvice}, and the delivery
+// path prints Detail. So these tests drive a Pipeline, which is the only place
+// both halves are observable at once. signatureRowsAuthorizer below is the row
+// itself, spelled locally; the production decision that produces it is pinned
+// in internal/operations.
 
 // signatureRowsAuthorizer is the two decision-table rows that key on the signature
 // axis, and nothing else:

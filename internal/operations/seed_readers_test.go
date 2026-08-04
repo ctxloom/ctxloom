@@ -36,12 +36,10 @@ import (
 //
 // THE SEED KEY DECIDES WHICH READER. A canonical ref is pinned REMOTE content
 // and gets the repofs reader; a bare bundle name is this project's own content
-// and gets the project reader. That distinction used to be free: the gate
-// re-derived locality from the ref string, so a "local" fixture read through the
-// remote reader still gated as local. It is not free any more — posture comes
-// from the reader that produced the read — and it should not have been: a
-// fixture whose reader disagrees with its identity is a fixture that cannot
-// exercise the rows that key on the difference.
+// and gets the project reader. Posture comes from the reader that produced the
+// read, never re-derived from the ref string: a fixture whose reader disagrees
+// with its identity is a fixture that cannot exercise the rows that key on the
+// difference.
 func seedReaders(t *testing.T, seed map[string]*bundles.Bundle) []bundles.Reader {
 	t.Helper()
 	refs := make([]string, 0, len(seed))

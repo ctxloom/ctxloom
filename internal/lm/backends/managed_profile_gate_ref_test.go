@@ -30,8 +30,8 @@ func TestProfileGateRefFor_BundleShippedUsesSourceRef(t *testing.T) {
 	ref := profileGateRefFor(nil, resolved, "https://github.com/acme/tools@bundles/kit#profiles/dev")
 	assert.Equal(t, "https://github.com/acme/tools@bundles/kit", ref.Base)
 	// No cfg, so no loader to resolve the ORIGIN bundle's read: the posture is
-	// UNCLAIMED, which every Filter withholds. That is the fail-closed direction
-	// — the old Signer string left the same case falling through to pending.
+	// UNCLAIMED, which every Authorizer withholds — the fail-closed direction
+	// for a read nothing could establish.
 	assert.False(t, ref.Read.Claimed(),
 		"an origin bundle that cannot be read must leave the posture unclaimed, never assumed")
 }

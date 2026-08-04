@@ -169,7 +169,7 @@ func (l *Loader) index() {
 // admit decides whether one read becomes addressable content, and is the ONLY
 // place in the read path that can answer no.
 //
-// It now holds exactly ONE rule, and that rule is not a policy about content: an
+// It holds exactly ONE rule, and that rule is not a policy about content: an
 // UNCLAIMED read — one whose axes were never populated — is not content with
 // unknown trust, it is a value nobody established anything about. Zero means
 // unset and unset means withhold, or a struct literal would read as "local,
@@ -185,13 +185,13 @@ func (l *Loader) index() {
 // would leave it resolvable by every management and listing path in between —
 // and it costs nothing, because production can never reach it.
 //
-// The two rules that DID decide about content are gone from here:
+// Every other content rule decides at the Authorizer instead:
 //
-//   - remote | invalid (tamper) now withholds at the Authorizer (ReasonTampered),
-//     where the caller can be told WHY and where a review listing sees the same
-//     verdict the delivery path saw.
-//   - local | invalid (a stale sidecar) now ADMITS with a warning riding the
-//     verdict (ReasonStaleLocalSignature), which is the decision table's
+//   - remote | invalid (tamper) withholds there (ReasonTampered), where the
+//     caller can be told WHY and where a review listing sees the same verdict
+//     the delivery path saw.
+//   - local | invalid (a stale sidecar) ADMITS there with a warning riding the
+//     verdict (ReasonStaleLocalSignature), the decision table's
 //     `local | invalid | *` row.
 func (l *Loader) admit(read BundleRead) bool {
 	if !read.Claimed() {

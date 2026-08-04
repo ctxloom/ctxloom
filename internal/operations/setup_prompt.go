@@ -39,18 +39,16 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 		return builtin
 	}
 	// Agent-setup guidance is NOT an exposure surface: it composes text for the
-	// setup interview, not for an agent's context, and it has always resolved
-	// ungated. Saying that out loud (a nil gate) is the whole point of the
-	// process stage — the alternative used to be an omission that looked
-	// identical to forgetting.
+	// setup interview, not for an agent's context, and it resolves ungated. The
+	// nil gate here is a deliberate statement to that effect — an omitted gate
+	// argument would read identically to forgetting to gate at all.
 	pipe := bundles.NewPipeline(loader, nil, false)
 	infos, err := loader.ListAllCommands()
 	if err != nil {
-		// This used to fall back to the built-in with the error discarded —
-		// an installed bundle's setup guidance silently vanishing looked
-		// identical to nobody having shipped any. The fallback is still
-		// correct (setup must never be blocked by a listing failure); only
-		// the silence was the bug.
+		// Falling back to the built-in prompt on a listing failure is correct
+		// — setup must never be blocked by it — but doing so silently would
+		// make an installed bundle's setup guidance look identical to nobody
+		// having shipped any, so the fallback warns instead of staying quiet.
 		clidiag.Warn("ctxloom", "agent-setup: list installed commands: %v (using the built-in prompt alone)", err)
 		return builtin
 	}

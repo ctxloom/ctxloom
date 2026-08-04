@@ -100,8 +100,8 @@ func NewBuiltinReader(opts ...ReaderOption) Reader {
 //     provenance, trust context or signature, so it cannot mint a builtin, a
 //     companion, or a trusted signer, and it cannot claim a signature covers
 //     anything.
-//   - It is no wider than what it replaced. Before the Authorizer, the same call
-//     site asserted the same thing by handing the gate a bare-token ref, which
+//   - It is no wider than the claim it replaces: the same call site used to
+//     assert locality implicitly, by handing the gate a bare-token ref, which
 //     trust.ParseItemRef resolves to IsLocal — a claim of locality made in a
 //     string, where nothing could see it. This makes the claim visible and
 //     greppable; TestProjectAuthoredRead_CallSites pins the list.

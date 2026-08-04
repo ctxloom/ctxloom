@@ -587,11 +587,12 @@ func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
 func InstallOverridesFromFlags(fs *pflag.FlagSet) error {
 	validator, err := newConfigValidatorFn()
 	if err != nil {
-		// A compile failure here used to be discarded with no trace at all —
-		// worse than loadUncached's sibling fallback below, which at least
-		// zap-warns. The embedded schema is a build-time resource, so this
-		// "can't happen" in a healthy build; if it ever does, KnownPath
-		// degrading to "nothing recognized" should be visible, not silent.
+		// The embedded schema is a build-time resource, so a compile failure
+		// here "can't happen" in a healthy build. If it ever does, it must be
+		// visible rather than silently discarded — matching loadUncached's
+		// sibling fallback below, which also zap-warns — so KnownPath
+		// degrading to "nothing recognized" is a fact the log carries, not a
+		// silent one.
 		zap.L().Warn("failed to create config validator for override resolution", zap.Error(err))
 		validator = nil
 	}
@@ -1517,8 +1518,7 @@ func (c *Config) warn(k WarningKind, format string, args ...any) {
 // pending is this layer's own upgrade.Pending (nil when the file is current
 // or absent) — the caller decides which of cfg's two pending-upgrade fields
 // (PendingUpgrade / HomePendingUpgrade) it belongs to; this function never
-// writes to cfg.pendingUpgrade itself, unlike the pre-layering loadConfigFile
-// it replaces.
+// writes to cfg.pendingUpgrade itself.
 //
 // Non-fatal errors (malformed YAML, schema validation) are collected as
 // warnings directly onto cfg (shared across every layer, same as before).
@@ -2233,10 +2233,10 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 
 	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), c.registryFSOptions()...)
 	if err != nil {
-		// This used to be indistinguishable from "no remotes registered" (the
-		// doc's own framing) — a real error (corrupt remotes.yaml, unreadable
-		// dir) silently vanished every lockfile-pinned remote bundle from
-		// assembly/hooks/MCP/commands.
+		// A real error here (corrupt remotes.yaml, unreadable dir) is not "no
+		// remotes registered" — the doc comment's nil-return case above — so it
+		// fails loud instead of silently vanishing every lockfile-pinned remote
+		// bundle from assembly/hooks/MCP/commands.
 		strictness.FailOnce(strictness.ClassBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
 			"failed to open the remotes registry; no remote bundles loaded: %v", err)
 		return nil

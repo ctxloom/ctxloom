@@ -66,19 +66,15 @@ type ReviewItem struct {
 }
 
 // Review reports WHO signed a bundle through bundles.Reason, the same
-// vocabulary the exposure gate decides in. The separate ReviewPublisher
-// enumeration it replaces was derived a SECOND time, off the bundle's signer
-// stamps, and could not express INVALID at all: a stamp-derived report saw only
-// "a principal" or "a fingerprint", so a signature that failed to verify read as
-// no signature — the exact state a reviewer most needs named. See
-// bundles.PublisherOf.
+// vocabulary the exposure gate decides in — so a signature that failed to
+// verify reads as INVALID rather than as indistinguishable from no signature
+// at all, the exact state a reviewer most needs named. See bundles.PublisherOf.
 //
-// The distinction that vocabulary existed to preserve is kept: "pending" and
-// "pending because I do not trust who signed it" are different diagnoses with
-// different fixes (`ctxloom review` vs `trust signer create`), and the exposure
-// gate — correctly — treats them identically. ReasonUnsigned and
-// ReasonUntrustedSigner are how that survives, now in one vocabulary instead of
-// two that had to agree.
+// ReasonUnsigned and ReasonUntrustedSigner stay separate reasons rather than
+// collapsing into one "pending": "pending" and "pending because I do not
+// trust who signed it" are different diagnoses with different fixes
+// (`ctxloom review` vs `trust signer create`), even though the exposure gate
+// — correctly — treats them identically for admission.
 
 // ReviewBundle groups a bundle's pending items for the per-bundle walk.
 type ReviewBundle struct {

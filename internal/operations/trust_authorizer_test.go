@@ -326,11 +326,10 @@ func TestAuthorizer_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
 
 // --- one verdict serves the gate and the report -----------------------------
 
-// The defect this slice closes, stated as a test: `ctxloom review` must not
-// present tampered remote content as ordinary unsigned content awaiting a look.
-// Before the filter, review re-derived its own answer from the bundle's signer
-// stamps — which cannot express "invalid" — and would have offered a human the
-// chance to approve exactly the bytes the delivery path refused.
+// `ctxloom review` must not present tampered remote content as ordinary
+// unsigned content awaiting a look: a report that re-derived its own answer
+// from a bundle's signer stamps could not express "invalid", and would offer a
+// human the chance to approve exactly the bytes the delivery path refused.
 func TestPendingReview_TamperedRemoteIsNotOfferedForReview(t *testing.T) {
 	fx := newTrustFixture(t)
 	loader := seedTampered(t, reviewSeedKey, "publisher@example.test", reviewBundle())

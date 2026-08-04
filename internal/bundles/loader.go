@@ -468,6 +468,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 			CommandCount:  b.CommandCount(),
 			MCPCount:      b.MCPCount(),
 			ProfileCount:  b.ProfileCount(),
+			Signer:        b.Signer(),
 		})
 		seen.Add(name)
 	}
@@ -599,6 +600,17 @@ type BundleInfo struct {
 	// use it.
 	Retracted       bool
 	RetractedReason string
+
+	// Signer is the VERIFIED publisher identity of this bundle's bytes, or ""
+	// when the bundle is unsigned — no signature, or one by a key this machine
+	// does not trust to publish. It is Bundle.Signer() carried through, so it is
+	// never an unverified claim and never comes from the bundle's own content.
+	//
+	// It is on the listing because "unsigned" is otherwise invisible: unsigned
+	// remote content is withheld from exposure and does NOT appear in the
+	// pending-review list (unsigned is not pending), so nothing named the bundle
+	// or the reason. See doctorCheckContentTrust.
+	Signer string
 }
 
 func (l *Loader) loadBundleInfo(path, name string) (*BundleInfo, error) {

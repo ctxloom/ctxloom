@@ -981,3 +981,34 @@ func TestGitIdentityDetail_ReadErrorIsReported(t *testing.T) {
 	assert.Contains(t, detail, "user.name unreadable")
 	assert.Contains(t, detail, "user.email unreadable", "both failures must be reported, not just the first")
 }
+
+// --- DOCTOR-CHECK-CONTENT-TRUST-n4 -------------------------------------------
+
+// A config that will not load must WARN, never report the content-trust check
+// as ok: "I could not look" and "I looked and everything is attributable" are
+// opposite answers, and only one of them is safe to render green.
+func TestDoctorCheckContentTrust_ConfigErrorWarnsRatherThanReportingOK(t *testing.T) {
+	got := doctorCheckContentTrust(nil, errors.New("config exploded"))
+	assert.Equal(t, doctorWarn, got.Status)
+	assert.Contains(t, got.Detail, "config did not load")
+}
+
+// The predicate that decides which bundles are EXPECTED to carry a publisher
+// signature. Local, companion and builtin bundles legitimately carry none —
+// local content is trusted by provenance and a companion's bytes are verified
+// by its own loadout envelope — so flagging them would put a warning on every
+// healthy project, which is how a check trains users to ignore it.
+func TestDoctorIsRemoteBundle_OnlyCanonicalRemoteRefsAreExpectedToBeSigned(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want bool
+	}{
+		{"https://github.com/acme/ctx@bundles/deploy-runbook", true},
+		{"file:///tmp/remote.git@bundles/deploy-runbook", true},
+		{"seed", false},
+		{"ctxloom:companion@ltk", false},
+		{"ctxloom:local@bundles/my-tools", false},
+	} {
+		assert.Equal(t, tc.want, doctorIsRemoteBundle(tc.name), "%s", tc.name)
+	}
+}

@@ -189,6 +189,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckAgents(ctx, cfg, cfgErr),
 			doctorCheckVersion(),
 			doctorCheckHooksTrust(ctx, cfg, cfgErr),
+			doctorCheckContentTrust(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr),
 			doctorCheckSetupAuthPing(),
@@ -864,4 +865,77 @@ func init() {
 	doctorCmd.Flags().BoolVar(&doctorDepsOnlyFlag, "deps", false,
 		"check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients and ACP adapters/signing key/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up")
 	rootCmd.AddCommand(doctorCmd)
+}
+
+// doctorCheckContentTrust names remote bundles whose content is being WITHHELD
+// because ctxloom cannot attribute it to a publisher it trusts.
+//
+// This is the diagnosis gap J21's B2 hop exists to close, and it is sharp
+// because every other inspector is legitimately silent about it:
+//
+//   - `review --list` does NOT name it, and that is correct by design — unsigned
+//     is not PENDING. Pending means "signed by someone, awaiting your review";
+//     unsigned content never enters that queue at all.
+//   - `bundle list` shows the bundle as an ordinary installed entry, because it
+//     IS installed. The bytes are on disk; it is the EXPOSURE that is withheld.
+//   - `doctor`'s trust check reports how many signers the store holds, which
+//     says nothing about whether any particular bundle matched one.
+//
+// So a user whose guidance silently stopped arriving had nothing to run. The
+// documented workflow was diffing lockfiles by hand.
+//
+// It reads Bundle.Signer() carried onto the listing — a value only a load path
+// that already VERIFIED a signature against the trust root ever sets, so an
+// empty signer means "no signature, or one by a key this machine does not trust
+// to publish". It makes no trust decision of its own and parses no signature.
+//
+// LOCAL bundles are excluded deliberately: project-authored content is trusted
+// by provenance and is not expected to carry a publisher signature, so flagging
+// it would be noise on every healthy project.
+func doctorCheckContentTrust(cfg *config.Config, cfgErr error) doctorCheck {
+	const marker = "DOCTOR-CHECK-CONTENT-TRUST-n4"
+	if cfgErr != nil {
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
+	}
+	infos, err := cfg.SeededBundleLoader(false).List()
+	if err != nil {
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "could not list bundles: " + err.Error()}
+	}
+	var unsigned []string
+	for _, info := range infos {
+		if info.Deleted || info.Signer != "" || !doctorIsRemoteBundle(info.Name) {
+			continue
+		}
+		unsigned = append(unsigned, info.Name)
+	}
+	if len(unsigned) == 0 {
+		return doctorCheck{Marker: marker, Status: doctorOK,
+			Detail: "every remote bundle's content is attributable to a publisher this machine trusts"}
+	}
+	sort.Strings(unsigned)
+	return doctorCheck{Marker: marker, Status: doctorWarn,
+		Detail: fmt.Sprintf("%d remote bundle(s) are UNSIGNED to this machine, so their content is withheld from your assistant: %s "+
+			"(the publisher never signed these bytes, or signed with a key you do not trust — `ctxloom trust signer create` to trust the key, or ask the publisher to sign)",
+			len(unsigned), strings.Join(unsigned, ", "))}
+}
+
+// doctorIsRemoteBundle reports whether a listing name is a REMOTE bundle — one
+// pulled from a forge, and therefore one a publisher signature is expected for.
+//
+// Local project bundles, companion loadouts and builtins all legitimately carry
+// no publisher signature: local content is trusted by provenance, and a
+// companion's bytes are verified by its own loadout envelope. Flagging them
+// would put a warning on every healthy project, which is how a check trains
+// users to ignore it.
+func doctorIsRemoteBundle(name string) bool {
+	// The LOCAL and COMPANION sources are scheme-qualified too, so they parse as
+	// canonical refs — "ctxloom:companion@ltk" is a perfectly well-formed
+	// canonical ref. Excluding them by prefix rather than by parse result is the
+	// difference between a check that fires on a real gap and one that fires on
+	// every project that has ltk installed.
+	if strings.HasPrefix(name, remote.LocalSource+"@") || strings.HasPrefix(name, remote.CompanionSource+"@") {
+		return false
+	}
+	ref, err := remote.ParseReference(name)
+	return err == nil && ref.IsCanonical()
 }

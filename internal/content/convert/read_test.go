@@ -2,8 +2,6 @@ package convert
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -135,6 +133,12 @@ func TestRead_HooksComeBackInDeclaredOrderNotAlphabeticalOrder(t *testing.T) {
 // load-bearing. The manifest a read produces is what the loader later verifies
 // extracted files against, so a wrong hash or a dropped exec bit is a skill that
 // materializes and then does not run.
+//
+// The expected values come from bundles' OWN renderer rather than being spelled
+// out here. Spelling them out is what let this pass while producing a manifest
+// the verifier rejected: bare hex where it wanted a "sha256:" prefix. A test
+// that restates a format instead of deriving it from the code that consumes it
+// pins the implementation, not the contract.
 func TestRead_SkillManifestCarriesEveryFileWithItsHashAndMode(t *testing.T) {
 	ctx := context.Background()
 	tree := stageTree(t, ctx, everyKindBundle(), "version: 1.2.3\n")
@@ -145,9 +149,10 @@ func TestRead_SkillManifestCarriesEveryFileWithItsHashAndMode(t *testing.T) {
 	skill := got.Skills["reviewer"]
 	require.Len(t, skill.Files, 2, "every package file must appear in the manifest")
 
-	body := sha256.Sum256([]byte("SKILL-BODY"))
-	assert.Equal(t, hex.EncodeToString(body[:]), skill.Files["SKILL.md"].SHA256)
-	assert.Equal(t, "0644", skill.Files["SKILL.md"].Mode)
+	want := bundles.SkillManifestEntryFor("SKILL.md", []byte("SKILL-BODY"), 0o644)
+	assert.Equal(t, want.SHA256, skill.Files["SKILL.md"].SHA256,
+		"the hash must be exactly what bundles.VerifyExtractedManifest recomputes")
+	assert.Equal(t, want.Mode, skill.Files["SKILL.md"].Mode)
 	assert.Equal(t, "0755", skill.Files["scripts/run.sh"].Mode,
 		"the declared exec bit must reach the manifest the extractor checks")
 }

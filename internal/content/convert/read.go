@@ -2,9 +2,8 @@ package convert
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -289,9 +288,15 @@ func (r *reader) appendHook(event string, h bundles.BundleHook) {
 }
 
 // skillManifest renders a skill package's files as the generated per-file
-// manifest bundle.yaml records — the same shape the extractor later verifies
-// against, so a mismatch here surfaces as a refused extraction rather than as a
-// script that silently arrives non-executable.
+// manifest bundle.yaml records — the shape bundles.VerifyExtractedManifest
+// later checks the extracted tree against, field by field.
+//
+// It goes through bundles.SkillManifestEntryFor rather than hashing here: the
+// verifier builds its side with the same function, so the two cannot disagree
+// about the hash's "sha256:" prefix or the mode's octal width. Spelling either
+// from memory produces a package that extracts, fails verification, and is
+// withheld with an integrity error indistinguishable from real tampering —
+// which is exactly what happened before this went through one definition.
 //
 // The mode comes from the DECLARED ComponentMode, never from a filesystem: that
 // declaration is inside the signed bytes, and the filesystem's bit is not
@@ -303,23 +308,20 @@ func skillManifest(s content.Skill) (map[string]bundles.SkillFileMeta, error) {
 	}
 	out := make(map[string]bundles.SkillFileMeta, len(s.Files))
 	for _, f := range s.Files {
-		sum := sha256.Sum256(f.Bytes)
-		out[f.Path] = bundles.SkillFileMeta{
-			SHA256: hex.EncodeToString(sum[:]),
-			Mode:   skillFileMode(f.Mode),
-		}
+		e := bundles.SkillManifestEntryFor(f.Path, f.Bytes, skillFilePerm(f.Mode))
+		out[e.Path] = bundles.SkillFileMeta{SHA256: e.SHA256, Mode: e.Mode}
 	}
 	return out, nil
 }
 
-// skillFileMode renders a declared ComponentMode as the octal string
-// bundle.yaml carries. Anything not declared executable is a plain file — the
-// same default the surface type applies on the way out.
-func skillFileMode(m content.ComponentMode) string {
+// skillFilePerm turns a declared ComponentMode into the POSIX permission the
+// package's file carries on disk. Anything not declared executable is a plain
+// file — the same default the surface type applies on the way out.
+func skillFilePerm(m content.ComponentMode) os.FileMode {
 	if m == content.ModeExecutable {
-		return "0755"
+		return 0o755
 	}
-	return "0644"
+	return 0o644
 }
 
 // commandLLM is the inverse of commandExports: one engine-keyed map back onto

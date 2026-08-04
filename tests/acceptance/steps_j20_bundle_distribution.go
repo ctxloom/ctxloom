@@ -4,18 +4,18 @@
 // carrying EVERY surface kind, and a consumer receiving each kind's payload
 // intact — across the two isolation axes.
 //
-// The publication half is GREEN. A directory-form bundle used to be
-// unfetchable — fetchAtLockedSHA resolved a ref to ONE file and called
-// FetchFile on it — while skills REQUIRE the directory form
+// The publication AND consumption halves are GREEN. A directory-form bundle
+// used to be unfetchable — fetchAtLockedSHA resolved a ref to ONE file and
+// called FetchFile on it — while skills REQUIRE the directory form
 // (internal/bundles/loader.go:389). `remote pull` now probes the directory
 // form, walks the tree at the pinned SHA through internal/content/remotetree,
 // and installs it under the consumer's cache with the publisher's exec bit
-// intact, so every payload assertion below holds.
+// intact; config.loadRemoteBundleSeed then reads the installed tree back into a
+// bundle through convert.Read, verified by internal/content/attest.
 //
 // What is still @wip, and why, is stated in the feature file rather than
-// duplicated here: the tree READ path (items back out of a tree, which runs
-// into an open question about what a tree signature attests), the hook-order
-// row, and the delivery matrix's own separate blocker.
+// duplicated here: the profile row (a claim its own subject cannot satisfy),
+// the hook-order row, and the delivery matrix's own separate blocker.
 //
 // TWO DELIBERATE CHOICES ABOUT HOW IT FAILS — they still matter, because the
 // rows that remain red must keep naming the gap rather than an exit code:
@@ -157,7 +157,14 @@ func j20AuthoredTree() map[string]j20File {
 		// load-bearing POSIX mode.
 		"skills/reviewer/SKILL.md":       f("---\nname: reviewer\ndescription: ATELIER-SKILL-3e77da\n---\n\nATELIER-SKILL-3e77da\n"),
 		"skills/reviewer/scripts/run.sh": {Body: "#!/bin/sh\necho ATELIER-SKILL-SCRIPT-8b21ce\n", Mode: 0o755},
-		"skills/.reviewer.meta.yaml":     f("description: ATELIER-SKILL-DESC\n"),
+		// The sidecar DECLARES which files are executable, and that declaration
+		// is the authority — a mode bit is not portable, so the tree format
+		// attests the declaration instead of the filesystem (see
+		// content.ComponentMode). A publisher who ships a 0755 file without
+		// listing it here produces a manifest claiming 0644, and the consumer
+		// rejects the package on extraction with an integrity error. The two
+		// must agree, and the fixture says so in both places on purpose.
+		"skills/.reviewer.meta.yaml": f("description: ATELIER-SKILL-DESC\nexecutable:\n  - scripts/run.sh\n"),
 
 		// profile — the sixth kind. Never trust-gated as an item, but still a
 		// file in the tree that must arrive intact.
@@ -177,19 +184,15 @@ func j20SeedTreeRemote(w *World, st *j20State) error {
 	bare := filepath.Join(root, "remote.git")
 	work := filepath.Join(root, "work")
 
-	for _, a := range [][]string{{"init", "--bare", "-b", "main", bare}, {"init", "-b", "main", work}} {
-		if err := j20Git("", a...); err != nil {
-			return err
-		}
+	if err := j20GitAll("", [][]string{{"init", "--bare", "-b", "main", bare}, {"init", "-b", "main", work}}); err != nil {
+		return err
 	}
-	for _, a := range [][]string{
+	if err := j20GitAll(work, [][]string{
 		{"config", "user.email", "trent@example.com"},
 		{"config", "user.name", "Trent"},
 		{"config", "commit.gpgsign", "false"},
-	} {
-		if err := j20Git(work, a...); err != nil {
-			return err
-		}
+	}); err != nil {
+		return err
 	}
 	if err := j20WriteTree(work, st.authored); err != nil {
 		return err
@@ -197,21 +200,32 @@ func j20SeedTreeRemote(w *World, st *j20State) error {
 	if err := j20SignTree(work, st); err != nil {
 		return err
 	}
-	for _, a := range [][]string{
+	if err := j20GitAll(work, [][]string{
 		{"add", "-A"},
 		{"commit", "-m", "publish atelier tree"},
 		{"remote", "add", "origin", bare},
 		{"push", "origin", "main"},
-	} {
-		if err := j20Git(work, a...); err != nil {
-			return err
-		}
+	}); err != nil {
+		return err
 	}
 	if err := j20Git(bare, "symbolic-ref", "HEAD", "refs/heads/main"); err != nil {
 		return err
 	}
 	st.bare = bare
 	st.url = "file://" + bare
+	return nil
+}
+
+// j20GitAll runs a sequence of git commands in dir, stopping at the first
+// failure. Seeding is a linear script of them and inlining each loop made the
+// one step that is NOT a git command — signing the tree — hard to see among
+// them.
+func j20GitAll(dir string, cmds [][]string) error {
+	for _, a := range cmds {
+		if err := j20Git(dir, a...); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

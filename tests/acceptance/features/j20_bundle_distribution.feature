@@ -66,27 +66,33 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # in the consumer's tree, per-kind metadata placement, MCP structure, and the
   # whole skill package with its executable script — is untagged and green.
   #
-  # THREE THINGS REMAIN RED, for three different reasons.
+  # THE TREE READ PATH IS ALSO FIXED. It was the second blocker: the bytes
+  # arrived but nothing read a bundle's ITEMS back out of a tree.
+  # internal/content/convert now goes both ways (convert.Read), and
+  # config.loadRemoteBundleSeed reads a tree-shaped lockfile entry from its
+  # installed tree, verifying it through internal/content/attest — the manifest
+  # signature plus a two-directional contents check — instead of dead-ending at
+  # remote.ErrTreeBundleUnreadable.
   #
-  # (a) THE TREE READ PATH (the six "reaches Alice's assistant" rows). The
-  #     bytes now arrive; nothing yet reads a bundle's ITEMS back out of a tree
-  #     and hands them to assembly. remote.BundleReader serves single-file
-  #     bundles only and now fails with remote.ErrTreeBundleUnreadable rather
-  #     than inventing a missing file. internal/content/convert goes one way
-  #     (document -> tree) and has no inverse.
-  #     UNTAG CONDITION: a tree -> bundles.Bundle read path feeding
-  #     config.loadRemoteBundleSeed. NOTE that this is not purely mechanical:
-  #     that seed site verifies a publisher signature over the exact file bytes
-  #     of "<name>.yaml" BEFORE parse, and a tree has no single file to be the
-  #     preimage. What a tree signature attests, and when it is checked, is an
-  #     open decision — not something to settle by writing the reader.
+  # The open question that stopped the reader being written is CLOSED, and the
+  # answer was already in docs/design/bundle-as-tree.design.md: a tree
+  # signature covers the SHA256SUMS manifest over file bytes, checked at the
+  # content gate, most-specific-wins. Trent's fixture now signs the tree the way
+  # the Given always claimed it did, so five of the six kinds — fragment,
+  # command, mcp, hook and the whole skill package — reach Alice's assistant.
+  #
+  # THREE THINGS REMAIN RED, for three different reasons, none of them delivery.
+  #
+  # (a) PROFILES (one scenario, split out above). "Reaches the assistant" is not
+  #     a claim a profile can satisfy — it selects what an assistant reads
+  #     rather than being read. See the block above it.
   #
   # (b) HOOK ORDER (one scenario). See the block above that scenario; the
   #     reason it is red is NOT the fetch gap and never was.
   #
   # (c) THE DELIVERY MATRIX (twelve rows), on the second, independent blocker
-  #     stated at that scenario. Fixing the fetch gap did not untag it, exactly
-  #     as predicted there.
+  #     stated at that scenario. Neither the fetch gap nor the read path
+  #     untagged it, exactly as predicted there.
   # ============================================================================
 
   # NOTE ON STEP WORDING: J3 already owns `Alice trusts the company key`, and
@@ -125,7 +131,6 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # ".<name>.meta.yaml" sidecar). Asserting both spellings is the point of
   # enumerating rather than sampling.
   # --------------------------------------------------------------------------
-  @wip
   Scenario Outline: Every surface kind survives publication and reaches the consumer's assistant
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     When Alice references the company's "atelier" bundle and pulls it
@@ -139,7 +144,36 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
       | mcp      | mcp/ledger.yaml                         | ATELIER-MCP-1f88b0        |
       | hook     | hooks/post_file_edit/stamp.yaml         | ATELIER-HOOK-9c02af       |
       | skill    | skills/reviewer/SKILL.md                | ATELIER-SKILL-3e77da      |
-      | profile  | profiles/studio.yaml                    | ATELIER-PROFILE-6b41fc    |
+
+  # --------------------------------------------------------------------------
+  # PROFILES — the sixth kind, split out because "reaches the assistant" does
+  # not mean the same thing for it, and the difference is not a gap in delivery.
+  #
+  # A profile is not content an assistant READS. It is the thing that SELECTS
+  # what an assistant reads. It arrives (the byte-for-byte row above its own
+  # split still holds, and the tree assertion below proves it), and it is
+  # seeded into the shared profile loader as "<bundle>#profiles/studio" like any
+  # other bundle profile — but materializing a DIFFERENT profile ("default")
+  # will never write studio's description into out/, and should not.
+  #
+  # So this row asserts a claim its own subject cannot satisfy. Left red and
+  # split out rather than quietly rewritten, for the same reason the hook-order
+  # row below is: changing it changes what the journey claims, from "every
+  # published kind reaches the assistant" to something narrower, and someone who
+  # owns the spec should choose the replacement. The candidates are "studio is
+  # listable and runnable by Alice" (delivery, correctly restated) or dropping
+  # the second assertion for this kind entirely (profiles are proven delivered
+  # by the tree assertion alone).
+  #
+  # UNTAG CONDITION: a decision on what "delivered" means for a profile, and an
+  # assertion that states it.
+  # --------------------------------------------------------------------------
+  @wip
+  Scenario: A published profile arrives and becomes one of Alice's profiles
+    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    When Alice references the company's "atelier" bundle and pulls it
+    Then Alice's pulled "atelier" tree carries "profiles/studio.yaml" byte for byte as published
+    And the "profile" reaches Alice's assistant carrying the marker "ATELIER-PROFILE-6b41fc"
 
   # Metadata placement is a per-kind fact, not a uniform one, and it is the
   # half most likely to be silently dropped by a converter: front-matter lives

@@ -262,6 +262,25 @@ func ParseSkillPackage(fsys afero.Fs, dir string, maxBytes int64) (*SkillPackage
 	}, nil
 }
 
+// SkillManifestEntryFor renders one skill package file's manifest entry from its
+// bytes and POSIX permission mode.
+//
+// It exists because a skill manifest is now built from TWO places — a directory
+// walk (buildSkillManifest, below) and a tree read that has bytes but no
+// filesystem (internal/content/convert.Read) — and the two must agree EXACTLY:
+// VerifyExtractedManifest compares them field by field and rejects the package
+// on any difference. The hash carries a "sha256:" prefix and the mode is
+// four-digit octal; a second site spelling either of those from memory produces
+// a package that extracts, verifies, fails, and is withheld with an integrity
+// error that looks like tampering.
+func SkillManifestEntryFor(relPath string, data []byte, perm os.FileMode) SkillManifestEntry {
+	return SkillManifestEntry{
+		Path:   filepath.ToSlash(relPath),
+		SHA256: hashContent(data),
+		Mode:   fmt.Sprintf("%04o", perm.Perm()),
+	}
+}
+
 // buildSkillManifest walks dir on fsys, hashing every regular file into a
 // SkillManifestEntry (path relative to dir, sha256, POSIX perm mode),
 // enforcing maxBytes against the running total size as it goes.
@@ -295,11 +314,7 @@ func buildSkillManifest(fsys afero.Fs, dir, name string, maxBytes int64) (SkillM
 			return fmt.Errorf("skill directory %q: reading %s: %w", name, rel, readErr)
 		}
 
-		manifest = append(manifest, SkillManifestEntry{
-			Path:   rel,
-			SHA256: hashContent(data),
-			Mode:   fmt.Sprintf("%04o", info.Mode().Perm()),
-		})
+		manifest = append(manifest, SkillManifestEntryFor(rel, data, info.Mode()))
 		return nil
 	})
 	if err != nil {

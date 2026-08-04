@@ -1,7 +1,6 @@
 package antigravity
 
 import (
-	"path"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -34,23 +33,10 @@ const antigravitySkillManifest = ".ctxloom-skills-manifest"
 // skill package lands at .agents/skills/<name>/SKILL.md (+ sibling files),
 // exec bit preserved on scripts/ entries. ctxloom tracks its writes via a
 // manifest distinct from commands' so the two surfaces' cleanup never
-// collides (see agent.WriteManagedPackageFiles for the shared mechanics).
+// collides (see agent.WriteManagedSkillPackages for the shared mechanics —
+// this writer supplies only agy's directory and manifest name).
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	skillsDir := filepath.Join(workDir, filepath.FromSlash(antigravitySkillsDir))
-	return agent.WriteManagedPackageFiles(fs, skillsDir, antigravitySkillManifest, skills,
-		func(s agent.SkillExport) bool { return s.Enabled },
-		func(s agent.SkillExport) string { return s.Name },
-		func(s agent.SkillExport) ([]agent.PackageFile, error) {
-			out := make([]agent.PackageFile, len(s.Files))
-			for i, f := range s.Files {
-				out[i] = agent.PackageFile{
-					RelPath: path.Join(s.Name, f.RelPath),
-					Content: f.Content,
-					Mode:    f.Mode,
-				}
-			}
-			return out, nil
-		},
-	)
+	return agent.WriteManagedSkillPackages(fs, skillsDir, antigravitySkillManifest, skills)
 }

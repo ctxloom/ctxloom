@@ -9,7 +9,7 @@ import (
 )
 
 // This file lands the mock backend on the unified surface-delivery seam
-// (internal/shared/agent/cells.go) — the CONTEXT surface only (see
+// (internal/shared/agent/cells.go) — the CONTEXT and SKILLS surfaces (see
 // docs/design/engine-delivery-seam.design.md, "The mock engine implements
 // both halves").
 //
@@ -29,10 +29,18 @@ import (
 // did before this: the read half the design's "manage status" step (3) will
 // walk.
 //
-// Only context is in scope here. MCP/settings/commands/skills stay on
-// EmptySurfaceSet's refusal path for mock — deliberately: the design's
-// ordering names the mock's CONTEXT route as step 2, and a mock skills/MCP
-// surface is unscoped net-new code this change does not need.
+// mock's SKILLS surface is that same reuse argument applied to a TREE: the
+// shared agent.ManagedSkillPackagesDelivery bound to the shared
+// agent.WriteManagedSkillPackages writer — byte-for-byte the machinery
+// claude's .claude/skills/, antigravity's .agents/skills/ and opencode's
+// .opencode/skill/ go through, differing only in the directory it targets. A
+// second skill-materializing path in the mock would prove the mock, not the
+// seam.
+//
+// MCP, settings and commands stay on EmptySurfaceSet's refusal path for mock —
+// deliberately. mock's hook loss stays DECLARED via noHooksReason
+// (registry.go): it has no settings surface for a session_start hook to land
+// on, and gaining a skills surface does not change that.
 
 // mockContextFilename is the mock engine's well-known context file — its
 // analogue of CLAUDE.md / AGENTS.md. It lives at the target dir's ROOT (not
@@ -99,15 +107,48 @@ func (s *mockContextSurface) State(dir string) (agent.DeliveryState, error) {
 	return state, nil
 }
 
-// mockApproaches is mock's declared per-surface approach table: context only,
-// at the native well-known file — mock has no out-of-cwd redirect and no
-// SharedRealization, matching antigravity/kiro/codex/opencode (claude is the
-// one backend with an out-of-cwd scratch conversion).
-var mockApproaches = agent.ApproachTable{
-	agent.SurfaceContext: {agent.ApproachUnsafeFile},
+// mockSkillsDirName is the directory the mock engine "reads" its Agent Skill
+// packages from, relative to the delivery dir. Unlike the context file it is
+// NESTED, because that is the shape every real engine has (.claude/skills,
+// .agents/skills, .kiro/skills, .opencode/skill, .codex/skills) and because a
+// bare top-level `skills/` would collide with the `skills/` directory of a
+// bundle content tree materialized into the same project.
+const mockSkillsDirName = ".mock/skills"
+
+// mockSkillManifest tracks which files under mockSkillsDirName ctxloom wrote,
+// so a re-materialize with fewer (or no) skills reverts exactly that set and
+// nothing a user put there. Same name every engine's skills writer uses; each
+// keeps its own copy under its own directory.
+const mockSkillManifest = ".ctxloom-skills-manifest"
+
+// mockSkillsPath returns the mock skills directory's path under dir.
+func mockSkillsPath(dir string) string {
+	return filepath.Join(dir, filepath.FromSlash(mockSkillsDirName))
 }
 
-// MockSurfaces is mock's single-surface SurfaceSet: context only. Every other
+// newMockSkillsSurface builds mock's skills surface: the SHARED
+// agent.ManagedSkillPackagesDelivery bound to the SHARED
+// agent.WriteManagedSkillPackages writer, exactly as claude's newSkillsSurface
+// and opencode's/kiro's/antigravity's do. Everything that makes a skill
+// package land correctly — the per-skill directory prefix, the DECLARED mode
+// on each file, the manifest-scoped reversal — lives in that shared body, not
+// here; this function contributes a directory and a manifest name.
+func newMockSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.ManagedSkillPackagesDelivery {
+	return agent.NewManagedSkillPackagesDelivery("mock/skills", skills, func(dir string, skills []agent.SkillExport) error {
+		return agent.WriteManagedSkillPackages(agent.GetFS(fs), mockSkillsPath(dir), mockSkillManifest, skills)
+	})
+}
+
+// mockApproaches is mock's declared per-surface approach table: context and
+// skills, each at its native well-known path — mock has no out-of-cwd redirect
+// and no SharedRealization, matching antigravity/kiro/codex/opencode (claude
+// is the one backend with an out-of-cwd scratch conversion).
+var mockApproaches = agent.ApproachTable{
+	agent.SurfaceContext: {agent.ApproachUnsafeFile},
+	agent.SurfaceSkills:  {agent.ApproachUnsafeFile},
+}
+
+// MockSurfaces is mock's SurfaceSet: context and skills. Every other
 // SurfaceKind is absent from mockApproaches, so SupportedApproaches/
 // DefaultApproach report it as folded/absent (a permitted no-op for
 // WithEverything) exactly as codex's MCP kind does — never an error.
@@ -115,6 +156,7 @@ type MockSurfaces struct {
 	agent.TableDispatch
 
 	Context *mockContextSurface
+	Skills  *agent.ManagedSkillPackagesDelivery
 
 	dispatch map[agent.SurfaceKind]agent.Delivery
 }
@@ -122,31 +164,35 @@ type MockSurfaces struct {
 // NewMockSurfaces builds mock's surfaces from a run's shared inputs. fs nil
 // defaults to the OS filesystem (agent.GetFS). It takes the SAME
 // agent.SurfaceInputs every other backend does — mock simply ignores every
-// field but Context, exactly as claude ignores Fragments/AgentName (see
+// field but Context and Skills, exactly as claude ignores Fragments/AgentName (see
 // claude.NewSurfaces's doc for why a shared struct beats a hand-mapped copy).
 func NewMockSurfaces(in agent.SurfaceInputs, fs afero.Fs) MockSurfaces {
 	fs = agent.GetFS(fs)
 	context := &mockContextSurface{context: in.Context, fs: fs}
+	skills := newMockSkillsSurface(in.Skills, fs)
 	return MockSurfaces{
 		TableDispatch: agent.TableDispatch{Table: mockApproaches},
 		Context:       context,
+		Skills:        skills,
 		dispatch: map[agent.SurfaceKind]agent.Delivery{
 			agent.SurfaceContext: context,
+			agent.SurfaceSkills:  skills,
 		},
 	}
 }
 
 // SurfaceFor resolves one (kind, approach) to mock's concrete surface — a
-// plain table lookup, since mock's context surface (unlike claude's) has only
-// the one approach and no Hook/SystemPrompt arm to special-case.
+// plain table lookup, since mock's surfaces (unlike claude's context) each
+// have only the one approach and no Hook/SystemPrompt arm to special-case.
 func (s MockSurfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
 	return mockApproaches.SurfaceFor("mock", s.dispatch, kind, a)
 }
 
 // SharedRealization reports no out-of-cwd conversion for any kind: mock has no
-// race-safe redirect, so a SHARED-cwd delivery of its context surface always
-// falls back to the loud well-known write (UnsafeInfo above is that
-// fallback's warning).
+// race-safe redirect, so a SHARED-cwd delivery of either surface always falls
+// back to the loud well-known write (each surface's UnsafeInfo — "mock/context"
+// and "mock/skills" — is that fallback's warning). No engine has an out-of-cwd
+// flag for a skill package at all, so the skills half is not a mock shortcut.
 func (s MockSurfaces) SharedRealization(agent.SurfaceKind) (func() (agent.Delivered, error), bool) {
 	return nil, false
 }

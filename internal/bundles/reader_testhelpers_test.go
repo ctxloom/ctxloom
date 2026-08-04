@@ -17,17 +17,15 @@ func (r staticReader) Read(context.Context) ([]BundleRead, error) { return r.rea
 
 // seedLocal presents already-parsed bundles as local project content, keyed by
 // resolution ref — the shape the retired WithSeededBundles option produced.
+//
+// Local, not remote, deliberately: a test that wants REMOTE content should go
+// through NewRepoFSReader over real bytes, because the remote rows are the ones
+// where the signature facts decide anything.
 func seedLocal(seeded map[string]*Bundle) Reader {
-	return seedAs(seeded, ProvenanceProject, TrustCtxLocal)
-}
-
-// seedRemote presents already-parsed bundles as pinned remote content, for the
-// tests whose subject is what the trust gate does with a clone's items.
-func seedRemote(seeded map[string]*Bundle) Reader {
-	return seedAs(seeded, ProvenanceRemote, TrustCtxRemote)
-}
-
-func seedAs(seeded map[string]*Bundle, prov ProvenanceClass, tctx TrustCtx) Reader {
+	const (
+		prov = ProvenanceProject
+		tctx = TrustCtxLocal
+	)
 	var reads []BundleRead
 	for ref, b := range seeded {
 		if b == nil {

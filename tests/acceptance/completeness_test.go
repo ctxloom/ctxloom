@@ -288,10 +288,10 @@ func assertExactUncovered(t *testing.T, label string, got, want []string) int {
 // scenario, each with the reason. Printed on every run so the exclusion is never
 // silent (see plan §7.5 / "no silent caps").
 var excludedLeaves = map[string]string{
-	"ctxloom config edit": "opens $EDITOR on config.yaml; TTY-only, no hermetic fixture",
-	"ctxloom mcp serve":   "the MCP server itself; exercised by every @mcp scenario",
-	"ctxloom llm serve":          "internal gRPC plugin server",
-	"ctxloom remote discover":    "network discovery search; no deterministic fixture (excluded)",
+	"ctxloom config edit":     "opens $EDITOR on config.yaml; TTY-only, no hermetic fixture",
+	"ctxloom mcp serve":       "the MCP server itself; exercised by every @mcp scenario",
+	"ctxloom llm serve":       "internal gRPC plugin server",
+	"ctxloom remote discover": "network discovery search; no deterministic fixture (excluded)",
 	// Remote ops needing richer state than a single-commit fixture provides. The
 	// core clone/fetch/install/sync path is covered hermetically by the @remote
 	// content scenarios (browse/install/sync/lock against a seeded file:// repo).

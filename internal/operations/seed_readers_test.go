@@ -90,7 +90,7 @@ func seedUntrustedSigned(t *testing.T, ref string, b *bundles.Bundle) (*bundles.
 	require.NoError(t, err)
 
 	tree, err := content.NewMapTreeFS(map[string][]byte{
-		path.Base(ref) + ".yaml":                    data,
+		path.Base(ref) + ".yaml":                     data,
 		path.Base(ref) + ".yaml" + bundles.SigSuffix: sig,
 	})
 	require.NoError(t, err)

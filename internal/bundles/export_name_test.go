@@ -79,19 +79,19 @@ func TestLoader_LoadedContentCarriesBundleAndItem(t *testing.T) {
 		Fragments: map[string]BundleFragment{"security": {Content: "SEC"}},
 		Commands:  map[string]BundleCommand{"review": {Content: "REVIEW"}},
 	}
-	loader := NewLoader(nil, false, WithSeededBundles(map[string]*Bundle{canonical: b}))
+	loader := NewLoader(nil, WithSeededBundles(map[string]*Bundle{canonical: b}))
 
 	infos, err := loader.ListAllCommands()
 	require.NoError(t, err)
 	require.Len(t, infos, 1)
 
-	prompt, err := loader.GetCommand(infos[0].Name)
+	prompt, err := loader.GetCommand(infos[0].Name, false)
 	require.NoError(t, err)
 	assert.Equal(t, canonical, prompt.Bundle)
 	assert.Equal(t, "review", prompt.Item)
 	assert.Equal(t, "aspects/review", prompt.ExportName())
 
-	frag, err := loader.GetFragment(canonical + "#fragments/security")
+	frag, err := loader.GetFragment(canonical + "#fragments/security", false)
 	require.NoError(t, err)
 	assert.Equal(t, canonical, frag.Bundle)
 	assert.Equal(t, "security", frag.Item)

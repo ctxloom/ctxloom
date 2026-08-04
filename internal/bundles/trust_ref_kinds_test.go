@@ -47,12 +47,12 @@ func TestTrustRefKindDirs_MatchTheTrustAuthority(t *testing.T) {
 		seen = append(seen, ref)
 		return true
 	}
-	l := bundles.NewLoader([]string{bundlesDir}, false,
+	l := bundles.NewLoader([]string{bundlesDir},
 		bundles.WithFS(fsys), bundles.WithTrustGate(gate))
 
-	_, err := l.GetFragment("kit#fragments/frag")
+	_, err := l.GetFragment("kit#fragments/frag", false)
 	require.NoError(t, err)
-	_, err = l.GetCommand("kit#commands/cmd")
+	_, err = l.GetCommand("kit#commands/cmd", false)
 	require.NoError(t, err)
 	_, err = l.GetSkill("kit#skills/sk")
 	require.NoError(t, err)

@@ -32,24 +32,24 @@ func TestBundleQualifiedRef_MissingItemWrapsItsNotFoundSentinel(t *testing.T) {
 	for k, b := range seed {
 		b.Name = k
 	}
-	l := NewLoader(nil, true, WithSeededBundles(seed))
+	l := NewLoader(nil, WithSeededBundles(seed))
 
 	// The fixture must resolve the PRESENT items, or "not found" below would be
 	// reporting a broken loader rather than a missing item.
-	_, err := l.GetFragment("demo#fragments/present")
+	_, err := l.GetFragment("demo#fragments/present", true)
 	require.NoError(t, err, "the fixture bundle must resolve through the same path")
-	_, err = l.GetCommand("demo#commands/present")
+	_, err = l.GetCommand("demo#commands/present", true)
 	require.NoError(t, err)
 
 	t.Run("fragment", func(t *testing.T) {
-		_, err := l.GetFragment("demo#fragments/absent")
+		_, err := l.GetFragment("demo#fragments/absent", true)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, errs.ErrFragmentNotFound), "got %v", err)
 		assert.Contains(t, err.Error(), "demo", "the message must still name the bundle")
 		assert.Contains(t, err.Error(), "absent", "the message must still name the item")
 	})
 	t.Run("command", func(t *testing.T) {
-		_, err := l.GetCommand("demo#commands/absent")
+		_, err := l.GetCommand("demo#commands/absent", true)
 		require.Error(t, err)
 		assert.True(t, errors.Is(err, errs.ErrCommandNotFound), "got %v", err)
 	})
@@ -77,14 +77,14 @@ func TestVersionedRef_MissingItemWrapsItsNotFoundSentinel(t *testing.T) {
 
 	// Fixture check: the present item resolves at c1, so a "not found" below is
 	// about the item and not about the version resolver.
-	_, err := l.GetFragmentAtVersion(cqRef+"#fragments/solid", "c1")
+	_, err := l.GetFragmentAtVersion(cqRef+"#fragments/solid", "c1", true)
 	require.NoError(t, err)
 
-	_, err = l.GetFragmentAtVersion(cqRef+"#fragments/absent", "c1")
+	_, err = l.GetFragmentAtVersion(cqRef+"#fragments/absent", "c1", true)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errs.ErrFragmentNotFound), "got %v", err)
 
-	_, err = l.GetPromptAtVersion(cqRef+"#commands/absent", "c1")
+	_, err = l.GetPromptAtVersion(cqRef+"#commands/absent", "c1", true)
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, errs.ErrCommandNotFound), "got %v", err)
 }

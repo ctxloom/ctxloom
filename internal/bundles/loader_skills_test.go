@@ -49,7 +49,7 @@ func TestSkillsFromBundleRef_ResolvesFrontmatterAndFiles(t *testing.T) {
 	bundlesDir := "/bundles"
 	files := writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	got := loader.SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1, "one skill resolved from the bundle")
 
@@ -84,7 +84,7 @@ func TestSkillsFromBundleRef_PerEngineDisabledStillResolves(t *testing.T) {
 	bundlesDir := "/bundles"
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", false)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	got := loader.SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 	assert.False(t, got[0].LLM.ClaudeCode.IsEnabled(), "the bundle-authored disablement is carried through")
@@ -113,7 +113,7 @@ skills:
 `
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(bundleYAML), 0644))
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	got := loader.SkillsFromBundleRef("skill-bundle")
 	assert.Empty(t, got, "a skill whose on-disk tree doesn't match its authored manifest must be withheld, not partially exposed")
 }
@@ -123,7 +123,7 @@ skills:
 // CommandsFromBundleRef's contract so callers can range over the result
 // unconditionally.
 func TestSkillsFromBundleRef_UnknownBundleReturnsNil(t *testing.T) {
-	loader := NewLoader([]string{"/nowhere"}, false, WithFS(afero.NewMemMapFs()))
+	loader := NewLoader([]string{"/nowhere"}, WithFS(afero.NewMemMapFs()))
 	assert.Nil(t, loader.SkillsFromBundleRef("does-not-exist"))
 }
 
@@ -141,7 +141,7 @@ func TestListAllSkills_ReturnsInfoAcrossBundles(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-a", "humanize", true)
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-b", "otherskill", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	infos, err := loader.ListAllSkills()
 	require.NoError(t, err)
 	require.Len(t, infos, 2, "one skill from each of the two bundles")
@@ -167,7 +167,7 @@ func TestListAllSkills_ReturnsInfoAcrossBundles(t *testing.T) {
 // ListAllSkills' loop returns an empty, error-free result rather than nil
 // dereference or a spurious error.
 func TestListAllSkills_NoBundlesReturnsEmpty(t *testing.T) {
-	loader := NewLoader([]string{"/nowhere"}, false, WithFS(afero.NewMemMapFs()))
+	loader := NewLoader([]string{"/nowhere"}, WithFS(afero.NewMemMapFs()))
 	infos, err := loader.ListAllSkills()
 	require.NoError(t, err)
 	assert.Empty(t, infos)
@@ -203,7 +203,7 @@ skills:
 	writeSkillFixture(t, fsys, bundleDir+"/skills/aaa-blocked", "aaa-blocked")
 	writeSkillFixture(t, fsys, bundleDir+"/skills/zzz-trusted", "zzz-trusted")
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys),
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys),
 		WithTrustGate(blockingGate(nil, "bundle-a#skills/aaa-blocked")))
 
 	infos, err := loader.ListAllSkills()
@@ -223,7 +223,7 @@ func TestGetSkill_RefFormFindsSpecificBundle(t *testing.T) {
 	bundlesDir := "/bundles"
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	ls, err := loader.GetSkill("skill-bundle#skills/humanize")
 	require.NoError(t, err)
 	assert.Equal(t, "skill-bundle/humanize", ls.Name)
@@ -237,7 +237,7 @@ func TestGetSkill_RefFormUnknownSkillInBundleErrors(t *testing.T) {
 	bundlesDir := "/bundles"
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	_, err := loader.GetSkill("skill-bundle#skills/does-not-exist")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
@@ -252,7 +252,7 @@ func TestGetSkill_RefFormWithheldByTrustGateReturnsErrSkillWithheld(t *testing.T
 	bundlesDir := "/bundles"
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys),
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys),
 		WithTrustGate(blockingGate(nil, "#skills/humanize")))
 
 	_, err := loader.GetSkill("skill-bundle#skills/humanize")
@@ -266,7 +266,7 @@ func TestGetSkill_BareNameSearchesAllBundles(t *testing.T) {
 	bundlesDir := "/bundles"
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	ls, err := loader.GetSkill("humanize")
 	require.NoError(t, err)
 	assert.Equal(t, "skill-bundle/humanize", ls.Name)
@@ -280,7 +280,7 @@ func TestGetSkill_BareNameNotFoundAnywhereReturnsErrSkillNotFound(t *testing.T) 
 	bundlesDir := "/bundles"
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	_, err := loader.GetSkill("does-not-exist-anywhere")
 	require.True(t, errors.Is(err, errs.ErrSkillNotFound), "got %v, want ErrSkillNotFound", err)
 }
@@ -295,7 +295,7 @@ func TestSearchSkill_WithheldInOneBundleStillResolvesFromTrustedSibling(t *testi
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-blocked", "humanize", true)
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-trusted", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys),
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys),
 		WithTrustGate(blockingGate(nil, "bundle-blocked#skills/humanize")))
 
 	ls, err := loader.GetSkill("humanize")
@@ -316,7 +316,7 @@ func TestSearchSkill_SkipsBundleWithoutTheSkillAndContinuesToNextBundle(t *testi
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-a", "unrelated", true)
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-b", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	ls, err := loader.GetSkill("humanize")
 	require.NoError(t, err, "a bundle without the named skill must be skipped, not stop the scan")
 	assert.Equal(t, "bundle-b/humanize", ls.Name)
@@ -332,7 +332,7 @@ func TestSearchSkill_AllWithheldReturnsErrSkillWithheld(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-a", "humanize", true)
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-b", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys),
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys),
 		WithTrustGate(blockingGate(nil, "#skills/humanize")))
 
 	_, err := loader.GetSkill("humanize")
@@ -373,7 +373,7 @@ func TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded(t *testing.T)
 	}
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(yaml), 0644))
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	assert.Empty(t, loader.SkillsFromBundleRef("skill-bundle"),
 		"a manifest whose modes do not match the tree must withhold the skill, not materialize it at a default mode")
 }
@@ -387,7 +387,7 @@ func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 	bundlesDir := "/bundles"
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	got := loader.SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 
@@ -421,7 +421,7 @@ func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	restore := clidiag.SetSink(&sink)
 	defer restore()
 
-	loader := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
 	assert.Empty(t, loader.SkillsFromBundleRef("skill-bundle"), "an underivable preimage must withhold")
 
 	out := sink.String()
@@ -448,7 +448,7 @@ func TestLoadFile_ConcurrencyContract(t *testing.T) {
 		require.NoError(t, afero.WriteFile(fsys, bundlesDir+"/"+n+".yaml",
 			[]byte("version: \"1.0\"\nfragments:\n  f:\n    content: "+n+"\n"), 0644))
 	}
-	l := NewLoader([]string{bundlesDir}, false, WithFS(fsys))
+	l := NewLoader([]string{bundlesDir}, WithFS(fsys))
 
 	var wg sync.WaitGroup
 	results := make([]*Bundle, 24)

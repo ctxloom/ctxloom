@@ -15,7 +15,7 @@ func TestLoader_SeededCanonical_ResolvesAndLists(t *testing.T) {
 		Fragments: map[string]BundleFragment{"security": {Content: "SEC"}},
 	}
 	const canonical = "https://github.com/ctxloom/ctxloom-default@bundles/aspects"
-	loader := NewLoader(nil, false, WithSeededBundles(map[string]*Bundle{canonical: b}))
+	loader := NewLoader(nil, WithSeededBundles(map[string]*Bundle{canonical: b}))
 
 	got, err := loader.Load(canonical)
 	require.NoError(t, err)
@@ -40,7 +40,7 @@ func TestLoader_SeededCanonical_VersionCarryingRefResolves(t *testing.T) {
 		Fragments: map[string]BundleFragment{"security": {Content: "SEC"}},
 	}
 	const canonical = "https://github.com/ctxloom/ctxloom-default@bundles/aspects"
-	loader := NewLoader(nil, false, WithSeededBundles(map[string]*Bundle{canonical: b}))
+	loader := NewLoader(nil, WithSeededBundles(map[string]*Bundle{canonical: b}))
 
 	for _, ref := range []string{
 		canonical + "@0123456789abcdef0123456789abcdef01234567",

@@ -14,7 +14,7 @@ var _ Store = (*fsStore)(nil)
 
 func TestFSStore_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	store := NewFSStore([]string{dir}, false)
+	store := NewFSStore([]string{dir})
 
 	b := &Bundle{
 		Path:      filepath.Join(dir, "rt.yaml"),
@@ -63,7 +63,7 @@ func TestFSStore_Delete_DirectoryFormBundleLeavesItsSubtreesOnDisk(t *testing.T)
 	require.NoError(t, afero.WriteFile(fsys, dir+"/kit/skills/humanize/SKILL.md",
 		[]byte("---\nname: humanize\ndescription: d\n---\nbody\n"), 0o644))
 
-	store := NewFSStore([]string{dir}, false, WithFS(fsys))
+	store := NewFSStore([]string{dir}, WithFS(fsys))
 	require.NoError(t, store.Delete("kit"))
 
 	gone, err := afero.Exists(fsys, dir+"/kit/bundle.yaml")

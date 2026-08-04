@@ -231,15 +231,20 @@ func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
 
 // GetFragment finds and loads a fragment by name.
 // Name can be "fragment-name" (searches all bundles) or "bundle#fragments/name".
-func (l *Loader) GetFragment(name string) (*LoadedContent, error) {
+//
+// preferDistilled is the CALLER'S form choice, supplied per call rather than
+// baked into the loader: the read stage holds no policy, so two consumers of
+// one loader can ask for different forms. It only ever PREFERS — a fragment
+// with no distilled form, or one that forbids distillation, still serves raw.
+func (l *Loader) GetFragment(name string, preferDistilled bool) (*LoadedContent, error) {
 	bundleName, fragName, isRef, err := splitItemRef(name, "fragments")
 	if err != nil {
 		return nil, err
 	}
 	if isRef {
-		return l.fragmentFromBundle(bundleName, fragName)
+		return l.fragmentFromBundle(bundleName, fragName, preferDistilled)
 	}
-	return l.searchFragment(name)
+	return l.searchFragment(name, preferDistilled)
 }
 
 // splitItemRef parses a "bundle#kind/name" reference. isRef reports whether a
@@ -261,8 +266,8 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 // trust gate withholds it. The gate receives the EXACT effective-content bytes
 // this returns (pre-mustache) plus the bundle's verified signer, so the decision
 // keys on what the agent would actually see and on who published it.
-func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment) *LoadedContent {
-	payload, form := frag.ContentPayload(l.preferDistilled)
+func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment, preferDistilled bool) *LoadedContent {
+	payload, form := frag.ContentPayload(preferDistilled)
 	if !l.gateContent(bundle.contentSourceRef(), "fragments", fragName, payload, form, bundle.Signer()) {
 		return nil
 	}
@@ -284,7 +289,7 @@ func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFra
 }
 
 // fragmentFromBundle loads a specific bundle and returns the named fragment.
-func (l *Loader) fragmentFromBundle(bundleName, fragName string) (*LoadedContent, error) {
+func (l *Loader) fragmentFromBundle(bundleName, fragName string, preferDistilled bool) (*LoadedContent, error) {
 	bundle, err := l.Load(bundleName)
 	if err != nil {
 		return nil, err
@@ -293,7 +298,7 @@ func (l *Loader) fragmentFromBundle(bundleName, fragName string) (*LoadedContent
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundleName)
 	}
-	lc := l.fragmentContent(bundle, fragName, frag)
+	lc := l.fragmentContent(bundle, fragName, frag, preferDistilled)
 	if lc == nil {
 		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentWithheld, fragName)
 	}
@@ -339,7 +344,7 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 // the trust gate withholds (trust rework, TR5) does not end the scan — a trusted
 // copy in another bundle still wins; only when every match is withheld does it
 // report ErrFragmentWithheld (distinct from not-found).
-func (l *Loader) searchFragment(name string) (*LoadedContent, error) {
+func (l *Loader) searchFragment(name string, preferDistilled bool) (*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
@@ -351,7 +356,7 @@ func (l *Loader) searchFragment(name string) (*LoadedContent, error) {
 			continue
 		}
 		if frag, ok := bundle.Fragments[name]; ok {
-			if lc := l.fragmentContent(bundle, name, frag); lc != nil {
+			if lc := l.fragmentContent(bundle, name, frag, preferDistilled); lc != nil {
 				return lc, nil
 			}
 			withheld = true
@@ -365,15 +370,16 @@ func (l *Loader) searchFragment(name string) (*LoadedContent, error) {
 
 // GetCommand finds and loads a command by name.
 // Name can be "command-name" (searches all bundles) or "bundle#commands/name".
-func (l *Loader) GetCommand(name string) (*LoadedContent, error) {
+// preferDistilled is the caller's per-call form choice — see GetFragment.
+func (l *Loader) GetCommand(name string, preferDistilled bool) (*LoadedContent, error) {
 	bundleName, promptName, isRef, err := splitItemRef(name, "commands")
 	if err != nil {
 		return nil, err
 	}
 	if isRef {
-		return l.commandFromBundle(bundleName, promptName)
+		return l.commandFromBundle(bundleName, promptName, preferDistilled)
 	}
-	return l.searchCommand(name)
+	return l.searchCommand(name, preferDistilled)
 }
 
 // commandContent builds a LoadedContent for a command (commands also carry
@@ -382,8 +388,8 @@ func (l *Loader) GetCommand(name string) (*LoadedContent, error) {
 // bytes returned. The gate ref keeps the "prompts" kind segment
 // (trust.KindPrompt.Dir()), so the item-kind rename does not invalidate
 // existing trust grants.
-func (l *Loader) commandContent(bundle *Bundle, promptName string, prompt BundleCommand) *LoadedContent {
-	payload, form := prompt.ContentPayload(l.preferDistilled)
+func (l *Loader) commandContent(bundle *Bundle, promptName string, prompt BundleCommand, preferDistilled bool) *LoadedContent {
+	payload, form := prompt.ContentPayload(preferDistilled)
 	if !l.gateContent(bundle.contentSourceRef(), "prompts", promptName, payload, form, bundle.Signer()) {
 		return nil
 	}
@@ -412,7 +418,7 @@ func (l *Loader) commandContent(bundle *Bundle, promptName string, prompt Bundle
 // command-file writes are reproducible. A command the trust gate withholds
 // (commandContent returns nil) is skipped, so a withheld command is never
 // exported as a slash command.
-func (l *Loader) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
+func (l *Loader) CommandsFromBundleRef(bundleRef string, preferDistilled bool) []*LoadedContent {
 	bundle, err := l.Load(bundleRef)
 	if err != nil {
 		// Same silent-export defect as SkillsFromBundleRef, same fix, same
@@ -429,7 +435,7 @@ func (l *Loader) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
 	sort.Strings(names)
 	out := make([]*LoadedContent, 0, len(names))
 	for _, name := range names {
-		if lc := l.commandContent(bundle, name, bundle.Commands[name]); lc != nil {
+		if lc := l.commandContent(bundle, name, bundle.Commands[name], preferDistilled); lc != nil {
 			out = append(out, lc)
 		}
 	}
@@ -437,7 +443,7 @@ func (l *Loader) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
 }
 
 // commandFromBundle loads a specific bundle and returns the named command.
-func (l *Loader) commandFromBundle(bundleName, promptName string) (*LoadedContent, error) {
+func (l *Loader) commandFromBundle(bundleName, promptName string, preferDistilled bool) (*LoadedContent, error) {
 	bundle, err := l.Load(bundleName)
 	if err != nil {
 		return nil, err
@@ -446,7 +452,7 @@ func (l *Loader) commandFromBundle(bundleName, promptName string) (*LoadedConten
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundleName)
 	}
-	lc := l.commandContent(bundle, promptName, prompt)
+	lc := l.commandContent(bundle, promptName, prompt, preferDistilled)
 	if lc == nil {
 		return nil, fmt.Errorf("%w: %s", errs.ErrCommandWithheld, promptName)
 	}
@@ -456,7 +462,7 @@ func (l *Loader) commandFromBundle(bundleName, promptName string) (*LoadedConten
 // searchCommand scans every bundle for a command with the given name. A gate-
 // withheld match (trust rework, TR5) does not end the scan; only when every
 // match is withheld does it report ErrCommandWithheld (distinct from not-found).
-func (l *Loader) searchCommand(name string) (*LoadedContent, error) {
+func (l *Loader) searchCommand(name string, preferDistilled bool) (*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
@@ -468,7 +474,7 @@ func (l *Loader) searchCommand(name string) (*LoadedContent, error) {
 			continue
 		}
 		if prompt, ok := bundle.Commands[name]; ok {
-			if lc := l.commandContent(bundle, name, prompt); lc != nil {
+			if lc := l.commandContent(bundle, name, prompt, preferDistilled); lc != nil {
 				return lc, nil
 			}
 			withheld = true

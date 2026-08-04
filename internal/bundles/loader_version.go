@@ -105,13 +105,13 @@ func splitBundleVersion(bundleRef string) (canonical, version string) {
 // resolve error — both withhold ONLY that version (fail-closed). A bare-name ref
 // (no "#") has no bundle to pin a version against and resolves via the ordinary
 // search (commit ignored).
-func (l *Loader) GetFragmentAtVersion(ref, commit string) (*LoadedContent, error) {
+func (l *Loader) GetFragmentAtVersion(ref, commit string, preferDistilled bool) (*LoadedContent, error) {
 	bundleRef, fragName, isRef, err := splitItemRef(ref, "fragments")
 	if err != nil {
 		return nil, err
 	}
 	if !isRef {
-		return l.searchFragment(ref)
+		return l.searchFragment(ref, preferDistilled)
 	}
 	bundle, err := l.bundleAtVersion(bundleRef, commit)
 	if err != nil {
@@ -121,7 +121,7 @@ func (l *Loader) GetFragmentAtVersion(ref, commit string) (*LoadedContent, error
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundle.Name)
 	}
-	lc := l.fragmentContent(bundle, fragName, frag)
+	lc := l.fragmentContent(bundle, fragName, frag, preferDistilled)
 	if lc == nil {
 		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentWithheld, fragName)
 	}
@@ -131,13 +131,13 @@ func (l *Loader) GetFragmentAtVersion(ref, commit string) (*LoadedContent, error
 // GetPromptAtVersion is the prompt counterpart to GetFragmentAtVersion: it
 // resolves a prompt from a specific commit-version of its bundle, gated by that
 // version's own effective-content hash under the version-less ref.
-func (l *Loader) GetPromptAtVersion(ref, commit string) (*LoadedContent, error) {
+func (l *Loader) GetPromptAtVersion(ref, commit string, preferDistilled bool) (*LoadedContent, error) {
 	bundleRef, promptName, isRef, err := splitItemRef(ref, "commands")
 	if err != nil {
 		return nil, err
 	}
 	if !isRef {
-		return l.searchCommand(ref)
+		return l.searchCommand(ref, preferDistilled)
 	}
 	bundle, err := l.bundleAtVersion(bundleRef, commit)
 	if err != nil {
@@ -147,7 +147,7 @@ func (l *Loader) GetPromptAtVersion(ref, commit string) (*LoadedContent, error) 
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundle.Name)
 	}
-	lc := l.commandContent(bundle, promptName, prompt)
+	lc := l.commandContent(bundle, promptName, prompt, preferDistilled)
 	if lc == nil {
 		return nil, fmt.Errorf("%w: %s", errs.ErrCommandWithheld, promptName)
 	}
@@ -169,14 +169,14 @@ func (l *Loader) GetPromptAtVersion(ref, commit string) (*LoadedContent, error) 
 // Results preserve request order. Withheld/failed versions are tallied through
 // the loader's Withheld() set (the gate path) so the caller can surface "N
 // withheld" without leaking content.
-func (l *Loader) ResolveFragmentVersions(ref string, commits []string) []*LoadedContent {
+func (l *Loader) ResolveFragmentVersions(ref string, commits []string, preferDistilled bool) []*LoadedContent {
 	if len(commits) == 0 {
 		commits = []string{""}
 	}
 	seen := collections.NewSet[string]()
 	var out []*LoadedContent
 	for _, commit := range commits {
-		lc, err := l.GetFragmentAtVersion(ref, commit)
+		lc, err := l.GetFragmentAtVersion(ref, commit, preferDistilled)
 		if err != nil || lc == nil {
 			// Withheld or unresolvable: drop ONLY this version (fail-closed). The
 			// gate already recorded a withheld ref; a fetch failure is the safe

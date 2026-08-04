@@ -136,34 +136,34 @@ type charExposure struct {
 func newCharExposure(preferDistilled bool) *charExposure {
 	seen := map[string][2]string{}
 	return &charExposure{
-		loader: NewLoader(nil, preferDistilled, WithSeededBundles(charSeed()), WithTrustGate(blockingGate(seen))),
+		loader: NewLoader(nil, WithSeededBundles(charSeed()), WithTrustGate(blockingGate(seen))),
 		seen:   seen,
 		prefer: preferDistilled,
 	}
 }
 
 func (e *charExposure) fragment(name string) (*LoadedContent, error) {
-	return e.loader.GetFragment(name)
+	return e.loader.GetFragment(name, e.prefer)
 }
 
 func (e *charExposure) command(name string) (*LoadedContent, error) {
-	return e.loader.GetCommand(name)
+	return e.loader.GetCommand(name, e.prefer)
 }
 
 func (e *charExposure) commandsFromBundle(bundleRef string) []*LoadedContent {
-	return e.loader.CommandsFromBundleRef(bundleRef)
+	return e.loader.CommandsFromBundleRef(bundleRef, e.prefer)
 }
 
 func (e *charExposure) fragmentAtVersion(ref, commit string) (*LoadedContent, error) {
-	return e.loader.GetFragmentAtVersion(ref, commit)
+	return e.loader.GetFragmentAtVersion(ref, commit, e.prefer)
 }
 
 func (e *charExposure) promptAtVersion(ref, commit string) (*LoadedContent, error) {
-	return e.loader.GetPromptAtVersion(ref, commit)
+	return e.loader.GetPromptAtVersion(ref, commit, e.prefer)
 }
 
 func (e *charExposure) fragmentVersions(ref string, commits []string) []*LoadedContent {
-	return e.loader.ResolveFragmentVersions(ref, commits)
+	return e.loader.ResolveFragmentVersions(ref, commits, e.prefer)
 }
 
 // fragmentPreimage / commandPreimage exercise the preimage builders the gate's

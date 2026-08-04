@@ -639,7 +639,7 @@ func TestFSStore_Save(t *testing.T) {
 		},
 	}
 
-	err := NewFSStore([]string{tmpDir}, false).Save(bundle)
+	err := NewFSStore([]string{tmpDir}).Save(bundle)
 	require.NoError(t, err)
 
 	// Verify file was written
@@ -650,7 +650,7 @@ func TestFSStore_Save(t *testing.T) {
 }
 
 func TestFSStore_Save_NoPath(t *testing.T) {
-	err := NewFSStore(nil, false).Save(&Bundle{Version: "1.0"})
+	err := NewFSStore(nil).Save(&Bundle{Version: "1.0"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "no path set")
 }
@@ -805,16 +805,15 @@ func TestClaudeCodeConfig_IsEnabled(t *testing.T) {
 
 func TestNewLoader(t *testing.T) {
 	dirs := []string{"/path1", "/path2"}
-	loader := NewLoader(dirs, true)
+	loader := NewLoader(dirs)
 
 	assert.Equal(t, dirs, loader.searchDirs)
-	assert.True(t, loader.preferDistilled)
 }
 
 func TestWithFS(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dirs := []string{"/bundles"}
-	loader := NewLoader(dirs, false, WithFS(fs))
+	loader := NewLoader(dirs, WithFS(fs))
 
 	assert.Equal(t, fs, loader.fs)
 	assert.Equal(t, dirs, loader.searchDirs)
@@ -855,7 +854,7 @@ func TestLoader_Find(t *testing.T) {
 	err = os.WriteFile(filepath.Join(dirBundle, "bundle.yaml"), []byte("version: 1.0"), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 
 	t.Run("find file bundle", func(t *testing.T) {
 		path, err := loader.Find("test-bundle")
@@ -898,7 +897,7 @@ fragments:
 	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 	bundle, err := loader.LoadFile(bundlePath)
 	require.NoError(t, err)
 
@@ -917,7 +916,7 @@ func TestLoader_Load(t *testing.T) {
 	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 	bundle, err := loader.Load("my-bundle")
 	require.NoError(t, err)
 
@@ -943,7 +942,7 @@ fragments:
 description: Bundle 2`), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 	bundles, err := loader.List()
 	require.NoError(t, err)
 
@@ -971,7 +970,7 @@ fragments:
 	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 	infos, err := loader.ListAllFragments()
 	require.NoError(t, err)
 
@@ -1003,7 +1002,7 @@ commands:
 	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 	infos, err := loader.ListAllCommands()
 	require.NoError(t, err)
 
@@ -1038,8 +1037,8 @@ fragments:
 	require.NoError(t, err)
 
 	t.Run("simple name lookup", func(t *testing.T) {
-		loader := NewLoader([]string{tmpDir}, false)
-		content, err := loader.GetFragment("my-frag")
+		loader := NewLoader([]string{tmpDir})
+		content, err := loader.GetFragment("my-frag", false)
 		require.NoError(t, err)
 		assert.Contains(t, content.Content, "Fragment content")
 		assert.Contains(t, content.Tags, "bundle-tag")
@@ -1047,29 +1046,29 @@ fragments:
 	})
 
 	t.Run("qualified name lookup", func(t *testing.T) {
-		loader := NewLoader([]string{tmpDir}, false)
-		content, err := loader.GetFragment("test-bundle#fragments/my-frag")
+		loader := NewLoader([]string{tmpDir})
+		content, err := loader.GetFragment("test-bundle#fragments/my-frag", false)
 		require.NoError(t, err)
 		assert.Contains(t, content.Content, "Fragment content")
 	})
 
 	t.Run("prefer distilled", func(t *testing.T) {
-		loader := NewLoader([]string{tmpDir}, true)
-		content, err := loader.GetFragment("my-frag")
+		loader := NewLoader([]string{tmpDir})
+		content, err := loader.GetFragment("my-frag", true)
 		require.NoError(t, err)
 		assert.Equal(t, "Distilled version", content.Content)
 		assert.True(t, content.IsDistilled)
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		loader := NewLoader([]string{tmpDir}, false)
-		_, err := loader.GetFragment("nonexistent")
+		loader := NewLoader([]string{tmpDir})
+		_, err := loader.GetFragment("nonexistent", false)
 		assert.Error(t, err)
 	})
 
 	t.Run("invalid qualified reference", func(t *testing.T) {
-		loader := NewLoader([]string{tmpDir}, false)
-		_, err := loader.GetFragment("test-bundle#invalid/path")
+		loader := NewLoader([]string{tmpDir})
+		_, err := loader.GetFragment("test-bundle#invalid/path", false)
 		assert.Error(t, err)
 	})
 }
@@ -1127,8 +1126,8 @@ fragments:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			loader := NewLoader([]string{tmpDir}, tt.preferDistilled)
-			content, err := loader.GetFragment(tt.fragName)
+			loader := NewLoader([]string{tmpDir})
+			content, err := loader.GetFragment(tt.fragName, tt.preferDistilled)
 			require.NoError(t, err)
 			assert.Equal(t, tt.wantIsDistilled, content.IsDistilled)
 			assert.Equal(t, tt.wantContent, content.Content)
@@ -1160,29 +1159,29 @@ commands:
 	require.NoError(t, err)
 
 	t.Run("simple name lookup", func(t *testing.T) {
-		loader := NewLoader([]string{tmpDir}, false)
-		content, err := loader.GetCommand("my-prompt")
+		loader := NewLoader([]string{tmpDir})
+		content, err := loader.GetCommand("my-prompt", false)
 		require.NoError(t, err)
 		assert.Equal(t, "Prompt content", content.Content)
 	})
 
 	t.Run("qualified name lookup", func(t *testing.T) {
-		loader := NewLoader([]string{tmpDir}, false)
-		content, err := loader.GetCommand("test-bundle#commands/my-prompt")
+		loader := NewLoader([]string{tmpDir})
+		content, err := loader.GetCommand("test-bundle#commands/my-prompt", false)
 		require.NoError(t, err)
 		assert.Equal(t, "Prompt content", content.Content)
 	})
 
 	t.Run("prefer distilled", func(t *testing.T) {
-		loader := NewLoader([]string{tmpDir}, true)
-		content, err := loader.GetCommand("my-prompt")
+		loader := NewLoader([]string{tmpDir})
+		content, err := loader.GetCommand("my-prompt", true)
 		require.NoError(t, err)
 		assert.Equal(t, "Distilled prompt", content.Content)
 	})
 
 	t.Run("not found", func(t *testing.T) {
-		loader := NewLoader([]string{tmpDir}, false)
-		_, err := loader.GetCommand("nonexistent")
+		loader := NewLoader([]string{tmpDir})
+		_, err := loader.GetCommand("nonexistent", false)
 		assert.Error(t, err)
 	})
 }
@@ -1253,8 +1252,8 @@ commands:
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			loader := NewLoader([]string{tmpDir}, tt.preferDistilled)
-			content, err := loader.GetCommand(tt.promptName)
+			loader := NewLoader([]string{tmpDir})
+			content, err := loader.GetCommand(tt.promptName, tt.preferDistilled)
 			require.NoError(t, err, "prompt should be found")
 			assert.Equal(t, tt.wantIsDistilled, content.IsDistilled,
 				"IsDistilled mismatch: %s", tt.reason)
@@ -1288,7 +1287,7 @@ fragments:
 	err := os.WriteFile(filepath.Join(tmpDir, "test.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 
 	t.Run("single tag", func(t *testing.T) {
 		infos, err := loader.ListByTags([]string{"golang"})
@@ -1325,7 +1324,7 @@ fragments:
 // TestLoader_EmptySearchDirs verifies the loader handles no search directories.
 // FAULT TOLERANCE: Empty config should not error, just return no bundles.
 func TestLoader_EmptySearchDirs(t *testing.T) {
-	loader := NewLoader([]string{}, false)
+	loader := NewLoader([]string{})
 
 	bundles, err := loader.List()
 	require.NoError(t, err, "empty dirs should not error")
@@ -1336,7 +1335,7 @@ func TestLoader_EmptySearchDirs(t *testing.T) {
 // FAULT TOLERANCE: Invalid paths in config should be silently ignored.
 // This enables portable configs that reference optional bundle locations.
 func TestLoader_NonexistentSearchDir(t *testing.T) {
-	loader := NewLoader([]string{"/nonexistent/path"}, false)
+	loader := NewLoader([]string{"/nonexistent/path"})
 
 	bundles, err := loader.List()
 	require.NoError(t, err, "nonexistent dir should not error")
@@ -1347,7 +1346,7 @@ func TestLoader_NonexistentSearchDir(t *testing.T) {
 // Unlike directory searches, explicit file loads SHOULD error - the user
 // specifically requested a file that doesn't exist.
 func TestLoader_LoadFile_NotFound(t *testing.T) {
-	loader := NewLoader([]string{}, false)
+	loader := NewLoader([]string{})
 	_, err := loader.LoadFile("/nonexistent/bundle.yaml")
 	assert.Error(t, err, "explicit file load should error when not found")
 }
@@ -1361,7 +1360,7 @@ func TestLoader_LoadFile_InvalidYAML(t *testing.T) {
 	err := os.WriteFile(bundlePath, []byte("invalid: ["), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 	_, err = loader.LoadFile(bundlePath)
 	assert.Error(t, err, "invalid YAML should error")
 }
@@ -1380,7 +1379,7 @@ fragments:
 	err := os.WriteFile(bundlePath, []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 
 	// First load
 	bundle1, err := loader.LoadFile(bundlePath)
@@ -1422,7 +1421,7 @@ fragments:
 	err := os.WriteFile(filepath.Join(nestedDir, "bundle.yaml"), []byte(bundleYAML), 0644)
 	require.NoError(t, err)
 
-	loader := NewLoader([]string{tmpDir}, false)
+	loader := NewLoader([]string{tmpDir})
 	bundles, err := loader.List()
 	require.NoError(t, err)
 
@@ -1478,7 +1477,7 @@ fragments:
 	require.NoError(t, afero.WriteFile(fs, "/bundles/test/alpha.yaml", alpha, 0644))
 	require.NoError(t, afero.WriteFile(fs, "/bundles/test/beta.yaml", beta, 0644))
 
-	return NewLoader([]string{"/bundles"}, false, WithFS(fs))
+	return NewLoader([]string{"/bundles"}, WithFS(fs))
 }
 
 func TestLoader_ExpandBundleRefs_WholeBundleExpandsAllFragmentsSorted(t *testing.T) {
@@ -1650,7 +1649,7 @@ func TestLoader_ExpandBundleRefs_WholeBundleVersionFetchFailureSkipped(t *testin
 func TestLoader_GetFragment_LocalCanonicalRefRoundTrips(t *testing.T) {
 	loader := expandRefsFixture(t)
 
-	got, err := loader.GetFragment("ctxloom:local@bundles/test/alpha#fragments/a1")
+	got, err := loader.GetFragment("ctxloom:local@bundles/test/alpha#fragments/a1", false)
 	require.NoError(t, err)
 	assert.Equal(t, "ALPHA-ONE", got.Content)
 }
@@ -1806,14 +1805,14 @@ commands:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "bundle.yaml"), []byte(bundleYAML), 0644))
 
-	loader := NewLoader([]string{tmpDir}, true)
+	loader := NewLoader([]string{tmpDir})
 
-	frag, err := loader.GetFragment("pinned-raw")
+	frag, err := loader.GetFragment("pinned-raw", true)
 	require.NoError(t, err)
 	assert.Equal(t, "Original fragment", frag.Content, "no_distill must serve the raw content")
 	assert.False(t, frag.IsDistilled, "the flag must describe the bytes actually served")
 
-	cmd, err := loader.GetCommand("pinned-raw-cmd")
+	cmd, err := loader.GetCommand("pinned-raw-cmd", true)
 	require.NoError(t, err)
 	assert.Equal(t, "Original command", cmd.Content, "no_distill must serve the raw content")
 	assert.False(t, cmd.IsDistilled, "the flag must describe the bytes actually served")
@@ -1842,7 +1841,7 @@ commands:
     content: two
 `
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "b.yaml"), []byte(bundleYAML), 0644))
-	l := NewLoader([]string{tmpDir}, false)
+	l := NewLoader([]string{tmpDir})
 
 	// Recognised, fragment-targeted: expands to exactly that item.
 	for _, ref := range []string{"b:fragments/f1", "b#fragments/f1"} {
@@ -1899,7 +1898,7 @@ func TestInstallation_IsNeverInTheModelFacingBytes(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundleYAML := "version: \"1.0\"\ncommands:\n  c1:\n    content: command body\n    installation: '" + secretish + "'\n"
 	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "b.yaml"), []byte(bundleYAML), 0644))
-	lc, err := NewLoader([]string{tmpDir}, false).GetCommand("c1")
+	lc, err := NewLoader([]string{tmpDir}).GetCommand("c1", false)
 	require.NoError(t, err)
 	assert.Equal(t, "command body", lc.Content)
 	assert.Equal(t, secretish, lc.Installation)

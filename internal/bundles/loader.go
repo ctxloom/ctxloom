@@ -56,9 +56,8 @@ type ContentGate func(ref string, payload []byte, form, signer string) bool
 // Loader loads bundles from disk (and an optional in-memory seed), caching
 // parsed results for the lifetime of the loader.
 type Loader struct {
-	searchDirs      []string
-	preferDistilled bool
-	fs              afero.Fs
+	searchDirs []string
+	fs         afero.Fs
 	mu              sync.RWMutex       // Protects cache
 	cache           map[string]*Bundle // Cache of loaded bundles by path
 	seeded          map[string]*Bundle // Canonical-ref → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
@@ -172,13 +171,18 @@ func WithWarnWriter(w io.Writer) LoaderOption {
 
 // NewLoader creates a bundle loader.
 // The loader caches loaded bundles in memory to avoid redundant disk reads.
-func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) *Loader {
+//
+// It carries NO form preference. Raw-vs-distilled is a PROCESS-stage decision
+// (docs/design/engine-delivery-seam.design.md, "ALL processing lives in the
+// middle"): the read stage yields whichever form its caller asks for, per call,
+// so one loader serves two consumers that want different forms and the read
+// stage holds no policy of its own.
+func NewLoader(searchDirs []string, opts ...LoaderOption) *Loader {
 	l := &Loader{
-		searchDirs:      searchDirs,
-		preferDistilled: preferDistilled,
-		fs:              afero.NewOsFs(),
-		cache:           make(map[string]*Bundle),
-		warnOut:         os.Stderr,
+		searchDirs: searchDirs,
+		fs:         afero.NewOsFs(),
+		cache:      make(map[string]*Bundle),
+		warnOut:    os.Stderr,
 	}
 	for _, opt := range opts {
 		opt(l)

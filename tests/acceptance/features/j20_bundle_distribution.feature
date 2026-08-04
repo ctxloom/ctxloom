@@ -10,10 +10,12 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   should deliver every part of it, unchanged, to every engineer — whichever
   way their agent happens to be isolated.
 
-  Today it is not one act, and for one of those kinds it is not possible at
-  all. This journey states the whole claim anyway, because the claim is what
-  the bundle-as-tree restructure is FOR, and a journey that only asserted the
-  parts that already work would go green while the capability stayed missing.
+  When this journey was written it was not one act, and for one of those kinds
+  it was not possible at all. It stated the whole claim anyway, because the
+  claim is what the bundle-as-tree restructure is FOR, and a journey that only
+  asserted the parts that already worked would have gone green while the
+  capability stayed missing. Most of it is green now; what is not is named,
+  with its reason, at the scenario that carries it.
 
   # ============================================================================
   # WHY THIS IS A NEW JOURNEY (J20) AND NOT AN EXTENSION OF J2/J3/J18
@@ -42,7 +44,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # This journey's subject is the one none of them own: does the PAYLOAD of
   # every surface kind survive the trip from an author's tree to a consumer's
   # agent, across the isolation configurations that agent might be running in.
-  # It is also, today, entirely red — and it needs to be independently
+  # It was also, when written, entirely red — and it needed to be independently
   # untaggable as a unit, which it could not be folded into a green journey.
   #
   # The existing suite is NOT renumbered. This is additive.

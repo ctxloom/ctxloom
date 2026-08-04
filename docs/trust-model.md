@@ -100,6 +100,16 @@ match wins; it is fail-closed:
    (`resources/builtin_bundles`, synthetic signer `builtin:ctxloom`) → **ALLOW**.
    Builtins are deliberately **not** signed — signing bytes embedded in the
    binary that verifies them is circular.
+4b. **companion** — the item came from an installed companion binary's own
+   loadout (`ctxloom:companion@<bin>`) → **ALLOW**. Local-equivalent, and the
+   reason is *order of operations*, not deference: ctxloom reads a loadout by
+   **executing** the companion (`<bin> loadout --format json`), so by the time
+   the content exists that binary has already run arbitrary code as you.
+   Reviewing the content afterwards buys ~nothing while costing a review prompt
+   for a tool you deliberately installed. The control point that *does* have
+   purchase is **exec**, and that is where the human decision lives — see
+   "Companion loadouts" below. Like builtin, this is a distinct step below
+   rejection specifically so step 1 can still reach it.
 5. **trusted signer** — the item's bundle carries a non-empty verified publisher
    `Signer`: a key trusted for the publish namespace signed exactly these file
    bytes, and the signature verified at load, before any parse → **ALLOW**
@@ -190,7 +200,7 @@ be mistaken for a cryptographically-verified publisher.
 
 ## First-party sources
 
-Three source classes are exempt from review by default (but not from
+Four source classes are exempt from review by default (but not from
 rejection — see the decision function above):
 
 - **Local** — items authored in this project, keyed to the `ctxloom:local`
@@ -201,10 +211,94 @@ rejection — see the decision function above):
   `builtin:ctxloom` identity. Allowed by default (step 4) with no review
   friction — but, unlike local content's step-3 placement, this is a distinct
   step specifically so a rejection (step 1) can still reach it.
+- **Companion** — a loadout an installed companion binary advertised about
+  itself, keyed to the fixed `ctxloom:companion` token. Exempt because reading
+  it *required executing the binary first*; see "Companion loadouts" below for
+  the full argument and for what is gated instead.
 - **Trusted publisher** — a bundle whose file bytes were signed by a key you
   trust for the publish namespace, verified at load. Updates included: change
   the bytes and the publisher's signature no longer covers them, so the bundle
   re-verifies (or falls to pending) on the next load.
+
+### Companion loadouts
+
+A companion (`ltk`, `taskloom`, `reprise`, or any `ctxloom-companion-*` binary
+on `$PATH`) tells ctxloom what it contributes by being **run**:
+`<bin> loadout --format json`.
+
+**The posture reversed here, deliberately.** This document and
+`docs/signing-design.md` previously recorded that a companion loadout is
+*"withheld, never crashes, never auto-allowed"* — gated "exactly like a remote
+bundle". Two of those three still hold; **"never auto-allowed" does not**.
+Companion content is now **local-equivalent** and allowed at step 4b.
+
+The reason is order of operations. Gating the *content* of a loadout puts the
+review prompt strictly **after** the arbitrary code execution it would be
+protecting you from: the binary already ran, as you, before a single byte of
+content existed. A prompt in that position buys ~nothing, and it costs friction
+on content the user deliberately installed — which is how prompt fatigue trains
+people to approve without reading, blunting the prompts that *do* matter.
+
+So the decision moved to where it has purchase: **may ctxloom execute this
+binary at all**.
+
+**Discovery is trust-on-first-use.** Discovery itself is unchanged and
+deliberately permissive — it lists every first-party name plus every
+`ctxloom-companion-*` found by scanning `$PATH`, filtering nothing, because it
+is a *candidate list*. The gate is at exec. The first time a given companion
+would be run, ctxloom asks, and records the answer (the `ssh known_hosts`
+pattern). A **non-interactive session — an agent, CI, `ctxloom mcp` over stdio,
+any piped invocation — is never prompted**: the unconfirmed companion is skipped
+with a warning naming the file and the way to allow it. Fail-closed, matching
+how the probe already degrades on failure.
+
+This closes a real hole. `./node_modules/.bin` is on `$PATH` in a large share of
+JavaScript projects, and an npm package — including a transitive dependency
+nobody chose — can ship a binary under any name. Shipping
+`ctxloom-companion-anything` previously earned an exec at the next session
+start with no user action at all. That attacker does not control `$PATH`; they
+name-squatted an auto-exec convention in a directory already on it. Every *other*
+consumer of `node_modules/.bin` requires a human to type the command.
+
+**The record is keyed on the resolved absolute path AND the binary's SHA-256.**
+Path alone would let a replace-in-place swap inherit an existing approval; name
+alone would let a binary earlier in `$PATH` inherit an approval granted to a
+completely different file. An **approval** requires an exact `(path, sha256)`
+match — any byte change at an approved path re-prompts. A **refusal** matches on
+path alone, so "never run this" survives the binary being rebuilt.
+
+**First-party companions are exempt, but pinned by location.** `ltk`, `taskloom`
+and `reprise` are automatic *only* when they resolve from the directory the
+running `ctxloom` binary itself lives in — the location every install shape puts
+them in together (`just install` → `~/go/bin`, a Homebrew prefix, the
+devcontainer image, `$GOBIN`). That keeps routine rebuilds silent, which is the
+whole point of the exemption. A first-party **name** found anywhere else is a
+third-party binary that picked a familiar name, and goes through the prompt like
+any other: the name list is three guessable strings discovered unconditionally,
+so a name-only exemption would be the same hole in a smaller costume.
+
+**What did not change.** Rejection still reaches companion content (step 1, above
+the exemption). An unreadable approvals store still denies it along with
+everything else. And a loadout whose signature **fails to verify** is still
+withheld — *signed-but-invalid is not unsigned*. Unsigned-and-installed is
+trusted; a signature that does not cover the bytes it accompanies is tamper
+evidence, and `config.ProbeCompanionLoadouts` drops it at the envelope so it
+never reaches the decision function at all. An absent, wedged, timed-out or
+unparseable companion is still skipped with a warning, never fatal, never a
+stalled startup.
+
+**Where the record lives.** `~/.ctxloom/companion_consent.yaml`, personal only,
+mode `0600`. There is deliberately **no committable project counterpart**, unlike
+the approvals store: an approval answers "may this content be shown to the
+agent", which a team can legitimately decide once and share, whereas this answers
+"may ctxloom execute this file on **this machine**". A committable form would let
+a repo you cloned arrive carrying pre-approved binaries. Its only authority is
+filesystem permissions — the same standing the unsigned approval markers have —
+which is another reason it never leaves your home directory.
+
+Inspect and change it with `ctxloom trust companion list | allow <path> |
+forget <path>`. `allow` is also the scriptable escape hatch for CI, and it
+requires a human to type it rather than inferring consent from an environment.
 
 ### Trusted publishers
 
@@ -316,6 +410,7 @@ signature body, resolves pending — never allow.
 | `.ctxloom/approvals/` | The **project (committable) countersignature store**, same shape as the personal one. `ctxloom review --project` writes here; a team/CI inherits a lead's decisions via the project's `allowed_signers`. |
 | `.ctxloom/allowed_signers` (+ `~/.ctxloom/allowed_signers`, + embedded) | The **trust root**: publisher/approver keys in OpenSSH `allowed_signers` format, verbatim. Unioned across all three locations; the `namespaces="…"` option is the role system. Committable. |
 | `<bundle>.yaml.sig` | Detached publisher signature, a sibling of each signed bundle in the same git tree at the same pinned SHA. Verified over the raw file bytes before parse. A missing `.sig` = unsigned. |
+| `~/.ctxloom/companion_consent.yaml` | The **companion exec-consent record**: one decision per companion binary, keyed on resolved absolute path + SHA-256. Mode `0600`, personal only, **no committable twin** — it answers "may ctxloom run this file on this machine", which no repo may answer for you. Plain data, not a signature; its authority is filesystem permissions. Managed with `ctxloom trust companion list\|allow\|forget`. |
 | `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
 | `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |
 | `cache/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Pure cache: deleting it only degrades update review to a full-content display. |
@@ -351,6 +446,10 @@ context.
 | Executable gate — command export | command slash-commands | not exported |
 | Tooling collection (`CollectTooling`) | `tooling` declarations | withheld from Containerfile proposals |
 | Listing stamp (`TrustStamper`) | JSON listings | stamped `trusted: false` + source |
+
+There is one choke *above* all of these, and it is not a content decision at
+all: **companion exec consent**. A companion whose execution nobody confirmed is
+never run, so its content never exists to gate. See "Companion loadouts".
 
 Builtin content passes through every one of these chokes exactly like
 remote/local content — it is simply allowed by default at the decision
@@ -391,8 +490,10 @@ item kind — that path never gates ANY item, builtin or not.
 Items key as `{canonical repo URL} + {bundle}#{kind}/{name}` with no version;
 hashes carry the version dimension. Local items key under the fixed
 `ctxloom:local` token in place of a repo URL; builtin items key under the fixed
-`builtin:ctxloom` token — both sentinels so local and builtin items can never
-collide with a real remote repo URL, or with each other. Repo URLs are
+`builtin:ctxloom` token; companion items key under the fixed
+`ctxloom:companion` token with the binary's name as the bundle component — all
+three are sentinels, so none of these classes can collide with a real remote
+repo URL, or with each other. Repo URLs are
 canonicalized (scheme, `.git`,
 `git@`, host case; path case only on case-folding forges) on both sides of every
 comparison, so a URL-spelling variant cannot escape a rejection or manufacture a
@@ -429,6 +530,14 @@ Addressed:
   everything. Without that, an unreadable rejection would be an unenforced one.
 - **curl-pipe-sh via tooling declarations** — tooling collection is trust-gated;
   nothing is applied without per-item human countersignature.
+- **`$PATH` name-squatting into an auto-exec** — a binary named
+  `ctxloom-companion-*` (or one of the three first-party names) dropped into a
+  directory already on `$PATH`, `./node_modules/.bin` being the realistic case,
+  used to be executed at the next session start with no user action. It is now
+  trust-on-first-use, keyed on absolute path + SHA-256, and skipped outright in
+  any non-interactive session. The first-party name exemption is pinned to
+  ctxloom's own install directory so it cannot be claimed by a shadowing
+  binary. See "Companion loadouts".
 - **Content-form-flip escape** — closed by requiring an independent
   countersignature over EACH exposed form; a raw approval never validates a
   distilled exposure or vice versa.

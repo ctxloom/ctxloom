@@ -165,6 +165,13 @@ func reportCompanions(w io.Writer) {
 	for _, st := range config.ProbeCompanions() {
 		switch {
 		case st.Path == "":
+		case !st.Executed():
+			// Present on PATH but NOT run — refused, unconfirmed, or blocked by
+			// a consent-record fault. AdmitCompanions already warned with the
+			// specific reason and the way to fix it; what this line adds is the
+			// version slot NOT silently coming back blank, which would read as
+			// "probed, said nothing" instead of "never ran".
+			ew.Printf("ctxloom: companion %s not run (%s)\n", st.Bin, st.Admission)
 		case st.Err != nil:
 			clidiag.Fwarn(ew, "ctxloom", "companion %s (%s): %v", st.Bin, st.Path, st.Err)
 		default:

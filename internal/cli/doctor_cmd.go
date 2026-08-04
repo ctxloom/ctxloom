@@ -821,10 +821,18 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	if len(bins) == 0 {
 		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "no companions discovered"}
 	}
-	var present []string
+	// "on PATH" and "actually run" are now different facts: a companion whose
+	// EXECUTION nobody confirmed is present and skipped. Reporting only the
+	// first would tell a user their companion is fine while it contributes
+	// nothing — the exact silent no-op doctor exists to surface.
+	var present, notRun []string
 	for _, st := range config.ProbeCompanions() {
-		if st.Path != "" {
-			present = append(present, st.Bin)
+		if st.Path == "" {
+			continue
+		}
+		present = append(present, st.Bin)
+		if !st.Executed() {
+			notRun = append(notRun, fmt.Sprintf("%s (%s)", st.Bin, st.Admission))
 		}
 	}
 	loadouts := config.ProbeCompanionLoadouts(cfg.TrustRoot())
@@ -832,9 +840,13 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	if len(present) > 0 {
 		presentDetail = strings.Join(present, ", ")
 	}
+	notRunDetail := ""
+	if len(notRun) > 0 {
+		notRunDetail = fmt.Sprintf("; NOT RUN: %s — allow with 'ctxloom trust companion allow <path>'", strings.Join(notRun, ", "))
+	}
 	return doctorCheck{Marker: marker, Status: doctorOK, Detail: fmt.Sprintf(
-		"discovered: %s; on PATH: %s; loadout verified: %d",
-		strings.Join(bins, ", "), presentDetail, len(loadouts))}
+		"discovered: %s; on PATH: %s; loadout verified: %d%s",
+		strings.Join(bins, ", "), presentDetail, len(loadouts), notRunDetail)}
 }
 
 // doctorCheckSetupAuthPing is a placeholder. init-as-skill's USER RULING (a)

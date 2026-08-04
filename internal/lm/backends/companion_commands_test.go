@@ -76,6 +76,10 @@ func companionCfg(t *testing.T) *config.Config {
 // how S8 made companion fragments/hooks/MCP unconditional-when-present. It
 // also pins the exact slash-command name the ltk loadout's command gets.
 func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T) {
+	// This test's subject is command EXPORT, not companion admission: grant
+	// exec consent for the fake ltk so the trust-on-first-use gate does not
+	// withhold the loadout before there is anything to export.
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
@@ -108,6 +112,12 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 // withholds the companion command, so it is NOT the builtin nil-gate exemption
 // (a true builtin would still export under a denying gate below rejection).
 func TestLoadCommandExports_WithheldCompanionCommand_DenyingGateNotBuiltinExemption(t *testing.T) {
+	// This test's subject is the DENYING CONTENT GATE, so exec consent must be
+	// granted: without it the companion is never run at all, and the assertion
+	// below would pass because nothing was ever produced rather than because
+	// the gate withheld it — the same green-for-the-wrong-reason shape as
+	// trust_surface.feature:269.
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
@@ -123,6 +133,10 @@ func TestLoadCommandExports_WithheldCompanionCommand_DenyingGateNotBuiltinExempt
 // still gets exactly that command, AND the companion's unconditional command,
 // together.
 func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T) {
+	// This test's subject is command EXPORT, not companion admission: grant
+	// exec consent for the fake ltk so the trust-on-first-use gate does not
+	// withhold the loadout before there is anything to export.
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
 	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })

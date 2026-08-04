@@ -548,5 +548,15 @@ func init() {
 			return decodeBody(body, &MockConfig{})
 		},
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return NewMockSurfaces(in, fs) },
+		// mock is the SAME structural shape as opencode here: mockApproaches
+		// (mock_surfaces.go) declares context only, so a configured
+		// session_start hook has no settings surface to land on and reaches no
+		// file. Declared for the same reason opencode's noHooksReason is —
+		// UncarriedSurfaces can only report a loss that is DECLARED, and an
+		// undeclared one reads as silence (whiny-exclusive). When mock gains a
+		// settings/hook surface (tracked separately — proven-magma is the
+		// skills half of that expansion), delete this line; the hook sentinel
+		// will then need a real destination instead.
+		noHooksReason: "mock has no settings/hook surface",
 	})
 }

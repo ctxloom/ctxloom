@@ -24,10 +24,17 @@
 // mid-turn half is covered in tests/integration/delivery_approach_matrix_test.go
 // and grpc_test's TestRunTurn_MockDeliversContextSurfaceDuringTheTurn.
 //
+// THE CONTAINER HALF IS HERMETIC TOO, through internal/testsupport/containercell:
+// a `FROM scratch` image carrying one static ctxloom, the environment root
+// bind-mounted at its own absolute path, `--network=none`, and the SAME
+// `profile materialize --backend mock` executed inside the container. The rows
+// assert on the HOST side of that mount, and add OWNERSHIP to bytes and mode —
+// the one property a process boundary breaks while the other two come through
+// untouched (a rootful daemon writes byte-identical, mode-identical, ROOT-OWNED
+// files). See j20DeliverInContainer for the anti-vacuity guards.
+//
 // What is still @wip, and why, is stated in the feature file rather than
-// duplicated here: the hook-order row, and the CONTAINER half of the delivery
-// matrix (no hermetic container cell exists in this suite, and two of its rows
-// also sit on the containerConfigOverlay bind-mount hazard).
+// duplicated here: the hook-order row.
 //
 // TWO DELIBERATE CHOICES ABOUT HOW IT FAILS — they still matter, because the
 // rows that remain red must keep naming the gap rather than an exit code:
@@ -57,12 +64,14 @@ package acceptance
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/cucumber/godog"
 	"github.com/spf13/afero"
@@ -71,6 +80,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
+	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -102,6 +113,10 @@ type j20State struct {
 	// MOCK_CONTEXT.md). Empty until a delivery step sets it, so
 	// j20AgentVisiblePath can refuse rather than guess.
 	agentBackend string
+	// cellRuntime names the container runtime a container row actually ran
+	// under ("docker-rootless", ...), empty for a host row. A matrix that
+	// cannot say WHICH runtime it exercised cannot claim to have covered one.
+	cellRuntime string
 }
 
 func j20Of(w *World) *j20State {
@@ -758,7 +773,7 @@ func registerJ20Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^the pulled surfaces are delivered to a "([^"]*)" agent in its "([^"]*)" workspace$`, func(c context.Context, runtime, workspace string) error {
 		w := worldFrom(c)
 		st := j20Of(w)
-		st.agentRoot, st.agentBackend = "", ""
+		st.agentRoot, st.agentBackend, st.cellRuntime = "", "", ""
 		root, err := j20WorkspaceRoot(w, runtime, workspace)
 		if err != nil {
 			// A configuration this suite has no hermetic vehicle for is
@@ -778,12 +793,39 @@ func registerJ20Steps(ctx *godog.ScenarioContext) {
 		// same backends.BuildSurfaces seam. The live-run half stays covered by
 		// tests/integration/delivery_approach_matrix_test.go and grpc's
 		// TestRunTurn_MockDeliversContextSurfaceDuringTheTurn.
+		//
+		// The RUNTIME axis decides WHERE that command executes: on the host, or
+		// inside a container against the same path through a bind mount.
+		if runtime == "container" {
+			return j20DeliverInContainer(c, w, root)
+		}
 		if rerr := w.env.Run("profile", "materialize", "default", "--target", root, "--backend", "mock"); rerr != nil || w.env.LastExitCode() != 0 {
 			st.runErr = fmt.Errorf("`ctxloom profile materialize default --target %s --backend mock` exited %d", root, w.env.LastExitCode())
 		}
 		st.runOutput = w.env.LastOutput()
 		st.agentRoot = root
 		st.agentBackend = "mock"
+		return nil
+	})
+
+	// OWNERSHIP is the container half's own assertion, and it is on the
+	// container outline alone because it is the only axis a process boundary
+	// can break while bytes and modes come through untouched. A rootful daemon
+	// writing through a bind mount leaves byte-identical, mode-identical,
+	// ROOT-OWNED files in the invoking user's tree — undeletable by that user,
+	// and invisible to every check this journey previously made.
+	ctx.Step(`^"([^"]*)" is owned on the host by the user that ran the delivery$`, func(c context.Context, rel string) error {
+		w := worldFrom(c)
+		st := j20Of(w)
+		p, err := j20AgentVisiblePath(w, rel)
+		if err != nil {
+			return err
+		}
+		if oerr := containercell.AssertOwnedByInvoker(p, rel); oerr != nil {
+			return fmt.Errorf("%w\n%s", oerr, st.j20RunDiagnostic())
+		}
+		uid, gid, _ := containercell.Owner(p)
+		w.docStepMaterialized = fmt.Sprintf("%s -> uid=%d gid=%d (runtime %s)", p, uid, gid, st.cellRuntime)
 		return nil
 	})
 
@@ -884,13 +926,20 @@ func (st *j20State) j20RunDiagnostic() string {
 //     red. What this does NOT prove is the RESOLUTION — that a real run points
 //     delivery at its own worktree — which is J9's subject (its mock
 //     req.WorkDir record) and the integration matrix's.
-//   - container + *   — refused. There is no hermetic container cell anywhere
-//     in this suite, and materializing on the host while asserting a host path
-//     would pass every container row vacuously.
+//   - container + *   — the SAME directory, reached through a bind mount from
+//     inside a container (internal/testsupport/containercell). The workspace
+//     axis is unchanged by the runtime axis, which is the composition the docs
+//     claim: workspace isolates the FILES, runtime isolates the PROCESS. What
+//     changes is WHO writes: a ctxloom process inside the container, whose
+//     only route to this path is the mount. Deliver into a container-private
+//     path instead and the host sees nothing — which is reason (2) in the
+//     feature file's container block, stated as an assertion rather than a
+//     worry.
 func j20WorkspaceRoot(w *World, runtime, workspace string) (string, error) {
-	if runtime != "host" {
-		return "", fmt.Errorf("runtime %q has no hermetic cell in this suite: nothing here launches a container, "+
-			"and delivering on the host while asserting a host path would pass this row without crossing the process boundary it names", runtime)
+	switch runtime {
+	case "host", "container":
+	default:
+		return "", fmt.Errorf("this journey knows no runtime axis %q", runtime)
 	}
 	switch workspace {
 	case "none":
@@ -1097,4 +1146,86 @@ func j20PlacementFile(placement string) (string, error) {
 		return "", fmt.Errorf("placement phrase %q names no file", placement)
 	}
 	return p[i+1 : j], nil
+}
+
+// j20ContainerReport prints the container-runtime probe once per suite run.
+// The acceptance suite already prints a live-engine availability report on
+// every run for the same reason: a run that covered one runtime must be
+// distinguishable from one that covered three, and from one that covered none.
+var j20ContainerReport sync.Once
+
+// j20DeliverInContainer is the container half of the delivery matrix: run
+// `ctxloom profile materialize` INSIDE a container, delivering into a
+// bind-mounted target, and leave the host-side assertions to the Then steps.
+//
+// WHAT MAKES THIS NON-VACUOUS, since "assert a host path" is exactly what a
+// vacuous version of this row would also do:
+//
+//   - the delivering process is in the container, and its ONLY route to the
+//     target is the bind mount. A ctxloom that resolved the target to a
+//     container-private path (the containerConfigOverlay failure mode) writes
+//     into the ephemeral layer and this row goes red with an absent file.
+//   - the target is checked to be EMPTY of delivered surfaces first, so a
+//     leftover from an earlier host step cannot stand in for a container
+//     delivery.
+//   - the assertions that follow are on bytes, POSIX mode AND ownership.
+//
+// A missing runtime SKIPS the scenario, naming the runtime and what did not
+// run — never a silent pass. Under CTXLOOM_REQUIRE_DOCKER=1 the same condition
+// is a failure, and under CTXLOOM_REQUIRE_RUNTIMES a lane can demand a
+// specific one; all three outcomes come from dockergate rather than from a
+// second copy of the policy here.
+func j20DeliverInContainer(c context.Context, w *World, root string) error {
+	st := j20Of(w)
+	rt, decision, msg := containercell.Select(c, "J20's container delivery-matrix rows")
+	j20ContainerReport.Do(func() { fmt.Println("\n" + containercell.Report(containercell.Detect(c))) })
+	switch decision {
+	case dockergate.Fail:
+		return errors.New(msg)
+	case dockergate.Skip:
+		fmt.Printf("SKIPPED (J20 container delivery row): %s\n", msg)
+		w.docStepMaterialized = "SKIPPED: " + msg
+		return godog.ErrSkip
+	case dockergate.Proceed:
+	}
+
+	// The anti-vacuity guard. If the engine's context file were already there,
+	// every Then below could pass on bytes no container ever wrote.
+	if _, err := os.Stat(filepath.Join(root, "MOCK_CONTEXT.md")); err == nil {
+		return fmt.Errorf("fixture error: %q already carries MOCK_CONTEXT.md before the container ran, so this row could pass on a host-side leftover", root)
+	}
+
+	res, err := rt.Run(c, containercell.Spec{
+		// ONE mount, the whole environment root, at its own absolute path: it
+		// holds Alice's home (the pulled bundle cache), her project, and the
+		// detached worktree checkout the "worktree" rows deliver into. Mounting
+		// less would make the run fail for a reason that has nothing to do with
+		// the claim.
+		Mounts:  []string{w.env.Root},
+		WorkDir: w.env.ProjectDir,
+		// The cell image is FROM scratch and inherits no environment, so the
+		// isolation testenv.isolatedEnv() applies on the host is re-stated here
+		// explicitly — the same fake HOME and XDG roots, all under the mount.
+		Env: map[string]string{
+			"HOME":            w.env.HomeDir,
+			"XDG_CONFIG_HOME": filepath.Join(w.env.HomeDir, ".config"),
+			"XDG_DATA_HOME":   filepath.Join(w.env.HomeDir, ".local", "share"),
+		},
+		Args: []string{"profile", "materialize", "default", "--target", root, "--backend", "mock"},
+	})
+	if err != nil {
+		st.runErr = fmt.Errorf("the %s container cell could not run: %w", rt.Name, err)
+		st.runOutput = res.Output
+		return nil
+	}
+	if res.ExitCode != 0 {
+		st.runErr = fmt.Errorf("in-container `ctxloom profile materialize default --target %s --backend mock` exited %d under %s (argv: %s)",
+			root, res.ExitCode, rt.Name, strings.Join(res.Argv, " "))
+	}
+	st.runOutput = res.Output
+	st.agentRoot = root
+	st.agentBackend = "mock"
+	st.cellRuntime = rt.Name
+	w.docStepMaterialized = fmt.Sprintf("ran INSIDE a %s container: %s\n%s", rt.Name, strings.Join(res.Argv, " "), strings.TrimSpace(res.Output))
+	return nil
 }

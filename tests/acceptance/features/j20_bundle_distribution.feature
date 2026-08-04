@@ -83,14 +83,19 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # the Given always claimed it did, so five of the six kinds — fragment,
   # command, mcp, hook and the whole skill package — reach Alice's assistant.
   #
-  # TWO THINGS REMAIN RED, for two different reasons, neither of them delivery.
+  # ONE THING REMAINS RED; the second entry below records what came off the
+  # list and what is left of it.
   #
   # (a) HOOK ORDER (one scenario). See the block above that scenario; the
   #     reason it is red is NOT the fetch gap and never was.
   #
-  # (b) THE CONTAINER HALF OF THE DELIVERY MATRIX (six rows). No hermetic
-  #     container cell exists anywhere in this suite, and two of its rows also
-  #     sit on a real product hazard. Both are stated at that scenario.
+  # (b) was THE CONTAINER HALF OF THE DELIVERY MATRIX (six rows), and is now
+  #     GREEN: a hermetic container cell exists
+  #     (internal/testsupport/containercell) and those rows run a real
+  #     `profile materialize` INSIDE a container against a bind-mounted target,
+  #     asserting bytes, mode and OWNERSHIP from the host side. What they still
+  #     do not reach — ctxloom's OWN container launch and its
+  #     containerConfigOverlay — is stated at that scenario.
   #
   # PROFILES and THE HOST HALF OF THE DELIVERY MATRIX were red here and are now
   # green. The profile row was red because "reaches the assistant" is not a
@@ -380,46 +385,76 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
       | host    | worktree  | skills/reviewer/scripts/run.sh  | 0755 |
 
   # --------------------------------------------------------------------------
-  # THE CONTAINER HALF OF THE MATRIX — still red, for two reasons that stack.
+  # THE CONTAINER HALF OF THE MATRIX — now green, on whichever container
+  # runtime the runner has.
   #
-  # (1) NO HERMETIC CONTAINER CELL EXISTS IN THIS SUITE, for any row. Nothing
-  #     here launches a container: j9_isolation.feature says so in its own prose
-  #     ("no @container scenario exists in this file") and only proves the
-  #     fail-loud/degrade contract; the live container proof is @live, in
-  #     isolation_probe.feature. Delivering on the host and then asserting a
-  #     host path would pass every row below WITHOUT crossing the process
-  #     boundary they name — a vacuous green, which is worse than red in a
-  #     suite that exists to catch exactly that. So the step refuses the
-  #     container runtime outright rather than quietly falling back.
+  # WHAT UNBLOCKED IT. A hermetic container cell now exists
+  # (internal/testsupport/containercell): a `FROM scratch` image carrying one
+  # statically linked ctxloom, the environment root bind-mounted at its own
+  # absolute path, `--network=none`, and `profile materialize --backend mock`
+  # executed INSIDE the container. The rows below assert on the HOST side of
+  # that mount. Nothing about that route existed when this block said it was
+  # impossible: the suite launched no container anywhere (j9 proves the
+  # fail-loud DEGRADE contract, which is a different claim from "a container
+  # run delivered these bytes"), the fixture image had no engine, and — the
+  # part that was actually load-bearing — the mock backend materialised NOTHING
+  # until it started delivering through the shared cells seam, so a cell would
+  # have had nothing to observe even with a daemon, an image and a mount.
   #
-  # (2) A SUBSTANTIVE PRODUCT HAZARD sits under the two SKILL artifacts
-  #     specifically, and a mock skills surface does not touch it. On the
-  #     {container, none} cell, containerConfigOverlay (internal/lm/isolation/
-  #     container.go) bind-mounts a per-run SCRATCH directory over ".claude"
-  #     (profile.overlayDirs). Surfaces materialized in-container therefore land
-  #     in that scratch overlay, which is removed at teardown and never copied
-  #     back out. The agent can read them; the host cannot; nothing survives the
-  #     run. The container's session-state mounts do not help —
-  #     sessionStateMounts binds exactly <harp>/persist and
-  #     <harp>/persist/transcripts (statemounts.go, pinned by
-  #     statemounts_test.go's "transcript store + persist only"), deliberately
-  #     NOT <harp>/ephemeral/, and NOTHING at the harp-dir top level (task
-  #     `operable-account`'s unclassified-middle zone). If a delivered artifact
-  #     lands anywhere but the mounted project/worktree dir, a containerized
-  #     agent cannot see it, and these rows are how that is found out rather
-  #     than assumed.
+  # WHY THIS IS NOT THE VACUOUS VERSION. Delivering on the host and asserting a
+  # host path would pass every row below without crossing the process boundary
+  # they name. Three things stop that: the delivering process is inside the
+  # container and its ONLY route to the target is the bind mount, so a delivery
+  # that resolved to a container-private path lands in the ephemeral layer and
+  # the row goes red on an absent file; the target is checked EMPTY before the
+  # container starts, so no host-side leftover can stand in; and each row
+  # asserts bytes, POSIX mode AND OWNERSHIP.
   #
-  # UNTAG CONDITION: a hermetic container cell that launches an agent under the
-  # container runtime and lets a step read what the agent can read. Reason (2)
-  # then decides whether the skill rows go green or report the overlay loss.
+  # OWNERSHIP IS THE ROW THE HOST OUTLINE DOES NOT HAVE, and it is the only
+  # property a process boundary breaks while bytes and modes come through
+  # untouched. A ROOTFUL daemon writing through a bind mount produces
+  # byte-identical, mode-identical, ROOT-OWNED files in the invoking user's
+  # tree. That is the bug class the PUID/PGID entrypoint remap exists for, and
+  # before this line nothing in the suite would have noticed it. The cell runs
+  # as container-root under a rootless runtime (where root IS the invoker on
+  # the host filesystem) and as --user <hostuid>:<hostgid> under a rootful one;
+  # this assertion is what checks that rule rather than trusting it.
+  #
+  # WHICH RUNTIME RUNS THESE ROWS depends on the runner, and the matrix is
+  # asymmetric on purpose: no host is both rootful and rootless, and most have
+  # no podman, so each runner covers what it has. A missing runtime SKIPS the
+  # scenario naming the runtime and what did not run; CTXLOOM_REQUIRE_DOCKER=1
+  # turns "no runtime at all" into a failure; and CTXLOOM_REQUIRE_RUNTIMES
+  # (dockergate) lets a lane declare "I cover podman" so that claim is
+  # enforceable rather than aspirational. The three-runtime matrix over the
+  # cell itself lives in internal/testsupport/containercell's
+  # docker_integration test, which is where a per-runtime cell can be a
+  # subtest rather than a whole journey re-run.
+  #
+  # WHAT THESE ROWS STILL DO NOT PROVE — and it is a real residue, not a
+  # hedge. They exercise a container that ctxloom's own isolation machinery did
+  # not build: the cell mounts and launches directly. So the
+  # containerConfigOverlay hazard is UNTOUCHED by them. On the {container,
+  # none} cell of a real `ctxloom run --runtime container`, containerConfigOverlay
+  # (internal/lm/isolation/container.go) bind-mounts a per-run SCRATCH directory
+  # over ".claude" (profile.overlayDirs); surfaces materialized in-container land
+  # in that scratch overlay, which is removed at teardown and never copied back
+  # out. The container's session-state mounts do not help — sessionStateMounts
+  # binds exactly <harp>/persist and <harp>/persist/transcripts
+  # (statemounts.go, pinned by statemounts_test.go's "transcript store +
+  # persist only"), deliberately NOT <harp>/ephemeral/ and NOTHING at the
+  # harp-dir top level. These rows prove that delivery into a MOUNTED workspace
+  # survives the process boundary intact; they do not prove that ctxloom's own
+  # container launch points delivery at that mounted workspace rather than at
+  # the overlay.
   # --------------------------------------------------------------------------
-  @wip
   Scenario Outline: The published artifacts reach a containerized agent across the process boundary
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     And Alice references the company's "atelier" bundle and pulls it
     When the pulled surfaces are delivered to a "<runtime>" agent in its "<workspace>" workspace
     Then the "<artifact>" reaches that agent's workspace carrying its published bytes
     And the mode of "<artifact>" is "<mode>" where that agent can read it
+    And "<artifact>" is owned on the host by the user that ran the delivery
 
     Examples: container runtime — the process boundary crossed
       | runtime   | workspace | artifact                        | mode |

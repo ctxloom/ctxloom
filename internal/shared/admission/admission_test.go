@@ -110,11 +110,11 @@ func TestProperty_DeciderIsPureCallerRenders(t *testing.T) {
 
 	stdout, stderr := captureStdio(t, func() {
 		asked := 0
-		_, _ = s.Decide(ctx, testKey{"a", "1"}, nil)                       // unasked
-		_, _ = s.Decide(ctx, testKey{"a", "1"}, alwaysAsk(true, &asked))   // asked yes
-		_, _ = s.Decide(ctx, testKey{"a", "1"}, alwaysAsk(false, &asked))  // now recorded
-		_, _ = s.Decide(ctx, testKey{"b", "1"}, alwaysAsk(false, &asked))  // asked no
-		_, _ = s.Decide(ctx, testKey{"b", "1"}, alwaysAsk(true, &asked))   // now declined
+		_, _ = s.Decide(ctx, testKey{"a", "1"}, nil)                        // unasked
+		_, _ = s.Decide(ctx, testKey{"a", "1"}, alwaysAsk(true, &asked))    // asked yes
+		_, _ = s.Decide(ctx, testKey{"a", "1"}, alwaysAsk(false, &asked))   // now recorded
+		_, _ = s.Decide(ctx, testKey{"b", "1"}, alwaysAsk(false, &asked))   // asked no
+		_, _ = s.Decide(ctx, testKey{"b", "1"}, alwaysAsk(true, &asked))    // now declined
 		require.NoError(t, afero.WriteFile(fs, path, []byte("{{{"), 0o600)) // unreadable
 		_, _ = s.Decide(ctx, testKey{"c", "1"}, alwaysAsk(true, &asked))
 	})

@@ -88,10 +88,10 @@ func bareRemote(t *testing.T, branch string) (url, bare string) {
 // file:// remote, with the remote ALREADY confirmed (the confirmation itself is
 // exercised in publish_confirm_test.go).
 type publishFixture struct {
-	pm         *PublishManager
-	localPath  string
-	remoteURL  string
-	bare       string
+	pm          *PublishManager
+	localPath   string
+	remoteURL   string
+	bare        string
 	confirmPath string
 }
 

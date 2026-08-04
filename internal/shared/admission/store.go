@@ -235,10 +235,9 @@ func NewStore[K comparable, R comparable](
 	if s.scope == nil {
 		s.scope = key
 	}
-	switch {
-	case key == nil:
+	if key == nil {
 		s.misconfigured = errors.New("admission: store built with no key function")
-	default:
+	} else {
 		s.misconfigured = reasons.validate()
 	}
 	return s

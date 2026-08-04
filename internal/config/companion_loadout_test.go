@@ -109,12 +109,11 @@ func admitEveryDiscoveredCompanion(t *testing.T) {
 		for _, bin := range bins {
 			path, err := lookPath(bin)
 			if err != nil {
-				out = append(out, CompanionAdmission{Bin: bin, Reason: CompanionAdmissionNotInstalled})
+				out = append(out, newCompanionAdmission(CompanionKey{Bin: bin}, false, CompanionAdmissionNotInstalled))
 				continue
 			}
-			out = append(out, CompanionAdmission{
-				Bin: bin, Path: path, Allowed: true, Reason: CompanionAdmissionConsented,
-			})
+			out = append(out, newCompanionAdmission(
+				CompanionKey{Bin: bin, Path: path}, true, CompanionAdmissionConsented))
 		}
 		return out
 	})

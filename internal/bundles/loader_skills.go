@@ -206,16 +206,9 @@ type SkillInfo struct {
 // already warns) — the reader does not have it. Nothing is dropped on policy
 // grounds; see Pipeline.ListAllSkills for the gated listing.
 func (l *Loader) ReadAllSkills() ([]*LoadedSkill, error) {
-	bundleInfos, err := l.List()
-	if err != nil {
-		return nil, err
-	}
 	var out []*LoadedSkill
-	for _, bi := range bundleInfos {
-		bundle, err := l.LoadFile(bi.Path)
-		if err != nil {
-			continue
-		}
+	for _, read := range l.Reads() {
+		bundle := read.Bundle
 		for _, name := range bundle.SkillNames() {
 			if ls := l.skillContent(bundle, name, bundle.Skills[name]); ls != nil {
 				out = append(out, ls)
@@ -293,16 +286,9 @@ func (l *Loader) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, 
 // Reporting all of them is what lets the process stage keep scanning past one
 // it withholds: a trusted copy in another bundle still wins.
 func (l *Loader) searchSkill(name string) ([]*LoadedSkill, error) {
-	bundleInfos, err := l.List()
-	if err != nil {
-		return nil, err
-	}
 	var out []*LoadedSkill
-	for _, bi := range bundleInfos {
-		bundle, err := l.LoadFile(bi.Path)
-		if err != nil {
-			continue
-		}
+	for _, read := range l.Reads() {
+		bundle := read.Bundle
 		entry, ok := bundle.Skills[name]
 		if !ok {
 			continue

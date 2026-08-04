@@ -122,7 +122,7 @@ func TestDepWalker_RecurseParent_MalformedRefRecordsUnexpanded(t *testing.T) {
 // skipped instead of recorded.
 func TestDepWalker_RecurseParent_LocalLoadFailureRecordsUnexpanded(t *testing.T) {
 	w := newTestWalker(remote.NewMockFetcher())
-	w.loader = profiles.NewLoader([]string{t.TempDir()}) // empty dir: Load always fails
+	w.loader = profiles.NewLoader(NewProjectReader(nil, []string{t.TempDir()})) // empty dir: Load always fails
 	w.recurseParent("ctxloom:local@bundles/does-not-exist")
 	_, _, unexpanded := w.result()
 	require.Len(t, unexpanded, 1)
@@ -157,7 +157,7 @@ func TestDepWalker_RecurseParent_NotBundleProfileRefRecordsUnexpanded(t *testing
 // closure narrows; a root failure had no way to reach it.
 func TestNamedRoots_LoadFailureRecordsUnexpanded(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{})
-	loader := profiles.NewLoader([]string{t.TempDir()}) // empty dir: nothing loads
+	loader := profiles.NewLoader(NewProjectReader(nil, []string{t.TempDir()})) // empty dir: nothing loads
 
 	roots, unexpanded := namedRoots(cfg, loader, []string{"missing-profile"})
 	assert.Empty(t, roots)
@@ -174,7 +174,7 @@ func TestNamedRoots_InlineDefinitionNeverUnexpanded(t *testing.T) {
 			"inline": {Bundles: []string{"ctxloom:local@bundles/x"}},
 		}},
 	})
-	loader := profiles.NewLoader([]string{t.TempDir()})
+	loader := profiles.NewLoader(NewProjectReader(nil, []string{t.TempDir()}))
 
 	roots, unexpanded := namedRoots(cfg, loader, []string{"inline"})
 	assert.Len(t, roots, 1)

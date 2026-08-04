@@ -199,23 +199,15 @@ type ContentInfo struct {
 
 // ListAllFragments returns info about all fragments across all bundles.
 func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
-	bundles, err := l.List()
-	if err != nil {
-		return nil, err
-	}
-
 	var infos []ContentInfo
 	seen := collections.NewSet[string]()
 
-	for _, bundleInfo := range bundles {
-		bundle, err := l.LoadFile(bundleInfo.Path)
-		if err != nil {
-			continue
-		}
+	for _, read := range l.Reads() {
+		bundleInfo, bundle := read, read.Bundle
 
 		for name, frag := range bundle.Fragments {
 			// Use bundleInfo.Name (full path) instead of bundle.Name (just filename)
-			key := bundleInfo.Name + "/" + name
+			key := bundleInfo.Ref() + "/" + name
 			if seen.Has(key) {
 				continue
 			}
@@ -223,10 +215,10 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 			infos = append(infos, ContentInfo{
 				Name:     name,
 				FileName: name + ".yaml",
-				Path:     bundleInfo.Path,
-				Source:   bundleInfo.Name,
+				Path:     bundle.Path,
+				Source:   bundleInfo.Ref(),
 				Tags:     slices.Concat(bundle.Tags, frag.Tags),
-				Bundle:   bundleInfo.Name,
+				Bundle:   bundleInfo.Ref(),
 				ItemType: "fragment",
 			})
 		}
@@ -246,22 +238,14 @@ func (l *Loader) ListAllFragments() ([]ContentInfo, error) {
 // to reconcile.
 // reprise:accept-drift
 func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
-	bundles, err := l.List()
-	if err != nil {
-		return nil, err
-	}
-
 	seen := collections.NewSet[string]()
 	var infos []ContentInfo
-	for _, bundleInfo := range bundles {
-		bundle, err := l.LoadFile(bundleInfo.Path)
-		if err != nil {
-			continue
-		}
+	for _, read := range l.Reads() {
+		bundleInfo, bundle := read, read.Bundle
 
 		for name, prompt := range bundle.Commands {
 			// Use bundleInfo.Name (normalized full path) instead of bundle.Name (just filename)
-			key := bundleInfo.Name + "/" + name
+			key := bundleInfo.Ref() + "/" + name
 			if seen.Has(key) {
 				continue
 			}
@@ -269,10 +253,10 @@ func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
 			infos = append(infos, ContentInfo{
 				Name:        name,
 				FileName:    name + ".yaml",
-				Path:        bundleInfo.Path,
-				Source:      bundleInfo.Name,
+				Path:        bundle.Path,
+				Source:      bundleInfo.Ref(),
 				Tags:        slices.Concat(bundle.Tags, prompt.Tags),
-				Bundle:      bundleInfo.Name,
+				Bundle:      bundleInfo.Ref(),
 				ItemType:    "command",
 				Description: prompt.Description,
 			})
@@ -366,18 +350,10 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 	if strings.Contains(name, "#") {
 		return remote.CanonicalFragmentRef(name)
 	}
-	bundleInfos, err := l.List()
-	if err != nil {
-		return name
-	}
 	var matches []string
-	for _, bundleInfo := range bundleInfos {
-		bundle, err := l.LoadFile(bundleInfo.Path)
-		if err != nil {
-			continue
-		}
-		if _, ok := bundle.Fragments[name]; ok {
-			matches = append(matches, remote.CanonicalBundleRef(bundleInfo.Name))
+	for _, read := range l.Reads() {
+		if _, ok := read.Bundle.Fragments[name]; ok {
+			matches = append(matches, remote.CanonicalBundleRef(read.Ref()))
 		}
 	}
 	if len(matches) == 0 {
@@ -395,16 +371,9 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 // scanning past one it withholds — a trusted copy in another bundle still wins
 // — a decision the reader is in no position to make.
 func (l *Loader) searchFragment(name string) ([]*ItemRead, error) {
-	bundles, err := l.List()
-	if err != nil {
-		return nil, err
-	}
 	var out []*ItemRead
-	for _, bundleInfo := range bundles {
-		bundle, err := l.LoadFile(bundleInfo.Path)
-		if err != nil {
-			continue
-		}
+	for _, read := range l.Reads() {
+		bundle := read.Bundle
 		if frag, ok := bundle.Fragments[name]; ok {
 			out = append(out, l.fragmentRead(bundle, name, frag))
 		}
@@ -497,16 +466,9 @@ func (l *Loader) commandFromBundle(bundleName, promptName string) ([]*ItemRead, 
 // reports EVERY match, in List order — searchFragment's command twin, for the
 // same reason: only the process stage can say which of them is admissible.
 func (l *Loader) searchCommand(name string) ([]*ItemRead, error) {
-	bundles, err := l.List()
-	if err != nil {
-		return nil, err
-	}
 	var out []*ItemRead
-	for _, bundleInfo := range bundles {
-		bundle, err := l.LoadFile(bundleInfo.Path)
-		if err != nil {
-			continue
-		}
+	for _, read := range l.Reads() {
+		bundle := read.Bundle
 		if prompt, ok := bundle.Commands[name]; ok {
 			out = append(out, l.commandRead(bundle, name, prompt))
 		}

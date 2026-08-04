@@ -126,7 +126,7 @@ commands:
 `
 	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/learning.yaml", []byte(anotherBundle), 0644)
 
-	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, bundles.WithFS(fs))
+	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader
 }
 

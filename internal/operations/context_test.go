@@ -202,7 +202,7 @@ fragments:
 `
 	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644)
 
-	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, bundles.WithFS(fs))
+	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader
 }
 
@@ -513,7 +513,7 @@ fragments:
       {{/unopened}}
 `
 	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
-	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, bundles.WithFS(fs))
+	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
 	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
@@ -562,7 +562,7 @@ fragments:
       Repeat check: {{dedup_check_variable}}
 `
 	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
-	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, bundles.WithFS(fs))
+	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
 	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},
@@ -612,7 +612,7 @@ fragments:
       Leaky: {{attribution_check_variable}}
 `
 	require.NoError(t, afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev.yaml", []byte(bundleContent), 0644))
-	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, bundles.WithFS(fs))
+	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 
 	cfg := config.NewFixture(config.Fixture{
 		AppPaths: []string{testBaseDir},

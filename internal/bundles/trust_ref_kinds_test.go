@@ -48,7 +48,7 @@ func TestTrustRefKindDirs_MatchTheTrustAuthority(t *testing.T) {
 		return true
 	}
 	l := bundles.NewPipeline(
-		bundles.NewLoader([]string{bundlesDir}, bundles.WithFS(fsys)), gate, false)
+		bundles.NewLoader(bundles.NewProjectReader(fsys, []string{bundlesDir})), gate, false)
 
 	_, err := l.GetFragment("kit#fragments/frag")
 	require.NoError(t, err)

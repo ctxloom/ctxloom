@@ -81,7 +81,7 @@ profiles:
 		gated = append(gated, ref)
 		return false // withhold everything the choke is consulted about
 	}
-	pipe := gatedPipe(NewLoader(nil, WithSeededBundles(map[string]*Bundle{"kit": b})), denyGate, false)
+	pipe := gatedPipe(NewLoader(seedLocal(map[string]*Bundle{"kit": b})), denyGate, false)
 
 	// The constituent fragment gates at content assembly: a deny gate withholds it.
 	_, err = pipe.GetFragment("kit#fragments/f1")

@@ -1785,7 +1785,7 @@ mcp:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test-bundle.yaml"), []byte(bundleContent), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir})
+	loader := bundles.NewLoader(NewProjectReader(nil, []string{bundlesDir}))
 	result := loadMCPFromBundleRef("test-bundle", loader, nil)
 
 	assert.Len(t, result, 1)
@@ -1794,7 +1794,7 @@ mcp:
 
 func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 	tmpDir := t.TempDir()
-	loader := bundles.NewLoader([]string{tmpDir})
+	loader := bundles.NewLoader(NewProjectReader(nil, []string{tmpDir}))
 
 	// Invalid bundle reference
 	result := loadMCPFromBundleRef("nonexistent-bundle", loader, nil)
@@ -1847,7 +1847,7 @@ hooks:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir})
+	loader := bundles.NewLoader(NewProjectReader(nil, []string{bundlesDir}))
 	result := loadHooksFromBundleRef("with-hooks", loader, nil)
 
 	require.Len(t, result.PostTool, 1)
@@ -1874,7 +1874,7 @@ mcp:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir})
+	loader := bundles.NewLoader(NewProjectReader(nil, []string{bundlesDir}))
 	result := loadHooksFromBundleRef("no-hooks", loader, nil)
 
 	assert.Empty(t, result.PostTool)

@@ -57,6 +57,23 @@ const (
 	// old gate=nil bypass) reachable by SourceRejected: a user can reject a
 	// builtin item and have that rejection enforced.
 	SourceBuiltin Source = "builtin"
+	// SourceCompanion: a loadout an installed companion binary advertised about
+	// itself (ctxloom:companion@<bin>). LOCAL-EQUIVALENT, and for a reason that
+	// is about ORDER OF OPERATIONS, not about deference to the companion:
+	// ctxloom reads a loadout by EXECUTING the binary (`<bin> loadout --format
+	// json`), so by the time the content exists that binary has already run
+	// arbitrary code as the user. Reviewing the CONTENT afterwards buys ~nothing
+	// while costing a review prompt for a tool the user deliberately installed.
+	// The meaningful control point is therefore EXEC, and that is where the
+	// human decision moved (config.AdmitCompanions: trust-on-first-use keyed on
+	// absolute path + binary hash; first-party names exempt only when they
+	// resolve from ctxloom's own install directory).
+	//
+	// Like SourceBuiltin this is a DISTINCT step below rejection, precisely so
+	// step 1 still reaches it — and a companion loadout whose signature fails to
+	// verify never arrives here at all: config.ProbeCompanionLoadouts drops it
+	// at the envelope, because signed-but-invalid is tamper, not unsigned.
+	SourceCompanion Source = "companion"
 	// SourceRetracted: the PUBLISHER withdrew this bundle (or this exact
 	// version of it) via its remote manifest — see internal/remote/retract.go
 	// CheckRetracted. Retraction is recorded LOCALLY at sync time (sync has the
@@ -217,6 +234,21 @@ type Ref struct {
 	// collide with a project-local bundle of the same name, and so a rejection
 	// recorded against a builtin item is addressed unambiguously.
 	IsBuiltin bool
+
+	// IsCompanion marks an item from a companion binary's own loadout
+	// (ctxloom:companion@<bin>). Like IsBuiltin it is a distinct, nameable
+	// exemption step in the decision function (SourceCompanion) rather than a
+	// second spelling of IsLocal, so step 1's rejection check still runs ahead
+	// of it and a reader can see WHICH exemption allowed an item.
+	//
+	// The single production site that sets it (operations.parseTrustItemRef)
+	// copies remote.Reference.IsCompanion, which the reference grammar sets
+	// only for the fixed remote.CompanionSource token — never for a URL or
+	// bundle name an author can choose — and which never coincides with
+	// IsLocal (pinned by remote's own reference_companion_test). The Ref keys
+	// under that same token, so a companion item can no more collide with a
+	// project-local or remote bundle than a builtin can.
+	IsCompanion bool
 }
 
 // BuiltinSigner is the synthetic identity builtin items key under —

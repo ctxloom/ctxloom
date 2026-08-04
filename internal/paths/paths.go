@@ -59,6 +59,16 @@ const (
 	// committable) — see HomeApprovalsPath / ApprovalsPath.
 	ApprovalsDirName = "approvals"
 
+	// CompanionConsentFileName is the name (without extension) of the
+	// trust-on-first-use record for EXECUTING a companion binary — see
+	// HomeCompanionConsentPath. It is deliberately a PERSONAL-only file with no
+	// project/committable twin: approvals answer "may this content be shown to
+	// the agent", which a team can legitimately decide once and share, whereas
+	// this answers "may ctxloom exec this file on THIS machine", which is a
+	// property of the machine's filesystem and cannot be delegated to a repo. A
+	// committable form would let a clone arrive carrying pre-approved binaries.
+	CompanionConsentFileName = "companion_consent"
+
 	// LockFileName is the name of the lock file (without extension).
 	LockFileName = "lock"
 
@@ -402,6 +412,18 @@ func HomeApprovalsPath() (string, error) {
 		return "", fmt.Errorf("resolve the user countersignature store ~/%s/%s: %w", AppDirName, ApprovalsDirName, err)
 	}
 	return filepath.Join(home, AppDirName, ApprovalsDirName), nil
+}
+
+// HomeCompanionConsentPath returns ~/.ctxloom/companion_consent.yaml — the
+// user-scoped record of which companion binaries the human agreed ctxloom may
+// EXECUTE (config.CompanionConsentStore). There is deliberately no project
+// counterpart: see CompanionConsentFileName.
+func HomeCompanionConsentPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve the companion consent record ~/%s/%s.yaml: %w", AppDirName, CompanionConsentFileName, err)
+	}
+	return filepath.Join(home, AppDirName, CompanionConsentFileName+".yaml"), nil
 }
 
 // AllowedSignersPath returns the path to the trust-root file (at appPath root,

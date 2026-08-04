@@ -56,6 +56,17 @@ type CompanionStatus struct {
 	Path    string // resolved PATH location; empty when not installed
 	Version string // self-reported via `<bin> version --format json`
 	Err     error  // version-probe failure for a present binary
+	// Admission is why this companion was or was not executed. A present
+	// binary that was NOT admitted has a Path, no Version and no Err — without
+	// this field that state is indistinguishable from "probe returned nothing",
+	// which is precisely the silent no-op a reader must not have to guess at.
+	Admission CompanionAdmissionReason
+}
+
+// Executed reports whether this companion was actually run. Reason-aware so
+// callers stop inferring it from an empty Version.
+func (s CompanionStatus) Executed() bool {
+	return s.Admission == CompanionAdmissionFirstParty || s.Admission == CompanionAdmissionConsented
 }
 
 // BuiltinCompanionBins returns the unique non-ctxloom companion executables
@@ -109,11 +120,20 @@ func sortedBins(seen map[string]bool) []string {
 // skipped by the resolvers, which also emit the install hint); a present
 // binary whose probe fails carries the error. Reporting only — never fatal.
 //
+// EXEC CONSENT applies here too, not only to the loadout probe: `<bin> version
+// --format json` is an exec of a foreign binary exactly like `<bin> loadout` is,
+// and this loop runs unconditionally from reportCompanions on `ctxloom run` /
+// `ctxloom mcp`. Gating only the loadout probe would have left the auto-exec
+// hole wide open through the version probe. An admitted-but-unapproved
+// companion reports its Path with Admission naming the refusal, so a caller
+// renders "found, not approved" rather than the untrue "not installed".
+//
 // Probes run concurrently: each is bounded by companionProbeTimeout, so a
 // sequential loop would add that bound per wedged companion to startup. Running
 // them in parallel keeps the worst-case wall-clock to ~one timeout (CLAUDE.md:
-// never block startup). Output order is preserved (sorted by bin) since each
-// goroutine writes its own slot.
+// never block startup). Admission runs SEQUENTIALLY before the fan-out, so two
+// consent prompts can never interleave on one terminal. Output order is
+// preserved (sorted by bin) since each goroutine writes its own slot.
 func ProbeCompanions() []CompanionStatus {
 	// Enforce the invariant at the exec boundary, not just at each caller —
 	// companionBundleSeed and doctor already check CompanionsDisabled
@@ -124,20 +144,23 @@ func ProbeCompanions() []CompanionStatus {
 	if CompanionsDisabled() {
 		return nil
 	}
-	bins := BuiltinCompanionBins()
-	out := make([]CompanionStatus, len(bins))
+	admissions := AdmitCompanions(BuiltinCompanionBins(), true)
+	out := make([]CompanionStatus, len(admissions))
 	var wg sync.WaitGroup
-	for i, bin := range bins {
-		wg.Add(1)
-		go func(i int, bin string) {
-			defer wg.Done()
-			st := CompanionStatus{Bin: bin}
-			if path, err := lookPath(bin); err == nil {
-				st.Path = path
-				st.Version, st.Err = companionVersion(path)
-			}
+	for i, adm := range admissions {
+		st := CompanionStatus{Bin: adm.Bin, Path: adm.Path, Admission: adm.Reason}
+		if !adm.Allowed {
+			// Present but refused: keep the Path so the report can say WHICH
+			// file was refused, and never exec it.
 			out[i] = st
-		}(i, bin)
+			continue
+		}
+		wg.Add(1)
+		go func(i int, st CompanionStatus) {
+			defer wg.Done()
+			st.Version, st.Err = companionVersion(st.Path)
+			out[i] = st
+		}(i, st)
 	}
 	wg.Wait()
 	return out
@@ -164,14 +187,27 @@ func companionVersion(path string) (string, error) {
 
 // ===== Companion LOADOUT discovery (signature-envelope spec §4.3, §6) =====
 //
-// A companion loadout is a THIRD-PARTY bundle a binary on PATH advertises
-// about itself (`<bin> loadout --format json`), distinct from the built-in
-// bundles above (which ship INSIDE the ctxloom binary and are exempt from
-// review). Discovery here only finds candidate binaries; it does not decide
-// trust — every discovered loadout is seeded into Config.SeededBundleLoader
-// under the ctxloom:companion@<bin> source ref and flows through the
-// UNCHANGED trust gate (operations.EffectiveTrust) exactly like a remote
-// bundle. See config.go's companionBundleSeed / SeededBundleLoader wiring.
+// A companion loadout is a bundle a binary on PATH advertises about itself
+// (`<bin> loadout --format json`), distinct from the built-in bundles above
+// (which ship INSIDE the ctxloom binary).
+//
+// THE CONTROL POINT IS EXEC, NOT CONTENT. Reading a loadout means RUNNING the
+// companion binary, so by the time any content exists that binary has already
+// executed arbitrary code with the user's privileges. Reviewing the content
+// afterwards buys ~nothing and costs a review prompt for content the user
+// deliberately installed, so the decision the human is asked to make is moved
+// to where it has purchase: may ctxloom EXECUTE this file (see
+// companion_admission.go's trust-on-first-use). Content that survives that gate
+// is LOCAL-EQUIVALENT and allowed at EffectiveTrust's companion step — it is
+// NOT reviewed like a remote bundle. Rejection still reaches it (step 1), a
+// signature that fails to verify is still tamper and still withholds (see
+// ProbeCompanionLoadouts below), and an unreadable approvals store still denies
+// it along with everything else. See docs/trust-model.md, "Companion loadouts".
+//
+// Discovery here only finds candidate binaries; admission decides which get
+// exec'd, and every surviving loadout is seeded into Config.SeededBundleLoader
+// under the ctxloom:companion@<bin> source ref. See config.go's
+// companionBundleSeed / SeededBundleLoader wiring.
 
 // firstPartyCompanions are the shipped, first-class companions that do NOT
 // match the ctxloom-companion-* PATH convention below (their names predate
@@ -289,44 +325,50 @@ func CompanionsDisabled() bool {
 	return companionsDisabled
 }
 
-// ProbeCompanionLoadouts discovers companions (DiscoverCompanions), and for
-// each one present on PATH execs `<bin> loadout --format json`, verifies any
-// signature against root, and parses the result into a bundles.Bundle keyed
-// by its ctxloom:companion@<bin> canonical ref — ready to merge into a
-// SeededBundleLoader seed map exactly like a remote bundle.
+// ProbeCompanionLoadouts discovers companions (DiscoverCompanions), ADMITS the
+// ones this machine's human agreed ctxloom may execute (AdmitCompanions), and
+// for each admitted one execs `<bin> loadout --format json`, verifies any
+// signature against root, and parses the result into a bundles.Bundle keyed by
+// its ctxloom:companion@<bin> canonical ref — ready to merge into a
+// SeededBundleLoader seed map.
 //
-// A companion that is absent from PATH, whose probe fails or times out
-// (including a first-party name that does not implement `loadout` yet, e.g.
-// reprise today), or whose loadout is unparseable or fails signature
-// verification (tamper) is SKIPPED with a warning — NEVER fatal, NEVER a
-// crash, and NEVER auto-allowed: an invalid loadout is simply absent from
-// the returned map, so it contributes nothing rather than degrading to
-// unsigned-but-trusted content (spec: "a companion loadout from a companion
-// is withheld, never crashes, never auto-allowed").
+// A companion that is absent from PATH, not admitted for execution, whose probe
+// fails or times out (including a first-party name that does not implement
+// `loadout` yet, e.g. reprise today), or whose loadout is unparseable is
+// SKIPPED with a warning — NEVER fatal, NEVER a crash, NEVER a stalled startup.
+//
+// A loadout whose signature FAILS to verify is skipped for a different and
+// sharper reason: SIGNED-BUT-INVALID IS NOT UNSIGNED. Unsigned-and-installed is
+// now trusted (see the section header above), but a signature that does not
+// verify over the bytes it accompanies is TAMPER EVIDENCE, and tamper must
+// withhold. That is why the skip lives HERE, at the envelope, rather than
+// being left to the trust gate: the gate's companion step would allow the
+// bundle, so a tampered loadout that reached it would be laundered into
+// local-equivalent content. It never reaches it — it is absent from the
+// returned map entirely.
 //
 // Probes run concurrently (mirrors ProbeCompanions), each bounded by
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
-// regardless of how many companions are discovered.
+// regardless of how many companions are admitted.
 func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
 	// See ProbeCompanions' identical guard.
 	if CompanionsDisabled() {
 		return nil
 	}
-	bins := DiscoverCompanions()
+	// EXEC CONSENT, resolved sequentially BEFORE the fan-out: a companion this
+	// machine's human has not agreed to run is never exec'd, and two prompts
+	// can never interleave on one terminal. See AdmitCompanions.
+	admitted := admittedCompanions(DiscoverCompanions())
 	type probed struct {
 		ref string
 		b   *bundles.Bundle
 	}
-	slots := make([]*probed, len(bins))
+	slots := make([]*probed, len(admitted))
 	var wg sync.WaitGroup
-	for i, bin := range bins {
+	for i, adm := range admitted {
 		wg.Add(1)
-		go func(i int, bin string) {
+		go func(i int, bin, path string) {
 			defer wg.Done()
-			path, err := lookPath(bin)
-			if err != nil {
-				return // not installed — ordinary, not a warning
-			}
 			raw, err := companionLoadoutOutput(path)
 			if err != nil {
 				// An unknown `loadout` subcommand (a companion that hasn't
@@ -356,11 +398,11 @@ func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
 			b.Name = ref
 			b.StampSigner(signer) // "" for unsigned; the verified principal otherwise
 			slots[i] = &probed{ref: ref, b: b}
-		}(i, bin)
+		}(i, adm.Bin, adm.Path)
 	}
 	wg.Wait()
 
-	out := make(map[string]*bundles.Bundle, len(bins))
+	out := make(map[string]*bundles.Bundle, len(admitted))
 	for _, p := range slots {
 		if p != nil {
 			out[p.ref] = p.b

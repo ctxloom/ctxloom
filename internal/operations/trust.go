@@ -396,6 +396,27 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	if req.Ref.IsBuiltin {
 		return decide(trust.Allow, trust.SourceBuiltin), nil
 	}
+	// 4b. COMPANION: a loadout an installed companion binary advertised about
+	//     itself. LOCAL-EQUIVALENT, and the reasoning is order-of-operations
+	//     rather than deference: ctxloom reads a loadout by EXECUTING the
+	//     binary, so by the time this content exists that binary has already run
+	//     arbitrary code as the user. Gating the CONTENT afterwards buys ~nothing
+	//     and costs a review prompt for a tool the user deliberately installed.
+	//     The control point that DOES have purchase is exec, and that is where
+	//     the human decision lives (config.AdmitCompanions — trust-on-first-use
+	//     keyed on absolute path + binary hash, first-party names exempt only
+	//     from ctxloom's own install directory).
+	//
+	//     A distinct step below rejection, exactly like builtin, so step 1 still
+	//     reaches it. Two things this step deliberately does NOT do: it does not
+	//     launder a TAMPERED loadout (a signature that fails to verify is
+	//     dropped at the envelope by config.ProbeCompanionLoadouts and never
+	//     becomes a seeded bundle, so nothing tampered is ever evaluated here),
+	//     and it does not escape the unreadable-approvals-store gate above,
+	//     which denies every item including this one.
+	if req.Ref.IsCompanion {
+		return decide(trust.Allow, trust.SourceCompanion), nil
+	}
 	// 5. TRUSTED SIGNER: a key this machine trusts for the PUBLISH namespace made
 	//    a signature over the exact bytes of the document this item came from,
 	//    and that signature verified — at load, before any YAML parse.
@@ -530,9 +551,18 @@ func lockfileKeyForRef(ref trust.Ref) string {
 }
 
 // retractable reports whether the lockfile could ever record a retraction FOR
-// this ref. Retraction is a REMOTE-manifest concept: local and builtin items
-// have no remote lockfile entry (no RepoURL) and are never retracted by
+// this ref. Retraction is a REMOTE-manifest concept: local, builtin and
+// companion items have no remote lockfile entry and are never retracted by
 // construction.
+//
+// COMPANION is here for exactly the reason local and builtin are, not as a
+// relaxation: a lockfile records what `remote sync` pinned, and nothing ever
+// writes a lockfile entry under the fixed ctxloom:companion token — a loadout
+// arrives on a subprocess's stdout and never touches the lockfile at all.
+// Companion refs DO carry a non-empty RepoURL (that token), so without naming
+// them here the `RepoURL != ""` clause would drag them into step 2a and let an
+// unparseable lock.yaml withhold companion content over state that provably
+// could not exist.
 //
 // This is the ONE predicate defining that scope, deliberately shared by the
 // two places that must agree on it: the Retracted() exemption below, and
@@ -540,11 +570,11 @@ func lockfileKeyForRef(ref trust.Ref) string {
 // retractable ref would slip past the fail-closed gate, or a first-party ref
 // would be withheld over state that could not have existed.
 func retractable(ref trust.Ref) bool {
-	return !ref.IsLocal && !ref.IsBuiltin && ref.RepoURL != ""
+	return !ref.IsLocal && !ref.IsBuiltin && !ref.IsCompanion && ref.RepoURL != ""
 }
 
 // Retracted implements RetractionRecords over the wrapped lockfile snapshot.
-// Local and builtin items never have a remote lockfile entry (no RepoURL) and
+// Local, builtin and companion items never have a remote lockfile entry and
 // are never retracted by construction — see retractable.
 func (l *lockfileRetraction) Retracted(ref trust.Ref) (bool, string) {
 	if l == nil || l.lock == nil || !retractable(ref) {
@@ -895,6 +925,12 @@ func parseTrustItemRef(ref string) (tRef trust.Ref, loadRef, version string, err
 			Kind:    kind,
 			Name:    name,
 			IsLocal: parsed.IsLocal,
+			// IsCompanion rides the SAME parse, from the same reference
+			// grammar, so the decision function's companion step can never be
+			// reached by a ref that did not parse as ctxloom:companion@<bin>.
+			// Copied rather than re-derived from the URL string: one parser,
+			// one answer.
+			IsCompanion: parsed.IsCompanion,
 		}, base, parsed.ContentVersion, nil
 	}
 

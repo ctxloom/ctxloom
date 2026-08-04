@@ -36,8 +36,8 @@ type Configurable interface {
 // has no settings-writer dispatch (BackendsWithSettings omits it, GetSettingsWriter
 // returns nil); a nil exports means no slash-command export (CommandExportsFor
 // yields nil, so the commands surface has nothing to write). The mock backend
-// registers only backend+config+surfaces — no settings writer, no command
-// export; its surfaces are context-only (see mock_surfaces.go).
+// registers backend+config+surfaces+skillExports — no settings writer, no
+// command export; its surfaces are context and skills (see mock_surfaces.go).
 type agentDescriptor struct {
 	// name is the backend's registry key and must match its module's Name().
 	name string
@@ -57,8 +57,9 @@ type agentDescriptor struct {
 	// no surfaces (acp, whose native config format is a launch-time detail of
 	// the ACP driver, not this descriptor's business); BuildSurfaces then
 	// returns an EmptySurfaceSet. mock is NOT in that set: it registers a
-	// real (context-only) newSurfaces (mock_surfaces.go) so hermetic delivery
-	// tests can prove a fragment actually reached a written file.
+	// real newSurfaces (context + skills, mock_surfaces.go) so hermetic
+	// delivery tests can prove a fragment or a skill package actually reached
+	// a written file.
 	newSurfaces func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet
 	// exports maps loaded bundle content to this backend's command exports,
 	// resolving its per-prompt enablement + metadata. nil = no command export.
@@ -67,10 +68,8 @@ type agentDescriptor struct {
 	exports func([]*bundles.LoadedContent) []agent.CommandExport
 	// skillExports maps loaded bundle skills to this backend's Agent Skill
 	// package exports, resolving its per-skill enablement. nil = no skill
-	// export (every backend but claude today — Part B3-seam; the parallel
-	// codex/opencode/kiro/agy wave populates this next). Read by
-	// SkillExportsFor, the skills-surface analog of
-	// CommandExportsFor.
+	// export (acp today). Read by SkillExportsFor, the skills-surface analog
+	// of CommandExportsFor.
 	skillExports func([]*bundles.LoadedSkill) []agent.SkillExport
 	// enforcesReadOnlyPlan is true when the backend maps agent.PermissionPlan to a
 	// genuinely read-only, non-prompting mode (see the backend's buildArgs plan
@@ -536,11 +535,11 @@ func init() {
 		noHooksReason: "opencode has no hook mechanism",
 	})
 
-	// Mock registers backend+config+surfaces: still no settings writer, no
-	// command export (descriptor fields are optional) — but it DOES now build
-	// a real (context-only) SurfaceSet, so BuildSurfaces("mock", …) can
-	// materialize a hermetic MOCK_CONTEXT.md instead of returning
-	// agent.EmptySurfaceSet (see mock_surfaces.go).
+	// Mock registers backend+config+surfaces+skillExports: still no settings
+	// writer and no command export (descriptor fields are optional) — but it
+	// DOES build a real SurfaceSet, so BuildSurfaces("mock", …) materializes a
+	// hermetic MOCK_CONTEXT.md and a hermetic .mock/skills/ tree instead of
+	// returning agent.EmptySurfaceSet (see mock_surfaces.go).
 	registerDescriptor(agentDescriptor{
 		name:       "mock",
 		newBackend: func() agent.Backend { return NewMock() },
@@ -548,15 +547,19 @@ func init() {
 			return decodeBody(body, &MockConfig{})
 		},
 		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return NewMockSurfaces(in, fs) },
+		// Without this mapper SurfaceInputs.Skills is always empty for mock and
+		// the skills surface above delivers nothing — a surface that exists,
+		// reports success and writes zero bytes, which is precisely the
+		// silent no-op the mock engine exists to catch in others.
+		skillExports: mockSkillExports,
 		// mock is the SAME structural shape as opencode here: mockApproaches
-		// (mock_surfaces.go) declares context only, so a configured
+		// (mock_surfaces.go) declares context and skills, so a configured
 		// session_start hook has no settings surface to land on and reaches no
 		// file. Declared for the same reason opencode's noHooksReason is —
 		// UncarriedSurfaces can only report a loss that is DECLARED, and an
 		// undeclared one reads as silence (whiny-exclusive). When mock gains a
-		// settings/hook surface (tracked separately — proven-magma is the
-		// skills half of that expansion), delete this line; the hook sentinel
-		// will then need a real destination instead.
+		// settings/hook surface (tracked separately), delete this line; the
+		// hook sentinel will then need a real destination instead.
 		noHooksReason: "mock has no settings/hook surface",
 	})
 }

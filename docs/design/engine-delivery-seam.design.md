@@ -117,13 +117,44 @@ uniform), so it is a function an engine calls, not a method it implements. The
 engine keeps only the engine-shaped decision: which surface, what framing. It
 also keeps sight of the individual fragments, which a joined string destroys.
 
-**OPEN, and blocking implementation:** variable substitution produces a DERIVED
-body while `content.Form` yields AUTHORED bytes, so a form cannot carry a
-substituted body as it stands. Either substitution yields a derived in-memory
-form (`internal/content` already has a document-backed `Source`, which is the
-likely answer) or it moves to delivery time with the variable set passed
-alongside. A `{Name, Body}` struct would reintroduce the pre-rendered payload
-and is not an option.
+### Three stages: read → process → deliver
+
+Substitution and every other derivation happen in the MIDDLE — after content is
+read from whatever format it was stored in, before anything reaches an engine.
+
+```
+READ                      PROCESS                        DELIVER
+content.Store             gate · dedupe · order          EngineDelivery
+tree | remote | archive   substitute variables           claude | codex | kiro …
+| builtin | document
+        └──── content.Form ────┴──── content.Form ────────┘
+```
+
+`content.Form` is the currency at BOTH boundaries, and that is what makes the
+engine signature stable: `Form` is an interface, so the middle stage emits
+RESOLVED forms — same contract, derived values — and the engine never learns
+whether a form was read off disk or produced by substitution. It asks
+`Surface()` and gets a typed, named item with its body already final.
+
+This is why substitution belongs neither in the content layer nor in the engine:
+
+- **Not content.** A store's job is to yield exactly the authored, attested
+  bytes. A store that substituted would make `Content()` disagree with the
+  digest that was signed.
+- **Not the engine.** Substitution rules are ctxloom's and identical for every
+  engine; putting them at delivery duplicates them per engine, which is the
+  problem this seam exists to remove.
+
+The stage already exists, diffusely: `collectProfileFragments`,
+`dedupeFragmentRefs`, `sortFragmentsByPriority`, `substituteVariables` and the
+trust gate, spread across `internal/config` and `internal/operations`. Naming it
+and giving it one boundary — profiles + stores in, resolved ordered forms out —
+is what turns the engine interface from a refactor into a seam.
+
+**Consequence for attestation, worth stating:** a resolved form's bytes are NOT
+the attested bytes. Verification happens on the read side, before processing;
+what reaches the engine has already been gated. A caller must never re-verify a
+resolved form against the manifest and conclude tampering.
 
 ### `targetDir`, never `ProjectDir`
 
@@ -226,9 +257,12 @@ should not land during the tree-format migration.
 3. `manage status` / `doctor` walk `StateReader`. Requires splitting
    compose-from-write in `operations.regenerateContext` first: a status command
    that rewrites the surface it inspects is its own bug.
-4. `EngineDelivery` — the wide change, landed per engine behind the existing
-   `SurfaceSet`. Blocked on the substitution question above.
+4. Name the PROCESS stage and give it one boundary: profiles + stores in,
+   resolved ordered forms out. Today it is spread across `internal/config` and
+   `internal/operations`.
+5. `EngineDelivery` — the wide change, landed per engine behind the existing
+   `SurfaceSet`, once the process stage emits resolved forms.
 
-Steps 1–3 are independent of the tree-format migration. Step 4 waits for it: a
-migration verb that pre-renders payloads would entrench the shape step 4
+Steps 1–3 are independent of the tree-format migration. Step 5 waits for it: a
+migration verb that pre-renders payloads would entrench the shape step 5
 removes.

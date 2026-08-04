@@ -4,13 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/pflag"
@@ -19,17 +18,18 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/schema"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
-	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -269,11 +269,12 @@ type Config struct {
 	// func. Never persisted.
 	execGate bundles.ContentGate
 
-	// companionSeed memoizes companionBundleSeed (ProbeCompanionLoadouts) for
-	// this Config's LIFETIME: probing execs a subprocess per discovered
-	// companion, and SeededBundleLoader is called repeatedly within one
-	// process (hooks, MCP, fragments, assembly) — without this, each call
-	// would re-pay that cost. Deliberately per-Config (not a package var):
+	// companionSeed memoizes the companion loadout probe for this Config's
+	// LIFETIME: probing execs a subprocess per discovered companion (and can
+	// PROMPT for consent to do so), and BundleLoader is called repeatedly
+	// within one process (hooks, MCP, fragments, assembly) — without this, each
+	// call would re-pay that cost and re-ask that question. Deliberately
+	// per-Config (not a package var):
 	// tests construct fresh Configs and must never observe another test's
 	// fake companion output.
 	//
@@ -294,7 +295,7 @@ type Config struct {
 	// where ltk is not installed and fails where it is. Tests that assert on an
 	// exact command/bundle set must pin this (see DisableCompanionProbe) so the
 	// result depends on the fixture, never the host.
-	companionProbe func(signing.TrustRoot) map[string]*bundles.Bundle
+	companionProbe bundles.CompanionProber
 
 	// lmDefaultOverlay snapshots what mergeDefaultConfig overlaid into LM (nil
 	// when the user configured their own registry). Save strips values that
@@ -889,7 +890,7 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	if len(c.appPaths) == 0 {
 		return nil
 	}
-	loader := c.SeededBundleLoader()
+	loader := c.BundleLoader()
 	infos, err := loader.List()
 	if err != nil {
 		// The very next loop already fails loudly for a per-file error
@@ -1947,64 +1948,110 @@ func strandedCacheEntry(fs afero.Fs, path string, info os.FileInfo, err error) b
 	return yaml.Unmarshal(data, &meta) != nil || meta.Source.SHA == ""
 }
 
-// SeededBundleLoader returns a bundles.Loader that sees fs-installed local
-// bundles, every remote bundle in the active lockfile (pre-loaded from the
-// local git clone cache and SHA-pinned), and every discovered companion's
-// loadout (S8 — ProbeCompanionLoadouts, seeded under its
-// ctxloom:companion@<bin> ref). This is the read-path loader every caller
-// should use after PR 1: remote bundles no longer live on disk as extracted
-// YAML, so the seeding step is what makes them (and companion loadouts,
-// which never touch disk at all) visible.
+// BundleLoaderOption configures how a Config builds its bundle loader. It is a
+// CONFIG-level option, not a loader one: what a Config assembles is a set of
+// READERS, and "which filesystem do the project bundles come from" is a
+// question about that assembly rather than about the loader that composes it.
+type BundleLoaderOption func(*bundleLoaderConfig)
+
+type bundleLoaderConfig struct {
+	fs           afero.Fs
+	extraReaders []bundles.Reader
+}
+
+// WithBundleLoaderFS overrides the filesystem the PROJECT reader reads from
+// (tests that pin a bundle set on a memory fs). It replaces the Config's own
+// filesystem rather than adding a second source, so real on-disk bundles cannot
+// leak into a fixture's result.
+func WithBundleLoaderFS(fsys afero.Fs) BundleLoaderOption {
+	return func(c *bundleLoaderConfig) { c.fs = fsys }
+}
+
+// WithExtraBundleReaders appends further sources to the loader — the seam a
+// test uses to pin content that would otherwise come off the host (a fake
+// companion, a synthetic pinned tree). Later readers win a name collision, so
+// an extra reader shadows a project bundle of the same name.
+func WithExtraBundleReaders(readers ...bundles.Reader) BundleLoaderOption {
+	return func(c *bundleLoaderConfig) { c.extraReaders = append(c.extraReaders, readers...) }
+}
+
+// BundleLoader returns the read-path bundle loader: a bundles.Loader composed
+// of one reader per SOURCE this session can see — the project's own bundle
+// directories, every remote bundle in the active lockfile (pinned, read out of
+// the local clone cache or its installed tree), and every discovered
+// companion's loadout.
+//
+// This is what replaced the anonymous seed map. The old shape gathered remote
+// bundles, companion loadouts and their trust facts into one
+// map[string]*Bundle behind a "<seeded>:" path sentinel, which meant the
+// content of three sources arrived with their origins erased and their
+// signature facts already collapsed into a single stamped string. Each source
+// is now a reader that reports what it read, on the record, on three axes.
 //
 // Failures are degraded gracefully (CLAUDE.md fault tolerance): a missing
 // lockfile, unregistered remote, single bad SHA, or unreachable/invalid
-// companion loadout produces a stderr warning and the loader returns the
-// rest.
+// companion loadout produces a diagnostic and the loader serves the rest.
 //
 // It takes NO form preference: raw-vs-distilled is a PROCESS-stage decision
 // (docs/design/engine-delivery-seam.design.md), so a caller that reads content
 // names the form it wants at the read itself — see ShouldUseDistilled.
-func (c *Config) SeededBundleLoader(opts ...bundles.LoaderOption) *bundles.Loader {
-	if c.fs != nil {
+func (c *Config) BundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
+	var lc bundleLoaderConfig
+	for _, opt := range opts {
+		opt(&lc)
+	}
+	fsys := lc.fs
+	if fsys == nil {
 		// Thread the injected filesystem so fs-installed local bundle discovery
 		// and reads honor it, matching GetProfileLoader's profiles.WithFS(c.fs).
-		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithFS(c.fs))
+		fsys = c.getFS()
 	}
-	remoteSeed := c.loadRemoteBundleSeed()
-	companionSeed := c.companionBundleSeed()
-	if len(remoteSeed) > 0 || len(companionSeed) > 0 {
-		merged := make(map[string]*bundles.Bundle, len(remoteSeed)+len(companionSeed))
-		maps.Copy(merged, remoteSeed)
-		maps.Copy(merged, companionSeed)
-		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithSeededBundles(merged))
-	}
+
+	// Order is precedence: a later reader wins a name collision, so pinned
+	// remote content still shadows a stale extracted copy on disk, and a
+	// companion's own ref (which nothing else can claim) is last.
+	readers := []bundles.Reader{bundles.NewProjectReader(fsys, c.GetBundleDirs(), bundles.WithTrustRoot(c.TrustRoot()))}
+	readers = append(readers, c.remoteBundleReaders()...)
+	readers = append(readers, c.companionReader())
+	readers = append(readers, lc.extraReaders...)
+
+	loader := bundles.NewLoader(readers...)
 	// Multi-version coexistence (trust rework, TR5): give every read-path loader
 	// the capability to materialize a specific historical commit-version of a
 	// remote bundle via FetchItem. This is opt-in at the loader's version-aware
 	// methods only — the default (lockfile-pinned) path is unaffected — so wiring
 	// it everywhere is free until a caller asks for an "@<commit>" version.
 	if resolver := c.bundleVersionResolver(); resolver != nil {
-		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithVersionResolver(resolver))
+		loader.WithVersionResolver(resolver)
 	}
-	return bundles.NewLoader(c.GetBundleDirs(), opts...)
+	return loader
 }
 
-// companionBundleSeed discovers and probes every companion's loadout
-// (ProbeCompanionLoadouts) exactly once per Config — see
-// companionSeedOnce/companionSeedCache — verifying any signature against
-// THIS config's full trust root (embedded + user + project allowed_signers,
-// same root verifyBundlePublisher uses for remote bundles below). The
-// result merges into SeededBundleLoader's seed map alongside
-// loadRemoteBundleSeed's remote bundles: same seam, same gate, same review
-// path (operations.EffectiveTrust, unchanged) — a companion loadout is not
-// a parallel trust mechanism.
+// companionReader builds the reader that contributes every discovered
+// companion's loadout, seeded under its ctxloom:companion@<bin> ref.
 //
-// Skipped entirely when there is no project directory (mirrors
-// loadRemoteBundleSeed's own AppPaths guard): companion content only
-// matters for a real project session, and this keeps a bare/management
-// Config — the shape most unit tests construct — from spawning companion
-// subprocesses it has no use for.
-func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
+// The reader owns the trust facts (it verifies any signature against THIS
+// config's full trust root — embedded + user + project allowed_signers, the
+// same root the pinned-remote readers use); this function owns only WHICH
+// prober it reads through, and the memoization of that prober's result.
+func (c *Config) companionReader() bundles.Reader {
+	return bundles.NewCompanionReader(c.companionProber(), bundles.WithTrustRoot(c.TrustRoot()))
+}
+
+// companionProber returns the exec seam the companion reader reads through:
+// the loadouts of every companion this machine's human has agreed ctxloom may
+// execute, probed at most ONCE per Config.
+//
+// The memoization is not an optimization detail. Probing execs a subprocess per
+// discovered companion and can PROMPT for consent to do so, and a loader is
+// built repeatedly within one process (hooks, MCP, fragments, assembly) — so
+// without it the same question would be asked several times in one run.
+//
+// Skipped entirely when there is no project directory: companion content only
+// matters for a real project session, and this keeps a bare/management Config —
+// the shape most unit tests construct — from spawning companion subprocesses it
+// has no use for.
+func (c *Config) companionProber() bundles.CompanionProber {
 	if len(c.appPaths) == 0 {
 		return nil
 	}
@@ -2013,30 +2060,31 @@ func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
 		c.companionSeed = &companionSeedState{}
 	}
 	state := c.companionSeed
+	probe := c.companionProbe
 	companionSeedInitMu.Unlock()
-
-	// The process-wide switch (--no-companions / CTXLOOM_NO_COMPANIONS) wins over
-	// everything, INCLUDING an injected probe: "off" must mean no companion code
-	// runs, not "off unless something wired an override". Disabled short-circuits
-	// before any probe is selected, so no companion subprocess is executed and no
-	// loadout is contributed — skipping the exec, not discarding its result, is
-	// the point, since probing shells out to whatever companion binaries happen
-	// to be on the host's PATH.
-	if CompanionsDisabled() {
-		return nil
-	}
 
 	// Otherwise a Config's own override (the test seam) wins over the real probe,
 	// so a parallel test can pin its own fixture without touching the global.
-	probe := c.companionProbe
 	if probe == nil {
 		probe = ProbeCompanionLoadouts
 	}
-
-	state.once.Do(func() {
-		state.cache = probe(c.TrustRoot())
-	})
-	return state.cache
+	return func(ctx context.Context) ([]bundles.CompanionLoadout, error) {
+		// The process-wide switch (--no-companions / CTXLOOM_NO_COMPANIONS) wins
+		// over everything, INCLUDING an injected probe: "off" must mean no
+		// companion code runs, not "off unless something wired an override".
+		// Disabled short-circuits before any probe is called, so no companion
+		// subprocess is executed and no loadout is contributed — skipping the
+		// exec, not discarding its result, is the point, since probing shells out
+		// to whatever companion binaries happen to be on the host's PATH.
+		if CompanionsDisabled() {
+			return nil, nil
+		}
+		var err error
+		state.once.Do(func() {
+			state.cache, err = probe(ctx)
+		})
+		return state.cache, err
+	}
 }
 
 // DisableCompanionProbe makes companion-loadout discovery a no-op for this
@@ -2045,7 +2093,14 @@ func (c *Config) companionBundleSeed() map[string]*bundles.Bundle {
 // developer happens to have installed. Tests that pin such a set call this so
 // the fixture — not the machine — decides the result.
 func (c *Config) DisableCompanionProbe() {
-	c.companionProbe = func(signing.TrustRoot) map[string]*bundles.Bundle { return nil }
+	c.companionProbe = func(context.Context) ([]bundles.CompanionLoadout, error) { return nil, nil }
+}
+
+// SetCompanionProbeForTesting pins the companion loadouts this Config will see,
+// so a test's fixture — never the developer's PATH — decides what companion
+// content a session carries.
+func (c *Config) SetCompanionProbeForTesting(probe bundles.CompanionProber) {
+	c.companionProbe = probe
 }
 
 // companionSeedState is the memoized result of one Config's companion-loadout
@@ -2053,7 +2108,7 @@ func (c *Config) DisableCompanionProbe() {
 // why this can't be a value sync.Once field on Config directly.
 type companionSeedState struct {
 	once  sync.Once
-	cache map[string]*bundles.Bundle
+	cache []bundles.CompanionLoadout
 }
 
 // companionSeedInitMu guards ONLY the lazy allocation of a Config's
@@ -2132,12 +2187,6 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 	}
 }
 
-// loadRemoteBundleSeed materializes every lockfile-listed bundle from the local
-// git clone cache, parsed and keyed by its CANONICAL ref ("<url>@bundles/<path>")
-// ready to seed a bundles.Loader. Canonical is the sole resolution identity:
-// profiles author canonical refs and resolve straight to these seeded bundles.
-// Returns nil when there is no lockfile or registry — caller treats nil as "no
-// remote bundles, just walk fs."
 // reportBundleLoadFailures records one fatal-class finding per lockfile-active
 // bundle whose bytes could not be read.
 //
@@ -2153,7 +2202,7 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 // is attached to is worse than no fix line at all.
 func reportBundleLoadFailures(failures map[string]error) {
 	for name, err := range failures {
-		if errors.Is(err, ErrTreeBundleWithheld) {
+		if errors.Is(err, bundles.ErrTreeBundleWithheld) {
 			strictness.FailOnce(strictness.ClassTrust,
 				"re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed",
 				"remote bundle %q was installed but withheld: %v", name, err)
@@ -2164,7 +2213,18 @@ func reportBundleLoadFailures(failures map[string]error) {
 	}
 }
 
-func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
+// remoteBundleReaders builds one pinned-tree reader per lockfile-listed bundle:
+// the bytes come from the local git clone cache at the pinned SHA (single-file
+// bundles) or from the tree `remote pull` installed (directory-form bundles),
+// and each reader does its OWN signature checking over exactly those bytes.
+//
+// Canonical refs are the sole resolution identity: profiles author canonical
+// refs and resolve straight to these readers' content, so each reader is
+// constructed FOR one canonical ref rather than discovering names from paths.
+//
+// Returns nil when there is no lockfile or registry — no remote bundles, just
+// the project's own.
+func (c *Config) remoteBundleReaders() []bundles.Reader {
 	if len(c.appPaths) == 0 {
 		return nil
 	}
@@ -2172,10 +2232,10 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 
 	registry, err := remote.NewRegistry(paths.RemotesPath(baseDir), c.registryFSOptions()...)
 	if err != nil {
-		// This used to be indistinguishable from "no remotes registered"
-		// (the doc's own framing) — a real error (corrupt remotes.yaml,
-		// unreadable dir) silently vanished every lockfile-pinned remote
-		// bundle from assembly/hooks/MCP/commands.
+		// This used to be indistinguishable from "no remotes registered" (the
+		// doc's own framing) — a real error (corrupt remotes.yaml, unreadable
+		// dir) silently vanished every lockfile-pinned remote bundle from
+		// assembly/hooks/MCP/commands.
 		strictness.FailOnce(strictness.ClassBundle, "check the remotes registry under .ctxloom, or re-run `ctxloom remote add`",
 			"failed to open the remotes registry; no remote bundles loaded: %v", err)
 		return nil
@@ -2194,131 +2254,65 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 	auth := remote.LoadAuth(baseDir)
 	cache := remote.NewRepoCache(paths.ReposCachePath(baseDir), auth)
 	factory := remote.NewCachedFetcherFactory(cache)
-	// Wrap in the caching decorator so repeated SeededBundleLoader calls
-	// within a session don't re-walk the clone for the same SHAs.
+	// Wrap in the caching decorator so repeated loader constructions within a
+	// session don't re-walk the clone for the same SHAs.
 	reader := remote.NewCachingBundleReader(remote.NewBundleReader(registry, factory, auth, lock))
 
-	rawBytes, failures := remote.LoadAllBytes(context.Background(), reader)
+	ctx := context.Background()
+	rawBytes, failures := remote.LoadAllBytes(ctx, reader)
 
 	// The trust root (embedded + user + project allowed_signers) is resolved once
-	// for the whole seed. This is the ONLY place the raw bundle bytes and their
-	// detached signature are both in hand, so it is where publisher verification
-	// must happen (spec §8.1) — before parse, over the file bytes.
+	// for the whole set and handed to every reader, so no two pinned bundles are
+	// judged against different roots.
 	root := c.TrustRoot()
 
-	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
-	c.seedTreeBundles(context.Background(), lock, root, loaded, failures)
+	out := make([]bundles.Reader, 0, len(rawBytes))
+	for _, canonical := range collections.SortedKeys(rawBytes) {
+		if _, ok := lock.Bundles[canonical]; !ok {
+			continue
+		}
+		tree, terr := documentTree(canonical, rawBytes[canonical], signatureFor(ctx, reader, canonical))
+		if terr != nil {
+			failures[canonical] = terr
+			continue
+		}
+		out = append(out, bundles.NewRepoFSReader(tree, canonical, bundles.WithTrustRoot(root)))
+	}
+	out = append(out, c.treeBundleReaders(lock, root, failures)...)
 	reportBundleLoadFailures(failures)
-	for canonical, data := range rawBytes {
-		entry, ok := lock.Bundles[canonical]
-		if !ok {
-			continue
-		}
-
-		// Verify BEFORE parse, over the exact file bytes. Three outcomes:
-		//   unsigned/untrusted-key → signer "" → review path (the common case);
-		//   verified              → the publisher principal, stamped below;
-		//   TAMPER                → withhold the bundle entirely, never degrade
-		//                           it to unsigned (that would let an attacker
-		//                           downgrade a signed bundle by corrupting its
-		//                           .sig — spec §10.2).
-		publisher, verr := verifyBundlePublisher(reader, canonical, data, root)
-		if errors.Is(verr, signing.ErrSignatureTampered) {
-			strictness.FailOnce(strictness.ClassTrust, "re-pull the bundle, or investigate the source — its signature does not cover its bytes",
-				"remote bundle %q has a signature that does not verify over its content; withholding it: %v", canonical, verr)
-			continue
-		}
-
-		b, perr := bundles.ParseBundle(data)
-		if perr != nil {
-			// Same fatal class as the read failure above: a pinned bundle whose
-			// content cannot be used must not silently vanish from assembly.
-			strictness.FailOnce(strictness.ClassBundle, "fix the bundle at its source, or remove it from its profiles",
-				"failed to parse remote bundle %q: %v", canonical, perr)
-			continue
-		}
-		// Lockfile keys are canonical refs — the sole seed/resolution identity.
-		b.Name = canonical
-		b.Path = fmt.Sprintf("<remote>:%s@%s", canonical, entry.SHA)
-		publisher.stamp(b)
-		loaded[canonical] = b
-	}
-	return loaded
+	return out
 }
 
-// bundlePublisher is everything a load path learned about who signed a
-// bundle's bytes. The two fields are never both set, and together they spell
-// the three states a reviewer needs told apart:
-//
-//	{"",       ""}    UNSIGNED — no signature accompanied these bytes.
-//	{"",       fp}    UNTRUSTED SIGNER — a signature exists and names a key
-//	                  this machine does not trust to publish. Same withholding
-//	                  as unsigned, different diagnosis and different fix.
-//	{principal, ""}   VERIFIED — resolved from the trust root.
-//
-// It exists because signing.VerifyPublisher deliberately answers the first two
-// identically ("", nil), and that collapse is correct for the GATE and wrong
-// for the person reading the pending list.
-type bundlePublisher struct {
-	// Principal is the verified publisher identity, resolved from the trust
-	// root by signing.VerifyPublisher. Empty unless a trusted key's signature
-	// covered exactly these bytes.
-	Principal string
-	// UntrustedFingerprint is DISPLAY ONLY and is never an identity: it is the
-	// key the signature blob claims made it, in the one case where nothing
-	// verified that claim. See signing.SignatureKeyFingerprint.
-	UntrustedFingerprint string
+// signatureFor reads a bundle's detached `.sig` sibling. A MISSING signature
+// (the common case) is unsigned content, not an error, and any other read
+// failure is degraded the same way rather than blocking the bundle: the
+// fail-safe direction is "more review", and unsigned remote content is withheld
+// until a human reviews it anyway. What must NOT happen is a signature that
+// EXISTS being reported as absent — that is the reader's business, and it only
+// ever sees bytes that were actually there.
+func signatureFor(ctx context.Context, src remote.BundleSignatureSource, canonical string) []byte {
+	sig, err := src.ReadBundleSignature(ctx, canonical)
+	if err != nil {
+		return nil
+	}
+	return sig
 }
 
-// stamp records both halves on b. Both stamps happen here, in one place, so no
-// load path can record the verified identity and forget the display state (or
-// the reverse) and leave a reviewer reading a state that is not this bundle's.
-func (p bundlePublisher) stamp(b *bundles.Bundle) {
-	b.StampSigner(p.Principal) // "" for unsigned; the verified principal otherwise
-	b.StampUntrustedSignerFingerprint(p.UntrustedFingerprint)
-}
-
-// verifyBundlePublisher reads a bundle's detached `.sig` sibling and verifies it
-// over the bundle's raw file bytes against the trust root. A MISSING signature
-// (the common case) is unsigned content, not an error: it returns a zero
-// bundlePublisher. A signature by an untrusted key is likewise unsigned-to-us —
-// it takes the same review path, and is reported as such, but it also names the
-// key so the listing can say WHICH of the two happened. Only a trusted key's
-// signature that does not cover these bytes — or a structurally invalid blob —
-// is a tamper signal, returned as signing.ErrSignatureTampered for the caller to
-// withhold on.
-func verifyBundlePublisher(reader remote.BundleSignatureSource, canonical string, data []byte, root signing.TrustRoot) (bundlePublisher, error) {
-	sig, sigErr := reader.ReadBundleSignature(context.Background(), canonical)
-	if sigErr != nil {
-		// A missing .sig — or any read failure — is treated as UNSIGNED. Absence
-		// is the documented "unsigned" signal (spec §4.1); a non-not-found read
-		// error is degraded the same way rather than blocking the bundle, because
-		// the fail-safe direction is "more review", and an unsigned bundle is
-		// withheld until a human reviews it anyway.
-		return bundlePublisher{}, nil
+// documentTree presents one single-file remote bundle as the pinned tree its
+// reader reads: the document under the ref's own leaf name, with its detached
+// signature beside it — which is exactly the shape those bytes have in the
+// publisher's repository.
+func documentTree(canonical string, data, sig []byte) (bundles.TreeFS, error) {
+	leaf := path.Base(strings.TrimSuffix(canonical, "/"))
+	files := map[string][]byte{leaf + ".yaml": data}
+	if len(sig) > 0 {
+		files[leaf+".yaml"+bundles.SigSuffix] = sig
 	}
-	principal, verr := signing.VerifyPublisher(data, sig, root, time.Now())
-	if verr != nil || principal != "" {
-		// Tamper (withheld by the caller) or verified. Neither case wants a
-		// display fingerprint: the first shows nothing, the second has a real
-		// identity to show instead.
-		return bundlePublisher{Principal: principal}, verr
+	tree, err := content.NewMapTreeFS(files)
+	if err != nil {
+		return nil, fmt.Errorf("present the pinned bytes of %q as a tree: %w", canonical, err)
 	}
-	// UNSIGNED TO US. Which of the two? A zero-length blob is genuinely no
-	// signature; anything else named a key that this machine does not trust to
-	// publish, and naming it is the whole point — display only, never consulted
-	// by anything (signing.SignatureKeyFingerprint).
-	if len(sig) == 0 {
-		return bundlePublisher{}, nil
-	}
-	fingerprint, fperr := signing.SignatureKeyFingerprint(sig)
-	if fperr != nil {
-		// Unreachable via VerifyPublisher, which already reported an
-		// unparseable blob as tamper above. If it ever becomes reachable, fall
-		// back to the plain unsigned wording rather than inventing a key.
-		return bundlePublisher{}, nil
-	}
-	return bundlePublisher{UntrustedFingerprint: fingerprint}, nil
+	return tree, nil
 }
 
 // GetConfigFilePath returns the path to the primary config file.

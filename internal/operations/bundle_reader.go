@@ -13,7 +13,7 @@ import (
 //
 // Used by the review-flow tools (show_bundle_verbatim, etc.) that need
 // reader access independent of the bundles.Loader seeding pipeline that
-// cfg.SeededBundleLoader already encapsulates.
+// cfg.BundleLoader already encapsulates.
 //
 // A nil return is NOT a neutral value downstream. isInstalled treats a nil
 // source as "nothing is installed", so an unreadable lockfile makes every

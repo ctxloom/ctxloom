@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"os/exec"
 	"sort"
 	"strings"
@@ -9,10 +10,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/profiles"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
-	"github.com/ctxloom/ctxloom/resources"
 )
 
 // lookPath is the PATH-resolution seam for tests.
@@ -168,19 +167,18 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// see resolveBuiltinBundleMCPServers.
 	addServers(resolveBuiltinBundleMCPServers(c.execGate))
 
-	// SeededBundleLoader includes remote bundles from the active lockfile
-	// AND every discovered companion's loadout, seeded under its
-	// ctxloom:companion@<bin> ref; without it, MCP servers shipped in remote
-	// bundles (or a companion loadout) silently disappear after extraction is
-	// removed (see docs/bundle-review-plan.md Phase 1.2).
-	bundleLoader := c.SeededBundleLoader()
+	// BundleLoader includes remote bundles from the active lockfile AND every
+	// discovered companion's loadout, read under its ctxloom:companion@<bin>
+	// ref; without them, MCP servers shipped in remote bundles (or a companion
+	// loadout) silently disappear (see docs/bundle-review-plan.md Phase 1.2).
+	bundleLoader := c.BundleLoader()
 
 	// Companion loadouts are resolved through loadMCPFromBundleRef — the SAME
 	// path a profile-referenced bundle uses (Load -> extractMCPFromBundle) —
 	// so a companion's server is judged by ITS bundle's own source ref and
 	// verified Signer(), never the builtin exemption. Sorted for a
 	// deterministic result across runs.
-	for _, ref := range sortedCompanionRefs(c) {
+	for _, ref := range companionRefs(bundleLoader) {
 		addServers(loadMCPFromBundleRef(ref, bundleLoader, c.execGate))
 	}
 
@@ -317,12 +315,12 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	// reachable by a rejection).
 	result.Append(resolveBuiltinBundleHooks(c.execGate))
 
-	bundleLoader := c.SeededBundleLoader()
+	bundleLoader := c.BundleLoader()
 
 	// Companion loadout hooks: same extraction+gate path a profile-referenced
 	// bundle uses, keyed and signed by the companion's OWN bundle — never the
 	// builtin exemption. Sorted for a deterministic result across runs.
-	for _, ref := range sortedCompanionRefs(c) {
+	for _, ref := range companionRefs(bundleLoader) {
 		result.Append(loadHooksFromBundleRef(ref, bundleLoader, c.execGate))
 	}
 
@@ -348,13 +346,35 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	return result
 }
 
-// sortedCompanionRefs returns the discovered companion loadout refs
-// (ctxloom:companion@<bin>) in deterministic sorted order — the map
-// companionBundleSeed returns has random iteration order, and every
-// unconditional resolver here promises a stable result across runs (a
-// stable context/settings hash).
-func sortedCompanionRefs(c *Config) []string {
-	return collections.SortedKeys(c.companionBundleSeed())
+// companionRefs returns the loader's companion loadout refs
+// (ctxloom:companion@<bin>) in deterministic sorted order.
+//
+// It asks the LOADER what it read rather than re-probing: the reads already
+// carry which source each bundle came from, so "everything the companion reader
+// contributed" is a fact on the record instead of a second discovery pass that
+// could answer differently — and it does not exec anything a second time.
+func companionRefs(loader *bundles.Loader) []string {
+	var out []string
+	for _, read := range loader.Reads() {
+		if read.Provenance == bundles.ProvenanceCompanion {
+			out = append(out, read.Ref())
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// companionReads returns the loader's companion loadout reads in the same
+// deterministic order, for the one caller that needs the bundles themselves.
+func companionReads(loader *bundles.Loader) []bundles.BundleRead {
+	var out []bundles.BundleRead
+	for _, read := range loader.Reads() {
+		if read.Provenance == bundles.ProvenanceCompanion {
+			out = append(out, read)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Ref() < out[j].Ref() })
+	return out
 }
 
 // resolveProfileScope returns the profile set a bundle-resolution call should
@@ -391,8 +411,9 @@ func (c *Config) resolveProfileScope(profileNames []string) []string {
 // the configured form from ShouldUseDistilled, and both are handed to the
 // process stage here rather than baked into how the reader was built. A
 // withheld command is therefore not exported.
-func (c *Config) ResolveBundleCommands(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
-	pipe := bundles.NewPipeline(c.SeededBundleLoader(opts...), c.ExecutableTrustGate(), c.ShouldUseDistilled())
+func (c *Config) ResolveBundleCommands(profileNames []string, opts ...BundleLoaderOption) []*bundles.LoadedContent {
+	loader := c.BundleLoader(opts...)
+	pipe := bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.ShouldUseDistilled())
 
 	seen := make(map[string]bool)
 	var out []*bundles.LoadedContent
@@ -420,7 +441,7 @@ func (c *Config) ResolveBundleCommands(profileNames []string, opts ...bundles.Lo
 		}
 	}
 
-	for _, command := range c.resolveCompanionCommandsWith(pipe) {
+	for _, command := range resolveCompanionCommandsWith(pipe, loader) {
 		add(command)
 	}
 	return out
@@ -437,8 +458,8 @@ func (c *Config) ResolveBundleCommands(profileNames []string, opts ...bundles.Lo
 // skill emission explicitly out of the first slices) — not implemented here.
 // Deduped by skill item name (first occurrence wins), matching
 // ResolveBundleCommands' dedup key.
-func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedSkill {
-	pipe := bundles.NewPipeline(c.SeededBundleLoader(opts...), c.ExecutableTrustGate(), c.ShouldUseDistilled())
+func (c *Config) ResolveBundleSkills(profileNames []string, opts ...BundleLoaderOption) []*bundles.LoadedSkill {
+	pipe := bundles.NewPipeline(c.BundleLoader(opts...), c.ExecutableTrustGate(), c.ShouldUseDistilled())
 
 	seen := make(map[string]bool)
 	var out []*bundles.LoadedSkill
@@ -481,18 +502,19 @@ func (c *Config) ResolveBundleSkills(profileNames []string, opts ...bundles.Load
 // This is the piece LoadCommandExports adds on BOTH its curated and uncurated
 // paths (ResolveBundleCommands only covers the uncurated one, since a
 // profile's commands: curation bypasses it entirely) — see prompts.go.
-func (c *Config) ResolveCompanionCommands(opts ...bundles.LoaderOption) []*bundles.LoadedContent {
-	return c.resolveCompanionCommandsWith(
-		bundles.NewPipeline(c.SeededBundleLoader(opts...), c.ExecutableTrustGate(), c.ShouldUseDistilled()))
+func (c *Config) ResolveCompanionCommands(opts ...BundleLoaderOption) []*bundles.LoadedContent {
+	loader := c.BundleLoader(opts...)
+	return resolveCompanionCommandsWith(
+		bundles.NewPipeline(loader, c.ExecutableTrustGate(), c.ShouldUseDistilled()), loader)
 }
 
 // resolveCompanionCommandsWith is the shared companion-command extraction
 // loop, taking an already-built pipeline so ResolveBundleCommands (which needs
 // one for the profile-scoped pass too) doesn't construct a second one. Gate and
 // form travel with it, so both callers necessarily agree on both.
-func (c *Config) resolveCompanionCommandsWith(pipe *bundles.Pipeline) []*bundles.LoadedContent {
+func resolveCompanionCommandsWith(pipe *bundles.Pipeline, loader *bundles.Loader) []*bundles.LoadedContent {
 	var out []*bundles.LoadedContent
-	for _, ref := range sortedCompanionRefs(c) {
+	for _, ref := range companionRefs(loader) {
 		out = append(out, pipe.CommandsFromBundleRef(ref)...)
 	}
 	return out
@@ -593,10 +615,9 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.ContentGate) []Built
 	// seeded bundle. Do NOT route this through the builtin ref prefix above:
 	// that is precisely the nil-gate/exemption bypass the trust rework
 	// forbids for third-party content.
-	companions := c.companionBundleSeed()
-	for _, ref := range sortedCompanionRefs(c) {
-		b := companions[ref]
-		out = fragmentsFromBundle(out, ref, b, b.Signer(), preferDistilled, gate)
+	for _, read := range companionReads(c.BundleLoader()) {
+		b := read.Bundle
+		out = fragmentsFromBundle(out, read.Ref(), b, b.Signer(), preferDistilled, gate)
 	}
 	return out
 }
@@ -800,25 +821,18 @@ func extractMCPFromBundle(bundle *bundles.Bundle, source string, gate bundles.Co
 // bundles.ParseBundle's schema-upgrade pipeline: a migration that renames a key
 // would have applied on every on-disk and remote bundle and silently not here,
 // so the same bytes would mean different things depending on which surface
-// asked. Routing all four through ParseBundle is what makes "a builtin bundle"
-// one definition rather than four.
+// asked. Routing all four through the builtin READER — the same localfs
+// implementation that reads the project's own bundles, pointed at the embedded
+// filesystem — is what makes "a builtin bundle" one definition rather than four,
+// and what keeps a builtin's trust facts established the same way everything
+// else's are.
 func eachBuiltinBundle(fn func(name string, b *bundles.Bundle)) {
-	names, err := resources.ListBuiltinBundles()
+	reads, err := bundles.NewBuiltinReader().Read(context.Background())
 	if err != nil {
-		clidiag.Warn("ctxloom", "list builtin bundles: %v", err)
+		clidiag.Warn("ctxloom", "read builtin bundles: %v", err)
 		return
 	}
-	for _, name := range names {
-		data, err := resources.GetBuiltinBundle(name)
-		if err != nil {
-			clidiag.Warn("ctxloom", "read builtin bundle %q: %v", name, err)
-			continue
-		}
-		b, err := bundles.ParseBundle(data)
-		if err != nil {
-			clidiag.Warn("ctxloom", "parse builtin bundle %q: %v", name, err)
-			continue
-		}
-		fn(name, b)
+	for _, read := range reads {
+		fn(read.Ref(), read.Bundle)
 	}
 }

@@ -36,11 +36,11 @@ type ListFragmentsResult struct {
 }
 
 // bundleLoader returns the read-path loader for cfg. Delegates to
-// cfg.SeededBundleLoader so remote bundles in the lockfile are visible
+// cfg.BundleLoader so remote bundles in the lockfile are visible
 // without on-disk extraction. Kept as a package-local helper so existing
 // call sites don't need to know about the seeding mechanism.
 func bundleLoader(cfg *config.Config) *bundles.Loader {
-	return cfg.SeededBundleLoader()
+	return cfg.BundleLoader()
 }
 
 // ListFragments returns all fragments matching the criteria.

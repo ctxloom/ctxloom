@@ -203,7 +203,7 @@ func (e *ExecutableTrustGate) WarnWithheld() {
 }
 
 // exposurePipeline returns the exposure PROCESS stage: one bundle reader — the
-// same cfg.SeededBundleLoader every management and listing path uses — wrapped
+// same cfg.BundleLoader every management and listing path uses — wrapped
 // in a pipeline that gates with the content trust gate and serves the
 // configured form. ONLY exposure surfaces build it (assembly, the ctxloom://
 // fragment|prompt|skill resources, fragment-reading hooks, SessionStart regen);
@@ -215,7 +215,7 @@ func (e *ExecutableTrustGate) WarnWithheld() {
 // cfg.FS() is threaded so the gate's review-records store reads the same
 // filesystem as the rest of the operation (OS fs in production, a virtualized
 // fs in tests).
-func exposurePipeline(cfg *config.Config, opts ...bundles.LoaderOption) *bundles.Pipeline {
+func exposurePipeline(cfg *config.Config, opts ...config.BundleLoaderOption) *bundles.Pipeline {
 	pipe, _ := exposurePipelineGated(cfg, opts...)
 	return pipe
 }
@@ -229,9 +229,9 @@ func exposurePipeline(cfg *config.Config, opts ...bundles.LoaderOption) *bundles
 // — a single-item resource fetch that already returns a distinct withheld
 // sentinel error, errs.ErrFragmentWithheld/ErrCommandWithheld) have no reasoned
 // advisory to print and keep using the simpler exposurePipeline.
-func exposurePipelineGated(cfg *config.Config, opts ...bundles.LoaderOption) (*bundles.Pipeline, *contentGate) {
+func exposurePipelineGated(cfg *config.Config, opts ...config.BundleLoaderOption) (*bundles.Pipeline, *contentGate) {
 	gate := buildContentGate(cfg, nil, cfgFS(cfg))
-	return bundles.NewPipeline(cfg.SeededBundleLoader(opts...), gate.allow, cfgPreferDistilled(cfg)), gate
+	return bundles.NewPipeline(cfg.BundleLoader(opts...), gate.allow, cfgPreferDistilled(cfg)), gate
 }
 
 // cfgPreferDistilled returns the caller's raw-vs-distilled form choice, nil-safe.

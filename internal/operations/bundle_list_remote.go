@@ -18,7 +18,7 @@ import (
 // standard sources presented through one interface, plus removed-upstream
 // markers:
 //
-//   - PRESENT bundles come from the SeededBundleLoader — the codebase's standard
+//   - PRESENT bundles come from the the config bundle loader — the codebase's standard
 //     local+remote bundle reader. It fs-walks content/bundles (locally-authored
 //     bundles from `bundle create`) AND seeds every lockfile bundle, read
 //     canonically from its git clone (remote bundles are not extracted to disk —
@@ -35,7 +35,7 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	infos, err := cfg.SeededBundleLoader().List()
+	infos, err := cfg.BundleLoader().List()
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 // bundleListDeletedResolver builds a Resolver whose remote fetcher walks the
 // already-downloaded clones of the lockfile's installed remotes (never fetching)
 // so ListDeleted can surface items removed upstream. It carries only the remote
-// fetcher — present-bundle listing is the SeededBundleLoader's job.
+// fetcher — present-bundle listing is the the config bundle loader's job.
 func bundleListDeletedResolver(cfg *config.Config) *remote.Resolver {
 	baseDir := getBaseDir(cfg)
 

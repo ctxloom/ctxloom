@@ -51,10 +51,10 @@ import (
 // Builtins are always present in both modes (ctxloom's core commands aren't
 // part of the curatable bundle-prompt set).
 //
-// The SeededBundleLoader is the only loader that also surfaces remote bundles
+// The config bundle loader is the only loader that also surfaces remote bundles
 // from the lockfile clone cache; empty fs bundle dirs are fine — remote-only
 // setups still produce commands.
-func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedContent {
+func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...config.BundleLoaderOption) []*bundles.LoadedContent {
 	prompts := builtinCommands()
 
 	// A nil cfg has nothing further to resolve — mirrors LoadSkillExports'
@@ -77,7 +77,7 @@ func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...bundl
 		// gating); it keys on "<bundle>#prompts/<name>", identical to the
 		// content choke, so an accepted/exempt prompt is exported and a
 		// pending/rejected one is withheld.
-		pipe := bundles.NewPipeline(cfg.SeededBundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.ShouldUseDistilled())
+		pipe := bundles.NewPipeline(cfg.BundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.ShouldUseDistilled())
 		prompts = append(prompts, loadCuratedPrompts(pipe, curated)...)
 		prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(opts...))...)
 		return prompts

@@ -228,11 +228,11 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 
 // bundleLoaderOpts builds the bundle loader options from the request's optional
 // test filesystem.
-func bundleLoaderOpts(req ApplyHooksRequest) []bundles.LoaderOption {
+func bundleLoaderOpts(req ApplyHooksRequest) []config.BundleLoaderOption {
 	if req.BundleLoaderFS == nil {
 		return nil
 	}
-	return []bundles.LoaderOption{bundles.WithFS(req.BundleLoaderFS)}
+	return []config.BundleLoaderOption{config.WithBundleLoaderFS(req.BundleLoaderFS)}
 }
 
 // resolveHookConfig reloads config for freshness, using the injected loader when
@@ -464,7 +464,7 @@ func contextViaHook(set agent.SurfaceSet) bool {
 }
 
 // regenerateContext loads fragments from default profiles and writes the context file.
-func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.LoaderOption, opts ...agent.ContextFileOption) (string, error) {
+func regenerateContext(cfg *config.Config, workDir string, bundleOpts []config.BundleLoaderOption, opts ...agent.ContextFileOption) (string, error) {
 	// Load fragments from default profiles using bundles. This is an exposure
 	// surface (the SessionStart-injected context file), so it gates content the
 	// same way AssembleContext does (trust rework, TR5) — baseline-first, then

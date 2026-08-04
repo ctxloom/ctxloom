@@ -17,12 +17,25 @@ import (
 //
 // NOTE: This is a test/development backend only - not intended for production use.
 //
+// It embeds agent.LaunchBackend (not the bare agent.BaseBackend) for ONE
+// reason: so a live turn's Setup runs the SAME surfaces × typed-cells delivery
+// every real launch backend runs (agent.LaunchBackend.setupViaCells), rather
+// than a mock-only bypass. Before that, Mock.Setup stashed its payload and
+// returned nil, so BuildSurfaces("mock", …) was never called on the launch
+// path and a live `ctxloom run --backend mock` materialized nothing — which
+// made every hermetic delivery assertion either live-engine-dependent or
+// vacuous (docs/design/engine-delivery-seam.design.md).
+//
+// Execute's echo and record file are UNCHANGED by that: Setup still stashes
+// fragments/managed before delegating, and delivery is additive to the echo,
+// never a replacement for it.
+//
 // Environment variables for test control:
 //   - CTXLOOM_MOCK_RESPONSE: Custom response text to output
 //   - CTXLOOM_MOCK_EXIT_CODE: Exit code to return (default: 0)
 //   - CTXLOOM_MOCK_RECORD_FILE: File to write received input to for verification
 type Mock struct {
-	agent.BaseBackend
+	agent.LaunchBackend
 	fragments []*agent.Fragment
 	// managed is the host-assembled setup payload from the last Setup call —
 	// stashed so Execute's recordMockInput can prove fields like DenyTools/
@@ -43,21 +56,41 @@ type MockConfig struct {
 func (MockConfig) BackendType() string { return "mock" }
 
 // NewMock creates a new Mock backend.
+//
+// The InitLaunch wiring is deliberately the plainest one in the tree — the
+// well-known-file Build adapter every non-claude launch backend uses, over
+// mock's context-only SurfaceSet (mock_surfaces.go). RawContext stays FALSE:
+// mock has no SessionStart hook and no CTXLOOM_CONTEXT_FILE consumer, so its
+// context rides MOCK_CONTEXT.md exactly as antigravity's rides AGENTS.md, and
+// ContextHook (which requires RawContext) stays false with it. History is the
+// same NilSessionHistory the backend has always reported — mock keeps no
+// transcripts.
 func NewMock() *Mock {
-	return &Mock{
-		BaseBackend: agent.NewBaseBackend("mock", "1.0.0"),
-	}
+	b := &Mock{}
+	b.BaseBackend = agent.NewBaseBackend("mock", "1.0.0")
+	b.InitLaunch(
+		agent.NewBaseLifecycle("mock"),
+		agent.NewBaseContextProvider(),
+		&NilSessionHistory{},
+		&agent.CellDelivery{Build: agent.BuildWellKnown(NewMockSurfaces)},
+	)
+	return b
 }
 
-// History returns nil - Mock doesn't support session history.
-func (b *Mock) History() agent.SessionHistory { return &NilSessionHistory{} }
-
-// Setup prepares the backend for execution.
+// Setup stashes the payload Execute's echo and record file are built from, then
+// runs the shared launch Setup so the context surface is actually delivered.
+//
+// The stash comes FIRST and unconditionally: recordMockInput and
+// buildMockResponse read b.fragments/b.managed, and a great many hermetic
+// scenarios assert on those bytes. A delivery failure is warned by the caller
+// (grpc.runTurnSetup) and the turn proceeds to Execute, so the echo must
+// already hold its payload by then — returning early on the delegate's error
+// would silently empty the echo, which is precisely the silent no-op this
+// backend exists to catch in others.
 func (b *Mock) Setup(ctx context.Context, req *agent.SetupRequest) error {
-	b.SetWorkDir(req.WorkDir)
 	b.fragments = req.Fragments
 	b.managed = req.Managed
-	return nil
+	return b.LaunchBackend.Setup(ctx, req)
 }
 
 // Execute runs the mock backend with the given request.
@@ -298,9 +331,6 @@ func (b *Mock) executeInteractiveEcho(ctx context.Context, req *agent.ExecuteReq
 		}
 	}
 }
-
-// Cleanup releases resources after execution.
-func (b *Mock) Cleanup(ctx context.Context) error { return nil }
 
 // getEnvFromMap retrieves an environment variable from a map or os.Environ.
 // Handles case-insensitive lookup since config parser may lowercase keys.

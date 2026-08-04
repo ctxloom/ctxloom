@@ -13,9 +13,21 @@
 // intact; config.loadRemoteBundleSeed then reads the installed tree back into a
 // bundle through convert.Read, verified by internal/content/attest.
 //
+// THE DELIVERY HALF IS NOW HERMETIC TOO, on the host runtime. The vehicle is
+// `profile materialize --backend mock`, over the mock backend's own context and
+// skills surfaces (internal/lm/backends/mock_surfaces.go) — the shared
+// agent.WriteManagedContext and agent.WriteManagedSkillPackages writers every
+// real engine uses, differing only in the directory they target. Materialize
+// rather than `ctxloom run` because a run's Cleanup strips what it delivered
+// before any step could stat it (grpc.RunTurn calls Cleanup immediately after
+// Execute and the shared LIFO reversal removes the managed section); the
+// mid-turn half is covered in tests/integration/delivery_approach_matrix_test.go
+// and grpc_test's TestRunTurn_MockDeliversContextSurfaceDuringTheTurn.
+//
 // What is still @wip, and why, is stated in the feature file rather than
-// duplicated here: the profile row (a claim its own subject cannot satisfy),
-// the hook-order row, and the delivery matrix's own separate blocker.
+// duplicated here: the hook-order row, and the CONTAINER half of the delivery
+// matrix (no hermetic container cell exists in this suite, and two of its rows
+// also sit on the containerConfigOverlay bind-mount hazard).
 //
 // TWO DELIBERATE CHOICES ABOUT HOW IT FAILS — they still matter, because the
 // rows that remain red must keep naming the gap rather than an exit code:
@@ -81,9 +93,15 @@ type j20State struct {
 	pullOutput string // the pull's combined output, likewise
 	pulled     bool   // whether the reference+pull step ran at all
 
-	runErr    error  // the isolation-matrix run's error, if any
-	runOutput string // that run's output
-	agentRoot string // where that run's agent could read files, if it got that far
+	runErr    error  // the isolation-matrix delivery's error, if any
+	runOutput string // that delivery's output
+	agentRoot string // where that agent could read files, if it got that far
+	// agentBackend is the engine whose NATIVE surface layout the delivered
+	// artifacts were written in — the matrix asserts paths, and a path is only
+	// meaningful per engine (.claude/skills vs .mock/skills, CLAUDE.md vs
+	// MOCK_CONTEXT.md). Empty until a delivery step sets it, so
+	// j20AgentVisiblePath can refuse rather than guess.
+	agentBackend string
 }
 
 func j20Of(w *World) *j20State {
@@ -111,6 +129,43 @@ func j20BundleRel(rel string) string {
 	return ".ctxloom/content/bundles/" + j20Bundle + "/" + rel
 }
 
+// j20ConfigYAML is Alice's project config. It declares TWO engines rather than
+// the one buildJ1Config renders, and the second one is the point.
+//
+// The publication scenarios only need a project that exists, and claude-code —
+// the engine an ordinary consumer runs — is what they had. But the DELIVERY
+// MATRIX has to observe delivered files on a machine with no engine installed,
+// and the only backend that both materializes real surfaces and needs nothing
+// on the host is "mock" (internal/lm/backends/mock_surfaces.go: a context
+// surface at MOCK_CONTEXT.md and a skills tree at .mock/skills/, both through
+// the SAME shared writers claude/kiro/opencode/antigravity go through).
+// Hardcoding a single claude-code engine here is what previously kept every
+// matrix row away from that route.
+//
+// Both are DECLARED, not just registered: `--backend mock` resolves against
+// the backend registry, but a project that materializes for an engine it never
+// declared is not a configuration any consumer would have, and the matrix is
+// supposed to describe one.
+func j20ConfigYAML() string {
+	return `version: 4
+llm:
+  configs:
+    claude-code:
+      type: claude-code
+    mock:
+      type: mock
+  defaults:
+    primary: claude-code
+    fast: claude-code
+agents:
+  default:
+    engine: claude-code
+    profiles:
+      - default
+default_agent: default
+`
+}
+
 // j20AuthoredTree is the fixture: one artifact of EVERY surface kind a bundle
 // can hold, in the canonical tree layout that internal/content already reads
 // (see internal/content/testdata/tree). Two spellings are easy to get wrong
@@ -134,7 +189,22 @@ func j20AuthoredTree() map[string]j20File {
 		"bundle.yaml": f("version: \"1.0.0\"\ndescription: Trent's atelier bundle\n"),
 
 		// fragment — content kind, .md, metadata as front-matter.
-		"fragments/house-style.md": f("---\ndescription: ATELIER-FRAGMENT-DESC\n---\n\nATELIER-FRAGMENT-4a91c2\n"),
+		//
+		// The BODY is deliberately several lines long. A fragment is not
+		// delivered as a file: it is merged into the engine's context file
+		// (CLAUDE.md / MOCK_CONTEXT.md), so the delivery-matrix assertion can
+		// only be "this body appears VERBATIM inside that file". A one-line
+		// body would reduce that to a marker search, which a delivery path that
+		// reflowed, truncated or re-wrapped the fragment would still pass.
+		"fragments/house-style.md": f("---\ndescription: ATELIER-FRAGMENT-DESC\n---\n\nATELIER-FRAGMENT-4a91c2\n\nHouse style, first rule: name the thing.\nHouse style, second rule: say why, not what.\nHouse style, third rule: delete the third rule.\n"),
+
+		// fragment — the one STUDIO selects, and the only carrier of the
+		// profile marker. It exists so a profile's delivery can be asserted by
+		// its EFFECT: a profile is not content an assistant reads, it is what
+		// SELECTS what an assistant reads, so the only way to observe that a
+		// published profile arrived AND resolves AND is honored is to
+		// materialize it and look for content only IT selects.
+		"fragments/studio-brief.md": f("---\ndescription: ATELIER-STUDIO-BRIEF-DESC\n---\n\nATELIER-PROFILE-6b41fc\n\nThe studio brief: ship the smallest true thing.\n"),
 
 		// command — the OTHER content kind, also .md/front-matter, but a
 		// user-invoked slash template rather than model-read context. Same
@@ -168,7 +238,16 @@ func j20AuthoredTree() map[string]j20File {
 
 		// profile — the sixth kind. Never trust-gated as an item, but still a
 		// file in the tree that must arrive intact.
-		"profiles/studio.yaml": f("description: ATELIER-PROFILE-6b41fc\nbundles:\n  - atelier\n"),
+		//
+		// It selects ONE fragment by item ref rather than pulling the whole
+		// bundle, because that is what makes materializing it an EFFECT
+		// assertion rather than a bundle assertion: the marker below can only
+		// reach a target if the profile arrived, was seeded into the shared
+		// loader, its short same-repo ref resolved against the PULLED tree, and
+		// the selected fragment was then delivered. The marker deliberately
+		// lives in that fragment, not in this description — a description is
+		// metadata about the selector, and no engine surface ever renders it.
+		"profiles/studio.yaml": f("description: ATELIER-PROFILE-DESC\nbundles:\n  - atelier#fragments/studio-brief\n"),
 	}
 }
 
@@ -364,7 +443,7 @@ func registerJ20Steps(ctx *godog.ScenarioContext) {
 		if name != j20Bundle {
 			return fmt.Errorf("this journey's fixture publishes %q, not %q", j20Bundle, name)
 		}
-		if err := ensureProjectWithEngine(w, "claude-code", "claude-code"); err != nil {
+		if err := scaffoldProjectWithConfig(w, j20ConfigYAML()); err != nil {
 			return err
 		}
 		signer, err := testenv.GenerateTestSigner()
@@ -477,23 +556,44 @@ func registerJ20Steps(ctx *godog.ScenarioContext) {
 		// surface — the assistant-visible payload, not the cache.
 		_ = w.env.Run("profile", "materialize", "default", "--target", "out", "--backend", "claude-code")
 		matOut := w.env.LastOutput()
-		root := filepath.Join(w.env.ProjectDir, "out")
-		var hits []string
-		_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() {
-				return nil //nolint:nilerr // an absent materialize root is the red case
-			}
-			b, rerr := os.ReadFile(p)
-			if rerr == nil && strings.Contains(string(b), marker) {
-				rel, _ := filepath.Rel(root, p)
-				hits = append(hits, rel)
-			}
-			return nil
-		})
+		hits, err := j20MarkerHits(filepath.Join(w.env.ProjectDir, "out"), marker)
+		if err != nil {
+			return err
+		}
 		if len(hits) == 0 {
 			return fmt.Errorf("the %s marker %q reached NOTHING the assistant can read under out/ — "+
 				"the published %s never arrived.\n%s\n--- materialize said ---\n%s",
 				kind, marker, kind, st.j20PullDiagnostic(), matOut)
+		}
+		return nil
+	})
+
+	// A profile cannot "reach an assistant" the way the five content kinds do:
+	// it is not content an assistant reads, it is what SELECTS what an
+	// assistant reads. So delivery is asserted by its EFFECT — materialize THAT
+	// profile, by its bundle-qualified ref, and require the content only it
+	// selects to arrive. That catches all three ways this breaks: the profile
+	// file arrives but is never seeded into the shared loader; it is seeded but
+	// its selectors do not resolve against the pulled tree; they resolve but the
+	// selected content is never delivered.
+	ctx.Step(`^materializing Alice's "([^"]*)" delivers the marker "([^"]*)"$`, func(c context.Context, profileRef, marker string) error {
+		w := worldFrom(c)
+		st := j20Of(w)
+		// A target of its OWN, never the one the "default" profile materializes
+		// into: sharing a directory would let content default selected satisfy
+		// an assertion about what STUDIO selects.
+		target := filepath.Join(w.env.ProjectDir, "out-studio")
+		_ = w.env.Run("profile", "materialize", profileRef, "--target", target, "--backend", "mock")
+		matOut := w.env.LastOutput()
+		hits, err := j20MarkerHits(target, marker)
+		if err != nil {
+			return fmt.Errorf("%w\n%s\n--- materialize said ---\n%s", err, st.j20PullDiagnostic(), matOut)
+		}
+		if len(hits) == 0 {
+			return fmt.Errorf("materializing the published profile %q delivered NOTHING carrying %q — "+
+				"the profile arrived on disk, but it was not seeded into the shared profile loader, or its selectors did not resolve "+
+				"against the pulled tree, or the content it selects was never delivered.\n%s\n--- materialize said ---\n%s",
+				profileRef, marker, st.j20PullDiagnostic(), matOut)
 		}
 		return nil
 	})
@@ -655,31 +755,39 @@ func registerJ20Steps(ctx *godog.ScenarioContext) {
 
 	// --- When/Then: the isolation delivery matrix ---------------------------
 
-	ctx.Step(`^Alice runs an agent with runtime "([^"]*)" and workspace "([^"]*)"$`, func(c context.Context, runtime, workspace string) error {
+	ctx.Step(`^the pulled surfaces are delivered to a "([^"]*)" agent in its "([^"]*)" workspace$`, func(c context.Context, runtime, workspace string) error {
 		w := worldFrom(c)
 		st := j20Of(w)
-		args := []string{"run", "--workspace", workspace, "--print", "j20-delivery-check"}
-		if runtime == "container" {
-			args = append(args, "--runtime", "container")
+		st.agentRoot, st.agentBackend = "", ""
+		root, err := j20WorkspaceRoot(w, runtime, workspace)
+		if err != nil {
+			// A configuration this suite has no hermetic vehicle for is
+			// RECORDED, not raised: the THEN assertions then fail naming the
+			// missing delivery rather than the WHEN failing on setup, which is
+			// what keeps a red row a specification instead of a stack trace.
+			st.runErr = err
+			st.runOutput = ""
+			return nil
 		}
-		if rerr := w.env.Run(args...); rerr != nil || w.env.LastExitCode() != 0 {
-			st.runErr = fmt.Errorf("`ctxloom %s` exited %d", strings.Join(args, " "), w.env.LastExitCode())
+		// The vehicle is `profile materialize`, NOT `ctxloom run`, and that is a
+		// decision rather than a convenience: grpc.RunTurn calls Cleanup
+		// immediately after Execute, and the shared LIFO reversal strips the
+		// delivered managed section — so a step that shells out to `run` and
+		// then stats the directory observes nothing, for mock and for every real
+		// backend alike. Materialize persists by design and goes through the
+		// same backends.BuildSurfaces seam. The live-run half stays covered by
+		// tests/integration/delivery_approach_matrix_test.go and grpc's
+		// TestRunTurn_MockDeliversContextSurfaceDuringTheTurn.
+		if rerr := w.env.Run("profile", "materialize", "default", "--target", root, "--backend", "mock"); rerr != nil || w.env.LastExitCode() != 0 {
+			st.runErr = fmt.Errorf("`ctxloom profile materialize default --target %s --backend mock` exited %d", root, w.env.LastExitCode())
 		}
 		st.runOutput = w.env.LastOutput()
-		// Where the agent could read files depends on the workspace axis: for
-		// "none" that is the project dir; for "worktree" it is a detached
-		// checkout the run resolves and this suite cannot name in advance.
-		// Leaving it empty when it cannot be determined is deliberate — the
-		// assertion then reports "could not locate", never a silent pass.
-		if workspace == "none" {
-			st.agentRoot = w.env.ProjectDir
-		} else {
-			st.agentRoot = ""
-		}
+		st.agentRoot = root
+		st.agentBackend = "mock"
 		return nil
 	})
 
-	ctx.Step(`^the "([^"]*)" is readable by that agent, byte for byte as published$`, func(c context.Context, rel string) error {
+	ctx.Step(`^the "([^"]*)" reaches that agent's workspace carrying its published bytes$`, func(c context.Context, rel string) error {
 		w := worldFrom(c)
 		st := j20Of(w)
 		want, ok := st.authored[rel]
@@ -693,6 +801,16 @@ func registerJ20Steps(ctx *godog.ScenarioContext) {
 		got, rerr := os.ReadFile(p)
 		if rerr != nil {
 			return fmt.Errorf("the agent cannot read %q at %q: %w\n%s", rel, p, rerr, st.j20RunDiagnostic())
+		}
+		// A fragment is the one kind that is NOT delivered as a file. It is
+		// merged into the engine's single context file alongside every other
+		// fragment the profile selects, so "byte for byte" can only mean "its
+		// published body, verbatim, inside that file" — whole-file equality
+		// would be a claim about the assembler's framing, not about the
+		// fragment surviving the trip. Every other kind IS a file and is
+		// compared whole.
+		if strings.HasPrefix(rel, "fragments/") {
+			return j20AssertContextCarries(rel, want.Body, string(got), p, st)
 		}
 		if string(got) != want.Body {
 			return fmt.Errorf("the agent's copy of %q differs from what was published\n--- published ---\n%s\n--- agent sees ---\n%s",
@@ -721,12 +839,130 @@ func registerJ20Steps(ctx *godog.ScenarioContext) {
 	})
 }
 
-// j20RunDiagnostic renders what the isolation run did, for quoting.
+// j20MarkerHits lists every file under root whose bytes carry marker, relative
+// to root. An absent root yields no hits — that IS the red case each caller
+// reports, with the materialize output quoted alongside. An empty marker is a
+// fixture error rather than a match against everything.
+func j20MarkerHits(root, marker string) ([]string, error) {
+	if marker == "" {
+		return nil, fmt.Errorf("fixture error: an empty marker would be found in every file, making this assertion vacuous")
+	}
+	var hits []string
+	_ = filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil //nolint:nilerr // an absent materialize root is the red case
+		}
+		b, rerr := os.ReadFile(p)
+		if rerr == nil && strings.Contains(string(b), marker) {
+			rel, _ := filepath.Rel(root, p)
+			hits = append(hits, rel)
+		}
+		return nil
+	})
+	return hits, nil
+}
+
+// j20RunDiagnostic renders what the delivery did, for quoting.
 func (st *j20State) j20RunDiagnostic() string {
 	if st.runErr != nil {
-		return fmt.Sprintf("the agent run FAILED: %v\n--- run output ---\n%s", st.runErr, st.runOutput)
+		return fmt.Sprintf("the delivery FAILED: %v\n--- delivery output ---\n%s", st.runErr, st.runOutput)
 	}
-	return fmt.Sprintf("the agent run reported success; its output was:\n%s", st.runOutput)
+	return fmt.Sprintf("the delivery reported success; its output was:\n%s", st.runOutput)
+}
+
+// j20WorkspaceRoot resolves the directory an agent in the named (runtime,
+// workspace) configuration reads its surfaces from, or says why this suite
+// cannot produce one.
+//
+//   - host + none     — the live project dir. The baseline.
+//   - host + worktree — a DETACHED CHECKOUT of Alice's project outside the
+//     project tree, which is the shape isolation.Worktree resolves
+//     (worktree.go's worktreeScratchPath puts it under the session's
+//     ephemeral/ dir, never under the project). Delivery must follow the
+//     workspace there; a surface writer that resolved paths against the
+//     PROJECT instead of the target would land nothing here and the row goes
+//     red. What this does NOT prove is the RESOLUTION — that a real run points
+//     delivery at its own worktree — which is J9's subject (its mock
+//     req.WorkDir record) and the integration matrix's.
+//   - container + *   — refused. There is no hermetic container cell anywhere
+//     in this suite, and materializing on the host while asserting a host path
+//     would pass every container row vacuously.
+func j20WorkspaceRoot(w *World, runtime, workspace string) (string, error) {
+	if runtime != "host" {
+		return "", fmt.Errorf("runtime %q has no hermetic cell in this suite: nothing here launches a container, "+
+			"and delivering on the host while asserting a host path would pass this row without crossing the process boundary it names", runtime)
+	}
+	switch workspace {
+	case "none":
+		return w.env.ProjectDir, nil
+	case "worktree":
+		return j20DetachedCheckout(w)
+	default:
+		return "", fmt.Errorf("this journey knows no workspace axis %q", workspace)
+	}
+}
+
+// j20DetachedCheckout makes (once per scenario) a detached git worktree of
+// Alice's project OUTSIDE the project tree, and refuses to return one that is
+// nested inside it — a nested checkout would let a delivery that ignored the
+// target still be found, which is the whole failure this cell is about.
+func j20DetachedCheckout(w *World) (string, error) {
+	path := filepath.Join(w.env.Root, "j20-agent-worktree")
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
+	}
+	// `git worktree add` needs a commit to detach from; the scaffolded project
+	// has files but no commit of its own.
+	if err := w.env.GitCommit("j20: project state before the agent's worktree is cut"); err != nil {
+		return "", fmt.Errorf("commit before cutting the agent's worktree: %w", err)
+	}
+	if err := j20Git(w.env.ProjectDir, "worktree", "add", "--detach", path); err != nil {
+		return "", err
+	}
+	proj := w.env.ProjectDir + string(filepath.Separator)
+	if path == w.env.ProjectDir || strings.HasPrefix(path, proj) {
+		return "", fmt.Errorf("fixture error: the agent's worktree %q is inside the project %q, so this cell would assert nothing", path, w.env.ProjectDir)
+	}
+	return path, nil
+}
+
+// j20FragmentBody strips a fragment's YAML front-matter, leaving the body an
+// engine's context file actually carries. Front-matter is metadata ABOUT the
+// fragment and is asserted separately by the metadata scenario; it is not part
+// of what reaches an assistant.
+func j20FragmentBody(published string) string {
+	rest, ok := strings.CutPrefix(published, "---\n")
+	if !ok {
+		return strings.TrimSpace(published)
+	}
+	end := strings.Index(rest, "\n---\n")
+	if end < 0 {
+		return strings.TrimSpace(published)
+	}
+	return strings.TrimSpace(rest[end+len("\n---\n"):])
+}
+
+// j20MinFragmentBody is the shortest published fragment body a "carries it
+// verbatim" assertion is allowed to be made about. A one-line body degenerates
+// into a marker search, which a delivery that truncated or re-wrapped the
+// fragment would still pass — so a fixture that shrank below this fails the
+// assertion instead of quietly weakening it.
+const j20MinFragmentBody = 60
+
+// j20AssertContextCarries checks the engine's context file carries a published
+// fragment's body verbatim, and refuses to make the check at all when the
+// fixture body is too small for it to mean anything.
+func j20AssertContextCarries(rel, published, delivered, path string, st *j20State) error {
+	body := j20FragmentBody(published)
+	if len(body) < j20MinFragmentBody {
+		return fmt.Errorf("fixture error: %q's published body is %d bytes, below the %d-byte floor a verbatim-containment assertion needs — "+
+			"a body this short reduces this row to a marker search", rel, len(body), j20MinFragmentBody)
+	}
+	if !strings.Contains(delivered, body) {
+		return fmt.Errorf("the agent's context file %q does NOT carry %q's published body verbatim\n--- published body (%d bytes) ---\n%s\n--- the agent's whole context file (%d bytes) ---\n%s\n%s",
+			path, rel, len(body), body, len(delivered), delivered, st.j20RunDiagnostic())
+	}
+	return nil
 }
 
 // j20AgentVisiblePath resolves where a delivered artifact would have to be for
@@ -737,20 +973,36 @@ func (st *j20State) j20RunDiagnostic() string {
 // exists to catch.
 func j20AgentVisiblePath(w *World, rel string) (string, error) {
 	st := j20Of(w)
-	if st.agentRoot == "" {
-		return "", fmt.Errorf("cannot locate the root this agent actually reads from: the run resolved no observable workspace. %s\n"+
-			"(For workspace=worktree the checkout lives under the session's ephemeral/ dir and this suite has no hermetic vehicle "+
-			"that both isolates a run and materializes surfaces — the mock backend materializes nothing at all.)",
+	if st.agentRoot == "" || st.agentBackend == "" {
+		return "", fmt.Errorf("cannot locate the root this agent actually reads from: no delivery resolved an observable workspace. %s",
 			st.j20RunDiagnostic())
 	}
-	// Delivered surfaces land under the engine's own native directory, not at
-	// the bundle-relative path — a skill at skills/reviewer/SKILL.md is
-	// delivered to .claude/skills/reviewer/SKILL.md.
+	// Delivered surfaces land under the ENGINE's own native layout, not at the
+	// bundle-relative path: a skill published as skills/reviewer/SKILL.md is
+	// delivered to .claude/skills/reviewer/SKILL.md on claude-code and to
+	// .mock/skills/reviewer/SKILL.md on mock, and a fragment is not delivered
+	// as a file at all — it is merged into the engine's one context file.
+	//
+	// mock nests its skills under .mock/ for the same reason every real engine
+	// nests its own (.claude/skills, .agents/skills, .kiro/skills,
+	// .opencode/skill, .codex/skills): a bare top-level skills/ would collide
+	// with the skills/ directory of a bundle content tree materialized into the
+	// same project.
+	var skillsDir []string
+	var contextFile string
+	switch st.agentBackend {
+	case "mock":
+		skillsDir, contextFile = []string{".mock", "skills"}, "MOCK_CONTEXT.md"
+	case "claude-code":
+		skillsDir, contextFile = []string{".claude", "skills"}, "CLAUDE.md"
+	default:
+		return "", fmt.Errorf("this journey does not know %q's native surface layout", st.agentBackend)
+	}
 	if delivered, ok := strings.CutPrefix(rel, "skills/"); ok {
-		return filepath.Join(st.agentRoot, ".claude", "skills", filepath.FromSlash(delivered)), nil
+		return filepath.Join(append([]string{st.agentRoot}, append(skillsDir, filepath.FromSlash(delivered))...)...), nil
 	}
 	if strings.HasPrefix(rel, "fragments/") {
-		return filepath.Join(st.agentRoot, "CLAUDE.md"), nil
+		return filepath.Join(st.agentRoot, contextFile), nil
 	}
 	return "", fmt.Errorf("this journey does not yet know where a %q artifact is delivered for an agent to read", rel)
 }

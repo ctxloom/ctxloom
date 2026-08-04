@@ -81,18 +81,21 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # the Given always claimed it did, so five of the six kinds — fragment,
   # command, mcp, hook and the whole skill package — reach Alice's assistant.
   #
-  # THREE THINGS REMAIN RED, for three different reasons, none of them delivery.
+  # TWO THINGS REMAIN RED, for two different reasons, neither of them delivery.
   #
-  # (a) PROFILES (one scenario, split out above). "Reaches the assistant" is not
-  #     a claim a profile can satisfy — it selects what an assistant reads
-  #     rather than being read. See the block above it.
-  #
-  # (b) HOOK ORDER (one scenario). See the block above that scenario; the
+  # (a) HOOK ORDER (one scenario). See the block above that scenario; the
   #     reason it is red is NOT the fetch gap and never was.
   #
-  # (c) THE DELIVERY MATRIX (twelve rows), on the second, independent blocker
-  #     stated at that scenario. Neither the fetch gap nor the read path
-  #     untagged it, exactly as predicted there.
+  # (b) THE CONTAINER HALF OF THE DELIVERY MATRIX (six rows). No hermetic
+  #     container cell exists anywhere in this suite, and two of its rows also
+  #     sit on a real product hazard. Both are stated at that scenario.
+  #
+  # PROFILES and THE HOST HALF OF THE DELIVERY MATRIX were red here and are now
+  # green. The profile row was red because "reaches the assistant" is not a
+  # claim a profile can satisfy; it now asserts the profile's EFFECT instead.
+  # The host matrix rows were red because no hermetic backend materialized
+  # anything; mock now delivers a context file and a skills tree through the
+  # shared seam. Both blocks say so at the scenario.
   # ============================================================================
 
   # NOTE ON STEP WORDING: J3 already owns `Alice trusts the company key`, and
@@ -150,30 +153,41 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # not mean the same thing for it, and the difference is not a gap in delivery.
   #
   # A profile is not content an assistant READS. It is the thing that SELECTS
-  # what an assistant reads. It arrives (the byte-for-byte row above its own
-  # split still holds, and the tree assertion below proves it), and it is
-  # seeded into the shared profile loader as "<bundle>#profiles/studio" like any
-  # other bundle profile — but materializing a DIFFERENT profile ("default")
-  # will never write studio's description into out/, and should not.
+  # what an assistant reads. So it is delivered when its EFFECT is observable,
+  # and the assertion below states exactly that: materialize the published
+  # profile BY ITS OWN bundle-qualified ref, and require the content only IT
+  # selects to arrive.
   #
-  # So this row asserts a claim its own subject cannot satisfy. Left red and
-  # split out rather than quietly rewritten, for the same reason the hook-order
-  # row below is: changing it changes what the journey claims, from "every
-  # published kind reaches the assistant" to something narrower, and someone who
-  # owns the spec should choose the replacement. The candidates are "studio is
-  # listable and runnable by Alice" (delivery, correctly restated) or dropping
-  # the second assertion for this kind entirely (profiles are proven delivered
-  # by the tree assertion alone).
+  # The marker therefore lives in a FRAGMENT that studio selects, not in
+  # studio's own description — a description is metadata about a selector, and
+  # no engine surface renders it, so asserting on it would be asserting that
+  # ctxloom leaks profile metadata into an assistant's context, which it must
+  # not do.
   #
-  # UNTAG CONDITION: a decision on what "delivered" means for a profile, and an
-  # assertion that states it.
+  # Three distinct failure modes ride on this one line, which is why it is this
+  # line and not a weaker one:
+  #
+  #   - the profile file arrives but is never seeded into the shared profile
+  #     loader (config.loadBundleProfileSeed)  -> the ref does not resolve
+  #   - it is seeded, but its short same-repo selector does not resolve against
+  #     the PULLED tree                        -> assembly finds nothing
+  #   - it resolves, but the selected fragment is never delivered
+  #                                            -> no file under the target
+  #     carries the marker
+  #
+  # The candidates that were rejected: "studio is listable and runnable" catches
+  # only the first, and dropping the second assertion entirely catches none and
+  # narrows the journey's claim to "arrives on disk".
+  #
+  # The vehicle is `profile materialize`, not `ctxloom run`, for the reason
+  # stated at the delivery matrix below: a run's Cleanup strips what it
+  # delivered before any step could stat it.
   # --------------------------------------------------------------------------
-  @wip
   Scenario: A published profile arrives and becomes one of Alice's profiles
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     When Alice references the company's "atelier" bundle and pulls it
     Then Alice's pulled "atelier" tree carries "profiles/studio.yaml" byte for byte as published
-    And the "profile" reaches Alice's assistant carrying the marker "ATELIER-PROFILE-6b41fc"
+    And materializing Alice's "company/atelier#profiles/studio" delivers the marker "ATELIER-PROFILE-6b41fc"
 
   # Metadata placement is a per-kind fact, not a uniform one, and it is the
   # half most likely to be silently dropped by a converter: front-matter lives
@@ -272,67 +286,144 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # The axes are independent and compose (docs: workspace isolates the FILES,
   # runtime isolates the PROCESS), so all four cells are distinct claims:
   #
-  #   host + none       — the baseline: materialize into the live project dir
-  #   host + worktree   — WorkDir is a detached checkout under the session's
-  #                       ephemeral/ dir, NOT under the project (worktree.go's
-  #                       worktreeScratchPath); surfaces must follow it there
+  #   host + none       — the baseline: deliver into the live project dir
+  #   host + worktree   — the workspace is a detached checkout OUTSIDE the
+  #                       project tree, the shape isolation.Worktree resolves
+  #                       (worktree.go's worktreeScratchPath puts it under the
+  #                       session's ephemeral/ dir); surfaces must follow it
+  #                       there, and a writer that resolved paths against the
+  #                       PROJECT instead of the target lands nothing here
   #   container + none  — see the hazard below; this is the cell that fails
   #   container + wt    — the worktree checkout is bind-mounted identical-path
   #
-  # THE SECOND BLOCKER (this scenario only, and NOT untagged by fixing the
-  # fetch gap): there is no hermetic vehicle in this suite that both runs an
-  # agent under a chosen isolation configuration AND materializes surfaces.
-  #   - the built-in mock backend materializes NOTHING: Mock.Setup only records
-  #     its payload (internal/lm/backends/mock.go) and its registry descriptor
-  #     has no surfaces at all (internal/lm/backends/registry.go — "the mock
-  #     backend registers only backend+config"), so the j9 workspace steps
-  #     cannot produce a .claude/skills/ tree to assert on.
-  #   - the RUNTIME axis has no hermetic container cell anywhere: j9_isolation
-  #     .feature says so in its own prose ("no @container scenario exists in
-  #     this file") and only proves the fail-loud/degrade contract. The live
-  #     container proof is @live, in isolation_probe.feature.
-  # UNTAG CONDITION (secondary, this scenario): a hermetic fixture backend that
-  # materializes real surfaces under a chosen runtime/workspace pair — i.e. the
-  # j9 spy vehicle extended to assert delivered FILES, plus a hermetic
-  # container cell. Fixing the fetch gap alone leaves this red.
+  # THE HERMETIC VEHICLE, and what it is NOT.
   #
-  # A THIRD, SUBSTANTIVE HAZARD this scenario exists to surface rather than
-  # dodge — a real product gap, not a harness one. On the {container, none}
-  # cell, containerConfigOverlay (internal/lm/isolation/container.go) bind-
-  # mounts a per-run SCRATCH directory over ".claude" (profile.overlayDirs).
-  # Surfaces materialized in-container therefore land in that scratch overlay,
-  # which is removed at teardown and is never copied back out. The agent can
-  # read them; the host cannot; nothing survives the run. The container's
-  # session-state mounts do not help — sessionStateMounts binds exactly
-  # <harp>/persist and <harp>/persist/transcripts (statemounts.go, pinned by
-  # statemounts_test.go's "transcript store + persist only"), deliberately NOT
-  # <harp>/ephemeral/, and NOTHING at the harp-dir top level (task
-  # `operable-account`'s unclassified-middle zone). If a delivered artifact
-  # lands anywhere but the mounted project/worktree dir, a containerized agent
-  # cannot see it, and this row is how that is found out rather than assumed.
+  # The mock backend is now the vehicle for the host rows, because it now
+  # genuinely delivers. Mock embeds agent.LaunchBackend, so its Setup routes
+  # through the SAME surfaces × typed-cells seam every real launch backend uses
+  # (internal/lm/backends/mock.go), and it declares two surfaces of its own
+  # (internal/lm/backends/mock_surfaces.go): a CONTEXT surface writing the
+  # ctxloom-managed section of MOCK_CONTEXT.md through the shared
+  # agent.WriteManagedContext, and a SKILLS surface — the shared
+  # agent.ManagedSkillPackagesDelivery bound to the shared
+  # agent.WriteManagedSkillPackages — producing a .mock/skills/ tree. Both are
+  # the same writers claude's .claude/skills/, kiro's .kiro/, opencode's
+  # .opencode/skill/ and antigravity's .agents/ go through, differing only in
+  # the directory they target, so a row that passes here is exercising the
+  # shared seam rather than a mock-only path.
+  #
+  # (This paragraph previously said the opposite twice and was wrong on both
+  # counts: it said Mock.Setup "only records its payload" and that mock's
+  # registry descriptor "has no surfaces at all" — untrue since 4f1ca395 — and
+  # after mock gained a context surface it still implied no skills tree was
+  # possible — untrue since 3ec1643e.)
+  #
+  # THE VEHICLE IS `profile materialize`, NOT `ctxloom run`. That is a
+  # lifecycle fact about every backend, not a mock limitation: grpc.RunTurn
+  # calls Cleanup immediately after Execute, and the shared LIFO reversal
+  # strips the delivered managed section — removing the file outright when
+  # nothing user-authored remains. A step that shells out to `run` and then
+  # stats the directory observes nothing, exactly as it would for antigravity's
+  # AGENTS.md. The LIVE-RUN half of the claim is covered where it can be
+  # observed mid-turn: tests/integration/delivery_approach_matrix_test.go (mock
+  # is in all three matrix tests) and grpc_test's
+  # TestRunTurn_MockDeliversContextSurfaceDuringTheTurn.
+  #
+  # WHAT THE HOST ROWS THEREFORE DO AND DO NOT PROVE. They prove that the
+  # published bytes and the published MODES reach the engine-native path an
+  # agent reads, in the project dir and in a detached checkout outside it —
+  # including that the skill script's exec bit travels, which is a claim about
+  # the sidecar DECLARATION rather than the fixture's filesystem bit (the
+  # manifest attests content.ComponentMode and agent.WriteManagedSkillPackages
+  # re-asserts it with Chmod, so an existing file's mode cannot win). They do
+  # NOT prove the RESOLUTION step — that a real run points delivery at its own
+  # worktree — which is J9's subject (its mock req.WorkDir record) and the
+  # integration matrix's.
+  #
+  # A fragment is asserted differently from a skill on purpose. A skill IS a
+  # file and is compared whole, byte for byte. A fragment is never delivered as
+  # a file — it is merged into the engine's single context file alongside every
+  # other fragment the profile selects — so the only honest form of "byte for
+  # byte" for it is "its published body, verbatim, inside that file". The
+  # fixture's fragment body is several lines long so that check cannot decay
+  # into a marker search.
+  #
+  # THE MODE COLUMN MEANS TWO DIFFERENT THINGS, for the same reason. On a skill
+  # file it is the PUBLISHER'S declaration travelling: the sidecar declares
+  # scripts/run.sh executable, the manifest attests content.ComponentMode, and
+  # agent.WriteManagedSkillPackages re-asserts it with Chmod — so 0755 here is a
+  # claim about the publication round trip, and 0644 on SKILL.md is the claim
+  # that a blanket chmod did not smear the exec bit across the package. On the
+  # fragment row it is the ENGINE'S CONTEXT FILE's mode, because a merged
+  # fragment has no mode of its own: 0600, owner-only, which is what
+  # agent.AtomicWriteFile deliberately defaults a new managed file to (and it
+  # reuses an existing file's mode rather than widening it). That row is pinned
+  # here so a context file that started arriving world-readable would be caught,
+  # not because 0600 is the publisher's bit.
   # --------------------------------------------------------------------------
-  @wip
-  Scenario Outline: The published artifacts reach the agent in every isolation configuration
+  Scenario Outline: The published artifacts reach a host agent in every workspace
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     And Alice references the company's "atelier" bundle and pulls it
-    When Alice runs an agent with runtime "<runtime>" and workspace "<workspace>"
-    Then the "<artifact>" is readable by that agent, byte for byte as published
+    When the pulled surfaces are delivered to a "<runtime>" agent in its "<workspace>" workspace
+    Then the "<artifact>" reaches that agent's workspace carrying its published bytes
     And the mode of "<artifact>" is "<mode>" where that agent can read it
 
     Examples: host runtime — the workspace axis alone
       | runtime | workspace | artifact                        | mode |
-      | host    | none      | fragments/house-style.md        | 0644 |
+      | host    | none      | fragments/house-style.md        | 0600 |
       | host    | none      | skills/reviewer/SKILL.md        | 0644 |
       | host    | none      | skills/reviewer/scripts/run.sh  | 0755 |
-      | host    | worktree  | fragments/house-style.md        | 0644 |
+      | host    | worktree  | fragments/house-style.md        | 0600 |
       | host    | worktree  | skills/reviewer/SKILL.md        | 0644 |
       | host    | worktree  | skills/reviewer/scripts/run.sh  | 0755 |
 
+  # --------------------------------------------------------------------------
+  # THE CONTAINER HALF OF THE MATRIX — still red, for two reasons that stack.
+  #
+  # (1) NO HERMETIC CONTAINER CELL EXISTS IN THIS SUITE, for any row. Nothing
+  #     here launches a container: j9_isolation.feature says so in its own prose
+  #     ("no @container scenario exists in this file") and only proves the
+  #     fail-loud/degrade contract; the live container proof is @live, in
+  #     isolation_probe.feature. Delivering on the host and then asserting a
+  #     host path would pass every row below WITHOUT crossing the process
+  #     boundary they name — a vacuous green, which is worse than red in a
+  #     suite that exists to catch exactly that. So the step refuses the
+  #     container runtime outright rather than quietly falling back.
+  #
+  # (2) A SUBSTANTIVE PRODUCT HAZARD sits under the two SKILL artifacts
+  #     specifically, and a mock skills surface does not touch it. On the
+  #     {container, none} cell, containerConfigOverlay (internal/lm/isolation/
+  #     container.go) bind-mounts a per-run SCRATCH directory over ".claude"
+  #     (profile.overlayDirs). Surfaces materialized in-container therefore land
+  #     in that scratch overlay, which is removed at teardown and never copied
+  #     back out. The agent can read them; the host cannot; nothing survives the
+  #     run. The container's session-state mounts do not help —
+  #     sessionStateMounts binds exactly <harp>/persist and
+  #     <harp>/persist/transcripts (statemounts.go, pinned by
+  #     statemounts_test.go's "transcript store + persist only"), deliberately
+  #     NOT <harp>/ephemeral/, and NOTHING at the harp-dir top level (task
+  #     `operable-account`'s unclassified-middle zone). If a delivered artifact
+  #     lands anywhere but the mounted project/worktree dir, a containerized
+  #     agent cannot see it, and these rows are how that is found out rather
+  #     than assumed.
+  #
+  # UNTAG CONDITION: a hermetic container cell that launches an agent under the
+  # container runtime and lets a step read what the agent can read. Reason (2)
+  # then decides whether the skill rows go green or report the overlay loss.
+  # --------------------------------------------------------------------------
+  @wip
+  Scenario Outline: The published artifacts reach a containerized agent across the process boundary
+    Given Trent publishes the "atelier" tree to his company repo, signed with the company key
+    And Alice references the company's "atelier" bundle and pulls it
+    When the pulled surfaces are delivered to a "<runtime>" agent in its "<workspace>" workspace
+    Then the "<artifact>" reaches that agent's workspace carrying its published bytes
+    And the mode of "<artifact>" is "<mode>" where that agent can read it
+
     Examples: container runtime — the process boundary crossed
       | runtime   | workspace | artifact                        | mode |
-      | container | none      | fragments/house-style.md        | 0644 |
+      | container | none      | fragments/house-style.md        | 0600 |
       | container | none      | skills/reviewer/SKILL.md        | 0644 |
       | container | none      | skills/reviewer/scripts/run.sh  | 0755 |
-      | container | worktree  | fragments/house-style.md        | 0644 |
+      | container | worktree  | fragments/house-style.md        | 0600 |
       | container | worktree  | skills/reviewer/SKILL.md        | 0644 |
       | container | worktree  | skills/reviewer/scripts/run.sh  | 0755 |

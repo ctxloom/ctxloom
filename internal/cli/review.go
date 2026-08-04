@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -280,16 +281,16 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 // verified is the claim the trust root exists to make and this surface cannot.
 func renderReviewPublisher(w io.Writer, b operations.ReviewBundle) {
 	switch b.Publisher {
-	case operations.ReviewPublisherUntrustedSigner:
+	case bundles.ReasonUntrustedSigner:
 		fmt.Fprintf(w, "  signer:  untrusted key %s\n", b.SignerFingerprint)
 		fmt.Fprintln(w, "           Signed, but by a key this machine does not trust to publish.")
 		fmt.Fprintln(w, "           That fingerprint is a string to COMPARE, not a name: confirm it")
 		fmt.Fprintln(w, "           with the publisher out of band, then trust the key by principal:")
 		fmt.Fprintln(w, "             ctxloom trust signer create <principal> --key <key.pub>")
-	case operations.ReviewPublisherTrustedSigner:
+	case bundles.ReasonTrustedSigner:
 		fmt.Fprintf(w, "  signer:  %s — a key you trust to publish\n", b.Signer)
 		fmt.Fprintln(w, "           Read the items and decide: ctxloom review")
-	case operations.ReviewPublisherUnsigned:
+	case bundles.ReasonUnsigned:
 		fmt.Fprintln(w, "  signer:  none — these bytes carry no publisher signature")
 		fmt.Fprintln(w, "           Nothing to compare; read the items and decide: ctxloom review")
 	default:

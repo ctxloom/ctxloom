@@ -66,7 +66,7 @@ func assembleManagedHooksReference(cfg *config.Config, workDir, contextHash stri
 		if err != nil {
 			continue
 		}
-		gated := gateProfileHooks(profileGateRefFor(resolved, profileName), resolved.Hooks, gate)
+		gated := gateProfileHooks(profileGateRefFor(cfg, resolved, profileName), resolved.Hooks, gate)
 		agent.MergeHooksConfig(hooks, &gated)
 	}
 	hooks.Unified.Append(cfg.ResolveBundleHooks(profileNamesScoped))
@@ -145,7 +145,7 @@ func localBundleProfileCfg(t *testing.T, bundleHooks string) *config.Config {
 // bundleShippedProfileCfg is the gate-ref fixture's shape: a local bundle that
 // ships a PROFILE carrying inline hooks, reached through the directory-profile
 // fallback branch.
-func bundleShippedProfileCfg(t *testing.T, gate bundles.ContentGate) *config.Config {
+func bundleShippedProfileCfg(t *testing.T, gate bundles.Filter) *config.Config {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
@@ -276,9 +276,7 @@ func hookParityCases() []hookParityCase {
 			cfg: func(t *testing.T) *config.Config {
 				cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
 				keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
-				cfg.SetExecutableTrustGate(func(_ string, payload []byte, _, _ string) bool {
-					return bundles.HashPayload(payload) == keepHash
-				})
+				cfg.SetExecutableTrustGate(hashFilter(keepHash))
 				return cfg
 			},
 			present: []string{"keep-hook"},

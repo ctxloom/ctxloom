@@ -146,6 +146,11 @@ func TestPrintBundleHookTrust_ReflectsTrust(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
 	hook := bundles.BundleHook{Matcher: "Bash", Command: "echo keep", Type: "command"}
 	entry := bundles.HookEntry{Event: bundles.HookEventPreTool, Index: 0, Hook: hook}
+	// The bundle has to EXIST for the stamp to be first-party: the local
+	// exemption keys on the posture the reader established, not on the shape of
+	// the name. A bundle nothing read establishes no posture, and an unclaimed
+	// posture withholds.
+	seedLocalHookBundle(t, appDir, "hookb", hook)
 
 	records := &toggleRejectRecords{}
 	stamper := operations.NewTrustStamper(cfg, operations.WithStampRecords(records))

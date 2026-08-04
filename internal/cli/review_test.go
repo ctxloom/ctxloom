@@ -16,6 +16,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/agent"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -99,7 +100,7 @@ func walkFixture() *operations.PendingReviewResult {
 			{
 				Ref:       "https://github.com/acme/repo@bundles/one",
 				Remote:    "acme",
-				Publisher: operations.ReviewPublisherUnsigned,
+				Publisher: bundles.ReasonUnsigned,
 				Items: []operations.ReviewItem{
 					{Ref: "one#fragments/f1", Kind: "fragments", Name: "f1", Status: operations.ReviewStatusNew, CurrentContent: "f1 body"},
 					{Ref: "one#commands/s1", Kind: "commands", Name: "s1", Status: operations.ReviewStatusUpdate, CurrentContent: "s1 v2", PreviousContent: "s1 v1"},
@@ -108,7 +109,7 @@ func walkFixture() *operations.PendingReviewResult {
 			},
 			{
 				Ref:               "https://github.com/acme/repo@bundles/two",
-				Publisher:         operations.ReviewPublisherUntrustedSigner,
+				Publisher:         bundles.ReasonUntrustedSigner,
 				SignerFingerprint: "SHA256:qc0G8V6Bhw4mDeLpUEzGmxJmM8LDG1qFCkTgVoMcYpk",
 				Items: []operations.ReviewItem{
 					{Ref: "two#fragments/f2", Kind: "fragments", Name: "f2", Status: operations.ReviewStatusNew, CurrentContent: "f2 body"},
@@ -242,7 +243,7 @@ func TestRenderReviewPublisher_ThreeStatesNameTheirOwnNextCommand(t *testing.T) 
 	assert.Equal(t,
 		"  signer:  none — these bytes carry no publisher signature\n"+
 			"           Nothing to compare; read the items and decide: ctxloom review\n",
-		render(operations.ReviewBundle{Publisher: operations.ReviewPublisherUnsigned}))
+		render(operations.ReviewBundle{Publisher: bundles.ReasonUnsigned}))
 
 	assert.Equal(t,
 		"  signer:  untrusted key "+fingerprint+"\n"+
@@ -251,7 +252,7 @@ func TestRenderReviewPublisher_ThreeStatesNameTheirOwnNextCommand(t *testing.T) 
 			"           with the publisher out of band, then trust the key by principal:\n"+
 			"             ctxloom trust signer create <principal> --key <key.pub>\n",
 		render(operations.ReviewBundle{
-			Publisher:         operations.ReviewPublisherUntrustedSigner,
+			Publisher:         bundles.ReasonUntrustedSigner,
 			SignerFingerprint: fingerprint,
 		}))
 
@@ -259,7 +260,7 @@ func TestRenderReviewPublisher_ThreeStatesNameTheirOwnNextCommand(t *testing.T) 
 		"  signer:  runbooks@acme.example — a key you trust to publish\n"+
 			"           Read the items and decide: ctxloom review\n",
 		render(operations.ReviewBundle{
-			Publisher: operations.ReviewPublisherTrustedSigner,
+			Publisher: bundles.ReasonTrustedSigner,
 			Signer:    "runbooks@acme.example",
 		}))
 }
@@ -275,7 +276,7 @@ func TestRenderReviewPublisher_UntrustedKeyReadsAsAWarningNotAnIdentity(t *testi
 	const fingerprint = "SHA256:qc0G8V6Bhw4mDeLpUEzGmxJmM8LDG1qFCkTgVoMcYpk"
 	var out bytes.Buffer
 	renderReviewPublisher(&out, operations.ReviewBundle{
-		Publisher:         operations.ReviewPublisherUntrustedSigner,
+		Publisher:         bundles.ReasonUntrustedSigner,
 		SignerFingerprint: fingerprint,
 		// A principal MUST NOT be rendered for this state even if one is
 		// somehow present: naming a party nothing verified is the failure.

@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
@@ -26,21 +27,31 @@ import (
 
 func TestProfileGateRefFor_BundleShippedUsesSourceRef(t *testing.T) {
 	resolved := &profiles.ResolvedProfile{SourceRef: "https://github.com/acme/tools@bundles/kit", Signer: "vendor@example.com"}
-	ref := profileGateRefFor(resolved, "https://github.com/acme/tools@bundles/kit#profiles/dev")
+	ref := profileGateRefFor(nil, resolved, "https://github.com/acme/tools@bundles/kit#profiles/dev")
 	assert.Equal(t, "https://github.com/acme/tools@bundles/kit", ref.Base)
-	assert.Equal(t, "vendor@example.com", ref.Signer)
+	// No cfg, so no loader to resolve the ORIGIN bundle's read: the posture is
+	// UNCLAIMED, which every Filter withholds. That is the fail-closed direction
+	// — the old Signer string left the same case falling through to pending.
+	assert.False(t, ref.Read.Claimed(),
+		"an origin bundle that cannot be read must leave the posture unclaimed, never assumed")
 }
 
 func TestProfileGateRefFor_LocalFallsBackToProfileName(t *testing.T) {
 	resolved := &profiles.ResolvedProfile{} // SourceRef empty: genuinely local
-	ref := profileGateRefFor(resolved, "my-local-profile")
+	ref := profileGateRefFor(nil, resolved, "my-local-profile")
 	assert.Equal(t, "my-local-profile", ref.Base)
-	assert.Empty(t, ref.Signer)
+	// A project-authored profile states its posture out loud instead of
+	// smuggling it through a bare-token ref the grammar resolves to IsLocal.
+	assert.Equal(t, bundles.TrustCtxLocal, ref.Read.TrustCtx())
+	assert.Equal(t, bundles.ProvenanceProject, ref.Read.Provenance)
+	assert.Equal(t, bundles.SignatureNone, ref.Read.Signature(),
+		"and it claims no signature, because there is none to claim")
 }
 
 func TestProfileGateRefFor_NilResolvedFallsBackToProfileName(t *testing.T) {
-	ref := profileGateRefFor(nil, "my-local-profile")
+	ref := profileGateRefFor(nil, nil, "my-local-profile")
 	assert.Equal(t, "my-local-profile", ref.Base)
+	assert.Equal(t, bundles.TrustCtxLocal, ref.Read.TrustCtx())
 }
 
 // TestGateProfileHooks_RemoteSourcedProfile_UglySakeFixed is the core
@@ -57,10 +68,7 @@ func TestGateProfileHooks_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
 	}}}
 
 	var gotRefs []string
-	denyGate := func(gotRef string, _ []byte, _, _ string) bool {
-		gotRefs = append(gotRefs, gotRef)
-		return false // untrusted / unsigned: DENY
-	}
+	denyGate := recordingFilter(false, &gotRefs) // untrusted / unsigned: DENY
 	out := gateProfileHooks(ref, hooks, denyGate)
 	assert.Empty(t, out.Unified.PreTool, "a denied remote-sourced profile hook must be WITHHELD from the produced hook set")
 	require.Len(t, gotRefs, 1)
@@ -81,10 +89,7 @@ func TestGateProfileMCP_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
 	}}
 
 	var gotRefs []string
-	denyGate := func(gotRef string, _ []byte, _, _ string) bool {
-		gotRefs = append(gotRefs, gotRef)
-		return false
-	}
+	denyGate := recordingFilter(false, &gotRefs)
 	out := gateProfileMCP(ref, mcp, denyGate)
 	assert.NotContains(t, out.Servers, "evil-server", "a denied remote-sourced profile MCP server must be WITHHELD")
 	require.Len(t, gotRefs, 1)
@@ -102,10 +107,7 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 		{Command: "local-hook-command", Type: "command"},
 	}}}
 	var gotRefs []string
-	gate := func(gotRef string, _ []byte, _, _ string) bool {
-		gotRefs = append(gotRefs, gotRef)
-		return true
-	}
+	gate := recordingFilter(true, &gotRefs)
 	out := gateProfileHooks(ref, hooks, gate)
 	require.Len(t, out.Unified.PreTool, 1)
 	require.Len(t, gotRefs, 1)
@@ -150,15 +152,19 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	// itself, at trust.ParseItemRef — never even reaching a
 	// caller-supplied gate function to ask).
 	var gotRefs []string
-	cfg.SetExecutableTrustGate(func(ref string, _ []byte, _, _ string) bool {
-		gotRefs = append(gotRefs, ref)
-		return true
-	})
+	cfg.SetExecutableTrustGate(recordingFilter(true, &gotRefs))
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
+	// Reaching the filter AT ALL is the fix: a double-'#' ref does not parse
+	// (trust.ParseSelector rejects kind "profiles"), so bundles.Decide withholds
+	// it before any filter is consulted and gotRefs would be empty.
 	require.Len(t, gotRefs, 1)
-	assert.Equal(t, remote.LocalBundleRef("kit")+"#hooks/pre_tool/0", gotRefs[0],
-		"the composed ref must carry exactly one '#' (uncut-grub fixed)")
+	// The ref is reported by its parsed IDENTITY, which for local content is the
+	// bare bundle name: "ctxloom:local@bundles/kit" and "kit" are the same
+	// identity by construction (trust.Ref.CanonicalURL maps both onto
+	// remote.LocalSource), and the qualified spelling carries no extra fact.
+	assert.Equal(t, "kit#hooks/pre_tool/0", gotRefs[0],
+		"the composed ref must carry exactly one '#' and resolve to the local bundle (uncut-grub fixed)")
 	require.Len(t, assembled.Wire().Unified.PreTool, 1, "an ALLOWED bundle-shipped profile hook must reach the managed set")
 	assert.Equal(t, "bundle-shipped-hook", assembled.Wire().Unified.PreTool[0].Command)
 }

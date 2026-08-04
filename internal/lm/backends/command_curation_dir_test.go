@@ -169,9 +169,7 @@ func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
 
 	// Gate granting exactly the review prompt's content hash → exported.
 	want := promptRawHash("REVIEW")
-	cfg.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
-		return bundles.HashPayload(payload) == want
-	})
+	cfg.SetExecutableTrustGate(hashFilter(want))
 	prompts := LoadCommandExports(cfg, nil, seed)
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts),
 		"a granted directory-curated prompt is exported")

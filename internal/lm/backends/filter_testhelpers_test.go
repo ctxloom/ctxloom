@@ -15,3 +15,27 @@ func testFilter(admit bool) bundles.Filter {
 		return bundles.Verdict{Reason: bundles.ReasonPending}
 	})
 }
+
+// recordingFilter admits (or withholds) everything and records the ref STRING
+// each exposure was addressed by, so a test can assert the ref shape the choke
+// composes — the property several of these tests exist for.
+func recordingFilter(admit bool, gotRefs *[]string) bundles.Filter {
+	return bundles.FilterFunc(func(e bundles.Exposure) bundles.Verdict {
+		*gotRefs = append(*gotRefs, e.RefString())
+		if admit {
+			return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
+		}
+		return bundles.Verdict{Reason: bundles.ReasonPending}
+	})
+}
+
+// hashFilter admits exactly the payload whose hash is want — the shape a
+// countersignature has: one approval covers one set of bytes.
+func hashFilter(want string) bundles.Filter {
+	return bundles.FilterFunc(func(e bundles.Exposure) bundles.Verdict {
+		if bundles.HashPayload(e.Bytes) == want {
+			return bundles.Verdict{Admit: true, Reason: bundles.ReasonApproved}
+		}
+		return bundles.Verdict{Reason: bundles.ReasonPending}
+	})
+}

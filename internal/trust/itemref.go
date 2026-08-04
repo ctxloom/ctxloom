@@ -151,6 +151,12 @@ func (r Ref) ItemRef() string {
 	switch {
 	case r.IsBuiltin:
 		base = BuiltinSourcePrefix + r.Bundle
+	case r.IsLocal && r.RepoURL != "":
+		// The QUALIFIED local form ("ctxloom:local@bundles/<name>"), which is
+		// what the assembly pipeline and the bundle-shipped profile resolvers
+		// carry. A bare local name has no RepoURL and stays bare — both spell
+		// the same identity, and each round-trips to the spelling it came in as.
+		base = r.RepoURL + "@" + remote.ItemTypeBundle.DirName() + "/" + r.Bundle
 	case r.IsCompanion:
 		// A companion loadout is addressed "ctxloom:companion@<bin>" — the
 		// binary's name sits where a repo-relative bundle PATH sits for a

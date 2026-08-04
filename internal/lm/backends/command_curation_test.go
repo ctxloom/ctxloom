@@ -165,9 +165,7 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 
 	// Gate granting exactly the pinned version's hash → exported as that version.
 	want := promptRawHash("V1-PINNED")
-	cfg.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
-		return bundles.HashPayload(payload) == want
-	})
+	cfg.SetExecutableTrustGate(hashFilter(want))
 	prompts := LoadCommandExports(cfg, nil, config.WithBundleVersionResolver(resolver))
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts))
 	for _, p := range prompts {

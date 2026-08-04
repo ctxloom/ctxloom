@@ -42,8 +42,8 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 	})
 
 	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "code-review/security",
-		Loader:  loader,
+		Profile:  "code-review/security",
+		Pipeline: opPipe(cfg, loader),
 	})
 	require.NoError(t, err)
 

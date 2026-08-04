@@ -27,7 +27,7 @@ const cqVersionRef = acmeBundle + "cq" // https://github.com/acme/repo@bundles/c
 // bundles (an absent commit errors, simulating a fetch failure), and a real
 // trust contentGate resolving against records + an untrusted acme remote. It
 // is the operations-level analogue of bundles.versionedLoader.
-func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundle, versions map[string]*bundles.Bundle) (*bundles.Loader, *config.Config) {
+func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundle, versions map[string]*bundles.Bundle) (*bundles.Pipeline, *config.Config) {
 	t.Helper()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := (&contentGate{cfg: cfg, records: records}).allow
@@ -41,11 +41,10 @@ func versionPinnedLoader(t *testing.T, records ReviewRecords, def *bundles.Bundl
 		return &clone, nil
 	}
 
-	l := bundles.NewLoader(nil,
+	pipe := bundles.NewPipeline(bundles.NewLoader(nil,
 		bundles.WithSeededBundles(map[string]*bundles.Bundle{cqVersionRef: def}),
-		bundles.WithVersionResolver(resolver),
-		bundles.WithTrustGate(gate))
-	return l, cfg
+		bundles.WithVersionResolver(resolver)), gate, true)
+	return pipe, cfg
 }
 
 // profileCfg returns cfg with a single inline profile of the given fields wired
@@ -74,7 +73,7 @@ func TestVersionPinned_BundleItem_ResolvesHistoricalVersion(t *testing.T) {
 		BundleItems: []string{cqVersionRef + "@c1:fragments/solid"},
 	})
 
-	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned", Loader: loader})
+	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned", Pipeline: loader})
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "V1-BODY", "pinned cherry-pick assembles the historical version")
 	assert.NotContains(t, res.Context, "DEFAULT-BODY", "the lockfile default must NOT be used when pinned")
@@ -96,7 +95,7 @@ func TestVersionPinned_FragmentRef_ResolvesHistoricalVersion(t *testing.T) {
 		Fragments: []config.FragmentRef{{Name: cqVersionRef + "@c1#fragments/solid"}},
 	})
 
-	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "fragpin", Loader: loader})
+	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "fragpin", Pipeline: loader})
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "V1-BODY", "a pinned fragments: ref assembles the historical version")
 	assert.NotContains(t, res.Context, "DEFAULT-BODY")
@@ -117,7 +116,7 @@ func TestVersionPinned_UnversionedRefUnchanged(t *testing.T) {
 		BundleItems: []string{cqVersionRef + ":fragments/solid"},
 	})
 
-	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "plain", Loader: loader})
+	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "plain", Pipeline: loader})
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "DEFAULT-BODY", "an unversioned ref resolves the lockfile default")
 	assert.NotContains(t, res.Context, "V1-BODY")
@@ -143,7 +142,7 @@ func TestVersionPinned_WholeBundle_PinsAllItems(t *testing.T) {
 		Bundles: []string{cqVersionRef + "@c1"},
 	})
 
-	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "wholepin", Loader: loader})
+	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "wholepin", Pipeline: loader})
 	require.NoError(t, err)
 	assert.Contains(t, res.Context, "ALPHA-V1", "whole-bundle pin enumerates and resolves the commit's items")
 	assert.Contains(t, res.Context, "BETA-V1")
@@ -167,7 +166,7 @@ func TestVersionPinned_GateEvaluatesPinnedHash(t *testing.T) {
 	})
 
 	// Un-granted pinned version → withheld, content-free under the version-less ref.
-	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned2", Loader: loader})
+	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned2", Pipeline: loader})
 	require.NoError(t, err)
 	assert.NotContains(t, res.Context, "V2-BODY", "an un-granted pinned version must be withheld")
 	assert.Equal(t, []string{cqVersionRef + "#fragments/solid"}, loader.Withheld(),
@@ -177,7 +176,7 @@ func TestVersionPinned_GateEvaluatesPinnedHash(t *testing.T) {
 	// the version cache + withheld set don't carry the prior decision).
 	fx.approveFragment("cq", "solid", "V2-BODY")
 	loader2, _ := versionPinnedLoader(t, fx.records(), def, versions)
-	res2, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned2", Loader: loader2})
+	res2, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "pinned2", Pipeline: loader2})
 	require.NoError(t, err)
 	assert.Contains(t, res2.Context, "V2-BODY", "granting the pinned version's hash exposes it")
 }
@@ -210,7 +209,7 @@ func TestVersionPinned_FetchFailureWithholdsOnlyThatItem(t *testing.T) {
 		},
 	})
 
-	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "mixed", Loader: loader})
+	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "mixed", Pipeline: loader})
 	require.NoError(t, err, "a per-version fetch failure must never abort assembly")
 	assert.Contains(t, res.Context, "GOOD-V1", "the resolvable pinned item still assembles")
 	assert.NotContains(t, res.Context, "DEFAULT-BAD", "the unresolvable item is withheld, not silently defaulted")

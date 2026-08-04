@@ -56,7 +56,7 @@ type AssembleContextRequest struct {
 	Tags      []string `json:"tags"`
 
 	// Loader is an optional pre-configured loader (for testing).
-	Loader *bundles.Loader `json:"-"`
+	Pipeline *bundles.Pipeline `json:"-"`
 
 	// ProfileLoaderFunc is an optional function to get the profile loader (for testing).
 	ProfileLoaderFunc func() ProfileLoader `json:"-"`
@@ -93,18 +93,19 @@ type AssembleContextResult struct {
 // Fragments are sorted using bookend strategy based on priority:
 // highest priority at start, second-highest at end, rest in middle.
 func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContextRequest) (*AssembleContextResult, error) {
-	loader := req.Loader
-	// gate is the underlying trust gate behind loader, when this call built
-	// its own (nil for an injected test loader — see warnWithheld). Kept so
-	// the withheld advisory below can name WHY each item was withheld, not
-	// just that it was.
+	pipe := req.Pipeline
+	// gate is the underlying trust gate behind pipe, when this call built its
+	// own (nil for an injected test pipeline — see warnWithheld). Kept so the
+	// withheld advisory below can name WHY each item was withheld, not just
+	// that it was.
 	var gate *contentGate
-	if loader == nil {
+	if pipe == nil {
 		// Exposure surface: gate fragment/prompt content (trust rework, TR5). The
 		// gate runs the baseline first (idempotent) so existing content stays
 		// exposed, then withholds anything the cascade denies.
-		loader, gate = exposureLoaderGated(cfg)
+		pipe, gate = exposurePipelineGated(cfg)
 	}
+	loader := pipe.Loader()
 
 	profileNames := resolveContextProfileNames(cfg, req)
 
@@ -149,7 +150,7 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// "lost in the middle" optimization.
 	orderedRefs := sortFragmentsByPriority(dedupeFragmentRefs(allFragments))
 
-	contextContent, loaderNames, err := loadAssembledContext(loader, orderedRefs, profileVars, cfgPreferDistilled(cfg))
+	contextContent, loaderNames, err := loadAssembledContext(pipe, orderedRefs, profileVars)
 	if err != nil {
 		return nil, err
 	}
@@ -165,10 +166,10 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// counterpart to their hooks/MCP (ResolveBundleHooks/ResolveBundleMCPServers)
 	// — independent of profile selection, and skipped when their companion
 	// binary is absent. Appended after profile/request content. Gated through
-	// the SAME content gate as loader-resolved fragments (loader.Gate(), nil
-	// for an injected gate-free loader) so a rejected builtin fragment is
+	// the SAME content gate as loader-resolved fragments (pipe.Gate(), nil
+	// for an injected gate-free pipeline) so a rejected builtin fragment is
 	// withheld exactly like a rejected builtin MCP server/hook.
-	contextContent, loadedNames := appendBuiltinFragments(cfg, loader.Gate(), contextContent, loaderNames)
+	contextContent, loadedNames := appendBuiltinFragments(cfg, pipe.Gate(), contextContent, loaderNames)
 
 	// Surface (content-free) any items the trust gate withheld during this
 	// assembly so the user knows content was hidden, WHY, and how to review it.
@@ -375,13 +376,13 @@ func normalizeFragmentRef(ref config.FragmentRef) config.FragmentRef {
 // footgun) can no longer swallow a NEIGHBORING fragment's real variables —
 // the escape state is scoped to one substituteVariables call, hence one
 // fragment, same as hooks.go's regenerateContext already did.
-func loadAssembledContext(loader *bundles.Loader, ordered []config.FragmentRef, profileVars map[string]string, preferDistilled bool) (string, []string, error) {
+func loadAssembledContext(pipe *bundles.Pipeline, ordered []config.FragmentRef, profileVars map[string]string) (string, []string, error) {
 	if len(ordered) == 0 {
 		return "", nil, nil
 	}
 	var parts, loadedNames []string
 	for _, ref := range ordered {
-		lc, err := loadFragmentRef(loader, ref, preferDistilled)
+		lc, err := loadFragmentRef(pipe, ref)
 		if err != nil {
 			warnFragmentLoadFailure(ref, err)
 			continue
@@ -443,11 +444,11 @@ func warnSubstitutionFor(fragmentName string) func(string) {
 // (GetFragmentAtVersion), gated by ITS OWN effective-content hash. A version
 // fetch/resolve failure fails closed (withholds the item) via the returned
 // error.
-func loadFragmentRef(loader *bundles.Loader, ref config.FragmentRef, preferDistilled bool) (*bundles.LoadedContent, error) {
+func loadFragmentRef(pipe *bundles.Pipeline, ref config.FragmentRef) (*bundles.LoadedContent, error) {
 	if ref.Version == "" {
-		return loader.GetFragment(ref.Name, preferDistilled)
+		return pipe.GetFragment(ref.Name)
 	}
-	return loader.GetFragmentAtVersion(ref.Name, ref.Version, preferDistilled)
+	return pipe.GetFragmentAtVersion(ref.Name, ref.Version)
 }
 
 // warnFragmentLoadFailure surfaces a profile-pushed fragment that failed to

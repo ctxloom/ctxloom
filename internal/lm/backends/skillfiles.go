@@ -46,12 +46,12 @@ func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles
 	if cfg == nil {
 		return nil
 	}
-	if gate := cfg.ExecutableTrustGate(); gate != nil {
-		opts = append(opts, bundles.WithTrustGate(gate))
-	}
 	if curated := resolveProfileSkillRefs(cfg, profileNames); len(curated) > 0 {
-		loader := cfg.SeededBundleLoader(opts...)
-		return loadCuratedSkills(loader, curated)
+		// Same gate as the command curation branch (commands.go): the
+		// cfg-injected executable gate, nil on management paths.
+		return loadCuratedSkills(
+			bundles.NewPipeline(cfg.SeededBundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.ShouldUseDistilled()),
+			curated)
 	}
 	return cfg.ResolveBundleSkills(profileNames, opts...)
 }
@@ -107,10 +107,10 @@ func resolveProfileSkillRefs(cfg *config.Config, profileNames []string) []string
 // so a curated skill surfaces even when its bundle didn't flag it. A ref that
 // doesn't resolve (not found, gate-withheld) is warned and skipped — fault
 // tolerance, never aborting the rest of the curated set.
-func loadCuratedSkills(loader *bundles.Loader, refs []string) []*bundles.LoadedSkill {
+func loadCuratedSkills(pipe *bundles.Pipeline, refs []string) []*bundles.LoadedSkill {
 	var out []*bundles.LoadedSkill
 	for _, ref := range refs {
-		ls, err := loader.GetSkill(ref)
+		ls, err := pipe.GetSkill(ref)
 		if err != nil {
 			clidiag.Warn("ctxloom", "skipping curated skill %q: %v", ref, err)
 			continue

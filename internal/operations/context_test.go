@@ -211,8 +211,8 @@ func TestAssembleContext_WithTags(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Tags:   []string{"security"},
-		Loader: loader,
+		Tags:     []string{"security"},
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -229,8 +229,8 @@ func TestAssembleContext_TagMatchingNothingIsReported(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Tags:   []string{"no-such-tag-anywhere"},
-		Loader: loader,
+		Tags:     []string{"no-such-tag-anywhere"},
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -245,8 +245,8 @@ func TestAssembleContext_TagThatMatchesIsNotReportedMissing(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Tags:   []string{"security"},
-		Loader: loader,
+		Tags:     []string{"security"},
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -259,7 +259,7 @@ func TestAssembleContext_WithFragments(t *testing.T) {
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{"dev#fragments/go-patterns"},
-		Loader:    loader,
+		Pipeline:  opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -278,7 +278,7 @@ func TestAssembleContext_MultipleFragments(t *testing.T) {
 			"dev#fragments/security-rules",
 			"dev#fragments/go-patterns",
 		},
-		Loader: loader,
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -298,7 +298,7 @@ func TestAssembleContext_DeduplicatesFragments(t *testing.T) {
 			"dev#fragments/security-rules",
 			"dev#fragments/security-rules", // Duplicate
 		},
-		Loader: loader,
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -322,8 +322,8 @@ func TestAssembleContext_WithProfileFromConfig(t *testing.T) {
 	})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "go-dev",
-		Loader:  loader,
+		Profile:  "go-dev",
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -349,8 +349,8 @@ func TestAssembleContext_ProfileTags_DoNotSelectContent(t *testing.T) {
 	})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "go-dev",
-		Loader:  loader,
+		Profile:  "go-dev",
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -375,8 +375,8 @@ func TestAssembleContext_ProfileSelectTags_SelectContent(t *testing.T) {
 	})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "go-dev",
-		Loader:  loader,
+		Profile:  "go-dev",
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -399,11 +399,11 @@ func TestAssembleContext_ProfileLLMSurfaces(t *testing.T) {
 		}},
 	})
 
-	withLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "go-dev", Loader: loader})
+	withLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "go-dev", Pipeline: opPipe(cfg, loader)})
 	require.NoError(t, err)
 	assert.Equal(t, "agy-code", withLLM.ProfileLLM)
 
-	withoutLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "plain", Loader: loader})
+	withoutLLM, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Profile: "plain", Pipeline: opPipe(cfg, loader)})
 	require.NoError(t, err)
 	assert.Empty(t, withoutLLM.ProfileLLM)
 }
@@ -425,8 +425,8 @@ func TestAssembleContext_ProfileWithVariables(t *testing.T) {
 	})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "project",
-		Loader:  loader,
+		Profile:  "project",
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -459,8 +459,8 @@ func TestAssembleContext_UndefinedVariableWarns(t *testing.T) {
 	stderr := captureStderr(t, func() {
 		var err error
 		result, err = AssembleContext(context.Background(), cfg, AssembleContextRequest{
-			Profile: "project-partial",
-			Loader:  loader,
+			Profile:  "project-partial",
+			Pipeline: opPipe(cfg, loader),
 		})
 		require.NoError(t, err)
 	})
@@ -485,8 +485,8 @@ func TestAssembleContext_DefinedVariablesDoNotWarn(t *testing.T) {
 
 	stderr := captureStderr(t, func() {
 		_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-			Profile: "project-full",
-			Loader:  loader,
+			Profile:  "project-full",
+			Pipeline: opPipe(cfg, loader),
 		})
 		require.NoError(t, err)
 	})
@@ -526,8 +526,8 @@ fragments:
 	stderr := captureStderr(t, func() {
 		var err error
 		result, err = AssembleContext(context.Background(), cfg, AssembleContextRequest{
-			Profile: "broken",
-			Loader:  loader,
+			Profile:  "broken",
+			Pipeline: opPipe(cfg, loader),
 		})
 		require.NoError(t, err)
 	})
@@ -574,8 +574,8 @@ fragments:
 	assemble := func() string {
 		return captureStderr(t, func() {
 			_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-				Profile: "project-dedup",
-				Loader:  loader,
+				Profile:  "project-dedup",
+				Pipeline: opPipe(cfg, loader),
 			})
 			require.NoError(t, err)
 		})
@@ -626,8 +626,8 @@ fragments:
 
 	stderr := captureStderr(t, func() {
 		_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-			Profile: "attribution",
-			Loader:  loader,
+			Profile:  "attribution",
+			Pipeline: opPipe(cfg, loader),
 		})
 		require.NoError(t, err)
 	})
@@ -644,7 +644,7 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Loader: loader,
+		Pipeline: opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -695,7 +695,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		})
 		defer restoreProbe()
 
-		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
+		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
 		require.NoError(t, err)
 		assert.Contains(t, result.Context, "llm-tool-killer briefing")
 		assert.Contains(t, result.Context, "taskloom briefing")
@@ -722,7 +722,7 @@ func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
 		})
 		defer restoreProbe()
 
-		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
+		result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
 		require.NoError(t, err)
 		assert.NotContains(t, result.FragmentsLoaded, "ctxloom:companion@ltk#fragments/ltk", "absent companion is skipped")
 		assert.Contains(t, result.FragmentsLoaded, "ctxloom:companion@taskloom#fragments/taskloom", "present companion still injects")
@@ -761,7 +761,7 @@ func TestAssembleContext_InjectsBuiltinIsolationFragment(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
-	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
 	require.NoError(t, err)
 
 	assert.Contains(t, result.Context, strings.TrimSpace(frag.Content),
@@ -801,7 +801,7 @@ func TestAssembleContext_ExcludesCtxloomInitCommandBody(t *testing.T) {
 	// Deliberately bare: no profile, no fragments, no tags — the same
 	// zero-ask shape TestAssembleContext_InjectsBuiltinIsolationFragment uses
 	// to prove the OPPOSITE fact about the isolation fragment.
-	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Loader: loader})
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{Pipeline: opPipe(cfg, loader)})
 	require.NoError(t, err)
 
 	assert.NotContains(t, result.Context, "Phase 2 — Companions",
@@ -817,7 +817,7 @@ func TestAssembleContext_CombineTagsAndFragments(t *testing.T) {
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Tags:      []string{"security"},
 		Fragments: []string{"dev#fragments/go-patterns"},
-		Loader:    loader,
+		Pipeline:  opPipe(cfg, loader),
 	})
 
 	require.NoError(t, err)
@@ -1328,8 +1328,8 @@ func TestAssembleContext_ProfileFromDirectory(t *testing.T) {
 	}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "dir-profile",
-		Loader:  loader,
+		Profile:  "dir-profile",
+		Pipeline: opPipe(cfg, loader),
 		ProfileLoaderFunc: func() ProfileLoader {
 			return mockLoader
 		},
@@ -1363,8 +1363,8 @@ func TestAssembleContext_ProfileFallbackToDirectory(t *testing.T) {
 	}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "config-profile",
-		Loader:  loader,
+		Profile:  "config-profile",
+		Pipeline: opPipe(cfg, loader),
 		ProfileLoaderFunc: func() ProfileLoader {
 			return mockLoader
 		},
@@ -1388,8 +1388,8 @@ func TestAssembleContext_UnknownProfileError(t *testing.T) {
 	}
 
 	_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "nonexistent-profile",
-		Loader:  loader,
+		Profile:  "nonexistent-profile",
+		Pipeline: opPipe(cfg, loader),
 		ProfileLoaderFunc: func() ProfileLoader {
 			return mockLoader
 		},
@@ -1419,7 +1419,7 @@ func TestAssembleContext_UnresolvableDefaultProfileDegrades(t *testing.T) {
 	}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Loader: loader,
+		Pipeline: opPipe(cfg, loader),
 		ProfileLoaderFunc: func() ProfileLoader {
 			return mockLoader
 		},
@@ -1455,8 +1455,8 @@ func TestAssembleContext_DirectoryProfileWithVariables(t *testing.T) {
 	}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "var-profile",
-		Loader:  loader,
+		Profile:  "var-profile",
+		Pipeline: opPipe(cfg, loader),
 		ProfileLoaderFunc: func() ProfileLoader {
 			return mockLoader
 		},
@@ -1492,8 +1492,8 @@ func TestAssembleContext_DirectoryProfileExcludesFragments(t *testing.T) {
 	}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "excluding-profile",
-		Loader:  loader,
+		Profile:  "excluding-profile",
+		Pipeline: opPipe(cfg, loader),
 		ProfileLoaderFunc: func() ProfileLoader {
 			return mockLoader
 		},
@@ -1529,8 +1529,8 @@ func TestAssembleContext_DirectoryProfileExcludesTaggedFragment(t *testing.T) {
 	}
 
 	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "tagged-profile",
-		Loader:  loader,
+		Profile:  "tagged-profile",
+		Pipeline: opPipe(cfg, loader),
 		ProfileLoaderFunc: func() ProfileLoader {
 			return mockLoader
 		},

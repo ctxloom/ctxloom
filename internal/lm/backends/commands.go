@@ -66,22 +66,19 @@ func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...bundl
 		return prompts
 	}
 
-	// Gate prompt command-file exports through the same per-item decision
-	// function as content: a prompt whose effective content the trust model
-	// denies must not be exported as a slash command either. The gate is the
-	// cfg-injected executable gate (nil on management paths = no gating); it
-	// keys on "<bundle>#prompts/<name>", identical to the content choke, so an
-	// accepted/exempt prompt is exported and a pending/rejected one is withheld.
-	if gate := cfg.ExecutableTrustGate(); gate != nil {
-		opts = append(opts, bundles.WithTrustGate(gate))
-	}
-
 	// Profile command curation (opt-in): a non-empty curated set exports EXACTLY
 	// the listed prompts (force-enabled), scoped to the SELECTED profiles. Even
 	// here, companion commands stay unconditional (see doc comment above).
 	if curated := resolveProfilePromptRefs(cfg, profileNames); len(curated) > 0 {
-		loader := cfg.SeededBundleLoader(opts...)
-		prompts = append(prompts, loadCuratedPrompts(loader, curated, cfg.ShouldUseDistilled())...)
+		// Gate prompt command-file exports through the same per-item decision
+		// function as content: a prompt whose effective content the trust model
+		// denies must not be exported as a slash command either. The gate is
+		// the cfg-injected executable gate (nil on management paths = no
+		// gating); it keys on "<bundle>#prompts/<name>", identical to the
+		// content choke, so an accepted/exempt prompt is exported and a
+		// pending/rejected one is withheld.
+		pipe := bundles.NewPipeline(cfg.SeededBundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.ShouldUseDistilled())
+		prompts = append(prompts, loadCuratedPrompts(pipe, curated)...)
 		prompts = append(prompts, dedupCommandsByItem(prompts, cfg.ResolveCompanionCommands(opts...))...)
 		return prompts
 	}
@@ -91,8 +88,9 @@ func LoadCommandExports(cfg *config.Config, profileNames []string, opts ...bundl
 	// / ResolveBundleHooks — so `run -p X` carries only X's bundle commands, plus
 	// every discovered companion's commands (ResolveBundleCommands folds both
 	// in). Each is still gated downstream by its per-backend enabled flag; a
-	// trust-withheld command never loads. opts thread the seed + trust gate
-	// into the resolver's loader.
+	// trust-withheld command never loads — the resolver builds its own process
+	// stage over the cfg-carried executable gate. opts thread the seed into the
+	// resolver's reader.
 	return append(prompts, cfg.ResolveBundleCommands(profileNames, opts...)...)
 }
 
@@ -181,7 +179,7 @@ func resolveProfilePromptRefs(cfg *config.Config, profileNames []string) []strin
 // didn't flag it — the profile explicitly curates it. A ref that doesn't
 // resolve (not found, gate-withheld, or a pinned version that fails to fetch) is
 // warned and skipped (fault tolerance), never aborting the rest.
-func loadCuratedPrompts(loader *bundles.Loader, refs []string, preferDistilled bool) []*bundles.LoadedContent {
+func loadCuratedPrompts(pipe *bundles.Pipeline, refs []string) []*bundles.LoadedContent {
 	var out []*bundles.LoadedContent
 	for _, ref := range refs {
 		name, version := remote.SplitPromptVersion(ref)
@@ -190,9 +188,9 @@ func loadCuratedPrompts(loader *bundles.Loader, refs []string, preferDistilled b
 			err     error
 		)
 		if version == "" {
-			content, err = loader.GetCommand(ref, preferDistilled)
+			content, err = pipe.GetCommand(ref)
 		} else {
-			content, err = loader.GetPromptAtVersion(name, version, preferDistilled)
+			content, err = pipe.GetPromptAtVersion(name, version)
 		}
 		if err != nil {
 			clidiag.Warn("ctxloom", "skipping curated prompt %q: %v", ref, err)

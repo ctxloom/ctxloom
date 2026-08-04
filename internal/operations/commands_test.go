@@ -203,8 +203,8 @@ func TestGetCommand_Success(t *testing.T) {
 
 	// Use bundle#commands/name syntax
 	result, err := GetCommand(context.Background(), nil, GetCommandRequest{
-		Name:   "dev-tools#commands/code-review",
-		Loader: loader,
+		Name:     "dev-tools#commands/code-review",
+		Pipeline: opPipe(nil, loader),
 	})
 
 	require.NoError(t, err)
@@ -225,8 +225,8 @@ func TestGetCommand_NotFound(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
 	_, err := GetCommand(context.Background(), nil, GetCommandRequest{
-		Name:   "nonexistent#commands/nope",
-		Loader: loader,
+		Name:     "nonexistent#commands/nope",
+		Pipeline: opPipe(nil, loader),
 	})
 
 	require.Error(t, err)
@@ -236,8 +236,8 @@ func TestGetCommand_StripsHeaderLines(t *testing.T) {
 	_, loader := setupPromptTestFS(t)
 
 	result, err := GetCommand(context.Background(), nil, GetCommandRequest{
-		Name:   "dev-tools#commands/code-review",
-		Loader: loader,
+		Name:     "dev-tools#commands/code-review",
+		Pipeline: opPipe(nil, loader),
 	})
 
 	require.NoError(t, err)

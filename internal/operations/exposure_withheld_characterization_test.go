@@ -83,9 +83,9 @@ func charGateSeed(signer string) map[string]*bundles.Bundle {
 	return map[string]*bundles.Bundle{charGateBundle: b}
 }
 
-// exposureProbe is the seam. It wires the trust gate into the read path
-// exactly the way the exposure surfaces do (exposureLoaderGated's own two
-// lines: build a contentGate over cfg+records, attach it to the bundle
+// exposureProbe is the seam. It wires the trust gate in exactly the way the
+// exposure surfaces do (exposurePipelineGated's own two lines: build a
+// contentGate over cfg+records, hand it to the process stage over the bundle
 // reader), and exposes the outcomes the assertions below are written against:
 // what body a caller got, and which refs the gate withheld.
 //
@@ -93,9 +93,9 @@ func charGateSeed(signer string) map[string]*bundles.Bundle {
 // one: the gate is what makes the decision, so its record survives wherever
 // the decision is applied from.
 type exposureProbe struct {
-	cfg    *config.Config
-	loader *bundles.Loader
-	gate   *contentGate
+	cfg  *config.Config
+	pipe *bundles.Pipeline
+	gate *contentGate
 }
 
 func newExposureProbe(t *testing.T, cfg *config.Config, records ReviewRecords, seed map[string]*bundles.Bundle) *exposureProbe {
@@ -105,15 +105,17 @@ func newExposureProbe(t *testing.T, cfg *config.Config, records ReviewRecords, s
 	}
 	gate := &contentGate{cfg: cfg, records: records}
 	return &exposureProbe{
-		cfg:    cfg,
-		loader: bundles.NewLoader(nil, bundles.WithSeededBundles(seed), bundles.WithTrustGate(gate.allow)),
-		gate:   gate,
+		cfg: cfg,
+		pipe: bundles.NewPipeline(
+			bundles.NewLoader(nil, bundles.WithSeededBundles(seed)),
+			gate.allow, cfgPreferDistilled(cfg)),
+		gate: gate,
 	}
 }
 
 // fragment drives the ctxloom://fragments/ resource surface.
 func (p *exposureProbe) fragment(ref string) (string, error) {
-	res, err := GetFragment(context.Background(), p.cfg, GetFragmentRequest{Name: ref, Loader: p.loader})
+	res, err := GetFragment(context.Background(), p.cfg, GetFragmentRequest{Name: ref, Pipeline: p.pipe})
 	if err != nil {
 		return "", err
 	}
@@ -122,7 +124,7 @@ func (p *exposureProbe) fragment(ref string) (string, error) {
 
 // command drives the ctxloom://prompts/ resource surface.
 func (p *exposureProbe) command(ref string) (string, error) {
-	res, err := GetCommand(context.Background(), p.cfg, GetCommandRequest{Name: ref, Loader: p.loader})
+	res, err := GetCommand(context.Background(), p.cfg, GetCommandRequest{Name: ref, Pipeline: p.pipe})
 	if err != nil {
 		return "", err
 	}
@@ -134,7 +136,7 @@ func (p *exposureProbe) assemble(t *testing.T, refs ...string) *AssembleContextR
 	t.Helper()
 	res, err := AssembleContext(context.Background(), p.cfg, AssembleContextRequest{
 		Fragments: refs,
-		Loader:    p.loader,
+		Pipeline:  p.pipe,
 	})
 	require.NoError(t, err)
 	return res
@@ -143,7 +145,7 @@ func (p *exposureProbe) assemble(t *testing.T, refs ...string) *AssembleContextR
 // tooling drives operations.CollectTooling — bundle-supplied text that drives
 // Containerfile edits, so its withholding is load-bearing.
 func (p *exposureProbe) tooling() []ToolingDeclaration {
-	return CollectTooling(p.cfg, p.loader)
+	return CollectTooling(p.cfg, p.pipe)
 }
 
 // withheld returns the refs the gate denied, deduplicated and sorted.

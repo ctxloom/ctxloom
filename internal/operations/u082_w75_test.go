@@ -106,14 +106,14 @@ func TestGetCommand_StripsOnlyAnATXH1(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// Prove the fixture is hostile from GetCommand's vantage —
 			// the loader really does deliver the leading line under test.
-			raw, err := loader.GetCommand(tc.cmd, false)
+			raw, err := opPipe(nil, loader).GetCommand(tc.cmd)
 			require.NoError(t, err)
 			require.True(t, strings.HasPrefix(raw.Content, tc.rawLead),
 				"fixture never reached the stripper: raw content = %q", raw.Content)
 
 			res, err := GetCommand(context.Background(), nil, GetCommandRequest{
-				Name:   tc.cmd,
-				Loader: loader,
+				Name:     tc.cmd,
+				Pipeline: opPipe(nil, loader),
 			})
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, res.Content)

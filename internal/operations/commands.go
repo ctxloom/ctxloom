@@ -89,8 +89,9 @@ func ListCommands(ctx context.Context, cfg *config.Config, req ListCommandsReque
 type GetCommandRequest struct {
 	Name string `json:"name"`
 
-	// Loader is an optional pre-configured loader (for testing).
-	Loader *bundles.Loader `json:"-"`
+	// Pipeline is an optional pre-configured process stage (for testing) —
+	// see GetFragmentRequest.Pipeline.
+	Pipeline *bundles.Pipeline `json:"-"`
 }
 
 // GetCommandResult contains the command content.
@@ -105,12 +106,12 @@ func GetCommand(ctx context.Context, cfg *config.Config, req GetCommandRequest) 
 		return nil, fmt.Errorf("name is required")
 	}
 
-	loader := req.Loader
-	if loader == nil {
+	pipe := req.Pipeline
+	if pipe == nil {
 		// Exposure surface (ctxloom://commands/{name}): gate the resolved content
 		// (trust rework, TR5). A withheld command surfaces as errs.ErrCommandWithheld
 		// so the resource omits it.
-		loader = exposureLoader(cfg)
+		pipe = exposurePipeline(cfg)
 	}
 
 	// A name-addressed ref may pin a content version ("@<commit>"): split it to
@@ -119,7 +120,7 @@ func GetCommand(ctx context.Context, cfg *config.Config, req GetCommandRequest) 
 	// ref resolves that exact historical version via GetPromptAtVersion, gated
 	// by ITS OWN content hash (fail-closed on fetch/resolve error).
 	ref, version := remote.SplitPromptVersion(req.Name)
-	prompt, err := getPromptVersioned(loader, req.Name, ref, version, cfgPreferDistilled(cfg))
+	prompt, err := getPromptVersioned(pipe, req.Name, ref, version)
 	if err != nil {
 		return nil, err
 	}
@@ -164,9 +165,9 @@ func isATXH1(line string) bool {
 // the canonical version-less ref), gated by ITS OWN effective-content hash. A
 // version fetch/resolve failure fails closed (returns the error so the surface
 // withholds), mirroring loadFragmentRef.
-func getPromptVersioned(loader *bundles.Loader, name, ref, version string, preferDistilled bool) (*bundles.LoadedContent, error) {
+func getPromptVersioned(pipe *bundles.Pipeline, name, ref, version string) (*bundles.LoadedContent, error) {
 	if version == "" {
-		return loader.GetCommand(name, preferDistilled)
+		return pipe.GetCommand(name)
 	}
-	return loader.GetPromptAtVersion(ref, version, preferDistilled)
+	return pipe.GetPromptAtVersion(ref, version)
 }

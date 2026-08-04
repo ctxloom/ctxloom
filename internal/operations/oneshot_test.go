@@ -88,10 +88,10 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 	}
 
 	res, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-		Profile: "rev",
-		Task:    "review this diff",
-		Loader:  loader,
-		Factory: factory,
+		Profile:  "rev",
+		Task:     "review this diff",
+		Pipeline: opPipe(cfg, loader),
+		Factory:  factory,
 	})
 	require.NoError(t, err)
 
@@ -155,7 +155,7 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 			stub := &stubClient{out: "ok"}
 			factory := func(string, string, int) (pb.Client, error) { return stub, nil }
 			_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-				Profile: tc.profile, Task: "t", Loader: loader, Factory: factory,
+				Profile: tc.profile, Task: "t", Pipeline: opPipe(cfg, loader), Factory: factory,
 			})
 			require.NoError(t, err)
 			require.NotNil(t, stub.gotReq.Options)
@@ -193,11 +193,11 @@ func TestRunOneshot_OverrideWinsOverProfileLLM(t *testing.T) {
 	}
 
 	res, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-		Profile: "rev", // declares agy-code
-		Task:    "x",
-		LLM:     "claude-fast", // override wins
-		Loader:  loader,
-		Factory: factory,
+		Profile:  "rev", // declares agy-code
+		Task:     "x",
+		LLM:      "claude-fast", // override wins
+		Pipeline: opPipe(cfg, loader),
+		Factory:  factory,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "claude-fast", res.Label)

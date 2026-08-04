@@ -54,7 +54,7 @@ func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 	cfgInline = profileCfg(cfgInline, "fragpin", config.Profile{
 		Fragments: []config.FragmentRef{{Name: ref}},
 	})
-	inlineRes, err := AssembleContext(context.Background(), cfgInline, AssembleContextRequest{Profile: "fragpin", Loader: loaderInline})
+	inlineRes, err := AssembleContext(context.Background(), cfgInline, AssembleContextRequest{Profile: "fragpin", Pipeline: loaderInline})
 	require.NoError(t, err)
 	require.Contains(t, inlineRes.Context, "V1-BODY")
 
@@ -63,7 +63,7 @@ func TestDirProfile_FragmentRef_VersionPinned_MatchesInline(t *testing.T) {
 	dirFixture := cfgDir.ToFixture()
 	dirFixture.AppPaths = []string{writeDirProfile(t, "fragpin", "fragments:\n  - \""+ref+"\"\n")}
 	cfgDir = config.NewFixture(dirFixture)
-	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "fragpin", Loader: loaderDir})
+	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "fragpin", Pipeline: loaderDir})
 	require.NoError(t, err)
 
 	assert.Equal(t, inlineRes.Context, dirRes.Context,
@@ -88,7 +88,7 @@ func TestDirProfile_BundleItem_VersionPinned_MatchesInline(t *testing.T) {
 
 	loaderInline, cfgInline := versionPinnedLoader(t, fx.records(), def, versions)
 	cfgInline = profileCfg(cfgInline, "pinned", config.Profile{BundleItems: []string{ref}})
-	inlineRes, err := AssembleContext(context.Background(), cfgInline, AssembleContextRequest{Profile: "pinned", Loader: loaderInline})
+	inlineRes, err := AssembleContext(context.Background(), cfgInline, AssembleContextRequest{Profile: "pinned", Pipeline: loaderInline})
 	require.NoError(t, err)
 	require.Contains(t, inlineRes.Context, "V1-BODY")
 
@@ -96,7 +96,7 @@ func TestDirProfile_BundleItem_VersionPinned_MatchesInline(t *testing.T) {
 	dirFixture := cfgDir.ToFixture()
 	dirFixture.AppPaths = []string{writeDirProfile(t, "pinned", "bundle_items:\n  - \""+ref+"\"\n")}
 	cfgDir = config.NewFixture(dirFixture)
-	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "pinned", Loader: loaderDir})
+	dirRes, err := AssembleContext(context.Background(), cfgDir, AssembleContextRequest{Profile: "pinned", Pipeline: loaderDir})
 	require.NoError(t, err)
 
 	assert.Equal(t, inlineRes.Context, dirRes.Context,

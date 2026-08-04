@@ -98,8 +98,10 @@ func ListFragments(ctx context.Context, cfg *config.Config, req ListFragmentsReq
 type GetFragmentRequest struct {
 	Name string `json:"name"`
 
-	// Loader is an optional pre-configured loader (for testing).
-	Loader *bundles.Loader `json:"-"`
+	// Pipeline is an optional pre-configured process stage (for testing). It
+	// carries both policies this surface applies — the trust gate and the form
+	// — so an injected one decides exactly what the production one would.
+	Pipeline *bundles.Pipeline `json:"-"`
 }
 
 // GetFragmentResult contains the fragment content.
@@ -115,15 +117,15 @@ func GetFragment(ctx context.Context, cfg *config.Config, req GetFragmentRequest
 		return nil, fmt.Errorf("name is required")
 	}
 
-	loader := req.Loader
-	if loader == nil {
+	pipe := req.Pipeline
+	if pipe == nil {
 		// Exposure surface (ctxloom://fragments/{name}, saved-prompt runs): gate
 		// the resolved content (trust rework, TR5). A withheld fragment surfaces
 		// as errs.ErrFragmentWithheld so the resource omits it.
-		loader = exposureLoader(cfg)
+		pipe = exposurePipeline(cfg)
 	}
 
-	content, err := loader.GetFragment(req.Name, cfgPreferDistilled(cfg))
+	content, err := pipe.GetFragment(req.Name)
 	if err != nil {
 		return nil, err
 	}

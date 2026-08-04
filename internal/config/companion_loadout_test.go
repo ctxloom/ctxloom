@@ -14,7 +14,6 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
@@ -362,23 +361,23 @@ func TestResolveBundleCommands_IncludesCompanionLoadoutCommands_Gated(t *testing
 
 	t.Run("trusted gate: companion command is included with no profile selected", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		gate := bundles.WithTrustGate(func(string, []byte, string, string) bool { return true })
-		result := cfg.ResolveBundleCommands(nil, gate)
+		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
+		result := cfg.ResolveBundleCommands(nil)
 		require.Len(t, result, 1)
 		assert.Equal(t, "task-runner", result[0].Item)
 		assert.Equal(t, remote.CompanionSource+"@ltk", result[0].Bundle)
 
-		companionOnly := cfg.ResolveCompanionCommands(gate)
+		companionOnly := cfg.ResolveCompanionCommands()
 		require.Len(t, companionOnly, 1)
 		assert.Equal(t, "task-runner", companionOnly[0].Item)
 	})
 
 	t.Run("denying gate withholds it — proves it is NOT the builtin exemption", func(t *testing.T) {
 		cfg := &Config{appPaths: []string{appDir}}
-		gate := bundles.WithTrustGate(func(string, []byte, string, string) bool { return false })
-		result := cfg.ResolveBundleCommands(nil, gate)
+		cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
+		result := cfg.ResolveBundleCommands(nil)
 		assert.Empty(t, result, "a companion command must be withheld by a denying gate — a true builtin would NOT be")
-		assert.Empty(t, cfg.ResolveCompanionCommands(gate))
+		assert.Empty(t, cfg.ResolveCompanionCommands())
 	})
 }
 

@@ -128,7 +128,7 @@ func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
 	seen := map[string][2]string{}
 	l := NewLoader(nil, WithSeededBundles(seed), WithTrustGate(blockingGate(seen)))
 
-	if _, err := l.GetFragment(canonical + "#fragments/f", true); err != nil {
+	if _, err := l.GetFragment(canonical+"#fragments/f", true); err != nil {
 		t.Fatalf("GetFragment: %v", err)
 	}
 	if _, ok := seen[canonical+"#fragments/f"]; !ok {

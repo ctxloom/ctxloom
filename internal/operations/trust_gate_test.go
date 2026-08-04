@@ -134,7 +134,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 
 	// v1 stays exposed (accepted at this exact hash).
 	l1 := bundles.NewLoader(nil, bundles.WithSeededBundles(v1), bundles.WithTrustGate(gate))
-	got, err := l1.GetFragment(acmeBundle + "tooling#fragments/solid", true)
+	got, err := l1.GetFragment(acmeBundle+"tooling#fragments/solid", true)
 	require.NoError(t, err)
 	assert.Equal(t, "v1 body", got.Content)
 
@@ -145,12 +145,12 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "v2 body"}}},
 	}
 	l2 := bundles.NewLoader(nil, bundles.WithSeededBundles(v2), bundles.WithTrustGate(gate))
-	_, err = l2.GetFragment(acmeBundle + "tooling#fragments/solid", true)
+	_, err = l2.GetFragment(acmeBundle+"tooling#fragments/solid", true)
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "post-swap content must gate, got %v", err)
 
 	// An explicit `ctxloom trust` of the new version re-exposes it.
 	fx.approveFragment("tooling", "solid", "v2 body")
-	got2, err := l2.GetFragment(acmeBundle + "tooling#fragments/solid", true)
+	got2, err := l2.GetFragment(acmeBundle+"tooling#fragments/solid", true)
 	require.NoError(t, err)
 	assert.Equal(t, "v2 body", got2.Content)
 }

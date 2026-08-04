@@ -58,9 +58,9 @@ type ContentGate func(ref string, payload []byte, form, signer string) bool
 type Loader struct {
 	searchDirs []string
 	fs         afero.Fs
-	mu              sync.RWMutex       // Protects cache
-	cache           map[string]*Bundle // Cache of loaded bundles by path
-	seeded          map[string]*Bundle // Canonical-ref → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
+	mu         sync.RWMutex       // Protects cache
+	cache      map[string]*Bundle // Cache of loaded bundles by path
+	seeded     map[string]*Bundle // Canonical-ref → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
 
 	gate       ContentGate         // nil = no enforcement; set on exposure loaders only
 	withheldMu sync.Mutex          // Protects withheld

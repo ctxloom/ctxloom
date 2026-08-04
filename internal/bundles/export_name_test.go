@@ -91,7 +91,7 @@ func TestLoader_LoadedContentCarriesBundleAndItem(t *testing.T) {
 	assert.Equal(t, "review", prompt.Item)
 	assert.Equal(t, "aspects/review", prompt.ExportName())
 
-	frag, err := loader.GetFragment(canonical + "#fragments/security", false)
+	frag, err := loader.GetFragment(canonical+"#fragments/security", false)
 	require.NoError(t, err)
 	assert.Equal(t, canonical, frag.Bundle)
 	assert.Equal(t, "security", frag.Item)

@@ -175,17 +175,23 @@ func Fetch(ctx context.Context, f remote.Fetcher, spec Spec) (map[string][]byte,
 	return bytesOf(files), nil
 }
 
-// FetchFiles is Fetch with the publisher's exec bit still attached.
+// FetchFiles is Fetch with executability attached: what the tree DECLARES, and
+// separately what git recorded.
 //
 // The two exist separately because their callers want genuinely different
 // things. The content layer wants BYTES: a store enumerates items, digests them
 // and hands them to a signature check, and a mode is not part of any of that.
-// An INSTALLER wants the file as published — a skill package ships scripts the
+// An INSTALLER wants the file as PUBLISHED — a skill package ships scripts the
 // model runs on its own, and a 0755 script that lands 0644 is delivered content
 // the agent cannot use, with nothing anywhere reporting a failure.
 //
-// Only the exec bit is carried, because only the exec bit exists: git records a
-// blob as 100644 or 100755 and nothing else (see remote.TreeFile).
+// "As published" means the DECLARATION, not git's blob mode. A mode bit is not
+// portable and the digest excludes it, so the `executable:` list inside the
+// hashed, signed sidecar is what a publisher actually said; git's 100755 rides
+// along uncovered by any signature. Resolving the declaration here — rather
+// than in the installer — is the only place it can happen: reading a sidecar
+// means knowing the tree format, and internal/remote sits below the package
+// that owns it.
 func FetchFiles(ctx context.Context, f remote.Fetcher, spec Spec) (map[string]remote.TreeFile, error) {
 	if f == nil {
 		return nil, errors.New("content/remotetree: nil fetcher")
@@ -206,7 +212,29 @@ func FetchFiles(ctx context.Context, f remote.Fetcher, spec Spec) (map[string]re
 		// report success and deliver nothing.
 		return nil, fmt.Errorf("%w: %s at %s", ErrEmptyTree, repoPath(spec, ""), spec.SHA)
 	}
+	if err := applyDeclaredModes(out); err != nil {
+		return nil, fmt.Errorf("content/remotetree: %s at %s: %w", repoPath(spec, ""), spec.SHA, err)
+	}
 	return out, nil
+}
+
+// applyDeclaredModes stamps each fetched file with what the tree's own sidecars
+// declare about it.
+//
+// A malformed sidecar is an ERROR, not a shrug. Skipping it would resolve every
+// file in that package to non-executable, which installs a skill whose scripts
+// silently do not run — the failure this whole declaration path exists to make
+// impossible.
+func applyDeclaredModes(files map[string]remote.TreeFile) error {
+	declared, err := content.DeclaredExecutable(bytesOf(files))
+	if err != nil {
+		return err
+	}
+	for rel, f := range files {
+		f.DeclaredExecutable = declared[rel]
+		files[rel] = f
+	}
+	return nil
 }
 
 // bytesOf drops the mode, for the callers whose question is only "what bytes".
@@ -267,10 +295,12 @@ func fetchFile(ctx context.Context, f remote.Fetcher, spec Spec, limits Limits, 
 	if *bytesFetched > limits.MaxBytes {
 		return fmt.Errorf("%w: more than %d bytes", ErrTooLarge, limits.MaxBytes)
 	}
-	// The exec bit comes from the LISTING, not from a second stat: git already
-	// told us the blob's mode when it named the entry, and asking again would be
-	// a second read of the same tree that could answer differently.
-	out[rel] = remote.TreeFile{Data: data, Executable: executable}
+	// The committed exec bit comes from the LISTING, not from a second stat: git
+	// already told us the blob's mode when it named the entry, and asking again
+	// would be a second read of the same tree that could answer differently. The
+	// DECLARED bit cannot be resolved yet — it lives in a sidecar this walk may
+	// not have reached — so applyDeclaredModes fills it in once the tree is whole.
+	out[rel] = remote.TreeFile{Data: data, CommittedExecutable: executable}
 	return nil
 }
 

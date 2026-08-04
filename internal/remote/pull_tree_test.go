@@ -88,7 +88,7 @@ func TestFetchItemBytes_DoesNotProbeTheTreeOnANonNotFoundError(t *testing.T) {
 func TestFetchItemBytes_FallsBackToTheTreeAndTakesItsManifestAsTheBundleBytes(t *testing.T) {
 	want := map[string]TreeFile{
 		BundleManifestName:               {Data: []byte("version: \"2.0.0\"\n")},
-		"skills/reviewer/scripts/run.sh": {Data: []byte("#!/bin/sh\n"), Executable: true},
+		"skills/reviewer/scripts/run.sh": {Data: []byte("#!/bin/sh\n"), DeclaredExecutable: true},
 	}
 	var gotRoot string
 	p := treePuller(t, afero.NewMemMapFs(), ".ctxloom", func(_ context.Context, _ Fetcher, _, _, root, _, _ string) (map[string]TreeFile, error) {
@@ -156,10 +156,10 @@ func TestFetchItemBytes_WithoutAWalkerSaysSoRatherThanReportingOnlyTheMissingFil
 		"the error must name the directory form that could not be checked")
 }
 
-// TestInstallTree_WritesEveryFileAtItsPublishedMode. The exec bit is the whole
+// TestInstallTree_WritesEveryFileAtItsDeclaredMode. The exec bit is the whole
 // reason TreeFile carries a mode at all: a skill script delivered 0644 is
 // content the agent cannot use, with nothing reporting a failure.
-func TestInstallTree_WritesEveryFileAtItsPublishedMode(t *testing.T) {
+func TestInstallTree_WritesEveryFileAtItsDeclaredMode(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	p := treePuller(t, fs, ".ctxloom", nil)
 	ref := treeRef(t)
@@ -169,7 +169,7 @@ func TestInstallTree_WritesEveryFileAtItsPublishedMode(t *testing.T) {
 		tree: map[string]TreeFile{
 			BundleManifestName:               {Data: []byte("version: \"1.0.0\"\n")},
 			"skills/reviewer/SKILL.md":       {Data: []byte("skill\n")},
-			"skills/reviewer/scripts/run.sh": {Data: []byte("#!/bin/sh\n"), Executable: true},
+			"skills/reviewer/scripts/run.sh": {Data: []byte("#!/bin/sh\n"), DeclaredExecutable: true, CommittedExecutable: true},
 		},
 	})
 	require.NoError(t, err)
@@ -181,11 +181,51 @@ func TestInstallTree_WritesEveryFileAtItsPublishedMode(t *testing.T) {
 
 	script, serr := fs.Stat(filepath.Join(dir, "skills", "reviewer", "scripts", "run.sh"))
 	require.NoError(t, serr)
-	assert.Equal(t, os.FileMode(0o755), script.Mode().Perm(), "the publisher's exec bit did not survive the install")
+	assert.Equal(t, os.FileMode(0o755), script.Mode().Perm(), "the declared exec bit did not survive the install")
 
 	plain, perr := fs.Stat(filepath.Join(dir, "skills", "reviewer", "SKILL.md"))
 	require.NoError(t, perr)
 	assert.Equal(t, os.FileMode(0o644), plain.Mode().Perm(), "a non-executable file must not be installed executable")
+}
+
+// TestInstallTree_TheDeclarationWinsOverTheCommittedMode is the divergence this
+// whole split exists for, in both directions.
+//
+// A publisher who commits scripts/run.sh 0755 without declaring it produces a
+// tree whose generated manifest says 0644 (bundles.ReadTree builds it from the
+// sidecar, not from a filesystem). Installing at git's mode put a 0755 file
+// next to a 0644 claim, and the consumer refused the whole package as an
+// integrity mismatch. The declaration reaching disk is what makes the two
+// agree — and the file that is DECLARED executable gets its bit even when git
+// never recorded one, which is how a Windows-authored package still ships a
+// runnable script.
+func TestInstallTree_TheDeclarationWinsOverTheCommittedMode(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	p := treePuller(t, fs, ".ctxloom", nil)
+	ref := treeRef(t)
+
+	dir, err := p.installTree(ref, PullOptions{}, &fetchedItem{
+		localName: ref.CanonicalString(),
+		tree: map[string]TreeFile{
+			BundleManifestName: {Data: []byte("version: \"1.0.0\"\n")},
+			// Committed 0755 upstream, never declared: lands non-executable.
+			"skills/reviewer/scripts/undeclared.sh": {Data: []byte("#!/bin/sh\n"), CommittedExecutable: true},
+			// Declared, committed 0644 (an authoring filesystem with no exec
+			// bit): lands executable.
+			"skills/reviewer/scripts/declared.sh": {Data: []byte("#!/bin/sh\n"), DeclaredExecutable: true},
+		},
+	})
+	require.NoError(t, err)
+
+	undeclared, err := fs.Stat(filepath.Join(dir, "skills", "reviewer", "scripts", "undeclared.sh"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o644), undeclared.Mode().Perm(),
+		"an undeclared file installed at git's mode is what makes the manifest and the tree disagree")
+
+	declared, err := fs.Stat(filepath.Join(dir, "skills", "reviewer", "scripts", "declared.sh"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o755), declared.Mode().Perm(),
+		"the declaration is the publisher's whole statement about executability; git's blob mode is not")
 }
 
 // TestInstallTree_ReplacesRatherThanMerges. A merge would leave a file the

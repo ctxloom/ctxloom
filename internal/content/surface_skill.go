@@ -2,6 +2,7 @@ package content
 
 import (
 	"fmt"
+	"path"
 	"slices"
 	"sort"
 	"strings"
@@ -61,6 +62,47 @@ type skillMeta struct {
 	// executability is ATTESTED — which is exactly the property that silently
 	// disappears if a walker skips the dot-prefixed sidecar.
 	Executable []string `yaml:"executable,omitempty"`
+}
+
+// DeclaredExecutable reports which files of a bundle tree the tree's OWN
+// sidecars declare executable, given the tree as path-to-bytes.
+//
+// It exists for the one caller that holds a tree's bytes but cannot decode it
+// as items: an INSTALLER. Writing a fetched tree to disk has to pick a POSIX
+// mode per file, and the only legitimate answer is the declaration — a mode bit
+// is not portable and the digest deliberately excludes it (see Digest), so the
+// `executable:` list inside the hashed, signed sidecar is the whole of what a
+// publisher said about executability. Taking the mode from the transport
+// instead (git's 100755) produces a file whose mode disagrees with the manifest
+// the same tree generates, which reads downstream as tampering.
+//
+// Keys are paths in the SAME space as the input map, and recognition is
+// prefix-agnostic: a sidecar is any metadata path whose immediate parent
+// directory is the skills directory, so both a single bundle's tree
+// ("skills/.reviewer.meta.yaml") and a bundles root holding many
+// ("atelier/skills/.reviewer.meta.yaml") resolve without the caller having to
+// say which it handed over.
+//
+// Skills are the only kind that appears here because skills are the only kind
+// whose item IS a directory of files; every other kind's component is a single
+// document with no mode to declare.
+func DeclaredExecutable(files map[string][]byte) (map[string]bool, error) {
+	dir := trust.KindSkill.Dir()
+	out := map[string]bool{}
+	for p, data := range files {
+		if !IsMetaPath(p) || path.Base(path.Dir(p)) != dir {
+			continue
+		}
+		var meta skillMeta
+		if err := unmarshalYAML(data, &meta); err != nil {
+			return nil, fmt.Errorf("content: %s: %w", p, err)
+		}
+		pkg := path.Dir(p) + "/" + logicalBase(p)
+		for _, rel := range meta.Executable {
+			out[pkg+"/"+rel] = true
+		}
+	}
+	return out, nil
 }
 
 type skillType struct{}

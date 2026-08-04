@@ -282,3 +282,79 @@ func TestMoveBundle_RemotePublishFails_SourceIntact(t *testing.T) {
 	assert.FileExists(t, bundlePath, "a failed publish must leave the source intact")
 	assert.FileExists(t, sigPath)
 }
+
+// --- directory-form bundles: the move that cannot be whole ---------------------
+
+// memMoveDirFS seeds a project with a DIRECTORY-form bundle: "<name>/bundle.yaml"
+// plus a skill package beside it. That shape exists for exactly one reason —
+// bundles.Loader refuses `skills:` in single-file form — so a move that carries
+// only the manifest carries the one thing the shape was created NOT to be.
+func memMoveDirFS(t *testing.T) (afero.Fs, *config.Config) {
+	t.Helper()
+	fs := afero.NewMemMapFs()
+	appDir := filepath.Join("/proj", ".ctxloom")
+	dir := filepath.Join(paths.LocalBundlesPath(appDir), "seed")
+	require.NoError(t, fs.MkdirAll(filepath.Join(dir, "skills", "reviewer"), 0755))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "bundle.yaml"),
+		[]byte("version: 1.0.0\nskills:\n  reviewer: {}\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "skills", "reviewer", "SKILL.md"),
+		[]byte("---\nname: reviewer\ndescription: d\n---\n\nbody\n"), 0644))
+	return fs, config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+}
+
+// THE DATA-LOSS PATH (taskloom hurried-showplace). Move publishes the manifest,
+// then deletes the source. For a directory-form bundle only bundle.yaml travels,
+// so the user is left with an orphaned local skills/ whose manifest is gone and a
+// destination copy with no skills — neither half whole, exit 0, no warning.
+//
+// Refusing is the only honest answer until publish can carry a whole tree: a move
+// that cannot be whole must not begin.
+func TestMoveBundle_DirectoryFormWithSkills_RefusesRatherThanMovingHalfOfIt(t *testing.T) {
+	fs, cfg := memMoveDirFS(t)
+	require.NoError(t, fs.MkdirAll("/out", 0755))
+
+	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "skills/reviewer/SKILL.md",
+		"the refusal must name a file that would have been left behind, not just the shape")
+}
+
+// The refusal has to happen BEFORE anything is written or removed. A guard that
+// fired after the destination write would have already produced the split state
+// it exists to prevent.
+func TestMoveBundle_DirectoryFormRefusal_LeavesBothSidesUntouched(t *testing.T) {
+	fs, cfg := memMoveDirFS(t)
+	require.NoError(t, fs.MkdirAll("/out", 0755))
+
+	_, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
+	require.Error(t, err)
+
+	dir := filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "seed")
+	for _, p := range []string{
+		filepath.Join(dir, "bundle.yaml"),
+		filepath.Join(dir, "skills", "reviewer", "SKILL.md"),
+	} {
+		exists, _ := afero.Exists(fs, p)
+		assert.True(t, exists, "%s must survive a refused move", p)
+	}
+	wrote, _ := afero.Exists(fs, "/out/bundle.yaml")
+	assert.False(t, wrote, "nothing may be written at the destination when the move is refused")
+}
+
+// A directory-form bundle carrying NOTHING but its manifest loses nothing by
+// moving, so it must still move. The guard is about unmovable payload, not about
+// the directory shape — refusing the shape itself would break a move that is
+// perfectly whole.
+func TestMoveBundle_DirectoryFormWithNoPayloadBesideTheManifest_StillMoves(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	appDir := filepath.Join("/proj", ".ctxloom")
+	dir := filepath.Join(paths.LocalBundlesPath(appDir), "seed")
+	require.NoError(t, fs.MkdirAll(dir, 0755))
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(dir, "bundle.yaml"), []byte(moveBundleBody), 0644))
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	require.NoError(t, fs.MkdirAll("/out", 0755))
+
+	res, err := MoveBundle(context.Background(), cfg, MoveBundleRequest{Name: "seed", To: "/out", FS: fs})
+	require.NoError(t, err)
+	assert.Equal(t, "moved", res.Status)
+}

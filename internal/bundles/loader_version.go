@@ -5,7 +5,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/remote"
-	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
 // Multi-version coexistence (trust rework, TR5)
@@ -23,10 +22,11 @@ import (
 // trusted version and a blacklisted version of the same ref coexist with only
 // the trusted one surviving.
 //
-// Load / GetFragment / GetPrompt are deliberately UNTOUCHED: the lockfile-pinned
-// default path is unchanged, and per-version resolution is opt-in via these
-// methods (so an "@<version>" on an ordinary profile ref keeps resolving to the
-// lockfile default, never silently refetching a tag/constraint as a commit).
+// Load / ReadFragment / ReadCommand are deliberately UNTOUCHED: the
+// lockfile-pinned default path is unchanged, and per-version resolution is
+// opt-in via these methods (so an "@<version>" on an ordinary profile ref keeps
+// resolving to the lockfile default, never silently refetching a
+// tag/constraint as a commit).
 
 // bundleAtVersion materializes the bundle named by bundleRef at commit. An empty
 // commit (or a bundleRef that itself carries no "@<commit>") resolves the
@@ -94,18 +94,20 @@ func splitBundleVersion(bundleRef string) (canonical, version string) {
 	return remote.CanonicalBundleRef(bundleRef), version
 }
 
-// GetFragmentAtVersion resolves a fragment from a specific commit-version of its
-// bundle. ref is a qualified fragment ref ("<bundle>#fragments/<name>", optionally
-// carrying its own "@<commit>" on the bundle part); commit is the opaque revision
-// to materialize (empty = the lockfile-pinned default, identical to GetFragment).
+// ReadFragmentAtVersion reports a fragment from a specific commit-version of
+// its bundle. ref is a qualified fragment ref ("<bundle>#fragments/<name>",
+// optionally carrying its own "@<commit>" on the bundle part); commit is the
+// opaque revision to materialize (empty = the lockfile-pinned default,
+// identical to ReadFragment).
 //
-// The resolved content is gated by its OWN effective-content hash under the
-// version-less ref, so each historical version is trusted/withheld independently:
-// a withheld version returns ErrFragmentWithheld, a fetch/parse failure returns a
-// resolve error — both withhold ONLY that version (fail-closed). A bare-name ref
-// (no "#") has no bundle to pin a version against and resolves via the ordinary
-// search (commit ignored).
-func (l *Loader) GetFragmentAtVersion(ref, commit string, preferDistilled bool) (*LoadedContent, error) {
+// Each version carries its OWN bytes under the VERSION-LESS TrustRef, so the
+// process stage decides on each independently (a grant keyed
+// {repo, ref, content_hash} matches whichever commit produced that content). A
+// fetch/parse failure returns a resolve error, which costs only that version —
+// the reader never falls back to a different one. A bare-name ref (no "#") has
+// no bundle to pin a version against and resolves via the ordinary search
+// (commit ignored).
+func (l *Loader) ReadFragmentAtVersion(ref, commit string, preferDistilled bool) ([]*LoadedContent, error) {
 	bundleRef, fragName, isRef, err := splitItemRef(ref, "fragments")
 	if err != nil {
 		return nil, err
@@ -121,17 +123,13 @@ func (l *Loader) GetFragmentAtVersion(ref, commit string, preferDistilled bool) 
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundle.Name)
 	}
-	lc := l.fragmentContent(bundle, fragName, frag, preferDistilled)
-	if lc == nil {
-		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentWithheld, fragName)
-	}
-	return lc, nil
+	return []*LoadedContent{l.fragmentContent(bundle, fragName, frag, preferDistilled)}, nil
 }
 
-// GetPromptAtVersion is the prompt counterpart to GetFragmentAtVersion: it
-// resolves a prompt from a specific commit-version of its bundle, gated by that
-// version's own effective-content hash under the version-less ref.
-func (l *Loader) GetPromptAtVersion(ref, commit string, preferDistilled bool) (*LoadedContent, error) {
+// ReadCommandAtVersion is the command counterpart to ReadFragmentAtVersion: a
+// command from a specific commit-version of its bundle, carrying that version's
+// own bytes under the version-less TrustRef.
+func (l *Loader) ReadCommandAtVersion(ref, commit string, preferDistilled bool) ([]*LoadedContent, error) {
 	bundleRef, promptName, isRef, err := splitItemRef(ref, "commands")
 	if err != nil {
 		return nil, err
@@ -147,51 +145,29 @@ func (l *Loader) GetPromptAtVersion(ref, commit string, preferDistilled bool) (*
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundle.Name)
 	}
-	lc := l.commandContent(bundle, promptName, prompt, preferDistilled)
-	if lc == nil {
-		return nil, fmt.Errorf("%w: %s", errs.ErrCommandWithheld, promptName)
-	}
-	return lc, nil
+	return []*LoadedContent{l.commandContent(bundle, promptName, prompt, preferDistilled)}, nil
 }
 
-// ResolveFragmentVersions resolves the fragment named by ref at each requested
-// commit (use "" for the lockfile-pinned default), gating each version
-// independently and collapsing versions whose effective content is identical to a
-// single item. It is the multi-version coexistence primitive: several
-// commit-versions of one ref carried in a single assembly, each its own gate.
+// ReadFragmentVersions reports the fragment named by ref at each requested
+// commit (use "" for the lockfile-pinned default), in request order. It is the
+// read half of the multi-version coexistence primitive: several
+// commit-versions of one ref, each carrying its own bytes, so the process stage
+// can decide on each independently (see Pipeline.ResolveFragmentVersions).
 //
-//   - A version the trust gate withholds, or that fails to fetch/parse, is
-//     DROPPED (fail-closed) — the surviving versions still resolve, so a
-//     blacklisted v2 vanishes while a trusted v1 remains.
-//   - Versions with identical effective content (same hash) dedup to ONE item,
-//     keeping the FIRST requested commit's resolution.
-//
-// Results preserve request order. Withheld/failed versions are tallied through
-// the loader's Withheld() set (the gate path) so the caller can surface "N
-// withheld" without leaking content.
-func (l *Loader) ResolveFragmentVersions(ref string, commits []string, preferDistilled bool) []*LoadedContent {
+// A version that fails to fetch or parse is omitted — the reader does not HAVE
+// it, which is a read fact, not a filtering decision — and its omission never
+// falls back to a different version.
+func (l *Loader) ReadFragmentVersions(ref string, commits []string, preferDistilled bool) []*LoadedContent {
 	if len(commits) == 0 {
 		commits = []string{""}
 	}
-	seen := collections.NewSet[string]()
 	var out []*LoadedContent
 	for _, commit := range commits {
-		lc, err := l.GetFragmentAtVersion(ref, commit, preferDistilled)
-		if err != nil || lc == nil {
-			// Withheld or unresolvable: drop ONLY this version (fail-closed). The
-			// gate already recorded a withheld ref; a fetch failure is the safe
-			// direction — never expose an unverified historical version.
+		reads, err := l.ReadFragmentAtVersion(ref, commit, preferDistilled)
+		if err != nil {
 			continue
 		}
-		// Identical content across commits dedups: hash the exact effective bytes
-		// (the same bytes the gate keyed on) so two commits that never changed the
-		// fragment collapse to one item.
-		key := hashContent([]byte(lc.Content))
-		if seen.Has(key) {
-			continue
-		}
-		seen.Add(key)
-		out = append(out, lc)
+		out = append(out, reads...)
 	}
 	return out
 }

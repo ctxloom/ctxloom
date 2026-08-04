@@ -31,7 +31,7 @@ func hashGate(allowed map[string]bool) ContentGate {
 // for canonicalRef and a fake version resolver serving the given per-commit
 // bundles. A commit absent from versions resolves to an error (simulating a
 // per-version fetch failure).
-func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions map[string]*Bundle, gate ContentGate) *Loader {
+func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions map[string]*Bundle, gate ContentGate) *Pipeline {
 	t.Helper()
 	resolver := func(_canonical, commit string) (*Bundle, error) {
 		b, ok := versions[commit]
@@ -41,14 +41,10 @@ func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions ma
 		clone := *b // copy so the loader's Name stamp doesn't clobber the fixture
 		return &clone, nil
 	}
-	opts := []LoaderOption{
+	return NewPipeline(NewLoader(nil,
 		WithSeededBundles(map[string]*Bundle{canonicalRef: def}),
 		WithVersionResolver(resolver),
-	}
-	if gate != nil {
-		opts = append(opts, WithTrustGate(gate))
-	}
-	return NewLoader(nil, opts...)
+	), gate, true)
 }
 
 const cqRef = "https://github.com/acme/b@bundles/cq"
@@ -68,7 +64,7 @@ func TestMultiVersion_CoexistGatedIndependently(t *testing.T) {
 	gate := hashGate(map[string]bool{effHash("v1 body"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)
 
-	got := l.ResolveFragmentVersions(cqFrag, []string{"c1", "c2"}, true)
+	got := l.ResolveFragmentVersions(cqFrag, []string{"c1", "c2"})
 	if len(got) != 1 {
 		t.Fatalf("got %d versions, want 1 (v2 withheld)", len(got))
 	}
@@ -92,7 +88,7 @@ func TestMultiVersion_IdenticalContentDedups(t *testing.T) {
 	gate := hashGate(map[string]bool{effHash("same body"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)
 
-	got := l.ResolveFragmentVersions(cqFrag, []string{"c1", "c2"}, true)
+	got := l.ResolveFragmentVersions(cqFrag, []string{"c1", "c2"})
 	if len(got) != 1 {
 		t.Fatalf("got %d versions, want 1 (identical content dedups)", len(got))
 	}
@@ -112,7 +108,7 @@ func TestMultiVersion_FetchFailureWithholdsOnlyThatVersion(t *testing.T) {
 	gate := hashGate(map[string]bool{effHash("v1 body"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)
 
-	got := l.ResolveFragmentVersions(cqFrag, []string{"c1", "broken"}, true)
+	got := l.ResolveFragmentVersions(cqFrag, []string{"c1", "broken"})
 	if len(got) != 1 {
 		t.Fatalf("got %d versions, want 1 (broken version dropped)", len(got))
 	}
@@ -121,7 +117,7 @@ func TestMultiVersion_FetchFailureWithholdsOnlyThatVersion(t *testing.T) {
 	}
 
 	// Direct: a fetch failure surfaces as a resolve error, never a panic.
-	if _, err := l.GetFragmentAtVersion(cqFrag, "broken", true); err == nil {
+	if _, err := l.GetFragmentAtVersion(cqFrag, "broken"); err == nil {
 		t.Error("GetFragmentAtVersion(broken) err = nil, want resolve failure")
 	}
 }
@@ -141,7 +137,7 @@ func TestMultiVersion_DefaultPathUnchanged(t *testing.T) {
 	l := versionedLoader(t, cqRef, def, versions, gate)
 
 	// Plain GetFragment is the untouched lockfile path.
-	lc, err := l.GetFragment(cqFrag, true)
+	lc, err := l.GetFragment(cqFrag)
 	if err != nil {
 		t.Fatalf("GetFragment: %v", err)
 	}
@@ -150,13 +146,13 @@ func TestMultiVersion_DefaultPathUnchanged(t *testing.T) {
 	}
 
 	// Empty commit ⇒ same default.
-	def2 := l.ResolveFragmentVersions(cqFrag, []string{""}, true)
+	def2 := l.ResolveFragmentVersions(cqFrag, []string{""})
 	if len(def2) != 1 || def2[0].Content != "default body" {
 		t.Errorf("empty-commit resolution = %v, want [default body]", def2)
 	}
 
 	// An explicit commit DOES diverge to the historical version.
-	v1, err := l.GetFragmentAtVersion(cqFrag, "c1", true)
+	v1, err := l.GetFragmentAtVersion(cqFrag, "c1")
 	if err != nil {
 		t.Fatalf("GetFragmentAtVersion(c1): %v", err)
 	}
@@ -176,7 +172,7 @@ func TestMultiVersion_EmbeddedCommitAddressing(t *testing.T) {
 	l := versionedLoader(t, cqRef, def, versions, gate)
 
 	// "<ref>@<commit>" with no explicit commit arg pins via the embedded version.
-	lc, err := l.GetFragmentAtVersion(cqRef+"@c1#fragments/solid", "", true)
+	lc, err := l.GetFragmentAtVersion(cqRef+"@c1#fragments/solid", "")
 	if err != nil {
 		t.Fatalf("GetFragmentAtVersion(embedded c1): %v", err)
 	}
@@ -190,13 +186,13 @@ func TestMultiVersion_EmbeddedCommitAddressing(t *testing.T) {
 // (lockfile) path keeps working.
 func TestMultiVersion_NoResolverFailsClosed(t *testing.T) {
 	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
-	l := NewLoader(nil, WithSeededBundles(map[string]*Bundle{cqRef: def}))
+	l := ungated(NewLoader(nil, WithSeededBundles(map[string]*Bundle{cqRef: def})), true)
 
-	if _, err := l.GetFragmentAtVersion(cqFrag, "c1", true); !errors.Is(err, errs.ErrNoVersionResolver) {
+	if _, err := l.GetFragmentAtVersion(cqFrag, "c1"); !errors.Is(err, errs.ErrNoVersionResolver) {
 		t.Errorf("GetFragmentAtVersion without resolver err = %v, want ErrNoVersionResolver", err)
 	}
 	// Default path still resolves.
-	lc, err := l.GetFragment(cqFrag, true)
+	lc, err := l.GetFragment(cqFrag)
 	if err != nil || lc.Content != "default body" {
 		t.Errorf("default GetFragment = (%v, %v), want default body", lc, err)
 	}
@@ -214,14 +210,14 @@ func TestMultiVersion_Prompt(t *testing.T) {
 	gate := hashGate(map[string]bool{effHash("v1 review"): true})
 	l := versionedLoader(t, cqRef, def, versions, gate)
 
-	v1, err := l.GetPromptAtVersion(promptRef, "c1", true)
+	v1, err := l.GetPromptAtVersion(promptRef, "c1")
 	if err != nil {
 		t.Fatalf("GetPromptAtVersion(c1): %v", err)
 	}
 	if v1.Content != "v1 review" {
 		t.Errorf("c1 prompt = %q, want v1 review", v1.Content)
 	}
-	if _, err := l.GetPromptAtVersion(promptRef, "c2", true); !errors.Is(err, errs.ErrCommandWithheld) {
+	if _, err := l.GetPromptAtVersion(promptRef, "c2"); !errors.Is(err, errs.ErrCommandWithheld) {
 		t.Errorf("GetPromptAtVersion(c2) err = %v, want ErrCommandWithheld", err)
 	}
 }

@@ -55,7 +55,7 @@ func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
 	l := NewLoader(nil, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
 
-	got := l.CommandsFromBundleRef("no-such-bundle-cmds", false)
+	got := ungated(l, false).CommandsFromBundleRef("no-such-bundle-cmds")
 
 	require.Empty(t, got, "an unloadable bundle still yields no commands")
 	require.Contains(t, buf.String(), "no-such-bundle-cmds",
@@ -70,7 +70,7 @@ func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
 	l := NewLoader(nil, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
 
-	got := l.SkillsFromBundleRef("no-such-bundle-skills")
+	got := ungated(l, false).SkillsFromBundleRef("no-such-bundle-skills")
 
 	require.Empty(t, got, "an unloadable bundle still yields no skills")
 	require.Contains(t, buf.String(), "no-such-bundle-skills",

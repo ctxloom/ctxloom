@@ -50,7 +50,7 @@ func TestSkillsFromBundleRef_ResolvesFrontmatterAndFiles(t *testing.T) {
 	files := writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	got := loader.SkillsFromBundleRef("skill-bundle")
+	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1, "one skill resolved from the bundle")
 
 	ls := got[0]
@@ -85,7 +85,7 @@ func TestSkillsFromBundleRef_PerEngineDisabledStillResolves(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", false)
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	got := loader.SkillsFromBundleRef("skill-bundle")
+	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 	assert.False(t, got[0].LLM.ClaudeCode.IsEnabled(), "the bundle-authored disablement is carried through")
 }
@@ -114,7 +114,7 @@ skills:
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(bundleYAML), 0644))
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	got := loader.SkillsFromBundleRef("skill-bundle")
+	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
 	assert.Empty(t, got, "a skill whose on-disk tree doesn't match its authored manifest must be withheld, not partially exposed")
 }
 
@@ -124,7 +124,7 @@ skills:
 // unconditionally.
 func TestSkillsFromBundleRef_UnknownBundleReturnsNil(t *testing.T) {
 	loader := NewLoader([]string{"/nowhere"}, WithFS(afero.NewMemMapFs()))
-	assert.Nil(t, loader.SkillsFromBundleRef("does-not-exist"))
+	assert.Nil(t, ungated(loader, false).SkillsFromBundleRef("does-not-exist"))
 }
 
 // =============================================================================
@@ -203,10 +203,10 @@ skills:
 	writeSkillFixture(t, fsys, bundleDir+"/skills/aaa-blocked", "aaa-blocked")
 	writeSkillFixture(t, fsys, bundleDir+"/skills/zzz-trusted", "zzz-trusted")
 
-	loader := NewLoader([]string{bundlesDir}, WithFS(fsys),
-		WithTrustGate(blockingGate(nil, "bundle-a#skills/aaa-blocked")))
+	pipe := gatedPipe(NewLoader([]string{bundlesDir}, WithFS(fsys)),
+		blockingGate(nil, "bundle-a#skills/aaa-blocked"), false)
 
-	infos, err := loader.ListAllSkills()
+	infos, err := pipe.ListAllSkills()
 	require.NoError(t, err)
 	require.Len(t, infos, 1, "the withheld skill (sorts first) must be skipped, not stop the scan of its bundle's remaining skills")
 	assert.Equal(t, "bundle-a/zzz-trusted", infos[0].Name)
@@ -224,7 +224,7 @@ func TestGetSkill_RefFormFindsSpecificBundle(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	ls, err := loader.GetSkill("skill-bundle#skills/humanize")
+	ls, err := ungated(loader, false).GetSkill("skill-bundle#skills/humanize")
 	require.NoError(t, err)
 	assert.Equal(t, "skill-bundle/humanize", ls.Name)
 	assert.Equal(t, "Does a thing well.", ls.Frontmatter.Description)
@@ -238,7 +238,7 @@ func TestGetSkill_RefFormUnknownSkillInBundleErrors(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	_, err := loader.GetSkill("skill-bundle#skills/does-not-exist")
+	_, err := ungated(loader, false).GetSkill("skill-bundle#skills/does-not-exist")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found")
 }
@@ -252,10 +252,10 @@ func TestGetSkill_RefFormWithheldByTrustGateReturnsErrSkillWithheld(t *testing.T
 	bundlesDir := "/bundles"
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, WithFS(fsys),
-		WithTrustGate(blockingGate(nil, "#skills/humanize")))
+	pipe := gatedPipe(NewLoader([]string{bundlesDir}, WithFS(fsys)),
+		blockingGate(nil, "#skills/humanize"), false)
 
-	_, err := loader.GetSkill("skill-bundle#skills/humanize")
+	_, err := pipe.GetSkill("skill-bundle#skills/humanize")
 	require.True(t, errors.Is(err, errs.ErrSkillWithheld), "got %v, want ErrSkillWithheld", err)
 }
 
@@ -267,7 +267,7 @@ func TestGetSkill_BareNameSearchesAllBundles(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	ls, err := loader.GetSkill("humanize")
+	ls, err := ungated(loader, false).GetSkill("humanize")
 	require.NoError(t, err)
 	assert.Equal(t, "skill-bundle/humanize", ls.Name)
 }
@@ -281,7 +281,7 @@ func TestGetSkill_BareNameNotFoundAnywhereReturnsErrSkillNotFound(t *testing.T) 
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	_, err := loader.GetSkill("does-not-exist-anywhere")
+	_, err := ungated(loader, false).GetSkill("does-not-exist-anywhere")
 	require.True(t, errors.Is(err, errs.ErrSkillNotFound), "got %v, want ErrSkillNotFound", err)
 }
 
@@ -295,10 +295,10 @@ func TestSearchSkill_WithheldInOneBundleStillResolvesFromTrustedSibling(t *testi
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-blocked", "humanize", true)
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-trusted", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, WithFS(fsys),
-		WithTrustGate(blockingGate(nil, "bundle-blocked#skills/humanize")))
+	pipe := gatedPipe(NewLoader([]string{bundlesDir}, WithFS(fsys)),
+		blockingGate(nil, "bundle-blocked#skills/humanize"), false)
 
-	ls, err := loader.GetSkill("humanize")
+	ls, err := pipe.GetSkill("humanize")
 	require.NoError(t, err)
 	assert.Equal(t, "bundle-trusted/humanize", ls.Name, "a withheld copy in one bundle must not block a trusted copy in another")
 }
@@ -317,7 +317,7 @@ func TestSearchSkill_SkipsBundleWithoutTheSkillAndContinuesToNextBundle(t *testi
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-b", "humanize", true)
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	ls, err := loader.GetSkill("humanize")
+	ls, err := ungated(loader, false).GetSkill("humanize")
 	require.NoError(t, err, "a bundle without the named skill must be skipped, not stop the scan")
 	assert.Equal(t, "bundle-b/humanize", ls.Name)
 }
@@ -332,10 +332,10 @@ func TestSearchSkill_AllWithheldReturnsErrSkillWithheld(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-a", "humanize", true)
 	writeSkillBundle(t, fsys, bundlesDir, "bundle-b", "humanize", true)
 
-	loader := NewLoader([]string{bundlesDir}, WithFS(fsys),
-		WithTrustGate(blockingGate(nil, "#skills/humanize")))
+	pipe := gatedPipe(NewLoader([]string{bundlesDir}, WithFS(fsys)),
+		blockingGate(nil, "#skills/humanize"), false)
 
-	_, err := loader.GetSkill("humanize")
+	_, err := pipe.GetSkill("humanize")
 	require.True(t, errors.Is(err, errs.ErrSkillWithheld), "got %v, want ErrSkillWithheld", err)
 }
 
@@ -374,7 +374,7 @@ func TestSkillContent_MalformedAuthoredModeIsWithheldNotDowngraded(t *testing.T)
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/bundle.yaml", []byte(yaml), 0644))
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	assert.Empty(t, loader.SkillsFromBundleRef("skill-bundle"),
+	assert.Empty(t, ungated(loader, false).SkillsFromBundleRef("skill-bundle"),
 		"a manifest whose modes do not match the tree must withhold the skill, not materialize it at a default mode")
 }
 
@@ -388,7 +388,7 @@ func TestSkillContent_ExecBitSurvivesLoad(t *testing.T) {
 	writeSkillBundle(t, fsys, bundlesDir, "skill-bundle", "humanize", true)
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	got := loader.SkillsFromBundleRef("skill-bundle")
+	got := ungated(loader, false).SkillsFromBundleRef("skill-bundle")
 	require.Len(t, got, 1)
 
 	modes := map[string]uint32{}
@@ -422,7 +422,7 @@ func TestSkillContent_ManifestResolutionFailureWarns(t *testing.T) {
 	defer restore()
 
 	loader := NewLoader([]string{bundlesDir}, WithFS(fsys))
-	assert.Empty(t, loader.SkillsFromBundleRef("skill-bundle"), "an underivable preimage must withhold")
+	assert.Empty(t, ungated(loader, false).SkillsFromBundleRef("skill-bundle"), "an underivable preimage must withhold")
 
 	out := sink.String()
 	assert.Contains(t, out, "ghost", "the withheld skill must be named")

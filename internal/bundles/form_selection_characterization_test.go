@@ -128,7 +128,7 @@ func charSeed() map[string]*Bundle {
 // changes these method bodies and nothing else. If a relocation forces an edit
 // anywhere BELOW this type, the relocation changed behavior.
 type charExposure struct {
-	loader *Loader
+	pipe   *Pipeline
 	seen   map[string][2]string // gate ref → {hash, form}
 	prefer bool
 }
@@ -136,34 +136,34 @@ type charExposure struct {
 func newCharExposure(preferDistilled bool) *charExposure {
 	seen := map[string][2]string{}
 	return &charExposure{
-		loader: NewLoader(nil, WithSeededBundles(charSeed()), WithTrustGate(blockingGate(seen))),
+		pipe:   NewPipeline(NewLoader(nil, WithSeededBundles(charSeed())), blockingGate(seen), preferDistilled),
 		seen:   seen,
 		prefer: preferDistilled,
 	}
 }
 
 func (e *charExposure) fragment(name string) (*LoadedContent, error) {
-	return e.loader.GetFragment(name, e.prefer)
+	return e.pipe.GetFragment(name)
 }
 
 func (e *charExposure) command(name string) (*LoadedContent, error) {
-	return e.loader.GetCommand(name, e.prefer)
+	return e.pipe.GetCommand(name)
 }
 
 func (e *charExposure) commandsFromBundle(bundleRef string) []*LoadedContent {
-	return e.loader.CommandsFromBundleRef(bundleRef, e.prefer)
+	return e.pipe.CommandsFromBundleRef(bundleRef)
 }
 
 func (e *charExposure) fragmentAtVersion(ref, commit string) (*LoadedContent, error) {
-	return e.loader.GetFragmentAtVersion(ref, commit, e.prefer)
+	return e.pipe.GetFragmentAtVersion(ref, commit)
 }
 
 func (e *charExposure) promptAtVersion(ref, commit string) (*LoadedContent, error) {
-	return e.loader.GetPromptAtVersion(ref, commit, e.prefer)
+	return e.pipe.GetPromptAtVersion(ref, commit)
 }
 
 func (e *charExposure) fragmentVersions(ref string, commits []string) []*LoadedContent {
-	return e.loader.ResolveFragmentVersions(ref, commits, e.prefer)
+	return e.pipe.ResolveFragmentVersions(ref, commits)
 }
 
 // fragmentPreimage / commandPreimage exercise the preimage builders the gate's

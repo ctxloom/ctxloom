@@ -14,17 +14,34 @@ import (
 // LoadedContent is a fully resolved fragment or prompt with its bundle
 // metadata, ready to assemble into context.
 type LoadedContent struct {
-	Name         string            // Full name (bundle/item)
-	Bundle       string            // Owning bundle's loader name (canonical ref for remote bundles)
-	Item         string            // Bare fragment/prompt name within the bundle
-	Version      string            // Bundle version
-	Tags         []string          // Combined tags
-	Content      string            // The actual content
-	Installation string            // Setup/installation instructions for tooling
-	IsDistilled  bool              // Whether distilled version was used
-	DistilledBy  string            // Model that created distillation
-	Exports      map[string]string // Exported variables (from generators)
-	LLM          LLMExports        // Per-LLM export settings (slash-command config)
+	Name         string   // Full name (bundle/item)
+	Bundle       string   // Owning bundle's loader name (canonical ref for remote bundles)
+	Item         string   // Bare fragment/prompt name within the bundle
+	Version      string   // Bundle version
+	Tags         []string // Combined tags
+	Content      string   // The actual content
+	Installation string   // Setup/installation instructions for tooling
+	IsDistilled  bool     // Whether distilled version was used
+	DistilledBy  string   // Model that created distillation
+	// Form is the LAYOUT form these exact bytes were selected in ("raw" |
+	// "distilled"). IsDistilled is this same fact as a bool; both come from the
+	// form actually served, never re-derived (a re-derivation drops terms like
+	// no_distill and describes bytes that were never served).
+	Form ContentForm
+	// TrustRef is the ref the trust gate keys this item by:
+	// "<source>#fragments/<name>" or "<source>#prompts/<name>", where source is
+	// the bundle's HONEST source ref (canonical for a cloned bundle so its text
+	// gates like an executable, the local name for a project bundle so its text
+	// auto-trusts). A read FACT the reader establishes, never a decision.
+	TrustRef string
+	// Signer is the owning bundle's VERIFIED publisher identity, or "" when the
+	// bundle is unsigned or was signed by a key this machine does not trust to
+	// publish. It is Bundle.Signer() carried through — stamped only by a load
+	// path that actually verified a signature — so it is never a claim the
+	// content made about itself.
+	Signer  string
+	Exports map[string]string // Exported variables (from generators)
+	LLM     LLMExports        // Per-LLM export settings (slash-command config)
 }
 
 // ExportName returns the short, slash-command-facing name for this item:
@@ -229,14 +246,20 @@ func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
 	return infos, nil
 }
 
-// GetFragment finds and loads a fragment by name.
-// Name can be "fragment-name" (searches all bundles) or "bundle#fragments/name".
+// ReadFragment reports every fragment this reader holds under name, with the
+// trust facts attached and NOTHING dropped on policy grounds. Name can be
+// "fragment-name" (searches all bundles, so several bundles may each answer)
+// or "bundle#fragments/name" (at most one). The process stage decides which of
+// them — if any — may be delivered; see Pipeline.GetFragment.
+//
+// A name that resolves to no item at all is an error (ErrFragmentNotFound):
+// "I do not have this" is a read fact. "You may not see this" is not, and this
+// method never says it.
 //
 // preferDistilled is the CALLER'S form choice, supplied per call rather than
-// baked into the loader: the read stage holds no policy, so two consumers of
-// one loader can ask for different forms. It only ever PREFERS — a fragment
-// with no distilled form, or one that forbids distillation, still serves raw.
-func (l *Loader) GetFragment(name string, preferDistilled bool) (*LoadedContent, error) {
+// baked into the reader. It only ever PREFERS — a fragment with no distilled
+// form, or one that forbids distillation, still reports raw.
+func (l *Loader) ReadFragment(name string, preferDistilled bool) ([]*LoadedContent, error) {
 	bundleName, fragName, isRef, err := splitItemRef(name, "fragments")
 	if err != nil {
 		return nil, err
@@ -262,17 +285,21 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 	return bundleName, parts[1], true, nil
 }
 
-// fragmentContent builds a LoadedContent for a fragment, or returns nil when the
-// trust gate withholds it. The gate receives the EXACT effective-content bytes
-// this returns (pre-mustache) plus the bundle's verified signer, so the decision
-// keys on what the agent would actually see and on who published it.
+// fragmentContent builds a LoadedContent for a fragment: the selected bytes
+// plus the trust facts the process stage decides on. TrustRef is keyed on the
+// bundle's honest source ref (Bundle.contentSourceRef) — canonical for a cloned
+// bundle so its text gates like an executable, the local name for a project
+// bundle so its text auto-trusts — which is the SAME keying the exec gate uses.
+// Content is the EXACT bytes a delivery would carry (pre-mustache), so the gate
+// decides on what the agent would actually see; profile-variable substitution
+// happens after and cannot smuggle content past it.
 func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment, preferDistilled bool) *LoadedContent {
 	payload, form := frag.ContentPayload(preferDistilled)
-	if !l.gateContent(bundle.contentSourceRef(), "fragments", fragName, payload, form, bundle.Signer()) {
-		return nil
-	}
 	content := string(payload)
 	return &LoadedContent{
+		TrustRef:     bundle.contentSourceRef() + "#fragments/" + fragName,
+		Signer:       bundle.Signer(),
+		Form:         form,
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
 		Bundle:       bundle.Name,
 		Item:         fragName,
@@ -288,8 +315,9 @@ func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFra
 	}
 }
 
-// fragmentFromBundle loads a specific bundle and returns the named fragment.
-func (l *Loader) fragmentFromBundle(bundleName, fragName string, preferDistilled bool) (*LoadedContent, error) {
+// fragmentFromBundle loads a specific bundle and reports the named fragment —
+// the single-candidate case of ReadFragment.
+func (l *Loader) fragmentFromBundle(bundleName, fragName string, preferDistilled bool) ([]*LoadedContent, error) {
 	bundle, err := l.Load(bundleName)
 	if err != nil {
 		return nil, err
@@ -298,11 +326,7 @@ func (l *Loader) fragmentFromBundle(bundleName, fragName string, preferDistilled
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundleName)
 	}
-	lc := l.fragmentContent(bundle, fragName, frag, preferDistilled)
-	if lc == nil {
-		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentWithheld, fragName)
-	}
-	return lc, nil
+	return []*LoadedContent{l.fragmentContent(bundle, fragName, frag, preferDistilled)}, nil
 }
 
 // ResolveFragmentAsk resolves a user-supplied fragment ask to the canonical
@@ -340,38 +364,36 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 	return matches[0] + remote.FragmentSelector + name
 }
 
-// searchFragment scans every bundle for a fragment with the given name. A match
-// the trust gate withholds (trust rework, TR5) does not end the scan — a trusted
-// copy in another bundle still wins; only when every match is withheld does it
-// report ErrFragmentWithheld (distinct from not-found).
-func (l *Loader) searchFragment(name string, preferDistilled bool) (*LoadedContent, error) {
+// searchFragment scans every bundle for a fragment with the given name and
+// reports EVERY match, in List order (bundle-name sorted, so the order is
+// deterministic). Reporting all of them is what lets the process stage keep
+// scanning past one it withholds — a trusted copy in another bundle still wins
+// — a decision the reader is in no position to make.
+func (l *Loader) searchFragment(name string, preferDistilled bool) ([]*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
-	withheld := false
+	var out []*LoadedContent
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
 		if frag, ok := bundle.Fragments[name]; ok {
-			if lc := l.fragmentContent(bundle, name, frag, preferDistilled); lc != nil {
-				return lc, nil
-			}
-			withheld = true
+			out = append(out, l.fragmentContent(bundle, name, frag, preferDistilled))
 		}
 	}
-	if withheld {
-		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentWithheld, name)
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%w: %s", errs.ErrFragmentNotFound, name)
 	}
-	return nil, fmt.Errorf("%w: %s", errs.ErrFragmentNotFound, name)
+	return out, nil
 }
 
-// GetCommand finds and loads a command by name.
-// Name can be "command-name" (searches all bundles) or "bundle#commands/name".
-// preferDistilled is the caller's per-call form choice — see GetFragment.
-func (l *Loader) GetCommand(name string, preferDistilled bool) (*LoadedContent, error) {
+// ReadCommand is ReadFragment's command counterpart: every command this reader
+// holds under name, nothing dropped on policy grounds. Name can be
+// "command-name" (searches all bundles) or "bundle#commands/name".
+func (l *Loader) ReadCommand(name string, preferDistilled bool) ([]*LoadedContent, error) {
 	bundleName, promptName, isRef, err := splitItemRef(name, "commands")
 	if err != nil {
 		return nil, err
@@ -383,18 +405,17 @@ func (l *Loader) GetCommand(name string, preferDistilled bool) (*LoadedContent, 
 }
 
 // commandContent builds a LoadedContent for a command (commands also carry
-// Plugins), or returns nil when the trust gate withholds it (trust rework,
-// TR5). See fragmentContent — the gate hashes the exact effective-content
-// bytes returned. The gate ref keeps the "prompts" kind segment
-// (trust.KindPrompt.Dir()), so the item-kind rename does not invalidate
-// existing trust grants.
+// Plugins). See fragmentContent — the same read facts, over the same exact
+// effective-content bytes. TrustRef keeps the "prompts" kind segment
+// (trust.KindPrompt.Dir()) even though the load selector is "#commands/", so
+// the item-kind rename does not invalidate existing trust grants.
 func (l *Loader) commandContent(bundle *Bundle, promptName string, prompt BundleCommand, preferDistilled bool) *LoadedContent {
 	payload, form := prompt.ContentPayload(preferDistilled)
-	if !l.gateContent(bundle.contentSourceRef(), "prompts", promptName, payload, form, bundle.Signer()) {
-		return nil
-	}
 	content := string(payload)
 	return &LoadedContent{
+		TrustRef:     bundle.contentSourceRef() + "#prompts/" + promptName,
+		Signer:       bundle.Signer(),
+		Form:         form,
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
 		Bundle:       bundle.Name,
 		Item:         promptName,
@@ -409,16 +430,15 @@ func (l *Loader) commandContent(bundle *Bundle, promptName string, prompt Bundle
 	}
 }
 
-// CommandsFromBundleRef returns every command shipped by the bundle at
-// bundleRef as fully-resolved LoadedContent, in deterministic (name-sorted)
-// order, or nil if the bundle can't be loaded. This is the command analog of
-// the per-bundle MCP/hook resolution (loadMCPFromBundleRef): it lets command
+// ReadBundleCommands reports every command shipped by the bundle at bundleRef
+// as fully-resolved LoadedContent, in deterministic (name-sorted) order, or
+// nil if the bundle can't be loaded. This is the command analog of the
+// per-bundle MCP/hook resolution (loadMCPFromBundleRef): it lets command
 // exports be scoped to a specific profile's bundles instead of the global
 // ListAllCommands sweep. Deterministic order matters so downstream
-// command-file writes are reproducible. A command the trust gate withholds
-// (commandContent returns nil) is skipped, so a withheld command is never
-// exported as a slash command.
-func (l *Loader) CommandsFromBundleRef(bundleRef string, preferDistilled bool) []*LoadedContent {
+// command-file writes are reproducible. Nothing is dropped on policy grounds —
+// see Pipeline.CommandsFromBundleRef for the gated delivery.
+func (l *Loader) ReadBundleCommands(bundleRef string, preferDistilled bool) []*LoadedContent {
 	bundle, err := l.Load(bundleRef)
 	if err != nil {
 		// Same silent-export defect as SkillsFromBundleRef, same fix, same
@@ -435,15 +455,14 @@ func (l *Loader) CommandsFromBundleRef(bundleRef string, preferDistilled bool) [
 	sort.Strings(names)
 	out := make([]*LoadedContent, 0, len(names))
 	for _, name := range names {
-		if lc := l.commandContent(bundle, name, bundle.Commands[name], preferDistilled); lc != nil {
-			out = append(out, lc)
-		}
+		out = append(out, l.commandContent(bundle, name, bundle.Commands[name], preferDistilled))
 	}
 	return out
 }
 
-// commandFromBundle loads a specific bundle and returns the named command.
-func (l *Loader) commandFromBundle(bundleName, promptName string, preferDistilled bool) (*LoadedContent, error) {
+// commandFromBundle loads a specific bundle and reports the named command —
+// the single-candidate case of ReadCommand.
+func (l *Loader) commandFromBundle(bundleName, promptName string, preferDistilled bool) ([]*LoadedContent, error) {
 	bundle, err := l.Load(bundleName)
 	if err != nil {
 		return nil, err
@@ -452,38 +471,31 @@ func (l *Loader) commandFromBundle(bundleName, promptName string, preferDistille
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundleName)
 	}
-	lc := l.commandContent(bundle, promptName, prompt, preferDistilled)
-	if lc == nil {
-		return nil, fmt.Errorf("%w: %s", errs.ErrCommandWithheld, promptName)
-	}
-	return lc, nil
+	return []*LoadedContent{l.commandContent(bundle, promptName, prompt, preferDistilled)}, nil
 }
 
-// searchCommand scans every bundle for a command with the given name. A gate-
-// withheld match (trust rework, TR5) does not end the scan; only when every
-// match is withheld does it report ErrCommandWithheld (distinct from not-found).
-func (l *Loader) searchCommand(name string, preferDistilled bool) (*LoadedContent, error) {
+// searchCommand scans every bundle for a command with the given name and
+// reports EVERY match, in List order — searchFragment's command twin, for the
+// same reason: only the process stage can say which of them is admissible.
+func (l *Loader) searchCommand(name string, preferDistilled bool) ([]*LoadedContent, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
-	withheld := false
+	var out []*LoadedContent
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
 		if prompt, ok := bundle.Commands[name]; ok {
-			if lc := l.commandContent(bundle, name, prompt, preferDistilled); lc != nil {
-				return lc, nil
-			}
-			withheld = true
+			out = append(out, l.commandContent(bundle, name, prompt, preferDistilled))
 		}
 	}
-	if withheld {
-		return nil, fmt.Errorf("%w: %s", errs.ErrCommandWithheld, name)
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%w: %s", errs.ErrCommandNotFound, name)
 	}
-	return nil, fmt.Errorf("%w: %s", errs.ErrCommandNotFound, name)
+	return out, nil
 }
 
 // ListByTags returns fragments matching any of the given tags.

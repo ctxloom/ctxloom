@@ -81,7 +81,7 @@ func TestLoader_WarnWriterReceivesTheWarnerDiagnostics(t *testing.T) {
 		var warnings strings.Builder
 		l := NewLoader(nil, WithFS(afero.NewMemMapFs()), WithWarnWriter(&warnings))
 
-		got := l.CommandsFromBundleRef("u031-f14-unresolved-ref", false)
+		got := ungated(l, false).CommandsFromBundleRef("u031-f14-unresolved-ref")
 
 		require.Empty(t, got)
 		assert.Contains(t, warnings.String(), "u031-f14-unresolved-ref",

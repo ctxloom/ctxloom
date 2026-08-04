@@ -140,76 +140,99 @@ type reader struct {
 func (r *reader) add(ref trust.Ref, s content.Surface) error {
 	switch v := s.(type) {
 	case content.Fragment:
-		if r.out.Fragments == nil {
-			r.out.Fragments = map[string]bundles.BundleFragment{}
-		}
-		r.out.Fragments[v.Name] = bundles.BundleFragment{
-			Tags:         v.Tags,
-			Notes:        v.Notes,
-			Installation: v.Installation,
-			Content:      v.Body,
-			ContentHash:  v.ContentHash,
-			Distilled:    v.Distilled,
-			DistilledBy:  v.DistilledBy,
-			NoDistill:    v.NoDistill,
-		}
+		r.addFragment(v)
 	case content.Command:
-		if r.out.Commands == nil {
-			r.out.Commands = map[string]bundles.BundleCommand{}
-		}
-		r.out.Commands[v.Name] = bundles.BundleCommand{
-			Description:  v.Description,
-			Tags:         v.Tags,
-			Notes:        v.Notes,
-			Installation: v.Installation,
-			Content:      v.Body,
-			ContentHash:  v.ContentHash,
-			Distilled:    v.Distilled,
-			DistilledBy:  v.DistilledBy,
-			NoDistill:    v.NoDistill,
-			LLM:          commandLLM(v.Exports),
-		}
+		r.addCommand(v)
 	case content.MCP:
-		if r.out.MCP == nil {
-			r.out.MCP = map[string]bundles.BundleMCP{}
-		}
-		r.out.MCP[v.Name] = bundles.BundleMCP{
-			Command:      v.Command,
-			Args:         v.Args,
-			Env:          v.Env,
-			Notes:        v.Notes,
-			Installation: v.Installation,
-			ContentHash:  v.ContentHash,
-		}
+		r.addMCP(v)
 	case content.Hook:
+		// Buffered, not appended: a hook's place in its event's list is its
+		// ORDER, and order is only resolvable once the whole event is in hand.
 		r.hooks[v.Event] = append(r.hooks[v.Event], v)
 	case content.Skill:
-		if r.out.Skills == nil {
-			r.out.Skills = map[string]bundles.BundleSkill{}
-		}
-		files, err := skillManifest(v)
-		if err != nil {
-			return fmt.Errorf("convert: skill %q in tree bundle %q: %w", v.Name, r.bundle, err)
-		}
-		r.out.Skills[v.Name] = bundles.BundleSkill{
-			// Path is left DEFAULT ("skills/<name>"), which is exactly where the
-			// tree puts it. Writing it out explicitly would pin a layout the
-			// surface type already owns, and the two could then disagree.
-			Tags:  v.Tags,
-			Notes: v.Notes,
-			Files: files,
-			LLM:   skillLLM(v.Exports),
-		}
+		return r.addSkill(v)
 	case content.Profile:
-		if r.out.Profiles == nil {
-			r.out.Profiles = map[string]bundles.BundleProfile{}
-		}
-		r.out.Profiles[v.Name] = v.Def
+		r.addProfile(v)
 	default:
 		return fmt.Errorf("convert: tree bundle %q holds %s, a surface kind this reader does not know how to fold into a bundle document; "+
 			"teach Read about it rather than letting it be dropped silently", r.bundle, ref.Key())
 	}
 	return nil
+}
+
+func (r *reader) addFragment(v content.Fragment) {
+	if r.out.Fragments == nil {
+		r.out.Fragments = map[string]bundles.BundleFragment{}
+	}
+	r.out.Fragments[v.Name] = bundles.BundleFragment{
+		Tags:         v.Tags,
+		Notes:        v.Notes,
+		Installation: v.Installation,
+		Content:      v.Body,
+		ContentHash:  v.ContentHash,
+		Distilled:    v.Distilled,
+		DistilledBy:  v.DistilledBy,
+		NoDistill:    v.NoDistill,
+	}
+}
+
+func (r *reader) addCommand(v content.Command) {
+	if r.out.Commands == nil {
+		r.out.Commands = map[string]bundles.BundleCommand{}
+	}
+	r.out.Commands[v.Name] = bundles.BundleCommand{
+		Description:  v.Description,
+		Tags:         v.Tags,
+		Notes:        v.Notes,
+		Installation: v.Installation,
+		Content:      v.Body,
+		ContentHash:  v.ContentHash,
+		Distilled:    v.Distilled,
+		DistilledBy:  v.DistilledBy,
+		NoDistill:    v.NoDistill,
+		LLM:          commandLLM(v.Exports),
+	}
+}
+
+func (r *reader) addMCP(v content.MCP) {
+	if r.out.MCP == nil {
+		r.out.MCP = map[string]bundles.BundleMCP{}
+	}
+	r.out.MCP[v.Name] = bundles.BundleMCP{
+		Command:      v.Command,
+		Args:         v.Args,
+		Env:          v.Env,
+		Notes:        v.Notes,
+		Installation: v.Installation,
+		ContentHash:  v.ContentHash,
+	}
+}
+
+func (r *reader) addSkill(v content.Skill) error {
+	if r.out.Skills == nil {
+		r.out.Skills = map[string]bundles.BundleSkill{}
+	}
+	files, err := skillManifest(v)
+	if err != nil {
+		return fmt.Errorf("convert: skill %q in tree bundle %q: %w", v.Name, r.bundle, err)
+	}
+	r.out.Skills[v.Name] = bundles.BundleSkill{
+		// Path is left DEFAULT ("skills/<name>"), which is exactly where the
+		// tree puts it. Writing it out explicitly would pin a layout the
+		// surface type already owns, and the two could then disagree.
+		Tags:  v.Tags,
+		Notes: v.Notes,
+		Files: files,
+		LLM:   skillLLM(v.Exports),
+	}
+	return nil
+}
+
+func (r *reader) addProfile(v content.Profile) {
+	if r.out.Profiles == nil {
+		r.out.Profiles = map[string]bundles.BundleProfile{}
+	}
+	r.out.Profiles[v.Name] = v.Def
 }
 
 // finishHooks resolves each event's hooks into DECLARED order and appends them.

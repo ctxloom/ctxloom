@@ -53,9 +53,12 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -191,6 +194,9 @@ func j20SeedTreeRemote(w *World, st *j20State) error {
 	if err := j20WriteTree(work, st.authored); err != nil {
 		return err
 	}
+	if err := j20SignTree(work, st); err != nil {
+		return err
+	}
 	for _, a := range [][]string{
 		{"add", "-A"},
 		{"commit", "-m", "publish atelier tree"},
@@ -237,6 +243,41 @@ func j20WriteTree(work string, authored map[string]j20File) error {
 		if err := os.Chmod(full, file.Mode); err != nil {
 			return fmt.Errorf("chmod %s: %w", rel, err)
 		}
+	}
+	return nil
+}
+
+// j20SignTree signs the authored tree with Trent's key, which is what the
+// scenarios' "signed with the company key" actually means: attest.SignBundle
+// builds the tree's SHA256SUMS manifest and writes a detached publisher
+// signature over it into the tree's own .sigs/ store, so both travel with the
+// bundle to a consumer who has never seen its content.
+//
+// It goes through the PRODUCT's signing path rather than hand-writing a manifest
+// and a .sig. Hand-rolling either would make this fixture a second
+// implementation of the signed-tree format, and the first thing it would stop
+// catching is the format drifting out from under it.
+//
+// There is no CLI route to it yet — `ctxloom bundle sign` signs a single file's
+// bytes — so the Go API is used directly (taskloom: no verb signs a tree).
+// Publishing is likewise not the product's job here: remote.NewPublisher refuses
+// generic git hosts, so a bare-repo fixture has to push with git either way.
+func j20SignTree(work string, st *j20State) error {
+	if st.signer == nil {
+		return fmt.Errorf("Trent has no publishing key, so the tree cannot be signed")
+	}
+	root := filepath.Join(work, ".ctxloom", "content", "bundles")
+	store, err := content.NewTreeStore(afero.NewOsFs(), root, content.Provenance{RepoURL: "https://example.test/trent/company"})
+	if err != nil {
+		return fmt.Errorf("open the authored tree at %s: %w", root, err)
+	}
+	ctx := context.Background()
+	bundle, err := store.Open(ctx, content.BundleID(j20Bundle))
+	if err != nil {
+		return fmt.Errorf("open the %q tree for signing: %w", j20Bundle, err)
+	}
+	if err := attest.SignBundle(ctx, store, bundle, st.signer.Signer); err != nil {
+		return fmt.Errorf("sign the %q tree with Trent's key: %w", j20Bundle, err)
 	}
 	return nil
 }

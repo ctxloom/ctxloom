@@ -2141,18 +2141,21 @@ func (c *Config) bundleVersionResolver() bundles.BundleVersionResolver {
 // missing from a session is exactly the failure fail-loudly exists to catch. It
 // warns and continues in degraded mode.
 //
-// The suggested fix is CONDITIONAL, because the default one is actively wrong
-// for a directory-form bundle: its tree pulled fine and is sitting on disk, so
-// "run remote pull" sends the user to repeat a command that already succeeded
-// and will keep succeeding. A fix line that cannot fix the thing it is attached
-// to is worse than no fix line at all.
+// A WITHHELD tree is reported differently, and deliberately: its bytes are on
+// disk and re-pulling would fetch the same ones, so the default fix cannot fix
+// it. It is also not a delivery problem at all — the content disagrees with what
+// its publisher signed — so it is classed as a trust failure, like the
+// single-file tamper branch it mirrors. A fix line that cannot fix the thing it
+// is attached to is worse than no fix line at all.
 func reportBundleLoadFailures(failures map[string]error) {
 	for name, err := range failures {
-		fix := "ctxloom remote pull (or remove the bundle from its profiles)"
-		if errors.Is(err, remote.ErrTreeBundleUnreadable) {
-			fix = "nothing to do locally — this bundle's tree is installed and the tree read path is not built yet; remove the bundle from its profiles to proceed, or re-publish it in single-file form"
+		if errors.Is(err, ErrTreeBundleWithheld) {
+			strictness.FailOnce(strictness.ClassTrust,
+				"re-pull the bundle, or investigate the source — the installed tree does not match the manifest its publisher signed",
+				"remote bundle %q was installed but withheld: %v", name, err)
+			continue
 		}
-		strictness.FailOnce(strictness.ClassBundle, fix,
+		strictness.FailOnce(strictness.ClassBundle, "ctxloom remote pull (or remove the bundle from its profiles)",
 			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 }
@@ -2192,7 +2195,6 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 	reader := remote.NewCachingBundleReader(remote.NewBundleReader(registry, factory, auth, lock))
 
 	rawBytes, failures := remote.LoadAllBytes(context.Background(), reader)
-	reportBundleLoadFailures(failures)
 
 	// The trust root (embedded + user + project allowed_signers) is resolved once
 	// for the whole seed. This is the ONLY place the raw bundle bytes and their
@@ -2201,6 +2203,8 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 	root := c.TrustRoot()
 
 	loaded := make(map[string]*bundles.Bundle, len(rawBytes))
+	c.seedTreeBundles(context.Background(), lock, root, loaded, failures)
+	reportBundleLoadFailures(failures)
 	for canonical, data := range rawBytes {
 		entry, ok := lock.Bundles[canonical]
 		if !ok {

@@ -153,7 +153,7 @@ what is included — belongs to the process stage:
 
 | processing | where | belongs |
 |---|---|---|
-| trust gating | `bundles.Pipeline` (`deliver` → the `ContentGate`) | process ✓ |
+| trust gating | `bundles.Pipeline` (`deliver` → `bundles.Decide` → the `Filter`) | process ✓ |
 | form selection (raw vs distilled) | `bundles.Pipeline` (`ContentForms.Select`) | process ✓ |
 | profile fragment collection | `collectProfileFragments` (operations) | process ✓ |
 | dedupe | `dedupeFragmentRefs` (operations) | process ✓ |

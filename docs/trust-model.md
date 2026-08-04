@@ -340,10 +340,19 @@ trusted only to publish cannot approve content, and vice versa. A signature by a
 key that is not in your trust root, or that is scoped to the wrong namespace, is
 simply **unsigned content to you** — quiet, no error, it takes the review path.
 A signature that is present but does **not** verify over the bytes it sits beside
-(a trusted key over different bytes, or a corrupted blob) is **tamper**: the
-bundle is withheld entirely, never degraded to unsigned. This paragraph is about
-**remote** content, whose bytes crossed an intermediary. Companion loadouts —
-which cross none — are the documented exception; see "Companion loadouts".
+(a trusted key over different bytes, or a corrupted blob) is **tamper**: every
+item in that bundle is withheld, never degraded to unsigned, and never offered
+for review — approving bytes an attacker got demoted from "signed" to "merely
+reviewable" is the whole point of corrupting a `.sig`. A human's earlier
+approval of those exact bytes does not lift it either; an approval covers bytes,
+not a signature.
+
+The bundle itself is still **read**, and reported. A reader that dropped it would
+leave the user with content that is missing and no way to find out why; what
+withholds it is the trust filter, which can name the reason (`tampered`) on the
+same verdict the delivery path decided with. This paragraph is about **remote**
+content, whose bytes crossed an intermediary. Companion loadouts — which cross
+none — are the documented exception; see "Companion loadouts".
 
 Third-party unsigned remotes default to pending; their content is reviewed like
 anything else. Signer keys are managed with `ctxloom trust signer create|list|show|remove`

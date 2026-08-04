@@ -326,7 +326,7 @@ func (l *Loader) Find(name string) (string, error) {
 		}
 
 		// Try directory path: name/bundle.yaml
-		path = filepath.Join(dir, osName, "bundle.yaml")
+		path = filepath.Join(dir, osName, DirectoryFormManifest)
 		if _, err := l.fs.Stat(path); err == nil {
 			return path, nil
 		}
@@ -385,7 +385,7 @@ func (l *Loader) LoadFile(path string) (*Bundle, error) {
 	// files), which a single-file bundle ("<name>.yaml") has no filesystem
 	// room to hold alongside it. Fail loud here rather than let a skill entry
 	// silently resolve against a directory that doesn't exist.
-	if len(bundle.Skills) > 0 && filepath.Base(path) != "bundle.yaml" {
+	if len(bundle.Skills) > 0 && filepath.Base(path) != DirectoryFormManifest {
 		return nil, fmt.Errorf("bundle %s: skills require a directory-form bundle (bundle.yaml + skills/<name>/), not a single-file bundle (%s)", bundle.Name, filepath.Base(path))
 	}
 
@@ -503,7 +503,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 			}
 			if info.IsDir() {
 				// Check for bundle.yaml in directories
-				bundlePath := filepath.Join(path, "bundle.yaml")
+				bundlePath := filepath.Join(path, DirectoryFormManifest)
 				if _, err := l.fs.Stat(bundlePath); err == nil {
 					relPath, _ := filepath.Rel(dir, path)
 					bundleName := filepath.ToSlash(relPath)
@@ -529,7 +529,7 @@ func (l *Loader) List() ([]*BundleInfo, error) {
 
 			name := info.Name()
 			// Check for .yaml files (bundle files)
-			if strings.HasSuffix(name, ".yaml") && name != "bundle.yaml" {
+			if strings.HasSuffix(name, ".yaml") && name != DirectoryFormManifest {
 				relPath, _ := filepath.Rel(dir, path)
 				bundleName := strings.TrimSuffix(filepath.ToSlash(relPath), ".yaml")
 				if seen.Has(bundleName) {

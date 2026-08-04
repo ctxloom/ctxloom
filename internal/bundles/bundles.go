@@ -1054,6 +1054,21 @@ func ValidateBundleName(name string) error {
 	return nil
 }
 
+// DirectoryFormManifest is the file a DIRECTORY-form bundle's manifest lives in:
+// "<name>/bundle.yaml", as opposed to the single-file "<name>.yaml".
+//
+// The name is what distinguishes the two shapes everywhere — the loader's search
+// order, ExtractBundleName's parent-directory rule, the skills-require-a-
+// directory refusal, and the move guard that refuses to strand a directory's
+// other files. It was a literal at each of those, which is one spelling per site
+// of a fact that has to agree at all of them.
+//
+// internal/remote states it a SECOND time (remote.BundleManifestName) and must:
+// bundles imports remote, so remote cannot import this back. That duplication is
+// structural rather than careless, and the two are pinned to each other by the
+// fetch/read tests rather than by a shared symbol.
+const DirectoryFormManifest = "bundle.yaml"
+
 // ExtractBundleName derives a bundle's name from its file path: the parent
 // directory name for a "bundle.yaml" leaf, else the filename without
 // extension. Exported so other packages addressing a bundle FILE as a
@@ -1064,7 +1079,7 @@ func ExtractBundleName(path string) string {
 	base := filepath.Base(path)
 
 	// If it's bundle.yaml, use parent directory name
-	if base == "bundle.yaml" {
+	if base == DirectoryFormManifest {
 		return filepath.Base(filepath.Dir(path))
 	}
 

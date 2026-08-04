@@ -3,6 +3,7 @@ package operations
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -114,6 +115,10 @@ func MoveBundle(ctx context.Context, cfg *config.Config, req MoveBundleRequest) 
 	if err != nil {
 		return nil, err
 	}
+	// Before anything is written or removed: refuse a move that cannot be whole.
+	if err := requireWholeMovable(fs, name, src); err != nil {
+		return nil, err
+	}
 	dest, err := resolveMoveDest(cfg, fs, req.To)
 	if err != nil {
 		return nil, err
@@ -149,6 +154,66 @@ func moveByDest(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBu
 	default:
 		return nil, fmt.Errorf("unsupported move destination kind %q", dest.Kind)
 	}
+}
+
+// requireWholeMovable refuses a move whose source carries files the move cannot
+// take with it (taskloom hurried-showplace).
+//
+// A move is a publish-or-copy followed by a DELETION of the source, and both
+// writers carry exactly two files: the bundle manifest and its detached .sig.
+// For a single-file bundle that is the whole bundle. For a DIRECTORY-form
+// bundle it is not — everything else in the directory stays behind and is then
+// orphaned when the manifest is deleted, leaving neither copy whole, at exit 0,
+// with no warning. Skills are the only reason directory form exists at all
+// (bundles.Loader refuses `skills:` in single-file form), so the failure lands
+// squarely on the thing the shape was created to carry.
+//
+// The check is by PAYLOAD, not by shape: a directory-form bundle holding nothing
+// but its manifest loses nothing and still moves. And it is stated as "anything
+// that is not the manifest or its signature" rather than as "skills/", so it
+// covers a tree-form bundle's fragments/ and prompts/ too — publish cannot carry
+// those either, and a skills-only guard would have let them vanish the same way.
+//
+// It runs BEFORE the destination is even resolved. A guard that fired after the
+// write would have already produced the split state it exists to prevent.
+//
+// This is a REFUSAL, not the fix. The fix is a publish that writes a whole tree
+// (taskloom excusable-flatness); until that exists, not starting is the only
+// outcome that leaves the user's bundle intact.
+func requireWholeMovable(fs afero.Fs, name, src string) error {
+	if filepath.Base(src) != bundles.DirectoryFormManifest {
+		return nil
+	}
+	dir := filepath.Dir(src)
+	var stranded []string
+	err := afero.Walk(fs, dir, func(p string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if p == src || p == src+sigSuffix {
+			return nil
+		}
+		rel, relErr := filepath.Rel(dir, p)
+		if relErr != nil {
+			return relErr
+		}
+		stranded = append(stranded, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("inspect the %q bundle directory %s before moving it: %w", name, dir, err)
+	}
+	if len(stranded) == 0 {
+		return nil
+	}
+	sort.Strings(stranded)
+	return fmt.Errorf("refusing to move %q: it is a directory-form bundle and moving carries only %s (and its signature), "+
+		"so %d file(s) would be left behind and orphaned when the source manifest is deleted — %s. "+
+		"Publishing a whole bundle tree is not built yet; copy the directory by hand, or keep the bundle here until it is",
+		name, bundles.DirectoryFormManifest, len(stranded), strings.Join(stranded, ", "))
 }
 
 // loadMoveSource resolves the authored bundle to move, returning its canonical

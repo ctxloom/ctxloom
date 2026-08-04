@@ -153,7 +153,16 @@ func NewPublishRemoteStore(path string, fs afero.Fs) *PublishRemoteStore {
 // ~/.ctxloom/publish_remotes.yaml. An unresolvable home yields an UNCONFIGURED
 // store rather than an error, so construction stays total; the fault surfaces
 // at the gate, where it fails closed.
+//
+// This is also the narrowest point at which publish consent is actually
+// consulted — every caller (list/allow/deny/forget and the publish gate
+// itself) routes through here, and nothing at unconditional startup does —
+// so it is where the orphaned legacy marker directory
+// (paths.LegacyPublishRemotesDirName) gets swept: a session that never
+// touches publish never pays for it. See sweepLegacyPublishRemotesDir for the
+// safety discipline that guards the deletion.
 func DefaultPublishRemoteStore() *PublishRemoteStore {
+	sweepLegacyPublishRemotesDir()
 	path, err := paths.HomePublishRemotesPath()
 	if err != nil {
 		path = ""

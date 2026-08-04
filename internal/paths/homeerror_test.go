@@ -30,7 +30,7 @@ func withUnresolvableHome(t *testing.T) string {
 // TestHomeRootedResolvers_WrapTheHomeFailure pins the diagnostic contract for
 // this package's home root.
 //
-// Thirteen exported resolvers hang off one os.UserHomeDir call, and each used
+// Fourteen exported resolvers hang off one os.UserHomeDir call, and each used
 // to return its error verbatim. The result was that thirteen different
 // questions — where is the session index, where is the trust root, where is
 // this harp's transcript — all failed with the identical four-word string
@@ -46,13 +46,14 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 	bare := withUnresolvableHome(t)
 
 	noArg := map[string]func() (string, error){
-		"HomeSessionsDir":           HomeSessionsDir,
-		"SessionIndexPath":          SessionIndexPath,
-		"HomeApprovalsPath":         HomeApprovalsPath,
-		"HomePublishRemotesPath":    HomePublishRemotesPath,
-		"HomeAllowedSignersPath":    HomeAllowedSignersPath,
-		"HomeDistrustedSignersPath": HomeDistrustedSignersPath,
-		"TriggerCacheDir":           TriggerCacheDir,
+		"HomeSessionsDir":             HomeSessionsDir,
+		"SessionIndexPath":            SessionIndexPath,
+		"HomeApprovalsPath":           HomeApprovalsPath,
+		"HomePublishRemotesPath":      HomePublishRemotesPath,
+		"HomeLegacyPublishRemotesDir": HomeLegacyPublishRemotesDir,
+		"HomeAllowedSignersPath":      HomeAllowedSignersPath,
+		"HomeDistrustedSignersPath":   HomeDistrustedSignersPath,
+		"TriggerCacheDir":             TriggerCacheDir,
 	}
 	harpArg := map[string]func(string) (string, error){
 		"HarpDir":                            HarpDir,

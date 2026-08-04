@@ -65,6 +65,18 @@ const (
 	// USER-SCOPED ONLY — unlike ApprovalsDirName there is no committable twin;
 	// see HomePublishRemotesPath for why.
 	PublishRemotesFileName = "publish_remotes"
+
+	// LegacyPublishRemotesDirName is PublishRemotesFileName's PRE-ADMISSION
+	// name: the directory (~/.ctxloom/publish-remotes/, hyphenated) the
+	// confirmed-publish-remote store used to be — a MARKER DIRECTORY holding
+	// one <sha256>.confirmed file per confirmed remote, the file's EXISTENCE
+	// being the whole record. It was replaced by a single
+	// admission.Store-backed YAML file at PublishRemotesFileName, and nothing
+	// reads consent from here anymore (this project carries no compatibility
+	// shims; a user who had confirmed remotes there is simply asked once
+	// more). This constant exists ONLY so the orphaned directory can be
+	// found and swept — see remote.sweepLegacyPublishRemotesDir.
+	LegacyPublishRemotesDirName = "publish-remotes"
 	// CompanionConsentFileName is the name (without extension) of the
 	// trust-on-first-use record for EXECUTING a companion binary — see
 	// HomeCompanionConsentPath. It is deliberately a PERSONAL-only file with no
@@ -442,6 +454,23 @@ func HomePublishRemotesPath() (string, error) {
 		return "", fmt.Errorf("resolve the confirmed publish-remote store ~/%s/%s.yaml: %w", AppDirName, PublishRemotesFileName, err)
 	}
 	return filepath.Join(home, AppDirName, PublishRemotesFileName+".yaml"), nil
+}
+
+// HomeLegacyPublishRemotesDir returns ~/.ctxloom/publish-remotes — the
+// directory the pre-admission confirmed-publish-remote store used to live in
+// (see LegacyPublishRemotesDirName). Nothing reads consent from here anymore;
+// it exists purely so the orphaned directory can be located and swept.
+//
+// Like every other home-rooted resolver here, an unresolvable $HOME is
+// returned as an error rather than papered over — the caller (the sweep) must
+// refuse to act rather than fall back to a path relative to its own working
+// directory.
+func HomeLegacyPublishRemotesDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve the legacy publish-remote marker directory ~/%s/%s: %w", AppDirName, LegacyPublishRemotesDirName, err)
+	}
+	return filepath.Join(home, AppDirName, LegacyPublishRemotesDirName), nil
 }
 
 // HomeCompanionConsentPath returns ~/.ctxloom/companion_consent.yaml — the

@@ -11,8 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 )
 
-// LoadedContent is a fully resolved fragment or prompt with its bundle
-// metadata, ready to assemble into context.
+// LoadedContent is a fragment or command that has been through the PROCESS
+// stage: one form SELECTED and those exact bytes ADMITTED by the trust gate. It
+// is what gets delivered, and Pipeline is the only thing that produces one — a
+// read produces an ItemRead, which carries no selected body at all.
 type LoadedContent struct {
 	Name         string   // Full name (bundle/item)
 	Bundle       string   // Owning bundle's loader name (canonical ref for remote bundles)
@@ -28,6 +30,39 @@ type LoadedContent struct {
 	// form actually served, never re-derived (a re-derivation drops terms like
 	// no_distill and describes bytes that were never served).
 	Form ContentForm
+	// TrustRef / Signer are the read facts this delivery decision was made on,
+	// carried through so a delivered item names its own provenance. See
+	// ItemRead, which is where they originate.
+	TrustRef string
+	Signer   string
+	Exports  map[string]string // Exported variables (from generators)
+	LLM      LLMExports        // Per-LLM export settings (slash-command config)
+}
+
+// ItemRead is what a READ reports for one fragment or command: every form the
+// store holds, the item's metadata, and the trust FACTS the reader established
+// while reading it. It carries no selected body and no verdict — selecting a
+// form and deciding admissibility are both PROCESS-stage work
+// (docs/design/engine-delivery-seam.design.md, "ALL processing lives in the
+// middle"), and Pipeline is what turns one of these into a LoadedContent.
+//
+// Keeping it a distinct type from LoadedContent is deliberate: a caller holding
+// a read result must not be able to reach a body that no gate has cleared and
+// no form has been chosen for. There is no such field to reach.
+type ItemRead struct {
+	Name         string     // Full name (bundle/item)
+	Bundle       string     // Owning bundle's loader name (canonical ref for remote bundles)
+	Item         string     // Bare fragment/command name within the bundle
+	Version      string     // Bundle version
+	Tags         []string   // Combined tags
+	Installation string     // Setup/installation instructions for tooling
+	DistilledBy  string     // Model that created the distillation, if any
+	LLM          LLMExports // Per-LLM export settings (slash-command config)
+
+	// Forms is every form of this item the store holds — the read's answer to
+	// "what have you got", with nothing picked.
+	Forms ContentForms
+
 	// TrustRef is the ref the trust gate keys this item by:
 	// "<source>#fragments/<name>" or "<source>#prompts/<name>", where source is
 	// the bundle's HONEST source ref (canonical for a cloned bundle so its text
@@ -37,11 +72,12 @@ type LoadedContent struct {
 	// Signer is the owning bundle's VERIFIED publisher identity, or "" when the
 	// bundle is unsigned or was signed by a key this machine does not trust to
 	// publish. It is Bundle.Signer() carried through — stamped only by a load
-	// path that actually verified a signature — so it is never a claim the
-	// content made about itself.
-	Signer  string
-	Exports map[string]string // Exported variables (from generators)
-	LLM     LLMExports        // Per-LLM export settings (slash-command config)
+	// path that actually verified a signature, before any parse — so it is never
+	// a claim the content made about itself.
+	//
+	// Establishing it is READING: the reader keeps its signature awareness. What
+	// it no longer does is act on it.
+	Signer string
 }
 
 // ExportName returns the short, slash-command-facing name for this item:
@@ -256,18 +292,17 @@ func (l *Loader) ListAllCommands() ([]ContentInfo, error) {
 // "I do not have this" is a read fact. "You may not see this" is not, and this
 // method never says it.
 //
-// preferDistilled is the CALLER'S form choice, supplied per call rather than
-// baked into the reader. It only ever PREFERS — a fragment with no distilled
-// form, or one that forbids distillation, still reports raw.
-func (l *Loader) ReadFragment(name string, preferDistilled bool) ([]*LoadedContent, error) {
+// It carries NO form preference. What comes back holds every form the store has
+// for the item (ItemRead.Forms); the process stage picks.
+func (l *Loader) ReadFragment(name string) ([]*ItemRead, error) {
 	bundleName, fragName, isRef, err := splitItemRef(name, "fragments")
 	if err != nil {
 		return nil, err
 	}
 	if isRef {
-		return l.fragmentFromBundle(bundleName, fragName, preferDistilled)
+		return l.fragmentFromBundle(bundleName, fragName)
 	}
-	return l.searchFragment(name, preferDistilled)
+	return l.searchFragment(name)
 }
 
 // splitItemRef parses a "bundle#kind/name" reference. isRef reports whether a
@@ -285,39 +320,29 @@ func splitItemRef(name, want string) (bundleName, itemName string, isRef bool, e
 	return bundleName, parts[1], true, nil
 }
 
-// fragmentContent builds a LoadedContent for a fragment: the selected bytes
+// fragmentRead builds the ItemRead for a fragment: every form the store holds
 // plus the trust facts the process stage decides on. TrustRef is keyed on the
 // bundle's honest source ref (Bundle.contentSourceRef) — canonical for a cloned
 // bundle so its text gates like an executable, the local name for a project
 // bundle so its text auto-trusts — which is the SAME keying the exec gate uses.
-// Content is the EXACT bytes a delivery would carry (pre-mustache), so the gate
-// decides on what the agent would actually see; profile-variable substitution
-// happens after and cannot smuggle content past it.
-func (l *Loader) fragmentContent(bundle *Bundle, fragName string, frag BundleFragment, preferDistilled bool) *LoadedContent {
-	payload, form := frag.ContentPayload(preferDistilled)
-	content := string(payload)
-	return &LoadedContent{
-		TrustRef:     bundle.contentSourceRef() + "#fragments/" + fragName,
-		Signer:       bundle.Signer(),
-		Form:         form,
+func (l *Loader) fragmentRead(bundle *Bundle, fragName string, frag BundleFragment) *ItemRead {
+	return &ItemRead{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, fragName),
 		Bundle:       bundle.Name,
 		Item:         fragName,
 		Version:      bundle.Version,
 		Tags:         slices.Concat(bundle.Tags, frag.Tags),
-		Content:      content,
 		Installation: frag.Installation,
-		// From the form resolveEffective actually chose, never re-derived:
-		// a re-derivation drops terms (no_distill) and describes bytes that
-		// were never served.
-		IsDistilled: form == FormDistilled,
-		DistilledBy: frag.DistilledBy,
+		DistilledBy:  frag.DistilledBy,
+		Forms:        frag.Forms(),
+		TrustRef:     bundle.contentSourceRef() + "#fragments/" + fragName,
+		Signer:       bundle.Signer(),
 	}
 }
 
 // fragmentFromBundle loads a specific bundle and reports the named fragment —
 // the single-candidate case of ReadFragment.
-func (l *Loader) fragmentFromBundle(bundleName, fragName string, preferDistilled bool) ([]*LoadedContent, error) {
+func (l *Loader) fragmentFromBundle(bundleName, fragName string) ([]*ItemRead, error) {
 	bundle, err := l.Load(bundleName)
 	if err != nil {
 		return nil, err
@@ -326,7 +351,7 @@ func (l *Loader) fragmentFromBundle(bundleName, fragName string, preferDistilled
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundleName)
 	}
-	return []*LoadedContent{l.fragmentContent(bundle, fragName, frag, preferDistilled)}, nil
+	return []*ItemRead{l.fragmentRead(bundle, fragName, frag)}, nil
 }
 
 // ResolveFragmentAsk resolves a user-supplied fragment ask to the canonical
@@ -369,19 +394,19 @@ func (l *Loader) ResolveFragmentAsk(name string) string {
 // deterministic). Reporting all of them is what lets the process stage keep
 // scanning past one it withholds — a trusted copy in another bundle still wins
 // — a decision the reader is in no position to make.
-func (l *Loader) searchFragment(name string, preferDistilled bool) ([]*LoadedContent, error) {
+func (l *Loader) searchFragment(name string) ([]*ItemRead, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
-	var out []*LoadedContent
+	var out []*ItemRead
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
 		if frag, ok := bundle.Fragments[name]; ok {
-			out = append(out, l.fragmentContent(bundle, name, frag, preferDistilled))
+			out = append(out, l.fragmentRead(bundle, name, frag))
 		}
 	}
 	if len(out) == 0 {
@@ -393,40 +418,34 @@ func (l *Loader) searchFragment(name string, preferDistilled bool) ([]*LoadedCon
 // ReadCommand is ReadFragment's command counterpart: every command this reader
 // holds under name, nothing dropped on policy grounds. Name can be
 // "command-name" (searches all bundles) or "bundle#commands/name".
-func (l *Loader) ReadCommand(name string, preferDistilled bool) ([]*LoadedContent, error) {
+func (l *Loader) ReadCommand(name string) ([]*ItemRead, error) {
 	bundleName, promptName, isRef, err := splitItemRef(name, "commands")
 	if err != nil {
 		return nil, err
 	}
 	if isRef {
-		return l.commandFromBundle(bundleName, promptName, preferDistilled)
+		return l.commandFromBundle(bundleName, promptName)
 	}
-	return l.searchCommand(name, preferDistilled)
+	return l.searchCommand(name)
 }
 
-// commandContent builds a LoadedContent for a command (commands also carry
-// Plugins). See fragmentContent — the same read facts, over the same exact
-// effective-content bytes. TrustRef keeps the "prompts" kind segment
-// (trust.KindPrompt.Dir()) even though the load selector is "#commands/", so
-// the item-kind rename does not invalidate existing trust grants.
-func (l *Loader) commandContent(bundle *Bundle, promptName string, prompt BundleCommand, preferDistilled bool) *LoadedContent {
-	payload, form := prompt.ContentPayload(preferDistilled)
-	content := string(payload)
-	return &LoadedContent{
-		TrustRef:     bundle.contentSourceRef() + "#prompts/" + promptName,
-		Signer:       bundle.Signer(),
-		Form:         form,
+// commandRead builds the ItemRead for a command. See fragmentRead — the same
+// read facts. TrustRef keeps the "prompts" kind segment (trust.KindPrompt.Dir())
+// even though the load selector is "#commands/", so the item-kind rename does
+// not invalidate existing trust grants.
+func (l *Loader) commandRead(bundle *Bundle, promptName string, prompt BundleCommand) *ItemRead {
+	return &ItemRead{
 		Name:         fmt.Sprintf("%s/%s", bundle.Name, promptName),
 		Bundle:       bundle.Name,
 		Item:         promptName,
 		Version:      bundle.Version,
 		Tags:         slices.Concat(bundle.Tags, prompt.Tags),
-		Content:      content,
 		Installation: prompt.Installation,
-		// See fragmentContent: the served form is the only honest source.
-		IsDistilled: form == FormDistilled,
-		DistilledBy: prompt.DistilledBy,
-		LLM:         prompt.LLM,
+		DistilledBy:  prompt.DistilledBy,
+		LLM:          prompt.LLM,
+		Forms:        prompt.Forms(),
+		TrustRef:     bundle.contentSourceRef() + "#prompts/" + promptName,
+		Signer:       bundle.Signer(),
 	}
 }
 
@@ -438,7 +457,7 @@ func (l *Loader) commandContent(bundle *Bundle, promptName string, prompt Bundle
 // ListAllCommands sweep. Deterministic order matters so downstream
 // command-file writes are reproducible. Nothing is dropped on policy grounds —
 // see Pipeline.CommandsFromBundleRef for the gated delivery.
-func (l *Loader) ReadBundleCommands(bundleRef string, preferDistilled bool) []*LoadedContent {
+func (l *Loader) ReadBundleCommands(bundleRef string) []*ItemRead {
 	bundle, err := l.Load(bundleRef)
 	if err != nil {
 		// Same silent-export defect as SkillsFromBundleRef, same fix, same
@@ -453,16 +472,16 @@ func (l *Loader) ReadBundleCommands(bundleRef string, preferDistilled bool) []*L
 		names = append(names, name)
 	}
 	sort.Strings(names)
-	out := make([]*LoadedContent, 0, len(names))
+	out := make([]*ItemRead, 0, len(names))
 	for _, name := range names {
-		out = append(out, l.commandContent(bundle, name, bundle.Commands[name], preferDistilled))
+		out = append(out, l.commandRead(bundle, name, bundle.Commands[name]))
 	}
 	return out
 }
 
 // commandFromBundle loads a specific bundle and reports the named command —
 // the single-candidate case of ReadCommand.
-func (l *Loader) commandFromBundle(bundleName, promptName string, preferDistilled bool) ([]*LoadedContent, error) {
+func (l *Loader) commandFromBundle(bundleName, promptName string) ([]*ItemRead, error) {
 	bundle, err := l.Load(bundleName)
 	if err != nil {
 		return nil, err
@@ -471,25 +490,25 @@ func (l *Loader) commandFromBundle(bundleName, promptName string, preferDistille
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundleName)
 	}
-	return []*LoadedContent{l.commandContent(bundle, promptName, prompt, preferDistilled)}, nil
+	return []*ItemRead{l.commandRead(bundle, promptName, prompt)}, nil
 }
 
 // searchCommand scans every bundle for a command with the given name and
 // reports EVERY match, in List order — searchFragment's command twin, for the
 // same reason: only the process stage can say which of them is admissible.
-func (l *Loader) searchCommand(name string, preferDistilled bool) ([]*LoadedContent, error) {
+func (l *Loader) searchCommand(name string) ([]*ItemRead, error) {
 	bundles, err := l.List()
 	if err != nil {
 		return nil, err
 	}
-	var out []*LoadedContent
+	var out []*ItemRead
 	for _, bundleInfo := range bundles {
 		bundle, err := l.LoadFile(bundleInfo.Path)
 		if err != nil {
 			continue
 		}
 		if prompt, ok := bundle.Commands[name]; ok {
-			out = append(out, l.commandContent(bundle, name, prompt, preferDistilled))
+			out = append(out, l.commandRead(bundle, name, prompt))
 		}
 	}
 	if len(out) == 0 {

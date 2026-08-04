@@ -107,13 +107,13 @@ func splitBundleVersion(bundleRef string) (canonical, version string) {
 // the reader never falls back to a different one. A bare-name ref (no "#") has
 // no bundle to pin a version against and resolves via the ordinary search
 // (commit ignored).
-func (l *Loader) ReadFragmentAtVersion(ref, commit string, preferDistilled bool) ([]*LoadedContent, error) {
+func (l *Loader) ReadFragmentAtVersion(ref, commit string) ([]*ItemRead, error) {
 	bundleRef, fragName, isRef, err := splitItemRef(ref, "fragments")
 	if err != nil {
 		return nil, err
 	}
 	if !isRef {
-		return l.searchFragment(ref, preferDistilled)
+		return l.searchFragment(ref)
 	}
 	bundle, err := l.bundleAtVersion(bundleRef, commit)
 	if err != nil {
@@ -123,19 +123,19 @@ func (l *Loader) ReadFragmentAtVersion(ref, commit string, preferDistilled bool)
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrFragmentNotFound, fragName, bundle.Name)
 	}
-	return []*LoadedContent{l.fragmentContent(bundle, fragName, frag, preferDistilled)}, nil
+	return []*ItemRead{l.fragmentRead(bundle, fragName, frag)}, nil
 }
 
 // ReadCommandAtVersion is the command counterpart to ReadFragmentAtVersion: a
 // command from a specific commit-version of its bundle, carrying that version's
 // own bytes under the version-less TrustRef.
-func (l *Loader) ReadCommandAtVersion(ref, commit string, preferDistilled bool) ([]*LoadedContent, error) {
+func (l *Loader) ReadCommandAtVersion(ref, commit string) ([]*ItemRead, error) {
 	bundleRef, promptName, isRef, err := splitItemRef(ref, "commands")
 	if err != nil {
 		return nil, err
 	}
 	if !isRef {
-		return l.searchCommand(ref, preferDistilled)
+		return l.searchCommand(ref)
 	}
 	bundle, err := l.bundleAtVersion(bundleRef, commit)
 	if err != nil {
@@ -145,7 +145,7 @@ func (l *Loader) ReadCommandAtVersion(ref, commit string, preferDistilled bool) 
 	if !ok {
 		return nil, fmt.Errorf("%w: %q in bundle %q", errs.ErrCommandNotFound, promptName, bundle.Name)
 	}
-	return []*LoadedContent{l.commandContent(bundle, promptName, prompt, preferDistilled)}, nil
+	return []*ItemRead{l.commandRead(bundle, promptName, prompt)}, nil
 }
 
 // ReadFragmentVersions reports the fragment named by ref at each requested
@@ -157,13 +157,13 @@ func (l *Loader) ReadCommandAtVersion(ref, commit string, preferDistilled bool) 
 // A version that fails to fetch or parse is omitted — the reader does not HAVE
 // it, which is a read fact, not a filtering decision — and its omission never
 // falls back to a different version.
-func (l *Loader) ReadFragmentVersions(ref string, commits []string, preferDistilled bool) []*LoadedContent {
+func (l *Loader) ReadFragmentVersions(ref string, commits []string) []*ItemRead {
 	if len(commits) == 0 {
 		commits = []string{""}
 	}
-	var out []*LoadedContent
+	var out []*ItemRead
 	for _, commit := range commits {
-		reads, err := l.ReadFragmentAtVersion(ref, commit, preferDistilled)
+		reads, err := l.ReadFragmentAtVersion(ref, commit)
 		if err != nil {
 			continue
 		}

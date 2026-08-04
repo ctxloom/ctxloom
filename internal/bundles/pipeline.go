@@ -82,9 +82,9 @@ type Pipeline struct {
 
 	// preferDistilled is the caller's raw-vs-distilled choice, held HERE
 	// because form selection is processing: the read stage reports every form
-	// the store holds and this stage picks one. It only ever PREFERS — an item
-	// with no distilled form, or one whose author forbade distillation, still
-	// serves raw.
+	// the store holds (ItemRead.Forms) and this stage picks one. It only ever
+	// PREFERS — an item with no distilled form, or one whose author forbade
+	// distillation, still serves raw.
 	preferDistilled bool
 
 	withheldMu sync.Mutex
@@ -164,14 +164,40 @@ func (p *Pipeline) admit(ref string, payload []byte, form ContentForm, signer st
 	return false
 }
 
-// admitContent is admit for a resolved fragment/command, keyed on the read
-// facts the reader attached: the item's own gate ref, the exact bytes it
-// selected, the form it selected them in, and the bundle's verified signer.
-func (p *Pipeline) admitContent(lc *LoadedContent) bool {
-	if lc == nil {
-		return false
+// deliver is the process stage in one function: SELECT a form from everything
+// the read reported, then decide whether those exact bytes may be exposed.
+// Returns nil when they may not.
+//
+// The two steps are here, in this order, and nowhere else. Selecting first is
+// what makes the gate's decision cover the bytes actually served — a grant
+// binds the PAIR (bytes, form), so a raw-form approval must never validate a
+// distilled exposure.
+func (p *Pipeline) deliver(r *ItemRead) *LoadedContent {
+	if r == nil {
+		return nil
 	}
-	return p.admit(lc.TrustRef, []byte(lc.Content), lc.Form, lc.Signer)
+	payload, form := r.Forms.Select(p.preferDistilled)
+	if !p.admit(r.TrustRef, payload, form, r.Signer) {
+		return nil
+	}
+	return &LoadedContent{
+		Name:         r.Name,
+		Bundle:       r.Bundle,
+		Item:         r.Item,
+		Version:      r.Version,
+		Tags:         r.Tags,
+		Content:      string(payload),
+		Installation: r.Installation,
+		// From the form Select actually chose, never re-derived: a
+		// re-derivation drops terms (no_distill) and describes bytes that were
+		// never served.
+		IsDistilled: form == FormDistilled,
+		DistilledBy: r.DistilledBy,
+		LLM:         r.LLM,
+		Form:        form,
+		TrustRef:    r.TrustRef,
+		Signer:      r.Signer,
+	}
 }
 
 // admitSkill is admit for a resolved skill package. A skill's preimage is its
@@ -190,10 +216,10 @@ func (p *Pipeline) admitSkill(ls *LoadedSkill) bool {
 // not end the scan — a trusted copy of the same bare name in another bundle
 // still wins. found reports whether the read produced any candidate at all,
 // which is what separates "withheld" from "not found".
-func (p *Pipeline) firstAdmissible(reads []*LoadedContent) (lc *LoadedContent, found bool) {
+func (p *Pipeline) firstAdmissible(reads []*ItemRead) (lc *LoadedContent, found bool) {
 	for _, cand := range reads {
-		if p.admitContent(cand) {
-			return cand, true
+		if out := p.deliver(cand); out != nil {
+			return out, true
 		}
 	}
 	return nil, len(reads) > 0
@@ -206,7 +232,7 @@ func (p *Pipeline) firstAdmissible(reads []*LoadedContent) (lc *LoadedContent, f
 // and "this does not exist" are different facts and the user acts on them
 // differently.
 func (p *Pipeline) GetFragment(name string) (*LoadedContent, error) {
-	reads, err := p.loader.ReadFragment(name, p.preferDistilled)
+	reads, err := p.loader.ReadFragment(name)
 	if err != nil {
 		return nil, err
 	}
@@ -223,7 +249,7 @@ func (p *Pipeline) GetFragment(name string) (*LoadedContent, error) {
 // GetCommand is GetFragment's command counterpart. Name can be
 // "command-name" (searches all bundles) or "bundle#commands/name".
 func (p *Pipeline) GetCommand(name string) (*LoadedContent, error) {
-	reads, err := p.loader.ReadCommand(name, p.preferDistilled)
+	reads, err := p.loader.ReadCommand(name)
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +267,7 @@ func (p *Pipeline) GetCommand(name string) (*LoadedContent, error) {
 // that may be delivered, in the reader's deterministic (name-sorted) order.
 // A withheld command is omitted, so it is never exported as a slash command.
 func (p *Pipeline) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
-	reads := p.loader.ReadBundleCommands(bundleRef, p.preferDistilled)
+	reads := p.loader.ReadBundleCommands(bundleRef)
 	if reads == nil {
 		// The reader could not resolve the bundle at all and already warned.
 		// nil, not an empty slice: "this bundle would not load" must stay
@@ -249,8 +275,8 @@ func (p *Pipeline) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
 		return nil
 	}
 	out := make([]*LoadedContent, 0, len(reads))
-	for _, lc := range reads {
-		if p.admitContent(lc) {
+	for _, r := range reads {
+		if lc := p.deliver(r); lc != nil {
 			out = append(out, lc)
 		}
 	}
@@ -262,7 +288,7 @@ func (p *Pipeline) CommandsFromBundleRef(bundleRef string) []*LoadedContent {
 // is trusted or withheld independently. A fetch/parse failure surfaces as a
 // resolve error; both it and a gate denial withhold only that version.
 func (p *Pipeline) GetFragmentAtVersion(ref, commit string) (*LoadedContent, error) {
-	reads, err := p.loader.ReadFragmentAtVersion(ref, commit, p.preferDistilled)
+	reads, err := p.loader.ReadFragmentAtVersion(ref, commit)
 	if err != nil {
 		return nil, err
 	}
@@ -278,7 +304,7 @@ func (p *Pipeline) GetFragmentAtVersion(ref, commit string) (*LoadedContent, err
 
 // GetPromptAtVersion is GetFragmentAtVersion's prompt counterpart.
 func (p *Pipeline) GetPromptAtVersion(ref, commit string) (*LoadedContent, error) {
-	reads, err := p.loader.ReadCommandAtVersion(ref, commit, p.preferDistilled)
+	reads, err := p.loader.ReadCommandAtVersion(ref, commit)
 	if err != nil {
 		return nil, err
 	}
@@ -307,11 +333,12 @@ func (p *Pipeline) GetPromptAtVersion(ref, commit string) (*LoadedContent, error
 // Results preserve request order. Withheld versions are tallied through
 // Withheld so the caller can surface "N withheld" without leaking content.
 func (p *Pipeline) ResolveFragmentVersions(ref string, commits []string) []*LoadedContent {
-	reads := p.loader.ReadFragmentVersions(ref, commits, p.preferDistilled)
+	reads := p.loader.ReadFragmentVersions(ref, commits)
 	seen := collections.NewSet[string]()
 	var out []*LoadedContent
-	for _, lc := range reads {
-		if !p.admitContent(lc) {
+	for _, r := range reads {
+		lc := p.deliver(r)
+		if lc == nil {
 			continue
 		}
 		key := hashContent([]byte(lc.Content))

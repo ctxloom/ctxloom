@@ -441,6 +441,45 @@ func resolveEffective(preferDistilled bool, content, distilled string, noDistill
 	return content, FormRaw
 }
 
+// ContentForms is EVERY form of a distillable item the store holds: the
+// authored body, its distillation when one exists, and the author's refusal of
+// the distilled form. It is what a READ reports — the read stage has no form
+// preference and picks nothing (docs/design/engine-delivery-seam.design.md,
+// "ALL processing lives in the middle"); the process stage looks at this and
+// decides.
+//
+// The absence of a distilled form is itself information the caller can see
+// (Distilled == ""), which is why this is a struct of forms rather than one
+// pre-picked body: "there is no distilled form" and "the distilled form was not
+// preferred" are different facts about an item and only the first is a read
+// fact.
+type ContentForms struct {
+	Raw       string // the authored body; always present
+	Distilled string // the distillation, or "" when the store holds none
+	NoDistill bool   // the author forbade serving the distilled form
+}
+
+// Select picks the bytes to serve for a form preference and reports the LAYOUT
+// form they were selected in. It routes through resolveEffective — the SAME
+// single compute primitive ContentPayload and EffectiveContentHash use — so
+// what the process stage selects and what the trust preimage covers cannot
+// drift. It only ever PREFERS: an item with no distilled form, or one that
+// forbids distillation, still serves raw.
+func (f ContentForms) Select(preferDistilled bool) ([]byte, ContentForm) {
+	content, form := resolveEffective(preferDistilled, f.Raw, f.Distilled, f.NoDistill)
+	return []byte(content), form
+}
+
+// Forms reports every form of this fragment the store holds.
+func (f *BundleFragment) Forms() ContentForms {
+	return ContentForms{Raw: f.Content, Distilled: f.Distilled, NoDistill: f.NoDistill}
+}
+
+// Forms reports every form of this command the store holds.
+func (p *BundleCommand) Forms() ContentForms {
+	return ContentForms{Raw: p.Content, Distilled: p.Distilled, NoDistill: p.NoDistill}
+}
+
 // staleDistill is the one shared compare primitive: it reports whether a
 // distillable item's distilled form is stale relative to its raw content (the
 // re-distillation check). It compares the RECORDED hash against a freshly

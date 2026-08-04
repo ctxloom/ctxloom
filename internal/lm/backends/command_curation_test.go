@@ -74,7 +74,7 @@ func TestLoadCommandExports_CuratedSetExportsExactlyThose(t *testing.T) {
 		"p": {Commands: []string{"dev-tools#commands/review"}},
 	})
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
 	assert.ElementsMatch(t, []string{"review"}, bundlePromptItems(prompts),
 		"only the profile-listed prompt is exported; the globally-flagged 'hidden' is suppressed")
@@ -90,7 +90,7 @@ func TestLoadCommandExports_UncuratedProfileWithoutBundlesExportsNoBundleCommand
 		"p": {}, // no prompts: list, no bundles
 	})
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
 	assert.Empty(t, bundlePromptItems(prompts),
 		"an uncurated profile referencing no bundles exports no bundle commands (scoped, not global)")
@@ -106,7 +106,7 @@ func TestLoadCommandExports_CurationUnionsParentsAndDefaults(t *testing.T) {
 		"other": {Commands: []string{"dev-tools#commands/commit"}},
 	})
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
 	assert.ElementsMatch(t, []string{"review", "explain", "commit"}, bundlePromptItems(prompts),
 		"curated set unions parent (review) + child (explain) + the other default (commit); 'hidden' stays suppressed")
@@ -125,7 +125,7 @@ func TestLoadCommandExports_CuratedForceEnablesOptOut(t *testing.T) {
 		"p": {Commands: []string{"dev-tools#commands/optout"}},
 	})
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(seed))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, seed))
 	require.Equal(t, []string{"optout"}, bundlePromptItems(prompts))
 
 	// The downstream backend mapper must see it ENABLED despite the bundle's
@@ -168,7 +168,7 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 	cfg.SetExecutableTrustGate(func(_ref string, payload []byte, _form, _signer string) bool {
 		return bundles.HashPayload(payload) == want
 	})
-	prompts := LoadCommandExports(cfg, nil, bundles.WithVersionResolver(resolver))
+	prompts := LoadCommandExports(cfg, nil, config.WithBundleVersionResolver(resolver))
 	require.Equal(t, []string{"review"}, bundlePromptItems(prompts))
 	for _, p := range prompts {
 		if p.Item == "review" {
@@ -179,6 +179,6 @@ func TestLoadCommandExports_CuratedVersionPinnedAndGated(t *testing.T) {
 	// Gate denying the pinned version → withheld, so no bundle prompt exports
 	// (fail-closed; only builtins remain).
 	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return false })
-	denied := LoadCommandExports(cfg, nil, bundles.WithVersionResolver(resolver))
+	denied := LoadCommandExports(cfg, nil, config.WithBundleVersionResolver(resolver))
 	assert.Empty(t, bundlePromptItems(denied), "an un-granted pinned curated version must be withheld")
 }

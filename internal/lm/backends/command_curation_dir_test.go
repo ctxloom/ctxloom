@@ -80,7 +80,7 @@ func TestLoadCommandExports_DirProfileCuratedSetExportsExactlyThose(t *testing.T
 		"x": "commands:\n  - \"dev-tools#commands/review\"\n",
 	}, nil)
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
 	assert.ElementsMatch(t, []string{"review"}, bundlePromptItems(prompts),
 		"only the directory profile's listed prompt is exported; the globally-flagged 'hidden' is suppressed")
@@ -106,7 +106,7 @@ func TestLoadCommandExports_DirProfileUncuratedScopesToReferencedBundles(t *test
 		}},
 	}
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(seed))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, seed))
 
 	items := bundlePromptItems(prompts)
 	assert.ElementsMatch(t, []string{"review", "explain"}, items,
@@ -124,7 +124,7 @@ func TestLoadCommandExports_DirProfileCurationUnionsParents(t *testing.T) {
 		"child": "parents:\n  - base\ncommands:\n  - \"dev-tools#commands/explain\"\n",
 	}, nil)
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
 	assert.ElementsMatch(t, []string{"review", "explain"}, bundlePromptItems(prompts),
 		"curated set unions the directory parent (review) + child (explain); 'hidden'/'commit' stay suppressed")
@@ -143,7 +143,7 @@ func TestLoadCommandExports_DirProfileMergesWithInlineDefault(t *testing.T) {
 			"inlineP": {Commands: []string{"dev-tools#commands/review"}},
 		})
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
 	assert.ElementsMatch(t, []string{"review", "commit"}, bundlePromptItems(prompts),
 		"curated set unions the inline default (review) with the directory default (commit)")
@@ -165,7 +165,7 @@ func TestLoadCommandExports_DirProfileCuratedGated(t *testing.T) {
 	cfg := dirCurationCfg(t, []string{"x"}, map[string]string{
 		"x": "commands:\n  - \"dev-tools#commands/review\"\n",
 	}, nil)
-	seed := bundles.WithSeededBundles(devToolsSeed())
+	seed := seedOption(t, devToolsSeed())
 
 	// Gate granting exactly the review prompt's content hash → exported.
 	want := promptRawHash("REVIEW")
@@ -196,7 +196,7 @@ func TestLoadCommandExports_DirProfileCuratedPinRoutedAndFailClosed(t *testing.T
 		"x": "commands:\n  - \"dev-tools#commands/review@c1\"\n",
 	}, nil)
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 
 	assert.Empty(t, bundlePromptItems(prompts),
 		"a curated @<commit> pin that can't be resolved is fail-closed, not silently downgraded to the unpinned HEAD")

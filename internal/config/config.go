@@ -1942,8 +1942,9 @@ func strandedCacheEntry(fs afero.Fs, path string, info os.FileInfo, err error) b
 type BundleLoaderOption func(*bundleLoaderConfig)
 
 type bundleLoaderConfig struct {
-	fs           afero.Fs
-	extraReaders []bundles.Reader
+	fs              afero.Fs
+	extraReaders    []bundles.Reader
+	versionResolver bundles.BundleVersionResolver
 }
 
 // WithBundleLoaderFS overrides the filesystem the PROJECT reader reads from
@@ -1960,6 +1961,15 @@ func WithBundleLoaderFS(fsys afero.Fs) BundleLoaderOption {
 // an extra reader shadows a project bundle of the same name.
 func WithExtraBundleReaders(readers ...bundles.Reader) BundleLoaderOption {
 	return func(c *bundleLoaderConfig) { c.extraReaders = append(c.extraReaders, readers...) }
+}
+
+// WithBundleVersionResolver overrides how the loader materializes a specific
+// historical commit-version of a bundle. The default is this Config's own
+// resolver (the clone cache for remote refs, the project's git history for
+// local ones); a test injects a fake so a pinned "@<commit>" ask is answerable
+// without a repository.
+func WithBundleVersionResolver(resolver bundles.BundleVersionResolver) BundleLoaderOption {
+	return func(c *bundleLoaderConfig) { c.versionResolver = resolver }
 }
 
 // BundleLoader returns the read-path bundle loader: a bundles.Loader composed
@@ -2008,7 +2018,11 @@ func (c *Config) BundleLoader(opts ...BundleLoaderOption) *bundles.Loader {
 	// remote bundle via FetchItem. This is opt-in at the loader's version-aware
 	// methods only — the default (lockfile-pinned) path is unaffected — so wiring
 	// it everywhere is free until a caller asks for an "@<commit>" version.
-	if resolver := c.bundleVersionResolver(); resolver != nil {
+	resolver := lc.versionResolver
+	if resolver == nil {
+		resolver = c.bundleVersionResolver()
+	}
+	if resolver != nil {
 		loader.WithVersionResolver(resolver)
 	}
 	return loader

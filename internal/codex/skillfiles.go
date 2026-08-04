@@ -1,8 +1,6 @@
 package codex
 
 import (
-	"path"
-
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -19,19 +17,5 @@ const codexSkillManifest = ".ctxloom-skills-manifest"
 // this render mapping was deleted as dead — test-only, dragging
 // skillsDirFor/codexSkillsDir with it.
 func writeCodexSkillPackages(fs afero.Fs, skillsDir string, skills []agent.SkillExport) error {
-	return agent.WriteManagedPackageFiles(fs, skillsDir, codexSkillManifest, skills,
-		func(s agent.SkillExport) bool { return s.Enabled },
-		func(s agent.SkillExport) string { return s.Name },
-		func(s agent.SkillExport) ([]agent.PackageFile, error) {
-			out := make([]agent.PackageFile, len(s.Files))
-			for i, f := range s.Files {
-				out[i] = agent.PackageFile{
-					RelPath: path.Join(s.Name, f.RelPath),
-					Content: f.Content,
-					Mode:    f.Mode,
-				}
-			}
-			return out, nil
-		},
-	)
+	return agent.WriteManagedSkillPackages(fs, skillsDir, codexSkillManifest, skills)
 }

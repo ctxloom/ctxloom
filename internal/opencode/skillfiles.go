@@ -1,7 +1,6 @@
 package opencode
 
 import (
-	"path"
 	"path/filepath"
 
 	"github.com/spf13/afero"
@@ -30,25 +29,12 @@ const opencodeSkillManifest = ".ctxloom-skills-manifest"
 // skill package lands at <workDir>/.opencode/skill/<name>/SKILL.md (+ sibling
 // files), exec bit preserved on scripts/ entries. ctxloom tracks its writes
 // via a manifest distinct from commands' so the two surfaces' cleanup never
-// collides (see agent.WriteManagedPackageFiles for the shared mechanics).
+// collides (see agent.WriteManagedSkillPackages for the shared mechanics —
+// this writer supplies only opencode's directory and manifest name).
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	dir := filepath.Join(workDir, filepath.FromSlash(opencodeSkillDir))
-	return agent.WriteManagedPackageFiles(fs, dir, opencodeSkillManifest, skills,
-		func(s agent.SkillExport) bool { return s.Enabled },
-		func(s agent.SkillExport) string { return s.Name },
-		func(s agent.SkillExport) ([]agent.PackageFile, error) {
-			out := make([]agent.PackageFile, len(s.Files))
-			for i, f := range s.Files {
-				out[i] = agent.PackageFile{
-					RelPath: path.Join(s.Name, f.RelPath),
-					Content: f.Content,
-					Mode:    f.Mode,
-				}
-			}
-			return out, nil
-		},
-	)
+	return agent.WriteManagedSkillPackages(fs, dir, opencodeSkillManifest, skills)
 }
 
 // reconcileSkillsSurface writes (or reverts) the skill package tree via

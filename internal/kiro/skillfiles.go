@@ -1,7 +1,6 @@
 package kiro
 
 import (
-	"path"
 	"path/filepath"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -30,20 +29,5 @@ const kiroSkillManifest = ".ctxloom-skills-manifest"
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	skillsDir := filepath.Join(workDir, filepath.FromSlash(kiroSkillsDir))
-
-	return agent.WriteManagedPackageFiles(fs, skillsDir, kiroSkillManifest, skills,
-		func(s agent.SkillExport) bool { return s.Enabled },
-		func(s agent.SkillExport) string { return s.Name },
-		func(s agent.SkillExport) ([]agent.PackageFile, error) {
-			out := make([]agent.PackageFile, len(s.Files))
-			for i, f := range s.Files {
-				out[i] = agent.PackageFile{
-					RelPath: path.Join(s.Name, f.RelPath),
-					Content: f.Content,
-					Mode:    f.Mode,
-				}
-			}
-			return out, nil
-		},
-	)
+	return agent.WriteManagedSkillPackages(fs, skillsDir, kiroSkillManifest, skills)
 }

@@ -261,13 +261,18 @@ func branchRef(branch string) string {
 	return "refs/heads/" + branch
 }
 
-// CreateBranch is REFUSED, and refusing it here is what makes the pull-request
-// strategy fail before anything is written rather than after.
-//
-// A generic git host has no pull requests — that is a forge API, and the
-// generic adapter is deliberately nothing but git. publishViaPR's first act is
-// to create the branch, so a refusal at this point leaves no orphan branch and
-// no pushed content behind a PR that could never be opened.
+// pullRequestSupport declares up front that this publisher cannot open pull
+// requests, so the PR strategy is refused BEFORE any branch, commit or push —
+// no orphan branch and no pushed content behind a PR that could never be
+// opened. See the unexported pullRequestRefuser capability in publish.go.
+func (p *GitPublisher) pullRequestSupport() error {
+	return errNoPullRequests(p.repoURL)
+}
+
+// CreateBranch is REFUSED for the same reason as CreatePullRequest: a branch
+// pushed for a PR that cannot be opened is litter on someone else's
+// repository. Reachable only if a caller drives the Publisher interface
+// directly, past pullRequestSupport.
 func (p *GitPublisher) CreateBranch(_ context.Context, _, _, _, _ string) error {
 	return errNoPullRequests(p.repoURL)
 }

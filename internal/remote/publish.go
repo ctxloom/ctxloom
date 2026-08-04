@@ -280,6 +280,14 @@ type defaultBrancher interface {
 	defaultBranch(ctx context.Context) (string, error)
 }
 
+// pullRequestRefuser is the optional Publisher capability of declaring, up
+// front, that it cannot open pull requests. Unexported for the same reason as
+// defaultBrancher: it adds no exported surface, and GitHubPublisher does not
+// implement it, so the PR strategy is unchanged there.
+type pullRequestRefuser interface {
+	pullRequestSupport() error
+}
+
 // resolvePublishBranch returns opts.Branch, or the repo's default branch when
 // the caller didn't pin one — asking the publisher itself when it can answer,
 // otherwise the forge fetcher.
@@ -474,6 +482,17 @@ func (pm *PublishManager) publishDirect(ctx context.Context, prep *publishPrep) 
 // publishViaPR creates a feature branch, commits the content there, and opens a
 // pull request against the target branch.
 func (pm *PublishManager) publishViaPR(ctx context.Context, prep *publishPrep, opts PublishOptions) (*PublishResult, error) {
+	// A publisher that cannot open pull requests says so HERE, before the
+	// branch, the commits or the base-ref lookup — otherwise the first thing
+	// the caller sees is whatever incidental step failed first (the generic
+	// git adapter has no API fetcher, so it used to surface as "failed to
+	// create fetcher", which names neither the real limitation nor the fix).
+	if r, ok := prep.publisher.(pullRequestRefuser); ok {
+		if err := r.pullRequestSupport(); err != nil {
+			return nil, err
+		}
+	}
+
 	branchName := fmt.Sprintf("ctxloom/%s/%s-%d", opts.ItemType, prep.itemName, time.Now().Unix())
 
 	fetcher, err := pm.fetcherFactory(prep.repoURL, pm.auth)

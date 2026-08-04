@@ -236,6 +236,13 @@ func runProbe(ctx context.Context, name string, args ...string) (string, error) 
 // developer never sets it.
 const EnvBinary = "CTXLOOM_CELL_BINARY"
 
+// prebuiltBinary is captured at package init for the reason dockergate's
+// `required` is: it is in testsupport.EnvKeys, so Isolate (and the acceptance
+// suite's TestMain) CLEARS it, and a lazy read would silently rebuild a binary
+// the lane had already produced — or, worse, read a half-cleared environment
+// and disagree with itself between two calls.
+var prebuiltBinary = os.Getenv(EnvBinary)
+
 var (
 	binOnce sync.Once
 	binPath string
@@ -269,7 +276,7 @@ func Binary(ctx context.Context) (string, error) {
 }
 
 func buildBinary(ctx context.Context) (string, error) {
-	if p := os.Getenv(EnvBinary); p != "" {
+	if p := prebuiltBinary; p != "" {
 		if _, err := os.Stat(p); err != nil {
 			return "", fmt.Errorf("%s=%q does not exist: %w", EnvBinary, p, err)
 		}

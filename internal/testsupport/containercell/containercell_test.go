@@ -131,10 +131,23 @@ func TestReport_NamesEveryRuntimeAndItsReason(t *testing.T) {
 // TestBinary_RejectsAMissingPrebuiltBinary: EnvBinary is the CI shortcut, and a
 // stale path must fail loudly rather than falling back to a build the lane
 // thought it had already done.
+//
+// It manipulates prebuiltBinary rather than the env var, for the same reason
+// dockergate's tests manipulate `required` directly: the variable is captured
+// once at package init (it is in testsupport.EnvKeys and therefore CLEARED by
+// Isolate), so t.Setenv here would change nothing and the test would silently
+// fall through to a real build.
 func TestBinary_RejectsAMissingPrebuiltBinary(t *testing.T) {
-	t.Setenv(EnvBinary, "/nonexistent/ctxloom")
-	if _, err := buildBinary(t.Context()); err == nil {
+	old := prebuiltBinary
+	prebuiltBinary = "/nonexistent/ctxloom"
+	t.Cleanup(func() { prebuiltBinary = old })
+
+	_, err := buildBinary(t.Context())
+	if err == nil {
 		t.Fatal("expected an error for a missing prebuilt binary")
+	}
+	if !strings.Contains(err.Error(), EnvBinary) {
+		t.Fatalf("error does not name the variable that pointed at the missing binary: %v", err)
 	}
 }
 

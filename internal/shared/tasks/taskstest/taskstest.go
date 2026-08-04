@@ -95,6 +95,16 @@ var EnvKeys = []string{
 	// any test, and therefore before any Isolate) by the self-test that proves
 	// the sandbox guard can go red — clearing it here is harmless.
 	"CTXLOOM_TEST_SANDBOX_OFF",
+	// The container cell's two knobs (internal/testsupport/containercell,
+	// internal/testsupport/dockergate), listed for the same reason as
+	// CTXLOOM_REQUIRE_DOCKER above rather than because either is production
+	// state. CTXLOOM_REQUIRE_RUNTIMES names the runtimes a CI lane claims to
+	// cover, so an unreachable one FAILS instead of skipping green;
+	// CTXLOOM_CELL_BINARY points the cell at a prebuilt static ctxloom. Both
+	// are read ONCE at their package's init, precisely so clearing them here
+	// cannot demote a lane's declared coverage back to a skip.
+	"CTXLOOM_REQUIRE_RUNTIMES",
+	"CTXLOOM_CELL_BINARY",
 	// Same again for gitfixture.go's EnvAllowMissingGit, a non-_test.go file
 	// under internal/ that the same sweep reaches. It is read ONCE at package
 	// init for the identical reason dockergate reads its knob there: a fixture

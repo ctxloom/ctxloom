@@ -182,10 +182,18 @@ type BundleRead struct {
 	// Bundle is the parsed content. Never nil in a read a reader emitted.
 	Bundle *Bundle
 
-	// Provenance labels the source class. It is exported because it is a
-	// diagnostic label with no gate keyed on it — but no reader takes it as a
-	// constructor argument either: each reader hard-codes its own, so a caller
-	// cannot ask for builtin-labelled content.
+	// Provenance labels the source class. No reader takes it as a constructor
+	// argument: each hard-codes its own, so a caller cannot ask a reader for
+	// builtin-labelled content.
+	//
+	// It stays EXPORTED, and that is now a deliberate line rather than a free
+	// one: the decision function reads it to name WHICH first-party exemption
+	// allowed an item (local / builtin / companion). What it cannot do is create
+	// an exemption, because the exemption is gated on trustCtx, which is
+	// unexported. Flipping this field on a REMOTE read buys nothing — that read
+	// reaches no first-party arm at all — and flipping it on a local read only
+	// changes which true first-party name the allow is reported under. The axis
+	// that decides is still one no caller can write.
 	Provenance ProvenanceClass
 
 	// ref is this bundle's RESOLUTION identity — the name a profile or a

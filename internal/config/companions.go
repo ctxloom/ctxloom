@@ -197,12 +197,15 @@ func companionVersion(path string) (string, error) {
 // afterwards buys ~nothing and costs a review prompt for content the user
 // deliberately installed, so the decision the human is asked to make is moved
 // to where it has purchase: may ctxloom EXECUTE this file (see
-// companion_admission.go's trust-on-first-use). Content that survives that gate
-// is LOCAL-EQUIVALENT and allowed at EffectiveTrust's companion step — it is
-// NOT reviewed like a remote bundle. Rejection still reaches it (step 1), a
-// signature that fails to verify is still tamper and still withholds (see
-// ProbeCompanionLoadouts below), and an unreadable approvals store still denies
-// it along with everything else. See docs/trust-model.md, "Companion loadouts".
+// companion_admission.go's trust-on-first-use, keyed on absolute path + binary
+// hash). Content that survives that gate is LOCAL-EQUIVALENT and allowed at
+// EffectiveTrust's companion step — it is NOT reviewed like a remote bundle,
+// and its SIGNATURE does not gate it either (a loadout's bytes cross no
+// intermediary, so a publisher signature has nothing to protect them from
+// here; signature facts are reported as diagnostics — see
+// ProbeCompanionLoadouts). Rejection still reaches it (step 1) and an
+// unreadable approvals store still denies it along with everything else. See
+// docs/trust-model.md, "Companion loadouts".
 //
 // Discovery here only finds candidate binaries; admission decides which get
 // exec'd, and every surviving loadout is seeded into Config.SeededBundleLoader
@@ -334,18 +337,17 @@ func CompanionsDisabled() bool {
 //
 // A companion that is absent from PATH, not admitted for execution, whose probe
 // fails or times out (including a first-party name that does not implement
-// `loadout` yet, e.g. reprise today), or whose loadout is unparseable is
-// SKIPPED with a warning — NEVER fatal, NEVER a crash, NEVER a stalled startup.
+// `loadout` yet, e.g. reprise today), or whose loadout is STRUCTURALLY
+// unusable — unparseable envelope, unrecognized contract, non-base64 or empty
+// bundle, unparseable bundle YAML — is SKIPPED with a warning: NEVER fatal,
+// NEVER a crash, NEVER a stalled startup. Those cases produced no content in
+// the first place, so there is nothing to admit.
 //
-// A loadout whose signature FAILS to verify is skipped for a different and
-// sharper reason: SIGNED-BUT-INVALID IS NOT UNSIGNED. Unsigned-and-installed is
-// now trusted (see the section header above), but a signature that does not
-// verify over the bytes it accompanies is TAMPER EVIDENCE, and tamper must
-// withhold. That is why the skip lives HERE, at the envelope, rather than
-// being left to the trust gate: the gate's companion step would allow the
-// bundle, so a tampered loadout that reached it would be laundered into
-// local-equivalent content. It never reaches it — it is absent from the
-// returned map entirely.
+// A SIGNATURE that does not verify is NOT one of those cases. It is reported
+// and the content is still delivered — see the switch in the body for why, and
+// docs/trust-model.md's "Companion loadouts" for the argument. Reporting
+// replaces filtering here: nothing about a loadout's signature is dropped
+// silently, and nothing about it gates.
 //
 // Probes run concurrently (mirrors ProbeCompanions), each bounded by
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
@@ -384,10 +386,40 @@ func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
 				}
 				return
 			}
-			bundleBytes, signer, derr := signing.DecodeLoadoutEnvelope(raw, root, time.Now())
+			bundleBytes, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
 			if derr != nil {
-				clidiag.Warn("ctxloom", "companion %q: invalid loadout envelope, withholding: %v", bin, derr)
+				// STRUCTURAL failure — no content was produced at all. Nothing
+				// to admit, so this half still withholds.
+				clidiag.Warn("ctxloom", "companion %q: unparseable loadout envelope, withholding: %v", bin, derr)
 				return
+			}
+			// SIGNATURE FACTS ARE DIAGNOSTICS HERE, NOT GATES. Companion content
+			// is LOCAL: these bytes came straight off the stdout of a binary the
+			// user consented to execute, with no intermediary in between — and an
+			// intermediary is precisely the threat a publisher signature exists
+			// to catch. A signature that fails to verify at this seam therefore
+			// means the companion's own release shipped a stale or mismatched
+			// signature, which is a BUG signal, not an attack signal. Say so and
+			// deliver the content; dropping it would punish the user for the
+			// companion's build error. The control that DOES catch a swapped
+			// binary is the hash-keyed exec consent in companion_admission.go.
+			//
+			// (A REMOTE bundle keeps the opposite posture — invalid withholds —
+			// because its bytes crossed a network and a forge. Same parse, two
+			// postures: see signing.ParseLoadoutEnvelope.)
+			signer, verr := signing.VerifyPublisher(bundleBytes, sig, root, time.Now())
+			switch {
+			case verr != nil:
+				clidiag.Warn("ctxloom",
+					"companion %q: its loadout signature does not verify over its own bytes — most likely a stale or "+
+						"mismatched signature in the companion's release, so report it to the companion's authors; "+
+						"delivering the content anyway, unattributed (%v)", bin, verr)
+				signer = ""
+			case len(sig) > 0 && signer == "":
+				clidiag.WarnOnce("ctxloom",
+					"companion %q: its loadout is signed by a key this machine does not trust to publish; "+
+						"delivering the content anyway (companion content is admitted at exec, not by signature), "+
+						"unattributed", bin)
 			}
 			b, perr := bundles.ParseBundle(bundleBytes)
 			if perr != nil {

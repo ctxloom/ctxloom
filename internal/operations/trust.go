@@ -408,12 +408,18 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	//     from ctxloom's own install directory).
 	//
 	//     A distinct step below rejection, exactly like builtin, so step 1 still
-	//     reaches it. Two things this step deliberately does NOT do: it does not
-	//     launder a TAMPERED loadout (a signature that fails to verify is
-	//     dropped at the envelope by config.ProbeCompanionLoadouts and never
-	//     becomes a seeded bundle, so nothing tampered is ever evaluated here),
-	//     and it does not escape the unreadable-approvals-store gate above,
-	//     which denies every item including this one.
+	//     reaches it — and it does not escape the unreadable-approvals-store
+	//     gate above, which denies every item including this one.
+	//
+	//     A companion's SIGNATURE does not enter this decision in either
+	//     direction. A publisher signature protects bytes from an intermediary,
+	//     and a loadout has none: it arrives on the stdout of a binary the user
+	//     already consented to run. config.ProbeCompanionLoadouts therefore
+	//     REPORTS a signature that fails to verify (a stale or mismatched
+	//     signature in the companion's own release — a bug signal, not an
+	//     attack signal) and seeds the content unattributed, rather than
+	//     withholding it. What catches a swapped companion binary is the
+	//     hash-keyed exec consent, not this step.
 	if req.Ref.IsCompanion {
 		return decide(trust.Allow, trust.SourceCompanion), nil
 	}

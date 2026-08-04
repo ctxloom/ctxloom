@@ -127,17 +127,26 @@ people trip over. So, precisely:
 repos, corporate and personal and third-party. Any publisher who is not you.
 
 **Companion loadouts are the exception, and the exception is instructive.** They
-used to be listed above. They are not any more: a loadout is read by **executing**
-the companion binary, so reviewing its content puts the prompt strictly *after*
-the arbitrary code execution it would be protecting you from. Content review in
-that position buys ~nothing and costs friction on a tool the user deliberately
-installed — and routine prompts are how you teach people to click through the
-ones that matter. The decision moved to the point that *does* have purchase:
-**whether ctxloom may run the binary at all**, recorded trust-on-first-use
-against the binary's absolute path and SHA-256, and refused outright in any
-non-interactive session. Signing still matters for a loadout — a signature that
-*fails* to verify is tamper and withholds the bundle entirely — it simply is not
-what admits it. See `docs/trust-model.md`, "Companion loadouts".
+used to be listed above. They are not any more, for two connected reasons.
+
+A loadout is read by **executing** the companion binary, so reviewing its
+content puts the prompt strictly *after* the arbitrary code execution it would be
+protecting you from. Content review in that position buys ~nothing and costs
+friction on a tool the user deliberately installed — and routine prompts are how
+you teach people to click through the ones that matter. The decision moved to the
+point that *does* have purchase: **whether ctxloom may run the binary at all**,
+recorded trust-on-first-use against the binary's absolute path and SHA-256, and
+refused outright in any non-interactive session.
+
+A loadout's **signature** does not gate it either, and this is the sharper
+point. A publisher signature protects bytes from an **intermediary** — a forge,
+a network, a tampered clone object. A loadout has none: its bytes arrive on the
+stdout of a process the user just consented to start. A signature that fails to
+verify there is therefore a stale or mismatched signature in the companion's own
+release — a bug signal — so the content is **admitted with a warning**, never
+withheld and never called tampering. A remote bundle keeps the opposite posture,
+because its bytes crossed exactly the intermediary a loadout's do not. See
+`docs/trust-model.md`, "Companion loadouts".
 
 **They do not gate your own project's repo.** A bundle committed at
 `.ctxloom/bundles/*.yaml` is a `ctxloom:local` ref (`internal/remote/reference.go:17`)
@@ -291,11 +300,12 @@ approval requires the victim to already trust the attacker's key, at which point
 the attacker did not need the approval — they could have signed the content.
 Authority comes from the key, never from the file's location on disk.
 
-Companion loadouts ride this same model for *authentication*: a signed loadout is
-judged by its signer exactly like any other bundle content, and one whose
-signature does not verify is withheld as tamper. What they do **not** ride is
-review — see "Scope" above and `docs/trust-model.md`'s "Companion loadouts". The
-gate for a companion is exec, not content, because exec happens first.
+Companion loadouts are the one place this model does **not** apply. A loadout's
+signature is a diagnostic, not an authority: it is reported (unsigned, does not
+verify, signer untrusted) and the content is admitted either way, because the
+gate for a companion is exec, not content — and there is no intermediary between
+the binary and ctxloom for a signature to protect against. See "Scope" above and
+`docs/trust-model.md`'s "Companion loadouts".
 
 ## Bootstrapping trust, per root
 
@@ -426,9 +436,9 @@ The org key and the reviewer key are separate keys, scoped by the `namespaces=`
 option that `allowed_signers` already has. That option *is* the role system, for
 free: a publish-only key cannot approve content even if it is stolen, and an
 approve-only key cannot publish under the org's name. Signed companion loadouts go
-out the same way and are authenticated by their signer like anything else — with
-the difference that a companion's admission is decided at exec rather than by
-review (see "Scope").
+out the same way, though for a companion the signature only ever *attributes* the
+content — it never decides whether it is admitted, which happens at exec (see
+"Scope").
 
 Every Acme developer who trusts those keys gets verified, pre-approved content
 with zero review prompts, zero secrets on their machine, and no key of their own.

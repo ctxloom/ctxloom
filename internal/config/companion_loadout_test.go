@@ -1,12 +1,14 @@
 package config
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,6 +17,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
@@ -136,6 +139,99 @@ func TestProbeCompanionLoadouts_ProbeFailureSkippedNotCrash(t *testing.T) {
 
 	got := ProbeCompanionLoadouts(nil)
 	assert.Empty(t, got, "a companion whose loadout probe fails contributes nothing, and must not panic")
+}
+
+// TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld pins the
+// posture for a signature that FAILS to verify.
+//
+// This test asserts the OPPOSITE of what an earlier draft did. A publisher
+// signature protects bytes from an INTERMEDIARY, and a companion loadout has
+// none — the bytes arrive on the stdout of a binary the user already consented
+// to execute. So a signature that does not verify here is a stale or mismatched
+// signature in the companion's own release: a bug signal, not an attack signal.
+// Withholding the loadout would punish the user for the companion's build
+// error. The control that catches a SWAPPED companion binary is the hash-keyed
+// exec consent, not this.
+//
+// Two assertions, and the second is the one that matters: the content arrives,
+// AND the failure is said out loud. Reporting is what replaces filtering here,
+// so a silent admit would be as wrong as a silent drop.
+func TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld(t *testing.T) {
+	admitEveryDiscoveredCompanion(t)
+	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
+	defer restoreLook()
+
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sshSigner, err := ssh.NewSignerFromSigner(priv)
+	require.NoError(t, err)
+	sshPub, err := ssh.NewPublicKey(pub)
+	require.NoError(t, err)
+
+	// Sign one payload, ship a DIFFERENT one under that signature — the exact
+	// shape a companion release with a stale .sig produces.
+	signed := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: OLD\n")
+	shipped := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: NEW\n")
+	sig, err := signing.Sign(signed, sshSigner, signing.NamespacePublish)
+	require.NoError(t, err)
+	envelope, err := signing.EncodeLoadoutEnvelope(shipped, sig, "ltk@example.com")
+	require.NoError(t, err)
+	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
+	defer restoreProbe()
+
+	root := allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{"ltk@example.com"},
+		Namespaces: []string{signing.NamespacePublish},
+		PublicKey:  sshPub,
+	})
+
+	var warnings bytes.Buffer
+	restoreSink := clidiag.SetSink(&warnings)
+	defer restoreSink()
+
+	got := ProbeCompanionLoadouts(root)
+	require.Contains(t, got, remote.CompanionSource+"@ltk",
+		"a companion's content must still be delivered when its signature does not verify")
+	b := got[remote.CompanionSource+"@ltk"]
+	assert.Equal(t, "NEW", b.Fragments["ltk"].Content, "the SHIPPED bytes are delivered, not the signed ones")
+	assert.Empty(t, b.Signer(), "an unverifiable signature attributes nobody — the content arrives unattributed")
+
+	assert.Contains(t, warnings.String(), "does not verify over its own bytes")
+	assert.Contains(t, warnings.String(), "stale or mismatched signature",
+		"the warning must name the likely cause a companion author can act on")
+	assert.NotContains(t, strings.ToLower(warnings.String()), "tamper",
+		"this is a build-error signal, not an attack signal, and must not be phrased as tampering")
+}
+
+// TestProbeCompanionLoadouts_UntrustedSignerIsReportedNotWithheld: a valid
+// signature by a key this machine does not trust to publish is a FACT about the
+// key, not a gate — companion content is admitted at exec.
+func TestProbeCompanionLoadouts_UntrustedSignerIsReportedNotWithheld(t *testing.T) {
+	admitEveryDiscoveredCompanion(t)
+	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
+	defer restoreLook()
+
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	require.NoError(t, err)
+	sshSigner, err := ssh.NewSignerFromSigner(priv)
+	require.NoError(t, err)
+	bundleYAML := []byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: hello\n")
+	sig, err := signing.Sign(bundleYAML, sshSigner, signing.NamespacePublish)
+	require.NoError(t, err)
+	envelope, err := signing.EncodeLoadoutEnvelope(bundleYAML, sig, "stranger@example.com")
+	require.NoError(t, err)
+	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
+	defer restoreProbe()
+
+	var warnings bytes.Buffer
+	restoreSink := clidiag.SetSink(&warnings)
+	defer restoreSink()
+
+	got := ProbeCompanionLoadouts(nil) // no trust root trusts this key
+	require.Contains(t, got, remote.CompanionSource+"@ltk")
+	assert.Empty(t, got[remote.CompanionSource+"@ltk"].Signer(), "an untrusted key attributes nobody")
+	assert.Contains(t, warnings.String(), "does not trust to publish",
+		"the key's trust status is a fact to REPORT, and reporting replaces filtering here")
 }
 
 func TestProbeCompanionLoadouts_UnparseableEnvelopeWithheldNotCrash(t *testing.T) {

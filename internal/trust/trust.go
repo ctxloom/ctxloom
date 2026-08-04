@@ -70,9 +70,15 @@ const (
 	// resolve from ctxloom's own install directory).
 	//
 	// Like SourceBuiltin this is a DISTINCT step below rejection, precisely so
-	// step 1 still reaches it — and a companion loadout whose signature fails to
-	// verify never arrives here at all: config.ProbeCompanionLoadouts drops it
-	// at the envelope, because signed-but-invalid is tamper, not unsigned.
+	// step 1 still reaches it.
+	//
+	// A companion's SIGNATURE does not enter this decision in either direction.
+	// A publisher signature protects bytes from an intermediary, and a loadout
+	// has none — it arrives on the stdout of a binary the user already
+	// consented to run. So a signature that fails to verify at that seam is a
+	// stale or mismatched signature in the companion's own release, and
+	// config.ProbeCompanionLoadouts reports it and delivers the content
+	// unattributed rather than withholding.
 	SourceCompanion Source = "companion"
 	// SourceRetracted: the PUBLISHER withdrew this bundle (or this exact
 	// version of it) via its remote manifest — see internal/remote/retract.go

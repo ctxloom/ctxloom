@@ -229,8 +229,9 @@ on `$PATH`) tells ctxloom what it contributes by being **run**:
 **The posture reversed here, deliberately.** This document and
 `docs/signing-design.md` previously recorded that a companion loadout is
 *"withheld, never crashes, never auto-allowed"* — gated "exactly like a remote
-bundle". Two of those three still hold; **"never auto-allowed" does not**.
-Companion content is now **local-equivalent** and allowed at step 4b.
+bundle". Only **"never crashes"** survives. Companion content is
+**local-equivalent**: allowed at step 4b, never withheld for want of a
+signature or a review.
 
 The reason is order of operations. Gating the *content* of a loadout puts the
 review prompt strictly **after** the arbitrary code execution it would be
@@ -277,15 +278,39 @@ third-party binary that picked a familiar name, and goes through the prompt like
 any other: the name list is three guessable strings discovered unconditionally,
 so a name-only exemption would be the same hole in a smaller costume.
 
-**What did not change.** Rejection still reaches companion content (step 1, above
-the exemption). An unreadable approvals store still denies it along with
-everything else. And a loadout whose signature **fails to verify** is still
-withheld — *signed-but-invalid is not unsigned*. Unsigned-and-installed is
-trusted; a signature that does not cover the bytes it accompanies is tamper
-evidence, and `config.ProbeCompanionLoadouts` drops it at the envelope so it
-never reaches the decision function at all. An absent, wedged, timed-out or
-unparseable companion is still skipped with a warning, never fatal, never a
-stalled startup.
+**A loadout's signature is a diagnostic, not a gate.** This is the second place
+the companion class parts company with remote content, and it follows from the
+same fact. A publisher signature exists to protect bytes from an
+**intermediary** — a forge, a network, a tampered clone object. A loadout has no
+intermediary: its bytes come straight off the stdout of a binary the user
+already consented to execute. So a companion loadout is admitted whatever its
+signature says, and the signature facts are **reported** instead:
+
+- **No signature** → admitted, silently. Ordinary.
+- **Signature present, does not verify over the bytes** → **admitted, with a
+  warning**, and the content is delivered unattributed. This is a *bug* signal,
+  not an attack signal: it almost always means the companion's release shipped a
+  stale or mismatched signature, and the fix belongs to the companion's authors.
+  Calling it tampering would be both wrong and useless. (A **remote** bundle
+  keeps the opposite posture — an invalid signature there is tamper and
+  withholds — because its bytes crossed exactly the intermediary a loadout's do
+  not.)
+- **Signature valid, signer not trusted for publish** → admitted, with a
+  warning, unattributed. The key's trust status is a fact about the key, not a
+  gate on local content.
+
+The control that actually catches a **swapped companion binary** is the
+hash-keyed exec consent above, which is the right place for it: it fires before
+the binary runs, rather than after it has already executed.
+
+**What does not change.** Rejection still reaches companion content (step 1,
+above the exemption). An unreadable approvals store still denies it along with
+everything else. An absent, wedged, timed-out or **structurally** unusable
+companion (unparseable envelope, unrecognized contract, empty or non-base64
+bundle, unparseable bundle YAML) is still skipped with a warning — never fatal,
+never a stalled startup. Those cases produced no content to admit in the first
+place, which is what distinguishes them from a signature that merely failed to
+verify. Nothing is dropped silently: reporting replaces filtering throughout.
 
 **Where the record lives.** `~/.ctxloom/companion_consent.yaml`, personal only,
 mode `0600`. There is deliberately **no committable project counterpart**, unlike
@@ -316,7 +341,9 @@ key that is not in your trust root, or that is scoped to the wrong namespace, is
 simply **unsigned content to you** — quiet, no error, it takes the review path.
 A signature that is present but does **not** verify over the bytes it sits beside
 (a trusted key over different bytes, or a corrupted blob) is **tamper**: the
-bundle is withheld entirely, never degraded to unsigned.
+bundle is withheld entirely, never degraded to unsigned. This paragraph is about
+**remote** content, whose bytes crossed an intermediary. Companion loadouts —
+which cross none — are the documented exception; see "Companion loadouts".
 
 Third-party unsigned remotes default to pending; their content is reviewed like
 anything else. Signer keys are managed with `ctxloom trust signer create|list|show|remove`

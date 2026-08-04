@@ -814,10 +814,15 @@ func TestParseTrustItemRef(t *testing.T) {
 // on content the user deliberately installed. The decision that DOES have
 // purchase moved to exec (config.AdmitCompanions).
 //
-// What did NOT move is everything below: rejection still reaches it, an
-// unreadable approvals store still denies it, and a loadout whose signature
-// fails to verify never reaches the gate at all (config.ProbeCompanionLoadouts
-// drops it at the envelope — tamper is not unsigned).
+// What did NOT move is everything below: rejection still reaches it, and an
+// unreadable approvals store still denies it.
+//
+// A companion's SIGNATURE does not enter this decision in either direction — a
+// loadout crosses no intermediary, so there is nothing for a publisher
+// signature to protect it from, and config.ProbeCompanionLoadouts reports a
+// signature that fails to verify (a stale sig in the companion's release)
+// rather than withholding. That posture is pinned where it lives:
+// config.TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld.
 func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing.T) {
 	ref := "ctxloom:companion@ltk#fragments/ltk"
 
@@ -851,9 +856,9 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 		require.NoError(t, err)
 		assert.Equal(t, trust.Allow, res.Decision)
 		assert.Equal(t, trust.SourceCompanion, res.Source,
-			"the companion exemption sits where builtin's does — above step 5 — so a signature cannot CHANGE the outcome here. "+
-				"That does not make the signature decorative: it is verified at the envelope by "+
-				"config.ProbeCompanionLoadouts, and one that FAILS withholds the bundle before this function ever sees it")
+			"the companion exemption sits where builtin's does — above step 5 — so a signature can neither admit nor "+
+				"withhold companion content. A loadout's signature only ATTRIBUTES it; the admission decision "+
+				"happened at exec (config.AdmitCompanions)")
 	})
 
 	t.Run("REJECTION still reaches companion content, ahead of the exemption", func(t *testing.T) {

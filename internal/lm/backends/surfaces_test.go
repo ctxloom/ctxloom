@@ -30,28 +30,38 @@ func TestBuildSurfaces_OptOutBackends(t *testing.T) {
 }
 
 // TestBuildSurfaces_Mock proves the mock descriptor closure routes through
-// NewMockSurfaces: exactly the one context surface is returned (never zero,
-// which was the whole bug this change fixes — EmptySurfaceSet made the mock
-// backend unable to prove delivery at all), and — the payload assertion, not
-// merely a count — the delivered file actually carries the composed context
-// bytes rather than existing empty.
+// NewMockSurfaces: exactly its two surfaces (context + skills) are returned —
+// never zero, which was the whole bug this change fixes, EmptySurfaceSet made
+// the mock backend unable to prove delivery at all — and, the payload
+// assertion rather than merely a count, BOTH delivered files actually carry
+// their composed bytes rather than existing empty.
 func TestBuildSurfaces_Mock(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/target"
 	require.NoError(t, fs.MkdirAll(dir, 0o755))
 
-	set := BuildSurfaces("mock", agent.SurfaceInputs{Context: "MOCK-CONTEXT-PAYLOAD"}, fs)
+	set := BuildSurfaces("mock", agent.SurfaceInputs{
+		Context: "MOCK-CONTEXT-PAYLOAD",
+		Skills: []agent.SkillExport{{Name: "reviewer", Enabled: true, Files: []agent.PackageFile{
+			{RelPath: "SKILL.md", Content: []byte("MOCK-SKILL-PAYLOAD")},
+		}}},
+	}, fs)
 	resolved, err := agent.Select(set).WithEverything().Build()
 	require.NoError(t, err)
-	assert.Len(t, resolved.Deliveries(), 1, "mock has exactly the context surface")
+	assert.Len(t, resolved.Deliveries(), 2, "mock has exactly the context and skills surfaces")
 
 	_, _, errs := resolved.DeliverUnder(dir)
-	require.Empty(t, errs, "mock context surface delivers cleanly")
+	require.Empty(t, errs, "mock's surfaces deliver cleanly")
 
 	got, err := afero.ReadFile(fs, filepath.Join(dir, mockContextFilename))
 	require.NoError(t, err)
 	assert.Contains(t, string(got), "MOCK-CONTEXT-PAYLOAD",
 		"the delivered file must carry the actual composed context bytes, not merely exist")
+
+	skill, err := afero.ReadFile(fs, filepath.Join(mockSkillsPath(dir), "reviewer", "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, "MOCK-SKILL-PAYLOAD", string(skill),
+		"the delivered skill package must carry the export's actual bytes")
 }
 
 // TestBuildSurfaces_Claude proves the claude descriptor closure routes through

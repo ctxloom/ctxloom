@@ -254,13 +254,16 @@ var matrixSpecs = map[string]deliverySpec{
 	"opencode/skills/unsafe-file":   {wantFile: ".opencode/skill/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 
 	// ---- mock ----------------------------------------------------------
-	// mock declares context only (mock_surfaces.go's mockApproaches): a
-	// hermetic, managed-marker MOCK_CONTEXT.md at the target dir root, the
+	// mock declares context and skills (mock_surfaces.go's mockApproaches):
+	// a hermetic, managed-marker MOCK_CONTEXT.md at the target dir root — the
 	// same DeliverManagedContext shape claude's CLAUDE.md and antigravity's
-	// AGENTS.md use. Its hook loss is declared via noHooksReason (registry.go)
-	// the same way opencode's is, and pinned by
+	// AGENTS.md use — and a hermetic .mock/skills/ package tree through the
+	// same agent.WriteManagedSkillPackages writer every real engine's skills
+	// surface goes through. Its hook loss is declared via noHooksReason
+	// (registry.go) the same way opencode's is, and pinned by
 	// TestDeliveryApproach_HookCarriageMatchesDeclaration.
 	"mock/context/unsafe-file": {wantFile: "MOCK_CONTEXT.md", wantSlot: slotContext},
+	"mock/skills/unsafe-file":  {wantFile: ".mock/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 }
 
 // TestDeliveryApproach_DeclaredPairsAreExhaustive holds the DERIVED matrix equal

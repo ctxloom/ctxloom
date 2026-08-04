@@ -2,6 +2,8 @@ package operations
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"testing"
@@ -280,6 +282,81 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 	info, err := os.Stat(filepath.Join(target, ".claude", "skills", "humanize", "scripts", "run.sh"))
 	require.NoError(t, err, "the skill's scripts/run.sh must be materialized")
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit survives the persistent materialize path")
+}
+
+// TestMaterializeProfile_WritesSkills_MockBackend is the HERMETIC-VEHICLE
+// twin of the test above: the same real bundle-shipped skill, materialized
+// with --backend mock, must land under mock's own skills directory with the
+// modes its bundle manifest DECLARES.
+//
+// It exists because eight rows of J20's delivery matrix assert
+// skills/reviewer/SKILL.md at 0644 and skills/reviewer/scripts/run.sh at 0755
+// at a path an agent can read, and `profile materialize --backend mock` is the
+// vehicle those rows retarget onto (taskloom unlikable-comma). Without a mock
+// skills surface there was no hermetic way to run them at all.
+//
+// The manifest here is AUTHORED (bundle.yaml's `files:`), not derived: 0755 on
+// scripts/run.sh is a declaration inside the bundle's own signed metadata, and
+// that declaration is what the delivered file's mode must equal. The tree on
+// disk is written to agree with it because the LOADER refuses a package whose
+// declaration and tree disagree (bundles.VerifyExtractedManifest) — a refusal,
+// not a re-derivation.
+func TestMaterializeProfile_WritesSkills_MockBackend(t *testing.T) {
+	testsupport.Isolate(t)
+	appDir, _ := regenTestApp(t)
+	profilesDir := filepath.Join(appDir, "profiles")
+	require.NoError(t, os.MkdirAll(profilesDir, 0755))
+	bundlesDir := paths.LocalBundlesPath(appDir)
+	skillDir := filepath.Join(bundlesDir, "skill-bundle", "skills", "reviewer")
+	require.NoError(t, os.MkdirAll(filepath.Join(skillDir, "scripts"), 0755))
+
+	skillMD := []byte("---\nname: reviewer\ndescription: Reviews things.\n---\n\nREVIEWER-BODY-51ab\n")
+	script := []byte("#!/bin/sh\necho REVIEWER-SCRIPT-51ab\n")
+
+	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "skilled.yaml"),
+		[]byte("name: skilled\nbundles:\n  - skill-bundle\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), skillMD, 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "scripts", "run.sh"), script, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "skill-bundle", "bundle.yaml"),
+		[]byte("name: skill-bundle\nversion: \"1.0\"\nskills:\n  reviewer:\n    files:\n"+
+			"      SKILL.md:\n        sha256: "+sha256Of(skillMD)+"\n        mode: \"0644\"\n"+
+			"      scripts/run.sh:\n        sha256: "+sha256Of(script)+"\n        mode: \"0755\"\n"), 0644))
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})
+	target := t.TempDir()
+
+	res, err := MaterializeProfile(context.Background(), cfg, MaterializeProfileRequest{
+		Profiles: []string{"skilled"}, Target: target, Backend: "mock",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, res.Wrote, "skills", "the mock skills surface is reported as written")
+
+	skillsRoot := filepath.Join(target, ".mock", "skills", "reviewer")
+
+	data, err := os.ReadFile(filepath.Join(skillsRoot, "SKILL.md"))
+	require.NoError(t, err, "mock must materialize the bundle-shipped SKILL.md, not merely report it")
+	assert.Contains(t, string(data), "REVIEWER-BODY-51ab", "the delivered bytes must be the package's own")
+
+	runSh := filepath.Join(skillsRoot, "scripts", "run.sh")
+	got, err := os.ReadFile(runSh)
+	require.NoError(t, err, "a sibling file under scripts/ must be materialized too")
+	assert.Contains(t, string(got), "REVIEWER-SCRIPT-51ab")
+
+	doc, err := os.Stat(filepath.Join(skillsRoot, "SKILL.md"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0644), doc.Mode().Perm(), "SKILL.md is declared 0644")
+
+	info, err := os.Stat(runSh)
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(),
+		"scripts/run.sh is DECLARED 0755 in the bundle manifest; a delivered script without its exec bit cannot run")
+}
+
+// sha256Of renders a fixture file's content hash in the form a bundle.yaml
+// skill manifest records it.
+func sha256Of(b []byte) string {
+	sum := sha256.Sum256(b)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // TestMaterializeProfile_Validation covers the guard rails.

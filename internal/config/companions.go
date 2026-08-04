@@ -144,7 +144,7 @@ func ProbeCompanions() []CompanionStatus {
 	if CompanionsDisabled() {
 		return nil
 	}
-	admissions := AdmitCompanions(BuiltinCompanionBins(), true)
+	admissions := companionAdmission(BuiltinCompanionBins(), true)
 	out := make([]CompanionStatus, len(admissions))
 	var wg sync.WaitGroup
 	for i, adm := range admissions {

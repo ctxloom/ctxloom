@@ -35,6 +35,7 @@ func TestBuiltinCompanionBins_UnionsDiscoveryWithEmbeddedBundles(t *testing.T) {
 }
 
 func TestProbeCompanions_ReportsVersionFromJSONProbe(t *testing.T) {
+	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})
@@ -79,6 +80,7 @@ func TestProbeCompanions_MissingBinaryYieldsEmptyPathAndNoProbe(t *testing.T) {
 }
 
 func TestProbeCompanions_ProbeFailureIsNonFatal(t *testing.T) {
+	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})
@@ -267,6 +269,7 @@ func (b *syncBuffer) String() string {
 // it vanished with zero diagnostic and the run reported success having
 // delivered nothing from that companion.
 func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
+	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})
@@ -290,6 +293,7 @@ func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
 // *exec.ExitError, e.g. "unknown command") must NOT warn — that is the
 // common, benign case the fix above must not turn noisy.
 func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
+	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})

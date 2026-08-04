@@ -110,10 +110,52 @@ func AdmitCompanions(bins []string, prompt bool) []CompanionAdmission {
 	return out
 }
 
+// companionAdmission is the seam the two probes consult, so a test can pin the
+// exec-consent answer without building a real binary and a real home record for
+// every loadout-parsing case. Production is AdmitCompanions itself.
+var companionAdmission = AdmitCompanions
+
+// SetCompanionAdmissionForTesting overrides the exec-consent gate the probes
+// consult and returns a restore function. Companion of
+// SetCompanionLoadoutOutputForTesting: those seams fake the probe's OUTPUT,
+// this one fakes the decision to run it at all.
+func SetCompanionAdmissionForTesting(fn func(bins []string, prompt bool) []CompanionAdmission) func() {
+	prev := companionAdmission
+	companionAdmission = fn
+	return func() { companionAdmission = prev }
+}
+
+// AdmitEveryDiscoveredCompanionForTesting pins the exec-consent gate OPEN for
+// tests whose subject is what a companion contributes once it runs, and returns
+// a restore function. It admits whatever the (usually faked) lookPath resolves
+// and reports everything else as not-installed.
+//
+// It exists because the real gate hashes a real file at a real path, which a
+// test that faked PATH resolution to "/fake/ltk" cannot satisfy. Callers must
+// ask for it EXPLICITLY — a SetLookPathForTesting that silently disabled the
+// consent gate as a side effect would let a future regression in that gate go
+// unnoticed by every test in the repo.
+func AdmitEveryDiscoveredCompanionForTesting() func() {
+	return SetCompanionAdmissionForTesting(func(bins []string, _ bool) []CompanionAdmission {
+		out := make([]CompanionAdmission, 0, len(bins))
+		for _, bin := range bins {
+			path, err := lookPath(bin)
+			if err != nil {
+				out = append(out, CompanionAdmission{Bin: bin, Reason: CompanionAdmissionNotInstalled})
+				continue
+			}
+			out = append(out, CompanionAdmission{
+				Bin: bin, Path: path, Allowed: true, Reason: CompanionAdmissionConsented,
+			})
+		}
+		return out
+	})
+}
+
 // admittedCompanions is the probes' filter: the admitted subset of bins, in
 // discovery order, as (bin, path) pairs ready to exec.
 func admittedCompanions(bins []string) []CompanionAdmission {
-	all := AdmitCompanions(bins, true)
+	all := companionAdmission(bins, true)
 	out := make([]CompanionAdmission, 0, len(all))
 	for _, a := range all {
 		if a.Allowed {

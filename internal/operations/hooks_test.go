@@ -978,6 +978,7 @@ func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
 // an unsigned companion hook would silently make this test assert on
 // nothing, for reasons unrelated to what it pins.
 func TestApplyHooks_RegenerateContext_AntigravityAgentsMD(t *testing.T) {
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	t.Setenv("HOME", t.TempDir())
 	tmpDir := t.TempDir()
 	appDir := filepath.Join(tmpDir, ".ctxloom")

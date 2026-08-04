@@ -665,6 +665,7 @@ func TestAssembleContext_EmptyRequest(t *testing.T) {
 // wiring itself; gating is proven separately in
 // internal/config's TestResolveBuiltinBundleFragments_IncludesCompanionFragments_Gated).
 func TestAssembleContext_InjectsCompanionLoadoutFragments(t *testing.T) {
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	ltkEnvelope, err := signing.EncodeLoadoutEnvelope(
 		[]byte("version: \"1.0.0\"\nfragments:\n  ltk:\n    content: |\n      llm-tool-killer briefing\n"), nil, "")
 	require.NoError(t, err)

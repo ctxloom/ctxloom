@@ -144,6 +144,7 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 // TestResolveBundleMCPServers_IncludesCompanionLoadoutServers_Gated for the
 // full allow/deny pair against this exact wiring).
 func TestResolveBundleMCPServers_GatedEndToEnd(t *testing.T) {
+	admitEveryDiscoveredCompanion(t)
 	restoreLook := SetLookPathForTesting(func(bin string) (string, error) {
 		if bin == "ltk" {
 			return "/fake/ltk", nil

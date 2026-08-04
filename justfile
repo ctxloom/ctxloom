@@ -598,6 +598,14 @@ isolation-probe ENGINE AXIS: build
 # different message (`? ... [no test files]`) and stays green, as does a
 # `-run` miss the pipefail chain never triggers because a package that
 # doesn't build/vet fails before printing either message.
+#
+# ⚠ THIS RECIPE IS VACUOUS FOR ./tests/acceptance/... — taskloom
+# unvaried-onlooker. It applies no `acceptance` build tag, so every file in
+# that package is excluded from the build, nothing runs, and it exits 0 in
+# about a second REGARDLESS. The `[no tests to run]` guard below does not
+# catch it: a package built to zero test files reports `[no test files]`,
+# which is treated as green. `just test-acceptance` is the only gate that
+# runs those scenarios — do not cite this one for them.
 test-pkg PKG *ARGS: _require-generated
     #!/usr/bin/env bash
     set -euo pipefail

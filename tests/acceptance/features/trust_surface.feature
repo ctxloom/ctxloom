@@ -266,6 +266,16 @@ Feature: The trust surface — what "review" actually controls
   # fatal trust finding, and names the recovery. The BOUNDARY that must not
   # trip — a project with no lock.yaml at all has nothing retracted and keeps
   # working — is pinned in internal/operations/trust_retraction_readable_test.go.
+  # ⚠ THIS SCENARIO IS GREEN FOR THE WRONG REASON — taskloom alive-rover.
+  # Measured 2026-08-04: the REMOTE bundle this scenario is about never loads
+  # from the corrupt lockfile, so it produces no finding. The assertion is
+  # satisfied instead by a COMPANION item (ltk/taskloom content) tripping the
+  # same retraction gate — which means the outcome depends on whether the
+  # machine running it has companions installed, not on the behaviour under
+  # test. Someone could break unreadable-lockfile withholding for remote
+  # content and this row would stay green wherever companions are present.
+  # Do not read a pass here as coverage of the sentence below until the
+  # fixture makes the REMOTE bundle produce the finding.
   Scenario: An unreadable lockfile withholds remote content, rather than silently un-retracting it
     Given a trusted publisher's signed bundle ships one of each: a fragment, a command, an MCP server, and a hook
     When Alice starts a session

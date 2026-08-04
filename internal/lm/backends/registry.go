@@ -36,7 +36,8 @@ type Configurable interface {
 // has no settings-writer dispatch (BackendsWithSettings omits it, GetSettingsWriter
 // returns nil); a nil exports means no slash-command export (CommandExportsFor
 // yields nil, so the commands surface has nothing to write). The mock backend
-// registers only backend+config.
+// registers only backend+config+surfaces — no settings writer, no command
+// export; its surfaces are context-only (see mock_surfaces.go).
 type agentDescriptor struct {
 	// name is the backend's registry key and must match its module's Name().
 	name string
@@ -53,7 +54,11 @@ type agentDescriptor struct {
 	// filesystem (nil = OS fs), so a name-only caller (materialize) can deliver
 	// every native surface through a cell without importing the concrete backend.
 	// It is the delivery-seam counterpart of newWriter. nil = backend materializes
-	// no surfaces (acp/mock); BuildSurfaces then returns an EmptySurfaceSet.
+	// no surfaces (acp, whose native config format is a launch-time detail of
+	// the ACP driver, not this descriptor's business); BuildSurfaces then
+	// returns an EmptySurfaceSet. mock is NOT in that set: it registers a
+	// real (context-only) newSurfaces (mock_surfaces.go) so hermetic delivery
+	// tests can prove a fragment actually reached a written file.
 	newSurfaces func(agent.SurfaceInputs, afero.Fs) agent.SurfaceSet
 	// exports maps loaded bundle content to this backend's command exports,
 	// resolving its per-prompt enablement + metadata. nil = no command export.
@@ -531,13 +536,17 @@ func init() {
 		noHooksReason: "opencode has no hook mechanism",
 	})
 
-	// Mock registers only backend+config: no settings writer, no command
-	// export (descriptor fields are optional).
+	// Mock registers backend+config+surfaces: still no settings writer, no
+	// command export (descriptor fields are optional) — but it DOES now build
+	// a real (context-only) SurfaceSet, so BuildSurfaces("mock", …) can
+	// materialize a hermetic MOCK_CONTEXT.md instead of returning
+	// agent.EmptySurfaceSet (see mock_surfaces.go).
 	registerDescriptor(agentDescriptor{
 		name:       "mock",
 		newBackend: func() agent.Backend { return NewMock() },
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &MockConfig{})
 		},
+		newSurfaces: func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return NewMockSurfaces(in, fs) },
 	})
 }

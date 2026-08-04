@@ -13,11 +13,13 @@ import (
 )
 
 // TestBuildSurfaces_OptOutBackends pins the name→SurfaceSet seam's opt-out: a
-// backend with no native config format (acp), the mock, and an unregistered name
-// all return an EmptySurfaceSet, so a caller (materialize) can iterate
-// Deliveries() unconditionally and simply deliver nothing.
+// backend with no native config format (acp) and an unregistered name both
+// return an EmptySurfaceSet, so a caller (materialize) can iterate
+// Deliveries() unconditionally and simply deliver nothing. mock is NOT one of
+// these any more — see TestBuildSurfaces_Mock: it registers a real
+// (context-only) SurfaceSet so hermetic delivery tests have somewhere to look.
 func TestBuildSurfaces_OptOutBackends(t *testing.T) {
-	for _, name := range []string{"acp", "mock", "does-not-exist"} {
+	for _, name := range []string{"acp", "does-not-exist"} {
 		t.Run(name, func(t *testing.T) {
 			set := BuildSurfaces(name, agent.SurfaceInputs{}, afero.NewMemMapFs())
 			resolved, err := agent.Select(set).WithEverything().Build()
@@ -25,6 +27,31 @@ func TestBuildSurfaces_OptOutBackends(t *testing.T) {
 			assert.Empty(t, resolved.Deliveries(), "opt-out backend materializes no surfaces")
 		})
 	}
+}
+
+// TestBuildSurfaces_Mock proves the mock descriptor closure routes through
+// NewMockSurfaces: exactly the one context surface is returned (never zero,
+// which was the whole bug this change fixes — EmptySurfaceSet made the mock
+// backend unable to prove delivery at all), and — the payload assertion, not
+// merely a count — the delivered file actually carries the composed context
+// bytes rather than existing empty.
+func TestBuildSurfaces_Mock(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	dir := "/target"
+	require.NoError(t, fs.MkdirAll(dir, 0o755))
+
+	set := BuildSurfaces("mock", agent.SurfaceInputs{Context: "MOCK-CONTEXT-PAYLOAD"}, fs)
+	resolved, err := agent.Select(set).WithEverything().Build()
+	require.NoError(t, err)
+	assert.Len(t, resolved.Deliveries(), 1, "mock has exactly the context surface")
+
+	_, _, errs := resolved.DeliverUnder(dir)
+	require.Empty(t, errs, "mock context surface delivers cleanly")
+
+	got, err := afero.ReadFile(fs, filepath.Join(dir, mockContextFilename))
+	require.NoError(t, err)
+	assert.Contains(t, string(got), "MOCK-CONTEXT-PAYLOAD",
+		"the delivered file must carry the actual composed context bytes, not merely exist")
 }
 
 // TestBuildSurfaces_Claude proves the claude descriptor closure routes through

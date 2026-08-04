@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/errs"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // The directory-form pull path. What these tests pin is not "a tree can be
@@ -226,6 +228,41 @@ func TestInstallTree_TheDeclarationWinsOverTheCommittedMode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o755), declared.Mode().Perm(),
 		"the declaration is the publisher's whole statement about executability; git's blob mode is not")
+}
+
+// TestInstallTree_SaysWhenACommittedExecutableIsUndeclared. Applying the
+// declaration makes everything downstream CONSISTENT — the file is 0644, the
+// manifest says 0644, verification passes — and therefore silent: the model is
+// handed a script it cannot run and nothing reports a failure. The install is
+// the last point at which both facts are in scope, so it is the only place the
+// divergence can be named.
+func TestInstallTree_SaysWhenACommittedExecutableIsUndeclared(t *testing.T) {
+	var warnings bytes.Buffer
+	restore := clidiag.SetSink(&warnings)
+	t.Cleanup(restore)
+
+	fs := afero.NewMemMapFs()
+	p := treePuller(t, fs, ".ctxloom", nil)
+	ref := treeRef(t)
+
+	_, err := p.installTree(ref, PullOptions{}, &fetchedItem{
+		localName: ref.CanonicalString(),
+		treeRoot:  ".ctxloom/content/bundles/atelier",
+		tree: map[string]TreeFile{
+			BundleManifestName:                    {Data: []byte("version: \"1.0.0\"\n")},
+			"skills/reviewer/scripts/declared.sh": {Data: []byte("#!/bin/sh\n"), DeclaredExecutable: true, CommittedExecutable: true},
+			"skills/reviewer/scripts/orphan.sh":   {Data: []byte("#!/bin/sh\n"), CommittedExecutable: true},
+		},
+	})
+	require.NoError(t, err)
+
+	got := warnings.String()
+	assert.Contains(t, got, ".ctxloom/content/bundles/atelier/skills/reviewer/scripts/orphan.sh",
+		"the warning must name the file as the PUBLISHER sees it, not as a cache path they have never heard of")
+	assert.Contains(t, got, "DECLARED NON-EXECUTABLE")
+	assert.Contains(t, got, "executable:", "and the declaration to add")
+	assert.NotContains(t, got, "declared.sh",
+		"a file whose declaration and committed mode agree has nothing to report")
 }
 
 // TestInstallTree_ReplacesRatherThanMerges. A merge would leave a file the

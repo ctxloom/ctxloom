@@ -416,3 +416,69 @@ func sum(data []byte) string {
 	s := sha256.Sum256(data)
 	return hex.EncodeToString(s[:])[:16]
 }
+
+// TestFetchFiles_ResolvesTheDeclarationRatherThanGitsBlobMode pins the seam
+// contract an installer depends on.
+//
+// The mode a tree's generated manifest claims comes from the sidecar's
+// `executable:` list, so that is the mode a file has to land at. git's 100755
+// is transport detail no signature covers, and installing at it is what made a
+// committed-but-undeclared script arrive as a package the consumer refused.
+// Both facts travel — the declaration to decide, the committed bit to diagnose.
+func TestFetchFiles_ResolvesTheDeclarationRatherThanGitsBlobMode(t *testing.T) {
+	files := map[string][]byte{
+		"bundle.yaml":                    []byte("version: \"1.0.0\"\n"),
+		"skills/.rev.meta.yaml":          []byte("executable:\n  - scripts/declared.sh\n"),
+		"skills/rev/SKILL.md":            []byte("---\nname: rev\n---\nBODY\n"),
+		"skills/rev/scripts/declared.sh": []byte("#!/bin/sh\n"),
+		"skills/rev/scripts/orphan.sh":   []byte("#!/bin/sh\n"),
+	}
+	m := mockOf(files, "content")
+	// git's view, and it disagrees with the declaration in both directions:
+	// orphan.sh is committed 100755 and never declared; declared.sh is
+	// committed 100644 and declared (an authoring filesystem with no exec bit).
+	m.WithDir("content/skills/rev/scripts", []remote.DirEntry{
+		{Name: "declared.sh"},
+		{Name: "orphan.sh", Executable: true},
+	})
+
+	got, err := remotetree.FetchFiles(t.Context(), m, spec("content"))
+	if err != nil {
+		t.Fatalf("FetchFiles: %v", err)
+	}
+
+	declared := got["skills/rev/scripts/declared.sh"]
+	if !declared.DeclaredExecutable {
+		t.Error("a file on the sidecar's executable: list must come back declared executable, whatever git recorded")
+	}
+	if declared.CommittedExecutable {
+		t.Error("declared.sh is 100644 upstream; reporting otherwise would fabricate a divergence")
+	}
+
+	orphan := got["skills/rev/scripts/orphan.sh"]
+	if orphan.DeclaredExecutable {
+		t.Error("git's 100755 must NOT confer a declaration — that is the divergence this split exists to end")
+	}
+	if !orphan.CommittedExecutable {
+		t.Error("the committed bit must survive, or the installer cannot tell the publisher what they forgot")
+	}
+
+	if plain := got["skills/rev/SKILL.md"]; plain.DeclaredExecutable || plain.CommittedExecutable {
+		t.Error("a plain package file must be neither")
+	}
+}
+
+// TestFetchFiles_MalformedSidecarIsAnError. Skipping an unparseable sidecar
+// would resolve every file in that package to non-executable — a skill that
+// installs, verifies and whose scripts silently do not run.
+func TestFetchFiles_MalformedSidecarIsAnError(t *testing.T) {
+	files := map[string][]byte{
+		"bundle.yaml":           []byte("version: \"1.0.0\"\n"),
+		"skills/.rev.meta.yaml": []byte("executable: [unclosed\n"),
+		"skills/rev/SKILL.md":   []byte("---\nname: rev\n---\nBODY\n"),
+	}
+
+	if _, err := remotetree.FetchFiles(t.Context(), mockOf(files, "content"), spec("content")); err == nil {
+		t.Fatal("a sidecar that cannot be read must fail the fetch, not silently declare nothing")
+	}
+}

@@ -282,10 +282,7 @@ fragments:
 	// A loader with NO local bundle dirs, seeded only with the remote bundle —
 	// mirrors SeededBundleLoader resolving a remote bundle from the lockfile
 	// when nothing is authored locally.
-	loader := bundles.NewLoader(nil,
-		bundles.WithFS(afero.NewMemMapFs()),
-		bundles.WithSeededBundles(map[string]*bundles.Bundle{remoteName: b}),
-	)
+	loader := seedLoader(t, map[string]*bundles.Bundle{remoteName: b})
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{

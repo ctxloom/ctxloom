@@ -746,7 +746,7 @@ exclude_fragments:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
 
-	loader := profiles.NewLoader(NewProjectReader(nil, []string{profilesDir}))
+	loader := profiles.NewLoader([]string{profilesDir})
 	cfg := &config.Config{}
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{
@@ -770,7 +770,7 @@ func TestUpdateProfile_AddExcludeMCP(t *testing.T) {
 	profile := `description: Test profile`
 	require.NoError(t, os.WriteFile(filepath.Join(profilesDir, "test.yaml"), []byte(profile), 0644))
 
-	loader := profiles.NewLoader(NewProjectReader(nil, []string{profilesDir}))
+	loader := profiles.NewLoader([]string{profilesDir})
 	cfg := &config.Config{}
 
 	result, err := UpdateProfile(context.Background(), cfg, UpdateProfileRequest{

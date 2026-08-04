@@ -890,32 +890,19 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	if len(c.appPaths) == 0 {
 		return nil
 	}
-	loader := c.BundleLoader()
-	infos, err := loader.List()
-	if err != nil {
-		// The very next loop already fails loudly for a per-file error
-		// (strictness.FailOnce below) — a failure to even LIST the bundles
-		// must not be quieter than a failure to load one of them, or every
-		// bundle-shipped profile silently vanishes from the shared profile
-		// loader with no diagnostic at all.
-		strictness.FailOnce(strictness.ClassBundle, "run `ctxloom remote pull` or fix the bundle ref, or pass --degraded",
-			"failed to list bundles for their profiles: %v", err)
-		return nil
-	}
 	loaded := make(map[string]*profiles.Profile)
-	for _, info := range infos {
-		if info.Deleted || info.ProfileCount == 0 {
+	// The READS, not a listing plus a path round trip: a companion loadout and a
+	// pinned remote document have no file to resolve back through, and their
+	// profiles vanished when this asked for one.
+	for _, read := range c.BundleLoader().Reads() {
+		bundle := read.Bundle
+		if bundle.ProfileCount() == 0 {
 			continue
 		}
-		bundle, lerr := loader.LoadFile(info.Path)
-		if lerr != nil {
-			strictness.FailOnce(strictness.ClassBundle, "run `ctxloom remote pull` or fix the bundle ref, or pass --degraded", "failed to load bundle %q for its profiles: %v", info.Name, lerr)
-			continue
-		}
-		// info.Name is the bundle's full resolution identity (the canonical ref for
-		// a seeded remote bundle, the relative path for a local one); bundle.Name
-		// from LoadFile is only the file's base, so canonicalize from info.Name.
-		bundleRef := remote.CanonicalBundleRef(info.Name)
+		// The read's ref is the bundle's full resolution identity (the canonical
+		// ref for pinned remote content, the relative path for a local bundle);
+		// bundle.Name is only the file's base, so canonicalize from the ref.
+		bundleRef := remote.CanonicalBundleRef(read.Ref())
 		sourceURL := bundleProfileSourceURL(bundleRef)
 		for _, profName := range bundle.ProfileNames() {
 			p := cloneBundleProfile(bundle.Profiles[profName])

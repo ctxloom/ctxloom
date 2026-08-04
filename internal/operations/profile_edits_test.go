@@ -75,7 +75,7 @@ func TestApplyListEdits(t *testing.T) {
 // unknown name so UpdateProfile halts before mutating or saving.
 func TestRequireProfilesExist(t *testing.T) {
 	tmp := t.TempDir()
-	loader := profiles.NewLoader(NewProjectReader(nil, []string{tmp}))
+	loader := profiles.NewLoader([]string{tmp})
 	if err := loader.Save(&profiles.Profile{Name: "exists", Bundles: []string{"go-development"}}); err != nil {
 		t.Fatalf("save: %v", err)
 	}

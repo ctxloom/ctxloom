@@ -174,30 +174,22 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 		loader = bundleLoader(cfg)
 	}
 
-	infos, err := loader.List()
-	if err != nil {
-		return nil, fmt.Errorf("list bundles: %w", err)
-	}
-
+	// Iterate the READS, not a listing plus a path round trip: a bundle that
+	// has no file — a companion loadout, a pinned document — has no path to
+	// resolve back through, and asking for one dropped exactly that content
+	// from review with a "bundle not found" nobody could act on.
 	e := &reviewEnumerator{cfg: cfg, records: records, fs: req.FS}
 	result := &PendingReviewResult{}
-	for _, info := range infos {
-		if info.Deleted {
-			continue // gone upstream: nothing to show, nothing to accept
-		}
-		bundle, lerr := loader.LoadFile(info.Path)
-		if lerr != nil {
-			clidiag.Warn("ctxloom", "review: skipping bundle %q: %v", info.Name, lerr)
-			continue
-		}
-		items := e.pendingItems(info.Name, bundle)
+	for _, read := range loader.Reads() {
+		bundle, ref := read.Bundle, read.Ref()
+		items := e.pendingItems(ref, bundle)
 		if len(items) == 0 {
 			continue
 		}
 		publisher, principal, fingerprint := reviewPublisherOf(bundle)
 		result.Bundles = append(result.Bundles, ReviewBundle{
-			Ref:               info.Name,
-			Remote:            remoteNameFor(registry, info.Name),
+			Ref:               ref,
+			Remote:            remoteNameFor(registry, ref),
 			Items:             items,
 			Publisher:         publisher,
 			Signer:            principal,

@@ -28,7 +28,7 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 			},
 		},
 	}
-	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(seed))
+	loader := seedLoader(t, seed)
 
 	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{

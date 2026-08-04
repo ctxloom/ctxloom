@@ -309,7 +309,7 @@ func TestPendingReview_SupersededApprovalReadsAsUpdateNotNew(t *testing.T) {
 
 	res, err := PendingReview(nil, PendingReviewRequest{
 		UserStore: fx.user, Root: fx.root, Registry: newRegistry(t),
-		Loader: reviewLoader(reviewBundle()), FS: afero.NewMemMapFs(),
+		Loader: reviewLoader(t, reviewBundle()), FS: afero.NewMemMapFs(),
 	})
 	require.NoError(t, err)
 
@@ -332,7 +332,7 @@ func TestSetItemTrust_AnItemWithNoContentIsRefusedRatherThanSilentlyNotRecorded(
 	}
 	_, err := SetItemTrust(nil, SetItemTrustRequest{
 		Ref: reviewSeedKey + "#fragments/hollow", UserStore: fx.user, Signer: fx.signer,
-		Loader: reviewLoader(empty), FS: afero.NewMemMapFs(),
+		Loader: reviewLoader(t, empty), FS: afero.NewMemMapFs(),
 	})
 	require.Error(t, err, "approving an item with no bytes must fail loudly")
 	assert.Contains(t, err.Error(), "nothing to countersign")

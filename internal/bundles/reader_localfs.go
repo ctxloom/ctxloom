@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/spf13/afero"
 
@@ -31,6 +32,13 @@ type localFSReader struct {
 	dirs       []string
 	provenance ProvenanceClass
 	cfg        readerConfig
+
+	// failed records, per resolution name, WHY a bundle this reader should
+	// have had is missing. Without it an unparseable bundle reaches the person
+	// who asked for it by name as a bare "not found", which points them at
+	// their spelling instead of at the file that will not parse.
+	mu     sync.Mutex
+	failed map[string]error
 }
 
 // NewProjectReader reads the bundles a project authored in its own content
@@ -129,6 +137,7 @@ func (r *localFSReader) readDir(dir string, out []BundleRead, seen collections.S
 		}
 		read, rerr := r.readBundle(manifest, name)
 		if rerr != nil {
+			r.recordFailure(name, rerr)
 			// A local bundle that fails to load is fatal-class in strict mode
 			// (fail-loudly); degraded mode keeps warn-and-skip so a corrupt
 			// bundle never silently vanishes from a listing.
@@ -147,6 +156,26 @@ func (r *localFSReader) readDir(dir string, out []BundleRead, seen collections.S
 			"cannot walk bundles directory %s: %v", dir, walkErr)
 	}
 	return out
+}
+
+// recordFailure remembers why one bundle could not be read, for ReadFailure.
+func (r *localFSReader) recordFailure(name string, err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.failed == nil {
+		r.failed = map[string]error{}
+	}
+	r.failed[name] = err
+}
+
+// ReadFailure reports why the bundle named name is absent from this reader's
+// last read, or nil when this reader has nothing to say about that name. It is
+// how "you asked for a bundle that will not parse" stays distinguishable from
+// "you asked for a bundle that does not exist".
+func (r *localFSReader) ReadFailure(name string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.failed[name]
 }
 
 // bundleAt reports the manifest path and resolution name of the bundle at one

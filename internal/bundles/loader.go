@@ -259,9 +259,28 @@ func (l *Loader) Reads() []BundleRead {
 func (l *Loader) Load(name string) (*Bundle, error) {
 	read, ok := l.lookup(name)
 	if !ok {
-		return nil, fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
+		return nil, l.missing(name)
 	}
 	return read.Bundle, nil
+}
+
+// missing explains an ask that resolved to nothing.
+//
+// "Not found" and "found, but unreadable" are different facts and must not
+// share an exit: a bundle whose file will not parse is a fault the asker can
+// FIX, and reporting it as absent points them at their spelling instead of at
+// the file. Readers that can tell the two apart say so through ReadFailure.
+func (l *Loader) missing(name string) error {
+	for _, r := range l.readers {
+		rf, ok := r.(interface{ ReadFailure(string) error })
+		if !ok {
+			continue
+		}
+		if err := rf.ReadFailure(name); err != nil {
+			return fmt.Errorf("bundle %s could not be read: %w", name, err)
+		}
+	}
+	return fmt.Errorf("%w: %s", errs.ErrBundleNotFound, name)
 }
 
 // lookup resolves a ref to a read: exact identity first, then the version-less

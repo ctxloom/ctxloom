@@ -15,7 +15,8 @@ import (
 // stampSeed builds one seeded loader holding every bundle the ForRef cascade
 // test resolves (remote + local, fragments + mcp). Keys are the exact bundle
 // refs the loader receives after parseTrustItemRef strips the selector.
-func stampSeed() *bundles.Loader {
+func stampSeed(t *testing.T) *bundles.Loader {
+	t.Helper()
 	const acme = "https://github.com/acme/repo@bundles/"
 	const evil = "https://github.com/evil/repo@bundles/"
 	seed := map[string]*bundles.Bundle{
@@ -34,7 +35,7 @@ func stampSeed() *bundles.Loader {
 	for k, b := range seed {
 		b.Name = k
 	}
-	return bundles.NewLoader(nil, bundles.WithSeededBundles(seed))
+	return seedLoader(t, seed)
 }
 
 // TestTrustStamper_ForRef_Cascade drives every decision step through the public
@@ -43,7 +44,7 @@ func stampSeed() *bundles.Loader {
 // boolean trusted stamp, the trust_source string, and the three-state `state`
 // rendering a json row would carry.
 func TestTrustStamper_ForRef_Cascade(t *testing.T) {
-	loader := stampSeed()
+	loader := stampSeed(t)
 
 	fx := newTrustFixture(t)
 	// approval at the exact current bytes of tooling#fragments/solid — the acme
@@ -93,7 +94,7 @@ func TestTrustStamper_ForRef_TrustedSigner(t *testing.T) {
 	const acme = "https://github.com/acme/repo@bundles/"
 	signed := &bundles.Bundle{Name: acme + "plain", Fragments: map[string]bundles.BundleFragment{"pf": {Content: "plain body"}}}
 	signed.StampSigner(trustedPublisher)
-	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{acme + "plain": signed}))
+	loader := seedLoader(t, map[string]*bundles.Bundle{acme + "plain": signed})
 	fx := newTrustFixture(t)
 	stamper := NewTrustStamper(nil, WithStampLoader(loader), WithStampRecords(fx.records()))
 
@@ -134,7 +135,7 @@ func TestTrustStamper_ForRef_DistilledFormSelection(t *testing.T) {
 	dual := &bundles.Bundle{Name: acme + "dual", Fragments: map[string]bundles.BundleFragment{
 		"pf": {Content: "raw body", Distilled: "distilled body"},
 	}}
-	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{acme + "dual": dual}))
+	loader := seedLoader(t, map[string]*bundles.Bundle{acme + "dual": dual})
 	ref := trust.Ref{RepoURL: trustRepo, Bundle: "dual", Kind: trust.KindFragment, Name: "pf"}
 	refStr := "https://github.com/acme/repo@bundles/dual#fragments/pf"
 

@@ -48,7 +48,7 @@ func gatedAcmeLoader(t *testing.T, records ReviewRecords) (*bundles.Pipeline, *c
 	t.Helper()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := (&contentGate{cfg: cfg, records: records}).allow
-	pipe := bundles.NewPipeline(bundles.NewLoader(nil, bundles.WithSeededBundles(acmeToolingSeed())), gate, true)
+	pipe := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), gate, true)
 	return pipe, cfg
 }
 
@@ -133,7 +133,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
 
 	// v1 stays exposed (accepted at this exact hash).
-	l1 := bundles.NewPipeline(bundles.NewLoader(nil, bundles.WithSeededBundles(v1)), gate, true)
+	l1 := bundles.NewPipeline(seedLoader(t, v1), gate, true)
 	got, err := l1.GetFragment(acmeBundle + "tooling#fragments/solid")
 	require.NoError(t, err)
 	assert.Equal(t, "v1 body", got.Content)
@@ -144,7 +144,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "v2 body"}}},
 	}
-	l2 := bundles.NewPipeline(bundles.NewLoader(nil, bundles.WithSeededBundles(v2)), gate, true)
+	l2 := bundles.NewPipeline(seedLoader(t, v2), gate, true)
 	_, err = l2.GetFragment(acmeBundle + "tooling#fragments/solid")
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "post-swap content must gate, got %v", err)
 
@@ -174,8 +174,7 @@ func TestExposureGate_FailClosed(t *testing.T) {
 	// A fresh, empty records store → every gated item withheld through the
 	// loader (nothing has ever been approved).
 	empty := &contentGate{records: newTrustFixture(t).records()}
-	l := bundles.NewPipeline(bundles.NewLoader(nil,
-		bundles.WithSeededBundles(acmeToolingSeed())), empty.allow, true)
+	l := bundles.NewPipeline(seedLoader(t, acmeToolingSeed()), empty.allow, true)
 	_, err := l.GetFragment(solidRef)
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "an empty records store must withhold even a would-be-trusted item, got %v", err)
 }

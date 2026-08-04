@@ -64,7 +64,7 @@ func TestCreateProfile_CanonicalizesShortRefs(t *testing.T) {
 
 	dir := filepath.Join(root, ".ctxloom", "profiles")
 	require.NoError(t, os.MkdirAll(dir, 0755))
-	loader := profiles.NewLoader(NewProjectReader(nil, []string{dir}))
+	loader := profiles.NewLoader([]string{dir})
 
 	_, err := CreateProfile(context.Background(), cfg, CreateProfileRequest{
 		Name:    "dev",

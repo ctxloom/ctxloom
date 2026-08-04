@@ -49,9 +49,9 @@ func TestWeakHurt_TrustStamper_UnreadableStore_ListingPath(t *testing.T) {
 	wrapped := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
-	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{
+	loader := seedLoader(t, map[string]*bundles.Bundle{
 		"demo": {Fragments: map[string]bundles.BundleFragment{"localfrag": {Content: "local body"}}},
-	}))
+	})
 
 	// NO WithStampRecords injection: production shape, records built from cfg+fs
 	// exactly as internal/cli/item_helpers.go's `operations.NewTrustStamper(cfg)`
@@ -82,11 +82,11 @@ func TestWeakHurt_PendingReview_UnreadableStore_ListingPath(t *testing.T) {
 	wrapped := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
-	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{
+	loader := seedLoader(t, map[string]*bundles.Bundle{
 		"https://github.com/acme/repo@bundles/tooling": {
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "solid body"}},
 		},
-	}))
+	})
 
 	// NO UserStore/ProjectStore/Root injection: production shape, matching
 	// `ctxloom review`'s own zero-config PendingReview(cfg, PendingReviewRequest{}) call.

@@ -70,7 +70,7 @@ func (f *failAfterNWritesFs) OpenFile(name string, flag int, perm os.FileMode) (
 // return a non-nil error and no result, and the countersignature store must
 // hold nothing afterward — not even a partial/corrupt trace of the attempt.
 func TestSetItemTrust_WriteFailureSurfacesError(t *testing.T) {
-	loader, _ := seededLoader()
+	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
 	mem := afero.NewMemMapFs()
 	failingStore := countersign.NewStore("/user-approvals", failWritesFs{Fs: mem})
@@ -100,7 +100,7 @@ func TestSetItemTrust_WriteFailureSurfacesError(t *testing.T) {
 // (spec §5.3) — a failure there must abort the whole call with an error, not
 // report "rejected" while nothing was recorded.
 func TestSetBlacklist_RefRejectWriteFailureSurfacesError(t *testing.T) {
-	loader, _ := seededLoader()
+	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
 	mem := afero.NewMemMapFs()
 	failingStore := countersign.NewStore("/user-approvals", failWritesFs{Fs: mem})
@@ -131,7 +131,7 @@ func TestSetBlacklist_RefRejectWriteFailureSurfacesError(t *testing.T) {
 // landed, and proves the report — and the store itself — agree: raw is
 // recorded, distilled is not.
 func TestSetBlacklist_ContentRejectWriteFailure_NotFalselyReported(t *testing.T) {
-	loader, _ := seededLoader() // "tooling#fragments/dual" ships raw+distilled
+	loader, _ := seededLoader(t) // "tooling#fragments/dual" ships raw+distilled
 	fx := newTrustFixture(t)
 	mem := afero.NewMemMapFs()
 	// Call order inside SetBlacklist: 1) ref-reject, 2) raw content-reject,

@@ -915,7 +915,7 @@ fragments:
 	require.NoError(t, err)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-	bundle, err := loader.LoadFile(bundlePath)
+	bundle, err := loader.Load("test")
 	require.NoError(t, err)
 
 	assert.Equal(t, "2.0", bundle.Version)
@@ -1359,18 +1359,18 @@ func TestLoader_NonexistentSearchDir(t *testing.T) {
 	assert.Empty(t, bundles)
 }
 
-// TestLoader_LoadFile_NotFound verifies proper error on missing files.
-// Unlike directory searches, explicit file loads SHOULD error - the user
-// specifically requested a file that doesn't exist.
-func TestLoader_LoadFile_NotFound(t *testing.T) {
+// TestLoader_Load_NotFound verifies proper error on a name nothing holds. An
+// ask that resolves to nothing must error rather than return an empty bundle —
+// the user specifically requested something.
+func TestLoader_Load_NotFound(t *testing.T) {
 	loader := NewLoader(NewProjectReader(nil, []string{}))
-	_, err := loader.LoadFile("/nonexistent/bundle.yaml")
-	assert.Error(t, err, "explicit file load should error when not found")
+	_, err := loader.Load("nonexistent")
+	assert.Error(t, err, "an unresolvable ask must error")
 }
 
-// TestLoader_LoadFile_InvalidYAML verifies malformed bundles are rejected.
-// Unlike missing files, corrupt bundles indicate a real problem that
-// the user needs to fix.
+// TestLoader_LoadFile_InvalidYAML verifies malformed bundles are rejected —
+// and, since the reader is what parses them, that asking for one by name says
+// WHY rather than "not found", which would point the user at their spelling.
 func TestLoader_LoadFile_InvalidYAML(t *testing.T) {
 	tmpDir := t.TempDir()
 	bundlePath := filepath.Join(tmpDir, "invalid.yaml")
@@ -1378,14 +1378,17 @@ func TestLoader_LoadFile_InvalidYAML(t *testing.T) {
 	require.NoError(t, err)
 
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
-	_, err = loader.LoadFile(bundlePath)
-	assert.Error(t, err, "invalid YAML should error")
+	_, err = loader.Load("invalid")
+	require.Error(t, err, "invalid YAML should error")
+	assert.Contains(t, err.Error(), "could not be read",
+		"the ask must say the file is unreadable, not that the bundle does not exist")
 }
 
-// TestLoader_LoadFile_Caching verifies that bundles are cached after loading.
-// This optimization avoids redundant disk reads when the same bundle is
-// referenced multiple times (e.g., by multiple profiles).
-func TestLoader_LoadFile_Caching(t *testing.T) {
+// TestLoader_Load_Caching verifies that a loader's read is memoized. This
+// optimization avoids redundant disk reads when the same bundle is referenced
+// multiple times (e.g., by multiple profiles), and it is what keeps a companion
+// probe — an exec per companion — from running once per lookup.
+func TestLoader_Load_Caching(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	bundleYAML := `version: "1.0"
@@ -1399,7 +1402,7 @@ fragments:
 	loader := NewLoader(NewProjectReader(nil, []string{tmpDir}))
 
 	// First load
-	bundle1, err := loader.LoadFile(bundlePath)
+	bundle1, err := loader.Load("test")
 	require.NoError(t, err)
 	assert.Equal(t, "1.0", bundle1.Version)
 
@@ -1412,7 +1415,7 @@ fragments:
 	require.NoError(t, err)
 
 	// Second load should return cached version (version 1.0)
-	bundle2, err := loader.LoadFile(bundlePath)
+	bundle2, err := loader.Load("test")
 	require.NoError(t, err)
 	assert.Equal(t, "1.0", bundle2.Version, "should return cached bundle, not re-read from disk")
 

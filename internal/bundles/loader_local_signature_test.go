@@ -76,7 +76,7 @@ func TestLoader_LoadFile_StaleLocalSignature_WarnsAndDelivers(t *testing.T) {
 	var warnings bytes.Buffer
 	loader := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&warnings)
 
-	b, err := loader.LoadFile(path)
+	b, err := loader.Load("stale-tools")
 
 	require.NoError(t, err, "a stale signature must never stop local content loading")
 	require.NotNil(t, b)
@@ -98,7 +98,7 @@ func TestLoader_LoadFile_ValidLocalSignature_Silent(t *testing.T) {
 	var warnings bytes.Buffer
 	loader := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&warnings)
 
-	b, err := loader.LoadFile(path)
+	b, err := loader.Load("valid-tools")
 
 	require.NoError(t, err)
 	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content)
@@ -109,12 +109,12 @@ func TestLoader_LoadFile_ValidLocalSignature_Silent(t *testing.T) {
 // project's own ctxloom-project bundle was deliberately reduced to. It must be
 // completely silent.
 func TestLoader_LoadFile_UnsignedLocalBundle_Silent(t *testing.T) {
-	mem, path, _ := localSigFixture(t, "plain-tools")
+	mem, _, _ := localSigFixture(t, "plain-tools")
 
 	var warnings bytes.Buffer
 	loader := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&warnings)
 
-	b, err := loader.LoadFile(path)
+	b, err := loader.Load("plain-tools")
 
 	require.NoError(t, err)
 	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content)
@@ -132,7 +132,7 @@ func TestLoader_LoadFile_CorruptLocalSignature_WarnsAndDelivers(t *testing.T) {
 	var warnings bytes.Buffer
 	loader := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&warnings)
 
-	b, err := loader.LoadFile(path)
+	b, err := loader.Load("corrupt-tools")
 
 	require.NoError(t, err)
 	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content)
@@ -152,7 +152,7 @@ func TestLoader_LoadFile_UnreadableLocalSignature_WarnsAndDelivers(t *testing.T)
 	loader := NewLoader(NewProjectReader(&openFailFs{Fs: mem, failPath: filepath.ToSlash(sigPath)},
 		[]string{"/bundles"})).WithWarnWriter(&warnings)
 
-	b, err := loader.LoadFile(path)
+	b, err := loader.Load("opaque-tools")
 
 	require.NoError(t, err, "an unreadable sidecar must not stop local content loading")
 	assert.Equal(t, "KEEPER-PAYLOAD", b.Fragments["keeper"].Content)
@@ -170,9 +170,9 @@ func TestLoader_LoadFile_StaleLocalSignature_WarnsOncePerBundle(t *testing.T) {
 	require.NoError(t, afero.WriteFile(mem, path, edited, 0o644))
 
 	var first, second bytes.Buffer
-	_, err := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&first).LoadFile(path)
+	_, err := NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&first).Load("repeat-tools")
 	require.NoError(t, err)
-	_, err = NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&second).LoadFile(path)
+	_, err = NewLoader(NewProjectReader(mem, []string{"/bundles"})).WithWarnWriter(&second).Load("repeat-tools")
 	require.NoError(t, err)
 
 	assert.Contains(t, first.String(), "repeat-tools.yaml.sig")

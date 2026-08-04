@@ -457,7 +457,7 @@ func TestLoadFile_ConcurrencyContract(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			name := []string{"a", "b", "c"}[i%3]
-			b, err := l.LoadFile(bundlesDir + "/" + name + ".yaml")
+			b, err := l.Load(name)
 			assert.NoError(t, err)
 			results[i] = b
 		}(i)

@@ -36,7 +36,6 @@ type Loader struct {
 	loaded bool
 	reads  []BundleRead          // every read, in resolution order
 	byRef  map[string]BundleRead // resolution identity → read
-	byPath map[string]BundleRead // filesystem path → read
 
 	// versionResolver materializes a specific historical commit-version of a
 	// bundle (multi-version coexistence, trust rework, TR5). nil = no per-version
@@ -138,7 +137,6 @@ func (l *Loader) index() {
 		return
 	}
 	byRef := make(map[string]BundleRead)
-	byPath := make(map[string]BundleRead)
 	var order []string
 	for _, r := range l.readers {
 		reads, err := r.Read(context.Background())
@@ -158,9 +156,6 @@ func (l *Loader) index() {
 				order = append(order, read.ref)
 			}
 			byRef[read.ref] = read
-			if path := read.Bundle.Path; path != "" && !isSyntheticPath(path) {
-				byPath[path] = read
-			}
 		}
 	}
 	sort.Strings(order)
@@ -168,7 +163,7 @@ func (l *Loader) index() {
 	for _, ref := range order {
 		l.reads = append(l.reads, byRef[ref])
 	}
-	l.byRef, l.byPath, l.loaded = byRef, byPath, true
+	l.byRef, l.loaded = byRef, true
 }
 
 // admit decides whether one read becomes addressable content, and is the ONLY
@@ -234,7 +229,7 @@ func isSyntheticPath(path string) bool {
 func (l *Loader) invalidate() {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	l.loaded, l.reads, l.byRef, l.byPath = false, nil, nil, nil
+	l.loaded, l.reads, l.byRef = false, nil, nil
 }
 
 // Reads returns every bundle this loader can see, with the trust facts its
@@ -322,25 +317,6 @@ func (l *Loader) Find(name string) (string, error) {
 		return "", fmt.Errorf("bundle %q has no file on this machine (it came from %s)", name, read.Provenance)
 	}
 	return read.Bundle.Path, nil
-}
-
-// LoadFile returns the bundle backed by a specific file path — the inverse of
-// the Path a listing reported.
-//
-// CONCURRENCY, precisely. The CALL is safe from any goroutine. The RESULT is
-// not a private copy — every caller asking for the same bundle gets the SAME
-// *Bundle. Bundle's item maps are exported and StampSigner mutates in place, so
-// a caller that writes through the returned pointer races every other holder.
-// Treat what this hands back as READ-ONLY.
-func (l *Loader) LoadFile(path string) (*Bundle, error) {
-	l.index()
-	l.mu.RLock()
-	read, ok := l.byPath[path]
-	l.mu.RUnlock()
-	if !ok {
-		return nil, fmt.Errorf("%w: no bundle was read from %s", errs.ErrBundleNotFound, path)
-	}
-	return read.Bundle, nil
 }
 
 // List returns every bundle this loader can see, as listing metadata.

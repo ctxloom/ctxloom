@@ -187,6 +187,20 @@ echo '{"name":"goodtool","version":"v9.9.9"}'`)
 // Companion disable switch (--no-companions / CTXLOOM_NO_COMPANIONS)
 // ==========================================================================
 
+// companionLoadoutsOf drives the Config's companion prober exactly as the
+// companion reader does, so a test asserts on what a session would obtain
+// rather than on a field.
+func companionLoadoutsOf(t *testing.T, cfg *Config) []bundles.CompanionLoadout {
+	t.Helper()
+	probe := cfg.companionProber()
+	if probe == nil {
+		return nil
+	}
+	got, err := probe(context.Background())
+	require.NoError(t, err)
+	return got
+}
+
 // TestCompanionsDisabled_SkipsProbeEntirely is the contract of the switch:
 // when companions are disabled process-wide, discovery must not run at all —
 // no companion subprocess is executed and no loadout is contributed. Probing
@@ -197,14 +211,14 @@ func TestCompanionsDisabled_SkipsProbeEntirely(t *testing.T) {
 
 	probed := 0
 	cfg := &Config{appPaths: []string{t.TempDir()}}
-	cfg.companionProbe = func(signing.TrustRoot) map[string]*bundles.Bundle {
+	cfg.SetCompanionProbeForTesting(func(context.Context) ([]bundles.CompanionLoadout, error) {
 		probed++
-		return map[string]*bundles.Bundle{"ctxloom:companion@ltk": {Name: "ltk"}}
-	}
+		return []bundles.CompanionLoadout{{Bin: "ltk", Bundle: []byte("version: \"1.0\"\n")}}, nil
+	})
 
 	SetCompanionsDisabled(true)
 
-	assert.Empty(t, cfg.companionBundleSeed(), "no companion loadout may be contributed when disabled")
+	assert.Empty(t, companionLoadoutsOf(t, cfg), "no companion loadout may be contributed when disabled")
 	assert.Zero(t, probed, "the probe must not be executed at all when companions are disabled")
 }
 
@@ -240,7 +254,9 @@ func TestProbeCompanionLoadouts_DisabledYieldsNothing(t *testing.T) {
 	defer restoreLook()
 
 	SetCompanionsDisabled(true)
-	assert.Empty(t, ProbeCompanionLoadouts(nil), "no loadout may be probed when disabled")
+	got, err := ProbeCompanionLoadouts(context.Background())
+	require.NoError(t, err)
+	assert.Empty(t, got, "no loadout may be probed when disabled")
 }
 
 // syncBuffer is a mutex-guarded bytes.Buffer: ProbeCompanionLoadouts fans its
@@ -283,7 +299,8 @@ func TestProbeCompanionLoadouts_WedgedCompanionWarns(t *testing.T) {
 	restoreSink := clidiag.SetSink(buf)
 	defer restoreSink()
 
-	out := ProbeCompanionLoadouts(nil)
+	out, err := ProbeCompanionLoadouts(context.Background())
+	require.NoError(t, err)
 	assert.Empty(t, out, "a wedged companion still contributes nothing")
 	assert.Contains(t, buf.String(), "loadout probe failed", "a non-benign failure must be diagnosed, not silent")
 }
@@ -307,7 +324,8 @@ func TestProbeCompanionLoadouts_UnknownSubcommandStaysQuiet(t *testing.T) {
 	restoreSink := clidiag.SetSink(buf)
 	defer restoreSink()
 
-	out := ProbeCompanionLoadouts(nil)
+	out, err := ProbeCompanionLoadouts(context.Background())
+	require.NoError(t, err)
 	assert.Empty(t, out)
 	assert.Empty(t, buf.String(), "an unadopted loadout subcommand is the ordinary case, not a warning")
 }
@@ -349,12 +367,12 @@ func TestCompanionsEnabled_ProbesByDefault(t *testing.T) {
 
 	probed := 0
 	cfg := &Config{appPaths: []string{t.TempDir()}}
-	cfg.companionProbe = func(signing.TrustRoot) map[string]*bundles.Bundle {
+	cfg.SetCompanionProbeForTesting(func(context.Context) ([]bundles.CompanionLoadout, error) {
 		probed++
-		return map[string]*bundles.Bundle{"ctxloom:companion@ltk": {Name: "ltk"}}
-	}
+		return []bundles.CompanionLoadout{{Bin: "ltk", Bundle: []byte("version: \"1.0\"\n")}}, nil
+	})
 
-	assert.Len(t, cfg.companionBundleSeed(), 1)
+	assert.Len(t, companionLoadoutsOf(t, cfg), 1)
 	assert.Equal(t, 1, probed)
 }
 
@@ -368,7 +386,7 @@ func TestDisableCompanionProbe_BeatsGlobalEnabled(t *testing.T) {
 	cfg := &Config{appPaths: []string{t.TempDir()}}
 	cfg.DisableCompanionProbe()
 
-	assert.Empty(t, cfg.companionBundleSeed(),
+	assert.Empty(t, companionLoadoutsOf(t, cfg),
 		"a Config that disabled its own probe must see no companions even when the process has them enabled")
 }
 

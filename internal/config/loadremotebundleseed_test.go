@@ -11,10 +11,36 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
+
+// remoteBundleSeed reads every pinned-remote reader the Config builds and
+// returns what they reported, keyed by canonical ref.
+//
+// It is the honest replacement for the retired seed map: the same content, the
+// same identities, now established by the readers that read the bytes. A reader
+// that ERRORS (a tampered tree, a document that will not parse) contributes
+// nothing and is not a fatal condition here, exactly as the seed map's failure
+// path behaved.
+func remoteBundleSeed(t *testing.T, cfg *Config) map[string]*bundles.Bundle {
+	t.Helper()
+	readers := cfg.remoteBundleReaders()
+	if len(readers) == 0 {
+		return nil
+	}
+	// Through a LOADER, not the readers directly: what a session can address is
+	// the loader's answer, and the withholds that matter (a remote signature
+	// that does not cover its bytes) are applied there. Reading the readers raw
+	// would assert on facts nobody consumes.
+	out := map[string]*bundles.Bundle{}
+	for _, read := range bundles.NewLoader(readers...).Reads() {
+		out[read.Ref()] = read.Bundle
+	}
+	return out
+}
 
 // seedSourceRepo creates a real git repo shipping a valid bundle and a
 // malformed one, returning its path and HEAD SHA. The full-load path of
@@ -68,7 +94,7 @@ func TestLoadRemoteBundleSeed_FullLoad(t *testing.T) {
 	require.NoError(t, lm.Save(lock))
 
 	cfg := &Config{appPaths: []string{appDir}}
-	seed := cfg.loadRemoteBundleSeed()
+	seed := remoteBundleSeed(t, cfg)
 
 	require.NotNil(t, seed, "a populated lockfile must materialize a seed")
 	// The seed is keyed by the canonical ref — the sole resolution identity.
@@ -77,7 +103,8 @@ func TestLoadRemoteBundleSeed_FullLoad(t *testing.T) {
 	require.True(t, ok, "the valid bundle is loaded and keyed by its canonical ref")
 	assert.Equal(t, canonical, good.Name)
 	assert.Equal(t, "v1", good.Version, "bundle content is parsed at the locked SHA")
-	assert.Equal(t, "<remote>:"+canonical+"@"+sha, good.Path)
+	assert.Equal(t, "<remote>:"+canonical+"@"+sha, good.Path,
+		"the synthetic path names the ref AND the revision its bytes were pinned at")
 
 	_, badLoaded := seed[repoURL+"@bundles/bad"]
 	assert.False(t, badLoaded, "a malformed bundle is skipped, not fatal")
@@ -102,7 +129,7 @@ func TestLoadRemoteBundleSeed_RegistryErrorWarnsNotSilent(t *testing.T) {
 	defer restore()
 
 	cfg := &Config{appPaths: []string{appDir}}
-	seed := cfg.loadRemoteBundleSeed()
+	seed := remoteBundleSeed(t, cfg)
 
 	assert.Nil(t, seed)
 	assert.Contains(t, buf.String(), "remotes registry",
@@ -124,7 +151,7 @@ func TestLoadRemoteBundleSeed_LockfileParseErrorWarnsNotSilent(t *testing.T) {
 	defer restore()
 
 	cfg := &Config{appPaths: []string{appDir}}
-	seed := cfg.loadRemoteBundleSeed()
+	seed := remoteBundleSeed(t, cfg)
 
 	assert.Nil(t, seed)
 	assert.Contains(t, buf.String(), "lockfile",

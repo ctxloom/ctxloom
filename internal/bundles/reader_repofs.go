@@ -92,15 +92,23 @@ func (r *repoFSReader) Read(ctx context.Context) ([]BundleRead, error) {
 	return []BundleRead{read}, nil
 }
 
-// isTreeForm reports whether the tree root holds a bundle.yaml, which is what
-// makes a directory-form bundle a directory-form bundle.
+// leaf is the last segment of the ref — the name the bundle answers to inside
+// the tree it was handed, whether that is a document ("<leaf>.yaml") or a
+// directory-form bundle's own directory ("<leaf>/").
+func (r *repoFSReader) leaf() string { return path.Base(strings.TrimSuffix(r.ref, "/")) }
+
+// isTreeForm reports whether the tree holds this ref as a DIRECTORY, which is
+// what makes a directory-form bundle a directory-form bundle. The tree is
+// rooted at the parent in both cases — a bundle id must be a single path
+// segment, so a nested ref path is absorbed by the root — which is why the
+// question is about an entry in the root rather than about the root itself.
 func (r *repoFSReader) isTreeForm() (bool, error) {
 	entries, err := r.tree.ReadDir(".")
 	if err != nil {
 		return false, fmt.Errorf("bundles: listing the pinned tree for %q: %w", r.ref, err)
 	}
 	for _, e := range entries {
-		if !e.IsDir && e.Name == DirectoryFormManifest {
+		if e.IsDir && e.Name == r.leaf() {
 			return true, nil
 		}
 	}
@@ -136,9 +144,21 @@ func (r *repoFSReader) readDocument() (BundleRead, error) {
 	// A document in a pinned tree has no directory of its own, so Path is the
 	// synthetic sentinel FSDir refuses rather than a filesystem path it would
 	// resolve against the process working directory.
-	b.Path = remotePathSentinel + r.ref
+	b.Path = r.syntheticPath()
 	facts.stamp(b)
 	return newRead(r.ref, b, ProvenanceRemote, TrustCtxRemote, facts), nil
+}
+
+// syntheticPath names the bundle's origin in the one field callers look at for
+// it, WITHOUT handing them a path they could walk: the ref, and the revision
+// its bytes were pinned at when the caller supplied one. FSDir refuses it (see
+// nonFilesystemPathPrefixes), which is the point — a remote document has no
+// directory, and guessing one resolves against the process working directory.
+func (r *repoFSReader) syntheticPath() string {
+	if r.cfg.revision == "" {
+		return remotePathSentinel + r.ref
+	}
+	return remotePathSentinel + r.ref + "@" + r.cfg.revision
 }
 
 // documentPath finds the single bundle document at the tree root. More than
@@ -154,6 +174,11 @@ func (r *repoFSReader) documentPath() (string, error) {
 	for _, e := range entries {
 		if e.IsDir || !strings.HasSuffix(e.Name, ".yaml") {
 			continue
+		}
+		// The ref's own leaf answers to the ref, always. Anything else is only
+		// a candidate when the tree holds exactly one document.
+		if e.Name == r.leaf()+".yaml" {
+			return e.Name, nil
 		}
 		docs = append(docs, e.Name)
 	}
@@ -200,7 +225,7 @@ func (r *repoFSReader) readTreeForm(ctx context.Context) (BundleRead, error) {
 	if r.cfg.installDir != "" {
 		b.Path = filepath.Join(r.cfg.installDir, DirectoryFormManifest)
 	} else {
-		b.Path = remotePathSentinel + r.ref
+		b.Path = r.syntheticPath()
 	}
 	facts.stamp(b)
 	return newRead(r.ref, b, ProvenanceRemote, TrustCtxRemote, facts), nil

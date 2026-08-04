@@ -2276,7 +2276,9 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 			failures[canonical] = terr
 			continue
 		}
-		out = append(out, bundles.NewRepoFSReader(tree, canonical, bundles.WithTrustRoot(root)))
+		out = append(out, bundles.NewRepoFSReader(tree, canonical,
+			bundles.WithTrustRoot(root),
+			bundles.WithPinnedRevision(lock.Bundles[canonical].SHA)))
 	}
 	out = append(out, c.treeBundleReaders(lock, root, failures)...)
 	reportBundleLoadFailures(failures)

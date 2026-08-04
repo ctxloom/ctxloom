@@ -85,7 +85,7 @@ func seedWith(t *testing.T, repoDir, sha, allowedSigners string) map[string]*bun
 	require.NoError(t, lm.Save(lock))
 
 	cfg := &Config{appPaths: []string{appDir}}
-	raw := cfg.loadRemoteBundleSeed()
+	raw := remoteBundleSeed(t, cfg)
 	out := map[string]*bundleForTest{}
 	for k, b := range raw {
 		out[k] = &bundleForTest{signer: b.Signer(), version: b.Version}

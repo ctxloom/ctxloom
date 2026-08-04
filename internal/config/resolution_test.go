@@ -86,14 +86,14 @@ func TestConfig_ShouldUseDistilled(t *testing.T) {
 // and an absent/empty lockfile both yield a nil seed (nothing to load).
 func TestLoadRemoteBundleSeed_GuardBranches(t *testing.T) {
 	t.Run("nil_without_app_paths", func(t *testing.T) {
-		assert.Nil(t, (&Config{}).loadRemoteBundleSeed())
+		assert.Nil(t, remoteBundleSeed(t, &Config{}))
 	})
 
 	t.Run("nil_with_empty_lockfile", func(t *testing.T) {
 		testsupport.Isolate(t)
 		dir := t.TempDir() // real, empty .ctxloom: no remotes, no lockfile
 		cfg := &Config{appPaths: []string{dir}}
-		assert.Nil(t, cfg.loadRemoteBundleSeed(), "an empty lockfile means no remote bundles to seed")
+		assert.Nil(t, remoteBundleSeed(t, cfg), "an empty lockfile means no remote bundles to seed")
 	})
 }
 

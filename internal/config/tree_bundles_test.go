@@ -78,6 +78,23 @@ func stageInstalledTree(t *testing.T) (*Config, *content.TreeStore, content.Bund
 	return c, store, tree, fsys
 }
 
+// readTreeBundle drives the reader the Config builds for one lockfile tree
+// entry, and returns both halves a caller cares about: the bundle document, and
+// the read that carries what its attestation turned out to be.
+func readTreeBundle(t *testing.T, c *Config, ctx context.Context, canonical string, entry remote.LockEntry, root signing.TrustRoot) (*bundles.Bundle, bundles.BundleRead, error) {
+	t.Helper()
+	reader, err := c.treeBundleReader(canonical, entry, root)
+	if err != nil {
+		return nil, bundles.BundleRead{}, err
+	}
+	reads, err := reader.Read(ctx)
+	if err != nil {
+		return nil, bundles.BundleRead{}, err
+	}
+	require.Len(t, reads, 1, "one lockfile entry is one bundle")
+	return reads[0].Bundle, reads[0], nil
+}
+
 func treeEntry() remote.LockEntry {
 	return remote.LockEntry{SHA: "0123456789abcdef", URL: "https://github.com/acme/ctx", Tree: true}
 }
@@ -88,10 +105,10 @@ func TestLoadTreeBundle_ReadsTheInstalledTreeIntoABundle(t *testing.T) {
 	c, _, _, _ := stageInstalledTree(t)
 	_, pub := treeTestSigner(t)
 
-	b, publisher, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	b, read, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.NoError(t, err)
-	assert.Empty(t, publisher.Principal, "an unsigned tree is unsigned-to-us, not an error")
-	assert.Empty(t, publisher.UntrustedFingerprint, "and it names no key, because there is no signature to name one")
+	assert.Empty(t, read.Bundle.Signer(), "an unsigned tree is unsigned-to-us, not an error")
+	assert.Empty(t, read.UntrustedSignerFingerprint(), "and it names no key, because there is no signature to name one")
 	assert.Equal(t, "1.0.0", b.Version)
 	require.Contains(t, b.Fragments, "house-style")
 	assert.Equal(t, "FRAG-BODY", b.Fragments["house-style"].Content)
@@ -106,7 +123,7 @@ func TestLoadTreeBundle_PathResolvesToTheInstalledDirectorySoSkillsCanLoad(t *te
 	c, _, _, _ := stageInstalledTree(t)
 	_, pub := treeTestSigner(t)
 
-	b, _, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	b, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.NoError(t, err)
 
 	dir, err := b.FSDir()
@@ -124,11 +141,11 @@ func TestLoadTreeBundle_SignedByATrustedKeyYieldsThePrincipal(t *testing.T) {
 	signer, pub := treeTestSigner(t)
 	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
 
-	b, publisher, err := c.loadTreeBundle(ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	b, read, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.NoError(t, err)
 	require.NotNil(t, b)
-	assert.Equal(t, "trent@acme.test", publisher.Principal)
-	assert.Empty(t, publisher.UntrustedFingerprint,
+	assert.Equal(t, "trent@acme.test", read.Bundle.Signer())
+	assert.Empty(t, read.UntrustedSignerFingerprint(),
 		"a VERIFIED tree has an identity to show; the display-only fingerprint is for the case that has none")
 }
 
@@ -145,11 +162,11 @@ func TestLoadTreeBundle_SignedByAnUntrustedKeyNamesTheKeyWithoutTrustingIt(t *te
 	// A trust root that knows a DIFFERENT key: Carol signed, and nobody here
 	// trusts Carol.
 	_, strangerPub := treeTestSigner(t)
-	b, publisher, err := c.loadTreeBundle(ctx, treeCanonical, treeEntry(), treeTrustRoot("someone-else@acme.test", strangerPub))
+	b, read, err := readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("someone-else@acme.test", strangerPub))
 	require.NoError(t, err, "an untrusted signature is ordinary third-party content, not an error")
 	require.NotNil(t, b)
-	assert.Empty(t, publisher.Principal, "nothing verified, so there is no publisher identity")
-	assert.Equal(t, ssh.FingerprintSHA256(pub), publisher.UntrustedFingerprint,
+	assert.Empty(t, read.Bundle.Signer(), "nothing verified, so there is no publisher identity")
+	assert.Equal(t, ssh.FingerprintSHA256(pub), read.UntrustedSignerFingerprint(),
 		"the key that MADE the signature is named for comparison, and named as untrusted")
 	assert.Empty(t, b.Signer(), "and naming it must not have granted it anything")
 }
@@ -169,9 +186,9 @@ func TestLoadTreeBundle_EditedAfterSigningIsWithheldNotDegradedToUnsigned(t *tes
 	require.NoError(t, afero.WriteFile(fsys,
 		filepath.Join(dir, "fragments", "house-style.md"), []byte("SUBSTITUTED"), 0o644))
 
-	_, _, err = c.loadTreeBundle(ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	_, _, err = readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrTreeBundleWithheld)
+	assert.ErrorIs(t, err, bundles.ErrTreeBundleWithheld)
 }
 
 // A file ADDED to a signed tree is the laundering channel the manifest's
@@ -187,9 +204,9 @@ func TestLoadTreeBundle_FileAddedAfterSigningIsWithheld(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, afero.WriteFile(fsys, filepath.Join(dir, "SMUGGLED.txt"), []byte("x"), 0o644))
 
-	_, _, err = c.loadTreeBundle(ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	_, _, err = readTreeBundle(t, c, ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.Error(t, err)
-	assert.ErrorIs(t, err, ErrTreeBundleWithheld)
+	assert.ErrorIs(t, err, bundles.ErrTreeBundleWithheld)
 }
 
 // A lockfile that records a tree which is not on disk must say THAT, not
@@ -201,30 +218,33 @@ func TestLoadTreeBundle_MissingTreeNamesThePathAndTheFix(t *testing.T) {
 	c.SetFS(fsys)
 
 	_, pub := treeTestSigner(t)
-	_, _, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("t@x", pub))
+	_, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("t@x", pub))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "remote pull")
 	assert.Contains(t, err.Error(), "atelier")
 }
 
-// seedTreeBundles must claim exactly the entries the byte reader refused for
+// treeBundleReaders must claim exactly the entries the byte reader refused for
 // being tree-shaped, and leave every other failure for the ordinary report.
-func TestSeedTreeBundles_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *testing.T) {
+func TestTreeBundleReaders_ClaimsTreeRefusalsAndLeavesOtherFailuresAlone(t *testing.T) {
 	c, _, _, _ := stageInstalledTree(t)
 	_, pub := treeTestSigner(t)
 
 	lock := &remote.Lockfile{Bundles: map[string]remote.LockEntry{treeCanonical: treeEntry()}}
-	loaded := map[string]*bundles.Bundle{}
 	other := assert.AnError
 	failures := map[string]error{
 		treeCanonical: remote.ErrTreeBundleUnreadable,
 		"https://github.com/acme/ctx@bundles/other": other,
 	}
 
-	c.seedTreeBundles(context.Background(), lock, treeTrustRoot("trent@acme.test", pub), loaded, failures)
+	readers := c.treeBundleReaders(lock, treeTrustRoot("trent@acme.test", pub), failures)
 
-	require.Contains(t, loaded, treeCanonical, "the tree entry must be seeded")
-	assert.Equal(t, treeCanonical, loaded[treeCanonical].Name, "the canonical ref is the seed identity")
+	require.Len(t, readers, 1, "the tree entry must get a reader")
+	reads, err := readers[0].Read(context.Background())
+	require.NoError(t, err)
+	require.Len(t, reads, 1)
+	assert.Equal(t, treeCanonical, reads[0].Ref(), "the canonical ref is the resolution identity")
+	assert.Equal(t, treeCanonical, reads[0].Bundle.Name)
 	assert.NotContains(t, failures, treeCanonical, "a claimed tree is no longer a failure")
 	assert.Equal(t, other, failures["https://github.com/acme/ctx@bundles/other"],
 		"a failure that is not a tree refusal must be left untouched")
@@ -262,7 +282,7 @@ func TestLoadTreeBundle_RetiredLoaderDirectoryFormIsRefused(t *testing.T) {
 	c, _, _ := stageLoaderFormTree(t)
 	_, pub := treeTestSigner(t)
 
-	_, _, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	_, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.Error(t, err, "the retired shape must not load silently")
 	assert.Contains(t, err.Error(), "skills",
 		"the refusal must name the inline key that makes it the retired shape")

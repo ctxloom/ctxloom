@@ -355,6 +355,7 @@ type readerConfig struct {
 	root        signing.TrustRoot
 	installDir  string
 	repoURL     string
+	revision    string
 	warnHandler func(format string, args ...any)
 }
 
@@ -372,6 +373,13 @@ func WithTrustRoot(root signing.TrustRoot) ReaderOption {
 // content is remote either way.
 func WithInstalledDir(dir string) ReaderOption {
 	return func(c *readerConfig) { c.installDir = dir }
+}
+
+// WithPinnedRevision records the revision a pinned tree's bytes were fetched
+// at, so a diagnostic can say WHICH bytes it is talking about. It is provenance
+// detail for humans, never an input to any decision.
+func WithPinnedRevision(rev string) ReaderOption {
+	return func(c *readerConfig) { c.revision = rev }
 }
 
 // WithRepoURL supplies the publisher repository a pinned tree came from, which

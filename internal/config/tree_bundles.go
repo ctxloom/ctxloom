@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/spf13/afero"
+
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/remote"
@@ -83,14 +85,23 @@ func (c *Config) treeBundleReader(canonical string, entry remote.LockEntry, root
 	if err != nil {
 		return nil, err
 	}
+	// Check the installed tree is THERE before handing a reader a root it will
+	// fail to list later. The two failures are the same fact, but only here is
+	// the fix knowable: a lockfile entry with no tree on disk is a pull that has
+	// not happened, and the message has to say so — "cannot list this directory"
+	// reaches the user as a bug in ctxloom.
+	if ok, derr := afero.DirExists(c.getFS(), dir); derr != nil || !ok {
+		return nil, fmt.Errorf("the lockfile records %q as a directory-form bundle but its tree is not installed at %s "+
+			"(run `ctxloom remote pull`)", canonical, dir)
+	}
 	tree, err := content.NewAferoTreeFS(c.getFS(), filepath.Dir(dir))
 	if err != nil {
-		return nil, fmt.Errorf("the lockfile records %q as a directory-form bundle but its tree is not installed at %s "+
-			"(run `ctxloom remote pull`): %w", canonical, dir, err)
+		return nil, fmt.Errorf("the tree installed for %q at %s cannot be opened: %w", canonical, dir, err)
 	}
 	return bundles.NewRepoFSReader(tree, canonical,
 		bundles.WithTrustRoot(root),
 		bundles.WithInstalledDir(dir),
+		bundles.WithPinnedRevision(entry.SHA),
 		bundles.WithRepoURL(entry.URL)), nil
 }
 

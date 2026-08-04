@@ -14,7 +14,7 @@ import (
 
 // stampSeed builds one seeded loader holding every bundle the ForRef cascade
 // test resolves (remote + local, fragments + mcp). Keys are the exact bundle
-// refs the loader receives after parseTrustItemRef strips the selector.
+// refs the loader receives after trust.ParseItemRef strips the selector.
 func stampSeed(t *testing.T) *bundles.Loader {
 	t.Helper()
 	const acme = "https://github.com/acme/repo@bundles/"

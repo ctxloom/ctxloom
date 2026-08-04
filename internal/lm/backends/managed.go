@@ -357,7 +357,7 @@ type profileGateRef struct {
 // carries exactly one '#' and parses — and never keys IsLocal for a
 // remote origin. A genuinely local/
 // project-authored profile has an empty SourceRef, so Base falls back to the
-// bare profileName — exactly what parseTrustItemRef's bare-token fallback
+// bare profileName — exactly what trust.ParseItemRef's bare-token fallback
 // resolves to IsLocal, honestly, because it IS local.
 func profileGateRefFor(resolved *profiles.ResolvedProfile, profileName string) profileGateRef {
 	if resolved == nil || resolved.SourceRef == "" {

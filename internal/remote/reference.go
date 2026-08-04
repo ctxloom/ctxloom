@@ -20,7 +20,7 @@ const LocalSource = "ctxloom:local"
 // references — a bundle emitted live by a companion binary discovered on
 // PATH (`<bin> loadout --format json`, signature-envelope spec §4.3/§6
 // discovery). This is the FIRST-CLASS, RECOGNIZED source token companion
-// loadouts are seeded under: recognized here (so parseTrustItemRef's
+// loadouts are seeded under: recognized here (so trust.ParseItemRef's
 // unrecognized-source guard never fires for it) and mapped to a NON-local,
 // NON-builtin trust.Ref (Reference.IsLocal stays false), so companion content
 // flows through EffectiveTrust's trusted-signer/approved/pending steps

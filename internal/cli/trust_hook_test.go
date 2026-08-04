@@ -32,7 +32,7 @@ func seedLocalHookBundle(t *testing.T, appDir, bundle string, hook bundles.Bundl
 	require.NoError(t, os.WriteFile(filepath.Join(dir, bundle+".yaml"), []byte(yaml), 0o644))
 }
 
-// hookRefFor addresses a local hook exactly as parseTrustItemRef would.
+// hookRefFor addresses a local hook exactly as trust.ParseItemRef would.
 func hookRefFor(bundle, id string) trust.Ref {
 	return trust.Ref{Bundle: bundle, Kind: trust.KindHook, Name: id, IsLocal: true}
 }

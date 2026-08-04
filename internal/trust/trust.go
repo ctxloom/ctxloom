@@ -143,7 +143,7 @@ const (
 	// called "skill" before the Part A rename). Its selector directory
 	// "skills" was freed for this meaning by that rename; nothing production
 	// still resolves "#skills/<name>" to KindPrompt (see
-	// operations.parseTrustSelector).
+	// trust.ParseSelector).
 	KindSkill ItemKind = "skill"
 )
 
@@ -247,7 +247,7 @@ type Ref struct {
 	// second spelling of IsLocal, so step 1's rejection check still runs ahead
 	// of it and a reader can see WHICH exemption allowed an item.
 	//
-	// The single production site that sets it (operations.parseTrustItemRef)
+	// The single production site that sets it (trust.ParseItemRef)
 	// copies remote.Reference.IsCompanion, which the reference grammar sets
 	// only for the fixed remote.CompanionSource token — never for a URL or
 	// bundle name an author can choose — and which never coincides with

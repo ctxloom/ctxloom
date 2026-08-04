@@ -2,8 +2,8 @@
 // the local bundle FILE it names, and signing that file's exact on-disk
 // bytes. This file is deliberately separate from trust.go (which owns the
 // verification-side ReviewRecords/EffectiveTrust machinery) — it reuses
-// trust.go's unexported ref-grammar helpers (parseTrustItemRef,
-// builtinSourcePrefix) directly, being in the same package, plus the shared
+// trust.go's unexported ref-grammar helpers (trust.ParseItemRef,
+// trust.BuiltinSourcePrefix) directly, being in the same package, plus the shared
 // remote.IsSelfContainedRef marker list, rather than duplicating the grammar
 // (ADR 0032: one ref grammar).
 package operations
@@ -26,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // SignTarget is a ref resolved down to the local bundle it names. Spec
@@ -43,7 +44,7 @@ type SignTarget struct {
 }
 
 // ResolveSignTarget parses ref using the SAME grammar operations/trust.go's
-// parseTrustItemRef and remote.ParseReference already implement — never a
+// trust.ParseItemRef and remote.ParseReference already implement — never a
 // second grammar (ADR 0032) — and resolves it to the local bundle
 // `ctxloom sign` should write a `.sig` sibling for.
 //
@@ -58,7 +59,7 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 	}
 
 	if strings.Contains(ref, "#") {
-		tRef, _, _, err := parseTrustItemRef(ref)
+		tRef, _, _, err := trust.ParseItemRef(ref)
 		if err != nil {
 			return SignTarget{}, err
 		}
@@ -77,7 +78,7 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 	}
 
 	// No "#<kind>/<name>" selector: ref is a bare bundle ref. Mirror
-	// parseTrustItemRef's own base-ref resolution (same functions, same
+	// trust.ParseItemRef's own base-ref resolution (same functions, same
 	// package) rather than re-deriving it.
 	if parsed, err := remote.ParseReference(ref); err == nil {
 		if !parsed.IsLocal {
@@ -86,7 +87,7 @@ func ResolveSignTarget(ref string) (SignTarget, error) {
 		}
 		return SignTarget{BundleName: parsed.Path}, nil
 	}
-	if _, ok := strings.CutPrefix(ref, builtinSourcePrefix); ok {
+	if _, ok := strings.CutPrefix(ref, trust.BuiltinSourcePrefix); ok {
 		return SignTarget{}, fmt.Errorf("ctxloom sign: %q is a builtin bundle — builtins are never signed "+
 			"(signing bytes compiled into the binary that verifies them is circular)", ref)
 	}

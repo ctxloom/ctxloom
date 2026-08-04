@@ -61,7 +61,7 @@ type contentGate struct {
 // call per resolved item. It is fail-closed: any path that cannot positively
 // justify exposure records the ref and withholds (returns false).
 func (g *contentGate) allow(ref string, payload []byte, form, signer string) bool {
-	tRef, _, _, err := parseTrustItemRef(ref)
+	tRef, _, _, err := trust.ParseItemRef(ref)
 	if err != nil {
 		// A ref we cannot address cannot be trusted — withhold rather than expose
 		// content the decision function never evaluated.

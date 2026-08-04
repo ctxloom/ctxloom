@@ -202,7 +202,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 //
 // gate is run through extractMCPFromBundle exactly like a remote/local bundle's
 // servers (the "builtin:<name>" source ref parses as trust.Ref{IsBuiltin: true}
-// — see operations.parseTrustItemRef): the decision function still ALLOWS a
+// — see trust.ParseItemRef): the decision function still ALLOWS a
 // builtin server by default (no new review friction — trust-model.md's builtin
 // exemption), but a REJECTED builtin item is now withheld, because rejection is
 // evaluated before the builtin exemption. A nil gate (management/listing paths,

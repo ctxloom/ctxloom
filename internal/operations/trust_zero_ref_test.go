@@ -26,7 +26,7 @@ import (
 //     local, not builtin, no signer, not approvable — it falls through to the
 //     terminal fail-closed default.
 //  3. UNREACHABLE anyway. The zero Ref is produced by exactly one thing,
-//     parseTrustItemRef's failure arms, and it is produced only ALONGSIDE an
+//     trust.ParseItemRef's failure arms, and it is produced only ALONGSIDE an
 //     error that every caller checks before using the value.
 //
 // Hardening the addressing layer instead — refusing to compute an address for
@@ -69,7 +69,7 @@ func TestZeroRef_AddressesButIsInertAndUnreachable(t *testing.T) {
 		"https://x/y",         // a source ref with no selector at all
 		"git@host:o/r#nope/x", // parseable source, unknown kind
 	} {
-		got, loadRef, version, perr := parseTrustItemRef(bad)
+		got, loadRef, version, perr := trust.ParseItemRef(bad)
 		require.Errorf(t, perr, "%q must not parse", bad)
 		assert.Equalf(t, trust.Ref{}, got, "%q must yield the zero Ref only alongside its error", bad)
 		assert.Emptyf(t, loadRef, "%q", bad)

@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/remote"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // TestParseTrustItemRef_CompanionRefsFailClosed closes a fail-open gap: the
@@ -26,12 +27,12 @@ func TestParseTrustItemRef_CompanionRefsFailClosed(t *testing.T) {
 		"ctxloom:companion@../evil", // traversal in the bin name
 		"ctxloom:companion@/abs",    // absolute bin path
 	} {
-		_, _, _, err := parseTrustItemRef(base + "#fragments/x")
+		_, _, _, err := trust.ParseItemRef(base + "#fragments/x")
 		assert.Error(t, err, "%q is a malformed companion ref and must fail closed, never resolve as a local bundle name", base)
 	}
 
 	// A well-formed companion ref still parses, and is NOT local.
-	tRef, _, _, err := parseTrustItemRef("ctxloom:companion@ltk#fragments/x")
+	tRef, _, _, err := trust.ParseItemRef("ctxloom:companion@ltk#fragments/x")
 	require.NoError(t, err)
 	assert.False(t, tRef.IsLocal, "a valid companion ref is not a first-party local bundle")
 }

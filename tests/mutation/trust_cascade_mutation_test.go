@@ -29,7 +29,7 @@
 // per-FILE inclusion/exclusion via IgnoreSourceFiles). The task's interest
 // is specifically the EffectiveTrust cascade (~:230-312) and Reason()
 // (~:159-177); mutating the rest of the file (SetItemTrust, SetBlacklist,
-// parseTrustSelector, computeItemPayload*, TrustStamper, ...) is a superset
+// trust.ParseSelector, computeItemPayload*, TrustStamper, ...) is a superset
 // this scoping cannot avoid, but it is inside the same trust-decision file
 // and its survivors are still reported — see the mutation report at
 // tests/mutation/REPORT (or the invoking agent's summary) for which

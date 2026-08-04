@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // acmeToolingSeed seeds one REMOTE bundle (acme tooling) with fragments and
@@ -224,7 +225,7 @@ fragments:
 }
 
 // TestContentGate_UnrecognizedSourceRef_FailsClosed proves the fail-open bug
-// in parseTrustItemRef's fallback: a bundle seeded under a source ref that
+// in trust.ParseItemRef's fallback: a bundle seeded under a source ref that
 // SUPERFICIALLY looks like a canonical URL but fails remote.ParseReference
 // (here: missing the required "@<type>/<path>" suffix) must NOT be silently
 // downgraded to "local" — that bypasses the trust gate and review entirely.
@@ -350,7 +351,7 @@ func TestContentGate_RecordsEveryDenyWithAReason(t *testing.T) {
 }
 
 // TestParseTrustItemRef_AttemptedSourceRefsFailClosed pins the half of
-// parseTrustItemRef's fail-open boundary that is CORRECT, so it cannot regress
+// trust.ParseItemRef's fail-open boundary that is CORRECT, so it cannot regress
 // while the remaining gap is adjudicated separately. A string carrying a
 // scheme marker that nonetheless fails remote.ParseReference must ERROR rather
 // than be downgraded to a first-party local bundle name: every caller treats
@@ -366,11 +367,11 @@ func TestParseTrustItemRef_AttemptedSourceRefsFailClosed(t *testing.T) {
 		"git@github.com:acme/repo",     // ssh ref missing the item path
 		"ctxloom:local@",               // local ref missing its item path
 	} {
-		_, _, _, err := parseTrustItemRef(base + "#fragments/x")
+		_, _, _, err := trust.ParseItemRef(base + "#fragments/x")
 		assert.Error(t, err, "%q looks like an attempted source ref and must fail closed, never resolve as a local bundle name", base)
 	}
 
-	tRef, _, _, err := parseTrustItemRef("my-tools#fragments/x")
+	tRef, _, _, err := trust.ParseItemRef("my-tools#fragments/x")
 	require.NoError(t, err, "a bare bundle name carries no scheme marker and is genuinely local")
 	assert.True(t, tRef.IsLocal)
 	assert.Equal(t, "my-tools", tRef.Bundle)

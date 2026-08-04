@@ -1035,7 +1035,7 @@ type ResolvedProfile struct {
 	// ref is exactly what once produced a double-'#') for a
 	// bundle-shipped profile, or "" for a genuinely local/project-authored
 	// profile — which then keys the gate honestly IsLocal via
-	// parseTrustItemRef's bare-token fallback, never auto-allowing a
+	// trust.ParseItemRef's bare-token fallback, never auto-allowing a
 	// remote-sourced profile's inline executables. Populated by
 	// resolveProfileRecursive from THIS profile's own load name; Merge below
 	// deliberately never touches it, so a parent's SourceRef can never leak

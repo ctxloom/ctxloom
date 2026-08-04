@@ -379,7 +379,7 @@ func setReviewForms(item *ReviewItem, shown []byte, shownForm bundles.ContentFor
 // needs no review (allowed, rejected, or unaddressable).
 func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, payload []byte, form, signer string, executable bool) (ReviewItem, bool) {
 	ref := bundleRef + "#" + kindDir + "/" + name
-	tRef, _, _, err := parseTrustItemRef(ref)
+	tRef, _, _, err := trust.ParseItemRef(ref)
 	if err != nil {
 		// A ref review cannot address cannot be accepted either — the exposure
 		// gate withholds it regardless; surface the anomaly and move on.

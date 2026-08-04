@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
 // writeBundleProfileFixture writes a local bundle that ships a fragment, an MCP
@@ -141,6 +142,6 @@ func TestBundleProfile_MCPStillGatesAtExecChoke(t *testing.T) {
 // never run through EffectiveTrust (its constituent items are). (This replaces
 // the retired TR6-baseline enumeration proxy with the grammar itself.)
 func TestBundleProfile_NotAReviewableKind(t *testing.T) {
-	_, _, _, err := parseTrustItemRef("kit#profiles/dev")
+	_, _, _, err := trust.ParseItemRef("kit#profiles/dev")
 	assert.Error(t, err, "a profile must not be addressable as a trust item kind")
 }

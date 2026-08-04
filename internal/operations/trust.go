@@ -3,7 +3,6 @@ package operations
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/spf13/afero"
@@ -546,7 +545,7 @@ func buildLockfileRetraction(cfg *config.Config, fs afero.Fs) RetractionRecords 
 
 // lockfileKeyForRef reconstructs a bundle ref's lockfile map key
 // ("<url>@bundles/<path>") from a trust.Ref — the exact inverse of what
-// parseTrustItemRef derives a trust.Ref's RepoURL/Bundle FROM (it parses that
+// trust.ParseItemRef derives a trust.Ref's RepoURL/Bundle FROM (it parses that
 // same string via remote.ParseReference), and the exact string
 // bundles.Bundle.contentSourceRef carries as the gate's "source" for a cloned
 // bundle (loader.go's gateContent). All three — the lockfile key, the
@@ -712,7 +711,7 @@ type SetItemTrustResult struct {
 // Alongside the store write it snapshots the approved bytes (content kinds
 // only, best-effort) so a later upstream change can be reviewed as a diff.
 func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustResult, error) {
-	tRef, loadRef, _, err := parseTrustItemRef(req.Ref)
+	tRef, loadRef, _, err := trust.ParseItemRef(req.Ref)
 	if err != nil {
 		return nil, err
 	}
@@ -831,7 +830,7 @@ type SetBlacklistResult struct {
 // rejected wherever it appears (spec §5.3's asymmetry: approve binds the
 // ref, reject's content component deliberately does not).
 func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistResult, error) {
-	tRef, loadRef, _, err := parseTrustItemRef(req.Ref)
+	tRef, loadRef, _, err := trust.ParseItemRef(req.Ref)
 	if err != nil {
 		return nil, err
 	}
@@ -897,126 +896,6 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 }
 
 // --- Ref parsing + hashing helpers -------------------------------------------
-
-// builtinSourcePrefix marks a builtin-bundle source ref, e.g. "builtin:ltk"
-// (the exact "builtin:"+name string extractMCPFromBundle/extractHooksFromBundle/
-// ResolveBuiltinBundleFragments construct as their gate ref's bundle component —
-// see config_bundles.go). It is never produced by anything reading user- or
-// remote-controlled input: only the three builtin resolvers, fed exclusively
-// from resources.GetBuiltinBundle (compiled into the binary), construct it.
-const builtinSourcePrefix = "builtin:"
-
-// parseTrustItemRef splits an item ref "<bundle-ref>#<kind>/<name>" into the
-// trust.Ref (repo, bundle path, kind, name, locality), the bundle ref to load
-// content from, and any "@<commit>" provenance carried on the bundle ref.
-func parseTrustItemRef(ref string) (tRef trust.Ref, loadRef, version string, err error) {
-	// Ingest boundary, and the sharpest one in the codebase: this ref arrives
-	// from argv (`ctxloom trust <ref>`), from an MCP argument, or from a gate
-	// built over bundle-authored names, and its Bundle/Name components are
-	// interpolated verbatim into the countersign preimage via countersignRef.
-	// The bare-local fallback below accepts ANY token that carries no scheme
-	// marker, so without this the grammar never gets a chance to object.
-	ref = remote.NormalizeRef(ref)
-	base, sel, found := strings.Cut(ref, "#")
-	if !found || base == "" {
-		return trust.Ref{}, "", "", fmt.Errorf("trust ref %q missing #<kind>/<name> selector", ref)
-	}
-	kind, name, err := parseTrustSelector(sel)
-	if err != nil {
-		return trust.Ref{}, "", "", fmt.Errorf("invalid trust ref %q: %w", ref, err)
-	}
-
-	if parsed, perr := remote.ParseReference(base); perr == nil {
-		return trust.Ref{
-			RepoURL: parsed.URL,
-			Bundle:  parsed.Path,
-			Kind:    kind,
-			Name:    name,
-			IsLocal: parsed.IsLocal,
-			// IsCompanion rides the SAME parse, from the same reference
-			// grammar, so the decision function's companion step can never be
-			// reached by a ref that did not parse as ctxloom:companion@<bin>.
-			// Copied rather than re-derived from the URL string: one parser,
-			// one answer.
-			IsCompanion: parsed.IsCompanion,
-		}, base, parsed.ContentVersion, nil
-	}
-
-	// base failed to parse as a canonical/local ref. A builtin bundle's source
-	// ref is recognized explicitly (never falls through to the local guess
-	// below) so a builtin item carries its own identity in the trust store —
-	// distinct from "local" — and is reachable by the rejection step (trust
-	// rework: builtins used to bypass the gate entirely, gate=nil).
-	if bundle, ok := strings.CutPrefix(base, builtinSourcePrefix); ok {
-		return trust.Ref{Bundle: bundle, Kind: kind, Name: name, IsBuiltin: true}, base, "", nil
-	}
-
-	// base is still unrecognized. A genuinely local bundle is referenced by a
-	// bare name carrying NO scheme marker at all (e.g. "my-tools", "lang/go") —
-	// that is the only case this may still resolve to local. Anything that
-	// LOOKS like an attempted canonical/local/builtin ref (a URL scheme, a
-	// git@ prefix, or the ctxloom:local@ prefix) but failed to parse must NOT
-	// be silently downgraded to "local": that would let an unrecognized or
-	// malformed source ref bypass the trust gate entirely (the fail-open bug
-	// this fixes — a seeded remote bundle whose canonical ref somehow fails to
-	// parse must fail CLOSED, not open). Every caller of parseTrustItemRef
-	// already treats an error as fail-closed (the content/exec gates withhold,
-	// TrustStamper stamps pending, the CLI mutations refuse the operation), so
-	// erroring here is safe in every call site.
-	if remote.IsSelfContainedRef(base) {
-		return trust.Ref{}, "", "", fmt.Errorf(
-			"trust ref %q: %q is not a valid canonical or ctxloom:local reference "+
-				"(and not a builtin source) — refusing to treat an unrecognized source as local", ref, base)
-	}
-
-	// base is a bare token with no scheme marker → a plain local bundle name.
-	return trust.Ref{Bundle: base, Kind: kind, Name: name, IsLocal: true}, base, "", nil
-}
-
-// The fail-closed/fail-open boundary above — "does this string carry a marker
-// saying it was INTENDED as a scheme-qualified reference?" — is
-// remote.IsSelfContainedRef. It used to be a second, local copy named
-// looksLikeSourceRef, and the copies had drifted: this one recognised any
-// "://" but not ctxloom:companion@, so a malformed companion ref was
-// downgraded to a first-party local bundle name and auto-trusted at step 3 —
-// trusted MORE than a well-formed one. There is now exactly one list, in the
-// package that owns the ref grammar, and it is the union of what the two
-// copies recognised.
-
-// parseTrustSelector parses a "<kind>/<name>" selector (the part after "#").
-func parseTrustSelector(sel string) (trust.ItemKind, string, error) {
-	kindDir, name, found := strings.Cut(sel, "/")
-	if !found || name == "" {
-		return "", "", fmt.Errorf("selector %q must be <kind>/<name>", sel)
-	}
-	switch kindDir {
-	case "fragments":
-		return trust.KindFragment, name, nil
-	case "commands", "prompts":
-		// "commands" is the current spelling (the CLI list emits #commands/<name>);
-		// "prompts" is the legacy alias from the prompt→skill rename before it.
-		// Both map to trust.KindPrompt so the stored key (KindPrompt.Dir() ==
-		// "prompts"), the assembly-time content gate, and existing acceptances
-		// stay valid — the content lives in bundle.Commands, which the hash
-		// helpers read under KindPrompt.
-		//
-		// NOTE: "skills" is deliberately NOT an alias here. Before the
-		// skill→command rename, "skills" meant this same command kind; it now
-		// frees it for the TRUE Agent Skill kind (trust.KindSkill, below) instead
-		// — the CLI/review surface already moved off "#skills/" entirely,
-		// so nothing production still relies on the old meaning.
-		return trust.KindPrompt, name, nil
-	case "mcp":
-		return trust.KindMCP, name, nil
-	case "hooks":
-		// name is the hook's "<event>/<index>" identity (carries an inner slash).
-		return trust.KindHook, name, nil
-	case "skills":
-		return trust.KindSkill, name, nil
-	default:
-		return "", "", fmt.Errorf("unknown item kind %q (want fragments|commands|mcp|hooks|skills)", kindDir)
-	}
-}
 
 // computeItemPayloadPair loads the bundle and returns the item's (raw,
 // distilled) PAYLOAD BYTES — the exact preimages the decision function and any
@@ -1260,7 +1139,7 @@ func NewTrustStamper(cfg *config.Config, opts ...TrustStamperOption) *TrustStamp
 // parse/resolve failure stamps a fail-closed DENY (SourcePending): never
 // trusted, never an error (fault tolerance + fail-closed for the trust signal).
 func (ts *TrustStamper) ForRef(ref string) EffectiveTrustResult {
-	tRef, loadRef, _, err := parseTrustItemRef(ref)
+	tRef, loadRef, _, err := trust.ParseItemRef(ref)
 	if err != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}
@@ -1303,7 +1182,7 @@ func (ts *TrustStamper) ForLocalMCP(name string, srv bundles.BundleMCP) Effectiv
 // the bundle's signer in hand; a stamp that omitted it would report "pending"
 // for a hook the gate actually exposes, which is a lie in a security display.
 func (ts *TrustStamper) ForHook(source string, entry bundles.HookEntry) EffectiveTrustResult {
-	tRef, loadRef, _, err := parseTrustItemRef(source + "#hooks/" + entry.ID())
+	tRef, loadRef, _, err := trust.ParseItemRef(source + "#hooks/" + entry.ID())
 	if err != nil {
 		return EffectiveTrustResult{Decision: trust.Deny, Source: trust.SourcePending}
 	}

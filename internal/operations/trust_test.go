@@ -727,9 +727,9 @@ func TestParseTrustItemRef(t *testing.T) {
 		// "<profile-display-name>#<kind>/<name>". For a bundle-shipped
 		// profile the display name is itself "<bundle>#profiles/<name>", so
 		// the composed ref carried a SECOND '#' ("<bundle>#profiles/<name>
-		// #hooks/<event>/<i>") and parseTrustItemRef — which cuts at the
+		// #hooks/<event>/<i>") and trust.ParseItemRef — which cuts at the
 		// FIRST '#' — mis-split it into base="<bundle>" and
-		// sel="profiles/<name>#hooks/...", which parseTrustSelector then
+		// sel="profiles/<name>#hooks/...", which trust.ParseSelector then
 		// rejected (kind "profiles" is not a recognized selector directory):
 		// a permanent, un-reviewable withhold with no valid trust.Ref to
 		// approve. The fix keys the gate off the profile's SOURCE ref
@@ -760,7 +760,7 @@ func TestParseTrustItemRef(t *testing.T) {
 		},
 		// Regression lock: the OLD buggy ref shape for a REMOTE
 		// profile's hook was just the bare display name
-		// ("my-remote-profile#hooks/pre_tool/0") — parseTrustItemRef's
+		// ("my-remote-profile#hooks/pre_tool/0") — trust.ParseItemRef's
 		// bare-token fallback resolves that IsLocal:true unconditionally,
 		// which is exactly the "gate is a no-op, remote content auto-allowed"
 		// bug. This case documents that the bare-token fallback itself is
@@ -784,7 +784,7 @@ func TestParseTrustItemRef(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			tref, _, _, err := parseTrustItemRef(tt.ref)
+			tref, _, _, err := trust.ParseItemRef(tt.ref)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatalf("expected error for %q", tt.ref)
@@ -792,7 +792,7 @@ func TestParseTrustItemRef(t *testing.T) {
 				return
 			}
 			if err != nil {
-				t.Fatalf("parseTrustItemRef(%q): %v", tt.ref, err)
+				t.Fatalf("trust.ParseItemRef(%q): %v", tt.ref, err)
 			}
 			if tref.RepoURL != tt.wantRepo || tref.Bundle != tt.wantBundle || tref.Kind != tt.wantKind ||
 				tref.Name != tt.wantName || tref.IsLocal != tt.wantLocal || tref.IsBuiltin != tt.wantBuiltin {
@@ -827,7 +827,7 @@ func TestParseTrustItemRef(t *testing.T) {
 func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing.T) {
 	ref := "ctxloom:companion@ltk#fragments/ltk"
 
-	tref, loadRef, _, err := parseTrustItemRef(ref)
+	tref, loadRef, _, err := trust.ParseItemRef(ref)
 	require.NoError(t, err, "a companion ref MUST be recognized by remote.ParseReference, never fail-closed as unrecognized")
 	assert.Equal(t, "ctxloom:companion@ltk", loadRef)
 	assert.True(t, tref.IsCompanion, "the companion flag must ride the same parse the ref does")

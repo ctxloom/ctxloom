@@ -7,9 +7,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// parseTrustItemRef is the door a trust ref comes through from argv
+// trust.ParseItemRef is the door a trust ref comes through from argv
 // (`ctxloom trust <ref>`), from an MCP argument, and from the gates built over
 // bundle-authored names. Whatever it yields is interpolated verbatim into the
 // countersign preimage by countersignRef, so a control character surviving here
@@ -43,7 +44,7 @@ func TestParseTrustItemRef_StripsControlCharacters(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tRef, loadRef, _, err := parseTrustItemRef(tc.ref)
+			tRef, loadRef, _, err := trust.ParseItemRef(tc.ref)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantBundle, tRef.Bundle)
 			assert.Equal(t, tc.wantName, tRef.Name)
@@ -75,7 +76,7 @@ func TestParseTrustItemRef_CleanRefsAreUnchanged(t *testing.T) {
 		"ctxloom:local@bundles/dev#hooks/pre",
 		"builtin:ltk#fragments/x",
 	} {
-		tRef, loadRef, _, err := parseTrustItemRef(ref)
+		tRef, loadRef, _, err := trust.ParseItemRef(ref)
 		require.NoError(t, err, ref)
 		assert.NotEmpty(t, tRef.Name, ref)
 		assert.NotEmpty(t, loadRef, ref)

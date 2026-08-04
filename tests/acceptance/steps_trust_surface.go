@@ -194,7 +194,7 @@ func tsRef(w *World, selector string) string {
 }
 
 // tsSelector maps a Scenario Outline's <element> column to the item's
-// "<kind>/<name>" selector (internal/operations/trust.go's parseTrustSelector
+// "<kind>/<name>" selector (internal/operations/trust.go's trust.ParseSelector
 // vocabulary: fragments|commands|mcp|hooks).
 func tsSelector(element string) (string, error) {
 	switch element {
@@ -592,7 +592,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice tries to review an item whose source reference is malformed$`, func(c context.Context) error {
 		w := worldFrom(c)
 		// "https://" carries a scheme marker (so it was plainly INTENDED as a
-		// canonical ref) but does not parse as one. parseTrustItemRef must
+		// canonical ref) but does not parse as one. trust.ParseItemRef must
 		// refuse it outright rather than silently downgrading it to a local
 		// bundle name — a local ref is auto-ALLOWED at cascade step 3, so a
 		// downgrade here is a gate bypass, not a cosmetic mislabel.

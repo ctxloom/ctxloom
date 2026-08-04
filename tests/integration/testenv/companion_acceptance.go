@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // InstallFakeCompanion writes an executable shell script named bin (e.g.
@@ -60,6 +62,33 @@ esac
 	pathSep := string(os.PathListSeparator)
 	current := os.Getenv("PATH")
 	e.storeAndSetEnv("PATH", dir+pathSep+current)
+
+	// EXEC CONSENT. Since the trust-on-first-use gate landed, a companion
+	// ctxloom has never run is SKIPPED in a non-interactive session — which
+	// every acceptance/integration invocation is — so installing the binary is
+	// no longer enough to make it contribute anything. Record the consent the
+	// same way the shipping CLI does, through the real writer against the
+	// scenario's overridden HOME, so what these scenarios exercise is the
+	// production consent path rather than a bypass. A fixture that granted
+	// itself an exemption would prove the probe works while proving nothing
+	// about the gate in front of it.
+	//
+	// Deliberately NOT applied to companions this environment did not install:
+	// a real ltk on the developer's own PATH stays unconfirmed and skipped,
+	// which is what keeps a scenario's result from depending on what the
+	// machine happens to have.
+	return e.GrantCompanionConsent(path)
+}
+
+// GrantCompanionConsent records, in the scenario's HOME, that ctxloom may
+// execute the binary at path — the fixture form of `ctxloom trust companion
+// allow <path>`. Exported so a scenario can grant consent for a binary it
+// installed by some other means, and so a scenario that wants to observe the
+// REFUSAL can deliberately not call it.
+func (e *TestEnvironment) GrantCompanionConsent(path string) error {
+	if _, err := config.SetCompanionConsent(path, true); err != nil {
+		return fmt.Errorf("grant companion exec consent for %q: %w", path, err)
+	}
 	return nil
 }
 

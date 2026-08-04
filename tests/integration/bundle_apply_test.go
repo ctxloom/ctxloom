@@ -41,6 +41,16 @@ hooks:
 func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, agyHooksJSON, agyMCPJSON, claudeJSON string) {
 	t.Helper()
 
+	// This helper runs IN-PROCESS against the developer's real PATH and real
+	// home, and the `session-bind` hook these tests assert on ships in
+	// TASKLOOM's loadout (cmd/taskloom/loadout.yaml), not in an embedded
+	// bundle — so the assertions already depend on a real taskloom being
+	// installed. Pin the exec-consent gate open so they do not ALSO depend on
+	// whether this machine's ~/.ctxloom/companion_consent.yaml happens to have
+	// approved it: the subject here is hook diversion, not admission, and
+	// admission has its own tests.
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
+
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	profilesDir := filepath.Join(appDir, "profiles")
 	bundlesDir := filepath.Join(appDir, "content", "bundles") // paths.LocalBundlesPath layout

@@ -202,6 +202,15 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"trust accept": {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
 	"trust reject": {skip: "needs a resolvable ref; not exercised here"},
 
+	// Read-only over ~/.ctxloom/companion_consent.yaml, which is absent in
+	// this harness — the empty-store rendering is exactly what we want the
+	// five encodings to agree on.
+	"trust companion list": {extraArgs: noExtraArgs},
+	// Both mutate the personal consent record and need a real binary on PATH
+	// to resolve and hash; exercised end to end in trust_cli.feature instead.
+	"trust companion allow":  {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
+	"trust companion forget": {skip: "needs a recorded decision to remove; covered by trust_cli.feature"},
+
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	// All four of these ARE format debt too (bundleDeleteCmd's
 	// runBundleDelete, bundle_hold_cli.go's hold/unhold RunEs, and

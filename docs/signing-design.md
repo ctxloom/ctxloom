@@ -124,8 +124,29 @@ This boundary is easy to leave implicit, and an invisible security boundary is o
 people trip over. So, precisely:
 
 **Signing and review exist for content arriving from elsewhere.** Remote bundle
-repos, corporate and personal and third-party. Companion loadouts. Any publisher
-who is not you.
+repos, corporate and personal and third-party. Any publisher who is not you.
+
+**Companion loadouts are the exception, and the exception is instructive.** They
+used to be listed above. They are not any more, for two connected reasons.
+
+A loadout is read by **executing** the companion binary, so reviewing its
+content puts the prompt strictly *after* the arbitrary code execution it would be
+protecting you from. Content review in that position buys ~nothing and costs
+friction on a tool the user deliberately installed — and routine prompts are how
+you teach people to click through the ones that matter. The decision moved to the
+point that *does* have purchase: **whether ctxloom may run the binary at all**,
+recorded trust-on-first-use against the binary's absolute path and SHA-256, and
+refused outright in any non-interactive session.
+
+A loadout's **signature** does not gate it either, and this is the sharper
+point. A publisher signature protects bytes from an **intermediary** — a forge,
+a network, a tampered clone object. A loadout has none: its bytes arrive on the
+stdout of a process the user just consented to start. A signature that fails to
+verify there is therefore a stale or mismatched signature in the companion's own
+release — a bug signal — so the content is **admitted with a warning**, never
+withheld and never called tampering. A remote bundle keeps the opposite posture,
+because its bytes crossed exactly the intermediary a loadout's do not. See
+`docs/trust-model.md`, "Companion loadouts".
 
 **They do not gate your own project's repo.** A bundle committed at
 `.ctxloom/bundles/*.yaml` is a `ctxloom:local` ref (`internal/remote/reference.go:17`)
@@ -279,9 +300,12 @@ approval requires the victim to already trust the attacker's key, at which point
 the attacker did not need the approval — they could have signed the content.
 Authority comes from the key, never from the file's location on disk.
 
-Companion loadouts ride this same model. A signed loadout emitted by a companion
-binary is judged by its signer exactly like any other bundle content. It is not a
-separate trust concept and must not become one.
+Companion loadouts are the one place this model does **not** apply. A loadout's
+signature is a diagnostic, not an authority: it is reported (unsigned, does not
+verify, signer untrusted) and the content is admitted either way, because the
+gate for a companion is exec, not content — and there is no intermediary between
+the binary and ctxloom for a signature to protect against. See "Scope" above and
+`docs/trust-model.md`'s "Companion loadouts".
 
 ## Bootstrapping trust, per root
 
@@ -379,8 +403,9 @@ script, because that is the closest analogue to what a fragment actually is.
 Signing does not help here and is not meant to.
 
 Where signing earns its keep for him is the content arriving from *elsewhere*:
-the corporate bundle repo, a personal one, third-party bundles, companion
-loadouts. He reviews that content once, with `ctxloom review --project`,
+the corporate bundle repo, a personal one, third-party bundles. (Not companion
+loadouts — those are admitted at exec, not reviewed as content; see "Scope"
+above.) He reviews that content once, with `ctxloom review --project`,
 countersigning with his key. The signatures land in `.ctxloom/approvals/`. He
 commits them, alongside a `.ctxloom/allowed_signers` naming his approve key.
 
@@ -411,7 +436,9 @@ The org key and the reviewer key are separate keys, scoped by the `namespaces=`
 option that `allowed_signers` already has. That option *is* the role system, for
 free: a publish-only key cannot approve content even if it is stolen, and an
 approve-only key cannot publish under the org's name. Signed companion loadouts go
-out the same way and are judged by their signer like anything else.
+out the same way, though for a companion the signature only ever *attributes* the
+content — it never decides whether it is admitted, which happens at exec (see
+"Scope").
 
 Every Acme developer who trusts those keys gets verified, pre-approved content
 with zero review prompts, zero secrets on their machine, and no key of their own.
@@ -518,11 +545,18 @@ valve.
 good for you. This is why review is a separate and non-optional axis, and why
 rejection outranks every signature including ctxloom's own.
 
-**A malicious binary already on your PATH.** If a hostile `taskloom` is on your
-PATH, its hooks and MCP servers *execute*. Signing its loadout changes nothing
-about that. Executing a binary is a strictly larger grant than reading its
-context, and the loadout signature is about provenance and gate-routing, not about
-containing a hostile companion.
+**A malicious binary you have agreed to run.** If a hostile `taskloom` is on
+your PATH *and you allowed it*, its hooks and MCP servers execute. Signing its
+loadout changes nothing about that. Executing a binary is a strictly larger
+grant than reading its context, and the loadout signature is about provenance,
+not about containing a hostile companion.
+
+What *is* defended is the step before: a binary merely being on `$PATH` under a
+companion name no longer earns an exec. ctxloom asks once, records the answer
+against the file's absolute path and SHA-256, and skips an unconfirmed companion
+outright in any non-interactive session — so a name-squatting npm dependency in
+`./node_modules/.bin` cannot get itself run by a session start. See
+`docs/trust-model.md`, "Companion loadouts".
 
 **An attacker with arbitrary write access to your home directory.** Such an
 attacker can add their own key to `allowed_signers`, or replace the `ctxloom`

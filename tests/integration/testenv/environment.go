@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ctxloom/ctxloom/internal/config"
 )
 
 // mcpStdinGrace is the CEILING RunWithStdin will keep stdin open after
@@ -283,7 +285,36 @@ func (e *TestEnvironment) Setup() error {
 	// Clear any existing MLCM config paths
 	e.storeAndSetEnv("XDG_CONFIG_HOME", filepath.Join(e.HomeDir, ".config"))
 
+	e.grantAmbientCompanionConsent()
+
 	return nil
+}
+
+// grantAmbientCompanionConsent records exec consent, in this scenario's fresh
+// HOME, for every companion binary that is ALREADY on the developer's PATH
+// when the environment is built.
+//
+// It exists to remove a machine dependency, not to add one. Before exec
+// consent landed, a locally-installed `ltk` or `taskloom` was simply executed
+// by every ctxloom the suite spawned; several tests quietly rely on that (the
+// `session-bind` hook the Antigravity apply tests assert on ships in
+// TASKLOOM's loadout, not in an embedded bundle). Without this, the same
+// binaries would instead be skipped as unconfirmed — and on a real pty, where
+// the session IS interactive, ctxloom would correctly stop and ASK, hanging
+// the run on a question no test answers. Granting here reproduces the previous
+// behavior exactly: what is installed still decides, and CI — which installs
+// none of them — is unaffected either way.
+//
+// It deliberately does NOT cover companions installed LATER by
+// InstallFakeCompanion (that helper records its own consent) or by a scenario
+// that wants to observe the refusal (steps_companion_consent.go), because it
+// runs once, here, before either exists.
+func (e *TestEnvironment) grantAmbientCompanionConsent() {
+	for _, bin := range config.DiscoverCompanions() {
+		if _, err := config.SetCompanionConsent(bin, true); err != nil {
+			continue // not installed, or unhashable — nothing to grant
+		}
+	}
 }
 
 // storeAndSetEnv stores the original value and sets a new one. The original

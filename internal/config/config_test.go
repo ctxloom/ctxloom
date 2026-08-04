@@ -1680,6 +1680,7 @@ func hasHookCommand(hooks []wire.Hook, command, wantSCM string) bool {
 // SCM "bundle:<ref>"; unresolvable profiles and bundle refs are skipped without
 // affecting the always-present builtin hooks.
 func TestConfig_ResolveBundleHooks_ProfileGated(t *testing.T) {
+	admitEveryDiscoveredCompanion(t)
 	const bundleSCM = "bundle:hook-bundle"
 
 	newProject := func(t *testing.T) (appDir, profilesDir, bundlesDir string) {

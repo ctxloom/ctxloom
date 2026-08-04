@@ -406,6 +406,7 @@ func TestWriteAndRecordSyncSummary_InstalledAndErrorsBothPrinted(t *testing.T) {
 }
 
 func TestReportCompanions_PresentBinariesLogVersions(t *testing.T) {
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})
@@ -435,6 +436,7 @@ func TestReportCompanions_MissingBinariesStaySilent(t *testing.T) {
 }
 
 func TestReportCompanions_ProbeFailureWarnsButContinues(t *testing.T) {
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
 		return "/usr/bin/" + bin, nil
 	})

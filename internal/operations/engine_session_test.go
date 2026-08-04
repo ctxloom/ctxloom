@@ -25,6 +25,7 @@ import (
 // injection, and a client-supplied server of the same name wins over the
 // managed entry.
 func TestACPSessionMCPServers(t *testing.T) {
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{appDir}})

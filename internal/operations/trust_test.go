@@ -802,47 +802,76 @@ func TestParseTrustItemRef(t *testing.T) {
 	}
 }
 
-// TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied is THE gate-integration
-// test the companion loadout protocol exists to prove: a companion
-// loadout item, seeded under the ctxloom:companion@<bin> source ref, is
-// GATED — it is neither auto-allowed as local (step 2, which would bypass
-// review entirely for third-party content) nor denied as an unrecognized
-// source (parseTrustItemRef's fail-closed guard, which — before this ref was
-// taught to remote.ParseReference — would have refused the ref outright and
-// silently withheld every companion item forever). It lands exactly where
-// third-party content belongs: pending when unsigned, trusted-signer when
-// signed by a key this machine trusts to publish.
-func TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied(t *testing.T) {
+// TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable pins the
+// companion posture, both halves of it.
+//
+// This test previously asserted the OPPOSITE — that unsigned companion content
+// is PENDING, gated "exactly like a remote bundle". That was reversed
+// deliberately, and the reason is order-of-operations rather than trust in
+// companion authors: ctxloom reads a loadout by EXECUTING the companion binary,
+// so by the time this content exists that binary has already run arbitrary code
+// as the user. A review prompt afterwards buys ~nothing while costing friction
+// on content the user deliberately installed. The decision that DOES have
+// purchase moved to exec (config.AdmitCompanions).
+//
+// What did NOT move is everything below: rejection still reaches it, and an
+// unreadable approvals store still denies it.
+//
+// A companion's SIGNATURE does not enter this decision in either direction — a
+// loadout crosses no intermediary, so there is nothing for a publisher
+// signature to protect it from, and config.ProbeCompanionLoadouts reports a
+// signature that fails to verify (a stale sig in the companion's release)
+// rather than withholding. That posture is pinned where it lives:
+// config.TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld.
+func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing.T) {
 	ref := "ctxloom:companion@ltk#fragments/ltk"
 
 	tref, loadRef, _, err := parseTrustItemRef(ref)
 	require.NoError(t, err, "a companion ref MUST be recognized by remote.ParseReference, never fail-closed as unrecognized")
 	assert.Equal(t, "ctxloom:companion@ltk", loadRef)
-	assert.False(t, tref.IsLocal, "a companion loadout is THIRD-PARTY content — it must never take the local auto-allow exemption")
-	assert.False(t, tref.IsBuiltin, "a companion loadout is not compiled into this binary — it must never take the builtin exemption")
+	assert.True(t, tref.IsCompanion, "the companion flag must ride the same parse the ref does")
+	assert.False(t, tref.IsLocal, "a companion is its OWN exemption step, never laundered through the local one")
+	assert.False(t, tref.IsBuiltin, "a companion loadout is not compiled into this binary")
 	assert.Equal(t, remote.CompanionSource, tref.RepoURL)
 	assert.Equal(t, "ltk", tref.Bundle)
 
 	payload := pbytes("ltk-fragment-body")
 
-	t.Run("unsigned companion content is PENDING, not local, not denied-as-unrecognized", func(t *testing.T) {
+	t.Run("unsigned companion content is ALLOWED as companion — installed is the consent act", func(t *testing.T) {
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
 			Records: fakeRecords{},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, trust.Deny, res.Decision)
-		assert.Equal(t, trust.SourcePending, res.Source, "unsigned third-party content is withheld for review, exactly like a remote bundle")
+		assert.Equal(t, trust.Allow, res.Decision)
+		assert.Equal(t, trust.SourceCompanion, res.Source,
+			"allowed as COMPANION specifically, so a reader can see which exemption fired")
 	})
 
-	t.Run("companion content signed by a trusted publisher key is ALLOWED as trusted-signer", func(t *testing.T) {
+	t.Run("a signed companion is allowed at the COMPANION step, above trusted-signer", func(t *testing.T) {
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: trustedPublisher,
 			Records: fakeRecords{},
 		})
 		require.NoError(t, err)
 		assert.Equal(t, trust.Allow, res.Decision)
-		assert.Equal(t, trust.SourceTrustedSigner, res.Source)
+		assert.Equal(t, trust.SourceCompanion, res.Source,
+			"the companion exemption sits where builtin's does — above step 5 — so a signature can neither admit nor "+
+				"withhold companion content. A loadout's signature only ATTRIBUTES it; the admission decision "+
+				"happened at exec (config.AdmitCompanions)")
+	})
+
+	t.Run("REJECTION still reaches companion content, ahead of the exemption", func(t *testing.T) {
+		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
+			Records: fakeRecords{rejected: func(r trust.Ref, _ []byte) bool {
+				return r.RepoURL == remote.CompanionSource && r.Bundle == "ltk"
+			}},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, trust.Deny, res.Decision)
+		assert.Equal(t, trust.SourceRejected, res.Source,
+			"a human who rejected a companion item keeps that rejection — step 1 runs above every exemption")
 	})
 
 	t.Run("a rejection of the companion ref still wins over a trusted signer", func(t *testing.T) {
@@ -856,7 +885,42 @@ func TestEffectiveTrust_CompanionRef_NeitherLocalNorDenied(t *testing.T) {
 		assert.Equal(t, trust.Deny, res.Decision)
 		assert.Equal(t, trust.SourceRejected, res.Source, "rejection is supreme even over a trusted-signer companion")
 	})
+
+	t.Run("an unreadable approvals store denies companion content too", func(t *testing.T) {
+		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
+			Records: unreadableRecords{},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, trust.Deny, res.Decision)
+		assert.Equal(t, trust.SourcePending, res.Source,
+			"the store-fault gate runs above EVERY exemption, this one included")
+	})
+
+	t.Run("an unreadable lockfile still withholds companion content", func(t *testing.T) {
+		// Deliberate asymmetry with local/builtin, pinned so nobody "tidies"
+		// it away: a companion ref carries a RepoURL, so it stays in
+		// retractable()'s scope, and step 2a can therefore only make companion
+		// content MORE withheld — never less. Relaxing a fail-closed gate is
+		// not part of making companion CONTENT local-equivalent.
+		assert.True(t, retractable(tref), "a companion ref carries a RepoURL and stays in the step-2a scope")
+		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
+			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
+			Records:    fakeRecords{},
+			Retraction: &lockfileRetraction{unreadable: assert.AnError, path: "lock.yaml"},
+		})
+		require.NoError(t, err)
+		assert.Equal(t, trust.Deny, res.Decision)
+		assert.Equal(t, trust.SourcePending, res.Source)
+	})
 }
+
+// unreadableRecords is a ReviewRecords that also implements readableRecords and
+// reports the store as unreadable — the fault EffectiveTrust's preamble gate
+// denies everything on.
+type unreadableRecords struct{ fakeRecords }
+
+func (unreadableRecords) readable() error { return assert.AnError }
 
 // TestEffectiveTrust_LocalExemptionSitsBelowRetraction pins the CASCADE
 // POSITION of the first-party local exemption, which ForLocalMCP's doc comment

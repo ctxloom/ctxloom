@@ -396,6 +396,33 @@ func EffectiveTrust(cfg *config.Config, req EffectiveTrustRequest) (*EffectiveTr
 	if req.Ref.IsBuiltin {
 		return decide(trust.Allow, trust.SourceBuiltin), nil
 	}
+	// 4b. COMPANION: a loadout an installed companion binary advertised about
+	//     itself. LOCAL-EQUIVALENT, and the reasoning is order-of-operations
+	//     rather than deference: ctxloom reads a loadout by EXECUTING the
+	//     binary, so by the time this content exists that binary has already run
+	//     arbitrary code as the user. Gating the CONTENT afterwards buys ~nothing
+	//     and costs a review prompt for a tool the user deliberately installed.
+	//     The control point that DOES have purchase is exec, and that is where
+	//     the human decision lives (config.AdmitCompanions — trust-on-first-use
+	//     keyed on absolute path + binary hash, first-party names exempt only
+	//     from ctxloom's own install directory).
+	//
+	//     A distinct step below rejection, exactly like builtin, so step 1 still
+	//     reaches it — and it does not escape the unreadable-approvals-store
+	//     gate above, which denies every item including this one.
+	//
+	//     A companion's SIGNATURE does not enter this decision in either
+	//     direction. A publisher signature protects bytes from an intermediary,
+	//     and a loadout has none: it arrives on the stdout of a binary the user
+	//     already consented to run. config.ProbeCompanionLoadouts therefore
+	//     REPORTS a signature that fails to verify (a stale or mismatched
+	//     signature in the companion's own release — a bug signal, not an
+	//     attack signal) and seeds the content unattributed, rather than
+	//     withholding it. What catches a swapped companion binary is the
+	//     hash-keyed exec consent, not this step.
+	if req.Ref.IsCompanion {
+		return decide(trust.Allow, trust.SourceCompanion), nil
+	}
 	// 5. TRUSTED SIGNER: a key this machine trusts for the PUBLISH namespace made
 	//    a signature over the exact bytes of the document this item came from,
 	//    and that signature verified — at load, before any YAML parse.
@@ -533,6 +560,17 @@ func lockfileKeyForRef(ref trust.Ref) string {
 // this ref. Retraction is a REMOTE-manifest concept: local and builtin items
 // have no remote lockfile entry (no RepoURL) and are never retracted by
 // construction.
+//
+// COMPANION refs are deliberately still IN scope here even though they are
+// now local-equivalent at the decision function's step 4b, and the asymmetry
+// is intentional. A companion ref carries a non-empty RepoURL (the fixed
+// ctxloom:companion token), so it reaches this gate, and nothing ever writes
+// a lockfile entry under that token — which means step 2a can only ever make
+// a companion item MORE withheld when lock.yaml is unreadable, never less.
+// Exempting them would be a relaxation of a fail-closed gate that nobody
+// asked for, so the scope stays as it was; it is also, empirically, what
+// tests/acceptance/features/trust_surface.feature's unreadable-lockfile
+// scenario observes on a machine with real companions installed.
 //
 // This is the ONE predicate defining that scope, deliberately shared by the
 // two places that must agree on it: the Retracted() exemption below, and
@@ -895,6 +933,12 @@ func parseTrustItemRef(ref string) (tRef trust.Ref, loadRef, version string, err
 			Kind:    kind,
 			Name:    name,
 			IsLocal: parsed.IsLocal,
+			// IsCompanion rides the SAME parse, from the same reference
+			// grammar, so the decision function's companion step can never be
+			// reached by a ref that did not parse as ctxloom:companion@<bin>.
+			// Copied rather than re-derived from the URL string: one parser,
+			// one answer.
+			IsCompanion: parsed.IsCompanion,
 		}, base, parsed.ContentVersion, nil
 	}
 

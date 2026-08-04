@@ -101,16 +101,52 @@ func EncodeLoadoutEnvelope(bundleBytes []byte, armoredSig []byte, signer string)
 //     never crash: a hostile or buggy companion binary must not be able to
 //     take ctxloom down by printing garbage.
 func DecodeLoadoutEnvelope(raw []byte, root TrustRoot, now time.Time) (bundleBytes []byte, verifiedSigner string, err error) {
+	decoded, sig, _, err := ParseLoadoutEnvelope(raw)
+	if err != nil {
+		return nil, "", err
+	}
+	// VerifyPublisher gates on len(armoredSig)==0, so a nil and an empty
+	// slice are indistinguishable to it -- no conditional needed.
+	signer, verr := VerifyPublisher(decoded, sig, root, now)
+	if verr != nil {
+		return nil, "", fmt.Errorf("loadout signature does not verify: %w", verr)
+	}
+	return decoded, signer, nil
+}
+
+// ParseLoadoutEnvelope is the STRUCTURAL half of DecodeLoadoutEnvelope: it
+// unwraps the envelope and hands back the bundle bytes, the armored signature
+// (empty when unsigned) and the advisory Signer field, WITHOUT verifying
+// anything. The advisory signer is returned for diagnostics only — it is a
+// value the companion wrote about itself and must never be treated as an
+// identity.
+//
+// It is split out because the two source classes that read this envelope need
+// the SAME parse and DIFFERENT postures toward a signature that fails to
+// verify. A remote bundle must withhold (an intermediary could have tampered
+// with the bytes in transit — that is exactly what the signature is for). A
+// COMPANION loadout must not: its bytes arrive directly on the stdout of a
+// binary the user consented to execute, with no intermediary in between, so a
+// signature that does not verify there is a broken or stale signature in the
+// companion's own release — a bug signal, not an attack signal. Reporting it
+// is right; dropping the loadout over it is not. See
+// config.ProbeCompanionLoadouts.
+//
+// Structural failures are errors for BOTH callers, and stay that way: an
+// envelope that is not valid JSON, carries an unrecognized contract, whose
+// bundle is not valid base64, or that decodes to zero bytes has produced no
+// content to admit in the first place.
+func ParseLoadoutEnvelope(raw []byte) (bundleBytes, armoredSig []byte, advisorySigner string, err error) {
 	var env LoadoutEnvelope
-	if err := json.Unmarshal(raw, &env); err != nil {
-		return nil, "", fmt.Errorf("parse loadout envelope: %w", err)
+	if uerr := json.Unmarshal(raw, &env); uerr != nil {
+		return nil, nil, "", fmt.Errorf("parse loadout envelope: %w", uerr)
 	}
 	if env.Contract != LoadoutContract {
-		return nil, "", fmt.Errorf("unrecognized loadout contract %q (this build understands %q)", env.Contract, LoadoutContract)
+		return nil, nil, "", fmt.Errorf("unrecognized loadout contract %q (this build understands %q)", env.Contract, LoadoutContract)
 	}
-	decoded, err := base64.StdEncoding.DecodeString(env.Bundle)
-	if err != nil {
-		return nil, "", fmt.Errorf("decode loadout bundle: %w", err)
+	decoded, derr := base64.StdEncoding.DecodeString(env.Bundle)
+	if derr != nil {
+		return nil, nil, "", fmt.Errorf("decode loadout bundle: %w", derr)
 	}
 	// A well-formed envelope that decodes to ZERO bundle bytes is a
 	// malfunctioning (or hostile) companion contributing nothing while still
@@ -118,15 +154,7 @@ func DecodeLoadoutEnvelope(raw []byte, root TrustRoot, now time.Time) (bundleByt
 	// it the same way an unparseable envelope is withheld, rather than handing
 	// the caller (bytes, signer, nil) for an empty payload.
 	if len(decoded) == 0 {
-		return nil, "", fmt.Errorf("loadout envelope decodes to an empty bundle — a companion contributing nothing must fail loud, not decode successfully")
+		return nil, nil, "", fmt.Errorf("loadout envelope decodes to an empty bundle — a companion contributing nothing must fail loud, not decode successfully")
 	}
-
-	// VerifyPublisher gates on len(armoredSig)==0, so a nil and an empty
-	// slice are indistinguishable to it -- no conditional needed.
-	sig := []byte(env.Signature)
-	signer, verr := VerifyPublisher(decoded, sig, root, now)
-	if verr != nil {
-		return nil, "", fmt.Errorf("loadout signature does not verify: %w", verr)
-	}
-	return decoded, signer, nil
+	return decoded, []byte(env.Signature), env.Signer, nil
 }

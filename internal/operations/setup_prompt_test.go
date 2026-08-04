@@ -97,6 +97,7 @@ commands:
 // composing over ListAllCommands picks up an installed companion's setup
 // guidance with no separate companion-specific lookup in this package.
 func TestResolveSetupPrompt_CompanionLoadoutCommandAugmentsBuiltin(t *testing.T) {
+	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	testsupport.Isolate(t)
 	t.Setenv("HOME", t.TempDir())
 

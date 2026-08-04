@@ -34,7 +34,7 @@
 # child that never receives its prompt looks identical to a healthy one from
 # every cheap signal), and a red nightly on a branch nobody is standing on is
 # noise, not a gate.
-docker_integration_pkgs := "./internal/lm/isolation/... ./internal/agentcoord/coord/... ./internal/vpio/dockerexec/... ./internal/acp/... ./internal/mockengine/..."
+docker_integration_pkgs := "./internal/lm/isolation/... ./internal/agentcoord/coord/... ./internal/vpio/dockerexec/... ./internal/acp/... ./internal/mockengine/... ./internal/testsupport/containercell/..."
 
 # Run the docker-gated container integration tests: they build minimal images,
 # spawn real containers, and prove the transport / coordinator bus / progress

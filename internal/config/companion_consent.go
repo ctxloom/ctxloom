@@ -71,7 +71,7 @@ type CompanionConsentRecord struct {
 	// makes a replace-in-place swap re-prompt.
 	SHA256 string `yaml:"sha256"`
 	// Approved is the decision. A false record is a DENIAL and is deliberately
-	// honored path-wide (see companionConsent.decision).
+	// honored path-wide, hash-blind (see companionConsent.deniedPath).
 	Approved bool `yaml:"approved"`
 	// RecordedAt is untrusted display metadata for humans — never an input to
 	// any decision, the same standing every timestamp has in this codebase.

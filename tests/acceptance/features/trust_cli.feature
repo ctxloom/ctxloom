@@ -41,12 +41,17 @@ Feature: Trust posture CLI
     When I run "ctxloom doctor"
     Then the companion "ctxloom-companion-acme" was executed
 
+  # Asserted by the acme entry's PRESENCE and ABSENCE rather than by an empty
+  # listing: the scenario HOME legitimately starts with consent recorded for
+  # whatever real companions this machine has installed (testenv grants those
+  # so the suite behaves as it did before exec consent landed), and an
+  # "is it empty" assertion would be an assertion about the developer's laptop.
   Scenario: Companion execution decisions are listable and revocable
     Given an initialized ctxloom project
     And a discovered companion "ctxloom-companion-acme" is on PATH, never confirmed
     When I run "ctxloom trust companion list"
     Then the command succeeds
-    And the output contains "no companion decisions recorded"
+    And the output does not contain "ctxloom-companion-acme"
     When I run "ctxloom trust companion allow ctxloom-companion-acme"
     Then the command succeeds
     When I run "ctxloom trust companion list"
@@ -58,4 +63,4 @@ Feature: Trust posture CLI
     And the output contains "forgot 1 decision(s)"
     When I run "ctxloom trust companion list"
     Then the command succeeds
-    And the output contains "no companion decisions recorded"
+    And the output does not contain "ctxloom-companion-acme"

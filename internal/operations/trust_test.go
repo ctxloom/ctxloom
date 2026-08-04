@@ -892,17 +892,21 @@ func TestEffectiveTrust_CompanionRef_LocalEquivalentButStillReachable(t *testing
 			"the store-fault gate runs above EVERY exemption, this one included")
 	})
 
-	t.Run("an unreadable lockfile does NOT withhold companion content", func(t *testing.T) {
-		assert.False(t, retractable(tref),
-			"nothing ever writes a lockfile entry under the companion token, so retraction state conceals nothing about it")
+	t.Run("an unreadable lockfile still withholds companion content", func(t *testing.T) {
+		// Deliberate asymmetry with local/builtin, pinned so nobody "tidies"
+		// it away: a companion ref carries a RepoURL, so it stays in
+		// retractable()'s scope, and step 2a can therefore only make companion
+		// content MORE withheld — never less. Relaxing a fail-closed gate is
+		// not part of making companion CONTENT local-equivalent.
+		assert.True(t, retractable(tref), "a companion ref carries a RepoURL and stays in the step-2a scope")
 		res, err := EffectiveTrust(nil, EffectiveTrustRequest{
 			Ref: tref, Payload: payload, Form: rawForm, Signer: "",
 			Records:    fakeRecords{},
 			Retraction: &lockfileRetraction{unreadable: assert.AnError, path: "lock.yaml"},
 		})
 		require.NoError(t, err)
-		assert.Equal(t, trust.Allow, res.Decision)
-		assert.Equal(t, trust.SourceCompanion, res.Source)
+		assert.Equal(t, trust.Deny, res.Decision)
+		assert.Equal(t, trust.SourcePending, res.Source)
 	})
 }
 

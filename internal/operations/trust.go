@@ -551,18 +551,20 @@ func lockfileKeyForRef(ref trust.Ref) string {
 }
 
 // retractable reports whether the lockfile could ever record a retraction FOR
-// this ref. Retraction is a REMOTE-manifest concept: local, builtin and
-// companion items have no remote lockfile entry and are never retracted by
+// this ref. Retraction is a REMOTE-manifest concept: local and builtin items
+// have no remote lockfile entry (no RepoURL) and are never retracted by
 // construction.
 //
-// COMPANION is here for exactly the reason local and builtin are, not as a
-// relaxation: a lockfile records what `remote sync` pinned, and nothing ever
-// writes a lockfile entry under the fixed ctxloom:companion token — a loadout
-// arrives on a subprocess's stdout and never touches the lockfile at all.
-// Companion refs DO carry a non-empty RepoURL (that token), so without naming
-// them here the `RepoURL != ""` clause would drag them into step 2a and let an
-// unparseable lock.yaml withhold companion content over state that provably
-// could not exist.
+// COMPANION refs are deliberately still IN scope here even though they are
+// now local-equivalent at the decision function's step 4b, and the asymmetry
+// is intentional. A companion ref carries a non-empty RepoURL (the fixed
+// ctxloom:companion token), so it reaches this gate, and nothing ever writes
+// a lockfile entry under that token — which means step 2a can only ever make
+// a companion item MORE withheld when lock.yaml is unreadable, never less.
+// Exempting them would be a relaxation of a fail-closed gate that nobody
+// asked for, so the scope stays as it was; it is also, empirically, what
+// tests/acceptance/features/trust_surface.feature's unreadable-lockfile
+// scenario observes on a machine with real companions installed.
 //
 // This is the ONE predicate defining that scope, deliberately shared by the
 // two places that must agree on it: the Retracted() exemption below, and
@@ -570,11 +572,11 @@ func lockfileKeyForRef(ref trust.Ref) string {
 // retractable ref would slip past the fail-closed gate, or a first-party ref
 // would be withheld over state that could not have existed.
 func retractable(ref trust.Ref) bool {
-	return !ref.IsLocal && !ref.IsBuiltin && !ref.IsCompanion && ref.RepoURL != ""
+	return !ref.IsLocal && !ref.IsBuiltin && ref.RepoURL != ""
 }
 
 // Retracted implements RetractionRecords over the wrapped lockfile snapshot.
-// Local, builtin and companion items never have a remote lockfile entry and
+// Local and builtin items never have a remote lockfile entry (no RepoURL) and
 // are never retracted by construction — see retractable.
 func (l *lockfileRetraction) Retracted(ref trust.Ref) (bool, string) {
 	if l == nil || l.lock == nil || !retractable(ref) {

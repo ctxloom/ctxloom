@@ -17,7 +17,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
-	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -150,7 +149,7 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	})
 	cfg.SetExecutableTrustGate(func(string, []byte, string, string) bool { return true })
 
-	prompts := LoadCommandExports(cfg, nil, bundles.WithSeededBundles(devToolsSeed()))
+	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 	items := bundlePromptItems(prompts)
 	assert.Contains(t, items, "review", "the profile's curated command must still export")
 	assert.Contains(t, items, "task-runner", "the companion's command must ALSO export under curation, not be replaced by it")

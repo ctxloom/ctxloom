@@ -20,9 +20,9 @@ const SetupPromptCommandName = "agent-setup"
 
 // ResolveSetupPrompt returns the agent-setup prompt to emit: the supplied
 // built-in guidance, PLUS the content of every installed `agent-setup` command
-// found across cfg.SeededBundleLoader — a repo bundle's and an installed
+// found across cfg.BundleLoader — a repo bundle's and an installed
 // companion's loadout both land in that same seeded set (config.go's
-// SeededBundleLoader merges loadRemoteBundleSeed and companionBundleSeed), so
+// the config bundle loader composes the project, remote and companion readers), so
 // composing over ListAllCommands picks up both sources with no separate
 // companion-specific lookup. Contributions are sorted by command name for a
 // deterministic, stable order across runs. Discovery is via the bundle loader
@@ -34,7 +34,7 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 	if cfg == nil {
 		return builtin
 	}
-	loader := cfg.SeededBundleLoader()
+	loader := cfg.BundleLoader()
 	if loader == nil {
 		return builtin
 	}

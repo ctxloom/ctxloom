@@ -41,10 +41,9 @@ func versionedLoader(t *testing.T, canonicalRef string, def *Bundle, versions ma
 		clone := *b // copy so the loader's Name stamp doesn't clobber the fixture
 		return &clone, nil
 	}
-	return NewPipeline(NewLoader(nil,
-		WithSeededBundles(map[string]*Bundle{canonicalRef: def}),
-		WithVersionResolver(resolver),
-	), gate, true)
+	return NewPipeline(
+		NewLoader(seedLocal(map[string]*Bundle{canonicalRef: def})).WithVersionResolver(resolver),
+		gate, true)
 }
 
 const cqRef = "https://github.com/acme/b@bundles/cq"
@@ -186,7 +185,7 @@ func TestMultiVersion_EmbeddedCommitAddressing(t *testing.T) {
 // (lockfile) path keeps working.
 func TestMultiVersion_NoResolverFailsClosed(t *testing.T) {
 	def := &Bundle{Fragments: map[string]BundleFragment{"solid": {Content: "default body"}}}
-	l := ungated(NewLoader(nil, WithSeededBundles(map[string]*Bundle{cqRef: def})), true)
+	l := ungated(NewLoader(seedLocal(map[string]*Bundle{cqRef: def})), true)
 
 	if _, err := l.GetFragmentAtVersion(cqFrag, "c1"); !errors.Is(err, errs.ErrNoVersionResolver) {
 		t.Errorf("GetFragmentAtVersion without resolver err = %v, want ErrNoVersionResolver", err)

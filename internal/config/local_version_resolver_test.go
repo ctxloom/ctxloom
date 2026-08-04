@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing/object"
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -64,13 +65,13 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	cfg := &Config{appPaths: []string{appDir}}
 	resolver := cfg.bundleVersionResolver()
 	require.NotNil(t, resolver, "an app dir must yield a version resolver")
-	def := &bundles.Bundle{
-		Fragments: map[string]bundles.BundleFragment{"fmt": {Content: "WORKTREE-BODY"}},
-		Commands:  map[string]bundles.BundleCommand{"review": {Content: "WORKTREE-PROMPT"}},
-	}
-	return bundles.NewPipeline(bundles.NewLoader(nil,
-		bundles.WithSeededBundles(map[string]*bundles.Bundle{localGoTools: def}),
-		bundles.WithVersionResolver(resolver)), nil, false)
+	// The working-tree default is read as what it is: a project bundle on a
+	// filesystem, through the project reader.
+	fsys := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(fsys, "/bundles/go-tools.yaml", []byte(
+		"version: \"1.0\"\nfragments:\n  fmt:\n    content: WORKTREE-BODY\ncommands:\n  review:\n    content: WORKTREE-PROMPT\n"), 0o644))
+	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{"/bundles"})).WithVersionResolver(resolver)
+	return bundles.NewPipeline(loader, nil, false)
 }
 
 // TestLocalRev_FragmentResolvesHistoricalVersion proves a local fragment ref

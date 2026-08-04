@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
-	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/internal/shared/companionloadout"
@@ -328,44 +327,46 @@ func CompanionsDisabled() bool {
 	return companionsDisabled
 }
 
-// ProbeCompanionLoadouts discovers companions (DiscoverCompanions), ADMITS the
-// ones this machine's human agreed ctxloom may execute (AdmitCompanions), and
-// for each admitted one execs `<bin> loadout --format json`, verifies any
-// signature against root, and parses the result into a bundles.Bundle keyed by
-// its ctxloom:companion@<bin> canonical ref — ready to merge into a
-// SeededBundleLoader seed map.
+// ProbeCompanionLoadouts is the companion reader's EXEC seam: it discovers
+// companions (DiscoverCompanions), ADMITS the ones this machine's human agreed
+// ctxloom may execute (AdmitCompanions), and for each admitted one execs
+// `<bin> loadout --format json` and unwraps the envelope into the loadout's raw
+// bundle bytes and detached signature.
+//
+// It stops at BYTES. Parsing them and establishing what their signature turned
+// out to be belongs to bundles.NewCompanionReader — one place, shared with
+// every other source — so that this function cannot quietly become a second
+// notion of what a verified companion is.
 //
 // A companion that is absent from PATH, not admitted for execution, whose probe
 // fails or times out (including a first-party name that does not implement
-// `loadout` yet, e.g. reprise today), or whose loadout is STRUCTURALLY
+// `loadout` yet, e.g. reprise today), or whose loadout ENVELOPE is structurally
 // unusable — unparseable envelope, unrecognized contract, non-base64 or empty
-// bundle, unparseable bundle YAML — is SKIPPED with a warning: NEVER fatal,
-// NEVER a crash, NEVER a stalled startup. Those cases produced no content in
-// the first place, so there is nothing to admit.
+// bundle — is SKIPPED with a warning: NEVER fatal, NEVER a crash, NEVER a
+// stalled startup. Those cases produced no content in the first place, so there
+// is nothing to report.
 //
-// A SIGNATURE that does not verify is NOT one of those cases. It is reported
-// and the content is still delivered — see the switch in the body for why, and
-// docs/trust-model.md's "Companion loadouts" for the argument. Reporting
-// replaces filtering here: nothing about a loadout's signature is dropped
-// silently, and nothing about it gates.
+// A SIGNATURE that does not verify is NOT one of those cases, and is not even
+// looked at here: companion content is admitted at EXEC, not by signature (see
+// docs/trust-model.md, "Companion loadouts"), so the bytes travel on and the
+// reader says out loud what their signature was.
 //
 // Probes run concurrently (mirrors ProbeCompanions), each bounded by
 // companionProbeTimeout, so the worst-case wall-clock stays ~one timeout
 // regardless of how many companions are admitted.
-func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
+func ProbeCompanionLoadouts(ctx context.Context) ([]bundles.CompanionLoadout, error) {
 	// See ProbeCompanions' identical guard.
 	if CompanionsDisabled() {
-		return nil
+		return nil, nil
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	// EXEC CONSENT, resolved sequentially BEFORE the fan-out: a companion this
 	// machine's human has not agreed to run is never exec'd, and two prompts
 	// can never interleave on one terminal. See AdmitCompanions.
 	admitted := admittedCompanions(DiscoverCompanions())
-	type probed struct {
-		ref string
-		b   *bundles.Bundle
-	}
-	slots := make([]*probed, len(admitted))
+	slots := make([]*bundles.CompanionLoadout, len(admitted))
 	var wg sync.WaitGroup
 	for i, adm := range admitted {
 		wg.Add(1)
@@ -389,56 +390,20 @@ func ProbeCompanionLoadouts(root signing.TrustRoot) map[string]*bundles.Bundle {
 			bundleBytes, sig, _, derr := signing.ParseLoadoutEnvelope(raw)
 			if derr != nil {
 				// STRUCTURAL failure — no content was produced at all. Nothing
-				// to admit, so this half still withholds.
+				// to hand on, so this half still withholds.
 				clidiag.Warn("ctxloom", "companion %q: unparseable loadout envelope, withholding: %v", bin, derr)
 				return
 			}
-			// SIGNATURE FACTS ARE DIAGNOSTICS HERE, NOT GATES. Companion content
-			// is LOCAL: these bytes came straight off the stdout of a binary the
-			// user consented to execute, with no intermediary in between — and an
-			// intermediary is precisely the threat a publisher signature exists
-			// to catch. A signature that fails to verify at this seam therefore
-			// means the companion's own release shipped a stale or mismatched
-			// signature, which is a BUG signal, not an attack signal. Say so and
-			// deliver the content; dropping it would punish the user for the
-			// companion's build error. The control that DOES catch a swapped
-			// binary is the hash-keyed exec consent in companion_admission.go.
-			//
-			// (A REMOTE bundle keeps the opposite posture — invalid withholds —
-			// because its bytes crossed a network and a forge. Same parse, two
-			// postures: see signing.ParseLoadoutEnvelope.)
-			signer, verr := signing.VerifyPublisher(bundleBytes, sig, root, time.Now())
-			switch {
-			case verr != nil:
-				clidiag.Warn("ctxloom",
-					"companion %q: its loadout signature does not verify over its own bytes — most likely a stale or "+
-						"mismatched signature in the companion's release, so report it to the companion's authors; "+
-						"delivering the content anyway, unattributed (%v)", bin, verr)
-				signer = ""
-			case len(sig) > 0 && signer == "":
-				clidiag.WarnOnce("ctxloom",
-					"companion %q: its loadout is signed by a key this machine does not trust to publish; "+
-						"delivering the content anyway (companion content is admitted at exec, not by signature), "+
-						"unattributed", bin)
-			}
-			b, perr := bundles.ParseBundle(bundleBytes)
-			if perr != nil {
-				clidiag.Warn("ctxloom", "companion %q: unparseable loadout bundle, withholding: %v", bin, perr)
-				return
-			}
-			ref := remote.CompanionSource + "@" + bin
-			b.Name = ref
-			b.StampSigner(signer) // "" for unsigned; the verified principal otherwise
-			slots[i] = &probed{ref: ref, b: b}
+			slots[i] = &bundles.CompanionLoadout{Bin: bin, Path: path, Bundle: bundleBytes, Signature: sig}
 		}(i, adm.Bin, adm.Path)
 	}
 	wg.Wait()
 
-	out := make(map[string]*bundles.Bundle, len(admitted))
-	for _, p := range slots {
-		if p != nil {
-			out[p.ref] = p.b
+	out := make([]bundles.CompanionLoadout, 0, len(admitted))
+	for _, lo := range slots {
+		if lo != nil {
+			out = append(out, *lo)
 		}
 	}
-	return out
+	return out, nil
 }

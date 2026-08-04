@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
@@ -1785,7 +1786,7 @@ mcp:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test-bundle.yaml"), []byte(bundleContent), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir})
+	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadMCPFromBundleRef("test-bundle", loader, nil)
 
 	assert.Len(t, result, 1)
@@ -1794,7 +1795,7 @@ mcp:
 
 func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 	tmpDir := t.TempDir()
-	loader := bundles.NewLoader([]string{tmpDir})
+	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{tmpDir}))
 
 	// Invalid bundle reference
 	result := loadMCPFromBundleRef("nonexistent-bundle", loader, nil)
@@ -1807,15 +1808,14 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 // same bundle's fragment/prompt resolved fine.
 func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 	const ref = "ctxloom-default/sequential-thinking"
-	seeded := map[string]*bundles.Bundle{
-		ref: {
-			Name: ref,
-			MCP: map[string]bundles.BundleMCP{
-				"sequential-thinking": {Command: "npx", Args: []string{"-y", "server"}},
-			},
-		},
-	}
-	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(seeded))
+	// Pinned remote content reaches the loader through a repofs reader over the
+	// bytes at its pinned revision — the same path the lockfile takes — so the
+	// test cannot mint a provenance no reader would have produced.
+	tree, err := content.NewMapTreeFS(map[string][]byte{
+		"sequential.yaml": []byte("version: \"1.0\"\nmcp:\n  sequential-thinking:\n    command: npx\n    args: [\"-y\", \"server\"]\n"),
+	})
+	require.NoError(t, err)
+	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, ref))
 
 	result := loadMCPFromBundleRef(ref, loader, nil)
 	assert.Contains(t, result, "sequential-thinking",
@@ -1847,7 +1847,7 @@ hooks:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir})
+	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadHooksFromBundleRef("with-hooks", loader, nil)
 
 	require.Len(t, result.PostTool, 1)
@@ -1874,7 +1874,7 @@ mcp:
 `
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir})
+	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 	result := loadHooksFromBundleRef("no-hooks", loader, nil)
 
 	assert.Empty(t, result.PostTool)

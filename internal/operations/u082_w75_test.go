@@ -59,7 +59,7 @@ commands:
 	require.NoError(t, afero.WriteFile(fs,
 		paths.LocalBundlesPath(testBaseDir)+"/headings.yaml", []byte(bundleContent), 0644))
 
-	return bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, bundles.WithFS(fs))
+	return bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 }
 
 // TestGetCommand_StripsOnlyAnATXH1 pins that the "drop a single leading H1

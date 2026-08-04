@@ -11,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
@@ -804,7 +805,7 @@ func doctorCheckSetupLockAndAssembly(ctx context.Context, cfg *config.Config, cf
 // doctorCheckSetupCompanions reports companion discovery + loadout probing —
 // the SAME two-stage protocol (config.DiscoverCompanions, config.
 // ProbeCompanions, config.ProbeCompanionLoadouts) AssembleContext's
-// SeededBundleLoader already runs internally for a real session. Reporting
+// context assembly already runs internally for a real session. Reporting
 // only: a project with no companions installed is not misconfigured (they
 // are optional add-ons), so this is never a "warn"; it respects
 // --no-companions/CTXLOOM_NO_COMPANIONS (config.CompanionsDisabled) by
@@ -835,7 +836,15 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 			notRun = append(notRun, fmt.Sprintf("%s (%s)", st.Bin, st.Admission))
 		}
 	}
-	loadouts := config.ProbeCompanionLoadouts(cfg.TrustRoot())
+	// Count the loadouts as the READER reported them, rather than probing a
+	// second time: asking the loader what it read cannot exec a companion
+	// again, and it counts what a session would actually carry.
+	loadouts := 0
+	for _, read := range cfg.BundleLoader().Reads() {
+		if read.Provenance == bundles.ProvenanceCompanion {
+			loadouts++
+		}
+	}
 	presentDetail := "(none on PATH)"
 	if len(present) > 0 {
 		presentDetail = strings.Join(present, ", ")
@@ -845,8 +854,8 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 		notRunDetail = fmt.Sprintf("; NOT RUN: %s — allow with 'ctxloom trust companion allow <path>'", strings.Join(notRun, ", "))
 	}
 	return doctorCheck{Marker: marker, Status: doctorOK, Detail: fmt.Sprintf(
-		"discovered: %s; on PATH: %s; loadout verified: %d%s",
-		strings.Join(bins, ", "), presentDetail, len(loadouts), notRunDetail)}
+		"discovered: %s; on PATH: %s; loadouts read: %d%s",
+		strings.Join(bins, ", "), presentDetail, loadouts, notRunDetail)}
 }
 
 // doctorCheckSetupAuthPing is a placeholder. init-as-skill's USER RULING (a)
@@ -909,7 +918,7 @@ func doctorCheckContentTrust(cfg *config.Config, cfgErr error) doctorCheck {
 	if cfgErr != nil {
 		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
 	}
-	infos, err := cfg.SeededBundleLoader().List()
+	infos, err := cfg.BundleLoader().List()
 	if err != nil {
 		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "could not list bundles: " + err.Error()}
 	}

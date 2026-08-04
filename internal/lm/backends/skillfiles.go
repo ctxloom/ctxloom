@@ -42,7 +42,7 @@ func modeFromPOSIX(mode uint32) os.FileMode {
 // uncurated path (config.ResolveBundleSkills, every profile-referenced
 // bundle's skills) is unchanged. Both are gated through the SAME executable
 // trust gate as commands/mcp/hooks when cfg carries one.
-func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles.LoaderOption) []*bundles.LoadedSkill {
+func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...config.BundleLoaderOption) []*bundles.LoadedSkill {
 	if cfg == nil {
 		return nil
 	}
@@ -50,7 +50,7 @@ func LoadSkillExports(cfg *config.Config, profileNames []string, opts ...bundles
 		// Same gate as the command curation branch (commands.go): the
 		// cfg-injected executable gate, nil on management paths.
 		return loadCuratedSkills(
-			bundles.NewPipeline(cfg.SeededBundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.ShouldUseDistilled()),
+			bundles.NewPipeline(cfg.BundleLoader(opts...), cfg.ExecutableTrustGate(), cfg.ShouldUseDistilled()),
 			curated)
 	}
 	return cfg.ResolveBundleSkills(profileNames, opts...)

@@ -67,7 +67,7 @@ func TestTrustStamper_ReadsTheLockfileOncePerItem(t *testing.T) {
 
 	fs := newCountingFs()
 	fx := newTrustFixture(t)
-	stamper := NewTrustStamper(cfg, WithStampLoader(stampSeed()), WithStampRecords(fx.records()), WithStampFS(fs))
+	stamper := NewTrustStamper(cfg, WithStampLoader(stampSeed(t)), WithStampRecords(fx.records()), WithStampFS(fs))
 
 	const acme = "https://github.com/acme/repo@bundles/"
 	before := fs.readsOf(lockPath)

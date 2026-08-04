@@ -53,7 +53,7 @@ func captureBundleWarner(t *testing.T) *bytes.Buffer {
 // the identical warner; the inconsistency was the tell.
 func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
-	l := NewLoader(nil, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
+	l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithWarnWriter(buf)
 
 	got := ungated(l, false).CommandsFromBundleRef("no-such-bundle-cmds")
 
@@ -68,7 +68,7 @@ func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 // the same defect, the same export path, the same silence.
 func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
-	l := NewLoader(nil, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
+	l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithWarnWriter(buf)
 
 	got := ungated(l, false).SkillsFromBundleRef("no-such-bundle-skills")
 
@@ -109,7 +109,7 @@ func TestList_UnreadableBundlesDirIsLoud(t *testing.T) {
 	t.Cleanup(restore)
 
 	mark := strictness.Checkpoint()
-	l := NewLoader([]string{dir}, WithFS(afero.NewOsFs()))
+	l := NewLoader(NewProjectReader(afero.NewOsFs(), []string{dir}))
 	got, err := l.List()
 	require.NoError(t, err, "List keeps its signature; loudness rides the strictness choke")
 
@@ -124,8 +124,8 @@ func TestList_UnreadableBundlesDirIsLoud(t *testing.T) {
 // TestSkillContent_RefusesNonFilesystemBundlePath pins the fix below.
 //
 // Bundle.Path is overloaded: a real filesystem path for on-disk bundles, but ""
-// for companion-seeded bundles and a synthetic "<remote>:…"/"<remote-version>:…"
-// /"<seeded>:…" sentinel for the others. skillContent took filepath.Dir of it
+// for a companion loadout and a synthetic "<remote>:…"/"<remote-version>:…"
+// sentinel for pinned remote content. skillContent took filepath.Dir of it
 // unconditionally, and filepath.Dir("") is ".", so a companion bundle's skills
 // resolved against the PROCESS WORKING DIRECTORY — arbitrary project-local
 // files loaded, trusted and materialized as that companion's skill package.
@@ -138,10 +138,9 @@ func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
 		name string
 		path string
 	}{
-		{"companion-seeded (empty Path)", ""},
-		{"remote-seeded sentinel", "<remote>:some/bundle@abc123"},
+		{"companion loadout (empty Path)", ""},
+		{"remote sentinel", "<remote>:some/bundle@abc123"},
 		{"remote-version sentinel", "<remote-version>:some/bundle@abc123"},
-		{"seeded sentinel", "<seeded>:some-bundle"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fs := afero.NewMemMapFs()
@@ -154,7 +153,7 @@ func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
 				Path:   tc.path,
 				Skills: map[string]BundleSkill{"helper": {}},
 			}
-			l := NewLoader(nil, WithFS(fs), WithSeededBundles(map[string]*Bundle{"companion": b}))
+			l := NewLoader(NewProjectReader(fs, nil), seedLocal(map[string]*Bundle{"companion": b}))
 
 			var warnings bytes.Buffer
 			restore := clidiag.SetSink(&warnings)

@@ -32,13 +32,19 @@ var _ Store = (*fsStore)(nil)
 // afero — a latent split this closes).
 type fsStore struct {
 	*Loader
+	fs afero.Fs
 }
 
-// NewFSStore returns a filesystem-backed bundle Store over searchDirs. Like
+// NewFSStore returns a filesystem-backed bundle Store over dirs, reading
+// through a project reader on fsys and writing back through that same fsys —
+// so a store's reads and writes cannot drift onto two filesystems. Like
 // NewLoader it carries no form preference: a store yields every form it holds
 // and the caller names the one it wants at the point of the read.
-func NewFSStore(searchDirs []string, opts ...LoaderOption) Store {
-	return &fsStore{Loader: NewLoader(searchDirs, opts...)}
+func NewFSStore(fsys afero.Fs, dirs []string) Store {
+	if fsys == nil {
+		fsys = afero.NewOsFs()
+	}
+	return &fsStore{Loader: NewLoader(NewProjectReader(fsys, dirs)), fs: fsys}
 }
 
 // Save writes the bundle back to its Path (which the caller sets — to the
@@ -65,6 +71,10 @@ func (s *fsStore) Save(b *Bundle) error {
 	if err := afero.WriteFile(s.fs, b.Path, data, 0o644); err != nil {
 		return fmt.Errorf("write bundle: %w", err)
 	}
+	// The bytes on disk changed, so the loader's memoized read of them is now a
+	// lie. Dropping it is what makes a save-then-read within one command see
+	// what was just written.
+	s.invalidate()
 	return s.invalidateStaleSignature(b.Path, data)
 }
 
@@ -125,5 +135,9 @@ func (s *fsStore) Delete(name string) error {
 	if err != nil {
 		return err
 	}
-	return s.fs.Remove(path)
+	if err := s.fs.Remove(path); err != nil {
+		return err
+	}
+	s.invalidate()
+	return nil
 }

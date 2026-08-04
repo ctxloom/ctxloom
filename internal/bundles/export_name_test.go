@@ -79,7 +79,7 @@ func TestLoader_LoadedContentCarriesBundleAndItem(t *testing.T) {
 		Fragments: map[string]BundleFragment{"security": {Content: "SEC"}},
 		Commands:  map[string]BundleCommand{"review": {Content: "REVIEW"}},
 	}
-	loader := NewLoader(nil, WithSeededBundles(map[string]*Bundle{canonical: b}))
+	loader := NewLoader(seedLocal(map[string]*Bundle{canonical: b}))
 
 	infos, err := loader.ListAllCommands()
 	require.NoError(t, err)

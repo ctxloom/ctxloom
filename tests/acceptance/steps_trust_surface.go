@@ -215,7 +215,7 @@ func tsSelector(element string) (string, error) {
 // "default" profile — the same reference-then-pull mechanic every other
 // journey's sources use (steps_j1_common.go's addSourceAsRemote, steps_j3.go's
 // j3WireReference) — then pulls, so the freshly seeded content resolves
-// through the SeededBundleLoader before any trust/blacklist/materialize call.
+// through the config bundle loader before any trust/blacklist/materialize call.
 func tsWireAndPull(w *World, url string) error {
 	ts := tsOf(w)
 	ts.url = url

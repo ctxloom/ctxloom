@@ -220,7 +220,7 @@ commands:
 `
 	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/dev-tools.yaml", []byte(bundleContent), 0644)
 
-	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, bundles.WithFS(fs))
+	loader := bundles.NewLoader(bundles.NewProjectReader(fs, []string{paths.LocalBundlesPath(testBaseDir)}))
 	return fs, loader
 }
 
@@ -282,10 +282,7 @@ fragments:
 	// A loader with NO local bundle dirs, seeded only with the remote bundle —
 	// mirrors SeededBundleLoader resolving a remote bundle from the lockfile
 	// when nothing is authored locally.
-	loader := bundles.NewLoader(nil,
-		bundles.WithFS(afero.NewMemMapFs()),
-		bundles.WithSeededBundles(map[string]*bundles.Bundle{remoteName: b}),
-	)
+	loader := seedLoader(t, map[string]*bundles.Bundle{remoteName: b})
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{
@@ -402,7 +399,7 @@ func TestSearchContent_SearchSkills(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fsys, bundleDir+"/skills/humanize/SKILL.md",
 		[]byte("---\nname: humanize\ndescription: Rewrites text to sound less like an AI wrote it.\n---\n\n# humanize\n\nBody.\n"), 0644))
 
-	loader := bundles.NewLoader([]string{bundlesDir}, bundles.WithFS(fsys))
+	loader := bundles.NewLoader(bundles.NewProjectReader(fsys, []string{bundlesDir}))
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 
 	result, err := SearchContent(context.Background(), cfg, SearchContentRequest{

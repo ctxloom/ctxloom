@@ -373,7 +373,7 @@ func TestListFragments_UnreadableBundlesRootIsLoudNotALostError(t *testing.T) {
 	_, readErr := os.ReadDir(bundlesDir)
 	require.Error(t, readErr, "fixture is not hostile: the bundles dir is still readable")
 
-	loader := bundles.NewLoader([]string{bundlesDir})
+	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
 
 	var res *ListFragmentsResult
 	var err error

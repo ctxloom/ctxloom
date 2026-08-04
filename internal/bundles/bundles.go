@@ -195,9 +195,9 @@ func (b *Bundle) contentSourceRef() string {
 // as one. They are listed here rather than at their producers so a new sentinel
 // added anywhere fails FSDir loudly instead of silently reopening this hazard —
 // the values are matched by prefix, and every current producer uses the
-// "<word>:" shape (config/config.go's "<remote>:", loader_version.go's
-// "<remote-version>:", loader.go's seededPath "<seeded>:").
-var nonFilesystemPathPrefixes = []string{"<remote>:", "<remote-version>:", seededPathPrefix}
+// "<word>:" shape (the repofs reader's remotePathSentinel "<remote>:",
+// loader_version.go's "<remote-version>:").
+var nonFilesystemPathPrefixes = []string{remotePathSentinel, "<remote-version>:"}
 
 // FSDir returns the DIRECTORY this bundle's files live in, or an error when the
 // bundle has none — which is the common case, not an exotic one: companion-,

@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -486,15 +487,16 @@ func TestProbeCompanionLoadouts_NeverExecsAnUnadmittedCompanion(t *testing.T) {
 	})
 	defer restoreProbe()
 
-	got := ProbeCompanionLoadouts(nil)
+	got, err := ProbeCompanionLoadouts(context.Background())
+	require.NoError(t, err)
 	assert.Empty(t, got)
 	assert.Empty(t, execed, "an unconfirmed companion must never be exec'd, not merely have its output discarded")
 
 	// Now grant consent and prove the SAME fixture does run — otherwise the
 	// assertion above would also pass against a probe that is simply broken.
-	_, err := SetCompanionConsent("ctxloom-companion-acme", true)
+	_, err = SetCompanionConsent("ctxloom-companion-acme", true)
 	require.NoError(t, err)
-	ProbeCompanionLoadouts(nil)
+	_, _ = ProbeCompanionLoadouts(context.Background())
 	assert.Len(t, execed, 1, "with consent recorded the very same companion is exec'd")
 }
 

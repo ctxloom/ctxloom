@@ -471,7 +471,8 @@ func TestEffectiveTrust_DefaultRecords_NothingApprovedOrRejected(t *testing.T) {
 
 // --- mutation ops, end-to-end through the resolver ---------------------------
 
-func seededLoader() (*bundles.Loader, string) {
+func seededLoader(t *testing.T) (*bundles.Loader, string) {
+	t.Helper()
 	const seedKey = "https://github.com/acme/repo@bundles/tooling"
 	b := &bundles.Bundle{
 		Name:    seedKey,
@@ -489,7 +490,7 @@ func seededLoader() (*bundles.Loader, string) {
 			}},
 		},
 	}
-	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{seedKey: b}))
+	loader := seedLoader(t, map[string]*bundles.Bundle{seedKey: b})
 	mcp := b.MCP["postgres"]
 	return loader, mcp.ComputeContentHash()
 }
@@ -517,7 +518,7 @@ func seededSkillPayload() []byte {
 }
 
 func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
-	loader, _ := seededLoader()
+	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
 	ref := "https://github.com/acme/repo@bundles/tooling#mcp/postgres"
 
@@ -553,7 +554,7 @@ func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 // approved manifest bytes resolve ALLOW/SourceAccepted while any other
 // (never-reviewed) skill in the same bundle stays pending.
 func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
-	loader, _ := seededLoader()
+	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
 	ref := "https://github.com/acme/repo@bundles/tooling#skills/reviewer"
 
@@ -606,7 +607,7 @@ func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 // raw bytes AND the distilled bytes, so both materializations are
 // reviewed-once and a change to either re-gates.
 func TestSetItemTrust_ApprovesBothForms(t *testing.T) {
-	loader, _ := seededLoader()
+	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
 
 	res, err := SetItemTrust(nil, SetItemTrustRequest{
@@ -628,7 +629,7 @@ func TestSetItemTrust_ApprovesBothForms(t *testing.T) {
 }
 
 func TestSetBlacklist_WritesBothComponents(t *testing.T) {
-	loader, _ := seededLoader()
+	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
 	ref := "https://github.com/acme/repo@bundles/tooling#fragments/solid"
 
@@ -662,7 +663,7 @@ func TestSetBlacklist_WritesBothComponents(t *testing.T) {
 // content-rejects BOTH forms, so neither materialization can sneak back in
 // under another ref.
 func TestSetBlacklist_RejectsBothForms(t *testing.T) {
-	loader, _ := seededLoader()
+	loader, _ := seededLoader(t)
 	fx := newTrustFixture(t)
 
 	res, err := SetBlacklist(nil, SetBlacklistRequest{

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"os/exec"
 	"sync"
 	"testing"
@@ -63,7 +64,7 @@ func TestCompanionProbeSeams_ConcurrentProbesAreRaceFree(t *testing.T) {
 		go func(i int) {
 			defer wg.Done()
 			statuses[i] = ProbeCompanions()
-			_ = ProbeCompanionLoadouts(nil)
+			_, _ = ProbeCompanionLoadouts(context.Background())
 		}(i)
 	}
 	wg.Wait()

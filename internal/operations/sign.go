@@ -107,7 +107,7 @@ type SignBundleRequest struct {
 	// fake signer.
 	Signer ssh.Signer
 	// Store overrides the default filesystem bundle store (ADR 0026); nil
-	// uses bundles.NewFSStore(cfg.GetBundleDirs(), ...).
+	// uses bundles.NewFSStore(fs, cfg.GetBundleDirs()).
 	Store bundles.Store
 	// FS overrides the default OS filesystem (afero); nil uses
 	// afero.NewOsFs().

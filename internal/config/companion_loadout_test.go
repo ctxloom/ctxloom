@@ -2,6 +2,7 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/base64"
@@ -16,6 +17,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/signing"
@@ -119,12 +121,33 @@ func admitEveryDiscoveredCompanion(t *testing.T) {
 	t.Cleanup(restore)
 }
 
+// companionBundles drives the two halves a session drives: the PROBE (which
+// execs the admitted companions and unwraps their envelopes) and the READER
+// (which parses the bytes and establishes what their signature turned out to
+// be). Asserting on the pair is what keeps these tests about the behaviour a
+// user gets rather than about either half's internals.
+func companionBundles(t *testing.T, root signing.TrustRoot) map[string]*bundles.Bundle {
+	t.Helper()
+	loadouts, err := ProbeCompanionLoadouts(context.Background())
+	require.NoError(t, err)
+	reads, err := bundles.NewCompanionReader(
+		func(context.Context) ([]bundles.CompanionLoadout, error) { return loadouts, nil },
+		bundles.WithTrustRoot(root),
+	).Read(context.Background())
+	require.NoError(t, err)
+	out := make(map[string]*bundles.Bundle, len(reads))
+	for _, r := range reads {
+		out[r.Ref()] = r.Bundle
+	}
+	return out
+}
+
 func TestProbeCompanionLoadouts_NoneOnPathYieldsEmptyMap(t *testing.T) {
 	admitEveryDiscoveredCompanion(t)
 	restore := SetLookPathForTesting(lookPathOnly(nil))
 	defer restore()
 
-	got := ProbeCompanionLoadouts(nil)
+	got := companionBundles(t, nil)
 	assert.Empty(t, got)
 }
 
@@ -137,7 +160,7 @@ func TestProbeCompanionLoadouts_ProbeFailureSkippedNotCrash(t *testing.T) {
 	})
 	defer restoreProbe()
 
-	got := ProbeCompanionLoadouts(nil)
+	got := companionBundles(t, nil)
 	assert.Empty(t, got, "a companion whose loadout probe fails contributes nothing, and must not panic")
 }
 
@@ -189,7 +212,7 @@ func TestProbeCompanionLoadouts_InvalidSignatureIsReportedNotWithheld(t *testing
 	restoreSink := clidiag.SetSink(&warnings)
 	defer restoreSink()
 
-	got := ProbeCompanionLoadouts(root)
+	got := companionBundles(t, root)
 	require.Contains(t, got, remote.CompanionSource+"@ltk",
 		"a companion's content must still be delivered when its signature does not verify")
 	b := got[remote.CompanionSource+"@ltk"]
@@ -227,7 +250,7 @@ func TestProbeCompanionLoadouts_UntrustedSignerIsReportedNotWithheld(t *testing.
 	restoreSink := clidiag.SetSink(&warnings)
 	defer restoreSink()
 
-	got := ProbeCompanionLoadouts(nil) // no trust root trusts this key
+	got := companionBundles(t, nil) // no trust root trusts this key
 	require.Contains(t, got, remote.CompanionSource+"@ltk")
 	assert.Empty(t, got[remote.CompanionSource+"@ltk"].Signer(), "an untrusted key attributes nobody")
 	assert.Contains(t, warnings.String(), "does not trust to publish",
@@ -243,7 +266,7 @@ func TestProbeCompanionLoadouts_UnparseableEnvelopeWithheldNotCrash(t *testing.T
 	})
 	defer restoreProbe()
 
-	got := ProbeCompanionLoadouts(nil)
+	got := companionBundles(t, nil)
 	assert.Empty(t, got, "an unparseable loadout is withheld, not crashed on")
 }
 
@@ -257,7 +280,7 @@ func TestProbeCompanionLoadouts_UnsignedLoadoutSeededWithEmptySigner(t *testing.
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
 	defer restoreProbe()
 
-	got := ProbeCompanionLoadouts(nil)
+	got := companionBundles(t, nil)
 	require.Contains(t, got, remote.CompanionSource+"@ltk")
 	b := got[remote.CompanionSource+"@ltk"]
 	assert.Empty(t, b.Signer(), "unsigned loadout: empty verified signer, routes to review")
@@ -295,7 +318,7 @@ func TestProbeCompanionLoadouts_SignedByTrustedKeySeededWithPrincipal(t *testing
 		PublicKey:  sshPub,
 	})
 
-	got := ProbeCompanionLoadouts(root)
+	got := companionBundles(t, root)
 	require.Contains(t, got, remote.CompanionSource+"@ltk")
 	assert.Equal(t, "ltk@example.com", got[remote.CompanionSource+"@ltk"].Signer())
 }
@@ -324,18 +347,18 @@ func TestProbeCompanionLoadouts_AdvisorySignerFieldNeverTrusted(t *testing.T) {
 	restoreProbe := SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return forged, nil })
 	defer restoreProbe()
 
-	got := ProbeCompanionLoadouts(root)
+	got := companionBundles(t, root)
 	require.Contains(t, got, remote.CompanionSource+"@ltk")
 	assert.Empty(t, got[remote.CompanionSource+"@ltk"].Signer(), "a claimed signer with no signature must never be believed")
 }
 
-// --- SeededBundleLoader: companion content merges alongside remote --------
+// --- BundleLoader: companion content sits alongside remote ----------------
 
-// TestSeededBundleLoader_MergesCompanionAlongsideRemote proves the companion
-// seed lands in the SAME seeded-bundle map a remote bundle would, under its
-// ctxloom:companion@<bin> ref, and is visible through the loader's normal
-// read surface (List/ListAllFragments) exactly like a remote-seeded bundle.
-func TestSeededBundleLoader_MergesCompanionAlongsideRemote(t *testing.T) {
+// TestBundleLoader_ReadsCompanionAlongsideRemote proves the companion reader's
+// content reaches the SAME loader a remote bundle's does, under its
+// ctxloom:companion@<bin> ref, and is visible through the loader's normal read
+// surface (List/ListAllFragments) exactly like pinned remote content.
+func TestBundleLoader_ReadsCompanionAlongsideRemote(t *testing.T) {
 	admitEveryDiscoveredCompanion(t)
 	t.Setenv("HOME", t.TempDir())
 	restoreLook := SetLookPathForTesting(lookPathOnly(map[string]string{"ltk": "/fake/ltk"}))
@@ -350,7 +373,7 @@ func TestSeededBundleLoader_MergesCompanionAlongsideRemote(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	cfg := &Config{appPaths: []string{appDir}}
 
-	loader := cfg.SeededBundleLoader()
+	loader := cfg.BundleLoader()
 	infos, err := loader.List()
 	require.NoError(t, err)
 	var names []string
@@ -370,10 +393,14 @@ func TestSeededBundleLoader_MergesCompanionAlongsideRemote(t *testing.T) {
 	assert.True(t, found, "the companion's fragment must be visible through the loader's normal listing surface")
 }
 
-// TestSeededBundleLoader_NoAppPaths_SkipsCompanionProbing proves the guard
-// that keeps a bare/management Config (no project directory — the shape
-// most unit tests construct) from spawning companion subprocesses at all.
-func TestSeededBundleLoader_NoAppPaths_SkipsCompanionProbing(t *testing.T) {
+// TestBundleLoader_NoAppPaths_SkipsCompanionProbing proves the guard that keeps
+// a bare/management Config (no project directory — the shape most unit tests
+// construct) from spawning companion subprocesses at all.
+//
+// It READS through the loader rather than only building it: reading is when a
+// reader runs, so a test that stopped at construction would pass against a
+// loader that probes on its first read.
+func TestBundleLoader_NoAppPaths_SkipsCompanionProbing(t *testing.T) {
 	probed := false
 	restoreLook := SetLookPathForTesting(func(string) (string, error) {
 		probed = true
@@ -382,7 +409,8 @@ func TestSeededBundleLoader_NoAppPaths_SkipsCompanionProbing(t *testing.T) {
 	defer restoreLook()
 
 	cfg := &Config{}
-	_ = cfg.SeededBundleLoader()
+	_, err := cfg.BundleLoader().List()
+	require.NoError(t, err)
 	assert.False(t, probed, "no AppPaths means no project to seed companion content into — must not probe at all")
 }
 

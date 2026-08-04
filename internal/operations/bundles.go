@@ -384,7 +384,7 @@ func bundleStore(cfg *config.Config, injected bundles.Store) bundles.Store {
 	if injected != nil {
 		return injected
 	}
-	return bundles.NewFSStore(cfg.GetBundleDirs())
+	return bundles.NewFSStore(nil, cfg.GetBundleDirs())
 }
 
 // applyScalarEdits applies the single-value description/version edits, appending

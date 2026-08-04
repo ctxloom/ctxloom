@@ -79,7 +79,7 @@ func TestBundleWarner_AmbiguousDedupesPerName(t *testing.T) {
 func TestLoader_WarnWriterReceivesTheWarnerDiagnostics(t *testing.T) {
 	t.Run("unresolved bundle ref", func(t *testing.T) {
 		var warnings strings.Builder
-		l := NewLoader(nil, WithFS(afero.NewMemMapFs()), WithWarnWriter(&warnings))
+		l := NewLoader(NewProjectReader(afero.NewMemMapFs(), nil)).WithWarnWriter(&warnings)
 
 		got := ungated(l, false).CommandsFromBundleRef("u031-f14-unresolved-ref")
 
@@ -97,7 +97,7 @@ func TestLoader_WarnWriterReceivesTheWarnerDiagnostics(t *testing.T) {
 			[]byte("name: beta\nversion: \"1.0\"\nfragments:\n  u031f14shared:\n    content: b\n"), 0o644))
 
 		var warnings strings.Builder
-		l := NewLoader([]string{dir}, WithFS(fsys), WithWarnWriter(&warnings))
+		l := NewLoader(NewProjectReader(fsys, []string{dir})).WithWarnWriter(&warnings)
 
 		resolved := l.ResolveFragmentAsk("u031f14shared")
 

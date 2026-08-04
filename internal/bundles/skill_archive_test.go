@@ -1579,3 +1579,90 @@ func TestHardenedExtract_SymlinkCheckFailureIsReportedNotIgnored(t *testing.T) {
 	require.NoError(t, serr)
 	assert.False(t, written, "nothing may be written when confinement could not be established")
 }
+
+// =============================================================================
+// Mode disagreement is a DECLARATION problem, never tampering
+// =============================================================================
+
+// verifyFixtureManifest builds the on-disk manifest for a fixture package and
+// returns it with one entry's mode overridden — the shape of a package whose
+// `executable:` declaration and whose tree disagree.
+func verifyFixtureManifest(t *testing.T, fsys afero.Fs, dir, path, mode string) SkillManifest {
+	t.Helper()
+	pkg, err := ParseSkillPackage(fsys, dir, 0)
+	require.NoError(t, err)
+	out := make(SkillManifest, 0, len(pkg.Manifest))
+	for _, e := range pkg.Manifest {
+		if e.Path == path {
+			e.Mode = mode
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// TestVerifyExtractedManifest_UndeclaredExecutableSaysDeclaredNotTampered is
+// the missing-YAML-line case: the author chmod +x'd scripts/run.sh and never
+// added it to the sidecar's executable: list.
+//
+// The old wording ("mode 0755 does not match the signed manifest mode 0644 —
+// rejected (integrity mismatch)") sent them looking for an attacker. Nothing
+// was tampered with: a mode bit is not in the digest and no signature covers
+// it, so the two sides of this comparison are a declaration and a filesystem.
+func TestVerifyExtractedManifest_UndeclaredExecutableSaysDeclaredNotTampered(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	dir := "/bundle/skills/humanize"
+	writeSkillFixture(t, fsys, dir, "humanize")
+
+	err := VerifyExtractedManifest(fsys, dir, verifyFixtureManifest(t, fsys, dir, "scripts/run.sh", "0644"))
+
+	require.Error(t, err, "a declaration that disagrees with the tree must still refuse the package")
+	assert.Contains(t, err.Error(), "DECLARED non-executable",
+		"the message has to name the declaration, which is the thing the author must change")
+	assert.Contains(t, err.Error(), "executable:",
+		"and the line to add")
+	assert.Contains(t, err.Error(), "scripts/run.sh")
+	assert.NotContains(t, err.Error(), "integrity mismatch",
+		"a mode is not attested, so it can never be evidence of tampering")
+}
+
+// TestVerifyExtractedManifest_DeclaredExecutableThatLostItsBitSaysSo is the
+// other direction: the declaration is right and the exec bit went missing (a
+// checkout on a filesystem without one, an archive that dropped it). Same
+// non-accusatory framing, opposite remedy.
+func TestVerifyExtractedManifest_DeclaredExecutableThatLostItsBitSaysSo(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	dir := "/bundle/skills/humanize"
+	writeSkillFixture(t, fsys, dir, "humanize")
+
+	err := VerifyExtractedManifest(fsys, dir, verifyFixtureManifest(t, fsys, dir, "assets/logo.png", "0755"))
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DECLARED executable")
+	assert.Contains(t, err.Error(), "assets/logo.png")
+	assert.NotContains(t, err.Error(), "integrity mismatch")
+}
+
+// TestVerifyExtractedManifest_ContentAndFileListStillReportIntegrity pins the
+// other half: relaxing the MODE wording must not soften the two comparisons a
+// signature genuinely attests.
+func TestVerifyExtractedManifest_ContentAndFileListStillReportIntegrity(t *testing.T) {
+	fsys := afero.NewMemMapFs()
+	dir := "/bundle/skills/humanize"
+	writeSkillFixture(t, fsys, dir, "humanize")
+	pkg, err := ParseSkillPackage(fsys, dir, 0)
+	require.NoError(t, err)
+
+	tampered := make(SkillManifest, 0, len(pkg.Manifest))
+	for _, e := range pkg.Manifest {
+		if e.Path == "scripts/run.sh" {
+			e.SHA256 = "sha256:" + strings.Repeat("0", 64)
+		}
+		tampered = append(tampered, e)
+	}
+
+	verr := VerifyExtractedManifest(fsys, dir, tampered)
+	require.Error(t, verr)
+	assert.Contains(t, verr.Error(), "integrity mismatch",
+		"a content hash IS attested; a difference there is exactly what tampering looks like")
+}

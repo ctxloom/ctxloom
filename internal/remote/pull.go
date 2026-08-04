@@ -620,14 +620,42 @@ func (p *Puller) installTree(ref *Reference, opts PullOptions, item *fetchedItem
 	}
 	sort.Strings(rels)
 	for _, rel := range rels {
-		if err := writeTreeFile(fs, dir, rel, item.tree[rel]); err != nil {
+		file := item.tree[rel]
+		warnUndeclaredExecutable(treeRepoPath(item.treeRoot, rel), file)
+		if err := writeTreeFile(fs, dir, rel, file); err != nil {
 			return "", fmt.Errorf("install %s into %s: %w", treeRepoPath(item.treeRoot, rel), dir, err)
 		}
 	}
 	return dir, nil
 }
 
-// writeTreeFile writes one file of a bundle tree at its published mode.
+// warnUndeclaredExecutable reports a file the publisher committed 100755 that
+// the package does not DECLARE executable.
+//
+// It is the only place the divergence is visible. Downstream everything is
+// consistent and quiet: the file lands 0644, the manifest the tree generates
+// says 0644, verification passes, and the model is handed a script it cannot
+// run — the silent no-op, arriving as delivered content rather than as an
+// error. Saying it here names the repository path, the declaration that is
+// missing, and the file that will not run.
+func warnUndeclaredExecutable(repoPath string, file TreeFile) {
+	if !file.CommittedExecutable || file.DeclaredExecutable {
+		return
+	}
+	clidiag.Warn("ctxloom", "%s is committed executable upstream but the package does not declare it executable, "+
+		"so it was installed DECLARED NON-EXECUTABLE (mode 0644) and will not run. "+
+		"A mode bit is not portable and is not covered by the signature, so the declaration is what travels: "+
+		"add it to the executable: list in the package's .meta.yaml sidecar and re-publish.", repoPath)
+}
+
+// writeTreeFile writes one file of a bundle tree at its DECLARED mode.
+//
+// Not at the mode git recorded. The two can disagree, and when they do the
+// declaration is the one that has to reach disk: the manifest this same tree
+// generates (bundles.ReadTree, via the sidecar) is built from the declaration,
+// and bundles.VerifyExtractedManifest compares that manifest against the files
+// on disk. Installing at git's mode is what made a published-0755-but-
+// undeclared script arrive as a whole package the consumer refused.
 //
 // The explicit Chmod after the write is not redundant. afero (like os.WriteFile
 // under it) applies a mode only when it CREATES the file, and the umask masks
@@ -636,7 +664,7 @@ func (p *Puller) installTree(ref *Reference, opts PullOptions, item *fetchedItem
 // packagefiles.go re-Chmods on every materialize for exactly this reason.
 func writeTreeFile(fs afero.Fs, dir, rel string, file TreeFile) error {
 	mode := os.FileMode(0o644)
-	if file.Executable {
+	if file.DeclaredExecutable {
 		mode = 0o755
 	}
 	full := filepath.Join(dir, filepath.FromSlash(rel))

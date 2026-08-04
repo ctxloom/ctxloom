@@ -9,6 +9,7 @@
 package operations
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	fs2 "io/fs"
@@ -22,6 +23,8 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
@@ -115,7 +118,19 @@ type SignBundleRequest struct {
 type SignBundleResult struct {
 	BundleName string
 	BundlePath string
-	SigPath    string
+	// SigPath is where the signature landed: the detached "<path>.yaml.sig"
+	// sibling for a single-file bundle, or the bundle's .sigs/ STORE DIRECTORY
+	// for a tree (a tree's signature filename is derived from the signature's own
+	// bytes, so there is no single stable path to name).
+	SigPath string
+	// Tree reports that a DIRECTORY-form bundle was signed as a tree — manifest
+	// plus a signature filed against it — rather than as one file's bytes. The
+	// two attest different things, and a caller that printed "signed" without
+	// saying which would leave an author unable to tell whether their content was
+	// covered at all.
+	Tree bool
+	// ManifestPath is the SHA256SUMS the signature covers. Empty unless Tree.
+	ManifestPath string
 	// ItemNote carries SignTarget.ItemNote through, for CLI display.
 	ItemNote string
 }
@@ -141,6 +156,9 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 	}
 
 	fs := getFS(req.FS)
+	if filepath.Base(bundle.Path) == bundles.DirectoryFormManifest {
+		return signBundleTree(req, bundle.Path, fs)
+	}
 	item := &bundleSignable{bundle: bundle, fs: fs}
 	if err := SignItem(fs, item, req.Signer); err != nil {
 		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
@@ -151,6 +169,52 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 		BundlePath: bundle.Path,
 		SigPath:    item.SigPath(),
 		ItemNote:   req.Target.ItemNote,
+	}, nil
+}
+
+// signBundleTree signs a DIRECTORY-form bundle as a tree: it builds the
+// SHA256SUMS manifest over every covered file and files a publisher signature
+// against it in the bundle's own .sigs/ store.
+//
+// This is not a variant spelling of the single-file path, it is the only one
+// that attests anything. A directory-form bundle's content lives in files BESIDE
+// bundle.yaml, so signing bundle.yaml's bytes covers the manifest and nothing
+// else — and the consumer's verification path (attest.VerifyBundle, reached from
+// config.loadTreeBundle for every pulled tree) reads SHA256SUMS and .sigs/ and
+// never looks at a .yaml.sig sibling. Before this, `ctxloom bundle sign` on a
+// directory bundle exited 0, wrote a .sig, and left every consumer reading the
+// bundle as UNATTESTED: success, an artifact on disk, nothing attested.
+//
+// It goes through attest.SignBundle — the same object the consumer verifies —
+// rather than assembling a manifest here, so the two halves cannot drift into
+// disagreeing about what a signature covers.
+//
+// attest.SignBundle REFUSES a tree holding files no surface type recognises, and
+// that refusal is wanted here: publishing is the last moment a mis-extensioned
+// hook is cheap to fix, and the manifest would otherwise happily cover
+// `guard.yml` by path and produce a perfectly signed bundle in which the
+// guardrail does not exist.
+func signBundleTree(req SignBundleRequest, manifestPath string, fs afero.Fs) (*SignBundleResult, error) {
+	dir := filepath.Dir(manifestPath)
+	store, err := content.NewTreeStore(fs, filepath.Dir(dir), content.Provenance{IsLocal: true})
+	if err != nil {
+		return nil, fmt.Errorf("sign %s: open the bundle tree at %s: %w", req.Target.BundleName, dir, err)
+	}
+	ctx := context.Background()
+	tree, err := store.Open(ctx, content.BundleID(filepath.Base(dir)))
+	if err != nil {
+		return nil, fmt.Errorf("sign %s: open the bundle tree at %s: %w", req.Target.BundleName, dir, err)
+	}
+	if err := attest.SignBundle(ctx, store, tree, req.Signer); err != nil {
+		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
+	}
+	return &SignBundleResult{
+		BundleName:   req.Target.BundleName,
+		BundlePath:   manifestPath,
+		SigPath:      filepath.Join(dir, content.SigDirName),
+		Tree:         true,
+		ManifestPath: filepath.Join(dir, content.ManifestPath),
+		ItemNote:     req.Target.ItemNote,
 	}, nil
 }
 

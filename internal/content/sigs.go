@@ -14,7 +14,12 @@ import (
 	"github.com/spf13/afero"
 )
 
-// sigDirName is the bundle-root directory holding stored signatures.
+// SigDirName is the bundle-root directory holding stored signatures.
+//
+// It is exported because a caller that SIGNS a tree has to be able to say where
+// the signature landed (operations.SignBundleResult.SigPath): a tree signature's
+// filename derives from the signature's own bytes, so the store directory is the
+// only stable path there is to name.
 //
 // Signatures are keyed by CONTENT HASH, not attached to a path. That follows
 // through on the property the preimage already has — it binds content bytes,
@@ -27,7 +32,7 @@ import (
 //
 // The directory is dot-prefixed and therefore skipped by TreeStore.Bundles, so it
 // can never be mistaken for a bundle.
-const sigDirName = ".sigs"
+const SigDirName = ".sigs"
 
 // namespacePattern is the conservative charset a namespace must match to become
 // part of a filename. The three real namespaces ("publish.v1.ctxloom.dev" and
@@ -93,7 +98,7 @@ func parseSigFileName(contentKey, name string) (Namespace, bool) {
 // is store-relative and slash-separated: signatures are READ through the TreeFS
 // seam, so a pinned remote serves them exactly as an authored tree does.
 func readSignatures(tfs TreeFS, bundleDir, key string) (SigSet, error) {
-	dir := path.Join(bundleDir, sigDirName)
+	dir := path.Join(bundleDir, SigDirName)
 	entries, err := tfs.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -133,7 +138,7 @@ func writeSignature(fsys afero.Fs, bundleDir, key string, ns Namespace, sig []by
 	if len(sig) == 0 {
 		return errors.New("content: refusing to store an empty signature")
 	}
-	dir := filepath.Join(bundleDir, sigDirName)
+	dir := filepath.Join(bundleDir, SigDirName)
 	if err := fsys.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("content: creating signature store %q: %w", dir, err)
 	}

@@ -93,6 +93,13 @@ type signCmdTarget struct {
 	SigPath     string `json:"sig_path"`
 	SignedBy    string `json:"signed_by"`
 	Fingerprint string `json:"fingerprint"`
+	// Tree and ManifestPath report that a DIRECTORY-form bundle was signed as a
+	// TREE — every file covered by a SHA256SUMS manifest — rather than as one
+	// file's bytes. Reported rather than left implicit because the two attest
+	// different things: an author who cannot tell which happened cannot tell
+	// whether their fragments and skills are covered at all.
+	Tree         bool   `json:"tree,omitempty"`
+	ManifestPath string `json:"manifest_path,omitempty"`
 }
 
 // runSign is the testable body of `ctxloom bundle sign`: cfg and discoverer are
@@ -132,12 +139,14 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 			return err
 		}
 		result.Signed = append(result.Signed, signCmdTarget{
-			Bundle:      res.BundleName,
-			ItemNote:    res.ItemNote,
-			BundlePath:  res.BundlePath,
-			SigPath:     res.SigPath,
-			SignedBy:    discovered.Source,
-			Fingerprint: discovered.Fingerprint,
+			Bundle:       res.BundleName,
+			ItemNote:     res.ItemNote,
+			BundlePath:   res.BundlePath,
+			SigPath:      res.SigPath,
+			SignedBy:     discovered.Source,
+			Fingerprint:  discovered.Fingerprint,
+			Tree:         res.Tree,
+			ManifestPath: res.ManifestPath,
 		})
 	}
 
@@ -221,7 +230,15 @@ func printSignResult(w io.Writer, t signCmdTarget) {
 	if t.ItemNote != "" {
 		fmt.Fprintf(w, "Signing bundle %s (contains %s) — signatures cover whole bundles.\n", t.Bundle, t.ItemNote)
 	}
-	fmt.Fprintf(w, "  %s  ->  %s\n", t.BundlePath, t.SigPath)
+	if t.Tree {
+		// Name the MANIFEST, not bundle.yaml. A directory-form bundle's content
+		// lives in files beside its manifest, and saying "bundle.yaml -> .sig"
+		// here is what let an author believe a sibling signature covered a tree
+		// it never touched.
+		fmt.Fprintf(w, "  %s (whole tree)  ->  %s\n", t.ManifestPath, t.SigPath)
+	} else {
+		fmt.Fprintf(w, "  %s  ->  %s\n", t.BundlePath, t.SigPath)
+	}
 	fmt.Fprintf(w, "  signed by %s (%s)\n", t.SignedBy, t.Fingerprint)
 }
 

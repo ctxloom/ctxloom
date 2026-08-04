@@ -210,7 +210,7 @@ func (m Manifest) IsZero() bool { return len(m.entries) == 0 }
 // content-substituted verdict rather than silent acceptance. What a
 // tree-writer cannot do is CHOOSE which attestation governs in their favour.
 func ManifestCovers(p string) bool {
-	return p != ManifestPath && !strings.HasPrefix(p, sigDirName+"/")
+	return p != ManifestPath && !strings.HasPrefix(p, SigDirName+"/")
 }
 
 // BuildManifest hashes every covered file in a bundle.

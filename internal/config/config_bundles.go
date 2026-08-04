@@ -26,13 +26,13 @@ var lookPath = exec.LookPath
 // writing backend settings (trust rework, TR5) so an untrusted bundle's
 // executables are omitted; management/listing paths leave it nil (no gating).
 // Builtin bundles are always exempt regardless of the gate.
-func (c *Config) SetExecutableTrustGate(gate bundles.Filter) {
+func (c *Config) SetExecutableTrustGate(gate bundles.Authorizer) {
 	c.execGate = gate
 }
 
 // ExecutableTrustGate returns the injected executable trust gate (nil when none
 // was set — no gating).
-func (c *Config) ExecutableTrustGate() bundles.Filter {
+func (c *Config) ExecutableTrustGate() bundles.Authorizer {
 	return c.execGate
 }
 
@@ -209,7 +209,7 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 // exemption), but a REJECTED builtin item is now withheld, because rejection is
 // evaluated before the builtin exemption. A nil gate (management/listing paths,
 // matching every other resolver here) is fully ungated, unchanged from before.
-func resolveBuiltinBundleMCPServers(gate bundles.Filter) map[string]wire.MCPServer {
+func resolveBuiltinBundleMCPServers(gate bundles.Authorizer) map[string]wire.MCPServer {
 	out := make(map[string]wire.MCPServer)
 	eachBuiltinBundle(func(read bundles.BundleRead) {
 		for serverName, server := range extractMCPFromBundle(read, trust.BuiltinSourcePrefix+read.Ref(), gate) {
@@ -259,7 +259,7 @@ func resolveProfileOrReport(profileLoader *profiles.Loader, profileName string) 
 // the seeded-bundle map first: remote bundles are no longer extracted to disk
 // (they live only in the SeededBundleLoader seed), so resolving a remote ref by
 // a computed filesystem path would silently find nothing and drop its servers.
-func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.Filter) map[string]wire.MCPServer {
+func loadMCPFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.Authorizer) map[string]wire.MCPServer {
 	read, ok := loader.Read(bundleRef)
 	if !ok {
 		reportBundleRefLoadFailure(bundleRef, errs.ErrBundleNotFound)
@@ -532,7 +532,7 @@ func resolveCompanionCommandsWith(pipe *bundles.Pipeline, loader *bundles.Loader
 // allowed by default (no new review friction), but now reachable by a
 // rejection (rejection is evaluated before the builtin exemption). A nil gate
 // (management/listing paths) stays fully ungated.
-func resolveBuiltinBundleHooks(gate bundles.Filter) wire.UnifiedHooks {
+func resolveBuiltinBundleHooks(gate bundles.Authorizer) wire.UnifiedHooks {
 	var out wire.UnifiedHooks
 	eachBuiltinBundle(func(read bundles.BundleRead) {
 		out.Append(filterMissingCompanionHooks(extractHooksFromBundle(read, trust.BuiltinSourcePrefix+read.Ref(), gate)))
@@ -589,11 +589,11 @@ type BuiltinFragment struct {
 // builtin fragment is still exposed by default (no new review friction), but a
 // REJECTED builtin fragment is now withheld — rejection is evaluated before the
 // builtin exemption. Callers on an exposure surface pass the SAME gate their
-// content loader is using (Pipeline.Filter()) so builtin fragments gate through the
+// content loader is using (Pipeline.Authorizer()) so builtin fragments gate through the
 // identical decision as the loader-resolved ones, sharing its trust-store
 // open and its withheld-ref tally. nil (management/listing callers) is fully
 // ungated, matching every other resolver here.
-func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Filter) []BuiltinFragment {
+func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []BuiltinFragment {
 	preferDistilled := c.ShouldUseDistilled()
 	var out []BuiltinFragment
 
@@ -630,7 +630,7 @@ func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Filter) []BuiltinFra
 // "", ref "builtin:<name>") and the companion-loadout loop (signer
 // b.Signer(), ref "ctxloom:companion@<bin>") — the only two callers, which
 // differ solely in source/signer.
-func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, source string, preferDistilled bool, gate bundles.Filter) []BuiltinFragment {
+func fragmentsFromBundle(out []BuiltinFragment, read bundles.BundleRead, source string, preferDistilled bool, gate bundles.Authorizer) []BuiltinFragment {
 	b := read.Bundle
 	fragNames := make([]string, 0, len(b.Fragments))
 	for fragName := range b.Fragments {
@@ -683,7 +683,7 @@ func builtinBundleCompanionMissing(b *bundles.Bundle) (string, bool) {
 // loadHooksFromBundleRef loads hooks from a bundle reference. Like
 // loadMCPFromBundleRef it resolves via loader.Load (seed-aware) rather than a
 // computed fs path, so remote bundles' hooks aren't silently dropped.
-func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.Filter) wire.UnifiedHooks {
+func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundles.Authorizer) wire.UnifiedHooks {
 	read, ok := loader.Read(bundleRef)
 	if !ok {
 		reportBundleRefLoadFailure(bundleRef, errs.ErrBundleNotFound)
@@ -700,7 +700,7 @@ func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundl
 // (fail-closed). Builtin callers pass nil (in-binary, exempt). The identity
 // scheme is bundles.HookEntry, shared with the migration baseline so a baselined
 // hook's ref matches.
-func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles.Filter) wire.UnifiedHooks {
+func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles.Authorizer) wire.UnifiedHooks {
 	bundle := read.Bundle
 	if !bundle.Hooks.HasAny() {
 		return wire.UnifiedHooks{}
@@ -781,7 +781,7 @@ func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles
 // "<bundle>#mcp/<name>"; a DENY omits the server entirely — an arbitrary-command
 // executable must never reach settings unevaluated (fail-closed). Builtin
 // callers pass nil (in-binary, exempt).
-func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.Filter) map[string]wire.MCPServer {
+func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.Authorizer) map[string]wire.MCPServer {
 	bundle := read.Bundle
 	result := make(map[string]wire.MCPServer)
 

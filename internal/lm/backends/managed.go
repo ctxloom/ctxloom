@@ -38,7 +38,7 @@ import (
 // scoped context to), so the managed mcp/commands/hooks track the chosen profile
 // rather than always the configured defaults. An empty set falls back to the
 // defaults inside each resolver (scopedProfiles / resolveProfileScope).
-func AssembleManagedConfig(backendName, workDir string, gate bundles.Filter, profileNames []string) *agent.ManagedConfig {
+func AssembleManagedConfig(backendName, workDir string, gate bundles.Authorizer, profileNames []string) *agent.ManagedConfig {
 	cfg, err := config.Load()
 	if err != nil {
 		// The agent's Setup writes an EMPTY managed set from a nil payload —
@@ -355,7 +355,7 @@ type profileGateRef struct {
 	// wrong half: a verified principal string cannot say whether the signature
 	// still covers the bytes, and an empty one meant BOTH "unsigned" and "signed
 	// by a key we do not trust". An unresolvable origin leaves this UNCLAIMED,
-	// which every Filter withholds — fail-closed, where the old empty Signer
+	// which every Authorizer withholds — fail-closed, where the old empty Signer
 	// fell through to pending review.
 	Read bundles.BundleRead
 }
@@ -397,7 +397,7 @@ func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, p
 // (config.extractMCPFromBundle), keyed "<ref.Base>#mcp/<name>" with the server's
 // executable-surface hash. A DENY omits the server (fail-closed). A nil gate
 // (management paths) admits everything unchanged.
-func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Filter) wire.MCPConfig {
+func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authorizer) wire.MCPConfig {
 	if gate == nil {
 		return mcp
 	}
@@ -443,7 +443,7 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Filter)
 // <index>" (the SAME identity scheme bundle hooks use, bundles.HookEntry) with
 // its executable-surface hash; a DENY omits it (fail-closed). A nil gate
 // (management paths) admits everything unchanged.
-func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Filter) wire.HooksConfig {
+func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Authorizer) wire.HooksConfig {
 	if gate == nil {
 		return h
 	}
@@ -502,7 +502,7 @@ func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Filte
 //
 // A nil payload (the preimage could not be built) withholds: an executable we
 // cannot even describe is one we certainly cannot justify running.
-func gateProfileExec(gate bundles.Filter, ref profileGateRef, itemRef string, payload []byte) bool {
+func gateProfileExec(gate bundles.Authorizer, ref profileGateRef, itemRef string, payload []byte) bool {
 	if payload == nil {
 		return false
 	}

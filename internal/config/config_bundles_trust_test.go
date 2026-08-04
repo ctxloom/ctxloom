@@ -20,8 +20,8 @@ import (
 // (ref → hash) it is fed, so a test can assert the executable choke passes the
 // ref shape "<bundle>#mcp/<name>" / "<bundle>#hooks/<event>/<index>" and the
 // item's ComputeContentHash. A nil seen map just decides.
-func recordingGate(seen map[string]string, denySubstrs ...string) bundles.Filter {
-	return bundles.FilterFunc(func(e bundles.Exposure) bundles.Verdict {
+func recordingGate(seen map[string]string, denySubstrs ...string) bundles.Authorizer {
+	return bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		ref := e.RefString()
 		if seen != nil {
 			seen[ref] = bundles.HashPayload(e.Bytes)
@@ -73,7 +73,7 @@ func TestExtractMCPFromBundle_FailClosed(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	denyAll := testFilter(false)
+	denyAll := testAuthorizer(false)
 	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", denyAll)
 	assert.Empty(t, got, "fail-closed: a deny-all gate withholds every MCP server")
 }
@@ -131,7 +131,7 @@ func TestExtractHooksFromBundle_FailClosed(t *testing.T) {
 		PreTool:  []bundles.BundleHook{{Command: "echo a", Type: "command"}},
 		PostTool: []bundles.BundleHook{{Command: "echo b", Type: "command"}},
 	}}
-	denyAll := testFilter(false)
+	denyAll := testAuthorizer(false)
 	got := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", b), "remote/tools", denyAll)
 	assert.Empty(t, got.PreTool, "fail-closed: deny-all withholds pre_tool hooks")
 	assert.Empty(t, got.PostTool, "fail-closed: deny-all withholds post_tool hooks")

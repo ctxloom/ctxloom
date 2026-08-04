@@ -77,7 +77,7 @@ profiles:
 	b.Name = "kit"
 
 	var gated []string
-	denyGate := filterFunc(func(e Exposure) Verdict {
+	denyGate := authorizerFunc(func(e Exposure) Verdict {
 		gated = append(gated, exposureRefKey(e))
 		return denyVerdict() // withhold everything the choke is consulted about
 	})

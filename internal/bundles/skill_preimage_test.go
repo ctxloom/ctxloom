@@ -202,7 +202,7 @@ func TestSkillsFromBundleRef_ManifestLessTamperIsWithheld(t *testing.T) {
 	require.NoError(t, err)
 	approvedHash := hashContent(approvedPayload)
 
-	gate := filterFunc(func(e Exposure) Verdict {
+	gate := authorizerFunc(func(e Exposure) Verdict {
 		if hashContent(e.Bytes) == approvedHash {
 			return admitVerdict()
 		}

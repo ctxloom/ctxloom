@@ -33,15 +33,15 @@ import (
 // the diagnostic is (or is not) emitted. Asserting only the warning would let a
 // regression that withholds the content pass.
 //
-// The diagnostic now RIDES THE VERDICT. The loader no longer emits it: a Filter
+// The diagnostic now RIDES THE VERDICT. The loader no longer emits it: a Authorizer
 // answers the decision table's `local | invalid | *` row with
 // {Admit: true, Reason: ReasonStaleLocalSignature, Detail: StaleSignatureAdvice},
 // and the delivery path prints Detail. So these tests drive a Pipeline, which is
-// the only place both halves are observable at once. staleRowFilter below is the
+// the only place both halves are observable at once. signatureRowsAuthorizer below is the
 // row itself, spelled locally; the production decision that produces it is
 // pinned in internal/operations.
 
-// signatureRowsFilter is the two decision-table rows that key on the signature
+// signatureRowsAuthorizer is the two decision-table rows that key on the signature
 // axis, and nothing else:
 //
 //	local  | invalid | * -> ADMIT + WARN  (locality already answered the trust
@@ -51,8 +51,8 @@ import (
 // Everything else admits plainly. It is the ROWS, spelled here so a test can
 // observe the delivery path acting on a Verdict; the production decision that
 // produces these verdicts is pinned in internal/operations.
-func signatureRowsFilter() Filter {
-	return filterFunc(func(e Exposure) Verdict {
+func signatureRowsAuthorizer() Authorizer {
+	return authorizerFunc(func(e Exposure) Verdict {
 		if e.Read.Signature() != SignatureInvalid {
 			return admitVerdict()
 		}
@@ -64,7 +64,7 @@ func signatureRowsFilter() Filter {
 }
 
 // deliverKeeper resolves the fixture bundle's one fragment through a pipeline
-// carrying staleRowFilter, capturing everything the user was told, and returns
+// carrying signatureRowsAuthorizer, capturing everything the user was told, and returns
 // the delivered content plus those diagnostics.
 func deliverKeeper(t *testing.T, fsys afero.Fs, bundleName string) (*LoadedContent, string) {
 	t.Helper()
@@ -73,7 +73,7 @@ func deliverKeeper(t *testing.T, fsys afero.Fs, bundleName string) (*LoadedConte
 	t.Cleanup(restore)
 
 	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"})).WithWarnWriter(&warnings),
-		signatureRowsFilter(), false)
+		signatureRowsAuthorizer(), false)
 	lc, err := pipe.GetFragment(bundleName + "#fragments/keeper")
 	require.NoError(t, err, "a signature fact about LOCAL content must never withhold it")
 	return lc, warnings.String()

@@ -90,7 +90,7 @@ func (b *bundleWarner) ambiguous(out io.Writer, name string, matches []string, c
 // run `ctxloom bundle sign bundle` would be a remedy that fails.
 //
 // It is a STRING and not an emission on purpose. It rides Verdict.Detail, and
-// the caller that received the verdict emits it — see Filter, "warnings ride the
+// the caller that received the verdict emits it — see Authorizer, "warnings ride the
 // verdict".
 func StaleSignatureAdvice(read BundleRead) string {
 	if read.Bundle == nil {

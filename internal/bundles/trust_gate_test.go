@@ -12,8 +12,8 @@ import (
 // the (hash, form) of every item it sees — hashing the PAYLOAD the gate is now
 // handed — so a test can still assert the gate is fed the exact bytes about to
 // be exposed.
-func blockingGate(seen map[string][2]string, substrs ...string) Filter {
-	return filterFunc(func(e Exposure) Verdict {
+func blockingGate(seen map[string][2]string, substrs ...string) Authorizer {
+	return authorizerFunc(func(e Exposure) Verdict {
 		key := exposureRefKey(e)
 		if seen != nil {
 			seen[key] = [2]string{HashPayload(e.Bytes), string(e.Form)}
@@ -140,18 +140,18 @@ func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
 	seed := map[string]*Bundle{canonical: {Name: "tooling", Fragments: map[string]BundleFragment{"f": {Content: "body"}}}}
 	seen := map[string][2]string{}
 	var local []bool
-	filter := filterFunc(func(e Exposure) Verdict {
+	authorizer := authorizerFunc(func(e Exposure) Verdict {
 		seen[exposureRefKey(e)] = [2]string{HashPayload(e.Bytes), string(e.Form)}
 		local = append(local, e.Ref.IsLocal)
 		return admitVerdict()
 	})
-	l := gatedPipe(NewLoader(seedLocal(seed)), filter, true)
+	l := gatedPipe(NewLoader(seedLocal(seed)), authorizer, true)
 
 	if _, err := l.GetFragment(canonical + "#fragments/f"); err != nil {
 		t.Fatalf("GetFragment: %v", err)
 	}
 	if _, ok := seen[canonical+"#fragments/f"]; !ok {
-		t.Errorf("filter not fed the canonical source ref; saw %v", seen)
+		t.Errorf("authorizer not fed the canonical source ref; saw %v", seen)
 	}
 	if _, ok := seen["tooling#fragments/f"]; ok {
 		t.Error("cloned content gated by short bundle.Name — would read as local (a trust hole)")
@@ -160,7 +160,7 @@ func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
 	// Ref the decision keys on is NOT local.
 	for _, isLocal := range local {
 		if isLocal {
-			t.Error("a cloned bundle's content reached the filter as a LOCAL ref — it would auto-allow")
+			t.Error("a cloned bundle's content reached the authorizer as a LOCAL ref — it would auto-allow")
 		}
 	}
 }

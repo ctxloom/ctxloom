@@ -148,7 +148,7 @@ func ResolveHooks(ctx context.Context, req ResolveHooksRequest) (*ResolveHooksRe
 	// denies never reaches backend settings, so it must not be reported as
 	// something that will fire.
 	gate := NewExecutableTrustGate(cfg)
-	cfg.SetExecutableTrustGate(gate.Filter())
+	cfg.SetExecutableTrustGate(gate.Authorizer())
 
 	workDir := req.WorkDir
 	if workDir == "" {

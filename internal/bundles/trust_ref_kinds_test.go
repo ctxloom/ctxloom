@@ -30,7 +30,7 @@ import (
 // real bundle rather than comparing constants, so it covers the literals at the
 // call sites — the thing that can drift — not merely the constants they equal.
 //
-// It asserts on the READ's own TrustRef rather than on what a filter was handed.
+// It asserts on the READ's own TrustRef rather than on what an authorizer was handed.
 // Exposure carries a parsed trust.Ref, and parsing is exactly what would hide
 // the drift this test exists to catch: trust.ParseSelector maps BOTH "commands"
 // and "prompts" onto KindPrompt, so a loader that emitted the wrong segment

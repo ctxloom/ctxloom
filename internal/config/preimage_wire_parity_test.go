@@ -172,7 +172,7 @@ func deliverHookToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]b
 	}}
 
 	var payloads [][]byte
-	gate := bundles.FilterFunc(func(e bundles.Exposure) bundles.Verdict {
+	gate := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		payloads = append(payloads, append([]byte(nil), e.Bytes...))
 		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
 	})
@@ -214,7 +214,7 @@ func deliverMCPToWire(t *testing.T, item reflect.Value) ([]byte, map[string][]by
 	bundle := &bundles.Bundle{MCP: map[string]bundles.BundleMCP{"parity": m}}
 
 	var payload []byte
-	gate := bundles.FilterFunc(func(e bundles.Exposure) bundles.Verdict {
+	gate := bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		payload = append([]byte(nil), e.Bytes...)
 		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
 	})

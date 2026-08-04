@@ -81,7 +81,7 @@ func TestLoadCommandExports_IncludesCompanionCommandUnconditionally(t *testing.T
 	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.SetExecutableTrustGate(testFilter(true))
+	cfg.SetExecutableTrustGate(testAuthorizer(true))
 
 	prompts := LoadCommandExports(cfg, nil)
 	items := bundlePromptItems(prompts)
@@ -119,7 +119,7 @@ func TestLoadCommandExports_WithheldCompanionCommand_DenyingGateNotBuiltinExempt
 	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.SetExecutableTrustGate(testFilter(false))
+	cfg.SetExecutableTrustGate(testAuthorizer(false))
 
 	prompts := LoadCommandExports(cfg, nil)
 	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",
@@ -138,7 +138,7 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 	defer config.AdmitEveryDiscoveredCompanionForTesting()()
 	defer fakeLtkOnPath(t, ltkLoadoutWithTaskRunnerCommand)()
 	cfg := companionCfg(t)
-	cfg.SetExecutableTrustGate(testFilter(true))
+	cfg.SetExecutableTrustGate(testAuthorizer(true))
 	cfg = config.NewFixture(config.Fixture{
 		AppPaths:     cfg.GetAppPaths(),
 		DefaultAgent: "default",
@@ -147,7 +147,7 @@ func TestLoadCommandExports_CuratedProfileStillGetsCompanionCommand(t *testing.T
 			"p": {Commands: []string{"dev-tools#commands/review"}},
 		}},
 	})
-	cfg.SetExecutableTrustGate(testFilter(true))
+	cfg.SetExecutableTrustGate(testAuthorizer(true))
 
 	prompts := LoadCommandExports(cfg, nil, seedOption(t, devToolsSeed()))
 	items := bundlePromptItems(prompts)
@@ -163,7 +163,7 @@ func TestLoadCommandExports_NoCompanionOnPath_NoCommandExported(t *testing.T) {
 	cfg := companionCfg(t)
 	restoreLook := config.SetLookPathForTesting(func(string) (string, error) { return "", os.ErrNotExist })
 	defer restoreLook()
-	cfg.SetExecutableTrustGate(testFilter(true))
+	cfg.SetExecutableTrustGate(testAuthorizer(true))
 
 	prompts := LoadCommandExports(cfg, nil)
 	assert.NotContains(t, bundlePromptItems(prompts), "task-runner",

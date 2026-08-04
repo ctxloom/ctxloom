@@ -162,7 +162,7 @@ func PendingReview(cfg *config.Config, req PendingReviewRequest) (*PendingReview
 	// resolve back through, and asking for one dropped exactly that content
 	// from review with a "bundle not found" nobody could act on.
 	e := &reviewEnumerator{cfg: cfg, records: records, fs: req.FS,
-		filter: &contentGate{cfg: cfg, records: records, fs: req.FS}}
+		authorizer: &contentGate{cfg: cfg, records: records, fs: req.FS}}
 	result := &PendingReviewResult{}
 	for _, read := range loader.Reads() {
 		ref := read.Ref()
@@ -226,10 +226,10 @@ type reviewEnumerator struct {
 	cfg     *config.Config
 	records countersignRecords
 	fs      afero.Fs
-	// filter is the SAME decision the exposure path uses, built once over the
-	// shared records store. Review asks it what would be delivered rather than
-	// re-deriving an opinion of its own.
-	filter bundles.Filter
+	// authorizer is the SAME decision the exposure path uses, built once over
+	// the shared records store. Review asks it what would be delivered rather
+	// than re-deriving an opinion of its own.
+	authorizer bundles.Authorizer
 }
 
 // pendingItems walks one bundle's items in stable display order — fragments,
@@ -241,7 +241,7 @@ func (e *reviewEnumerator) pendingItems(bundleRef string, read bundles.BundleRea
 	preferDistilled := cfgPreferDistilled(e.cfg)
 
 	// The bundle's READ is carried into every item's decision, so review resolves
-	// each item through the SAME Filter the exposure path does and shows exactly
+	// each item through the SAME Authorizer the exposure path does and shows exactly
 	// what would be delivered: an item from a trusted publisher is NOT pending
 	// and must not be presented for review as though it were, and a TAMPERED
 	// bundle's items are not "unsigned content awaiting a look" either.
@@ -392,7 +392,7 @@ func (e *reviewEnumerator) classify(bundleRef, kindDir, name string, read bundle
 	// bytes as pending is the spec §10.2 downgrade completing itself — the
 	// content arrives in the queue looking like ordinary unsigned content and a
 	// human approves it.
-	v := e.filter.Admit(bundles.Exposure{
+	v := e.authorizer.Admit(bundles.Exposure{
 		Read:  read,
 		Ref:   tRef,
 		Bytes: payload,

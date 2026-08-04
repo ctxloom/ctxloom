@@ -145,7 +145,7 @@ func localBundleProfileCfg(t *testing.T, bundleHooks string) *config.Config {
 // bundleShippedProfileCfg is the gate-ref fixture's shape: a local bundle that
 // ships a PROFILE carrying inline hooks, reached through the directory-profile
 // fallback branch.
-func bundleShippedProfileCfg(t *testing.T, gate bundles.Filter) *config.Config {
+func bundleShippedProfileCfg(t *testing.T, gate bundles.Authorizer) *config.Config {
 	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), paths.AppDirName)
@@ -276,7 +276,7 @@ func hookParityCases() []hookParityCase {
 			cfg: func(t *testing.T) *config.Config {
 				cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
 				keepHash := bundles.HashPayload(hookExecPayload(wire.Hook{Command: "keep-hook", Type: "command"}))
-				cfg.SetExecutableTrustGate(hashFilter(keepHash))
+				cfg.SetExecutableTrustGate(hashAuthorizer(keepHash))
 				return cfg
 			},
 			present: []string{"keep-hook"},
@@ -286,7 +286,7 @@ func hookParityCases() []hookParityCase {
 			name: "directory profile hooks, gate withholds all",
 			cfg: func(t *testing.T) *config.Config {
 				cfg := dirProfileCfg(t, []string{"dir"}, map[string]string{"dir": dirHookBody}, nil)
-				cfg.SetExecutableTrustGate(testFilter(false))
+				cfg.SetExecutableTrustGate(testAuthorizer(false))
 				return cfg
 			},
 			absent: []string{"keep-hook", "drop-hook"},
@@ -299,7 +299,7 @@ func hookParityCases() []hookParityCase {
 		{
 			name: "bundle-shipped profile hooks, gate denies",
 			cfg: func(t *testing.T) *config.Config {
-				return bundleShippedProfileCfg(t, testFilter(false))
+				return bundleShippedProfileCfg(t, testAuthorizer(false))
 			},
 			absent: []string{"bundle-shipped-hook", "bundle-shipped-second"},
 		},

@@ -16,22 +16,22 @@ import (
 )
 
 // The rows the decision table keys on the READ for, decided by the production
-// Filter (contentGate.Admit) rather than by a spelled-out fixture.
+// Authorizer (contentGate.Admit) rather than by a spelled-out fixture.
 //
 // These are the rules phase A left in bundles.Loader.admit with a comment naming
 // this slice as their removal point. The loader could only DROP: a bundle it
 // withheld was unaddressable everywhere, with no reason a user could act on and
 // no way for a review surface to see the same fact. Here they are verdicts.
 
-const filterRemoteRef = "https://example.test/repo@bundles/kit"
+const authorizerRemoteRef = "https://example.test/repo@bundles/kit"
 
-// filterBundle is the fixture content every test below decides about: one
+// authorizerBundle is the fixture content every test below decides about: one
 // fragment, so the exposure carries real bytes.
-func filterBundle() *bundles.Bundle {
+func authorizerBundle() *bundles.Bundle {
 	return &bundles.Bundle{Version: "1.0", Fragments: map[string]bundles.BundleFragment{"keeper": {Content: "KEEPER-PAYLOAD"}}}
 }
 
-// admitFragment runs one fragment through the filter with the given read and
+// admitFragment runs one fragment through the authorizer with the given read and
 // returns the verdict.
 func admitFragment(t *testing.T, g *contentGate, read bundles.BundleRead, ref string, body string) bundles.Verdict {
 	t.Helper()
@@ -44,12 +44,12 @@ func admitFragment(t *testing.T, g *contentGate, read bundles.BundleRead, ref st
 // be withheld and it must be REPORTED as tampered — degrading it to
 // unsigned/pending is the spec §10.2 downgrade: an attacker corrupts a `.sig`,
 // signed content becomes merely reviewable, and a human approves it.
-func TestFilter_RemoteInvalidSignatureIsTampered_NotDegradedToUnsigned(t *testing.T) {
+func TestAuthorizer_RemoteInvalidSignatureIsTampered_NotDegradedToUnsigned(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
-	read := readOf(t, seedTampered(t, filterRemoteRef, "publisher@example.test", filterBundle()), filterRemoteRef)
+	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
 
-	v := admitFragment(t, g, read, filterRemoteRef+"#fragments/keeper", "KEEPER-PAYLOAD")
+	v := admitFragment(t, g, read, authorizerRemoteRef+"#fragments/keeper", "KEEPER-PAYLOAD")
 
 	assert.False(t, v.Admit, "tampered remote content must be withheld")
 	assert.Equal(t, bundles.ReasonTampered, v.Reason,
@@ -62,11 +62,11 @@ func TestFilter_RemoteInvalidSignatureIsTampered_NotDegradedToUnsigned(t *testin
 // approval covers bytes, not a signature, so it cannot un-tamper anything —
 // and this is the arm that actually closes §10.2, because the downgrade's whole
 // payoff is getting a human to approve content that was signed.
-func TestFilter_RemoteInvalidSignatureBeatsAnApproval(t *testing.T) {
+func TestAuthorizer_RemoteInvalidSignatureBeatsAnApproval(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
-	read := readOf(t, seedTampered(t, filterRemoteRef, "publisher@example.test", filterBundle()), filterRemoteRef)
-	itemRef := filterRemoteRef + "#fragments/keeper"
+	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
+	itemRef := authorizerRemoteRef + "#fragments/keeper"
 	tRef, _, _, err := trust.ParseItemRef(itemRef)
 	require.NoError(t, err)
 	fx.approve(tRef, signing.FormRaw, []byte("KEEPER-PAYLOAD"))
@@ -80,11 +80,11 @@ func TestFilter_RemoteInvalidSignatureBeatsAnApproval(t *testing.T) {
 
 // Rejection is STEP 1 and stays above the tamper rule: both withhold, and the
 // user is told the more specific, actionable thing — their own decision.
-func TestFilter_RejectionOutranksTamper(t *testing.T) {
+func TestAuthorizer_RejectionOutranksTamper(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
-	read := readOf(t, seedTampered(t, filterRemoteRef, "publisher@example.test", filterBundle()), filterRemoteRef)
-	itemRef := filterRemoteRef + "#fragments/keeper"
+	read := readOf(t, seedTampered(t, authorizerRemoteRef, "publisher@example.test", authorizerBundle()), authorizerRemoteRef)
+	itemRef := authorizerRemoteRef + "#fragments/keeper"
 	tRef, _, _, err := trust.ParseItemRef(itemRef)
 	require.NoError(t, err)
 	fx.rejectRef(tRef)
@@ -102,14 +102,14 @@ func TestFilter_RejectionOutranksTamper(t *testing.T) {
 // Rejection beats the first-party exemptions — all three of them. A user who
 // rejected a builtin keeps that rejection, which is the property that made
 // builtin a distinct STEP below rejection rather than a gate bypass.
-func TestFilter_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
+func TestAuthorizer_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 	cases := []struct {
 		name string
 		ref  trust.Ref
 		read bundles.BundleRead
 	}{
 		{"local", trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "keeper", IsLocal: true},
-			bundles.ProjectAuthoredRead("kit", filterBundle())},
+			bundles.ProjectAuthoredRead("kit", authorizerBundle())},
 		{"builtin", trust.Ref{Bundle: "kit", Kind: trust.KindFragment, Name: "keeper", IsBuiltin: true}, builtinLikeRead(t)},
 		{"companion", trust.Ref{RepoURL: "ctxloom:companion", Bundle: "ltk", Kind: trust.KindFragment, Name: "keeper", IsCompanion: true},
 			companionLikeRead(t)},
@@ -139,14 +139,14 @@ func TestFilter_RejectionReachesEveryFirstPartyExemption(t *testing.T) {
 // embedded FS, a companion off the stdout of a binary the user consented to run.
 func builtinLikeRead(t *testing.T) bundles.BundleRead {
 	t.Helper()
-	read := bundles.ProjectAuthoredRead("kit", filterBundle())
+	read := bundles.ProjectAuthoredRead("kit", authorizerBundle())
 	read.Provenance = bundles.ProvenanceBuiltin
 	return read
 }
 
 func companionLikeRead(t *testing.T) bundles.BundleRead {
 	t.Helper()
-	read := bundles.ProjectAuthoredRead("ltk", filterBundle())
+	read := bundles.ProjectAuthoredRead("ltk", authorizerBundle())
 	read.Provenance = bundles.ProvenanceCompanion
 	return read
 }
@@ -162,7 +162,7 @@ func companionLikeRead(t *testing.T) bundles.BundleRead {
 // This is the sentence phase A reversed. Only "never crashes" survived of the
 // old "a companion loadout from a companion is withheld, never crashes, never
 // auto-allowed" line; see docs/trust-model.md.
-func TestFilter_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T) {
+func TestAuthorizer_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
@@ -190,7 +190,7 @@ func TestFilter_CompanionInvalidSignatureIsDeliveredAndReported(t *testing.T) {
 // `local | invalid | *` row. The content arrives (locality already answered the
 // trust question) and the AUTHOR IS TOLD, at the moment their bundle stopped
 // being publishable rather than at `bundle push` time.
-func TestFilter_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
+func TestAuthorizer_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 	read := staleLocalRead(t, "stale-kit")
@@ -207,7 +207,7 @@ func TestFilter_StaleLocalSignatureAdmitsAndTheAuthorIsTold(t *testing.T) {
 	assert.Contains(t, v.Detail, "stale-kit.yaml.sig")
 	assert.Contains(t, v.Detail, "ctxloom bundle sign stale-kit", "the warning must name the command that fixes it")
 	assert.Contains(t, warnings.String(), "stale-kit.yaml.sig",
-		"and bundles.Decide must have EMITTED it: the filter is pure, the caller speaks")
+		"and bundles.Decide must have EMITTED it: the authorizer is pure, the caller speaks")
 }
 
 // staleLocalRead reads a project bundle whose sibling `.sig` was made over
@@ -236,7 +236,7 @@ func staleLocalRead(t *testing.T, name string) bundles.BundleRead {
 // from a struct literal establishes nothing, and must never read as "local,
 // unsigned, no signer" — which is exactly the claim a zero value would
 // otherwise make.
-func TestFilter_UnclaimedReadWithholds(t *testing.T) {
+func TestAuthorizer_UnclaimedReadWithholds(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	g := &contentGate{cfg: cfg, records: newTrustFixture(t).records()}
 
@@ -293,11 +293,11 @@ func TestEffectiveTrust_ContradictoryPostureWithholds(t *testing.T) {
 // Asserted through the consequence, not the type: an approval of one set of
 // bytes must not admit a different set under the same ref. A hash-keyed gate
 // whose index was edited would.
-func TestFilter_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
+func TestAuthorizer_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	fx := newTrustFixture(t)
-	read := readOf(t, seedLoader(t, map[string]*bundles.Bundle{filterRemoteRef: filterBundle()}), filterRemoteRef)
-	itemRef := filterRemoteRef + "#fragments/keeper"
+	read := readOf(t, seedLoader(t, map[string]*bundles.Bundle{authorizerRemoteRef: authorizerBundle()}), authorizerRemoteRef)
+	itemRef := authorizerRemoteRef + "#fragments/keeper"
 	tRef, _, _, err := trust.ParseItemRef(itemRef)
 	require.NoError(t, err)
 	fx.approve(tRef, signing.FormRaw, []byte("KEEPER-PAYLOAD"))
@@ -313,15 +313,15 @@ func TestFilter_DecidesOnBytesSoChangedContentReGates(t *testing.T) {
 	assert.Equal(t, bundles.ReasonUnsigned, swapped.Reason,
 		"and land where unsigned remote content lands: awaiting review")
 
-	// The exposure the filter received is the payload itself. If it were a hash
+	// The exposure the authorizer received is the payload itself. If it were a hash
 	// the two calls above could not have differed without the caller hashing —
 	// which is the indirection the design removed.
 	var got []byte
-	bundles.Decide(bundles.FilterFunc(func(e bundles.Exposure) bundles.Verdict {
+	bundles.Decide(bundles.AuthorizerFunc(func(e bundles.Exposure) bundles.Verdict {
 		got = e.Bytes
 		return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
 	}), read, itemRef, []byte("KEEPER-PAYLOAD"), bundles.FormRaw)
-	assert.Equal(t, []byte("KEEPER-PAYLOAD"), got, "the filter is handed BYTES, never a hash")
+	assert.Equal(t, []byte("KEEPER-PAYLOAD"), got, "the authorizer is handed BYTES, never a hash")
 }
 
 // --- one verdict serves the gate and the report -----------------------------

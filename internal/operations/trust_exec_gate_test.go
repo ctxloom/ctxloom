@@ -140,7 +140,7 @@ func TestExecGate_ResolveBundleMCPServers_RealCascade(t *testing.T) {
 		trust.Ref{Bundle: "mcp-bundle", Kind: trust.KindMCP, Name: "noisy-server", IsLocal: true},
 		signing.FormRaw, noisyPayload)
 
-	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Filter())
+	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Authorizer())
 	result := cfg.ResolveBundleMCPServers(nil)
 
 	assert.Contains(t, result, "quiet-server", "first-party local MCP server must be written to settings")
@@ -179,7 +179,7 @@ func TestExecGate_ResolveBundleMCPServers_CompanionRejectable(t *testing.T) {
 		trust.Ref{RepoURL: remote.CompanionSource, Bundle: "ltk", Kind: trust.KindMCP, Name: "ltk-server"},
 		signing.FormRaw, ltkPayload)
 
-	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Filter())
+	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Authorizer())
 	result := cfg.ResolveBundleMCPServers(nil)
 
 	assert.NotContains(t, result, "ltk-server",
@@ -214,7 +214,7 @@ func TestExecGate_ResolveBundleHooks_RealCascade(t *testing.T) {
 		trust.Ref{Bundle: "hook-bundle", Kind: trust.KindHook, Name: "session_start/0", IsLocal: true},
 		signing.FormRaw, denyPayload)
 
-	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Filter())
+	cfg.SetExecutableTrustGate(NewExecutableTrustGate(cfg).Authorizer())
 	result := cfg.ResolveBundleHooks(nil)
 
 	keepApplied, denyApplied := false, false
@@ -242,8 +242,8 @@ func TestExecGate_FailClosed(t *testing.T) {
 	g := &contentGate{records: newTrustFixture(t).records()}
 	e := &ExecutableTrustGate{gate: g}
 	unsigned := execRead(t, "")
-	assert.False(t, bundles.Decide(e.Filter(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Admit)
-	assert.False(t, bundles.Decide(e.Filter(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Admit)
+	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gatePostgresRef, postgresPayload(), bundles.FormRaw).Admit)
+	assert.False(t, bundles.Decide(e.Authorizer(), unsigned, gateHookRef, toolingHookPayload(), bundles.FormRaw).Admit)
 	assert.Len(t, g.withheldRefs(), 2, "fail-closed: both executables recorded as withheld")
 	pending, rejected := withheldStateTally(g)
 	assert.Equal(t, 2, pending, "fail-closed withholds tally as pending")
@@ -266,7 +266,7 @@ func TestExecGate_FailClosed(t *testing.T) {
 
 	// A nil *ExecutableTrustGate is a no-op (no gating, no panic).
 	var nilGate *ExecutableTrustGate
-	assert.Nil(t, nilGate.Filter())
+	assert.Nil(t, nilGate.Authorizer())
 	nilGate.WarnWithheld()
 }
 
@@ -328,14 +328,14 @@ func TestExecGate_CLIHookTrustThenBlacklist(t *testing.T) {
 	require.True(t, ok, "the on-disk bundle must resolve")
 
 	// A project-local bundle hook is first-party (no acceptance needed) → passes.
-	assert.True(t, bundles.Decide(NewExecutableTrustGate(cfg).Filter(), localRead, ref, hookPayload, bundles.FormRaw).Admit,
+	assert.True(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, ref, hookPayload, bundles.FormRaw).Admit,
 		"a first-party local bundle hook must pass the exec gate")
 
 	// CLI rejection → the exec gate withholds it (rejection beats the local
 	// exemption).
 	_, err = SetBlacklist(cfg, SetBlacklistRequest{Ref: ref})
 	require.NoError(t, err)
-	assert.False(t, bundles.Decide(NewExecutableTrustGate(cfg).Filter(), localRead, ref, hookPayload, bundles.FormRaw).Admit,
+	assert.False(t, bundles.Decide(NewExecutableTrustGate(cfg).Authorizer(), localRead, ref, hookPayload, bundles.FormRaw).Admit,
 		"a CLI-rejected bundle hook must be withheld by the exec gate")
 }
 

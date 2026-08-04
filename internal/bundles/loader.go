@@ -175,7 +175,7 @@ func (l *Loader) index() {
 // unset and unset means withhold, or a struct literal would read as "local,
 // unsigned, no signer".
 //
-// It stays HERE rather than moving to the Filter with the rest, and the
+// It stays HERE rather than moving to the Authorizer with the rest, and the
 // asymmetry is deliberate. Every other rule decides about CONTENT and belongs to
 // the process stage, where one verdict can serve the gate and the report alike.
 // This one decides about a structurally invalid VALUE: there is no honest
@@ -187,7 +187,7 @@ func (l *Loader) index() {
 //
 // The two rules that DID decide about content are gone from here:
 //
-//   - remote | invalid (tamper) now withholds at the Filter (ReasonTampered),
+//   - remote | invalid (tamper) now withholds at the Authorizer (ReasonTampered),
 //     where the caller can be told WHY and where a review listing sees the same
 //     verdict the delivery path saw.
 //   - local | invalid (a stale sidecar) now ADMITS with a warning riding the
@@ -237,7 +237,7 @@ func (l *Loader) Reads() []BundleRead {
 // Read resolves a bundle by name to the READ a reader produced for it — the
 // content plus the trust facts that reader established.
 //
-// It exists because the decision function keys on those facts (Filter's
+// It exists because the decision function keys on those facts (Authorizer's
 // Exposure carries a BundleRead), and the executable surfaces resolve a bundle
 // by ref without ever going through a Pipeline: config.loadMCPFromBundleRef and
 // config.loadHooksFromBundleRef both need the read, not just the content. Load

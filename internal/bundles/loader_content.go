@@ -81,16 +81,16 @@ type ItemRead struct {
 	// It is the COLLAPSED form of two of Read's axes and cannot express the
 	// third: signing.VerifyPublisher returns "" for both "unsigned" and "signed
 	// by a key we do not trust", and nothing about it can say "invalid". Read is
-	// the un-collapsed truth and is what the Filter decides on; this stays
+	// the un-collapsed truth and is what the Authorizer decides on; this stays
 	// because a DELIVERED item names its own publisher.
 	Signer string
 
 	// Read is the owning bundle's read — the trust FACTS its reader established,
-	// on all three axes. It is what Filter.Admit decides on (bundles.Exposure).
+	// on all three axes. It is what Authorizer.Admit decides on (bundles.Exposure).
 	//
 	// Exported, and safe to be: BundleRead's axes are unexported and settable
 	// only by a reader, so an ItemRead built from a struct literal outside this
-	// package carries an UNCLAIMED read, which every Filter withholds. The field
+	// package carries an UNCLAIMED read, which every Authorizer withholds. The field
 	// hands out facts; it cannot mint them.
 	Read BundleRead
 }

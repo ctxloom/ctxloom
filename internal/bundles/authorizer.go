@@ -27,7 +27,7 @@ import (
 // Signature, Signer) reach the decision as facts rather than as one string that
 // cannot hold them.
 
-// Filter decides whether one exposure may be delivered.
+// Authorizer decides whether one exposure may be delivered.
 //
 // It is a PURE FUNCTION of its inputs: no sink, no logging, no side effects. A
 // verdict that admits WITH a warning (see ReasonStaleLocalSignature) returns the
@@ -35,18 +35,18 @@ import (
 // serve a delivery path, a listing path and a review report without any of them
 // having to re-derive it — and it is why every caller that receives a Verdict is
 // obliged to surface a non-empty Detail.
-type Filter interface {
+type Authorizer interface {
 	Admit(Exposure) Verdict
 }
 
-// FilterFunc adapts a plain function to Filter, for a decision that is genuinely
+// AuthorizerFunc adapts a plain function to Authorizer, for a decision that is genuinely
 // one expression (and for tests). It carries no state, which is the tell that a
-// real filter — one that opens countersignature stores — should be a named type
+// real authorizer — one that opens countersignature stores — should be a named type
 // whose construction says what it reads.
-type FilterFunc func(Exposure) Verdict
+type AuthorizerFunc func(Exposure) Verdict
 
-// Admit implements Filter.
-func (f FilterFunc) Admit(e Exposure) Verdict { return f(e) }
+// Admit implements Authorizer.
+func (f AuthorizerFunc) Admit(e Exposure) Verdict { return f(e) }
 
 // Exposure is one item's bytes, about to be delivered, with everything the
 // decision keys on.
@@ -56,7 +56,7 @@ type Exposure struct {
 	// the document turned out to be, and what this machine's trust root says
 	// about the key behind it. Its axes are unexported and settable only by a
 	// reader, so an Exposure built from a struct literal claims NOTHING — it is
-	// unclaimed, and a Filter withholds it.
+	// unclaimed, and a Authorizer withholds it.
 	Read BundleRead
 
 	// Ref is the item's identity — the ref the countersignature stores key on.
@@ -82,7 +82,7 @@ type Exposure struct {
 // what an advisory names it by, and what a user types into `ctxloom trust`.
 func (e Exposure) RefString() string { return e.Ref.ItemRef() }
 
-// Verdict is what a Filter decided, and the ONLY vocabulary anything downstream
+// Verdict is what a Authorizer decided, and the ONLY vocabulary anything downstream
 // renders. A caller that prints "withheld" without printing Reason is printing
 // less than the decision knew.
 type Verdict struct {
@@ -130,7 +130,7 @@ func (v Verdict) Warns() bool {
 // fixes.
 type Reason int
 
-// The reasons. Zero is UNSET and no Filter emits it: an unpopulated Verdict must
+// The reasons. Zero is UNSET and no Authorizer emits it: an unpopulated Verdict must
 // not read as a decision, and a Verdict{} is a withhold with no reason at all.
 const (
 	ReasonUnset Reason = iota
@@ -328,9 +328,9 @@ func (r Reason) Explain(detail string) string {
 	}
 }
 
-// ReportVerdict is what a Filter deliberately cannot do: emit.
+// ReportVerdict is what a Authorizer deliberately cannot do: emit.
 //
-// A Filter is a pure function, so everything it wants a human to know comes back
+// A Authorizer is a pure function, so everything it wants a human to know comes back
 // on the Verdict and the CALLER says it. This is that obligation, in one place,
 // so no surface has to know which Reasons carry an obligation and none of them
 // can quietly skip it. Every call site that receives a Verdict calls this.
@@ -360,53 +360,53 @@ func ReportVerdict(ref string, v Verdict) {
 	}
 }
 
-// UnaddressableReporter is the OPTIONAL capability a Filter may expose: "record
+// UnaddressableReporter is the OPTIONAL capability a Authorizer may expose: "record
 // this ref, which I could not even address".
 //
-// It exists because the ref is parsed ABOVE the Filter — Exposure carries a
+// It exists because the ref is parsed ABOVE the Authorizer — Exposure carries a
 // parsed trust.Ref, which an unparseable string has no value for — and yet the
-// withheld TALLY belongs to the filter: the executable surfaces (bundle MCP
+// withheld TALLY belongs to the authorizer: the executable surfaces (bundle MCP
 // servers, hooks, prompt exports) call Decide with no Pipeline to tally them,
-// and their advisory reads the filter's own record. Without this seam an item
+// and their advisory reads the authorizer's own record. Without this seam an item
 // withheld because nobody could address it would be withheld SILENTLY on exactly
 // those surfaces, which is the one thing a withhold may never be.
 //
-// It is a type assertion rather than a method on Filter so a one-expression
-// FilterFunc stays one expression.
+// It is a type assertion rather than a method on Authorizer so a one-expression
+// AuthorizerFunc stays one expression.
 type UnaddressableReporter interface {
 	Unaddressable(ref string, v Verdict)
 }
 
-// Decide is the ONE way an item addressed by a ref STRING reaches a Filter.
+// Decide is the ONE way an item addressed by a ref STRING reaches a Authorizer.
 //
 // Every exposure choke funnels through it — the delivery pipeline, the builtin
 // and companion fragment resolvers, the bundle MCP/hook resolvers, the profile
 // executable gate — so all of them parse the ref the same way, fail closed the
 // same way, and discharge the caller's obligation to SPEAK the same way (see
-// ReportVerdict). A surface that called a Filter directly would be one that
+// ReportVerdict). A surface that called a Authorizer directly would be one that
 // could forget the last of those.
 //
-// A nil filter admits: that is the management/listing shape, which still
+// A nil authorizer admits: that is the management/listing shape, which still
 // resolves pending content so a human can review, accept or stamp it. It is a
 // statement written out loud at the construction site, never an omission here.
 //
 // An UNPARSEABLE ref withholds. An item nothing can address is an item the
 // decision function was never able to key on, and exposing it would be exposing
 // content no rule ever saw.
-func Decide(filter Filter, read BundleRead, ref string, payload []byte, form ContentForm) Verdict {
-	if filter == nil {
+func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, form ContentForm) Verdict {
+	if authorizer == nil {
 		return Verdict{Admit: true, Reason: ReasonUnset}
 	}
 	tRef, _, _, err := trust.ParseItemRef(ref)
 	if err != nil {
 		v := Verdict{Reason: ReasonUnaddressable, Detail: err.Error()}
 		clidiag.Warn("ctxloom", "withheld %s: %s", ref, v.Reason.Explain(v.Detail))
-		if r, ok := filter.(UnaddressableReporter); ok {
+		if r, ok := authorizer.(UnaddressableReporter); ok {
 			r.Unaddressable(ref, v)
 		}
 		return v
 	}
-	v := filter.Admit(Exposure{Read: read, Ref: tRef, Bytes: payload, Form: form})
+	v := authorizer.Admit(Exposure{Read: read, Ref: tRef, Bytes: payload, Form: form})
 	ReportVerdict(ref, v)
 	return v
 }

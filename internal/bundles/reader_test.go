@@ -328,7 +328,7 @@ func TestLoader_RemoteInvalidSignatureIsWithheldNotDegradedToUnsigned(t *testing
 	assert.Equal(t, SignatureInvalid, reads[0].Signature(),
 		"reported as INVALID, never as none — that downgrade is the whole attack")
 
-	pipe := NewPipeline(l, signatureRowsFilter(), false)
+	pipe := NewPipeline(l, signatureRowsAuthorizer(), false)
 	_, ferr := pipe.GetFragment(ref + "#fragments/keeper")
 	assert.ErrorIs(t, ferr, errs.ErrFragmentWithheld,
 		"and it must not resolve as an unsigned bundle awaiting review")
@@ -351,7 +351,7 @@ func TestLoader_LocalInvalidSignatureIsAdmittedAndTheAuthorIsTold(t *testing.T) 
 	restore := clidiag.SetSink(&warnings)
 	t.Cleanup(restore)
 	pipe := NewPipeline(NewLoader(NewProjectReader(fsys, []string{"/bundles"}, WithTrustRoot(root))),
-		signatureRowsFilter(), false)
+		signatureRowsAuthorizer(), false)
 
 	lc, err := pipe.GetFragment("wave6-stale#fragments/keeper")
 

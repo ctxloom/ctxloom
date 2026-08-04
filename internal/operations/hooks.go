@@ -114,7 +114,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// attaching it never blocks the write. Set before any resolve below so
 	// ResolveBundleMCPServers / AssembleManagedHooks / LoadCommandExports all gate.
 	execGate := NewExecutableTrustGate(freshCfg)
-	freshCfg.SetExecutableTrustGate(execGate.Filter())
+	freshCfg.SetExecutableTrustGate(execGate.Authorizer())
 
 	contextHash, regenFailed := maybeRegenerateContext(req, freshCfg, workDir, contextOpts)
 
@@ -509,8 +509,8 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []config.B
 	// counterpart to their hooks/MCP — so the SessionStart-injected context file
 	// matches AssembleContext. Skipped when the companion binary is absent.
 	// Gated through the SAME content gate as loader-resolved fragments
-	// (pipe.Filter()) so a rejected builtin fragment is withheld here too.
-	for _, bf := range cfg.ResolveBuiltinBundleFragments(pipe.Filter()) {
+	// (pipe.Authorizer()) so a rejected builtin fragment is withheld here too.
+	for _, bf := range cfg.ResolveBuiltinBundleFragments(pipe.Authorizer()) {
 		backendFrags = append(backendFrags, &agent.Fragment{
 			Name:    bf.Name,
 			Content: bf.Content,

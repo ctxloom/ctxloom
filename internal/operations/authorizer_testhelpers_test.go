@@ -7,13 +7,13 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// testFilter is the two-valued Filter a test reaches for when it is exercising
+// testAuthorizer is the two-valued Authorizer a test reaches for when it is exercising
 // what happens AROUND a decision rather than the decision itself: admit
 // everything, or withhold everything. The Reasons are the plainest true ones —
 // a blanket admit is not claiming a provenance it checked, and a blanket
 // withhold is the ordinary pending state.
-func testFilter(admit bool) bundles.Filter {
-	return bundles.FilterFunc(func(bundles.Exposure) bundles.Verdict {
+func testAuthorizer(admit bool) bundles.Authorizer {
+	return bundles.AuthorizerFunc(func(bundles.Exposure) bundles.Verdict {
 		if admit {
 			return bundles.Verdict{Admit: true, Reason: bundles.ReasonLocal}
 		}
@@ -22,7 +22,7 @@ func testFilter(admit bool) bundles.Filter {
 }
 
 // The old ContentGate took (ref, payload, form, signer) and returned a bool.
-// The Filter takes an Exposure carrying the READ, because a signer string
+// The Authorizer takes an Exposure carrying the READ, because a signer string
 // cannot say whether a signature covered its bytes. These two helpers put the
 // read back where the tests below used to pass a signer, so each of them still
 // says what it always said.
@@ -43,7 +43,7 @@ func execRead(t *testing.T, principal string) bundles.BundleRead {
 	return readOf(t, seedTrustedSigned(t, ref, principal, b), ref)
 }
 
-// admitExec runs one executable item through the filter with that read, and
+// admitExec runs one executable item through the authorizer with that read, and
 // reports whether it may be delivered.
 func admitExec(t *testing.T, g *contentGate, read bundles.BundleRead, ref string, payload []byte, form string) bool {
 	t.Helper()

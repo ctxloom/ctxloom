@@ -72,7 +72,7 @@ type AgentChatRequest struct {
 	MCPServers []agent.ChatMCPServer
 	// Gate is the shared executable trust gate for per-turn managed assembly
 	// on the oneshot fallback path.
-	Gate      bundles.Filter
+	Gate      bundles.Authorizer
 	Verbosity int
 	// Factory overrides plugin construction (test seam). Exactly like the
 	// fan: a non-nil Factory skips isolation entirely.

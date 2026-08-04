@@ -57,7 +57,7 @@ type contentGate struct {
 	withheld   map[string]bundles.Verdict
 }
 
-// Admit implements bundles.Filter: the typed façade over the decision cascade.
+// Admit implements bundles.Authorizer: the typed façade over the decision cascade.
 //
 // It WRAPS EffectiveTrust and does not replace it. The cascade's step order and
 // its outcomes are exactly what they were; what this adds is the two things the
@@ -294,8 +294,8 @@ func buildContentGate(cfg *config.Config, records ReviewRecords, fs afero.Fs) *c
 // content-free advisory.
 //
 // Construct ONCE per apply/run (it builds the review-records store up front).
-// A nil *ExecutableTrustGate is a no-op (Filter() returns nil = no gating),
-// matching the nil bundles.Filter convention.
+// A nil *ExecutableTrustGate is a no-op (Authorizer() returns nil = no gating),
+// matching the nil bundles.Authorizer convention.
 type ExecutableTrustGate struct {
 	gate *contentGate
 }
@@ -306,9 +306,9 @@ func NewExecutableTrustGate(cfg *config.Config) *ExecutableTrustGate {
 	return &ExecutableTrustGate{gate: buildContentGate(cfg, nil, cfgFS(cfg))}
 }
 
-// Filter returns the bundles.Filter the resolvers/loaders consult, or nil
+// Authorizer returns the bundles.Authorizer the resolvers/loaders consult, or nil
 // (no gating) for a nil receiver/gate.
-func (e *ExecutableTrustGate) Filter() bundles.Filter {
+func (e *ExecutableTrustGate) Authorizer() bundles.Authorizer {
 	if e == nil || e.gate == nil {
 		return nil
 	}

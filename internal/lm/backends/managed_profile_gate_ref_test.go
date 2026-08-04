@@ -68,14 +68,14 @@ func TestGateProfileHooks_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
 	}}}
 
 	var gotRefs []string
-	denyGate := recordingFilter(false, &gotRefs) // untrusted / unsigned: DENY
+	denyGate := recordingAuthorizer(false, &gotRefs) // untrusted / unsigned: DENY
 	out := gateProfileHooks(ref, hooks, denyGate)
 	assert.Empty(t, out.Unified.PreTool, "a denied remote-sourced profile hook must be WITHHELD from the produced hook set")
 	require.Len(t, gotRefs, 1)
 	assert.Equal(t, "https://github.com/acme/tools@bundles/kit#hooks/pre_tool/0", gotRefs[0],
 		"the gate must be consulted with the profile's SOURCE ref, not a bare display name — and with exactly one '#'")
 
-	allowGate := testFilter(true)
+	allowGate := testAuthorizer(true)
 	out = gateProfileHooks(ref, hooks, allowGate)
 	require.Len(t, out.Unified.PreTool, 1)
 	assert.Equal(t, "malicious-marker-command", out.Unified.PreTool[0].Command,
@@ -89,7 +89,7 @@ func TestGateProfileMCP_RemoteSourcedProfile_UglySakeFixed(t *testing.T) {
 	}}
 
 	var gotRefs []string
-	denyGate := recordingFilter(false, &gotRefs)
+	denyGate := recordingAuthorizer(false, &gotRefs)
 	out := gateProfileMCP(ref, mcp, denyGate)
 	assert.NotContains(t, out.Servers, "evil-server", "a denied remote-sourced profile MCP server must be WITHHELD")
 	require.Len(t, gotRefs, 1)
@@ -107,7 +107,7 @@ func TestGateProfileHooks_LocalProfile_StillFlowsThroughGate(t *testing.T) {
 		{Command: "local-hook-command", Type: "command"},
 	}}}
 	var gotRefs []string
-	gate := recordingFilter(true, &gotRefs)
+	gate := recordingAuthorizer(true, &gotRefs)
 	out := gateProfileHooks(ref, hooks, gate)
 	require.Len(t, out.Unified.PreTool, 1)
 	require.Len(t, gotRefs, 1)
@@ -152,12 +152,12 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_UncutGrubFixed(t *testin
 	// itself, at trust.ParseItemRef — never even reaching a
 	// caller-supplied gate function to ask).
 	var gotRefs []string
-	cfg.SetExecutableTrustGate(recordingFilter(true, &gotRefs))
+	cfg.SetExecutableTrustGate(recordingAuthorizer(true, &gotRefs))
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
-	// Reaching the filter AT ALL is the fix: a double-'#' ref does not parse
+	// Reaching the authorizer AT ALL is the fix: a double-'#' ref does not parse
 	// (trust.ParseSelector rejects kind "profiles"), so bundles.Decide withholds
-	// it before any filter is consulted and gotRefs would be empty.
+	// it before any authorizer is consulted and gotRefs would be empty.
 	require.Len(t, gotRefs, 1)
 	// The ref is reported by its parsed IDENTITY, which for local content is the
 	// bare bundle name: "ctxloom:local@bundles/kit" and "kit" are the same
@@ -189,7 +189,7 @@ func TestAssembleManagedHooks_LocalBundleShippedProfile_DeniedIsWithheld(t *test
 		AppPaths:     []string{appDir},
 	})
 	cfg.DisableCompanionProbe()
-	cfg.SetExecutableTrustGate(testFilter(false))
+	cfg.SetExecutableTrustGate(testAuthorizer(false))
 
 	assembled := AssembleManagedHooks(cfg, "/tmp", "", nil)
 	assert.Empty(t, assembled.Wire().Unified.PreTool, "a denied bundle-shipped profile hook must be withheld from the produced settings, not merely fail silently in a way that still ships it")

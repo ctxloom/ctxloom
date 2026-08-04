@@ -1107,7 +1107,7 @@ func (st *runState) buildRunRequest() {
 	st.warnPermissionCollapse()
 	st.warnHostBypassStopgap()
 
-	st.managed = backends.AssembleManagedConfig(st.backendName, st.workDir, execGate.Filter(), st.ctxResult.Profiles)
+	st.managed = backends.AssembleManagedConfig(st.backendName, st.workDir, execGate.Authorizer(), st.ctxResult.Profiles)
 	st.req = &pb.RunStart{
 		Fragments: st.protoFragments,
 		Prompt:    st.promptFragment,

@@ -78,10 +78,10 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	// opens the store). Ignored on the injected-Factory path.
 	axes := isolation.Axes{Workspace: isolation.WorkspaceAxis(cfg.GetWorkspace()), Runtime: isolation.RuntimeAxis(cfg.GetRuntime())}
 	var execGate *ExecutableTrustGate
-	var gate bundles.Filter
+	var gate bundles.Authorizer
 	if !axes.Zero() {
 		execGate = NewExecutableTrustGate(cfg)
-		gate = execGate.Filter()
+		gate = execGate.Authorizer()
 	}
 	// Surface (content-free) whatever that gate withheld from the member's
 	// per-member config, exactly as MaterializeProfile and ApplyHooks do: a
@@ -168,7 +168,7 @@ type resolvedRunRequest struct {
 	// the isolated member's ManagedConfig assembly, so bundle MCP/hooks/command
 	// exports gate at their own choke exactly as the top-level run. nil = no gating
 	// (and none members never consult it).
-	Gate bundles.Filter
+	Gate bundles.Authorizer
 
 	// ExtraEnv is merged over the workspace env into the member engine's
 	// environment (a delegated child's session harp / bus socket / depth).

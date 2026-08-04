@@ -56,7 +56,7 @@ type LoadedSkill struct {
 	Signer string
 
 	// Read is the owning bundle's read — the trust FACTS its reader established.
-	// Filter.Admit decides on it (bundles.Exposure); see ItemRead.Read for why
+	// Authorizer.Admit decides on it (bundles.Exposure); see ItemRead.Read for why
 	// exporting a value whose axes are unexported is safe.
 	Read BundleRead
 }

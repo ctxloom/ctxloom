@@ -25,25 +25,25 @@ import (
 //
 //   - "Is this exposure gated" is a property of the PIPELINE, not of the
 //     reader. One Loader serves management, listing and exposure alike;
-//     exposure surfaces wrap it in a filtered Pipeline, management surfaces wrap
-//     it in an unfiltered one.
-//   - The filter can no longer be forgotten by OMISSION. A caller holding a
+//     exposure surfaces wrap it in a gated Pipeline, management surfaces wrap
+//     it in an ungated one.
+//   - The authorizer can no longer be forgotten by OMISSION. A caller holding a
 //     Loader cannot reach an exposed body at all — Loader's read methods are
 //     named Read* and return candidate sets, and every delivery-shaped Get*
-//     lives here. Not gating now requires writing the nil filter out loud.
+//     lives here. Not gating now requires writing the nil authorizer out loud.
 //
-// FAIL-CLOSED is preserved verbatim and is the Filter's own contract: a resolve
+// FAIL-CLOSED is preserved verbatim and is the Authorizer's own contract: a resolve
 // or store error inside it withholds, and a withheld verdict here means the
 // item is not delivered. This stage adds no arm that can turn an error into an
-// exposure — an item is admitted only when the filter positively says so.
+// exposure — an item is admitted only when the authorizer positively says so.
 
 // Pipeline pairs a read stage (a *Loader) with the process stage's two
-// policies: which Filter decides admissibility, and which layout form to
-// serve. A nil filter means no gating — the management/listing shape, which
+// policies: which Authorizer decides admissibility, and which layout form to
+// serve. A nil authorizer means no gating — the management/listing shape, which
 // still resolves pending content so a human can review, accept or stamp it.
 type Pipeline struct {
-	loader *Loader
-	filter Filter
+	loader     *Loader
+	authorizer Authorizer
 
 	// preferDistilled is the caller's raw-vs-distilled choice, held HERE
 	// because form selection is processing: the read stage reports every form
@@ -56,11 +56,11 @@ type Pipeline struct {
 	withheld   map[string]struct{}
 }
 
-// NewPipeline builds the process stage over loader. filter may be nil (no
+// NewPipeline builds the process stage over loader. authorizer may be nil (no
 // gating). Passing nil is a deliberate statement that this surface does not
 // gate, never an omission: there is no other way to reach an exposed body.
-func NewPipeline(loader *Loader, filter Filter, preferDistilled bool) *Pipeline {
-	return &Pipeline{loader: loader, filter: filter, preferDistilled: preferDistilled}
+func NewPipeline(loader *Loader, authorizer Authorizer, preferDistilled bool) *Pipeline {
+	return &Pipeline{loader: loader, authorizer: authorizer, preferDistilled: preferDistilled}
 }
 
 // Loader returns the read stage this pipeline processes. Callers that need
@@ -74,22 +74,22 @@ func (p *Pipeline) Loader() *Loader {
 	return p.loader
 }
 
-// Filter returns the filter this pipeline decides with (nil when it does not
+// Authorizer returns the authorizer this pipeline decides with (nil when it does not
 // gate). Lets a caller that must decide about OTHER items through the IDENTICAL
 // decision — builtin bundle fragments, which never resolve through a Loader at
-// all — share this filter rather than building a redundant one.
-func (p *Pipeline) Filter() Filter {
+// all — share this authorizer rather than building a redundant one.
+func (p *Pipeline) Authorizer() Authorizer {
 	if p == nil {
 		return nil
 	}
-	return p.filter
+	return p.authorizer
 }
 
 // PreferDistilled reports the form preference this pipeline serves.
 func (p *Pipeline) PreferDistilled() bool { return p != nil && p.preferDistilled }
 
-// Withheld returns the item refs this pipeline's filter withheld over its
-// lifetime, deduplicated and sorted. Empty when no filter is set or nothing was
+// Withheld returns the item refs this pipeline's authorizer withheld over its
+// lifetime, deduplicated and sorted. Empty when no authorizer is set or nothing was
 // withheld. Callers surface the COUNT (or the refs) so the user knows content
 // was hidden; returning refs and never bodies keeps the disclosure
 // content-free.
@@ -108,20 +108,20 @@ func (p *Pipeline) Withheld() []string {
 }
 
 // admit reports whether these bytes may be delivered, recording the ref when
-// they may not and SURFACING a verdict that admits with a warning. A nil filter
+// they may not and SURFACING a verdict that admits with a warning. A nil authorizer
 // admits everything.
 //
-// The filter is handed the EXACT bytes about to be exposed (pre-mustache)
+// The authorizer is handed the EXACT bytes about to be exposed (pre-mustache)
 // rather than a hash: a hash can only be compared against a recorded hash, and a
 // recorded hash is a file anything can write, while bytes can be VERIFIED
 // against a signature (spec §9.3, trap #2).
 //
-// Decide is where the ref is parsed, the filter is consulted, and whatever the
+// Decide is where the ref is parsed, the authorizer is consulted, and whatever the
 // verdict obliges the caller to say gets said. All this adds is the tally: a
 // withheld ref is recorded so the caller can report "N withheld" without leaking
 // content.
 func (p *Pipeline) admit(read BundleRead, ref string, payload []byte, form ContentForm) bool {
-	v := Decide(p.filter, read, ref, payload, form)
+	v := Decide(p.authorizer, read, ref, payload, form)
 	if v.Admit {
 		return true
 	}

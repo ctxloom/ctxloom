@@ -88,9 +88,10 @@ func TestLoadTreeBundle_ReadsTheInstalledTreeIntoABundle(t *testing.T) {
 	c, _, _, _ := stageInstalledTree(t)
 	_, pub := treeTestSigner(t)
 
-	b, signer, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	b, publisher, err := c.loadTreeBundle(context.Background(), treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.NoError(t, err)
-	assert.Empty(t, signer, "an unsigned tree is unsigned-to-us, not an error")
+	assert.Empty(t, publisher.Principal, "an unsigned tree is unsigned-to-us, not an error")
+	assert.Empty(t, publisher.UntrustedFingerprint, "and it names no key, because there is no signature to name one")
 	assert.Equal(t, "1.0.0", b.Version)
 	require.Contains(t, b.Fragments, "house-style")
 	assert.Equal(t, "FRAG-BODY", b.Fragments["house-style"].Content)
@@ -123,10 +124,34 @@ func TestLoadTreeBundle_SignedByATrustedKeyYieldsThePrincipal(t *testing.T) {
 	signer, pub := treeTestSigner(t)
 	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
 
-	b, principal, err := c.loadTreeBundle(ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
+	b, publisher, err := c.loadTreeBundle(ctx, treeCanonical, treeEntry(), treeTrustRoot("trent@acme.test", pub))
 	require.NoError(t, err)
 	require.NotNil(t, b)
-	assert.Equal(t, "trent@acme.test", principal)
+	assert.Equal(t, "trent@acme.test", publisher.Principal)
+	assert.Empty(t, publisher.UntrustedFingerprint,
+		"a VERIFIED tree has an identity to show; the display-only fingerprint is for the case that has none")
+}
+
+// The state this change exists for, on the tree path: the manifest IS signed,
+// and by a key this machine does not trust. The decision is identical to
+// unsigned — the content stays on the review path — but the DIAGNOSIS is not,
+// so the key is named, display-only, for an out-of-band comparison.
+func TestLoadTreeBundle_SignedByAnUntrustedKeyNamesTheKeyWithoutTrustingIt(t *testing.T) {
+	ctx := context.Background()
+	c, store, tree, _ := stageInstalledTree(t)
+	signer, pub := treeTestSigner(t)
+	require.NoError(t, attest.SignBundle(ctx, store, tree, signer))
+
+	// A trust root that knows a DIFFERENT key: Carol signed, and nobody here
+	// trusts Carol.
+	_, strangerPub := treeTestSigner(t)
+	b, publisher, err := c.loadTreeBundle(ctx, treeCanonical, treeEntry(), treeTrustRoot("someone-else@acme.test", strangerPub))
+	require.NoError(t, err, "an untrusted signature is ordinary third-party content, not an error")
+	require.NotNil(t, b)
+	assert.Empty(t, publisher.Principal, "nothing verified, so there is no publisher identity")
+	assert.Equal(t, ssh.FingerprintSHA256(pub), publisher.UntrustedFingerprint,
+		"the key that MADE the signature is named for comparison, and named as untrusted")
+	assert.Empty(t, b.Signer(), "and naming it must not have granted it anything")
 }
 
 // Editing one file in the installed cache after publication must WITHHOLD the

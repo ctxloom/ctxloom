@@ -109,6 +109,17 @@ type Verdict struct {
 	// Detail is a human-facing explanation. It is populated for every outcome
 	// that is not plainly good, and it names both parties for a substitution.
 	Detail string
+	// UntrustedSignerFingerprint names the key behind a StatusUnattested
+	// verdict that is unattested only because nothing TRUSTS the signature it
+	// carries — as opposed to carrying no signature at all. The two look
+	// identical in Status and Principal by design (signing.VerifyPublisher
+	// collapses them), and they are different diagnoses to a human.
+	//
+	// DISPLAY ONLY, never an identity, and never an input to any decision: see
+	// signing.SignatureKeyFingerprint. Empty for every other outcome, and set
+	// only for a bundle's MANIFEST authority (bundleAuthority) — an item form's
+	// verdict does not carry it.
+	UntrustedSignerFingerprint string
 }
 
 // OK reports whether the content may be treated as attested by a trusted
@@ -291,7 +302,14 @@ func bundleAuthority(ctx context.Context, b content.Bundle, root signing.TrustRo
 	case att.tampered():
 		return m, Verdict{Status: StatusTampered, Detail: att.detail}, nil
 	default:
-		return m, Verdict{Status: StatusUnattested, Detail: att.detail}, nil
+		return m, Verdict{
+			Status: StatusUnattested,
+			Detail: att.detail,
+			// Display only, and only here: "no signature" and "a signature by
+			// a key you do not trust" are both unattested, and a surface that
+			// asks a human to admit content must be able to say which.
+			UntrustedSignerFingerprint: att.fingerprint,
+		}, nil
 	}
 }
 
@@ -302,6 +320,12 @@ type attestation struct {
 	principal string // non-empty when a trusted key's signature covers the payload
 	detail    string
 	tamper    bool
+	// fingerprint is DISPLAY ONLY (signing.SignatureKeyFingerprint): the key
+	// behind the first stored signature nothing trusted, kept so an unattested
+	// verdict can say "signed by a key you do not trust" instead of the
+	// indistinguishable "unsigned". It never participates in the precedence
+	// below and is discarded whenever a signature does verify.
+	fingerprint string
 }
 
 func (a attestation) verified() bool { return a.principal != "" }
@@ -329,6 +353,17 @@ func resolvePublisher(payload []byte, sigs content.SigSet, root signing.TrustRoo
 			out.tamper, out.detail = true, err.Error()
 		case principal != "":
 			return attestation{principal: principal}
+		default:
+			// Untrusted key. Remember the FIRST one only, for display: a
+			// fingerprint is a string a human compares out of band, and a
+			// second one appended would be an invitation to trust whichever
+			// looks familiar. Recorded here and nowhere else — this branch
+			// deliberately does not touch tamper, detail, or precedence.
+			if out.fingerprint == "" {
+				if fp, fperr := signing.SignatureKeyFingerprint(blob); fperr == nil {
+					out.fingerprint = fp
+				}
+			}
 		}
 	}
 	return out

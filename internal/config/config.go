@@ -2222,7 +2222,7 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		//                           it to unsigned (that would let an attacker
 		//                           downgrade a signed bundle by corrupting its
 		//                           .sig — spec §10.2).
-		signer, verr := verifyBundlePublisher(reader, canonical, data, root)
+		publisher, verr := verifyBundlePublisher(reader, canonical, data, root)
 		if errors.Is(verr, signing.ErrSignatureTampered) {
 			strictness.FailOnce(strictness.ClassTrust, "re-pull the bundle, or investigate the source — its signature does not cover its bytes",
 				"remote bundle %q has a signature that does not verify over its content; withholding it: %v", canonical, verr)
@@ -2240,20 +2240,54 @@ func (c *Config) loadRemoteBundleSeed() map[string]*bundles.Bundle {
 		// Lockfile keys are canonical refs — the sole seed/resolution identity.
 		b.Name = canonical
 		b.Path = fmt.Sprintf("<remote>:%s@%s", canonical, entry.SHA)
-		b.StampSigner(signer) // "" for unsigned; the verified principal otherwise
+		publisher.stamp(b)
 		loaded[canonical] = b
 	}
 	return loaded
 }
 
+// bundlePublisher is everything a load path learned about who signed a
+// bundle's bytes. The two fields are never both set, and together they spell
+// the three states a reviewer needs told apart:
+//
+//	{"",       ""}    UNSIGNED — no signature accompanied these bytes.
+//	{"",       fp}    UNTRUSTED SIGNER — a signature exists and names a key
+//	                  this machine does not trust to publish. Same withholding
+//	                  as unsigned, different diagnosis and different fix.
+//	{principal, ""}   VERIFIED — resolved from the trust root.
+//
+// It exists because signing.VerifyPublisher deliberately answers the first two
+// identically ("", nil), and that collapse is correct for the GATE and wrong
+// for the person reading the pending list.
+type bundlePublisher struct {
+	// Principal is the verified publisher identity, resolved from the trust
+	// root by signing.VerifyPublisher. Empty unless a trusted key's signature
+	// covered exactly these bytes.
+	Principal string
+	// UntrustedFingerprint is DISPLAY ONLY and is never an identity: it is the
+	// key the signature blob claims made it, in the one case where nothing
+	// verified that claim. See signing.SignatureKeyFingerprint.
+	UntrustedFingerprint string
+}
+
+// stamp records both halves on b. Both stamps happen here, in one place, so no
+// load path can record the verified identity and forget the display state (or
+// the reverse) and leave a reviewer reading a state that is not this bundle's.
+func (p bundlePublisher) stamp(b *bundles.Bundle) {
+	b.StampSigner(p.Principal) // "" for unsigned; the verified principal otherwise
+	b.StampUntrustedSignerFingerprint(p.UntrustedFingerprint)
+}
+
 // verifyBundlePublisher reads a bundle's detached `.sig` sibling and verifies it
 // over the bundle's raw file bytes against the trust root. A MISSING signature
-// (the common case) is unsigned content, not an error: it returns ("", nil). A
-// signature by an untrusted key is likewise unsigned-to-us. Only a trusted key's
+// (the common case) is unsigned content, not an error: it returns a zero
+// bundlePublisher. A signature by an untrusted key is likewise unsigned-to-us —
+// it takes the same review path, and is reported as such, but it also names the
+// key so the listing can say WHICH of the two happened. Only a trusted key's
 // signature that does not cover these bytes — or a structurally invalid blob —
 // is a tamper signal, returned as signing.ErrSignatureTampered for the caller to
 // withhold on.
-func verifyBundlePublisher(reader remote.BundleSignatureSource, canonical string, data []byte, root signing.TrustRoot) (string, error) {
+func verifyBundlePublisher(reader remote.BundleSignatureSource, canonical string, data []byte, root signing.TrustRoot) (bundlePublisher, error) {
 	sig, sigErr := reader.ReadBundleSignature(context.Background(), canonical)
 	if sigErr != nil {
 		// A missing .sig — or any read failure — is treated as UNSIGNED. Absence
@@ -2261,9 +2295,30 @@ func verifyBundlePublisher(reader remote.BundleSignatureSource, canonical string
 		// error is degraded the same way rather than blocking the bundle, because
 		// the fail-safe direction is "more review", and an unsigned bundle is
 		// withheld until a human reviews it anyway.
-		return "", nil
+		return bundlePublisher{}, nil
 	}
-	return signing.VerifyPublisher(data, sig, root, time.Now())
+	principal, verr := signing.VerifyPublisher(data, sig, root, time.Now())
+	if verr != nil || principal != "" {
+		// Tamper (withheld by the caller) or verified. Neither case wants a
+		// display fingerprint: the first shows nothing, the second has a real
+		// identity to show instead.
+		return bundlePublisher{Principal: principal}, verr
+	}
+	// UNSIGNED TO US. Which of the two? A zero-length blob is genuinely no
+	// signature; anything else named a key that this machine does not trust to
+	// publish, and naming it is the whole point — display only, never consulted
+	// by anything (signing.SignatureKeyFingerprint).
+	if len(sig) == 0 {
+		return bundlePublisher{}, nil
+	}
+	fingerprint, fperr := signing.SignatureKeyFingerprint(sig)
+	if fperr != nil {
+		// Unreachable via VerifyPublisher, which already reported an
+		// unparseable blob as tamper above. If it ever becomes reachable, fall
+		// back to the plain unsigned wording rather than inventing a key.
+		return bundlePublisher{}, nil
+	}
+	return bundlePublisher{UntrustedFingerprint: fingerprint}, nil
 }
 
 // GetConfigFilePath returns the path to the primary config file.

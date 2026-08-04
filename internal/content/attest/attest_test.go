@@ -123,6 +123,53 @@ func TestVerifyBundle_SignedByAnUntrustedKeyIsUnattestedNotTampered(t *testing.T
 	assert.Equal(t, StatusUnattested, v.Status)
 }
 
+// UNATTESTED covers two different facts, and the verdict must let a caller tell
+// them apart: this bundle IS signed, by a key nothing here trusts. The status is
+// deliberately the same as unsigned (the decision is the same); the fingerprint
+// is what makes the DIAGNOSIS different. Display only — no status, principal or
+// authority moves because of it.
+func TestVerifyBundle_UntrustedSignerIsNamedForComparisonNotTrusted(t *testing.T) {
+	store, b, _ := fixture(t)
+	signer, pub := testSigner(t)
+	_, otherPub := testSigner(t)
+	require.NoError(t, SignBundle(ctx, store, b, signer))
+
+	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("someone-else", otherPub)), now)
+	require.NoError(t, err)
+	assert.Equal(t, ssh.FingerprintSHA256(pub), v.UntrustedSignerFingerprint,
+		"an unattested-because-untrusted verdict names the key it refused")
+	assert.Equal(t, StatusUnattested, v.Status, "naming the key must not upgrade the verdict")
+	assert.Empty(t, v.Principal, "and must not invent a principal")
+	assert.False(t, v.OK())
+}
+
+// The other half: with NO signature at all there is no key to name, so the
+// fingerprint stays empty and the listing above this can honestly say
+// "unsigned" rather than "signed by someone you do not trust".
+func TestVerifyBundle_UnsignedNamesNoKey(t *testing.T) {
+	_, b, _ := fixture(t)
+	_, pub := testSigner(t)
+	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)
+	require.NoError(t, err)
+	assert.Equal(t, StatusUnattested, v.Status)
+	assert.Empty(t, v.UntrustedSignerFingerprint)
+}
+
+// A VERIFIED bundle has a real identity to show, so the display-only field
+// stays empty: it exists only for the case with no identity at all, and a
+// fingerprint rendered beside a verified principal would be noise at best and
+// read as corroboration at worst.
+func TestVerifyBundle_VerifiedCarriesNoDisplayFingerprint(t *testing.T) {
+	store, b, _ := fixture(t)
+	signer, pub := testSigner(t)
+	require.NoError(t, SignBundle(ctx, store, b, signer))
+
+	v, err := VerifyBundle(ctx, b, rootTrusting(publisher("pub@example.test", pub)), now)
+	require.NoError(t, err)
+	assert.Equal(t, StatusManifestSigned, v.Status)
+	assert.Empty(t, v.UntrustedSignerFingerprint)
+}
+
 // F3(a): a key trusted ONLY for approve must not satisfy the publish slot.
 func TestVerifyBundle_ApproveOnlyKeyCannotSatisfyThePublishSlot(t *testing.T) {
 	store, b, _ := fixture(t)

@@ -96,6 +96,28 @@ type Bundle struct {
 	// signature against the trust root. Anyone can write a string into a file;
 	// nobody can forge a signature. This is implementer trap #3.
 	signer string `yaml:"-"`
+
+	// untrustedSignerFingerprint is the SHA256 fingerprint of the key that made
+	// a publish signature over this bundle's bytes WHEN THIS MACHINE DOES NOT
+	// TRUST THAT KEY — the case signer above cannot describe, because
+	// signing.VerifyPublisher deliberately reports "no signature" and "signed by
+	// a key you do not trust" as the same quiet "". It is empty for a genuinely
+	// unsigned bundle and empty for a verified one (signer carries the identity
+	// there), so the pair (signer, untrustedSignerFingerprint) spells exactly
+	// three states and no more.
+	//
+	// DISPLAY ONLY, and never an identity: see
+	// signing.SignatureKeyFingerprint's doc for why a key named by the blob
+	// that carries it is a claim, not a fact. Nothing may gate exposure on
+	// this, key a trust record on it, or write it into a trust store; its one
+	// consumer is the pending-review listing, which prints it beside the words
+	// saying the key is NOT trusted, for a human to compare against what the
+	// publisher told them out of band.
+	//
+	// Unexported and yaml:"-" for the same reason signer is: a bundle file
+	// must not be able to write its own answer here
+	// (TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint).
+	untrustedSignerFingerprint string `yaml:"-"`
 }
 
 // Signer returns the bundle's verified publisher identity, or "" when the bundle
@@ -124,6 +146,36 @@ func (b *Bundle) StampSigner(signer string) {
 		return
 	}
 	b.signer = signer
+}
+
+// UntrustedSignerFingerprint returns the display-only fingerprint of the key
+// that signed this bundle's bytes when that key is NOT trusted to publish here,
+// or "" when the bundle is unsigned or verified (see the field's doc).
+//
+// A non-empty value means strictly less than it looks like: a signature exists,
+// it names a key, and this machine does not trust that key. It is not a
+// publisher, not an endorsement, and not usable as an input to any decision —
+// only as a string for a human to compare out of band.
+func (b *Bundle) UntrustedSignerFingerprint() string {
+	if b == nil {
+		return ""
+	}
+	return b.untrustedSignerFingerprint
+}
+
+// StampUntrustedSignerFingerprint records that fingerprint. Call it ONLY from a
+// load path that has already asked the trust root and been told this key is not
+// trusted — i.e. alongside StampSigner(""), never instead of a verification.
+//
+// Unlike StampSigner, getting this WRONG cannot grant exposure: nothing reads
+// it but the review listing's wording. Getting it wrong can only mislead a
+// human, which is why the listing that prints it never presents it as an
+// identity.
+func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
+	if b == nil {
+		return
+	}
+	b.untrustedSignerFingerprint = fingerprint
 }
 
 // contentSourceRef returns the bundle's honest source ref for content trust

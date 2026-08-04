@@ -45,25 +45,27 @@ func (c *Config) seedTreeBundles(ctx context.Context, lock *remote.Lockfile, roo
 		if !ok {
 			continue
 		}
-		b, signer, terr := c.loadTreeBundle(ctx, canonical, entry, root)
+		b, publisher, terr := c.loadTreeBundle(ctx, canonical, entry, root)
 		if terr != nil {
 			failures[canonical] = terr
 			continue
 		}
 		// Lockfile keys are canonical refs — the sole seed/resolution identity,
 		// exactly as on the single-file path. loadTreeBundle owns Path (it points
-		// into the installed tree so skills resolve); identity and the verified
-		// signer are stamped here so both paths do it in one place.
+		// into the installed tree so skills resolve); identity and the publisher
+		// state are stamped here so both paths do it in one place, through the
+		// same bundlePublisher.stamp.
 		b.Name = canonical
-		b.StampSigner(signer) // "" for unsigned; the verified principal otherwise
+		publisher.stamp(b)
 		loaded[canonical] = b
 		delete(failures, canonical)
 	}
 }
 
 // loadTreeBundle reads one lockfile TREE entry from the tree `remote pull`
-// installed, verifies it, and returns the bundle document plus the verified
-// publisher principal ("" when the tree carries no trusted attestation).
+// installed, verifies it, and returns the bundle document plus its publisher
+// state — the verified principal, or the display-only fingerprint of the key
+// nothing trusted, or neither for a tree carrying no attestation at all.
 //
 // WHY THE INSTALLED TREE AND NOT THE CLONE AT THE PINNED SHA — the single-file
 // path reads its bytes back out of the git clone at entry.SHA, and the obvious
@@ -81,13 +83,13 @@ func (c *Config) seedTreeBundles(ctx context.Context, lock *remote.Lockfile, roo
 // The pin is not thereby abandoned: it is what `remote pull` fetched at, and it
 // still decides WHICH bytes were installed. What changed is that integrity is
 // now checked where the bytes are actually read from.
-func (c *Config) loadTreeBundle(ctx context.Context, canonical string, entry remote.LockEntry, root signing.TrustRoot) (*bundles.Bundle, string, error) {
+func (c *Config) loadTreeBundle(ctx context.Context, canonical string, entry remote.LockEntry, root signing.TrustRoot) (*bundles.Bundle, bundlePublisher, error) {
 	if len(c.appPaths) == 0 {
-		return nil, "", fmt.Errorf("no .ctxloom directory configured")
+		return nil, bundlePublisher{}, fmt.Errorf("no .ctxloom directory configured")
 	}
 	dir, err := treeBundleDir(c.appPaths[0], canonical)
 	if err != nil {
-		return nil, "", err
+		return nil, bundlePublisher{}, err
 	}
 
 	// Root the store at the tree's PARENT and open it by its own last segment:
@@ -96,28 +98,28 @@ func (c *Config) loadTreeBundle(ctx context.Context, canonical string, entry rem
 	// smuggled into the id.
 	store, err := content.NewTreeStore(c.getFS(), filepath.Dir(dir), content.Provenance{RepoURL: entry.URL})
 	if err != nil {
-		return nil, "", fmt.Errorf("open the installed tree for %q at %s: %w", canonical, dir, err)
+		return nil, bundlePublisher{}, fmt.Errorf("open the installed tree for %q at %s: %w", canonical, dir, err)
 	}
 	tree, err := store.Open(ctx, content.BundleID(filepath.Base(dir)))
 	if err != nil {
-		return nil, "", fmt.Errorf("the lockfile records %q as a directory-form bundle but its tree is not installed at %s "+
+		return nil, bundlePublisher{}, fmt.Errorf("the lockfile records %q as a directory-form bundle but its tree is not installed at %s "+
 			"(run `ctxloom remote pull`): %w", canonical, dir, err)
 	}
 
-	signer, err := verifyTreeBundle(ctx, tree, canonical, root)
+	publisher, err := verifyTreeBundle(ctx, tree, canonical, root)
 	if err != nil {
-		return nil, "", err
+		return nil, bundlePublisher{}, err
 	}
 	b, err := bundles.ReadTree(ctx, tree)
 	if err != nil {
-		return nil, "", fmt.Errorf("read the installed tree for %q at %s: %w", canonical, dir, err)
+		return nil, bundlePublisher{}, fmt.Errorf("read the installed tree for %q at %s: %w", canonical, dir, err)
 	}
 	// Path points at the tree's own envelope so FSDir resolves to the installed
 	// directory — which is what makes a tree bundle's SKILL packages loadable.
 	// A single-file remote bundle gets the synthetic "<remote>:…" sentinel here
 	// precisely because it has no directory; a tree does.
 	b.Path = filepath.Join(dir, bundles.DirectoryFormManifest)
-	return b, signer, nil
+	return b, publisher, nil
 }
 
 // treeBundleDir resolves the directory `remote pull` installed a tree bundle
@@ -144,21 +146,23 @@ func treeBundleDir(baseDir, canonical string) (string, error) {
 // single file cannot be. That is withheld, not degraded, for the same reason a
 // bad signature is: an attacker who can edit the cache must not be able to turn
 // signed content into unsigned-and-therefore-merely-reviewable content.
-func verifyTreeBundle(ctx context.Context, tree content.Bundle, canonical string, root signing.TrustRoot) (string, error) {
+func verifyTreeBundle(ctx context.Context, tree content.Bundle, canonical string, root signing.TrustRoot) (bundlePublisher, error) {
 	verdict, err := attest.VerifyBundle(ctx, tree, root, time.Now())
 	if err != nil {
-		return "", fmt.Errorf("verify the installed tree for %q: %w", canonical, err)
+		return bundlePublisher{}, fmt.Errorf("verify the installed tree for %q: %w", canonical, err)
 	}
 	if verdict.Contents != nil {
-		return "", fmt.Errorf("%w: %q — %v", ErrTreeBundleWithheld, canonical, verdict.Contents)
+		return bundlePublisher{}, fmt.Errorf("%w: %q — %v", ErrTreeBundleWithheld, canonical, verdict.Contents)
 	}
 	if verdict.Status == attest.StatusTampered {
-		return "", fmt.Errorf("%w: %q — %s", ErrTreeBundleWithheld, canonical, verdict.Detail)
+		return bundlePublisher{}, fmt.Errorf("%w: %q — %s", ErrTreeBundleWithheld, canonical, verdict.Detail)
 	}
 	if verdict.OK() {
-		return verdict.Principal, nil
+		return bundlePublisher{Principal: verdict.Principal}, nil
 	}
 	// Unattested, or attested by a key this trust root does not know: unsigned to
-	// us, which is the ordinary case and the review path — not an error.
-	return "", nil
+	// us, which is the ordinary case and the review path — not an error. The two
+	// are the SAME decision and different diagnoses, so carry the display-only
+	// fingerprint when the verdict has one, exactly as the single-file path does.
+	return bundlePublisher{UntrustedFingerprint: verdict.UntrustedSignerFingerprint}, nil
 }

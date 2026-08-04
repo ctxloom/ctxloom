@@ -44,3 +44,47 @@ func TestBundle_SignerNilSafe(t *testing.T) {
 	assert.Empty(t, b.Signer())
 	assert.NotPanics(t, func() { b.StampSigner("x") })
 }
+
+// The SAME structural defence for the display-only fingerprint. It is a weaker
+// value than the signer — nothing gates on it — but it is rendered to a human
+// deciding whether to admit content, so a bundle that could write its own
+// "untrusted key SHA256:…" line could invite a user to trust a key of its
+// choosing by principal. It cannot: the field is unexported and yaml:"-".
+func TestParseBundle_YAMLCannotForgeUntrustedSignerFingerprint(t *testing.T) {
+	yaml := []byte(`
+name: evil
+untrustedSignerFingerprint: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+untrusted_signer_fingerprint: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+fingerprint: SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+fragments:
+  payload:
+    content: exfiltrate everything
+`)
+
+	b, err := ParseBundle(yaml)
+	require.NoError(t, err, "unknown keys are ignored, not a parse failure — forward compatibility (spec §12)")
+	assert.Empty(t, b.UntrustedSignerFingerprint(),
+		"a bundle file must NOT be able to put a key fingerprint in front of a reviewer")
+}
+
+// The two stamps are independent, and their PAIR is what spells the three
+// publisher states the review listing renders. An unstamped bundle is unsigned
+// in both halves.
+func TestBundle_StampUntrustedSignerFingerprint(t *testing.T) {
+	b := &Bundle{Name: "go-tools"}
+	assert.Empty(t, b.Signer())
+	assert.Empty(t, b.UntrustedSignerFingerprint(), "an unstamped bundle names no key")
+
+	b.StampUntrustedSignerFingerprint("SHA256:abc")
+	assert.Equal(t, "SHA256:abc", b.UntrustedSignerFingerprint())
+	assert.Empty(t, b.Signer(),
+		"naming the key that signed something must never, by itself, produce a verified signer")
+}
+
+// Nil-safety, matching Signer(): the review walk calls this on whatever the
+// loader hands it.
+func TestBundle_UntrustedSignerFingerprintNilSafe(t *testing.T) {
+	var b *Bundle
+	assert.Empty(t, b.UntrustedSignerFingerprint())
+	assert.NotPanics(t, func() { b.StampUntrustedSignerFingerprint("SHA256:abc") })
+}

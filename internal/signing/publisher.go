@@ -65,6 +65,45 @@ func CoversBytes(payload, armoredSig []byte, namespace string) error {
 	return Verify(payload, armoredSig, sig.PublicKey, namespace)
 }
 
+// SignatureKeyFingerprint reports the SHA256 fingerprint of the public key
+// carried INSIDE armoredSig — the key that made this signature, according to
+// the signature blob itself.
+//
+// DISPLAY ONLY. It is NEVER a trust input and NEVER an identity, and no caller
+// may treat it as either. A fingerprint read out of a signature is a claim the
+// blob makes about itself: anyone can mint a key, sign anything with it, and
+// hand you the pair, so this answers "which key says it made this?" and never
+// "whose key is it?" or "may these bytes be used?". The identity of a signer
+// comes from exactly one place — re-verifying against the trust root
+// (VerifyPublisher), which resolves the principal from allowed_signers and
+// never from the artifact.
+//
+// It exists because VerifyPublisher deliberately collapses "no signature" and
+// "signed by a key you do not trust" into the same quiet ("", nil), so it
+// cannot answer "which key would I be trusting, if I chose to trust this one?"
+// — the question a human must answer to compare a fingerprint against what the
+// publisher told them out of band. That known-hosts comparison, made by a
+// HUMAN, in a surface that simultaneously says the key is not trusted, is the
+// only sanctioned use.
+//
+// Callers MUST NOT: gate exposure on this value, key a trust record on it,
+// compare it against a stored fingerprint to decide anything, write it into any
+// trust store, or render it as the signer's name. Extracting a key from a
+// signature must never be a step on the way to trusting that key.
+//
+// An unparseable blob is an error, not an empty string: "there is no signature
+// here" and "there is a signature I cannot read" are different facts, and the
+// second is a tamper signal (spec §10.2) that must never be rendered as the
+// first. An empty armoredSig is likewise an error, not a fingerprint — callers
+// must handle "no signature" as its own case before calling.
+func SignatureKeyFingerprint(armoredSig []byte) (string, error) {
+	sig, err := sshsig.Unarmor(armoredSig)
+	if err != nil {
+		return "", fmt.Errorf("unarmor: %w", err)
+	}
+	return ssh.FingerprintSHA256(sig.PublicKey), nil
+}
+
 // TrustRoot answers the only policy question publisher verification asks: is
 // this key trusted to make an assertion in this namespace, right now?
 // *allowedsigners.Store is the production implementation; tests inject a fake.

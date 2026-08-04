@@ -169,3 +169,85 @@ func TestVerifyPublisher_NilTrustRootTrustsNothing(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, principal)
 }
+
+// --- SignatureKeyFingerprint: the DISPLAY-ONLY accessor -------------------
+//
+// These tests pin the two properties the accessor's doc comment claims. The
+// first is that it reports the key that actually made the blob; the second —
+// and the one that matters — is that it reports it for a key NOTHING trusts,
+// because that is the whole case VerifyPublisher cannot speak about.
+
+// The fingerprint is the signing key's own, byte-for-byte the string a user
+// sees from `ssh-keygen -lf` and from `ctxloom trust signer list`, so the
+// out-of-band comparison this exists for is a comparison of equals.
+func TestSignatureKeyFingerprint_IsTheKeyThatMadeTheSignature(t *testing.T) {
+	signer, pub := newTestSigner(t)
+	bundle := []byte("name: go-tools\n")
+	sig, err := Sign(bundle, signer, NamespacePublish)
+	require.NoError(t, err)
+
+	fp, err := SignatureKeyFingerprint(sig)
+	require.NoError(t, err)
+	assert.Equal(t, ssh.FingerprintSHA256(pub), fp,
+		"the fingerprint must be the signing key's own, in the same spelling every other surface prints")
+}
+
+// THE POINT OF THE ACCESSOR. VerifyPublisher answers ("", nil) here — the
+// deliberate collapse of "unsigned" and "signed by a key you do not trust" —
+// so nothing else in the package can name the key. Untrusted is exactly when
+// the fingerprint must still be available, and it takes no trust root to get
+// it: the signature of this function has nowhere to put one.
+func TestSignatureKeyFingerprint_AnswersForAKeyNoRootTrusts(t *testing.T) {
+	signer, pub := newTestSigner(t)
+	bundle := []byte("name: go-tools\n")
+	sig, err := Sign(bundle, signer, NamespacePublish)
+	require.NoError(t, err)
+
+	principal, verr := VerifyPublisher(bundle, sig, allowedsigners.NewStore(), time.Now())
+	require.NoError(t, verr)
+	require.Empty(t, principal, "an empty trust root trusts nobody — this is the case under test")
+
+	fp, err := SignatureKeyFingerprint(sig)
+	require.NoError(t, err)
+	assert.Equal(t, ssh.FingerprintSHA256(pub), fp)
+}
+
+// It reads the key out of the BLOB and says nothing about the bytes: a
+// signature lifted from another artifact still names its own key. This is why
+// the value can never be an endorsement of the content it is displayed
+// beside — displaying it is not a verification of anything.
+func TestSignatureKeyFingerprint_SaysNothingAboutTheBytesItIsShownWith(t *testing.T) {
+	signer, pub := newTestSigner(t)
+	sig, err := Sign([]byte("the bytes that were signed"), signer, NamespacePublish)
+	require.NoError(t, err)
+
+	// The same blob presented over different content: still parseable, still
+	// names its key, and CoversBytes — the function that actually asks the
+	// integrity question — refuses it.
+	require.Error(t, CoversBytes([]byte("the bytes that arrived"), sig, NamespacePublish))
+
+	fp, err := SignatureKeyFingerprint(sig)
+	require.NoError(t, err)
+	assert.Equal(t, ssh.FingerprintSHA256(pub), fp)
+}
+
+// A blob that cannot be parsed is an ERROR, never "". "There is no signature"
+// and "there is a signature I cannot read" are different facts, and rendering
+// the second as the first would report a tamper signal as ordinary unsigned
+// content.
+func TestSignatureKeyFingerprint_UnreadableBlobIsAnErrorNotEmpty(t *testing.T) {
+	fp, err := SignatureKeyFingerprint([]byte("-----BEGIN SSH SIGNATURE-----\ngarbage\n"))
+	require.Error(t, err)
+	assert.Empty(t, fp)
+}
+
+// No signature at all is likewise an error and not a fingerprint: callers must
+// have handled "unsigned" as its own state before they get here, and an empty
+// string returned with a nil error would let a caller render "unsigned" and
+// "untrusted" identically — the exact conflation this whole change exists to
+// undo.
+func TestSignatureKeyFingerprint_EmptyBlobIsAnErrorNotEmpty(t *testing.T) {
+	fp, err := SignatureKeyFingerprint(nil)
+	require.Error(t, err)
+	assert.Empty(t, fp)
+}

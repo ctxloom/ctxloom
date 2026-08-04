@@ -889,7 +889,7 @@ func (c *Config) loadBundleProfileSeed() map[string]*profiles.Profile {
 	if len(c.appPaths) == 0 {
 		return nil
 	}
-	loader := c.SeededBundleLoader(false)
+	loader := c.SeededBundleLoader()
 	infos, err := loader.List()
 	if err != nil {
 		// The very next loop already fails loudly for a per-file error
@@ -1960,7 +1960,11 @@ func strandedCacheEntry(fs afero.Fs, path string, info os.FileInfo, err error) b
 // lockfile, unregistered remote, single bad SHA, or unreachable/invalid
 // companion loadout produces a stderr warning and the loader returns the
 // rest.
-func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.LoaderOption) *bundles.Loader {
+//
+// It takes NO form preference: raw-vs-distilled is a PROCESS-stage decision
+// (docs/design/engine-delivery-seam.design.md), so a caller that reads content
+// names the form it wants at the read itself — see ShouldUseDistilled.
+func (c *Config) SeededBundleLoader(opts ...bundles.LoaderOption) *bundles.Loader {
 	if c.fs != nil {
 		// Thread the injected filesystem so fs-installed local bundle discovery
 		// and reads honor it, matching GetProfileLoader's profiles.WithFS(c.fs).
@@ -1982,7 +1986,7 @@ func (c *Config) SeededBundleLoader(preferDistilled bool, opts ...bundles.Loader
 	if resolver := c.bundleVersionResolver(); resolver != nil {
 		opts = append(append([]bundles.LoaderOption(nil), opts...), bundles.WithVersionResolver(resolver))
 	}
-	return bundles.NewLoader(c.GetBundleDirs(), preferDistilled, opts...)
+	return bundles.NewLoader(c.GetBundleDirs(), opts...)
 }
 
 // companionBundleSeed discovers and probes every companion's loadout

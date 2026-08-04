@@ -49,8 +49,8 @@ func demoSeed() map[string]*Bundle {
 // drops a denied fragment from GetFragment (so the ctxloom:// resource omits it)
 // while a trusted sibling still resolves, and records the withheld ref.
 func TestLoaderGate_WithholdsFragment_KeepsSibling(t *testing.T) {
-	l := NewLoader(nil, true, WithSeededBundles(demoSeed()),
-		WithTrustGate(blockingGate(nil, "#fragments/blocked")))
+	l := gatedPipe(NewLoader(nil, WithSeededBundles(demoSeed())),
+		blockingGate(nil, "#fragments/blocked"), true)
 
 	if _, err := l.GetFragment("demo#fragments/blocked"); !errors.Is(err, errs.ErrFragmentWithheld) {
 		t.Fatalf("GetFragment(blocked) err = %v, want ErrFragmentWithheld", err)
@@ -73,8 +73,8 @@ func TestLoaderGate_WithholdsFragment_KeepsSibling(t *testing.T) {
 // even though the load selector is "#commands/" — the item-kind rename does
 // not re-key trust.
 func TestLoaderGate_WithholdsCommand(t *testing.T) {
-	l := NewLoader(nil, true, WithSeededBundles(demoSeed()),
-		WithTrustGate(blockingGate(nil, "#prompts/badprompt")))
+	l := gatedPipe(NewLoader(nil, WithSeededBundles(demoSeed())),
+		blockingGate(nil, "#prompts/badprompt"), true)
 
 	if _, err := l.GetCommand("demo#commands/badprompt"); !errors.Is(err, errs.ErrCommandWithheld) {
 		t.Fatalf("GetCommand(badprompt) err = %v, want ErrCommandWithheld", err)
@@ -94,7 +94,7 @@ func TestLoaderGate_PassesEffectiveHash(t *testing.T) {
 	frag := BundleFragment{Content: "raw body", Distilled: "distilled body"}
 	seed := map[string]*Bundle{"b": {Name: "b", Fragments: map[string]BundleFragment{"f": frag}}}
 	seen := map[string][2]string{}
-	l := NewLoader(nil, true, WithSeededBundles(seed), WithTrustGate(blockingGate(seen)))
+	l := gatedPipe(NewLoader(nil, WithSeededBundles(seed)), blockingGate(seen), true)
 
 	got, err := l.GetFragment("b#fragments/f")
 	if err != nil {
@@ -126,7 +126,7 @@ func TestLoaderGate_SeededBundleGatesByCanonicalRef(t *testing.T) {
 	const canonical = "https://github.com/acme/repo@bundles/tooling"
 	seed := map[string]*Bundle{canonical: {Name: "tooling", Fragments: map[string]BundleFragment{"f": {Content: "body"}}}}
 	seen := map[string][2]string{}
-	l := NewLoader(nil, true, WithSeededBundles(seed), WithTrustGate(blockingGate(seen)))
+	l := gatedPipe(NewLoader(nil, WithSeededBundles(seed)), blockingGate(seen), true)
 
 	if _, err := l.GetFragment(canonical + "#fragments/f"); err != nil {
 		t.Fatalf("GetFragment: %v", err)
@@ -148,7 +148,7 @@ func TestLoaderGate_Search_PrefersTrustedSibling(t *testing.T) {
 		"z-bundle": {Name: "z-bundle", Fragments: map[string]BundleFragment{"shared": {Content: "from z"}}},
 	}
 	// Block only a-bundle; the z-bundle copy must win the bare-name search.
-	l := NewLoader(nil, true, WithSeededBundles(seed), WithTrustGate(blockingGate(nil, "a-bundle#")))
+	l := gatedPipe(NewLoader(nil, WithSeededBundles(seed)), blockingGate(nil, "a-bundle#"), true)
 	got, err := l.GetFragment("shared")
 	if err != nil {
 		t.Fatalf("search GetFragment(shared): %v", err)
@@ -158,7 +158,7 @@ func TestLoaderGate_Search_PrefersTrustedSibling(t *testing.T) {
 	}
 
 	// Block both → all matches withheld → ErrFragmentWithheld (distinct from not-found).
-	l2 := NewLoader(nil, true, WithSeededBundles(seed), WithTrustGate(blockingGate(nil, "#fragments/shared")))
+	l2 := gatedPipe(NewLoader(nil, WithSeededBundles(seed)), blockingGate(nil, "#fragments/shared"), true)
 	if _, err := l2.GetFragment("shared"); !errors.Is(err, errs.ErrFragmentWithheld) {
 		t.Errorf("all-withheld search err = %v, want ErrFragmentWithheld", err)
 	}
@@ -167,7 +167,7 @@ func TestLoaderGate_Search_PrefersTrustedSibling(t *testing.T) {
 // TestLoaderGate_NilGate_ExposesEverything proves a gate-free loader (management/
 // listing path) is unaffected: content resolves and nothing is recorded withheld.
 func TestLoaderGate_NilGate_ExposesEverything(t *testing.T) {
-	l := NewLoader(nil, true, WithSeededBundles(demoSeed()))
+	l := ungated(NewLoader(nil, WithSeededBundles(demoSeed())), true)
 	if _, err := l.GetFragment("demo#fragments/blocked"); err != nil {
 		t.Fatalf("nil-gate GetFragment must expose: %v", err)
 	}

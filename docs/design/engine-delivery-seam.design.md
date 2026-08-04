@@ -151,10 +151,10 @@ The rule is exhaustive, not illustrative. Every derivation — anything where wh
 comes out is not byte-identical to what was authored, and anything that decides
 what is included — belongs to the process stage:
 
-| processing | today | belongs |
+| processing | where | belongs |
 |---|---|---|
-| trust gating | `bundles.Loader` via `WithTrustGate` | **process** |
-| form selection (raw vs distilled) | `SeededBundleLoader(cfg.ShouldUseDistilled())` | **process** |
+| trust gating | `bundles.Pipeline` (`deliver` → the `ContentGate`) | process ✓ |
+| form selection (raw vs distilled) | `bundles.Pipeline` (`ContentForms.Select`) | process ✓ |
 | profile fragment collection | `collectProfileFragments` (operations) | process ✓ |
 | dedupe | `dedupeFragmentRefs` (operations) | process ✓ |
 | priority ordering | `sortFragmentsByPriority` (operations) | process ✓ |
@@ -162,24 +162,25 @@ what is included — belongs to the process stage:
 | builtin fragment injection | `ResolveBuiltinBundleFragments` (config) | process ✓ |
 | joining / framing | `assembleDedupedContext` | deliver (framing is engine-shaped) |
 
-**Two are on the wrong side today, and both sit in the READ stage — the one that
-must stay pure.**
+**Every derivation is on the process side, and the read stage carries no policy
+at all.**
 
-*Form selection.* The loader is constructed with `ShouldUseDistilled()`, so
-whether you get raw or distilled is decided while reading. A store should yield
-every form it holds and let the process stage pick; deciding at read time means
-the read stage carries a policy input, and the same store cannot serve two
-consumers who want different forms.
+`bundles.Loader` reports: an ask resolves to every candidate it holds, each an
+`ItemRead` carrying every form the store has (`ContentForms`) plus the trust
+facts the read established (`TrustRef`, `Signer`). It picks no form, withholds
+nothing, and hands back no exposed body. `bundles.Pipeline` decides: it selects
+a form, gates those exact bytes, and only then produces a `LoadedContent`.
 
-*Trust gating.* `WithTrustGate` wires the gate into the loader, so withholding
-happens during read. Gating is a decision about what is INCLUDED, which is
-processing by this rule. Leaving it in the loader means every reader is either
-gated or not by construction, which is why management and listing loaders have
-to be built separately from exposure loaders today.
+Two consequences follow, and both are the point. *Gating is a property of the
+pipeline, not of the reader* — one `Loader` serves management, listing and
+exposure alike, and the exposure surfaces are the ones that wrap it in a gated
+pipeline. *One store serves consumers who want different forms*, because the
+form is chosen downstream of the read rather than baked into it.
 
-Moving both is what makes the read stage a pure `Store` — bytes exactly as
-authored and attested, no policy — which in turn is what lets verification be
-meaningful there.
+What the reader keeps is VERIFICATION. A publisher signature is verified at
+load, before any parse, and a skill's on-disk tree is verified against its
+manifest; the verdict travels with the content as a read fact for the process
+stage to decide on. Verification is reading. Withholding is not.
 
 Naming the stage and giving it one boundary — profiles + stores in, resolved
 ordered forms out — is what turns the engine interface from a refactor into a

@@ -173,7 +173,7 @@ func TestAssembleContext_WarnWithheld_InjectedLoaderIsSilentAboutWhy(t *testing.
 	stderr := captureStderr(t, func() {
 		_, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 			Fragments: []string{evilRef},
-			Loader:    loader,
+			Pipeline:  loader,
 		})
 		require.NoError(t, err)
 	})

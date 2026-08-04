@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
@@ -33,10 +34,16 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 	if cfg == nil {
 		return builtin
 	}
-	loader := cfg.SeededBundleLoader(false)
+	loader := cfg.SeededBundleLoader()
 	if loader == nil {
 		return builtin
 	}
+	// Agent-setup guidance is NOT an exposure surface: it composes text for the
+	// setup interview, not for an agent's context, and it has always resolved
+	// ungated. Saying that out loud (a nil gate) is the whole point of the
+	// process stage — the alternative used to be an omission that looked
+	// identical to forgetting.
+	pipe := bundles.NewPipeline(loader, nil, false)
 	infos, err := loader.ListAllCommands()
 	if err != nil {
 		// This used to fall back to the built-in with the error discarded —
@@ -63,7 +70,7 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 
 	parts := []string{builtin}
 	for _, ref := range refs {
-		content, gerr := loader.GetCommand(ref)
+		content, gerr := pipe.GetCommand(ref)
 		if gerr != nil {
 			// A per-ref GetCommand failure (e.g. the bundle vanished or
 			// became unreadable between the listing above and this read)

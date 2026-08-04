@@ -24,7 +24,7 @@ func TestListAllCommands_TagsDoNotAliasBundleTags(t *testing.T) {
 			"beta":  {Content: "b", Tags: []string{"beta-tag"}},
 		},
 	}
-	loader := NewLoader(nil, false, WithSeededBundles(map[string]*Bundle{"seeded": b}))
+	loader := NewLoader(nil, WithSeededBundles(map[string]*Bundle{"seeded": b}))
 
 	infos, err := loader.ListAllCommands()
 	require.NoError(t, err)

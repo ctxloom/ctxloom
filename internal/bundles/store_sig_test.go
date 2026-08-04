@@ -44,7 +44,7 @@ func signBundleFile(t *testing.T, path string) {
 func TestFSStore_Save_DropsStaleSignatureAndWarns(t *testing.T) {
 	dir := t.TempDir()
 	var warnings bytes.Buffer
-	store := NewFSStore([]string{dir}, false, WithWarnWriter(&warnings))
+	store := NewFSStore([]string{dir}, WithWarnWriter(&warnings))
 
 	path := filepath.Join(dir, "my-tools.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "before"}}}
@@ -68,7 +68,7 @@ func TestFSStore_Save_DropsStaleSignatureAndWarns(t *testing.T) {
 func TestFSStore_Save_KeepsSignatureWhenBytesUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	var warnings bytes.Buffer
-	store := NewFSStore([]string{dir}, false, WithWarnWriter(&warnings))
+	store := NewFSStore([]string{dir}, WithWarnWriter(&warnings))
 
 	path := filepath.Join(dir, "steady.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "same"}}}
@@ -90,7 +90,7 @@ func TestFSStore_Save_KeepsSignatureWhenBytesUnchanged(t *testing.T) {
 func TestFSStore_Save_UnsignedBundleSavesQuietly(t *testing.T) {
 	dir := t.TempDir()
 	var warnings bytes.Buffer
-	store := NewFSStore([]string{dir}, false, WithWarnWriter(&warnings))
+	store := NewFSStore([]string{dir}, WithWarnWriter(&warnings))
 
 	path := filepath.Join(dir, "plain.yaml")
 	b := &Bundle{Path: path, Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
@@ -128,7 +128,7 @@ func TestFSStore_Save_UnreadableSignatureIsLoudNotAssumedAbsent(t *testing.T) {
 	require.NoError(t, afero.WriteFile(mem, sigPath, []byte("armored-signature-bytes"), 0o644))
 
 	var warnings bytes.Buffer
-	store := NewFSStore([]string{dir}, false,
+	store := NewFSStore([]string{dir},
 		WithFS(&openFailFs{Fs: mem, failPath: sigPath}),
 		WithWarnWriter(&warnings))
 
@@ -153,7 +153,7 @@ func TestFSStore_Save_MissingSignatureStaysSilent(t *testing.T) {
 	mem := afero.NewMemMapFs()
 	dir := "/bundles"
 	var warnings bytes.Buffer
-	store := NewFSStore([]string{dir}, false, WithFS(mem), WithWarnWriter(&warnings))
+	store := NewFSStore([]string{dir}, WithFS(mem), WithWarnWriter(&warnings))
 
 	b := &Bundle{Path: filepath.Join(dir, "plain.yaml"), Version: "1.0", Fragments: map[string]BundleFragment{"a": {Content: "one"}}}
 	require.NoError(t, store.Save(b), "no signature at all is the common case and must not be an error")

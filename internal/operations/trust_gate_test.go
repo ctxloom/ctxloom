@@ -44,12 +44,12 @@ func acmeToolingSeed() map[string]*bundles.Bundle {
 // resolving against records for an UNSIGNED remote bundle, so only review
 // states (approved/rejected) decide exposure — everything else is pending
 // (withheld).
-func gatedAcmeLoader(t *testing.T, records ReviewRecords) (*bundles.Loader, *config.Config) {
+func gatedAcmeLoader(t *testing.T, records ReviewRecords) (*bundles.Pipeline, *config.Config) {
 	t.Helper()
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
 	gate := (&contentGate{cfg: cfg, records: records}).allow
-	l := bundles.NewLoader(nil, true, bundles.WithSeededBundles(acmeToolingSeed()), bundles.WithTrustGate(gate))
-	return l, cfg
+	pipe := bundles.NewPipeline(bundles.NewLoader(nil, bundles.WithSeededBundles(acmeToolingSeed())), gate, true)
+	return pipe, cfg
 }
 
 const (
@@ -71,7 +71,7 @@ func TestExposureGate_AssembleContext_WithholdsDenied(t *testing.T) {
 
 	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
 		Fragments: []string{solidRef, evilRef, swapRef},
-		Loader:    loader,
+		Pipeline:  loader,
 	})
 	require.NoError(t, err)
 
@@ -102,16 +102,16 @@ func TestExposureGate_Resource_GetFragmentWithheld(t *testing.T) {
 	loader, cfg := gatedAcmeLoader(t, fx.records())
 
 	// Fragment resource.
-	_, err := GetFragment(context.Background(), cfg, GetFragmentRequest{Name: evilRef, Loader: loader})
+	_, err := GetFragment(context.Background(), cfg, GetFragmentRequest{Name: evilRef, Pipeline: loader})
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "denied fragment resource err = %v", err)
-	okFrag, err := GetFragment(context.Background(), cfg, GetFragmentRequest{Name: solidRef, Loader: loader})
+	okFrag, err := GetFragment(context.Background(), cfg, GetFragmentRequest{Name: solidRef, Pipeline: loader})
 	require.NoError(t, err)
 	assert.Equal(t, "solid body", okFrag.Content)
 
 	// Prompt resource.
-	_, err = GetCommand(context.Background(), cfg, GetCommandRequest{Name: acmeBundle + "tooling#commands/evilprompt", Loader: loader})
+	_, err = GetCommand(context.Background(), cfg, GetCommandRequest{Name: acmeBundle + "tooling#commands/evilprompt", Pipeline: loader})
 	assert.True(t, errors.Is(err, errs.ErrCommandWithheld), "denied prompt resource err = %v", err)
-	okPrompt, err := GetCommand(context.Background(), cfg, GetCommandRequest{Name: acmeBundle + "tooling#commands/review", Loader: loader})
+	okPrompt, err := GetCommand(context.Background(), cfg, GetCommandRequest{Name: acmeBundle + "tooling#commands/review", Pipeline: loader})
 	require.NoError(t, err)
 	assert.Contains(t, okPrompt.Content, "review body")
 }
@@ -133,7 +133,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 	gate := (&contentGate{cfg: cfg, records: fx.records()}).allow
 
 	// v1 stays exposed (accepted at this exact hash).
-	l1 := bundles.NewLoader(nil, true, bundles.WithSeededBundles(v1), bundles.WithTrustGate(gate))
+	l1 := bundles.NewPipeline(bundles.NewLoader(nil, bundles.WithSeededBundles(v1)), gate, true)
 	got, err := l1.GetFragment(acmeBundle + "tooling#fragments/solid")
 	require.NoError(t, err)
 	assert.Equal(t, "v1 body", got.Content)
@@ -144,7 +144,7 @@ func TestExposureGate_UpdateRegatesExactly(t *testing.T) {
 		acmeBundle + "tooling": {Name: acmeBundle + "tooling",
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "v2 body"}}},
 	}
-	l2 := bundles.NewLoader(nil, true, bundles.WithSeededBundles(v2), bundles.WithTrustGate(gate))
+	l2 := bundles.NewPipeline(bundles.NewLoader(nil, bundles.WithSeededBundles(v2)), gate, true)
 	_, err = l2.GetFragment(acmeBundle + "tooling#fragments/solid")
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "post-swap content must gate, got %v", err)
 
@@ -174,9 +174,8 @@ func TestExposureGate_FailClosed(t *testing.T) {
 	// A fresh, empty records store → every gated item withheld through the
 	// loader (nothing has ever been approved).
 	empty := &contentGate{records: newTrustFixture(t).records()}
-	l := bundles.NewLoader(nil, true,
-		bundles.WithSeededBundles(acmeToolingSeed()),
-		bundles.WithTrustGate(empty.allow))
+	l := bundles.NewPipeline(bundles.NewLoader(nil,
+		bundles.WithSeededBundles(acmeToolingSeed())), empty.allow, true)
 	_, err := l.GetFragment(solidRef)
 	assert.True(t, errors.Is(err, errs.ErrFragmentWithheld), "an empty records store must withhold even a would-be-trusted item, got %v", err)
 }

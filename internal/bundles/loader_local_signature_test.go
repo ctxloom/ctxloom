@@ -74,7 +74,7 @@ func TestLoader_LoadFile_StaleLocalSignature_WarnsAndDelivers(t *testing.T) {
 	require.NoError(t, afero.WriteFile(mem, path, edited, 0o644))
 
 	var warnings bytes.Buffer
-	loader := NewLoader([]string{"/bundles"}, false, WithFS(mem), WithWarnWriter(&warnings))
+	loader := NewLoader([]string{"/bundles"}, WithFS(mem), WithWarnWriter(&warnings))
 
 	b, err := loader.LoadFile(path)
 
@@ -96,7 +96,7 @@ func TestLoader_LoadFile_ValidLocalSignature_Silent(t *testing.T) {
 	require.NoError(t, afero.WriteFile(mem, path+SigSuffix, signBytesFor(t, body), 0o644))
 
 	var warnings bytes.Buffer
-	loader := NewLoader([]string{"/bundles"}, false, WithFS(mem), WithWarnWriter(&warnings))
+	loader := NewLoader([]string{"/bundles"}, WithFS(mem), WithWarnWriter(&warnings))
 
 	b, err := loader.LoadFile(path)
 
@@ -112,7 +112,7 @@ func TestLoader_LoadFile_UnsignedLocalBundle_Silent(t *testing.T) {
 	mem, path, _ := localSigFixture(t, "plain-tools")
 
 	var warnings bytes.Buffer
-	loader := NewLoader([]string{"/bundles"}, false, WithFS(mem), WithWarnWriter(&warnings))
+	loader := NewLoader([]string{"/bundles"}, WithFS(mem), WithWarnWriter(&warnings))
 
 	b, err := loader.LoadFile(path)
 
@@ -130,7 +130,7 @@ func TestLoader_LoadFile_CorruptLocalSignature_WarnsAndDelivers(t *testing.T) {
 	require.NoError(t, afero.WriteFile(mem, path+SigSuffix, []byte("not a signature\n"), 0o644))
 
 	var warnings bytes.Buffer
-	loader := NewLoader([]string{"/bundles"}, false, WithFS(mem), WithWarnWriter(&warnings))
+	loader := NewLoader([]string{"/bundles"}, WithFS(mem), WithWarnWriter(&warnings))
 
 	b, err := loader.LoadFile(path)
 
@@ -149,7 +149,7 @@ func TestLoader_LoadFile_UnreadableLocalSignature_WarnsAndDelivers(t *testing.T)
 	require.NoError(t, afero.WriteFile(mem, sigPath, []byte("armored-signature-bytes"), 0o644))
 
 	var warnings bytes.Buffer
-	loader := NewLoader([]string{"/bundles"}, false,
+	loader := NewLoader([]string{"/bundles"},
 		WithFS(&openFailFs{Fs: mem, failPath: filepath.ToSlash(sigPath)}),
 		WithWarnWriter(&warnings))
 
@@ -171,9 +171,9 @@ func TestLoader_LoadFile_StaleLocalSignature_WarnsOncePerBundle(t *testing.T) {
 	require.NoError(t, afero.WriteFile(mem, path, edited, 0o644))
 
 	var first, second bytes.Buffer
-	_, err := NewLoader([]string{"/bundles"}, false, WithFS(mem), WithWarnWriter(&first)).LoadFile(path)
+	_, err := NewLoader([]string{"/bundles"}, WithFS(mem), WithWarnWriter(&first)).LoadFile(path)
 	require.NoError(t, err)
-	_, err = NewLoader([]string{"/bundles"}, false, WithFS(mem), WithWarnWriter(&second)).LoadFile(path)
+	_, err = NewLoader([]string{"/bundles"}, WithFS(mem), WithWarnWriter(&second)).LoadFile(path)
 	require.NoError(t, err)
 
 	assert.Contains(t, first.String(), "repeat-tools.yaml.sig")

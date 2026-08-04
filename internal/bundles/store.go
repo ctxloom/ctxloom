@@ -34,9 +34,11 @@ type fsStore struct {
 	*Loader
 }
 
-// NewFSStore returns a filesystem-backed bundle Store over searchDirs.
-func NewFSStore(searchDirs []string, preferDistilled bool, opts ...LoaderOption) Store {
-	return &fsStore{Loader: NewLoader(searchDirs, preferDistilled, opts...)}
+// NewFSStore returns a filesystem-backed bundle Store over searchDirs. Like
+// NewLoader it carries no form preference: a store yields every form it holds
+// and the caller names the one it wants at the point of the read.
+func NewFSStore(searchDirs []string, opts ...LoaderOption) Store {
+	return &fsStore{Loader: NewLoader(searchDirs, opts...)}
 }
 
 // Save writes the bundle back to its Path (which the caller sets — to the

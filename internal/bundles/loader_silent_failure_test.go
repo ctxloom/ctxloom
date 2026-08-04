@@ -53,9 +53,9 @@ func captureBundleWarner(t *testing.T) *bytes.Buffer {
 // the identical warner; the inconsistency was the tell.
 func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
-	l := NewLoader(nil, false, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
+	l := NewLoader(nil, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
 
-	got := l.CommandsFromBundleRef("no-such-bundle-cmds")
+	got := ungated(l, false).CommandsFromBundleRef("no-such-bundle-cmds")
 
 	require.Empty(t, got, "an unloadable bundle still yields no commands")
 	require.Contains(t, buf.String(), "no-such-bundle-cmds",
@@ -68,9 +68,9 @@ func TestCommandsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 // the same defect, the same export path, the same silence.
 func TestSkillsFromBundleRef_WarnsWhenBundleUnloadable(t *testing.T) {
 	buf := captureBundleWarner(t)
-	l := NewLoader(nil, false, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
+	l := NewLoader(nil, WithFS(afero.NewMemMapFs()), WithWarnWriter(buf))
 
-	got := l.SkillsFromBundleRef("no-such-bundle-skills")
+	got := ungated(l, false).SkillsFromBundleRef("no-such-bundle-skills")
 
 	require.Empty(t, got, "an unloadable bundle still yields no skills")
 	require.Contains(t, buf.String(), "no-such-bundle-skills",
@@ -109,7 +109,7 @@ func TestList_UnreadableBundlesDirIsLoud(t *testing.T) {
 	t.Cleanup(restore)
 
 	mark := strictness.Checkpoint()
-	l := NewLoader([]string{dir}, false, WithFS(afero.NewOsFs()))
+	l := NewLoader([]string{dir}, WithFS(afero.NewOsFs()))
 	got, err := l.List()
 	require.NoError(t, err, "List keeps its signature; loudness rides the strictness choke")
 
@@ -154,7 +154,7 @@ func TestSkillContent_RefusesNonFilesystemBundlePath(t *testing.T) {
 				Path:   tc.path,
 				Skills: map[string]BundleSkill{"helper": {}},
 			}
-			l := NewLoader(nil, false, WithFS(fs), WithSeededBundles(map[string]*Bundle{"companion": b}))
+			l := NewLoader(nil, WithFS(fs), WithSeededBundles(map[string]*Bundle{"companion": b}))
 
 			var warnings bytes.Buffer
 			restore := clidiag.SetSink(&warnings)

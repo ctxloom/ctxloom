@@ -38,6 +38,22 @@ type LoadedSkill struct {
 	Body        string            // SKILL.md content after the frontmatter block
 	Files       []LoadedSkillFile // every file in the package, SKILL.md included
 	LLM         SkillLLMExports   // per-engine enablement
+	Tags        []string          // combined (bundle + skill) tags
+
+	// TrustRef is the ref the trust gate keys this package by,
+	// "<source>#skills/<name>" — the same honest-source keying LoadedContent
+	// uses. A read FACT, never a decision.
+	TrustRef string
+	// TrustPayload is the package's trust preimage: the encoded EffectiveManifest
+	// (authored when the skill has been through `ctxloom skill sync`, derived
+	// from the on-disk tree otherwise). A skill is a directory, so its preimage
+	// is a manifest rather than one body blob. The reader has already verified
+	// the on-disk tree against this same manifest, so what the process stage
+	// decides on is exactly what was verified.
+	TrustPayload []byte
+	// Signer is the owning bundle's VERIFIED publisher identity, or "" — see
+	// LoadedContent.Signer.
+	Signer string
 }
 
 // LoadedSkillFile is one file of a resolved skill package: its path relative
@@ -49,14 +65,15 @@ type LoadedSkillFile struct {
 	Mode    uint32 // POSIX permission bits (e.g. 0644, 0755)
 }
 
-// SkillsFromBundleRef returns every skill shipped by the bundle at bundleRef
-// as fully-resolved LoadedSkill, in deterministic (name-sorted) order, or nil
-// if the bundle can't be loaded. Mirrors CommandsFromBundleRef: it lets skill
-// exports be scoped to a specific profile's bundles rather than a global
-// sweep. A skill the trust gate withholds, or whose source tree fails to
-// parse/read, is skipped with a warning (skillContent returns nil) — never
-// aborting the rest of the bundle's skills.
-func (l *Loader) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
+// ReadBundleSkills reports every skill shipped by the bundle at bundleRef as
+// fully-resolved LoadedSkill, in deterministic (name-sorted) order, or nil if
+// the bundle can't be loaded. Mirrors ReadBundleCommands: it lets skill exports
+// be scoped to a specific profile's bundles rather than a global sweep. A skill
+// whose source tree fails to resolve, verify, parse or read is skipped with a
+// warning — the reader does not HAVE it — never aborting the rest of the
+// bundle's skills. Nothing is dropped on policy grounds; see
+// Pipeline.SkillsFromBundleRef.
+func (l *Loader) ReadBundleSkills(bundleRef string) []*LoadedSkill {
 	bundle, err := l.Load(bundleRef)
 	if err != nil {
 		// This feeds the export path that WRITES per-engine skill files, so a
@@ -81,18 +98,19 @@ func (l *Loader) SkillsFromBundleRef(bundleRef string) []*LoadedSkill {
 	return out
 }
 
-// skillContent resolves one bundle skill entry into a LoadedSkill: it gates
-// the skill through the SAME per-item trust choke as fragments/commands
-// (keyed "<bundle>#skills/<name>", trust.KindSkill's selector directory),
-// then parses its source tree fresh (ParseSkillPackage — the same parse
+// skillContent resolves one bundle skill entry into a LoadedSkill: it derives
+// the package's trust preimage (BundleSkill.EffectiveManifest — the authored
+// manifest when the skill has been through `ctxloom skill sync`, otherwise one
+// derived from the on-disk tree), VERIFIES the on-disk tree against that same
+// manifest, then parses the tree fresh (ParseSkillPackage — the same parse
 // authoring/sync uses) and reads every file's bytes.
 //
-// The gate decides on a preimage that ALWAYS covers real content
-// (BundleSkill.EffectiveManifest): the authored manifest when the skill has
-// been through `ctxloom skill sync`, otherwise one derived from the on-disk
-// tree. The on-disk tree is then verified against that same manifest in
-// either case — a mismatch (tampered script, drifted content) withholds the
-// skill loudly rather than materializing a partial/tampered package.
+// Verification stays HERE, in the reader: establishing that these bytes are
+// what the manifest says is reading, and a mismatch (tampered script, drifted
+// content) means the reader does not have a coherent package to report at all.
+// It reports nothing, loudly, rather than a partial/tampered one. Deciding
+// whether the package may be DELIVERED is the process stage's call, over the
+// preimage carried out on TrustPayload.
 func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *LoadedSkill {
 	// NOT filepath.Dir(bundle.Path): Path is overloaded, and for a companion-
 	// or seeded bundle Dir() of it is ".", which resolved this skill against
@@ -126,15 +144,11 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 		clidiag.Warn("ctxloom", "skill %q withheld: encoding trust preimage: %v", name, err)
 		return nil
 	}
-	if !l.gateContent(bundle.contentSourceRef(), "skills", name, payload, FormRaw, bundle.Signer()) {
-		return nil
-	}
 
 	// Runs on EVERY skill, not just synced ones. For an authored manifest
 	// this is the tamper check against what was signed; for a derived one it
-	// re-reads the tree and re-confirms it still matches the bytes the gate
-	// just decided on, closing the window between the decision and the read
-	// loop below.
+	// re-confirms the tree still matches the preimage carried out below, so the
+	// bytes the process stage decides on are the bytes just verified.
 	if verr := VerifyExtractedManifest(l.fs, dir, manifest); verr != nil {
 		clidiag.Warn("ctxloom", "skill %q withheld: %v", name, verr)
 		return nil
@@ -161,13 +175,17 @@ func (l *Loader) skillContent(bundle *Bundle, name string, entry BundleSkill) *L
 	}
 
 	return &LoadedSkill{
-		Name:        bundle.Name + "/" + name,
-		Bundle:      bundle.Name,
-		Item:        name,
-		Frontmatter: pkg.Frontmatter,
-		Body:        pkg.Body,
-		Files:       files,
-		LLM:         entry.LLM,
+		Name:         bundle.Name + "/" + name,
+		Bundle:       bundle.Name,
+		Item:         name,
+		Frontmatter:  pkg.Frontmatter,
+		Body:         pkg.Body,
+		Files:        files,
+		LLM:          entry.LLM,
+		Tags:         slices.Concat(bundle.Tags, entry.Tags),
+		TrustRef:     bundle.contentSourceRef() + "#skills/" + name,
+		TrustPayload: payload,
+		Signer:       bundle.Signer(),
 	}
 }
 
@@ -182,43 +200,63 @@ type SkillInfo struct {
 	FileCount   int      // Number of files in the package (SKILL.md included)
 }
 
-// ListAllSkills returns info about every Agent Skill package across every
-// bundle, in deterministic (bundle, then name) order — the skill analog of
-// ListAllCommands. A skill the trust gate withholds, or whose source tree
-// fails to parse, is omitted (skillContent already warns).
-func (l *Loader) ListAllSkills() ([]SkillInfo, error) {
+// ReadAllSkills reports every Agent Skill package this reader can resolve
+// across every bundle, in deterministic (bundle, then name) order. A package
+// whose source tree fails to resolve, verify or parse is omitted (skillContent
+// already warns) — the reader does not have it. Nothing is dropped on policy
+// grounds; see Pipeline.ListAllSkills for the gated listing.
+func (l *Loader) ReadAllSkills() ([]*LoadedSkill, error) {
 	bundleInfos, err := l.List()
 	if err != nil {
 		return nil, err
 	}
-
-	var out []SkillInfo
+	var out []*LoadedSkill
 	for _, bi := range bundleInfos {
 		bundle, err := l.LoadFile(bi.Path)
 		if err != nil {
 			continue
 		}
 		for _, name := range bundle.SkillNames() {
-			ls := l.skillContent(bundle, name, bundle.Skills[name])
-			if ls == nil {
-				continue
+			if ls := l.skillContent(bundle, name, bundle.Skills[name]); ls != nil {
+				out = append(out, ls)
 			}
-			out = append(out, SkillInfo{
-				Name:        ls.Name,
-				Bundle:      ls.Bundle,
-				Description: ls.Frontmatter.Description,
-				Tags:        slices.Concat(bundle.Tags, bundle.Skills[name].Tags),
-				FileCount:   len(ls.Files),
-			})
 		}
 	}
 	return out, nil
 }
 
-// GetSkill finds and loads an Agent Skill package by name — the skill analog
-// of GetCommand. Name can be "skill-name" (searches all bundles) or
-// "bundle#skills/name".
-func (l *Loader) GetSkill(name string) (*LoadedSkill, error) {
+// skillInfoFor projects a resolved package into its listing shape. Skills carry
+// no single-blob "content" (a skill is a directory tree), so listing surfaces
+// file count instead.
+func skillInfoFor(ls *LoadedSkill) SkillInfo {
+	return SkillInfo{
+		Name:        ls.Name,
+		Bundle:      ls.Bundle,
+		Description: ls.Frontmatter.Description,
+		Tags:        ls.Tags,
+		FileCount:   len(ls.Files),
+	}
+}
+
+// ListAllSkills lists every Agent Skill package across every bundle — the skill
+// analog of ListAllCommands, and like it a MANAGEMENT/listing read: it reports
+// every package, so a pending-review one still shows up to be reviewed.
+func (l *Loader) ListAllSkills() ([]SkillInfo, error) {
+	skills, err := l.ReadAllSkills()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]SkillInfo, 0, len(skills))
+	for _, ls := range skills {
+		out = append(out, skillInfoFor(ls))
+	}
+	return out, nil
+}
+
+// ReadSkill reports every Agent Skill package this reader holds under name —
+// the skill analog of ReadCommand. Name can be "skill-name" (searches all
+// bundles, so several bundles may each answer) or "bundle#skills/name".
+func (l *Loader) ReadSkill(name string) ([]*LoadedSkill, error) {
 	bundleName, skillName, isRef, err := splitItemRef(name, "skills")
 	if err != nil {
 		return nil, err
@@ -229,8 +267,12 @@ func (l *Loader) GetSkill(name string) (*LoadedSkill, error) {
 	return l.searchSkill(name)
 }
 
-// skillFromBundle loads a specific bundle and returns the named skill.
-func (l *Loader) skillFromBundle(bundleName, skillName string) (*LoadedSkill, error) {
+// skillFromBundle loads a specific bundle and reports the named skill — the
+// single-candidate case of ReadSkill. A package the reader could not resolve
+// (skillContent already warned) reports as not-found rather than as an empty
+// success: a skill that does not materialize must never look like one that
+// materialized to nothing.
+func (l *Loader) skillFromBundle(bundleName, skillName string) ([]*LoadedSkill, error) {
 	bundle, err := l.Load(bundleName)
 	if err != nil {
 		return nil, err
@@ -241,21 +283,21 @@ func (l *Loader) skillFromBundle(bundleName, skillName string) (*LoadedSkill, er
 	}
 	ls := l.skillContent(bundle, skillName, entry)
 	if ls == nil {
-		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, skillName)
+		return nil, fmt.Errorf("%w: %s", errs.ErrSkillNotFound, skillName)
 	}
-	return ls, nil
+	return []*LoadedSkill{ls}, nil
 }
 
-// searchSkill scans every bundle for a skill with the given name. A
-// gate-withheld match does not end the scan — a trusted copy in another
-// bundle still wins; only when every match is withheld does it report
-// ErrSkillWithheld (distinct from not-found).
-func (l *Loader) searchSkill(name string) (*LoadedSkill, error) {
+// searchSkill scans every bundle for a skill with the given name and reports
+// EVERY package it could resolve, in List order — searchFragment's skill twin.
+// Reporting all of them is what lets the process stage keep scanning past one
+// it withholds: a trusted copy in another bundle still wins.
+func (l *Loader) searchSkill(name string) ([]*LoadedSkill, error) {
 	bundleInfos, err := l.List()
 	if err != nil {
 		return nil, err
 	}
-	withheld := false
+	var out []*LoadedSkill
 	for _, bi := range bundleInfos {
 		bundle, err := l.LoadFile(bi.Path)
 		if err != nil {
@@ -266,12 +308,11 @@ func (l *Loader) searchSkill(name string) (*LoadedSkill, error) {
 			continue
 		}
 		if ls := l.skillContent(bundle, name, entry); ls != nil {
-			return ls, nil
+			out = append(out, ls)
 		}
-		withheld = true
 	}
-	if withheld {
-		return nil, fmt.Errorf("%w: %s", errs.ErrSkillWithheld, name)
+	if len(out) == 0 {
+		return nil, fmt.Errorf("%w: %s", errs.ErrSkillNotFound, name)
 	}
-	return nil, fmt.Errorf("%w: %s", errs.ErrSkillNotFound, name)
+	return out, nil
 }

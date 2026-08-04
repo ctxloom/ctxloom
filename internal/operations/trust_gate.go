@@ -48,7 +48,7 @@ type contentGate struct {
 	// result (Source + Detail) so the advisory can report WHY, not just THAT,
 	// an item was withheld — a withhold must never be silent or reasonless
 	// (docs/trust-model.md). The content loader surfaces its own withheld set
-	// (loader.Withheld(), refs only), but the executable surfaces (MCP
+	// (Pipeline.Withheld(), refs only), but the executable surfaces (MCP
 	// servers, bundle hooks, prompt exports) call the gate directly with no
 	// loader to tally them, so the gate keeps its own record and the caller
 	// surfaces a content-free, reasoned advisory (ExecutableTrustGate.
@@ -142,7 +142,7 @@ func (g *contentGate) withheldItems() []withheldItem {
 }
 
 // buildContentGate constructs the *contentGate every real caller uses
-// (exposureLoaderGated, NewExecutableTrustGate). It is the shared builder.
+// (exposurePipelineGated, NewExecutableTrustGate). It is the shared builder.
 // records/fs are injection points for testing; production passes nil records
 // and they are built from cfg (OS fs unless cfg carries an injected one).
 // Returning the struct (not just g.allow) lets callers read the withheld
@@ -202,31 +202,50 @@ func (e *ExecutableTrustGate) WarnWithheld() {
 	warnWithheldItems(e.gate.withheldItems())
 }
 
-// exposureLoader returns the read-path bundle loader with the content trust
-// gate attached. ONLY exposure surfaces use it — assembly, the ctxloom://
-// fragment|prompt resources, fragment-reading hooks, and SessionStart regen — so
-// management/listing paths keep using the gate-free bundleLoader and can still
-// resolve pending content (to review, accept, or stamp it). cfg.FS() is
-// threaded so the gate's review-records store reads the same filesystem as the
-// rest of the operation (OS fs in production, a virtualized fs in tests).
-func exposureLoader(cfg *config.Config, opts ...bundles.LoaderOption) *bundles.Loader {
-	loader, _ := exposureLoaderGated(cfg, opts...)
-	return loader
+// exposurePipeline returns the exposure PROCESS stage: one bundle reader — the
+// same cfg.SeededBundleLoader every management and listing path uses — wrapped
+// in a pipeline that gates with the content trust gate and serves the
+// configured form. ONLY exposure surfaces build it (assembly, the ctxloom://
+// fragment|prompt|skill resources, fragment-reading hooks, SessionStart regen);
+// management/listing paths keep reading through the bare loader, which resolves
+// pending content so a human can still review, accept or stamp it.
+//
+// "Is this exposure gated" is therefore a property of the pipeline, not of the
+// reader — nothing about how the reader was CONSTRUCTED differs between the two.
+// cfg.FS() is threaded so the gate's review-records store reads the same
+// filesystem as the rest of the operation (OS fs in production, a virtualized
+// fs in tests).
+func exposurePipeline(cfg *config.Config, opts ...bundles.LoaderOption) *bundles.Pipeline {
+	pipe, _ := exposurePipelineGated(cfg, opts...)
+	return pipe
 }
 
-// exposureLoaderGated is exposureLoader's sibling: it builds the identical
-// gated exposure loader but ALSO returns the underlying *contentGate, so a
+// exposurePipelineGated is exposurePipeline's sibling: it builds the identical
+// gated exposure pipeline but ALSO returns the underlying *contentGate, so a
 // caller that reports why items were withheld (warnWithheld) can read each
 // withheld ref's full decided result — Source and Detail — instead of just a
-// bare ref list. Use this over exposureLoader whenever the caller goes on to
-// call warnWithheld; callers that only load content (fragments.go, prompts.go
+// bare ref list. Use this over exposurePipeline whenever the caller goes on to
+// call warnWithheld; callers that only load content (fragments.go, commands.go
 // — a single-item resource fetch that already returns a distinct withheld
 // sentinel error, errs.ErrFragmentWithheld/ErrCommandWithheld) have no reasoned
-// advisory to print and keep using the simpler exposureLoader.
-func exposureLoaderGated(cfg *config.Config, opts ...bundles.LoaderOption) (*bundles.Loader, *contentGate) {
+// advisory to print and keep using the simpler exposurePipeline.
+func exposurePipelineGated(cfg *config.Config, opts ...bundles.LoaderOption) (*bundles.Pipeline, *contentGate) {
 	gate := buildContentGate(cfg, nil, cfgFS(cfg))
-	opts = append(opts, bundles.WithTrustGate(gate.allow))
-	return cfg.SeededBundleLoader(cfg.ShouldUseDistilled(), opts...), gate
+	return bundles.NewPipeline(cfg.SeededBundleLoader(opts...), gate.allow, cfgPreferDistilled(cfg)), gate
+}
+
+// cfgPreferDistilled returns the caller's raw-vs-distilled form choice, nil-safe.
+//
+// Form selection is a PROCESS-stage decision (docs/design/engine-delivery-seam.
+// design.md, "ALL processing lives in the middle"): the read stage — the bundle
+// reader — carries no preference at all, so the pipeline that processes its
+// output names the form. A nil cfg (an injected-pipeline test) gets the same
+// default an unset setting does, which is distilled.
+func cfgPreferDistilled(cfg *config.Config) bool {
+	if cfg == nil {
+		return true
+	}
+	return cfg.ShouldUseDistilled()
 }
 
 // cfgFS returns cfg's injected filesystem (nil for the OS default), nil-safe.
@@ -256,14 +275,14 @@ func warnWithheldItems(items []withheldItem) {
 // the action. It is purely advisory (fault tolerance: never an error) and a
 // no-op when nothing was withheld.
 //
-// gate is the *contentGate the loader's trust gate was actually built from
-// (see exposureLoaderGated) — it is a SUPERSET of loader.Withheld() (it also
+// gate is the *contentGate the pipeline decides with (see
+// exposurePipelineGated) — it is a SUPERSET of Pipeline.Withheld() (it also
 // captures builtin-fragment gate calls, which bypass the loader's own content
-// choke and so never reach loader.Withheld() at all — see
+// choke and so never reach Pipeline.Withheld() at all — see
 // config.ResolveBuiltinBundleFragments), so this also fixes a prior gap where
 // a withheld builtin fragment surfaced no advisory whatsoever. Every real
 // production call site (context.go, hooks.go, tooling.go) always builds
-// through exposureLoaderGated, so gate is never nil in practice (the
+// through exposurePipelineGated, so gate is never nil in practice (the
 // nil-gate/raw-loader degrade path was deleted along with warnPendingTally,
 // its sole caller: that path only ever ran under a test-injected loader, and
 // two of its three advisory branches — pending>0&&rejected>0, rejected-only —

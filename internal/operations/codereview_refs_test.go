@@ -28,7 +28,7 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 			},
 		},
 	}
-	loader := bundles.NewLoader(nil, false, bundles.WithSeededBundles(seed))
+	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(seed))
 
 	cfg := config.NewFixture(config.Fixture{
 		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
@@ -42,8 +42,8 @@ func TestCodeReviewProfile_CanonicalCherryPickResolves(t *testing.T) {
 	})
 
 	res, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-		Profile: "code-review/security",
-		Loader:  loader,
+		Profile:  "code-review/security",
+		Pipeline: opPipe(cfg, loader),
 	})
 	require.NoError(t, err)
 

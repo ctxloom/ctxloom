@@ -105,7 +105,7 @@ func canonicalizeBundleArg(cfg *config.Config, name string, dirs []string, fs af
 		aliasToURL = registryAliasToURL(registry)
 	}
 	localExists := func(b string) bool {
-		_, ferr := bundles.NewLoader(dirs, false, bundles.WithFS(getFS(fs))).Find(b)
+		_, ferr := bundles.NewLoader(dirs, bundles.WithFS(getFS(fs))).Find(b)
 		return ferr == nil
 	}
 	return remote.CanonicalizeShortRef(base, aliasToURL, localExists) + selector

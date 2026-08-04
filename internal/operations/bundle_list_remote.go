@@ -35,7 +35,7 @@ func listBundleInfos(ctx context.Context, cfg *config.Config) ([]*bundles.Bundle
 		return nil, fmt.Errorf("no .ctxloom directory configured")
 	}
 
-	infos, err := cfg.SeededBundleLoader(cfg.ShouldUseDistilled()).List()
+	infos, err := cfg.SeededBundleLoader().List()
 	if err != nil {
 		return nil, err
 	}

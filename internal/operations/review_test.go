@@ -46,7 +46,7 @@ func reviewBundle() *bundles.Bundle {
 }
 
 func reviewLoader(b *bundles.Bundle) *bundles.Loader {
-	return bundles.NewLoader(nil, true, bundles.WithSeededBundles(map[string]*bundles.Bundle{reviewSeedKey: b}))
+	return bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{reviewSeedKey: b}))
 }
 
 // pendingRefs flattens an enumeration to "ref:status" strings for compact
@@ -208,7 +208,7 @@ func TestPendingReview_DecidedAndExemptExcluded(t *testing.T) {
 			Version:   "1.0",
 			Fragments: map[string]bundles.BundleFragment{"x": {Content: "project-authored"}},
 		}
-		loader := bundles.NewLoader(nil, true, bundles.WithSeededBundles(map[string]*bundles.Bundle{"localb": local}))
+		loader := bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{"localb": local}))
 		fx := newTrustFixture(t)
 		res, err := PendingReview(nil, PendingReviewRequest{UserStore: fx.user, Root: fx.root, Registry: newRegistry(t), Loader: loader, FS: afero.NewMemMapFs()})
 		require.NoError(t, err)

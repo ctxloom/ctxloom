@@ -469,7 +469,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	// surface (the SessionStart-injected context file), so it gates content the
 	// same way AssembleContext does (trust rework, TR5) — baseline-first, then
 	// withhold anything the cascade denies.
-	loader, gate := exposureLoaderGated(cfg, bundleOpts...)
+	pipe, gate := exposurePipelineGated(cfg, bundleOpts...)
 
 	// Collect through the same path AssembleContext uses: collectProfileFragments
 	// emits tag-matched fragments under their canonical qualified names (so
@@ -479,7 +479,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	// that disagrees with what `ctxloom run` assembles. The default set is the
 	// default agent's composed profiles (resolveContextProfileNames reads the
 	// same DefaultAgentProfiles; profiles.defaults was retired).
-	allFragments, profileVars, _, _, err := collectProfileFragments(cfg, loader, cfg.DefaultAgentProfiles(), nil, true)
+	allFragments, profileVars, _, _, err := collectProfileFragments(cfg, pipe.Loader(), cfg.DefaultAgentProfiles(), nil, true)
 	if err != nil {
 		return "", err
 	}
@@ -490,7 +490,7 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 
 	var backendFrags []*agent.Fragment
 	for _, ref := range orderedRefs {
-		content, err := loadFragmentRef(loader, ref)
+		content, err := loadFragmentRef(pipe, ref)
 		if err != nil {
 			warnFragmentLoadFailure(ref, err)
 			continue
@@ -509,8 +509,8 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []bundles.
 	// counterpart to their hooks/MCP — so the SessionStart-injected context file
 	// matches AssembleContext. Skipped when the companion binary is absent.
 	// Gated through the SAME content gate as loader-resolved fragments
-	// (loader.Gate()) so a rejected builtin fragment is withheld here too.
-	for _, bf := range cfg.ResolveBuiltinBundleFragments(loader.Gate()) {
+	// (pipe.Gate()) so a rejected builtin fragment is withheld here too.
+	for _, bf := range cfg.ResolveBuiltinBundleFragments(pipe.Gate()) {
 		backendFrags = append(backendFrags, &agent.Fragment{
 			Name:    bf.Name,
 			Content: bf.Content,

@@ -111,8 +111,9 @@ type SkillFileEntry struct {
 type GetSkillRequest struct {
 	Name string `json:"name"`
 
-	// Loader is an optional pre-configured loader (for testing).
-	Loader *bundles.Loader `json:"-"`
+	// Pipeline is an optional pre-configured process stage (for testing) —
+	// see GetFragmentRequest.Pipeline.
+	Pipeline *bundles.Pipeline `json:"-"`
 }
 
 // GetSkillResult carries a skill's frontmatter, instructions body, and
@@ -136,14 +137,14 @@ func GetSkill(_ context.Context, cfg *config.Config, req GetSkillRequest) (*GetS
 	if req.Name == "" {
 		return nil, fmt.Errorf("name is required")
 	}
-	loader := req.Loader
-	if loader == nil {
+	pipe := req.Pipeline
+	if pipe == nil {
 		if cfg == nil {
 			return nil, fmt.Errorf("no .ctxloom directory configured")
 		}
-		loader = exposureLoader(cfg)
+		pipe = exposurePipeline(cfg)
 	}
-	ls, err := loader.GetSkill(req.Name)
+	ls, err := pipe.GetSkill(req.Name)
 	if err != nil {
 		return nil, err
 	}

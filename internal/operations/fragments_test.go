@@ -236,7 +236,7 @@ fragments:
 `
 	_ = afero.WriteFile(fs, paths.LocalBundlesPath(testBaseDir)+"/another.yaml", []byte(anotherBundle), 0644)
 
-	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, false, bundles.WithFS(fs))
+	loader := bundles.NewLoader([]string{paths.LocalBundlesPath(testBaseDir)}, bundles.WithFS(fs))
 	return fs, loader
 }
 
@@ -332,8 +332,8 @@ func TestGetFragment_Success(t *testing.T) {
 
 	// Use bundle#fragments/name syntax
 	result, err := GetFragment(context.Background(), nil, GetFragmentRequest{
-		Name:   "test-bundle#fragments/security",
-		Loader: loader,
+		Name:     "test-bundle#fragments/security",
+		Pipeline: opPipe(nil, loader),
 	})
 
 	require.NoError(t, err)
@@ -346,8 +346,8 @@ func TestGetFragment_NotFound(t *testing.T) {
 	_, loader := setupBundleTestFS(t)
 
 	_, err := GetFragment(context.Background(), nil, GetFragmentRequest{
-		Name:   "nonexistent-bundle#fragments/nope",
-		Loader: loader,
+		Name:     "nonexistent-bundle#fragments/nope",
+		Pipeline: opPipe(nil, loader),
 	})
 
 	require.Error(t, err)

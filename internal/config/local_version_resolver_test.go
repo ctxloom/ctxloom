@@ -59,7 +59,7 @@ func localContentRepo(t *testing.T) (appDir, rev1, rev2 string) {
 // localResolverLoader wires a real bundleVersionResolver over appDir into a loader,
 // seeding a version-less working-tree default so the unversioned path has a bundle
 // to resolve (mirroring how assembly sees today's working copy).
-func localResolverLoader(t *testing.T, appDir string) *bundles.Loader {
+func localResolverLoader(t *testing.T, appDir string) *bundles.Pipeline {
 	t.Helper()
 	cfg := &Config{appPaths: []string{appDir}}
 	resolver := cfg.bundleVersionResolver()
@@ -68,9 +68,9 @@ func localResolverLoader(t *testing.T, appDir string) *bundles.Loader {
 		Fragments: map[string]bundles.BundleFragment{"fmt": {Content: "WORKTREE-BODY"}},
 		Commands:  map[string]bundles.BundleCommand{"review": {Content: "WORKTREE-PROMPT"}},
 	}
-	return bundles.NewLoader(nil, false,
+	return bundles.NewPipeline(bundles.NewLoader(nil,
 		bundles.WithSeededBundles(map[string]*bundles.Bundle{localGoTools: def}),
-		bundles.WithVersionResolver(resolver))
+		bundles.WithVersionResolver(resolver)), nil, false)
 }
 
 // TestLocalRev_FragmentResolvesHistoricalVersion proves a local fragment ref

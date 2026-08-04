@@ -31,8 +31,8 @@ type RunOneshotRequest struct {
 	WorkDir   string // working directory for the run
 	Verbosity int
 
-	// Loader is an optional pre-configured bundle loader (test seam).
-	Loader *bundles.Loader
+	// Pipeline is an optional pre-configured process stage (test seam).
+	Pipeline *bundles.Pipeline
 	// Factory builds the plugin client; nil self-invokes the compiled-in
 	// backend carrying the resolved config label
 	// (pb.DefaultClientFactoryForLabel). The seam lets delegated agent_run
@@ -58,8 +58,8 @@ type RunOneshotResult struct {
 // assembled context is the only specialization.
 func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) (*RunOneshotResult, error) {
 	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{
-		Profile: req.Profile,
-		Loader:  req.Loader,
+		Profile:  req.Profile,
+		Pipeline: req.Pipeline,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("assemble context: %w", err)

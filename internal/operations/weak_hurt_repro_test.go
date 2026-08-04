@@ -49,7 +49,7 @@ func TestWeakHurt_TrustStamper_UnreadableStore_ListingPath(t *testing.T) {
 	wrapped := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
-	loader := bundles.NewLoader(nil, true, bundles.WithSeededBundles(map[string]*bundles.Bundle{
+	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{
 		"demo": {Fragments: map[string]bundles.BundleFragment{"localfrag": {Content: "local body"}}},
 	}))
 
@@ -82,7 +82,7 @@ func TestWeakHurt_PendingReview_UnreadableStore_ListingPath(t *testing.T) {
 	wrapped := denyOpenFs{Fs: fs, deny: map[string]error{approvalsDir: errors.New("permission denied")}}
 
 	cfg := config.NewFixture(config.Fixture{AppPaths: []string{projectDir}})
-	loader := bundles.NewLoader(nil, true, bundles.WithSeededBundles(map[string]*bundles.Bundle{
+	loader := bundles.NewLoader(nil, bundles.WithSeededBundles(map[string]*bundles.Bundle{
 		"https://github.com/acme/repo@bundles/tooling": {
 			Fragments: map[string]bundles.BundleFragment{"solid": {Content: "solid body"}},
 		},

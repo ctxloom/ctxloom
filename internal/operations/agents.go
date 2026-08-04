@@ -461,13 +461,13 @@ func ResolveAgent(ctx context.Context, cfg *config.Config, name, engineOverride 
 //   - engineOverride, when non-empty, REPLACES the agent's declared engine for
 //     this resolution (a caller-level -l/--llm override wins over the
 //     binding's own engine). Empty leaves the binding's engine in force.
-//   - loader, when non-nil, is the bundle loader used to assemble the context (a
-//     test seam / shared loader); nil falls back to the gated exposure loader.
+//   - pipe, when non-nil, is the process stage used to assemble the context (a
+//     test seam / shared pipeline); nil falls back to the gated exposure one.
 //
 // Engine precedence (resolveOneshotLabel): the effective engine (override else
 // the binding's engine) wins; an empty effective engine falls back to the
 // composed profiles' llm, then the project default backend.
-func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, sub agents.Agent, engineOverride string, loader *bundles.Loader) (*ResolvedAgent, error) {
+func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, sub agents.Agent, engineOverride string, pipe *bundles.Pipeline) (*ResolvedAgent, error) {
 	// Reject an unknown Driving value here too, not just at ParseAgent/
 	// SetAgent: this is the ONLY load path a config-key `agents:` entry
 	// walks (it is parsed by the whole-config.yaml yaml.Unmarshal, which
@@ -486,7 +486,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 		clidiag.Warn("ctxloom", "agent %q declares no profiles; composing empty context", name)
 	}
 
-	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: sub.Profiles, Loader: loader})
+	ctxResult, err := AssembleContext(ctx, cfg, AssembleContextRequest{Profiles: sub.Profiles, Pipeline: pipe})
 	if err != nil {
 		return nil, fmt.Errorf("agent %q: compose profiles: %w", name, err)
 	}

@@ -81,13 +81,10 @@ profiles:
 		gated = append(gated, ref)
 		return false // withhold everything the choke is consulted about
 	}
-	loader := NewLoader(nil, false,
-		WithSeededBundles(map[string]*Bundle{"kit": b}),
-		WithTrustGate(denyGate),
-	)
+	pipe := gatedPipe(NewLoader(nil, WithSeededBundles(map[string]*Bundle{"kit": b})), denyGate, false)
 
 	// The constituent fragment gates at content assembly: a deny gate withholds it.
-	_, err = loader.GetFragment("kit#fragments/f1")
+	_, err = pipe.GetFragment("kit#fragments/f1")
 	require.ErrorIs(t, err, errs.ErrFragmentWithheld)
 
 	// The gate was consulted for the fragment, but NEVER for the profile

@@ -21,51 +21,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// ContentGate is the per-item trust gate for resolved fragment/prompt content.
-// It receives:
-//
-//   - ref     — the item's full ref, "<bundle>#<kind>/<name>"
-//   - payload — the EXACT bytes about to be exposed (pre-mustache)
-//   - form    — the LAYOUT form: "raw" | "distilled"
-//   - signer  — the bundle's VERIFIED publisher identity, or "" for unsigned
-//
-// form is the layout axis ONLY. A countersignature binds a COMPOSITE
-// attestation form that also names the item's role ("fragment/raw",
-// "exec/hook", …), and that value is derived below the gate from the ref's kind
-// — never passed in here. A gate call site therefore cannot name its own role,
-// which is what stops a text item's approval from ever satisfying an
-// executable's gate over identical bytes: the caller does not get a say.
-//
-// and reports whether the item may be exposed (true) or must be withheld
-// (false).
-//
-// It takes BYTES, not a content hash, and that is the point: a hash can only be
-// compared against a recorded hash, and a recorded hash is a file anything can
-// write. Bytes can be VERIFIED against a signature. Handing the gate a
-// precomputed hash would make the fast path "is this hash in the store?" — which
-// is exactly the forgeable-file weakness the signature design exists to remove
-// (spec §9.3, trap #2). The hash still exists, as an index; it just stopped
-// being the authority.
-//
-// A nil gate means no enforcement — management/listing loaders resolve content
-// without gating so they can still see pending items (to review, accept, or
-// stamp them). Fail-closed semantics are the gate's own responsibility: a
-// resolve/store error must return false (withhold), never default-allow.
-type ContentGate func(ref string, payload []byte, form, signer string) bool
-
 // Loader loads bundles from disk (and an optional in-memory seed), caching
 // parsed results for the lifetime of the loader.
 type Loader struct {
-	searchDirs      []string
-	preferDistilled bool
-	fs              afero.Fs
-	mu              sync.RWMutex       // Protects cache
-	cache           map[string]*Bundle // Cache of loaded bundles by path
-	seeded          map[string]*Bundle // Canonical-ref → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
-
-	gate       ContentGate         // nil = no enforcement; set on exposure loaders only
-	withheldMu sync.Mutex          // Protects withheld
-	withheld   map[string]struct{} // refs the gate withheld this loader's lifetime
+	searchDirs []string
+	fs         afero.Fs
+	mu         sync.RWMutex       // Protects cache
+	cache      map[string]*Bundle // Cache of loaded bundles by path
+	seeded     map[string]*Bundle // Canonical-ref → already-parsed bundle, populated from a remote source (e.g. BundleReader). Looked up before fs search.
 
 	// versionResolver materializes a specific historical commit-version of a
 	// bundle (multi-version coexistence, trust rework, TR5). nil = no per-version
@@ -134,16 +97,6 @@ func WithSeededBundles(seeded map[string]*Bundle) LoaderOption {
 	}
 }
 
-// WithTrustGate attaches the per-item trust gate (trust rework, TR5) so this
-// loader withholds fragment/prompt content the trust cascade denies. Only
-// exposure loaders (assembly, ctxloom:// resources, fragment-reading hooks,
-// SessionStart regen) set it; management/listing loaders leave it nil.
-func WithTrustGate(gate ContentGate) LoaderOption {
-	return func(l *Loader) {
-		l.gate = gate
-	}
-}
-
 // WithVersionResolver attaches the per-commit-version resolver (multi-version
 // coexistence, trust rework, TR5) so the loader can materialize a specific
 // historical version of a bundle via the version-aware methods. A nil resolver
@@ -170,59 +123,30 @@ func WithWarnWriter(w io.Writer) LoaderOption {
 	}
 }
 
-// NewLoader creates a bundle loader.
-// The loader caches loaded bundles in memory to avoid redundant disk reads.
-func NewLoader(searchDirs []string, preferDistilled bool, opts ...LoaderOption) *Loader {
+// NewLoader creates a bundle reader.
+// The reader caches loaded bundles in memory to avoid redundant disk reads.
+//
+// It carries NO policy — no form preference and no trust gate. Both are
+// PROCESS-stage decisions (docs/design/engine-delivery-seam.design.md, "ALL
+// processing lives in the middle") and both live on Pipeline. What the reader
+// does keep is its ability to ESTABLISH trust facts: a publisher signature is
+// verified at load, before any parse, and the verified identity travels with
+// the content (Bundle.Signer) for the process stage to decide on. Verification
+// is reading; withholding is not.
+//
+// One reader therefore serves everyone: management, listing and every exposure
+// surface alike.
+func NewLoader(searchDirs []string, opts ...LoaderOption) *Loader {
 	l := &Loader{
-		searchDirs:      searchDirs,
-		preferDistilled: preferDistilled,
-		fs:              afero.NewOsFs(),
-		cache:           make(map[string]*Bundle),
-		warnOut:         os.Stderr,
+		searchDirs: searchDirs,
+		fs:         afero.NewOsFs(),
+		cache:      make(map[string]*Bundle),
+		warnOut:    os.Stderr,
 	}
 	for _, opt := range opts {
 		opt(l)
 	}
 	return l
-}
-
-// gateContent runs the trust gate (if any) for a resolved fragment/prompt.
-// Returns true to expose. A nil gate (management/listing loaders) always
-// exposes. A withheld item is recorded — deduplicated by ref — so an assembly
-// caller can surface the count ("N withheld") via Withheld without leaking
-// content.
-//
-// payload MUST be the exact bytes about to be exposed (pre-mustache), so the
-// gate decides on what the agent would actually see; profile-variable
-// substitution happens after and cannot smuggle content past the gate.
-// source is the bundle's honest source ref (Bundle.contentSourceRef): canonical
-// for a cloned bundle so its text gates like an executable, the local name for a
-// project bundle so its text auto-trusts — the SAME keying the exec gate uses.
-// signer is the bundle's verified publisher identity, carried straight through.
-func (l *Loader) gateContent(source, kindDir, itemName string, payload []byte, form ContentForm, signer string) bool {
-	if l.gate == nil {
-		return true
-	}
-	ref := source + "#" + kindDir + "/" + itemName
-	if l.gate(ref, payload, string(form), signer) {
-		return true
-	}
-	l.withheldMu.Lock()
-	if l.withheld == nil {
-		l.withheld = make(map[string]struct{})
-	}
-	l.withheld[ref] = struct{}{}
-	l.withheldMu.Unlock()
-	return false
-}
-
-// Gate returns the loader's attached trust gate (nil when none is set — a
-// management/listing loader). Lets a caller that must gate OTHER items through
-// the IDENTICAL decision (e.g. builtin bundle fragments, which bypass the
-// loader's own content choke since they never resolve through Load) share this
-// loader's gate rather than building and opening a redundant one.
-func (l *Loader) Gate() ContentGate {
-	return l.gate
 }
 
 // FS returns the filesystem this loader reads bundle trees from. A skill's
@@ -232,24 +156,6 @@ func (l *Loader) Gate() ContentGate {
 // a different hash for the same skill and silently withhold it.
 func (l *Loader) FS() afero.Fs {
 	return l.fs
-}
-
-// Withheld returns the item refs the trust gate withheld over this loader's
-// lifetime, deduplicated and sorted. Empty when no gate is set or nothing was
-// withheld. Callers surface the count so the user knows content was hidden;
-// returning the refs (not their content) keeps the disclosure content-free.
-func (l *Loader) Withheld() []string {
-	l.withheldMu.Lock()
-	defer l.withheldMu.Unlock()
-	if len(l.withheld) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(l.withheld))
-	for ref := range l.withheld {
-		out = append(out, ref)
-	}
-	sort.Strings(out)
-	return out
 }
 
 // seededPath builds the synthetic path used in BundleInfo for seeded bundles.

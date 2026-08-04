@@ -30,7 +30,7 @@ func TestRunOneshot_EmptyStdoutIsLoud(t *testing.T) {
 			factory := func(string, string, int) (pb.Client, error) { return stub, nil }
 
 			res, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
-				Profile: "rev", Task: "review this diff", Loader: loader, Factory: factory,
+				Profile: "rev", Task: "review this diff", Pipeline: opPipe(cfg, loader), Factory: factory,
 			})
 			require.Error(t, err, "exit 0 with empty stdout must fail loudly, not report a successful empty run")
 			assert.Nil(t, res)

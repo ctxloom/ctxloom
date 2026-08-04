@@ -37,8 +37,8 @@ func TestGetPrompt_Pinned_ResolvesHistoricalVersion(t *testing.T) {
 	loader, _ := versionPinnedLoader(t, fx.records(), def, versions)
 
 	res, err := GetCommand(context.Background(), nil, GetCommandRequest{
-		Name:   cqVersionRef + "#commands/review@c1",
-		Loader: loader,
+		Name:     cqVersionRef + "#commands/review@c1",
+		Pipeline: loader,
 	})
 	require.NoError(t, err)
 	assert.Contains(t, res.Content, "V1-REVIEW", "pinned ref resolves the historical prompt version")
@@ -55,8 +55,8 @@ func TestGetPrompt_Unversioned_Unchanged(t *testing.T) {
 	loader, _ := versionPinnedLoader(t, fx.records(), def, versions)
 
 	res, err := GetCommand(context.Background(), nil, GetCommandRequest{
-		Name:   cqVersionRef + "#commands/review",
-		Loader: loader,
+		Name:     cqVersionRef + "#commands/review",
+		Pipeline: loader,
 	})
 	require.NoError(t, err)
 	assert.Contains(t, res.Content, "DEFAULT-REVIEW", "an unversioned ref resolves the lockfile default")
@@ -75,8 +75,8 @@ func TestGetPrompt_Pinned_GateEvaluatesPinnedHash(t *testing.T) {
 	// Un-granted pinned version → withheld (GetPrompt surfaces the loader's
 	// ErrCommandWithheld).
 	_, err := GetCommand(context.Background(), nil, GetCommandRequest{
-		Name:   cqVersionRef + "#commands/review@c2",
-		Loader: loader,
+		Name:     cqVersionRef + "#commands/review@c2",
+		Pipeline: loader,
 	})
 	require.Error(t, err, "an un-granted pinned version must be withheld")
 
@@ -85,8 +85,8 @@ func TestGetPrompt_Pinned_GateEvaluatesPinnedHash(t *testing.T) {
 	fx.approvePrompt("cq", "review", "V2-REVIEW")
 	loader2, _ := versionPinnedLoader(t, fx.records(), def, versions)
 	res, err := GetCommand(context.Background(), nil, GetCommandRequest{
-		Name:   cqVersionRef + "#commands/review@c2",
-		Loader: loader2,
+		Name:     cqVersionRef + "#commands/review@c2",
+		Pipeline: loader2,
 	})
 	require.NoError(t, err)
 	assert.Contains(t, res.Content, "V2-REVIEW", "granting the pinned version's hash exposes it")
@@ -103,8 +103,8 @@ func TestGetPrompt_Pinned_FetchFailureFailsClosed(t *testing.T) {
 	loader, _ := versionPinnedLoader(t, fx.records(), def, versions)
 
 	_, err := GetCommand(context.Background(), nil, GetCommandRequest{
-		Name:   cqVersionRef + "#commands/review@broken",
-		Loader: loader,
+		Name:     cqVersionRef + "#commands/review@broken",
+		Pipeline: loader,
 	})
 	require.Error(t, err, "a fetch failure must fail closed (withhold), never silently default")
 }

@@ -41,24 +41,24 @@ type ToolingDeclaration struct {
 }
 
 // CollectTooling gathers every trusted bundle's `tooling`
-// command. SECURITY: collection goes through the TRUST-GATED loader — a
+// command. SECURITY: collection goes through the TRUST-GATED pipeline — a
 // command from an unreviewed/untrusted bundle is withheld exactly like any
 // other gated content (bundle-supplied text driving Containerfile edits is a
 // code-execution vector), and the withholding is surfaced content-free.
 // Fault-tolerant: a nil config or any load failure returns nil, never errors.
-// loader is a test seam; nil uses the gated exposure loader.
-func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclaration {
+// pipe is a test seam; nil uses the gated exposure pipeline.
+func CollectTooling(cfg *config.Config, pipe *bundles.Pipeline) []ToolingDeclaration {
 	if cfg == nil {
 		return nil
 	}
 	var gate *contentGate
-	if loader == nil {
-		loader, gate = exposureLoaderGated(cfg)
+	if pipe == nil {
+		pipe, gate = exposurePipelineGated(cfg)
 	}
-	if loader == nil {
+	if pipe == nil {
 		return nil
 	}
-	infos, err := loader.ListAllCommands()
+	infos, err := pipe.Loader().ListAllCommands()
 	if err != nil {
 		clidiag.Warn("ctxloom", "tooling: list commands: %v", err)
 		return nil
@@ -73,7 +73,7 @@ func CollectTooling(cfg *config.Config, loader *bundles.Loader) []ToolingDeclara
 		// of them to the first match. The ref also gives the user a traceable
 		// source per declaration.
 		ref := info.Bundle + "#commands/" + info.Name
-		content, gerr := loader.GetCommand(ref)
+		content, gerr := pipe.GetCommand(ref)
 		if gerr != nil || strings.TrimSpace(content.Content) == "" {
 			continue // withheld by the gate, or empty — skip, never block
 		}

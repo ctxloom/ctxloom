@@ -293,8 +293,16 @@ func registerJ3Steps(ctx *godog.ScenarioContext) {
 		// actually ran the materialize whose output this checks, so it — not
 		// this Then — got the automatic CLIOutput attribution.
 		w.docStepMaterialized = strings.TrimSpace(out)
-		if !strings.Contains(out, "does not verify") {
-			return fmt.Errorf("materialize output does not warn that the signature does not verify; output:\n%s", out)
+		// The warning has to say the SIGNATURE is the problem, and it has to
+		// name the item — "something was withheld" is not a diagnosis. The
+		// wording is the trust filter's single rendering of the tampered
+		// verdict (bundles.Reason.Explain), so this is the one place the
+		// user-facing sentence for the §10.2 downgrade is asserted end to end.
+		if !strings.Contains(out, "signature does not cover these bytes") {
+			return fmt.Errorf("materialize output does not warn that the signature does not cover the content's bytes; output:\n%s", out)
+		}
+		if !strings.Contains(out, "#fragments/guidance") {
+			return fmt.Errorf("materialize output does not name the withheld item; output:\n%s", out)
 		}
 		return nil
 	})

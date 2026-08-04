@@ -186,12 +186,19 @@ Feature: The day the assistant goes blind
   # publisher are typographically identical in the surface whose whole job is
   # deciding whether to admit them.
   #
-  # UNTAG WHEN: the pending list distinguishes an untrusted signer from an
-  # ordinary pending item, naming the key. Related open bug: `trust accept`
+  # UNTAGGED 2026-08-04, condition met: the pending list now renders three
+  # distinct publisher states — unsigned, signed by an untrusted key (with that
+  # key's fingerprint), signed by a trusted key — and names a DIFFERENT next
+  # command for each, which is the part that closes the diagnosis gap: an
+  # untrusted signer sends Alice to `trust signer create`, not to `ctxloom
+  # review`. The fingerprint is display-only and comes from
+  # signing.SignatureKeyFingerprint, which reads the key out of the signature
+  # blob and is never a trust input; VerifyPublisher is unchanged and still
+  # collapses "unsigned" and "untrusted" for the GATE, which is correct — the
+  # collapse was only ever wrong for the human. Related open bug: `trust accept`
   # silently no-ops when the user holds a signing key (task remote-prefix, and
   # j18_signing.feature's own @wip scenario) — that bug lives one hop further
   # on and is NOT restated here.
-  @wip
   Scenario: The pending list says whether the signer is one she trusts
     Given Carol published the signed runbook from a key Alice has never reviewed
     When I run "ctxloom review --list"

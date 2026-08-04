@@ -17,6 +17,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/attest"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/trust"
@@ -368,4 +371,89 @@ func TestListLocalBundleNames_MatchesTheLoadersEnumeration(t *testing.T) {
 		ok, _ := afero.Exists(fs, res.SigPath)
 		assert.True(t, ok, "no signature landed for %q at %s", name, res.SigPath)
 	}
+}
+
+// --- directory-form bundles: signing the tree, not just its manifest ---------
+
+// signDirBundle stages a DIRECTORY-form bundle carrying real content beside its
+// manifest — the shape a publisher uses, and the only shape that can ship skills.
+func signDirBundle(t *testing.T) (cfg *config.Config, dir string) {
+	t.Helper()
+	_, cfg = setupBundleTestDir(t)
+	dir = filepath.Join(paths.LocalBundlesPath(cfg.GetAppPaths()[0]), "atelier")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "fragments"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, bundles.DirectoryFormManifest),
+		[]byte("version: 1.0.0\ndescription: atelier\n"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "house-style.md"),
+		[]byte("---\ndescription: d\n---\n\nHOUSE-STYLE-BODY\n"), 0o644))
+	return cfg, dir
+}
+
+// signTrustRoot is a trust root that authorises this signer to publish.
+func signTrustRoot(signer ssh.Signer) signing.TrustRoot {
+	return allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{"me@example.com"},
+		Namespaces: []string{signing.NamespacePublish},
+		KeyType:    signer.PublicKey().Type(),
+		PublicKey:  signer.PublicKey(),
+	})
+}
+
+// openSignedTree reads the signed bundle back through the CONSUMER's surface —
+// the same content.TreeStore a pulled bundle is read through.
+func openSignedTree(t *testing.T, dir string) content.Bundle {
+	t.Helper()
+	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(dir), content.Provenance{IsLocal: true})
+	require.NoError(t, err)
+	b, err := store.Open(context.Background(), content.BundleID(filepath.Base(dir)))
+	require.NoError(t, err)
+	return b
+}
+
+// THE WIRING ASSERTION. `ctxloom bundle sign` must produce an attestation the
+// CONSUMER's verification path actually recognises.
+//
+// A directory-form bundle is verified by attest.VerifyBundle, which reads a
+// SHA256SUMS manifest and the signatures filed against it. Signing only
+// bundle.yaml's bytes writes a sibling .sig that path never looks at: the author
+// sees exit 0 and a .sig on disk, and every consumer reads the bundle as
+// UNATTESTED. That is a signature that attests nothing anyone checks.
+func TestSignBundleFile_DirectoryFormProducesAnAttestationTheConsumerAccepts(t *testing.T) {
+	cfg, dir := signDirBundle(t)
+	signer := testSigner(t)
+
+	_, err := SignBundleFile(cfg, SignBundleRequest{
+		Target: SignTarget{BundleName: "atelier"},
+		Signer: signer,
+	})
+	require.NoError(t, err)
+
+	verdict, verr := attest.VerifyBundle(context.Background(), openSignedTree(t, dir), signTrustRoot(signer), time.Now())
+	require.NoError(t, verr)
+	assert.True(t, verdict.OK(),
+		"a signed directory-form bundle must verify for a consumer; got status %q (%s)", verdict.Status, verdict.Detail)
+	assert.Equal(t, "me@example.com", verdict.Principal)
+	assert.NoError(t, verdict.Contents, "the signed manifest must cover the tree as published")
+}
+
+// The attestation must cover the CONTENT, not just the manifest file. Editing a
+// fragment after signing has to break verification — otherwise the signature
+// says nothing about the thing that reaches a model.
+func TestSignBundleFile_DirectoryFormAttestationCoversContentNotJustTheManifest(t *testing.T) {
+	cfg, dir := signDirBundle(t)
+	signer := testSigner(t)
+
+	_, err := SignBundleFile(cfg, SignBundleRequest{
+		Target: SignTarget{BundleName: "atelier"},
+		Signer: signer,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "fragments", "house-style.md"),
+		[]byte("---\ndescription: d\n---\n\nSUBSTITUTED\n"), 0o644))
+
+	verdict, verr := attest.VerifyBundle(context.Background(), openSignedTree(t, dir), signTrustRoot(signer), time.Now())
+	require.NoError(t, verr)
+	assert.False(t, verdict.OK(),
+		"editing a fragment after signing must break the bundle's attestation")
 }

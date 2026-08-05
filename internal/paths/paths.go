@@ -708,7 +708,7 @@ func (t Tier) String() string {
 // Entry is one classified .ctxloom path, as Layout enumerates them.
 type Entry struct {
 	// Rel is the path relative to appPath, e.g. ".ctxloom/cache/bundles".
-	Rel string
+	Rel  string
 	Tier Tier
 	// Rebuild names the command that reconstructs this path from committed
 	// pins. Empty if and only if Tier is TierLocal — see Tier's doc.

@@ -30,7 +30,7 @@ const wildcard = "*"
 // llm.configs.<label>, mcp.servers.<name>) is addressable per LEAF, not just
 // as a whole group.
 type Rule struct {
-	Path string
+	Path  string
 	Scope Scope
 	// Note is the key-specific reason, appended after Scope.Why() in a
 	// Violation's Message.

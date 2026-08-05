@@ -106,14 +106,26 @@ func TestManageStatusline_FormatJSON(t *testing.T) {
 // `mcp server create`/`delete`): --format json must render the operations
 // result struct instead of the bare fmt.Printf lines both used
 // unconditionally.
+//
+// --backend claude-code (mcp.plugins.claude-code.*, ScopeShared) rather than
+// the default unified target (mcp.servers.*, ScopeMachine —
+// internal/config/layerscope): mcp.servers.*.command is REQUIRED by the
+// mcpServer schema, so a unified server created in the committed PROJECT
+// file this test writes to would not survive the very next config reload
+// (which `mcp server delete`'s own read-modify-write performs internally) —
+// it would report "not found" instead of deleting it. This is a genuine,
+// deliberate consequence of that closure, not a gap in this test; a
+// mcp.plugins.* entry is unaffected (see internal/config/layerscope's
+// DefaultPolicy note on why servers.* and plugins.* were not split
+// identically) and still proves both commands' --format json wiring.
 func TestMcpServerCreateDelete_FormatJSON(t *testing.T) {
 	testsupport.ProjectDir(t)
 
-	payload := runCLIJSON(t, "mcp", "server", "create", "coverage-server", "--command", "echo")
+	payload := runCLIJSON(t, "mcp", "server", "create", "coverage-server", "--command", "echo", "--backend", "claude-code")
 	require.Equal(t, "coverage-server", payload["name"])
 	require.Equal(t, "echo", payload["command"])
 
-	payload = runCLIJSON(t, "mcp", "server", "delete", "coverage-server")
+	payload = runCLIJSON(t, "mcp", "server", "delete", "coverage-server", "--backend", "claude-code")
 	require.Equal(t, "coverage-server", payload["name"])
 }
 

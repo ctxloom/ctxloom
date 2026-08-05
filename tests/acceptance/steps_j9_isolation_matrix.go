@@ -218,6 +218,12 @@ func isoCredsSectionMarker(engine string) (string, error) {
 	}
 }
 
+// isoPerAgentScratchMarker is the path fragment every per-agent scratch
+// config-home carries (isolation's ephemeral session tree). Its PRESENCE in a
+// config-home var proves isolation engaged; its ABSENCE across every such var
+// proves the none axis really did leave the engine on the host's own config.
+const isoPerAgentScratchMarker = ".ctxloom/sessions"
+
 // isoMatrixState is this file's per-scenario fixture state: where the spy's
 // output landed for the last run.
 type isoMatrixState struct {
@@ -457,14 +463,71 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		return runIsoMatrix(c, engine, workspace)
 	})
 
+	// PAYLOAD, not absence. This step used to assert ONLY that two needles
+	// were missing from the output — which an audit proved is satisfied by a
+	// run that never happened at all: with LaunchBackend.ExecuteCLI mutated to
+	// error before spawning, every row of this outline stayed GREEN. A
+	// scenario whose subject is "the engine proceeds untouched" cannot be
+	// allowed to pass when no engine proceeded. So the run must now SHOW its
+	// work: exit 0, a spy process that actually ran, that spy's own env free
+	// of any per-agent scratch config-home, and its cwd the live project dir.
 	ctx.Step(`^the run touches no isolation mechanism at all$`, func(c context.Context) error {
 		w := worldFrom(c)
+		j := isoMatrixOf(w)
 		out := w.env.LastOutput()
 		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
 		for _, needle := range []string{"worktree isolation for agent", "AUTHENTICATION IS NOT", "[isolation]"} {
 			if strings.Contains(out, needle) {
 				return fmt.Errorf("workspace \"none\" unexpectedly triggered isolation machinery (%q); output:\n%s", needle, out)
 			}
+		}
+		if code := w.env.LastExitCode(); code != 0 {
+			return fmt.Errorf("expected exit 0 (workspace \"none\" runs the engine on the host, untouched), got %d; output:\n%s", code, out)
+		}
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q under workspace \"none\": %w — a run that never reached the engine cannot prove the engine ran untouched; output:\n%s", j.engine, err, out)
+		}
+		env := isoParseSpyEnv(body)
+		for _, key := range isoSpyEnvAllowlist {
+			if key == "PWD" {
+				continue
+			}
+			if val := env[key]; strings.Contains(val, isoPerAgentScratchMarker) {
+				return fmt.Errorf("workspace \"none\" handed engine %q an ISOLATED %s=%q — the none axis must share the host's own config-home, not relocate it; spy dump:\n%s", j.engine, key, val, body)
+			}
+		}
+		if pwd := env["PWD"]; pwd != w.env.ProjectDir {
+			return fmt.Errorf("workspace \"none\" ran engine %q in %q, want the live project dir %q; spy dump:\n%s", j.engine, pwd, w.env.ProjectDir, body)
+		}
+		w.docStepMaterialized = fmt.Sprintf("exit=0; engine %s ran in %s with no per-agent config-home:\n%s", j.engine, env["PWD"], isoParseSpySection(body, "===ENV==="))
+		return nil
+	})
+
+	// codex's workspace-"none" exception. Two things have to be true at once
+	// and the pairing is the whole point: ctxloom's OWN isolation gates stayed
+	// out of the way (no finding, and NOT the ClassIsolation exit 3 those
+	// gates use), yet the run still failed — because codex relocates
+	// CODEX_HOME by itself on every axis and there was nothing to seed the
+	// relocated home with. Asserting the engine never launched (no spy
+	// recording) is what keeps this from degenerating into "some error
+	// happened".
+	ctx.Step(`^the run fails without any isolation finding, naming "([^"]*)"$`, func(c context.Context, needle string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
+		if strings.Contains(out, "worktree isolation for agent") || strings.Contains(out, "[isolation]") {
+			return fmt.Errorf("unexpected isolation finding present; output:\n%s", out)
+		}
+		if code := w.env.LastExitCode(); code != 1 {
+			return fmt.Errorf("expected exit 1 (a plain backend failure, not the ClassIsolation exit 3), got %d; output:\n%s", code, out)
+		}
+		if !strings.Contains(out, needle) {
+			return fmt.Errorf("output does not contain %q; output:\n%s", needle, out)
+		}
+		if body, err := isoReadSpyOut(j); err == nil {
+			return fmt.Errorf("engine %q launched anyway — the run must refuse BEFORE spawning an engine it could not authenticate; spy dump:\n%s", j.engine, body)
 		}
 		return nil
 	})
@@ -485,12 +548,64 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// PAYLOAD, not absence — same lesson as "touches no isolation mechanism at
+	// all" above, and the same audit. Asserting only that no finding was
+	// PRINTED made "the same engines proceed" pass in a world where nothing
+	// proceeded: under a mutation that made LaunchBackend.ExecuteCLI error
+	// before spawning, and under one that made Worktree.PrepareWorkspace always
+	// error (silently degrading the whole chain to None — the live project dir
+	// plus the host's global engine config, the exact loss of boundary this
+	// journey exists to prove), every row stayed green, because the degrade
+	// warning's wording matches neither needle. The kiro sibling scenario
+	// already got this right by reading the spy afterwards; this step now
+	// carries the run-actually-happened half itself, so every user of it
+	// benefits, and the per-engine config-home var is asserted alongside it in
+	// the feature file.
 	ctx.Step(`^the run reports no isolation finding$`, func(c context.Context) error {
 		w := worldFrom(c)
+		j := isoMatrixOf(w)
 		out := w.env.LastOutput()
 		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
 		if strings.Contains(out, "worktree isolation for agent") || strings.Contains(out, "[isolation]") {
 			return fmt.Errorf("unexpected isolation finding present; output:\n%s", out)
+		}
+		if code := w.env.LastExitCode(); code != 0 {
+			return fmt.Errorf("expected exit 0 (the run proceeds), got %d; output:\n%s", code, out)
+		}
+		if _, err := isoReadSpyOut(j); err != nil {
+			return fmt.Errorf("engine %q: %w — \"proceeds without any isolation finding\" is not satisfied by a run that never reached the engine; output:\n%s", j.engine, err, out)
+		}
+		return nil
+	})
+
+	// opencode's own row of the SAME claim, split out because its launch path
+	// cannot leave the payload the step above demands. opencode is driven over
+	// ACP — a stateful JSON-RPC handshake over stdio (internal/opencode) — and
+	// this file's spy is a dumb recorder that dumps and exits, so the handshake
+	// never completes and the run errors AFTER the isolation gates have all
+	// passed. That is a fixture limitation, not product behavior, and it means
+	// no exit code and no spy file are available to assert on. What IS
+	// assertable, and is the whole point of the row, is that the run got PAST
+	// every isolation gate and all the way to spawning opencode from the
+	// PATH-sandboxed spy dir — the failure names that very path. See the
+	// file-level note on opencode for why its spawned-env payload is pinned at
+	// the Go level instead (auth_test.go's
+	// TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode).
+	ctx.Step(`^the run proceeds past every isolation gate to spawn the engine itself$`, func(c context.Context) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
+		if strings.Contains(out, "worktree isolation for agent") || strings.Contains(out, "[isolation]") {
+			return fmt.Errorf("unexpected isolation finding present; output:\n%s", out)
+		}
+		binNames, err := isoBinaryNames(j.engine)
+		if err != nil {
+			return err
+		}
+		spawned := filepath.Join(w.env.Root, "iso-spy-bin", binNames[0])
+		if !strings.Contains(out, spawned) {
+			return fmt.Errorf("nothing in the run's output names the sandboxed spy binary %q, so there is no evidence the run reached an engine spawn at all; output:\n%s", spawned, out)
 		}
 		return nil
 	})

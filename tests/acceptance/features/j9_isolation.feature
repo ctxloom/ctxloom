@@ -151,6 +151,19 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # Asserting this explicitly is what lets a later "worktree" cell's finding
   # read as isolation actually engaging, rather than the isolation machinery
   # just always firing regardless of which axis was requested.
+  #
+  # The baseline is asserted on PAYLOAD, not on the absence of a warning: the
+  # engine really runs (exit 0, the spy process leaves its recording), it runs
+  # in the LIVE project dir, and not one of its config-home variables points
+  # into a per-agent scratch tree. An earlier version checked only that two
+  # phrases were missing from the output, which an audit showed is equally
+  # satisfied by a run in which the engine never launched at all.
+  #
+  # This table lists THREE engines, not five, and the two absentees are the
+  # honest part. codex and opencode each have their own scenario below,
+  # because for them the sentence above is not true as written — and a table
+  # row that quietly asserts less than its scenario's title claims is how the
+  # audit's finding happened in the first place.
   Scenario Outline: workspace "none" never touches any engine's config-home isolation at all
     Given Alice has a git-backed project
     When Alice runs the isolated "<engine>" agent under workspace "none"
@@ -159,10 +172,41 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Examples:
       | engine      |
       | claude-code |
-      | codex       |
       | kiro        |
-      | opencode    |
       | antigravity |
+
+  # codex is the documented EXCEPTION to the baseline above, and it belongs in
+  # the feature file rather than hidden in a table row that asserts around it.
+  # codex relocates CODEX_HOME to <WorkDir>/.codex on EVERY axis including
+  # none — its own in-tree fallback, not ctxloom's isolation policy (see
+  # internal/lm/isolation.SeedCodexHome's doc and internal/codex/backend.go's
+  # resolveCodexProjectDir). That relocated home starts empty, so ctxloom
+  # seeds the host's credentials into it, and with neither OPENAI_API_KEY nor
+  # ~/.codex/auth.json there is nothing to seed. ctxloom then refuses rather
+  # than launching a codex that would silently 401.
+  #
+  # So "workspace none touches no config-home machinery" is FALSE for codex,
+  # and this scenario says so out loud. Note the failure is a plain backend
+  # error (exit 1), NOT a ClassIsolation finding (exit 3) — ctxloom's own
+  # isolation gates genuinely stayed out of the way, which is the half of the
+  # baseline claim that does hold here.
+  Scenario: workspace "none" still meets codex's own CODEX_HOME relocation, which needs credentials of its own
+    Given Alice has a git-backed project
+    And Alice has no "codex" credentials or API key on the host
+    When Alice runs the isolated "codex" agent under workspace "none"
+    Then the run fails without any isolation finding, naming "no OPENAI_API_KEY and no host ~/.codex/auth.json credentials"
+
+  # opencode's baseline row, split out for a HARNESS reason rather than a
+  # product one: opencode is driven over ACP, a stateful JSON-RPC handshake,
+  # and this file's spy is a dumb recorder that dumps its env and exits — so
+  # the handshake never completes and no exit code or spy recording is
+  # available to assert on. What the row can still prove, and does, is that
+  # every isolation gate was passed and the run reached an actual engine
+  # spawn from the PATH-sandboxed spy directory.
+  Scenario: workspace "none" leaves opencode's own launch untouched, right up to the engine spawn
+    Given Alice has a git-backed project
+    When Alice runs the isolated "opencode" agent under workspace "none"
+    Then the run proceeds past every isolation gate to spawn the engine itself
 
   # LOCKED — the safety net grave-prize exists to guarantee: an isolated
   # worktree run for an engine that DOES relocate credentials with its
@@ -187,18 +231,43 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # its own proof of intent to authenticate that way (auth.go's
   # resolveEnvOrMountAuth precedence), so seeding is skipped and the run is
   # never blocked on a missing host credential file.
+  #
+  # "PROCEED" is the load-bearing word in this scenario's title, so it is what
+  # gets asserted: the run exits 0, the engine really launches, and the
+  # config-home variable it is handed points at a per-agent scratch tree — the
+  # isolation this axis was asked for is still in place, only the credential
+  # gate stood down. Asserting merely that no finding was printed used to let
+  # this pass under a mutation that stopped any engine from launching, and
+  # under one that collapsed isolation to nothing at all; the degrade warning's
+  # wording matched neither needle. opencode's row moved to its own scenario
+  # below for the ACP reason described there.
   Scenario Outline: The same engines proceed without any isolation finding once their API key rides the environment
     Given Alice has a git-backed project
     And Alice has no "<engine>" credentials on the host
     And Alice has set the "<engine>" API key in the environment
     When Alice runs the isolated "<engine>" agent under workspace "worktree"
     Then the run reports no isolation finding
+    And the spy "<engine>" process's "<var>" env var points to an isolated per-agent directory, not the host's own
 
     Examples:
-      | engine      |
-      | claude-code |
-      | codex       |
-      | opencode    |
+      | engine      | var               |
+      | claude-code | CLAUDE_CONFIG_DIR |
+      | codex       | CODEX_HOME        |
+
+  # opencode's row of the same claim. Its ACP launch cannot reach this file's
+  # dumb spy (see the workspace-"none" opencode scenario above and the
+  # file-level note in steps_j9_isolation_matrix.go), so the payload it can
+  # prove is that the credential gate stood down and the run went all the way
+  # to spawning opencode from the sandboxed PATH. The spawned-env payload
+  # proper — opencode's XDG_DATA_HOME/opencode nesting — is pinned at the Go
+  # level by internal/lm/isolation/auth_test.go's
+  # TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode.
+  Scenario: opencode proceeds past the credential gate too once OPENROUTER_API_KEY rides the environment
+    Given Alice has a git-backed project
+    And Alice has no "opencode" credentials on the host
+    And Alice has set the "opencode" API key in the environment
+    When Alice runs the isolated "opencode" agent under workspace "worktree"
+    Then the run proceeds past every isolation gate to spawn the engine itself
 
   # LOCKED — the ISOLATED case, positively proven, but only ONE HALF of the
   # claim its own name suggests. What this scenario actually proves: ctxloom's

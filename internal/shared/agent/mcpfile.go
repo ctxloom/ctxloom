@@ -70,15 +70,32 @@ type mcpFile struct {
 // pre-ledger files) is dropped, then the current managed set — the ctxloom
 // server (unless auto-register is off), bundle servers, config servers, and
 // this engine's plugin servers — is re-added and the ledger rewritten.
+//
+// A name derived this round that is NOT in the ledger but IS already present
+// in the registry is a hand-authored entry ctxloom never wrote (the ledger
+// unconditionally drops every name it lists just below, so anything still
+// present afterward was never the ledger's to begin with). WriteServers
+// refuses to overwrite it: that one name is skipped (warned, not claimed in
+// the ledger) and every other managed name is still written — a single
+// collision must not block the rest of the reconcile, and claiming the name
+// anyway would compound today's silent overwrite into a silent deletion the
+// next time RemoveServers or a config change drops it from the managed set.
 func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer) error {
 	mf, err := c.load()
 	if err != nil {
 		return fmt.Errorf("failed to load existing %s: %w", c.Label, err)
 	}
 
-	if err := c.dropManaged(mf); err != nil {
-		return err
+	ledgerNames, err := c.readLedger()
+	if err != nil {
+		return fmt.Errorf("failed to read ledger %s: %w", c.LedgerPath, err)
 	}
+	// handDeleted must be computed against the registry as loaded, BEFORE
+	// dropManaged clears every ledger name from it below — see
+	// reconcileLedger's doc.
+	handDeleted := c.reconcileLedger(mf, ledgerNames)
+
+	c.dropManaged(mf, ledgerNames)
 
 	// A later source (config, plugin) can shadow an earlier one
 	// (bundle) under the same name — including MCPServerName itself. seen
@@ -86,7 +103,20 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 	// source that wrote it.
 	var managed []string
 	seen := make(map[string]bool)
+	collisionWarned := make(map[string]bool)
 	add := func(name string, s mcpFileServer) {
+		if !seen[name] {
+			if _, exists := mf.Servers[name]; exists {
+				if !collisionWarned[name] {
+					collisionWarned[name] = true
+					c.Warn("refusing to overwrite MCP server %q in %s: a hand-authored entry already uses this name and ctxloom did not create it; rename it in your config or bundle, or rename/remove the existing entry, to let ctxloom manage %q", name, c.Label, name)
+				}
+				return
+			}
+			if handDeleted[name] {
+				c.Warn("recreating MCP server %q in %s: it was removed by hand since the last write, but config, a bundle, or a plugin still declares it; remove it from there instead if you want ctxloom to stop managing it", name, c.Label)
+			}
+		}
 		c.setServer(mf, name, s)
 		if !seen[name] {
 			seen[name] = true
@@ -125,9 +155,11 @@ func (c MCPFileConfig) RemoveServers() error {
 		if err != nil {
 			return fmt.Errorf("failed to load existing %s: %w", c.Label, err)
 		}
-		if err := c.dropManaged(mf); err != nil {
-			return err
+		ledgerNames, err := c.readLedger()
+		if err != nil {
+			return fmt.Errorf("failed to read ledger %s: %w", c.LedgerPath, err)
 		}
+		c.dropManaged(mf, ledgerNames)
 		if err := c.save(mf); err != nil {
 			return err
 		}
@@ -161,22 +193,54 @@ func (c MCPFileConfig) ManagedPresent() (bool, error) {
 	return false, nil
 }
 
-// dropManaged removes every previously managed entry: the ledger names, plus
-// the well-known ctxloom server name for pre-ledger files. A ledger
-// read failure that is NOT simply "the ledger doesn't exist yet" (permissions,
-// I/O) is returned rather than silently treated as an empty ledger — the
-// exact failure the ledger exists to prevent (an orphaned managed stdio
-// server the next reconcile can no longer find to drop).
-func (c MCPFileConfig) dropManaged(mf *mcpFile) error {
+// dropManaged removes every previously managed entry: the ledger names the
+// caller already read — WriteServers and RemoveServers each read the ledger
+// exactly once and pass the names in here, so a single read serves both the
+// drop and, in WriteServers, the hand-deletion check reconcileLedger runs
+// against that same pre-drop snapshot — plus the well-known ctxloom server
+// name for pre-ledger files. Deleting an absent map key is a no-op, so this
+// never fails.
+func (c MCPFileConfig) dropManaged(mf *mcpFile, ledgerNames []string) {
 	delete(mf.Servers, MCPServerName)
-	names, err := c.readLedger()
-	if err != nil {
-		return fmt.Errorf("failed to read ledger %s: %w", c.LedgerPath, err)
-	}
-	for _, name := range names {
+	for _, name := range ledgerNames {
 		delete(mf.Servers, name)
 	}
-	return nil
+}
+
+// reconcileLedger makes the ledger's claims checkable before dropManaged
+// clears every name it lists from the registry: it reports which ledger
+// names the registry no longer has, evaluated against mf as loaded (i.e.
+// before dropManaged runs).
+//
+// That "missing" case is the one drift the reconcile cannot already handle
+// silently. The other two ledger/registry drift shapes need no new code
+// here:
+//   - a ledger name config/bundles/plugins no longer derive this round:
+//     dropManaged still drops it, and nothing re-adds it, so it is released
+//     for good — the existing drop-then-recreate cycle already does this,
+//     silently, because "no longer wanted" is the expected case, not a
+//     surprise.
+//   - a ledger name still present but hand-edited to a different
+//     definition: dropManaged deletes it by NAME regardless of content, and
+//     the re-add below rewrites it to ctxloom's canonical value. This is the
+//     "managed" contract working as designed — every managed name has always
+//     been fully owned and rewritten each pass with no diffing — and adding
+//     content-drift detection here would be a second, noisier mechanism next
+//     to a cycle that already reconciles it.
+//
+// The case this DOES catch — a name the ledger claims that the registry no
+// longer contains at all — means a human deleted that entry by hand since
+// the last write. If this round still derives that name, WriteServers is
+// about to silently resurrect a server the user deliberately removed; unlike
+// the two cases above, that is worth a warning rather than staying silent.
+func (c MCPFileConfig) reconcileLedger(mf *mcpFile, ledgerNames []string) (handDeleted map[string]bool) {
+	handDeleted = make(map[string]bool, len(ledgerNames))
+	for _, name := range ledgerNames {
+		if _, ok := mf.Servers[name]; !ok {
+			handDeleted[name] = true
+		}
+	}
+	return handDeleted
 }
 
 // setServer marshals a typed stdio server entry into the raw server map.

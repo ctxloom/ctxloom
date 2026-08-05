@@ -120,3 +120,27 @@ fragments:
             being vacuous. `j16` asserts an exact file COUNT rather than
             existence. `run.feature`'s recorded-input assertion reads what the
             engine actually received rather than what the CLI said it sent.
+
+            ## Test against a FRESH BUILD, never the installed binary
+
+            Any manual or agent-driven verification runs against a binary built
+            from the tree under test — `just build`, then `./ctxloom` — never
+            `ctxloom` from `$PATH`.
+
+            The installed binary is a different program. On 2026-08-05 a check
+            of whether a newly added fragment was delivered came back "missing";
+            the installed `ctxloom` was `v0.7.0-cefeb77-20260728T201548-dirty`,
+            eight days and ~150 commits behind the tree, and dirty on top. Built
+            from source, the same check passed. The measurement was wrong, not
+            the code — and a wrong measurement that agrees with your fear is the
+            expensive kind.
+
+            `just test-acceptance` already does this correctly: it depends on
+            `build` and drives the binary it just produced. The exposure is
+            hand-run commands and agent verification, which reach for `$PATH`
+            by default.
+
+            **`release/0.7` will not be installed** until every journey runs
+            with mutation testing validating the tests' quality. Until then,
+            `ctxloom` on `$PATH` is deliberately old, and anything it tells you
+            about this branch is a coincidence.

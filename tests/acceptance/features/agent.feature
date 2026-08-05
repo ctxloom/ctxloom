@@ -48,11 +48,29 @@ Feature: Agent bindings and container tooling
     Then the command succeeds
     And the output contains "SCAN"
 
-  Scenario: Container tooling reports when no trusted bundle declares any
+  # Absence satisfied absence: with nothing declared anywhere, "none reported"
+  # was equally consistent with the trust gate working and with collection
+  # being broken outright — a render that dropped EVERY declaration, trusted or
+  # not, left this green. So the fixture declares tooling twice: once from a
+  # bundle whose declaration has been rejected (must be withheld, and the
+  # summary line is then a fact about the GATE), and once from a bundle that is
+  # trusted (must come through — the positive control that makes "none
+  # reported" mean something).
+  Scenario: Container tooling withholds an untrusted declaration and reports none
     Given an initialized ctxloom project
+    And a bundle "shady" declaring container tooling "TOOLING-DECL-SHADY"
+    And I run "ctxloom trust reject shady#commands/tooling"
     When I run "ctxloom container tooling"
     Then the command succeeds
     And the output contains "No trusted bundles declare container tooling"
+    And the output contains "Untrusted declarations are withheld"
+    And the output does not contain "TOOLING-DECL-SHADY"
+    Given a bundle "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
+    When I run "ctxloom container tooling"
+    Then the command succeeds
+    And the output contains "TOOLING-DECL-TOOLED"
+    And the output does not contain "TOOLING-DECL-SHADY"
+    And the output does not contain "No trusted bundles declare container tooling"
 
   Scenario: Scaffold materializes the editable base Containerfile
     Given an initialized ctxloom project

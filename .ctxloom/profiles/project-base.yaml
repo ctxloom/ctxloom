@@ -14,3 +14,8 @@ bundles:
     # --config-set, the two override channels, and why a command's own flags
     # are deliberately NOT a config source.
     - ctxloom-project#fragments/config-hierarchy
+    # A test passes when it is green AND a mutation to the code it names kills
+    # it. Here because it binds every role: whoever writes the test, whoever
+    # briefs the work, and whoever reviews it. An audit on 2026-08-04 found 25
+    # assertions in this repo that were green and proved nothing.
+    - ctxloom-project#fragments/green-is-not-passing

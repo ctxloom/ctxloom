@@ -97,6 +97,14 @@ type j21State struct {
 	// against a value captured before the command that would have moved it.
 	pinBeforeSync string
 
+	// syncExit is the exit code Monday's `remote upgrade` returned, captured
+	// alongside syncOutput and for the same reason: every later Then runs more
+	// commands, so w.env.LastExitCode() has moved on by the time the code is
+	// asserted. A script running an unattended sync reads only this — the
+	// refusal message is for the human — so it is asserted separately from
+	// what was printed.
+	syncExit int
+
 	// syncOutput is what Monday's `remote upgrade` said, captured at the
 	// moment it ran. Every later Then in this journey materializes the profile
 	// to read a payload, and materializing is itself a command — so
@@ -525,6 +533,7 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 		j21Of(w).pinBeforeSync = pin
 		_ = w.env.Run("remote", "upgrade")
 		j21Of(w).syncOutput = w.env.LastOutput()
+		j21Of(w).syncExit = w.env.LastExitCode()
 		return nil
 	})
 
@@ -604,6 +613,33 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 				"It said:\n%s", out)
 		}
 		return nil
+	})
+
+	// THE MACHINE-READABLE HALF. Every other Then on this row reads what a
+	// HUMAN was told; this one reads what a SCRIPT was told, and they are
+	// different audiences with different failure modes. An unattended sync that
+	// refuses and exits 0 is indistinguishable, to the cron job that ran it,
+	// from one that had nothing to do — the refusal message scrolls past into a
+	// log nobody reads. Exit 2 (cli.exitCodeRefused, docs/cli-ux-principles.md
+	// §7) is "completed, and deliberately did not do something asked": not 1,
+	// which would report a decision as a fault on the user's machine, and not
+	// 0, which is the silence.
+	ctx.Step(`^the sync exited with the code for "did some of this deliberately not happen"$`, func(c context.Context) error {
+		w := worldFrom(c)
+		st := j21Of(w)
+		switch st.syncExit {
+		case 2:
+			return nil
+		case 0:
+			return fmt.Errorf("the sync exited 0 after refusing an advance — to a script that is indistinguishable from a round with "+
+				"nothing to do, which is the whole silence this row exists to remove. It printed:\n%s", st.syncOutput)
+		case 1:
+			return fmt.Errorf("the sync exited 1 after refusing an advance. A refusal is not an error: nothing failed and the user's "+
+				"environment is fine, and 1 sends them hunting a fault on their own machine. It printed:\n%s", st.syncOutput)
+		default:
+			return fmt.Errorf("the sync exited %d; the documented code for a deliberate non-action is 2 (docs/cli-ux-principles.md §7). "+
+				"It printed:\n%s", st.syncExit, st.syncOutput)
+		}
 	})
 
 	// Reads LastStdout, not LastOutput, and that is the whole assertion.

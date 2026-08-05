@@ -29,11 +29,18 @@ Feature: The day the assistant goes blind
   # about what an INSPECTOR reports. Nothing below re-proves that a tampered
   # bundle is detected or that `bundle sign` writes bytes.
   #
-  # NOTE ON ASSERTIONS. No scenario here asserts an exit code. An inspector that
-  # exits 0 while naming nothing is precisely the failure under test, so
+  # NOTE ON ASSERTIONS. No INSPECTOR's exit code is asserted here. An inspector
+  # that exits 0 while naming nothing is precisely the failure under test, so
   # "the command succeeds" would assert the bug. Every Then reads a payload:
   # the bytes of the assembled context, or the inspector's own words naming a
   # specific bundle, fragment, or file.
+  #
+  # THE ONE EXCEPTION, added 2026-08-05 and not a softening of that rule: B2's
+  # refusal row asserts that `remote upgrade` exits 2. That is not "the command
+  # succeeded", it is the OPPOSITE — the code is the only thing an unattended
+  # sync tells a script, and 0 there would make a refusal indistinguishable from
+  # a round with nothing to do. It sits beside four payload assertions that
+  # cover what the human is told; neither substitutes for the other.
   #
   # NOTE ON TAGS. Every scenario in this file is @wip, including the ones
   # believed to pass today — this file is a to-do list to be walked one scenario
@@ -109,10 +116,14 @@ Feature: The day the assistant goes blind
   # failed step, so the three later Thens are skipped rather than separately
   # red. That is why they are mutated separately.
   #
-  # The four Thens are separate on purpose, because they are four different
+  # The five Thens are separate on purpose, because they are five different
   # ways this can be wrong. The pin can move. The pin can hold while the
   # content stops arriving anyway. Everything can be right and nobody told, a
-  # silence indistinguishable from "already up to date". And the sync can name
+  # silence indistinguishable from "already up to date". The HUMAN can be told
+  # while the SCRIPT is not — an unattended sync that refuses and exits 0 is,
+  # to the cron job that ran it, the same as one with nothing to do, so exit 2
+  # is asserted on its own (cli.exitCodeRefused, docs/cli-ux-principles.md §7;
+  # decided in taskloom monstrous-speech). And the sync can name
   # a remedy that does not exist: it used to say "Changed content from
   # untrusted sources is withheld until reviewed: ctxloom review", and
   # `ctxloom review` answered "Nothing is pending review." — content withheld
@@ -127,6 +138,7 @@ Feature: The day the assistant goes blind
     And the runbook's pin did not advance, and the lockfile still holds the commit whose signature verified
     And her assistant is still served the content at that pin
     And the sync told her the runbook cannot be verified, naming the pin it kept
+    And the sync exited with the code for "did some of this deliberately not happen"
     And the remedy it named is not the review queue, which has nothing to offer her
 
   # THE TRAP, asserted deliberately. Alice's first instinct is `review --list`,

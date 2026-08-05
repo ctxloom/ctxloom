@@ -14,6 +14,45 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
+// THE EXIT-CODE LADDER IS CATEGORICAL, NOT ORDERED BY SEVERITY. Read it as a
+// set of distinct answers to "what happened?", never as a scale — 3 (a startup
+// abort over fatal findings) is a far more serious outcome than 1 (a mistyped
+// flag), and code that treats a higher number as a worse outcome is wrong about
+// this vocabulary. The whole ladder is documented in docs/cli-ux-principles.md
+// §7, which is the contract; these constants are its implementation.
+//
+//	0  success, effect delivered
+//	1  ctxloom's own error (root.go's fallback for any unclassified error)
+//	2  exitCodeRefused — completed, and deliberately did not do something asked
+//	3  exitCodeFatalFindings — startup aborted over collected fatal findings
+//
+// A wrapped engine's own exit code passes through unchanged (ExitError), so
+// these values are ctxloom's answers only when ctxloom itself is the one
+// answering.
+
+// exitCodeRefused is the exit code for a command that RAN TO COMPLETION and
+// DELIBERATELY DID NOT DO something it was asked to do. Nothing failed: the
+// tool did the right thing and the user's environment is in a good state.
+//
+// It is not 1, because a refusal is not an error — reporting it as one sends a
+// user looking for a fault on their machine that is not there. It is not 0
+// either, because an unattended sync that refuses and exits 0 is
+// indistinguishable, to the script that ran it, from one that had nothing to
+// do; a run that succeeded at doing none of what was asked is not a success
+// (docs/cli-ux-principles.md §7).
+//
+// Today's sole use: `ctxloom remote upgrade` declining to advance a pin onto
+// content whose publisher signature does not verify over its bytes. The pin it
+// kept is intact and being served; what did not happen is the advance.
+//
+// Chosen after checking the closest external analogues, both of which land on
+// 2 for "ran fine, something outstanding": terraform's `plan
+// -detailed-exitcode` (0 no changes / 1 error / 2 changes pending) and
+// ansible's 2 (one or more hosts failed, the run itself fine). diff/grep's
+// inverse mapping — 1 for "found something", 2 for "trouble" — is deliberately
+// NOT followed: its 1 would collide with ctxloom's generic error.
+const exitCodeRefused = 2
+
 // exitCodeFatalFindings is the exit code for a strict-mode startup abort:
 // distinct from 1 (ordinary command errors) and from the wrapped LLM's own
 // exit codes on the happy path, so callers/scripts can tell "ctxloom refused

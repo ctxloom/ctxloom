@@ -93,9 +93,11 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   #     GREEN: a hermetic container cell exists
   #     (internal/testsupport/containercell) and those rows run a real
   #     `profile materialize` INSIDE a container against a bind-mounted target,
-  #     asserting bytes, mode and OWNERSHIP from the host side. What they still
-  #     do not reach — ctxloom's OWN container launch and its
-  #     containerConfigOverlay — is stated at that scenario.
+  #     asserting bytes, mode and OWNERSHIP from the host side. What they do not
+  #     reach — ctxloom's OWN container launch and its containerConfigOverlay —
+  #     is covered by internal/lm/isolation's TestContainerRun_* pair instead,
+  #     for the reason stated at that scenario (the delivery is only observable
+  #     mid-turn, which a godog step over a shelled-out `run` cannot hold open).
   #
   # PROFILES and THE HOST HALF OF THE DELIVERY MATRIX were red here and are now
   # green. The profile row was red because "reaches the assistant" is not a
@@ -431,22 +433,34 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # docker_integration test, which is where a per-runtime cell can be a
   # subtest rather than a whole journey re-run.
   #
-  # WHAT THESE ROWS STILL DO NOT PROVE — and it is a real residue, not a
-  # hedge. They exercise a container that ctxloom's own isolation machinery did
-  # not build: the cell mounts and launches directly. So the
-  # containerConfigOverlay hazard is UNTOUCHED by them. On the {container,
-  # none} cell of a real `ctxloom run --runtime container`, containerConfigOverlay
-  # (internal/lm/isolation/container.go) bind-mounts a per-run SCRATCH directory
-  # over ".claude" (profile.overlayDirs); surfaces materialized in-container land
-  # in that scratch overlay, which is removed at teardown and never copied back
-  # out. The container's session-state mounts do not help — sessionStateMounts
-  # binds exactly <harp>/persist and <harp>/persist/transcripts
-  # (statemounts.go, pinned by statemounts_test.go's "transcript store +
-  # persist only"), deliberately NOT <harp>/ephemeral/ and NOTHING at the
-  # harp-dir top level. These rows prove that delivery into a MOUNTED workspace
-  # survives the process boundary intact; they do not prove that ctxloom's own
-  # container launch points delivery at that mounted workspace rather than at
-  # the overlay.
+  # WHAT THESE ROWS DO NOT PROVE, AND WHERE THAT IS NOW PROVEN INSTEAD. They
+  # exercise a container that ctxloom's own isolation machinery did not build:
+  # the cell mounts and launches directly, so these rows say nothing about
+  # containerConfigOverlay either way. That half is closed in
+  # internal/lm/isolation's docker_integration lane, by
+  # TestContainerRun_DeliversIntoTheMountedWorkspace and
+  # TestContainerRun_OverlaidConfigDirIsSwallowedByTheScratchOverlay: the same
+  # cell, wired to a container the PRODUCT builds (Container.PrepareWorkspace →
+  # SpawnClient → a real turn whose in-container Setup delivers), observed
+  # MID-TURN because grpc.RunTurn's Cleanup strips the delivery the instant
+  # Execute returns.
+  #
+  # WHAT THOSE TESTS FOUND. containerConfigOverlay is SOUND, not a hole. A
+  # surface whose target is NOT an overlaid directory lands in the bind-mounted
+  # host project with its bytes, POSIX mode and host ownership intact — that is
+  # the "points delivery at the mounted workspace" claim, live. A surface whose
+  # target IS one of profile.overlayDirs (claude's ".claude", where claude's own
+  # skills/settings writers aim) lands in the per-run scratch overlay and never
+  # in the host project — but the overlay is bind-mounted AT THAT SAME PATH, so
+  # the in-container engine reads exactly what was delivered while the run is
+  # live. It is discarded at teardown, which is what the overlay is FOR (the
+  # host project stays clean) and matches the host axis anyway, where the shared
+  # LIFO Cleanup reverses the same delivery. The container's session-state
+  # mounts are not a workaround for this and were never meant to be —
+  # sessionStateMounts binds exactly <harp>/persist and
+  # <harp>/persist/transcripts (statemounts.go, pinned by statemounts_test.go's
+  # "transcript store + persist only"), deliberately NOT <harp>/ephemeral/ and
+  # NOTHING at the harp-dir top level.
   # --------------------------------------------------------------------------
   Scenario Outline: The published artifacts reach a containerized agent across the process boundary
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key

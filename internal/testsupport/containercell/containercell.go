@@ -22,6 +22,14 @@
 // vacuous green, which in a suite whose subject is the silent no-op is worse
 // than red.
 //
+// WHAT THE CELL DOES NOT DECIDE. A cell that mounts and launches the container
+// itself proves that delivery INTO a mount survives the boundary; it cannot
+// prove that ctxloom's own isolation aims delivery at that mount rather than at
+// the scratch overlay it lays over the engine's managed-config directory. For
+// that, the cell is a supplier rather than the launcher: EnsureRunPolicyImage
+// builds the image the PRODUCT's Container policy launches, and
+// internal/lm/isolation's TestContainerRun_* pair drives the real run.
+//
 // # THE THREE DESIGN DECISIONS
 //
 // 1. THE IMAGE IS `FROM scratch`. Hermetic means no network, and every other

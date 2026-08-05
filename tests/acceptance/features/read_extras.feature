@@ -14,13 +14,19 @@ Feature: Additional read and configuration commands
     And the output contains "testing"
     And the output contains "FRAGMENT-BODY-testing"
 
+  # See search.feature: --type is a claim about EXCLUSION, so the fixture seeds
+  # a command the same query matches by name and the scenario asserts it is
+  # gone.
   Scenario: Search fragments by name
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a fragment "testing" in bundle "demo" exists
+    And a command "testing-review" in bundle "demo" exists
     When I run "ctxloom search --type fragment testing"
     Then the command succeeds
+    And the output contains "Results (1):"
     And the output contains "testing"
+    And the output does not contain "testing-review"
 
   Scenario: Show a prompt's content
     Given an initialized ctxloom project

@@ -17,8 +17,18 @@ Feature: ctxloom doctor — deterministic setup checks
     And the output contains "DOCTOR-CHECK-VERSION-c3"
     And the output contains "DOCTOR-CHECK-HOOKS-TRUST-d4"
 
+  # Every marker this could substring-match is in the TEXT rendering too (the
+  # scenario above asserts the same one there), so nothing here said the output
+  # was json: a doctor that rendered human text under --format json passed.
+  # Parse it, and assert the decoded structure the text form cannot produce.
   Scenario: Doctor's JSON form carries the same structured checks
     Given an initialized ctxloom project
     When I run "ctxloom --format json doctor"
     Then the command succeeds
-    And the output contains "DOCTOR-CHECK-DEPS-a1"
+    And the output is valid JSON
+    And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-DEPS-a1"
+    And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-AGENTS-b2"
+    And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-VERSION-c3"
+    And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-HOOKS-TRUST-d4"
+    And every object in the JSON output array "checks" has a non-empty "status"
+    And every object in the JSON output array "checks" has a non-empty "detail"

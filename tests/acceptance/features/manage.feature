@@ -121,12 +121,17 @@ Feature: Manage the project harness
     And the output contains "profile-inline"
     And the output contains "declared"
 
+  # "Machine-readable" was asserted with two event names the HUMAN listing
+  # prints too, so a command that ignored --format json and rendered text
+  # passed the machine-readable scenario. Parsing is the claim.
   Scenario: The hook list has a machine-readable form
     Given an initialized ctxloom project
     When I run "ctxloom manage hooks list --format json"
     Then the command succeeds
-    And the output contains "post_file_edit"
-    And the output contains "session_start"
+    And the output is valid JSON
+    And the JSON output array "events" contains an object whose "event" is "post_file_edit"
+    And the JSON output array "events" contains an object whose "event" is "session_start"
+    And every object in the JSON output array "events" has a non-empty "event"
 
   # A typo must not resolve to "nothing runs on that event" — a confident wrong
   # answer from an inspect command is worse than no inspect command.

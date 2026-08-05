@@ -481,9 +481,22 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 		return j21AssertDelivery(worldFrom(c), j21DeployMarker, true)
 	})
 
+	// Reads LastStdout, not LastOutput, and that is the whole assertion.
+	// LastOutput merges stderr, and the withhold advisory that rides stderr
+	// here names the bundle by its full remote URL — a URL with
+	// "deploy-runbook" in it. Against the merged stream this step tripped on
+	// the WARNING while the pending list itself was printing exactly "Nothing
+	// is pending review.", i.e. it reported the opposite of what the product
+	// did. The claim is about what the LIST says, so it reads the list's own
+	// stream. The empty-stdout guard below is what keeps that from becoming a
+	// free pass.
 	ctx.Step(`^the pending-review list does not name the runbook at all$`, func(c context.Context) error {
 		w := worldFrom(c)
-		out := w.env.LastOutput()
+		out := w.env.LastStdout()
+		if strings.TrimSpace(out) == "" {
+			return fmt.Errorf("`review --list` printed NOTHING on stdout — an inspector that answers with zero bytes cannot be "+
+				"read as saying the runbook is absent; it never said anything. The merged streams were:\n%s", w.env.LastOutput())
+		}
 		if strings.Contains(out, j21Bundle) {
 			return fmt.Errorf("review --list DID name %q — if that is now true, this scenario has become stale and "+
 				"the B2 inspector scenario below should be the one that passes; output:\n%s", j21Bundle, out)

@@ -103,12 +103,36 @@ Feature: The day the assistant goes blind
   # left serving the superseded copy; the deploy guidance disappears from the
   # assembled context ENTIRELY, old and new alike.
   #
-  # That is arguably the worse of the two failure modes and it is the one the
-  # product actually has, so the scenario keeps asserting both halves and stays
-  # red until someone decides which is intended. UNTAG WHEN: the second Then is
-  # rewritten to whichever behaviour is chosen — retain-the-old (as the prose
-  # assumes) or withhold-everything (as the product does) — and the product
-  # agrees with it.
+  # WHY THIS IS NOT FIXED HERE, and it is a deliberate stop rather than an
+  # omission. Making the second Then pass means making `remote upgrade` REFUSE
+  # to advance a pin onto content whose publisher signature does not verify, so
+  # the lockfile stays at the last commit that did. That changes the outcome of
+  # a TRUST DECISION and the values a persisted lockfile takes, with a blast
+  # radius across J3 (adversary), J7 (incident), J18 (signing) and J20
+  # (distribution). Both behaviours are defensible — "you no longer hold a
+  # verified copy of anything at that ref, serve nothing" versus "keep the last
+  # thing you verified" — and picking one is the human's call, not a
+  # verification pass's.
+  #
+  # RECOMMENDED: refuse the advance and keep the last verified pin, which is
+  # what the prose above assumes and what leaves the user with a working
+  # runbook instead of none.
+  #
+  # A SECOND, SMALLER DEFECT MEASURED HERE, and squarely on this journey's own
+  # thesis: `remote upgrade` exits 0 and says
+  #
+  #   Advanced 1 dependency pin(s).
+  #   Changed content from untrusted sources is withheld until reviewed:
+  #   ctxloom review
+  #
+  # — and `ctxloom review` then says "Nothing is pending review." The content is
+  # withheld as TAMPERED, which is deliberately not reviewable, so the remedy
+  # the sync names is a dead end that sends Alice in a circle. That one is a
+  # message-level fix with no contract in it, but it belongs to whoever takes
+  # the pin decision above, because the right wording depends on it.
+  #
+  # UNTAG WHEN: the pin-advance question is decided, the second Then is
+  # rewritten to whichever behaviour was chosen, and the product agrees.
   @wip
   Scenario: An edited, never-re-signed runbook stops arriving on an ordinary sync
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
@@ -123,31 +147,29 @@ Feature: The day the assistant goes blind
   # This scenario exists to pin that: the most obvious inspector is silent here
   # BY DESIGN, and any diagnosis that stops at it stops in the wrong place.
   #
-  # STAYS @wip. Re-measured 2026-08-05, same false-pass root cause as the
-  # scenario above: with a sync that never advanced a pin, `review --list` had
-  # nothing to be silent ABOUT.
+  # UNTAGGED 2026-08-05, after the sync above was fixed to actually advance the
+  # pin and this row's assertion was fixed to read the right stream. The
+  # product's behaviour was correct throughout and was never changed.
   #
-  # The claim itself SURVIVES the fix — with the pin advanced, the pending list
-  # still prints exactly "Nothing is pending review.", so unsigned really is
-  # not pending and the trap this scenario documents is real. What fails is the
-  # ASSERTION, and for an instructive reason: the step reads
-  # w.env.LastOutput(), which merges stdout and stderr, and the withhold
-  # advisory on stderr names the bundle by its full remote URL — a URL with
-  # "deploy-runbook" in it. So the substring check now trips on the WARNING
-  # rather than on the list, and cannot tell the two apart.
+  # Before the pin advanced, `review --list` had nothing to be silent ABOUT, so
+  # the green here proved nothing. After it, the pending list still prints
+  # exactly "Nothing is pending review." — unsigned really is not pending, and
+  # the trap this scenario documents is real — but the step was reading
+  # w.env.LastOutput(), which MERGES stderr, and the withhold advisory on
+  # stderr names the bundle by its full remote URL, "deploy-runbook" included.
+  # The assertion therefore tripped on the WARNING and reported the opposite of
+  # what the product did. It now reads the list's own stdout, with an
+  # empty-stdout guard so that is not a free pass.
   #
-  # This is not a product defect; it is an assertion that reads the wrong
-  # stream. UNTAG WHEN: the step reads the pending list's own stdout (or
-  # `--format json`) rather than the merged stream, and still finds the runbook
-  # unnamed there. Deliberately not fixed here — the shared CLI step's
-  # stdout/stderr merge is used by dozens of scenarios and separating the
-  # streams is its own change, not a drive-by inside a verification pass.
+  # Two mutations, both red: removing the `!v.Reason.NeedsReview()` filter from
+  # operations.reviewEnumerator.classify (so withheld items are listed as
+  # pending) trips the naming assertion, and deleting "Nothing is pending
+  # review." from cli.renderReviewList trips the silence guard.
   #
   # The scenario's own escape clause still stands: if the pending list ITSELF
   # starts naming the runbook, that is good news, not a regression — it means
   # B2 grew an inspector, and the scenario below is the one that should then be
   # green.
-  @wip
   Scenario: The pending-review list is silent, because unsigned is not pending
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
     And Carol edits the runbook on Friday and never re-signs it

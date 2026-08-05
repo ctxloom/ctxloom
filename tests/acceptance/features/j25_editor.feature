@@ -39,7 +39,9 @@ Feature: Dana in her editor
   #     (STRUCTURAL loss of tool events and permission forwarding), so there is
   #     nothing to assert but the loss itself.
   #
-  # NOTE ON TAGS. Every scenario is @wip with its own untag condition.
+  # NOTE ON TAGS. Each scenario carries its own note: an untagged one records
+  # the mutation that proves it can still fail, a @wip one the product surface
+  # that does not exist yet.
 
   Background:
     Given Dana lives in her editor and will not adopt a terminal workflow
@@ -52,10 +54,11 @@ Feature: Dana in her editor
   # artifact — and the difference only shows up when Dana pastes it and her
   # editor's config file stops loading.
   #
-  # UNTAG WHEN: confirmed to pass as written. Uncertain today; the assertion is
-  # deliberately about parseability rather than about substrings, because
-  # substrings are what a prose listing would also satisfy.
-  @wip
+  # UNTAGGED: it passes as written, and the parseability half is what earns it.
+  # Changing zedAgentServersBlock's `"%s": %s` to `"%s" -> %s` — a block that
+  # still contains every substring a reader would grep for, still names the
+  # command, and is no longer JSON — turns this red on the Unmarshal, which is
+  # exactly the artifact Dana's editor would reject.
   Scenario: The block she is told to paste is one she can actually paste
     When I run "ctxloom acp list"
     Then the listing is something she can actually paste into her editor's config

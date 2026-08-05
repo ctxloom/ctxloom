@@ -24,6 +24,7 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -228,17 +229,35 @@ func registerJ24Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// Asserted on the LISTING ROWS, parsed out of `--format json` stdout —
+	// never on the combined output. This step used to be a substring search for
+	// the harp over LastOutput(), and it could not fail: when Manager.Reconcile
+	// reaps an entry it warns "session <harp> dropped from the index" on
+	// stderr, so the message announcing that the history was DELETED contained
+	// the very string the assertion looked for. Measured: inverting
+	// operations.isUnrecoverable so a distilled entry is reaped left this
+	// scenario green while `session list --all` listed nothing at all.
 	ctx.Step(`^the sessions recorded under the old engine are still listed after the switch$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runOK(w, "session", "list", "--all"); err != nil {
+		if err := runOK(w, "session", "list", "--all", "--format", "json"); err != nil {
 			return err
 		}
-		if !strings.Contains(w.env.LastOutput(), j23Harp) {
-			return fmt.Errorf("the session recorded before the switch is no longer listed. History outliving the engine that "+
-				"produced it is the entire argument for owning a canonical transcript; a switch that orphans it removes the "+
-				"reason to have one. Output:\n%s", w.env.LastOutput())
+		out := w.env.LastStdout()
+		var rows []struct {
+			Harp string `json:"harp"`
 		}
-		return nil
+		if err := json.Unmarshal([]byte(out), &rows); err != nil {
+			return fmt.Errorf("`session list --all --format json` did not emit a parseable listing (%v), so there is no row to "+
+				"read the surviving session out of; stdout was:\n%s", err, out)
+		}
+		for _, r := range rows {
+			if r.Harp == j23Harp {
+				return nil
+			}
+		}
+		return fmt.Errorf("the session recorded before the switch is no longer a row in the listing (%d row(s) returned). History "+
+			"outliving the engine that produced it is the entire argument for owning a canonical transcript; a switch that "+
+			"orphans it removes the reason to have one. Combined output:\n%s", len(rows), w.env.LastOutput())
 	})
 
 	ctx.Step(`^a session was recorded under the old engine before the switch$`, func(c context.Context) error {

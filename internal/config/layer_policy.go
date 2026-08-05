@@ -15,10 +15,15 @@ var scopePolicy = layerscope.DefaultPolicy()
 // dropLayerScopeViolations reports every layerscope violation layer's OWN
 // decoded values commit, and removes each one from values in place via
 // koanf/maps.Delete — never a bespoke recursive map walker — so the dropped
-// key does not survive into the merge that follows. Called beside the
-// existing per-layer schema validation in loadConfigLayer, not as a new pass
-// over the merged result: a key allowed at one layer but not another must
-// still be caught at ITS OWN layer, exactly like an unknown key already is.
+// key does not survive into the merge that follows. Two call sites, one
+// policy: loadConfigLayer calls it beside the existing per-layer schema
+// validation, not as a new pass over the merged result — a key allowed at one
+// layer but not another must still be caught at ITS OWN layer, exactly like
+// an unknown key already is. config_save.go's dropSaveLayerScopeViolations
+// calls it a second way, at LayerProject specifically, over what a SAVE is
+// about to persist — see that function's own doc for why a value merged in
+// from a lower layer must be stopped there too, not just re-discovered (and,
+// in FATAL-class strictness, refused on) the next time the file loads.
 func dropLayerScopeViolations(layer layerscope.Layer, values map[string]any) []layerscope.Violation {
 	violations := scopePolicy.Check(layer, values)
 	for _, v := range violations {

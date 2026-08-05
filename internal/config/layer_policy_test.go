@@ -280,3 +280,46 @@ agents:
 	assert.Equal(t, []string{"default"}, reviewer.Profiles, "a sibling field the override never touched must survive")
 	assert.Equal(t, "claude-code", reviewer.Engine, "same for a second untouched sibling field")
 }
+
+// ===== saveLocked must not leak a home-inherited Machine value into the ====
+// ===== committed project file ===============================================
+
+// TestManagerUpdate_DoesNotPersistHomeInheritedMachineValueIntoProjectFile
+// pins the SAVE-time half of the layer-scope closure, distinct from every
+// other test in this file (all LOAD-time): Manager.Update's draft is built
+// from loadUncached's FULLY MERGED view (home < project), so an unrelated
+// write (setting default_agent here) must not silently duplicate home's own
+// editor.command -- ScopeMachine, legitimate in home, never in a committed
+// project file -- into the persisted project config.yaml. Left unfixed, the
+// NEXT load of that same file rediscovers the leaked value at LayerProject
+// and (FATAL-class strictness) refuses to start entirely: a command with
+// nothing to do with the editor would brick every subsequent strict-mode
+// invocation merely by having run once.
+func TestManagerUpdate_DoesNotPersistHomeInheritedMachineValueIntoProjectFile(t *testing.T) {
+	home := testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(filepath.Join(home, ".ctxloom")), []byte("version: 1\neditor:\n  command: vim\n"), 0644))
+
+	appDir := "/proj/.ctxloom"
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644))
+
+	mgr := NewManager(WithFS(fs), WithAppDir(appDir))
+	require.NoError(t, mgr.Update(func(d *Draft) error {
+		d.DefaultAgent = "reviewer" // any write unrelated to the editor
+		return nil
+	}))
+
+	// MUTATION TARGET: read the raw PROJECT file (ParseConfig, no layering,
+	// no merge) -- if saveLocked's scope filter is skipped/disabled, home's
+	// editor.command shows up here, persisted into the committed project
+	// file by a write that never touched the editor at all.
+	data, err := afero.ReadFile(fs, paths.ConfigPath(appDir))
+	require.NoError(t, err)
+	persisted, err := ParseConfig(data)
+	require.NoError(t, err)
+	assert.Equal(t, "", persisted.editor.Command, "home's Machine-scoped editor.command must never be written into the committed project file")
+
+	// The unrelated write must still have landed -- this filter must not
+	// swallow legitimate project-scope content along with what it drops.
+	assert.Equal(t, "reviewer", persisted.defaultAgent)
+}

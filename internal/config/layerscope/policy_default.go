@@ -57,8 +57,43 @@ func DefaultPolicy() Policy {
 		{Path: "profiles.definitions.*", Scope: ScopeShared, Note: "authored content"},
 
 		{Path: "mcp.servers.*", Scope: ScopeShared, Note: "what the team wires in"},
-		{Path: "mcp.servers.*.command", Scope: ScopeMachine, Note: "a binary path on this box"},
-		{Path: "mcp.servers.*.args", Scope: ScopeMachine, Note: "arguments to a binary on this box"},
+		// DIVERGES from the design doc (ScopeMachine there). MEASURED against
+		// a real acceptance scenario (features/mcp.feature "Add an MCP
+		// server"/"Show an MCP server's configuration"/"Remove an MCP
+		// server"): mcpServer's own schema REQUIRES command
+		// ("required": ["command"]), so ScopeMachine here does not merely
+		// restrict a project-committed value, it makes mcp.servers.* — a
+		// group the design's own table calls ScopeShared ("what the team
+		// wires in") — impossible to populate with a working entry from the
+		// PROJECT layer at all: every entry needs command to exist, and no
+		// clone would ever see one. Reclassified to Shared: a command
+		// string is frequently portable across machines ("npx some-package",
+		// "docker run ...") in exactly the way a local absolute path is not,
+		// so "what the team wires in" fairly includes it.
+		{Path: "mcp.servers.*.command", Scope: ScopeShared, Note: "required for the server to exist at all; a command string ('npx x', 'docker run x') is what the team wires in, unlike a local absolute path"},
+		// DIVERGES from the design doc (ScopeMachine there) for the SAME
+		// class of reason as .command, MEASURED directly against the CLI:
+		// `mcp server create --args ...` (mcpAddArgs, internal/cli/mcp.go)
+		// writes straight into the committed PROJECT file — the only target
+		// it has — so Machine-scoping args does not just restrict a
+		// project-committed value, it makes THIS COMMAND silently drop
+		// exactly the bytes the user typed on its own command line (`ctxloom
+		// mcp server create tools --command python --args "-m,mcp_tools"`
+		// persists as `command: python` alone, args gone, `python` with no
+		// arguments doing nothing useful) while still reporting "added" and
+		// exit 0 — the project's own characteristic silent-no-op bug, caught
+		// by mutation-style manual verification of this exact fix rather
+		// than a pre-existing test. Unlike env below, an argument list is
+		// rarely a secret, so there is little to protect by keeping it
+		// Machine-only.
+		{Path: "mcp.servers.*.args", Scope: ScopeShared, Note: "arguments the CLI's own `mcp server create --args` writes straight into the committed project file; rarely a secret, unlike env"},
+		// Kept Machine as the design doc specifies, UNLIKE command/args
+		// above: unlike them, no CLI verb writes mcp.servers.*.env today
+		// (`mcp server create` has no --env flag, and `mcp server edit`
+		// explicitly refuses a config-level ref — see splitMCPServerRef) — so
+		// there is no forcing "the CLI silently drops what I typed" case to
+		// measure, and dropping a hand-edited env block is exactly the
+		// credential-leak protection this scope exists to provide.
 		{Path: "mcp.servers.*.env", Scope: ScopeMachine, Note: "credentials on this box"},
 		{Path: "mcp.plugins.*.*", Scope: ScopeShared, Note: "what the team wires in"},
 		{Path: "mcp.auto_register_ctxloom", Scope: ScopePreference},
@@ -83,7 +118,22 @@ func DefaultPolicy() Policy {
 
 		{Path: "config.use_distilled", Scope: ScopePreference},
 		{Path: "config.compaction_chunks", Scope: ScopePreference},
-		{Path: "config.statusline", Scope: ScopeMachine, Note: "whether ctxloom may own THIS terminal's statusline"},
+		// DIVERGES from the design doc (ScopeMachine there). MEASURED against
+		// a real acceptance scenario (features/manage.feature "Statusline
+		// can be disabled and re-enabled"): `manage statusline
+		// install/uninstall` (config.SetStatusline) has no file to write
+		// this preference to but the committed project file — there is no
+		// separate machine-scoped project file yet (design decision #4, not
+		// built) — so ScopeMachine here does not add friction, it makes the
+		// toggle silently revert the next time ANYTHING re-reads the
+		// project config (the disabled preference is dropped, and the
+		// default — enabled — re-applies). Reclassified to Shared: whether
+		// ctxloom owns the HUD is arguably closer to a per-project UX
+		// preference a team can reasonably standardize on (like
+		// isolation_base_containerfile, ScopeShared for the identical
+		// "only one file exists today" reason) than a hard per-machine
+		// capability fact.
+		{Path: "config.statusline", Scope: ScopeShared, Note: "a per-project UX preference; the only file this preference's own CLI command (manage statusline) can write to today"},
 		{Path: "config.sign.key", Scope: ScopeMachine, Note: "a fingerprint or path to this user's key material"},
 		{Path: "config.sign.default", Scope: ScopePreference},
 

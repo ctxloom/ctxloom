@@ -166,6 +166,25 @@ Feature: Manage the project harness
     Then the command succeeds
     And the file ".claude/settings.json" contains "hook hud"
 
+  # The dirty-tree-commit acknowledgement moved out of config.yaml into its
+  # own gitignored state-store record (internal/config/layerscope: the value
+  # records a prior HUMAN authorization, not configuration, and is
+  # ScopeNever — no config layer may set it). `manage dirty-tree-ack` is the
+  # scriptable counterpart to `ctxloom init`'s interview question, the only
+  # other writer.
+  Scenario: The dirty-tree-commit acknowledgement can be granted and revoked
+    Given an initialized ctxloom project
+    Then the file ".ctxloom/state/dirty_tree_commit_ack.yaml" does not exist
+    When I run "ctxloom manage dirty-tree-ack grant"
+    Then the command succeeds
+    And the output contains "granted"
+    And the file ".ctxloom/state/dirty_tree_commit_ack.yaml" exists
+    And the file ".ctxloom/state/dirty_tree_commit_ack.yaml" contains "approved: true"
+    When I run "ctxloom manage dirty-tree-ack revoke"
+    Then the command succeeds
+    And the output contains "revoked"
+    And the file ".ctxloom/state/dirty_tree_commit_ack.yaml" contains "approved: false"
+
   # A rewrite of settings.json must only ADD ctxloom's own keys: whatever the
   # user wrote by hand comes back byte-for-byte, including numbers no float64
   # can hold exactly. The failure this pins reported success and altered the

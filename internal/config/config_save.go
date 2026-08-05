@@ -6,8 +6,10 @@ import (
 	"reflect"
 
 	"github.com/spf13/afero"
+	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
 )
@@ -91,6 +93,32 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}
 
+	// c is the FULLY MERGED view Manager.Update's loadUncached produced (home
+	// < project < env < flag), so applyConfigSections just wrote every
+	// section it carries into existing regardless of which layer originally
+	// contributed it — a Machine-scoped value set ONLY in home (editor.
+	// command, llm.configs.*.env, ...) included. Writing that into configPath
+	// is exactly the leak internal/config/layerscope exists to close: the
+	// file being written here IS the project layer whenever a separate home
+	// layer also exists (c.source == SourceProject — see
+	// resolveConfigLayerPaths), and Scope.Allows(LayerProject) says a
+	// Machine-scoped value may not live there, committed-file-visible to
+	// every clone, no matter which in-memory Config section carried it in.
+	// Left unfiltered, the NEXT load of this same file re-discovers the
+	// leaked value at LayerProject and (in FATAL-class strictness) refuses
+	// to start — a command with nothing to do with editor.command (e.g. `mcp
+	// server create`) would otherwise brick every subsequent strict-mode
+	// invocation. When c.source is SourceHome (no project directory exists
+	// at all; this file IS home acting alone, nothing to violate), the
+	// filter is skipped.
+	if c.source == SourceProject {
+		filtered, ferr := dropSaveLayerScopeViolations(data)
+		if ferr != nil {
+			return fmt.Errorf("failed to enforce layer scope on config: %w", ferr)
+		}
+		data = filtered
+	}
+
 	if err := iox.WriteFileAtomicFs(fs, configPath, data, 0o644); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
 	}
@@ -101,6 +129,33 @@ func (c *Config) saveLocked(fs afero.Fs, configPath string) error {
 	Invalidate()
 
 	return nil
+}
+
+// dropSaveLayerScopeViolations re-decodes marshaled config YAML into a
+// generic map[string]any — undoing applyConfigSections' typed-struct
+// sections (c.editor, c.mcp, c.settings, ...) so kmaps can walk the result
+// uniformly, exactly like a freshly-read config layer — and drops whatever
+// ScopeProject disallows via the SAME dropLayerScopeViolations
+// load-time uses (never a second, bespoke filter), before re-marshaling.
+// Each drop is zap-logged (config_layer_scope_save_warning): there is no
+// live *Config.warnings slice to append to at this point in a save (the
+// fresh Config Manager.Update built is local to that call and about to be
+// discarded), so a zap log is the only channel available — silently
+// dropping it with no trace at all would repeat exactly the failure mode
+// WarnKindLayerScope's own load-time doc rejects.
+func dropSaveLayerScopeViolations(data []byte) ([]byte, error) {
+	var generic map[string]any
+	if err := yaml.Unmarshal(data, &generic); err != nil {
+		return nil, fmt.Errorf("re-parse marshaled config: %w", err)
+	}
+	for _, v := range dropLayerScopeViolations(layerscope.LayerProject, generic) {
+		zap.L().Warn("config_layer_scope_save_warning", zap.Strings("key", v.Path))
+	}
+	out, err := yaml.Marshal(generic)
+	if err != nil {
+		return nil, fmt.Errorf("re-marshal filtered config: %w", err)
+	}
+	return out, nil
 }
 
 // Marshal renders the configuration to YAML bytes using the same section

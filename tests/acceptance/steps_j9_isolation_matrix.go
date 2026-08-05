@@ -23,12 +23,15 @@
 // (ENOENT) — never to a real installed engine. No scenario in this file
 // makes a network call or touches a real credential.
 //
-// THE SPY: isoMatrixSpyScript dumps its OWN os.Environ() — exactly what a
-// real engine process would receive, per internal/shared/agent/base.go's
-// BuildEnv (os.Environ() of the plugin subprocess + the backend's own env +
-// the request env) — plus a `cat` of whatever credential file its own env
-// vars point it at, and (for antigravity) a resolved listing of its curated
-// $HOME. This is captured from INSIDE the spawned process because the
+// THE SPY: isoMatrixSpyScript records the per-agent config-home variables it
+// was actually handed (isoSpyEnvAllowlist — a CLOSED allowlist, never the
+// whole environment; see that list's doc for the secret-leak hazard the
+// allowlist closes) out of what a real engine process would receive, per
+// internal/shared/agent/base.go's BuildEnv (os.Environ() of the plugin
+// subprocess + the backend's own env + the request env) — plus a `cat` of
+// whatever credential file its own env vars point it at, and (for
+// antigravity) a resolved listing of its curated $HOME. This is captured
+// from INSIDE the spawned process because the
 // per-agent scratch config-home does NOT survive past the run: Cleanup
 // removes it unconditionally once the run exits (confirmed by hand — a
 // naive design that tried to inspect the scratch dir from outside, after
@@ -75,15 +78,57 @@ import (
 	"github.com/cucumber/godog"
 )
 
+// isoSpyEnvAllowlist is the CLOSED set of environment variables the spy is
+// permitted to record — every per-agent config-home knob this file's
+// assertions actually read (isoParseSpyEnv's callers), plus the two
+// diagnostics (HOME, PWD) that make a failure legible.
+//
+// It is an allowlist, never a denylist, because of the failure path. The spy
+// used to dump its whole environment (`env`), and godog prints a
+// spy-reading step's captured body VERBATIM whenever that step fails — so the
+// first red isolation scenario on a developer box copied that developer's
+// entire environment into the console, and from there into CI logs, pasted
+// bug reports and agent transcripts. During the audit that found this, a real
+// PyPI TWINE_PASSWORD was printed exactly that way. Cloud credentials,
+// registry tokens and SSH agent sockets all live in the same place. A
+// denylist would have to enumerate every secret-bearing variable name any
+// developer might ever export, which is not a knowable set; this list instead
+// enumerates the handful the assertions read, so anything else structurally
+// cannot reach the capture file. ADD TO THIS LIST ONLY A VARIABLE AN
+// ASSERTION READS, AND ONLY ONE WHOSE VALUE IS A PATH.
+var isoSpyEnvAllowlist = []string{
+	"CLAUDE_CONFIG_DIR",
+	"CODEX_HOME",
+	"KIRO_HOME",
+	"XDG_CONFIG_HOME",
+	"XDG_DATA_HOME",
+	"XDG_CACHE_HOME",
+	"HOME",
+	"PWD",
+}
+
+// isoSpyEnvAllowlistShell renders isoSpyEnvAllowlist as the literal word list
+// the spy script's `for` loop iterates. The names are fixed identifiers from
+// the const-adjacent slice above, never scenario input, so the `eval`
+// indirection they feed carries no injection surface.
+var isoSpyEnvAllowlistShell = strings.Join(isoSpyEnvAllowlist, " ")
+
 // isoMatrixSpyScript is the recording fixture every scenario in this file
 // installs in place of a real engine binary. POSIX sh (not bash) — the
 // sanitized PATH deliberately carries no promise bash itself resolves from
 // it; /usr/bin/sh is on every box that can run this suite at all.
-const isoMatrixSpyScript = `#!/bin/sh
+//
+// It records ONLY isoSpyEnvAllowlist's variables, never the whole
+// environment — see that list's doc for the secret-leak hazard that
+// constraint exists to close.
+var isoMatrixSpyScript = `#!/bin/sh
 out="$CTXLOOM_ISOSPY_OUT"
 {
   echo "===ENV==="
-  env
+  for k in ` + isoSpyEnvAllowlistShell + `; do
+    eval "v=\${$k-}"
+    [ -n "$v" ] && echo "$k=$v"
+  done
   echo "===ARGV==="
   printf '%s\n' "$@"
   echo "===STDIN==="
@@ -177,6 +222,12 @@ func isoCredsSectionMarker(engine string) (string, error) {
 // output landed for the last run.
 type isoMatrixState struct {
 	spyOut string
+	// engine is the engine token the last runIsoMatrix drove, so an
+	// outcome step can hold the run to the payload THAT engine's launch
+	// path is capable of leaving behind.
+	engine string
+	// workspace is the isolation workspace axis the last run requested.
+	workspace string
 }
 
 func isoMatrixOf(w *World) *isoMatrixState {
@@ -245,6 +296,9 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 	w := worldFrom(c)
 	j := isoMatrixOf(w)
 
+	j.engine = engine
+	j.workspace = workspace
+
 	binNames, err := isoBinaryNames(engine)
 	if err != nil {
 		return err
@@ -286,8 +340,8 @@ func isoReadSpyOut(j *isoMatrixState) (string, error) {
 	return string(data), nil
 }
 
-// isoParseSpyEnv extracts the ===ENV=== block (the spy's own os.Environ())
-// into a lookup map.
+// isoParseSpyEnv extracts the ===ENV=== block (the allowlisted slice of the
+// spy's own environment — isoSpyEnvAllowlist) into a lookup map.
 func isoParseSpyEnv(body string) map[string]string {
 	env := map[string]string{}
 	inEnv := false

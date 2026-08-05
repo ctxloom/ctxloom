@@ -145,12 +145,31 @@ Feature: The trust surface — what "review" actually controls
   # is exactly the step skipped for an already-approved item. What the countersign
   # payload binds is therefore a COMPOSITE form naming the role
   # ("fragment/raw" vs "exec/mcp"), so the two can never share a key.
+  #
+  # The last four lines are what make that claim testable at all (audit
+  # irate-catfish, F4). The delivered-surface half alone could not fail:
+  # an approval's key is ref PLUS form, the two items are #fragments/context
+  # and #mcp/toolserver, and Ref.Key bakes the KIND into the ref — so the ref
+  # component already separates them and the composite form never did any
+  # work. Replacing exec/mcp with fragment/raw outright left 30 of 30
+  # scenarios green. Worse, the MCP was withheld by default anyway (unsigned,
+  # never reviewed), so its absence proved an absence.
+  #
+  # So the roles are read out of the countersignature store itself, and the
+  # executable is then approved IN ITS OWN ROLE and shown to start flowing —
+  # which is what establishes that nothing but the missing exec/mcp approval
+  # was keeping it out of the session above.
   Scenario: Approving a text fragment never approves the executable whose bytes it copies
     Given a bundle from an unsigned, never-reviewed publisher ships a fragment whose body is byte-identical to its MCP server's executable preimage
     When Alice approves the fragment
     And Alice starts a session
     Then the copied preimage is present in her assistant's delivered surface as text
     And the MCP server is absent from her assistant's delivered surface
+    And what Alice approved is on record as the text's role only, never as the executable's
+    When Alice approves the MCP server
+    And Alice starts a session
+    Then the MCP server is present in her assistant's delivered surface
+    And the two decisions are on record as separate attestations over the same bytes, one per role
 
   # STALING. The composite form is a change to what gets signed, so it bumps the
   # countersign contract and every approval recorded before it stops verifying.

@@ -41,6 +41,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
+	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -991,6 +992,85 @@ func tsSupersedeStore(w *World) error {
 	return nil
 }
 
+// tsCountersignRef is operations.countersignRef, reached through the same
+// PRODUCTION parse the CLI performs on its own argument: trust.ParseItemRef
+// turns the "<url>@bundles/<name>#<kind>/<item>" string a scenario passes to
+// `ctxloom trust accept` into a trust.Ref, whose CanonicalURL and Key compose
+// the ref a countersignature actually binds to.
+func tsCountersignRef(cliRef string) (string, error) {
+	parsed, _, _, err := trust.ParseItemRef(cliRef)
+	if err != nil {
+		return "", fmt.Errorf("parse item ref %q: %w", cliRef, err)
+	}
+	return parsed.CanonicalURL() + "|" + parsed.Key(), nil
+}
+
+// tsAssertCollisionRoles is the assertion the text→exec escalation scenario
+// turns on, and the only one on this page that can fail when the composite
+// attestation form is deleted.
+//
+// The scenario's delivered-surface half CANNOT fail: an approval is keyed by
+// ref AND form, trust.Ref.Key bakes the item KIND into the ref, and the fixture's
+// two items are #fragments/context and #mcp/toolserver — so the ref component
+// alone already separates them and the role plays no part (audit
+// irate-catfish, F4). This reads the ROLE out of the store instead, over the
+// one payload both items share.
+//
+// Before the executable has been approved (mcpApproved=false) the text's
+// approval must exist under fragment/raw and NOTHING may cover those bytes as
+// exec/mcp. After it has, BOTH roles must be on record, each under its own ref
+// — and neither may have been written under the other's form, which is exactly
+// what a collapsed form mapping would produce.
+func tsAssertCollisionRoles(w *World, mcpApproved bool) error {
+	mcp := tsCollisionMCP()
+	payload, err := mcp.ContentPayload()
+	if err != nil {
+		return fmt.Errorf("build the mcp executable preimage: %w", err)
+	}
+	fragRef, err := tsCountersignRef(tsRef(w, "fragments/context"))
+	if err != nil {
+		return err
+	}
+	mcpRef, err := tsCountersignRef(tsRef(w, "mcp/toolserver"))
+	if err != nil {
+		return err
+	}
+	store := tsApprovalsStore(w)
+
+	// The text's decision, in the text's role. True in both phases: approving
+	// the executable must not disturb or absorb it.
+	if !store.HasUnsignedApprove(fragRef, signing.AttestFragmentRaw, payload) {
+		return fmt.Errorf("no approval of %s is on record under %q over the %d shared bytes — Alice approved the fragment, "+
+			"so this is the decision she actually made", fragRef, signing.AttestFragmentRaw, len(payload))
+	}
+	// A decision may never be recorded under the OTHER item's role. Under a
+	// collapsed mapping (exec/mcp folded onto fragment/raw) the executable's
+	// approval lands here.
+	if store.HasUnsignedApprove(mcpRef, signing.AttestFragmentRaw, payload) {
+		return fmt.Errorf("an approval of the EXECUTABLE %s is on record under the TEXT role %q: the two roles share a key, "+
+			"so approving a fragment and approving the executable whose bytes it copies are the same decision",
+			mcpRef, signing.AttestFragmentRaw)
+	}
+	if store.HasUnsignedApprove(fragRef, signing.AttestExecMCP, payload) {
+		return fmt.Errorf("an approval of the TEXT %s is on record under the EXECUTABLE role %q — approving a fragment "+
+			"must never attest its bytes as something that runs", fragRef, signing.AttestExecMCP)
+	}
+
+	execOnRecord := store.HasUnsignedApprove(mcpRef, signing.AttestExecMCP, payload)
+	if mcpApproved && !execOnRecord {
+		return fmt.Errorf("Alice approved the MCP server, but no approval of %s is on record under %q over those same %d bytes; "+
+			"the executable's decision has to be recorded IN THE EXECUTABLE'S ROLE, or it is indistinguishable from the "+
+			"text's", mcpRef, signing.AttestExecMCP, len(payload))
+	}
+	if !mcpApproved && execOnRecord {
+		return fmt.Errorf("nobody has approved the executable yet, but %s is already on record under %q — an approval of "+
+			"the text expanded to cover the thing that runs", mcpRef, signing.AttestExecMCP)
+	}
+	w.docStepMaterialized = fmt.Sprintf("countersign store over the %d shared bytes:\n  %s → %s: on record\n  %s → %s: %v",
+		len(payload), fragRef, signing.AttestFragmentRaw, mcpRef, signing.AttestExecMCP, execOnRecord)
+	return nil
+}
+
 func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships a fragment whose body is byte-identical to its MCP server's executable preimage$`, func(c context.Context) error {
 		w := worldFrom(c)
@@ -1031,6 +1111,14 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		}
 		w.docStepMaterialized = j5Excerpt(body, tsMCPMarker, 1)
 		return nil
+	})
+
+	ctx.Step(`^what Alice approved is on record as the text's role only, never as the executable's$`, func(c context.Context) error {
+		return tsAssertCollisionRoles(worldFrom(c), false)
+	})
+
+	ctx.Step(`^the two decisions are on record as separate attestations over the same bytes, one per role$`, func(c context.Context) error {
+		return tsAssertCollisionRoles(worldFrom(c), true)
 	})
 
 	ctx.Step(`^her approval was recorded under a superseded countersign contract$`, func(c context.Context) error {

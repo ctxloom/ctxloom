@@ -282,11 +282,26 @@ func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]an
 	// ReadOverrides' doc) -- everything reaching either one already declared
 	// itself a config override, so there is no more "this might just be an
 	// unrelated flag" ambiguity to protect against.
+	//
+	// Both merge steps below use the package's plain Merge — NEVER
+	// p.MergeLayers/p.MergeFunc — deliberately: an override is a PATCH (one
+	// resolved path, one value), not a competing whole-document layer, and a
+	// product's MergeFunc (ctxloom's agentBindingMergeFunc among them) is
+	// written for the "whichever FILE layer names this whole binding wins"
+	// question. Feeding a single-field flag override like `--config-set
+	// agents.reviewer.permissions=bypass` through an atomic-replace merge
+	// wiped out that agent's OTHER fields (profiles, engine, ...) entirely —
+	// confirmed against a running binary while validating this seam — which
+	// is not "the flag names a new binding for reviewer", it is "the flag
+	// tweaks one field of the existing one". MergeFunc's atomic behavior
+	// belongs solely to Product.MergeLayers' other caller (the FILE-layer
+	// merge in Load / a caller like ctxloom's own decodeMergedLayers), never
+	// here.
 	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName, false, SourceEnv)
 	if envErr != nil {
 		errs = append(errs, envErr)
 	}
-	merged, mergeErr := p.MergeLayers(base, envLayer)
+	merged, mergeErr := Merge(base, envLayer)
 	if mergeErr != nil {
 		return nil, mergeErr
 	}
@@ -296,7 +311,7 @@ func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]an
 	if flagErr != nil {
 		errs = append(errs, flagErr)
 	}
-	merged, mergeErr = p.MergeLayers(base, flagLayer)
+	merged, mergeErr = Merge(base, flagLayer)
 	if mergeErr != nil {
 		return nil, mergeErr
 	}

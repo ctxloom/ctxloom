@@ -204,11 +204,15 @@ type Product struct {
 	MergeFunc   MergeFunc
 }
 
-// MergeLayers merges layers through p's own MergeFunc if set, or koanf's
-// default otherwise (see MergeWith) — the single chokepoint both Load (the
-// file layers) and ApplyOverrides (the override layers) merge through, so a
-// product's merge policy applies wherever ITS layers actually merge, not just
-// at the file-layer step.
+// MergeLayers merges FILE layers (home, project) through p's own MergeFunc if
+// set, or koanf's default otherwise (see MergeWith). This is deliberately NOT
+// used for override resolution (see ApplyOverrides' own doc for why): an
+// override is a one-field PATCH, and a product's MergeFunc answers "which
+// FILE layer defines this whole competing structure", a question a patch
+// never poses. Load calls this for its file-layer step; a caller like
+// ctxloom's own decodeMergedLayers (which skips Load to run its own
+// upgrade/validation pipeline per layer) calls it directly for the identical
+// reason.
 func (p Product) MergeLayers(layers ...map[string]any) (map[string]any, error) {
 	return MergeWith(p.MergeFunc, layers...)
 }

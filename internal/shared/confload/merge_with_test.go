@@ -105,3 +105,40 @@ func TestMergeWith_DoesNotMutateInputs(t *testing.T) {
 
 	assert.Equal(t, homeCopy, home, "MergeWith must not mutate its inputs")
 }
+
+// TestApplyOverrides_FlagOverride_NeverGoesThroughProductMergeFunc is a
+// regression test for a bug MEASURED against a running binary while building
+// this seam: ApplyOverrides used to merge the flag/env layer through
+// p.MergeLayers (the SAME atomic-replace-aware path Load's file-layer merge
+// uses). For ctxloom's own agentBindingMergeFunc, that meant a single-field
+// --config-set override like `--config-set agents.reviewer.permissions=bypass`
+// against a project that already declares agents.reviewer with `profiles`
+// and `engine` WIPED OUT those other fields entirely — the flag's tiny patch
+// "named" the same agent atomically, so it replaced the WHOLE binding rather
+// than patching one field. That is never what a one-off --config-set/env
+// override means (it is a PATCH, not a competing whole-document layer), so
+// ApplyOverrides must resolve overrides through the package's plain Merge,
+// deliberately never through a Product's own MergeFunc.
+//
+// This test uses the SAME atomicReplaceAt fixture the file-layer tests above
+// use, proving the property generically: a Product carrying a MergeFunc that
+// treats "atomic" as an all-or-nothing key must NOT have that behavior leak
+// into override resolution.
+func TestApplyOverrides_FlagOverride_NeverGoesThroughProductMergeFunc(t *testing.T) {
+	p := testProduct("atomic")
+	p.MergeFunc = atomicReplaceAt("atomic")
+
+	base := map[string]any{
+		"atomic": map[string]any{"profiles": []any{"default"}, "engine": "claude-code"},
+	}
+	o := Overrides{Flags: map[string]any{"atomic.permissions": "bypass"}}
+
+	out, err := p.ApplyOverrides(base, o)
+	require.NoError(t, err)
+
+	atomic, ok := out["atomic"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "bypass", atomic["permissions"], "the override itself must still apply")
+	assert.Equal(t, []any{"default"}, atomic["profiles"], "a sibling field the override never touched must survive")
+	assert.Equal(t, "claude-code", atomic["engine"], "same for a second untouched sibling field")
+}

@@ -246,3 +246,37 @@ func TestAgentBindingMergeFunc_NonAgentKeysStillDeepMerge(t *testing.T) {
 	assert.Equal(t, "nano", editor["command"], "the higher layer's value must win")
 	assert.Equal(t, []any{"-p"}, editor["args"], "an untouched sibling field must survive (deep merge, not replace)")
 }
+
+// TestLoad_ConfigSetPatchesOneAgentFieldWithoutWipingSiblings is the
+// end-to-end regression test for a bug MEASURED against a running binary
+// while building this seam: --config-set targeting ONE field of an agent the
+// project already declares used to wipe out every OTHER field of that same
+// agent (profiles, engine, ...), because ApplyOverrides used to merge the
+// flag layer through the SAME atomic-replace-aware path (agentBindingMergeFunc)
+// Load's file-layer merge uses — the flag's one-field patch "named" the
+// agent, so agentBindingMergeFunc replaced the WHOLE binding with just that
+// field. Fixed by confload.ApplyOverrides always resolving overrides through
+// the package's plain Merge, never a Product's own MergeFunc (see
+// internal/shared/confload's TestApplyOverrides_FlagOverride_
+// NeverGoesThroughProductMergeFunc for the generic, product-agnostic proof).
+func TestLoad_ConfigSetPatchesOneAgentFieldWithoutWipingSiblings(t *testing.T) {
+	testsupport.Isolate(t)
+	fs := afero.NewMemMapFs()
+	appDir := "/proj/.ctxloom"
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(`version: 1
+agents:
+  reviewer:
+    profiles: [default]
+    engine: claude-code
+`), 0644))
+
+	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions": "bypass"}}
+	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
+	require.NoError(t, err)
+
+	reviewer, ok := cfg.agents["reviewer"]
+	require.True(t, ok)
+	assert.Equal(t, "bypass", reviewer.Permissions, "the override itself must still apply")
+	assert.Equal(t, []string{"default"}, reviewer.Profiles, "a sibling field the override never touched must survive")
+	assert.Equal(t, "claude-code", reviewer.Engine, "same for a second untouched sibling field")
+}

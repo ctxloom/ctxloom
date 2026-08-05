@@ -39,6 +39,24 @@ func managerFor(appDir string) *config.Manager {
 	return config.NewManager(config.WithAppDir(appDir))
 }
 
+// readAgentFromDisk re-reads appDir's config.yaml through ParseConfig (a
+// single-document parse — no layering, no layerscope policy) and returns
+// name's binding. Several fields SetAgent writes (Runtime is ScopeMachine —
+// internal/config/layerscope) are no longer honored by a full config.Load
+// against the committed PROJECT layer this test writes to (correctly: a
+// committed project file is read by every clone, and whether THIS box has a
+// container runtime is not a fact every clone shares). What THIS helper
+// verifies is Save's own serialization fidelity — did SetAgent write the byte
+// the caller asked for — independent of that load-time policy.
+func readAgentFromDisk(t *testing.T, appDir, name string) (agents.Agent, bool) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(appDir, "config.yaml"))
+	require.NoError(t, err)
+	cfg, err := config.ParseConfig(data)
+	require.NoError(t, err)
+	return cfg.Agent(name)
+}
+
 // TestSetAgent_RoundTripsThroughConfig proves the write half persists a
 // binding under the `agents:` key and that a fresh load reads it back — the
 // path the agent-assisted setup uses to record the user's choice.
@@ -161,8 +179,13 @@ func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 }
 
 // TestSetAgent_PersistsRuntime proves the runtime axis written by
-// `agent set --runtime` survives the config round-trip — the developer
-// binding of the standard trio depends on `runtime: container` persisting.
+// `agent set --runtime` survives the SAVE round-trip (Marshal serializes it
+// faithfully) — read back via readAgentFromDisk (ParseConfig, no layering),
+// not a full config.Load: agents.*.runtime is ScopeMachine
+// (internal/config/layerscope), so a committed PROJECT file — every clone's
+// copy — no longer has this value take effect on a real Load; that closure is
+// covered by internal/config's own layerscope tests. What this test still
+// pins is that SetAgent itself writes the byte, never silently discarding it.
 // An unknown value is stored as written (advisory warn only; it acts as host
 // at resolve time per fault tolerance).
 func TestSetAgent_PersistsRuntime(t *testing.T) {
@@ -177,18 +200,17 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	sub, ok := reloaded.Agent("developer")
+	sub, ok := readAgentFromDisk(t, appDir, "developer")
 	require.True(t, ok)
 	assert.Equal(t, "container", sub.Runtime)
+
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
 
 	// Unknown value: stored verbatim, never an error.
 	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "odd", Runtime: ptr("podracer")})
 	require.NoError(t, err, "unknown runtime warns, never errors")
-	final, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	sub, ok = final.Agent("odd")
+	sub, ok = readAgentFromDisk(t, appDir, "odd")
 	require.True(t, ok)
 	assert.Equal(t, "podracer", sub.Runtime, "stored as written")
 }

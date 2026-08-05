@@ -23,13 +23,17 @@ type InitializeProjectRequest struct {
 
 	// DirtyTreeHandler and DirtyTreeCommitAck carry the init interview's
 	// single dirty-tree-handler answer (internal/cli/init.go's
-	// promptDirtyTreeHandler) through to BuildInitialConfig. Both empty/false
-	// (the zero values) reproduce today's behavior exactly: an unset project
-	// default resolving to the built-in "commit" default, unacknowledged, so
-	// the commit handler still refuses a delegated spawn until a human
-	// explicitly sets dirty_tree_commit_ack — see
-	// config.Config.dirtyTreeCommitAck's doc for why that flag is never
-	// settable any other way.
+	// promptDirtyTreeHandler) through. Both empty/false (the zero values)
+	// reproduce today's behavior exactly: an unset project default resolving
+	// to the built-in "commit" default, unacknowledged, so the commit handler
+	// still refuses a delegated spawn until a human explicitly acknowledges
+	// it. DirtyTreeHandler is written into config.yaml (BuildInitialConfig);
+	// DirtyTreeCommitAck is NOT — it is written to
+	// paths.DirtyTreeCommitAckPath via config.SetDirtyTreeCommitAck, an
+	// admission.Store file outside the layered config chain entirely (see
+	// that function's doc for why: a config key is reachable from three
+	// channels an agent can write, and prior human consent needs a home with
+	// none).
 	DirtyTreeHandler   string `json:"dirty_tree_handler"`
 	DirtyTreeCommitAck bool   `json:"dirty_tree_commit_ack"`
 
@@ -84,12 +88,24 @@ func InitializeProject(_ context.Context, req InitializeProjectRequest) (*Initia
 		}
 	}
 
-	configData, err := BuildInitialConfig(req.Engine, req.DirtyTreeHandler, req.DirtyTreeCommitAck)
+	configData, err := BuildInitialConfig(req.Engine, req.DirtyTreeHandler)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build config.yaml: %w", err)
 	}
 	if err := afero.WriteFile(fs, paths.ConfigPath(req.AppDir), configData, 0644); err != nil {
 		return nil, fmt.Errorf("failed to create config.yaml: %w", err)
+	}
+
+	// The dirty-tree-commit acknowledgement is written OUTSIDE config.yaml
+	// (paths.DirtyTreeCommitAckPath) — see InitializeProjectRequest's doc.
+	// Only write it when granted: absent is exactly the same "not yet
+	// acknowledged" state as an explicit false record, and skipping the write
+	// keeps a checkout that never touched this question from growing a state
+	// file for no reason.
+	if req.DirtyTreeCommitAck {
+		if err := config.SetDirtyTreeCommitAck(fs, req.AppDir, true); err != nil {
+			return nil, fmt.Errorf("failed to record dirty-tree-commit acknowledgement: %w", err)
+		}
 	}
 
 	remotesContent, err := resources.GetDefaultRemotes()
@@ -138,11 +154,13 @@ func scaffoldSeedProfile(fs afero.Fs, appDir string) error {
 // role-marked entries (e.g. codex, mock) get a single self-contained
 // {type: engine} entry serving both roles.
 //
-// dirtyTreeHandler/dirtyTreeCommitAck carry the init interview's dirty-tree
-// answer straight into the scaffolded config (config.Fixture.DirtyTreeHandler/
-// DirtyTreeCommitAck) — both empty/false reproduces the pre-interview shape
-// (no keys written, built-in "commit" default, unacknowledged).
-func BuildInitialConfig(engine, dirtyTreeHandler string, dirtyTreeCommitAck bool) ([]byte, error) {
+// dirtyTreeHandler carries the init interview's dirty-tree-handler answer
+// straight into the scaffolded config (config.Fixture.DirtyTreeHandler) —
+// empty reproduces the pre-interview shape (no key written, built-in "commit"
+// default). The interview's OTHER half, the commit acknowledgement, is never
+// part of this scaffold at all — see InitializeProject, which writes it to
+// paths.DirtyTreeCommitAckPath instead.
+func BuildInitialConfig(engine, dirtyTreeHandler string) ([]byte, error) {
 	scaffoldData, err := readResource(resources.GetInitConfig, "init scaffold")
 	if err != nil {
 		return nil, err
@@ -164,7 +182,6 @@ func BuildInitialConfig(engine, dirtyTreeHandler string, dirtyTreeCommitAck bool
 	f := scaffold.ToFixture()
 	f.LM = engineRegistry(engine, registry.GetLMConfig())
 	f.DirtyTreeHandler = dirtyTreeHandler
-	f.DirtyTreeCommitAck = dirtyTreeCommitAck
 	// PrimaryLabel reads f.LM.Defaults.Primary; resolve it through a throwaway
 	// Config carrying just that update so the seed agent's Engine matches
 	// exactly what scaffold.PrimaryLabel() would have returned post-mutation.

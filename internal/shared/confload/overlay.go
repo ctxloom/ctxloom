@@ -43,6 +43,48 @@ const ConfigSetFlagName = "config-set"
 // from its cause.
 const EnvPrefixSegment = "_CONFIG_"
 
+// OverrideSource distinguishes the two override channels for a Product's
+// ScopeAllows hook. The distinction is REACH, not merely syntax: env is
+// inherited by every child process this one spawns (including a delegated
+// engine an agent drives); --config-set crosses no process boundary at all,
+// scoped to the one invocation that declared it. See Product.ScopeAllows.
+type OverrideSource uint8
+
+const (
+	SourceEnv OverrideSource = iota
+	SourceFlag
+)
+
+// String names s for a diagnostic.
+func (s OverrideSource) String() string {
+	switch s {
+	case SourceEnv:
+		return "env"
+	case SourceFlag:
+		return "flag"
+	default:
+		return "unknown"
+	}
+}
+
+// ScopeViolationError is what ApplyOverrides returns (joined alongside any
+// other override error) when Product.ScopeAllows answers false for a
+// resolved override path. It is a distinct type — not a bare fmt.Errorf —
+// so a caller with its own per-kind diagnostics (ctxloom's decodeMergedLayers
+// classifies this as WarnKindLayerScope, distinctly from an ambiguous
+// override's plainer error) can tell the two apart via errors.As instead of
+// string-matching the message.
+type ScopeViolationError struct {
+	Source  OverrideSource
+	Path    []string
+	Why     string
+	Display string // the raw override's display form (env var name / --config-set entry)
+}
+
+func (e *ScopeViolationError) Error() string {
+	return fmt.Sprintf("%s: %s may not set %q — %s", e.Display, e.Source, strings.Join(e.Path, "."), e.Why)
+}
+
 // ReadOverrides captures the process's env/CLI overrides ONCE — see the
 // package doc's "Overrides are captured once, resolved on every load"
 // section. It does NOT resolve anything against a config base; that happens
@@ -240,7 +282,22 @@ func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]an
 	// ReadOverrides' doc) -- everything reaching either one already declared
 	// itself a config override, so there is no more "this might just be an
 	// unrelated flag" ambiguity to protect against.
-	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName, false)
+	//
+	// Both merge steps below use the package's plain Merge — NEVER
+	// p.MergeLayers/p.MergeFunc — deliberately: an override is a PATCH (one
+	// resolved path, one value), not a competing whole-document layer, and a
+	// product's MergeFunc (ctxloom's agentBindingMergeFunc among them) is
+	// written for the "whichever FILE layer names this whole binding wins"
+	// question. Feeding a single-field flag override like `--config-set
+	// agents.reviewer.permissions=bypass` through an atomic-replace merge
+	// wiped out that agent's OTHER fields (profiles, engine, ...) entirely —
+	// confirmed against a running binary while validating this seam — which
+	// is not "the flag names a new binding for reviewer", it is "the flag
+	// tweaks one field of the existing one". MergeFunc's atomic behavior
+	// belongs solely to Product.MergeLayers' other caller (the FILE-layer
+	// merge in Load / a caller like ctxloom's own decodeMergedLayers), never
+	// here.
+	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName, false, SourceEnv)
 	if envErr != nil {
 		errs = append(errs, envErr)
 	}
@@ -250,7 +307,7 @@ func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]an
 	}
 	base = merged
 
-	flagLayer, flagErr := p.resolveRaw(base, o.Flags, setTokens, flagSourceName, true)
+	flagLayer, flagErr := p.resolveRaw(base, o.Flags, setTokens, flagSourceName, true, SourceFlag)
 	if flagErr != nil {
 		errs = append(errs, flagErr)
 	}
@@ -309,7 +366,7 @@ func setTokens(path string) []string {
 // koanf/maps.Unflatten — the koanf-provided replacement for this package's
 // former hand-rolled setPath helper (see delim's doc for why "." itself is
 // never used as the join/split character here).
-func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize func(string) []string, sourceName func(string) string, preserveTypedCase bool) (map[string]any, error) {
+func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize func(string) []string, sourceName func(string) string, preserveTypedCase bool, source OverrideSource) (map[string]any, error) {
 	flat := map[string]any{}
 	var errs []error
 
@@ -329,6 +386,17 @@ func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize fu
 		if err != nil {
 			errs = append(errs, err)
 			continue
+		}
+		if p.ScopeAllows != nil {
+			if ok, why := p.ScopeAllows(source, path); !ok {
+				// Dropped, not fatal — exactly like an ambiguous override
+				// (case 2): every OTHER override still resolves normally, and
+				// this one's target is simply absent from the returned layer.
+				// A typed error (not a bare fmt.Errorf), so a caller can
+				// classify this distinctly from every other override fault.
+				errs = append(errs, &ScopeViolationError{Source: source, Path: path, Why: why, Display: display})
+				continue
+			}
 		}
 		if warn {
 			clidiag.Warn(p.Name, "%s does not match any known config key (resolved as %s); setting it anyway",

@@ -920,8 +920,11 @@ func (c *Coordinator) servePeerSend(caller Identity, req *agentcoordpb.PeerSendR
 // so no proto/schema regen is needed to accept either. Empty/absent falls
 // back to the project's cfg.Workspace / cfg.GetDirtyTreeHandler() defaults.
 // input.dirty_tree_handler deliberately carries NO acknowledgement for the
-// "commit" handler's mutation — that is a per-project, human-only config
-// flag (dirty_tree_commit_ack) this free-form per-call field can never set.
+// "commit" handler's mutation — that is a per-checkout, human-only
+// acknowledgement (dirty_tree_commit_ack — see
+// config.DirtyTreeCommitAcknowledged) this free-form per-call field can
+// never set: it is not even a config key, precisely so no channel an agent
+// can reach can grant it.
 func (c *Coordinator) serveSpawnAgent(caller Identity, req *agentcoordpb.SpawnAgentRequest) *agentcoordpb.CoordinatorResponse {
 	role := req.GetRole()
 	prompt := ""

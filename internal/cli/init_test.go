@@ -23,7 +23,7 @@ import (
 func TestGenerateConfig(t *testing.T) {
 	for _, engine := range []string{"claude-code", "antigravity", "codex"} {
 		t.Run(engine, func(t *testing.T) {
-			data, err := operations.BuildInitialConfig(engine, "", false)
+			data, err := operations.BuildInitialConfig(engine, "")
 			require.NoError(t, err)
 			body := string(data)
 			assert.Contains(t, body, "type: "+engine,
@@ -37,7 +37,7 @@ func TestGenerateConfig(t *testing.T) {
 }
 
 func TestGenerateConfig_DefaultsBlock(t *testing.T) {
-	data, err := operations.BuildInitialConfig("claude-code", "", false)
+	data, err := operations.BuildInitialConfig("claude-code", "")
 	require.NoError(t, err)
 	body := string(data)
 	// The scaffold settings survive into the written config.
@@ -267,7 +267,7 @@ func TestPromptAllEngines_LeavesTheCallersSliceAlone(t *testing.T) {
 func writeEngineConfig(t *testing.T, appDir, engine string) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
-	body, err := operations.BuildInitialConfig(engine, "", false)
+	body, err := operations.BuildInitialConfig(engine, "")
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), body, 0o644))
 }

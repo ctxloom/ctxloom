@@ -18,6 +18,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/profiles"
@@ -124,25 +125,15 @@ type Config struct {
 	// mirroring workspace's own project-default/per-call split. See
 	// operations.handleDirtyParentTree for what each value does.
 	dirtyTreeHandler string
-	// dirtyTreeCommitAck is a per-PROJECT, HUMAN-set acknowledgement that
-	// dirty_tree_handler: "commit" may auto-commit uncommitted changes onto
-	// this project's current branch on the user's behalf, so a delegated
-	// child (which only ever sees committed state in its worktree) can see
-	// them. Deliberately a config-only flag: it is NEVER settable via the
-	// agent_run per-call parameter and NEVER inferable from anything an
-	// agent does at runtime — agent_run is normally invoked by a
-	// coordinator AGENT over MCP with no TTY, often while the human is
-	// away, so an interactive prompt would either hang forever or be
-	// answered by an agent, which is not the user's consent. A durable,
-	// human-edited config flag is the only form of prior consent that
-	// survives headless operation. If you are tempted to add a per-call
-	// override for this: don't — that would let a delegating agent grant
-	// itself permission to commit on the user's behalf, which is exactly
-	// what this flag exists to prevent. Absent/false means NOT
-	// acknowledged: the commit handler refuses (actionably) rather than
-	// silently committing. Gates ONLY the "commit" handler — copy/stale/fail
-	// never mutate the user's repo and need no acknowledgement.
-	dirtyTreeCommitAck bool
+	// The dirty-tree-commit human acknowledgement used to live here as a
+	// config-only bool field. It moved to paths.DirtyTreeCommitAckPath (an
+	// internal/shared/admission.Store file under .ctxloom/state/) — see
+	// config.DirtyTreeCommitAcknowledged/SetDirtyTreeCommitAck and the
+	// config-layer-scope design doc's "Consent leaves the chain": a config
+	// key is reachable from THREE channels an agent can write (a home file,
+	// an environment variable, an argv), and prior human consent needs a
+	// home with none. ScopeNever in internal/config/layerscope names the
+	// scope this key would have needed and why no layer may carry it.
 	// runtime is the project-wide DEFAULT for the AGENT-level runtime axis
 	// (host | container): where an agent's engine process executes. Empty
 	// means "host". An agent binding's own `runtime:` overrides it; the
@@ -336,7 +327,6 @@ type configDoc struct {
 	DefaultAgent                 string                  `yaml:"default_agent,omitempty"`
 	Workspace                    string                  `yaml:"workspace,omitempty"`
 	DirtyTreeHandler             string                  `yaml:"dirty_tree_handler,omitempty"`
-	DirtyTreeCommitAck           bool                    `yaml:"dirty_tree_commit_ack,omitempty"`
 	Runtime                      string                  `yaml:"runtime,omitempty"`
 	AgentTurnCap                 int                     `yaml:"agent_turn_cap,omitempty"`
 	IsolationImages              map[string]string       `yaml:"isolation_images,omitempty"`
@@ -355,7 +345,7 @@ type configDoc struct {
 // WRITE surface, and an fn that mutates a container in place must not be able
 // to reach back into the Config the draft was taken from. Cloning also keeps
 // the two conversions honest with each other — they are near-identical
-// 21-field copies, and one of them silently having weaker ownership than the
+// 20-field copies, and one of them silently having weaker ownership than the
 // other is exactly how that class of bug happens.
 func (c *Config) toDoc() configDoc {
 	return configDoc{
@@ -371,7 +361,6 @@ func (c *Config) toDoc() configDoc {
 		DefaultAgent:                 c.defaultAgent,
 		Workspace:                    c.workspace,
 		DirtyTreeHandler:             c.dirtyTreeHandler,
-		DirtyTreeCommitAck:           c.dirtyTreeCommitAck,
 		Runtime:                      c.runtime,
 		AgentTurnCap:                 c.agentTurnCap,
 		IsolationImages:              cloneStringMap(c.isolationImages),
@@ -401,7 +390,6 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.defaultAgent = doc.DefaultAgent
 	c.workspace = doc.Workspace
 	c.dirtyTreeHandler = doc.DirtyTreeHandler
-	c.dirtyTreeCommitAck = doc.DirtyTreeCommitAck
 	c.runtime = doc.Runtime
 	c.agentTurnCap = doc.AgentTurnCap
 	c.isolationImages = doc.IsolationImages
@@ -561,6 +549,14 @@ func ctxloomProduct(validator *schema.ConfigValidator) confload.Product {
 		DirName:   AppDirName,
 		FileName:  ConfigFileName,
 		EnvPrefix: "CTXLOOM_CONFIG_",
+		// ScopeAllows closes the env/--config-set escalation paths (design
+		// doc "Already wrong #1"/"#2"): an override that cannot carry a key's
+		// scope is dropped rather than applied. MergeFunc closes the
+		// same-named-agent escalation ("Already wrong #2"'s home-fills-gap
+		// half): an agent binding is defined entirely by whichever layer
+		// names it, never fused field-by-field across layers.
+		ScopeAllows: scopeAllows,
+		MergeFunc:   agentBindingMergeFunc,
 	}
 	if validator != nil {
 		p.KnownPath = validator.KnownPath
@@ -1424,9 +1420,14 @@ func resolveConfigLayerPaths(appPath string, source ConfigSource) (projectConfig
 // common case while still closing the "nothing to merge into" corner.
 func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, validator *schema.ConfigValidator, fs afero.Fs, product confload.Product, overrides confload.Overrides) error {
 	var layers []map[string]any
+	appPath := filepath.Dir(projectConfigPath)
+	homeAppPath := ""
+	if homeConfigPath != "" {
+		homeAppPath = filepath.Dir(homeConfigPath)
+	}
 
 	if homeConfigPath != "" {
-		homeValues, pending, err := loadConfigLayer(cfg, homeConfigPath, validator, fs)
+		homeValues, pending, err := loadConfigLayer(cfg, layerscope.LayerHome, appPath, homeAppPath, homeConfigPath, validator, fs)
 		if err != nil {
 			return err
 		}
@@ -1436,7 +1437,7 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 		}
 	}
 
-	projectValues, pending, err := loadConfigLayer(cfg, projectConfigPath, validator, fs)
+	projectValues, pending, err := loadConfigLayer(cfg, layerscope.LayerProject, appPath, homeAppPath, projectConfigPath, validator, fs)
 	if err != nil {
 		return err
 	}
@@ -1456,6 +1457,21 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 	return decodeMergedLayers(cfg, layers, product, overrides)
 }
 
+// splitJoinedErrors unwraps an errors.Join result (or a plain single error)
+// into its constituent errors, so a caller can classify each one by TYPE
+// (errors.As) rather than treat a whole multi-error blob as one kind. A nil
+// err yields a nil slice; an error with no Unwrap() []error (a single,
+// non-joined error) yields a one-element slice carrying err itself.
+func splitJoinedErrors(err error) []error {
+	if err == nil {
+		return nil
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		return joined.Unwrap()
+	}
+	return []error{err}
+}
+
 // decodeMergedLayers is loadLayeredConfig's second half: merge the file layers,
 // resolve overrides against the result, and decode it into cfg. Split out
 // because the two halves fail differently and that distinction is the whole
@@ -1465,13 +1481,29 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 // the files have been read and validated and the remaining steps are ours, not
 // the user's.
 func decodeMergedLayers(cfg *Config, layers []map[string]any, product confload.Product, overrides confload.Overrides) error {
-	merged, mergeErr := confload.Merge(layers...)
+	merged, mergeErr := product.MergeLayers(layers...)
 	if mergeErr != nil {
 		return fmt.Errorf("merging config layers: %w", mergeErr)
 	}
 	merged, overrideErr := product.ApplyOverrides(merged, overrides)
 	if overrideErr != nil {
-		cfg.warn(WarnKindParse, "config override resolution: %v", overrideErr)
+		// A ScopeAllows-driven drop (env/--config-set attempting a key that
+		// layer may not carry) is classified as WarnKindLayerScope — the SAME
+		// fatal-class finding the per-file-layer check records — so the
+		// strict startup gate reports both routes to the identical
+		// disallowed-layer problem identically. Every OTHER override fault
+		// (an ambiguous case-2 collision, a malformed --config-set entry)
+		// keeps the existing, coarser WarnKindParse classification: this is
+		// splitting one joined error by TYPE, not inventing a new pass over
+		// anything.
+		for _, sub := range splitJoinedErrors(overrideErr) {
+			var scopeErr *confload.ScopeViolationError
+			if errors.As(sub, &scopeErr) {
+				cfg.warn(WarnKindLayerScope, "config override resolution: %v", sub)
+			} else {
+				cfg.warn(WarnKindParse, "config override resolution: %v", sub)
+			}
+		}
 		zap.L().Warn("config_override_warning", zap.Error(overrideErr))
 	}
 
@@ -1523,7 +1555,7 @@ func (c *Config) warn(k WarningKind, format string, args ...any) {
 // Non-fatal errors (malformed YAML, schema validation) are collected as
 // warnings directly onto cfg (shared across every layer, same as before).
 // Returns an error only for I/O failures (except missing file, which is OK).
-func loadConfigLayer(cfg *Config, configPath string, validator *schema.ConfigValidator, fs afero.Fs) (values map[string]any, pending *upgrade.Pending, err error) {
+func loadConfigLayer(cfg *Config, layer layerscope.Layer, appPath, homeAppPath, configPath string, validator *schema.ConfigValidator, fs afero.Fs) (values map[string]any, pending *upgrade.Pending, err error) {
 	data, readErr := afero.ReadFile(fs, configPath)
 	if readErr != nil {
 		if os.IsNotExist(readErr) {
@@ -1591,6 +1623,18 @@ func loadConfigLayer(cfg *Config, configPath string, validator *schema.ConfigVal
 		// Return nil values - the layer contributes nothing, but the warning
 		// still surfaces so the strict startup gate can act on it.
 		return nil, pending, nil
+	}
+
+	// Layer-scope check: does THIS layer carry a key whose value cannot be a
+	// fact about it (a machine path in the committed project file, a
+	// project-scoped privilege grant filled in from home, ...)? Beside the
+	// schema validation above, not a new pass over the merged result — see
+	// dropLayerScopeViolations' doc. Every dropped value is gone from raw
+	// BEFORE it ever reaches loadLayeredConfig's merge, so it cannot survive
+	// via a lower layer's contribution either.
+	for _, v := range dropLayerScopeViolations(layer, raw) {
+		cfg.warnings = append(cfg.warnings, Warning{Kind: WarnKindLayerScope, Text: v.Message(appPath, homeAppPath)})
+		zap.L().Warn("config_layer_scope_warning", zap.String("path", configPath), zap.Strings("key", v.Path))
 	}
 
 	zap.L().Debug("config_loaded", zap.String("path", configPath))

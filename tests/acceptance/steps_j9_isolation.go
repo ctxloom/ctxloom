@@ -63,22 +63,29 @@ func j9Of(w *World) *j9State {
 	return w.j9
 }
 
-// j9ConfigYAML renders config.yaml for J9's fixture: one "fast" mock LLM
-// label (recording to recordFile) and two agent bindings — "mock" (host
-// runtime, the default) for the workspace-axis scenarios, and
-// "mock-container" (runtime: container) for the runtime-axis degrade
-// scenario. Rewritten before EVERY run with a fresh recordFile so sequential
-// runs never clobber each other's evidence (mirrors j6RenderConfig's direct
-// config.yaml authoring rather than the MockLM helper, which does not
-// preserve an "agents:" section).
-func j9ConfigYAML(recordFile string) string {
-	return fmt.Sprintf(`version: 4
+// j9ConfigYAML renders the PROJECT half of config.yaml for J9's fixture: one
+// "fast" mock LLM label and two agent bindings — "mock" (host runtime, the
+// default) for the workspace-axis scenarios, and "mock-container" (runtime:
+// container) for the runtime-axis degrade scenario. Static (no per-run
+// record path), so it is written once; j9HomeConfigYAML carries the part
+// that changes per run (mirrors j6RenderConfig's direct config.yaml
+// authoring rather than the MockLM helper, which does not preserve an
+// "agents:" section).
+//
+// llm.configs.fast.env used to live HERE, in the project file, alongside
+// type. It moved to the HOME half (j9HomeConfigYAML): llm.configs.*.env is
+// ScopeMachine (internal/config/layerscope) — credential passthrough, where
+// a committed project-file value is a leaked secret — so a project-declared
+// env block no longer survives a real Load at all. Splitting the "fast"
+// label across layers like this is legal (unlike agents.*, llm.configs.*
+// has no atomic-replace merge rule), so the project's own `type: mock` and
+// home's `env` deep-merge into one usable entry.
+func j9ConfigYAML() string {
+	return `version: 4
 llm:
   configs:
     fast:
       type: mock
-      env:
-        CTXLOOM_MOCK_RECORD_FILE: %q
   defaults:
     primary: fast
     fast: fast
@@ -90,6 +97,20 @@ agents:
     engine: fast
     profiles: []
     runtime: container
+`
+}
+
+// j9HomeConfigYAML renders the HOME half of config.yaml for J9's fixture:
+// llm.configs.fast.env, pointed at recordFile. Rewritten before EVERY run
+// with a fresh recordFile so sequential runs never clobber each other's
+// evidence — see j9ConfigYAML's doc for why this piece lives in HOME.
+func j9HomeConfigYAML(recordFile string) string {
+	return fmt.Sprintf(`version: 4
+llm:
+  configs:
+    fast:
+      env:
+        CTXLOOM_MOCK_RECORD_FILE: %q
 `, recordFile)
 }
 
@@ -117,9 +138,13 @@ func registerJ9Steps(ctx *godog.ScenarioContext) {
 		if err := os.MkdirAll(j9.recordDir, 0o755); err != nil {
 			return fmt.Errorf("create record dir: %w", err)
 		}
+		if err := w.env.WriteFile(".ctxloom/config.yaml", j9ConfigYAML()); err != nil {
+			return err
+		}
 		// A throwaway initial record path — every run step below rewrites
-		// config.yaml with its own fresh record file before invoking `run`.
-		if err := w.env.WriteFile(".ctxloom/config.yaml", j9ConfigYAML(filepath.Join(j9.recordDir, "init.txt"))); err != nil {
+		// the HOME half of config.yaml with its own fresh record file before
+		// invoking `run`.
+		if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j9HomeConfigYAML(filepath.Join(j9.recordDir, "init.txt"))); err != nil {
 			return err
 		}
 		return w.env.GitCommit("initial ctxloom config")
@@ -129,7 +154,7 @@ func registerJ9Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		j9 := j9Of(w)
 		recPath := filepath.Join(j9.recordDir, fmt.Sprintf("record-%d.txt", len(j9.records)))
-		if err := w.env.WriteFile(".ctxloom/config.yaml", j9ConfigYAML(recPath)); err != nil {
+		if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j9HomeConfigYAML(recPath)); err != nil {
 			return err
 		}
 		if err := runOK(w, "run", "--agent", "mock", "--workspace", workspace, "--print", prompt); err != nil {
@@ -248,7 +273,7 @@ func registerJ9Steps(ctx *godog.ScenarioContext) {
 		// (degraded) on the host, which is what lets "the run runs on the
 		// host" actually check WHERE it ran rather than only that it exited 0.
 		recPath := filepath.Join(j9.recordDir, fmt.Sprintf("record-%d.txt", len(j9.records)))
-		if err := w.env.WriteFile(".ctxloom/config.yaml", j9ConfigYAML(recPath)); err != nil {
+		if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j9HomeConfigYAML(recPath)); err != nil {
 			return err
 		}
 		j9.lastContainerRecPath = recPath

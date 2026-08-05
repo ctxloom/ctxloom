@@ -349,6 +349,17 @@ func TestOpenEngineSession_ContainerRuntimeAnnounces(t *testing.T) {
 	repo := initTestRepo(t)
 	appDir := filepath.Join(repo, ".ctxloom")
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
+	// agents.*.runtime is ScopeShared (internal/config/layerscope) — a
+	// deliberate divergence from the design doc's literal ScopeMachine, made
+	// because ScopeMachine here interacts with agentBindingMergeFunc's
+	// atomic-replace rule (D) to make it IMPOSSIBLE for any project-defined
+	// agent to ever carry a non-host runtime through a persisted file (home's
+	// contribution is replaced wholesale the instant project also names the
+	// same agent, which it must to give the agent a real `engine` —
+	// agents.*.engine stays Shared, home-disallowed). See the report's
+	// divergence section. So this fixture is exactly what it looks like: an
+	// ordinary project-declared agent, engine and runtime both in the same
+	// (committed) file, same as before this change.
 	body := "version: 5\n" +
 		"agents:\n  builder:\n    engine: mock\n    runtime: container\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))

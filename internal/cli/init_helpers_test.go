@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -93,8 +94,11 @@ func TestWriteInitialConfig(t *testing.T) {
 	if !strings.Contains(string(cfg), "dirty_tree_handler: copy") {
 		t.Errorf("config.yaml should carry the interview's dirty_tree_handler answer; got:\n%s", cfg)
 	}
-	if strings.Contains(string(cfg), "dirty_tree_commit_ack:") {
-		t.Errorf("dirty_tree_commit_ack must be absent (omitempty) when the answer wasn't \"commit\"; got:\n%s", cfg)
+	if strings.Contains(string(cfg), "dirty_tree_commit_ack") {
+		t.Errorf("dirty_tree_commit_ack must never appear in config.yaml at all — it moved to its own state-store file; got:\n%s", cfg)
+	}
+	if config.DirtyTreeCommitAcknowledged(nil, appDir) {
+		t.Error("no acknowledgement was granted (dirty-tree answer wasn't \"commit\"), so DirtyTreeCommitAcknowledged must report false")
 	}
 
 	// remotes.yaml exists and is non-empty.
@@ -109,8 +113,9 @@ func TestWriteInitialConfig(t *testing.T) {
 
 // TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue is
 // TestWriteInitialConfig's counterpart for the "commit" answer specifically:
-// it is the only one of the four that must also write dirty_tree_commit_ack:
-// true, since that flag exists to gate the commit handler alone.
+// it is the only one of the four that must also record the dirty-tree-commit
+// acknowledgement — in its OWN state-store file, never in config.yaml (see
+// config.SetDirtyTreeCommitAck).
 func TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 	if err := writeInitialConfig(appDir, "claude-code", "commit", true); err != nil {
@@ -123,8 +128,18 @@ func TestWriteInitialConfig_DirtyTreeCommitAnswerWritesAckTrue(t *testing.T) {
 	if !strings.Contains(string(cfg), "dirty_tree_handler: commit") {
 		t.Errorf("config.yaml should carry dirty_tree_handler: commit; got:\n%s", cfg)
 	}
-	if !strings.Contains(string(cfg), "dirty_tree_commit_ack: true") {
-		t.Errorf("config.yaml should carry dirty_tree_commit_ack: true for the commit answer; got:\n%s", cfg)
+	if strings.Contains(string(cfg), "dirty_tree_commit_ack") {
+		t.Errorf("dirty_tree_commit_ack must never appear in config.yaml, even for the commit answer; got:\n%s", cfg)
+	}
+	if !config.DirtyTreeCommitAcknowledged(nil, appDir) {
+		t.Error("the commit answer should have recorded the acknowledgement in its own state store")
+	}
+	ackData, err := os.ReadFile(paths.DirtyTreeCommitAckPath(appDir))
+	if err != nil {
+		t.Fatalf("read dirty-tree-commit ack store: %v", err)
+	}
+	if len(ackData) == 0 {
+		t.Error("dirty-tree-commit ack store exists but is empty — the silent-zero-bytes shape this project is characteristically buggy about")
 	}
 }
 

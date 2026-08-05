@@ -48,6 +48,7 @@ profiles:
 		ExitCode:          0,
 		RecordedInputPath: filepath.Join(projectDir, "mock-lm-input.txt"),
 		ProjectDir:        projectDir,
+		HomeDir:           t.TempDir(),
 	}
 	if err := m.WriteConfig(); err != nil {
 		t.Fatalf("WriteConfig: %v", err)
@@ -90,12 +91,14 @@ func TestMockLM_WriteConfig_FreshFile(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(projectDir, ".ctxloom"), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	homeDir := t.TempDir()
 
 	m := &MockLM{
 		Response:          "hi",
 		ExitCode:          0,
 		RecordedInputPath: filepath.Join(projectDir, "mock-lm-input.txt"),
 		ProjectDir:        projectDir,
+		HomeDir:           homeDir,
 	}
 	if err := m.WriteConfig(); err != nil {
 		t.Fatalf("WriteConfig: %v", err)
@@ -109,6 +112,25 @@ func TestMockLM_WriteConfig_FreshFile(t *testing.T) {
 	for _, want := range []string{"mock:", "type: mock", "primary: mock", "version:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("fresh WriteConfig missing %q from output:\n%s", want, out)
+		}
+	}
+	// The project file must NOT carry the env block: llm.configs.*.env is
+	// ScopeMachine (internal/config/layerscope), so a committed project value
+	// would never survive a real Load — see WriteConfig's doc.
+	if strings.Contains(out, "CTXLOOM_MOCK_RESPONSE") {
+		t.Errorf("the project config must not carry the mock's env block; got:\n%s", out)
+	}
+
+	// The env block must instead be in the HOME config, where
+	// llm.configs.*.env is allowed.
+	homeData, err := os.ReadFile(filepath.Join(homeDir, ".ctxloom", "config.yaml"))
+	if err != nil {
+		t.Fatalf("read home config.yaml: %v", err)
+	}
+	homeOut := string(homeData)
+	for _, want := range []string{"mock:", "env:", "CTXLOOM_MOCK_RESPONSE", "CTXLOOM_MOCK_EXIT_CODE", "CTXLOOM_MOCK_RECORD_FILE"} {
+		if !strings.Contains(homeOut, want) {
+			t.Errorf("home config.yaml missing %q from output:\n%s", want, homeOut)
 		}
 	}
 }

@@ -106,6 +106,15 @@ func TestManageStatusline_FormatJSON(t *testing.T) {
 // `mcp server create`/`delete`): --format json must render the operations
 // result struct instead of the bare fmt.Printf lines both used
 // unconditionally.
+//
+// Uses the default unified target (mcp.servers.*): mcp.servers.*.command is
+// ScopeShared (internal/config/layerscope, a deliberate divergence from the
+// design doc's literal ScopeMachine — see policy_default.go's own comment:
+// command is REQUIRED by the mcpServer schema, so Machine-scoping it would
+// make mcp.servers.* impossible to populate with a working entry from the
+// project layer at all), so a unified server created in the committed
+// PROJECT file this test writes to survives the reload `mcp server delete`
+// performs internally. No --backend workaround needed.
 func TestMcpServerCreateDelete_FormatJSON(t *testing.T) {
 	testsupport.ProjectDir(t)
 

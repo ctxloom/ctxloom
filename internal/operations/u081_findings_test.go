@@ -57,9 +57,12 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Runtime: ptr("container")})
 	require.NoError(t, err)
 
-	final, err := config.Load(config.WithAppDir(appDir))
-	require.NoError(t, err)
-	got, ok := final.Agent("dev")
+	// Read back via readAgentFromDisk (ParseConfig, no layering) rather than a
+	// full config.Load: Runtime is ScopeMachine (internal/config/layerscope),
+	// so a committed PROJECT file no longer has it take effect on a real
+	// Load — this test's concern is Save's field-preservation contract, which
+	// ParseConfig verifies independent of that load-time policy.
+	got, ok := readAgentFromDisk(t, appDir, "dev")
 	require.True(t, ok)
 	assert.Equal(t, "container", got.Runtime, "the named field must change")
 	assert.Equal(t, "claude-code", got.Engine, "engine must survive an unrelated set")

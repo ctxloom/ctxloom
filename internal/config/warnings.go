@@ -34,6 +34,16 @@ const (
 	// WarnKindMigrationLossy: the in-memory schema upgrade had to drop a
 	// user-set value (e.g. a compaction model with no label to attach it to).
 	WarnKindMigrationLossy WarningKind = "migration-lossy"
+	// WarnKindLayerScope: a config LAYER carries a key whose value cannot be a
+	// fact about that layer — a machine path in the committed, multi-author
+	// project file; a project-scoped privilege grant filled in from a user's
+	// home config (which does not lose the merge, it fills a gap the project
+	// left — the escalation this exists to close); a value from the ambient
+	// environment, which every child process this one spawns inherits. See
+	// internal/config/layerscope. The value is DROPPED, exactly like
+	// WarnKindUnknownKey and for the identical reason: a setting that looks
+	// applied and is not is the worse outcome.
+	WarnKindLayerScope WarningKind = "layer-scope"
 )
 
 // StrictnessClass buckets a warning kind for the fail-loudly gate. Every kind
@@ -62,6 +72,11 @@ func (k WarningKind) FixIt() string {
 		// The message already names the key and (when known) its replacement, so
 		// the fix-it only has to say where to make the edit.
 		return "remove or rename the key in config.yaml (ctxloom manage config edit)"
+	case WarnKindLayerScope:
+		// The message already carries the specific edit (layerscope.Violation's
+		// own FixIt, inlined by Message) — this is only the short pointer the
+		// strictness gate's listing shows alongside it.
+		return "see the finding above for the exact key and where it belongs instead"
 	default: // parse / validate
 		return "fix the config file (ctxloom manage config edit)"
 	}

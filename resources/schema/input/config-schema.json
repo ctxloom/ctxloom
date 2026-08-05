@@ -261,12 +261,8 @@
     },
     "dirty_tree_handler": {
       "type": "string",
-      "description": "Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it — requires dirty_tree_commit_ack: true, and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter.",
+      "description": "Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it — requires a human dirty-tree-commit acknowledgement recorded via `ctxloom init` or `ctxloom manage dirty-tree-ack grant` (NOT a config key — see .ctxloom/state/dirty_tree_commit_ack.yaml), and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter.",
       "enum": ["commit", "copy", "stale", "fail"]
-    },
-    "dirty_tree_commit_ack": {
-      "type": "boolean",
-      "description": "Per-project, HUMAN-set acknowledgement that dirty_tree_handler: \"commit\" may auto-commit uncommitted changes onto this project's current branch on your behalf so a delegated agent_run child can see them (a worktree checkout only ever contains committed state). Without this set true, the \"commit\" handler REFUSES the spawn instead of committing, naming this key. Deliberately config-only: it cannot be set via agent_run's per-call parameters, and is never inferred from anything an agent does — only a human editing this file grants it. Each individual auto-commit is still announced when it happens, regardless of this setting."
     },
     "runtime": {
       "type": "string",

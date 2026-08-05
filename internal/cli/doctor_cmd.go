@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
@@ -16,6 +18,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/remote"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -139,8 +142,12 @@ codex-acp) each configured claude-code/codex engine needs for HOST-runtime
 structured chat is present; whether every configured agent resolves (profile
 composition + engine/runtime) and the roster is non-empty; the seeded
 dependency lockfile parses and a real context assembly succeeds; hooks AND
-MCP registration per configured backend; the trust store's signers; and
-companion detection + loadout probing (taskloom/ltk/...). Each line is
+MCP registration per configured backend; the trust store's signers;
+companion detection + loadout probing (taskloom/ltk/...); and every
+paths.TierLocal path (internal/paths.Layout) this checkout is missing — the
+local-only state (the dirty-tree-commit acknowledgement, the task-log
+project-id marker, distilled sessions, review's cached diff objects) that a
+fresh clone has no way to learn it lacks anywhere else. Each line is
 prefixed with a DOCTOR-CHECK-* marker — the SAME vocabulary the
 "ctxloom-doctor" Agent Skill uses, so a human or an LLM reading either
 surface sees one language.
@@ -195,6 +202,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr),
 			doctorCheckSetupAuthPing(),
+			doctorCheckLocalTierState(cfg),
 		}
 	}
 	report := doctorReport{Checks: checks}
@@ -869,6 +877,50 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 func doctorCheckSetupAuthPing() doctorCheck {
 	return doctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: doctorInfo,
 		Detail: "no auth-ping surface exists in this build yet (deferred; verify by launching the engine's own CLI)"}
+}
+
+// doctorCheckLocalTierState reports every paths.TierLocal entry (paths.Layout)
+// that is absent from THIS checkout — the thing a fresh clone has no way to
+// learn today (config-layer-scope design doc, "The .ctxloom classification"):
+// local-only state nothing rebuilds, so its absence is silent everywhere else
+// (a clone gets no warning that it started a new task-log project-id, lost
+// the dirty-tree-commit acknowledgement, has no distilled session history,
+// or degraded review's diff to a full-content dump). TierCommitted/TierDerived
+// entries are not reported here: a derived entry's absence is fine (its own
+// Rebuild command produces it) and a committed entry's absence means the
+// repository itself is incomplete, a different class of problem doctor's
+// other checks (setup marker, lock/assembly) already cover.
+func doctorCheckLocalTierState(cfg *config.Config) doctorCheck {
+	const marker = "DOCTOR-CHECK-LOCAL-STATE-p6"
+	appDir := doctorAppDir(cfg)
+	if appDir == "" {
+		return doctorCheck{Marker: marker, Status: doctorWarn,
+			Detail: "no .ctxloom marker directory found; nothing to check"}
+	}
+	fsys := afero.NewOsFs()
+	if cfg != nil && cfg.FS() != nil {
+		fsys = cfg.FS()
+	}
+	root := filepath.Dir(appDir)
+
+	var missing []string
+	for _, entry := range paths.Layout() {
+		if entry.Tier != paths.TierLocal {
+			continue
+		}
+		exists, err := afero.Exists(fsys, filepath.Join(root, entry.Rel))
+		if err != nil || exists {
+			continue
+		}
+		missing = append(missing, fmt.Sprintf("%s (%s)", entry.Rel, entry.Lost))
+	}
+	if len(missing) == 0 {
+		return doctorCheck{Marker: marker, Status: doctorOK, Detail: "every local-only state path is present"}
+	}
+	sort.Strings(missing)
+	return doctorCheck{Marker: marker, Status: doctorWarn,
+		Detail: fmt.Sprintf("%d local-only path(s) absent from this checkout, and nothing rebuilds them: %s",
+			len(missing), strings.Join(missing, "; "))}
 }
 
 // renderDoctorReport writes the human-readable check list, one

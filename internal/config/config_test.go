@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -942,6 +943,18 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 
 	cfg := &Config{
 		appPaths: []string{tmpDir},
+		// source: SourceHome -- this represents a personal, single-file
+		// config with no separate project layer (the zero value would be
+		// SourceProject, and saveLocked now enforces layerscope's
+		// project-scope policy whenever source is SourceProject: see its own
+		// doc). editor.command/args are ScopeMachine (internal/config/
+		// layerscope) -- legitimate in a HOME file, exactly the case this
+		// represents -- but a genuine violation saveLocked now strips before
+		// ever reaching a real project's committed config.yaml. Using
+		// SourceHome here is what lets this test assert editor survives a
+		// save at all, and it doubles as coverage for saveLocked's
+		// skip-the-filter-when-SourceHome branch.
+		source: SourceHome,
 		lm: LMConfig{
 			Configs: map[string]LLMConfig{
 				"big":  {Type: "claude-code", Body: map[string]interface{}{"model": "opus"}},
@@ -954,8 +967,14 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	}
 	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
 
-	// Round-trip through Load to confirm the values survived.
-	loaded, err := Load(WithAppDir(tmpDir))
+	// Round-trip through ParseConfig (a single-document parse, no layering)
+	// rather than the layered Load: ParseConfig checks Save's own
+	// serialization fidelity -- does Marshal emit every field it was given --
+	// independent of any layer-scope policy (which cfg.source above already
+	// keeps saveLocked from applying to this particular save).
+	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
+	require.NoError(t, err)
+	loaded, err := ParseConfig(data)
 	require.NoError(t, err)
 	assert.Equal(t, "big", loaded.lm.Defaults.Primary)
 	assert.Equal(t, "fast", loaded.lm.Defaults.Fast)
@@ -1026,11 +1045,20 @@ agents:
 // decoder (viper) lowercased every key, so `env: {SOME_API_KEY: ...}` reached the
 // launched process as `some_api_key` and the engine never saw its credential.
 // ParseConfig (init) was always correct, which masked the divergence.
+//
+// llm.configs.*.env is ScopeMachine (internal/config/layerscope): credential
+// passthrough, where a committed PROJECT-file value is a leaked secret. So
+// this fixture now lives in the HOME layer — $HOME is pinned to a fixed path
+// on the SAME memfs so Load's home-layer resolution is deterministic.
 func TestLoad_PreservesEnvKeyCase(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 3\n"), 0644))
 
+	homeAppDir := "/home/u/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(homeAppDir, 0755))
 	configContent := `
 version: 3
 llm:
@@ -1043,7 +1071,7 @@ llm:
   defaults:
     primary: agy
 `
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir), []byte(configContent), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)
@@ -1135,7 +1163,7 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 
 		cfg := &Config{}
 		// Missing file should be OK - config is optional
-		values, pending, err := loadConfigLayer(cfg, "/nonexistent/config.yaml", nil, fs)
+		values, pending, err := loadConfigLayer(cfg, layerscope.LayerProject, "/", "", "/nonexistent/config.yaml", nil, fs)
 		assert.NoError(t, err)
 		assert.Nil(t, values)
 		assert.Nil(t, pending)
@@ -1146,7 +1174,7 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 		require.NoError(t, afero.WriteFile(fs, "/config.yaml", []byte("invalid: ["), 0644))
 
 		cfg := &Config{}
-		values, _, err := loadConfigLayer(cfg, "/config.yaml", nil, fs)
+		values, _, err := loadConfigLayer(cfg, layerscope.LayerProject, "/", "", "/config.yaml", nil, fs)
 		// Invalid YAML no longer errors - adds warning instead for resilient startup
 		assert.NoError(t, err)
 		assert.Nil(t, values, "a layer that failed to parse contributes no values to the merge")

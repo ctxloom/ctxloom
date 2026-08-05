@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"os"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -9,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -85,6 +87,14 @@ func TestHarnessStatus_ReportsStatuslinePreference(t *testing.T) {
 	assert.False(t, res.ManageStatusline, "status reflects the statusline opt-out")
 }
 
+// TestSetStatusline_PersistsPreference proves SetStatusline's SAVE serializes
+// the preference faithfully. Read back via ParseConfig (a single-document
+// parse, no layering) rather than a full config.Load: config.statusline is
+// ScopeMachine (internal/config/layerscope) — whether ctxloom may own THIS
+// terminal is a per-machine fact, so a committed PROJECT file (every clone's
+// copy, which is what SetStatusline writes to — there is no separate
+// machine-scoped project file yet) no longer has it take effect on a real
+// Load. What this test still pins is that the write itself is faithful.
 func TestSetStatusline_PersistsPreference(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := config.NewManager(config.WithAppDir(appDir))
@@ -93,7 +103,9 @@ func TestSetStatusline_PersistsPreference(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, res.Statusline)
 
-	reloaded, err := config.Load(config.WithAppDir(appDir))
+	data, err := os.ReadFile(paths.ConfigPath(appDir))
+	require.NoError(t, err)
+	reloaded, err := config.ParseConfig(data)
 	require.NoError(t, err)
 	require.NotNil(t, reloaded.GetSettings().Statusline)
 	assert.False(t, *reloaded.GetSettings().Statusline, "the toggle records the preference in config")

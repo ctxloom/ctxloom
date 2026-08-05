@@ -27,6 +27,10 @@ type MockLM struct {
 
 	// ProjectDir is the project directory containing .ctxloom/config.yaml
 	ProjectDir string
+
+	// HomeDir is the fake home directory containing .ctxloom/config.yaml —
+	// where llm.configs.mock.env is written (see WriteConfig's doc for why).
+	HomeDir string
 }
 
 // NewMockLM creates a new mock LM in the given directory.
@@ -58,6 +62,17 @@ func (m *MockLM) SetResponse(response string) error {
 // rebuild the whole file from scratch, preserving only a hand-extracted
 // profiles: section and silently destroying everything else a prior step
 // (a journey Given, another engine's WriteConfig call) had written.
+//
+// llm.configs.mock.env lands in the HOME config instead of the project's
+// (writeHomeMockEnv, below): llm.configs.*.env is ScopeMachine
+// (internal/config/layerscope) — credential passthrough, where a committed
+// PROJECT-file value is a leaked secret — so a project-file env block no
+// longer survives a real Load at all. Splitting the mock entry across layers
+// like this is legal (unlike agents.*, llm.configs.* has no atomic-replace
+// merge rule — internal/config's agentBindingMergeFunc only special-cases
+// "agents"), so the project's own `type: mock` and the home-supplied `env`
+// deep-merge into one usable entry, exactly like a real engine's API key
+// living in a user's home config while the project just names the backend.
 func (m *MockLM) WriteConfig() error {
 	if m.ProjectDir == "" {
 		return fmt.Errorf("ProjectDir not set; call SetupMockLM first")
@@ -90,11 +105,6 @@ func (m *MockLM) WriteConfig() error {
 	configs := upgrade.EnsureMap(llm, "configs")
 	mockNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 	upgrade.MapSet(mockNode, "type", upgrade.ScalarNode("mock"))
-	env := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-	upgrade.MapSet(env, "CTXLOOM_MOCK_RECORD_FILE", quotedYAMLString(m.RecordedInputPath))
-	upgrade.MapSet(env, "CTXLOOM_MOCK_RESPONSE", quotedYAMLString(m.Response))
-	upgrade.MapSet(env, "CTXLOOM_MOCK_EXIT_CODE", quotedYAMLString(fmt.Sprint(m.ExitCode)))
-	upgrade.MapSet(mockNode, "env", env)
 	// Only the mock entry is touched — any other engine's llm.configs entry
 	// survives untouched (that survival is the whole point of the fix).
 	upgrade.MapSet(configs, "mock", mockNode)
@@ -116,6 +126,63 @@ func (m *MockLM) WriteConfig() error {
 	enc.SetIndent(2)
 	if err := enc.Encode(&doc); err != nil {
 		return fmt.Errorf("marshal config.yaml: %w", err)
+	}
+	_ = enc.Close()
+
+	if err := os.WriteFile(configPath, buf.Bytes(), 0644); err != nil {
+		return err
+	}
+
+	if m.HomeDir == "" {
+		return fmt.Errorf("HomeDir not set; call SetupMockLM first")
+	}
+	return writeHomeMockEnv(m.HomeDir, m.RecordedInputPath, m.Response, m.ExitCode)
+}
+
+// writeHomeMockEnv merges llm.configs.mock.env into the HOME config.yaml,
+// touching only that one path — every other key on disk (a real engine's own
+// home-scoped entries, home's own agents block, …) survives untouched. See
+// WriteConfig's doc for why this lives in HOME rather than the project.
+func writeHomeMockEnv(homeDir, recordedInputPath, response string, exitCode int) error {
+	configPath := filepath.Join(homeDir, ".ctxloom", "config.yaml")
+
+	var doc yaml.Node
+	if data, err := os.ReadFile(configPath); err == nil && len(bytes.TrimSpace(data)) > 0 {
+		if uerr := yaml.Unmarshal(data, &doc); uerr != nil {
+			return fmt.Errorf("parse existing home config.yaml: %w", uerr)
+		}
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		doc.Kind = yaml.DocumentNode
+		doc.Content = []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}
+	}
+	root := doc.Content[0]
+
+	// Pinned to ctxloomconfig.CurrentConfigVersion for the identical reason
+	// WriteConfig's own project-file write is: HOME is its OWN independently
+	// upgrade-checked layer (D2/D3 layering), so a stale version HERE fires
+	// the interactive "rewrite to the current format?" confirmUpgrade prompt
+	// on a real pty just as surely as a stale project version would.
+	upgrade.SetVersion(root, "version", ctxloomconfig.CurrentConfigVersion)
+
+	llm := upgrade.EnsureMap(root, "llm")
+	configs := upgrade.EnsureMap(llm, "configs")
+	mockNode := upgrade.EnsureMap(configs, "mock")
+	env := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	upgrade.MapSet(env, "CTXLOOM_MOCK_RECORD_FILE", quotedYAMLString(recordedInputPath))
+	upgrade.MapSet(env, "CTXLOOM_MOCK_RESPONSE", quotedYAMLString(response))
+	upgrade.MapSet(env, "CTXLOOM_MOCK_EXIT_CODE", quotedYAMLString(fmt.Sprint(exitCode)))
+	upgrade.MapSet(mockNode, "env", env)
+
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		return fmt.Errorf("create home .ctxloom dir: %w", err)
+	}
+
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(&doc); err != nil {
+		return fmt.Errorf("marshal home config.yaml: %w", err)
 	}
 	_ = enc.Close()
 
@@ -160,6 +227,7 @@ func (e *TestEnvironment) SetupMockLM() (*MockLM, error) {
 
 	// Set the project directory so WriteConfig knows where to write
 	mockLM.ProjectDir = e.ProjectDir
+	mockLM.HomeDir = e.HomeDir
 
 	// Write the initial config
 	if err := mockLM.WriteConfig(); err != nil {

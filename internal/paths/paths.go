@@ -108,6 +108,19 @@ const (
 	// (.ctxloom/content/<kind>/<name>.yaml) — one layout, not two.
 	ContentDir = "content"
 
+	// StateDir is the THIRD tier under .ctxloom, beside ContentDir (committed,
+	// TierCommitted) and CacheDir (derived, TierDerived): LOCAL-ONLY state,
+	// gitignored, that nothing can reconstruct. Before this tier had a name its
+	// files were placed ad hoc — some at the .ctxloom root, one inside cache/,
+	// one loose — each looking like it belonged to one of the other two
+	// (config-layer-scope design doc, "The .ctxloom classification"). A file
+	// under here is a fact about THIS checkout on THIS machine that must never
+	// be committed (a clone would arrive carrying somebody else's answer) and
+	// that a cache wipe or a `remote pull` cannot regenerate — see Tier's doc
+	// for why that distinction, not mere gitignore status, is what earns a path
+	// a place in this directory instead of cache/.
+	StateDir = "state"
+
 	// RepoContentPrefix is the repo-relative path prefix under which a remote
 	// repo's authored content lives: .ctxloom/content/<kind>/<name>.yaml. It is
 	// the canonical (non-local) counterpart to LocalPath — every fetcher/
@@ -123,6 +136,24 @@ const (
 	// content at the proposed commit carried a publisher signature that does
 	// not verify over its bytes — see RefusedAdvancesPath.
 	RefusedAdvancesFileName = "refused_advances"
+
+	// DirtyTreeCommitAckFileName is the name (without extension) of the
+	// per-checkout record that a human authorized ctxloom to auto-commit a
+	// dirty tree on their behalf (dirty_tree_handler: "commit") — see
+	// DirtyTreeCommitAckPath. It moved out of config.yaml (config-layer-scope
+	// design doc, "Already wrong #1"): a config value the env layer or
+	// --config-set can also set is not a durable human act, and the project
+	// config file is committed and multi-author, so a value living there
+	// would ship a prior authorization to every clone.
+	DirtyTreeCommitAckFileName = "dirty_tree_commit_ack"
+
+	// ProjectIDFileName is the name of the gitignored project-identity marker
+	// at .ctxloom/project-id (ADR 0025) — the key to this project's task log,
+	// ~/.ctxloom/tasks/<project-id>.jsonl (internal/shared/tasks/paths owns
+	// the canonical resolution; this constant exists so Layout can name the
+	// path without an unnamed string literal — see
+	// TestPathSegments_ComeFromNamedConstants).
+	ProjectIDFileName = "project-id"
 
 	// TriggersDir is the cache/ subdirectory holding ctxloom's cached
 	// revive-trigger verdicts, one file per project (see TriggerCacheDir).
@@ -620,4 +651,104 @@ func RefusedAdvancesPath(appPath string) string {
 // DefaultRemotesPath returns the default remotes path relative to current directory.
 func DefaultRemotesPath() string {
 	return RemotesPath(AppDirName)
+}
+
+// StatePath returns the THIRD .ctxloom tier (under appPath/state): local-only,
+// gitignored, unrebuildable checkout state — see StateDir's doc.
+func StatePath(appPath string) string {
+	return filepath.Join(appPath, StateDir)
+}
+
+// DirtyTreeCommitAckPath returns the record that a human authorized ctxloom to
+// commit on their behalf in THIS checkout (see DirtyTreeCommitAckFileName). It
+// is an internal/shared/admission.Store file, the same mechanism
+// HomeCompanionConsentPath uses for "may ctxloom act on this machine without
+// asking again" — except this one is PROJECT-scoped (a fact about one
+// checkout's branch, not the user), so it lives under appPath/state rather
+// than the home directory.
+func DirtyTreeCommitAckPath(appPath string) string {
+	return filepath.Join(StatePath(appPath), DirtyTreeCommitAckFileName+".yaml")
+}
+
+// Tier classifies one .ctxloom path by WHAT A FRESH CLONE GETS — the question
+// that matters for "can I lose this" and "does a clone start from the same
+// place I did", not merely "is it gitignored" (TierLocal and the derived half
+// of TierDerived are BOTH gitignored; only asking a clone tells them apart).
+type Tier uint8
+
+const (
+	// TierCommitted paths are checked in: a clone has them, byte for byte.
+	TierCommitted Tier = iota
+	// TierDerived paths are gitignored but REBUILT by a named command from
+	// committed pins (a lockfile, a remote) — deleting one only costs the time
+	// to re-run that command.
+	TierDerived
+	// TierLocal paths are gitignored and NOTHING rebuilds them: a fact about
+	// this checkout on this machine that a clone simply does not have, and
+	// that no sync/pull/install command reconstructs. Entry.Rebuild is empty
+	// exactly for this tier — an empty Rebuild is what makes an absence worth
+	// reporting instead of shrugging at.
+	TierLocal
+)
+
+// String names t for a diagnostic (e.g. doctor's TierLocal report).
+func (t Tier) String() string {
+	switch t {
+	case TierCommitted:
+		return "committed"
+	case TierDerived:
+		return "derived"
+	case TierLocal:
+		return "local"
+	default:
+		return "unknown"
+	}
+}
+
+// Entry is one classified .ctxloom path, as Layout enumerates them.
+type Entry struct {
+	// Rel is the path relative to appPath, e.g. ".ctxloom/cache/bundles".
+	Rel  string
+	Tier Tier
+	// Rebuild names the command that reconstructs this path from committed
+	// pins. Empty if and only if Tier is TierLocal — see Tier's doc.
+	Rebuild string
+	// Lost is TierLocal-only: what a clone does not have, in a user's words —
+	// the text doctor's absent-TierLocal-entry check surfaces.
+	Lost string
+}
+
+// Layout is the classification of every path this tree's own writers produce
+// under .ctxloom, each appearing exactly once — the table the
+// config-layer-scope design doc's ".ctxloom classification" section derived by
+// hand, given a name so a doctor check (and any future arch test) has
+// something to walk instead of re-deriving it by inspection every time.
+func Layout() []Entry {
+	return []Entry{
+		{Rel: filepath.Join(AppDirName, ConfigFileName+".yaml"), Tier: TierCommitted},
+		{Rel: filepath.Join(AppDirName, RemotesFileName+".yaml"), Tier: TierCommitted},
+		{Rel: filepath.Join(AppDirName, LockFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom remote lock"},
+		{Rel: filepath.Join(AppDirName, ContentDir), Tier: TierCommitted},
+		{Rel: filepath.Join(AppDirName, ProfilesDir), Tier: TierCommitted},
+		{Rel: filepath.Join(AppDirName, AgentsDir), Tier: TierCommitted},
+		{Rel: filepath.Join(AppDirName, AllowedSignersFileName), Tier: TierCommitted},
+		{Rel: filepath.Join(AppDirName, DistrustedSignersFileName), Tier: TierCommitted},
+		{Rel: filepath.Join(AppDirName, ApprovalsDirName), Tier: TierCommitted},
+		{Rel: filepath.Join(AppDirName, CacheDir, BundlesDir), Tier: TierDerived, Rebuild: "ctxloom remote pull"},
+		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom remote pull"},
+		{Rel: filepath.Join(AppDirName, CacheDir, RefusedAdvancesFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom remote upgrade"},
+		{
+			Rel: filepath.Join(AppDirName, CacheDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,
+			Lost: "the content-addressed snapshots review diffed an update against; update review degrades from a diff to a full-content dump, but committed approval signatures still verify",
+		},
+		{
+			Rel: filepath.Join(AppDirName, ProjectIDFileName), Tier: TierLocal,
+			Lost: "the key to this project's task log (~/.ctxloom/tasks/<project-id>.jsonl); without it a fresh clone mints a NEW project id and starts an empty log, and every task the team logged stays on disk under the old id, unreachable from the clone",
+		},
+		{
+			Rel: filepath.Join(AppDirName, SessionsDir), Tier: TierLocal,
+			Lost: "this machine's distilled session records",
+		},
+		{Rel: filepath.Join(AppDirName, StateDir), Tier: TierLocal, Lost: "local-only checkout state, e.g. the dirty-tree-commit acknowledgement — see DirtyTreeCommitAckPath"},
+	}
 }

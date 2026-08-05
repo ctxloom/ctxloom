@@ -26,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
@@ -484,6 +485,71 @@ func TestDoctorCheckSetupAuthPing_AlwaysInfoAndNamesTheGap(t *testing.T) {
 	assert.Contains(t, check.Detail, "no auth-ping surface")
 }
 
+// --- DOCTOR-CHECK-LOCAL-STATE-p6 ---
+
+// TestDoctorCheckLocalTierState_RightState_AllPresent proves a checkout that
+// actually carries every paths.TierLocal path (internal/paths.Layout) reports
+// clean — this is the "already used this project for a while" state, not a
+// fresh init's (see the WrongState test below for that one).
+func TestDoctorCheckLocalTierState_RightState_AllPresent(t *testing.T) {
+	root, cfg := setupProject(t, "claude-code")
+	scaffoldLocalTierState(t, root)
+
+	check := doctorCheckLocalTierState(cfg)
+	assert.Equal(t, doctorOK, check.Status)
+	assert.Contains(t, check.Detail, "every local-only state path is present")
+}
+
+// TestDoctorCheckLocalTierState_WrongState_FreshInitMissesEvery proves the
+// case this check exists for: a project immediately after `ctxloom init`
+// (setupProject's own shape) has NONE of the local-only state yet, and the
+// report names every one of them plus its Lost text — the thing a fresh
+// clone has no way to learn today, per the config-layer-scope design doc.
+func TestDoctorCheckLocalTierState_WrongState_FreshInitMissesEvery(t *testing.T) {
+	_, cfg := setupProject(t, "claude-code")
+
+	check := doctorCheckLocalTierState(cfg)
+	assert.Equal(t, doctorWarn, check.Status)
+	for _, entry := range paths.Layout() {
+		if entry.Tier != paths.TierLocal {
+			continue
+		}
+		assert.Contains(t, check.Detail, entry.Rel, "every absent TierLocal path must be named")
+		assert.Contains(t, check.Detail, entry.Lost, "and its Lost text must ride along")
+	}
+}
+
+// TestDoctorCheckLocalTierState_WrongState_NoMarkerDir mirrors
+// doctorCheckSetupMarker's own "no .ctxloom at all" guard: an empty AppPaths
+// must fail loud, not silently report "ok" for a directory that doesn't
+// exist to check.
+func TestDoctorCheckLocalTierState_WrongState_NoMarkerDir(t *testing.T) {
+	check := doctorCheckLocalTierState(&config.Config{})
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "no .ctxloom marker directory found")
+}
+
+// TestDoctorCheckLocalTierState_PartialState_NamesOnlyWhatsMissing proves the
+// report is precise, not all-or-nothing: scaffolding every TierLocal path
+// EXCEPT one must name exactly that one, and no other.
+func TestDoctorCheckLocalTierState_PartialState_NamesOnlyWhatsMissing(t *testing.T) {
+	root, cfg := setupProject(t, "claude-code")
+	skipRel := filepath.Join(paths.AppDirName, paths.StateDir)
+	for _, entry := range paths.Layout() {
+		if entry.Tier != paths.TierLocal || entry.Rel == skipRel {
+			continue
+		}
+		full := filepath.Join(root, entry.Rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		require.NoError(t, os.WriteFile(full, []byte("x"), 0o644))
+	}
+
+	check := doctorCheckLocalTierState(cfg)
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "1 local-only path(s) absent")
+	assert.Contains(t, check.Detail, skipRel)
+}
+
 // --- full command wiring: JSON shape, back-compat "always exits 0", read-only ---
 
 // runDoctor executes the real doctorCmd (not a hand-rolled reimplementation)
@@ -633,6 +699,7 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	prependFakeBinToPath(t, claude.ClaudeACPAdapter)
 	prependFakeBinToPath(t, "claude")
 	prependFakeBinToPath(t, "docker")
+	scaffoldLocalTierState(t, root)
 	out, err := runDoctorClean(t, root, sock)
 	require.NoError(t, err)
 	assert.Contains(t, out, "DOCTOR-CHECK-SETUP-MARKER-e5 [ok]")
@@ -641,7 +708,28 @@ func TestDoctorCmd_ReportsCleanOnRightState(t *testing.T) {
 	assert.Contains(t, out, "DOCTOR-CHECK-GITIDENT-l2 [ok]")
 	assert.Contains(t, out, "DOCTOR-CHECK-ACPADAPTER-m3 [ok]")
 	assert.Contains(t, out, "DOCTOR-CHECK-HOOKS-TRUST-d4 [ok]")
+	assert.Contains(t, out, "DOCTOR-CHECK-LOCAL-STATE-p6 [ok]")
 	assert.NotContains(t, out, "[warn]", "a fully-wired project must show no warn lines")
+}
+
+// scaffoldLocalTierState creates a stand-in for every paths.TierLocal path
+// (internal/paths.Layout) under root's .ctxloom — the local-only state a
+// FRESH init never has (it's exactly what accrues from actually using a
+// project: running sessions, using taskloom, reviewing an update). Only
+// DOCTOR-CHECK-LOCAL-STATE-p6 reads these paths at all (existence only, not
+// content), so an empty placeholder file/dir at each is enough to represent
+// "a fully-wired, actually-used project" for that check.
+func scaffoldLocalTierState(t *testing.T, root string) {
+	t.Helper()
+	for _, entry := range paths.Layout() {
+		if entry.Tier != paths.TierLocal {
+			continue
+		}
+		// entry.Rel already carries the ".ctxloom/" prefix, relative to root.
+		full := filepath.Join(root, entry.Rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+		require.NoError(t, os.WriteFile(full, []byte("test-fixture placeholder\n"), 0o644))
+	}
 }
 
 // TestDoctorCmd_DepsFlag_ScopesToDepsAlone proves `ctxloom doctor --deps`

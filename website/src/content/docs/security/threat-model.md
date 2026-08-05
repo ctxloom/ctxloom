@@ -260,9 +260,13 @@ to us** — and an agent you configured with `permissions: bypass` is launched w
 skip-permissions flag, which disables it. A bundle-delivered server then starts without a
 prompt. That takes both a publisher you trusted and an agent you deliberately marked bypass, but
 it means `bypass` is broader than "stop asking me about file edits": it also means "run what my
-trusted bundles declare." **And in the ledger path, a name is a claim.** If you hand-author a
-server and a bundle later declares one under the same name, ctxloom's write records that name as
-managed — and a later removal deletes what began as your entry.
+trusted bundles declare." **And a name ctxloom already claimed stays claimed.** In the ledger
+path, a bundle declaring a name you have *not* used is written and recorded; a bundle declaring a
+name you hand-authored is now skipped with a warning, leaving your entry alone. But that guard is
+forward-looking only. If a name entered the ledger before it existed, ctxloom still treats that
+name as its own on every reconcile — your original definition was overwritten at the time, and a
+ledger records a name, never the content it replaced, so there is nothing left to give back.
+Check the ledger, not the registry, when you want to know what ctxloom believes it owns.
 
 ## The one line we hold
 

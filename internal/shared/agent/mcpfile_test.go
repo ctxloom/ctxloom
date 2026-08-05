@@ -119,6 +119,52 @@ func TestMCPFileConfig_WriteServers_DedupesManagedNames(t *testing.T) {
 	assert.Equal(t, 1, count, "a name shadowed by a later source must appear exactly once in the ledger, not once per source")
 }
 
+// TestMCPFileConfig_WriteServers_IsIdempotentAcrossCalls pins the property the
+// collision check now RESTS ON: the ledger is exactly the current managed set,
+// never an accumulation of every set ever written.
+//
+// writeLedger overwrites rather than appends, so repeated reconciles converge.
+// That is structural today and easy to lose to a refactor that "just appends
+// the new names" — and losing it is not cosmetic: WriteServers infers
+// "unmanaged, therefore the user's" from a name's ABSENCE after dropManaged
+// has cleared every ledger name. A ledger that accumulated stale names would
+// silently widen what ctxloom believes it owns, which is the exact direction
+// this reconciler must never drift.
+func TestMCPFileConfig_WriteServers_IsIdempotentAcrossCalls(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	c := MCPFileConfig{FS: fs, Path: "/proj/mcp.json", LedgerPath: "/proj/.mcp-ledger", Label: "mcp.json", Warn: func(string, ...interface{}) {}}
+
+	mcp := &wire.MCPConfig{Servers: map[string]wire.MCPServer{"alpha": {Command: "/bin/alpha"}}}
+	bundleMCP := map[string]wire.MCPServer{"beta": {Command: "/bin/beta"}}
+
+	require.NoError(t, c.WriteServers(mcp, bundleMCP))
+	ledger1, err := afero.ReadFile(fs, "/proj/.mcp-ledger")
+	require.NoError(t, err)
+	registry1, err := afero.ReadFile(fs, "/proj/mcp.json")
+	require.NoError(t, err)
+
+	require.NoError(t, c.WriteServers(mcp, bundleMCP))
+	ledger2, err := afero.ReadFile(fs, "/proj/.mcp-ledger")
+	require.NoError(t, err)
+	registry2, err := afero.ReadFile(fs, "/proj/mcp.json")
+	require.NoError(t, err)
+
+	assert.Equal(t, string(ledger1), string(ledger2),
+		"a second reconcile of the same managed set must leave the ledger byte-identical, not accumulate names")
+	assert.Equal(t, string(registry1), string(registry2),
+		"a second reconcile of the same managed set must leave the registry byte-identical")
+
+	for _, name := range []string{"alpha", "beta"} {
+		count := 0
+		for _, l := range strings.Split(strings.TrimSpace(string(ledger2)), "\n") {
+			if l == name {
+				count++
+			}
+		}
+		assert.Equal(t, 1, count, "%q must appear exactly once in the ledger after two reconciles", name)
+	}
+}
+
 // warnRecorder returns a Warn func that appends every formatted line to a
 // slice the test can assert against, plus a reader for that slice.
 func warnRecorder() (warn func(string, ...interface{}), lines func() []string) {

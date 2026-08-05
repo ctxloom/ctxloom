@@ -43,6 +43,7 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -88,6 +89,21 @@ type j21State struct {
 	// message can name exactly what was probed rather than asserting against
 	// one guessed spelling. See j21Probe.
 	probes []j21ProbeResult
+
+	// pinBeforeSync is the runbook's locked commit read off lock.yaml
+	// IMMEDIATELY BEFORE Monday's sync runs. It is what makes "the pin did not
+	// advance" a payload assertion rather than a re-reading of whatever the
+	// lockfile happens to say afterwards: the scenario compares the file
+	// against a value captured before the command that would have moved it.
+	pinBeforeSync string
+
+	// syncOutput is what Monday's `remote upgrade` said, captured at the
+	// moment it ran. Every later Then in this journey materializes the profile
+	// to read a payload, and materializing is itself a command — so
+	// w.env.LastOutput() no longer holds the sync's words by the time a "she
+	// was told" assertion runs. Capturing here is what keeps the message
+	// assertion honest instead of order-dependent.
+	syncOutput string
 }
 
 // j21ProbeResult is one candidate inspector invocation and what it produced.
@@ -337,7 +353,13 @@ func indentBlock(s string) string {
 // j21OutputNamesAll asserts the LAST command's output names every one of
 // wants — the shape of "the inspector named the cause".
 func j21OutputNamesAll(w *World, what string, wants ...string) error {
-	out := w.env.LastOutput()
+	return j21NamesAll(w.env.LastOutput(), what, wants...)
+}
+
+// j21NamesAll is j21OutputNamesAll over an already-captured output, for the
+// assertions that must read what a specific EARLIER command said rather than
+// whatever ran most recently.
+func j21NamesAll(out, what string, wants ...string) error {
 	var missing []string
 	for _, want := range wants {
 		if !strings.Contains(out, want) {
@@ -348,6 +370,37 @@ func j21OutputNamesAll(w *World, what string, wants ...string) error {
 		return fmt.Errorf("%s did not name %v; the whole output was:\n%s", what, missing, out)
 	}
 	return nil
+}
+
+// j21LockedSHA reads the runbook's pinned commit straight out of the project's
+// lock.yaml.
+//
+// It reads the FILE rather than asking a ctxloom command what is pinned, on
+// purpose: the claim this journey makes at this boundary is about persisted
+// state, and a command that renders the pin from the same code path that
+// writes it could agree with itself while the file said something else.
+func j21LockedSHA(w *World) (string, error) {
+	raw, err := w.env.ReadFile(filepath.Join(".ctxloom", "lock.yaml"))
+	if err != nil {
+		return "", fmt.Errorf("read lock.yaml: %w", err)
+	}
+	var lock struct {
+		Bundles map[string]struct {
+			SHA string `yaml:"sha"`
+		} `yaml:"bundles"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &lock); err != nil {
+		return "", fmt.Errorf("parse lock.yaml: %w\n%s", err, raw)
+	}
+	for key, entry := range lock.Bundles {
+		if strings.Contains(key, j21Bundle) {
+			if entry.SHA == "" {
+				return "", fmt.Errorf("lock.yaml pins %q with an EMPTY sha — an unpinned entry silently reads the branch tip:\n%s", key, raw)
+			}
+			return entry.SHA, nil
+		}
+	}
+	return "", fmt.Errorf("lock.yaml has no entry for %q, so there is no pin to reason about:\n%s", j21Bundle, raw)
 }
 
 func registerJ21Steps(ctx *godog.ScenarioContext) {
@@ -462,7 +515,16 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 		// they want Monday's content.
 		_ = w.env.Run("remote", "update")
 		_ = w.env.Run("remote", "pull")
+		// Read the pin BEFORE the command that would move it, so the
+		// "it did not advance" assertion compares against a captured value and
+		// not against the lockfile explaining itself.
+		pin, err := j21LockedSHA(w)
+		if err != nil {
+			return err
+		}
+		j21Of(w).pinBeforeSync = pin
 		_ = w.env.Run("remote", "upgrade")
+		j21Of(w).syncOutput = w.env.LastOutput()
 		return nil
 	})
 
@@ -470,15 +532,78 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 		return j21AssertDelivery(worldFrom(c), j21RevisedMarker, false)
 	})
 
-	// MEASURED while writing this journey, and sharper than the symptom the
-	// journey was written from. An unsigned republish is not merely dropped:
-	// the consumer silently keeps serving the SUPERSEDED copy. The assistant
-	// does not go quiet — it goes confidently stale, answering deploy questions
-	// out of Friday's runbook with no indication anywhere that a newer one
-	// exists and was refused. "It knew our deploy process Friday and doesn't
-	// today" understates it; today it knows a process that is no longer true.
-	ctx.Step(`^she is left silently serving the superseded copy$`, func(c context.Context) error {
+	// --- B2, the decided behaviour: refuse the advance ----------------------
+	//
+	// Three assertions, deliberately separate, because they are three
+	// different ways this can be wrong: the pin moved anyway; the pin held but
+	// the content stopped arriving; the pin held and the content arrived and
+	// nobody was told, which is indistinguishable from "already up to date".
+
+	ctx.Step(`^the runbook's pin did not advance, and the lockfile still holds the commit whose signature verified$`, func(c context.Context) error {
+		w := worldFrom(c)
+		st := j21Of(w)
+		if st.pinBeforeSync == "" {
+			return fmt.Errorf("no pre-sync pin was captured — the sync step did not run, so 'it did not advance' would be vacuous")
+		}
+		after, err := j21LockedSHA(w)
+		if err != nil {
+			return err
+		}
+		if after != st.pinBeforeSync {
+			return fmt.Errorf("the pin ADVANCED onto content whose signature does not verify: lock.yaml went from %s to %s. "+
+				"Upgrade must keep the last verified pin — advancing here withholds the new copy as tampered AND puts the old one "+
+				"out of reach, leaving nothing", st.pinBeforeSync, after)
+		}
+		return nil
+	})
+
+	ctx.Step(`^her assistant is still served the content at that pin$`, func(c context.Context) error {
+		// This is the whole reason option (a) was chosen: she goes on working.
 		return j21AssertDelivery(worldFrom(c), j21DeployMarker, true)
+	})
+
+	ctx.Step(`^the sync told her the runbook cannot be verified, naming the pin it kept$`, func(c context.Context) error {
+		w := worldFrom(c)
+		st := j21Of(w)
+		out := st.syncOutput
+		if strings.TrimSpace(out) == "" {
+			return fmt.Errorf("the sync printed NOTHING — a silent non-advance is indistinguishable from 'everything is up to date', " +
+				"which is the defect this row exists to prevent")
+		}
+		if strings.Contains(out, "Everything is up to date.") {
+			return fmt.Errorf("the sync claimed everything is up to date while refusing an advance; it said:\n%s", out)
+		}
+		kept := st.pinBeforeSync
+		if len(kept) > 16 {
+			kept = kept[:16] // the pin is rendered abbreviated for humans
+		}
+		return j21NamesAll(out, "Monday's sync", j21Bundle, "does not verify", kept)
+	})
+
+	// The remedy has to be one that EXISTS. Before this row was written,
+	// upgrade exited 0 saying "Changed content from untrusted sources is
+	// withheld until reviewed: ctxloom review" — and `ctxloom review` answered
+	// "Nothing is pending review.", because content withheld as tampered is
+	// deliberately never offered for review. This step re-proves that dead end
+	// is still a dead end, and then holds the sync's own words to it.
+	ctx.Step(`^the remedy it named is not the review queue, which has nothing to offer her$`, func(c context.Context) error {
+		w := worldFrom(c)
+		out := j21Of(w).syncOutput
+		_ = w.env.Run("review", "--list")
+		reviewSays := w.env.LastStdout()
+		if !strings.Contains(reviewSays, "Nothing is pending review") {
+			return fmt.Errorf("`review --list` no longer answers 'Nothing is pending review.' here — if tampered content became "+
+				"reviewable, this row's premise changed and the assertion below is stale. It said:\n%s", reviewSays)
+		}
+		if strings.Contains(out, "ctxloom review") {
+			return fmt.Errorf("the sync sent her to `ctxloom review`, which answers %q for this content — a remedy that cannot act "+
+				"is worse than none. The sync said:\n%s", strings.TrimSpace(reviewSays), out)
+		}
+		if !strings.Contains(out, "re-sign") {
+			return fmt.Errorf("the sync named no action she can actually take: nothing in it points at getting the content re-signed. "+
+				"It said:\n%s", out)
+		}
+		return nil
 	})
 
 	// Reads LastStdout, not LastOutput, and that is the whole assertion.

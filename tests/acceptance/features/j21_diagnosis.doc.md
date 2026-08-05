@@ -56,23 +56,40 @@ prediction are marked.
 | B7 delivered → ingested | DEFECT | **red** | nothing, by design-so-far |
 | M5 two machines | miss | **red** | `unknown flag: --compare` |
 
-### B2 — the cause, and it is worse than the ticket said
+### B2 — the cause, and the decision it forced
 
 Carol edited the runbook on Friday and did not re-sign it. On Monday the
-content is withheld. That much was expected.
+revision is withheld. That much was expected.
 
-What was not expected is what Alice gets instead. The assistant does not go
-quiet. It keeps serving Friday's superseded copy, confidently, with nothing
-anywhere indicating that a newer runbook exists and was refused. So the
-support ticket that opens this journey — "it knew our deploy process Friday
-and doesn't today" — understates the failure. Today it knows a deploy process
-that is *no longer true*, which is the version of this bug that ships a bad
-deploy.
+What was not expected was what Alice was left with. A first pass recorded here
+that she "keeps serving Friday's superseded copy" — but that was measured from
+a sync that never advanced a pin at all, so the attestation boundary was never
+reached. Once the sync genuinely advanced, the answer was the opposite and
+much worse: she was left with **nothing**. The revision was refused as
+tampered, and the copy that *did* verify went out of reach along with the pin
+that named it. Silent capability loss, at exactly the moment a signature stops
+verifying.
 
-The scenario asserts both halves separately, and deliberately: "she still has
-Friday's copy" and "she has nothing at all" are different failures with
-different fixes, and a scenario checking only that the revised bytes were
-absent would pass for either one.
+That is now fixed, by a decision rather than a discovery: `remote upgrade`
+**refuses to advance a pin onto content whose publisher signature does not
+verify**. The lockfile keeps the last commit that verified, Alice goes on
+being served that content, and the sync says so out loud — naming the bundle,
+the fact that the new bytes cannot be verified, and the pin it is keeping her
+at. She is running slightly old, verified content, and she knows it. The
+alternative, advancing and withholding, made the failure unrecoverable and
+silent.
+
+The scenario asserts each half separately, and deliberately: the pin holding,
+the old content still arriving, and Alice being told are three different ways
+this can go wrong, and a scenario checking only that the revised bytes were
+absent would pass for all of them.
+
+One detail is worth keeping, because it is this journey's own thesis turned on
+the product: the sync used to end by pointing at `ctxloom review`, and
+`ctxloom review` answered "Nothing is pending review." Content withheld as
+tampered is *deliberately* never offered for review, so the only remedy the
+product named was a circle. A remedy that cannot act is worse than none, and
+the scenario now asserts against exactly that.
 
 Then there is the trap, which has its own scenario because Alice will
 absolutely fall into it. Her first instinct is `review --list`, and

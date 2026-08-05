@@ -63,83 +63,71 @@ Feature: The day the assistant goes blind
 
   # ---- B2: packaged -> attested -----------------------------------------
   # THE REAL CAUSE of this journey's Monday. Carol edited the bundle Friday and
-  # never re-signed it. An unsigned bundle is silently withheld once the pin
-  # advances. This first scenario asserts only the SYMPTOM — that the guidance
-  # genuinely stops arriving on an ordinary sync, with no ceremony and no error.
+  # never re-signed it, so the newest commit carries bytes the signature beside
+  # them does not cover. This first scenario owns the whole attestation
+  # boundary: what the sync does with that content, what it leaves in the
+  # lockfile, and what it tells Alice.
   #
-  # MEASURED WHILE WRITING THIS, and worse than the report that opened the
-  # journey. The unsigned republish is not merely dropped: the consumer
-  # silently keeps serving the SUPERSEDED copy. The assistant does not go
-  # quiet — it goes confidently stale, answering deploy questions out of
-  # Friday's runbook, with nothing anywhere indicating a newer one exists and
-  # was refused. "It knew our deploy process Friday and doesn't today"
-  # understates the failure; today it knows a process that is no longer true,
-  # which is the version of this bug that ships a bad deploy.
+  # WHAT THE PRODUCT DOES, and it is a DECIDED behaviour rather than an
+  # observed one (taskloom unearned-cornea, decided 2026-08-05 by the human):
+  # `remote upgrade` REFUSES to advance the pin. The lockfile keeps the last
+  # commit whose signature verified, Alice goes on being served that content,
+  # and she is told — by name, with the pin she is being kept at.
   #
-  # Both halves are asserted separately and on purpose: "she still has Friday's
-  # copy" and "she has nothing at all" are different failures with different
-  # fixes, and a scenario that only checked the revised bytes were absent would
-  # pass for either.
-  #
-  # STAYS @wip, AND THE "MEASURED" PARAGRAPH ABOVE IS WRONG. Re-measured
-  # 2026-08-05.
-  #
-  # The old green here was a FALSE PASS. "Alice syncs on Monday" ran `remote
-  # update` + `remote pull`, and neither advances a pin: update is a dry check
-  # ending in "Run with --apply", and pull says in as many words "Pull never
-  # moves an existing pin … run 'ctxloom remote upgrade' to advance them". The
-  # lockfile never left Friday's commit, so the attestation boundary this
-  # scenario exists to test WAS NEVER REACHED. Two checks confirm it: making
-  # the fixture re-sign properly changed no outcome, and gutting
+  # THE PARAGRAPH THAT USED TO SIT HERE WAS FALSE, and is worth recording
+  # because the way it became false is the trap this journey is about. It said
+  # the consumer "silently keeps serving the SUPERSEDED copy", and it was
+  # written from a scenario that NEVER ADVANCED A PIN: "Alice syncs on Monday"
+  # ran only `remote update` (a dry check ending in "Run with --apply") and
+  # `remote pull` (which says in as many words "Pull never moves an existing
+  # pin"). The lockfile never left Friday's commit, so the attestation boundary
+  # was never reached and the green proved nothing — two checks confirmed it,
+  # making the fixture re-sign properly changed no outcome, and gutting
   # signing.VerifyPublisher so an invalid signature verifies changed no outcome
-  # either. The scenario would have passed identically with signature checking
-  # deleted from the product.
+  # either.
   #
-  # The step now also runs `remote upgrade`, so the pin really does advance and
-  # the gate really is consulted. Against a genuine pin advance the product
-  # behaves DIFFERENTLY from the paragraph above: the first Then still passes
-  # (the revision is withheld — the withhold warning names it as "tampered:
-  # signature does not cover these bytes"), but the second FAILS. She is NOT
-  # left serving the superseded copy; the deploy guidance disappears from the
-  # assembled context ENTIRELY, old and new alike.
+  # Once the step also ran `remote upgrade`, the pin really advanced, and the
+  # answer was the OPPOSITE of that paragraph: she was left with NOTHING. The
+  # revision was withheld as tampered and the superseded copy went out of reach
+  # with the pin that had named it — silent capability loss at exactly the
+  # moment a signature stops verifying. That is the behaviour the decision
+  # replaced. She keeps serving the old copy now because upgrade refuses to
+  # move, not because anything falls back.
   #
-  # WHY THIS IS NOT FIXED HERE, and it is a deliberate stop rather than an
-  # omission. Making the second Then pass means making `remote upgrade` REFUSE
-  # to advance a pin onto content whose publisher signature does not verify, so
-  # the lockfile stays at the last commit that did. That changes the outcome of
-  # a TRUST DECISION and the values a persisted lockfile takes, with a blast
-  # radius across J3 (adversary), J7 (incident), J18 (signing) and J20
-  # (distribution). Both behaviours are defensible — "you no longer hold a
-  # verified copy of anything at that ref, serve nothing" versus "keep the last
-  # thing you verified" — and picking one is the human's call, not a
-  # verification pass's.
+  # THE ROW BITES, verified 2026-08-05 by three mutations, one per claim:
   #
-  # RECOMMENDED: refuse the advance and keep the last verified pin, which is
-  # what the prose above assumes and what leaves the user with a working
-  # runbook instead of none.
+  #   - neutering the refusal branch in operations.UpgradeDependencies (so a
+  #     failed verifyAdvance writes the proposed entry anyway) turns the PIN
+  #     assertion red, naming both SHAs;
+  #   - deleting cli.runRemoteUpgrade's call to reportRefusedAdvances — the pin
+  #     still holds, and nobody is told — turns the MESSAGE assertion red;
+  #   - putting the old "…withheld until reviewed: ctxloom review" line back as
+  #     the remedy turns the LAST assertion red, quoting what `review --list`
+  #     actually answers.
   #
-  # A SECOND, SMALLER DEFECT MEASURED HERE, and squarely on this journey's own
-  # thesis: `remote upgrade` exits 0 and says
+  # The first mutation reports only the pin: godog stops a scenario at its first
+  # failed step, so the three later Thens are skipped rather than separately
+  # red. That is why they are mutated separately.
   #
-  #   Advanced 1 dependency pin(s).
-  #   Changed content from untrusted sources is withheld until reviewed:
-  #   ctxloom review
-  #
-  # — and `ctxloom review` then says "Nothing is pending review." The content is
-  # withheld as TAMPERED, which is deliberately not reviewable, so the remedy
-  # the sync names is a dead end that sends Alice in a circle. That one is a
-  # message-level fix with no contract in it, but it belongs to whoever takes
-  # the pin decision above, because the right wording depends on it.
-  #
-  # UNTAG WHEN: the pin-advance question is decided, the second Then is
-  # rewritten to whichever behaviour was chosen, and the product agrees.
-  @wip
-  Scenario: An edited, never-re-signed runbook stops arriving on an ordinary sync
+  # The four Thens are separate on purpose, because they are four different
+  # ways this can be wrong. The pin can move. The pin can hold while the
+  # content stops arriving anyway. Everything can be right and nobody told, a
+  # silence indistinguishable from "already up to date". And the sync can name
+  # a remedy that does not exist: it used to say "Changed content from
+  # untrusted sources is withheld until reviewed: ctxloom review", and
+  # `ctxloom review` answered "Nothing is pending review." — content withheld
+  # as tampered is deliberately never offered for review, so the remedy sent
+  # Alice in a circle. The last Then re-proves that dead end is still a dead
+  # end and holds the sync's own words to it.
+  Scenario: An edited, never-re-signed runbook is refused, and the verified pin is kept
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
     When Carol edits the runbook on Friday and never re-signs it
     And Alice syncs on Monday
     Then her assistant never receives the revised deploy guidance
-    And she is left silently serving the superseded copy
+    And the runbook's pin did not advance, and the lockfile still holds the commit whose signature verified
+    And her assistant is still served the content at that pin
+    And the sync told her the runbook cannot be verified, naming the pin it kept
+    And the remedy it named is not the review queue, which has nothing to offer her
 
   # THE TRAP, asserted deliberately. Alice's first instinct is `review --list`,
   # and it shows nothing — not because nothing is wrong, but because "unsigned"
@@ -190,23 +178,29 @@ Feature: The day the assistant goes blind
   # checks; any surface satisfying the assertion is fine. This is one of the two
   # sharpest diagnosis gaps in the product.
   #
-  # NEARLY CLOSED — MEASURED 2026-08-05, and left @wip deliberately. Once the
-  # sync above actually advances the pin, `doctor` DOES answer this, in
-  # DOCTOR-CHECK-CONTENT-TRUST-n4:
+  # ITS PREMISE MOVED, RE-MEASURED 2026-08-05 against the refusal above, and
+  # this paragraph replaces one that is no longer true.
   #
-  #   [warn] 1 remote bundle(s) are UNSIGNED to this machine, so their content
-  #   is withheld from your assistant: …@bundles/deploy-runbook (the publisher
-  #   never signed these bytes, or signed with a key you do not trust —
-  #   `ctxloom trust signer create` to trust the key, or ask the publisher to
-  #   sign)
+  # While upgrade still advanced the pin, `doctor` came within a case fold of
+  # closing this row: DOCTOR-CHECK-CONTENT-TRUST-n4 warned "1 remote bundle(s)
+  # are UNSIGNED to this machine, so their content is withheld …
+  # @bundles/deploy-runbook", which names the bundle and the reason in one
+  # report, and only "UNSIGNED" vs the step's "unsigned" kept it red.
   #
-  # That names the bundle and the reason in one report, which is the stated
-  # untag condition. The step still fails on a CASE mismatch alone: it looks
-  # for "unsigned" and doctor writes "UNSIGNED". Whoever owns this row should
-  # decide whether to fold case in j21ProbesAnswered or to have doctor say it
-  # in lower case, then untag — but the diagnosis gap this row was filed for is
-  # in substance already fixed. Not touched here: this scenario is outside the
-  # verification pass that measured it.
+  # Now that upgrade REFUSES the advance, that warning is gone: nothing is
+  # withheld at the kept pin, and n4 reports "[ok] every remote bundle's
+  # content is attributable to a publisher this machine trusts" — which is
+  # true. The runbook did not stop arriving; only the REVISION did, and the
+  # thing that names that is the sync's own refusal message (asserted by the
+  # first scenario above), not an after-the-fact inspector.
+  #
+  # So this row is asking a question whose subject has changed, and answering
+  # it means deciding what "why did the newer copy not arrive?" should be
+  # ANSWERABLE BY, minutes or days after the sync that refused it — a
+  # persisted refusal doctor could read, most likely. That is a design
+  # question, not a case fold. It stays @wip, with its untag condition
+  # unchanged: some inspector names the bundle and why its revision is not
+  # here.
   @wip
   Scenario: An inspector names the unsigned runbook as the reason it is withheld
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance

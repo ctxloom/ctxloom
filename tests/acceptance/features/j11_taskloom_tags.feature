@@ -94,14 +94,36 @@ Feature: taskloom's tag surface is real across the process boundary
   # taskloom's source discovers the tag surface exists and how to use it
   # purely from what `taskloom mcp` advertises over the wire — the server
   # Instructions blob and the registered tools' own descriptions/schemas.
+  #
+  # WHAT IS ASSERTED, and why it is not the tool names. This scenario used to
+  # check that the instructions mentioned the words "tags", "tag_query" and
+  # "task_tag", and that task_tag's description mentioned "add" and "remove".
+  # An audit replaced the entire instructions blob with the literal string
+  # "tags tag_query task_tag", and task_tag's description with "Tag a task.
+  # Fields: add, remove." — deleting the tag grammar, the resource pointers,
+  # the query grammar and the scalar-collapse warning — and the scenario
+  # stayed green. Naming a tool is not documenting it.
+  #
+  # So the assertions now name the things an agent could not act correctly
+  # without: the SHAPE a tag takes, WHERE the project's real vocabulary lives,
+  # HOW a tag filter is written, and the one behavior that silently destroys
+  # data if unknown (a scalar tag's value being retracted rather than added
+  # alongside). Each is content the mutation removed.
   Scenario: The MCP surface documents tags without prior knowledge
     Given the agent connects to the taskloom MCP server
-    Then the server instructions mention "tags"
-    And the server instructions mention "tag_query"
-    And the server instructions mention "task_tag"
+    Then the server instructions mention "filter by tag with tag_query"
+    And the server instructions mention "(namespace:)key(=value)"
+    And the server instructions mention "not flat labels"
+    And the server instructions mention "postfix boolean expression"
+    And the server instructions mention "taskloom://tag-schema"
+    And the server instructions mention "taskloom://tag-vocabulary"
+    And the server instructions mention "scalar (at-most-one-value)"
     And the tool "task_list" input schema mentions "tag_query"
     And the tool "task_add" input schema mentions "tags"
-    And the tool "task_tag" description mentions "add"
-    And the tool "task_tag" description mentions "remove"
+    And the tool "task_tag" description mentions "Add and/or remove tags on a task"
+    And the tool "task_tag" description mentions "(namespace:)key(=value)"
+    And the tool "task_tag" description mentions "add is applied before remove"
+    And the tool "task_tag" description mentions "SILENTLY RETRACTS"
+    And the tool "task_tag" description mentions "taskloom://tag-vocabulary"
     And the tool "task_tag" input schema mentions "add"
     And the tool "task_tag" input schema mentions "remove"

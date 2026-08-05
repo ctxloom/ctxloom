@@ -172,6 +172,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ24Steps(ctx)
 	registerJ25Steps(ctx)
 	registerCompanionConsentSteps(ctx)
+	registerTrustCLISteps(ctx)
 	registerTrustSurfaceSteps(ctx)
 	registerTrustVocabularySteps(ctx)
 	registerSkillSteps(ctx)

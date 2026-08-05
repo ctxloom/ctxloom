@@ -103,8 +103,21 @@ Feature: A signature somebody can check
     And the listing names "context@acme.example" in the "user" store, with Trent's fingerprint and the publish namespace
 
   # The acceptance binds to the item's CURRENT content hashes, so a later
-  # revision returns it to pending rather than riding the old decision. The
-  # assertion is on the delivered payload, not on a review state.
+  # revision returns it to pending rather than riding the old decision.
+  #
+  # THREE assertions after the pull, not one, because "the revised marker is
+  # absent" alone was satisfied by the revision NEVER ARRIVING (audit
+  # irate-catfish, F1): a plain `remote pull` is passive and never advances an
+  # existing pin ("Skipped (kept at their locked commit)"), so Alice went on
+  # holding — and being served — the ORIGINAL bytes, and the scenario proved
+  # nothing about what an acceptance binds to. Taking the new commit needs
+  # `remote update --apply` first, and the two assertions added here are the
+  # ones an absence cannot fake:
+  #   - the ORIGINAL guidance stops being delivered. It was approved and
+  #     flowing one step earlier, so this can only be true if the revision
+  #     actually reached her project and displaced it.
+  #   - the item reads as PENDING again — the claim in the scenario title,
+  #     and the state a still-pinned, still-approved original could never be in.
   Scenario: Alice accepts one item, and a later revision returns it to review
     Given Trent's project publishes the "secure-coding" bundle his team depends on
     And Trent has signed the bundle "secure-coding"
@@ -116,6 +129,8 @@ Feature: A signature somebody can check
     When Trent revises the "tdd" fragment, re-signs it, and publishes again
     And Alice pulls the newly published version
     Then her assistant does not receive the "revised tdd" guidance
+    And her assistant no longer receives the "tdd" guidance either
+    And the published "tdd" fragment's review state is "pending"
 
   # A rejection writes two companion records: the ref-level block (sticky,
   # survives content changes) and the item's content hashes on the denylist (so

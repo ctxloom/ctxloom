@@ -35,8 +35,13 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/countersign"
+	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -558,8 +563,15 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	// Every scenario above reads the downstream materialized payload. None of
 	// them look at what `ctxloom trust`/`blacklist` actually wrote — so a
 	// rejection could record a block for a form the item does not have, or
-	// silently fail to record one it does, and nothing would notice. These two
-	// read the decision back out of the CLI's own report of it.
+	// silently fail to record one it does, and nothing would notice.
+	//
+	// These two used to read the CLI's own report (`--format json`'s
+	// content_forms), which is the tool's CLAIM about what it wrote, not the
+	// write: operations.SetBlacklist appends to that list whenever the store
+	// write returns nil, so with countersign.Store's writes neutered to record
+	// NOTHING the report still said ["raw"] / ["raw","distilled"] and both rows
+	// stayed green (audit irate-catfish, F3) — the exact risk this section's
+	// preamble names. They now ask the STORE.
 
 	ctx.Step(`^Alice rejects the fragment, and ctxloom reports what it recorded$`, func(c context.Context) error {
 		w := worldFrom(c)
@@ -567,24 +579,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^the recorded rejection covers exactly the (raw form|raw and distilled forms)$`, func(c context.Context, which string) error {
-		w := worldFrom(c)
-		want := []string{"raw"}
-		if which == "raw and distilled forms" {
-			want = []string{"raw", "distilled"}
-		}
-		got, err := tsRejectedContentForms(w)
-		if err != nil {
-			return err
-		}
-		if len(got) != len(want) {
-			return fmt.Errorf("rejection recorded content blocks for forms %v, want exactly %v", got, want)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				return fmt.Errorf("rejection recorded content blocks for forms %v, want exactly %v", got, want)
-			}
-		}
-		return nil
+		return tsAssertRecordedContentRejects(worldFrom(c), which == "raw and distilled forms")
 	})
 
 	// --- GAP F: an unparseable source ref must fail CLOSED, never "local" -----
@@ -612,32 +607,89 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	})
 }
 
-// tsRejectedContentForms parses the JSON `ctxloom trust reject --format json`
-// emitted (operations.SetBlacklistResult) and returns its "content_forms" —
-// the forms a CONTENT-level (ref-omitted) block was actually written for. This
-// is the recorded DECISION, read back from the tool's own report of it, as
-// distinct from the downstream payload every other assertion on this page
-// checks. The CLI prints a withheld-advisory warning line before the JSON, so
-// the object is located from its first "{" rather than parsing the whole
-// stream.
-func tsRejectedContentForms(w *World) ([]string, error) {
+// tsApprovalsStore opens Alice's user countersignature store — where the
+// unsigned degraded records (spec §9.5) this key-less environment writes
+// actually land.
+func tsApprovalsStore(w *World) *countersign.Store {
+	dir := filepath.Join(w.env.HomeDir, paths.AppDirName, paths.ApprovalsDirName)
+	return countersign.NewStore(dir, afero.NewOsFs())
+}
+
+// tsAssertRecordedContentRejects reads GAP C's claim out of the STORE: for each
+// attestation form a fragment can be countersigned under, does a content-level
+// (ref-omitted) reject marker exist over the bytes that form serves?
+//
+// It asks countersign.Store's own predicate rather than listing filenames,
+// because a record's identity is a hash of its framed preimage: only the
+// production lookup can distinguish "the block for THESE bytes in THIS role"
+// from "a file of about the right shape". The payloads come from the fixture's
+// markers through bundles.BundleFragment.ContentPayload — the same single
+// preimage builder the write path used.
+//
+// BOTH directions are asserted, and the second is the one the section's
+// preamble is about: a phantom block for a form the item does not have is not
+// harmless bookkeeping. For the raw-only fixture that means the distilled form
+// must carry NO block, including none recorded over the raw bytes — which is
+// exactly the shape a write path that fell back from distilled to raw would
+// leave behind.
+func tsAssertRecordedContentRejects(w *World, dualForm bool) error {
+	frag := bundles.BundleFragment{Content: tsFragmentMarker}
+	if dualForm {
+		frag = bundles.BundleFragment{Content: tsDualRawMarker, Distilled: tsDualDistilledMarker}
+	}
+	rawPayload, _ := frag.ContentPayload(false)
+	distilledPayload, _ := frag.ContentPayload(true)
+
+	store := tsApprovalsStore(w)
+	var recorded []string
+	if store.HasUnsignedContentReject(signing.AttestFragmentRaw, rawPayload) {
+		recorded = append(recorded, "raw")
+	}
+	// For the raw-only fixture ContentPayload(true) falls back to the RAW
+	// bytes, so this same call doubles as the phantom check: a distilled-form
+	// block over raw bytes is a claim to have blocked a form the item never had.
+	if store.HasUnsignedContentReject(signing.AttestFragmentDistilled, distilledPayload) {
+		recorded = append(recorded, "distilled")
+	}
+
+	want := []string{"raw"}
+	if dualForm {
+		want = []string{"raw", "distilled"}
+	}
+	w.docStepMaterialized = fmt.Sprintf("countersign store → content-reject forms actually on record: %v (CLI reported: %s)",
+		recorded, tsReportedContentForms(w))
+	if len(recorded) != len(want) {
+		return fmt.Errorf("the approvals store carries content-reject records for forms %v, want exactly %v.\n"+
+			"This reads the STORE, not `trust reject --format json`'s own report of what it wrote — which said: %s",
+			recorded, want, tsReportedContentForms(w))
+	}
+	for i := range want {
+		if recorded[i] != want[i] {
+			return fmt.Errorf("the approvals store carries content-reject records for forms %v, want exactly %v", recorded, want)
+		}
+	}
+	return nil
+}
+
+// tsReportedContentForms is the CLI's own "content_forms" claim, kept for the
+// living-doc evidence pane and for failure messages ONLY — never as the
+// assertion. The CLI prints a withheld-advisory warning line around the JSON,
+// so the object is located from its first "{" and read with a Decoder, which
+// stops at the end of the one value rather than choking on the trailing text.
+func tsReportedContentForms(w *World) string {
 	out := w.env.LastOutput()
 	start := strings.Index(out, "{")
 	if start < 0 {
-		return nil, fmt.Errorf("`blacklist --format json` emitted no JSON object; output:\n%s", out)
+		return "(no JSON object in `trust reject --format json` output)"
 	}
 	var res struct {
 		Status       string   `json:"status"`
 		ContentForms []string `json:"content_forms"`
 	}
-	// A Decoder (not Unmarshal) because the CLI also prints a withheld-advisory
-	// warning line AFTER the JSON object — Unmarshal rejects the trailing text,
-	// while a Decoder reads exactly the one value the command emitted.
 	if err := json.NewDecoder(strings.NewReader(out[start:])).Decode(&res); err != nil {
-		return nil, fmt.Errorf("parse `blacklist --format json` output: %w\noutput:\n%s", err, out)
+		return fmt.Sprintf("(unparseable: %v)", err)
 	}
-	w.docStepMaterialized = fmt.Sprintf("blacklist --format json → status=%q content_forms=%v", res.Status, res.ContentForms)
-	return res.ContentForms, nil
+	return fmt.Sprintf("status=%q content_forms=%v", res.Status, res.ContentForms)
 }
 
 // tsSetUseDistilled appends a top-level "config:\n  use_distilled: <bool>\n"
@@ -940,6 +992,85 @@ func tsSupersedeStore(w *World) error {
 	return nil
 }
 
+// tsCountersignRef is operations.countersignRef, reached through the same
+// PRODUCTION parse the CLI performs on its own argument: trust.ParseItemRef
+// turns the "<url>@bundles/<name>#<kind>/<item>" string a scenario passes to
+// `ctxloom trust accept` into a trust.Ref, whose CanonicalURL and Key compose
+// the ref a countersignature actually binds to.
+func tsCountersignRef(cliRef string) (string, error) {
+	parsed, _, _, err := trust.ParseItemRef(cliRef)
+	if err != nil {
+		return "", fmt.Errorf("parse item ref %q: %w", cliRef, err)
+	}
+	return parsed.CanonicalURL() + "|" + parsed.Key(), nil
+}
+
+// tsAssertCollisionRoles is the assertion the text→exec escalation scenario
+// turns on, and the only one on this page that can fail when the composite
+// attestation form is deleted.
+//
+// The scenario's delivered-surface half CANNOT fail: an approval is keyed by
+// ref AND form, trust.Ref.Key bakes the item KIND into the ref, and the fixture's
+// two items are #fragments/context and #mcp/toolserver — so the ref component
+// alone already separates them and the role plays no part (audit
+// irate-catfish, F4). This reads the ROLE out of the store instead, over the
+// one payload both items share.
+//
+// Before the executable has been approved (mcpApproved=false) the text's
+// approval must exist under fragment/raw and NOTHING may cover those bytes as
+// exec/mcp. After it has, BOTH roles must be on record, each under its own ref
+// — and neither may have been written under the other's form, which is exactly
+// what a collapsed form mapping would produce.
+func tsAssertCollisionRoles(w *World, mcpApproved bool) error {
+	mcp := tsCollisionMCP()
+	payload, err := mcp.ContentPayload()
+	if err != nil {
+		return fmt.Errorf("build the mcp executable preimage: %w", err)
+	}
+	fragRef, err := tsCountersignRef(tsRef(w, "fragments/context"))
+	if err != nil {
+		return err
+	}
+	mcpRef, err := tsCountersignRef(tsRef(w, "mcp/toolserver"))
+	if err != nil {
+		return err
+	}
+	store := tsApprovalsStore(w)
+
+	// The text's decision, in the text's role. True in both phases: approving
+	// the executable must not disturb or absorb it.
+	if !store.HasUnsignedApprove(fragRef, signing.AttestFragmentRaw, payload) {
+		return fmt.Errorf("no approval of %s is on record under %q over the %d shared bytes — Alice approved the fragment, "+
+			"so this is the decision she actually made", fragRef, signing.AttestFragmentRaw, len(payload))
+	}
+	// A decision may never be recorded under the OTHER item's role. Under a
+	// collapsed mapping (exec/mcp folded onto fragment/raw) the executable's
+	// approval lands here.
+	if store.HasUnsignedApprove(mcpRef, signing.AttestFragmentRaw, payload) {
+		return fmt.Errorf("an approval of the EXECUTABLE %s is on record under the TEXT role %q: the two roles share a key, "+
+			"so approving a fragment and approving the executable whose bytes it copies are the same decision",
+			mcpRef, signing.AttestFragmentRaw)
+	}
+	if store.HasUnsignedApprove(fragRef, signing.AttestExecMCP, payload) {
+		return fmt.Errorf("an approval of the TEXT %s is on record under the EXECUTABLE role %q — approving a fragment "+
+			"must never attest its bytes as something that runs", fragRef, signing.AttestExecMCP)
+	}
+
+	execOnRecord := store.HasUnsignedApprove(mcpRef, signing.AttestExecMCP, payload)
+	if mcpApproved && !execOnRecord {
+		return fmt.Errorf("Alice approved the MCP server, but no approval of %s is on record under %q over those same %d bytes; "+
+			"the executable's decision has to be recorded IN THE EXECUTABLE'S ROLE, or it is indistinguishable from the "+
+			"text's", mcpRef, signing.AttestExecMCP, len(payload))
+	}
+	if !mcpApproved && execOnRecord {
+		return fmt.Errorf("nobody has approved the executable yet, but %s is already on record under %q — an approval of "+
+			"the text expanded to cover the thing that runs", mcpRef, signing.AttestExecMCP)
+	}
+	w.docStepMaterialized = fmt.Sprintf("countersign store over the %d shared bytes:\n  %s → %s: on record\n  %s → %s: %v",
+		len(payload), fragRef, signing.AttestFragmentRaw, mcpRef, signing.AttestExecMCP, execOnRecord)
+	return nil
+}
+
 func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a bundle from an unsigned, never-reviewed publisher ships a fragment whose body is byte-identical to its MCP server's executable preimage$`, func(c context.Context) error {
 		w := worldFrom(c)
@@ -980,6 +1111,14 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		}
 		w.docStepMaterialized = j5Excerpt(body, tsMCPMarker, 1)
 		return nil
+	})
+
+	ctx.Step(`^what Alice approved is on record as the text's role only, never as the executable's$`, func(c context.Context) error {
+		return tsAssertCollisionRoles(worldFrom(c), false)
+	})
+
+	ctx.Step(`^the two decisions are on record as separate attestations over the same bytes, one per role$`, func(c context.Context) error {
+		return tsAssertCollisionRoles(worldFrom(c), true)
 	})
 
 	ctx.Step(`^her approval was recorded under a superseded countersign contract$`, func(c context.Context) error {

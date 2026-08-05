@@ -5,6 +5,23 @@ Feature: Trust posture CLI
   deprecation stubs — trust is now keyed to a publisher signing key, not a
   bundle or remote (see docs/trust-model.md, docs/trust-simplify-plan.md).
 
+  # RECORDED is the claim in the title, and until the audit (irate-catfish, F2)
+  # nothing here checked it: every assertion was an exit code plus a substring
+  # of the output, and "Approved demo#fragments/guide" is the argument echoed
+  # back. Neutering countersign.Store's write paths until the store recorded
+  # NOTHING AT ALL left all four scenarios on this page green — the exact
+  # product failure j18_signing.feature's @wip scenario describes in prose
+  # ("exit 0, a success message naming the key, and no effect, in the flagship
+  # trust command"). So each decision is now read back out of the store by the
+  # same lookup the trust gate performs, and the rejection is read out of the
+  # delivered state as well.
+  #
+  # The acceptance is asserted on the RECORD only, and deliberately: this
+  # bundle is project-authored, and local content is auto-allowed ahead of any
+  # review, so the fragment reads "accepted" before anyone accepts anything —
+  # a state assertion there would be tautological a second time. The rejection
+  # beats that local allowance, so it is asserted both ways, including that it
+  # left the bundle's OTHER fragment alone.
   Scenario: A per-item acceptance and a rejection are recorded
     # Acceptance now countersigns content BYTES (a signing-key fingerprint),
     # not a hash-pair ledger entry — there is no "sha256:" content hash to
@@ -17,10 +34,13 @@ Feature: Trust posture CLI
     Then the command succeeds
     And the output contains "Approved demo#fragments/guide"
     And the output contains "UNSIGNED"
+    And the approvals store holds an acceptance of "demo#fragments/guide" over the fragment's current bytes
     When I run "ctxloom trust reject demo#fragments/guide"
     Then the command succeeds
     And the output contains "Rejected demo#fragments/guide"
     And the output contains "rejected in form(s) raw"
+    And the approvals store holds a rejection of "demo#fragments/guide": a sticky ref block and a content block over the same bytes
+    And "demo#fragments/guide" is withheld from the agent, and the bundle's other fragment is not
 
   # Companion EXEC consent. Companions are DISCOVERED, not configured — the
   # shipped names plus anything called ctxloom-companion-* on $PATH — and

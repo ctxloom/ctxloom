@@ -35,8 +35,12 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/countersign"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -558,8 +562,15 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	// Every scenario above reads the downstream materialized payload. None of
 	// them look at what `ctxloom trust`/`blacklist` actually wrote — so a
 	// rejection could record a block for a form the item does not have, or
-	// silently fail to record one it does, and nothing would notice. These two
-	// read the decision back out of the CLI's own report of it.
+	// silently fail to record one it does, and nothing would notice.
+	//
+	// These two used to read the CLI's own report (`--format json`'s
+	// content_forms), which is the tool's CLAIM about what it wrote, not the
+	// write: operations.SetBlacklist appends to that list whenever the store
+	// write returns nil, so with countersign.Store's writes neutered to record
+	// NOTHING the report still said ["raw"] / ["raw","distilled"] and both rows
+	// stayed green (audit irate-catfish, F3) — the exact risk this section's
+	// preamble names. They now ask the STORE.
 
 	ctx.Step(`^Alice rejects the fragment, and ctxloom reports what it recorded$`, func(c context.Context) error {
 		w := worldFrom(c)
@@ -567,24 +578,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^the recorded rejection covers exactly the (raw form|raw and distilled forms)$`, func(c context.Context, which string) error {
-		w := worldFrom(c)
-		want := []string{"raw"}
-		if which == "raw and distilled forms" {
-			want = []string{"raw", "distilled"}
-		}
-		got, err := tsRejectedContentForms(w)
-		if err != nil {
-			return err
-		}
-		if len(got) != len(want) {
-			return fmt.Errorf("rejection recorded content blocks for forms %v, want exactly %v", got, want)
-		}
-		for i := range want {
-			if got[i] != want[i] {
-				return fmt.Errorf("rejection recorded content blocks for forms %v, want exactly %v", got, want)
-			}
-		}
-		return nil
+		return tsAssertRecordedContentRejects(worldFrom(c), which == "raw and distilled forms")
 	})
 
 	// --- GAP F: an unparseable source ref must fail CLOSED, never "local" -----
@@ -612,32 +606,89 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 	})
 }
 
-// tsRejectedContentForms parses the JSON `ctxloom trust reject --format json`
-// emitted (operations.SetBlacklistResult) and returns its "content_forms" —
-// the forms a CONTENT-level (ref-omitted) block was actually written for. This
-// is the recorded DECISION, read back from the tool's own report of it, as
-// distinct from the downstream payload every other assertion on this page
-// checks. The CLI prints a withheld-advisory warning line before the JSON, so
-// the object is located from its first "{" rather than parsing the whole
-// stream.
-func tsRejectedContentForms(w *World) ([]string, error) {
+// tsApprovalsStore opens Alice's user countersignature store — where the
+// unsigned degraded records (spec §9.5) this key-less environment writes
+// actually land.
+func tsApprovalsStore(w *World) *countersign.Store {
+	dir := filepath.Join(w.env.HomeDir, paths.AppDirName, paths.ApprovalsDirName)
+	return countersign.NewStore(dir, afero.NewOsFs())
+}
+
+// tsAssertRecordedContentRejects reads GAP C's claim out of the STORE: for each
+// attestation form a fragment can be countersigned under, does a content-level
+// (ref-omitted) reject marker exist over the bytes that form serves?
+//
+// It asks countersign.Store's own predicate rather than listing filenames,
+// because a record's identity is a hash of its framed preimage: only the
+// production lookup can distinguish "the block for THESE bytes in THIS role"
+// from "a file of about the right shape". The payloads come from the fixture's
+// markers through bundles.BundleFragment.ContentPayload — the same single
+// preimage builder the write path used.
+//
+// BOTH directions are asserted, and the second is the one the section's
+// preamble is about: a phantom block for a form the item does not have is not
+// harmless bookkeeping. For the raw-only fixture that means the distilled form
+// must carry NO block, including none recorded over the raw bytes — which is
+// exactly the shape a write path that fell back from distilled to raw would
+// leave behind.
+func tsAssertRecordedContentRejects(w *World, dualForm bool) error {
+	frag := bundles.BundleFragment{Content: tsFragmentMarker}
+	if dualForm {
+		frag = bundles.BundleFragment{Content: tsDualRawMarker, Distilled: tsDualDistilledMarker}
+	}
+	rawPayload, _ := frag.ContentPayload(false)
+	distilledPayload, _ := frag.ContentPayload(true)
+
+	store := tsApprovalsStore(w)
+	var recorded []string
+	if store.HasUnsignedContentReject(signing.AttestFragmentRaw, rawPayload) {
+		recorded = append(recorded, "raw")
+	}
+	// For the raw-only fixture ContentPayload(true) falls back to the RAW
+	// bytes, so this same call doubles as the phantom check: a distilled-form
+	// block over raw bytes is a claim to have blocked a form the item never had.
+	if store.HasUnsignedContentReject(signing.AttestFragmentDistilled, distilledPayload) {
+		recorded = append(recorded, "distilled")
+	}
+
+	want := []string{"raw"}
+	if dualForm {
+		want = []string{"raw", "distilled"}
+	}
+	w.docStepMaterialized = fmt.Sprintf("countersign store → content-reject forms actually on record: %v (CLI reported: %s)",
+		recorded, tsReportedContentForms(w))
+	if len(recorded) != len(want) {
+		return fmt.Errorf("the approvals store carries content-reject records for forms %v, want exactly %v.\n"+
+			"This reads the STORE, not `trust reject --format json`'s own report of what it wrote — which said: %s",
+			recorded, want, tsReportedContentForms(w))
+	}
+	for i := range want {
+		if recorded[i] != want[i] {
+			return fmt.Errorf("the approvals store carries content-reject records for forms %v, want exactly %v", recorded, want)
+		}
+	}
+	return nil
+}
+
+// tsReportedContentForms is the CLI's own "content_forms" claim, kept for the
+// living-doc evidence pane and for failure messages ONLY — never as the
+// assertion. The CLI prints a withheld-advisory warning line around the JSON,
+// so the object is located from its first "{" and read with a Decoder, which
+// stops at the end of the one value rather than choking on the trailing text.
+func tsReportedContentForms(w *World) string {
 	out := w.env.LastOutput()
 	start := strings.Index(out, "{")
 	if start < 0 {
-		return nil, fmt.Errorf("`blacklist --format json` emitted no JSON object; output:\n%s", out)
+		return "(no JSON object in `trust reject --format json` output)"
 	}
 	var res struct {
 		Status       string   `json:"status"`
 		ContentForms []string `json:"content_forms"`
 	}
-	// A Decoder (not Unmarshal) because the CLI also prints a withheld-advisory
-	// warning line AFTER the JSON object — Unmarshal rejects the trailing text,
-	// while a Decoder reads exactly the one value the command emitted.
 	if err := json.NewDecoder(strings.NewReader(out[start:])).Decode(&res); err != nil {
-		return nil, fmt.Errorf("parse `blacklist --format json` output: %w\noutput:\n%s", err, out)
+		return fmt.Sprintf("(unparseable: %v)", err)
 	}
-	w.docStepMaterialized = fmt.Sprintf("blacklist --format json → status=%q content_forms=%v", res.Status, res.ContentForms)
-	return res.ContentForms, nil
+	return fmt.Sprintf("status=%q content_forms=%v", res.Status, res.ContentForms)
 }
 
 // tsSetUseDistilled appends a top-level "config:\n  use_distilled: <bool>\n"

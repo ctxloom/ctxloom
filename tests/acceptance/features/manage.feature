@@ -12,13 +12,18 @@ Feature: Manage the project harness
     And the file ".mcp.json" exists
     And the file ".gitignore" contains "ctxloom"
 
+  # The engine NAME appears in both "claude-code: not configured" and
+  # "claude-code: hooks=true ...", so asserting it said nothing about whether
+  # anything was wired: an install that wrote nothing and reported success left
+  # this green while ten other scenarios went red. What "wired" means is the
+  # per-surface flags.
   Scenario: Status reports the wired harness
     Given an initialized ctxloom project
     When I run "ctxloom manage hooks install"
     Then the command succeeds
     When I run "ctxloom manage status"
     Then the command succeeds
-    And the output contains "claude-code"
+    And the output matches "claude-code: hooks=true[^\n]*mcp=true"
 
   Scenario: Uninstall strips the harness but keeps .ctxloom
     Given an initialized ctxloom project

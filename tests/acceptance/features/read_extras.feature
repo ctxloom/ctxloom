@@ -1,6 +1,10 @@
 Feature: Additional read and configuration commands
   Coverage for the remaining show/search/modify/registration commands.
 
+  # "the output contains <name>" asserted nothing about the CONTENT: `show`
+  # prints the item name as a header, echoed straight from the argument, so
+  # blanking the stored body left this green. The fixture seeds a marker that
+  # exists nowhere but inside the item's bytes.
   Scenario: Show a fragment's content
     Given an initialized ctxloom project
     And a bundle "demo" exists
@@ -8,6 +12,7 @@ Feature: Additional read and configuration commands
     When I run "ctxloom fragment show demo#fragments/testing"
     Then the command succeeds
     And the output contains "testing"
+    And the output contains "FRAGMENT-BODY-testing"
 
   Scenario: Search fragments by name
     Given an initialized ctxloom project
@@ -24,6 +29,7 @@ Feature: Additional read and configuration commands
     When I run "ctxloom command show demo#commands/review"
     Then the command succeeds
     And the output contains "review"
+    And the output contains "COMMAND-BODY-review"
 
   Scenario: Modify a profile's description
     Given an initialized ctxloom project

@@ -61,17 +61,31 @@ Feature: Agent bindings and container tooling
     And the file ".ctxloom/base.Containerfile" contains "FROM"
     And the file ".ctxloom/config.yaml" contains "isolation_base_containerfile"
 
+  # DIAGNOSTIC-ONLY is a claim about what the command does NOT do, and no
+  # assertion on its own stdout can see it writing a file somewhere else: the
+  # static "Container capability" header was printed either way. The read-only
+  # half is asserted where it actually lives — the project tree, byte for byte.
   Scenario: Container capability check is diagnostic-only
     Given an initialized ctxloom project
+    And I record the project tree
     When I run "ctxloom container check claude-code"
     Then the command succeeds
-    And the output contains "Container capability"
+    And the output contains "Container capability (backend: claude-code)"
+    And the output contains "in a container:"
+    And the output contains "shared fs:"
+    And the project tree is unchanged
 
+  # "agent_servers" is a literal in the surrounding human prose and "developer"
+  # is printed by the entry loop above the paste block, so both survived a
+  # paste block rendered as an empty `{}` — advertising no server at all, which
+  # is the one thing this scenario is about. The assertion decodes the block a
+  # user would actually copy.
   Scenario: ACP agent entries advertise per-binding servers
     Given an initialized ctxloom project
     And a profile "dev" exists
     And I run "ctxloom agent create developer --profiles dev"
     When I run "ctxloom acp list"
     Then the command succeeds
-    And the output contains "agent_servers"
     And the output contains "developer"
+    And the agent_servers paste block declares a server "ctxloom" running "acp serve"
+    And the agent_servers paste block declares a server "ctxloom: developer" running "acp serve --agent developer"

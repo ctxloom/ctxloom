@@ -12,12 +12,21 @@ Feature: Bundles
     Then the command succeeds
     And the output contains "demo"
 
+  # "the output contains demo" is satisfied by the `Bundle: demo` header alone,
+  # so a render that stopped right after the header — suppressing every
+  # section, which IS the bundle's contents — passed. `bundle create` seeds one
+  # example fragment and one example command; the sections that describe them
+  # are what this scenario is named after.
   Scenario: Show a bundle's contents
     Given an initialized ctxloom project
     And a bundle "demo" exists
     When I run "ctxloom bundle show demo"
     Then the command succeeds
-    And the output contains "demo"
+    And the output contains "Bundle: demo"
+    And the output contains "Fragments (1):"
+    And the output contains "- example [example] (no_distill)"
+    And the output contains "Commands (1):"
+    And the output contains "Example prompt"
 
   Scenario: View a bundle shows its fragment
     Given an initialized ctxloom project

@@ -38,6 +38,14 @@ ca-plain-sibling@example.com namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAA
 # Multiple comma-separated principals sharing one entry.
 alice@example.com,bob@example.com namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
 
+# Same two principals, but the WHOLE principals field is double-quoted.
+# OpenSSH's strdelimw is quote-aware and strips the quotes rather than
+# treating them as content. Verified against real ssh-keygen via
+# `ssh-keygen -Y match-principals -I quoted-alice@example.com -f
+# interop_allowed_signers` and `-I quoted-bob@example.com`, both against this
+# exact line with this exact key blob: both match, exit 0.
+"quoted-alice@example.com,quoted-bob@example.com" namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
+
 # Glob principal pattern.
 *@example.org namespaces="publish.v1.ctxloom.dev" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGO+4UzAG5fNzbf+DqeceZ4ZtCIXMIStJzWMI6PG/CVJ publisher@example.com
 

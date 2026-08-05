@@ -274,7 +274,7 @@ func TestParseError_EveryCauseIsOneOfThePackageSentinels(t *testing.T) {
 	sentinels := []error{
 		errNoPrincipals, errNoKey, errUnknownOption, errDuplicateOption,
 		errUnquotedValue, errBadTimestamp, errKeyTypeMismatch,
-		errByteOrderMark, errLineTooLong,
+		errByteOrderMark, errLineTooLong, errUnterminatedPrincipalsQuote,
 	}
 	_, blob, _ := strings.Cut(testEd25519Key, " ")
 
@@ -289,11 +289,12 @@ func TestParseError_EveryCauseIsOneOfThePackageSentinels(t *testing.T) {
 		"a@x not-a-real-keytype " + blob,                      // errKeyTypeMismatch
 		"\ufeffa@x " + testEd25519Key,                         // errByteOrderMark
 		"junk" + strings.Repeat("x", 2<<20),                   // errLineTooLong
+		`"unterminated@x.com ` + testEd25519Key,               // errUnterminatedPrincipalsQuote
 	}, "\n") + "\n"
 
 	store, perrs, err := Parse(strings.NewReader(src))
 	require.NoError(t, err)
-	require.Len(t, perrs, 10, "every seeded line must be reported")
+	require.Len(t, perrs, 11, "every seeded line must be reported")
 	assert.Empty(t, store.Entries(), "no reported line may contribute an entry")
 
 	for _, pe := range perrs {
@@ -476,6 +477,144 @@ func TestParse_DeclaredKeyTypeMatching_StillParses(t *testing.T) {
 	assert.Empty(t, perrs)
 	require.Len(t, store.Entries(), 1)
 	assert.Equal(t, "ssh-ed25519", store.Entries()[0].KeyType)
+}
+
+// --- quote handling in the principals field ---------------------------------
+
+// TestParse_QuotedPrincipalsField_ExactBugLineSplitsIntoTwoBarePrincipals pins
+// the reported bug's exact line, verified against real ssh-keygen
+// (OpenSSH_10.0p2) via `ssh-keygen -Y match-principals -I alice@x.com -f
+// <file>` and `-I bob@x.com`: both match, exit 0.
+//
+// Before this fix, this package parsed the line CLEANLY (zero ParseErrors)
+// into principals []string{"\"alice@x.com", "bob@x.com\""} — two strings no
+// human could type and `signer remove` could never match — while still
+// granting publish trust through TrustedForNamespace (which matches on the
+// KEY, not the principal). That combination is the bug: this test pins the
+// principals a correct parse must produce.
+func TestParse_QuotedPrincipalsField_ExactBugLineSplitsIntoTwoBarePrincipals(t *testing.T) {
+	line := `"alice@x.com,bob@x.com" namespaces="publish.v1.ctxloom.dev" ` + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(line))
+	require.NoError(t, err)
+	assert.Empty(t, perrs)
+	require.Len(t, store.Entries(), 1)
+	assert.Equal(t, []string{"alice@x.com", "bob@x.com"}, store.Entries()[0].Principals)
+}
+
+// TestParse_QuotedPrincipalsField_EndToEnd_OriginalBugIsDead is the
+// outcome-level assertion: not just that principals parse to the right
+// strings, but that the trust decision itself now matches ssh-keygen's, and
+// that the OLD mangled identity — the one the pre-fix parser produced and
+// that nothing could name or revoke — is granted nothing.
+func TestParse_QuotedPrincipalsField_EndToEnd_OriginalBugIsDead(t *testing.T) {
+	line := `"alice@x.com,bob@x.com" namespaces="publish.v1.ctxloom.dev" ` + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(line))
+	require.NoError(t, err)
+	assert.Empty(t, perrs)
+
+	key := mustParseKey(t, testEd25519Key)
+	now := fixedNow()
+
+	// The real, typeable identities are trusted, as real ssh-keygen verifies
+	// them (`-Y verify -I alice@x.com`/`-I bob@x.com` against this exact
+	// line, both rc=0).
+	assert.True(t, store.TrustedAs("alice@x.com", key, "publish.v1.ctxloom.dev", now).Trusted,
+		"real ssh-keygen verifies this identity against this exact line")
+	assert.True(t, store.TrustedAs("bob@x.com", key, "publish.v1.ctxloom.dev", now).Trusted,
+		"real ssh-keygen verifies this identity against this exact line")
+
+	// The mangled string the OLD parser produced as a "principal" must be
+	// trusted as NOTHING — there must be no identity left that grants
+	// publish trust and cannot be typed or revoked.
+	assert.False(t, store.TrustedAs(`"alice@x.com`, key, "publish.v1.ctxloom.dev", now).Trusted,
+		"the pre-fix mangled principal must not be a live identity")
+	assert.False(t, store.TrustedAs(`bob@x.com"`, key, "publish.v1.ctxloom.dev", now).Trusted,
+		"the pre-fix mangled principal must not be a live identity")
+}
+
+// TestParse_QuotedPrincipalWithInternalWhitespace pins the case a plain
+// comma-split can never handle: a single quoted principal that itself
+// contains whitespace. Verified against real ssh-keygen: `-Y
+// match-principals -I "alice smith@x.com"` against a file containing this
+// exact quoted field matches it.
+func TestParse_QuotedPrincipalWithInternalWhitespace(t *testing.T) {
+	line := `"alice smith@x.com" ` + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(line))
+	require.NoError(t, err)
+	assert.Empty(t, perrs)
+	require.Len(t, store.Entries(), 1)
+	assert.Equal(t, []string{"alice smith@x.com"}, store.Entries()[0].Principals)
+}
+
+// TestParse_UnterminatedPrincipalsQuoteIsMalformed pins the fail-closed
+// posture for a quote that never closes: this must be a hard ParseError, NOT
+// a silent fallback to splitting the raw, still-quoted text (which would
+// reintroduce this package's original bug for a rarer input — a mangled,
+// unrevocable "principal" carrying a literal quote character).
+//
+// Verified against real ssh-keygen: misc.c's strdelim_internal itself
+// returns NULL for exactly this ("no matching quote"), which
+// parse_principals_key_and_options (sshsig.c) reports as "invalid line" —
+// ssh-keygen already refuses this outright rather than falling back to
+// anything.
+func TestParse_UnterminatedPrincipalsQuoteIsMalformed(t *testing.T) {
+	line := `"alice@x.com ` + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(line))
+	require.NoError(t, err)
+	require.Len(t, perrs, 1)
+	assert.ErrorIs(t, perrs[0].Err, errUnterminatedPrincipalsQuote)
+	assert.Empty(t, store.Entries(), "an unterminated quote must grant no trust at all")
+}
+
+// TestParse_QuoteInsideUnquotedFieldIsMalformed pins a stray double quote
+// appearing before any principals-list-terminating whitespace, in a field
+// that was never meant to be quoted at all. Verified against real ssh-keygen
+// (`-Y find-principals`): this exact construction reports "invalid options"
+// and matches no principal — the stray quote is consumed as an opening
+// quote, its matching close lands on the namespaces= option's own opening
+// quote, and everything downstream is garbled into something that fails to
+// parse as a key. ctxloom reproduces the same outcome (rejection) by the
+// same mechanism (cutPrincipalsField consuming the same quote pair), not by
+// a dedicated "reject any quote here" special case.
+func TestParse_QuoteInsideUnquotedFieldIsMalformed(t *testing.T) {
+	line := `ali"ce@x.com namespaces="publish.v1.ctxloom.dev" ` + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(line))
+	require.NoError(t, err)
+	require.Len(t, perrs, 1)
+	assert.Empty(t, store.Entries(), "a stray quote must never garble its way into a granted identity")
+}
+
+// TestParse_QuotedPrincipalIsRevocableBySignerRemove proves the round-trip
+// this whole fix exists for, at the level this package can prove it without
+// depending on internal/operations (this package is a dependency-free leaf
+// being extracted as a standalone library — see the package doc — so it
+// cannot import the CLI operations package that implements `ctxloom signer
+// remove` without creating a cycle).
+//
+// operations.RemoveSigner's entire mechanism (removeFromAllowedSignersFile in
+// internal/operations/signer.go) is: parse the file, then for each entry,
+// slices.Contains(entry.Principals, principal) — an exact, literal string
+// match against Entry.Principals. So the property that makes a principal
+// "revocable by signer remove" is exactly this: the string a human typed
+// appears, byte-for-byte, in Principals. That is what this test asserts.
+func TestParse_QuotedPrincipalIsRevocableBySignerRemove(t *testing.T) {
+	line := `"alice@x.com,bob@x.com" ` + testEd25519Key + "\n"
+	store, perrs, err := Parse(strings.NewReader(line))
+	require.NoError(t, err)
+	assert.Empty(t, perrs)
+	require.Len(t, store.Entries(), 1)
+
+	principals := store.Entries()[0].Principals
+	// This is literally `slices.Contains(principals, "alice@x.com")` —
+	// operations.RemoveSigner's own revocation test, reproduced here.
+	assert.Contains(t, principals, "alice@x.com",
+		"the exact string an operator would pass to `ctxloom signer remove` must be present")
+	assert.Contains(t, principals, "bob@x.com")
+
+	// The mangled strings the pre-fix parser produced must be gone: a
+	// `signer remove alice@x.com` against the OLD output would find neither.
+	assert.NotContains(t, principals, `"alice@x.com`)
+	assert.NotContains(t, principals, `bob@x.com"`)
 }
 
 // TestParse_LineNumbersIndexTheSourceStream pins the invariant Entry.Line's

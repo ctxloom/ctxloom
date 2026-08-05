@@ -236,6 +236,34 @@ On a shared or multi-tenant container host, treat this as a trust boundary and i
 workloads on separate Docker networks. On Linux the same transport is a bind-mounted unix socket
 rather than TCP, so this caveat is specific to the Docker Desktop path.
 
+**We own the MCP servers we seed. We do not own the ones we did not write.** An MCP
+declaration is not text — a server entry names an executable, and the engine spawns it. So a
+server that arrives through ctxloom's own supply chain is squarely ours: config, profiles, and
+**bundles**, including remote ones, since a profile may carry an `mcp` block and profiles are
+bundle-deliverable. Those servers are content we deliver, they go through the same gate as
+every other bundle item, and if one is malicious that is our failure to have shown it to you.
+
+Entries we did not write are a different matter, and the separation is structural rather than a
+promise:
+
+- For **Claude Code**, ctxloom never writes your project `.mcp.json` at all. It passes its own
+  servers via `--mcp-config`, pointing at an out-of-cwd file, and deliberately omits
+  `--strict-mcp-config` so the engine *layers* ctxloom's set on top of yours instead of
+  replacing it. Your file is untouched because ctxloom never opens it.
+- For **Antigravity** and **Kiro**, ctxloom does write the engine's native registry in place —
+  and records the names it wrote in a sidecar **ledger**. Removal keys off that ledger, not off
+  the file, so user-authored entries (including remote `url` servers) survive byte-for-byte,
+  along with top-level fields ctxloom does not model.
+
+Two limits follow, and neither is hypothetical. **The approval gate belongs to the engine, not
+to us** — and an agent you configured with `permissions: bypass` is launched with that engine's
+skip-permissions flag, which disables it. A bundle-delivered server then starts without a
+prompt. That takes both a publisher you trusted and an agent you deliberately marked bypass, but
+it means `bypass` is broader than "stop asking me about file edits": it also means "run what my
+trusted bundles declare." **And in the ledger path, a name is a claim.** If you hand-author a
+server and a bundle later declares one under the same name, ctxloom's write records that name as
+managed — and a later removal deletes what began as your entry.
+
 ## The one line we hold
 
 Everything above reduces to a single invariant: **a human sees third-party content —

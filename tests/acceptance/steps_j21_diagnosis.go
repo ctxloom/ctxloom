@@ -665,8 +665,30 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^some inspector names the runbook as withheld because it is unsigned$`, func(c context.Context) error {
-		return j21ProbesAnswered(worldFrom(c), j21Bundle, "unsigned")
+	// THE ROW'S SUBJECT MOVED WITH THE PRODUCT, and the assertion moved with
+	// it. It used to look for the word "unsigned", which was never true of the
+	// cause this fixture plants: Carol's bundle IS signed — she edited the
+	// bytes and carried the old .sig forward, which is a signature that does
+	// not cover what it sits beside, a different state from unsigned entirely
+	// (docs/trust-model.md, "Item states"). And since upgrade started REFUSING
+	// that advance, nothing is withheld at all: the kept pin verifies, the
+	// guidance keeps arriving, and only the REVISION is missing.
+	//
+	// So the question this row asks — "why is the newer copy not here, days
+	// after the sync that refused it?" — is unchanged, and the three facts an
+	// answer needs are: which bundle, that its signature does not verify, and
+	// which pin is being served instead. Asserting all three is strictly more
+	// than the two tokens this step used to look for.
+	ctx.Step(`^some inspector names the runbook, the signature that does not verify, and the pin she is kept at$`, func(c context.Context) error {
+		w := worldFrom(c)
+		kept := j21Of(w).pinBeforeSync
+		if kept == "" {
+			return fmt.Errorf("no pre-sync pin was captured — the sync step did not run, so there is no kept pin to look for")
+		}
+		if len(kept) > 16 {
+			kept = kept[:16] // the pin is rendered abbreviated for humans
+		}
+		return j21ProbesAnswered(w, j21Bundle, "does not verify", kept)
 	})
 
 	ctx.Step(`^Alice asks ctxloom why the runbook stopped arriving$`, func(c context.Context) error {

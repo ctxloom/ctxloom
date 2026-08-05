@@ -169,6 +169,22 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult
 	if serr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Save(newActive); serr != nil {
 		return result, serr
 	}
+
+	// Persist this round's refusals AFTER the lockfile write, never before: a
+	// record says "the pin for X is being KEPT at <sha>", and a record written
+	// ahead of a Save that then failed would claim a pin the lockfile does not
+	// hold. Writing second means the record can only ever describe state that
+	// is already on disk.
+	//
+	// A failed write does NOT fail the upgrade. The lockfile — the thing the
+	// user asked to change — is correct and saved, and the caller reports every
+	// refusal on stdout regardless; losing the durable copy costs the
+	// after-the-fact `doctor` advisory and nothing else. Warned rather than
+	// swallowed, because a silently missing record is how the advisory would
+	// quietly stop existing.
+	if rerr := saveRefusedAdvances(cfg, result.Refused); rerr != nil {
+		clidiag.Warn("ctxloom", "could not record this upgrade's refusal(s) for later inspection (`ctxloom doctor` will not report them): %v", rerr)
+	}
 	return result, nil
 }
 

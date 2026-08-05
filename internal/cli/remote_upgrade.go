@@ -32,7 +32,9 @@ copy. The old pin is kept and the refusal is reported.
 
 A refusal EXITS 2, not 0 and not 1: the command ran fine and deliberately did
 not do part of what it was asked, so an unattended sync can tell "I refused
-something" apart from both "nothing to do" (0) and a failure (1).
+something" apart from both "nothing to do" (0) and a failure (1). The refusal
+also survives the run — 'ctxloom doctor' reports it until an upgrade advances
+that pin.
 
 Mirrors apt: where 'remote update' refreshes the local clones (the index),
 'remote upgrade' advances your pins to the newest commit. Passive 'remote pull'

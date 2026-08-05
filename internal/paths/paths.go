@@ -118,6 +118,12 @@ const (
 	// ReposCacheDir is the subdirectory for cached git repo clones.
 	ReposCacheDir = "repos"
 
+	// RefusedAdvancesFileName is the name (without extension) of the record of
+	// pin advances `ctxloom remote upgrade` DECLINED to make because the
+	// content at the proposed commit carried a publisher signature that does
+	// not verify over its bytes — see RefusedAdvancesPath.
+	RefusedAdvancesFileName = "refused_advances"
+
 	// TriggersDir is the cache/ subdirectory holding ctxloom's cached
 	// revive-trigger verdicts, one file per project (see TriggerCacheDir).
 	TriggersDir = "triggers"
@@ -587,6 +593,28 @@ func ReposCachePath(appPath string) string {
 // full-content display (the countersignature stores stay authoritative).
 func TrustObjectsPath(appPath string) string {
 	return filepath.Join(CachePath(appPath), TrustFileName, TrustObjectsDir)
+}
+
+// RefusedAdvancesPath returns the refused-advance record (under cache/): what
+// the last `remote upgrade` round declined to advance, and the pin it kept
+// instead, so an inspector run days later can still say why a revision is not
+// here. Without it the refusal exists only in the transient stdout of the sync
+// that produced it.
+//
+// PROJECT-scoped, not user-scoped, and that is the whole reason it is not
+// beside the personal admission stores under ~/.ctxloom: a refusal is a fact
+// about ONE lockfile's pin. Two checkouts on the same machine depending on the
+// same bundle can legitimately be in different states — one advanced, one
+// refused — and a home-scoped record keyed by bundle identity would report the
+// wrong one's problem in the other's directory.
+//
+// Under cache/ because it is DERIVED and regenerable: re-running `ctxloom
+// remote upgrade` reproduces it exactly, deleting it only costs the after-the-
+// fact advisory (the sync still says so at the moment it refuses), and nothing
+// about it should be committed — it describes what one machine saw upstream at
+// one moment, not a decision the team shares.
+func RefusedAdvancesPath(appPath string) string {
+	return filepath.Join(CachePath(appPath), RefusedAdvancesFileName+".yaml")
 }
 
 // DefaultRemotesPath returns the default remotes path relative to current directory.

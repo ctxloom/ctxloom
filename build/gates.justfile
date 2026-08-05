@@ -46,8 +46,20 @@ docker_integration_pkgs := "./internal/lm/isolation/... ./internal/agentcoord/co
 # so a runner that loses docker passes this step having executed nothing —
 # the same silent-no-op failure family the suite exists to catch, sitting
 # inside the gate. See internal/testsupport/dockergate.
+# -count=1 (no result caching) is load-bearing, not hygiene. Both gate knobs —
+# CTXLOOM_REQUIRE_DOCKER and CTXLOOM_REQUIRE_RUNTIMES — are read at PACKAGE
+# INIT, which is deliberate (testsupport.Isolate clears them, so a test that
+# isolates before it gates must not silently demote itself back to skipping).
+# But go's test-result cache only records env reads made through its testlog
+# hook, which is installed by testing.M.Run — AFTER package init. An init-time
+# read is therefore invisible to the cache key, so `CTXLOOM_REQUIRE_RUNTIMES=podman
+# just test-docker-integration` would happily replay a green result from a run
+# that declared nothing. Measured, not theorised: the podman lane reported
+# "(cached) ok" until this was added. These tests are environment-dependent by
+# definition; caching their verdict is wrong regardless of which variable
+# changed.
 test-docker-integration: _require-generated _check-docker-integration-pkgs _check-docker-skip-gate
-    go test -v -tags docker_integration {{docker_integration_pkgs}}
+    go test -v -count=1 -tags docker_integration {{docker_integration_pkgs}}
 
 # Drift gate for docker_integration_pkgs: every file carrying the
 # `//go:build docker_integration` constraint must live under a package the

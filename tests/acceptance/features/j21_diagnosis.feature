@@ -48,11 +48,13 @@ Feature: The day the assistant goes blind
   # table: `search` / `bundle show`. Verdict OK — so this scenario is the
   # control that proves the walk's first hop really does answer.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today. If it
-  # fails, the interesting part is WHICH half: a search that prints nothing at
-  # all is asserted against explicitly, because "no such item" and "the search
-  # never ran" must not look the same.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
+  # deleting `fmt.Fprintln(w, "No results found.")` from cli.runUnifiedSearch's
+  # zero-result branch turns this red on the "search printed NOTHING at all"
+  # assertion — which is the half that matters, since "no such item" and "the
+  # search never ran" must not look the same. (A first attempt that suppressed
+  # printUnifiedResults' "Results (N):" header did NOT bite: the search here
+  # genuinely returns zero results and never reaches that branch.)
   Scenario: Nothing packaged the deploy process, and the search says so
     Given the deploy process exists only as a loose file in Alice's repo, in no bundle
     When I run "ctxloom search deploy"
@@ -79,8 +81,34 @@ Feature: The day the assistant goes blind
   # fixes, and a scenario that only checked the revised bytes were absent would
   # pass for either.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today —
-  # observed passing while this journey was being written.
+  # STAYS @wip, AND THE "MEASURED" PARAGRAPH ABOVE IS WRONG. Re-measured
+  # 2026-08-05.
+  #
+  # The old green here was a FALSE PASS. "Alice syncs on Monday" ran `remote
+  # update` + `remote pull`, and neither advances a pin: update is a dry check
+  # ending in "Run with --apply", and pull says in as many words "Pull never
+  # moves an existing pin … run 'ctxloom remote upgrade' to advance them". The
+  # lockfile never left Friday's commit, so the attestation boundary this
+  # scenario exists to test WAS NEVER REACHED. Two checks confirm it: making
+  # the fixture re-sign properly changed no outcome, and gutting
+  # signing.VerifyPublisher so an invalid signature verifies changed no outcome
+  # either. The scenario would have passed identically with signature checking
+  # deleted from the product.
+  #
+  # The step now also runs `remote upgrade`, so the pin really does advance and
+  # the gate really is consulted. Against a genuine pin advance the product
+  # behaves DIFFERENTLY from the paragraph above: the first Then still passes
+  # (the revision is withheld — the withhold warning names it as "tampered:
+  # signature does not cover these bytes"), but the second FAILS. She is NOT
+  # left serving the superseded copy; the deploy guidance disappears from the
+  # assembled context ENTIRELY, old and new alike.
+  #
+  # That is arguably the worse of the two failure modes and it is the one the
+  # product actually has, so the scenario keeps asserting both halves and stays
+  # red until someone decides which is intended. UNTAG WHEN: the second Then is
+  # rewritten to whichever behaviour is chosen — retain-the-old (as the prose
+  # assumes) or withhold-everything (as the product does) — and the product
+  # agrees with it.
   @wip
   Scenario: An edited, never-re-signed runbook stops arriving on an ordinary sync
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
@@ -95,11 +123,30 @@ Feature: The day the assistant goes blind
   # This scenario exists to pin that: the most obvious inspector is silent here
   # BY DESIGN, and any diagnosis that stops at it stops in the wrong place.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today. If this
-  # one ever FAILS — if review --list starts naming the runbook — that is good
-  # news, not a regression: it means B2 grew an inspector, and the scenario
-  # below is the one that should then be green. The step says so in its own
-  # failure message.
+  # STAYS @wip. Re-measured 2026-08-05, same false-pass root cause as the
+  # scenario above: with a sync that never advanced a pin, `review --list` had
+  # nothing to be silent ABOUT.
+  #
+  # The claim itself SURVIVES the fix — with the pin advanced, the pending list
+  # still prints exactly "Nothing is pending review.", so unsigned really is
+  # not pending and the trap this scenario documents is real. What fails is the
+  # ASSERTION, and for an instructive reason: the step reads
+  # w.env.LastOutput(), which merges stdout and stderr, and the withhold
+  # advisory on stderr names the bundle by its full remote URL — a URL with
+  # "deploy-runbook" in it. So the substring check now trips on the WARNING
+  # rather than on the list, and cannot tell the two apart.
+  #
+  # This is not a product defect; it is an assertion that reads the wrong
+  # stream. UNTAG WHEN: the step reads the pending list's own stdout (or
+  # `--format json`) rather than the merged stream, and still finds the runbook
+  # unnamed there. Deliberately not fixed here — the shared CLI step's
+  # stdout/stderr merge is used by dozens of scenarios and separating the
+  # streams is its own change, not a drive-by inside a verification pass.
+  #
+  # The scenario's own escape clause still stands: if the pending list ITSELF
+  # starts naming the runbook, that is good news, not a regression — it means
+  # B2 grew an inspector, and the scenario below is the one that should then be
+  # green.
   @wip
   Scenario: The pending-review list is silent, because unsigned is not pending
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
@@ -120,6 +167,24 @@ Feature: The day the assistant goes blind
   # "unsigned" in one report. FLOWS-UNIFIED §5.5 puts this in doctor's trust
   # checks; any surface satisfying the assertion is fine. This is one of the two
   # sharpest diagnosis gaps in the product.
+  #
+  # NEARLY CLOSED — MEASURED 2026-08-05, and left @wip deliberately. Once the
+  # sync above actually advances the pin, `doctor` DOES answer this, in
+  # DOCTOR-CHECK-CONTENT-TRUST-n4:
+  #
+  #   [warn] 1 remote bundle(s) are UNSIGNED to this machine, so their content
+  #   is withheld from your assistant: …@bundles/deploy-runbook (the publisher
+  #   never signed these bytes, or signed with a key you do not trust —
+  #   `ctxloom trust signer create` to trust the key, or ask the publisher to
+  #   sign)
+  #
+  # That names the bundle and the reason in one report, which is the stated
+  # untag condition. The step still fails on a CASE mismatch alone: it looks
+  # for "unsigned" and doctor writes "UNSIGNED". Whoever owns this row should
+  # decide whether to fold case in j21ProbesAnswered or to have doctor say it
+  # in lower case, then untag — but the diagnosis gap this row was filed for is
+  # in substance already fixed. Not touched here: this scenario is outside the
+  # verification pass that measured it.
   @wip
   Scenario: An inspector names the unsigned runbook as the reason it is withheld
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
@@ -164,8 +229,11 @@ Feature: The day the assistant goes blind
   # `review --list`. Verdict OK — trust is per-consumer, and content sitting in
   # review is the system working, provided the list actually names the item.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
+  # reducing cli.renderReviewList's per-item line from
+  # `"  %-8s %s/%s\n", it.Status, it.Kind, it.Name` to the status alone turns
+  # this red — the assertion names the bundle AND the fragment inside it, so a
+  # pending list that says only "1 item(s) pending" cannot satisfy it.
   Scenario: The runbook is waiting on her review, and the pending list names it
     Given Carol published the signed runbook from a key Alice has never reviewed
     When I run "ctxloom review --list"
@@ -210,8 +278,22 @@ Feature: The day the assistant goes blind
   # profile the agent composes. Inspectors: `profile show`, `agent show`.
   # Verdict OK.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to pass as written — but only after one of
+  # its three Thens was STRENGTHENED, because it was tautological.
+  #
+  # "the agent listing names the profile it composes" asserted that "default"
+  # appeared somewhere in `agent show default`'s output. The agent in this
+  # fixture is itself NAMED "default", so the assertion was satisfied by the
+  # echoed argument: deleting the Profiles bullet list from renderAgentShow
+  # outright left it green. The step now reads the rendered "Profiles:" section
+  # and the "- default" bullet under it, and that same deletion turns it red.
+  #
+  # The other two Thens bite as written. `profile show` rendering nothing at
+  # all turns the profile-listing Then red on its explicit no-output guard; and
+  # composing the runbook into the profile after all — the one product state
+  # this scenario says is absent — turns it red on the runbook being named.
+  # Same command, two fixture states, two different answers, which is what
+  # makes the negative assertion mean something.
   Scenario: The runbook is admitted but in no profile, and profile show says so
     Given the runbook is installed and admitted, but composed into no profile
     When I run "ctxloom profile show default"
@@ -236,9 +318,11 @@ Feature: The day the assistant goes blind
   # works, and a diagnosis walk with no green hops teaches nothing about which
   # ones are broken.
   #
-  # UNTAG WHEN: confirmed to pass as written. Observed passing while this
-  # journey was being written.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
+  # making runState.emitDryRun print "(no context)" unconditionally instead of
+  # st.ctxResult.Context turns this red — which is precisely the world the
+  # scenario's own comment describes, a --dry-run that inspects the INVOCATION
+  # and not the CONTEXT.
   Scenario: The dry run shows her the context that would be sent, not just the command line
     Given the runbook is composed into Alice's profile
     When I run "ctxloom run -n -p default"

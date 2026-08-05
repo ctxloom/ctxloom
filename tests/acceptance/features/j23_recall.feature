@@ -51,9 +51,11 @@ Feature: The archaeologist — what did we decide in March?
   # search does not reach it, the archive is keyed by everything except its
   # content.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today —
-  # `session search`'s own help says it searches harp, summary and essence.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
+  # dropping the essence fallback from cli.sessionMatchesQuery (return false as
+  # soon as the metadata haystack misses) turns this red. The field really is
+  # searched, and this row is what proves it — the essence is the only place a
+  # DECISION is written down in prose.
   Scenario: A phrase from the decision itself finds the session that made it
     When I run "ctxloom session search J23-ESSENCE-WORKTREE-NAMING-DECISION"
     Then the search names the March session by a phrase that appears only in its distilled essence
@@ -61,8 +63,10 @@ Feature: The archaeologist — what did we decide in March?
   # The summary field, proven separately for the same reason: one scenario per
   # field, so a regression narrows to a field rather than to "search broke".
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
+  # dropping e.Summary from cli.sessionMetadataHaystack turns this red and
+  # leaves the essence row above green — which is exactly the per-field
+  # narrowing this file splits its three markers to get.
   Scenario: A phrase from the session summary finds it too
     When I run "ctxloom session search J23-SUMMARY-ONLY-MARKER"
     Then the search names the March session by a phrase that appears only in its index summary
@@ -72,17 +76,20 @@ Feature: The archaeologist — what did we decide in March?
   # not look the same — and a command that answers with zero bytes and exit 0
   # is this codebase's characteristic bug, not a stylistic quibble.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass; the assertion
-  # is deliberately about the BYTES printed, not the exit code.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
+  # deleting `ew.Println("(no sessions)")` from cli.renderSessionRows' empty
+  # branch turns this red. That is the codebase's characteristic bug staged
+  # deliberately — exit 0, zero bytes — and the assertion catches it, which is
+  # the whole reason this row asserts on the BYTES and not the exit code.
   Scenario: A query that matches nothing says so rather than printing nothing
     When I run "ctxloom session search J23-MATCHES-ABSOLUTELY-NOTHING"
     Then ctxloom says plainly that nothing matched
 
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today;
-  # session.feature already covers the basic shape, and this asserts the
-  # ESSENCE PAYLOAD reaches stdout rather than that the command exits 0.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite. Mutation:
+  # making runSessionShow's text branch write "" instead of the essence bytes
+  # turns this red while the command still exits 0 — which is the distinction
+  # this row was written for, and one session.feature's shape-only coverage
+  # cannot make.
   Scenario: Show prints what the session actually concluded
     When I run "ctxloom session show amber-quiet-heron"
     Then ctxloom prints the decision the session reached
@@ -95,10 +102,12 @@ Feature: The archaeologist — what did we decide in March?
   # session was never recorded", or they will conclude the capture failed and
   # stop trusting the archive.
   #
-  # UNTAG WHEN: `session show` on an undistilled harp names `session distill`
-  # as the fix. Uncertain today: the command errors, but whether it names the
-  # remedy is exactly what this asserts.
-  @wip
+  # UNTAGGED 2026-08-05, condition met and confirmed to bite. The command does
+  # name the remedy: "no essence for %q (run `ctxloom session distill %s` to
+  # compact this session first)". Mutation: dropping the parenthetical from
+  # cli.undistilledSessionError so it reads "(compact this session first)"
+  # turns this red — the row asserts the REMEDY, not merely that an error
+  # happened, which is what keeps a user from concluding the capture failed.
   Scenario: A session nobody ever distilled says so, and says what to do about it
     When I run "ctxloom session show brisk-copper-moth"
     Then ctxloom says the session was never distilled and names how to distill it
@@ -181,9 +190,23 @@ Feature: The archaeologist — what did we decide in March?
   # read — a memory that erases itself on use, which is worse than no memory
   # because it fails on the SECOND person to ask the question.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today; it is
-  # cheap and pins an invariant that is easy to break during a resume refactor.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to pass as written AND to bite — with a
+  # measured blind spot recorded here rather than left to be rediscovered.
+  #
+  # Mutation that kills it: deleting the canonical transcript at the TOP of
+  # operations.RecordedSessionEntries, before anything reads it. So the subject
+  # genuinely runs and the assertion genuinely reads the bytes on disk; this is
+  # not a row satisfied by nothing happening.
+  #
+  # THE BLIND SPOT: the same deletion placed AFTER the backend session read
+  # succeeds does NOT turn it red. In this fixture that read FAILS (the mock
+  # backend has no `seeded-amber-quiet-heron`), so the resume warns and gives
+  # up before reaching any code downstream of it, and a consuming resume
+  # implemented there would go unnoticed. That is inherited straight from the
+  # scenario two rows up: --session resumes via the BACKEND's reader, not via
+  # ctxloom's own canonical transcript, so this guard can only watch the part
+  # of the path that runs. When that defect is fixed, re-measure this row —
+  # the blind spot closes with it.
   Scenario: Recalling a session does not consume it
     When I run "ctxloom run --session amber-quiet-heron --dry-run -p default"
     Then the canonical transcript she recalled from is still on disk, untouched

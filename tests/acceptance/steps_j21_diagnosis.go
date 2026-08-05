@@ -439,8 +439,30 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 		// An ordinary sync: no incident ceremony, no special flag. `remote
 		// update` is allowed to report problems, so its exit code is not the
 		// assertion — what it SAYS and what arrives afterwards are.
+		//
+		// `remote upgrade` is the third call and it is LOAD-BEARING. B2's
+		// silent-loss mode is "withheld silently ON PIN ADVANCE", so a sync
+		// that never advances a pin never reaches the attestation boundary at
+		// all.
+		//
+		// MEASURED 2026-08-05, and the reason this line exists: bare `remote
+		// update` is a DRY CHECK that ends in "Run with --apply to update all
+		// items", and `remote pull` answers "Skipped (kept at their locked
+		// commit): 1 — Pull never moves an existing pin. Run 'ctxloom remote
+		// upgrade' to advance them." With only those two the lockfile stayed
+		// at Friday's commit, so every "the revision never arrived" assertion
+		// in this journey passed because NOTHING WAS EVER SYNCED — not because
+		// anything was withheld. Two independent checks confirmed it: making
+		// the fixture re-sign properly changed no outcome, and gutting
+		// signing.VerifyPublisher so an invalid signature verifies changed no
+		// outcome either. The signature gate was never consulted.
+		//
+		// `remote upgrade` is what the product's own pull output tells the user
+		// to run, so it is the ordinary sync a person actually performs when
+		// they want Monday's content.
 		_ = w.env.Run("remote", "update")
 		_ = w.env.Run("remote", "pull")
+		_ = w.env.Run("remote", "upgrade")
 		return nil
 	})
 
@@ -576,8 +598,16 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// STRENGTHENED 2026-08-05. This asserted only that "default" appeared
+	// SOMEWHERE in `agent show default`'s output — and the agent in this
+	// fixture is ITSELF named "default", so the assertion was satisfied by the
+	// echoed argument and could not tell the agent's own name from the profile
+	// it composes. Measured: deleting writeBulletList(w, "Profiles", …) from
+	// renderAgentShow entirely left this step GREEN. It now reads the rendered
+	// section — writeBulletList's "Profiles:" heading plus the "- default"
+	// bullet under it — so that same deletion turns it red.
 	ctx.Step(`^the agent listing names the profile it composes$`, func(c context.Context) error {
-		return j21OutputNamesAll(worldFrom(c), "the agent listing", "default")
+		return j21OutputNamesAll(worldFrom(c), "the agent listing", "Profiles:", "- default")
 	})
 
 	ctx.Step(`^the dry run shows her the deploy guidance that would be composed$`, func(c context.Context) error {

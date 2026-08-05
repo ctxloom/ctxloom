@@ -75,9 +75,11 @@ Feature: Dana in her editor
   # ctxloom does not deliver context to editors, and she will be reasoning
   # correctly from everything she can observe.
   #
-  # UNTAG WHEN: bare `ctxloom acp` either honours the flags it registers or
-  # refuses the invocation. Expected RED.
-  @wip
+  # UNTAGGED 2026-08-05 (task broken-sage): registerACPServerFlags(acpCmd) is
+  # gone from init() (internal/cli/acp_cmd.go) — the bare `ctxloom acp` group
+  # node no longer registers --agent/--llm/--profile/--workspace, so cobra's
+  # own unknown-flag error refuses the invocation with a non-zero exit instead
+  # of accepting and discarding it.
   Scenario: A flag she passes is honoured or refused, never quietly dropped
     When I run "ctxloom acp --agent dev"
     Then ctxloom refuses rather than accepting flags it will discard

@@ -140,7 +140,6 @@ func registerACPServerFlags(cmd *cobra.Command) {
 }
 
 func init() {
-	registerACPServerFlags(acpCmd)
 	registerACPServerFlags(acpServeCmd)
 	acpCmd.AddCommand(acpServeCmd)
 	acpCmd.AddCommand(acpClientCmd)

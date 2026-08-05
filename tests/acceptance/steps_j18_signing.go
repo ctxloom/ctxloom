@@ -49,8 +49,11 @@ import (
 
 	"github.com/cucumber/godog"
 	"golang.org/x/crypto/ssh"
+	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/countersign"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -810,6 +813,95 @@ func registerJ18Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^I run "ctxloom trust reject" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
 		return runOK(worldFrom(c), "trust", "reject", j18ItemRef(worldFrom(c), frag))
+	})
+
+	// "try to run", not runOK: this scenario's whole subject is a REFUSAL, so
+	// the exit code is an assertion the scenario makes explicitly rather than
+	// a precondition the step swallows.
+	ctx.Step(`^I try to run "ctxloom trust accept" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
+		w := worldFrom(c)
+		_ = w.env.Run("trust", "accept", j18ItemRef(w, frag))
+		return nil
+	})
+
+	// The message a human acts on, in three parts, because a refusal missing
+	// any one of them leaves them stuck: WHICH key was refused (there may be
+	// several in the agent), WHICH namespace it lacks (approve and reject are
+	// separate grants over the same key), and the command that fixes it.
+	// Asserted as three independent substrings so a message that drops one
+	// fails naming the part it dropped.
+	ctx.Step(`^the refusal names Alice's key, the "([^"]*)" namespace, and how to trust it$`, func(c context.Context, ns string) error {
+		w := worldFrom(c)
+		out := w.env.LastOutput()
+		fp := j18Of(w).signer.Fingerprint()
+		for _, want := range []struct{ what, text string }{
+			{"the key it refused", fp},
+			{"the namespace that key lacks", ns},
+			{"the command that grants it", "ctxloom trust signer create"},
+			{"the namespaces to grant", "--namespace approve,reject"},
+		} {
+			if !strings.Contains(out, want.text) {
+				return fmt.Errorf("the refusal does not name %s (%q); a refusal a user cannot act on is barely better "+
+					"than the silent success it replaced. ctxloom said:\n%s", want.what, want.text, out)
+			}
+		}
+		w.docStepMaterialized = out
+		return nil
+	})
+
+	// NOTHING WAS WRITTEN — read off the store's own files, deliberately not
+	// through countersign.Store's verified lookup. That lookup answers "no"
+	// for a record that WAS written by an untrusted key (which is the bug),
+	// so it cannot tell a refusal from the failure being fixed. Record
+	// filenames carry the assertion (`<indexHash>.<assertion>.<keyTag>.sig`
+	// / `.unsigned`), and the sidecar index carries it as a field, so both
+	// halves of what `trust accept` writes are checked.
+	ctx.Step(`^the approvals store holds no approve record at all$`, func(c context.Context) error {
+		w := worldFrom(c)
+		dir := filepath.Join(w.env.HomeDir, paths.AppDirName, paths.ApprovalsDirName)
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			if os.IsNotExist(err) {
+				// The store was never even created: the strongest form of
+				// "nothing was recorded".
+				w.docStepMaterialized = "approvals store " + dir + ": never created — nothing was recorded"
+				return nil
+			}
+			return fmt.Errorf("read approvals store %s: %w", dir, err)
+		}
+		marker := "." + string(signing.AssertionApprove) + "."
+		var found []string
+		for _, e := range entries {
+			if !e.IsDir() && strings.Contains(e.Name(), marker) {
+				found = append(found, e.Name())
+			}
+		}
+		if len(found) > 0 {
+			return fmt.Errorf("the approvals store %s holds %d approve record(s) after the refusal: %v — "+
+				"refusing and writing anyway leaves exactly the record nothing honours, which is the bug being fixed",
+				dir, len(found), found)
+		}
+		index := filepath.Join(dir, "index.yaml")
+		body, rerr := os.ReadFile(index)
+		if rerr != nil && !os.IsNotExist(rerr) {
+			return fmt.Errorf("read approvals index %s: %w", index, rerr)
+		}
+		if rerr == nil {
+			var rows []countersign.IndexEntry
+			if err := yaml.Unmarshal(body, &rows); err != nil {
+				return fmt.Errorf("parse approvals index %s: %w\ncontents:\n%s", index, err, body)
+			}
+			for _, row := range rows {
+				if row.Assertion == string(signing.AssertionApprove) {
+					return fmt.Errorf("the approvals index %s records an approval of %q after the refusal "+
+						"(principal %q, unsigned=%v); the sidecar is what `ctxloom review` reads to label an item, "+
+						"so an entry here tells the user a decision was made that was not",
+						index, row.Ref, row.Principal, row.Unsigned)
+				}
+			}
+		}
+		w.docStepMaterialized = fmt.Sprintf("approvals store %s: %d file(s), no approve record, no approve index entry", dir, len(entries))
+		return nil
 	})
 
 	ctx.Step(`^her assistant receives the "([^"]*)" guidance$`, func(c context.Context, which string) error {

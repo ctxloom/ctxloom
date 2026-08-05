@@ -279,10 +279,11 @@ Feature: The day the assistant goes blind
   # signing.SignatureKeyFingerprint, which reads the key out of the signature
   # blob and is never a trust input; VerifyPublisher is unchanged and still
   # collapses "unsigned" and "untrusted" for the GATE, which is correct — the
-  # collapse was only ever wrong for the human. Related open bug: `trust accept`
-  # silently no-ops when the user holds a signing key (task remote-prefix, and
-  # j18_signing.feature's own @wip scenario) — that bug lives one hop further
-  # on and is NOT restated here.
+  # collapse was only ever wrong for the human. The related bug — `trust
+  # accept` silently no-opping when the user holds a signing key untrusted for
+  # the approve namespace (taskloom tiny-bankbook) — is FIXED: the accept flow
+  # now refuses and names the missing grant, proved by j18_signing.feature's
+  # own scenario. It lives one hop further on and is still NOT restated here.
   Scenario: The pending list says whether the signer is one she trusts
     Given Carol published the signed runbook from a key Alice has never reviewed
     When I run "ctxloom review --list"

@@ -164,33 +164,50 @@ Feature: A signature somebody can check
     And the project store ".ctxloom/allowed_signers" no longer names Trent's key
     And her assistant does not receive the "tdd" guidance
 
-  # PRODUCT BUG, found while wiring this journey — reported, not fixed, and
-  # tagged @wip because it is a real product gap rather than a harness one
-  # (the same tag j3_corporate_signed.feature's retraction scenario carried
-  # while retraction had no effect). Excluded from the default run; delete the
-  # tag when the product decides.
+  # This scenario is the SECOND branch of its own title, and it was a PRODUCT
+  # BUG until it was one — carried @wip for as long as neither branch held.
   #
-  # On the ORDINARY developer setup — a signing key in ssh-agent, which is
-  # exactly what the rest of this feature establishes — `ctxloom trust accept`
-  # records a SIGNED approval, prints "Approved …  signed by SHA256:…", and
-  # exits 0. The item stays withheld. Measured: the signed record and the
-  # unsigned one carry the SAME ref and the SAME payload_hash in
-  # ~/.ctxloom/approvals/index.yaml, differing only in `unsigned: true` versus
-  # `principal: SHA256:…`, and only the unsigned one takes effect — because a
-  # signed decision is honoured only when its signer is trusted for the
-  # approve namespace, which nothing in the accept flow tells the user to do
-  # (and which `ctxloom review --list` then reports as an "update", not as an
-  # untrusted decision). Remove the key from the agent and the identical
-  # command works. Exit 0, a success message naming the key, and no effect —
-  # in the flagship trust command, in the default configuration.
-  @wip
+  # What it used to do, on the ORDINARY developer setup — a signing key in
+  # ssh-agent, which is exactly what the rest of this feature establishes:
+  # `ctxloom trust accept` recorded a SIGNED approval, printed "Approved …
+  # signed by SHA256:…", exited 0, and the item stayed withheld. The signed
+  # record and the unsigned one carried the SAME ref and the SAME payload_hash
+  # in ~/.ctxloom/approvals/index.yaml, differing only in `unsigned: true`
+  # versus `principal: SHA256:…`, and only the unsigned one took effect —
+  # because a signed decision is honoured only when its signer is trusted for
+  # the approve namespace (VerifyCountersignature asks TrustedForNamespace
+  # before it verifies a single byte, and answers a flat "not countersigned"
+  # when the answer is no), and nothing in the accept flow said so. Removing
+  # the key from the agent made the identical command work. Exit 0, a success
+  # message naming the key, and no effect — the flagship trust command, in the
+  # default configuration, doing this project's signature failure.
+  #
+  # It is closed by authorizing the key on the WRITE side too, against the same
+  # trust root and through the same namespace derivation the verifier uses
+  # (operations.resolveDecisionSigner / requireTrustedForAssertion), so the two
+  # sides cannot disagree about which namespace a decision needs. The command
+  # now REFUSES, at the point of decision, before anything is written.
+  #
+  # Asserted on all three things a silent no-op gets wrong at once: the exit
+  # code, the message a human acts on, and what landed on disk. The RECORD
+  # assertion is the load-bearing one — a refusal that still wrote the useless
+  # approval would satisfy the other two — and it reads the store's own files
+  # rather than the honoured-decision lookup, which answers "no" for a written
+  # record too and so cannot tell "refused" from the bug.
+  #
+  # The passing twin is the acceptance scenario above, which differs by exactly
+  # one Given: Alice's review key trusted for approve and reject.
   Scenario: A review decision recorded with an untrusted key is honoured, or says why it is not
     Given Trent's project publishes the "secure-coding" bundle his team depends on
     And Trent has signed the bundle "secure-coding"
     And Trent publishes the signed bundle to his company repo, and Alice references it
     And her assistant does not receive the "tdd" guidance
-    When I run "ctxloom trust accept" on the published "tdd" fragment
-    Then her assistant receives the "tdd" guidance
+    When I try to run "ctxloom trust accept" on the published "tdd" fragment
+    Then the command fails
+    And the refusal names Alice's key, the "approve" namespace, and how to trust it
+    And the approvals store holds no approve record at all
+    And her assistant does not receive the "tdd" guidance
+    And the published "tdd" fragment's review state is "pending"
 
   # Bytes carried VERBATIM — never re-parsed, never re-serialized, never
   # re-signed. This is the scenario that catches a "helpful" round-trip: if the

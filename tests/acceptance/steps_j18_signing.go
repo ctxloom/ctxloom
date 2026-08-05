@@ -41,6 +41,7 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -417,6 +418,48 @@ func j18AssertDelivery(w *World, marker string, want bool) error {
 	return nil
 }
 
+// j18AssertReviewState reads the review-state LABEL `ctxloom fragment list
+// --format json` renders for a fragment of the PUBLISHED bundle — the same
+// operations.TrustStamper/EffectiveTrust verdict materialize applies, surfaced
+// as the word a human sees in `ctxloom review`.
+//
+// This is the half of "a later revision returns it to review" that an ABSENCE
+// cannot fake. Withheld-because-the-approval-no-longer-covers-these-bytes and
+// withheld-because-the-revision-never-arrived look identical in the delivered
+// payload; they read differently here, because bytes that never arrived leave
+// the original sitting at "accepted".
+func j18AssertReviewState(w *World, fragment, want string) error {
+	if err := runOK(w, "fragment", "list", "--format", "json"); err != nil {
+		return err
+	}
+	out := w.env.LastOutput()
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(out), &rows); err != nil {
+		return fmt.Errorf("parse `fragment list --format json`: %w\noutput:\n%s", err, out)
+	}
+	for _, row := range rows {
+		if n, _ := row["name"].(string); n != fragment {
+			continue
+		}
+		// bundle_label, not bundle: for remote content "bundle" is the whole
+		// canonical "<url>@bundles/<name>" ref, and the label is the bare name.
+		// The pairing matters — the SAME fragment name also arrives from the
+		// companion bundles this machine happens to have installed.
+		if b, _ := row["bundle_label"].(string); b != j18PublishedName {
+			continue
+		}
+		got, _ := row["state"].(string)
+		w.docStepMaterialized = fmt.Sprintf("fragment list --format json → %q: state=%q trust_source=%v trusted=%v",
+			fragment, got, row["trust_source"], row["trusted"])
+		if got != want {
+			return fmt.Errorf("the published %q fragment's review state is %q, want %q — a revision the earlier acceptance "+
+				"does not cover must come back for review, not stay decided; row: %v", fragment, got, want, row)
+		}
+		return nil
+	}
+	return fmt.Errorf("no %q fragment of bundle %q in `fragment list --format json`:\n%s", fragment, j18PublishedName, out)
+}
+
 // j18StoreEntry is one parsed allowed_signers line.
 type j18StoreEntry struct {
 	principal  string
@@ -712,8 +755,39 @@ func registerJ18Steps(ctx *godog.ScenarioContext) {
 		return j18Reference(w)
 	})
 
+	// A plain `remote pull` is PASSIVE by design — remote_upgrade.go's own doc:
+	// "Passive 'remote pull' installs exactly what is already pinned and never
+	// advances" — so on a bundle this project already installed once it reports
+	// "Skipped (kept at their locked commit)" and Alice keeps the ORIGINAL
+	// bytes. Taking Trent's newly published commit needs `remote update
+	// --apply` first (--force skips the per-item confirmation prompt these
+	// stdin-less exec.Command runs cannot answer), exactly as
+	// steps_trust_surface.go's tsUpdateAndPull already documents.
+	//
+	// Getting this wrong is not a slow test, it is a silently vacuous one: with
+	// the passive pull, "the revised guidance is not delivered" passed against
+	// bytes that had never entered the project at all (audit irate-catfish, F1).
+	// The scenario's two companion assertions — the ORIGINAL stops being
+	// delivered, and the item reads pending again — are what make that failure
+	// mode impossible to re-introduce silently.
 	ctx.Step(`^Alice pulls the newly published version$`, func(c context.Context) error {
-		return runOK(worldFrom(c), "remote", "pull")
+		w := worldFrom(c)
+		if err := runOK(w, "remote", "update", "--apply", "--force"); err != nil {
+			return err
+		}
+		return runOK(w, "remote", "pull")
+	})
+
+	ctx.Step(`^her assistant no longer receives the "([^"]*)" guidance either$`, func(c context.Context, which string) error {
+		marker, err := j18MarkerFor(which)
+		if err != nil {
+			return err
+		}
+		return j18AssertDelivery(worldFrom(c), marker, false)
+	})
+
+	ctx.Step(`^the published "([^"]*)" fragment's review state is "([^"]*)"$`, func(c context.Context, frag, want string) error {
+		return j18AssertReviewState(worldFrom(c), frag, want)
 	})
 
 	ctx.Step(`^Trent revises the "([^"]*)" fragment, re-signs it, and publishes again$`, func(c context.Context, frag string) error {

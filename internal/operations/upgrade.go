@@ -9,6 +9,22 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
+// UpgradeResult is what one `remote upgrade` round did. It is a struct rather
+// than a tuple because the three facts are not independent: a caller that reads
+// Advanced without reading Refused prints "Everything is up to date." over a
+// refused advance, which is the exact silence this feature exists to prevent.
+type UpgradeResult struct {
+	// Advanced counts the entries whose SHA actually moved.
+	Advanced int
+	// Incomplete reports that part of the dependency closure could not be
+	// reached this round, so Advanced==0 does not mean "everything checked out".
+	Incomplete bool
+	// Refused lists the pins that were NOT moved because the content at the
+	// proposed commit failed publisher verification. Non-empty means the human
+	// must be told: the lockfile deliberately did not change.
+	Refused []RefusedAdvance
+}
+
 // UpgradeDependencies re-resolves the project's dependency closure to the newest
 // commit each manifest constraint allows and writes the advances straight to the
 // active lock — the manifest is never rewritten. A held entry (Pinned) stays
@@ -19,14 +35,25 @@ import (
 // Whether any newly-pinned content ever reaches the
 // agent is decided per item at exposure by the content-hash trust gate
 // (EffectiveTrust) — changed content from an untrusted source re-hashes to
-// pending and is withheld until `ctxloom review` accepts it. Returns the number
-// of entries whose SHA advanced.
-// UpgradeDependencies's third return, incomplete, is true when part of the
-// dependency closure could not be reached this round: the caller
-// must not report "everything is up to date" on that basis alone — advanced
-// counts only what WAS resolved, and an incomplete closure means part of the
-// project was never actually checked against upstream.
-func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int, incomplete bool, err error) {
+// pending and is withheld until `ctxloom review` accepts it.
+//
+// ONE ADVANCE IS REFUSED OUTRIGHT, and it is the one exposure cannot rescue:
+// content whose publisher signature does not verify over its own bytes. That
+// content is withheld as TAMPERED and is deliberately not reviewable, so moving
+// the pin past the last commit that DID verify leaves the consumer with
+// nothing — the new copy refused, the old copy unreachable. Such an entry keeps
+// its existing lockfile values verbatim and is reported in
+// UpgradeResult.Refused, which the caller must tell the human about (a silent
+// non-advance is indistinguishable from "already up to date"). See
+// verifyAdvance for the exact rule and why unsigned content is not covered by
+// it.
+//
+// UpgradeResult.Incomplete is true when part of the dependency closure could
+// not be reached this round: the caller must not report "everything is up to
+// date" on that basis alone — Advanced counts only what WAS resolved, and an
+// incomplete closure means part of the project was never actually checked
+// against upstream.
+func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult, error) {
 	loader := profileLoader(cfg)
 	// The closure roots must match FlattenDependencies' canonical set (inline
 	// config.yaml definitions, directory profiles, and config-default remote
@@ -34,6 +61,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 	// profiles, and the wholesale Save(newActive) below would then erase their
 	// active lock entries.
 	roots, rootsUnexpanded := closureRoots(cfg, loader)
+	var result UpgradeResult
 
 	baseDir := getBaseDir(cfg)
 	auth := remote.LoadAuth(baseDir)
@@ -52,7 +80,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 	lockFS := getFS(cfg.FS())
 	active, err := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Load()
 	if err != nil {
-		return 0, false, err
+		return result, err
 	}
 
 	// Advance every referenced clone to live HEAD (and fetch tags) so resolution
@@ -67,22 +95,40 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 	resolve := newConstraintResolver(ctx, active, factory, auth, true)
 	proposed, conflicts, unexpanded := flattenRootsWith(ctx, loader, factory, auth, roots, resolve)
 	if len(conflicts) > 0 {
-		return 0, false, ConflictError(conflicts)
+		return result, ConflictError(conflicts)
 	}
 	// closureRoots' OWN failures (a root that could not load) used
 	// to be invisible to the preserve-existing-entries guard below — only
 	// the walker's internal unexpanded set fed it. Merge both.
 	unexpanded = append(unexpanded, rootsUnexpanded...)
-	incomplete = len(unexpanded) > 0
+	result.Incomplete = len(unexpanded) > 0
+	incomplete := result.Incomplete
 
 	newActive := &remote.Lockfile{Version: 1, Bundles: map[string]remote.LockEntry{}}
-	advanced = 0
 	for _, p := range proposed {
 		cur, has := active.GetEntry(p.Type, p.Identity)
 		// A held entry never advances — carry its current pin forward unchanged.
 		if has && cur.Pinned {
 			newActive.AddEntry(p.Type, p.Identity, cur)
 			continue
+		}
+		// A REAL advance — an entry that already exists and would move to a
+		// different commit — must land on content whose publisher signature
+		// verifies. It is checked only here, and only for a move: a FIRST pin
+		// has no last-verified value to keep, so there is nothing to refuse
+		// back to, and holding one back would simply install nothing while the
+		// exposure gate would have withheld it anyway with a reason.
+		if has && cur.SHA != p.Hash {
+			if detail, refuse := verifyAdvance(ctx, cfg, factory, auth, p); refuse {
+				newActive.AddEntry(p.Type, p.Identity, cur)
+				result.Refused = append(result.Refused, RefusedAdvance{
+					Identity:    p.Identity,
+					KeptSHA:     cur.SHA,
+					ProposedSHA: p.Hash,
+					Detail:      detail,
+				})
+				continue
+			}
 		}
 		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
 		// A full re-resolve is NOT a fresh retraction check — only
@@ -98,7 +144,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 		}
 		newActive.AddEntry(p.Type, p.Identity, entry)
 		if !has || cur.SHA != p.Hash {
-			advanced++
+			result.Advanced++
 		}
 	}
 
@@ -121,9 +167,9 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (advanced int,
 	}
 
 	if serr := remote.NewLockfileManager(baseDir, remote.WithLockfileFS(lockFS)).Save(newActive); serr != nil {
-		return advanced, incomplete, serr
+		return result, serr
 	}
-	return advanced, incomplete, nil
+	return result, nil
 }
 
 // directRepoURLs returns the unique repo URLs of the direct remote refs across

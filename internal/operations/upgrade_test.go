@@ -51,9 +51,9 @@ func TestUpgrade_AdvancesActiveLock(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), ".ctxloom/content/bundles/demo2.yaml", "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	advanced, _, err := UpgradeDependencies(ctx, cfg)
+	res, err := UpgradeDependencies(ctx, cfg)
 	require.NoError(t, err)
-	assert.Equal(t, 1, advanced)
+	assert.Equal(t, 1, res.Advanced)
 
 	// The active lock now holds the new SHA — no approval step.
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
@@ -82,9 +82,9 @@ func TestUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 	c2 := addFileToLocalRepo(t, srcDirOf(ref), ".ctxloom/content/bundles/demo2.yaml", "name: demo2\n")
 	require.NotEqual(t, c1, c2)
 
-	advanced, _, err := UpgradeDependencies(ctx, cfg)
+	res, err := UpgradeDependencies(ctx, cfg)
 	require.NoError(t, err)
-	assert.Equal(t, 0, advanced, "a held entry is never advanced by upgrade")
+	assert.Equal(t, 0, res.Advanced, "a held entry is never advanced by upgrade")
 
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
 	assert.Equal(t, c1, e1.SHA, "the held entry stays frozen at its locked SHA")
@@ -131,9 +131,9 @@ func TestUpgrade_PreservesInlineRootedEntry(t *testing.T) {
 	a2 := addFileToLocalRepo(t, srcA, ".ctxloom/content/bundles/demoA2.yaml", "name: demoA2\n")
 	require.NotEqual(t, a1, a2)
 
-	advanced, _, err := UpgradeDependencies(ctx, cfg)
+	res, err := UpgradeDependencies(ctx, cfg)
 	require.NoError(t, err)
-	require.Equal(t, 1, advanced, "repo A advanced")
+	require.Equal(t, 1, res.Advanced, "repo A advanced")
 
 	// The inline-rooted entry must survive the wholesale rewrite.
 	active1 := mustLoadActive(t, baseDir)

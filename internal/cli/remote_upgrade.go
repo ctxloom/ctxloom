@@ -25,6 +25,11 @@ The lockfile is pure dependency pinning: upgrading a pin does not expose new
 content to the agent. Any changed content from an untrusted source is withheld
 until you accept it with 'ctxloom review'.
 
+A pin is NOT advanced onto content whose publisher signature does not verify
+over its bytes: that content is withheld as tampered and cannot be reviewed, so
+advancing past the last commit that did verify would leave you with neither
+copy. The old pin is kept and the refusal is reported.
+
 Mirrors apt: where 'remote update' refreshes the local clones (the index),
 'remote upgrade' advances your pins to the newest commit. Passive 'remote pull'
 installs exactly what is already pinned and never advances.
@@ -56,18 +61,32 @@ func runRemoteUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, err
 
 	fmt.Println("Resolving latest commits for pinned dependencies...")
 
-	advanced, incomplete, err := operations.UpgradeDependencies(cmd.Context(), cfg)
+	res, err := operations.UpgradeDependencies(cmd.Context(), cfg)
 	if err != nil {
 		return err
 	}
-	if advanced == 0 {
+
+	// The refusals print FIRST and unconditionally, before any tally. A pin
+	// that did not move because its new content failed publisher verification
+	// reads exactly like a pin that had nothing to move to, and the difference
+	// is the whole point: one means "you are current", the other means
+	// "somebody published bytes their signature does not cover".
+	reportRefusedAdvances(res.Refused)
+
+	if res.Advanced == 0 {
+		if len(res.Refused) > 0 {
+			// Deliberately NOT "Everything is up to date." — nothing advanced
+			// precisely because something was wrong upstream.
+			fmt.Printf("No pins advanced: %d refused above. Your existing pins are unchanged.\n", len(res.Refused))
+			return nil
+		}
 		// "Everything is up to date." used to print unconditionally
 		// here, even on a round where part of the dependency closure could not
 		// be reached (a warning about it prints separately, but the terminal
 		// message still claimed a clean, complete check). advanced==0 only
 		// means nothing that WAS resolved needed to move — it says nothing
 		// about the part that was never resolved at all.
-		if incomplete {
+		if res.Incomplete {
 			fmt.Println("No pins advanced among what could be resolved — part of the dependency closure was unreachable this round (see warning above); re-run once it's reachable to get a complete picture.")
 		} else {
 			fmt.Println("Everything is up to date.")
@@ -75,9 +94,33 @@ func runRemoteUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, err
 		return nil
 	}
 
-	fmt.Printf("Advanced %d dependency pin(s).\n", advanced)
-	fmt.Println("Changed content from untrusted sources is withheld until reviewed: ctxloom review")
+	fmt.Printf("Advanced %d dependency pin(s).\n", res.Advanced)
+	// This used to say "Changed content from untrusted sources is withheld
+	// until reviewed: ctxloom review", which was a dead end: the content most
+	// likely to be withheld after an upgrade was withheld as TAMPERED, which is
+	// deliberately not reviewable, so `ctxloom review` answered "Nothing is
+	// pending review." and the user went in a circle. Upgrade now refuses that
+	// advance outright (above), and what remains is pointed at an inspector
+	// that answers whatever the state actually is.
+	fmt.Println("Newly pinned content is not exposed to your assistant until it passes the trust gate: run 'ctxloom doctor' to see whether any of it is withheld, and why.")
 	return nil
+}
+
+// reportRefusedAdvances says, for each pin upgrade declined to move, the three
+// things a human needs and cannot infer: WHICH bundle, that its new content's
+// signature does not verify, and WHICH pin is being kept instead.
+//
+// It names no command that cannot help. `ctxloom review` in particular is
+// wrong here by construction — bytes a signature does not cover are never
+// offered for review (bundles.Reason.NeedsReview), so sending the user there
+// answers "Nothing is pending review." and teaches them the message is noise.
+func reportRefusedAdvances(refused []operations.RefusedAdvance) {
+	for _, r := range refused {
+		fmt.Printf("REFUSED to advance %s: the publisher signature on the content at %s does not verify over those bytes (%s).\n",
+			r.Identity, shortSHA(r.ProposedSHA), r.Detail)
+		fmt.Printf("  Keeping the last verified pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
+		fmt.Println("  There is nothing to accept: a signature that does not cover its bytes is a tamper signal, not unsigned content, so it is never offered for review. Ask the publisher to re-sign and publish again, then re-run 'ctxloom remote upgrade'.")
+	}
 }
 
 func init() {

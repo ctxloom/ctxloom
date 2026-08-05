@@ -416,6 +416,33 @@ beneath the porcelain — they write the same countersignatures through the same
 mutation path, so the porcelain and the plumbing produce identical on-disk
 results.
 
+**The namespace check runs on the WRITE side too, and refuses.** Recording a
+decision resolves the countersigning key and then asks the *same* trust root
+the gate will ask whether that key is authorized for the *same* namespace the
+decision will be asserted in (`operations.resolveDecisionSigner` →
+`requireTrustedForAssertion`, deriving the namespace through
+`signing.NamespaceForAssertion` exactly as `VerifyCountersignature` does). A
+key with no approve grant cannot record an approval, and a key with no reject
+grant cannot record a rejection: the command fails, naming the key, the
+namespace it lacks, and the `ctxloom trust signer create … --namespace
+approve,reject` that grants it, and **nothing is written**.
+
+This closes a silent no-op (taskloom `tiny-bankbook`). The gate honours a
+signed decision only when its signer is trusted for that namespace, so a
+decision recorded by an ordinary ssh-agent key nobody had granted anything
+produced a well-formed record, a success line naming the key, exit 0 — and an
+item that stayed withheld with nothing saying why. The two sides now derive the
+namespace from one function and read one root, so they cannot disagree about
+which grant a decision needs.
+
+Degradation here is fail-closed in every arm: no trust root, an unreadable or
+malformed `allowed_signers`, and an assertion outside the closed
+approve/reject vocabulary all **refuse**. Failing to establish that a key may
+decide is never a reason to record the decision. The **unsigned** degraded path
+(§9.5) is deliberately outside this gate — it has no key, so there is no
+namespace question to ask, and its markers are honoured by their own
+trust-root-free lookup in the personal store.
+
 ## Countersignature gating
 
 An approval is a **countersignature over the exact bytes** the gate is about to

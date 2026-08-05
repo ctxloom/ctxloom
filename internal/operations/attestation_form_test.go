@@ -333,7 +333,7 @@ func TestSetItemTrust_AnItemWithNoContentIsRefusedRatherThanSilentlyNotRecorded(
 		Fragments: map[string]bundles.BundleFragment{"hollow": {Content: ""}},
 	}
 	_, err := SetItemTrust(nil, SetItemTrustRequest{
-		Ref: reviewSeedKey + "#fragments/hollow", UserStore: fx.user, Signer: fx.signer,
+		Ref: reviewSeedKey + "#fragments/hollow", UserStore: fx.user, Signer: fx.signer, Root: fx.root,
 		Loader: reviewLoader(t, empty), FS: afero.NewMemMapFs(),
 	})
 	require.Error(t, err, "approving an item with no bytes must fail loudly")

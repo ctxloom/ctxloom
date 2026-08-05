@@ -526,7 +526,7 @@ func TestSetItemTrust_ApprovesCurrentVersion(t *testing.T) {
 	fx := newTrustFixture(t)
 	ref := "https://github.com/acme/repo@bundles/tooling#mcp/postgres"
 
-	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, UserStore: fx.user, Loader: loader})
+	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
 	assert.False(t, res.Unsigned)
@@ -573,7 +573,7 @@ func TestSetItemTrust_ApprovesSkillCurrentVersion(t *testing.T) {
 	assert.Equal(t, trust.Deny, before.Decision)
 	assert.Equal(t, trust.SourcePending, before.Source)
 
-	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, UserStore: fx.user, Loader: loader})
+	res, err := SetItemTrust(nil, SetItemTrustRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
 	assert.False(t, res.Unsigned)
@@ -615,7 +615,7 @@ func TestSetItemTrust_ApprovesBothForms(t *testing.T) {
 	fx := newTrustFixture(t)
 
 	res, err := SetItemTrust(nil, SetItemTrustRequest{
-		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Signer: fx.signer, UserStore: fx.user, Loader: loader,
+		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "approved", res.Status)
@@ -637,7 +637,7 @@ func TestSetBlacklist_WritesBothComponents(t *testing.T) {
 	fx := newTrustFixture(t)
 	ref := "https://github.com/acme/repo@bundles/tooling#fragments/solid"
 
-	res, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, Signer: fx.signer, UserStore: fx.user, Loader: loader})
+	res, err := SetBlacklist(nil, SetBlacklistRequest{Ref: ref, Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader})
 	require.NoError(t, err)
 	assert.Equal(t, "rejected", res.Status)
 	require.NotEmpty(t, res.ContentForms, "rejection should have recorded a content countersignature for the item's current form(s)")
@@ -671,7 +671,7 @@ func TestSetBlacklist_RejectsBothForms(t *testing.T) {
 	fx := newTrustFixture(t)
 
 	res, err := SetBlacklist(nil, SetBlacklistRequest{
-		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Signer: fx.signer, UserStore: fx.user, Loader: loader,
+		Ref: "https://github.com/acme/repo@bundles/tooling#fragments/dual", Signer: fx.signer, Root: fx.root, UserStore: fx.user, Loader: loader,
 	})
 	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{rawForm, distilledForm}, res.ContentForms)

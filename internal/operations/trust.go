@@ -2,6 +2,7 @@ package operations
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
+	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
@@ -684,6 +686,99 @@ func resolveSignerOrUnsigned(cfg *config.Config, injected ssh.Signer, project bo
 	return nil, true, nil
 }
 
+// reviewTrustRoot resolves the trust root a review MUTATION authorizes its
+// signing key against. It mirrors buildCountersignRecords' own root resolution
+// exactly — injected wins, else cfg's full root (embedded + user + project
+// allowed_signers), else an empty store — because the writer and the reader
+// must consult the SAME root or the writer will happily record decisions the
+// reader can never honour. That divergence is the whole bug this exists to
+// close.
+//
+// An empty store trusts nothing, which is the fail-closed answer: "I could not
+// establish that this key may decide here" refuses, it never accepts.
+func reviewTrustRoot(cfg *config.Config, injected signing.TrustRoot) signing.TrustRoot {
+	if injected != nil {
+		return injected
+	}
+	if cfg != nil {
+		return cfg.TrustRoot()
+	}
+	return allowedsigners.NewStore()
+}
+
+// resolveDecisionSigner resolves the key a review mutation countersigns with
+// AND authorizes it for the namespace that decision will be asserted in.
+//
+// The authorization is folded in here, rather than left as a separate
+// pre-check at each call site, for the same reason VerifyPublisher gates its
+// cryptographic verification on the namespace check: a caller that could
+// obtain a signer without naming the assertion could forget to ask whether
+// that key may make it. Here you cannot get a signer without declaring what it
+// is about to sign.
+//
+// THE BUG THIS CLOSES (taskloom tiny-bankbook). A countersignature is honoured
+// by EffectiveTrust step 1/6 only when its signer is trusted for the
+// approve/reject namespace — VerifyCountersignature checks
+// TrustedForNamespace before it verifies a single byte, and answers a flat
+// "not countersigned" when the key is not trusted. Writing such a record
+// therefore produced a well-formed file, a success line naming the key, exit
+// 0 — and an item that stayed withheld, with nothing anywhere saying why. The
+// namespace check now runs on the WRITE side too, against the same root and
+// through the same signing.NamespaceForAssertion derivation the verifier
+// uses, so the two can never disagree about which namespace a decision needs.
+//
+// The UNSIGNED degraded path (spec §9.5) is deliberately untouched: it has no
+// key, so there is no namespace question to ask, and its records are honoured
+// by their own path (HasUnsignedApprove / HasUnsignedRefReject) which consults
+// no trust root at all. Only the signing-key-present path is authorized here.
+func resolveDecisionSigner(cfg *config.Config, injected ssh.Signer, project bool, root signing.TrustRoot, assertion signing.Assertion) (signer ssh.Signer, unsigned bool, err error) {
+	signer, unsigned, err = resolveSignerOrUnsigned(cfg, injected, project)
+	if err != nil || unsigned {
+		return signer, unsigned, err
+	}
+	if err := requireTrustedForAssertion(reviewTrustRoot(cfg, root), signer.PublicKey(), assertion); err != nil {
+		return nil, false, err
+	}
+	return signer, false, nil
+}
+
+// ErrReviewKeyUntrusted reports that a review decision was REFUSED because the
+// key it would have been countersigned with is not trusted for that decision's
+// namespace. Recording it anyway is the silent no-op described on
+// resolveDecisionSigner; refusing is the fail-loud alternative. Exported so
+// callers and tests can match on the condition rather than on message text.
+var ErrReviewKeyUntrusted = errors.New("review key not trusted for this decision's namespace")
+
+// requireTrustedForAssertion refuses unless root authorizes key to make
+// assertion, right now.
+//
+// Fail-closed in every arm: an assertion outside the closed vocabulary, a nil
+// root, and an untrusted key all refuse. There is no arm that grants except
+// an explicit TrustedForNamespace yes.
+func requireTrustedForAssertion(root signing.TrustRoot, key ssh.PublicKey, assertion signing.Assertion) error {
+	ns := signing.NamespaceForAssertion(assertion)
+	if ns == "" {
+		// Unreachable from the two production call sites (both pass a literal
+		// from the closed vocabulary), and refused rather than defaulted so a
+		// future third assertion cannot acquire authorization by omission.
+		return fmt.Errorf("%w: no namespace is defined for the %q assertion, so no key can be authorized to make it", ErrReviewKeyUntrusted, assertion)
+	}
+	if key == nil {
+		return fmt.Errorf("%w: the signing key exposes no public key, so it cannot be checked against the trust root", ErrReviewKeyUntrusted)
+	}
+	if root != nil && root.TrustedForNamespace(key, ns, time.Now()).Trusted {
+		return nil
+	}
+	return fmt.Errorf(
+		"%w: %s is not trusted for the %q namespace.\n"+
+			"Recording this decision anyway would write a countersignature nothing honours: the command would report success and the item would stay withheld, with no sign that anything went wrong.\n"+
+			"Trust this key to make review decisions, then run this again:\n"+
+			"    ctxloom trust signer create <you@example.com> --key <path/to/your_key.pub> --namespace approve,reject\n"+
+			"(add --project to record the grant in the committable project store). "+
+			"With no signing key at all, decisions are recorded unsigned in your personal store instead",
+		ErrReviewKeyUntrusted, ssh.FingerprintSHA256(key), ns)
+}
+
 // SetItemTrustRequest accepts the currently-resolved version of an item.
 type SetItemTrustRequest struct {
 	// Ref is the item reference, "<bundle-ref>#<kind>/<name>" where bundle-ref
@@ -708,6 +803,13 @@ type SetItemTrustRequest struct {
 	// (test injection); production builds them from cfg.
 	UserStore    *countersign.Store `json:"-"`
 	ProjectStore *countersign.Store `json:"-"`
+
+	// Root overrides the trust root the SIGNING KEY is authorized against
+	// (test injection, mirroring buildCountersignRecords' injectedRoot);
+	// production resolves it from cfg. See resolveDecisionSigner: a key not
+	// trusted for the approve namespace cannot record an approval anyone would
+	// honour, so it is refused rather than written.
+	Root signing.TrustRoot `json:"-"`
 
 	Loader *bundles.Loader `json:"-"`
 	FS     afero.Fs        `json:"-"`
@@ -757,7 +859,7 @@ func SetItemTrust(cfg *config.Config, req SetItemTrustRequest) (*SetItemTrustRes
 	if err != nil {
 		return nil, err
 	}
-	signer, unsigned, err := resolveSignerOrUnsigned(cfg, req.Signer, req.Project)
+	signer, unsigned, err := resolveDecisionSigner(cfg, req.Signer, req.Project, req.Root, signing.AssertionApprove)
 	if err != nil {
 		return nil, err
 	}
@@ -832,6 +934,12 @@ type SetBlacklistRequest struct {
 	UserStore    *countersign.Store `json:"-"`
 	ProjectStore *countersign.Store `json:"-"`
 
+	// Root overrides the trust root the signing key is authorized against.
+	// See SetItemTrustRequest.Root — a rejection recorded with a key untrusted
+	// for the REJECT namespace is the same silent no-op, one direction worse:
+	// the user is told content is blocked when it is not.
+	Root signing.TrustRoot `json:"-"`
+
 	Loader *bundles.Loader `json:"-"`
 	FS     afero.Fs        `json:"-"`
 }
@@ -872,7 +980,7 @@ func SetBlacklist(cfg *config.Config, req SetBlacklistRequest) (*SetBlacklistRes
 	if err != nil {
 		return nil, err
 	}
-	signer, unsigned, err := resolveSignerOrUnsigned(cfg, req.Signer, req.Project)
+	signer, unsigned, err := resolveDecisionSigner(cfg, req.Signer, req.Project, req.Root, signing.AssertionReject)
 	if err != nil {
 		return nil, err
 	}

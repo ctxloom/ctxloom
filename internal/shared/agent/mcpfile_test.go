@@ -147,10 +147,13 @@ func TestMCPFileConfig_WriteServers_UnmanagedEntryWithNoCollisionSurvives(t *tes
 	require.NoError(t, err)
 	assert.Contains(t, string(data), `"command": "/usr/bin/theirs"`, "the unmanaged entry's command must survive untouched")
 	assert.Contains(t, string(data), `"--flag"`, "the unmanaged entry's args must survive untouched")
+	assert.Contains(t, string(data), "ctxloom-server", "the genuinely managed, non-colliding name must still be written")
 
 	ledger, err := afero.ReadFile(fs, "/proj/.mcp-ledger")
 	require.NoError(t, err)
-	assert.NotContains(t, string(ledger), "theirs", "an unmanaged, non-colliding name must never be claimed in the ledger")
+	ledgerStr := string(ledger)
+	assert.NotContains(t, ledgerStr, "theirs", "an unmanaged, non-colliding name must never be claimed in the ledger")
+	assert.Contains(t, ledgerStr, "ours", "the genuinely managed name must still be claimed in the ledger")
 	assert.Empty(t, lines(), "a non-colliding write must not warn")
 }
 

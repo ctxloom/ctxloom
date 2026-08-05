@@ -230,19 +230,18 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// when empty ("none"/"host" are the implicit defaults, so unset axes
 	// leave no keys behind).
 	setOrDelete(existing, "workspace", c.workspace != "", c.workspace)
-	// dirty_tree_handler default + its human-only commit acknowledgement
-	// (config.Config.dirtyTreeCommitAck's doc); pruned when empty/false so an
-	// unset project falls through to the built-in default ("commit",
-	// unacknowledged — the "commit" handler still refuses). These were
-	// declared on configDoc/Fixture (toDoc/fromDoc, ToFixture/NewFixture) when
-	// the dirty-tree handler feature landed but never wired into this
-	// section-by-section persist path, so ANY caller that set them via a save
-	// or Marshal() (rather than a raw yaml.Marshal(cfg)) silently lost them —
-	// exactly this project's characteristic bug. Fixed here so the
-	// init-interview write (internal/cli/init.go's promptDirtyTreeHandler)
-	// actually lands both keys on disk.
+	// dirty_tree_handler default; pruned when empty so an unset project falls
+	// through to the built-in default ("commit", unacknowledged — the
+	// "commit" handler still refuses). This was declared on configDoc/Fixture
+	// (toDoc/fromDoc, ToFixture/NewFixture) when the dirty-tree handler
+	// feature landed but never wired into this section-by-section persist
+	// path, so ANY caller that set it via a save or Marshal() (rather than a
+	// raw yaml.Marshal(cfg)) silently lost it — exactly this project's
+	// characteristic bug. Fixed here so the init-interview write
+	// (internal/cli/init.go's promptDirtyTreeHandler) actually lands it on
+	// disk. Its commit acknowledgement is no longer a config key at all — see
+	// DirtyTreeCommitAcknowledged/SetDirtyTreeCommitAck.
 	setOrDelete(existing, "dirty_tree_handler", c.dirtyTreeHandler != "", c.dirtyTreeHandler)
-	setOrDelete(existing, "dirty_tree_commit_ack", c.dirtyTreeCommitAck, c.dirtyTreeCommitAck)
 	setOrDelete(existing, "runtime", c.runtime != "", c.runtime)
 	// Agent delegation's execution-concurrency resource ceiling; pruned when
 	// unset (<=0 means "use the built-in default" — Config.agentTurnCap's

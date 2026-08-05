@@ -10,6 +10,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/bundles"
+	"github.com/ctxloom/ctxloom/internal/config/layerscope"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/errs"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -1135,7 +1136,7 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 
 		cfg := &Config{}
 		// Missing file should be OK - config is optional
-		values, pending, err := loadConfigLayer(cfg, "/nonexistent/config.yaml", nil, fs)
+		values, pending, err := loadConfigLayer(cfg, layerscope.LayerProject, "/", "", "/nonexistent/config.yaml", nil, fs)
 		assert.NoError(t, err)
 		assert.Nil(t, values)
 		assert.Nil(t, pending)
@@ -1146,7 +1147,7 @@ func TestLoadConfigFile_Errors(t *testing.T) {
 		require.NoError(t, afero.WriteFile(fs, "/config.yaml", []byte("invalid: ["), 0644))
 
 		cfg := &Config{}
-		values, _, err := loadConfigLayer(cfg, "/config.yaml", nil, fs)
+		values, _, err := loadConfigLayer(cfg, layerscope.LayerProject, "/", "", "/config.yaml", nil, fs)
 		// Invalid YAML no longer errors - adds warning instead for resilient startup
 		assert.NoError(t, err)
 		assert.Nil(t, values, "a layer that failed to parse contributes no values to the merge")

@@ -434,7 +434,7 @@ func TestReadResource_PropagatesTheReadFailureInsteadOfReturningNilBytes(t *test
 // the embed is asserted present at build time — so this pins the CONSEQUENCE
 // the swallow used to produce. A scaffolded config must never come out hollow.
 func TestBuildInitialConfig_NeverScaffoldsAHollowConfig(t *testing.T) {
-	data, err := BuildInitialConfig("mock", "", false)
+	data, err := BuildInitialConfig("mock", "")
 	require.NoError(t, err)
 	require.NotEmpty(t, data)
 

@@ -139,11 +139,13 @@ type agentRunInput struct {
 	//
 	// Deliberately carries NO acknowledgement for the "commit" handler's
 	// mutation: committing on the user's behalf requires a per-project,
-	// HUMAN-set config flag (dirty_tree_commit_ack in .ctxloom/config.yaml)
+	// HUMAN-set acknowledgement (.ctxloom/state/dirty_tree_commit_ack.yaml,
+	// written by `ctxloom init` or `ctxloom manage dirty-tree-ack grant` —
+	// never a config.yaml key)
 	// that this — or any other — per-call MCP parameter can never set. An
 	// agent cannot consent on the user's behalf; only a human editing the
 	// project's config can.
-	DirtyTreeHandler string `json:"dirty_tree_handler,omitempty" jsonschema:"What this spawn does when the PARENT project tree has uncommitted changes and resolves to worktree isolation (a worktree checkout only ever sees committed state). \"commit\": auto-commit the parent's dirty state first, so the child sees it (requires the project to have set dirty_tree_commit_ack: true — this per-call parameter can never grant that; otherwise the spawn is refused, actionably, naming the config key). \"copy\": carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both) — nothing is committed to the parent's branch. \"stale\": proceed with the child seeing committed state only, warning what it will miss. \"fail\": refuse the spawn, naming the uncommitted paths and the alternatives. Empty defers to the project's dirty_tree_handler config default, then to the built-in default (\"commit\")."`
+	DirtyTreeHandler string `json:"dirty_tree_handler,omitempty" jsonschema:"What this spawn does when the PARENT project tree has uncommitted changes and resolves to worktree isolation (a worktree checkout only ever sees committed state). \"commit\": auto-commit the parent's dirty state first, so the child sees it (requires a human dirty-tree-commit acknowledgement recorded via ctxloom init or ctxloom manage dirty-tree-ack grant — never a config key, never this per-call parameter; otherwise the spawn is refused, actionably). \"copy\": carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both) — nothing is committed to the parent's branch. \"stale\": proceed with the child seeing committed state only, warning what it will miss. \"fail\": refuse the spawn, naming the uncommitted paths and the alternatives. Empty defers to the project's dirty_tree_handler config default, then to the built-in default (\"commit\")."`
 }
 
 type agentRunResult struct {

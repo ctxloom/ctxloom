@@ -669,27 +669,32 @@ func dirtyTreeFailError(agentName, workDir string, files dirtyFileList) error {
 	return errors.New(b.String())
 }
 
-// commitDirtyTreeAckKey names the exact config key the "commit" handler's
+// commitDirtyTreeAckKey names the acknowledgement the "commit" handler's
 // ack-refusal message and warning point at — kept as a constant so the
-// refusal text and any future doc/init-interview wiring name the identical
-// key.
+// refusal text and any future doc/init-interview wiring name it identically.
+// It is no longer a config.yaml key (see config.SetDirtyTreeCommitAck's doc);
+// the name survives as the concept's identifier and as the on-disk store's
+// own file stem (paths.DirtyTreeCommitAckFileName).
 const commitDirtyTreeAckKey = "dirty_tree_commit_ack"
 
 // commitDirtyTree implements dirty_tree_handler: "commit". It is gated
 // TWICE, in order: (1) a coherence guard against auto-committing inside a
 // detached-HEAD checkout (see the branch=="HEAD" case below), and (2) the
-// per-project human acknowledgement (cfg.GetDirtyTreeCommitAck(), read ONLY
-// from the PROJECT config — never req/agent-supplied data — by design:
-// agent_run is normally invoked by a coordinator AGENT over MCP, in a
-// process with no TTY, often while the human is away. An interactive prompt
-// would either hang forever or be answered by an agent — which is not the
-// user's consent. A durable, human-edited config flag is the only form of
-// prior consent that survives headless operation. DO NOT add a per-call
-// override for this: a per-call parameter would let a delegating AGENT
-// grant itself permission to commit on the user's behalf, which defeats the
-// entire point — this must be a human act, done once, in a file a human
-// edits). Only once both pass does it warn (naming the branch and the
-// bounded file list) and
+// per-checkout human acknowledgement (config.DirtyTreeCommitAcknowledged,
+// read ONLY from its own admission-store file under .ctxloom/state/ — never
+// req/agent-supplied data, and never the layered config chain, which has
+// THREE channels (a home file, an environment variable, an argv) an agent
+// can reach — by design: agent_run is normally invoked by a coordinator
+// AGENT over MCP, in a process with no TTY, often while the human is away.
+// An interactive prompt would either hang forever or be answered by an
+// agent — which is not the user's consent. A durable, human-written
+// acknowledgement record is the only form of prior consent that survives
+// headless operation. DO NOT add a per-call override for this: a per-call
+// parameter would let a delegating AGENT grant itself permission to commit
+// on the user's behalf, which defeats the entire point — this must be a
+// human act, done once, via `ctxloom init` or `ctxloom manage
+// dirty-tree-ack`). Only once both pass does it warn (naming the branch and
+// the bounded file list) and
 // mutate. It never silently trusts a bare "commit succeeded": CommitAll's
 // own before/after diff must show real content, or this refuses (see the
 // len(changed)==0 case) — this codebase has a documented history of commits
@@ -709,11 +714,11 @@ func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git,
 		return fmt.Errorf(`dirty_tree_handler "commit": %s is a detached-HEAD checkout (this looks like a delegated child's OWN isolated worktree, not a branch checkout — committing here would land on no branch and could be silently discarded when that worktree is later torn down) — pass dirty_tree_handler: "copy" or "stale" for this spawn instead, or "fail" to refuse it outright`, workDir)
 	}
 
-	if !cfg.GetDirtyTreeCommitAck() {
+	if !config.DirtyTreeCommitAcknowledged(cfg.FS(), cfg.GetAppDir()) {
 		var b strings.Builder
-		fmt.Fprintf(&b, "agent_run: refusing to auto-commit for delegated agent %q on branch %q — %s has uncommitted changes, a worktree checkout only ever contains committed state, and dirty_tree_handler is configured to \"commit\" (the default), but this project has not acknowledged that ctxloom may commit on your behalf:\n", agentName, branch, workDir)
+		fmt.Fprintf(&b, "agent_run: refusing to auto-commit for delegated agent %q on branch %q — %s has uncommitted changes, a worktree checkout only ever contains committed state, and dirty_tree_handler is configured to \"commit\" (the default), but this checkout has not acknowledged that ctxloom may commit on your behalf:\n", agentName, branch, workDir)
 		files.writeTo(&b)
-		fmt.Fprintf(&b, "\nThe \"commit\" handler WOULD stage and commit these to branch %q so the child could see them. To allow this, a human must add to .ctxloom/config.yaml:\n  %s: true\n\n", branch, commitDirtyTreeAckKey)
+		fmt.Fprintf(&b, "\nThe \"commit\" handler WOULD stage and commit these to branch %q so the child could see them. To allow this, a human must run `ctxloom manage dirty-tree-ack grant` (or answer yes to the dirty-tree question in `ctxloom init`) — this acknowledgement (%s) is a human act only; it cannot be set from config.yaml, an environment variable, or any per-call parameter.\n\n", branch, commitDirtyTreeAckKey)
 		b.WriteString(`Or, for this call, choose a different handler instead: dirty_tree_handler: "copy" (reproduce these changes as uncommitted WIP inside the child's worktree — nothing committed), "stale" (spawn the child without these changes), "fail" (refuse the spawn outright).`)
 		return errors.New(b.String())
 	}
@@ -743,7 +748,7 @@ func renderCommitPreview(agentName, workDir, branch string, files dirtyFileList)
 	files.writeTo(&b)
 	b.WriteString(`This is happening because dirty_tree_handler is configured to "commit" (the default, acknowledged via `)
 	b.WriteString(commitDirtyTreeAckKey)
-	b.WriteString(` in .ctxloom/config.yaml). Alternatives for this call: dirty_tree_handler "copy" (reproduce these changes as uncommitted WIP inside the child's worktree instead of committing them here), "stale" (spawn the child without these changes), "fail" (refuse the spawn instead of touching this branch); or pass workspace: "none" to run against the live checkout instead.`)
+	b.WriteString(`, set by ctxloom init or ctxloom manage dirty-tree-ack grant). Alternatives for this call: dirty_tree_handler "copy" (reproduce these changes as uncommitted WIP inside the child's worktree instead of committing them here), "stale" (spawn the child without these changes), "fail" (refuse the spawn instead of touching this branch); or pass workspace: "none" to run against the live checkout instead.`)
 	return b.String()
 }
 

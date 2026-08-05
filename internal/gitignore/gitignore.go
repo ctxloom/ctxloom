@@ -18,17 +18,21 @@ const Comment = "# ctxloom private working state (rebuildable/local — cache, f
 // PrivateStatePatterns are the .ctxloom paths that are rebuildable or purely
 // local and so must never ride a distributable tree: the resolved-artifact
 // cache, fetched remote-bundle pieces, per-project session state, ephemeral
-// scratch (synced bundles, transient context data), and the project-id
-// marker (ADR 0025 — private identity). Everything else under .ctxloom/
-// (config.yaml, remotes.yaml, lock.yaml, allowed_signers, approvals/,
-// content/) is committed by omission — it's content, config, or trust state
-// the project depends on.
+// scratch (synced bundles, transient context data), the project-id marker
+// (ADR 0025 — private identity), and the third .ctxloom tier
+// (paths.StateDir) — local-only checkout state nothing rebuilds (e.g. the
+// dirty-tree-commit acknowledgement, paths.DirtyTreeCommitAckPath): a clone
+// must never arrive pre-carrying somebody else's answer. Everything else
+// under .ctxloom/ (config.yaml, remotes.yaml, lock.yaml, allowed_signers,
+// approvals/, content/) is committed by omission — it's content, config, or
+// trust state the project depends on.
 var PrivateStatePatterns = []string{
 	".ctxloom/cache/",
 	".ctxloom/pieces/",
 	".ctxloom/sessions/",
 	".ctxloom/ephemeral/",
 	".ctxloom/project-id",
+	".ctxloom/state/",
 }
 
 // TransientArtifactPatterns are unambiguous generated artifacts that accumulate

@@ -233,9 +233,10 @@ type RunOutcome struct {
 // project default, cfg.GetDirtyTreeHandler()) — see
 // operations.handleDirtyParentTree. Deliberately does NOT carry any
 // acknowledgement for the "commit" handler's mutation: that is a
-// per-project, human-only config flag (dirty_tree_commit_ack) that this
-// per-call parameter can never set — see config.Config.dirtyTreeCommitAck's
-// doc for why.
+// per-checkout, human-only acknowledgement (dirty_tree_commit_ack — see
+// config.DirtyTreeCommitAcknowledged) that this per-call parameter can never
+// set: it is not even a config key any longer, precisely so no channel an
+// agent can reach (config, env, argv) can grant it.
 func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, prompt, workspace, dirtyTreeHandler string) (*RunOutcome, error) {
 	if agentName == "" {
 		return nil, errors.New("agent_run: agent is required (a configured agent name; see `ctxloom agent list`)")

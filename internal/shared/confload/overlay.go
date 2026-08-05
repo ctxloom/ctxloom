@@ -43,6 +43,30 @@ const ConfigSetFlagName = "config-set"
 // from its cause.
 const EnvPrefixSegment = "_CONFIG_"
 
+// OverrideSource distinguishes the two override channels for a Product's
+// ScopeAllows hook. The distinction is REACH, not merely syntax: env is
+// inherited by every child process this one spawns (including a delegated
+// engine an agent drives); --config-set crosses no process boundary at all,
+// scoped to the one invocation that declared it. See Product.ScopeAllows.
+type OverrideSource uint8
+
+const (
+	SourceEnv OverrideSource = iota
+	SourceFlag
+)
+
+// String names s for a diagnostic.
+func (s OverrideSource) String() string {
+	switch s {
+	case SourceEnv:
+		return "env"
+	case SourceFlag:
+		return "flag"
+	default:
+		return "unknown"
+	}
+}
+
 // ReadOverrides captures the process's env/CLI overrides ONCE — see the
 // package doc's "Overrides are captured once, resolved on every load"
 // section. It does NOT resolve anything against a config base; that happens
@@ -240,21 +264,21 @@ func (p Product) ApplyOverrides(base map[string]any, o Overrides) (map[string]an
 	// ReadOverrides' doc) -- everything reaching either one already declared
 	// itself a config override, so there is no more "this might just be an
 	// unrelated flag" ambiguity to protect against.
-	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName, false)
+	envLayer, envErr := p.resolveRaw(base, o.Env, envTokens, p.envSourceName, false, SourceEnv)
 	if envErr != nil {
 		errs = append(errs, envErr)
 	}
-	merged, mergeErr := Merge(base, envLayer)
+	merged, mergeErr := p.MergeLayers(base, envLayer)
 	if mergeErr != nil {
 		return nil, mergeErr
 	}
 	base = merged
 
-	flagLayer, flagErr := p.resolveRaw(base, o.Flags, setTokens, flagSourceName, true)
+	flagLayer, flagErr := p.resolveRaw(base, o.Flags, setTokens, flagSourceName, true, SourceFlag)
 	if flagErr != nil {
 		errs = append(errs, flagErr)
 	}
-	merged, mergeErr = Merge(base, flagLayer)
+	merged, mergeErr = p.MergeLayers(base, flagLayer)
 	if mergeErr != nil {
 		return nil, mergeErr
 	}
@@ -309,7 +333,7 @@ func setTokens(path string) []string {
 // koanf/maps.Unflatten — the koanf-provided replacement for this package's
 // former hand-rolled setPath helper (see delim's doc for why "." itself is
 // never used as the join/split character here).
-func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize func(string) []string, sourceName func(string) string, preserveTypedCase bool) (map[string]any, error) {
+func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize func(string) []string, sourceName func(string) string, preserveTypedCase bool, source OverrideSource) (map[string]any, error) {
 	flat := map[string]any{}
 	var errs []error
 
@@ -329,6 +353,15 @@ func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize fu
 		if err != nil {
 			errs = append(errs, err)
 			continue
+		}
+		if p.ScopeAllows != nil {
+			if ok, why := p.ScopeAllows(source, path); !ok {
+				// Dropped, not fatal — exactly like an ambiguous override
+				// (case 2): every OTHER override still resolves normally, and
+				// this one's target is simply absent from the returned layer.
+				errs = append(errs, fmt.Errorf("%s: %s may not set %q — %s", display, source, strings.Join(path, "."), why))
+				continue
+			}
 		}
 		if warn {
 			clidiag.Warn(p.Name, "%s does not match any known config key (resolved as %s); setting it anyway",

@@ -44,7 +44,6 @@ func fullyPopulatedFixture() Fixture {
 		DefaultAgent:                 "worker",
 		Workspace:                    "worktree",
 		DirtyTreeHandler:             "commit",
-		DirtyTreeCommitAck:           true,
 		Runtime:                      "container",
 		AgentTurnCap:                 7,
 		IsolationImages:              map[string]string{"claude-code": "example.invalid/img:tag"},

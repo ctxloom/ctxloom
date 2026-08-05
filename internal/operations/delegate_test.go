@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -543,7 +544,7 @@ func TestHandleDirtyParentTree_Fail_BoundsFileList(t *testing.T) {
 func TestHandleDirtyParentTree_Fail_UnaffectedByMissingAck(t *testing.T) {
 	resetStrictness(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: false})
+	cfg := config.NewFixture(config.Fixture{})
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerFail)
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "dirty_tree_commit_ack", "fail's refusal has nothing to do with the commit ack")
@@ -642,7 +643,7 @@ func TestHandleDirtyParentTree_Stale_UnaffectedByMissingAck(t *testing.T) {
 	resetStrictness(t)
 	captureWarnings(t)
 	fake := &git.Fake{Dirty: map[string]bool{"/proj": true}, Changes: []string{" M f.go"}}
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: false})
+	cfg := config.NewFixture(config.Fixture{})
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerStale)
 	require.NoError(t, err)
 }
@@ -661,7 +662,7 @@ func TestHandleDirtyParentTree_Copy_CapturesPatchAndUntrackedList(t *testing.T) 
 		DiffPatchValue: "--- a/tracked.go\n+++ b/tracked.go\n@@ -1 +1 @@\n-old\n+new\n",
 		UntrackedList:  []string{"untracked.go", "nested/other.go"},
 	}
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: false}) // copy needs no ack
+	cfg := config.NewFixture(config.Fixture{}) // copy needs no ack
 	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCopy)
 	require.NoError(t, err)
 	require.NotNil(t, outcome.copy)
@@ -805,6 +806,26 @@ func TestPrepareAgentChat_Copy_OneshotFallbackRefused(t *testing.T) {
 	assert.Contains(t, err.Error(), "coder")
 }
 
+// ackedFixture builds a *config.Config carrying a REAL, on-disk dirty-tree-
+// commit acknowledgement — the ack no longer lives on config.Fixture itself
+// (config-layer-scope: it moved to its own admission-store file outside the
+// config chain entirely), so proving the "commit" handler's authorized path
+// requires writing a genuine record via config.SetDirtyTreeCommitAck and
+// injecting the SAME (fs, appDir) pair commitDirtyTree reads through
+// (cfg.FS()/cfg.GetAppDir()) — constructing a Fixture alone can no longer
+// grant it.
+func ackedFixture(t *testing.T, f config.Fixture) *config.Config {
+	t.Helper()
+	if f.AppDir == "" {
+		f.AppDir = "/proj/.ctxloom"
+	}
+	fs := afero.NewMemMapFs()
+	require.NoError(t, config.SetDirtyTreeCommitAck(fs, f.AppDir, true))
+	cfg := config.NewFixture(f)
+	cfg.SetFS(fs)
+	return cfg
+}
+
 // ----- commit -----
 
 // TestHandleDirtyParentTree_Commit_DetachedHeadRefuses pins the grandchild-
@@ -818,7 +839,7 @@ func TestHandleDirtyParentTree_Commit_DetachedHeadRefuses(t *testing.T) {
 		Changes:            []string{" M f.go"},
 		CurrentBranchValue: "HEAD", // git's own detached-HEAD sentinel
 	}
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true}) // even acknowledged, this must still refuse
+	cfg := ackedFixture(t, config.Fixture{}) // even acknowledged, this must still refuse
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/child-wt", "grandchild", DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "detached-HEAD")
@@ -839,7 +860,7 @@ func TestHandleDirtyParentTree_Commit_CurrentBranchErrorRefuses(t *testing.T) {
 		Changes:          []string{" M f.go"},
 		CurrentBranchErr: fmt.Errorf("git rev-parse: unknown revision or path not in the working tree"),
 	}
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true}) // even acknowledged, this must still refuse
+	cfg := ackedFixture(t, config.Fixture{}) // even acknowledged, this must still refuse
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/child-wt", "grandchild", DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "could not determine", "names the failure rather than silently guessing a branch")
@@ -858,15 +879,15 @@ func TestHandleDirtyParentTree_Commit_NoAckRefusesAndNamesKey(t *testing.T) {
 		Changes:            []string{" M internal/foo.go", "?? internal/bar.go"},
 		CurrentBranchValue: "release/1.0",
 	}
-	cfg := config.NewFixture(config.Fixture{}) // DirtyTreeCommitAck defaults false
+	cfg := config.NewFixture(config.Fixture{}) // no ack recorded -> DirtyTreeCommitAcknowledged defaults false
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "release/1.0", "names the branch it would commit to")
 	assert.Contains(t, err.Error(), "internal/foo.go")
 	assert.Contains(t, err.Error(), "internal/bar.go")
 	assert.Contains(t, err.Error(), "committed state", "explains a worktree checkout's limit")
-	assert.Contains(t, err.Error(), ".ctxloom/config.yaml", "names the exact file")
-	assert.Contains(t, err.Error(), "dirty_tree_commit_ack: true", "names the exact config key/value")
+	assert.Contains(t, err.Error(), "ctxloom manage dirty-tree-ack grant", "names the exact remedy")
+	assert.Contains(t, err.Error(), "dirty_tree_commit_ack", "names the acknowledgement by its key name")
 	assert.Contains(t, err.Error(), `"copy"`)
 	assert.Contains(t, err.Error(), `"stale"`)
 	assert.Contains(t, err.Error(), `"fail"`)
@@ -907,7 +928,7 @@ func TestHandleDirtyParentTree_Commit_AckedWarnsAndCommits(t *testing.T) {
 		CommitAllSHA:       "abc123",
 		CommitAllChanged:   []string{"internal/foo.go", "internal/bar.go"},
 	}
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true})
+	cfg := ackedFixture(t, config.Fixture{})
 	outcome, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
 	require.NoError(t, err)
 	assert.Nil(t, outcome.copy)
@@ -948,7 +969,7 @@ func TestHandleDirtyParentTree_Commit_EmptyCommitRefusesLoud(t *testing.T) {
 		CommitAllSHA:       "deadbeef",
 		CommitAllChanged:   nil, // the empty-commit case
 	}
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true})
+	cfg := ackedFixture(t, config.Fixture{})
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "deadbeef")
@@ -968,7 +989,7 @@ func TestHandleDirtyParentTree_Commit_CommitAllErrorPropagates(t *testing.T) {
 		CurrentBranchValue: "main",
 		CommitAllErr:       fmt.Errorf("index.lock exists"),
 	}
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true})
+	cfg := ackedFixture(t, config.Fixture{})
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "index.lock exists")
@@ -990,7 +1011,7 @@ func TestPrepareAgentChat_Commit_ChildSeesCommittedContent(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(repo, "wip.go"), []byte("package wip"), 0o644))
 
 	real := git.NewExec()
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true})
+	cfg := ackedFixture(t, config.Fixture{})
 	outcome, err := handleDirtyParentTree(context.Background(), cfg, real, repo, "coder", DirtyTreeHandlerCommit)
 	require.NoError(t, err)
 	assert.Nil(t, outcome.copy)
@@ -1378,7 +1399,7 @@ func TestHandleDirtyParentTree_Commit_ListingFailureIsNamedInThePreview(t *testi
 		ChangesErr:       assert.AnError,
 		CommitAllChanged: []string{"internal/foo.go"},
 	}
-	cfg := config.NewFixture(config.Fixture{DirtyTreeCommitAck: true})
+	cfg := ackedFixture(t, config.Fixture{})
 	_, err := handleDirtyParentTree(context.Background(), cfg, fake, "/proj", "coder", DirtyTreeHandlerCommit)
 	require.NoError(t, err, "a listing failure stays best-effort: it must not block the configured commit")
 	assert.Contains(t, warnings.String(), "could not list",

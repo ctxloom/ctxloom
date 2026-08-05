@@ -172,12 +172,45 @@ const delim = "\x1f"
 //     treated as "no schema knowledge available": every override that
 //     doesn't match an existing base key is conservatively treated as
 //     unrecognized (always warned about).
+//   - ScopeAllows, if set, reports whether an override from source may set
+//     the RESOLVED path resolvePath/resolveBySchema produced (case-insensitive
+//     segments, already lower-cased) and, when it may not, why. Nil means "no
+//     scope knowledge available": every override is allowed, matching
+//     today's behavior exactly. This hangs off resolvePath's OUTPUT
+//     deliberately, not off the env provider's TransformFunc (see
+//     ReadOverrides): the TransformFunc sees only the raw, unresolved env var
+//     name, before this package has any idea which config path it maps to,
+//     so it cannot make a per-key scope decision this late a caller's own
+//     per-key policy needs. A false verdict makes ApplyOverrides DROP that
+//     override and join why into the returned error — partial, never fatal,
+//     exactly like an ambiguous override (case 2).
+//   - MergeFunc, if set, replaces koanf's default merge behavior for every
+//     merge this Product performs (both file layers, via MergeLayers, and
+//     override resolution, via ApplyOverrides) — see MergeWith. Nil
+//     reproduces Merge's documented default exactly. This is confload's
+//     koanf.WithMergeFunc seam: a product whose schema has a key that must
+//     NOT deep-merge across layers at all (ctxloom's agents.<name> binding —
+//     see internal/config's agentBindingMergeFunc) supplies its own
+//     schema-aware func here rather than confload hard-coding any product's
+//     key names, keeping this package free of ctxloom-specific (or
+//     taskloom-specific, or...) knowledge exactly as KnownPath already does.
 type Product struct {
-	Name      string
-	DirName   string
-	FileName  string
-	EnvPrefix string
-	KnownPath func(path []string) bool
+	Name        string
+	DirName     string
+	FileName    string
+	EnvPrefix   string
+	KnownPath   func(path []string) bool
+	ScopeAllows func(source OverrideSource, path []string) (ok bool, why string)
+	MergeFunc   MergeFunc
+}
+
+// MergeLayers merges layers through p's own MergeFunc if set, or koanf's
+// default otherwise (see MergeWith) — the single chokepoint both Load (the
+// file layers) and ApplyOverrides (the override layers) merge through, so a
+// product's merge policy applies wherever ITS layers actually merge, not just
+// at the file-layer step.
+func (p Product) MergeLayers(layers ...map[string]any) (map[string]any, error) {
+	return MergeWith(p.MergeFunc, layers...)
 }
 
 // Sources is stage-1 bootstrap's output: WHICH files stage 2 (this package)
@@ -237,7 +270,7 @@ func (p Product) Load(src Sources, o Overrides) (map[string]any, error) {
 		layers = append(layers, projectValues)
 	}
 
-	base, err := Merge(layers...)
+	base, err := p.MergeLayers(layers...)
 	if err != nil {
 		return nil, err
 	}
@@ -292,19 +325,42 @@ func readYAMLFile(path string) (values map[string]any, present bool, err error) 
 	return values, true, nil
 }
 
+// MergeFunc is koanf's own WithMergeFunc shape (github.com/knadh/koanf/v2):
+// merge src into dest (left to right), mutating dest in place. See MergeWith.
+type MergeFunc func(src, dest map[string]any) error
+
 // Merge deep-merges layers in ASCENDING precedence order: layers[0] is the
 // weakest (e.g. home), layers[len-1] the strongest (e.g. CLI arguments).
-// Typical call: Merge(home, project, env, cli).
+// Typical call: Merge(home, project, env, cli). It is MergeWith(nil, ...) —
+// see that function for the rules this produces and for how a caller
+// overrides them for specific paths via koanf.WithMergeFunc.
+func Merge(layers ...map[string]any) (map[string]any, error) {
+	return MergeWith(nil, layers...)
+}
+
+// MergeWith deep-merges layers exactly like Merge, except each layer's merge
+// step is delegated to fn — koanf's own WithMergeFunc seam — instead of
+// koanf's built-in confmap merge. nil fn reproduces Merge's default behavior
+// exactly (koanf.Load treats a nil merge option as "use the built-in merge"),
+// so MergeWith(nil, layers...) and Merge(layers...) are the same call.
 //
-// Merge rules, applied key by key, recursively — this is koanf's own default
-// merge behavior (github.com/knadh/koanf/v2, via its confmap provider),
-// deliberately never overridden with a custom koanf.WithMergeFunc:
+// This exists for a product whose schema has a key that must NOT deep-merge
+// across layers at all — ctxloom's agents.<name> binding, where the highest
+// layer NAMING an agent must define it entirely rather than being fused
+// field-by-field with a lower layer's same-named entry (see
+// internal/config's agentBindingMergeFunc, wired in via Product.MergeFunc /
+// Product.MergeLayers) — while every OTHER documented merge rule continues to
+// hold, because fn is expected to preserve them for every path it does not
+// itself special-case (typically by delegating to koanf/maps.Merge, or by
+// calling Merge/MergeWith(nil, ...) again, for everything it does not
+// special-case). Those preserved rules, unchanged from what Merge always
+// documented:
 //
 //   - A key present in a higher layer always wins over the same key in a
 //     lower layer, REGARDLESS of its value — including its zero value. This
 //     is the explicit-zero-beats-inheritance rule: a project setting
 //     `feature: false` beats an inherited `feature: true` from home, because
-//     presence — not truthiness — is what koanf's merge consults. See
+//     presence — not truthiness — is what the merge consults. See
 //     TestKoanf_ExplicitZeroBeatsInheritance.
 //   - A key present in a lower layer but ABSENT from every higher layer is
 //     inherited unchanged.
@@ -313,23 +369,25 @@ func readYAMLFile(path string) (values map[string]any, present bool, err error) 
 //     so a project can override one nested field without restating its
 //     siblings.
 //   - Any other type — including slices/lists — is replaced wholesale by the
-//     higher layer's value, never concatenated or otherwise combined. A
-//     project's list REPLACES home's list. This is deliberate: concatenation
-//     would make it impossible for a project to shorten or remove an
-//     inherited entry without inventing a negation syntax. A project that
-//     wants "home's list plus one more" restates the whole list. See
+//     higher layer's value, never concatenated or otherwise combined. See
 //     TestKoanf_ListsReplaceNotConcat.
 //
-// Merge never mutates its inputs; each layer is copied into koanf before
-// being merged in, so every returned map (including nested ones) is
-// independent of the caller's originals.
+// Merge/MergeWith never mutate their inputs; each layer is copied into koanf
+// before being merged in (confmap.Provider itself deep-copies), so every
+// returned map (including nested ones) is independent of the caller's
+// originals, and it is safe for a MergeFunc to retain references into src's
+// own nested maps when building dest.
 //
-// Merge reads the result back out via Unmarshal, never koanf's Raw()/All():
-// Raw() round-trips a value in a way that can surprise a caller expecting an
-// int to stay an int (see TestKoanf_IntStaysInt) — Unmarshal into a plain
+// The result is read back out via Unmarshal, never koanf's Raw()/All(): Raw()
+// round-trips a value in a way that can surprise a caller expecting an int to
+// stay an int (see TestKoanf_IntStaysInt) — Unmarshal into a plain
 // map[string]any does not have this problem and is used exclusively here.
-func Merge(layers ...map[string]any) (map[string]any, error) {
+func MergeWith(fn MergeFunc, layers ...map[string]any) (map[string]any, error) {
 	k := koanf.New(delim)
+	var opts []koanf.Option
+	if fn != nil {
+		opts = append(opts, koanf.WithMergeFunc(fn))
+	}
 	for _, layer := range layers {
 		if len(layer) == 0 {
 			continue
@@ -342,7 +400,7 @@ func Merge(layers ...map[string]any) (map[string]any, error) {
 		// WHOLE layer — and every layer after it, since the loop kept
 		// going — on the day it turns out to be wrong). Propagate instead:
 		// an impossible state should fail loudly, not disappear.
-		if err := k.Load(confmap.Provider(layer, ""), nil); err != nil {
+		if err := k.Load(confmap.Provider(layer, ""), nil, opts...); err != nil {
 			return nil, fmt.Errorf("confload: loading a config layer: %w", err)
 		}
 	}

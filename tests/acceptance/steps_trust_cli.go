@@ -200,17 +200,32 @@ func registerTrustCLISteps(ctx *godog.ScenarioContext) {
 					"the rejection must beat the local auto-allowance, not merely be printed; states: %v",
 					bundle, fragment, got, states)
 			}
-			// The ISOLATION half. Without it a gate that withheld everything —
+			// The ISOLATION half. Without it a gate that withheld EVERYTHING —
 			// or a listing that lost the bundle entirely — would satisfy the
-			// assertion above.
-			const sibling = "example"
-			if other := states[bundle+"#"+sibling]; other != "accepted" {
-				return fmt.Errorf("rejecting %s#fragments/%s also took out its untouched sibling %q, which reads %q "+
-					"(want \"accepted\"); a per-item rejection must be per-item; states: %v",
-					bundle, fragment, sibling, other, states)
+			// assertion above. Every OTHER fragment of the same bundle is
+			// checked rather than one named sibling, so this neither hard-codes
+			// which scaffolding fragments `bundle create` happens to ship nor
+			// goes quietly vacuous if that set changes: an empty sibling set is
+			// itself an error.
+			siblings := 0
+			for key, state := range states {
+				name, ok := strings.CutPrefix(key, bundle+"#")
+				if !ok || name == fragment {
+					continue
+				}
+				siblings++
+				if state != "accepted" {
+					return fmt.Errorf("rejecting %s#fragments/%s also took out its untouched sibling %q, which reads %q "+
+						"(want \"accepted\"); a per-item rejection must be per-item; states: %v",
+						bundle, fragment, name, state, states)
+				}
 			}
-			w.docStepMaterialized = fmt.Sprintf("fragment list --format json → %s#%s: %q · %s#%s: %q",
-				bundle, fragment, got, bundle, sibling, states[bundle+"#"+sibling])
+			if siblings == 0 {
+				return fmt.Errorf("bundle %q lists no fragment other than %q, so \"only the rejected item went dark\" "+
+					"asserts nothing; states: %v", bundle, fragment, states)
+			}
+			w.docStepMaterialized = fmt.Sprintf("fragment list --format json → %s#%s: %q · %d sibling fragment(s) still \"accepted\"",
+				bundle, fragment, got, siblings)
 			return nil
 		})
 }

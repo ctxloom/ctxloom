@@ -37,14 +37,19 @@ func writeLayers(t *testing.T, homeBody, projectBody string) *Config {
 // TestLoad_ProjectInheritsHomeKeys is the new-behavior pin D3 exists for: a
 // project config.yaml that never mentions a key must inherit it from home,
 // where the pre-layering project-XOR-home resolution silently dropped it
-// (home was never even read once a project config.yaml existed).
+// (home was never even read once a project config.yaml existed). Both keys
+// here are ScopeMachine (internal/config/layerscope), which home is allowed
+// to carry — unlike `workspace` (ScopeShared), which this test used to
+// exercise before layerscope closed home's ability to gap-fill a
+// project-policy key (see TestLoad_EscalationPath3_HomeCannotEscalateProjectAgent
+// for that closure's own dedicated test).
 func TestLoad_ProjectInheritsHomeKeys(t *testing.T) {
 	cfg := writeLayers(t,
-		"version: 6\nworkspace: worktree\nruntime: container\n",
+		"version: 6\nagent_turn_cap: 3\nruntime: container\n",
 		"version: 6\ndefault_agent: dev\nagents:\n  dev:\n    profiles: [go-developer]\n",
 	)
 
-	assert.Equal(t, "worktree", cfg.workspace, "a home-only key must be inherited by a project that never sets it")
+	assert.Equal(t, 3, cfg.agentTurnCap, "a home-only key must be inherited by a project that never sets it")
 	assert.Equal(t, "container", cfg.runtime, "same for a second home-only key")
 	assert.Equal(t, "dev", cfg.defaultAgent, "the project's own key is unaffected by layering")
 }

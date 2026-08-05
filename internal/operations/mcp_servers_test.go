@@ -458,12 +458,55 @@ func mcpTestManager(t *testing.T, yamlBody string) (*config.Manager, afero.Fs) {
 	return config.NewManager(config.WithFS(fs), config.WithAppDir(testBaseDir)), fs
 }
 
+// testHomeAppDir is the fixed, isolated home appDir mcpTestManagerWithHome
+// writes to and t.Setenv("HOME", ...) points at.
+const testHomeAppDir = "/home/u/" + paths.AppDirName
+
+// mcpTestManagerWithHome is mcpTestManager plus an isolated HOME layer.
+// mcp.servers.*.command/args/env are ScopeMachine (internal/config/
+// layerscope) — a binary path and its credentials on THIS box — so an entry
+// that must SURVIVE a Manager.Update reload (the "already exists"/"remove"
+// tests need to still SEE a pre-existing server, not just its serialized
+// bytes) can no longer live in the committed PROJECT fixture; it lives in
+// HOME instead, representing a personally-configured MCP server the merged
+// view still includes.
+func mcpTestManagerWithHome(t *testing.T, homeBody, projectBody string) (*config.Manager, afero.Fs) {
+	t.Helper()
+	t.Setenv("HOME", "/home/u")
+	fs := afero.NewMemMapFs()
+	require.NoError(t, fs.MkdirAll(testBaseDir, 0755))
+	if projectBody != "" {
+		require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(testBaseDir), []byte(projectBody), 0644))
+	}
+	require.NoError(t, fs.MkdirAll(testHomeAppDir, 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(testHomeAppDir), []byte(homeBody), 0644))
+	return config.NewManager(config.WithFS(fs), config.WithAppDir(testBaseDir)), fs
+}
+
 // reloadMCPTestConfig re-reads the config a mcpTestManager transaction wrote,
 // so a test can assert against the PERSISTED result rather than a mutated
 // argument (Manager.Update never mutates any *Config a caller holds).
 func reloadMCPTestConfig(t *testing.T, fs afero.Fs) *config.Config {
 	t.Helper()
 	cfg, err := config.Load(config.WithFS(fs), config.WithAppDir(testBaseDir))
+	require.NoError(t, err)
+	return cfg
+}
+
+// reloadMCPTestConfigRaw re-reads the config via ParseConfig — a single-
+// document parse, no layering, no layerscope policy — rather than
+// reloadMCPTestConfig's full config.Load. mcp.servers.*.command/args/env are
+// ScopeMachine (internal/config/layerscope): a binary path and its
+// credentials on THIS box, which a committed PROJECT file (every clone's
+// copy, and there is no other file AddMCPServer can write to yet) no longer
+// has take effect on a real Load. What a test using this helper verifies is
+// AddMCPServer/RemoveMCPServer's own SAVE fidelity, independent of that
+// load-time policy.
+func reloadMCPTestConfigRaw(t *testing.T, fs afero.Fs) *config.Config {
+	t.Helper()
+	data, err := afero.ReadFile(fs, paths.ConfigPath(testBaseDir))
+	require.NoError(t, err)
+	cfg, err := config.ParseConfig(data)
 	require.NoError(t, err)
 	return cfg
 }
@@ -482,8 +525,14 @@ func TestAddMCPServer_UnifiedBackend(t *testing.T) {
 	assert.Equal(t, "new-server", result.Name)
 	assert.Equal(t, "unified", result.Backend)
 
-	// Verify server was added to config
-	cfg := reloadMCPTestConfig(t, fs)
+	// Verify server was added to config. reloadMCPTestConfigRaw (ParseConfig,
+	// no layering) rather than reloadMCPTestConfig: mcp.servers.*.command/args
+	// are ScopeMachine (internal/config/layerscope) — a binary path and its
+	// arguments on THIS box — so a committed PROJECT file (every clone's
+	// copy, and there is no other file AddMCPServer can write to yet) no
+	// longer has them survive a real Load; what this test verifies is
+	// AddMCPServer's own SAVE fidelity.
+	cfg := reloadMCPTestConfigRaw(t, fs)
 	assert.Contains(t, cfg.GetMCPConfig().Servers, "new-server")
 	assert.Equal(t, "node", cfg.GetMCPConfig().Servers["new-server"].Command)
 }
@@ -551,7 +600,14 @@ func TestAddMCPServer_ValidationErrors(t *testing.T) {
 // exist in unified AND in claude-code backend simultaneously. The check only
 // fails when adding to the same location where the name already exists.
 func TestAddMCPServer_AlreadyExists(t *testing.T) {
-	mgr, _ := mcpTestManager(t, "version: 5\nmcp:\n  servers:\n    existing:\n      command: npx\n")
+	// The pre-existing "existing" server lives in HOME, not the project
+	// fixture: mcp.servers.*.command is REQUIRED by the mcpServer schema and
+	// is ScopeMachine, so a project-committed server entry can never survive
+	// a real reload at all (every clone would inherit one machine's binary
+	// path) — see mcpTestManagerWithHome's doc. The duplicate check still
+	// consults the MERGED (home+project) view, so this still proves
+	// AddMCPServer sees an existing server wherever it lives.
+	mgr, _ := mcpTestManagerWithHome(t, "version: 5\nmcp:\n  servers:\n    existing:\n      command: npx\n", "version: 5\n")
 
 	_, err := AddMCPServer(context.Background(), mgr, AddMCPServerRequest{
 		Name:    "existing",
@@ -602,7 +658,13 @@ func TestAddMCPServer_BackendNilMaps(t *testing.T) {
 }
 
 func TestRemoveMCPServer_FromUnified(t *testing.T) {
-	mgr, fs := mcpTestManager(t, "version: 5\nmcp:\n  servers:\n    to-remove:\n      command: npx\n    keep:\n      command: node\n")
+	// Both servers live in HOME, not the project fixture: mcp.servers.*.command
+	// is REQUIRED by the mcpServer schema and is ScopeMachine, so a
+	// project-committed server entry cannot survive a real reload at all —
+	// see mcpTestManagerWithHome's doc.
+	mgr, fs := mcpTestManagerWithHome(t,
+		"version: 5\nmcp:\n  servers:\n    to-remove:\n      command: npx\n    keep:\n      command: node\n",
+		"version: 5\n")
 
 	result, err := RemoveMCPServer(context.Background(), mgr, RemoveMCPServerRequest{
 		Name: "to-remove",
@@ -612,8 +674,18 @@ func TestRemoveMCPServer_FromUnified(t *testing.T) {
 	assert.Equal(t, "removed", result.Status)
 	assert.Contains(t, result.RemovedFrom, "unified")
 
-	// Verify server was removed
-	cfg := reloadMCPTestConfig(t, fs)
+	// Verify the PROJECT layer's own persisted content no longer mentions
+	// "to-remove": reloadMCPTestConfigRaw (ParseConfig, no layering) rather
+	// than a full config.Load, because the fully-merged (home+project) view
+	// is NOT the right check here — home's own copy of "to-remove" is
+	// untouched (Manager only ever writes the project layer) and the deep-
+	// merge layering rule that lets a project inherit a home key it never
+	// mentions (D2/D3) has no way to express "and this one is DELETED, not
+	// merely unmentioned" — a pre-existing layering property, not something
+	// this closure introduced. What IS this closure's doing, and what this
+	// assertion pins, is that the project's own file correctly reflects the
+	// removal at ITS layer.
+	cfg := reloadMCPTestConfigRaw(t, fs)
 	assert.NotContains(t, cfg.GetMCPConfig().Servers, "to-remove")
 	assert.Contains(t, cfg.GetMCPConfig().Servers, "keep")
 }
@@ -667,22 +739,32 @@ func TestRemoveMCPServer_NotFound(t *testing.T) {
 // The RemovedFrom slice in the result tells you where it was actually removed from,
 // which can be more than one location.
 func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
-	mgr, fs := mcpTestManager(t, "version: 5\n"+
-		"mcp:\n"+
-		"  servers:\n"+
-		"    multi-server:\n"+
-		"      command: unified-cmd\n"+
-		"    keep:\n"+
-		"      command: keep-cmd\n"+
-		"  plugins:\n"+
-		"    claude-code:\n"+
-		"      multi-server:\n"+
-		"        command: claude-cmd\n"+
-		"      other:\n"+
-		"        command: other-cmd\n"+
-		"    antigravity:\n"+
-		"      multi-server:\n"+
-		"        command: antigravity-cmd\n")
+	// mcp.servers.* (unified) lives in HOME: mcp.servers.*.command is
+	// REQUIRED by the mcpServer schema and is ScopeMachine, so a
+	// project-committed entry cannot survive a real reload — see
+	// mcpTestManagerWithHome's doc. mcp.plugins.* stays in the PROJECT
+	// fixture: it is ScopeShared (not split into a Machine sub-rule the way
+	// mcp.servers.* is — see internal/config/layerscope's DefaultPolicy),
+	// unaffected by this closure.
+	mgr, fs := mcpTestManagerWithHome(t,
+		"version: 5\n"+
+			"mcp:\n"+
+			"  servers:\n"+
+			"    multi-server:\n"+
+			"      command: unified-cmd\n"+
+			"    keep:\n"+
+			"      command: keep-cmd\n",
+		"version: 5\n"+
+			"mcp:\n"+
+			"  plugins:\n"+
+			"    claude-code:\n"+
+			"      multi-server:\n"+
+			"        command: claude-cmd\n"+
+			"      other:\n"+
+			"        command: other-cmd\n"+
+			"    antigravity:\n"+
+			"      multi-server:\n"+
+			"        command: antigravity-cmd\n")
 
 	result, err := RemoveMCPServer(context.Background(), mgr, RemoveMCPServerRequest{
 		Name:    "multi-server",
@@ -695,8 +777,11 @@ func TestRemoveMCPServer_FromAllBackends(t *testing.T) {
 	assert.GreaterOrEqual(t, len(result.RemovedFrom), 2)
 	assert.Contains(t, result.RemovedFrom, "unified")
 
-	// Verify removal
-	cfg := reloadMCPTestConfig(t, fs)
+	// Verify removal against the PROJECT layer's own persisted content
+	// (reloadMCPTestConfigRaw: ParseConfig, no layering) — see
+	// TestRemoveMCPServer_FromUnified's comment for why the fully-merged view
+	// is the wrong check for the unified (home-declared) half here.
+	cfg := reloadMCPTestConfigRaw(t, fs)
 	_, existsInUnified := cfg.GetMCPConfig().Servers["multi-server"]
 	assert.False(t, existsInUnified)
 	_, existsInClaude := cfg.GetMCPConfig().Plugins["claude-code"]["multi-server"]
@@ -814,8 +899,14 @@ func TestAddMCPServer_WithFS_InvalidYAML(t *testing.T) {
 }
 
 func TestRemoveMCPServer_WithFS(t *testing.T) {
-	mgr, fs := mcpTestManager(t, "llm:\n  plugins: {}\n"+
-		"mcp:\n  servers:\n    existing-server:\n      command: npx\n      args:\n        - \"@existing/server\"\n")
+	// existing-server lives in HOME, not the project fixture:
+	// mcp.servers.*.command is REQUIRED by the mcpServer schema and is
+	// ScopeMachine, so a project-committed entry cannot survive a real
+	// reload — see mcpTestManagerWithHome's doc.
+	mgr, fs := mcpTestManagerWithHome(t,
+		"llm:\n  plugins: {}\n"+
+			"mcp:\n  servers:\n    existing-server:\n      command: npx\n      args:\n        - \"@existing/server\"\n",
+		"version: 5\n")
 
 	result, err := RemoveMCPServer(context.Background(), mgr, RemoveMCPServerRequest{
 		Name: "existing-server",
@@ -825,10 +916,25 @@ func TestRemoveMCPServer_WithFS(t *testing.T) {
 	assert.Equal(t, "removed", result.Status)
 	assert.Equal(t, "existing-server", result.Name)
 
-	// Verify the server was removed from the config file
-	data, err := afero.ReadFile(fs, paths.ConfigPath(testBaseDir))
+	// RemoveMCPServer's WRITE only ever targets the PROJECT layer (Manager
+	// was constructed WithAppDir(testBaseDir)) — it never had "existing-server"
+	// to begin with, so the project file staying clean is unaffected by this
+	// operation, not proof of a removal. HOME's own file is what actually held
+	// the entry, and it is untouched: there is no mechanism for a
+	// project-scoped Manager to durably delete an entry declared in a LOWER
+	// layer (D2/D3's deep-merge inheritance has no delete-marker, a
+	// pre-existing layering property this closure did not introduce — see
+	// TestRemoveMCPServer_FromUnified's comment). What this test still pins is
+	// that the OPERATION itself succeeds (found it via the merged view,
+	// reported "removed") without corrupting either file.
+	projectData, err := afero.ReadFile(fs, paths.ConfigPath(testBaseDir))
 	require.NoError(t, err)
-	assert.NotContains(t, string(data), "existing-server")
+	assert.NotContains(t, string(projectData), "existing-server")
+
+	homeData, err := afero.ReadFile(fs, paths.ConfigPath(testHomeAppDir))
+	require.NoError(t, err)
+	assert.Contains(t, string(homeData), "existing-server",
+		"home's own copy is untouched -- Manager cannot write there")
 }
 
 func TestRemoveMCPServer_WithFS_InvalidYAML(t *testing.T) {

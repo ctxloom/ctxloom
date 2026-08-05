@@ -1457,6 +1457,21 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 	return decodeMergedLayers(cfg, layers, product, overrides)
 }
 
+// splitJoinedErrors unwraps an errors.Join result (or a plain single error)
+// into its constituent errors, so a caller can classify each one by TYPE
+// (errors.As) rather than treat a whole multi-error blob as one kind. A nil
+// err yields a nil slice; an error with no Unwrap() []error (a single,
+// non-joined error) yields a one-element slice carrying err itself.
+func splitJoinedErrors(err error) []error {
+	if err == nil {
+		return nil
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		return joined.Unwrap()
+	}
+	return []error{err}
+}
+
 // decodeMergedLayers is loadLayeredConfig's second half: merge the file layers,
 // resolve overrides against the result, and decode it into cfg. Split out
 // because the two halves fail differently and that distinction is the whole
@@ -1472,7 +1487,23 @@ func decodeMergedLayers(cfg *Config, layers []map[string]any, product confload.P
 	}
 	merged, overrideErr := product.ApplyOverrides(merged, overrides)
 	if overrideErr != nil {
-		cfg.warn(WarnKindParse, "config override resolution: %v", overrideErr)
+		// A ScopeAllows-driven drop (env/--config-set attempting a key that
+		// layer may not carry) is classified as WarnKindLayerScope — the SAME
+		// fatal-class finding the per-file-layer check records — so the
+		// strict startup gate reports both routes to the identical
+		// disallowed-layer problem identically. Every OTHER override fault
+		// (an ambiguous case-2 collision, a malformed --config-set entry)
+		// keeps the existing, coarser WarnKindParse classification: this is
+		// splitting one joined error by TYPE, not inventing a new pass over
+		// anything.
+		for _, sub := range splitJoinedErrors(overrideErr) {
+			var scopeErr *confload.ScopeViolationError
+			if errors.As(sub, &scopeErr) {
+				cfg.warn(WarnKindLayerScope, "config override resolution: %v", sub)
+			} else {
+				cfg.warn(WarnKindParse, "config override resolution: %v", sub)
+			}
+		}
 		zap.L().Warn("config_override_warning", zap.Error(overrideErr))
 	}
 

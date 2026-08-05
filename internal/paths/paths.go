@@ -147,6 +147,14 @@ const (
 	// would ship a prior authorization to every clone.
 	DirtyTreeCommitAckFileName = "dirty_tree_commit_ack"
 
+	// ProjectIDFileName is the name of the gitignored project-identity marker
+	// at .ctxloom/project-id (ADR 0025) — the key to this project's task log,
+	// ~/.ctxloom/tasks/<project-id>.jsonl (internal/shared/tasks/paths owns
+	// the canonical resolution; this constant exists so Layout can name the
+	// path without an unnamed string literal — see
+	// TestPathSegments_ComeFromNamedConstants).
+	ProjectIDFileName = "project-id"
+
 	// TriggersDir is the cache/ subdirectory holding ctxloom's cached
 	// revive-trigger verdicts, one file per project (see TriggerCacheDir).
 	TriggersDir = "triggers"
@@ -734,7 +742,7 @@ func Layout() []Entry {
 			Lost: "the content-addressed snapshots review diffed an update against; update review degrades from a diff to a full-content dump, but committed approval signatures still verify",
 		},
 		{
-			Rel: filepath.Join(AppDirName, "project-id"), Tier: TierLocal,
+			Rel: filepath.Join(AppDirName, ProjectIDFileName), Tier: TierLocal,
 			Lost: "the key to this project's task log (~/.ctxloom/tasks/<project-id>.jsonl); without it a fresh clone mints a NEW project id and starts an empty log, and every task the team logged stays on disk under the old id, unreachable from the clone",
 		},
 		{

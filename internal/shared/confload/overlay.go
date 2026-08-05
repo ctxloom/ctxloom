@@ -67,6 +67,24 @@ func (s OverrideSource) String() string {
 	}
 }
 
+// ScopeViolationError is what ApplyOverrides returns (joined alongside any
+// other override error) when Product.ScopeAllows answers false for a
+// resolved override path. It is a distinct type — not a bare fmt.Errorf —
+// so a caller with its own per-kind diagnostics (ctxloom's decodeMergedLayers
+// classifies this as WarnKindLayerScope, distinctly from an ambiguous
+// override's plainer error) can tell the two apart via errors.As instead of
+// string-matching the message.
+type ScopeViolationError struct {
+	Source  OverrideSource
+	Path    []string
+	Why     string
+	Display string // the raw override's display form (env var name / --config-set entry)
+}
+
+func (e *ScopeViolationError) Error() string {
+	return fmt.Sprintf("%s: %s may not set %q — %s", e.Display, e.Source, strings.Join(e.Path, "."), e.Why)
+}
+
 // ReadOverrides captures the process's env/CLI overrides ONCE — see the
 // package doc's "Overrides are captured once, resolved on every load"
 // section. It does NOT resolve anything against a config base; that happens
@@ -359,7 +377,9 @@ func (p Product) resolveRaw(base map[string]any, raw map[string]any, tokenize fu
 				// Dropped, not fatal — exactly like an ambiguous override
 				// (case 2): every OTHER override still resolves normally, and
 				// this one's target is simply absent from the returned layer.
-				errs = append(errs, fmt.Errorf("%s: %s may not set %q — %s", display, source, strings.Join(path, "."), why))
+				// A typed error (not a bare fmt.Errorf), so a caller can
+				// classify this distinctly from every other override fault.
+				errs = append(errs, &ScopeViolationError{Source: source, Path: path, Why: why, Display: display})
 				continue
 			}
 		}

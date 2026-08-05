@@ -15,7 +15,26 @@ func DefaultPolicy() Policy {
 		{Path: "agents.*.engine", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		{Path: "agents.*.driving", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		{Path: "agents.*.escalation", Scope: ScopeShared, Note: "which context this project's roles compose"},
-		{Path: "agents.*.runtime", Scope: ScopeMachine, Note: "whether THIS box has a container runtime"},
+		// DIVERGES from the design doc's literal table (which lists this as
+		// ScopeMachine): reclassified to Shared. Reasoning, in full, belongs
+		// in the human-facing report for this change (it is a deliberate,
+		// documented divergence, not an oversight) — in short: (1) none of
+		// the three measured escalation paths touch runtime; (2)
+		// strictness.ClassIsolation ALREADY independently refuses a
+		// container-runtime agent on a machine that lacks the runtime, so
+		// ScopeMachine here is redundant with an existing safety net, not a
+		// new one; (3) MEASURED — agentBindingMergeFunc's atomic-replace rule
+		// (D) means an agent named by the project (as any agent with a real
+		// `engine` must be, since agents.*.engine is Shared and can never
+		// live in home) can NEVER also inherit a home-only `runtime`: home's
+		// contribution is replaced wholesale the instant project names the
+		// same agent. Machine-scoping runtime here does not create friction,
+		// it creates a hard, unconditional dead end for every
+		// project-defined, container-isolated agent — there is no config
+		// shape that makes both engine and runtime:container stick together
+		// outside a one-off --config-set flag. That is a functional
+		// regression far outside this fix's three named targets.
+		{Path: "agents.*.runtime", Scope: ScopeShared, Note: "which context (and posture) this project's roles compose; strictness.ClassIsolation already refuses per-machine when the runtime isn't available"},
 		{Path: "agents.*.permissions", Scope: ScopeShared, Note: "a privilege grant; a team may decide it, but a user's home config must never fill it in for a project"},
 		{Path: "agents.*.coordinator", Scope: ScopeShared, Note: "a privilege grant; a team may decide it, but a user's home config must never fill it in for a project"},
 
@@ -51,6 +70,13 @@ func DefaultPolicy() Policy {
 		{Path: "isolation_devcontainer_base", Scope: ScopeMachine, Note: "whether THIS box has a devcontainer to auto-detect"},
 		{Path: "isolation_devcontainer_service", Scope: ScopeMachine, Note: "a fact about this box's compose setup"},
 		{Path: "isolation_base_containerfile", Scope: ScopeShared, Note: "its own doc: relative paths resolve against the project root — a repo file"},
+		// Kept as the design doc specifies (ScopeMachine), UNLIKE
+		// agents.*.runtime above: this top-level project DEFAULT is not part
+		// of any agent binding, so agentBindingMergeFunc's atomic-replace
+		// rule never touches it — it has the SAME "committed file loses a
+		// pre-existing Machine value on next write" friction every other
+		// Machine-scoped project-committed field now has (accepted per
+		// design decision #4), not agents.*.runtime's unconditional dead end.
 		{Path: "runtime", Scope: ScopeMachine, Note: "whether THIS box has a container runtime"},
 
 		{Path: "sync.auto_sync", Scope: ScopePreference},

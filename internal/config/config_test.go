@@ -955,8 +955,17 @@ func TestConfig_Save_PreservesLLMRolesAndEditor(t *testing.T) {
 	}
 	require.NoError(t, cfg.saveLocked(cfg.getFS(), paths.ConfigPath(tmpDir)))
 
-	// Round-trip through Load to confirm the values survived.
-	loaded, err := Load(WithAppDir(tmpDir))
+	// Round-trip through ParseConfig (a single-document parse, no layering)
+	// rather than the layered Load: editor.command/args are ScopeMachine
+	// (internal/config/layerscope), which the committed PROJECT layer this
+	// test writes to may no longer carry (a project-committed editor
+	// preference is now a genuine layerscope violation, correctly dropped on
+	// a real Load). What THIS test verifies is Save's own serialization
+	// fidelity -- does Marshal emit every field it was given -- which
+	// ParseConfig checks independent of any layer-scope policy.
+	data, err := os.ReadFile(paths.ConfigPath(tmpDir))
+	require.NoError(t, err)
+	loaded, err := ParseConfig(data)
 	require.NoError(t, err)
 	assert.Equal(t, "big", loaded.lm.Defaults.Primary)
 	assert.Equal(t, "fast", loaded.lm.Defaults.Fast)
@@ -1027,11 +1036,20 @@ agents:
 // decoder (viper) lowercased every key, so `env: {SOME_API_KEY: ...}` reached the
 // launched process as `some_api_key` and the engine never saw its credential.
 // ParseConfig (init) was always correct, which masked the divergence.
+//
+// llm.configs.*.env is ScopeMachine (internal/config/layerscope): credential
+// passthrough, where a committed PROJECT-file value is a leaked secret. So
+// this fixture now lives in the HOME layer — $HOME is pinned to a fixed path
+// on the SAME memfs so Load's home-layer resolution is deterministic.
 func TestLoad_PreservesEnvKeyCase(t *testing.T) {
+	t.Setenv("HOME", "/home/u")
 	fs := afero.NewMemMapFs()
 	appDir := "/project/" + paths.AppDirName
 	require.NoError(t, fs.MkdirAll(appDir, 0755))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 3\n"), 0644))
 
+	homeAppDir := "/home/u/" + paths.AppDirName
+	require.NoError(t, fs.MkdirAll(homeAppDir, 0755))
 	configContent := `
 version: 3
 llm:
@@ -1044,7 +1062,7 @@ llm:
   defaults:
     primary: agy
 `
-	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte(configContent), 0644))
+	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(homeAppDir), []byte(configContent), 0644))
 
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir))
 	require.NoError(t, err)

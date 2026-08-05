@@ -529,7 +529,8 @@ func rewriteSeqCommandSelectors(m *yaml.Node, key string) {
 //     its per-item comments ride along).
 //   - llm.defaults.primary value → agents.default.engine (when present), so the
 //     synthesized default agent launches the same backend profiles.defaults did.
-//   - agents.default.runtime: host (the implicit pre-agent default).
+//   - agents.default.runtime is left unset (empty already resolves to the
+//     implicit pre-agent default, "host" — see migrateDefaultAgentV6).
 //   - default_agent: default (top level).
 //   - delete profiles.defaults; prune an emptied profiles: map; set version 6.
 //
@@ -594,7 +595,16 @@ func migrateDefaultAgentV6(root *yaml.Node) {
 		}
 		// Move the defaults seq node itself so its item comments survive.
 		upgrade.MapSet(entry, "profiles", defaultsSeq)
-		upgrade.MapSet(entry, "runtime", upgrade.ScalarNode("host"))
+		// agents.*.runtime is deliberately left UNSET here, not written as an
+		// explicit "host": Agent.Runtime's own doc says empty already means
+		// "host" (the pre-agent implicit default this migration preserves),
+		// so writing it explicitly added no information -- and after
+		// layerscope closed the "agents.*.runtime in a committed project
+		// file" escalation (ScopeMachine disallows LayerProject), an explicit
+		// value synthesized here would be flagged and dropped on the very
+		// next load of a migrated PROJECT config, which is worse than never
+		// having written it. See config_migrate_test.go for the pinned
+		// absence.
 	} else {
 		recordMigrationWarning("config migration: dropped profiles.defaults %v (agents.default already exists); re-add them under agents.<name>.profiles", scalarSeqValues(defaultsSeq))
 	}

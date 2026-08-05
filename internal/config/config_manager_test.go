@@ -252,28 +252,34 @@ func TestUpdate_AbandonedMutationDoesNotLeak(t *testing.T) {
 // survives Invalidate()+Load() onto freshly-read files: the override is not
 // something only the FIRST Load() resolves, it re-applies every time exactly
 // like a fresh process start would.
+// runtime (ScopeMachine) is the override target here, not workspace
+// (ScopeShared, this test's original target): env may not set a
+// ScopeShared key (internal/config/layerscope) — a project-policy key like
+// workspace must come from project/flag, never the ambient environment.
+// workspace still appears below as the "freshly-added, no-override" field,
+// since a plain project-file value stays legal there.
 func TestReload_ReappliesPersistentOverlays(t *testing.T) {
-	path := writeProjectConfig(t, "version: 6\nworkspace: none\n")
+	path := writeProjectConfig(t, "version: 6\nruntime: host\n")
 	appDir := filepath.Dir(path)
 
 	SetOverrides(confload.Overrides{
-		Env: map[string]any{"WORKSPACE": "worktree"},
+		Env: map[string]any{"RUNTIME": "container"},
 	})
 	t.Cleanup(ResetOverrides)
 
 	snap, err := Load()
 	require.NoError(t, err)
-	require.Equal(t, "worktree", snap.GetWorkspace(), "precondition: the override beats the file's own value")
+	require.Equal(t, "container", snap.GetRuntime(), "precondition: the override beats the file's own value")
 
 	// Edit the file on disk directly, out from under the memo, to a DIFFERENT
 	// value the override must continue to beat.
-	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\nworkspace: worktree\nruntime: container\n"), 0o644))
+	require.NoError(t, os.WriteFile(paths.ConfigPath(appDir), []byte("version: 6\nruntime: host\nworkspace: worktree\n"), 0o644))
 
 	Invalidate()
 	reloaded, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "worktree", reloaded.GetWorkspace(), "the override must still beat the freshly re-read file after a reload")
-	assert.Equal(t, "container", reloaded.GetRuntime(), "a freshly-added file value with no override must still come through")
+	assert.Equal(t, "container", reloaded.GetRuntime(), "the override must still beat the freshly re-read file after a reload")
+	assert.Equal(t, "worktree", reloaded.GetWorkspace(), "a freshly-added file value with no override must still come through")
 }
 
 // TestReload_ExistingSnapshotHoldersUnaffected proves a holder of a prior

@@ -147,23 +147,23 @@ Feature: A new engineer clones the repo and is already set up
     And the materialized opencode command file carries the shared command's body, in its own native shape
     And no opencode surface anywhere in the materialized tree carries the shared hook's command
 
-  # @wip — THE PRODUCT GAP, stated as the scenario that would prove it fixed.
+  # THE PRODUCT GAP THAT CLOSED, stated as the scenario that proves it fixed.
   # The scenario above proves the loss is real; this one asks for the thing
   # that would have saved Bob's deskmate an afternoon: the materialize report
-  # naming what it could not deliver. There is no per-engine capability-loss
-  # report at materialize time today (FLOWS-UNIFIED.md §4 finding class (b),
-  # boundary B7's axis face), so this cannot honestly go green and is not
-  # pretended into one.
+  # naming what it could not deliver.
   #
-  # It fails on the RIGHT thing: `profile materialize --backend opencode`
-  # never mentions hooks in any form, so the assertion is not sensitive to
-  # the eventual wording — only to whether the loss is reported at all.
+  # It asserts on the RIGHT thing: it is not sensitive to the eventual wording,
+  # only to whether the loss is reported at all — before the fix, `profile
+  # materialize --backend opencode` never mentioned hooks in any form.
   #
-  # UNTAG CONDITION: when `profile materialize` reports the surfaces an
-  # engine cannot carry, and the opencode run's report mentions the hook it
-  # dropped. Until then this journey's honest state is "one silent per-engine
-  # loss, discovered by accident rather than by tool".
-  @wip
+  # UNTAGGED: backends.UncarriedSurfaces (declared per-backend as
+  # `noHooksReason`, "opencode has no hook mechanism") is the delivery report's
+  # inverse over the same inputs, and internal/cli's materialize renderer prints
+  # its lines among the `wrote` lines rather than in a trailing pass — so a
+  # reader who scans only the top no longer comes away with "wrote four things"
+  # as the whole story. Confirmed to BITE: making UncarriedSurfaces return nil
+  # puts the report back to "wrote context / settings / commands / skills" with
+  # no mention of hooks, and turns this red.
   Scenario: Materializing for an engine that cannot carry hooks says so
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
     When Alice materializes the team profile for opencode

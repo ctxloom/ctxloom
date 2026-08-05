@@ -34,7 +34,9 @@ Feature: Engine switch day
   # that fails, because the team's assistant quietly knows something different
   # on Monday and nobody is told what.
   #
-  # NOTE ON TAGS. Every scenario is @wip with its own untag condition.
+  # NOTE ON TAGS. Each scenario carries its own note: an untagged one records
+  # the mutation that proves it can still fail, a @wip one the product surface
+  # that does not exist yet.
 
   Background:
     Given Alice's team has standardised on one engine and is moving to another
@@ -44,9 +46,10 @@ Feature: Engine switch day
   # disagree, and a binding that changed in config while the inspector still
   # reports the old engine is a migration nobody can verify.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today; this is
-  # the CE5 claim and its pieces are all built.
-  @wip
+  # UNTAGGED: confirmed to pass as written, and confirmed to BITE. Dropping
+  # `entry.Engine = orKeep(...)` from operations.SetAgent — so `agent edit
+  # --engine` reports "Updated agent" and writes the old engine back — turns
+  # this red on the on-disk assertion, which is the failure the scenario names.
   Scenario: The engine changes under the binding and the context does not
     Given the team's guidance reaches the old engine's own surface
     When Alice swaps the engine under the binding
@@ -105,8 +108,14 @@ Feature: Engine switch day
   # unrelated change and least likely to be noticed, because nobody looks for
   # old sessions until they need one.
   #
-  # UNTAG WHEN: confirmed to pass as written. Believed to pass today.
-  @wip
+  # UNTAGGED, but only after the assertion was made capable of failing. As
+  # written it searched the COMBINED output for the harp, and Manager.Reconcile
+  # warns "session <harp> dropped from the index" when it reaps one — so the
+  # message announcing the history was deleted satisfied the check for the
+  # history surviving. Measured: with operations.isUnrecoverable inverted for
+  # distilled entries the listing returned zero rows and the scenario stayed
+  # green. It now reads the ROWS out of `session list --all --format json`
+  # stdout, and that same mutation turns it red.
   Scenario: History recorded under the old engine survives the move
     Given a session was recorded under the old engine before the switch
     When Alice swaps the engine under the binding

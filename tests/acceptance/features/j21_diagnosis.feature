@@ -29,11 +29,18 @@ Feature: The day the assistant goes blind
   # about what an INSPECTOR reports. Nothing below re-proves that a tampered
   # bundle is detected or that `bundle sign` writes bytes.
   #
-  # NOTE ON ASSERTIONS. No scenario here asserts an exit code. An inspector that
-  # exits 0 while naming nothing is precisely the failure under test, so
+  # NOTE ON ASSERTIONS. No INSPECTOR's exit code is asserted here. An inspector
+  # that exits 0 while naming nothing is precisely the failure under test, so
   # "the command succeeds" would assert the bug. Every Then reads a payload:
   # the bytes of the assembled context, or the inspector's own words naming a
   # specific bundle, fragment, or file.
+  #
+  # THE ONE EXCEPTION, added 2026-08-05 and not a softening of that rule: B2's
+  # refusal row asserts that `remote upgrade` exits 2. That is not "the command
+  # succeeded", it is the OPPOSITE — the code is the only thing an unattended
+  # sync tells a script, and 0 there would make a refusal indistinguishable from
+  # a round with nothing to do. It sits beside four payload assertions that
+  # cover what the human is told; neither substitutes for the other.
   #
   # NOTE ON TAGS. Every scenario in this file is @wip, including the ones
   # believed to pass today — this file is a to-do list to be walked one scenario
@@ -109,10 +116,14 @@ Feature: The day the assistant goes blind
   # failed step, so the three later Thens are skipped rather than separately
   # red. That is why they are mutated separately.
   #
-  # The four Thens are separate on purpose, because they are four different
+  # The five Thens are separate on purpose, because they are five different
   # ways this can be wrong. The pin can move. The pin can hold while the
   # content stops arriving anyway. Everything can be right and nobody told, a
-  # silence indistinguishable from "already up to date". And the sync can name
+  # silence indistinguishable from "already up to date". The HUMAN can be told
+  # while the SCRIPT is not — an unattended sync that refuses and exits 0 is,
+  # to the cron job that ran it, the same as one with nothing to do, so exit 2
+  # is asserted on its own (cli.exitCodeRefused, docs/cli-ux-principles.md §7;
+  # decided in taskloom monstrous-speech). And the sync can name
   # a remedy that does not exist: it used to say "Changed content from
   # untrusted sources is withheld until reviewed: ctxloom review", and
   # `ctxloom review` answered "Nothing is pending review." — content withheld
@@ -127,6 +138,7 @@ Feature: The day the assistant goes blind
     And the runbook's pin did not advance, and the lockfile still holds the commit whose signature verified
     And her assistant is still served the content at that pin
     And the sync told her the runbook cannot be verified, naming the pin it kept
+    And the sync exited with the code for "did some of this deliberately not happen"
     And the remedy it named is not the review queue, which has nothing to offer her
 
   # THE TRAP, asserted deliberately. Alice's first instinct is `review --list`,
@@ -166,48 +178,48 @@ Feature: The day the assistant goes blind
     Then the pending-review list does not name the runbook at all
     And her assistant never receives the revised deploy guidance
 
-  # B2's DEFECT, red and expected to stay red. Boundary-table verdict: PARTIAL —
-  # nothing NAMES "unsigned". Today Alice finds this by diffing lockfiles by
-  # hand. The step probes every inspector the boundary table nominates (doctor,
-  # review --list, bundle list, bundle show, trust signer list) and fails with
-  # all five outputs quoted, so the red scenario is itself the evidence of what
-  # each surface says instead.
+  # B2's DEFECT, and it is CLOSED. Boundary-table verdict was PARTIAL — nothing
+  # named the cause, and Alice found it by diffing lockfiles by hand. The step
+  # probes every inspector the boundary table nominates (doctor, review --list,
+  # bundle list, bundle show, trust signer list) and fails with all five outputs
+  # quoted, so a red run is itself the evidence of what each surface says.
   #
-  # UNTAG WHEN: any ctxloom inspector names the withheld bundle AND the word
-  # "unsigned" in one report. FLOWS-UNIFIED §5.5 puts this in doctor's trust
-  # checks; any surface satisfying the assertion is fine. This is one of the two
-  # sharpest diagnosis gaps in the product.
+  # UNTAGGED 2026-08-05. `ctxloom doctor` answers it:
+  # DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5 names the bundle, the revision that was
+  # refused, and the pin being kept, days after the sync that refused it.
   #
-  # ITS PREMISE MOVED, RE-MEASURED 2026-08-05 against the refusal above, and
-  # this paragraph replaces one that is no longer true.
+  # THE ROW'S SUBJECT MOVED, and the assertion moved with it — recorded because
+  # it is a judgement, not a case fold. The step used to look for the word
+  # "unsigned", and that word was never true of the cause this fixture plants:
+  # Carol's bundle IS signed. She edited the bytes and carried the old .sig
+  # forward, which is a signature that does not cover what it sits beside — a
+  # different state from unsigned entirely (docs/trust-model.md, "Item states").
+  # The old green would have been an accident: while upgrade still advanced the
+  # pin, DOCTOR-CHECK-CONTENT-TRUST-n4 warned "1 remote bundle(s) are UNSIGNED
+  # to this machine …", and only "UNSIGNED" vs the step's "unsigned" kept it
+  # red — a case fold away from passing on a report that misdescribed the cause.
   #
-  # While upgrade still advanced the pin, `doctor` came within a case fold of
-  # closing this row: DOCTOR-CHECK-CONTENT-TRUST-n4 warned "1 remote bundle(s)
-  # are UNSIGNED to this machine, so their content is withheld …
-  # @bundles/deploy-runbook", which names the bundle and the reason in one
-  # report, and only "UNSIGNED" vs the step's "unsigned" kept it red.
+  # And since upgrade REFUSES the advance, "withheld" is wrong too: nothing is
+  # withheld, the kept pin verifies, and the guidance keeps arriving. Only the
+  # REVISION is missing. n4 now truthfully reports "[ok] every remote bundle's
+  # content is attributable to a publisher this machine trusts", which is why it
+  # cannot be the inspector for this row and a second check had to exist.
   #
-  # Now that upgrade REFUSES the advance, that warning is gone: nothing is
-  # withheld at the kept pin, and n4 reports "[ok] every remote bundle's
-  # content is attributable to a publisher this machine trusts" — which is
-  # true. The runbook did not stop arriving; only the REVISION did, and the
-  # thing that names that is the sync's own refusal message (asserted by the
-  # first scenario above), not an after-the-fact inspector.
+  # The QUESTION is unchanged — "why is the newer copy not here, days after the
+  # sync?" — so the three facts an answer needs are asserted instead of the two
+  # tokens: the bundle, that its signature does not verify, and the pin being
+  # served in its place. That is strictly more than the row asked for before.
   #
-  # So this row is asking a question whose subject has changed, and answering
-  # it means deciding what "why did the newer copy not arrive?" should be
-  # ANSWERABLE BY, minutes or days after the sync that refused it — a
-  # persisted refusal doctor could read, most likely. That is a design
-  # question, not a case fold. It stays @wip, with its untag condition
-  # unchanged: some inspector names the bundle and why its revision is not
-  # here.
-  @wip
-  Scenario: An inspector names the unsigned runbook as the reason it is withheld
+  # IT BITES, verified 2026-08-05: dropping doctorCheckUpstreamSignatures from
+  # runDoctorCmd's check list turns it red with all five probe outputs quoted,
+  # and so does making operations.LiveRefusedAdvances return nothing (the check
+  # then reports its own [ok] line and names neither the bundle nor the pin).
+  Scenario: An inspector names the refused revision and the pin she is kept at
     Given Carol published the signed runbook, and Alice's assistant receives its deploy guidance
     And Carol edits the runbook on Friday and never re-signs it
     And Alice syncs on Monday
     When Alice asks ctxloom why the runbook stopped arriving
-    Then some inspector names the runbook as withheld because it is unsigned
+    Then some inspector names the runbook, the signature that does not verify, and the pin she is kept at
 
   # ---- B3: attested -> distributed --------------------------------------
   # Silent-loss mode: published, never pulled — or, as here, deliberately frozen

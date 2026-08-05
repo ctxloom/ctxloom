@@ -191,6 +191,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckVersion(),
 			doctorCheckHooksTrust(ctx, cfg, cfgErr),
 			doctorCheckContentTrust(cfg, cfgErr),
+			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr),
 			doctorCheckSetupAuthPing(),
@@ -938,6 +939,68 @@ func doctorCheckContentTrust(cfg *config.Config, cfgErr error) doctorCheck {
 		Detail: fmt.Sprintf("%d remote bundle(s) are UNSIGNED to this machine, so their content is withheld from your assistant: %s "+
 			"(the publisher never signed these bytes, or signed with a key you do not trust — `ctxloom trust signer create` to trust the key, or ask the publisher to sign)",
 			len(unsigned), strings.Join(unsigned, ", "))}
+}
+
+// doctorCheckUpstreamSignatures names every revision `remote upgrade` REFUSED
+// to advance onto because the publisher signature at that commit does not
+// verify over its bytes — and the pin it kept instead.
+//
+// IT EXISTS BECAUSE THE REFUSAL FIXES THE PROBLEM AND THEREBY HIDES IT.
+// DOCTOR-CHECK-CONTENT-TRUST-n4 above asks "is any installed content withheld
+// from your assistant?", and after a refusal the honest answer is NO: the pin
+// stayed on content that verifies, so it reports [ok] and is right to. The
+// thing that went wrong is not in the project at all — it is a REVISION that
+// exists upstream and was not taken. Nothing on this machine is in a bad
+// state, which is precisely why no other inspector has anything to say, and
+// why without this check the fact lives only in the transient stdout of the
+// sync that refused it.
+//
+// THE FRAMING IS THE POINT, and it is the opposite of n4's. n4 names something
+// the user can act on locally (trust a key, or ask for a signature). This one
+// must not: there is nothing to configure, no key to add, no flag to pass. The
+// publisher has to re-sign and republish. A message that reads as a local
+// misconfiguration would send someone editing their trust store to fix a
+// problem that is not on their machine.
+//
+// WARN RATHER THAN INFO, deliberately. doctorInfo means "nothing to fix", and
+// something does need fixing — just not by the person reading it. It is never
+// fatal: doctor fails no process, and this check in particular reports a
+// project that is working correctly off its last verified pin.
+//
+// It makes no trust decision, parses no signature and re-verifies nothing: it
+// reads what the upgrade round recorded, filtered by
+// operations.LiveRefusedAdvances to those still describing the pin the lockfile
+// actually holds, so a record left over from a world that has moved on is
+// dropped rather than reported.
+func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) doctorCheck {
+	const marker = "DOCTOR-CHECK-UPSTREAM-SIGNATURES-o5"
+	if cfgErr != nil {
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
+	}
+	refused, err := operations.LiveRefusedAdvances(cfg)
+	if err != nil {
+		// Reported, never folded onto "nothing was refused": this record's one
+		// job is to keep a fact from evaporating, so reading an unreadable
+		// store as silence would reproduce the exact gap it closes.
+		return doctorCheck{Marker: marker, Status: doctorWarn,
+			Detail: "could not read the record of refused upgrades, so this check cannot say whether any revision was refused: " + err.Error()}
+	}
+	if len(refused) == 0 {
+		return doctorCheck{Marker: marker, Status: doctorOK,
+			Detail: "no upstream revision has been refused: every pin your last upgrade could advance landed on content whose publisher signature verifies"}
+	}
+	sort.Slice(refused, func(i, j int) bool { return refused[i].Identity < refused[j].Identity })
+	var parts []string
+	for _, r := range refused {
+		parts = append(parts, fmt.Sprintf("%s at revision %s does not verify, so the pin is being kept at %s (refused %s)",
+			r.Identity, shortSHA(r.ProposedSHA), shortSHA(r.KeptSHA), r.RefusedAt.Format("2006-01-02")))
+	}
+	return doctorCheck{Marker: marker, Status: doctorWarn,
+		Detail: fmt.Sprintf("%d upstream revision(s) were REFUSED because the PUBLISHER's signature does not cover the bytes it sits beside: %s. "+
+			"Nothing is wrong on this machine and nothing is withheld from your assistant — it is served the content at the kept pin. "+
+			"There is nothing to configure here: the publisher must re-sign and republish, and `ctxloom remote upgrade` picks it up "+
+			"and clears this the next time it runs",
+			len(refused), strings.Join(parts, "; "))}
 }
 
 // doctorIsRemoteBundle reports whether a listing name is a REMOTE bundle — one

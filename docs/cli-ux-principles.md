@@ -132,8 +132,41 @@ actionable next step, in the tool's own flag vocabulary?
 - **Output is quiet by default, informative on demand.** No banner, no
   self-congratulation; one line per fact.
 
+### The exit-code ladder
+
+ctxloom's own codes, in full. A wrapped engine's exit code passes through
+unchanged, so these are ctxloom's answers only when ctxloom is the one
+answering.
+
+| Code | Meaning |
+| ---- | ------- |
+| `0` | Success: the command ran and delivered its effect. |
+| `1` | ctxloom's own error. The fallback for anything unclassified. |
+| `2` | **Refused.** The command ran to completion and *deliberately did not do* something it was asked to do. Nothing failed. |
+| `3` | Startup aborted over collected fatal findings (strict mode). |
+
+**The ladder is categorical, not ordered by severity.** Read it as a set of
+distinct answers to "what happened?", never as a scale: `3` (a startup abort)
+is a far more serious outcome than `1` (a mistyped flag). Code that treats a
+higher number as a worse outcome is wrong about this vocabulary.
+
+`2` exists because the two neighbouring codes both lie about a refusal. `1`
+reports a decision as a fault and sends the user hunting a problem on their own
+machine that is not there. `0` makes an unattended run that refused
+indistinguishable, to the script that ran it, from one that had nothing to do —
+the same silence the bullet above forbids. Today's sole use: `ctxloom remote
+upgrade` declining to advance a pin onto content whose publisher signature does
+not verify over its bytes (`exitCodeRefused`, `internal/cli/startup_helpers.go`,
+beside `exitCodeFatalFindings`).
+
+A refused command still prints its full explanation on the way out; the code is
+for the script, the message is for the human. Nothing prints an `Error:` line
+on top of it — a refusal is not an error report.
+
 **Check:** pipe every read command through a consumer; does anything
 non-data leak into stdout? Grep for error paths that forget a nonzero exit.
+For any command that can decline part of what it was asked: does it exit `2`,
+and does a test assert the code rather than only the message?
 
 ## 8. Human-first output with a machine escape hatch
 

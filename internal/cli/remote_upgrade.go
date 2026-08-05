@@ -30,6 +30,12 @@ over its bytes: that content is withheld as tampered and cannot be reviewed, so
 advancing past the last commit that did verify would leave you with neither
 copy. The old pin is kept and the refusal is reported.
 
+A refusal EXITS 2, not 0 and not 1: the command ran fine and deliberately did
+not do part of what it was asked, so an unattended sync can tell "I refused
+something" apart from both "nothing to do" (0) and a failure (1). The refusal
+also survives the run — 'ctxloom doctor' reports it until an upgrade advances
+that pin.
+
 Mirrors apt: where 'remote update' refreshes the local clones (the index),
 'remote upgrade' advances your pins to the newest commit. Passive 'remote pull'
 installs exactly what is already pinned and never advances.
@@ -78,7 +84,7 @@ func runRemoteUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, err
 			// Deliberately NOT "Everything is up to date." — nothing advanced
 			// precisely because something was wrong upstream.
 			fmt.Printf("No pins advanced: %d refused above. Your existing pins are unchanged.\n", len(res.Refused))
-			return nil
+			return refusedExit()
 		}
 		// "Everything is up to date." used to print unconditionally
 		// here, even on a round where part of the dependency closure could not
@@ -103,7 +109,26 @@ func runRemoteUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, err
 	// advance outright (above), and what remains is pointed at an inspector
 	// that answers whatever the state actually is.
 	fmt.Println("Newly pinned content is not exposed to your assistant until it passes the trust gate: run 'ctxloom doctor' to see whether any of it is withheld, and why.")
+	// A round can BOTH advance some pins and refuse others; the refusal is what
+	// decides the exit code, because it is the part of the request that was not
+	// carried out. Reporting a partial round as a clean 0 is the silence this
+	// whole feature exists to remove.
+	if len(res.Refused) > 0 {
+		return refusedExit()
+	}
 	return nil
+}
+
+// refusedExit is the exit-2 outcome: the command completed, said in full why,
+// and deliberately did not do part of what it was asked (exitCodeRefused).
+//
+// It rides ExitError because that is this CLI's one mechanism for an error that
+// carries its own code, and — load-bearing here — Run() returns an ExitError's
+// code WITHOUT printing it. The refusal has already been reported above, in
+// language a human can act on; an "Error: exit code 2" line under it would add
+// nothing and would read as a failure of the tool rather than a decision by it.
+func refusedExit() error {
+	return &ExitError{Code: exitCodeRefused}
 }
 
 // reportRefusedAdvances says, for each pin upgrade declined to move, the three

@@ -222,7 +222,13 @@ under an identity nobody can type or revoke, since `signer remove` compares
 principals literally). **VERIFIED** as consistent with real `ssh-keygen`'s
 observed principal-matching behavior on a BOM-prefixed line.
 
-### Line-level tolerance, and an over-long-line divergence resolved toward more permissiveness
+### Line-level tolerance: a malformed line is skipped, not fatal to the file
+
+> Note on wording: "tolerant" below means tolerant of *malformed input*, and
+> never more trusting. A skipped line grants nothing. The change described
+> here removed a place where this package was *more restrictive* than
+> `ssh-keygen`; it did not make it more permissive **than `ssh-keygen`**,
+> which is the only comparison the trust invariant is about.
 
 `Parse` never fails outright for malformed content: a line that cannot be
 turned into an entry is skipped and reported, and the rest of the file still
@@ -245,9 +251,12 @@ field without ever reading the key-type token that precedes it, so `ssh-rsa
 <an-ed25519-blob>` parses there as a perfectly good ed25519 key. **VERIFIED**
 that real `ssh-keygen` calls this "invalid key" and refuses to verify
 against it. This package checks the declared token against the blob's
-actual type and rejects a mismatch — this is the one divergence in this
-package's history that went in the *more-trust* direction before it was
-fixed, and it stays covered by a dedicated test for exactly that reason.
+actual type and rejects a mismatch — one of the two divergences in this
+package's history known to have gone in the *more-trust* direction before
+being fixed (the other is the quoted-principals bug described under "The
+trust invariant" below). Both stay covered by dedicated tests for exactly
+that reason: this is the direction of error the invariant exists to catch,
+and it has been reached twice.
 
 ## The trust invariant
 

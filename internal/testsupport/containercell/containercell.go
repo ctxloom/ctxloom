@@ -22,6 +22,14 @@
 // vacuous green, which in a suite whose subject is the silent no-op is worse
 // than red.
 //
+// WHAT THE CELL DOES NOT DECIDE. A cell that mounts and launches the container
+// itself proves that delivery INTO a mount survives the boundary; it cannot
+// prove that ctxloom's own isolation aims delivery at that mount rather than at
+// the scratch overlay it lays over the engine's managed-config directory. For
+// that, the cell is a supplier rather than the launcher: EnsureRunPolicyImage
+// builds the image the PRODUCT's Container policy launches, and
+// internal/lm/isolation's TestContainerRun_* pair drives the real run.
+//
 // # THE THREE DESIGN DECISIONS
 //
 // 1. THE IMAGE IS `FROM scratch`. Hermetic means no network, and every other
@@ -257,6 +265,23 @@ var (
 // other.
 const ImageTag = "ctxloom-cell:latest"
 
+// RunPolicyImageTag is the cell image built for CTXLOOM'S OWN container
+// isolation to launch, rather than for the cell to launch itself. It is a
+// SEPARATE tag from ImageTag for one reason: the isolation policy runs
+// `<defaultContainerBinary> llm serve <backend>`, a fixed in-image path
+// (/usr/local/bin/ctxloom) that is not the cell's own /ctxloom — so the two
+// images differ in exactly one COPY destination and must not share a tag that
+// would make whichever built last win.
+const RunPolicyImageTag = "ctxloom-cell-runpolicy:latest"
+
+// RunPolicyBinary is where RunPolicyImageTag carries ctxloom: the path
+// internal/lm/isolation's container policy hardcodes as the in-container
+// ctxloom (its defaultContainerBinary). The literal is duplicated here rather
+// than imported because the isolation package must not depend on testsupport
+// in the other direction; the isolation-side test asserts the two agree, so a
+// drift is loud rather than a container that starts and does nothing.
+const RunPolicyBinary = "/usr/local/bin/ctxloom"
+
 // Binary builds (once per process) the static linux/amd64 ctxloom the cell runs
 // in-container, and returns its path.
 //
@@ -334,17 +359,50 @@ func moduleRoot() (string, error) {
 // process per command. The build context is a temp dir holding the static
 // binary and a two-line Containerfile, so it pulls nothing.
 func (r Runtime) EnsureImage(ctx context.Context) error {
+	return r.ensureImage(ctx, ImageTag, InContainerBinary, false)
+}
+
+// EnsureRunPolicyImage builds the cell image CTXLOOM'S OWN container isolation
+// can launch — the one a test needs when the process that builds and starts the
+// container is the product's Container policy rather than the cell itself.
+//
+// It differs from EnsureImage in exactly two ways, both of them requirements
+// the policy imposes on any image it is handed:
+//
+//  1. ctxloom sits at RunPolicyBinary, the fixed in-image path the policy
+//     execs (`<binary> llm serve <backend>`). An image carrying ctxloom
+//     anywhere else produces a container that starts and immediately dies with
+//     no such file — indistinguishable, from the host, from a plugin that came
+//     up and answered nothing.
+//  2. A `cat` sits at /bin/cat, because the policy REFUSES to prepare a
+//     workspace until its own shared-filesystem probe has run `cat
+//     /probe/marker` in this same image and read the marker back
+//     (isolation.sharedFSProbe). `FROM scratch` has no cat, so without this the
+//     gate fails with "the probe container did not run" and nothing under test
+//     ever executes. It is a ~10-line static Go program built here rather than
+//     a busybox layer: a busybox base is a registry pull, and the cell's
+//     hermeticity (package doc, decision 1) is what makes it usable on a runner
+//     with no network.
+func (r Runtime) EnsureRunPolicyImage(ctx context.Context) error {
+	return r.ensureImage(ctx, RunPolicyImageTag, RunPolicyBinary, true)
+}
+
+// ensureImage builds one image variant, once per process per (command, tag,
+// binary path, probe-cat): docker and podman have separate image stores, and
+// two tags off one store are two images.
+func (r Runtime) ensureImage(ctx context.Context, tag, binaryPath string, withProbeCat bool) error {
 	imgMu.Lock()
 	defer imgMu.Unlock()
-	if err, ok := imgDone[r.Command]; ok {
+	key := fmt.Sprintf("%s\x00%s\x00%s\x00%t", r.Command, tag, binaryPath, withProbeCat)
+	if err, ok := imgDone[key]; ok {
 		return err
 	}
-	err := r.buildImage(ctx)
-	imgDone[r.Command] = err
+	err := r.buildImage(ctx, tag, binaryPath, withProbeCat)
+	imgDone[key] = err
 	return err
 }
 
-func (r Runtime) buildImage(ctx context.Context) error {
+func (r Runtime) buildImage(ctx context.Context, tag, binaryPath string, withProbeCat bool) error {
 	bin, err := Binary(ctx)
 	if err != nil {
 		return err
@@ -362,15 +420,102 @@ func (r Runtime) buildImage(ctx context.Context) error {
 	if err := os.WriteFile(filepath.Join(buildCtx, "ctxloom"), src, 0o755); err != nil { //nolint:gosec // must be executable in-image
 		return fmt.Errorf("stage cell binary: %w", err)
 	}
-	containerfile := "FROM scratch\nCOPY ctxloom " + InContainerBinary + "\n"
+	containerfile := "FROM scratch\nCOPY ctxloom " + binaryPath + "\n"
+	if withProbeCat {
+		catBin, cerr := probeCat(ctx)
+		if cerr != nil {
+			return cerr
+		}
+		catSrc, rerr := os.ReadFile(catBin) //nolint:gosec // a path this package just built
+		if rerr != nil {
+			return fmt.Errorf("read probe cat: %w", rerr)
+		}
+		if werr := os.WriteFile(filepath.Join(buildCtx, "cat"), catSrc, 0o755); werr != nil { //nolint:gosec // must be executable in-image
+			return fmt.Errorf("stage probe cat: %w", werr)
+		}
+		containerfile += "COPY cat " + probeCatPath + "\n"
+	}
 	if err := os.WriteFile(filepath.Join(buildCtx, "Containerfile"), []byte(containerfile), 0o644); err != nil {
 		return fmt.Errorf("stage Containerfile: %w", err)
 	}
-	cmd := exec.CommandContext(ctx, r.Command, "build", "-t", ImageTag, "-f", filepath.Join(buildCtx, "Containerfile"), buildCtx)
+	cmd := exec.CommandContext(ctx, r.Command, "build", "-t", tag, "-f", filepath.Join(buildCtx, "Containerfile"), buildCtx)
 	if out, berr := cmd.CombinedOutput(); berr != nil {
 		return fmt.Errorf("%s build of the cell image failed: %w\n%s", r.Command, berr, out)
 	}
 	return nil
+}
+
+// probeCatPath is where the run-policy image carries its `cat`. /bin is on the
+// PATH docker/podman default an image with no ENV of its own to, which is how a
+// `FROM scratch` image resolves a bare `cat` at all.
+const probeCatPath = "/bin/cat"
+
+// probeCatSource is the whole of that cat: read the named file, write it to
+// stdout, and fail loudly otherwise. It is deliberately NOT a general cat — the
+// only caller is isolation.probeOneRoot's `cat /probe/marker`, and a stand-in
+// that silently printed nothing for a missing file would turn a real sharing
+// mismatch into an empty read the probe already treats as the
+// docker-outside-of-docker signature, i.e. the right verdict for the wrong
+// reason.
+const probeCatSource = `package main
+
+import (
+	"fmt"
+	"os"
+)
+
+func main() {
+	if len(os.Args) != 2 {
+		fmt.Fprintln(os.Stderr, "probe cat: want exactly one file argument")
+		os.Exit(2)
+	}
+	b, err := os.ReadFile(os.Args[1])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "probe cat:", err)
+		os.Exit(1)
+	}
+	if _, err := os.Stdout.Write(b); err != nil {
+		fmt.Fprintln(os.Stderr, "probe cat:", err)
+		os.Exit(1)
+	}
+}
+`
+
+var (
+	catOnce sync.Once
+	catPath string
+	catErr  error
+)
+
+// probeCat builds (once per process) the static linux/amd64 cat the run-policy
+// image carries. It compiles in a temp module of its own — no imports beyond
+// the standard library, so the build reaches no proxy and no network — with the
+// same CGO_ENABLED=0 static settings the ctxloom binary uses, for the same
+// reason: `FROM scratch` has no libc to link against.
+func probeCat(ctx context.Context) (string, error) {
+	catOnce.Do(func() { catPath, catErr = buildProbeCat(ctx) })
+	return catPath, catErr
+}
+
+func buildProbeCat(ctx context.Context) (string, error) {
+	dir, err := os.MkdirTemp("", "ctxloom-cell-cat-*")
+	if err != nil {
+		return "", fmt.Errorf("create probe cat dir: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte(probeCatSource), 0o644); err != nil {
+		return "", fmt.Errorf("stage probe cat source: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module ctxloomcellcat\n\ngo 1.21\n"), 0o644); err != nil {
+		return "", fmt.Errorf("stage probe cat go.mod: %w", err)
+	}
+	out := filepath.Join(dir, "cat")
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, ".")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS=linux", "GOARCH=amd64", "GOWORK=off", "GOFLAGS=", "GOPROXY=off")
+	if b, berr := cmd.CombinedOutput(); berr != nil {
+		return "", fmt.Errorf("building the probe cat failed: %w\n%s", berr, b)
+	}
+	return out, nil
 }
 
 // InContainerBinary is where the cell image carries ctxloom. Absolute and

@@ -299,9 +299,11 @@ func declaredKeyType(rest string, pub ssh.PublicKey) string {
 // Three different quoting rules coexist in one file format; this function
 // implements only the first one, for only this one field.
 //
-// The grammar, established by reading misc.c:strdelim_internal in OpenSSH
-// 10.0p1 (this repo carries the source at ./openssh-10.0p1) and cross-checked
-// against the real `ssh-keygen` binary (OpenSSH_10.0p2, via
+// The grammar, established by reading misc.c:strdelim_internal in the
+// OpenSSH 10.0p1 portable release tarball (cite the version: this was read
+// from a downloaded source tree, not a checked-in one, so re-verifying means
+// fetching that release again) and cross-checked against the real
+// `ssh-keygen` binary (OpenSSH_10.0p2, via
 // `ssh-keygen -Y match-principals` and `-Y find-principals`, which exercise
 // this exact code path without needing a valid signature):
 //

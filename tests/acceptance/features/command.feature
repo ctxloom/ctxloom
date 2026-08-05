@@ -14,12 +14,15 @@ Feature: Commands
     When the agent reads resource "ctxloom://commands"
     Then the resource contains "review"
 
+  # The MIME type is a static field on the envelope: every MCP resource
+  # returning an EMPTY BODY left this green. The body is the resource.
   Scenario: Read a single command over MCP
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a command "review" in bundle "demo" exists
     When the agent reads resource "ctxloom://commands/review"
     Then the resource MIME type is "text/markdown"
+    And the resource contains "COMMAND-BODY-review"
 
   Scenario: Delete a command removes it from listing
     Given an initialized ctxloom project

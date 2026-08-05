@@ -3,22 +3,35 @@ Feature: Run
   the mock backend the full path is observable: the assembled context reaches the
   model, and the model's reply reaches the user.
 
+  # "the output contains dev" was satisfied by the dry-run header, which names
+  # the profile whether or not assembly produced anything: a run that loaded
+  # zero fragments and assembled an empty context passed. What a dry run is FOR
+  # is showing what would be sent, so that is what is asserted.
   Scenario: Dry run assembles context without launching a model
     Given an initialized ctxloom project
     And a bundle "demo" exists
+    And a fragment "testing" in bundle "demo" exists
     And a profile "dev" with bundle "demo"
     When I run "ctxloom run --dry-run --profile dev hello"
     Then the command succeeds
     And the output contains "dev"
+    And the output contains "demo#fragments/testing"
+    And the output contains "FRAGMENT-BODY-testing"
 
+  # Asserting only the mock's canned reply proved the reply channel works and
+  # nothing about the context: the mock answers "MOCK-REPLY" to an empty prompt
+  # just as readily. This asserts what CROSSED THE WIRE, the same way the
+  # deny_tools scenario below does.
   Scenario: Run hands the assembled context to the model and returns its reply
     Given an initialized ctxloom project
     And a bundle "demo" exists
+    And a fragment "testing" in bundle "demo" exists
     And a profile "dev" with bundle "demo"
     And the mock LLM responds "MOCK-REPLY"
     When I run "ctxloom run --print --profile dev unicorn-prompt"
     Then the command succeeds
     And the output contains "MOCK-REPLY"
+    And the mock recorded input contains "FRAGMENT-BODY-testing"
 
   # T2 regression: deny_tools was silently dropped crossing internal/lm/grpc's
   # proto wire (ManagedConfigToProto/managedConfigFromProto). A per-hop test

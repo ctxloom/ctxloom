@@ -8,14 +8,23 @@ Feature: MCP tools
   tests/acceptance/completeness_test.go), not something to paper over with a
   false "covered elsewhere" claim.
 
+  # `fragments_loaded` has no omitempty, so the KEY is present even when the
+  # value is null: asserting it proved only that the envelope had a field,
+  # which assembly delivering zero fragments and an empty context satisfies
+  # perfectly. The assertions name the fragment that must have been resolved
+  # and the marker from inside its stored body, so an empty assembly cannot
+  # pass.
   Scenario: Assemble context from a profile
     Given an initialized ctxloom project
     And a bundle "demo" exists
+    And a fragment "testing" in bundle "demo" exists
     And a profile "dev" with bundle "demo"
     When the agent calls tool "assemble_context" with:
       | profile | dev |
     Then the tool call succeeds
     And the tool result contains "fragments_loaded"
+    And the tool result contains "demo#fragments/testing"
+    And the tool result contains "FRAGMENT-BODY-testing"
 
   Scenario: Search content over MCP
     Given an initialized ctxloom project

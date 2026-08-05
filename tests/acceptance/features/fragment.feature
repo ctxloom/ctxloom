@@ -15,12 +15,15 @@ Feature: Fragments
     When the agent reads resource "ctxloom://fragments"
     Then the resource contains "testing"
 
+  # The MIME type is a static field on the envelope: every MCP resource
+  # returning an EMPTY BODY left this green. The body is the resource.
   Scenario: Read a single fragment over MCP
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a fragment "testing" in bundle "demo" exists
     When the agent reads resource "ctxloom://fragments/testing"
     Then the resource MIME type is "text/markdown"
+    And the resource contains "FRAGMENT-BODY-testing"
 
   Scenario: Search finds a fragment by name
     Given an initialized ctxloom project

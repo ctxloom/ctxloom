@@ -142,6 +142,20 @@ func TestInterop_MultiPrincipalEntry_SecondPrincipalMatches(t *testing.T) {
 	assert.True(t, d.Trusted)
 }
 
+// TestInterop_QuotedMultiPrincipalEntry_BothPrincipalsMatch pins the quoted-
+// principals fix against the real fixture rather than a synthetic string: the
+// `"quoted-alice@example.com,quoted-bob@example.com"` line, with real
+// ssh-keygen -Y match-principals verifying both identities against it.
+func TestInterop_QuotedMultiPrincipalEntry_BothPrincipalsMatch(t *testing.T) {
+	store := loadInteropStore(t)
+	assert.True(t, store.TrustedAs("quoted-alice@example.com", interopKey(t), "publish.v1.ctxloom.dev", interopNow()).Trusted)
+	assert.True(t, store.TrustedAs("quoted-bob@example.com", interopKey(t), "publish.v1.ctxloom.dev", interopNow()).Trusted)
+
+	// And the pre-fix mangled reading of the same line must be trusted as
+	// nothing: no unnameable, unrevocable identity survives.
+	assert.False(t, store.TrustedAs(`"quoted-alice@example.com`, interopKey(t), "publish.v1.ctxloom.dev", interopNow()).Trusted)
+}
+
 func TestInterop_GlobPrincipal_MatchesAnyIdentityInDomain(t *testing.T) {
 	// Verified: -I zzz@example.org against the "*@example.org" line.
 	store := loadInteropStore(t)

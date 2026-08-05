@@ -28,15 +28,16 @@ import (
 // lines the file lost. Matching ParseError.Error()'s TEXT is not supported —
 // it is a diagnostic string, not an interface.
 var (
-	errNoPrincipals    = errors.New("missing or empty principals field")
-	errNoKey           = errors.New("no recognizable key type/blob")
-	errUnknownOption   = errors.New("unknown or malformed option")
-	errDuplicateOption = errors.New("duplicate option")
-	errUnquotedValue   = errors.New("option value must be double-quoted")
-	errBadTimestamp    = errors.New("invalid valid-after/valid-before timestamp")
-	errKeyTypeMismatch = errors.New("declared key type does not match the key blob")
-	errByteOrderMark   = errors.New("line begins with a UTF-8 byte-order mark, which would become part of the first principal")
-	errLineTooLong     = errors.New("line is longer than the 1 MiB limit and was not read")
+	errNoPrincipals                = errors.New("missing or empty principals field")
+	errNoKey                       = errors.New("no recognizable key type/blob")
+	errUnknownOption               = errors.New("unknown or malformed option")
+	errDuplicateOption             = errors.New("duplicate option")
+	errUnquotedValue               = errors.New("option value must be double-quoted")
+	errBadTimestamp                = errors.New("invalid valid-after/valid-before timestamp")
+	errKeyTypeMismatch             = errors.New("declared key type does not match the key blob")
+	errByteOrderMark               = errors.New("line begins with a UTF-8 byte-order mark, which would become part of the first principal")
+	errLineTooLong                 = errors.New("line is longer than the 1 MiB limit and was not read")
+	errUnterminatedPrincipalsQuote = errors.New("principals field has an unterminated double quote")
 )
 
 // ParseError describes one allowed_signers line that could not be used.
@@ -218,12 +219,13 @@ func ParseFile(path string) (*Store, []*ParseError, error) {
 // existing, well-tested implementation this package deliberately reuses
 // rather than re-deriving.
 func parseLine(line string, lineNo int) (*Entry, error) {
-	i := strings.IndexAny(line, " \t")
-	if i == -1 {
+	principalsField, rest, err := cutPrincipalsField(line)
+	if err != nil {
+		return nil, err
+	}
+	if rest == "" {
 		return nil, errNoKey
 	}
-	principalsField := line[:i]
-	rest := strings.TrimLeft(line[i+1:], " \t")
 
 	principals, err := splitPrincipals(principalsField)
 	if err != nil {
@@ -279,6 +281,147 @@ func declaredKeyType(rest string, pub ssh.PublicKey) string {
 	return ""
 }
 
+// cutPrincipalsField splits a trimmed allowed_signers line into its
+// principals field and the remainder (the options?/keytype/blob/comment
+// tail, still raw), consuming and resolving at most one pair of double
+// quotes along the way.
+//
+// This is a from-scratch reimplementation of OpenSSH's own tokenizer for
+// this exact field, NOT the generic ssh_config-style strdelim: ssh-keygen's
+// sshsig.c calls parse_principals_key_and_options, which extracts the
+// principals field with strdelimw(&cp) — misc.c's
+// strdelim_internal(s, /*split_equals=*/0). That function is unrelated to
+// POSIX shell quoting (no single quotes, no backslash-escaped spaces) and
+// unrelated to this package's OWN option-value quoting a few lines below in
+// requireQuotedValue/unescapeQuoted (which delegates to
+// ssh.ParseAuthorizedKey's tokenizer, itself modeled on
+// sshkey_advance_past_options — a THIRD, backslash-escaping-aware grammar).
+// Three different quoting rules coexist in one file format; this function
+// implements only the first one, for only this one field.
+//
+// The grammar, established by reading misc.c:strdelim_internal in OpenSSH
+// 10.0p1 (this repo carries the source at ./openssh-10.0p1) and cross-checked
+// against the real `ssh-keygen` binary (OpenSSH_10.0p2, via
+// `ssh-keygen -Y match-principals` and `-Y find-principals`, which exercise
+// this exact code path without needing a valid signature):
+//
+//   - VERIFIED. A field with no double quote at all is delimited by the
+//     first whitespace, exactly as before this fix — no behavior change for
+//     the common case. `alice@example.com,bob@example.com key...` still
+//     yields the field "alice@example.com,bob@example.com".
+//
+//   - VERIFIED. A double quote occurring before any whitespace opens a
+//     quoted region; whitespace inside it is NOT a delimiter. The scan for
+//     the CLOSING quote looks only for the next `"` — it does not stop at
+//     whitespace either, so it can run past intervening spaces to land on a
+//     `"` far later in the line. Both quote characters are removed, not
+//     content: `"alice@x.com,bob@x.com" namespaces="..."` yields the field
+//     `alice@x.com,bob@x.com` (quotes gone, comma intact) and rest starting
+//     at `namespaces=...`. This is the fix for the bug this change addresses:
+//     ssh-keygen verifies this line for both alice@x.com and bob@x.com, and
+//     now so does this package.
+//
+//   - VERIFIED. Unquoted content may precede the opening quote in the same
+//     field, and is kept, concatenated directly onto whatever the quoted
+//     region contributes: `ali"ce@x.com"` (quote opens mid-word, closes
+//     cleanly right after) yields the single field "alice@x.com" — verified
+//     against real ssh-keygen via -Y match-principals. This is not a
+//     tolerated edge case so much as an unavoidable consequence of
+//     strdelim_internal's memmove-and-rescan mechanics; this package
+//     reproduces it faithfully rather than special-casing it away, because
+//     special-casing it would itself be a divergence from ssh-keygen.
+//
+//   - VERIFIED. At most ONE quote pair is resolved per field. strdelimw is
+//     called exactly once for the whole principals column, and its quote
+//     handling fires at most once per call (it returns as soon as it finds
+//     ONE closing quote). A second `"` occurring anywhere in what might look
+//     like a comma list of individually-quoted principals — e.g.
+//     `"alice@x.com","bob@x.com"` — is NOT treated as opening a second
+//     quoted region: the field extraction stops at the FIRST closing quote
+//     it finds (right after "alice@x.com"), and everything from the second
+//     quote onward (`,"bob@x.com" key...`) is handed on as "rest", where it
+//     is essentially never a syntactically valid key/options tail and the
+//     whole line is rejected downstream. Measured against real ssh-keygen:
+//     `-Y find-principals` on exactly this construction reports
+//     "invalid options" and matches no principal. This package reproduces
+//     that by construction — it also stops at the first closing quote —
+//     rather than by a special check, so it needs no dedicated test to hold.
+//
+//   - VERIFIED, and the one place this package is DELIBERATELY STRICTER than
+//     the observed mechanics above: an opening quote with NO closing quote
+//     anywhere in the rest of the line. Real strdelim_internal returns NULL
+//     in this case (misc.c: "no matching quote"), which propagates as
+//     "invalid line" in parse_principals_key_and_options — so ssh-keygen
+//     already treats this as a hard parse failure, not a fallback to
+//     unquoted splitting. This package matches that with
+//     errUnterminatedPrincipalsQuote and returns before ever comma-splitting
+//     anything. Separately, and independently of what real ssh-keygen
+//     happens to do: this package would refuse to fall back to a naive split
+//     here even if the real tool's behavior were murkier, because doing so
+//     is exactly how the bug this function fixes came to exist in the first
+//     place (a malformed quoted field silently misparsed instead of refused).
+//     Where OpenSSH's own emergent behavior for a malformed field is
+//     ambiguous or path-dependent (as in the two points above), a discrepancy
+//     that makes ctxloom refuse a line ssh-keygen would technically use is
+//     always the acceptable direction — see the package doc's "every
+//     divergence yields strictly less trust, never more".
+//
+//   - VERIFIED. There is NO backslash-escape of `"` inside this field
+//     (unlike the separate options-value grammar this package already
+//     implements in unescapeQuoted, which DOES support `\"`). A literal
+//     `\"` in the principals column is just a backslash character followed
+//     by a quote-toggle — `"ali\"ce@x.com"` does not yield the principal
+//     `ali"ce@x.com`; verified with `-Y find-principals` against the real
+//     binary, it makes the whole line report "invalid options" (the
+//     backslash becomes part of the field content, and the SECOND `"`,
+//     three characters later, closes the quoted region prematurely,
+//     leaving `ce@x.com"` at the front of what should have been the
+//     key/options tail — which then fails to parse as either).
+//
+// A field is therefore rejected outright (errUnterminatedPrincipalsQuote)
+// only for a genuinely unterminated quote; every other case above resolves
+// to SOME field-and-rest split (possibly one that is nonsense and gets
+// rejected two calls later, in ssh.ParseAuthorizedKey), exactly mirroring
+// where real ssh-keygen's own rejection actually happens.
+func cutPrincipalsField(line string) (field, rest string, err error) {
+	i := strings.IndexAny(line, " \t\"")
+	if i == -1 {
+		// No delimiter of any kind: the whole line is the "field" and there
+		// is nothing left over. parseLine's caller treats an empty rest as
+		// errNoKey — there is no key/options tail to parse.
+		return line, "", nil
+	}
+	if line[i] != '"' {
+		return line[:i], strings.TrimLeft(line[i+1:], " \t"), nil
+	}
+
+	prefix := line[:i]
+	after := line[i+1:]
+	closeRel := strings.IndexByte(after, '"')
+	if closeRel == -1 {
+		return "", "", errUnterminatedPrincipalsQuote
+	}
+	field = prefix + after[:closeRel]
+	rest = strings.TrimLeft(after[closeRel+1:], " \t")
+	return field, rest, nil
+}
+
+// splitPrincipals splits an already-extracted, already-dequoted principals
+// field (see cutPrincipalsField) on commas into individual principal
+// patterns. There is no comma-escaping mechanism in this field: VERIFIED two
+// ways. Reading OpenSSH's match.c match_pattern_list, which the extracted
+// field is ultimately matched through, shows it splits its pattern-list
+// argument on a bare ',' with no escape handling at all. Empirically, `-Y
+// match-principals` against a quoted field with a backslash-escaped comma
+// (`"alice\,bob@x.com"`) still reports two principals — "alice\" (the
+// backslash surviving literally) and "bob@x.com" — never one principal
+// containing a comma. So a comma inside what was a quoted segment still
+// separates two principals rather than protecting one that contains a
+// literal comma; this is exactly what makes the original bug a bug:
+// `"alice@x.com,bob@x.com"` is two principals, not one. See the package doc,
+// "What this format can and cannot express in one principal", for why this
+// is a genuine format limitation rather than a policy choice — unlike
+// whitespace, which quoting DOES let this format carry.
 func splitPrincipals(field string) ([]string, error) {
 	if field == "" {
 		return nil, errNoPrincipals

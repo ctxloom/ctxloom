@@ -70,6 +70,48 @@
 //   - Principal matching is case-sensitive. Principal identities are opaque
 //     strings to this package; folding case on an identity comparison is a
 //     well-known way to silently widen a grant, so it is not done.
+//   - The principals field is quote-aware, matching OpenSSH's own
+//     strdelimw tokenizer for this exact field (see cutPrincipalsField's
+//     doc for the full grammar, established by reading OpenSSH's misc.c and
+//     verified against the real ssh-keygen binary). A field wrapped in
+//     double quotes has its quotes stripped rather than treated as content,
+//     and whitespace inside the quotes is not a delimiter. An unterminated
+//     quote is a hard ParseError, never a silent fallback to splitting the
+//     raw, still-quoted text — that fallback is what let a quoted field
+//     grant trust under an unrevocable identity in the first place.
+//
+// # What this format can and cannot express in one principal
+//
+// These two constraints look alike — both are refused by this package's
+// writer, validPrincipal in write.go — but they are NOT the same kind of
+// constraint, and confusing them would misdescribe the format to a reader of
+// this package who only sees the writer's refusal:
+//
+//   - Whitespace in a principal CAN be expressed by this format: quoting the
+//     whole principals field protects it, exactly like any other field this
+//     package quote-decodes. Verified against real ssh-keygen: `-Y
+//     match-principals -I "alice smith@x.com"` against a file containing
+//     `"alice smith@x.com" ssh-ed25519 ...` matches it exactly, and Parse
+//     now decodes that quoting too. This package's OWN writer still refuses
+//     to PRODUCE a principal containing whitespace — see validPrincipal —
+//     but that is a writer-side choice (today's writer never quotes the
+//     principals field it emits), not a limitation of the file format
+//     itself. A hand-authored or third-party-tooling-authored allowed_signers
+//     file MAY legitimately contain one, and Parse must read it correctly
+//     rather than garbling or refusing it.
+//   - A literal comma in a principal CANNOT be expressed by this format, at
+//     all, quoted or not: the comma is always the principals-LIST separator,
+//     with no escape for it anywhere in the grammar. Verified two ways: (1)
+//     OpenSSH's match.c match_pattern_list, which the same principals field
+//     is fed through, splits on a bare ',' with no escape handling
+//     whatsoever; (2) empirically, with `-Y match-principals` against
+//     `"alice\,bob@x.com" ...` — a backslash-escaped comma inside quotes —
+//     which still reports TWO principals ("alice\" and "bob@x.com", the
+//     backslash surviving literally into the first one's name), never one
+//     principal containing a comma. This is a genuine format limitation, so
+//     this package's writer refusing it is not a stricter-than-necessary
+//     policy call; there is no well-formed file this package could produce
+//     or read that carries a comma inside one principal.
 //
 // # What this package deliberately does NOT do
 //

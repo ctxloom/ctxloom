@@ -62,6 +62,7 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
@@ -161,6 +162,55 @@ func j8ScrubFromPath(w *World, bin string) error {
 	return nil
 }
 
+// j8LtkGuardedTools is the tool classes the scenario sentence "run ltk on
+// every shell command AND FILE EDIT" actually promises, written out HERE
+// rather than derived from ltk's loadout — and that is the point.
+//
+// This assertion used to check only that some matcher CONTAINED "Bash", so
+// the file-edit half of its own sentence went unasserted: narrowing ltk's
+// shipped matcher from "Bash|PowerShell|Edit|Write|MultiEdit|NotebookEdit"
+// to just "Bash" — silently dropping the guardrail from every file-editing
+// tool — left all three j8 scenarios green. Deriving the expectation from
+// loadout.yaml would not have caught it either, since the mutation is IN
+// loadout.yaml: both sides would have moved together. An independent,
+// hand-written list is the only thing that fails when the shipped matcher
+// shrinks.
+//
+// Ordered shell-first, then the file-editing tools, mirroring ltk's own
+// installer (cmd/ltk/loadout.yaml's hooks.pre_tool comment). Membership is a
+// SUPERSET check: ltk gaining a new tool class is fine, losing one is not.
+var j8LtkGuardedTools = []string{"Bash", "PowerShell", "Edit", "Write", "MultiEdit", "NotebookEdit"}
+
+// j8LtkShippedPreToolMatcher returns the pre_tool matcher from ltk's real
+// committed loadout, so the generated settings can be held to carrying the
+// companion's own value through verbatim. It is the SECOND half of the
+// assertion, never the whole of it (see j8LtkGuardedTools): a matcher that
+// merely agrees with a mutated loadout.yaml proves only that delivery is
+// faithful, not that what was delivered still guards anything.
+func j8LtkShippedPreToolMatcher() (string, error) {
+	raw, err := j8LtkLoadoutYAML()
+	if err != nil {
+		return "", err
+	}
+	var doc struct {
+		Hooks struct {
+			PreTool []struct {
+				Command string `yaml:"command"`
+				Matcher string `yaml:"matcher"`
+			} `yaml:"pre_tool"`
+		} `yaml:"hooks"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+		return "", fmt.Errorf("parse ltk's loadout.yaml: %w", err)
+	}
+	for _, h := range doc.Hooks.PreTool {
+		if h.Command == "ltk evaluate" {
+			return h.Matcher, nil
+		}
+	}
+	return "", fmt.Errorf("ltk's committed loadout.yaml declares no pre_tool hook running \"ltk evaluate\"")
+}
+
 // j8ClaudeSettings is the minimal shape this journey needs to parse out of
 // the generated .claude/settings.json — matches internal/claude/claude.go's
 // claudeCodeSettings/claudeCodeHookMatcher/claudeCodeHook exactly (only the
@@ -248,17 +298,40 @@ func registerJ8Steps(ctx *godog.ScenarioContext) {
 		if err := json.Unmarshal([]byte(raw), &settings); err != nil {
 			return fmt.Errorf("parse generated %s: %w", rel, err)
 		}
+		matcher := ""
+		found := false
 		for _, entry := range settings.Hooks.PreToolUse {
-			if !strings.Contains(entry.Matcher, "Bash") {
-				continue
-			}
 			for _, h := range entry.Hooks {
 				if h.Command == "ltk evaluate" {
-					return nil
+					matcher, found = entry.Matcher, true
 				}
 			}
 		}
-		return fmt.Errorf("generated %s has no PreToolUse hook running \"ltk evaluate\" over a Bash-matching tool call; content:\n%s", rel, raw)
+		if !found {
+			return fmt.Errorf("generated %s has no PreToolUse hook running \"ltk evaluate\" at all; content:\n%s", rel, raw)
+		}
+		covered := map[string]bool{}
+		for _, tool := range strings.Split(matcher, "|") {
+			covered[strings.TrimSpace(tool)] = true
+		}
+		var missing []string
+		for _, tool := range j8LtkGuardedTools {
+			if !covered[tool] {
+				missing = append(missing, tool)
+			}
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf("the ltk PreToolUse matcher %q does not cover %v — this scenario promises the guardrail runs on every shell command AND FILE EDIT, so every one of %v must be matched; generated %s:\n%s", matcher, missing, j8LtkGuardedTools, rel, raw)
+		}
+		shipped, err := j8LtkShippedPreToolMatcher()
+		if err != nil {
+			return err
+		}
+		if matcher != shipped {
+			return fmt.Errorf("ctxloom generated the ltk PreToolUse matcher as %q, but ltk's committed loadout ships %q — delivery must carry the companion's own matcher through verbatim, neither widening nor narrowing it", matcher, shipped)
+		}
+		w.docStepMaterialized = fmt.Sprintf("%s:\nPreToolUse matcher %q -> \"ltk evaluate\"\n(covers %v; identical to ltk's own cmd/ltk/loadout.yaml)", rel, matcher, j8LtkGuardedTools)
+		return nil
 	})
 
 	ctx.Step(`^her assistant is told ltk is a cooperative redirect, not a sandbox$`, func(c context.Context) error {

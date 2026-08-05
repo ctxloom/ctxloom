@@ -23,12 +23,15 @@
 // (ENOENT) — never to a real installed engine. No scenario in this file
 // makes a network call or touches a real credential.
 //
-// THE SPY: isoMatrixSpyScript dumps its OWN os.Environ() — exactly what a
-// real engine process would receive, per internal/shared/agent/base.go's
-// BuildEnv (os.Environ() of the plugin subprocess + the backend's own env +
-// the request env) — plus a `cat` of whatever credential file its own env
-// vars point it at, and (for antigravity) a resolved listing of its curated
-// $HOME. This is captured from INSIDE the spawned process because the
+// THE SPY: isoMatrixSpyScript records the per-agent config-home variables it
+// was actually handed (isoSpyEnvAllowlist — a CLOSED allowlist, never the
+// whole environment; see that list's doc for the secret-leak hazard the
+// allowlist closes) out of what a real engine process would receive, per
+// internal/shared/agent/base.go's BuildEnv (os.Environ() of the plugin
+// subprocess + the backend's own env + the request env) — plus a `cat` of
+// whatever credential file its own env vars point it at, and (for
+// antigravity) a resolved listing of its curated $HOME. This is captured
+// from INSIDE the spawned process because the
 // per-agent scratch config-home does NOT survive past the run: Cleanup
 // removes it unconditionally once the run exits (confirmed by hand — a
 // naive design that tried to inspect the scratch dir from outside, after
@@ -75,15 +78,57 @@ import (
 	"github.com/cucumber/godog"
 )
 
+// isoSpyEnvAllowlist is the CLOSED set of environment variables the spy is
+// permitted to record — every per-agent config-home knob this file's
+// assertions actually read (isoParseSpyEnv's callers), plus the two
+// diagnostics (HOME, PWD) that make a failure legible.
+//
+// It is an allowlist, never a denylist, because of the failure path. The spy
+// used to dump its whole environment (`env`), and godog prints a
+// spy-reading step's captured body VERBATIM whenever that step fails — so the
+// first red isolation scenario on a developer box copied that developer's
+// entire environment into the console, and from there into CI logs, pasted
+// bug reports and agent transcripts. During the audit that found this, a real
+// PyPI TWINE_PASSWORD was printed exactly that way. Cloud credentials,
+// registry tokens and SSH agent sockets all live in the same place. A
+// denylist would have to enumerate every secret-bearing variable name any
+// developer might ever export, which is not a knowable set; this list instead
+// enumerates the handful the assertions read, so anything else structurally
+// cannot reach the capture file. ADD TO THIS LIST ONLY A VARIABLE AN
+// ASSERTION READS, AND ONLY ONE WHOSE VALUE IS A PATH.
+var isoSpyEnvAllowlist = []string{
+	"CLAUDE_CONFIG_DIR",
+	"CODEX_HOME",
+	"KIRO_HOME",
+	"XDG_CONFIG_HOME",
+	"XDG_DATA_HOME",
+	"XDG_CACHE_HOME",
+	"HOME",
+	"PWD",
+}
+
+// isoSpyEnvAllowlistShell renders isoSpyEnvAllowlist as the literal word list
+// the spy script's `for` loop iterates. The names are fixed identifiers from
+// the const-adjacent slice above, never scenario input, so the `eval`
+// indirection they feed carries no injection surface.
+var isoSpyEnvAllowlistShell = strings.Join(isoSpyEnvAllowlist, " ")
+
 // isoMatrixSpyScript is the recording fixture every scenario in this file
 // installs in place of a real engine binary. POSIX sh (not bash) — the
 // sanitized PATH deliberately carries no promise bash itself resolves from
 // it; /usr/bin/sh is on every box that can run this suite at all.
-const isoMatrixSpyScript = `#!/bin/sh
+//
+// It records ONLY isoSpyEnvAllowlist's variables, never the whole
+// environment — see that list's doc for the secret-leak hazard that
+// constraint exists to close.
+var isoMatrixSpyScript = `#!/bin/sh
 out="$CTXLOOM_ISOSPY_OUT"
 {
   echo "===ENV==="
-  env
+  for k in ` + isoSpyEnvAllowlistShell + `; do
+    eval "v=\${$k-}"
+    [ -n "$v" ] && echo "$k=$v"
+  done
   echo "===ARGV==="
   printf '%s\n' "$@"
   echo "===STDIN==="
@@ -173,10 +218,22 @@ func isoCredsSectionMarker(engine string) (string, error) {
 	}
 }
 
+// isoPerAgentScratchMarker is the path fragment every per-agent scratch
+// config-home carries (isolation's ephemeral session tree). Its PRESENCE in a
+// config-home var proves isolation engaged; its ABSENCE across every such var
+// proves the none axis really did leave the engine on the host's own config.
+const isoPerAgentScratchMarker = ".ctxloom/sessions"
+
 // isoMatrixState is this file's per-scenario fixture state: where the spy's
 // output landed for the last run.
 type isoMatrixState struct {
 	spyOut string
+	// engine is the engine token the last runIsoMatrix drove, so an
+	// outcome step can hold the run to the payload THAT engine's launch
+	// path is capable of leaving behind.
+	engine string
+	// workspace is the isolation workspace axis the last run requested.
+	workspace string
 }
 
 func isoMatrixOf(w *World) *isoMatrixState {
@@ -245,6 +302,9 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 	w := worldFrom(c)
 	j := isoMatrixOf(w)
 
+	j.engine = engine
+	j.workspace = workspace
+
 	binNames, err := isoBinaryNames(engine)
 	if err != nil {
 		return err
@@ -286,8 +346,8 @@ func isoReadSpyOut(j *isoMatrixState) (string, error) {
 	return string(data), nil
 }
 
-// isoParseSpyEnv extracts the ===ENV=== block (the spy's own os.Environ())
-// into a lookup map.
+// isoParseSpyEnv extracts the ===ENV=== block (the allowlisted slice of the
+// spy's own environment — isoSpyEnvAllowlist) into a lookup map.
 func isoParseSpyEnv(body string) map[string]string {
 	env := map[string]string{}
 	inEnv := false
@@ -403,14 +463,71 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		return runIsoMatrix(c, engine, workspace)
 	})
 
+	// PAYLOAD, not absence. This step used to assert ONLY that two needles
+	// were missing from the output — which an audit proved is satisfied by a
+	// run that never happened at all: with LaunchBackend.ExecuteCLI mutated to
+	// error before spawning, every row of this outline stayed GREEN. A
+	// scenario whose subject is "the engine proceeds untouched" cannot be
+	// allowed to pass when no engine proceeded. So the run must now SHOW its
+	// work: exit 0, a spy process that actually ran, that spy's own env free
+	// of any per-agent scratch config-home, and its cwd the live project dir.
 	ctx.Step(`^the run touches no isolation mechanism at all$`, func(c context.Context) error {
 		w := worldFrom(c)
+		j := isoMatrixOf(w)
 		out := w.env.LastOutput()
 		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
 		for _, needle := range []string{"worktree isolation for agent", "AUTHENTICATION IS NOT", "[isolation]"} {
 			if strings.Contains(out, needle) {
 				return fmt.Errorf("workspace \"none\" unexpectedly triggered isolation machinery (%q); output:\n%s", needle, out)
 			}
+		}
+		if code := w.env.LastExitCode(); code != 0 {
+			return fmt.Errorf("expected exit 0 (workspace \"none\" runs the engine on the host, untouched), got %d; output:\n%s", code, out)
+		}
+		body, err := isoReadSpyOut(j)
+		if err != nil {
+			return fmt.Errorf("engine %q under workspace \"none\": %w — a run that never reached the engine cannot prove the engine ran untouched; output:\n%s", j.engine, err, out)
+		}
+		env := isoParseSpyEnv(body)
+		for _, key := range isoSpyEnvAllowlist {
+			if key == "PWD" {
+				continue
+			}
+			if val := env[key]; strings.Contains(val, isoPerAgentScratchMarker) {
+				return fmt.Errorf("workspace \"none\" handed engine %q an ISOLATED %s=%q — the none axis must share the host's own config-home, not relocate it; spy dump:\n%s", j.engine, key, val, body)
+			}
+		}
+		if pwd := env["PWD"]; pwd != w.env.ProjectDir {
+			return fmt.Errorf("workspace \"none\" ran engine %q in %q, want the live project dir %q; spy dump:\n%s", j.engine, pwd, w.env.ProjectDir, body)
+		}
+		w.docStepMaterialized = fmt.Sprintf("exit=0; engine %s ran in %s with no per-agent config-home:\n%s", j.engine, env["PWD"], isoParseSpySection(body, "===ENV==="))
+		return nil
+	})
+
+	// codex's workspace-"none" exception. Two things have to be true at once
+	// and the pairing is the whole point: ctxloom's OWN isolation gates stayed
+	// out of the way (no finding, and NOT the ClassIsolation exit 3 those
+	// gates use), yet the run still failed — because codex relocates
+	// CODEX_HOME by itself on every axis and there was nothing to seed the
+	// relocated home with. Asserting the engine never launched (no spy
+	// recording) is what keeps this from degenerating into "some error
+	// happened".
+	ctx.Step(`^the run fails without any isolation finding, naming "([^"]*)"$`, func(c context.Context, needle string) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
+		if strings.Contains(out, "worktree isolation for agent") || strings.Contains(out, "[isolation]") {
+			return fmt.Errorf("unexpected isolation finding present; output:\n%s", out)
+		}
+		if code := w.env.LastExitCode(); code != 1 {
+			return fmt.Errorf("expected exit 1 (a plain backend failure, not the ClassIsolation exit 3), got %d; output:\n%s", code, out)
+		}
+		if !strings.Contains(out, needle) {
+			return fmt.Errorf("output does not contain %q; output:\n%s", needle, out)
+		}
+		if body, err := isoReadSpyOut(j); err == nil {
+			return fmt.Errorf("engine %q launched anyway — the run must refuse BEFORE spawning an engine it could not authenticate; spy dump:\n%s", j.engine, body)
 		}
 		return nil
 	})
@@ -431,12 +548,64 @@ func registerJ9MatrixSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// PAYLOAD, not absence — same lesson as "touches no isolation mechanism at
+	// all" above, and the same audit. Asserting only that no finding was
+	// PRINTED made "the same engines proceed" pass in a world where nothing
+	// proceeded: under a mutation that made LaunchBackend.ExecuteCLI error
+	// before spawning, and under one that made Worktree.PrepareWorkspace always
+	// error (silently degrading the whole chain to None — the live project dir
+	// plus the host's global engine config, the exact loss of boundary this
+	// journey exists to prove), every row stayed green, because the degrade
+	// warning's wording matches neither needle. The kiro sibling scenario
+	// already got this right by reading the spy afterwards; this step now
+	// carries the run-actually-happened half itself, so every user of it
+	// benefits, and the per-engine config-home var is asserted alongside it in
+	// the feature file.
 	ctx.Step(`^the run reports no isolation finding$`, func(c context.Context) error {
 		w := worldFrom(c)
+		j := isoMatrixOf(w)
 		out := w.env.LastOutput()
 		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
 		if strings.Contains(out, "worktree isolation for agent") || strings.Contains(out, "[isolation]") {
 			return fmt.Errorf("unexpected isolation finding present; output:\n%s", out)
+		}
+		if code := w.env.LastExitCode(); code != 0 {
+			return fmt.Errorf("expected exit 0 (the run proceeds), got %d; output:\n%s", code, out)
+		}
+		if _, err := isoReadSpyOut(j); err != nil {
+			return fmt.Errorf("engine %q: %w — \"proceeds without any isolation finding\" is not satisfied by a run that never reached the engine; output:\n%s", j.engine, err, out)
+		}
+		return nil
+	})
+
+	// opencode's own row of the SAME claim, split out because its launch path
+	// cannot leave the payload the step above demands. opencode is driven over
+	// ACP — a stateful JSON-RPC handshake over stdio (internal/opencode) — and
+	// this file's spy is a dumb recorder that dumps and exits, so the handshake
+	// never completes and the run errors AFTER the isolation gates have all
+	// passed. That is a fixture limitation, not product behavior, and it means
+	// no exit code and no spy file are available to assert on. What IS
+	// assertable, and is the whole point of the row, is that the run got PAST
+	// every isolation gate and all the way to spawning opencode from the
+	// PATH-sandboxed spy dir — the failure names that very path. See the
+	// file-level note on opencode for why its spawned-env payload is pinned at
+	// the Go level instead (auth_test.go's
+	// TestHostCredentialSeed_OpencodeSeedsAuthJsonUnderXdgDataOpencode).
+	ctx.Step(`^the run proceeds past every isolation gate to spawn the engine itself$`, func(c context.Context) error {
+		w := worldFrom(c)
+		j := isoMatrixOf(w)
+		out := w.env.LastOutput()
+		w.docStepMaterialized = fmt.Sprintf("exit=%d\n%s", w.env.LastExitCode(), strings.TrimSpace(out))
+		if strings.Contains(out, "worktree isolation for agent") || strings.Contains(out, "[isolation]") {
+			return fmt.Errorf("unexpected isolation finding present; output:\n%s", out)
+		}
+		binNames, err := isoBinaryNames(j.engine)
+		if err != nil {
+			return err
+		}
+		spawned := filepath.Join(w.env.Root, "iso-spy-bin", binNames[0])
+		if !strings.Contains(out, spawned) {
+			return fmt.Errorf("nothing in the run's output names the sandboxed spy binary %q, so there is no evidence the run reached an engine spawn at all; output:\n%s", spawned, out)
 		}
 		return nil
 	})

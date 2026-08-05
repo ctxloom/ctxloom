@@ -39,6 +39,45 @@ const (
 type j5State struct {
 	engine string // current Examples row's backend name (claude-code/codex/kiro/antigravity)
 	target string // profile materialize --target dir for this row (relative to project root)
+
+	// handAuthoredBytes is the EXACT content the hand-authored fixture wrote
+	// before any materialize ran. The byte-for-byte regression compares the
+	// post-materialize file's non-managed regions against this snapshot, so
+	// "byte-for-byte" in the scenario title is measured rather than sampled.
+	handAuthoredBytes string
+}
+
+// j5 managed-section markers, written out as literals rather than imported
+// from internal/shared/agent. They are a USER-VISIBLE contract — these exact
+// bytes land in a team's own CLAUDE.md/AGENTS.md — so the regression that
+// guards a team's hand-authored content must not be able to move in lockstep
+// with the production code it is guarding. If ctxloom ever changes its marker
+// text, this test going red is the correct outcome, not a maintenance chore.
+const (
+	j5ManagedBegin = "<!-- ctxloom:context:begin (managed — do not edit between markers) -->"
+	j5ManagedEnd   = "<!-- ctxloom:context:end -->"
+)
+
+// j5StripManagedSection removes the ctxloom-managed section from body,
+// returning everything outside it — the region ctxloom promises to preserve
+// byte-for-byte. Implemented HERE rather than reusing
+// agent.StripManagedSection for the same independence reason as the markers
+// above: an assertion that shares its parsing with the code under test cannot
+// observe that code losing content.
+//
+// An unterminated begin marker drops through to EOF (the section is
+// ctxloom's to own), matching what the production writer does.
+func j5StripManagedSection(body string) string {
+	begin := strings.Index(body, j5ManagedBegin)
+	if begin < 0 {
+		return body
+	}
+	rest := body[begin+len(j5ManagedBegin):]
+	end := strings.Index(rest, j5ManagedEnd)
+	if end < 0 {
+		return body[:begin]
+	}
+	return body[:begin] + strings.TrimLeft(rest[end+len(j5ManagedEnd):], "\n")
 }
 
 func j5Of(w *World) *j5State {
@@ -177,14 +216,51 @@ func registerJ5Steps(ctx *godog.ScenarioContext) {
 		j5.engine = engine
 		j5.target = j5TargetFor(engine)
 		rel := filepath.Join(j5.target, file)
-		return w.env.WriteFile(rel, "# Team conventions\n"+j5HandAuthoredMarker+"\n")
+		// Deliberately more than one line, and deliberately including prose
+		// that carries no marker of its own: the P0 this scenario guards
+		// (lanky-plop) is CONTENT LOSS, and content loss does not politely
+		// confine itself to the one line a test happens to grep for. The
+		// heading and the two comment lines are exactly what a merge bug
+		// dropped while leaving the marker line intact.
+		j5.handAuthoredBytes = "# Team conventions\n\n" +
+			"<!-- Alice wrote this by hand; ctxloom must never touch it -->\n" +
+			j5HandAuthoredMarker + "\n\n" +
+			"## House style\n\n- tabs, not spaces\n- no trailing whitespace\n"
+		return w.env.WriteFile(rel, j5.handAuthoredBytes)
 	})
 
+	// BYTE-FOR-BYTE, measured. This used to be one strings.Contains for one
+	// marker line, which is not what the scenario's own title claims and not
+	// what the P0 it guards was about: a mutation that made
+	// agent.WriteManagedContext silently drop every hand-authored comment line
+	// from the pre-marker region — the exact data-loss class — left all six
+	// j5 scenarios green while "# Team conventions" vanished unnoticed.
+	//
+	// The comparison is over the file's NON-MANAGED regions (everything
+	// outside ctxloom's own markers), because those are precisely the bytes
+	// ctxloom promises not to touch. The managed section itself is asserted by
+	// the step that follows this one in the Gherkin.
 	ctx.Step(`^(\S+) still carries Alice's hand-authored conventions, byte-for-byte$`, func(c context.Context, file string) error {
 		w := worldFrom(c)
 		j5 := j5Of(w)
+		if j5.handAuthoredBytes == "" {
+			return fmt.Errorf("j5: no hand-authored snapshot recorded — the hand-authoring step must run before this one")
+		}
 		rel := filepath.Join(j5.target, file)
-		return j5FileContains(w, rel, j5HandAuthoredMarker)
+		got, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", rel, err)
+		}
+		if !strings.Contains(got, j5ManagedBegin) {
+			return fmt.Errorf("%s carries no ctxloom managed section at all, so nothing was materialized alongside the hand-authored content; content:\n%s", rel, got)
+		}
+		outside := j5StripManagedSection(got)
+		if outside != j5.handAuthoredBytes {
+			return fmt.Errorf("%s: the region outside ctxloom's managed markers is NOT byte-identical to what Alice hand-authored.\n--- hand-authored (%d bytes) ---\n%q\n--- survived (%d bytes) ---\n%q\n--- whole file after materialize ---\n%s",
+				rel, len(j5.handAuthoredBytes), j5.handAuthoredBytes, len(outside), outside, got)
+		}
+		w.docStepMaterialized = rel + " (hand-authored region, byte-identical after materialize):\n" + outside
+		return nil
 	})
 
 	// --- Outline B: live (@live, claude + antigravity only) -------------------

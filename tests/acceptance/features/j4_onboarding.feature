@@ -37,11 +37,18 @@ Feature: A new engineer clones the repo and is already set up
   # LOCKED — REPRODUCIBILITY, the point of the lockfile. Bob must get what the
   # TEAM pinned, not whatever the remote is serving today. Without this, "we all
   # share one standard" is untrue the moment an upstream moves.
+  #
+  # Bob's fetch here RE-RESOLVES deliberately. An audit found that an ordinary
+  # pull skips a reference it considers already installed and never consults
+  # the pin at all — so this scenario used to pass with the freeze deleted
+  # outright, satisfied by the pull not running. Re-resolving puts the hold
+  # back on the critical path, and the assertion below reads the resolved
+  # commit out of Bob's own lockfile rather than inferring it from prose.
   Scenario: Bob receives the versions the team pinned, not the latest ones
     Given the project pins the versions of the context it draws from elsewhere
     And an upstream has since published a newer version
     When Bob clones the project
-    And Bob fetches the context the project draws on
+    And Bob fetches the context the project draws on, re-resolving every reference
     Then he receives the pinned versions, the same ones the rest of the team has
     And he does not receive the newer upstream version
 

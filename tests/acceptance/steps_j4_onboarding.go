@@ -25,6 +25,7 @@ import (
 
 	"github.com/cucumber/godog"
 	"golang.org/x/crypto/ssh"
+	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
@@ -61,11 +62,42 @@ type j4State struct {
 	repriseEnvelope    string
 	repriseVersionJSON string
 
+	// pinnedSHA is the commit the team's lockfile froze when Carol held the
+	// upstream bundle — the concrete thing "the versions the team pinned"
+	// means. Read off the committed lock.yaml at pin time so Bob's own
+	// lockfile can be held to it afterwards.
+	pinnedSHA string
+
 	// engine/target: this scenario's current Examples row (the multi-engine
 	// outline below) — which backend Bob materialized for, and the
 	// --target dir his materialize wrote into.
 	engine string
 	target string
+}
+
+// j4LockedSHA reads the lockfile at rel (project-relative) and returns the
+// locked commit SHA for the upstream bundle entry. YAML is parsed rather than
+// grepped so a reshaped lockfile fails loudly instead of silently matching
+// nothing.
+func j4LockedSHA(raw string) (string, error) {
+	var lock struct {
+		Bundles map[string]struct {
+			SHA    string `yaml:"sha"`
+			Pinned bool   `yaml:"pinned"`
+		} `yaml:"bundles"`
+	}
+	if err := yaml.Unmarshal([]byte(raw), &lock); err != nil {
+		return "", fmt.Errorf("parse lockfile: %w\n%s", err, raw)
+	}
+	for ref, entry := range lock.Bundles {
+		if strings.Contains(ref, j4UpstreamBundle) {
+			if entry.SHA == "" {
+				return "", fmt.Errorf("lockfile entry %q carries no sha:\n%s", ref, raw)
+			}
+			return entry.SHA, nil
+		}
+	}
+	return "", fmt.Errorf("lockfile has no entry for the upstream bundle %q:\n%s", j4UpstreamBundle, raw)
 }
 
 // j4 returns (lazily allocating) this scenario's J4 fixture state.
@@ -231,6 +263,20 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, "bundle", "hold", "upstream/"+j4UpstreamBundle); err != nil {
 			return err
 		}
+		// Record the SHA the hold froze. "The versions the team pinned" is a
+		// concrete commit, and Bob's lockfile after his own pull is the place
+		// that claim is either kept or broken; asserting on it is what stops
+		// this scenario from being satisfiable by a pull that never resolved
+		// anything.
+		raw, err := w.env.ReadFile(".ctxloom/lock.yaml")
+		if err != nil {
+			return fmt.Errorf("read the team's lockfile after holding %s: %w", j4UpstreamBundle, err)
+		}
+		sha, err := j4LockedSHA(raw)
+		if err != nil {
+			return err
+		}
+		j4.pinnedSHA = sha
 		return j2CommitAndPush(w, "pin upstream dependency")
 	})
 
@@ -241,8 +287,45 @@ func registerJ4Steps(ctx *godog.ScenarioContext) {
 		return w.env.AdvanceSignedRemote(j4.upstreamBare, map[string]string{rel: j2FragmentBundleYAML(j4NewerMarker)}, []string{rel}, j4.upstreamSigner)
 	})
 
+	// THE PULL IS FORCED, and that is the entire point of this step existing
+	// separately from the ordinary "Bob fetches the context the project draws
+	// on" the other scenarios share.
+	//
+	// An audit isolated what was actually protecting Bob here, and it was not
+	// the pin. Deleting the pin-restore block from remote.Puller.updateLockfile
+	// — so a hold no longer freezes SHA or version at all — left all eleven j4
+	// scenarios green. Three controlled runs found why: an ordinary pull sees
+	// the bundle already installed (operations.syncItem's !force &&
+	// isInstalled skip) and returns "skipped" without ever re-resolving, so the
+	// freeze was never on Bob's critical path. The scenario was satisfied by
+	// the pull not running. Only with the skip disabled AND the pin removed did
+	// it go red.
+	//
+	// `--force` puts the pull back on the path the pin actually guards: the
+	// reference IS re-resolved against the advanced upstream, and the hold is
+	// what has to hold it back.
+	ctx.Step(`^Bob fetches the context the project draws on, re-resolving every reference$`, func(c context.Context) error {
+		return runBob(worldFrom(c), "remote", "pull", "--force")
+	})
+
 	ctx.Step(`^he receives the pinned versions, the same ones the rest of the team has$`, func(c context.Context) error {
-		return assertBobMaterializedContains(worldFrom(c), j4PinnedMarker)
+		w := worldFrom(c)
+		j4 := w.j4()
+		if j4.pinnedSHA == "" {
+			return fmt.Errorf("j4: no pinned SHA recorded — the pinning step must run before this one")
+		}
+		raw, err := readBobFile(w, filepath.Join(".ctxloom", "lock.yaml"))
+		if err != nil {
+			return fmt.Errorf("read Bob's lockfile after his pull: %w", err)
+		}
+		got, err := j4LockedSHA(raw)
+		if err != nil {
+			return fmt.Errorf("Bob's lockfile: %w", err)
+		}
+		if got != j4.pinnedSHA {
+			return fmt.Errorf("Bob's pull moved the upstream bundle off the team's pin: lockfile now records sha %q, the team pinned %q — a hold must freeze the resolved commit even when the pull re-resolves against a newer upstream; Bob's lockfile:\n%s", got, j4.pinnedSHA, raw)
+		}
+		return assertBobMaterializedContains(w, j4PinnedMarker)
 	})
 
 	ctx.Step(`^he does not receive the newer upstream version$`, func(c context.Context) error {

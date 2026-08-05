@@ -4,9 +4,12 @@ package acceptance
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -117,6 +120,88 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+
+	// The read-only claim, made checkable. A command documented as a
+	// DIAGNOSIS must leave the project exactly as it found it, and no
+	// assertion on that command's own stdout can see it writing a file
+	// somewhere else. Snapshot every byte under the project, then compare.
+	ctx.Step(`^I record the project tree$`, func(c context.Context) error {
+		w := worldFrom(c)
+		tree, err := snapshotProjectTree(w.env.ProjectDir)
+		if err != nil {
+			return fmt.Errorf("record project tree: %w", err)
+		}
+		w.projectTree = tree
+		return nil
+	})
+
+	ctx.Step(`^the project tree is unchanged$`, func(c context.Context) error {
+		w := worldFrom(c)
+		// Zero-length guard, the same one steps_skill.go's byte comparison
+		// carries: comparing two empty trees is trivially unchanged, so an
+		// unrecorded (or empty) snapshot must fail loudly instead of
+		// certifying anything.
+		if len(w.projectTree) == 0 {
+			return fmt.Errorf(`the recorded project tree is EMPTY — comparing nothing to nothing is trivially "unchanged"; the "I record the project tree" step must run first, against a project that has files`)
+		}
+		now, err := snapshotProjectTree(w.env.ProjectDir)
+		if err != nil {
+			return fmt.Errorf("re-read project tree: %w", err)
+		}
+		var added, removed, modified []string
+		for rel, sum := range now {
+			switch before, ok := w.projectTree[rel]; {
+			case !ok:
+				added = append(added, rel)
+			case before != sum:
+				modified = append(modified, rel)
+			}
+		}
+		for rel := range w.projectTree {
+			if _, ok := now[rel]; !ok {
+				removed = append(removed, rel)
+			}
+		}
+		if len(added)+len(removed)+len(modified) == 0 {
+			return nil
+		}
+		slices.Sort(added)
+		slices.Sort(removed)
+		slices.Sort(modified)
+		return fmt.Errorf("the project tree changed: added %v, removed %v, modified %v", added, removed, modified)
+	})
+}
+
+// snapshotProjectTree maps every file under root to a digest of its content.
+// .git is skipped: its internal churn belongs to git, not to the command under
+// test.
+func snapshotProjectTree(root string) (map[string]string, error) {
+	tree := map[string]string{}
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, rerr := filepath.Rel(root, p)
+		if rerr != nil {
+			return rerr
+		}
+		if d.IsDir() {
+			if rel == ".git" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		body, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return rerr
+		}
+		tree[rel] = fmt.Sprintf("%x", sha256.Sum256(body))
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return tree, nil
 }
 
 func fileContains(c context.Context, home bool, rel, want string) error {

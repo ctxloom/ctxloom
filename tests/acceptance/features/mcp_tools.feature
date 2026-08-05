@@ -26,11 +26,17 @@ Feature: MCP tools
     Then the tool call succeeds
     And the tool result contains "testing"
 
+  # "Degrades gracefully" means it RAN and found nothing, not that it exited 0.
+  # A handler that never called SearchRemotes at all — and so never surfaced an
+  # error either — satisfied the bare exit-code assertion. The decoded result
+  # fields can only be there if a real SearchRemotesResult came back.
   Scenario: Search the installable library degrades gracefully with no remotes
     Given an initialized ctxloom project
     When the agent calls tool "search_library" with:
       | query | anything |
     Then the tool call succeeds
+    And the tool result field "query" equals "anything"
+    And the tool result field "count" equals "0"
 
   Scenario: Load a prior session's essence over MCP
     Given an initialized ctxloom project

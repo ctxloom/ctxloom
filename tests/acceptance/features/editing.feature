@@ -28,9 +28,20 @@ Feature: Editing content
     Then the command succeeds
     And the file ".ctxloom/content/bundles/demo.yaml" contains "EDITED-BY-TEST"
 
+  # A profile is a structured document, so the append-a-line marker editor the
+  # scenarios above use would leave invalid YAML behind — which is why this
+  # scenario had no observable effect to assert and settled for the exit code,
+  # passing even against an edit path that returned immediately and did
+  # nothing. The description-rewriting editor keeps the document valid, so the
+  # round-trip is assertable on the file AND on the read-back surface.
   Scenario: Edit a profile
-    Given an initialized ctxloom project
+    Given a ctxloom project with a description-rewriting editor
     And a bundle "demo" exists
     And a profile "dev" with bundle "demo"
     When I run "ctxloom profile edit dev"
     Then the command succeeds
+    And the output contains "Updated profile"
+    And the file ".ctxloom/profiles/dev.yaml" contains "EDITED-BY-TEST"
+    When I run "ctxloom profile show dev"
+    Then the command succeeds
+    And the output contains "EDITED-BY-TEST"

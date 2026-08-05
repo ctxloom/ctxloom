@@ -31,6 +31,8 @@ type World struct {
 
 	remoteBare map[string]string // seeded remote name -> bare repo dir (for advancing)
 
+	projectTree map[string]string // project-relative path -> content digest, from "I record the project tree"
+
 	j1Sources         map[string]*j1Source // J1: named source fixtures (personal/company/third-party/…)
 	j1Live            bool                 // J1 @live: whether this scenario's real agent is available (else every step no-ops toward a clean skip)
 	j1RestartRecorded string               // J1: the mock's recorded input from the last "restart" (runFreshMockSession)

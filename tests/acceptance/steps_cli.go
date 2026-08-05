@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -63,6 +64,221 @@ func registerCLISteps(ctx *godog.ScenarioContext) {
 		}
 		return nil
 	})
+
+	registerJSONOutputSteps(ctx)
+	registerVersionSteps(ctx)
+	registerACPBlockSteps(ctx)
+}
+
+// registerJSONOutputSteps carries the `--format json` assertions.
+//
+// A `--format json` scenario that only substring-matches is not testing the
+// flag at all: every marker it looks for is present in the HUMAN rendering
+// too, so a command that quietly stopped emitting JSON stays green. These
+// steps parse the machine stream (stdout alone — see
+// testenv.RunRecord.Stdout) and assert DECODED structure, which the text form
+// cannot satisfy at any price.
+func registerJSONOutputSteps(ctx *godog.ScenarioContext) {
+	ctx.Step(`^the output is valid JSON$`, func(c context.Context) error {
+		_, err := lastOutputJSON(worldFrom(c))
+		return err
+	})
+
+	// "contains an object whose F is V" rather than an index: a check list's
+	// position is an implementation detail, its membership is the contract.
+	ctx.Step(`^the JSON output array "([^"]*)" contains an object whose "([^"]*)" is "([^"]*)"$`,
+		func(c context.Context, arrayKey, field, want string) error {
+			w := worldFrom(c)
+			entries, err := lastOutputJSONArray(w, arrayKey)
+			if err != nil {
+				return err
+			}
+			for _, e := range entries {
+				obj, ok := e.(map[string]any)
+				if !ok {
+					continue
+				}
+				if fmt.Sprintf("%v", obj[field]) == want {
+					return nil
+				}
+			}
+			return fmt.Errorf("JSON array %q has no object whose %q is %q; stdout:\n%s", arrayKey, field, want, w.env.LastStdout())
+		})
+
+	ctx.Step(`^every object in the JSON output array "([^"]*)" has a non-empty "([^"]*)"$`,
+		func(c context.Context, arrayKey, field string) error {
+			w := worldFrom(c)
+			entries, err := lastOutputJSONArray(w, arrayKey)
+			if err != nil {
+				return err
+			}
+			// The zero-length guard: "every element satisfies P" is
+			// vacuously true of an empty array, which is precisely the
+			// silent-no-op shape this assertion exists to catch.
+			if len(entries) == 0 {
+				return fmt.Errorf("JSON array %q is EMPTY — every-element assertions are vacuous over it; stdout:\n%s", arrayKey, w.env.LastStdout())
+			}
+			for i, e := range entries {
+				obj, ok := e.(map[string]any)
+				if !ok {
+					return fmt.Errorf("JSON array %q entry %d is not an object; stdout:\n%s", arrayKey, i, w.env.LastStdout())
+				}
+				if s := fmt.Sprintf("%v", obj[field]); s == "" || obj[field] == nil {
+					return fmt.Errorf("JSON array %q entry %d has an empty %q; stdout:\n%s", arrayKey, i, field, w.env.LastStdout())
+				}
+			}
+			return nil
+		})
+}
+
+// lastOutputJSON decodes the last command's STDOUT as a JSON object. Parsing
+// the combined stream cannot work — one stderr advisory line concatenated
+// onto the payload makes it unparseable — so this reads stdout alone.
+func lastOutputJSON(w *World) (map[string]any, error) {
+	stdout := w.env.LastStdout()
+	if strings.TrimSpace(stdout) == "" {
+		return nil, fmt.Errorf("stdout is empty — nothing to parse as JSON; combined output:\n%s", w.env.LastOutput())
+	}
+	var obj map[string]any
+	if err := json.Unmarshal([]byte(stdout), &obj); err != nil {
+		return nil, fmt.Errorf("stdout is not a JSON object: %v; stdout:\n%s", err, stdout)
+	}
+	return obj, nil
+}
+
+func lastOutputJSONArray(w *World, key string) ([]any, error) {
+	obj, err := lastOutputJSON(w)
+	if err != nil {
+		return nil, err
+	}
+	raw, ok := obj[key]
+	if !ok {
+		return nil, fmt.Errorf("JSON output has no %q key; stdout:\n%s", key, w.env.LastStdout())
+	}
+	entries, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("JSON output key %q is not an array; stdout:\n%s", key, w.env.LastStdout())
+	}
+	return entries, nil
+}
+
+// versionStampRE is the shape a ctxloom version string can legitimately take:
+// the ldflags-stamped family stamp (`v<maj.min.patch>[-<sha>-<utc>]`), or the
+// literal "dev" an unstamped `go build` leaves in internal/cli.Version. Any
+// other text — notably a rendering that forgot to print the version at all —
+// is refused. `version.feature` used to assert `the output matches "."`: one
+// arbitrary character, which the literal "MUTATION-not-the-version" satisfies
+// as happily as the truth does.
+var versionStampRE = regexp.MustCompile(`^(dev|v?[0-9]+\.[0-9]+\.[0-9]+\S*)$`)
+
+func registerVersionSteps(ctx *godog.ScenarioContext) {
+	// One step, three surfaces. The version is not knowable to this test
+	// process (the CLI binary is stamped by ldflags at build time; the test
+	// binary is not), so the assertion is: whatever the binary reports, it is
+	// version-SHAPED and every surface that reports it AGREES. A print path
+	// that emits anything of its own breaks the agreement.
+	ctx.Step(`^every version surface reports the same version-shaped string$`, func(c context.Context) error {
+		w := worldFrom(c)
+
+		if err := runCLI(c, "ctxloom version", ""); err != nil {
+			return err
+		}
+		text := strings.TrimSpace(w.env.LastStdout())
+		if !versionStampRE.MatchString(text) {
+			return fmt.Errorf("`ctxloom version` printed %q, which is not a version string", text)
+		}
+
+		if err := runCLI(c, "ctxloom --format json version", ""); err != nil {
+			return err
+		}
+		obj, err := lastOutputJSON(w)
+		if err != nil {
+			return fmt.Errorf("`ctxloom --format json version`: %w", err)
+		}
+		if got := fmt.Sprintf("%v", obj["version"]); got != text {
+			return fmt.Errorf("json version = %q but `ctxloom version` printed %q", got, text)
+		}
+		if got := fmt.Sprintf("%v", obj["name"]); got != "ctxloom" {
+			return fmt.Errorf("json version name = %q, want %q", got, "ctxloom")
+		}
+
+		if err := runCLI(c, "ctxloom --version", ""); err != nil {
+			return err
+		}
+		flag := strings.TrimSpace(w.env.LastStdout())
+		if want := "ctxloom version " + text; flag != want {
+			return fmt.Errorf("`ctxloom --version` printed %q, want %q", flag, want)
+		}
+		return nil
+	})
+}
+
+// zedBlockMarker is the line `acp list` prints immediately before the
+// ready-to-paste Zed object; the JSON runs from the next line to the end of
+// stdout.
+const zedBlockMarker = `merge into "agent_servers"`
+
+func registerACPBlockSteps(ctx *godog.ScenarioContext) {
+	// The human paste block is the artifact a user actually copies, and it is
+	// rendered by its own function (zedAgentServersBlock) that `--format json`
+	// never runs — so asserting on the JSON form proves nothing about it.
+	// Asserting on the literal "agent_servers" proves less still: that string
+	// is in the surrounding prose, present even when the object is `{}`.
+	ctx.Step(`^the agent_servers paste block declares a server "([^"]*)" running "([^"]*)"$`,
+		func(c context.Context, name, argv string) error {
+			w := worldFrom(c)
+			block, err := zedAgentServersJSON(w.env.LastStdout())
+			if err != nil {
+				return fmt.Errorf("%w; output:\n%s", err, w.env.LastOutput())
+			}
+			if len(block) == 0 {
+				return fmt.Errorf("the agent_servers paste block is an EMPTY object — it advertises no server at all; output:\n%s", w.env.LastOutput())
+			}
+			entry, ok := block[name]
+			if !ok {
+				keys := make([]string, 0, len(block))
+				for k := range block {
+					keys = append(keys, k)
+				}
+				return fmt.Errorf("the agent_servers paste block has no %q entry (has: %v)", name, keys)
+			}
+			if strings.TrimSpace(entry.Command) == "" {
+				return fmt.Errorf("agent_servers entry %q has an empty command", name)
+			}
+			if got := strings.Join(entry.Args, " "); got != argv {
+				return fmt.Errorf("agent_servers entry %q args = %q, want %q", name, got, argv)
+			}
+			return nil
+		})
+}
+
+// zedAgentServerEntry mirrors the value shape `acp list` pastes.
+type zedAgentServerEntry struct {
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+}
+
+// zedAgentServersJSON pulls the paste block out of `acp list`'s human output
+// and decodes it. Fails loudly when the marker line or the object is missing
+// rather than returning an empty map, which would read as "no servers".
+func zedAgentServersJSON(out string) (map[string]zedAgentServerEntry, error) {
+	i := strings.Index(out, zedBlockMarker)
+	if i < 0 {
+		return nil, fmt.Errorf("output has no %q line", zedBlockMarker)
+	}
+	j := strings.Index(out[i:], "{")
+	if j < 0 {
+		return nil, fmt.Errorf("no JSON object follows the %q line", zedBlockMarker)
+	}
+	k := strings.LastIndex(out, "}")
+	if k < i+j {
+		return nil, fmt.Errorf("the paste block after the %q line is unterminated", zedBlockMarker)
+	}
+	var block map[string]zedAgentServerEntry
+	if err := json.Unmarshal([]byte(out[i+j:k+1]), &block); err != nil {
+		return nil, fmt.Errorf("the agent_servers paste block is not valid JSON: %w", err)
+	}
+	return block, nil
 }
 
 func runCLI(c context.Context, cmdline, stdin string) error {

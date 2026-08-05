@@ -65,8 +65,15 @@ type TestEnvironment struct {
 // RunRecord captures everything TestEnvironment observed about one CLI
 // invocation: the argv, its combined stdout+stderr, exit code, and any error.
 type RunRecord struct {
-	Args     []string
-	Output   string // combined stdout+stderr
+	Args   []string
+	Output string // combined stdout+stderr
+	// Stdout is the MACHINE stream on its own. A `--format json` assertion
+	// that parses Output cannot work: any stderr line the command also
+	// emitted (a companion advisory, a withheld-content notice) is
+	// concatenated onto the JSON and the parse fails, which pushed those
+	// scenarios back onto substring matching — the exact weakness that let a
+	// json-flagged command pass while rendering human text.
+	Stdout   string
 	ExitCode int
 	Err      error
 }
@@ -88,6 +95,14 @@ func (e *TestEnvironment) recordRun(args []string, output string, err error) {
 		rec.ExitCode = 0
 	}
 	e.runs = append(e.runs, rec)
+}
+
+// recordRunSplit records a run whose stdout and stderr were captured
+// separately, keeping both the concatenated view every existing assertion
+// reads and the machine stream on its own (see RunRecord.Stdout).
+func (e *TestEnvironment) recordRunSplit(args []string, stdout, stderr string, err error) {
+	e.recordRun(args, stdout+stderr, err)
+	e.runs[len(e.runs)-1].Stdout = stdout
 }
 
 // forceRemoveAll removes dir even when it contains read-only files or
@@ -576,13 +591,22 @@ func (e *TestEnvironment) Run(args ...string) error {
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	e.recordRun(args, stdout.String()+stderr.String(), err)
+	e.recordRunSplit(args, stdout.String(), stderr.String(), err)
 	return err
 }
 
 // LastOutput returns the combined stdout/stderr from the last command.
 func (e *TestEnvironment) LastOutput() string {
 	return e.NthLastOutput(0)
+}
+
+// LastStdout returns ONLY the last command's stdout — the stream a
+// `--format json` assertion has to parse (see RunRecord.Stdout).
+func (e *TestEnvironment) LastStdout() string {
+	if len(e.runs) == 0 {
+		return ""
+	}
+	return e.runs[len(e.runs)-1].Stdout
 }
 
 // NthLastOutput returns the combined stdout/stderr of the n-th most recent
@@ -669,7 +693,7 @@ func (e *TestEnvironment) RunWithStdin(stdin string, args ...string) error {
 	_ = stdinPipe.Close()
 
 	err = cmd.Wait()
-	e.recordRun(args, stdout.String()+stderr.String(), err)
+	e.recordRunSplit(args, stdout.String(), stderr.String(), err)
 	return err
 }
 

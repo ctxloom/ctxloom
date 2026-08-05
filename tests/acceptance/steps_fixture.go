@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
+	"gopkg.in/yaml.v3"
 )
 
 // minimalConfig is the smallest project config the CLI and MCP server need to
@@ -43,6 +44,72 @@ editor:
     - editor
 `
 
+// descriptionEditorConfig pins the editor to a command that REWRITES the
+// document's `description:` line rather than appending free text, so the
+// round-trip is observable on a file whose content must stay valid YAML —
+// which is exactly a profile. markerEditorConfig's append would corrupt one
+// (a bare scalar after a mapping), which is why `profile edit` had no
+// observable effect to assert on and its scenario asserted nothing but the
+// exit code.
+const descriptionEditorConfig = `version: 4
+editor:
+  command: sh
+  args:
+    - "-c"
+    - 'sed "s/^description:.*/description: EDITED-BY-TEST/" "$1" > "$1.edited" && mv "$1.edited" "$1"'
+    - editor
+`
+
+// fixtureFragmentBody and fixtureCommandBody are the bodies the fragment and
+// command fixtures seed over `create`'s placeholder.
+//
+// `fragment create` writes "# <name>\n\nAdd content here." — a body whose only
+// distinctive token is the item NAME, echoed straight from the argument the
+// scenario already passed. Every assertion that looked for that name on a
+// show/list/resource/assembly surface was therefore satisfied by the echo
+// alone: blanking the stored content left those scenarios green. A marker that
+// appears NOWHERE except inside the item's stored bytes can only be asserted
+// successfully if the real bytes travelled.
+func fixtureFragmentBody(name string) string {
+	return fmt.Sprintf("# %s\n\nFRAGMENT-BODY-%s: seeded by the acceptance fixture.\n", name, name)
+}
+
+func fixtureCommandBody(name string) string {
+	return fmt.Sprintf("# %s\n\nCOMMAND-BODY-%s: seeded by the acceptance fixture.\n", name, name)
+}
+
+// seedItemContent replaces one item's `content:` inside a single-file bundle
+// YAML. The fixture still CREATES the item through the real CLI path, so
+// creation stays exercised end to end; this only overwrites the placeholder
+// body, because no CLI or MCP surface can set an item's content at creation
+// time (operations.AddItem's Content field has exactly one caller, and it
+// hard-codes the placeholder).
+func seedItemContent(w *World, bundle, section, name, content string) error {
+	rel := ".ctxloom/content/bundles/" + bundle + ".yaml"
+	body, err := w.env.ReadFile(rel)
+	if err != nil {
+		return fmt.Errorf("seed %s %q: read bundle %q: %w", section, name, bundle, err)
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal([]byte(body), &doc); err != nil {
+		return fmt.Errorf("seed %s %q: parse bundle %q: %w", section, name, bundle, err)
+	}
+	sec, _ := doc[section].(map[string]any)
+	if sec == nil {
+		return fmt.Errorf("seed %s %q: bundle %q has no %q section", section, name, bundle, section)
+	}
+	item, _ := sec[name].(map[string]any)
+	if item == nil {
+		return fmt.Errorf("seed %s %q: bundle %q has no such entry", section, name, bundle)
+	}
+	item["content"] = content
+	out, err := yaml.Marshal(doc)
+	if err != nil {
+		return fmt.Errorf("seed %s %q: marshal bundle %q: %w", section, name, bundle, err)
+	}
+	return w.env.WriteFile(rel, string(out))
+}
+
 func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^an initialized ctxloom project$`, func(c context.Context) error {
 		w := worldFrom(c)
@@ -68,6 +135,16 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return w.env.WriteFile(".ctxloom/config.yaml", markerEditorConfig)
 	})
 
+	// A project whose editor rewrites `description:` in place — the YAML-safe
+	// round-trip an `edit` on a structured document (a profile) needs.
+	ctx.Step(`^a ctxloom project with a description-rewriting editor$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := w.env.InitGitRepo(); err != nil {
+			return err
+		}
+		return w.env.WriteFile(".ctxloom/config.yaml", descriptionEditorConfig)
+	})
+
 	// A malformed config exercises fault tolerance: ctxloom must warn and fall
 	// back to defaults rather than crash.
 	ctx.Step(`^a malformed ctxloom config$`, func(c context.Context) error {
@@ -86,11 +163,32 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^a fragment "([^"]*)" in bundle "([^"]*)" exists$`, func(c context.Context, frag, bundle string) error {
-		return runFixture(c, "fragment", "create", bundle, frag)
+		if err := runFixture(c, "fragment", "create", bundle, frag); err != nil {
+			return err
+		}
+		return seedItemContent(worldFrom(c), bundle, "fragments", frag, fixtureFragmentBody(frag))
 	})
 
 	ctx.Step(`^a command "([^"]*)" in bundle "([^"]*)" exists$`, func(c context.Context, command, bundle string) error {
-		return runFixture(c, "command", "create", bundle, command)
+		if err := runFixture(c, "command", "create", bundle, command); err != nil {
+			return err
+		}
+		return seedItemContent(worldFrom(c), bundle, "commands", command, fixtureCommandBody(command))
+	})
+
+	// A bundle whose only content is the well-known `tooling` command
+	// operations.CollectTooling looks for, carrying a caller-chosen marker so a
+	// scenario can tell "the trust gate withheld this declaration" apart from
+	// "collection returned nothing at all".
+	ctx.Step(`^a bundle "([^"]*)" declaring container tooling "([^"]*)"$`, func(c context.Context, name, marker string) error {
+		body := fmt.Sprintf("version: 1.0.0\n"+
+			"description: declares agent-image tooling\n"+
+			"commands:\n"+
+			"  tooling:\n"+
+			"    description: tools this bundle's content needs in the agent image\n"+
+			"    content: |\n"+
+			"      %s: install the tools this bundle's content needs.\n", marker)
+		return worldFrom(c).env.WriteFile(".ctxloom/content/bundles/"+name+".yaml", body)
 	})
 
 	// A profile requires at least one bundle or parent. The fixture creates a

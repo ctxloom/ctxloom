@@ -572,7 +572,7 @@ func liveSurface(t *testing.T) (tools, resources, templates []string) {
 	if err := env.InitGitRepo(); err != nil {
 		t.Fatalf("git init: %v", err)
 	}
-	if err := env.WriteFile(".ctxloom/config.yaml", minimalConfig); err != nil {
+	if err := writeMinimalConfig(env); err != nil {
 		t.Fatalf("write config: %v", err)
 	}
 	client, err := env.StartMCP()

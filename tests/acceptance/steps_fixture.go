@@ -9,13 +9,14 @@ import (
 
 	"github.com/cucumber/godog"
 	"gopkg.in/yaml.v3"
+
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // minimalConfig is the smallest project config the CLI and MCP server need to
 // resolve a project root and operate fault-tolerantly. Feature-specific fixtures
 // layer bundles, profiles, and LLM config on top via the CLI itself, so the
-// fixtures exercise real create paths rather than hand-written YAML. The editor
-// is pinned to a no-op so `edit` commands run non-interactively.
+// fixtures exercise real create paths rather than hand-written YAML.
 //
 // Deliberately carries NO `profiles:` key: the old `profiles.defaults` (a bare
 // seq) is the pre-v6 schema defaultAgentUpgrade migrates on load into a
@@ -27,7 +28,28 @@ import (
 // tripping the schema-validation fatal finding `ctxloom run`'s strict startup
 // gate enforces on a not-yet-upgraded file. Scenarios that need a default agent
 // set one explicitly via `ctxloom agent default <name>`.
-const minimalConfig = "version: 4\neditor:\n  command: \"true\"\n"
+//
+// editor.command used to live HERE, pinned to a no-op so `edit` commands run
+// non-interactively. It moved to minimalHomeEditorConfig (written via
+// writeMinimalConfig): editor.command/args are ScopeMachine
+// (internal/config/layerscope) — a binary on THIS box — so a committed
+// project-file value no longer survives a real Load.
+const minimalConfig = "version: 4\n"
+
+// minimalHomeEditorConfig is minimalConfig's HOME half: the no-op editor
+// pin. See minimalConfig's doc and writeMinimalConfig.
+const minimalHomeEditorConfig = "version: 4\neditor:\n  command: \"true\"\n"
+
+// writeMinimalConfig writes minimalConfig to the project layer and
+// minimalHomeEditorConfig to home — every scenario that used to write
+// minimalConfig alone as the whole project config.yaml should call this
+// instead, so both halves land where they now belong.
+func writeMinimalConfig(env *testenv.TestEnvironment) error {
+	if err := env.WriteFile(".ctxloom/config.yaml", minimalConfig); err != nil {
+		return err
+	}
+	return env.WriteHomeFile(".ctxloom/config.yaml", minimalHomeEditorConfig)
+}
 
 // markerEditorConfig pins the editor to a command that appends a fixed marker to
 // the file it is given, so `edit` round-trips produce an observable change. sh
@@ -35,6 +57,11 @@ const minimalConfig = "version: 4\neditor:\n  command: \"true\"\n"
 // writes the content to. The marker is free text, fine for fragment/prompt
 // content (it would corrupt profile YAML, so those edits use other paths). See
 // minimalConfig for why there is no legacy `profiles: defaults: []` key.
+//
+// Lives entirely in the HOME layer (see registerFixtureSteps' "marker
+// editor" step, which writes minimalConfig to project and THIS to home) —
+// editor.command/args are ScopeMachine, so a committed project value would
+// not survive a real Load.
 const markerEditorConfig = `version: 4
 editor:
   command: sh
@@ -51,6 +78,8 @@ editor:
 // (a bare scalar after a mapping), which is why `profile edit` had no
 // observable effect to assert on and its scenario asserted nothing but the
 // exit code.
+//
+// Lives entirely in the HOME layer — see markerEditorConfig's doc for why.
 const descriptionEditorConfig = `version: 4
 editor:
   command: sh
@@ -116,7 +145,7 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		if err := w.env.InitGitRepo(); err != nil {
 			return err
 		}
-		return w.env.WriteFile(".ctxloom/config.yaml", minimalConfig)
+		return writeMinimalConfig(w.env)
 	})
 
 	// An empty project directory is a git repo with no .ctxloom yet — the
@@ -127,22 +156,31 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 
 	// A project whose editor appends a fixed marker, so an `edit` round-trip is
 	// observable (the change lands in the bundle file and across MCP).
+	// markerEditorConfig lives in HOME (editor.command/args are ScopeMachine);
+	// the project still needs a valid, versioned config.yaml of its own.
 	ctx.Step(`^a ctxloom project with a marker editor$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := w.env.InitGitRepo(); err != nil {
 			return err
 		}
-		return w.env.WriteFile(".ctxloom/config.yaml", markerEditorConfig)
+		if err := w.env.WriteFile(".ctxloom/config.yaml", minimalConfig); err != nil {
+			return err
+		}
+		return w.env.WriteHomeFile(".ctxloom/config.yaml", markerEditorConfig)
 	})
 
 	// A project whose editor rewrites `description:` in place — the YAML-safe
 	// round-trip an `edit` on a structured document (a profile) needs.
+	// descriptionEditorConfig lives in HOME for the identical reason.
 	ctx.Step(`^a ctxloom project with a description-rewriting editor$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := w.env.InitGitRepo(); err != nil {
 			return err
 		}
-		return w.env.WriteFile(".ctxloom/config.yaml", descriptionEditorConfig)
+		if err := w.env.WriteFile(".ctxloom/config.yaml", minimalConfig); err != nil {
+			return err
+		}
+		return w.env.WriteHomeFile(".ctxloom/config.yaml", descriptionEditorConfig)
 	})
 
 	// A malformed config exercises fault tolerance: ctxloom must warn and fall

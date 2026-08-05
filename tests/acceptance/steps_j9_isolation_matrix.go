@@ -271,18 +271,21 @@ func installIsoSpy(dir string, names ...string) error {
 	return nil
 }
 
-// isoMatrixConfigYAML renders config.yaml for one engine, binding a single
-// agent "iso" to it. env.CTXLOOM_ISOSPY_OUT is the spy's own output path —
-// it flows into agent.LaunchBackend.ExecuteEnv (the request env layer) via
-// ApplyLocalCLIConfig, exactly like j9's own CTXLOOM_MOCK_RECORD_FILE.
-func isoMatrixConfigYAML(engineType, spyOut string) string {
+// isoMatrixConfigYAML renders the PROJECT half of config.yaml for one
+// engine, binding a single agent "iso" to it. isoMatrixHomeConfigYAML
+// carries env.CTXLOOM_ISOSPY_OUT (the spy's own output path — it flows into
+// agent.LaunchBackend.ExecuteEnv (the request env layer) via
+// ApplyLocalCLIConfig, exactly like j9's own CTXLOOM_MOCK_RECORD_FILE):
+// llm.configs.*.env is ScopeMachine (internal/config/layerscope), so it no
+// longer survives a real Load from a committed project file. Splitting the
+// label across layers like this is legal (unlike agents.*, llm.configs.*
+// has no atomic-replace merge rule).
+func isoMatrixConfigYAML(engineType string) string {
 	return fmt.Sprintf(`version: 4
 llm:
   configs:
     iso:
       type: %s
-      env:
-        CTXLOOM_ISOSPY_OUT: %q
   defaults:
     primary: iso
     fast: iso
@@ -290,7 +293,19 @@ agents:
   iso:
     engine: iso
     profiles: []
-`, engineType, spyOut)
+`, engineType)
+}
+
+// isoMatrixHomeConfigYAML renders the HOME half — see isoMatrixConfigYAML's
+// doc for why env lives here.
+func isoMatrixHomeConfigYAML(spyOut string) string {
+	return fmt.Sprintf(`version: 4
+llm:
+  configs:
+    iso:
+      env:
+        CTXLOOM_ISOSPY_OUT: %q
+`, spyOut)
 }
 
 // runIsoMatrix is every scenario's core action: install the spy, sanitize
@@ -319,7 +334,10 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 	_ = os.Remove(spyOut)
 	j.spyOut = spyOut
 
-	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine, spyOut)); err != nil {
+	if err := w.env.WriteFile(".ctxloom/config.yaml", isoMatrixConfigYAML(engine)); err != nil {
+		return err
+	}
+	if err := w.env.WriteHomeFile(".ctxloom/config.yaml", isoMatrixHomeConfigYAML(spyOut)); err != nil {
 		return err
 	}
 	if err := w.env.GitCommit("iso matrix config for " + engine); err != nil {

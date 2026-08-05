@@ -103,7 +103,7 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 			if err := w.env.InitGitRepo(); err != nil {
 				return err
 			}
-			if err := w.env.WriteFile(".ctxloom/config.yaml", minimalConfig); err != nil {
+			if err := writeMinimalConfig(w.env); err != nil {
 				return err
 			}
 		}

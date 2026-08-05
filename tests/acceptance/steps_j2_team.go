@@ -256,7 +256,13 @@ func (s *j2State) commandNameOrDefault() string {
 // `bundle`/`profile create` and `profile materialize` all work against it,
 // exactly as review.feature/command.feature/fragment.feature already rely on).
 func j2SetupTeamProject(w *World) error {
-	return j2SetupProject(w, minimalConfig)
+	if err := j2SetupProject(w, minimalConfig); err != nil {
+		return err
+	}
+	// minimalHomeEditorConfig lives in HOME: editor.command is ScopeMachine
+	// (internal/config/layerscope), so it no longer survives a real Load
+	// from the committed project file minimalConfig alone now carries.
+	return w.env.WriteHomeFile(".ctxloom/config.yaml", minimalHomeEditorConfig)
 }
 
 // j2SetupDistillProject scaffolds Carol's checkout with a "mock" LLM entry
@@ -268,19 +274,35 @@ func j2SetupTeamProject(w *World) error {
 // use_distilled is set explicitly (even though true is already the default)
 // so the scenario's "with distilled context enabled" precondition is honest
 // about what it depends on.
+//
+// llm.configs.mock.env lives in HOME (w.env.WriteHomeFile below), not the
+// project file j2SetupProject writes: llm.configs.*.env is ScopeMachine
+// (internal/config/layerscope) — credential passthrough, where a committed
+// project-file value is a leaked secret — so it no longer survives a real
+// Load from the project layer. Splitting the "mock" label across layers like
+// this is legal (unlike agents.*, llm.configs.* has no atomic-replace merge
+// rule), so the project's own `type: mock` and home's `env` deep-merge into
+// one usable entry.
 func j2SetupDistillProject(w *World) error {
 	cfg := "version: 4\n" +
 		"llm:\n" +
 		"  configs:\n" +
 		"    mock:\n" +
 		"      type: mock\n" +
-		"      env:\n" +
-		fmt.Sprintf("        CTXLOOM_MOCK_RESPONSE: %q\n", j2FragDistilledMarker) +
 		"  defaults:\n" +
 		"    primary: mock\n" +
 		"config:\n" +
 		"  use_distilled: true\n"
-	return j2SetupProject(w, cfg)
+	if err := j2SetupProject(w, cfg); err != nil {
+		return err
+	}
+	homeCfg := "version: 4\n" +
+		"llm:\n" +
+		"  configs:\n" +
+		"    mock:\n" +
+		"      env:\n" +
+		fmt.Sprintf("        CTXLOOM_MOCK_RESPONSE: %q\n", j2FragDistilledMarker)
+	return w.env.WriteHomeFile(".ctxloom/config.yaml", homeCfg)
 }
 
 // j2SetupProject is the shared scaffold behind j2SetupTeamProject/

@@ -82,34 +82,46 @@ func applyContextOptions(opts []ContextFileOption) *contextFileOptions {
 }
 
 // assembleDedupedContext joins the fragment contents into the single context
-// string ctxloom delivers, deduplicating by content hash (so the same fragment
-// reached through multiple bundles/paths appears once) and emitting the oversize
-// warning. It is the assembly half of WriteContextFile, factored out so a
-// delivery strategy can obtain the exact string WriteContextFile would frame —
-// WITHOUT writing the raw cache file into the project tree. Returns "" when
-// there is no content. It differs from the simpler exported AssembleContext (no
-// dedup, no warning) whose output the raw context file must NOT diverge from.
-// Use WithContextStderr to redirect the warning in tests.
+// string ctxloom delivers, dropping a fragment that is a second copy of one
+// already assembled, and emitting the oversize warning. It is the assembly half
+// of WriteContextFile, factored out so a delivery strategy can obtain the exact
+// string WriteContextFile would frame — WITHOUT writing the raw cache file into
+// the project tree. Returns "" when there is no content. It differs from the
+// simpler exported AssembleContext (no dedup, no warning) whose output the raw
+// context file must NOT diverge from. Use WithContextStderr to redirect the
+// warning in tests.
+//
+// IDENTITY — it is (Name, content), not content alone, and that is the same
+// rule operations.contextIngest applies at the INGEST layer, expressed with the
+// identity this layer carries. Content alone collapsed two DIFFERENT authored
+// fragments that happened to say the same thing, which is data loss dressed as
+// deduplication: "bundle-a/standards" and "bundle-b/standards" are two items
+// two publishers shipped, and delivering one of them silently drops the other.
+// Name is the fragment's reporting identity, so same-name-same-bytes — one
+// piece of content that reached this list twice — still collapses.
+//
+// This dedup is DEFENSIVE, not primary. The primary decision is made at ingest,
+// where the full item ref is still available; this list can also arrive over
+// the wire (a SetupRequest's fragments) from a caller that never passed through
+// ingest, so the check stays here rather than being deleted in favour of it.
 func assembleDedupedContext(fragments []*Fragment, opts ...ContextFileOption) string {
 	options := applyContextOptions(opts)
 
-	// Assemble the context content, deduplicating by content hash.
-	// This prevents duplicate content even when the same fragment exists
-	// in multiple bundles or is referenced through different paths.
 	var parts []string
-	seenContent := collections.NewSet[string]()
+	seen := collections.NewSet[string]()
 	for _, f := range fragments {
 		if f.Content == "" {
 			continue
 		}
 		content := strings.TrimSpace(f.Content)
-		// Compute hash of content to detect duplicates
-		h := sha256.Sum256([]byte(content))
-		contentHash := hex.EncodeToString(h[:])
-		if seenContent.Has(contentHash) {
+		// Hash (name, content) as a length-framed pair so a name ending where
+		// the content begins cannot spell the same digest as a different split.
+		h := sha256.Sum256(fmt.Appendf(nil, "%d:%s%d:%s", len(f.Name), f.Name, len(content), content))
+		key := hex.EncodeToString(h[:])
+		if seen.Has(key) {
 			continue
 		}
-		seenContent.Add(contentHash)
+		seen.Add(key)
 		parts = append(parts, content)
 	}
 

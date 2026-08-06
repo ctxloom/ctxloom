@@ -119,15 +119,14 @@ func TestWriteContextFile(t *testing.T) {
 		assert.Equal(t, hash1, hash2)
 	})
 
-	t.Run("deduplicates identical content from multiple fragments", func(t *testing.T) {
-		// When the same fragment content exists in multiple bundles (e.g., due to
-		// duplicate bundle installations), it should only appear once in the output.
-		// This is critical for avoiding wasted tokens from duplicate context.
+	t.Run("deduplicates one fragment that reached the list twice", func(t *testing.T) {
+		// A fragment that arrives twice under its own identity is one piece of
+		// content, and writing it twice is wasted tokens for nothing.
 		tmpDir := t.TempDir()
 		duplicateContent := "# Go Testing\n\nThis is testing content."
 		fragments := []*agent.Fragment{
-			{Name: "testing", Content: duplicateContent},
-			{Name: "other/testing", Content: duplicateContent}, // Same content, different name
+			{Name: "other/testing", Content: duplicateContent},
+			{Name: "other/testing", Content: duplicateContent}, // the SAME item, again
 			{Name: "unique", Content: "Unique content here"},
 		}
 
@@ -137,11 +136,36 @@ func TestWriteContextFile(t *testing.T) {
 		content, err := agent.ReadContextFile(tmpDir, hash)
 		require.NoError(t, err)
 
-		// Count occurrences - duplicate content should only appear once
 		count := countOccurrences(content, "# Go Testing")
-		assert.Equal(t, 1, count, "duplicate content should only appear once")
+		assert.Equal(t, 1, count, "one item delivered twice must be written once")
 
 		// Unique content should still be present
+		assert.Contains(t, content, "Unique content here")
+	})
+
+	t.Run("keeps two different fragments whose content happens to match", func(t *testing.T) {
+		// This used to collapse, because dedup keyed on the content hash ALONE.
+		// Two separately named fragments are two authored items; dropping one of
+		// them delivers one publisher's content in place of another's, which is
+		// data loss wearing deduplication's clothes. The identity is (Name,
+		// content) — the same rule operations.contextIngest applies at the ingest
+		// layer, expressed with the identity this layer carries.
+		tmpDir := t.TempDir()
+		shared := "# Go Testing\n\nThis is testing content."
+		fragments := []*agent.Fragment{
+			{Name: "testing", Content: shared},
+			{Name: "other/testing", Content: shared}, // same content, DIFFERENT item
+			{Name: "unique", Content: "Unique content here"},
+		}
+
+		hash, err := agent.WriteContextFile(tmpDir, fragments)
+		require.NoError(t, err)
+
+		content, err := agent.ReadContextFile(tmpDir, hash)
+		require.NoError(t, err)
+
+		assert.Equal(t, 2, countOccurrences(content, "# Go Testing"),
+			"two different fragments that merely say the same thing must both be written")
 		assert.Contains(t, content, "Unique content here")
 	})
 

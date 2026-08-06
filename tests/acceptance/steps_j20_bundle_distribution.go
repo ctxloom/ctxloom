@@ -1123,48 +1123,18 @@ func j20OpenPulledBundle(w *World) (content.Bundle, error) {
 	return bundle, nil
 }
 
-// j20CheckHookBuckets asserts every hook the consumer received sits under the
-// event it was declared in, and that none arrived that was never declared.
-// It reads the REFS the content package resolves (one per hook item, name
-// "<event>/<name>"), not a raw directory listing, so a hook's order sidecar —
-// which lives in the same directory as the hook it belongs to — is never
-// mistaken for a hook of its own.
-func j20CheckHookBuckets(w *World, declared map[string]string) error {
-	bundle, err := j20OpenPulledBundle(w)
-	if err != nil {
-		return err
-	}
-	ctx := context.Background()
-	refs, err := bundle.Refs(ctx, trust.KindHook)
-	if err != nil {
-		return fmt.Errorf("list the consumer's hook refs: %w", err)
-	}
-	if len(refs) == 0 {
-		return fmt.Errorf("the consumer received no hooks at all\n%s", j20Of(w).j20PullDiagnostic())
-	}
-	for _, ref := range refs {
-		event, name, ok := strings.Cut(ref.Name, "/")
-		if !ok {
-			return fmt.Errorf("consumer hook ref %q is not in \"<event>/<name>\" form", ref.Name)
-		}
-		want, known := declared[name]
-		if !known {
-			return fmt.Errorf("hook %q arrived under event %q but was never declared", name, event)
-		}
-		if want != event {
-			return fmt.Errorf("hook %q was declared under event %q but arrived under %q — event bucketing was lost", name, want, event)
-		}
-	}
-	return nil
-}
-
-// j20ConsumerHookOrder returns the hook names the consumer received under one
-// event, resolved into EXECUTION order via content.SortHooks over each hook's
-// content.Hook.Order — the same resolution the product applies when it reads a
-// pulled tree back into a bundle (internal/bundles.ReadTree's finishHooks). A
-// raw directory listing would return the same names sorted BY FILENAME, which
-// is exactly the wrong-order failure this scenario is written to catch.
-func j20ConsumerHookOrder(w *World, event string) ([]string, error) {
+// j20ConsumerHooks decodes every hook the consumer's pulled tree holds,
+// through Bundle.Item + Item.Surface — i.e. through hookType.Decode, the
+// SAME production code that assigns each hook's Event and Name when
+// internal/bundles.ReadTree turns a pulled tree into the bundle the product
+// actually merges (reader.add's `case content.Hook: r.hooks[v.Event] =
+// append(...)` keys purely off the DECODED Event field, not off the ref's
+// path string). Deriving bucket membership from the ref path instead would
+// only prove the file sits in the right directory, and would stay green even
+// if Decode's own "<event>/<name>" split were the thing that broke — which
+// is the failure that actually determines which lifecycle event a hook fires
+// under once a real profile materializes it.
+func j20ConsumerHooks(w *World) ([]content.Hook, error) {
 	bundle, err := j20OpenPulledBundle(w)
 	if err != nil {
 		return nil, err
@@ -1174,12 +1144,11 @@ func j20ConsumerHookOrder(w *World, event string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list the consumer's hook refs: %w", err)
 	}
-	var hooks []content.Hook
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("the consumer received no hooks at all\n%s", j20Of(w).j20PullDiagnostic())
+	}
+	hooks := make([]content.Hook, 0, len(refs))
 	for _, ref := range refs {
-		ev, _, ok := strings.Cut(ref.Name, "/")
-		if !ok || ev != event {
-			continue
-		}
 		item, err := bundle.Item(ctx, ref)
 		if err != nil {
 			return nil, fmt.Errorf("open consumer hook %q: %w", ref.Name, err)
@@ -1193,6 +1162,47 @@ func j20ConsumerHookOrder(w *World, event string) ([]string, error) {
 			return nil, fmt.Errorf("consumer hook %q surface is %T, not content.Hook", ref.Name, surf)
 		}
 		hooks = append(hooks, h)
+	}
+	return hooks, nil
+}
+
+// j20CheckHookBuckets asserts every hook the consumer received DECODES into
+// the event it was declared in, and that none decodes into an event it was
+// never declared under. See j20ConsumerHooks for why this checks the decoded
+// content.Hook.Event field rather than the ref's path string.
+func j20CheckHookBuckets(w *World, declared map[string]string) error {
+	hooks, err := j20ConsumerHooks(w)
+	if err != nil {
+		return err
+	}
+	for _, h := range hooks {
+		want, known := declared[h.Name]
+		if !known {
+			return fmt.Errorf("hook %q arrived under event %q but was never declared", h.Name, h.Event)
+		}
+		if want != h.Event {
+			return fmt.Errorf("hook %q was declared under event %q but decoded into %q — event bucketing was lost", h.Name, want, h.Event)
+		}
+	}
+	return nil
+}
+
+// j20ConsumerHookOrder returns the hook names the consumer received under one
+// event, resolved into EXECUTION order via content.SortHooks over each hook's
+// content.Hook.Order — the same resolution the product applies when it reads a
+// pulled tree back into a bundle (internal/bundles.ReadTree's finishHooks). A
+// raw directory listing would return the same names sorted BY FILENAME, which
+// is exactly the wrong-order failure this scenario is written to catch.
+func j20ConsumerHookOrder(w *World, event string) ([]string, error) {
+	all, err := j20ConsumerHooks(w)
+	if err != nil {
+		return nil, err
+	}
+	var hooks []content.Hook
+	for _, h := range all {
+		if h.Event == event {
+			hooks = append(hooks, h)
+		}
 	}
 	if len(hooks) == 0 {
 		return nil, fmt.Errorf("the consumer received no hooks/%s\n%s", event, j20Of(w).j20PullDiagnostic())

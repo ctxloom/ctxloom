@@ -50,6 +50,28 @@ func TestRecordedSessionEntries_UnknownHarpErrorsRatherThanPanicking(t *testing.
 		"it must say where to find the real harps; three random words are not guessable")
 }
 
+// TestRecordedSessionEntries_PrefersCanonicalTranscriptOverBackend pins the
+// J23 "archive and the archive" fix: RecordedSessionEntries used to resolve a
+// harp's entries by asking the BACKEND's own session reader for
+// entry.SessionID, never reading the canonical transcript ctxloom itself
+// captured, converted and schema-versions. That meant a session whose vendor
+// store had rotated, aged out, or simply belonged to a mock/test backend
+// (this fixture) could not be resumed from ctxloom's own copy of it — exactly
+// the case `session backfill` exists to rescue a conversation FROM.
+//
+// seedCanonicalFeedHarp deliberately leaves SessionID unbound, so this test
+// only passes if RecordedSessionEntries never needs the backend reader at
+// all: it must resolve entirely from entry.CanonicalTranscriptPath.
+func TestRecordedSessionEntries_PrefersCanonicalTranscriptOverBackend(t *testing.T) {
+	testsupport.Isolate(t)
+	entry := seedCanonicalFeedHarp(t, "J23-RESUME-REGRESSION-CANONICAL-PAYLOAD")
+
+	entries, err := RecordedSessionEntries(context.Background(), entry.HarpName)
+	require.NoError(t, err, "a canonical-backed harp must resolve without ever touching the (unbound) backend reader")
+	require.Len(t, entries, 1)
+	assert.Equal(t, "J23-RESUME-REGRESSION-CANONICAL-PAYLOAD", entries[0].Content)
+}
+
 // TestRenderResumedTranscript_EmptyEntriesWarns is a regression guard: a
 // transcript that yields zero substantive (user/assistant/
 // tool-use) entries used to render "" with NO signal to the operator —

@@ -8,12 +8,25 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/transcript"
 )
 
-// RecordedSessionEntries resolves a harp to its recorded transcript entries
-// via the owning backend's session reader (the plugin reassembles and
-// normalizes its own native transcript). Shared by the ACP resume path and
-// the coordinator's ended-child resume.
+// RecordedSessionEntries resolves a harp to its recorded transcript entries.
+// Shared by the ACP resume path and the coordinator's ended-child resume.
+//
+// Prefers ctxloom's OWN canonical transcript (entry.CanonicalTranscriptPath —
+// populated only when transcript.jsonl actually exists on disk) over the
+// backend's native session reader. Before this, resume asked the BACKEND for
+// entry.SessionID, meaning what got folded back into a run came from the
+// vendor's private store rather than from ctxloom's own copy of it — so
+// ctxloom maintained two archives and resumed from the wrong one. A vendor
+// store is precisely the thing `session backfill` exists to rescue a
+// conversation FROM (format rotation, cache clears, an engine switch); a
+// session already rescued into the canonical schema must be resumable from
+// that copy without needing the vendor store to still be there. The backend
+// reader remains the fallback for a session captured before the canonical
+// transcript existed (or one that predates this project entirely), so
+// nothing already resuming via the backend regresses.
 //
 // Every failure here is an ERROR, never a panic and never a silent empty
 // slice: the three callers all treat an error as "warn and carry on with the
@@ -33,6 +46,21 @@ func RecordedSessionEntries(ctx context.Context, harp string) ([]agent.SessionEn
 	if entry == nil {
 		return nil, fmt.Errorf("unknown session %q: no recorded session by that name; `ctxloom session list` shows the ones there are", harp)
 	}
+
+	if entry.CanonicalTranscriptPath != "" {
+		sess, perr := transcript.ParseTranscriptFile(entry.CanonicalTranscriptPath, harp)
+		if perr == nil {
+			return agent.MainThreadEntries(sess.Entries), nil
+		}
+		// Corrupt or unparseable beyond recovery: degrade to the backend
+		// reader below rather than failing the whole resume — the same
+		// skip-and-fall-through posture transcript.CanonicalHistory itself
+		// uses for a bad file (ListSessions/CurrentSession), so one damaged
+		// canonical transcript doesn't turn a resumable session unresumable
+		// when the backend still has it.
+		clidiag.Warn("ctxloom", "resume %s: canonical transcript at %s unreadable (%v); falling back to the backend's own session store", harp, entry.CanonicalTranscriptPath, perr)
+	}
+
 	if entry.SessionID == "" {
 		return nil, fmt.Errorf("session %q has no bound transcript to load", harp)
 	}

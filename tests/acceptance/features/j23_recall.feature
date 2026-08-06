@@ -39,8 +39,11 @@ Feature: The archaeologist — what did we decide in March?
   # the March one. A search returning one hit proves nothing if there was
   # nothing else it could have returned.
   #
-  # NOTE ON TAGS. Every scenario is @wip with its own untag condition, including
-  # the ones believed to pass.
+  # NOTE ON TAGS. Every scenario carried its own @wip untag condition,
+  # including the ones believed to pass at the time they were written. As of
+  # 2026-08-05, nine of the ten are untagged (verified pass + a killing
+  # mutation, per-scenario comment below); one stays @wip pending a design
+  # decision — see its own comment.
 
   Background:
     Given a design question everyone remembers deciding and nobody remembers why
@@ -115,15 +118,19 @@ Feature: The archaeologist — what did we decide in March?
   # THE PAYOFF. Everything upstream — the tee, the importers, the canonical
   # schema, four vendors' conversion — exists to make this one line work.
   #
-  # UNTAG WHEN: `run --session <harp> --dry-run` shows the recorded conversation
-  # in the assembled context. Expected RED, and worth understanding before
-  # fixing: operations.RecordedSessionEntries resumes by asking the BACKEND's
-  # own session reader for entry.SessionID — it does not read the canonical
-  # transcript ctxloom captured. So the archive ctxloom owns, converts and
-  # promises portability for is not the archive `--session` reads back, and a
-  # session whose vendor store is gone (the exact case backfill exists to
-  # rescue) may not be resumable from ctxloom's own copy of it.
-  @wip
+  # UNTAGGED 2026-08-05, confirmed to go red on the described defect and green
+  # on the fix. It WAS red exactly as predicted: operations.RecordedSessionEntries
+  # resumed by asking the BACKEND's own session reader for entry.SessionID
+  # rather than reading the canonical transcript ctxloom itself captured — so
+  # ctxloom maintained two archives (its own canonical copy, and the vendor's
+  # native store) and resumed from the wrong one. Fixed by making
+  # RecordedSessionEntries prefer entry.CanonicalTranscriptPath (populated
+  # only when transcript.jsonl exists on disk) via transcript.ParseTranscriptFile,
+  # falling back to the backend reader only when no canonical transcript was
+  # ever captured for the harp — so a session predating canonical capture still
+  # resumes exactly as before. Mutation: disabling the canonical-transcript
+  # branch (falling straight through to the backend reader, the OLD behaviour)
+  # turns this red again.
   Scenario: Resuming the March session puts that conversation back in front of a model
     When I run "ctxloom run --session amber-quiet-heron --dry-run -p default"
     Then the assembled context carries the conversation she had in March
@@ -133,11 +140,28 @@ Feature: The archaeologist — what did we decide in March?
   # discrimination — essence present, raw absent — so neither "carried
   # everything" nor "carried nothing" can pass.
   #
-  # UNTAG WHEN: --distill demonstrably resumes via the essence. Note the
-  # distilled path rides CTXLOOM_RESUMED_FROM/PARTS and a SessionStart hook
-  # rather than the assembled context itself; if that is the intended design,
-  # this scenario is the record that a user cannot SEE what was resumed, and
-  # the fix is a visibility one rather than a plumbing one.
+  # STILL @wip 2026-08-05, after investigation, deliberately not force-fixed.
+  # Confirmed red: `run --session <harp> --distill --dry-run` carries NEITHER
+  # marker. Root cause is structural, not a bug in the usual sense —
+  # cli.runState.emitDryRun (the --dry-run early return) fires in runRun
+  # BEFORE cli.runState.openSession, and openSession is the only place
+  # applyResumeEnv/resumeDistillEnv run. So the entire distilled-resume
+  # mechanism — including the on-demand distill it may trigger — never
+  # executes under --dry-run; there is no essence content anywhere for
+  # --dry-run to show, not merely a rendering gap. Making --dry-run exercise
+  # it is a real design decision with two shapes, not a scoped fix:
+  #   (a) preview-only — read/on-demand-distill the essence for DISPLAY in
+  #       emitDryRun without running the rest of openSession (no session-index
+  #       writes, no AssignSession) — a visibility fix, but a new code path;
+  #   (b) fold the essence into ctxResult.Context the same way full-resume
+  #       folds the transcript in prepareRequestInputs — changes what a REAL
+  #       (non-dry-run) --distill run actually delivers into the assembled
+  #       context, on top of (redundant with) the existing
+  #       CTXLOOM_RESUMED_FROM/PARTS + SessionStart hook delivery. That is a
+  #       production behaviour/contract change, not this row's to make
+  #       unilaterally.
+  # UNTAG WHEN: a human picks (a), (b), or a third shape, and --distill
+  # --dry-run demonstrably shows the essence content somewhere in its output.
   @wip
   Scenario: Resuming through the essence carries the conclusion, not the whole conversation
     When I run "ctxloom run --session amber-quiet-heron --distill --dry-run -p default"
@@ -172,18 +196,29 @@ Feature: The archaeologist — what did we decide in March?
   # assertion that unwrapped the envelope as an object failed on the envelope
   # rather than on the content — measured while writing this.
   #
-  # UNTAG WHEN: load_session returns the named session's recorded conversation.
-  # Uncertain today — the tool is registered and its payload is unasserted,
-  # which is precisely the state that lets a memory tool return an empty
-  # envelope for months without anyone noticing. If the deliberate answer is
-  # that load_session returns the ESSENCE rather than the conversation, change
-  # the marker rather than deleting the scenario: the point is that SOME
-  # session content comes back.
-  @wip
+  # UNTAGGED 2026-08-05. Two findings on the way to green, both fixed here
+  # rather than deferred, neither a production change:
+  #   1. The step table's key was wrong: `harp` instead of the
+  #      loadSessionInput field's actual JSON name `harp_name`. The MCP
+  #      server's schema has additionalProperties:false, so this failed loud
+  #      (a validation error, not a silent miss) — caught immediately, not a
+  #      months-later discovery, but still worth naming since it's exactly the
+  #      "unasserted payload" risk this comment used to warn about.
+  #   2. The deliberate answer IS "load_session returns the ESSENCE, not the
+  #      raw conversation" — confirmed by mcp_tools.feature's own
+  #      "Load a prior session's essence over MCP" scenario, which names it
+  #      "essence" in its title and asserts essence content. cli.loadHarpEssence
+  #      reads ~/.ctxloom/sessions/<harp>/essence.md directly; it never touches
+  #      the raw transcript. So per this scenario's own standing guidance, the
+  #      marker changed (J23-TRANSCRIPT-ONLY-MARKER -> the essence marker)
+  #      rather than the scenario being deleted: the point was always that
+  #      SOME session content comes back, and it does.
+  # Mutation: truncating the essence bytes before they reach loadSessionResult
+  # (cli.loadHarpEssence's Content field) turns this red.
   Scenario: The assistant can reach the March session without being told where to look
     When the agent calls tool "load_session" with:
-      | harp | amber-quiet-heron |
-    Then the tool result contains "J23-TRANSCRIPT-ONLY-MARKER"
+      | harp_name | amber-quiet-heron |
+    Then the tool result contains "J23-ESSENCE-WORKTREE-NAMING-DECISION"
 
   # Recall is a READ. This is the scenario that would catch a resume
   # implementation that consumes, truncates, compacts or re-writes the record it
@@ -198,15 +233,20 @@ Feature: The archaeologist — what did we decide in March?
   # genuinely runs and the assertion genuinely reads the bytes on disk; this is
   # not a row satisfied by nothing happening.
   #
-  # THE BLIND SPOT: the same deletion placed AFTER the backend session read
-  # succeeds does NOT turn it red. In this fixture that read FAILS (the mock
-  # backend has no `seeded-amber-quiet-heron`), so the resume warns and gives
-  # up before reaching any code downstream of it, and a consuming resume
-  # implemented there would go unnoticed. That is inherited straight from the
-  # scenario two rows up: --session resumes via the BACKEND's reader, not via
-  # ctxloom's own canonical transcript, so this guard can only watch the part
-  # of the path that runs. When that defect is fixed, re-measure this row —
-  # the blind spot closes with it.
+  # THE BLIND SPOT, RE-MEASURED 2026-08-05 AND NOW CLOSED: it used to be true
+  # that a deletion placed AFTER the (then-only) backend session read
+  # succeeded would NOT turn this red, because in this fixture that read FAILS
+  # (the mock backend has no `seeded-amber-quiet-heron`) and the resume warned
+  # and gave up before reaching any code downstream of it. That was inherited
+  # from "resuming the March session" two rows up, which has since been fixed:
+  # RecordedSessionEntries now reads entry.CanonicalTranscriptPath FIRST (the
+  # path that actually runs in this fixture) and only falls back to the
+  # backend when no canonical transcript exists. Re-measured with an
+  # os.Remove(entry.CanonicalTranscriptPath) placed immediately after a
+  # successful transcript.ParseTranscriptFile — the position a consuming
+  # resume would actually occupy now — and it DOES turn this row red. The gap
+  # is closed, not merely narrowed: this guard now watches the path every
+  # normal resume of a canonical-backed session actually takes.
   Scenario: Recalling a session does not consume it
     When I run "ctxloom run --session amber-quiet-heron --dry-run -p default"
     Then the canonical transcript she recalled from is still on disk, untouched

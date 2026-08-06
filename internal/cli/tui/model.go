@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/charmbracelet/bubbles/viewport"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/termui"
@@ -133,7 +133,7 @@ func NewModel(ctx context.Context, src Sources, geo termui.OverlayGeometry, pref
 		expanded:  map[int]bool{},
 		status:    statusLoading,
 	}
-	m.vp = viewport.New(m.feedWidth(), m.contentHeight())
+	m.vp = viewport.New(viewport.WithWidth(m.feedWidth()), viewport.WithHeight(m.contentHeight()))
 	return m
 }
 
@@ -236,7 +236,10 @@ func (m *Model) openFeed(harp string) tea.Cmd {
 // arm can be reasoned about (and read) on its own.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	// KeyPressMsg, not the KeyMsg interface: bubbletea v2 splits press from
+	// release, and matching the interface would run every binding twice on a
+	// terminal that reports releases.
+	case tea.KeyPressMsg:
 		return m.updateKey(msg)
 	case rosterMsg:
 		return m.applyRoster(msg)
@@ -346,7 +349,7 @@ func (m Model) applyFeedClosed(msg feedClosedMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m Model) updateKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.injecting {
 		return m.updateInjectKey(msg)
 	}
@@ -357,7 +360,13 @@ func (m Model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "f": // prefix-then-f: full screen
 			m.full = true
 			m.resize()
-			return m, tea.EnterAltScreen
+			// v2 has no EnterAltScreen command: the alt screen is a property
+			// of the View the model returns (see View), so it follows m.full
+			// and the renderer enters and leaves to match. The renderer must
+			// still be TOLD the overlay now owns the whole terminal — it was
+			// started at the quick panel's height, which is all the overlay
+			// owns until this key.
+			return m, m.ownTerminalCmd()
 		case m.prefixKey:
 			// Belt and braces: the interceptor normally converts this into
 			// the literal-abort path before the model ever sees it.
@@ -443,13 +452,13 @@ func (m Model) openInject() (tea.Model, tea.Cmd) {
 // keys type into the line (including j/k — navigation is suspended), enter
 // sends over the bus, esc cancels. The engine prefix and ctrl+c still back
 // out of the overlay entirely.
-func (m Model) updateInjectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyRunes:
-		m.injectText += string(msg.Runes)
-		return m, nil
-	case tea.KeySpace: // space is its own key type, not a rune
-		m.injectText += " "
+func (m Model) updateInjectKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	// v2 reports printable input as Key.Text — one field covering both v1's
+	// KeyRunes and its separate KeySpace. A non-printable key (enter, esc,
+	// ctrl+c, the arrows) carries an empty Text and falls through to the
+	// bindings below, which is the same precedence v1's type switch had.
+	if msg.Text != "" {
+		m.injectText += msg.Text
 		return m, nil
 	}
 	switch msg.String() {
@@ -624,17 +633,17 @@ func (m *Model) refreshFeed() {
 	}
 	if m.cursor < len(first) {
 		top := first[m.cursor]
-		if top < m.vp.YOffset {
+		if top < m.vp.YOffset() {
 			m.vp.SetYOffset(top)
-		} else if top >= m.vp.YOffset+m.vp.Height {
-			m.vp.SetYOffset(top - m.vp.Height + 1)
+		} else if top >= m.vp.YOffset()+m.vp.Height() {
+			m.vp.SetYOffset(top - m.vp.Height() + 1)
 		}
 	}
 }
 
 func (m *Model) resize() {
-	m.vp.Width = m.feedWidth()
-	m.vp.Height = m.contentHeight()
+	m.vp.SetWidth(m.feedWidth())
+	m.vp.SetHeight(m.contentHeight())
 	m.refreshFeed()
 }
 
@@ -651,7 +660,35 @@ var (
 // nothing will repaint. The budget therefore governs: the content rows take
 // what the header and hints leave, and both of those are dropped in turn
 // rather than allowed to overflow.
-func (m Model) View() string {
+// View wraps the rendered panel in a bubbletea v2 View. The alt screen is
+// carried here rather than entered by a command (v1's tea.EnterAltScreen):
+// in v2 it is a property of the view, so it tracks m.full and the renderer
+// enters and leaves to match — including on quit, which is what restores the
+// engine's screen underneath.
+func (m Model) View() tea.View {
+	v := tea.NewView(m.render())
+	v.AltScreen = m.full
+	return v
+}
+
+// ownTerminalCmd resizes the renderer to the whole terminal, for the switch
+// from the quick panel to full screen.
+//
+// bubbletea resizes on any WindowSizeMsg it receives, including one a command
+// produces (tea.go: `case WindowSizeMsg: p.renderer.resize(...)`), which is how
+// a mode change decided inside the program reaches the renderer. The program is
+// started at the PANEL's height deliberately: until this key the overlay owns
+// only the bottom rows, and a renderer told it owns more would paint over the
+// engine output the controller is holding above them.
+func (m Model) ownTerminalCmd() tea.Cmd {
+	geo := m.geo
+	return func() tea.Msg { return tea.WindowSizeMsg{Width: geo.Cols, Height: geo.Rows} }
+}
+
+// render draws the panel. Split from View so the layout stays a plain
+// string-producing function: every test asserts on this text, and the
+// viewport/renderer plumbing has no business in those assertions.
+func (m Model) render() string {
 	total := m.totalHeight()
 	if total < 1 {
 		return ""

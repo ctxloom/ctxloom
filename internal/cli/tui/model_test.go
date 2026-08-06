@@ -3,6 +3,7 @@ package tui
 import (
 	"bytes"
 	"context"
+	"sync"
 	"fmt"
 	"io"
 	"os"
@@ -11,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -25,6 +26,9 @@ import (
 // fakeSources records watches/cancels/injects and lets tests push feed
 // events and script the inject outcome.
 type fakeSources struct {
+	// mu guards watched, which the overlay tests read from the test goroutine
+	// while a real tea.Program appends to it from its own.
+	mu        sync.Mutex
 	rows      []RosterRow
 	watched   []string
 	events    map[string]chan operations.SessionFeedEvent
@@ -52,7 +56,9 @@ func (f *fakeSources) sources() Sources {
 	return Sources{
 		Roster: func(context.Context) ([]RosterRow, error) { return f.rows, nil },
 		Watch: func(_ context.Context, harp string) (*Feed, error) {
+			f.mu.Lock()
 			f.watched = append(f.watched, harp)
+			f.mu.Unlock()
 			ch := make(chan operations.SessionFeedEvent, 16)
 			f.events[harp] = ch
 			errs := make(chan error, 1)
@@ -85,23 +91,35 @@ func (f *fakeSources) sources() Sources {
 	}
 }
 
-func keyMsg(s string) tea.KeyMsg {
+// keyMsg builds the bubbletea v2 key press a terminal would deliver for s.
+// v2 has no KeyRunes/KeySpace types: printable input is carried in Key.Text
+// and the key itself in Key.Code, so the default arm sets both — Text is what
+// the inject line appends, Code is what Key.String() matches bindings on.
+func keyMsg(s string) tea.KeyPressMsg {
 	switch s {
 	case "enter":
-		return tea.KeyMsg{Type: tea.KeyEnter}
+		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "tab":
-		return tea.KeyMsg{Type: tea.KeyTab}
+		return tea.KeyPressMsg{Code: tea.KeyTab}
 	case "esc":
-		return tea.KeyMsg{Type: tea.KeyEsc}
+		return tea.KeyPressMsg{Code: tea.KeyEscape}
 	case "backspace":
-		return tea.KeyMsg{Type: tea.KeyBackspace}
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	case "space":
-		return tea.KeyMsg{Type: tea.KeySpace}
+		return tea.KeyPressMsg{Code: tea.KeySpace, Text: " "}
 	case "ctrl+]":
-		return tea.KeyMsg{Type: tea.KeyCtrlCloseBracket}
+		return tea.KeyPressMsg{Code: ']', Mod: tea.ModCtrl}
 	default:
-		return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
+		return tea.KeyPressMsg{Code: []rune(s)[0], Text: s}
 	}
+}
+
+// watchedHarps copies the watch log under the lock, for tests that read it
+// while a Program is running.
+func (f *fakeSources) watchedHarps() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.watched...)
 }
 
 func entryEv(role, content string) operations.SessionFeedEvent {
@@ -156,7 +174,7 @@ func TestModel_RosterAutoSelectsAndWatches(t *testing.T) {
 
 	assert.Equal(t, []string{"perky-same-chevy"}, f.watched)
 	assert.Equal(t, "live", m.feedSource)
-	view := m.View()
+	view := m.render()
 	assert.Contains(t, view, "feed: perky-same-chevy")
 	assert.Contains(t, view, "swift-elm-fox·dev")
 	assert.Contains(t, view, "▼ follow")
@@ -171,7 +189,7 @@ func TestModel_FeedEventsAppendAndFollowTail(t *testing.T) {
 
 	require.Len(t, m.items, 2)
 	assert.Equal(t, 1, m.cursor, "follow mode tails the newest entry")
-	view := m.View()
+	view := m.render()
 	assert.Contains(t, view, "user  > refactor the parser")
 	assert.Contains(t, view, "asst  < done; deferred: lexer tests")
 }
@@ -242,7 +260,15 @@ func TestModel_FirstKeyFEntersFullScreen(t *testing.T) {
 
 	m, cmd := step(t, m, keyMsg("f"))
 	assert.True(t, m.full, "prefix-then-f = full screen")
-	require.NotNil(t, cmd, "must return the EnterAltScreen command")
+	// v2 splits what v1's EnterAltScreen command did into two halves, and both
+	// have to happen or full screen is broken in a different way each time:
+	// the View carries the alt screen, and a WindowSizeMsg grows the renderer
+	// from the quick panel's height to the whole terminal. Without the resize
+	// the alt screen paints into PanelRows rows.
+	assert.True(t, m.View().AltScreen, "full screen renders on the alt screen")
+	require.NotNil(t, cmd, "full screen must resize the renderer to the terminal")
+	assert.Equal(t, tea.WindowSizeMsg{Width: m.geo.Cols, Height: m.geo.Rows}, cmd(),
+		"the resize must carry the whole terminal, not the panel")
 	assert.False(t, m.follow == false, "follow untouched by the presentation switch")
 	assert.Equal(t, m.geo.Rows, m.totalHeight(), "full screen uses the whole terminal")
 }
@@ -267,14 +293,14 @@ func TestModel_ExpandCollapse(t *testing.T) {
 		Type: "tool_result", ToolName: "Bash", ToolOutput: "line1\nline2\nline3",
 	}}}})
 
-	assert.Contains(t, m.View(), "ok (3 lines)")
-	assert.NotContains(t, m.View(), "line2")
+	assert.Contains(t, m.render(), "ok (3 lines)")
+	assert.NotContains(t, m.render(), "line2")
 
 	m, _ = step(t, m, keyMsg("x"))
-	assert.Contains(t, m.View(), "line2", "x expands the tool detail")
+	assert.Contains(t, m.render(), "line2", "x expands the tool detail")
 
 	m, _ = step(t, m, keyMsg("x"))
-	assert.NotContains(t, m.View(), "line2", "x collapses it again")
+	assert.NotContains(t, m.render(), "line2", "x collapses it again")
 }
 
 // Model's roster, feed and inject fields are NOT three independent sub-models:
@@ -331,7 +357,7 @@ func TestModel_ScrollbackEnds(t *testing.T) {
 	m, _ = step(t, m, keyMsg("g"))
 	assert.False(t, m.follow, "g jumps to the top and leaves the tail")
 	assert.Equal(t, 0, m.cursor)
-	assert.Equal(t, 0, m.vp.YOffset)
+	assert.Equal(t, 0, m.vp.YOffset())
 
 	m, _ = step(t, m, keyMsg("G"))
 	assert.True(t, m.follow, "G returns to the tail and re-follows")
@@ -451,7 +477,7 @@ func TestModel_GapRendersNotice(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", State: "live"})
 	m := openSelected(t, newTestModel(f, nil), f)
 	m = pushEntry(t, m, f, operations.SessionFeedEvent{Gap: 7})
-	assert.Contains(t, m.View(), "7 live events dropped")
+	assert.Contains(t, m.render(), "7 live events dropped")
 }
 
 // The roster refreshes every rosterRefreshEvery, so anything the refresh
@@ -555,7 +581,7 @@ func TestModel_InjectLineOpensTypesAndCancels(t *testing.T) {
 
 	m, _ = step(t, m, keyMsg("i"))
 	require.True(t, m.injecting)
-	assert.Contains(t, m.View(), "inject → h1:", "the input line shows the explicit target harp")
+	assert.Contains(t, m.render(), "inject → h1:", "the input line shows the explicit target harp")
 
 	// While the line is open, navigation keys type into it, not the roster.
 	m, cmd := step(t, m, keyMsg("j"))
@@ -565,7 +591,7 @@ func TestModel_InjectLineOpensTypesAndCancels(t *testing.T) {
 	m, _ = step(t, m, keyMsg("space"))
 	m, _ = step(t, m, keyMsg("q"))
 	assert.Equal(t, "jk q", m.injectText)
-	assert.Contains(t, m.View(), "inject → h1: jk q")
+	assert.Contains(t, m.render(), "inject → h1: jk q")
 
 	// Backspace edits; enter on blank text sends nothing; esc cancels.
 	m, _ = step(t, m, keyMsg("backspace"))
@@ -667,7 +693,7 @@ func TestModel_ViewFitsItsGeometryExactly(t *testing.T) {
 		m, _ = step(t, m, cmd())
 		m = pushEntry(t, m, f, entryEv("assistant", strings.Repeat("wide output ", 12)))
 
-		lines := strings.Split(m.View(), "\n")
+		lines := strings.Split(m.render(), "\n")
 		assert.Len(t, lines, geo.PanelRows, "%s: View owns exactly PanelRows rows", name)
 		for i, l := range lines {
 			assert.LessOrEqual(t, len([]rune(stripSGR(l))), geo.Cols,
@@ -708,7 +734,15 @@ func TestTeaKeyName_NamesEveryPrefixParsePrefixKeyAdmits(t *testing.T) {
 			continue
 		}
 		admitted++
-		want := tea.KeyMsg{Type: tea.KeyType(b)}.String()
+		// bubbletea v2 has no exported decoder that turns a raw control byte
+		// back into a Key, so the expectation is built from the key that byte
+		// REPRESENTS and rendered by v2 itself. What this pins is the
+		// SPELLING — that teaKeyName's hand-built "ctrl+x" is the string v2
+		// renders for ctrl+x, so a change to v2's separator, modifier order or
+		// naming breaks here rather than silently stopping the prefix from
+		// matching. It does not re-check the byte→key arithmetic, which the
+		// v1 form did via KeyType and no longer has an equivalent for.
+		want := tea.KeyPressMsg(keyForControlByte(b)).String()
 		assert.Equal(t, want, teaKeyName(b), "prefix %q (byte %d) must carry bubbletea's own name", spelling, b)
 		assert.NotEqual(t, "ctrl+@", teaKeyName(b),
 			"prefix %q (byte %d) fell through to the default arm, which names a key the user did not configure", spelling, b)
@@ -762,7 +796,7 @@ func TestModel_RosterLinesWindowAroundSelection(t *testing.T) {
 	for range rows[1:] {
 		m, _ = step(t, m, keyMsg("j"))
 	}
-	view := m.View()
+	view := m.render()
 	assert.Contains(t, view, "h19", "the selected (last) row stays visible")
 	assert.NotContains(t, view, "h0", "the far-scrolled-past first row leaves the visible window")
 }
@@ -827,7 +861,7 @@ func TestModel_HeaderShowsAgentEngineMetaSourceAndFollowMarker(t *testing.T) {
 	f := newFakeSources(t.TempDir(), RosterRow{Harp: "h1", Agent: "dev", Engine: "claude-code", State: "live"})
 	m := openSelected(t, newTestModel(f, nil), f)
 
-	view := m.View()
+	view := m.render()
 	assert.Contains(t, view, "feed: h1 (dev·claude-code) · live · ▼ follow")
 }
 
@@ -837,7 +871,7 @@ func TestModel_HeaderOmitsFollowMarkerWhenNotFollowing(t *testing.T) {
 	m, _ = step(t, m, keyMsg("j")) // consume the first-key chord window
 	m, _ = step(t, m, keyMsg("f")) // after the first key, f toggles follow off
 
-	view := m.View()
+	view := m.render()
 	assert.Contains(t, view, "feed: h1")
 	assert.NotContains(t, view, "▼ follow")
 }
@@ -845,7 +879,7 @@ func TestModel_HeaderOmitsFollowMarkerWhenNotFollowing(t *testing.T) {
 func TestModel_HeaderPlaceholderWithNoFeedSelected(t *testing.T) {
 	f := newFakeSources(t.TempDir())
 	m, _ := step(t, newTestModel(f, nil), rosterMsg{rows: nil})
-	assert.Contains(t, m.View(), "feed: —")
+	assert.Contains(t, m.render(), "feed: —")
 }
 
 // TestModel_ExportDirErrorWinsOverTheReturnedPath pins this. The
@@ -875,4 +909,21 @@ func TestModel_ExportDirErrorWinsOverTheReturnedPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, entries,
 		"no consumer may write to the path an errored ExportDir returned alongside its error")
+}
+
+// keyForControlByte returns the bubbletea v2 Key that the raw control byte b
+// stands for: bytes 1–26 are ctrl+a…ctrl+z, 28–31 are ctrl+\ ] ^ _, and 127 is
+// backspace. It mirrors the terminal's own encoding, not teaKeyName's output,
+// so the two can be compared.
+func keyForControlByte(b byte) tea.Key {
+	switch {
+	case b >= 1 && b <= 26:
+		return tea.Key{Code: rune('a' + b - 1), Mod: tea.ModCtrl}
+	case b >= 28 && b <= 31:
+		return tea.Key{Code: rune('[' + b - 27), Mod: tea.ModCtrl}
+	case b == 127:
+		return tea.Key{Code: tea.KeyBackspace}
+	default:
+		return tea.Key{Code: '@', Mod: tea.ModCtrl}
+	}
 }

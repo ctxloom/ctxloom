@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"sync"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/ctxloom/ctxloom/internal/termui"
 )
@@ -54,8 +54,16 @@ func (o *Overlay) Run(input io.Reader, tty io.Writer, geo termui.OverlayGeometry
 	}
 	p := tea.NewProgram(m,
 		tea.WithInput(input),
-		tea.WithOutput(tty),
+		tea.WithOutput(writerOnly{tty}),
 		tea.WithoutSignalHandler(),
+		// The size has to be stated, and it is the PANEL's, not the terminal's.
+		// Input is the interceptor's pipe rather than the tty, so bubbletea v2
+		// has nothing to measure and would render into a zero-width screen.
+		// Handing it the full terminal height is worse than nothing: v2's
+		// renderer then believes it owns all Rows rows and erases to end of
+		// screen on every frame, wiping the engine's output above the panel —
+		// which is the composition this overlay exists inside.
+		tea.WithWindowSize(geo.Cols, geo.PanelRows),
 	)
 	o.mu.Lock()
 	if o.aborted {
@@ -89,3 +97,19 @@ func (o *Overlay) Abort() {
 		prog.Quit()
 	}
 }
+
+// writerOnly hides everything except Write from bubbletea.
+//
+// It matters that this is opaque. Given an output it can recognise as a real
+// terminal (an *os.File on a tty), bubbletea v2 takes the terminal over: it
+// sets modes and queries capabilities, then waits for the replies — which
+// arrive on ITS input. The overlay's input is the interceptor's keystroke
+// pipe, never the tty, so those replies never come and the renderer paints
+// erase-to-end-of-screen forever without ever writing its content.
+//
+// ctxloom owns this terminal. The controller has already set the scroll
+// region, saved the cursor and parked it at the panel's top-left, and it holds
+// the engine's output for the duration; bubbletea is a guest painting into
+// rows it was handed. Passing an opaque writer is what says so — the same
+// reasoning the input side states above, applied to output.
+type writerOnly struct{ io.Writer }

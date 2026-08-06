@@ -164,8 +164,12 @@ func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 	}
 
 	compactor, err := memory.NewCompactor(memory.CompactionConfig{
-		LLM:              cfg.GetCompactionLLM(),
-		Model:            model,
+		LLM:   cfg.GetCompactionLLM(),
+		Model: model,
+		// The compaction label is the FAST role (config.FastLabel), not the
+		// primary — resolve its env from the same label the LLM above came
+		// from, or the distiller gets a different backend's credentials.
+		Env:              llmEnvFor(cfg, cfg.FastLabel()),
 		Backend:          backendName,
 		ChunkSize:        cfg.GetCompactionChunkSize(),
 		SessionID:        sessionID,

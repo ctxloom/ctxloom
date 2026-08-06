@@ -1918,3 +1918,50 @@ func TestRunDistill_SendsAHeadlessSafeOneShotRequest(t *testing.T) {
 	assert.True(t, mode.SafeHeadless(),
 		"a headless distillation must not send a posture that would stop to ask, got %q", mode)
 }
+
+// TestRunDistill_ForwardsConfiguredEnvOntoTheRequest pins the channel by which
+// a distillation subprocess receives the credentials its config declares.
+//
+// runDistill built its RunOptions with PermissionMode, Mode, Model and
+// SkipSetup and NO Env at all, while every other RunStart-issuing caller
+// forwards the resolved label's env (internal/cli/run.go's llmEnvFor ->
+// st.runEnv). Since llm.configs.<label>.env is the documented home for a
+// backend's API key, a distiller whose key lived there ran unconfigured — and
+// an unconfigured backend does not error, it just behaves as though nothing
+// was set. SkipSetup makes this the ONLY channel: it bypasses Setup, which is
+// what would otherwise deliver configuration.
+//
+// Asserting the request's Env rather than any observable downstream effect is
+// deliberate: the effect of a missing credential is a backend quietly doing
+// the wrong thing, which is exactly what this codebase keeps failing to notice.
+func TestRunDistill_ForwardsConfiguredEnvOntoTheRequest(t *testing.T) {
+	var gotEnv map[string]string
+	var sawRequest bool
+
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			sawRequest = true
+			gotEnv = req.GetOptions().GetEnv()
+			_, _ = stdout.Write([]byte("distilled"))
+			return 0, nil
+		},
+	}
+
+	c := &Compactor{
+		config: CompactionConfig{
+			LLM:       "test-plugin",
+			OutputDir: t.TempDir(),
+			Env:       map[string]string{"ANTHROPIC_API_KEY": "sk-from-config", "OTHER": "keep"},
+		},
+		clientFactory: pb.MockClientFactory(mockClient),
+	}
+
+	_, err := c.distillChunk(context.Background(), "session content", 1, 1)
+	require.NoError(t, err)
+
+	require.True(t, sawRequest, "the distiller was never invoked, so this proves nothing about what it received")
+	assert.Equal(t, "sk-from-config", gotEnv["ANTHROPIC_API_KEY"],
+		"a credential declared in the label's config env must reach the distillation subprocess")
+	assert.Equal(t, "keep", gotEnv["OTHER"],
+		"the whole configured env is forwarded, not a hand-picked subset")
+}

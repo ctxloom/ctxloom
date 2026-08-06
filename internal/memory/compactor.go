@@ -76,8 +76,18 @@ const (
 
 // CompactionConfig holds settings for session compaction.
 type CompactionConfig struct {
-	LLM             string           // LLM plugin to use for distillation (default: claude-code)
-	Model           string           // Model to use within the plugin (e.g., "haiku", "sonnet")
+	LLM   string // LLM plugin to use for distillation (default: claude-code)
+	Model string // Model to use within the plugin (e.g., "haiku", "sonnet")
+	// Env is the resolved LLM label's config-declared environment
+	// (llm.configs.<label>.env), forwarded onto every distillation request.
+	//
+	// It exists because it was MISSING: runDistill built its RunOptions with no
+	// Env at all, while every other RunStart caller forwards it (internal/cli/
+	// run.go's llmEnvFor -> st.runEnv). llm.configs.<label>.env is the
+	// documented home for a backend's credentials, so a distiller whose key
+	// lived there ran unconfigured and behaved as though nothing was set —
+	// silently, since an unconfigured backend does not error.
+	Env             map[string]string
 	Backend         string           // Backend name to read session from (e.g., "claude-code")
 	ChunkSize       int              // Target tokens per chunk
 	SessionID       string           // Session to compact (empty = most recent)
@@ -1060,7 +1070,15 @@ func (c *Compactor) runDistill(ctx context.Context, systemPrompt, content string
 			PermissionMode: agent.PermissionBypass.String(),
 			Mode:           pb.ExecutionMode_ONESHOT,
 			Model:          c.config.Model, // e.g., "haiku", "sonnet"
-			SkipSetup:      true,           // Minimal mode for distillation
+			// The resolved label's configured env. This was MISSING entirely
+			// while every other RunStart caller forwarded it, so a distiller
+			// whose credentials live in llm.configs.<label>.env ran
+			// unconfigured — silently, because an unconfigured backend does not
+			// error. SkipSetup below makes this the only channel that can carry
+			// it: Setup, which would otherwise deliver configuration, is
+			// bypassed.
+			Env:       c.config.Env,
+			SkipSetup: true, // Minimal mode for distillation
 		},
 	}
 

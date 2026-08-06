@@ -33,8 +33,15 @@
 // untouched (a rootful daemon writes byte-identical, mode-identical, ROOT-OWNED
 // files). See j20DeliverInContainer for the anti-vacuity guards.
 //
-// What is still @wip, and why, is stated in the feature file rather than
-// duplicated here: the hook-order row.
+// HOOK ORDER IS ALSO HERMETIC NOW. The fixture declares its post_file_edit
+// hooks' order the only way a tree-form bundle can — a content.Hook.Order
+// sidecar per hook (see j20AuthoredTree) — and the consumer-side assertions
+// read the pulled tree through the same content.NewTreeStore + Bundle.Refs /
+// Item / Surface path the product itself uses, then resolve execution order
+// with content.SortHooks (see j20OpenPulledBundle, j20ConsumerHookOrder,
+// j20CheckHookBuckets), rather than trusting directory enumeration — which
+// sorts BY NAME and would silently agree with a tree whose hooks are the
+// right bytes in the wrong order.
 //
 // TWO DELIBERATE CHOICES ABOUT HOW IT FAILS — they still matter, because the
 // rows that remain red must keep naming the gap rather than an exit code:
@@ -82,6 +89,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 	"github.com/ctxloom/ctxloom/internal/testsupport/dockergate"
+	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
@@ -234,9 +242,21 @@ func j20AuthoredTree() map[string]j20File {
 		// hooks — one file per hook under hooks/<event>/<name>.yaml. Two under
 		// post_file_edit (order matters, names sort against it), one under
 		// session_start (proves event bucketing, not just a flat list).
-		"hooks/post_file_edit/stamp.yaml": f("type: command\ncommand: echo ATELIER-HOOK-9c02af\n"),
-		"hooks/post_file_edit/audit.yaml": f("type: command\ncommand: echo ATELIER-HOOK-audit\n"),
-		"hooks/session_start/greet.yaml":  f("type: command\ncommand: echo ATELIER-HOOK-greet\n"),
+		//
+		// The tree format's ONLY order carrier is content.Hook.Order, a sparse
+		// int living in each hook's own ".<name>.meta.yaml" sidecar (see
+		// content.SortHooks / internal/content/convert.go's hookOrder — a
+		// directory has no list, so a tree-form bundle that wants "stamp" before
+		// "audit" has no way to say so except this field). "stamp" is declared
+		// first (order 100) and "audit" second (order 200) — the reverse of
+		// their alphabetical/filename order — so a reader that fell back to
+		// directory enumeration instead of resolving Order would get the wrong
+		// sequence and disagree with this fixture, not agree with it by luck.
+		"hooks/post_file_edit/stamp.yaml":           f("type: command\ncommand: echo ATELIER-HOOK-9c02af\n"),
+		"hooks/post_file_edit/.stamp.meta.yaml":     f("order: 100\n"),
+		"hooks/post_file_edit/audit.yaml":           f("type: command\ncommand: echo ATELIER-HOOK-audit\n"),
+		"hooks/post_file_edit/.audit.meta.yaml":     f("order: 200\n"),
+		"hooks/session_start/greet.yaml":            f("type: command\ncommand: echo ATELIER-HOOK-greet\n"),
 
 		// skill — the only MULTI-FILE item and the only one carrying a
 		// load-bearing POSIX mode.
@@ -1057,7 +1077,9 @@ func j20AgentVisiblePath(w *World, rel string) (string, error) {
 }
 
 // j20DeclaredHookEvents maps each authored hook's name to the event it was
-// declared under.
+// declared under. Only the hook's OWN file counts as a declaration — its
+// ".<name>.meta.yaml" order sidecar lives in the same directory and must not
+// be mistaken for a second hook.
 func j20DeclaredHookEvents(authored map[string]j20File) map[string]string {
 	declared := map[string]string{}
 	for rel := range authored {
@@ -1065,7 +1087,7 @@ func j20DeclaredHookEvents(authored map[string]j20File) map[string]string {
 			continue
 		}
 		parts := strings.Split(strings.TrimPrefix(rel, "hooks/"), "/")
-		if len(parts) != 2 {
+		if len(parts) != 2 || strings.HasPrefix(parts[1], ".") {
 			continue
 		}
 		declared[strings.TrimSuffix(parts[1], ".yaml")] = parts[0]
@@ -1073,62 +1095,122 @@ func j20DeclaredHookEvents(authored map[string]j20File) map[string]string {
 	return declared
 }
 
-// j20CheckHookBuckets asserts every hook the consumer received sits under the
-// event it was declared in, and that none arrived that was never declared.
-func j20CheckHookBuckets(w *World, declared map[string]string) error {
-	dir, ok := j20ConsumerTreePath(w, "hooks")
+// j20OpenPulledBundle opens the consumer's pulled "atelier" tree through the
+// SAME read path the product itself uses to turn a tree back into items
+// (content.NewTreeStore + Bundle.Refs/Item/Surface — see internal/bundles's
+// ReadTree, which internal/bundles/reader_repofs.go's readTreeForm calls for
+// every pulled tree), rather than a raw directory walk. That distinction is
+// the whole point of this scenario: os.ReadDir yields entries sorted BY NAME,
+// which silently agrees with a tree whose hooks are the right bytes in the
+// wrong order — the failure this journey exists to catch. Going through the
+// content package instead resolves each hook's declared content.Hook.Order
+// from its sidecar, the only order carrier the tree format has.
+func j20OpenPulledBundle(w *World) (content.Bundle, error) {
+	dir, ok := j20ConsumerTreePath(w, "")
 	if !ok {
-		return fmt.Errorf("the consumer received no hooks/ directory at all\n%s", j20Of(w).j20PullDiagnostic())
+		return nil, fmt.Errorf("no %q bundle directory exists anywhere under the consumer's .ctxloom/cache/bundles — "+
+			"a directory-form bundle was published but the consumer received no tree.\n%s",
+			j20Bundle, j20Of(w).j20PullDiagnostic())
 	}
-	events, err := os.ReadDir(dir)
+	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(dir), content.Provenance{IsLocal: true})
 	if err != nil {
-		return fmt.Errorf("read consumer hooks dir: %w", err)
+		return nil, fmt.Errorf("open a tree store over the consumer's pulled bundles at %s: %w", filepath.Dir(dir), err)
 	}
-	for _, ev := range events {
-		if !ev.IsDir() {
-			continue
-		}
-		if err := j20CheckOneEvent(filepath.Join(dir, ev.Name()), ev.Name(), declared); err != nil {
-			return err
-		}
+	bundle, err := store.Open(context.Background(), content.BundleID(filepath.Base(dir)))
+	if err != nil {
+		return nil, fmt.Errorf("open the consumer's pulled %q tree: %w", j20Bundle, err)
 	}
-	return nil
+	return bundle, nil
 }
 
-func j20CheckOneEvent(dir, event string, declared map[string]string) error {
-	hooks, err := os.ReadDir(dir)
+// j20ConsumerHooks decodes every hook the consumer's pulled tree holds,
+// through Bundle.Item + Item.Surface — i.e. through hookType.Decode, the
+// SAME production code that assigns each hook's Event and Name when
+// internal/bundles.ReadTree turns a pulled tree into the bundle the product
+// actually merges (reader.add's `case content.Hook: r.hooks[v.Event] =
+// append(...)` keys purely off the DECODED Event field, not off the ref's
+// path string). Deriving bucket membership from the ref path instead would
+// only prove the file sits in the right directory, and would stay green even
+// if Decode's own "<event>/<name>" split were the thing that broke — which
+// is the failure that actually determines which lifecycle event a hook fires
+// under once a real profile materializes it.
+func j20ConsumerHooks(w *World) ([]content.Hook, error) {
+	bundle, err := j20OpenPulledBundle(w)
 	if err != nil {
-		return fmt.Errorf("read consumer hook event %q: %w", event, err)
+		return nil, err
+	}
+	ctx := context.Background()
+	refs, err := bundle.Refs(ctx, trust.KindHook)
+	if err != nil {
+		return nil, fmt.Errorf("list the consumer's hook refs: %w", err)
+	}
+	if len(refs) == 0 {
+		return nil, fmt.Errorf("the consumer received no hooks at all\n%s", j20Of(w).j20PullDiagnostic())
+	}
+	hooks := make([]content.Hook, 0, len(refs))
+	for _, ref := range refs {
+		item, err := bundle.Item(ctx, ref)
+		if err != nil {
+			return nil, fmt.Errorf("open consumer hook %q: %w", ref.Name, err)
+		}
+		surf, err := item.Surface(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("read consumer hook %q surface: %w", ref.Name, err)
+		}
+		h, ok := surf.(content.Hook)
+		if !ok {
+			return nil, fmt.Errorf("consumer hook %q surface is %T, not content.Hook", ref.Name, surf)
+		}
+		hooks = append(hooks, h)
+	}
+	return hooks, nil
+}
+
+// j20CheckHookBuckets asserts every hook the consumer received DECODES into
+// the event it was declared in, and that none decodes into an event it was
+// never declared under. See j20ConsumerHooks for why this checks the decoded
+// content.Hook.Event field rather than the ref's path string.
+func j20CheckHookBuckets(w *World, declared map[string]string) error {
+	hooks, err := j20ConsumerHooks(w)
+	if err != nil {
+		return err
 	}
 	for _, h := range hooks {
-		name := strings.TrimSuffix(h.Name(), ".yaml")
-		want, known := declared[name]
+		want, known := declared[h.Name]
 		if !known {
-			return fmt.Errorf("hook %q arrived under event %q but was never declared", name, event)
+			return fmt.Errorf("hook %q arrived under event %q but was never declared", h.Name, h.Event)
 		}
-		if want != event {
-			return fmt.Errorf("hook %q was declared under event %q but arrived under %q — event bucketing was lost", name, want, event)
+		if want != h.Event {
+			return fmt.Errorf("hook %q was declared under event %q but decoded into %q — event bucketing was lost", h.Name, want, h.Event)
 		}
 	}
 	return nil
 }
 
 // j20ConsumerHookOrder returns the hook names the consumer received under one
-// event, in the order the consumer's own layout yields them.
+// event, resolved into EXECUTION order via content.SortHooks over each hook's
+// content.Hook.Order — the same resolution the product applies when it reads a
+// pulled tree back into a bundle (internal/bundles.ReadTree's finishHooks). A
+// raw directory listing would return the same names sorted BY FILENAME, which
+// is exactly the wrong-order failure this scenario is written to catch.
 func j20ConsumerHookOrder(w *World, event string) ([]string, error) {
-	dir, ok := j20ConsumerTreePath(w, "hooks/"+event)
-	if !ok {
-		return nil, fmt.Errorf("the consumer received no hooks/%s directory\n%s", event, j20Of(w).j20PullDiagnostic())
-	}
-	entries, err := os.ReadDir(dir)
+	all, err := j20ConsumerHooks(w)
 	if err != nil {
-		return nil, fmt.Errorf("read consumer hooks/%s: %w", event, err)
+		return nil, err
 	}
-	var out []string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".yaml") {
-			out = append(out, strings.TrimSuffix(e.Name(), ".yaml"))
+	var hooks []content.Hook
+	for _, h := range all {
+		if h.Event == event {
+			hooks = append(hooks, h)
 		}
+	}
+	if len(hooks) == 0 {
+		return nil, fmt.Errorf("the consumer received no hooks/%s\n%s", event, j20Of(w).j20PullDiagnostic())
+	}
+	content.SortHooks(hooks)
+	out := make([]string, len(hooks))
+	for i, h := range hooks {
+		out[i] = h.Name
 	}
 	return out, nil
 }

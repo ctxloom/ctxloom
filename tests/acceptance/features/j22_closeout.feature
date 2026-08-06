@@ -57,11 +57,13 @@ Feature: The close-out — the end of a workstream
   # tracked files, and the retirement machinery to fix it is built and merely
   # un-run.
   #
-  # UNTAG WHEN: doctor reports a superseded blanket `.ctxloom` ignore rule and
-  # names `ctxloom manage gitignore install` as the fix. Expected RED today:
-  # gitignore.Ensure performs the retirement when it runs, but no doctor check
-  # reports the posture.
-  @wip
+  # Closed: DOCTOR-CHECK-GITIGNORE-f6 reports a superseded blanket `.ctxloom`
+  # ignore rule and names `ctxloom manage gitignore install` as the fix.
+  # gitignore.Ensure already performed the retirement when it ran; the gap was
+  # that no doctor check REPORTED the posture beforehand — read-only, via the
+  # new gitignore.SupersededBlanketLines export (RetireSupersededFile now
+  # routes through it too, so there is one detector, not two that could
+  # disagree).
   Scenario: The routine will not start against a repo that cannot commit its own content
     Given the project still carries the superseded blanket ctxloom ignore rule
     When I run "ctxloom doctor"
@@ -72,10 +74,14 @@ Feature: The close-out — the end of a workstream
   # for a human to act — merged-ness, dirty state, and the exact commands —
   # because ctxloom deliberately will not run them.
   #
-  # UNTAG WHEN: doctor reports long-lived worktrees outside the sessions root
-  # with their merge and dirty state and the manual commands. Expected RED:
-  # no such check exists.
-  @wip
+  # Closed: DOCTOR-CHECK-FOREIGN-WORKTREES-r8 reports long-lived worktrees
+  # outside the sessions root with their merge state (git.Git gained
+  # MergedBranches — no merged-ness primitive existed anywhere before this),
+  # their dirty state as measured AT CHECK TIME (never assumed — the fixture's
+  # own tree is clean by the time doctor runs, having committed over its
+  # planted WIP; a wrong implementation that echoed the fixture's setup step
+  # back would print "dirty" here and be lying), and the manual commands —
+  # `git worktree remove` then `git branch -d`, never `-D`.
   Scenario: Worktrees ctxloom did not create are reported, never touched
     Given a long-lived worktree "stale-feature" of her own, outside the sessions root, with unmerged work
     When I run "ctxloom doctor"
@@ -89,10 +95,12 @@ Feature: The close-out — the end of a workstream
   # writing a design note into its own session directory writes into
   # container-ephemeral space and loses it on exit.
   #
-  # UNTAG WHEN: doctor warns about authored files in the unclassified top level
-  # and names the persistent home they belong in. Expected RED: verified defect,
-  # no check exists.
-  @wip
+  # Closed: DOCTOR-CHECK-HARP-DURABILITY-s9 warns about authored files in the
+  # unclassified top level and names the persistent home they belong in. The
+  # walk is two-level and guards IsDir() on the OUTER iteration: HomeSessionsDir
+  # itself holds index.yaml beside the harp directories, and an exclusion list
+  # aimed at the harp level alone (as first proposed) would never see that
+  # file, since it is never inside any one harp dir at all.
   Scenario: Authored artifacts in the unclassified middle of a harp directory are flagged
     Given a finished session "amber-quiet-heron" carrying design notes nobody filed
     When I run "ctxloom doctor"

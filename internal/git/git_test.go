@@ -360,6 +360,52 @@ func TestExecGit_CurrentBranch(t *testing.T) {
 	assert.Equal(t, "HEAD", detached, `git's own sentinel for detached HEAD`)
 }
 
+// TestExecGit_MergedBranches pins the primitive doctor's foreign-worktree
+// check needs to tell "merged" from "unmerged" for real rather than assuming
+// one or the other: a branch identical to main's tip is merged, a branch
+// carrying a commit main never got is not, and an empty ref resolves to
+// repoDir's own current branch (mirroring CurrentBranch's default).
+func TestExecGit_MergedBranches(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping MergedBranches integration test")
+	}
+	ctx := context.Background()
+	g := NewExec()
+	repo := initRepo(t) // branch "main", one commit
+
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=ctxloom", "GIT_AUTHOR_EMAIL=ctxloom@example.com",
+			"GIT_COMMITTER_NAME=ctxloom", "GIT_COMMITTER_EMAIL=ctxloom@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	// merged-branch never diverges from main's tip: fully merged.
+	run("branch", "merged-branch")
+
+	// unmerged-branch carries a commit main does not have.
+	run("checkout", "-b", "unmerged-branch")
+	require.NoError(t, writeFile(filepath.Join(repo, "feature.txt"), "feature work"))
+	run("add", "feature.txt")
+	run("commit", "-m", "feature work")
+	run("checkout", "main")
+
+	merged, err := g.MergedBranches(ctx, repo, "main")
+	require.NoError(t, err)
+	assert.Contains(t, merged, "merged-branch")
+	assert.NotContains(t, merged, "unmerged-branch",
+		"a branch with a commit main never got must never be reported merged")
+
+	defaulted, err := g.MergedBranches(ctx, repo, "")
+	require.NoError(t, err)
+	assert.ElementsMatch(t, merged, defaulted,
+		"an empty ref must resolve to repoDir's own current branch, same as explicitly naming it")
+}
+
 // TestExecGit_CommitAll_StagesAndVerifies proves the real commit lands
 // (staged tracked mod + untracked file both captured), advances HEAD, and
 // its self-reported changedFiles list is the actual post-commit diff —

@@ -198,6 +198,78 @@ func TestEnsure_SecondRunAfterMigrationIsAByteNoOp(t *testing.T) {
 		"a migrated .gitignore must come back byte-identical on the next run")
 }
 
+// TestSupersededBlanketLines_ReadOnly is doctor's gitignore-posture check's
+// whole contract: it must be able to ASK whether a blanket rule is present
+// without ever writing to the file, unlike every other exported entry point
+// in this package (Ensure/EnsureFile/RetireSupersededFile all mutate).
+func TestSupersededBlanketLines_ReadOnly(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	original := "# Local config\n.ctxloom/*\n!.ctxloom/plans/\n"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0644))
+
+	lines, err := SupersededBlanketLines(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{".ctxloom/*"}, lines)
+
+	// The read must not have touched the file at all.
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(after), "SupersededBlanketLines must never write")
+}
+
+// TestSupersededBlanketLines_MissingFileIsEmptyNotError matches
+// RetireSupersededFile's own contract for an absent file: empty, not an
+// error, so a caller doing "is there anything to fix" never has to special-
+// case "the file doesn't exist yet" as a failure.
+func TestSupersededBlanketLines_MissingFileIsEmptyNotError(t *testing.T) {
+	dir := t.TempDir()
+	lines, err := SupersededBlanketLines(filepath.Join(dir, ".gitignore"))
+	require.NoError(t, err)
+	assert.Empty(t, lines)
+}
+
+// TestSupersededBlanketLines_CleanFileIsEmpty pins the "posture is fine"
+// case doctor's check reads as ok: a .gitignore with no blanket line at all.
+func TestSupersededBlanketLines_CleanFileIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ".gitignore")
+	require.NoError(t, os.WriteFile(path, []byte(".ctxloom/cache/\n.ctxloom/sessions/\n"), 0644))
+
+	lines, err := SupersededBlanketLines(path)
+	require.NoError(t, err)
+	assert.Empty(t, lines)
+}
+
+// TestSupersededBlanketLines_AgreesWithRetireSupersededFile pins the review's
+// mitigation directly: RetireSupersededFile routes through
+// SupersededBlanketLines, so the read-only detector and the mutating
+// retirement can never disagree about what counts as superseded. Every
+// spelling this package already tests for retirement is checked to have been
+// SEEN by the read-only detector first, and to be GONE from it after
+// retirement runs.
+func TestSupersededBlanketLines_AgreesWithRetireSupersededFile(t *testing.T) {
+	for _, blanket := range blanketSpellings {
+		t.Run(blanket, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, ".gitignore")
+			require.NoError(t, os.WriteFile(path, []byte("# Local config\n"+blanket+"\n"), 0644))
+
+			before, err := SupersededBlanketLines(path)
+			require.NoError(t, err)
+			assert.NotEmpty(t, before, "the detector must see %q before retirement", blanket)
+
+			changed, err := RetireSupersededFile(path)
+			require.NoError(t, err)
+			assert.True(t, changed)
+
+			after, err := SupersededBlanketLines(path)
+			require.NoError(t, err)
+			assert.Empty(t, after, "the detector must see nothing left after retirement removed %q", blanket)
+		})
+	}
+}
+
 // ignoreRules returns content's non-empty, non-comment lines trimmed, so an
 // assertion about a RULE cannot be satisfied (or defeated) by the same text
 // appearing inside a comment.

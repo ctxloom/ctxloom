@@ -74,6 +74,38 @@ func (execGit) WorktreePrune(ctx context.Context, repoDir string) error {
 	return run(ctx, repoDir, "worktree", "prune")
 }
 
+// mergedBranchesTimeout bounds MergedBranches — it runs once per foreign
+// worktree on EVERY `ctxloom doctor` invocation (git.go's doc), so, like
+// isRepoTimeout above, it self-limits rather than relying on every caller's
+// context to already carry a deadline.
+const mergedBranchesTimeout = 5 * time.Second
+
+// MergedBranches lists local branches already merged into ref (git branch
+// --merged). ref="" resolves to repoDir's own current branch first.
+func (g execGit) MergedBranches(ctx context.Context, repoDir, ref string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, mergedBranchesTimeout)
+	defer cancel()
+	if ref == "" {
+		cur, err := g.CurrentBranch(ctx, repoDir)
+		if err != nil {
+			return nil, err
+		}
+		ref = cur
+	}
+	out, err := output(ctx, repoDir, "branch", "--merged", ref, "--format=%(refname:short)")
+	if err != nil {
+		return nil, err
+	}
+	var branches []string
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			branches = append(branches, line)
+		}
+	}
+	return branches, nil
+}
+
 // UpdateIndexSkipWorktree toggles the skip-worktree bit on a tracked file.
 func (execGit) UpdateIndexSkipWorktree(ctx context.Context, dir, file string, skip bool) error {
 	flag := "--no-skip-worktree"

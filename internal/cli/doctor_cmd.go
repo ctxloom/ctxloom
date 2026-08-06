@@ -5,16 +5,20 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/afero"
 	"github.com/spf13/cobra"
 
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/git"
+	"github.com/ctxloom/ctxloom/internal/gitignore"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
@@ -207,6 +211,9 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckSetupAuthPing(),
 			doctorCheckIngestionLimit(cfg),
 			doctorCheckLocalTierState(cfg),
+			doctorCheckGitignorePosture(cfg, cfgErr),
+			doctorCheckForeignWorktrees(ctx, git.NewExec(), doctorProjectDir(cfg)),
+			doctorCheckHarpDurability(),
 		}
 	}
 	report := doctorReport{Checks: checks}
@@ -761,6 +768,20 @@ func doctorAppDir(cfg *config.Config) string {
 	return ""
 }
 
+// doctorProjectDir returns the project root — the directory containing the
+// resolved .ctxloom marker (doctorAppDir) — or "" when no marker was found.
+// The gitignore-posture and foreign-worktree checks both need a working
+// directory to run against (a project's own .gitignore; the repo `git
+// worktree list` is scoped to) and share this rather than each re-deriving
+// "where is this project rooted" its own way.
+func doctorProjectDir(cfg *config.Config) string {
+	appDir := doctorAppDir(cfg)
+	if appDir == "" {
+		return ""
+	}
+	return filepath.Dir(appDir)
+}
+
 // doctorCheckSetupMarker verifies the .ctxloom marker directory config.Load
 // already resolved (cfg.AppPaths, config.go:137) is present and the project
 // config loaded without a hard error — the ground-floor precondition every
@@ -1083,6 +1104,233 @@ func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) doctorCheck
 			"There is nothing to configure here: the publisher must re-sign and republish, and `ctxloom remote upgrade` picks it up "+
 			"and clears this the next time it runs",
 			len(refused), strings.Join(parts, "; "))}
+}
+
+// ===== J22 close-out: doctor checks 1, 4, 5 (of the feature's numbering) ====
+//
+// The feature file and its step definitions both describe "doctor's five new
+// checks"; this file adds exactly THREE — the ones the J22 close-out design
+// doc (docs/design/j22-closeout-surfaces.design.md §6, area 4) scopes as
+// doctor's share of that journey, and the ones the corresponding scenarios'
+// own comments number 1, 4 and 5. Checks 2 and 3 of that numbering belong to
+// a different area of J22 (worktrees/purge/lessons) and are not implemented
+// here — see this slice's own commit message / the design doc's §1 table for
+// where they actually land.
+
+// doctorCheckGitignorePosture reports a superseded blanket `.ctxloom` ignore
+// rule: under it, .ctxloom/content can never be committed at all, so a
+// project cannot ship its own authored context. Read-only — it must never
+// retire the rule itself, only report it; RetireSupersededFile (which does
+// retire it) and this check now share exactly one detector,
+// gitignore.SupersededBlanketLines, so the two can never disagree about what
+// counts as superseded.
+func doctorCheckGitignorePosture(cfg *config.Config, cfgErr error) doctorCheck {
+	const marker = "DOCTOR-CHECK-GITIGNORE-f6"
+	if cfgErr != nil {
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "config did not load: " + cfgErr.Error()}
+	}
+	projectDir := doctorProjectDir(cfg)
+	if projectDir == "" {
+		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "no .ctxloom marker directory found; nothing to check"}
+	}
+	gitignorePath := filepath.Join(projectDir, ".gitignore")
+	lines, err := gitignore.SupersededBlanketLines(gitignorePath)
+	if err != nil {
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "could not read .gitignore: " + err.Error()}
+	}
+	if len(lines) == 0 {
+		return doctorCheck{Marker: marker, Status: doctorOK, Detail: ".gitignore carries no superseded blanket .ctxloom rule"}
+	}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: fmt.Sprintf(
+		".gitignore carries a blanket `%s` rule; .ctxloom/content can never be committed under it (run `ctxloom manage gitignore install` to retire it)",
+		strings.Join(lines, ", "))}
+}
+
+// doctorForeignWorktreeTimeout bounds the total time doctorCheckForeignWorktrees
+// spends per candidate tree, across BOTH the merged-ness and dirty probes —
+// beyond the single MergedBranches call git.execGit itself already bounds
+// (git.go's mergedBranchesTimeout), the report as a whole must not stall
+// `ctxloom doctor` — including the deps-independent run `ctxloom init`
+// performs — behind a wedged foreign checkout (e.g. on a stale network
+// filesystem).
+const doctorForeignWorktreeTimeout = 5 * time.Second
+
+// doctorCheckForeignWorktrees reports long-lived worktrees this repository has
+// that ctxloom did NOT create — everything outside the sessions root. Report
+// only: ctxloom removes no worktree it did not create (WorktreeRemove has no
+// force escape hatch by construction, and this check adds no path that could
+// ever act), so the report carries the exact commands a human runs instead.
+//
+// Dirty/merge state is reported ONLY when it was actually measured this run —
+// never assumed. A tree a fixture makes dirty and then commits over IS clean
+// by the time doctor sees it; claiming otherwise would fabricate a claim
+// about what is safe to delete, which is exactly the defect this check exists
+// to prevent.
+func doctorCheckForeignWorktrees(ctx context.Context, g git.Git, workDir string) doctorCheck {
+	const marker = "DOCTOR-CHECK-FOREIGN-WORKTREES-r8"
+	if workDir == "" {
+		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "no project directory to check"}
+	}
+	if g == nil {
+		g = git.NewExec()
+	}
+	if !g.IsRepo(workDir) {
+		return doctorCheck{Marker: marker, Status: doctorInfo, Detail: "not a git repository; nothing to check"}
+	}
+	ctx, cancel := context.WithTimeout(ctx, doctorForeignWorktreeTimeout)
+	defer cancel()
+
+	worktrees, err := g.WorktreeList(ctx, workDir)
+	if err != nil {
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "could not list worktrees: " + err.Error()}
+	}
+	sessionsRoot, _ := paths.HomeSessionsDir() // best-effort; "" excludes nothing extra
+	mainPath := filepath.Clean(workDir)
+	var foreign []git.Worktree
+	for _, wt := range worktrees {
+		if wt.Bare {
+			continue
+		}
+		p := filepath.Clean(wt.Path)
+		if p == mainPath {
+			continue
+		}
+		if sessionsRoot != "" && doctorUnderDir(sessionsRoot, p) {
+			continue
+		}
+		foreign = append(foreign, wt)
+	}
+	if len(foreign) == 0 {
+		return doctorCheck{Marker: marker, Status: doctorOK,
+			Detail: "no worktrees ctxloom did not create outside the sessions root"}
+	}
+	sort.Slice(foreign, func(i, j int) bool { return foreign[i].Path < foreign[j].Path })
+
+	// A merged-ness primitive did not exist anywhere in this codebase before
+	// this check needed one; printing "unmerged" unconditionally would be a
+	// lie, so it is only claimed when MergedBranches actually answered.
+	merged, mergedErr := g.MergedBranches(ctx, workDir, "")
+	mergedSet := make(map[string]bool, len(merged))
+	for _, b := range merged {
+		mergedSet[b] = true
+	}
+
+	var lines []string
+	for _, wt := range foreign {
+		branch := strings.TrimPrefix(wt.Branch, "refs/heads/")
+		name := filepath.Base(wt.Path)
+
+		mergeState := "merge state unknown"
+		if mergedErr == nil {
+			if mergedSet[branch] {
+				mergeState = "merged"
+			} else {
+				mergeState = "unmerged"
+			}
+		}
+
+		dirtyState := "dirty state unknown"
+		if dirty, dirtyErr := g.IsDirty(ctx, wt.Path); dirtyErr == nil {
+			if dirty {
+				dirtyState = "dirty"
+			} else {
+				dirtyState = "clean"
+			}
+		}
+
+		lines = append(lines, fmt.Sprintf(
+			"%s (branch %s, %s, %s) — ctxloom will not remove it; run `git worktree remove %s` then `git branch -d %s`",
+			name, branch, mergeState, dirtyState, wt.Path, branch))
+	}
+	detail := fmt.Sprintf("%d worktree(s) ctxloom did not create: %s", len(foreign), strings.Join(lines, "; "))
+	if mergedErr != nil {
+		detail += fmt.Sprintf(" (could not determine merge state: %s)", mergedErr.Error())
+	}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: detail}
+}
+
+// doctorUnderDir reports whether p is root itself or a descendant of it.
+func doctorUnderDir(root, p string) bool {
+	root = filepath.Clean(root)
+	p = filepath.Clean(p)
+	return p == root || strings.HasPrefix(p, root+string(filepath.Separator))
+}
+
+// doctorHarpDurabilityMaxNamed caps how many unclassified-top-level paths
+// doctorCheckHarpDurability names individually before summarizing the rest as
+// a count — the same "cap at ~5 with a count" shape doctorCheckLocalTierState
+// and the other listing checks in this file use, so one huge project does not
+// turn a single check's line into an unreadable wall of paths.
+const doctorHarpDurabilityMaxNamed = 5
+
+// doctorCheckHarpDurability warns about authored artifacts sitting at a harp
+// directory's TOP LEVEL — neither persist/ (mounted into containers, durable)
+// nor ephemeral/ (deliberately excluded, scratch). A containerized agent
+// writing a design note there writes into container-ephemeral space and
+// loses it on exit.
+//
+// The walk is two-level: HomeSessionsDir()'s OWN top level holds index.yaml
+// alongside the harp directories, so the OUTER iteration skips non-directory
+// entries — an exclusion list aimed at the harp level (as an earlier version
+// of this design proposed) would never see that file at all, since it never
+// walks into a non-directory. Only the INNER iteration, one level under each
+// harp dir, applies the essence/transcript name exclusions.
+func doctorCheckHarpDurability() doctorCheck {
+	const marker = "DOCTOR-CHECK-HARP-DURABILITY-s9"
+	sessionsRoot, err := paths.HomeSessionsDir()
+	if err != nil {
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "cannot resolve sessions dir: " + err.Error()}
+	}
+	entries, err := os.ReadDir(sessionsRoot)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return doctorCheck{Marker: marker, Status: doctorOK, Detail: "no harp directories yet"}
+		}
+		return doctorCheck{Marker: marker, Status: doctorWarn, Detail: "cannot read sessions dir: " + err.Error()}
+	}
+
+	var flagged []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			// e.g. index.yaml, sitting at the sessions root's OWN top level
+			// beside the harp directories — not a harp, never walked into.
+			continue
+		}
+		harp := e.Name()
+		inner, err := os.ReadDir(filepath.Join(sessionsRoot, harp))
+		if err != nil {
+			continue // best-effort; an unreadable harp dir is not this check's job
+		}
+		for _, ie := range inner {
+			name := ie.Name()
+			if ie.IsDir() {
+				continue // persist/, ephemeral/, or any other subdir: not this check's target
+			}
+			switch name {
+			case paths.EssenceFileName, paths.CanonicalTranscriptFileName, "transcript.acp.jsonl", paths.IndexFileName:
+				continue
+			}
+			flagged = append(flagged, harp+"/"+name)
+		}
+	}
+	if len(flagged) == 0 {
+		return doctorCheck{Marker: marker, Status: doctorOK,
+			Detail: "no authored files sit in a harp directory's unclassified top level"}
+	}
+	sort.Strings(flagged)
+	shown := flagged
+	var more int
+	if len(shown) > doctorHarpDurabilityMaxNamed {
+		shown = shown[:doctorHarpDurabilityMaxNamed]
+		more = len(flagged) - doctorHarpDurabilityMaxNamed
+	}
+	list := strings.Join(shown, ", ")
+	if more > 0 {
+		list += fmt.Sprintf(", … +%d more", more)
+	}
+	return doctorCheck{Marker: marker, Status: doctorWarn, Detail: fmt.Sprintf(
+		"%d authored file(s) sit in a harp directory's unclassified top level, which is neither persist/ (durable, mounted into containers) nor ephemeral/: %s — move them under persist/",
+		len(flagged), list)}
 }
 
 // doctorIsRemoteBundle reports whether a listing name is a REMOTE bundle — one

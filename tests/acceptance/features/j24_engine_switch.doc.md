@@ -4,7 +4,8 @@ J24 narration companion (j24_engine_switch.feature) — FLOWS-UNIFIED.md's U12.
 Short, because the journey is short and its finding is a single sentence. Every
 claim traces to a named scenario in the sibling feature file; the validation
 behaviour described under "Two typos" was measured while wiring it, and differs
-from what was previously reported.
+from what was previously reported. Both typos are now caught — see the update
+at the end of that section.
 -->
 
 <!-- doc:intro -->
@@ -41,29 +42,43 @@ Nothing is structural here for the mainstream engines, which is precisely the
 finding: **the portability story is sellable and untold.** It is the rare gap
 that is pure upside, because the hard part is already paid for.
 
-## Two typos, two different silences
+## Two typos, two different silences (now both caught)
 
 On migration day every engine name in play is unfamiliar. Typing one wrong is
-the likeliest mistake anyone will make, and both commands that take one handle
-it badly, in different ways.
+the likeliest mistake anyone will make, and both commands that take one used
+to handle it badly, in different ways.
 
-`ctxloom agent edit dev --engine bogus-engine` exits 0 and writes the
-nonexistent engine into the binding. Nothing validates the name at the moment
-it becomes the team's configuration. The failure surfaces later, somewhere
-else, as whatever a missing engine happens to look like downstream — and by
-then the connection back to a typo in an unrelated command is gone.
+`ctxloom agent edit dev --engine bogus-engine` used to exit 0 and write the
+nonexistent engine into the binding. Nothing validated the name at the moment
+it became the team's configuration, so the failure would have surfaced later,
+somewhere else, as whatever a missing engine happens to look like downstream —
+and by then the connection back to a typo in an unrelated command is gone.
+`operations.SetAgent`'s `validateAgentAxes` now checks the engine against
+`operations.AvailableLLMNames` before the write, so a typo'd edit is refused,
+not persisted.
 
 `ctxloom manage install --engine bogus-engine` was previously reported as
-exiting 0. Measured here against an already-initialized project, it does not:
-it exits non-zero saying `.ctxloom already exists, and the engine is only
-recorded while scaffolding it`, and points at `ctxloom llm default`.
+exiting 0. Measured against an already-initialized project, it did not: it
+exited non-zero saying `.ctxloom already exists, and the engine is only
+recorded while scaffolding it`, and pointed at `ctxloom llm default`.
 
-That refusal is incidental, and the distinction matters. It rejects the
+That refusal was incidental, and the distinction mattered. It rejected the
 invocation for a reason having nothing to do with the engine name — feed it a
-perfectly valid engine and you get the identical message. So the one thing it
-never tells a user typing an unfamiliar engine name is that they typed it
-wrong. The error that fires is about directory state, on the day the user is
-thinking about engines.
+perfectly valid engine and the message was identical. So the one thing it
+never told a user typing an unfamiliar engine name was that they typed it
+wrong. The error fired about directory state, on the day the user is thinking
+about engines.
+
+`cli.checkEngineKnown` (`internal/cli/manage.go`) now runs BEFORE that
+already-exists check, so the diagnosis is about the argument even when
+`.ctxloom` already exists. Its roster is `backends.List()`, not
+`operations.AvailableLLMNames`: unlike the agent-binding case above, this flag
+ends up as the TYPE of a real `{type: engine}` LM config entry
+(`operations.engineRegistry`/`fallbackRegistry`) when scaffolding, not a
+resolved label, so a project's own declared LLM labels are not valid answers
+here. Because the roster is `backends.List()` — a property of the binary, not
+of a project — the check needs no config and applies identically whether or
+not `.ctxloom` exists yet.
 
 ## What she gave up
 
@@ -95,8 +110,7 @@ alongside its existing whole-mechanism one, so a backend that has hooks in
 general but lacks one specific native event — codex's case — is reportable and
 not just a backend with none at all.
 
-Five scenarios. Four pass now: the swap itself, the survival of history across
-it, the capability-loss report above, and the agent-edit engine-name
-validation. One typo-name row (`manage install --engine`) stays red — a
-separate validation gap, not this report.
+Five scenarios, all passing: the swap itself, the survival of history across
+it, the capability-loss report above, and both engine-name validations — the
+agent-edit binding and `manage install`'s scaffold-time flag.
 <!-- /doc:outro -->

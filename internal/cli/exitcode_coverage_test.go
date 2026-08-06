@@ -125,24 +125,28 @@ func findSilentFailureSites(t *testing.T) []string {
 // plus an `if _, err :=` form. The swallow shapes are untouched.
 //
 // Line numbers shifted (117/154/266/287 -> 140/205/332/368 -> 157/238/326/364
-// -> 154/233/321/359 -> 156/342/430/468) during an output-flow batch's
-// format-debt
-// paydown (--format json now routes through emit() for all four sites), then
-// again when the engine-validation-scoping fix inserted the
-// checkInstallEngineApplies doc lines and the --engine hook-backend-scoping
-// block ahead of runManageInstall's ApplyHooks call, then again when a stray
-// duplicated doc-comment paragraph was deleted from runManageInstall and
-// ensureHarnessGitignore, and most recently when ensureHarnessGitignore grew
-// the gitignoreOutcome reporting (so `manage gitignore install` stops printing
-// "Updated <path>" over a file it did not change) — the underlying
-// anti-pattern (ApplyHooks/RemoveHooks per-backend errors warned, then
-// `return nil`) is unchanged throughout; only the ledger keys were re-pointed
-// at the new line numbers.
+// -> 154/233/321/359 -> 156/342/430/468 -> 157/343/431/469) during an
+// output-flow batch's format-debt paydown (--format json now routes through
+// emit() for all four sites), then again when the engine-validation-scoping
+// fix inserted the checkInstallEngineApplies doc lines and the --engine
+// hook-backend-scoping block ahead of runManageInstall's ApplyHooks call,
+// then again when a stray duplicated doc-comment paragraph was deleted from
+// runManageInstall and ensureHarnessGitignore, then again when
+// ensureHarnessGitignore grew the gitignoreOutcome reporting (so `manage
+// gitignore install` stops printing "Updated <path>" over a file it did not
+// change), and most recently (157/343/431/469 -> 162/379/467/505) when
+// `manage install --engine <typo>` gained checkEngineKnown — a pre-flight
+// argument-membership check plus its doc comment, inserted ahead of
+// checkInstallEngineApplies so a typo'd engine is diagnosed as a typo even
+// against an already-scaffolded .ctxloom — the underlying anti-pattern
+// (ApplyHooks/RemoveHooks per-backend errors warned, then `return nil`) is
+// unchanged throughout every renumbering; only the ledger keys were
+// re-pointed at the new line numbers.
 var silentFailureAllowlist = map[string]string{
-	"manage.go:157": "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:343": "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:157",
-	"manage.go:431": "`manage hooks install` RunE (runManageHooksInstall): ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:469": "`manage hooks uninstall` RunE (runManageHooksUninstall): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:431",
+	"manage.go:162": "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
+	"manage.go:379": "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:162",
+	"manage.go:467": "`manage hooks install` RunE (runManageHooksInstall): ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
+	"manage.go:505": "`manage hooks uninstall` RunE (runManageHooksUninstall): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:467",
 
 	"bundle_distill.go:134": "the print-only `for _, e := range result.Errors` loop inside emit()'s text closure stays (it must — this same result.Errors also rides the --format json payload, so deleting it would drop the JSON error detail); the actual T9/R1 bug (U034-F02) is FIXED by a check placed AFTER emit() returns, `if len(result.Errors) > 0 { return ... }`, in runBundleDistill itself — that path covers text AND structured formats alike, which folding the fix into this closure's return value could not (Emit only calls the closure for --format text; a json/yaml/toml run never executes it, so an error returned from inside it would still be silently lost for every non-text format). Kept allowlisted because the regex keys on this loop's SHAPE, not on whether the surrounding function still swallows it. Line renumbered from :129 to :134 by U034-F11, which moved the loop down (a comment plus the iox.ErrWriter construction) AND rewrote its body from `fmt.Fprintln(os.Stderr, e)` to `errw.Println(e)`; that rewrite also made the loop stop matching silentFailureLoopRE entirely, which the gate reported as a stale entry (\"debt paid down\") when in fact only the writer had changed — see the regex's own comment for the vocabulary widening that restores detection. The loop's warn-only SHAPE and the fix below emit() are both unchanged.",
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/gitignore"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/projectroot"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -88,7 +89,11 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	}
 	projectDir := filepath.Dir(appDir)
 
-	if err := checkInstallEngineApplies(ctxloomDirExists(appDir), cmd.Flags().Changed("engine"), manageInstallEngine); err != nil {
+	engineRequested := cmd.Flags().Changed("engine")
+	if err := checkEngineKnown(engineRequested, manageInstallEngine); err != nil {
+		return err
+	}
+	if err := checkInstallEngineApplies(ctxloomDirExists(appDir), engineRequested, manageInstallEngine); err != nil {
 		return err
 	}
 
@@ -183,12 +188,43 @@ func runManageInstall(cmd *cobra.Command, _ []string) error {
 	})
 }
 
+// checkEngineKnown rejects an explicitly-passed `--engine` that names no
+// backend this ctxloom binary knows, BEFORE checkInstallEngineApplies gets a
+// chance to refuse for the unrelated reason that .ctxloom already exists. A
+// typo'd engine name is the single most likely mistake on migration day, and
+// the diagnosis has to be about the ARGUMENT — naming it and listing the
+// engines that exist — not about directory state, or a user who mistyped an
+// unfamiliar engine name learns nothing about how to fix it.
+//
+// The roster is backends.List(), not operations.AvailableLLMNames: this flag
+// ends up as the TYPE of a real `{type: engine}` LM config entry
+// (operations.engineRegistry/fallbackRegistry) when InitializeProject scaffolds
+// — the same set InitializeProject itself already enforces via
+// backends.Exists — not a resolved LABEL like `agent edit --engine`'s (whose
+// membership set, AvailableLLMNames, additionally includes labels a project's
+// own config declares, because that command binds to a label the config
+// resolves, not a backend type). Checking a project's declared labels here
+// would accept names this command cannot actually act on.
+//
+// It needs no project config to run: the engine roster is a property of the
+// BINARY, not of a project, so — unlike checkInstallEngineApplies, which can
+// only ask whether .ctxloom exists — this check applies identically whether
+// or not .ctxloom exists yet, and runs first for that reason.
+func checkEngineKnown(engineRequested bool, engine string) error {
+	if !engineRequested || backends.Exists(engine) {
+		return nil
+	}
+	return fmt.Errorf("--engine %q: unknown engine; ctxloom knows: %s", engine, strings.Join(backends.List(), ", "))
+}
+
 // checkInstallEngineApplies rejects a `manage install --engine <x>` whose
 // engine choice cannot reach anything: the engine is recorded by
 // InitializeProject while it scaffolds, so on a project that already has a
 // .ctxloom the flag has no effect at all. Re-running install to re-apply hooks
 // stays supported — only an EXPLICITLY passed --engine is refused, and only
-// when there is nothing left to scaffold.
+// when there is nothing left to scaffold. checkEngineKnown runs before this,
+// so by the time this fires the engine name itself is already known-good and
+// the refusal really is about directory state.
 //
 // The refusal names where the engine actually lives, because the flag reads like
 // the way to change it and silently was not.

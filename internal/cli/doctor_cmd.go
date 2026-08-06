@@ -143,12 +143,15 @@ structured chat is present; whether every configured agent resolves (profile
 composition + engine/runtime) and the roster is non-empty; the seeded
 dependency lockfile parses and a real context assembly succeeds; hooks AND
 MCP registration per configured backend; the trust store's signers;
-companion detection + loadout probing (taskloom/ltk/...); and every
+companion detection + loadout probing (taskloom/ltk/...); every
 paths.TierLocal path (internal/paths.Layout) this checkout is missing — the
 local-only state (the dirty-tree-commit acknowledgement, the task-log
 project-id marker, distilled sessions, review's cached diff objects) that a
-fresh clone has no way to learn it lacks anywhere else. Each line is
-prefixed with a DOCTOR-CHECK-* marker — the SAME vocabulary the
+fresh clone has no way to learn it lacks anywhere else; and, always, a stated
+reminder of the one boundary no check here crosses: ctxloom can confirm it
+WROTE the assembled context onto the engine's own surface, never that the
+engine actually READ it — that happens inside a process ctxloom does not own.
+Each line is prefixed with a DOCTOR-CHECK-* marker — the SAME vocabulary the
 "ctxloom-doctor" Agent Skill uses, so a human or an LLM reading either
 surface sees one language.
 
@@ -202,6 +205,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),
 			doctorCheckSetupCompanions(cfg, cfgErr),
 			doctorCheckSetupAuthPing(),
+			doctorCheckIngestionLimit(cfg),
 			doctorCheckLocalTierState(cfg),
 		}
 	}
@@ -877,6 +881,32 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 func doctorCheckSetupAuthPing() doctorCheck {
 	return doctorCheck{Marker: "DOCTOR-CHECK-SETUP-AUTHPING-j0", Status: doctorInfo,
 		Detail: "no auth-ping surface exists in this build yet (deferred; verify by launching the engine's own CLI)"}
+}
+
+// doctorCheckIngestionLimit states, rather than tests, the one boundary this
+// command cannot see past: delivered → ingested (FLOWS-UNIFIED Appendix A.2,
+// verdict NONE/DEFECT). Every check above this line can be green — the
+// context assembled, the surface written, hooks and MCP registered — and
+// ctxloom still has no way to know whether the vendor engine actually READ
+// what landed on disk. A moved config key, a changed surface format, or an
+// engine silently ignoring a path all look identical from here, because the
+// read happens inside a process ctxloom does not own.
+//
+// This is not a probe with a pass/fail outcome — there is nothing left on
+// ctxloom's side of that boundary to check — so it always reports "info", the
+// same as DOCTOR-CHECK-SETUP-AUTHPING-j0 beside it. It exists so a diagnosis
+// session that has run every other check ends on a STATED limit instead of a
+// report that simply goes quiet, which a reader could otherwise mistake for
+// "checked and confirmed read".
+func doctorCheckIngestionLimit(cfg *config.Config) doctorCheck {
+	const marker = "DOCTOR-CHECK-INGESTION-q7"
+	who := "the configured engine"
+	if engines := doctorConfiguredEngines(cfg); len(engines) > 0 {
+		who = strings.Join(engines, ", ")
+	}
+	return doctorCheck{Marker: marker, Status: doctorInfo, Detail: fmt.Sprintf(
+		"ctxloom writes the assembled context onto %s's own on-disk agent surface; whether %s actually reads what was written happens inside a process ctxloom does not own, and nothing in this product can confirm it — verify by asking the engine itself",
+		who, who)}
 }
 
 // doctorCheckLocalTierState reports every paths.TierLocal entry (paths.Layout)

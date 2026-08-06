@@ -10,9 +10,19 @@
 // delivered → ingested, and the product's bar is that EVERY hop has an
 // inspector that NAMES THE CAUSE when content stops arriving. One scenario per
 // boundary: plant the cause, run the inspector, assert the inspector says the
-// thing. A boundary with no inspector is a defect, and its scenario is red and
-// stays red — B2 (edited-not-re-signed) and B7 (delivered-vs-ingested) are
-// exactly those, and they are the reason this journey is worth wiring at all.
+// thing. A boundary with no inspector is a defect, and its scenario stays red
+// until one exists — B6 (composed-vs-delivered staleness) and M5 (the
+// two-machine symptom) are still that, each blocked on an architecture
+// decision (hefty-gallery, obvious-pastime).
+//
+// B7 (delivered-vs-ingested) is a genuine exception, not a defect awaiting an
+// inspector: whether the vendor engine actually READ the file ctxloom handed
+// it happens inside a process ctxloom does not own, and no inspector will
+// ever cross that boundary. Its scenario does not assert that impossible
+// capability — inverted 2026-08-05 to assert instead that ctxloom SAYS it
+// cannot know, which is testable and stays green. See that scenario's own
+// comment in the .feature file for the decision and the mutation that backs
+// it.
 //
 // WHY THE ASSERTIONS ARE SHAPED THE WAY THEY ARE. Every Then here reads a
 // PAYLOAD: the bytes of the assembled context, or the inspector's own words
@@ -876,10 +886,11 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice asks ctxloom what her engine actually ingested$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// B7 has NO named inspector anywhere in the product (FLOWS-UNIFIED
-		// Appendix A.2, verdict DEFECT), so there is no single spelling to
-		// assert against. Probe every surface that could plausibly own the
-		// answer; the Then reports all of them.
+		// B7 has no inspector that can answer the ORIGINAL question anywhere in
+		// the product (FLOWS-UNIFIED Appendix A.2, verdict DEFECT) — that never
+		// changes, so there is still no single spelling to assert an answer
+		// against. Probe every surface that could plausibly own it; the Then now
+		// looks for the one that states the LIMIT instead of an answer.
 		j21Probe(w, "doctor")
 		j21Probe(w, "manage", "status")
 		j21Probe(w, "agent", "show", "default")
@@ -887,8 +898,21 @@ func registerJ21Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^ctxloom names the surface her engine read and confirms the deploy guidance was in it$`, func(c context.Context) error {
-		return j21ProbesAnswered(worldFrom(c), "CLAUDE.md", j21DeployMarker)
+	// cli.doctorCheckIngestionLimit (DOCTOR-CHECK-INGESTION-q7, an "info" line
+	// beside SETUP-AUTHPING-j0) is the inspector that answers now — not by
+	// naming what the engine read, which no inspector can ever do, but by
+	// naming the limit itself. The three phrases below must all land in the
+	// SAME probe's output: ctxloom's own "writes" (the act it can vouch for),
+	// the "does not own" disclaimer (the boundary it cannot cross), and the
+	// explicit "cannot confirm" (so the sentence cannot be read as a claim).
+	// A product that started FABRICATING the claim this row used to demand —
+	// asserting or implying the engine consumed what it was handed — would
+	// drop all three and turn this red.
+	ctx.Step(`^some inspector states plainly that it cannot confirm the engine read what ctxloom delivered$`, func(c context.Context) error {
+		return j21ProbesAnswered(worldFrom(c),
+			"ctxloom writes the assembled context",
+			"process ctxloom does not own",
+			"nothing in this product can confirm it")
 	})
 
 	// --- M5: the two-machine symptom ----------------------------------------

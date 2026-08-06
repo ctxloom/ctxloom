@@ -19,9 +19,14 @@ Feature: The day the assistant goes blind
   Two boundaries have no inspector at all, and their scenarios are here to stay
   red until they do: an edited-but-never-re-signed bundle is withheld with
   nothing anywhere naming "unsigned" as the reason, and NOTHING in the product
-  can tell a user whether the engine ever read the file it was handed. The
-  second is the one this whole journey ends on, because it is the question every
-  real diagnosis session ends on too.
+  can tell a user whether the engine ever read the file it was handed. That
+  second fact has not changed and never will — whether a vendor engine reads a
+  file happens inside a process ctxloom does not own. What changed 2026-08-05
+  is that ctxloom now SAYS so, plainly, instead of leaving that question
+  unanswered in a way a reader could mistake for "checked and confirmed"; the
+  scenario at the end of this journey asserts the stated limit, not the
+  impossible capability. It is still the one this whole journey ends on,
+  because it is the question every real diagnosis session ends on too.
 
   # NOTE ON SCOPE. J18 owns the PRODUCTION of signatures; J3 and J7 own the
   # ADVERSARY (tamper, retraction, revocation). This journey owns neither.
@@ -385,27 +390,56 @@ Feature: The day the assistant goes blind
     Then the wiring report names the materialized surface as stale
 
   # ---- B7: delivered -> ingested ----------------------------------------
-  # THE DEFECT. Boundary-table verdict: NONE / DEFECT, and both predecessor
-  # documents converged on it independently. Every inspector above can be green
-  # and the assistant can still be blind, because nothing in the product can
-  # tell a user whether the engine READ the file it was handed — a vendor
-  # changing its surface format, a config key moving, an engine silently
-  # ignoring a path, all look identical from here. J5's live table proves
-  # ingestion in CI; it is not a tool a user can run.
+  # THE LIMIT, and it is a real one: boundary-table verdict NONE / DEFECT, and
+  # both predecessor documents converged on it independently. Every inspector
+  # above can be green and the assistant can still be blind, because whether
+  # the vendor engine actually READ the file ctxloom handed it happens inside
+  # a process ctxloom does not own — a changed surface format, a moved config
+  # key, an engine silently ignoring a path, all look identical from here.
+  # J5's live table proves ingestion in CI; it is not a tool a user can run.
+  # Nothing ctxloom does will ever cross that boundary.
   #
-  # This is the question every real diagnosis session ends on, and it is the one
-  # ctxloom cannot answer. The step probes doctor, manage status, agent show and
-  # session list, and fails quoting all four, so the red scenario documents
-  # exactly what the product says instead of an answer.
+  # THIS ROW USED TO ASSERT THAT IMPOSSIBLE CAPABILITY, and stayed red on
+  # purpose forever, which is exactly the problem: a row that can never pass
+  # is dead weight. It inflates every count of remaining work and states an
+  # aspiration ctxloom cannot have, rather than a fact about what the product
+  # actually does.
   #
-  # UNTAG WHEN: any surface reports, for the configured engine, the file it
-  # actually read and whether the delivered content was in it. Until then this
-  # stays red — deliberately, permanently, and visibly.
-  @wip
-  Scenario: Something tells her whether the engine ever read the file it was given
+  # INVERTED 2026-08-05 (the human's call). Instead of asserting ctxloom can
+  # answer a question it structurally cannot, the row now asserts the LIMIT
+  # itself: that ctxloom says, plainly, that it does not know — rather than
+  # staying silent in a way a reader could mistake for "checked, nothing to
+  # report", and never implying the engine consumed what it was handed. That
+  # is a testable, mutation-killable fact, and the regression it now guards
+  # against is real: "we delivered it" quietly becoming "they read it" is
+  # exactly the kind of overclaim this project's docs have been audited for
+  # before.
+  #
+  # WHAT THE PRODUCT ACTUALLY SAID, measured against a fresh build before this
+  # change: doctor, manage status, agent show, and session list all said
+  # NOTHING about whether the engine read anything — not an overclaim, just a
+  # silence a reader could misread as "nothing to report" instead of "this
+  # cannot be known". `ctxloom doctor` now carries a new check,
+  # DOCTOR-CHECK-INGESTION-q7 (cli.doctorCheckIngestionLimit,
+  # internal/cli/doctor_cmd.go), an "info" line — like SETUP-AUTHPING-j0
+  # beside it, a stated boundary rather than a probe with a pass/fail outcome
+  # — reading "ctxloom writes the assembled context onto <engine>'s own
+  # on-disk agent surface; whether <engine> actually reads what was written
+  # happens inside a process ctxloom does not own, and nothing in this
+  # product can confirm it — verify by asking the engine itself."
+  #
+  # IT BITES, verified 2026-08-05: replacing that Detail string with the
+  # fabrication this row exists to catch — "ctxloom confirms claude-code read
+  # the delivered context" — turns the scenario red, because none of the
+  # three phrases the Then requires (ctxloom's own "writes", the "does not
+  # own" disclaimer, "nothing in this product can confirm it") survive the
+  # rewrite. Reverted after confirming red.
+  #
+  # UNTAGGED 2026-08-05, once doctor stated the limit for real.
+  Scenario: Nothing claims the engine read the file, and something says so
     Given every earlier inspector is green and the deploy guidance is materialized into the engine's own surface
     When Alice asks ctxloom what her engine actually ingested
-    Then ctxloom names the surface her engine read and confirms the deploy guidance was in it
+    Then some inspector states plainly that it cannot confirm the engine read what ctxloom delivered
 
   # ---- M5: the two-machine symptom --------------------------------------
   # Where the journey OPENED: "it is reaching her assistant and not his." That

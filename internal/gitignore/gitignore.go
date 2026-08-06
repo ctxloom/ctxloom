@@ -168,11 +168,50 @@ func exactlyOneOf(patterns []string) func(string) bool {
 // comment is never removed, even if it sits above a retired rule.
 var supersededComments = []string{"# ctxloom local files"}
 
+// SupersededBlanketLines returns the blanket `.ctxloom` ignore lines present
+// in the file at path, reading only — it neither writes nor removes anything.
+// Empty means the posture is fine; a missing file is empty, not an error.
+//
+// This exists because `ctxloom doctor`'s gitignore-posture check must not
+// mutate a project's .gitignore just to ask "is it broken", and every other
+// entry point in this package writes (Ensure/EnsureFile/RetireSupersededFile
+// all call retireBlock, which replaces the file). Read-only detection is a
+// genuinely separate need, not an oversight.
+func SupersededBlanketLines(path string) ([]string, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var found []string
+	for line := range strings.SplitSeq(string(content), "\n") {
+		if isSupersededBlanket(line) {
+			found = append(found, strings.TrimSpace(line))
+		}
+	}
+	return found, nil
+}
+
 // RetireSupersededFile removes any SupersededPatterns line (and any
 // ctxloom-authored header left heading nothing) from path, reporting whether
 // the file changed. An absent file is a no-op, not an error. Callers that
 // write the private-state block should retire first, then Ensure.
+//
+// Routed through SupersededBlanketLines first so there is exactly ONE
+// detector for "is this line a superseded blanket rule" (isSupersededBlanket,
+// reached both ways) rather than two independent scans that could drift apart
+// — the read-only doctor check and this mutating retirement must never
+// disagree about what counts.
 func RetireSupersededFile(path string) (bool, error) {
+	lines, err := SupersededBlanketLines(path)
+	if err != nil {
+		return false, err
+	}
+	if len(lines) == 0 {
+		return false, nil
+	}
 	return retireBlock(path, supersededComments, isSupersededBlanket)
 }
 

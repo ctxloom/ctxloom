@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/git"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/selfexec"
@@ -1099,4 +1101,270 @@ func TestDoctorIsRemoteBundle_OnlyCanonicalRemoteRefsAreExpectedToBeSigned(t *te
 	} {
 		assert.Equal(t, tc.want, doctorIsRemoteBundle(tc.name), "%s", tc.name)
 	}
+}
+
+// --- DOCTOR-CHECK-GITIGNORE-f6 (J22 row 1) -----------------------------------
+
+func TestDoctorCheckGitignorePosture_RightState_NoBlanketRule(t *testing.T) {
+	root, cfg := setupProject(t, "claude-code")
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".ctxloom/cache/\n"), 0644))
+
+	check := doctorCheckGitignorePosture(cfg, nil)
+	assert.Equal(t, doctorOK, check.Status)
+}
+
+func TestDoctorCheckGitignorePosture_RightState_NoFileAtAll(t *testing.T) {
+	_, cfg := setupProject(t, "claude-code")
+	check := doctorCheckGitignorePosture(cfg, nil)
+	assert.Equal(t, doctorOK, check.Status, "an absent .gitignore has nothing superseded in it")
+}
+
+// TestDoctorCheckGitignorePosture_WrongState_BlanketRulePresent is J22 row 1's
+// own assertion, pinned directly: the check must name BOTH the ignore rule
+// AND the exact retirement command (`ctxloom manage gitignore install`) —
+// tests/acceptance/steps_j22_closeout.go's j22Answered checks for
+// literal ".ctxloom" and "manage gitignore install" in the combined output.
+func TestDoctorCheckGitignorePosture_WrongState_BlanketRulePresent(t *testing.T) {
+	root, cfg := setupProject(t, "claude-code")
+	require.NoError(t, os.WriteFile(filepath.Join(root, ".gitignore"), []byte(".ctxloom/*\n"), 0644))
+
+	check := doctorCheckGitignorePosture(cfg, nil)
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, ".ctxloom")
+	assert.Contains(t, check.Detail, "manage gitignore install")
+}
+
+// TestDoctorCheckGitignorePosture_ReadOnly proves the check itself never
+// mutates the .gitignore it inspects — it must only ever REPORT the
+// superseded rule, never retire it (RetireSupersededFile/Ensure do that, and
+// only when a writer explicitly calls them).
+func TestDoctorCheckGitignorePosture_ReadOnly(t *testing.T) {
+	root, cfg := setupProject(t, "claude-code")
+	path := filepath.Join(root, ".gitignore")
+	original := ".ctxloom/*\n"
+	require.NoError(t, os.WriteFile(path, []byte(original), 0644))
+
+	_ = doctorCheckGitignorePosture(cfg, nil)
+
+	after, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Equal(t, original, string(after), "a doctor check must never write")
+}
+
+func TestDoctorCheckGitignorePosture_ConfigErrorWarns(t *testing.T) {
+	check := doctorCheckGitignorePosture(nil, errors.New("config exploded"))
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "config did not load")
+}
+
+func TestDoctorCheckGitignorePosture_NoMarkerDir(t *testing.T) {
+	check := doctorCheckGitignorePosture(&config.Config{}, nil)
+	assert.Equal(t, doctorInfo, check.Status)
+}
+
+// --- DOCTOR-CHECK-FOREIGN-WORKTREES-r8 (J22 row 2) ---------------------------
+
+func TestDoctorCheckForeignWorktrees_NoProjectDir(t *testing.T) {
+	check := doctorCheckForeignWorktrees(context.Background(), nil, "")
+	assert.Equal(t, doctorInfo, check.Status)
+}
+
+func TestDoctorCheckForeignWorktrees_NotARepo(t *testing.T) {
+	dir := t.TempDir()
+	g := &git.Fake{Repos: map[string]bool{}} // IsRepo reports false for everything
+	check := doctorCheckForeignWorktrees(context.Background(), g, dir)
+	assert.Equal(t, doctorInfo, check.Status)
+}
+
+func TestDoctorCheckForeignWorktrees_RightState_OnlyMainWorktree(t *testing.T) {
+	root := t.TempDir()
+	g := &git.Fake{Worktrees: []git.Worktree{{Path: root, Branch: "refs/heads/main"}}}
+	check := doctorCheckForeignWorktrees(context.Background(), g, root)
+	assert.Equal(t, doctorOK, check.Status)
+}
+
+// TestDoctorCheckForeignWorktrees_SessionsRootExcluded proves ctxloom's OWN
+// scratch worktrees (under paths.HomeSessionsDir()) are never reported here —
+// this check's whole job is the population ctxloom did NOT create.
+func TestDoctorCheckForeignWorktrees_SessionsRootExcluded(t *testing.T) {
+	testsupport.Isolate(t)
+	root := t.TempDir()
+	sessionsRoot, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	scratch := filepath.Join(sessionsRoot, "amber-quiet-heron", "ephemeral", "ctxloom-wt-clean")
+
+	g := &git.Fake{Worktrees: []git.Worktree{
+		{Path: root, Branch: "refs/heads/main"},
+		{Path: scratch, Detached: true},
+	}}
+	check := doctorCheckForeignWorktrees(context.Background(), g, root)
+	assert.Equal(t, doctorOK, check.Status, "a ctxloom-owned scratch worktree must never be reported as foreign")
+}
+
+// TestDoctorCheckForeignWorktrees_WrongState_NamesUnmergedDirtyAndExactCommands
+// is J22 row 2's own assertion, pinned directly: the report must carry the
+// foreign tree's name, that it is unmerged, that it is dirty, and the exact
+// (safe) commands to remove it — `git worktree remove <path>` then
+// `git branch -d <branch>`, NEVER `-D` (the project's refusal list forbids
+// force-removing by proxy).
+func TestDoctorCheckForeignWorktrees_WrongState_NamesUnmergedDirtyAndExactCommands(t *testing.T) {
+	root := t.TempDir()
+	foreign := filepath.Join(t.TempDir(), "proj--stale-feature")
+	g := &git.Fake{
+		Worktrees: []git.Worktree{
+			{Path: root, Branch: "refs/heads/main"},
+			{Path: foreign, Branch: "refs/heads/stale-feature"},
+		},
+		Dirty:               map[string]bool{foreign: true},
+		MergedBranchesValue: []string{"main"}, // stale-feature is NOT in this list
+	}
+	check := doctorCheckForeignWorktrees(context.Background(), g, root)
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "proj--stale-feature")
+	assert.Contains(t, check.Detail, "unmerged")
+	assert.Contains(t, check.Detail, "dirty")
+	assert.Contains(t, check.Detail, "git worktree remove "+foreign)
+	assert.Contains(t, check.Detail, "git branch -d stale-feature")
+	assert.NotContains(t, check.Detail, "-D", "force-removing by proxy is on the project's refusal list")
+}
+
+// TestDoctorCheckForeignWorktrees_MergedBranchIsReportedMerged proves the
+// merge state is a real read, not a hardcoded "unmerged": a foreign branch
+// this check's own MergedBranches call reports as merged must say so.
+func TestDoctorCheckForeignWorktrees_MergedBranchIsReportedMerged(t *testing.T) {
+	root := t.TempDir()
+	foreign := filepath.Join(t.TempDir(), "proj--done-feature")
+	g := &git.Fake{
+		Worktrees: []git.Worktree{
+			{Path: root, Branch: "refs/heads/main"},
+			{Path: foreign, Branch: "refs/heads/done-feature"},
+		},
+		MergedBranchesValue: []string{"main", "done-feature"},
+	}
+	check := doctorCheckForeignWorktrees(context.Background(), g, root)
+	assert.Contains(t, check.Detail, "merged")
+	assert.NotContains(t, check.Detail, "unmerged")
+}
+
+// TestDoctorCheckForeignWorktrees_NeverFabricatesDirtyState is the review
+// correction directly under test: a foreign tree that is CLEAN when doctor
+// actually runs (regardless of what it once held) must be reported clean,
+// never "dirty" — reporting a fabricated claim about what is safe to delete
+// is exactly the defect this journey exists to prevent.
+func TestDoctorCheckForeignWorktrees_NeverFabricatesDirtyState(t *testing.T) {
+	root := t.TempDir()
+	foreign := filepath.Join(t.TempDir(), "proj--stale-feature")
+	g := &git.Fake{
+		Worktrees: []git.Worktree{
+			{Path: root, Branch: "refs/heads/main"},
+			{Path: foreign, Branch: "refs/heads/stale-feature"},
+		},
+		Dirty: map[string]bool{}, // explicitly clean at check time
+	}
+	check := doctorCheckForeignWorktrees(context.Background(), g, root)
+	assert.Contains(t, check.Detail, "clean")
+	assert.NotContains(t, check.Detail, "dirty)")
+}
+
+// TestDoctorCheckForeignWorktrees_MergedBranchesErrorDoesNotClaimUnmerged
+// proves a failed merge-ness probe is reported as UNKNOWN, never silently
+// read as "unmerged" — printing "unmerged" without having checked would be
+// exactly the fabricated claim MergedBranches exists to prevent.
+func TestDoctorCheckForeignWorktrees_MergedBranchesErrorDoesNotClaimUnmerged(t *testing.T) {
+	root := t.TempDir()
+	foreign := filepath.Join(t.TempDir(), "proj--stale-feature")
+	g := &git.Fake{
+		Worktrees: []git.Worktree{
+			{Path: root, Branch: "refs/heads/main"},
+			{Path: foreign, Branch: "refs/heads/stale-feature"},
+		},
+		MergedBranchesErr: errors.New("git branch --merged: boom"),
+	}
+	check := doctorCheckForeignWorktrees(context.Background(), g, root)
+	assert.Contains(t, check.Detail, "merge state unknown")
+	assert.NotContains(t, check.Detail, "unmerged")
+}
+
+// --- DOCTOR-CHECK-HARP-DURABILITY-s9 (J22 row 3) -----------------------------
+
+func TestDoctorCheckHarpDurability_RightState_NoSessionsDirYet(t *testing.T) {
+	testsupport.Isolate(t)
+	check := doctorCheckHarpDurability()
+	assert.Equal(t, doctorOK, check.Status)
+}
+
+func TestDoctorCheckHarpDurability_RightState_OnlyClassifiedFiles(t *testing.T) {
+	testsupport.Isolate(t)
+	harpDir, err := paths.HarpDir("amber-quiet-heron")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, "persist"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(harpDir, "ephemeral"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "essence.md"), []byte("essence"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "transcript.jsonl"), []byte("{}"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "persist", "notes.md"), []byte("fine here"), 0o644))
+
+	check := doctorCheckHarpDurability()
+	assert.Equal(t, doctorOK, check.Status)
+}
+
+// TestDoctorCheckHarpDurability_WrongState_NamesTheAuthoredFile is J22 row
+// 3's own assertion: an authored plan file sitting at a harp directory's TOP
+// LEVEL must be named, with the word "persist" in the fix.
+func TestDoctorCheckHarpDurability_WrongState_NamesTheAuthoredFile(t *testing.T) {
+	testsupport.Isolate(t)
+	harpDir, err := paths.HarpDir("amber-quiet-heron")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(harpDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "amber-quiet-heron.plan.md"), []byte("design notes"), 0o644))
+
+	check := doctorCheckHarpDurability()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "amber-quiet-heron.plan.md")
+	assert.Contains(t, check.Detail, ".plan.md")
+	assert.Contains(t, check.Detail, "persist")
+}
+
+// TestDoctorCheckHarpDurability_SkipsNonDirectoryAtSessionsRootTopLevel is the
+// second review correction under direct test: index.yaml sits at
+// HomeSessionsDir()'s OWN top level, beside the harp directories, not inside
+// any one harp. A walk that does not guard IsDir() on the OUTER iteration
+// would try to os.ReadDir(".../sessions/index.yaml") and either error or
+// (worse) silently misclassify it; either way it must never appear in the
+// report, and a real authored file in a real harp dir alongside it must still
+// be found.
+func TestDoctorCheckHarpDurability_SkipsNonDirectoryAtSessionsRootTopLevel(t *testing.T) {
+	testsupport.Isolate(t)
+	sessionsRoot, err := paths.HomeSessionsDir()
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(sessionsRoot, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(sessionsRoot, "index.yaml"), []byte("sessions: []\n"), 0o644))
+
+	harpDir, err := paths.HarpDir("amber-quiet-heron")
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(harpDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(harpDir, "amber-quiet-heron.plan.md"), []byte("design notes"), 0o644))
+
+	check := doctorCheckHarpDurability()
+	assert.Equal(t, doctorWarn, check.Status, "index.yaml at the sessions root must not crash or suppress the real finding")
+	assert.Contains(t, check.Detail, "amber-quiet-heron.plan.md")
+	assert.NotContains(t, check.Detail, "index.yaml")
+}
+
+// TestDoctorCheckHarpDurability_CapsNamedListWithCount proves a project with
+// many flagged files gets a bounded, readable line rather than an unbounded
+// wall of paths.
+func TestDoctorCheckHarpDurability_CapsNamedListWithCount(t *testing.T) {
+	testsupport.Isolate(t)
+	for i := range 8 {
+		harp := fmt.Sprintf("harp-%d", i)
+		harpDir, err := paths.HarpDir(harp)
+		require.NoError(t, err)
+		require.NoError(t, os.MkdirAll(harpDir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(harpDir, harp+".plan.md"), []byte("notes"), 0o644))
+	}
+
+	check := doctorCheckHarpDurability()
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, "8 authored file(s)")
+	assert.Contains(t, check.Detail, "more")
 }

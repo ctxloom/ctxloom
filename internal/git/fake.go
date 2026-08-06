@@ -115,6 +115,11 @@ type Fake struct {
 	Calls []string
 	// Removed lists paths passed to WorktreeRemove (in order).
 	Removed []string
+
+	// MergedBranchesValue is what MergedBranches returns (a copy);
+	// MergedBranchesErr, when set, fails it instead.
+	MergedBranchesValue []string
+	MergedBranchesErr   error
 }
 
 var _ Git = (*Fake)(nil)
@@ -393,6 +398,17 @@ func (f *Fake) HasIgnoredContent(_ context.Context, dir string) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.IgnoredContent[dir], nil
+}
+
+// MergedBranches returns the configured MergedBranchesValue (a copy), or
+// MergedBranchesErr. A read — not recorded to Calls.
+func (f *Fake) MergedBranches(_ context.Context, _, _ string) ([]string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.MergedBranchesErr != nil {
+		return nil, f.MergedBranchesErr
+	}
+	return append([]string(nil), f.MergedBranchesValue...), nil
 }
 
 // drop removes the worktree with the given path from the list (caller holds mu).

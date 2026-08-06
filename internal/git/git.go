@@ -198,6 +198,20 @@ type Git interface {
 	// Callers that need "is it safe to delete this tree" must check BOTH
 	// IsDirty and HasIgnoredContent, not IsDirty alone.
 	HasIgnoredContent(ctx context.Context, dir string) (bool, error)
+
+	// MergedBranches returns the LOCAL branch names already merged into ref
+	// (git branch --merged <ref> --format=%(refname:short)). ref="" resolves
+	// to repoDir's own current branch (CurrentBranch) first — "merged into
+	// whatever is checked out here" is the common question. There was no
+	// merged-ness primitive anywhere in this codebase before doctor's
+	// foreign-worktree check needed one: printing "unmerged" without
+	// checking would be a fabricated claim.
+	//
+	// Bounded by an internal timeout in the exec implementation: this is
+	// invoked once per foreign worktree on EVERY `ctxloom doctor` run —
+	// including the one `ctxloom init` runs — so a hung or corrupt
+	// repository must not hang the whole report.
+	MergedBranches(ctx context.Context, repoDir, ref string) ([]string, error)
 }
 
 // LogEntry is one commit returned by LogSince.

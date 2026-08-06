@@ -3,12 +3,12 @@ package tui
 import (
 	"bytes"
 	"context"
-	"sync"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 

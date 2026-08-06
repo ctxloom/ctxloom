@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -136,8 +137,7 @@ func TestWorktreeArtifactPatterns_MatchExpectedSet(t *testing.T) {
 		"AGENTS.md",
 		".opencode/",
 		"opencode.json",
-		".ctxloom-opencode-managed",
-		"*.ctxloom.bak",
+		ledger.Name,
 	}, WorktreeArtifactPatterns)
 }
 
@@ -145,7 +145,7 @@ func TestWorktreeArtifactPatterns_MatchExpectedSet(t *testing.T) {
 // are documented as standing in a definite relationship — WorktreeArtifact is
 // "the BROADENED set … must keep EVERY ctxloom-written config out of a
 // developer member's merge-back" — but nothing enforced it, and the sets had
-// in fact drifted: the per-file hook backups (*.ctxloom.bak) were ignored in
+// in fact drifted: the per-file hook backups (since retired) were ignored in
 // the project .gitignore and NOT hidden inside a per-agent worktree, where
 // hook application writes them just the same. The BROADENING direction is by
 // design (.mcp.json, .claude/ and CLAUDE.md are deliberately the project's
@@ -206,7 +206,7 @@ func TestArtifactPatterns_GranularityRule(t *testing.T) {
 // TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts pins that
 // WorktreeArtifactPatterns is documented as "the FULL written set across all
 // engines", but opencode's own written artifacts (.opencode/ command+skill+
-// context files, opencode.json, and the .ctxloom-opencode-managed sidecar
+// context files, opencode.json, and the shared managed-content marker
 // ledger) were absent, so a per-agent worktree run using the opencode backend
 // left untracked ctxloom files the exclude block did not hide.
 func TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts(t *testing.T) {
@@ -214,8 +214,8 @@ func TestWorktreeArtifactPatterns_IncludesOpencodeArtifacts(t *testing.T) {
 		"opencode's command/skill/context files under .opencode/ must be kept out of merge-back")
 	assert.Contains(t, WorktreeArtifactPatterns, "opencode.json",
 		"opencode's project-local managed config must be kept out of merge-back")
-	assert.Contains(t, WorktreeArtifactPatterns, ".ctxloom-opencode-managed",
-		"opencode's managed-MCP sidecar ledger must be kept out of merge-back")
+	assert.Contains(t, WorktreeArtifactPatterns, ledger.Name,
+		"the shared managed-content marker must be kept out of merge-back")
 }
 
 // TestEnsure_InitBehavior_CommitsContentIgnoresPrivateState mirrors the call
@@ -338,7 +338,7 @@ func TestRetireSuperseded_RetiresEveryBlanketSpelling(t *testing.T) {
 func TestRetireSuperseded_LeavesNonBlanketLinesAlone(t *testing.T) {
 	for _, keep := range []string{
 		".ctxloom/cache/", ".ctxloom/sessions/", ".ctxloom/project-id",
-		".ctxloom/content/drafts/", ".ctxloomer/", ".ctxloom-opencode-managed",
+		".ctxloom/content/drafts/", ".ctxloomer/", ledger.Name,
 		"!.ctxloom/", "!/.ctxloom/**",
 		"# .ctxloom/",
 	} {

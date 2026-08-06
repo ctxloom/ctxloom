@@ -19,13 +19,6 @@ import (
 // (`command`) and docs list first, so ctxloom writes there.
 const opencodeCommandDir = ".opencode/command"
 
-// opencodeCommandManifest tracks the command files ctxloom wrote, so cleanup
-// removes only ctxloom-managed commands and leaves any user-authored ones in the
-// same dir untouched (see agent.WriteManagedCommandFiles for the shared,
-// manifest-scoped mechanics). Its lack of a `.md` suffix keeps it out of
-// opencode's `**/*.md` command scan.
-const opencodeCommandManifest = ".ctxloom-manifest"
-
 // WriteCommandFiles writes the enabled command exports as opencode custom-command
 // files under <workDir>/.opencode/command/<name>.md and records them in the
 // manifest. Previously manifest-listed files are removed first, so the written
@@ -34,7 +27,7 @@ const opencodeCommandManifest = ".ctxloom-manifest"
 func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	dir := filepath.Join(workDir, filepath.FromSlash(opencodeCommandDir))
-	return agent.WriteManagedCommandFiles(fs, dir, opencodeCommandManifest, cmds, renderCommandFile)
+	return agent.WriteManagedCommandFiles(fs, dir, cmds, renderCommandFile)
 }
 
 // renderCommandFile renders one command export as an opencode custom command:

@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"sort"
 	"strings"
-	"time"
 
 	"path/filepath"
 
@@ -56,7 +55,7 @@ TOML), following five rules every time:
      guesses a location; an env-overridden $HOME is the caller's problem to
      have already solved.
   2. If the file exists, back it up BEFORE any edit to
-     "<file>.bak.<UTC-timestamp>" (a fresh backup every call — never
+     NO BACKUP is taken (it once wrote "<file>.bak.<UTC-timestamp>" per call —
      overwritten by the next run).
   3. Parse the existing file (a missing file starts from an empty object) and
      deep-merge the stdin patch into it: objects merge key by key, preserving
@@ -66,7 +65,7 @@ TOML), following five rules every time:
      error naming the file — it is never overwritten.
   5. After writing, the file is re-read and re-parsed, and the patched
      content is confirmed present (payload verification, not just a clean
-     exit code). A verify failure fails loud and names the backup to restore
+     exit code). A verify failure fails loud and says the merge is already on disk
      from.
 
 The patch is always a JSON object on stdin, whether --file is json or toml —
@@ -102,7 +101,6 @@ type configWriteResult struct {
 	File     string   `json:"file"`
 	Filetype string   `json:"filetype"`
 	Created  bool     `json:"created"`
-	Backup   string   `json:"backup,omitempty"`
 	Merged   []string `json:"mergedKeys"`
 	Verified bool     `json:"verified"`
 }
@@ -132,9 +130,8 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 		return result, err
 	}
 
-	base, backup, existed, err := readAndBackupExisting(fs, file, ft)
+	base, existed, err := readExisting(fs, file, ft)
 	result.Created = !existed
-	result.Backup = backup
 	if err != nil {
 		return result, err
 	}
@@ -148,7 +145,7 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 	}
 	result.Merged = sortedKeys(patch)
 
-	if err := verifyConfigWrite(fs, file, ft, patch, result.Backup); err != nil {
+	if err := verifyConfigWrite(fs, file, ft, patch); err != nil {
 		return result, err
 	}
 	result.Verified = true
@@ -156,56 +153,43 @@ func runConfigWrite(fs afero.Fs, cmd *cobra.Command, file, filetype string) (con
 	return result, nil
 }
 
-// readAndBackupExisting implements rules 2 and 4 for a target that may or may
+// readExisting implements rule 4 for a target that may or may
 // not exist: parse what is there (rule 4 — an unparseable file STOPS the
-// command and is never overwritten) and only then take the backup (rule 2),
+// command and is never overwritten),
 // since a file that could not be read is a file with nothing to preserve. A
-// missing target yields an empty base, no backup, and existed=false.
-//
-// The backup path is returned even alongside an error so the caller can report
-// it: once the copy exists, the user needs to know where it is regardless of
+// missing target yields an empty base and existed=false.
 // what failed next.
-func readAndBackupExisting(fs afero.Fs, file, ft string) (base map[string]any, backup string, existed bool, err error) {
+func readExisting(fs afero.Fs, file, ft string) (base map[string]any, existed bool, err error) {
 	base = map[string]any{}
 
 	existed, err = afero.Exists(fs, file)
 	if err != nil {
-		return base, "", false, fmt.Errorf("config-write: stat %s: %w", file, err)
+		return base, false, fmt.Errorf("config-write: stat %s: %w", file, err)
 	}
 	if !existed {
-		return base, "", false, nil
+		return base, false, nil
 	}
 
 	data, err := afero.ReadFile(fs, file)
 	if err != nil {
-		return base, "", true, fmt.Errorf("config-write: read %s: %w", file, err)
+		return base, true, fmt.Errorf("config-write: read %s: %w", file, err)
 	}
 	base, err = decodeConfigFile(data, ft)
 	if err != nil {
-		return map[string]any{}, "", true, fmt.Errorf("config-write: %s is not valid %s — refusing to overwrite a file this command couldn't parse (fix or remove it by hand, then retry): %w", file, ft, err)
+		return map[string]any{}, true, fmt.Errorf("config-write: %s is not valid %s — refusing to overwrite a file this command couldn't parse (fix or remove it by hand, then retry): %w", file, ft, err)
 	}
-	backup, err = backupBeforeEdit(fs, file, data)
-	if err != nil {
-		return base, "", true, fmt.Errorf("config-write: backup %s before editing: %w", file, err)
-	}
-	return base, backup, true, nil
+	return base, true, nil
 }
 
 // writeConfigFile creates the target's directory if needed and writes out
 // atomically.
-//
-// CallerOwnsBackup: readAndBackupExisting already kept a timestamped copy of
-// the pre-edit bytes, and this is a THIRD-PARTY config directory — a second,
-// ctxloom-branded ".ctxloom.bak" sibling there is undocumented (rule 2 promises
-// one name) and single-slot, so it would contradict the per-call generation the
-// command reports.
 func writeConfigFile(fs afero.Fs, file string, out []byte) error {
 	if dir := filepath.Dir(file); dir != "." {
 		if err := fs.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("config-write: create directory for %s: %w", file, err)
 		}
 	}
-	if err := agent.AtomicWriteFile(fs, file, out, filepath.Base(file), agent.CallerOwnsBackup()); err != nil {
+	if err := agent.AtomicWriteFile(fs, file, out, filepath.Base(file)); err != nil {
 		return fmt.Errorf("config-write: write %s: %w", file, err)
 	}
 	return nil
@@ -216,17 +200,17 @@ func writeConfigFile(fs afero.Fs, file string, out []byte) error {
 // clean exit code. Every failure names what the user can recover from
 // (backupClause), because this is the one moment the message has to be
 // actionable.
-func verifyConfigWrite(fs afero.Fs, file, ft string, patch map[string]any, backup string) error {
+func verifyConfigWrite(fs afero.Fs, file, ft string, patch map[string]any) error {
 	reread, err := afero.ReadFile(fs, file)
 	if err != nil {
-		return fmt.Errorf("config-write: re-read %s after writing (verify failed) — %s: %w", file, backupClause(backup), err)
+		return fmt.Errorf("config-write: re-read %s after writing (verify failed) — the merge is already on disk and no backup is kept; inspect %s by hand: %w", file, file, err)
 	}
 	verifyData, err := decodeConfigFile(reread, ft)
 	if err != nil {
-		return fmt.Errorf("config-write: %s is malformed after writing (verify failed) — %s: %w", file, backupClause(backup), err)
+		return fmt.Errorf("config-write: %s is malformed after writing (verify failed) — the merge is already on disk and no backup is kept; inspect it by hand: %w", file, err)
 	}
 	if !containsConfigPatch(verifyData, patch) {
-		return fmt.Errorf("config-write: %s does not contain the merged content after writing (verify failed) — %s", file, backupClause(backup))
+		return fmt.Errorf("config-write: %s does not contain the merged content after writing (verify failed) — inspect it by hand", file)
 	}
 	return nil
 }
@@ -240,19 +224,6 @@ func sortedKeys(m map[string]any) []string {
 	}
 	sort.Strings(out)
 	return out
-}
-
-// backupClause names what the user can recover from when a verify step fails —
-// the one moment the message has to be actionable. It exists because Backup is
-// legitimately EMPTY for a file config-write created, and interpolating that
-// empty string produced "original backed up to " / "restore from backup " with
-// nothing after it: a recovery instruction pointing at a path that does not
-// exist, handed to a user now holding a malformed config file.
-func backupClause(backup string) string {
-	if backup == "" {
-		return "no backup exists — this file did not exist before this write, so remove it or fix it by hand"
-	}
-	return "restore the original from " + backup
 }
 
 // validateRealFilePath enforces rule 1: never trust an env-overridden $HOME,
@@ -354,40 +325,6 @@ func encodeConfigFile(m map[string]any, ft string) ([]byte, error) {
 	}
 }
 
-// backupBeforeEdit implements rule 2: a timestamped backup written BEFORE any
-// edit, named "<path>.bak.<UTC-timestamp>" — a fresh name every call (unlike
-// the repo's existing single-slot agent.AtomicWriteFile ".ctxloom.bak", which
-// is overwritten on the very next write), so a foreign config file being
-// edited across multiple agent sessions keeps every prior generation
-// recoverable, not just the latest.
-// configWriteNow is time.Now, indirected so a test can freeze the clock.
-var configWriteNow = time.Now
-
-func backupBeforeEdit(fs afero.Fs, path string, data []byte) (string, error) {
-	stem := fmt.Sprintf("%s.bak.%s", path, configWriteNow().UTC().Format("20060102T150405Z"))
-	// The stamp has one-second resolution, so the name alone does NOT make the
-	// backup fresh: two edits inside the same second — an agent writing several
-	// keys, a retry after a failed verify — resolve to one filename, and the
-	// second write destroys the only copy of the generation before the first.
-	// Probe for a free name rather than counting, so a backup an EARLIER run
-	// left under this second's name is never reused either.
-	backupPath := stem
-	for i := 2; ; i++ {
-		taken, err := afero.Exists(fs, backupPath)
-		if err != nil {
-			return "", err
-		}
-		if !taken {
-			break
-		}
-		backupPath = fmt.Sprintf("%s-%d", stem, i)
-	}
-	if err := afero.WriteFile(fs, backupPath, data, 0600); err != nil {
-		return "", err
-	}
-	return backupPath, nil
-}
-
 // deepMergeConfigMaps merges patch into base in place and returns it: nested
 // objects merge key by key (recursively), and any other value in patch
 // replaces base's value wholesale. Every base key patch doesn't mention is
@@ -468,9 +405,6 @@ func renderConfigWriteResult(out io.Writer, r configWriteResult) error {
 		action = "created"
 	}
 	w.Printf("config-write: %s %s (%s)\n", action, r.File, r.Filetype)
-	if r.Backup != "" {
-		w.Printf("  backup: %s\n", r.Backup)
-	}
 	w.Printf("  merged keys: %s\n", strings.Join(r.Merged, ", "))
 	w.Printf("  verified: %t\n", r.Verified)
 	return w.Err()

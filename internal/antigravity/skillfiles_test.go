@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
 // TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes proves an enabled
@@ -44,7 +45,7 @@ func TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0644), info.Mode().Perm())
 
-	manifest, err := afero.ReadFile(fs, filepath.Join(dir, AgentsDir, "skills", ".ctxloom-skills-manifest"))
+	manifest, err := afero.ReadFile(fs, filepath.Join(dir, AgentsDir, "skills", ledger.Name))
 	require.NoError(t, err)
 	assert.Contains(t, string(manifest), "humanize/SKILL.md")
 	assert.Contains(t, string(manifest), "humanize/scripts/run.sh")
@@ -65,7 +66,7 @@ func TestWriteSkillFiles_DisabledSkillNotWritten(t *testing.T) {
 
 	exists, _ := afero.Exists(fs, filepath.Join(dir, AgentsDir, "skills", "off", "SKILL.md"))
 	assert.False(t, exists)
-	exists, _ = afero.Exists(fs, filepath.Join(dir, AgentsDir, "skills", ".ctxloom-skills-manifest"))
+	exists, _ = afero.Exists(fs, filepath.Join(dir, AgentsDir, "skills", ledger.Name))
 	assert.False(t, exists, "nothing written means no manifest at all")
 }
 

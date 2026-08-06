@@ -20,11 +20,6 @@ import (
 // the singular `command` over `commands`).
 const opencodeSkillDir = ".opencode/skill"
 
-// opencodeSkillManifest tracks the skill files ctxloom wrote, distinct from
-// opencodeCommandManifest (commands' manifest) so the two surfaces' cleanup
-// never collides — mirrors claude's .ctxloom-skills-manifest split.
-const opencodeSkillManifest = ".ctxloom-skills-manifest"
-
 // WriteSkillFiles materializes opencode's Agent Skills surface: every enabled
 // skill package lands at <workDir>/.opencode/skill/<name>/SKILL.md (+ sibling
 // files), exec bit preserved on scripts/ entries. ctxloom tracks its writes
@@ -34,7 +29,7 @@ const opencodeSkillManifest = ".ctxloom-skills-manifest"
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	dir := filepath.Join(workDir, filepath.FromSlash(opencodeSkillDir))
-	return agent.WriteManagedSkillPackages(fs, dir, opencodeSkillManifest, skills)
+	return agent.WriteManagedSkillPackages(fs, dir, skills)
 }
 
 // reconcileSkillsSurface writes (or reverts) the skill package tree via

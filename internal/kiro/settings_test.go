@@ -3,6 +3,7 @@ package kiro
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -102,7 +104,7 @@ func TestKiroWriter_MCPPreservesUserAndLedgers(t *testing.T) {
 	assert.Contains(t, f.MCPServers, "weather")           // managed server added
 	assert.Contains(t, f.MCPServers, agent.MCPServerName) // ctxloom auto-registered
 
-	ledger, err := afero.ReadFile(fs, "/proj/.kiro/settings/"+kiroMCPLedger)
+	ledger, err := afero.ReadFile(fs, filepath.Join("/proj/.kiro/settings", ledger.Name))
 	require.NoError(t, err)
 	assert.Contains(t, string(ledger), "weather")
 	assert.Contains(t, string(ledger), agent.MCPServerName)

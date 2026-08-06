@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 
 	"github.com/spf13/afero"
 
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -26,9 +24,13 @@ import (
 type MCPFileConfig struct {
 	// FS is the engine writer's filesystem (already default-resolved).
 	FS afero.Fs
-	// Path is the MCP registry file; LedgerPath the managed-names sidecar.
-	Path       string
-	LedgerPath string
+	// Path is the MCP registry file. LedgerDir is the directory holding the
+	// shared managed-content marker (internal/shared/ledger) that records
+	// which server names in Path are ctxloom's — normally Path's own
+	// directory, but named separately because an engine may keep the registry
+	// and the marker apart.
+	Path      string
+	LedgerDir string
 	// Label names the file in warnings/errors (e.g. ".agents/mcp_config.json").
 	Label string
 	// PluginKey selects this engine's entries from wire.MCPConfig.Plugins.
@@ -88,7 +90,7 @@ func (c MCPFileConfig) WriteServers(mcp *wire.MCPConfig, bundleMCP map[string]wi
 
 	ledgerNames, err := c.readLedger()
 	if err != nil {
-		return fmt.Errorf("failed to read ledger %s: %w", c.LedgerPath, err)
+		return fmt.Errorf("failed to read ledger %s: %w", c.ledger().Path(), err)
 	}
 	// handDeleted must be computed against the registry as loaded, BEFORE
 	// dropManaged clears every ledger name from it below — see
@@ -157,7 +159,7 @@ func (c MCPFileConfig) RemoveServers() error {
 		}
 		ledgerNames, err := c.readLedger()
 		if err != nil {
-			return fmt.Errorf("failed to read ledger %s: %w", c.LedgerPath, err)
+			return fmt.Errorf("failed to read ledger %s: %w", c.ledger().Path(), err)
 		}
 		c.dropManaged(mf, ledgerNames)
 		if err := c.save(mf); err != nil {
@@ -183,7 +185,7 @@ func (c MCPFileConfig) ManagedPresent() (bool, error) {
 	}
 	names, err := c.readLedger()
 	if err != nil {
-		return false, fmt.Errorf("failed to read ledger %s: %w", c.LedgerPath, err)
+		return false, fmt.Errorf("failed to read ledger %s: %w", c.ledger().Path(), err)
 	}
 	for _, name := range names {
 		if _, ok := mf.Servers[name]; ok {
@@ -342,43 +344,20 @@ func (c MCPFileConfig) save(mf *mcpFile) error {
 	return AtomicWriteFile(c.FS, c.Path, data, c.Label)
 }
 
-// readLedger returns the managed server names from the ledger, if any. A
-// missing ledger (os.IsNotExist) is the legitimate "nothing managed yet"
-// case and returns (nil, nil); any OTHER read error (permissions, I/O) is
-// returned rather than silently treated the same way.
-// internal/opencode/settings.go's OpencodeWriter.readLedger is a similarly-
-// shaped but independently owned sidecar-ledger reader for a different
-// engine's reconciler (a different reviewed unit); this fix is scoped to
-// this package and does not touch it.
-// reprise:accept-drift
-func (c MCPFileConfig) readLedger() ([]string, error) {
-	data, err := afero.ReadFile(c.FS, c.LedgerPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var names []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			names = append(names, line)
-		}
-	}
-	return names, nil
+// ledger is this registry's managed-name record, scoped to the MCP surface so
+// it can share one marker with any other surface writing into LedgerDir.
+//
+// It used to be a private read/write pair here, duplicated in three engines.
+// internal/shared/ledger owns the mechanism now — see that package's doc for
+// why one shared implementation, and why the surface type is open.
+func (c MCPFileConfig) ledger() ledger.Ledger {
+	return ledger.Ledger{FS: c.FS, Dir: c.LedgerDir, Warn: c.Warn}
 }
 
-// writeLedger persists the managed names, removing the ledger when empty.
-// Atomic so a crash mid-write can't leave a torn ledger and silently orphan
-// a managed stdio server in the registry — the exact failure the ledger
-// exists to prevent.
+func (c MCPFileConfig) readLedger() ([]string, error) {
+	return c.ledger().Read(ledger.SurfaceMCP)
+}
+
 func (c MCPFileConfig) writeLedger(names []string) error {
-	if len(names) == 0 {
-		if exists, _ := afero.Exists(c.FS, c.LedgerPath); exists {
-			return c.FS.Remove(c.LedgerPath)
-		}
-		return nil
-	}
-	sort.Strings(names)
-	return iox.WriteFileAtomicFs(c.FS, c.LedgerPath, []byte(strings.Join(names, "\n")+"\n"), 0644)
+	return c.ledger().Write(ledger.SurfaceMCP, names)
 }

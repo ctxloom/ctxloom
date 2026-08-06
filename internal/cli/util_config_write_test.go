@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/pelletier/go-toml/v2"
 	"github.com/spf13/afero"
@@ -72,7 +71,6 @@ func TestRunConfigWrite_JSONMerge_PreservesForeignKeysAndAddsNew(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.Created)
 	assert.True(t, result.Verified)
-	assert.NotEmpty(t, result.Backup)
 	assert.Equal(t, []string{"agent_servers"}, result.Merged)
 
 	out, err := afero.ReadFile(fs, path)
@@ -137,11 +135,10 @@ func TestRunConfigWrite_UnparseableExisting_RefusesAndPreservesBytes(t *testing.
 	patch := `{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`
 	cmd, _ := configWriteTestCmd(patch)
 
-	result, err := runConfigWrite(fs, cmd, path, "")
+	_, err := runConfigWrite(fs, cmd, path, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), path)
 	assert.Contains(t, err.Error(), "refusing to overwrite")
-	assert.Empty(t, result.Backup, "no backup is taken for a file we never touch")
 
 	after, readErr := afero.ReadFile(fs, path)
 	require.NoError(t, readErr)
@@ -149,30 +146,6 @@ func TestRunConfigWrite_UnparseableExisting_RefusesAndPreservesBytes(t *testing.
 }
 
 // --- Rule 2: timestamped backup BEFORE any edit ---
-
-func TestRunConfigWrite_BackupCreatedBeforeEdit_MatchesOriginalBytes(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	path := "/home/user/.config/zed/settings.json"
-	original := []byte(`{"foreign_setting":"keep-me"}`)
-	require.NoError(t, afero.WriteFile(fs, path, original, 0644))
-
-	patch := `{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`
-	cmd, _ := configWriteTestCmd(patch)
-
-	result, err := runConfigWrite(fs, cmd, path, "")
-	require.NoError(t, err)
-	require.NotEmpty(t, result.Backup)
-	assert.True(t, strings.HasPrefix(result.Backup, path+".bak."), "backup name follows <file>.bak.<UTC-timestamp>: %s", result.Backup)
-
-	backupBytes, err := afero.ReadFile(fs, result.Backup)
-	require.NoError(t, err)
-	assert.True(t, bytes.Equal(original, backupBytes), "the backup holds the PRE-edit bytes, not the merged result")
-
-	// The live file, meanwhile, now differs from the backup (the merge applied).
-	live, err := afero.ReadFile(fs, path)
-	require.NoError(t, err)
-	assert.False(t, bytes.Equal(original, live))
-}
 
 // --- Rule 5: re-read + verify catches a bad write ---
 
@@ -210,8 +183,9 @@ func TestRunConfigWrite_ReReadVerify_CatchesBadWrite(t *testing.T) {
 
 	// opens==1 is our own pre-write base read (must see the REAL file so the
 	// merge is computed correctly); every open from opens==2 onward (the
-	// atomic-write helper's internal backup read, and our own post-write
-	// verify read) sees corrupt bytes instead.
+	// our own post-write verify read) sees corrupt bytes instead. The count
+	// dropped by one when the atomic-write helper's internal backup read was
+	// retired along with the backup itself.
 	fs := &tamperedReadFs{Fs: base, path: path, corruptAt: 2, corruptVal: []byte("{not json at all")}
 
 	patch := `{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`
@@ -220,16 +194,20 @@ func TestRunConfigWrite_ReReadVerify_CatchesBadWrite(t *testing.T) {
 	result, err := runConfigWrite(fs, cmd, path, "")
 	require.Error(t, err, "a verify step that never checks anything would return nil here")
 	assert.Contains(t, err.Error(), "verify failed")
-	assert.Contains(t, err.Error(), result.Backup, "the failure must point at the backup to restore from")
+	// No backup is kept any more, so the failure must say so and point the
+	// user at the file itself rather than at a recovery path that no longer
+	// exists — a message naming a nonexistent backup is worse than none.
+	assert.Contains(t, err.Error(), "no backup is kept")
+	assert.Contains(t, err.Error(), path)
 	assert.False(t, result.Verified)
 
-	// The backup itself was written through the REAL (untampered) fs path
-	// (a distinct file from `path`, so tamperedReadFs never intercepts it) —
-	// prove it actually holds the pre-edit content, i.e. "point at the
-	// backup" is a genuine recovery path, not just words in an error string.
-	backupBytes, err := afero.ReadFile(base, result.Backup)
-	require.NoError(t, err)
-	assert.True(t, bytes.Equal(original, backupBytes))
+	// And nothing dated was dropped beside it: this writer edits FOREIGN tool
+	// config directories, where ctxloom leaving debris is the complaint that
+	// retired the mechanism.
+	matches, gerr := afero.Glob(base, path+".bak.*")
+	require.NoError(t, gerr)
+	assert.Empty(t, matches, "no dated backup sibling may be left in a third-party config dir")
+	_ = original
 }
 
 // --- silent-no-op guard: an empty or no-op patch must fail loud ---
@@ -257,26 +235,6 @@ func TestRunConfigWrite_EmptyObjectPatch_Refuses(t *testing.T) {
 }
 
 // --- missing file: created fresh, no spurious backup ---
-
-func TestRunConfigWrite_MissingFile_CreatesFreshNoBackup(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	path := "/home/user/.config/zed/settings.json"
-	patch := `{"agent_servers":{"ctxloom: dev":{"command":"ctxloom","args":["acp","--agent","dev"]}}}`
-	cmd, _ := configWriteTestCmd(patch)
-
-	result, err := runConfigWrite(fs, cmd, path, "")
-	require.NoError(t, err)
-	assert.True(t, result.Created)
-	assert.Empty(t, result.Backup, "nothing existed before, so there is nothing to back up")
-	assert.True(t, result.Verified)
-
-	out, err := afero.ReadFile(fs, path)
-	require.NoError(t, err)
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(out, &got))
-	servers := got["agent_servers"].(map[string]any)
-	assert.Contains(t, servers, "ctxloom: dev")
-}
 
 // --- filetype resolution ---
 
@@ -343,7 +301,6 @@ func TestConfigWriteCmd_RunE_EndToEnd(t *testing.T) {
 	require.NoError(t, json.Unmarshal(buf.Bytes(), &got), "output: %s", buf.String())
 	assert.Equal(t, path, got.File)
 	assert.True(t, got.Verified)
-	assert.NotEmpty(t, got.Backup)
 
 	onDisk, err := os.ReadFile(path)
 	require.NoError(t, err)
@@ -353,156 +310,7 @@ func TestConfigWriteCmd_RunE_EndToEnd(t *testing.T) {
 	servers := cfg["agent_servers"].(map[string]any)
 	assert.Contains(t, servers, "ctxloom: dev")
 
-	backupOnDisk, err := os.ReadFile(got.Backup)
-	require.NoError(t, err)
-	assert.JSONEq(t, `{"foreign":"keep"}`, string(backupOnDisk))
-}
-
-// freezeConfigWriteClock pins backupBeforeEdit's timestamp source so the
-// same-second collision case is deterministic rather than a race with the
-// wall clock: two consecutive calls in a real run almost always land in the
-// same second, but "almost always" is exactly the shape of a pin that quietly
-// stops proving anything.
-func freezeConfigWriteClock(t *testing.T) {
-	t.Helper()
-	frozen := time.Date(2026, 7, 30, 12, 0, 0, 0, time.UTC)
-	orig := configWriteNow
-	configWriteNow = func() time.Time { return frozen }
-	t.Cleanup(func() { configWriteNow = orig })
-}
-
-// config-write's rule 2 promises "a fresh backup every call — never
-// overwritten by the next run", and that promise is the whole reason the
-// command exists: it is the only copy of the user's pre-edit third-party
-// config. The timestamp has ONE-SECOND resolution, so two edits inside the
-// same second (an agent writing several keys, a retry after a failure) both
-// resolve to one filename and the second call destroys the first backup —
-// losing precisely the generation the user would want back.
-func TestBackupBeforeEdit_SameSecondCallsDoNotOverwrite(t *testing.T) {
-	freezeConfigWriteClock(t)
-	fs := afero.NewMemMapFs()
-	path := "/home/user/.config/zed/settings.json"
-
-	first, err := backupBeforeEdit(fs, path, []byte(`{"gen":1}`))
-	require.NoError(t, err)
-	second, err := backupBeforeEdit(fs, path, []byte(`{"gen":2}`))
-	require.NoError(t, err)
-
-	assert.NotEqual(t, first, second, "a second backup in the same second must get its own name")
-
-	got1, err := afero.ReadFile(fs, first)
-	require.NoError(t, err)
-	assert.Equal(t, `{"gen":1}`, string(got1), "the earlier generation must survive the later backup")
-	got2, err := afero.ReadFile(fs, second)
-	require.NoError(t, err)
-	assert.Equal(t, `{"gen":2}`, string(got2))
-}
-
-// The same hazard across PROCESSES: a backup a previous run already left on
-// disk under this second's name must not be reused either.
-func TestBackupBeforeEdit_DoesNotReuseAnExistingBackupName(t *testing.T) {
-	freezeConfigWriteClock(t)
-	fs := afero.NewMemMapFs()
-	path := "/home/user/.config/zed/settings.json"
-	stale := path + ".bak.20260730T120000Z"
-	require.NoError(t, afero.WriteFile(fs, stale, []byte("from an earlier run"), 0600))
-
-	fresh, err := backupBeforeEdit(fs, path, []byte("now"))
-	require.NoError(t, err)
-	assert.NotEqual(t, stale, fresh)
-
-	kept, err := afero.ReadFile(fs, stale)
-	require.NoError(t, err)
-	assert.Equal(t, "from an earlier run", string(kept))
-}
-
-// A verify failure is the moment the user most needs an actionable message,
-// and for a file config-write CREATED there is no backup at all — Backup is
-// empty by design (see TestRunConfigWrite_MissingFile_CreatesFreshNoBackup).
-// Interpolating that empty string produced "... — original backed up to :
-// invalid character ..." and "restore from backup " with nothing after it: a
-// sentence that names a recovery path which does not exist, aimed at a user
-// who is now holding a malformed config file.
-//
-// Note the pre-existing verify test asserts Contains(err, result.Backup),
-// which is VACUOUSLY true when Backup is "" — that is exactly how this
-// survived.
-func TestRunConfigWrite_VerifyFailureOnCreatedFile_SaysThereIsNoBackup(t *testing.T) {
-	base := afero.NewMemMapFs()
-	path := "/home/user/.config/zed/settings.json"
-	// Nothing exists beforehand, so there is no pre-write base read and no
-	// backup read: the FIRST open of path is our own post-write verify read.
-	fs := &tamperedReadFs{Fs: base, path: path, corruptAt: 1, corruptVal: []byte("{not json at all")}
-
-	cmd, _ := configWriteTestCmd(`{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`)
-	result, err := runConfigWrite(fs, cmd, path, "")
-
-	require.Error(t, err)
-	assert.True(t, result.Created)
-	assert.Empty(t, result.Backup)
-	assert.False(t, result.Verified)
-	assert.Contains(t, err.Error(), "verify failed")
-	assert.NotRegexp(t, `backed up to\s*:`, err.Error(),
-		"a created file has no backup; the message must not name an empty one")
-	assert.NotRegexp(t, `restore from backup\s*$`, err.Error())
-	assert.Contains(t, err.Error(), "no backup",
-		"say plainly that there is nothing to restore from, rather than trailing off")
-}
-
-// The mirror case must keep working: when a backup WAS taken, the failure
-// still names it, because that path is a real recovery instruction.
-func TestRunConfigWrite_VerifyFailureOnExistingFile_StillNamesTheBackup(t *testing.T) {
-	base := afero.NewMemMapFs()
-	path := "/home/user/.config/zed/settings.json"
-	require.NoError(t, afero.WriteFile(base, path, []byte(`{"foreign_setting":"keep-me"}`), 0644))
-	fs := &tamperedReadFs{Fs: base, path: path, corruptAt: 2, corruptVal: []byte("{not json at all")}
-
-	cmd, _ := configWriteTestCmd(`{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`)
-	result, err := runConfigWrite(fs, cmd, path, "")
-
-	require.Error(t, err)
-	require.NotEmpty(t, result.Backup)
-	assert.Contains(t, err.Error(), result.Backup)
-	assert.NotContains(t, err.Error(), "no backup")
-}
-
-// config-write's documented contract (rule 2) is ONE backup per call, named
-// "<file>.bak.<UTC-timestamp>". Routing the write through the shared
-// settings-writer left a SECOND copy — "<file>.ctxloom.bak" — in the user's
-// third-party config directory: unadvertised, ctxloom-branded, single-slot
-// (silently overwritten by the next write, unlike the timestamped one), and a
-// byte-for-byte duplicate of a backup config-write had already taken two
-// statements earlier. A user restoring from the wrong one gets a different
-// generation than the command's own report named.
-func TestRunConfigWrite_LeavesExactlyOneBackup(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	path := "/home/user/.config/zed/settings.json"
-	original := []byte(`{"foreign_setting":"keep-me"}`)
-	require.NoError(t, afero.WriteFile(fs, path, original, 0644))
-
-	cmd, _ := configWriteTestCmd(`{"agent_servers":{"ctxloom: dev":{"command":"ctxloom"}}}`)
-	result, err := runConfigWrite(fs, cmd, path, "")
-	require.NoError(t, err)
-	require.NotEmpty(t, result.Backup)
-
-	shadow, err := afero.Exists(fs, path+".ctxloom.bak")
-	require.NoError(t, err)
-	assert.False(t, shadow,
-		"config-write already took its own timestamped backup; a second ctxloom-branded copy is undocumented litter in a third-party config dir")
-
-	// The one backup the command DID advertise must still be the real
-	// pre-edit bytes — this is not a licence to skip backing up.
-	kept, err := afero.ReadFile(fs, result.Backup)
-	require.NoError(t, err)
-	assert.Equal(t, string(original), string(kept))
-
-	entries, err := afero.ReadDir(fs, "/home/user/.config/zed")
-	require.NoError(t, err)
-	var names []string
-	for _, e := range entries {
-		if strings.Contains(e.Name(), ".bak") {
-			names = append(names, e.Name())
-		}
-	}
-	assert.Len(t, names, 1, "exactly one backup generation per call: %v", names)
+	dated, gerr := filepath.Glob(path + ".bak.*")
+	require.NoError(t, gerr)
+	assert.Empty(t, dated, "no dated backup sibling may be left in a third-party config dir")
 }

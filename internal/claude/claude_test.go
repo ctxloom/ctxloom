@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
@@ -845,7 +846,17 @@ func hasCorruptBackup(t *testing.T, fs afero.Fs, dir, name, want string) bool {
 	}
 	return false
 }
-func TestClaudeCodeHookWriter_CreatesBackupBeforeModifying(t *testing.T) {
+
+// TestClaudeCodeHookWriter_ModifiesInPlaceWithoutABackupSibling replaces a test
+// that asserted a "<path>.ctxloom.bak" copy WAS created. That copy existed
+// because the writer could not tell its own hooks from the user's and rewrote
+// the file wholesale. It now knows (the sidecar ledger), so it edits its own
+// content, leaves the rest alone, and copies nothing aside — and the absence is
+// asserted so a future writer cannot quietly reintroduce the debris.
+//
+// The surviving half is the one that always mattered: a key the user had, that
+// ctxloom knows nothing about, is still there afterwards.
+func TestClaudeCodeHookWriter_ModifiesInPlaceWithoutABackupSibling(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	writer := &ClaudeCodeHookWriter{FS: fs}
 
@@ -864,16 +875,17 @@ func TestClaudeCodeHookWriter_CreatesBackupBeforeModifying(t *testing.T) {
 	err := writer.WriteSettings(cfg, nil, nil, "/project")
 	require.NoError(t, err)
 
-	// Verify backup was created
-	backupPath := settingsPath + ".ctxloom.bak"
-	exists, err := afero.Exists(fs, backupPath)
+	exists, err := afero.Exists(fs, settingsPath+".ctxloom.bak")
 	require.NoError(t, err)
-	assert.True(t, exists, "backup file should be created")
+	assert.False(t, exists, "no backup sibling may be left beside the settings file")
 
-	// Verify backup contains original content
-	backupData, err := afero.ReadFile(fs, backupPath)
+	// The user's own key survived the edit — without this, "no backup" would
+	// be equally satisfied by a writer that destroyed the file outright.
+	after, err := afero.ReadFile(fs, settingsPath)
 	require.NoError(t, err)
-	assert.Equal(t, originalContent, string(backupData), "backup should contain original content")
+	assert.Contains(t, string(after), "originalValue",
+		"a key ctxloom does not manage must survive a hooks write")
+	assert.Contains(t, string(after), "./test.sh", "control: the hook was actually written")
 }
 
 // This test used to assert the OPPOSITE — that a malformed .mcp.json was
@@ -968,29 +980,61 @@ func TestClaudeCodeHookWriter_DenyTools_PreservesUserAllowAsk(t *testing.T) {
 	assert.ElementsMatch(t, []interface{}{"Task"}, perm["deny"], "the ctxloom-managed deny entry must be added")
 }
 
-// TestClaudeCodeHookWriter_DenyTools_UnionsAcrossApplies proves two facts
-// about the deny merge in one pass: (1) a re-apply with the SAME deny_tools
-// does not duplicate the entry, and (2) a re-apply with an EMPTY deny_tools
-// list does NOT retract a previously-written deny — the deliberate
-// monotonic-add-only design (mergeDenyTools's doc): a denial is safe to keep,
-// never safe to silently drop.
-func TestClaudeCodeHookWriter_DenyTools_UnionsAcrossApplies(t *testing.T) {
+// TestClaudeCodeHookWriter_DenyTools_ReconcileAndRetract replaces a test that
+// pinned the OPPOSITE contract: that an empty deny_tools apply must never
+// retract a previously-written deny, on the grounds that "a denial is safe to
+// keep, never safe to silently drop".
+//
+// That was changed deliberately (user, 2026-08-06): deny entries now reconcile
+// like every other surface, so an entry ctxloom stops declaring is withdrawn
+// instead of leaking into the user's settings forever. Retraction is safe
+// BECAUSE it is keyed on the ledger — only entries ctxloom recorded writing are
+// removed — and the last subtest is what holds that line.
+func TestClaudeCodeHookWriter_DenyTools_ReconcileAndRetract(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	writer := &ClaudeCodeHookWriter{FS: fs}
 	settingsPath := filepath.Join("/project", ".claude", "settings.json")
 
 	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
 	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
-	assert.Equal(t, []string{"Task"}, permissionsPayload(t, fs, settingsPath).Deny, "re-applying the same deny_tools must not duplicate")
+	assert.Equal(t, []string{"Task"}, permissionsPayload(t, fs, settingsPath).Deny,
+		"re-applying the same deny_tools must not duplicate")
 
-	// A later run whose resolved deny_tools is empty (e.g. the profile was
-	// edited) must not erase the prior denial.
+	// A later run whose resolved deny_tools is empty retracts what ctxloom put
+	// there — the leak this change closes.
 	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project"))
-	assert.Equal(t, []string{"Task"}, permissionsPayload(t, fs, settingsPath).Deny, "an empty deny_tools apply must NOT retract a previously-written deny")
+	assert.Empty(t, permissionsPayload(t, fs, settingsPath).Deny,
+		"a deny ctxloom wrote and no longer declares must be withdrawn")
 
-	// A later run adding a second tool unions rather than replaces.
+	// And a changed set replaces rather than accumulates.
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
 	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"WebFetch"}, "/project"))
-	assert.ElementsMatch(t, []string{"Task", "WebFetch"}, permissionsPayload(t, fs, settingsPath).Deny, "a later deny_tools entry unions with the existing deny list")
+	assert.Equal(t, []string{"WebFetch"}, permissionsPayload(t, fs, settingsPath).Deny,
+		"a changed deny_tools set replaces ctxloom's previous claim, it does not union with it")
+}
+
+// TestClaudeCodeHookWriter_DenyTools_UserAuthoredDenySurvives is the line that
+// makes retraction safe to have at all. Now that ctxloom removes deny entries,
+// the ONLY thing standing between that and deleting a user's own security
+// controls is that removal is keyed on the ledger — what ctxloom recorded
+// writing — and never on the value.
+func TestClaudeCodeHookWriter_DenyTools_UserAuthoredDenySurvives(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	writer := &ClaudeCodeHookWriter{FS: fs}
+	settingsPath := filepath.Join("/project", ".claude", "settings.json")
+	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0o755))
+	require.NoError(t, afero.WriteFile(fs, settingsPath,
+		[]byte(`{"permissions":{"deny":["Bash(rm -rf /)"]}}`), 0o644))
+
+	// ctxloom adds its own, then stops declaring it.
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, []string{"Task"}, "/project"))
+	require.NoError(t, writer.writeSettingsFile(&wire.HooksConfig{}, nil, "/project"))
+
+	deny := permissionsPayload(t, fs, settingsPath).Deny
+	assert.Contains(t, deny, "Bash(rm -rf /)",
+		"a deny the USER wrote must survive: ctxloom never recorded it, so it is not ctxloom's to retract")
+	assert.NotContains(t, deny, "Task",
+		"control: ctxloom's own entry was still retracted, or this proves only that nothing was removed")
 }
 
 // The third half of the same bug class, left unfixed: an
@@ -1293,14 +1337,15 @@ func TestRemoveSettings_AbsentFilesAreNotAnError(t *testing.T) {
 func TestRemoveCtxloomHooks_MatchesExecTokenNotInjectContext(t *testing.T) {
 	settings := &claudeCodeSettings{Hooks: map[string][]claudeCodeHookMatcher{
 		"PreToolUse": {{Hooks: []claudeCodeHook{
-			// A ctxloom callback with a verb that is not inject-context.
-			{Type: "command", Command: `"/opt/bin/ctxloom" hook evaluate-triggers`},
+			// One of ctxloom's OWN machine callbacks, at a path and verb other
+			// than the one this project writes: still ctxloom's, still removed.
+			{Type: "command", Command: `"/opt/bin/ctxloom" hook stamp-plan`},
 			// A sibling tool's hook that merely mentions ctxloom in its args.
 			{Type: "command", Command: "ltk evaluate --tool ctxloom inject-context"},
 		}}},
 	}}
 
-	(&ClaudeCodeHookWriter{}).removeCtxloomHooks(settings)
+	(&ClaudeCodeHookWriter{}).removeCtxloomHooks(settings, nil)
 
 	var kept []string
 	for _, m := range settings.Hooks["PreToolUse"] {
@@ -1384,4 +1429,126 @@ func TestLoadSettings_UnreadableStatusLineIsRefusedNotDropped(t *testing.T) {
 			assert.Contains(t, string(data), `"env"`, "the rest of the file must be untouched too")
 		})
 	}
+}
+
+// TestWriteSettings_HandAuthoredCtxloomHookSurvives is the regression for the
+// defect the hooks ledger exists to close (taskloom valiant-ascension).
+//
+// Ownership used to be inferred from the command's EXECUTABLE TOKEN, so every
+// hook invoking the ctxloom binary was removed and only what config declared
+// that round was re-added. A user is equally entitled to invoke ctxloom — a
+// wrapper, a report, their own tooling — and theirs was deleted silently, exit
+// 0, with no diff. The claim now comes from the sidecar ledger (Claude Code's
+// strict schema forbids an in-file marker, which is why claudeCodeHook.SCM is
+// json:"-" and never reaches disk), plus ctxloom's own four machine callbacks.
+//
+// The control matters: an inject-context hook in the SAME file must still be
+// reconciled away, or this test would pass just as well against a writer that
+// removed nothing at all.
+func TestWriteSettings_HandAuthoredCtxloomHookSurvives(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &ClaudeCodeHookWriter{FS: fs}
+	projectDir := "/proj"
+	settingsPath := w.SettingsPath(projectDir)
+	require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0o755))
+
+	// No shell metacharacters: they JSON-escape on the way out, and an
+	// assertion against the raw form would fail for a reason unrelated to the
+	// claim under test.
+	const userHook = "ctxloom bundle list --format json"
+	seed := `{"hooks":{"PostToolUse":[{"matcher":"Edit","hooks":[` +
+		`{"type":"command","command":"` + userHook + `"},` +
+		`{"type":"command","command":"ctxloom hook stamp-plan"}` +
+		`]}]}}`
+	require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(seed), 0o644))
+
+	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, projectDir))
+
+	data, err := afero.ReadFile(fs, settingsPath)
+	require.NoError(t, err)
+	got := string(data)
+
+	assert.Contains(t, got, userHook,
+		"a hand-authored hook that merely invokes ctxloom is the user's, not ctxloom's, and must survive a reconcile")
+	assert.NotContains(t, got, "stamp-plan",
+		"control: ctxloom's own machine callback must still be reconciled away, or this test proves nothing")
+}
+
+// TestWriteSettings_UserStatusLineInvokingCtxloomSurvives covers the statusline
+// half of the ownership defect. A user is entitled to point their own
+// statusline at the ctxloom binary — `ctxloom hook hud --my-flags`, a wrapper,
+// anything — and ctxloom must not treat that as its own and overwrite it.
+//
+// Ownership is the ledger's record of what ctxloom last installed. The control
+// is the second half: with NO prior claim and NO user statusline, ctxloom must
+// still install its own, or "did not overwrite" would be satisfied by a writer
+// that simply never writes a statusline at all.
+func TestWriteSettings_UserStatusLineInvokingCtxloomSurvives(t *testing.T) {
+	const userStatus = "ctxloom hook hud --theme mine"
+
+	t.Run("a statusline ctxloom never claimed is left alone", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		w := &ClaudeCodeHookWriter{FS: fs}
+		settingsPath := w.SettingsPath("/proj")
+		require.NoError(t, fs.MkdirAll(filepath.Dir(settingsPath), 0o755))
+		seed := `{"statusLine":{"type":"command","command":"` + userStatus + `"}}`
+		require.NoError(t, afero.WriteFile(fs, settingsPath, []byte(seed), 0o644))
+
+		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+
+		data, err := afero.ReadFile(fs, settingsPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(data), userStatus,
+			"a statusline the user wrote is theirs, even though it invokes ctxloom")
+	})
+
+	t.Run("control: with no prior claim ctxloom still installs its own", func(t *testing.T) {
+		fs := afero.NewMemMapFs()
+		w := &ClaudeCodeHookWriter{FS: fs}
+		require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+
+		data, err := afero.ReadFile(fs, w.SettingsPath("/proj"))
+		require.NoError(t, err)
+		assert.Contains(t, string(data), "statusLine",
+			"control: ctxloom must still install a statusline when there is none")
+	})
+}
+
+// TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared is the test
+// that gives the hooks ledger its reason to exist, and it was missing: a
+// mutation that wrote the ledger EMPTY passed the whole suite, because every
+// other hook test happens to use one of ctxloom's four machine callbacks, which
+// the name-based fallback reclaims with or without a record.
+//
+// A COMPANION hook (`ltk evaluate`) is the case only the ledger can handle. Its
+// command is not ctxloom's, so no name rule will ever match it; if the claim is
+// not recorded, config dropping the hook leaves it in the user's settings
+// forever. That is the orphan this whole mechanism is for.
+func TestWriteSettings_CompanionHookIsWithdrawnWhenNoLongerDeclared(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	w := &ClaudeCodeHookWriter{FS: fs}
+	const companion = "ltk evaluate"
+
+	declared := &wire.HooksConfig{
+		Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: companion, Matcher: "Bash"}}},
+	}
+	require.NoError(t, w.WriteSettings(declared, nil, nil, "/proj"))
+
+	data, err := afero.ReadFile(fs, w.SettingsPath("/proj"))
+	require.NoError(t, err)
+	require.Contains(t, string(data), companion, "precondition: the companion hook was written")
+
+	// The claim must be on disk, or the next reconcile has nothing to go on.
+	led, err := afero.ReadFile(fs, filepath.Join("/proj", ".claude", ledger.Name))
+	require.NoError(t, err, "the ledger must exist after a write that claimed a hook")
+	assert.Contains(t, string(led), agent.ComputeCommandDigest(companion),
+		"ctxloom must record the companion hook it wrote, by digest")
+
+	// Config no longer declares it: it must go.
+	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, nil, nil, "/proj"))
+
+	after, err := afero.ReadFile(fs, w.SettingsPath("/proj"))
+	require.NoError(t, err)
+	assert.NotContains(t, string(after), companion,
+		"a companion hook ctxloom wrote and no longer declares must be withdrawn, not orphaned")
 }

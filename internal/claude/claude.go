@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -203,8 +205,16 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 		return fmt.Errorf("failed to load existing settings: %w", err)
 	}
 
-	// Remove old ctxloom-managed hooks from settings
-	w.removeCtxloomHooks(settings)
+	// Remove the hooks ctxloom wrote last time. Ownership comes from the shared
+	// managed-content ledger beside settings.json — Claude Code's strict schema
+	// forbids an in-file marker (claudeCodeHook.SCM is json:"-" and never
+	// reaches disk), which is exactly what a SIDECAR record is for.
+	led := ledger.Ledger{FS: fs, Dir: claudeDir, Warn: agent.Warn}
+	owned, err := led.Read(ledger.SurfaceHooks)
+	if err != nil {
+		return err
+	}
+	w.removeCtxloomHooks(settings, owned)
 
 	// Add ctxloom hooks from unified config
 	w.addUnifiedHooks(settings, hooks.Unified)
@@ -214,14 +224,41 @@ func (w *ClaudeCodeHookWriter) writeSettingsFile(hooks *wire.HooksConfig, denyTo
 		w.addBackendHooks(settings, backendHooks)
 	}
 
-	// Configure statusLine if not already set by the user
-	w.ensureStatusLine(settings)
+	// Configure statusLine if not already set by the user.
+	prevStatus, err := led.Read(ledger.SurfaceStatusLine)
+	if err != nil {
+		return err
+	}
+	statusOwned := settings.StatusLine != nil && len(prevStatus) > 0 &&
+		prevStatus[0] == agent.ComputeCommandDigest(settings.StatusLine.Command)
+	w.ensureStatusLine(settings, statusOwned)
 
-	// Union denyTools into permissions.deny
-	w.mergeDenyTools(settings, denyTools)
+	// Reconcile ctxloom's deny entries, withdrawing any it no longer declares.
+	prevDeny, err := led.Read(ledger.SurfacePermissions)
+	if err != nil {
+		return err
+	}
+	nowDeny := w.mergeDenyTools(settings, denyTools, prevDeny)
 
-	// Write hooks to settings.json
-	return w.saveSettings(settingsPath, settings)
+	// Write hooks to settings.json, then record exactly what was written so the
+	// next reconcile removes THOSE and nothing else.
+	if err := w.saveSettings(settingsPath, settings); err != nil {
+		return err
+	}
+	if err := led.Write(ledger.SurfaceHooks, w.managedHookDigests(settings)); err != nil {
+		return err
+	}
+	if err := led.Write(ledger.SurfacePermissions, nowDeny); err != nil {
+		return err
+	}
+	// Everything ctxloom wrote is now recorded, and only what it still writes:
+	// the record is current state, never an append-only history, so it cannot
+	// accumulate cruft — a surface ctxloom stops writing is cleared, not grown.
+	var statusNow []string
+	if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
+		statusNow = []string{agent.ComputeCommandDigest(settings.StatusLine.Command)}
+	}
+	return led.Write(ledger.SurfaceStatusLine, statusNow)
 }
 
 // WriteContext implements agent.ContextWriter for Claude Code: it merges the
@@ -578,9 +615,19 @@ func (w *ClaudeCodeHookWriter) writeMCPConfig(projectDir string, mcp *wire.MCPCo
 // was user-authored, and preserved it. The dead `hook hud` then dumped the
 // `hook` help into the status bar on every render. Matching any
 // ctxloom-emitted command lets apply migrate it forward.
-func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings) {
-	// If statusLine is set and NOT ctxloom-managed, respect the user's config
-	if settings.StatusLine != nil && !agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
+func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings, prevOwned bool) {
+	// If a statusline is set and ctxloom did not write it, it is the user's:
+	// leave it alone. Ownership is the ledger's record of what ctxloom last
+	// installed — the user is entitled to point their OWN statusline at the
+	// ctxloom binary ("ctxloom hook hud --theme mine"), and matching on the
+	// executable token, as this used to, took those over silently.
+	//
+	// The exact-command fallback covers the one case the ledger cannot: a
+	// statusline ctxloom installed BEFORE the ledger existed has no record, and
+	// leaving it stranded would freeze a stale command in the status bar
+	// forever. Reclaiming ctxloom's own canonical command is bounded; reclaiming
+	// any command that mentions ctxloom is not.
+	if settings.StatusLine != nil && !prevOwned && settings.StatusLine.Command != ctxloomStatusLineCommand() {
 		return
 	}
 
@@ -597,8 +644,14 @@ func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings) {
 	// diverge from the binary that materialized this file.
 	settings.StatusLine = &claudeCodeStatusLine{
 		Type:    "command",
-		Command: agent.CtxloomCommand() + " hook hud",
+		Command: ctxloomStatusLineCommand(),
 	}
+}
+
+// ctxloomStatusLineCommand is the exact statusline command ctxloom installs —
+// one definition, so the writer and the ownership check can never disagree.
+func ctxloomStatusLineCommand() string {
+	return agent.CtxloomCommand() + " hook hud"
 }
 
 // mergeDenyTools unions denyTools into settings.Permissions.Deny —
@@ -618,9 +671,44 @@ func (w *ClaudeCodeHookWriter) ensureStatusLine(settings *claudeCodeSettings) {
 // re-enable a tool a human or a prior ctxloom apply restricted); erring
 // toward "stays allowed" would not be. A user who wants a denial gone edits
 // settings.json by hand.
-func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, denyTools []string) {
+// mergeDenyTools reconciles ctxloom's deny entries into permissions.deny and
+// returns the set it now claims, for the caller to record in the ledger.
+//
+// It used to only ever APPEND, which made every entry a one-way leak: config
+// stopped declaring a tool and the deny stayed in the user's settings forever,
+// because nothing recorded that ctxloom had put it there rather than the user.
+// It now RECONCILES like every other surface — the previously claimed set
+// (prev, from the ledger) is withdrawn first, so an entry ctxloom no longer
+// declares actually goes away.
+//
+// Retracting a denial is a real security change, which is why it is keyed on
+// the ledger and nothing else: only entries ctxloom RECORDED writing are
+// removed. A deny the user wrote by hand was never recorded and is never
+// touched, even when it is byte-identical to one ctxloom also declares — in
+// that case ctxloom does not claim it either (see the `existing[t]` skip), so
+// the user's entry outlives ctxloom's interest in it.
+func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, denyTools []string, prev []string) []string {
+	claimed := make(map[string]bool, len(prev))
+	for _, p := range prev {
+		claimed[p] = true
+	}
+
+	// Withdraw what ctxloom previously claimed, so an entry it no longer
+	// declares actually goes away. Only CLAIMED entries are removed: an
+	// identical deny the USER wrote was never recorded, so it is never touched
+	// — which is what makes retraction safe to do at all.
+	if settings.Permissions != nil && len(claimed) > 0 {
+		kept := settings.Permissions.Deny[:0]
+		for _, d := range settings.Permissions.Deny {
+			if !claimed[d] {
+				kept = append(kept, d)
+			}
+		}
+		settings.Permissions.Deny = kept
+	}
+
 	if len(denyTools) == 0 {
-		return
+		return nil
 	}
 	if settings.Permissions == nil {
 		settings.Permissions = &claudeCodePermissions{}
@@ -629,13 +717,21 @@ func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, deny
 	for _, d := range settings.Permissions.Deny {
 		existing[d] = true
 	}
+	var now []string
 	for _, t := range denyTools {
-		if t == "" || existing[t] {
+		if t == "" {
+			continue
+		}
+		// An entry the USER already has is theirs, not ours to claim: adding it
+		// to the ledger would hand a later run the right to delete it.
+		if existing[t] {
 			continue
 		}
 		existing[t] = true
 		settings.Permissions.Deny = append(settings.Permissions.Deny, t)
+		now = append(now, t)
 	}
+	return now
 }
 
 // removeCtxloomHooks removes all ctxloom-managed hooks from settings, pruning
@@ -651,14 +747,62 @@ func (w *ClaudeCodeHookWriter) mergeDenyTools(settings *claudeCodeSettings, deny
 //
 // The SCM field is checked for in-memory hooks but is not serialized to JSON
 // (Claude Code uses strict schema validation that rejects unknown fields).
-func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings) {
+// ctxloomMachineCallbacks are ctxloom's OWN hook targets — the machine
+// callbacks it installs, never something a user would author for their own
+// purposes. They are removed regardless of the ledger, for one reason the
+// ledger cannot cover: a settings.json written before the ledger existed has
+// no record, and a stale `inject-context --part N --of M` left behind would go
+// on injecting content from an older assembly forever. Reclaiming ctxloom's own
+// callbacks by name is bounded and safe; reclaiming ANY command that merely
+// invokes the ctxloom binary — which is what this used to do — is not, because
+// the user is equally entitled to invoke it.
+var ctxloomMachineCallbacks = []string{"inject-context", "session-bind", "stamp-plan", "hud"}
+
+func isCtxloomMachineCallback(command string) bool {
+	if !agent.IsManaged(command, "ctxloom") {
+		return false
+	}
+	for _, sub := range ctxloomMachineCallbacks {
+		if strings.Contains(command, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// managedHookDigests is every hook now present that ctxloom is claiming
+// ownership of, as command DIGESTS — the set the ledger records for the next
+// reconcile to remove. Digests, not commands: see agent.ComputeCommandDigest.
+func (w *ClaudeCodeHookWriter) managedHookDigests(settings *claudeCodeSettings) []string {
+	var out []string
+	for _, matchers := range settings.Hooks {
+		for _, matcher := range matchers {
+			for _, hook := range matcher.Hooks {
+				if hook.SCM != "" {
+					out = append(out, agent.ComputeCommandDigest(hook.Command))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// removeCtxloomHooks drops the hooks ctxloom owns: those the ledger recorded
+// last round, plus its own machine callbacks (see isCtxloomMachineCallback).
+// Everything else — including a user's hand-authored hook that happens to
+// invoke the ctxloom binary — is left exactly as found.
+func (w *ClaudeCodeHookWriter) removeCtxloomHooks(settings *claudeCodeSettings, owned []string) {
+	ownedSet := make(map[string]bool, len(owned))
+	for _, d := range owned {
+		ownedSet[d] = true
+	}
 	for eventName, matchers := range settings.Hooks {
 		var filteredMatchers []claudeCodeHookMatcher
 		for _, matcher := range matchers {
 			var filteredHooks []claudeCodeHook
 			for _, hook := range matcher.Hooks {
 				// Keep hooks that are NOT ctxloom-managed
-				if hook.SCM == "" && !agent.IsManaged(hook.Command, "ctxloom") {
+				if hook.SCM == "" && !ownedSet[agent.ComputeCommandDigest(hook.Command)] && !isCtxloomMachineCallback(hook.Command) {
 					filteredHooks = append(filteredHooks, hook)
 				}
 			}
@@ -876,11 +1020,22 @@ func (w *ClaudeCodeHookWriter) removeSettingsFile(projectDir string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load existing settings: %w", err)
 	}
-	w.removeCtxloomHooks(settings)
+	led := ledger.Ledger{FS: fs, Dir: filepath.Dir(settingsPath), Warn: agent.Warn}
+	owned, err := led.Read(ledger.SurfaceHooks)
+	if err != nil {
+		return err
+	}
+	w.removeCtxloomHooks(settings, owned)
 	if settings.StatusLine != nil && agent.IsManaged(settings.StatusLine.Command, "ctxloom") {
 		settings.StatusLine = nil
 	}
-	return w.saveSettings(settingsPath, settings)
+	if err := w.saveSettings(settingsPath, settings); err != nil {
+		return err
+	}
+	// Nothing of ctxloom's remains, so the claim must go too — a ledger naming
+	// hooks that are gone would make the next reconcile delete whatever a user
+	// later wrote under those commands.
+	return led.Write(ledger.SurfaceHooks, nil)
 }
 
 // removeMCPConfig strips ctxloom-marked servers from .mcp.json under projectDir,

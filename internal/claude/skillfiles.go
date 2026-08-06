@@ -21,5 +21,5 @@ import (
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	skillsDir := filepath.Join(workDir, ConfigDirName, SkillsDirName)
-	return agent.WriteManagedSkillPackages(fs, skillsDir, ".ctxloom-skills-manifest", skills)
+	return agent.WriteManagedSkillPackages(fs, skillsDir, skills)
 }

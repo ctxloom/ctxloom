@@ -299,7 +299,7 @@ func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs a
 		if homeOverride != "" {
 			target = homeOverride
 		}
-		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(target), codexManifest, commands, codexPromptFile)
+		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(target), commands, codexPromptFile)
 	})
 	skills := agent.NewManagedSkillPackagesDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.SkillExport) error {
 		target := dir

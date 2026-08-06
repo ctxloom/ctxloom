@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,6 +25,10 @@ func oldWriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []C
 	for _, opt := range opts {
 		opt(o)
 	}
+	// Frozen scaffolding: the trailing-newline option it once read was retired
+	// with the per-engine manifest names, so the pre-refactor byte shape is
+	// pinned here instead of taken from live option state.
+	const manifestTrailingNewline = false
 	manifestPath := filepath.Join(dir, manifestName)
 
 	if data, err := afero.ReadFile(fs, manifestPath); err == nil {
@@ -82,7 +87,7 @@ func oldWriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []C
 		return nil
 	}
 	manifest := strings.Join(written, "\n")
-	if o.manifestTrailingNewline {
+	if manifestTrailingNewline {
 		manifest += "\n"
 	}
 	return afero.WriteFile(fs, manifestPath, []byte(manifest), 0644)
@@ -153,11 +158,17 @@ func TestWriteManagedCommandFiles_GoldenByteIdentical(t *testing.T) {
 	newDir := "/proj/.claude/commands"
 
 	require.NoError(t, oldWriteManagedCommandFiles(oldFS, oldDir, ".ctxloom-manifest", fixtureCommands, goldenRender, WithDedupHomeDir(home)))
-	require.NoError(t, WriteManagedCommandFiles(newFS, newDir, ".ctxloom-manifest", fixtureCommands, goldenRender, WithDedupHomeDir(home)))
+	require.NoError(t, WriteManagedCommandFiles(newFS, newDir, fixtureCommands, goldenRender, WithDedupHomeDir(home)))
 
-	oldTree := listTree(t, oldFS, oldDir)
-	newTree := listTree(t, newFS, newDir)
-	assert.Equal(t, oldTree, newTree, "the adapter must materialize a byte-identical tree (paths + content) to the pre-refactor writer")
+	// The MARKER is deliberately different now — the pre-refactor writer wrote
+	// a per-engine ".ctxloom-manifest" of bare names, the current one writes the
+	// shared surface-typed ledger — so it is excluded here. What must NOT have
+	// changed is the delivered payload: every command file, at the same path,
+	// with the same bytes. That is what this golden capture is actually for.
+	oldTree := withoutMarkers(listTree(t, oldFS, oldDir))
+	newTree := withoutMarkers(listTree(t, newFS, newDir))
+	assert.Equal(t, oldTree, newTree, "the delivered command files (paths + content) must stay byte-identical to the pre-refactor writer")
+	require.NotEmpty(t, newTree, "an empty tree would make this comparison vacuous")
 
 	// Sanity: the fixture actually exercised every interesting path (nested,
 	// disabled, dedup-skipped), so this golden test isn't accidentally vacuous.
@@ -167,26 +178,16 @@ func TestWriteManagedCommandFiles_GoldenByteIdentical(t *testing.T) {
 	assert.NotContains(t, oldTree, "shadowed.md", "dedup-skipped against the identical home copy")
 }
 
-// TestWriteManagedCommandFiles_GoldenByteIdentical_TrailingNewlineManifest
-// covers the antigravity-shaped manifest option (WithManifestTrailingNewline)
-// on both algorithms, so the adapter's manifest byte shape stays pinned for
-// every writer, not just claude's (no trailing newline) default.
-func TestWriteManagedCommandFiles_GoldenByteIdentical_TrailingNewlineManifest(t *testing.T) {
-	cmds := []CommandExport{
-		{Name: "alpha", Content: "A", Enabled: true},
-		{Name: "beta", Content: "B", Enabled: true},
+// withoutMarkers drops manifest/ledger bookkeeping files from a tree listing so
+// a payload comparison is not confounded by a bookkeeping format change.
+func withoutMarkers(tree map[string]string) map[string]string {
+	out := make(map[string]string, len(tree))
+	for k, v := range tree {
+		base := filepath.Base(k)
+		if base == ledger.Name || strings.HasPrefix(base, ".ctxloom-") {
+			continue
+		}
+		out[k] = v
 	}
-
-	oldFS := afero.NewMemMapFs()
-	newFS := afero.NewMemMapFs()
-	dir := "/agents/skills"
-
-	require.NoError(t, oldWriteManagedCommandFiles(oldFS, dir, ".ctxloom-manifest", cmds, goldenRender, WithManifestTrailingNewline()))
-	require.NoError(t, WriteManagedCommandFiles(newFS, dir, ".ctxloom-manifest", cmds, goldenRender, WithManifestTrailingNewline()))
-
-	oldManifest, err := afero.ReadFile(oldFS, filepath.Join(dir, ".ctxloom-manifest"))
-	require.NoError(t, err)
-	newManifest, err := afero.ReadFile(newFS, filepath.Join(dir, ".ctxloom-manifest"))
-	require.NoError(t, err)
-	assert.Equal(t, string(oldManifest), string(newManifest), "the manifest bytes (including the trailing-newline option) must match exactly")
+	return out
 }

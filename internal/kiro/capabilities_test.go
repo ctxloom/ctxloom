@@ -1,6 +1,7 @@
 package kiro
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
 func TestWriteCommandFiles_SkillMD(t *testing.T) {
@@ -27,7 +29,7 @@ func TestWriteCommandFiles_SkillMD(t *testing.T) {
 	assert.True(t, len(s) > 0 && s[:4] == "---\n")
 
 	// manifest records the written skill for clean reconciliation
-	exists, _ := afero.Exists(fs, "/proj/.kiro/skills/"+kiroManifest)
+	exists, _ := afero.Exists(fs, filepath.Join("/proj/.kiro/skills", ledger.Name))
 	assert.True(t, exists)
 }
 

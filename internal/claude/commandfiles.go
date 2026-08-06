@@ -40,7 +40,7 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 		mwOpts = append(mwOpts, agent.WithDedupHomeDir(home))
 	}
 
-	return agent.WriteManagedCommandFiles(fs, commandsDir, ".ctxloom-manifest", cmds,
+	return agent.WriteManagedCommandFiles(fs, commandsDir, cmds,
 		func(c agent.CommandExport) (string, []byte, error) {
 			// Replace path separators with dashes for nested names.
 			filename := strings.ReplaceAll(c.Name, "/", "-") + ".md"

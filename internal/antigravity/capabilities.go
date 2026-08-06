@@ -10,12 +10,6 @@ import (
 // to the workspace root.
 const antigravitySkillsDir = AgentsDir + "/skills"
 
-// antigravityManifest tracks ctxloom-written COMMAND files for clean removal,
-// distinct from antigravitySkillManifest (skillfiles.go) so the two surfaces'
-// cleanup never collides — mirrors kiro's kiroManifest / kiroSkillManifest
-// split (kiro/surfaces.go, kiro/skillfiles.go).
-const antigravityManifest = ".ctxloom-manifest"
-
 // WriteCommandFiles writes enabled command exports as agy Agent Skill
 // directories (.agents/skills/<name>/SKILL.md, generated YAML frontmatter) and
 // records them in the manifest. Previously manifest-listed files are removed
@@ -36,9 +30,8 @@ const antigravityManifest = ".ctxloom-manifest"
 func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	skillsDir := filepath.Join(workDir, filepath.FromSlash(antigravitySkillsDir))
-	return agent.WriteManagedCommandFiles(fs, skillsDir, antigravityManifest, cmds,
-		agent.RenderCommandAsSkillFile,
-		agent.WithManifestTrailingNewline())
+	return agent.WriteManagedCommandFiles(fs, skillsDir, cmds,
+		agent.RenderCommandAsSkillFile)
 }
 
 // The command/skill name-collision resolution (both now want

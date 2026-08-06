@@ -554,16 +554,6 @@ func (w *AntigravityHookWriter) removeExactCommand(hf *antigravityHooksFile, eve
 	}
 }
 
-// antigravityMCPLedger is the sidecar recording which mcp_config.json server
-// names are ctxloom-managed, one per line. agy rejects unknown fields inside
-// mcp_config.json itself (verified: an extra entry field or top-level key
-// hangs headless agy), so ownership cannot ride an in-file marker the way
-// claude's _ctxloom does — without this ledger, a server renamed or removed
-// from config/bundles would linger in mcp_config.json forever, and a stale
-// stdio entry permanently hangs headless agy.
-const antigravityMCPLedger = ".ctxloom-mcp-managed"
-
-// mcpLedgerPath returns the path to the managed-server ledger.
 // mcpFile binds the shared MCP-registry reconciler (agent.MCPFileConfig —
 // load/save/ledger/reconcile live there, shared with kiro) to this project's
 // mcp_config.json + sidecar ledger.
@@ -571,7 +561,7 @@ func (w *AntigravityHookWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 	return agent.MCPFileConfig{
 		FS:              w.getFS(),
 		Path:            w.MCPConfigPath(projectDir),
-		LedgerPath:      filepath.Join(projectDir, AgentsDir, antigravityMCPLedger),
+		LedgerDir:       filepath.Join(projectDir, AgentsDir),
 		Label:           AgentsDir + "/mcp_config.json",
 		PluginKey:       "antigravity",
 		Warn:            w.warn,

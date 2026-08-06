@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
 )
 
@@ -106,16 +107,7 @@ func ResolveCommandFS(opts ...CommandFileOption) afero.Fs {
 type ManagedWriteOption func(*managedWriteOptions)
 
 type managedWriteOptions struct {
-	manifestTrailingNewline bool
-	dedupHomeDir            string
-}
-
-// WithManifestTrailingNewline makes the manifest end with a trailing newline
-// (the antigravity writer's historical byte shape). The default (no trailing
-// newline) matches the claude/codex writers; both parse identically, the
-// option only preserves each agent's existing on-disk bytes.
-func WithManifestTrailingNewline() ManagedWriteOption {
-	return func(o *managedWriteOptions) { o.manifestTrailingNewline = true }
+	dedupHomeDir string
 }
 
 // WithDedupHomeDir names a user-global command directory the agent also loads
@@ -131,7 +123,8 @@ func WithDedupHomeDir(dir string) ManagedWriteOption {
 // WriteManagedCommandFiles is the manifest-scoped slash-command/skill file
 // writer shared by the per-agent command writers (claude, codex, antigravity).
 // dir is shared territory with user-authored files, so it is never wiped
-// wholesale: ctxloom tracks the files it wrote in a manifest (dir/manifestName)
+// wholesale: ctxloom tracks the files it wrote in the shared managed-content
+// ledger under the commands surface
 // and removes exactly that set before writing the current one, so the written
 // set always mirrors the enabled exports.
 //
@@ -152,8 +145,8 @@ func WithDedupHomeDir(dir string) ManagedWriteOption {
 // written at mode 0644 (PackageFile{}.Mode's zero-value default), matching
 // this function's historical hardcoded mode, so existing callers see
 // byte-identical output.
-func WriteManagedCommandFiles(fs afero.Fs, dir, manifestName string, cmds []CommandExport, render func(CommandExport) (relPath string, content []byte, err error), opts ...ManagedWriteOption) error {
-	return WriteManagedPackageFiles(fs, dir, manifestName, cmds,
+func WriteManagedCommandFiles(fs afero.Fs, dir string, cmds []CommandExport, render func(CommandExport) (relPath string, content []byte, err error), opts ...ManagedWriteOption) error {
+	return WriteManagedPackageFiles(fs, dir, ledger.SurfaceCommands, cmds,
 		func(c CommandExport) bool { return c.Enabled },
 		func(c CommandExport) string { return c.Name },
 		func(c CommandExport) ([]PackageFile, error) {

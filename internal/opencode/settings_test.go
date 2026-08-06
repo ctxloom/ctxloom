@@ -3,6 +3,7 @@ package opencode
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -291,8 +293,8 @@ func TestRemoveSettings_MalformedMCPFailsLoudlyAndPreservesLedger(t *testing.T) 
 func TestReadLedger_ReadErrorSurfaces(t *testing.T) {
 	base := afero.NewMemMapFs()
 	require.NoError(t, base.MkdirAll("/proj", 0o755))
-	require.NoError(t, afero.WriteFile(base, "/proj/"+opencodeManagedLedger, []byte("ctxloom\n"), 0o644))
-	fs := failOpenFs{Fs: base, path: "/proj/" + opencodeManagedLedger}
+	require.NoError(t, afero.WriteFile(base, filepath.Join("/proj", ledger.Name), []byte("ctxloom\tmcp\n"), 0o644))
+	fs := failOpenFs{Fs: base, path: filepath.Join("/proj", ledger.Name)}
 	w := &OpencodeWriter{FS: fs}
 
 	_, err := w.readLedger("/proj")

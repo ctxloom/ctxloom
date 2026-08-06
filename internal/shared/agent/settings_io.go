@@ -101,6 +101,20 @@ func Warn(format string, args ...any) {
 }
 
 // ComputeHookHash returns a short, stable hash of a hook's defining fields.
+// ComputeCommandDigest is the ledger's identity for a hook: a short digest of
+// the command string.
+//
+// The ledger records THIS, never the command itself. A hook command is
+// arbitrary user-supplied text — it can carry paths, tokens, or anything else
+// the operator put in it — and copying it verbatim into a sidecar would
+// duplicate that content into a second file for no gain. A digest is enough to
+// recognise "ctxloom wrote this one" on the next reconcile, which is the only
+// question the ledger has to answer.
+func ComputeCommandDigest(command string) string {
+	sum := sha256.Sum256([]byte(command))
+	return hex.EncodeToString(sum[:8])
+}
+
 func ComputeHookHash(h wire.Hook) string {
 	parts := []string{
 		h.Command,
@@ -123,15 +137,14 @@ func ComputeMCPServerHash(s wire.MCPServer) string {
 }
 
 // AtomicWriteFile writes data to path atomically: it backs up any existing file
-// to path.ctxloom.bak, then writes through iox.WriteFileAtomicFs (unique temp
+// through iox.WriteFileAtomicFs (unique temp
 // in the destination directory, fsync, rename). There is no non-atomic
 // fallback: a rename failure is returned, never papered over.
 //
 // The existing file's mode is preserved across the rewrite, and a brand-new
 // file defaults to 0600 (not a world-readable 0644). Settings files written
 // here can carry MCPServer.Env secrets (API keys/tokens), so a mode a user
-// deliberately tightened must never be silently widened; the backup copy is
-// written with the same restrictive mode rather than a hardcoded 0644.
+// deliberately tightened must never be silently widened.
 func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ...WriteFileOption) error {
 	var o writeFileOptions
 	for _, opt := range opts {
@@ -152,27 +165,21 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ..
 	}
 
 	// Default new files to owner-only; reuse the existing mode when present.
+	//
+	// NO BACKUP IS TAKEN. This used to copy the live bytes to
+	// "<path>.ctxloom.bak" first, because a writer that could not tell its own
+	// entries from the user's had to rewrite the file wholesale and keep a
+	// copy in case it was wrong. Every writer reaching this function now knows
+	// what it owns — through the sidecar ledger (internal/shared/ledger) or
+	// through in-file managed markers — so it edits its own content and leaves
+	// the rest untouched, and there is nothing to recover from. The copies were
+	// never free: single-slot and overwritten by the very next write, they had
+	// accumulated into the hundreds across a developer's engine config dirs
+	// while being least useful in the case that actually recurs, a bad write
+	// repeated.
 	perm := os.FileMode(0600)
 	if info, err := fs.Stat(path); err == nil {
 		perm = info.Mode().Perm()
-		// The backup IS the recovery path this write leans on: atomicity only
-		// guarantees the file is never observed half-written, never that its
-		// previous contents can be got back. So a backup that could not be
-		// taken aborts the write, the same "refuse to overwrite, never
-		// self-heal" posture as the zero-byte guard above — proceeding would
-		// leave the user with no way back and no way to know. Both halves
-		// count: an unreadable original and an unwritable copy each mean no
-		// backup exists.
-		//
-		// The one exception is a caller that has ALREADY taken an equivalent
-		// backup of the same bytes and owns its own retention contract
-		// (CallerOwnsBackup): copying again would leave a second,
-		// ctxloom-branded file in a directory ctxloom does not own.
-		if !o.callerOwnsBackup {
-			if err := backupExisting(fs, path, perm); err != nil {
-				return fmt.Errorf("refusing to write %s: %w", desc, err)
-			}
-		}
 	}
 
 	// Route through iox: a fixed temp name (path + ".ctxloom.tmp") is exactly
@@ -188,29 +195,12 @@ func AtomicWriteFile(fs afero.Fs, path string, data []byte, desc string, opts ..
 	return nil
 }
 
-// backupExisting copies the live bytes at path to <path>.ctxloom.bak under the
-// same restrictive mode. Both the read and the copy are reported: a settings
-// file can carry MCPServer.Env secrets, so the backup is written with perm
-// rather than a wider default, and a backup that does not exist is not a
-// backup.
-func backupExisting(fs afero.Fs, path string, perm os.FileMode) error {
-	origData, err := afero.ReadFile(fs, path)
-	if err != nil {
-		return fmt.Errorf("cannot read the existing file to back it up: %w", err)
-	}
-	if err := afero.WriteFile(fs, path+".ctxloom.bak", origData, perm); err != nil {
-		return fmt.Errorf("cannot write the backup copy: %w", err)
-	}
-	return nil
-}
-
 // WriteFileOption configures AtomicWriteFile's default refusal-of-empty-writes
 // behavior.
 type WriteFileOption func(*writeFileOptions)
 
 type writeFileOptions struct {
-	allowEmpty       bool
-	callerOwnsBackup bool
+	allowEmpty bool
 }
 
 // AllowEmptyWrite opts an AtomicWriteFile call OUT of the zero-byte refusal
@@ -220,21 +210,6 @@ type writeFileOptions struct {
 // nothing else legitimately renders as zero TOML bytes).
 func AllowEmptyWrite() WriteFileOption {
 	return func(o *writeFileOptions) { o.allowEmpty = true }
-}
-
-// CallerOwnsBackup suppresses the "<path>.ctxloom.bak" sibling for a caller
-// that has already backed up the SAME bytes under its own naming and retention
-// contract, and is writing into a directory ctxloom does not own (internal/cli
-// config-write, which keeps one timestamped generation per call in a
-// third-party config dir). Without it that caller leaves two backups of one
-// original: its own advertised generation, plus an unadvertised single-slot
-// copy the next write silently overwrites.
-//
-// This is NOT a way to skip backing up. The backup is the recovery path an
-// atomic write does not itself provide, so only pass this when an equivalent
-// copy demonstrably already exists.
-func CallerOwnsBackup() WriteFileOption {
-	return func(o *writeFileOptions) { o.callerOwnsBackup = true }
 }
 
 // RefuseCorrupt is the one refusal shape for "part of this user-owned file

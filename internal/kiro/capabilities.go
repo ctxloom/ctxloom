@@ -13,11 +13,6 @@ import (
 // invocable as the /<name> slash command.
 const kiroSkillsDir = kiroDir + "/skills"
 
-// kiroManifest tracks ctxloom-written skill files for clean removal. The skills
-// directory is shared with user-authored skills, so it is never wiped wholesale
-// — only manifest-listed files are reconciled.
-const kiroManifest = ".ctxloom-manifest"
-
 // WriteCommandFiles writes enabled command exports as agentskills SKILL.md files
 // under .kiro/skills/<name>/SKILL.md and records them in the manifest.
 // Previously manifest-listed files are removed first, so the written set always
@@ -26,8 +21,7 @@ const kiroManifest = ".ctxloom-manifest"
 func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	skillsDir := filepath.Join(workDir, filepath.FromSlash(kiroSkillsDir))
-	return agent.WriteManagedCommandFiles(fs, skillsDir, kiroManifest, cmds, renderSkillFile,
-		agent.WithManifestTrailingNewline())
+	return agent.WriteManagedCommandFiles(fs, skillsDir, cmds, renderSkillFile)
 }
 
 // renderSkillFile renders one command export as a Kiro SKILL.md via the

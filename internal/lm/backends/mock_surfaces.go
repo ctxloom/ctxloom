@@ -115,12 +115,6 @@ func (s *mockContextSurface) State(dir string) (agent.DeliveryState, error) {
 // bundle content tree materialized into the same project.
 const mockSkillsDirName = ".mock/skills"
 
-// mockSkillManifest tracks which files under mockSkillsDirName ctxloom wrote,
-// so a re-materialize with fewer (or no) skills reverts exactly that set and
-// nothing a user put there. Same name every engine's skills writer uses; each
-// keeps its own copy under its own directory.
-const mockSkillManifest = ".ctxloom-skills-manifest"
-
 // mockSkillsPath returns the mock skills directory's path under dir.
 func mockSkillsPath(dir string) string {
 	return filepath.Join(dir, filepath.FromSlash(mockSkillsDirName))
@@ -135,7 +129,7 @@ func mockSkillsPath(dir string) string {
 // here; this function contributes a directory and a manifest name.
 func newMockSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.ManagedSkillPackagesDelivery {
 	return agent.NewManagedSkillPackagesDelivery("mock/skills", skills, func(dir string, skills []agent.SkillExport) error {
-		return agent.WriteManagedSkillPackages(agent.GetFS(fs), mockSkillsPath(dir), mockSkillManifest, skills)
+		return agent.WriteManagedSkillPackages(agent.GetFS(fs), mockSkillsPath(dir), skills)
 	})
 }
 

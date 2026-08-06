@@ -252,11 +252,11 @@ func j20AuthoredTree() map[string]j20File {
 		// their alphabetical/filename order — so a reader that fell back to
 		// directory enumeration instead of resolving Order would get the wrong
 		// sequence and disagree with this fixture, not agree with it by luck.
-		"hooks/post_file_edit/stamp.yaml":           f("type: command\ncommand: echo ATELIER-HOOK-9c02af\n"),
-		"hooks/post_file_edit/.stamp.meta.yaml":     f("order: 100\n"),
-		"hooks/post_file_edit/audit.yaml":           f("type: command\ncommand: echo ATELIER-HOOK-audit\n"),
-		"hooks/post_file_edit/.audit.meta.yaml":     f("order: 200\n"),
-		"hooks/session_start/greet.yaml":            f("type: command\ncommand: echo ATELIER-HOOK-greet\n"),
+		"hooks/post_file_edit/stamp.yaml":       f("type: command\ncommand: echo ATELIER-HOOK-9c02af\n"),
+		"hooks/post_file_edit/.stamp.meta.yaml": f("order: 100\n"),
+		"hooks/post_file_edit/audit.yaml":       f("type: command\ncommand: echo ATELIER-HOOK-audit\n"),
+		"hooks/post_file_edit/.audit.meta.yaml": f("order: 200\n"),
+		"hooks/session_start/greet.yaml":        f("type: command\ncommand: echo ATELIER-HOOK-greet\n"),
 
 		// skill — the only MULTI-FILE item and the only one carrying a
 		// load-bearing POSIX mode.

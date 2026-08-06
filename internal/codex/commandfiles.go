@@ -9,11 +9,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// codexManifest tracks which prompt files ctxloom wrote, so cleanup removes only
-// ctxloom-managed prompts and leaves the user's own untouched (the prompts dir
-// is shared).
-const codexManifest = ".ctxloom-manifest"
-
 // codexHome resolves Codex's home directory: $CODEX_HOME if set (it IS the
 // .codex dir, not its parent), else ~/.codex. This is the single source of
 // truth for Codex-home precedence; MCPRegistrar.ConfigPath (global scope) and

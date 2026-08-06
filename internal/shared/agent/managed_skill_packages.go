@@ -3,6 +3,7 @@ package agent
 import (
 	"path"
 
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
 )
 
@@ -64,7 +65,8 @@ func (s *ManagedSkillPackagesDelivery) Deliver(dir string) (Delivered, error) {
 // WriteManagedSkillPackages materializes every ENABLED skill package under
 // skillsDir — `<skillsDir>/<skill name>/SKILL.md` plus every sibling file the
 // package carries, each at the mode its export DECLARES — tracking exactly the
-// files it wrote in `<skillsDir>/<manifestName>` so a later call with fewer (or
+// files it wrote in the shared managed-content ledger (skills surface) so a
+// later call with fewer (or
 // no) skills reverts precisely that set and nothing a user put there.
 //
 // This is the ONE skill-materialization body in the tree. claude, codex,
@@ -80,8 +82,8 @@ func (s *ManagedSkillPackagesDelivery) Deliver(dir string) (Delivered, error) {
 // a mode bit is not portable, the package digest deliberately excludes it, and
 // the declaration is the whole of what a publisher said about executability
 // (see content.SkillFile.Mode and content.DeclaredExecutable).
-func WriteManagedSkillPackages(fs afero.Fs, skillsDir, manifestName string, skills []SkillExport) error {
-	return WriteManagedPackageFiles(fs, skillsDir, manifestName, skills,
+func WriteManagedSkillPackages(fs afero.Fs, skillsDir string, skills []SkillExport) error {
+	return WriteManagedPackageFiles(fs, skillsDir, ledger.SurfaceSkills, skills,
 		func(s SkillExport) bool { return s.Enabled },
 		func(s SkillExport) string { return s.Name },
 		func(s SkillExport) ([]PackageFile, error) {

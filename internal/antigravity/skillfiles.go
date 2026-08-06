@@ -22,13 +22,6 @@ import (
 // workspace discovery at `.agents/` (or `.agent/`, `_agents/`, `_agent/`)
 // walked up from cwd to the repo root.
 
-// antigravitySkillManifest tracks the skill directories ctxloom wrote,
-// distinct from antigravityManifest (the COMMAND writer's manifest, which
-// records the same `<name>/SKILL.md` shape under the same parent) so the two
-// surfaces' cleanup never collides — mirrors claude's
-// .ctxloom-skills-manifest split.
-const antigravitySkillManifest = ".ctxloom-skills-manifest"
-
 // WriteSkillFiles materializes agy's Agent Skills surface: every enabled
 // skill package lands at .agents/skills/<name>/SKILL.md (+ sibling files),
 // exec bit preserved on scripts/ entries. ctxloom tracks its writes via a
@@ -38,5 +31,5 @@ const antigravitySkillManifest = ".ctxloom-skills-manifest"
 func WriteSkillFiles(workDir string, skills []agent.SkillExport, opts ...agent.CommandFileOption) error {
 	fs := agent.ResolveCommandFS(opts...)
 	skillsDir := filepath.Join(workDir, filepath.FromSlash(antigravitySkillsDir))
-	return agent.WriteManagedSkillPackages(fs, skillsDir, antigravitySkillManifest, skills)
+	return agent.WriteManagedSkillPackages(fs, skillsDir, skills)
 }

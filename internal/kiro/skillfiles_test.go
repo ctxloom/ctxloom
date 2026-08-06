@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
 // TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes proves an enabled
@@ -42,7 +43,7 @@ func TestWriteSkillFiles_EnabledSkillLandsAtPathWithModes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0644), info.Mode().Perm())
 
-	manifest, err := os.ReadFile(filepath.Join(dir, ".kiro", "skills", kiroSkillManifest))
+	manifest, err := os.ReadFile(filepath.Join(dir, ".kiro", "skills", ledger.Name))
 	require.NoError(t, err)
 	assert.Contains(t, string(manifest), "humanize/SKILL.md")
 	assert.Contains(t, string(manifest), "humanize/scripts/run.sh")
@@ -61,7 +62,7 @@ func TestWriteSkillFiles_DisabledSkillNotWritten(t *testing.T) {
 	require.NoError(t, WriteSkillFiles(dir, skills))
 
 	assert.NoFileExists(t, filepath.Join(dir, ".kiro", "skills", "off", "SKILL.md"))
-	assert.NoFileExists(t, filepath.Join(dir, ".kiro", "skills", kiroSkillManifest),
+	assert.NoFileExists(t, filepath.Join(dir, ".kiro", "skills", ledger.Name),
 		"nothing written means no manifest at all")
 }
 

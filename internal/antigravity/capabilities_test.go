@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
 // TestWriteCommandFiles_SkipsTraversalNames verifies skill names from bundle
@@ -53,7 +54,7 @@ func TestWriteCommandFiles_SkipsTraversalNames(t *testing.T) {
 		assert.False(t, exists, "traversal name must not write %s", p)
 	}
 
-	manifest, err := afero.ReadFile(fs, filepath.Join(skillsDir, antigravityManifest))
+	manifest, err := afero.ReadFile(fs, filepath.Join(skillsDir, ledger.Name))
 	require.NoError(t, err)
 	assert.Contains(t, string(manifest), "good/SKILL.md")
 	assert.Contains(t, string(manifest), "group/cmd/SKILL.md")
@@ -82,8 +83,8 @@ func TestWriteCommandFiles_ManifestTraversalLinesNotDeleted(t *testing.T) {
 	skillsDir := filepath.Join("/work", ".agents", "skills")
 	require.NoError(t, afero.WriteFile(fs, "/work/victim.txt", []byte("keep"), 0644))
 	require.NoError(t, afero.WriteFile(fs, filepath.Join(skillsDir, "old", "SKILL.md"), []byte("stale"), 0644))
-	manifest := "../../victim.txt\n/work/victim.txt\nold/SKILL.md\n"
-	require.NoError(t, afero.WriteFile(fs, filepath.Join(skillsDir, antigravityManifest), []byte(manifest), 0644))
+	manifest := "../../victim.txt\tcommands\n/work/victim.txt\tcommands\nold/SKILL.md\tcommands\n"
+	require.NoError(t, afero.WriteFile(fs, filepath.Join(skillsDir, ledger.Name), []byte(manifest), 0644))
 
 	cmds := []agent.CommandExport{{Name: "new", Content: "x", Enabled: true}}
 	require.NoError(t, WriteCommandFiles("/work", cmds, agent.WithCommandFS(fs)))

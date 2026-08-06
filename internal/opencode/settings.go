@@ -5,13 +5,12 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
-	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -34,12 +33,6 @@ import (
 // mechanism). It lives under .opencode/ so it sits with opencode's own config
 // dir and is obviously not hand-authored project source.
 const opencodeContextFile = ".opencode/ctxloom-context.md"
-
-// opencodeManagedLedger records which opencode.json entries ctxloom wrote (managed
-// mcp server names), so RemoveSettings reverses exactly our writes and never a
-// user's. Ownership is tracked out-of-file because opencode's mcp entries forbid
-// unknown keys (no in-file marker is possible) — the kiro mcp.json pattern.
-const opencodeManagedLedger = ".ctxloom-opencode-managed"
 
 // opencodeMCPPluginKey selects opencode's passthrough MCP servers from
 // wire.MCPConfig.Plugins.
@@ -498,10 +491,6 @@ func (w *OpencodeWriter) SettingsPath(projectDir string) string {
 	return filepath.Join(projectDir, opencodeConfigFile)
 }
 
-func (w *OpencodeWriter) ledgerPath(projectDir string) string {
-	return filepath.Join(projectDir, opencodeManagedLedger)
-}
-
 func (w *OpencodeWriter) contextFilePath(projectDir string) string {
 	return filepath.Join(projectDir, opencodeContextFile)
 }
@@ -687,47 +676,19 @@ func (w *OpencodeWriter) Status(projectDir string) (agent.SettingsStatus, error)
 	return status, nil
 }
 
-// readLedger returns the managed MCP server names from the sidecar ledger. An
-// absent ledger is honest absence: (nil, nil). Any OTHER read error
-// (permission-denied, truncated file, ...) is now returned rather than mapped
-// to the same nil — a caller that could not tell "no ledger" from
-// "unreadable ledger" apart went on to strip nothing and report success.
-func (w *OpencodeWriter) readLedger(projectDir string) ([]string, error) {
-	fs := w.getFS()
-	path := w.ledgerPath(projectDir)
-	exists, err := afero.Exists(fs, path)
-	if err != nil {
-		return nil, fmt.Errorf("check %s: %w", path, err)
-	}
-	if !exists {
-		return nil, nil
-	}
-	data, err := afero.ReadFile(fs, path)
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
-	}
-	var names []string
-	for _, line := range strings.Split(string(data), "\n") {
-		if line = strings.TrimSpace(line); line != "" {
-			names = append(names, line)
-		}
-	}
-	return names, nil
+// ledger is this project's managed-content record, scoped to the MCP surface.
+// The read/write pair used to live here, independently owned and drifting from
+// three near-identical siblings; internal/shared/ledger owns the mechanism now.
+func (w *OpencodeWriter) ledger(projectDir string) ledger.Ledger {
+	return ledger.Ledger{FS: w.getFS(), Dir: projectDir, Warn: agent.Warn}
 }
 
-// writeLedger persists the managed names (sorted, atomic), removing the ledger
-// when empty so a stale ledger never orphans an entry it no longer owns.
+func (w *OpencodeWriter) readLedger(projectDir string) ([]string, error) {
+	return w.ledger(projectDir).Read(ledger.SurfaceMCP)
+}
+
 func (w *OpencodeWriter) writeLedger(projectDir string, names []string) error {
-	fs := w.getFS()
-	path := w.ledgerPath(projectDir)
-	if len(names) == 0 {
-		if exists, _ := afero.Exists(fs, path); exists {
-			return fs.Remove(path)
-		}
-		return nil
-	}
-	sort.Strings(names)
-	return iox.WriteFileAtomicFs(fs, path, []byte(strings.Join(names, "\n")+"\n"), 0644)
+	return w.ledger(projectDir).Write(ledger.SurfaceMCP, names)
 }
 
 // Compile-time contracts: OpencodeWriter is both a SettingsWriter and a

@@ -197,7 +197,7 @@ type deliverySpec struct {
 // without landing here first.
 var matrixSpecs = map[string]deliverySpec{
 	// ---- claude-code -------------------------------------------------------
-	"claude-code/context/unsafe-file":  {wantFile: "CLAUDE.md", wantSlot: slotContext},
+	"claude-code/context/unsafe-file": {wantFile: "CLAUDE.md", wantSlot: slotContext},
 	"claude-code/context/system-prompt": {
 		disagreement: "DECLARED system-prompt promises an out-of-cwd <hash>.sysprompt.md " +
 			"consumed via --append-system-prompt-file, but the Delivery that " +

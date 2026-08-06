@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
 // Comment is the header under which ctxloom's ignore patterns are grouped.
@@ -59,7 +60,7 @@ var PrivateStatePatterns = []string{
 // The rule is stated because it is per-entry and irreversible in one
 // direction: broadening an entry to its whole directory later un-tracks
 // whatever the project had committed there, silently.
-var TransientArtifactPatterns = []string{"*.ctxloom.bak", ".agents/", ".codex/config.toml", ".codex/auth.json"}
+var TransientArtifactPatterns = []string{".agents/", ".codex/config.toml", ".codex/auth.json"}
 
 // WorktreeComment is the header under which the per-agent-worktree exclude block
 // is grouped in .git/info/exclude.
@@ -106,13 +107,12 @@ var WorktreeArtifactPatterns = []string{
 	// per-agent worktree run left these untracked and unhidden.
 	".opencode/",
 	"opencode.json",
-	".ctxloom-opencode-managed",
-	// The per-file settings backups hook application writes. They were
-	// ignored in the project .gitignore (TransientArtifactPatterns) but not
-	// hidden inside a per-agent worktree, where hook application writes them
-	// just the same: this set must COVER that one, which is asserted rather
-	// than merely documented (TestWorktreeArtifactPatterns_CoverTransientOnes).
-	"*.ctxloom.bak",
+	// The shared managed-content marker, in whatever directory a writer puts
+	// it. It replaces the five per-engine sidecar names this list used to
+	// enumerate one at a time, and the per-file "*.ctxloom.bak" settings
+	// backups, which no longer exist at all — every writer now knows what it
+	// owns and edits only that, so nothing is copied aside first.
+	ledger.Name,
 }
 
 // SupersededPatterns are the canonical spellings of the ignore rule written by

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -117,7 +118,7 @@ func TestFileTemplateDelivery_DeliverCommands(t *testing.T) {
 	controlDir := t.TempDir()
 	require.NoError(t, WriteCommandFiles(controlDir, commands))
 
-	for _, rel := range []string{"review.md", "simple.md", ".ctxloom-manifest"} {
+	for _, rel := range []string{"review.md", "simple.md", ledger.Name} {
 		got, err := os.ReadFile(filepath.Join(deliverDir, ".claude", "commands", rel))
 		require.NoError(t, err, "DeliverCommands must write %s", rel)
 		want, err := os.ReadFile(filepath.Join(controlDir, ".claude", "commands", rel))
@@ -133,7 +134,7 @@ func TestFileTemplateDelivery_DeliverCommands(t *testing.T) {
 	require.NoError(t, handle.Cleanup())
 	assert.NoFileExists(t, filepath.Join(deliverDir, ".claude", "commands", "review.md"))
 	assert.NoFileExists(t, filepath.Join(deliverDir, ".claude", "commands", "simple.md"))
-	assert.NoFileExists(t, filepath.Join(deliverDir, ".claude", "commands", ".ctxloom-manifest"))
+	assert.NoFileExists(t, filepath.Join(deliverDir, ".claude", "commands", ledger.Name))
 	assert.FileExists(t, userCmd, "user-authored command must survive cleanup")
 }
 
@@ -173,7 +174,7 @@ func TestFileTemplateDelivery_DeliverCommands_DedupsIdenticalHomeCopy(t *testing
 	assert.NoFileExists(t, filepath.Join(commandsDir, "recover.md"), "identical home copy must not be duplicated into the project scope")
 	assert.FileExists(t, filepath.Join(commandsDir, "keep.md"), "a project-unique command is still written")
 
-	manifest, err := os.ReadFile(filepath.Join(commandsDir, ".ctxloom-manifest"))
+	manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name))
 	require.NoError(t, err)
 	assert.NotContains(t, string(manifest), "recover.md", "a deduped command must not be manifest-tracked")
 	assert.Contains(t, string(manifest), "keep.md")
@@ -201,7 +202,7 @@ func TestFileTemplateDelivery_DeliverCommands_DivergentHomeCopyWritesNormally(t 
 	require.NoError(t, err)
 	assert.Equal(t, TransformToClaudeCommand(updated), string(got), "a divergent home copy must not suppress the project write")
 
-	manifest, err := os.ReadFile(filepath.Join(commandsDir, ".ctxloom-manifest"))
+	manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name))
 	require.NoError(t, err)
 	assert.Contains(t, string(manifest), "recover.md")
 }
@@ -225,7 +226,7 @@ func TestFileTemplateDelivery_DeliverCommands_DedupConvergence(t *testing.T) {
 	require.NoError(t, err)
 	commandsDir := filepath.Join(projectDir, ".claude", "commands")
 	require.FileExists(t, filepath.Join(commandsDir, "recover.md"), "precondition: run 1 delivered the file")
-	manifest, err := os.ReadFile(filepath.Join(commandsDir, ".ctxloom-manifest"))
+	manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name))
 	require.NoError(t, err)
 	require.Contains(t, string(manifest), "recover.md", "precondition: run 1 manifest-tracked the file")
 
@@ -237,7 +238,7 @@ func TestFileTemplateDelivery_DeliverCommands_DedupConvergence(t *testing.T) {
 	_, err = d.DeliverCommands([]agent.CommandExport{cmd})
 	require.NoError(t, err)
 	assert.NoFileExists(t, filepath.Join(commandsDir, "recover.md"), "run 2 must remove the now-deduped stale project copy")
-	if manifest, err := os.ReadFile(filepath.Join(commandsDir, ".ctxloom-manifest")); err == nil {
+	if manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name)); err == nil {
 		assert.NotContains(t, string(manifest), "recover.md", "run 2 must drop the deduped file from the manifest")
 	}
 }
@@ -261,7 +262,7 @@ func TestFileTemplateDelivery_DeliverCommands_HomeScopeDeliveryDisablesDedup(t *
 
 	commandsDir := filepath.Join(fakeHome, ".claude", "commands")
 	assert.FileExists(t, filepath.Join(commandsDir, "recover.md"), "a home-scope delivery must still write, never self-dedup")
-	manifest, err := os.ReadFile(filepath.Join(commandsDir, ".ctxloom-manifest"))
+	manifest, err := os.ReadFile(filepath.Join(commandsDir, ledger.Name))
 	require.NoError(t, err)
 	assert.Contains(t, string(manifest), "recover.md", "a home-scope delivery must still manifest-track its write")
 }

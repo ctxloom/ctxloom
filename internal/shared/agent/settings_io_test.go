@@ -55,9 +55,14 @@ func TestAtomicWriteFile(t *testing.T) {
 
 		require.NoError(t, AtomicWriteFile(fs, path, updated, "test file"))
 
-		backup, err := afero.ReadFile(fs, path+".ctxloom.bak")
+		// The backup sibling is GONE by design: every writer reaching this
+		// function now knows what it owns (ledger or in-file markers) and no
+		// longer rewrites a file wholesale, so there is nothing to recover
+		// from. Asserting its ABSENCE keeps a future writer from quietly
+		// reintroducing the debris.
+		bakExists, err := afero.Exists(fs, path+".ctxloom.bak")
 		require.NoError(t, err)
-		assert.Equal(t, original, backup, "backup holds the prior content")
+		assert.False(t, bakExists, "no .ctxloom.bak sibling may be left beside a written file")
 		contents, err := afero.ReadFile(fs, path)
 		require.NoError(t, err)
 		assert.Equal(t, updated, contents)
@@ -90,9 +95,9 @@ func TestAtomicWriteFile(t *testing.T) {
 		info, err := fs.Stat(path)
 		require.NoError(t, err)
 		assert.Equal(t, os.FileMode(0600), info.Mode().Perm(), "rewrite must not widen a tightened mode")
-		bInfo, err := fs.Stat(path + ".ctxloom.bak")
+		bakExists, err := afero.Exists(fs, path+".ctxloom.bak")
 		require.NoError(t, err)
-		assert.Equal(t, os.FileMode(0600), bInfo.Mode().Perm(), "backup mirrors the restrictive source mode")
+		assert.False(t, bakExists, "no .ctxloom.bak sibling may be left beside a written file")
 	})
 
 	// AtomicWriteFile had no len(data)==0 guard, so a caller that

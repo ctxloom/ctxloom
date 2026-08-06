@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -447,7 +448,7 @@ func TestAntigravityHookWriter_MCPLedgerReconcilesRenamesAndRemovals(t *testing.
 	assert.NotContains(t, servers, "new-name")
 	assert.NotContains(t, servers, AppMCPServerName)
 	assert.Contains(t, servers, "user-thing")
-	ledgerExists, _ := afero.Exists(fs, "/project/.agents/.ctxloom-mcp-managed")
+	ledgerExists, _ := afero.Exists(fs, filepath.Join("/project/.agents", ledger.Name))
 	assert.False(t, ledgerExists, "ledger removed with the last managed server")
 }
 

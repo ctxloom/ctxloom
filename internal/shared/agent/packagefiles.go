@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 	"github.com/spf13/afero"
 )
 
@@ -36,7 +37,8 @@ const defaultPackageFileMode os.FileMode = 0644
 // file per item, and a skill-package writer with SKILL.md plus its sibling
 // files). dir is shared territory with user-authored files, so it is never
 // wiped wholesale: ctxloom tracks every file it wrote in a manifest
-// (dir/manifestName) and removes exactly that set before writing the current
+// (the shared managed-content ledger, scoped to this surface) and removes
+// exactly that set before writing the current
 // one, so the written set always mirrors the enabled items.
 //
 // items is the caller's list of exportable things (CommandExport, SkillExport,
@@ -63,7 +65,8 @@ const defaultPackageFileMode os.FileMode = 0644
 // skill leaves no debris.
 func WriteManagedPackageFiles[T any](
 	fs afero.Fs,
-	dir, manifestName string,
+	dir string,
+	surface ledger.Surface,
 	items []T,
 	enabled func(T) bool,
 	itemName func(T) string,
@@ -74,27 +77,32 @@ func WriteManagedPackageFiles[T any](
 	for _, opt := range opts {
 		opt(o)
 	}
-	manifestPath := filepath.Join(dir, manifestName)
+	led := ledger.Ledger{FS: fs, Dir: dir, Warn: Warn}
 
-	// Remove the previous ctxloom-written set (manifest-tracked only).
-	// Manifest lines are data, not trusted paths: a doctored line ("../x",
+	// Remove the previous ctxloom-written set for THIS SURFACE only. A
+	// co-located surface's entries (antigravity and kiro write commands and
+	// skills into one directory) must survive untouched — that separation used
+	// to come from two manifest FILENAMES and now comes from the surface.
+	//
+	// Ledger entries are data, not trusted paths: a doctored line ("../x",
 	// absolute) must not delete outside the managed tree.
 	var removedDirs []string
-	if data, err := afero.ReadFile(fs, manifestPath); err == nil {
-		for _, name := range strings.Split(string(data), "\n") {
-			if name = strings.TrimSpace(name); name != "" {
-				path, ok := SafeCommandRelPath(dir, name)
-				if !ok {
-					Warn("skipping unsafe package manifest entry %q: not a relative path inside %s", name, dir)
-					continue
-				}
-				_ = fs.Remove(path)
-				if parent := filepath.Dir(path); parent != filepath.Clean(dir) {
-					removedDirs = append(removedDirs, parent)
-				}
-			}
+	previous, err := led.Read(surface)
+	if err != nil {
+		return err
+	}
+	for _, name := range previous {
+		path, ok := SafeCommandRelPath(dir, name)
+		if !ok {
+			Warn("skipping unsafe package ledger entry %q: not a relative path inside %s", name, dir)
+			continue
 		}
-		_ = fs.Remove(manifestPath)
+		_ = fs.Remove(path)
+		if parent := filepath.Dir(path); parent != filepath.Clean(dir) {
+			removedDirs = append(removedDirs, parent)
+		}
+	}
+	if len(previous) > 0 {
 		pruneEmptyDirs(fs, dir, removedDirs)
 	}
 
@@ -180,14 +188,11 @@ func WriteManagedPackageFiles[T any](
 		}
 	}
 
-	if len(written) == 0 {
-		return nil
-	}
-	manifest := strings.Join(written, "\n")
-	if o.manifestTrailingNewline {
-		manifest += "\n"
-	}
-	return afero.WriteFile(fs, manifestPath, []byte(manifest), 0644)
+	// Written or not, the ledger is rewritten: an empty set must CLEAR this
+	// surface's claim rather than leave the previous one standing, or the next
+	// call would try to delete files this one already removed and, worse,
+	// report ownership of content that no longer exists.
+	return led.Write(surface, written)
 }
 
 // pruneEmptyDirs removes each directory in dirs that is now empty, deepest

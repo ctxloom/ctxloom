@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
 // TestWriteCommandFiles_RendersOpencodeCommand proves an enabled export lands at
@@ -93,7 +94,7 @@ func TestWriteCommandFiles_CleanupRemovesOnlyOurs(t *testing.T) {
 
 	oursExists, _ = afero.Exists(fs, filepath.Join(dir, "ours.md"))
 	assert.False(t, oursExists, "cleanup removes ctxloom's command")
-	manifestExists, _ := afero.Exists(fs, filepath.Join(dir, opencodeCommandManifest))
+	manifestExists, _ := afero.Exists(fs, filepath.Join(dir, ledger.Name))
 	assert.False(t, manifestExists, "cleanup removes the manifest")
 	foreignData, err := afero.ReadFile(fs, foreign)
 	require.NoError(t, err, "foreign command survives cleanup")

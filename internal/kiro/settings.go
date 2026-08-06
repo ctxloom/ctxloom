@@ -15,13 +15,6 @@ import (
 // kiroDir is the workspace directory Kiro reads configuration from.
 const kiroDir = ".kiro"
 
-// kiroMCPLedger records which settings/mcp.json server names are
-// ctxloom-managed (one per line). Kiro's tolerance for unknown fields inside
-// mcp.json is unverified, so ownership is tracked out-of-file (as with agy)
-// rather than via an in-file marker — a renamed/removed server would otherwise
-// linger in the config forever.
-const kiroMCPLedger = ".ctxloom-mcp-managed"
-
 // steeringFileName is the ctxloom-owned steering file carrying the assembled
 // context (front-matter `inclusion: always`, auto-loaded by Kiro every session).
 const steeringFileName = "ctxloom-context.md"
@@ -94,8 +87,11 @@ func (w *KiroWriter) mcpPath(projectDir string) string {
 	return filepath.Join(projectDir, kiroDir, "settings", "mcp.json")
 }
 
-func (w *KiroWriter) mcpLedgerPath(projectDir string) string {
-	return filepath.Join(projectDir, kiroDir, "settings", kiroMCPLedger)
+// mcpLedgerDir is the directory holding the shared managed-content marker for
+// this project's settings/mcp.json. The marker's NAME is owned by
+// internal/shared/ledger, not by this engine.
+func (w *KiroWriter) mcpLedgerDir(projectDir string) string {
+	return filepath.Join(projectDir, kiroDir, "settings")
 }
 
 func (w *KiroWriter) steeringPath(projectDir string) string {
@@ -325,7 +321,7 @@ func (w *KiroWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 	return agent.MCPFileConfig{
 		FS:              w.getFS(),
 		Path:            w.mcpPath(projectDir),
-		LedgerPath:      w.mcpLedgerPath(projectDir),
+		LedgerDir:       w.mcpLedgerDir(projectDir),
 		Label:           kiroDir + "/settings/mcp.json",
 		PluginKey:       "kiro",
 		Warn:            w.warn,

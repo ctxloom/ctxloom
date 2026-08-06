@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/ledger"
 )
 
 // failChmodFs fails Chmod for exactly one path, passing everything else
@@ -61,7 +62,7 @@ func TestWriteManagedPackageFiles_ExecBitPreserved(t *testing.T) {
 		},
 	}}
 
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ".ctxloom-skills-manifest", items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
 
 	skillMD, err := afero.ReadFile(fs, filepath.Join(skillDir, "SKILL.md"))
 	require.NoError(t, err)
@@ -75,7 +76,7 @@ func TestWriteManagedPackageFiles_ExecBitPreserved(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0644), info.Mode().Perm())
 
-	manifest, err := afero.ReadFile(fs, filepath.Join(dir, ".ctxloom-skills-manifest"))
+	manifest, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
 	require.NoError(t, err)
 	assert.Contains(t, string(manifest), "humanize/SKILL.md")
 	assert.Contains(t, string(manifest), "humanize/scripts/run.sh")
@@ -97,12 +98,12 @@ func TestWriteManagedPackageFiles_ReMaterializeIsIdempotent(t *testing.T) {
 		},
 	}}
 
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ".ctxloom-skills-manifest", items, skillEnabled, skillName, skillRender))
-	manifest1, err := afero.ReadFile(fs, filepath.Join(dir, ".ctxloom-skills-manifest"))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
+	manifest1, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
 	require.NoError(t, err)
 
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ".ctxloom-skills-manifest", items, skillEnabled, skillName, skillRender))
-	manifest2, err := afero.ReadFile(fs, filepath.Join(dir, ".ctxloom-skills-manifest"))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
+	manifest2, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
 	require.NoError(t, err)
 
 	assert.Equal(t, string(manifest1), string(manifest2), "re-materializing an unchanged package produces the identical manifest")
@@ -130,13 +131,13 @@ func TestWriteManagedPackageFiles_CleanupPreservesForeignFiles(t *testing.T) {
 			{RelPath: "humanize/scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: 0755},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ".ctxloom-skills-manifest", items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
 
 	managedExists, _ := afero.Exists(fs, filepath.Join(dir, "humanize", "SKILL.md"))
 	require.True(t, managedExists, "precondition: the managed package was written")
 
 	// Cleanup: re-invoke with no items — reverts exactly the manifest-tracked set.
-	require.NoError(t, WriteManagedPackageFiles[fakeSkillItem](fs, dir, ".ctxloom-skills-manifest", nil, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles[fakeSkillItem](fs, dir, ledger.SurfaceSkills, nil, skillEnabled, skillName, skillRender))
 
 	managedExists, _ = afero.Exists(fs, filepath.Join(dir, "humanize", "SKILL.md"))
 	assert.False(t, managedExists, "cleanup removes the ctxloom-managed package")
@@ -167,7 +168,7 @@ func TestWriteManagedPackageFiles_UnsafeItemPathSkipsWholeItem(t *testing.T) {
 			{RelPath: "../escape.md", Content: []byte("evil"), Mode: 0644},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ".ctxloom-skills-manifest", items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
 
 	exists, _ := afero.Exists(fs, filepath.Join(dir, "bad", "SKILL.md"))
 	assert.False(t, exists, "a package with any unsafe file path writes NONE of its files")
@@ -197,7 +198,7 @@ func TestWriteManagedPackageFiles_ChmodFailureWarns(t *testing.T) {
 			{RelPath: "humanize/scripts/run.sh", Content: []byte("#!/bin/sh\n"), Mode: 0755},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ".ctxloom-skills-manifest", items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
 
 	assert.NotEmpty(t, buf.String(), "a chmod failure on the exec-bit re-assert must be warned about, not silently ignored")
 }
@@ -214,10 +215,10 @@ func TestWriteManagedPackageFiles_DisabledItemNotWritten(t *testing.T) {
 			{RelPath: "off/SKILL.md", Content: []byte("nope"), Mode: 0644},
 		},
 	}}
-	require.NoError(t, WriteManagedPackageFiles(fs, dir, ".ctxloom-skills-manifest", items, skillEnabled, skillName, skillRender))
+	require.NoError(t, WriteManagedPackageFiles(fs, dir, ledger.SurfaceSkills, items, skillEnabled, skillName, skillRender))
 
 	exists, _ := afero.Exists(fs, filepath.Join(dir, "off", "SKILL.md"))
 	assert.False(t, exists, "a disabled item must not be written")
-	_, err := afero.ReadFile(fs, filepath.Join(dir, ".ctxloom-skills-manifest"))
+	_, err := afero.ReadFile(fs, filepath.Join(dir, ledger.Name))
 	assert.Error(t, err, "nothing written means no manifest at all")
 }

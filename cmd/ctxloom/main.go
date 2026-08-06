@@ -6,10 +6,12 @@ import (
 	"os"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/shared/envswitch"
+	"github.com/ctxloom/ctxloom/internal/shared/logsink"
 	"github.com/ctxloom/ctxloom/internal/shared/procsec"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -90,16 +92,47 @@ func envSwitchOn(name string, warn io.Writer) bool {
 }
 
 // loggerConstructor picks the process logger's build recipe: a development
-// logger when verbose, otherwise a production logger raised to warn level.
+// encoder at debug level when verbose, otherwise a production encoder at warn
+// level. Either way the sink is ~/.ctxloom/logs/ctxloom.log and NEVER stderr —
+// see paths.HomeLogFilePath for why stderr is not ours to write to. Verbose
+// additionally tees to stderr: that switch is set by an operator who is asking
+// for terminal output, which is a different thing from a hook emitting it
+// unbidden.
 func loggerConstructor(verbose bool) func() (*zap.Logger, error) {
-	if verbose {
-		return func() (*zap.Logger, error) { return zap.NewDevelopment() }
-	}
 	return func() (*zap.Logger, error) {
-		cfg := zap.NewProductionConfig()
-		cfg.Level = zap.NewAtomicLevelAt(zap.WarnLevel)
-		return cfg.Build()
+		sink, err := logSink()
+		if err != nil {
+			return nil, err
+		}
+
+		level, encoder := zapcore.WarnLevel, zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+		out := []zapcore.WriteSyncer{sink}
+		if verbose {
+			level, encoder = zapcore.DebugLevel, zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
+			out = append(out, zapcore.Lock(os.Stderr))
+		}
+
+		// ErrorOutput is zap's own failure channel (a sink that will not accept
+		// a write). It defaults to stderr, so leaving it alone would reintroduce
+		// exactly the corruption this sink exists to avoid, in the one case
+		// where nobody is watching for it.
+		return zap.New(
+			zapcore.NewCore(encoder, zapcore.NewMultiWriteSyncer(out...), level),
+			zap.ErrorOutput(sink),
+			zap.AddCaller(),
+			zap.AddStacktrace(zapcore.ErrorLevel),
+		), nil
 	}
+}
+
+// logSink opens the process log for append. The returned syncer is locked
+// because one file backs every logger in the process.
+func logSink() (zapcore.WriteSyncer, error) {
+	f, err := logsink.Open()
+	if err != nil {
+		return nil, err
+	}
+	return zapcore.Lock(zapcore.AddSync(f)), nil
 }
 
 // buildLogger runs a zap constructor and NEVER returns nil. zap's

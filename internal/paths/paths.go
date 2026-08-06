@@ -169,6 +169,19 @@ const (
 	// SessionsDir is the subdirectory for per-session state (index, harp dirs).
 	SessionsDir = "sessions"
 
+	// LogsDir is the subdirectory holding the process logger's output. Home
+	// rooted rather than per-project because a ctxloom process logs from the
+	// moment its logger is installed — before any project root is resolved,
+	// and for commands (hooks, `mcp`, `acp`) that may have no project at all.
+	LogsDir = "logs"
+
+	// LogFileName is the file every ctxloom process appends its structured log
+	// to. One file for all of them: the entries carry the caller, and a reader
+	// diagnosing "what did ctxloom do when my editor started" wants the hook,
+	// the MCP server and the CLI interleaved in one timeline, not scattered
+	// across per-command files they would have to merge by hand.
+	LogFileName = "ctxloom.log"
+
 	// IndexFileName is the name of the home-rooted session index file.
 	IndexFileName = "index.yaml"
 
@@ -238,6 +251,36 @@ func HomeSessionsDir() (string, error) {
 		return "", fmt.Errorf("resolve the home sessions root ~/%s/%s: %w", AppDirName, SessionsDir, err)
 	}
 	return filepath.Join(home, AppDirName, SessionsDir), nil
+}
+
+// HomeLogsDir returns ~/.ctxloom/logs — where every ctxloom process writes its
+// structured log. A pure path join like its neighbours here: the caller decides
+// whether to create the directory (cmd/ctxloom does, at logger construction).
+func HomeLogsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve the home logs root ~/%s/%s: %w", AppDirName, LogsDir, err)
+	}
+	return filepath.Join(home, AppDirName, LogsDir), nil
+}
+
+// HomeLogFilePath returns ~/.ctxloom/logs/ctxloom.log — the STRUCTURED
+// logger's sink. Deliberately NOT stderr: for hooks and the statusline command,
+// stderr is a protocol surface the calling engine renders (Claude Code displays
+// SessionStart hook stderr as an error, and statusline stderr lands on the
+// terminal outside the alt-screen, destroying scrollback), so warn-level zap
+// JSON there corrupts the user's session rather than informing anyone.
+//
+// Only the structured channel moves. Human-readable diagnostics (clidiag) stay
+// on stderr for every command, hooks included: those are written FOR a person
+// and say what to do about the problem, and a hook that did nothing must still
+// be able to say so out loud rather than swallow it.
+func HomeLogFilePath() (string, error) {
+	dir, err := HomeLogsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, LogFileName), nil
 }
 
 // SessionIndexPath returns ~/.ctxloom/sessions/index.yaml — the home-rooted

@@ -160,6 +160,12 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"agent list":    {extraArgs: noExtraArgs},
 	"profile list":  {extraArgs: noExtraArgs},
 	"session list":  {extraArgs: noExtraArgs},
+	// Bare, read-only listing: safe against a fresh sessions dir with nothing
+	// (or nothing of this test's own making) under it — an empty report is
+	// exactly what proves the "no ctxloom-owned scratch worktrees" path
+	// renders in all five formats. Mutating flags (--reap --yes) are
+	// deliberately not exercised here; session_worktrees_test.go covers those.
+	"session worktrees": {extraArgs: noExtraArgs},
 	"session search": {extraArgs: func(string) []string {
 		// A word that won't match anything in this test's empty/fresh session
 		// index; the point here is proving `session query` renders cleanly in

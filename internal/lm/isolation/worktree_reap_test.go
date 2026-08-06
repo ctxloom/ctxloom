@@ -243,3 +243,94 @@ func TestReapOrphanedWorktrees_CleanSweepIsSilent(t *testing.T) {
 	assert.Equal(t, WorktreeReapResult{}, result)
 	assert.Empty(t, sink.String(), "a clean sweep is silent — that is what makes a warning a signal")
 }
+
+// buildFourVerdictFixture plants one real repo with four scratch worktrees —
+// clean+dead-owner, dirty+dead-owner, no-marker, and live-owner — the same
+// four populations J22's own acceptance fixture builds (tests/acceptance/
+// steps_j22_closeout.go), so this test's fixture is not a narrower stand-in.
+// Returns the four checkout dirs so the caller can register cleanup.
+func buildFourVerdictFixture(t *testing.T) (repo string, dirs []string) {
+	t.Helper()
+	testsupport.Isolate(t)
+	repo = initRealRepo(t)
+
+	pol := NewWorktree(git.NewExec(), "")
+	pol.state = SessionState{Harp: "equiv-harp"}
+	ctx := context.Background()
+
+	clean, err := pol.PrepareWorkspace(ctx, repo, "member-clean")
+	require.NoError(t, err)
+	setWorktreeOwnerForTest(t, clean.Dir(), deadPid)
+
+	wip, err := pol.PrepareWorkspace(ctx, repo, "member-wip")
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(wip.Dir(), "wip.txt"), []byte("uncommitted"), 0o644))
+	setWorktreeOwnerForTest(t, wip.Dir(), deadPid)
+
+	unknowable, err := pol.PrepareWorkspace(ctx, repo, "member-unknowable")
+	require.NoError(t, err)
+	require.NoError(t, os.Remove(unknowable.Dir()+worktreeOwnerSuffix))
+
+	live, err := pol.PrepareWorkspace(ctx, repo, "member-live")
+	require.NoError(t, err)
+	// PrepareWorkspace already stamped this test process's own (alive) pid.
+
+	dirs = []string{clean.Dir(), wip.Dir(), unknowable.Dir(), live.Dir()}
+	t.Cleanup(func() {
+		for _, d := range dirs {
+			_ = os.RemoveAll(d)
+			_ = gitRunNoFail(repo, "worktree", "remove", "--force", d)
+		}
+	})
+	return repo, dirs
+}
+
+// TestClassifyThenReap_MatchesReapOrphanedWorktrees is the required proof for
+// the reapOneWorktree split, not merely an assertion of it: "behaviour-
+// preserving by construction" (teardownWorktree/unsafeToRemove untouched,
+// ReapOrphanedWorktrees keeps its signature) is a CLAIM. This measures it —
+// two IDENTICAL fixtures (all four verdicts represented at once: reaped,
+// spared, skipped-alive, skipped-indeterminate), one driven through the
+// original combined entrypoint and one through the new Classify-then-Reap
+// two-step, must tally the same.
+func TestClassifyThenReap_MatchesReapOrphanedWorktrees(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping the startup-reaper integration test")
+	}
+
+	var combined, split WorktreeReapResult
+
+	t.Run("combined ReapOrphanedWorktrees", func(t *testing.T) {
+		buildFourVerdictFixture(t)
+		combined = ReapOrphanedWorktrees(context.Background(), git.NewExec())
+	})
+
+	t.Run("split Classify then Reap", func(t *testing.T) {
+		buildFourVerdictFixture(t)
+		candidates, err := ClassifyOrphanedWorktrees(context.Background(), git.NewExec(), "")
+		require.NoError(t, err)
+		reaped := ReapWorktrees(context.Background(), git.NewExec(), candidates)
+		for _, c := range reaped {
+			switch c.Verdict {
+			case VerdictReaped:
+				split.Reaped++
+			case VerdictSpared:
+				split.Spared++
+			case VerdictSkipped:
+				split.Skipped++
+			default:
+				t.Fatalf("candidate %s left with verdict %q — ReapWorktrees must resolve every reapable "+
+					"candidate to reaped or spared, and leave every other candidate at the verdict Classify gave it",
+					c.Path, c.Verdict)
+			}
+		}
+	})
+
+	// Sanity: the fixture must actually exercise all four verdicts, or a
+	// tally match below would prove nothing.
+	require.Equal(t, WorktreeReapResult{Reaped: 1, Spared: 1, Skipped: 2}, combined,
+		"fixture sanity: one reaped (clean/dead), one spared (dirty/dead), two skipped (no-marker, live)")
+
+	assert.Equal(t, combined, split,
+		"Classify->Reap must tally IDENTICALLY to the combined ReapOrphanedWorktrees on the same fixture")
+}

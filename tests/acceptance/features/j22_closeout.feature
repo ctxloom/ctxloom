@@ -110,11 +110,10 @@ Feature: The close-out — the end of a workstream
   # The inspect half. Read-only by default on every leaf, so the first thing
   # this leaf ever does is show its work.
   #
-  # UNTAG WHEN: `ctxloom session worktrees` lists ctxloom-owned scratch trees
-  # with harp, owner pid and verdict. Expected RED: the leaf does not exist;
-  # isolation.ReapOrphanedWorktrees's logic is reachable only from a startup
-  # sweep with no report.
-  @wip
+  # `ctxloom session worktrees` lists ctxloom-owned scratch trees with harp,
+  # owner pid and verdict — isolation.ClassifyOrphanedWorktrees, split out of
+  # isolation.ReapOrphanedWorktrees so a caller can show its work before
+  # anything is removed.
   Scenario: The scratch worktrees are listed before anything is removed
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And session "amber-quiet-heron" left a clean scratch worktree whose owning process is dead
@@ -134,10 +133,9 @@ Feature: The close-out — the end of a workstream
   # the assertion reads the WIP file's own bytes off disk rather than checking
   # that a directory still exists.
   #
-  # UNTAG WHEN: `session worktrees --reap` drives
-  # isolation.ReapOrphanedWorktrees's semantics on demand and reports its
-  # outcome taxonomy. Expected RED: the leaf does not exist.
-  @wip
+  # `session worktrees --reap --yes` drives isolation.ReapWorktrees over
+  # exactly what isolation.ClassifyOrphanedWorktrees just classified, and
+  # reports its outcome taxonomy (reaped/spared/skipped).
   Scenario: Reaping removes only what it can prove is safe, and says why it left the rest
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And session "amber-quiet-heron" left a clean scratch worktree whose owning process is dead
@@ -155,10 +153,9 @@ Feature: The close-out — the end of a workstream
   # This scenario exists so that a later "helpful" change that starts listing
   # them under a verb which also reaps has to fail a test first.
   #
-  # UNTAG WHEN: `session worktrees` exists and excludes foreign trees. Expected
-  # RED only because the leaf does not exist; the exclusion itself is already
-  # true by layout.
-  @wip
+  # `session worktrees` excludes foreign trees structurally:
+  # isolation.findEphemeralWorktrees only ever scans under
+  # ~/.ctxloom/sessions/, so this population is never even candidate-listed.
   Scenario: Her own long-lived worktrees are not this verb's business
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And session "amber-quiet-heron" left a clean scratch worktree whose owning process is dead

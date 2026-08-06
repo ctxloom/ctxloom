@@ -45,7 +45,8 @@ func recordWorktreeOwner(wtDir string) {
 }
 
 // removeWorktreeOwnerMarker best-effort removes wtDir's sibling owner marker.
-// Called from both the graceful Cleanup path and the startup reaper so a
+// Called from both the graceful Cleanup path and ReapWorktrees (only once a
+// candidate is actually confirmed removed — see ReapWorktrees' doc) so a
 // marker never outlives the checkout it describes; a missing file is a
 // silent no-op (os.Remove's ErrNotExist is expected and uninteresting here).
 func removeWorktreeOwnerMarker(wtDir string) {
@@ -68,25 +69,62 @@ func readWorktreeOwner(wtDir string) (pid int, ok bool) {
 	return pid, true
 }
 
-// worktreeReapOutcome classifies what ReapOrphanedWorktrees did with one
-// candidate.
-type worktreeReapOutcome int
+// WorktreeVerdict is one candidate's outcome, in the reaper's established
+// vocabulary (see WorktreeReapResult). It is a string type — not the old
+// unexported int enum it replaces (worktreeReapOutcome) — so it can be
+// rendered directly by a CLI listing without a lookup table.
+type WorktreeVerdict string
 
 const (
-	// worktreeReapSkipped: left untouched — the owner is alive, or its
-	// liveness could not be proven (no/unreadable marker), or the candidate's
-	// owning repo could not be resolved. Indistinguishable from "still in use"
-	// by design: an unprovable case is never treated as safe to remove.
-	worktreeReapSkipped worktreeReapOutcome = iota
-	// worktreeReapSpared: the owner is CONFIRMED dead, but the worktree (or a
-	// worktree nested under it) carries uncommitted work or an unknowable git
-	// state — teardown's own WIP guard left it in place, exactly as it would
-	// on the graceful path.
-	worktreeReapSpared
-	// worktreeReaped: the owner is confirmed dead and the tree was clean —
-	// teardown removed it.
-	worktreeReaped
+	// VerdictReapable: orphaned AND clean, as of classification. Removable;
+	// ReapWorktrees has not yet acted on it (or a caller only classified).
+	VerdictReapable WorktreeVerdict = "reapable"
+	// VerdictReaped: removed by ReapWorktrees.
+	VerdictReaped WorktreeVerdict = "reaped"
+	// VerdictSpared: orphaned but carrying real (or unknowable) work — left
+	// in place. Set either at classification time (the dead-owner tree was
+	// already dirty) or by ReapWorktrees (the tree went dirty, or otherwise
+	// became unsafe, between classification and removal — the TOCTOU case
+	// teardownWorktree's own re-check catches).
+	VerdictSpared WorktreeVerdict = "spared"
+	// VerdictSkipped: owner alive, owner indeterminate (no/unreadable
+	// marker), or the candidate's owning repo could not be resolved. Never
+	// touched.
+	VerdictSkipped WorktreeVerdict = "skipped"
 )
+
+// WorktreeCandidate is one ctxloom-owned scratch worktree and everything the
+// reaper decided about it. Every field except Verdict/Reason is a plain READ
+// FACT, gathered once by ClassifyOrphanedWorktrees and left untouched by
+// ReapWorktrees (which only ever updates Verdict/Reason on the entries it
+// acts on).
+type WorktreeCandidate struct {
+	// Path is the absolute checkout directory.
+	Path string
+	// Harp is the owning session's harp name, read off the path's own
+	// <sessionsRoot>/<harp>/ephemeral/ctxloom-wt-* layout.
+	Harp string
+	// RepoDir is the owning repository, resolved via git.CommonDir; empty
+	// when it could not be resolved (Verdict is then always Skipped).
+	RepoDir string
+	// OwnerPID is the pid recorded in the candidate's sibling owner marker,
+	// or 0 when no marker was found (or it was unreadable/unparsable).
+	OwnerPID int
+	// OwnerState is what pidalive.Probe said about OwnerPID. Meaningless
+	// (zero value, Dead) when OwnerPID is 0 — check OwnerPID first.
+	OwnerState pidalive.State
+	// Dirty reports whether unsafeToRemove judged the tree unsafe to remove
+	// at classification time. Only ever computed for a confirmed-dead owner
+	// (unsafeToRemove is never run against a live/indeterminate owner,
+	// mirroring the pre-split reaper, which never got that far either).
+	Dirty bool
+	// Verdict is the decision: what ClassifyOrphanedWorktrees determined, or
+	// — after ReapWorktrees ran — what actually happened.
+	Verdict WorktreeVerdict
+	// Reason is the human-readable "why" behind Verdict. Never empty for
+	// VerdictSpared or VerdictSkipped.
+	Reason string
+}
 
 // WorktreeReapResult tallies one ReapOrphanedWorktrees sweep, for a one-line
 // boot-transcript summary (mirrors the CLI's purgeLegacyBundles reporting
@@ -121,6 +159,16 @@ var worktreeCandidatePrefix = worktreeScratchPrefix + "-"
 // mcp`). It is best-effort throughout — a single candidate's failure warns and
 // moves on, never aborting the sweep or the caller's own startup.
 //
+// Implementation note: this is Classify → Reap → tally and nothing else — see
+// ClassifyOrphanedWorktrees and ReapWorktrees, which now carry the actual
+// per-candidate rules that used to live in a single combined function
+// (reapOneWorktree). This function's own signature and observable behaviour
+// are unchanged by that split — worktree_reap_test.go pins it, and
+// TestClassifyThenReap_MatchesReapOrphanedWorktrees additionally proves the
+// two-step path produces identical tallies to this one on the same fixture.
+// A resolve/scan failure still warns and returns a zero-value result rather
+// than erroring: a startup sweep must never block or fail its caller.
+//
 // Every candidate gets exactly one of three outcomes, and the sweep is
 // conservative on every one it cannot prove safe:
 //
@@ -142,35 +190,94 @@ func ReapOrphanedWorktrees(ctx context.Context, g git.Git) WorktreeReapResult {
 	}
 	var result WorktreeReapResult
 
-	sessionsRoot, err := paths.HomeSessionsDir()
+	candidates, err := ClassifyOrphanedWorktrees(ctx, g, "")
 	if err != nil {
-		clidiag.Warn("ctxloom", "worktree reap: cannot resolve sessions dir: %v", err)
-		return result
-	}
-	candidates, err := findEphemeralWorktrees(sessionsRoot)
-	if err != nil {
-		clidiag.Warn("ctxloom", "worktree reap: cannot scan %q: %v", sessionsRoot, err)
+		// A startup sweep is fault-tolerant by contract (see doc above): warn
+		// and report nothing rather than propagate. The error already names
+		// what could not be resolved/scanned.
+		clidiag.Warn("ctxloom", "worktree reap: %v", err)
 		return result
 	}
 
-	for _, wtDir := range candidates {
-		switch reapOneWorktree(ctx, g, wtDir) {
-		case worktreeReaped:
+	for _, c := range ReapWorktrees(ctx, g, candidates) {
+		switch c.Verdict {
+		case VerdictReaped:
 			result.Reaped++
-		case worktreeReapSpared:
+		case VerdictSpared:
 			result.Spared++
-		default:
+		default: // VerdictSkipped, and any candidate ReapWorktrees never touched
 			result.Skipped++
 		}
 	}
 	return result
 }
 
+// ClassifyOrphanedWorktrees inspects every ctxloom-owned scratch worktree
+// under the sessions root and returns what the reaper WOULD do, mutating
+// nothing on disk. harp != "" restricts the scan to that one harp's ephemeral
+// dir; harp == "" scans every harp under the sessions root, matching
+// ReapOrphanedWorktrees' historical scope.
+//
+// This is the read half reapOneWorktree never had: the old combined function
+// tore a candidate down FIRST and inferred the verdict afterwards by stat-ing
+// the directory, with the "why" going only to clidiag.Warn (never returned).
+// A caller that wants to show its work before removing anything —
+// `session worktrees`, the reason this function exists — needed a path that
+// decides without acting.
+func ClassifyOrphanedWorktrees(ctx context.Context, g git.Git, harp string) ([]WorktreeCandidate, error) {
+	if g == nil {
+		g = git.NewExec()
+	}
+
+	wtDirs, err := findOrphanCandidateDirs(harp)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := make([]WorktreeCandidate, 0, len(wtDirs))
+	for _, wtDir := range wtDirs {
+		candidates = append(candidates, classifyOneWorktree(ctx, g, wtDir))
+	}
+	return candidates, nil
+}
+
+// findOrphanCandidateDirs resolves the set of "ctxloom-wt-*" directories to
+// classify: every harp's ephemeral dir when harp is "", or just harp's own
+// when it isn't. Errors here are real ones (an unresolvable sessions root, an
+// unreadable — not merely absent — directory) meant to reach a CLI caller;
+// ReapOrphanedWorktrees is the one caller that must swallow them instead.
+func findOrphanCandidateDirs(harp string) ([]string, error) {
+	if harp != "" {
+		ephemeral, err := paths.HarpEphemeralDir(harp)
+		if err != nil {
+			return nil, fmt.Errorf("resolve %q's ephemeral dir: %w", harp, err)
+		}
+		dirs, err := readEphemeralWorktreeDirs(ephemeral)
+		if err != nil {
+			return nil, fmt.Errorf("scan %q: %w", ephemeral, err)
+		}
+		return dirs, nil
+	}
+
+	sessionsRoot, err := paths.HomeSessionsDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolve sessions dir: %w", err)
+	}
+	dirs, err := findEphemeralWorktrees(sessionsRoot)
+	if err != nil {
+		return nil, fmt.Errorf("scan %q: %w", sessionsRoot, err)
+	}
+	return dirs, nil
+}
+
 // findEphemeralWorktrees returns every "ctxloom-wt-*" directory found directly
 // under <sessionsRoot>/<harp>/ephemeral/, across every harp dir present. An
-// absent sessionsRoot (nothing has ever run) or an absent/unreadable per-harp
-// ephemeral dir (that harp never provisioned a worktree) is a quiet skip, not
-// an error — only a genuinely unreadable sessionsRoot itself is reported.
+// absent sessionsRoot (nothing has ever run) is a quiet nil,nil — only a
+// genuinely unreadable sessionsRoot itself is reported. A per-harp ephemeral
+// dir that can't be read is silently skipped exactly as before the
+// Classify/Reap split — readEphemeralWorktreeDirs' not-exist/error split only
+// matters to the single-harp caller (findOrphanCandidateDirs), which needs to
+// tell "no worktrees" apart from "cannot scan this harp".
 func findEphemeralWorktrees(sessionsRoot string) ([]string, error) {
 	harpDirs, err := os.ReadDir(sessionsRoot)
 	if err != nil {
@@ -186,33 +293,69 @@ func findEphemeralWorktrees(sessionsRoot string) ([]string, error) {
 			continue
 		}
 		ephemeral := filepath.Join(sessionsRoot, hd.Name(), paths.EphemeralDirName)
-		entries, err := os.ReadDir(ephemeral)
+		dirs, err := readEphemeralWorktreeDirs(ephemeral)
 		if err != nil {
 			continue // no ephemeral dir for this harp — nothing to sweep
 		}
-		for _, e := range entries {
-			if e.IsDir() && strings.HasPrefix(e.Name(), worktreeCandidatePrefix) {
-				out = append(out, filepath.Join(ephemeral, e.Name()))
-			}
+		out = append(out, dirs...)
+	}
+	return out, nil
+}
+
+// readEphemeralWorktreeDirs lists the "ctxloom-wt-*" directories directly
+// under ephemeral. A missing ephemeral dir is nil,nil (that harp never
+// provisioned a scratch worktree, not an error); any other read failure is
+// returned so a single-harp caller can tell the two apart.
+func readEphemeralWorktreeDirs(ephemeral string) ([]string, error) {
+	entries, err := os.ReadDir(ephemeral)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() && strings.HasPrefix(e.Name(), worktreeCandidatePrefix) {
+			out = append(out, filepath.Join(ephemeral, e.Name()))
 		}
 	}
 	return out, nil
 }
 
-// reapOneWorktree classifies and (when safe) removes a single candidate. See
-// ReapOrphanedWorktrees' doc for the three-outcome contract.
-func reapOneWorktree(parent context.Context, g git.Git, wtDir string) worktreeReapOutcome {
+// classifyOneWorktree decides a single candidate's verdict without touching
+// disk, applying exactly the rules reapOneWorktree used to apply only AFTER
+// acting: no/unreadable owner marker or a live-or-unconfirmable owner is
+// SKIPPED without ever probing git; only a CONFIRMED dead owner goes on to
+// resolve the owning repo and run unsafeToRemove — the same gate
+// teardownWorktree itself re-runs at removal time (see ReapWorktrees), so
+// nothing here weakens the TOCTOU guard, it only PREVIEWS its outcome.
+func classifyOneWorktree(parent context.Context, g git.Git, wtDir string) WorktreeCandidate {
+	c := WorktreeCandidate{
+		Path: wtDir,
+		Harp: filepath.Base(filepath.Dir(filepath.Dir(wtDir))),
+	}
+
 	pid, ok := readWorktreeOwner(wtDir)
 	if !ok {
-		return worktreeReapSkipped // indeterminate owner — never touch
+		c.Verdict = VerdictSkipped
+		c.Reason = "no owner marker recorded — the owner cannot be proven dead, so it is treated exactly like a live one"
+		return c
 	}
-	// MaybeAlive (not a bare Alive check) treats an unconfirmable
-	// probe the same as a live owner — reaping is a DESTRUCTIVE, irreversible
-	// decision (this deletes a worktree, possibly with uncommitted WIP), so
-	// an unsure verdict must skip exactly like a confirmed-live owner does,
-	// never fall through to removal.
-	if pidalive.Probe(pid).MaybeAlive() {
-		return worktreeReapSkipped // live (or unconfirmable) owner
+	c.OwnerPID = pid
+	c.OwnerState = pidalive.Probe(pid)
+	// MaybeAlive (not a bare == Alive check) treats an unconfirmable probe
+	// the same as a live owner — reaping is a DESTRUCTIVE, irreversible
+	// decision, so an unsure verdict must skip exactly like a confirmed-live
+	// owner does, never fall through toward removal.
+	if c.OwnerState.MaybeAlive() {
+		c.Verdict = VerdictSkipped
+		if c.OwnerState == pidalive.Alive {
+			c.Reason = fmt.Sprintf("owner process %d is alive", pid)
+		} else {
+			c.Reason = fmt.Sprintf("owner process %d's liveness could not be confirmed", pid)
+		}
+		return c
 	}
 
 	ctx, cancel := context.WithTimeout(parent, worktreeReapTimeout)
@@ -228,22 +371,77 @@ func reapOneWorktree(parent context.Context, g git.Git, wtDir string) worktreeRe
 	common, err := g.CommonDir(ctx, wtDir)
 	if err != nil {
 		clidiag.Warn("ctxloom", "worktree reap: cannot resolve %q's owning repo (leaving it in place): %v", wtDir, err)
-		return worktreeReapSkipped
+		c.Verdict = VerdictSkipped
+		c.Reason = fmt.Sprintf("its owning repository could not be resolved: %v", err)
+		return c
 	}
-	repoDir := filepath.Dir(common)
+	c.RepoDir = filepath.Dir(common)
 
-	// Reuse the EXACT WIP-safe, nested-worktree-aware removal the graceful
-	// path uses — never a bespoke/looser check, and never force. It warns
-	// (clidiag) and leaves wtDir in place on any doubt, so the only thing left
-	// to do here is tell REAPED apart from SPARED by checking whether it's
-	// actually gone afterward.
-	teardownWorktree(ctx, g, repoDir, wtDir)
-	removeWorktreeOwnerMarker(wtDir)
-
-	if worktreeRemoved(wtDir) {
-		return worktreeReaped
+	if unsafe, reason := unsafeToRemove(ctx, g, wtDir); unsafe {
+		c.Dirty = true
+		c.Verdict = VerdictSpared
+		c.Reason = fmt.Sprintf("owner process %d is confirmed dead, but the worktree %s", pid, reason)
+		return c
 	}
-	return worktreeReapSpared
+
+	c.Verdict = VerdictReapable
+	return c
+}
+
+// ReapWorktrees removes exactly those candidates whose Verdict is
+// VerdictReapable, RE-CHECKING each one's safety at removal time via
+// teardownWorktree (unchanged, and never force) — a tree that went dirty
+// between ClassifyOrphanedWorktrees and this call is spared, not removed,
+// preserving the exact TOCTOU guard the pre-split reaper had. It returns a
+// COPY of candidates with Verdict/Reason updated to the outcome that actually
+// occurred; candidates it did not act on (already Spared or Skipped by
+// Classify) are returned unchanged.
+//
+// The owner marker is removed ONLY for a candidate that is actually confirmed
+// removed (VerdictReaped) — deliberately narrower than the pre-split
+// reapOneWorktree, which called removeWorktreeOwnerMarker unconditionally
+// right after teardownWorktree, before checking whether anything was even
+// removed. That was a real defect, not a design choice: a tree that survived
+// as SPARED (dirty at removal time) lost its own owner marker anyway, so the
+// NEXT classification of that same tree would read it as "no marker —
+// indeterminate" and silently downgrade it from Spared to Skipped, losing the
+// dead-owner reason it had already proven. Fixing it changes one thing an
+// external caller COULD observe (the marker file's survival on a spared
+// candidate) but not WorktreeReapResult's tallies — see
+// TestClassifyThenReap_MatchesReapOrphanedWorktrees, which proves the tallies
+// are unaffected on a fixture built to exercise all four verdicts at once.
+func ReapWorktrees(ctx context.Context, g git.Git, candidates []WorktreeCandidate) []WorktreeCandidate {
+	if g == nil {
+		g = git.NewExec()
+	}
+	out := make([]WorktreeCandidate, len(candidates))
+	copy(out, candidates)
+
+	for i := range out {
+		if out[i].Verdict != VerdictReapable {
+			continue
+		}
+		c := &out[i]
+
+		removeCtx, cancel := context.WithTimeout(ctx, worktreeReapTimeout)
+		// Reuse the EXACT WIP-safe, nested-worktree-aware removal the
+		// graceful path uses — never a bespoke/looser check, and never
+		// force. It warns (clidiag) and leaves the tree in place on any
+		// doubt, so the only thing left to do here is tell REAPED apart
+		// from SPARED by checking whether it's actually gone afterward.
+		teardownWorktree(removeCtx, g, c.RepoDir, c.Path)
+		cancel()
+
+		if worktreeRemoved(c.Path) {
+			c.Verdict = VerdictReaped
+			c.Reason = ""
+			removeWorktreeOwnerMarker(c.Path)
+		} else {
+			c.Verdict = VerdictSpared
+			c.Reason = "went dirty, or otherwise became unsafe, between listing and removal; teardown left it in place"
+		}
+	}
+	return out
 }
 
 // worktreeRemoved reports whether teardown actually removed wtDir. ONLY

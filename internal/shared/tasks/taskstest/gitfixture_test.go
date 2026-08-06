@@ -16,7 +16,8 @@ import (
 // (byte-for-byte unmodifiable, so it keeps its own copy), the acceptance
 // suite's TestEnvironment, which must route git through its own isolated
 // env/dir plumbing and so cannot call the canonical body at all, and J22's
-// close-out steps.
+// close-out steps (both the acceptance scenarios and `session worktrees`'
+// own CLI-level unit tests).
 //
 // J22 is the exception that is about the worktrees themselves rather than
 // about something that happens to need one. Its scenarios triage a POPULATION
@@ -26,12 +27,16 @@ import (
 // the rest. RealGitWorktreeFixture builds exactly one main/linked pair in one
 // state, which is the right shape for a caller that needs A worktree and the
 // wrong shape for a caller whose subject is the difference between several.
+// internal/cli/session_worktrees_test.go needs the identical population (the
+// CLI's own fast, non-acceptance-harness coverage of the same taxonomy) for
+// the identical reason.
 var sanctionedWorktreeFixtureFiles = map[string]bool{
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture.go"):      true,
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture_test.go"): true,
 	filepath.Join("internal", "config", "worktree_signpost_test.go"):                true,
 	filepath.Join("tests", "integration", "testenv", "environment.go"):              true,
 	filepath.Join("tests", "acceptance", "steps_j22_closeout.go"):                   true,
+	filepath.Join("internal", "cli", "session_worktrees_test.go"):                   true,
 }
 
 // TestRealGitWorktreeFixture_CanonicalityClaimHolds enforces the claim

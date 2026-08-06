@@ -12,21 +12,36 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
 // resetSessionWorktreesFlags restores the package-level cobra flag vars
-// backing `session worktrees` to their zero values. pflag only calls Set() on
-// flags actually present in a given argv, so a value a PRIOR test's
-// execRootCmd left on (e.g. --yes=true) survives into a later invocation that
-// never mentions the flag at all — the same reason doctor_cmd_test.go resets
-// doctorDepsOnlyFlag. Every test in this file that runs "session worktrees"
-// registers this in t.Cleanup, regardless of which flags it itself sets, so
-// no test can leak state into whichever test runs after it.
+// backing `session worktrees` to their zero values, AND clidiag's process-
+// wide structured-diagnostics flag to off. Two independent leaks, one
+// helper, because every test in this file trips both the same way:
+//
+//   - pflag only calls Set() on flags actually present in a given argv, so a
+//     value a PRIOR test's execRootCmd left on (e.g. --yes=true) survives
+//     into a later invocation that never mentions the flag at all — the same
+//     reason doctor_cmd_test.go resets doctorDepsOnlyFlag.
+//   - root.go's PersistentPreRun calls clidiag.SetStructured(true) for every
+//     --format json/yaml/toml invocation and never resets it — root_test.go,
+//     format_test.go, group_node_test.go and llm_resolve_test.go all reset it
+//     in t.Cleanup for the same reason. Every test below runs with
+//     --format json, so left unreset it flips clidiag's stderr shape for
+//     every test that runs after it in this package's binary, INCLUDING
+//     ones in other files (startup_helpers_test.go's warning-prefix
+//     assertions, discovered exactly this way).
+//
+// Every test in this file that runs "session worktrees" registers this in
+// t.Cleanup, regardless of which flags/format it itself sets, so no test can
+// leak state into whichever test runs after it.
 func resetSessionWorktreesFlags() {
 	sessionWorktreesReap = false
 	sessionWorktreesYes = false
 	sessionWorktreesHarp = ""
+	clidiag.SetStructured(false)
 }
 
 // swtDeadPid mirrors isolation's own deadPid / tests/acceptance's j22DeadPid:

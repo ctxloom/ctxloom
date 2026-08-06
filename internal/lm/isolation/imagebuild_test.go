@@ -121,8 +121,8 @@ func TestEnsureImage_UserImageIsNeverBuilt(t *testing.T) {
 // via a synthetic containerProfile{officialImage: ..., containerfile: ...}
 // literal built by nothing in production.
 func TestBuildSources_NonComposableHasNoRecipe(t *testing.T) {
-	p := containerProfileFor("mock")
-	require.Nil(t, p.engineInstall, "precondition: mock is the non-composable default profile")
+	p := containerProfileFor("no-such-engine")
+	require.Nil(t, p.engineInstall, "precondition: an unprofiled backend is the non-composable default profile")
 
 	assert.Empty(t, buildSources(p, buildSourcesOptions{}), "no recipe for an unprofiled/non-composable backend")
 	assert.Empty(t, buildSources(p, buildSourcesOptions{baseContainerfile: "/proj/Containerfile.base"}),
@@ -173,6 +173,24 @@ func TestBuildSources_Composable(t *testing.T) {
 		assert.Contains(t, all[1].desc, "auto-detected project devcontainer")
 		assert.Contains(t, all[2].desc, "embedded default base")
 	}
+}
+
+// TestBuildSources_MockIsComposable pins that mock's own profile now has a
+// local-build recipe: `ctxloom container build mock` used to fail outright
+// ("no local build recipe for this engine") because containerProfileFor fell
+// through to the non-composable default for any unrecognized/unprofiled
+// name, mock included. mockInstallFragment being non-nil is what flips
+// buildSources from empty to composableBuildSources' output — this pins the
+// OUTCOME (buildSources itself), not just the fragment's non-nilness, so a
+// future change that sets engineInstall but breaks buildSources' composable
+// branch for it would still be caught here.
+func TestBuildSources_MockIsComposable(t *testing.T) {
+	p := containerProfileFor("mock")
+	require.NotNil(t, p.engineInstall, "precondition: mock is composable")
+
+	got := buildSources(p, buildSourcesOptions{})
+	require.NotEmpty(t, got, "mock must have a local-build recipe now (previously nil/empty — 'no local build recipe for this engine')")
+	assert.Contains(t, got[0].desc, "composed agent stage")
 }
 
 // TestComposeAgentContainerfile_EngineOrderAndGates pins composeAgentContainerfile's
@@ -260,7 +278,7 @@ func TestOverlayContainerfile(t *testing.T) {
 // with the engine binary simply absent. The rendering is correct (there is no
 // command to run); the silence about it was not.
 func TestBuildSources_OverrideWithoutValidateWarns(t *testing.T) {
-	p := containerProfileFor("mock")
+	p := containerProfileFor("no-such-engine")
 	require.Empty(t, p.validate, "precondition: the default profile has no client validate command")
 
 	buf := captureWarnings(t)
@@ -961,7 +979,7 @@ func TestBuildAgentImage_Characterization(t *testing.T) {
 	})
 
 	t.Run("a backend with no local build recipe is refused", func(t *testing.T) {
-		_, err := BuildAgentImage(ctx, "mock", ImageBuildOptions{})
+		_, err := BuildAgentImage(ctx, "no-such-engine", ImageBuildOptions{})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no local build recipe")
 	})

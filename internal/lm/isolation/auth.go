@@ -426,6 +426,30 @@ func antigravityCredentialCopyMounts(containerHome, scratchDir string) ([]Mount,
 	}}, true
 }
 
+// resolveMockContainerAuth builds the (trivial) auth plan for a containerized
+// mock run: mock authenticates against NO vendor at all. internal/lm/backends'
+// Mock is compiled directly into ctxloom and calls no external AI service (see
+// backends/mock.go's package doc — it echoes fragments/context back and writes
+// a record file); there is no API key, OAuth token, or credential file it could
+// ever need. ok is therefore unconditionally true, and the plan is the
+// unconditional zero value (authNone, no env, no mounts).
+//
+// This is deliberately NOT the same shape as noContainerAuthProfile's
+// ok=false: that default exists because an UNPROFILED engine's auth needs are
+// UNKNOWN, and failing closed is the only safe answer until someone writes a
+// real resolver for it (see that function's own doc). mock's needs are not
+// unknown — they are KNOWN, and verified by reading its implementation, to be
+// zero: a POSITIVE fact about this one backend, not an absence of policy.
+// Every real engine resolver in this file returns ok=false on SOME path
+// (missing env var, missing credential file); this is the only one that never
+// does, and that is correct ONLY because mock has no vendor to authenticate
+// against. Nothing about this function generalizes to a real engine — a
+// resolver for a real engine that "resolved" no credentials MUST return
+// ok=false (see every resolver above), never copy this shape.
+func resolveMockContainerAuth(_ string, _ string) (containerAuth, bool) {
+	return containerAuth{mode: authNone}, true
+}
+
 // presentEnvKeys returns the subset of keys that getenv reports as set
 // (non-empty), in order. It is the shared filter behind two container-env
 // forwards that differ only in the -e form they emit: the auth passthrough

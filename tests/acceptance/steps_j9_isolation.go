@@ -28,6 +28,7 @@ import (
 	"github.com/cucumber/godog"
 
 	"github.com/ctxloom/ctxloom/internal/gitignore"
+	"github.com/ctxloom/ctxloom/internal/testsupport/containercell"
 )
 
 // j9Record is one "Alice runs the mock agent under workspace ..." step's
@@ -267,6 +268,24 @@ func registerJ9Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Alice runs the container-bound agent with flags "([^"]*)"$`, func(c context.Context, flags string) error {
 		w := worldFrom(c)
 		j9 := j9Of(w)
+		// THIS ROW ONLY MEANS ANYTHING ON A MACHINE WHERE THE CONTAINER CANNOT
+		// LAUNCH. It asserts the fail-loud/degrade contract for a REQUESTED
+		// container that cannot start; where one CAN start, the correct
+		// behaviour is to start it, and asserting an abort would be asserting a
+		// bug.
+		//
+		// It passed for years on machines that HAVE docker, and not because the
+		// runtime was unreachable: the mock backend had no container-auth
+		// profile, so resolveAuth failed closed and THAT produced the exit 3.
+		// The moment mock gained a profile the run launched a real container and
+		// this row went red — the scenario had been exercising the auth gate
+		// while claiming to exercise the runtime gate. Skipping loudly here is
+		// the honest reading; a green that depends on an unrelated failure is
+		// worth less than a skip that says why.
+		if rt, _, _ := containercell.Select(c, "j9's container fail-loud row"); rt.Available {
+			fmt.Printf("SKIPPED (j9 container fail-loud row): a container runtime IS reachable here, so a requested container legitimately launches; this row asserts the CANNOT-launch contract\n")
+			return godog.ErrSkip
+		}
 		// Fresh record path per invocation, same as the workspace-axis "mock
 		// agent" step above -- the mock engine writes cwd=/workdir= to this
 		// file regardless of whether it ends up running in a container or

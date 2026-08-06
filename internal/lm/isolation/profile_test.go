@@ -1,6 +1,7 @@
 package isolation
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -67,7 +68,7 @@ func TestContainerProfileFor_Kiro(t *testing.T) {
 // always returns ok=false, and the hint names the missing profile rather
 // than Anthropic's env vars.
 func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
-	for _, name := range []string{"", "mock"} {
+	for _, name := range []string{"", "no-such-engine"} {
 		p := containerProfileFor(name)
 		assert.Equal(t, defaultContainerImage, p.image, "backend %q", name)
 		assert.Nil(t, p.engineInstall, "backend %q is not composable", name)
@@ -165,6 +166,53 @@ func TestContainerProfileFor_Antigravity(t *testing.T) {
 	_, ok := p.resolveAuth("/root", t.TempDir())
 	assert.False(t, ok, "no host antigravity OAuth token seeded → must degrade, never silently borrow claude's ANTHROPIC_API_KEY")
 	assert.Contains(t, p.authHint, "antigravity-oauth-token")
+}
+
+// TestContainerProfileFor_Mock pins mock's own profile: composable (so
+// `ctxloom container build mock` no longer refuses with "no local build
+// recipe"), a validate command that proves the image without any vendor
+// client (mock installs none), an auth resolver that ALWAYS succeeds (mock
+// authenticates against no vendor at all — unlike every other engine's
+// resolver, which degrades on some path), and an overlay set scoped to
+// mock's own managed-config directory (.mock, covering mockSkillsPath's
+// .mock/skills) plus the shared .ctxloom/cache — never claude's .claude.
+func TestContainerProfileFor_Mock(t *testing.T) {
+	p := containerProfileFor("mock")
+	assert.Equal(t, defaultContainerImage, p.image)
+	assert.NotNil(t, p.engineInstall, "mock must be composable so `container build mock` has a recipe")
+	assert.Contains(t, string(p.engineInstall), "cat", "mock's fragment asserts the one thing it actually needs: cat")
+	assert.Equal(t, "cat --version", p.validate, "mock has no vendor client to validate; cat is its one real dependency")
+	assert.Contains(t, p.overlayDirs, ".mock")
+	assert.NotContains(t, p.overlayDirs, ".claude", "mock writes no .claude config")
+	assert.Contains(t, p.overlayDirs, filepath.FromSlash(".ctxloom/cache"))
+	assert.Empty(t, p.transcriptStoreRel, "mock keeps no transcripts (NilSessionHistory)")
+
+	require.NotNil(t, p.resolveAuth, "the mock profile wires an auth resolver")
+	auth, ok := p.resolveAuth("/root", t.TempDir())
+	require.True(t, ok, "mock authenticates against no vendor, so resolution always succeeds")
+	assert.Equal(t, authNone, auth.mode)
+	assert.Empty(t, auth.envPassthrough)
+	assert.Empty(t, auth.mounts)
+}
+
+// TestResolveMockContainerAuth_AlwaysSucceeds is the unit-level pin on the
+// resolver itself (as opposed to TestContainerProfileFor_Mock's pin that the
+// profile WIRES it): unlike every other resolveXContainerAuth in this
+// package, it must return ok=true unconditionally — there is no env var or
+// credential file whose presence/absence could flip it, because mock has no
+// vendor to authenticate against.
+func TestResolveMockContainerAuth_AlwaysSucceeds(t *testing.T) {
+	auth, ok := resolveMockContainerAuth("/home/ctxloom", t.TempDir())
+	require.True(t, ok)
+	assert.Equal(t, authNone, auth.mode)
+	assert.Empty(t, auth.envPassthrough)
+	assert.Empty(t, auth.mounts)
+
+	// Vary the inputs (a different containerHome/scratchDir, and an empty
+	// scratchDir) — the resolver reads neither, so the outcome must not move.
+	auth2, ok2 := resolveMockContainerAuth("", "")
+	require.True(t, ok2)
+	assert.Equal(t, authNone, auth2.mode)
 }
 
 // TestNewContainerFor_UsesProfileImage / TestNewContainer_ExplicitImageWins pin
@@ -281,12 +329,21 @@ func TestNativeACPRunGate_ProbesTheSubcommandNotTheClient(t *testing.T) {
 // skips the transcript mount, so a containerized run writes a transcript that
 // dies at --rm teardown with nothing said. sessionStateMounts' `if
 // c.profile.transcriptStoreRel != ""` guard is real, but the empty case is
-// unreachable: Container.profile is only ever assigned from
-// containerProfileFor (NewContainerFor), and EVERY branch of that switch —
-// each composable engine, plus the unknown/empty default — sets a non-empty
-// store root. This pins that reachability argument so the row's premise
-// cannot become true unnoticed: a new engine profile that forgets its store
-// root turns this red rather than silently losing that engine's transcripts.
+// unreachable for every backend HERE COVERED: Container.profile is only ever
+// assigned from containerProfileFor (NewContainerFor), and every branch of
+// that switch checked below — each composable engine, plus the
+// unknown/empty default — sets a non-empty store root. This pins that
+// reachability argument so the row's premise cannot become true unnoticed: a
+// new engine profile that forgets its store root turns this red rather than
+// silently losing that engine's transcripts.
+//
+// mock is the ONE deliberate, documented exception (see containerProfileFor's
+// "mock" case doc): it keeps no transcripts at all
+// (internal/lm/backends.NewMock wires &NilSessionHistory{}), so "" is the
+// CORRECT value there, not an oversight the loop above should catch. It gets
+// its own explicit assertion instead of being silently excluded from the
+// names list, so a future change that gives mock a non-empty root (or
+// accidentally empties some other engine's) is visible either way.
 func TestContainerProfileFor_EveryProfileMapsATranscriptStore(t *testing.T) {
 	names := append(composableEngines(), "", "no-such-engine")
 	for _, name := range names {
@@ -294,4 +351,6 @@ func TestContainerProfileFor_EveryProfileMapsATranscriptStore(t *testing.T) {
 		assert.NotEmpty(t, p.transcriptStoreRel,
 			"backend %q must map a native transcript store root; an empty one silently drops the transcript mount in sessionStateMounts", name)
 	}
+	assert.Empty(t, containerProfileFor("mock").transcriptStoreRel,
+		"mock keeps no transcripts (NilSessionHistory) — an empty store root is the correct, deliberate value here")
 }

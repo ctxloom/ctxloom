@@ -113,6 +113,61 @@ var opencodeOverlayDirs = []string{
 	filepath.FromSlash(".ctxloom/cache"),
 }
 
+// mockOverlayDirs shadows mock's ONLY project-relative managed-config
+// DIRECTORY: .mock/skills (internal/lm/backends/mock_surfaces.go's
+// mockSkillsPath — the shared ManagedSkillPackages delivery, the same
+// mechanism every other backend's skills surface uses). The whole ".mock"
+// parent is shadowed, not just "skills" underneath it, mirroring every other
+// profile's whole-managed-dir mount (.claude/.kiro/.codex/.opencode); .mock
+// has no other sibling content today, so the wider shadow costs nothing.
+// mock's CONTEXT surface (MOCK_CONTEXT.md, mockContextPath) is a PROJECT-ROOT
+// SINGLE FILE, deliberately NOT listed here — the same single-file residue
+// defaultOverlayDirs' doc flags for claude's .mcp.json and opencodeOverlayDirs'
+// for opencode.json: a file bind-mount would break the writers' atomic
+// write+rename (containerConfigOverlay's own doc: "directories only"). The
+// shared .ctxloom/cache rides along like every other profile's set — the
+// framed context file cache is engine-agnostic, not mock-specific.
+var mockOverlayDirs = []string{
+	".mock",
+	filepath.FromSlash(".ctxloom/cache"),
+}
+
+// mockInstallFragment is mock's composable-engine RUN layer — and it is
+// DELIBERATELY THE ODD ONE OUT among every fragment in this file. Mock has NO
+// vendor CLI to install: its "engine" is the ctxloom binary itself
+// (internal/lm/backends' Mock — compiled into ctxloom, calling no external
+// process), so there is no client to fetch, no adapter to validate, nothing
+// this fragment could do that claudeCodeInstallFragment/codexInstallFragment/
+// etc. do for their own engines.
+//
+// The two things a mock container run actually needs — ctxloom itself at
+// defaultContainerBinary, and a `cat` for the shared-filesystem probe
+// (sharedfs.go's probeOneRoot runs `cat /probe/marker` IN THIS IMAGE) — are
+// BOTH already guaranteed unconditionally by machinery this fragment does not
+// own: composeAgentContainerfile's own trailing `COPY ctxloom …` step runs
+// after every engine fragment regardless of which engines were selected, and
+// `cat` ships as part of coreutils on every base composeAgentContainerfile
+// builds onto (baseContractLayer's apt-get layer, or the embedded default
+// base). This fragment adds nothing to either guarantee.
+//
+// Its job is narrower: (1) be NON-NIL, so containerProfileFor("mock").
+// engineInstall marks the profile composable (buildSources' `p.engineInstall
+// != nil` check) and `ctxloom container build mock` stops failing "no local
+// build recipe" for a backend that plainly does not need one refused; and (2)
+// assert the one thing that genuinely IS mock-specific — `cat` — as a
+// build-time gate rather than a bare, unverified assumption, the same
+// "prove it, don't assume it" discipline nodeFloorFragment and the ACP run
+// gates apply to their own floors.
+//
+// NOT a template for a real engine: every other fragment in this file
+// installs an actual vendor client and hard-gates it running
+// (`<client> --version` / adapterRunGate / nativeACPRunGate). A future real
+// engine's fragment must do the same — this shape is correct ONLY because
+// mock has no vendor client at all.
+var mockInstallFragment = []byte(`RUN command -v cat >/dev/null 2>&1 \
+    || { echo "ctxloom: this base has no cat (needed by the shared-fs probe, sharedfs.go's probeOneRoot)" >&2; exit 1; }
+`)
+
 // nodeFloorFragment is the shared prereq every ACP-adapter install depends on:
 // a node the adapter can actually PARSE.
 //
@@ -501,6 +556,40 @@ func containerProfileFor(backend string) containerProfile {
 		p.overlayDirs = nil
 		p.transcriptStoreRel = filepath.FromSlash(".gemini/antigravity-cli/brain")
 		return p
+	// mock is COMPOSABLE (engineInstall != nil, so buildSources stops
+	// reporting "no local build recipe" for it) but — unlike every other
+	// case above — installs NO vendor CLI at all; see mockInstallFragment's
+	// doc for why its only real job is asserting `cat`. Its auth resolver,
+	// resolveMockContainerAuth, is the one resolver in this file that never
+	// returns ok=false: mock authenticates against no vendor, so there is
+	// nothing to resolve (see that function's doc — this is a POSITIVE,
+	// verified fact about mock, not a template for a real engine).
+	// Deliberately its OWN case rather than falling to `default`: the
+	// default arm's resolveAuth (noContainerAuthProfile) exists precisely
+	// for engines whose auth needs are UNKNOWN, and mock's are known, so it
+	// does not belong there — and NOT added to composableEngines() (that
+	// roster question is escalated, not decided here; see this change's own
+	// report).
+	//
+	// transcriptStoreRel is deliberately "" — mock keeps NO transcripts at
+	// all (internal/lm/backends' NewMock wires &NilSessionHistory{}, its own
+	// doc: "mock keeps no transcripts"), so there is no native store root to
+	// bind-mount; sessionStateMounts' `if c.profile.transcriptStoreRel !=
+	// ""` guard already treats "" as "nothing to mount for this engine",
+	// the CORRECT reading here, not an oversight (contrast
+	// TestContainerProfileFor_EveryProfileMapsATranscriptStore, whose "every
+	// branch sets a non-empty root" invariant is scoped to
+	// composableEngines()+default and explicitly carves mock out).
+	case "mock":
+		return containerProfile{
+			image:              defaultContainerImage,
+			engineInstall:      mockInstallFragment,
+			validate:           "cat --version",
+			resolveAuth:        resolveMockContainerAuth,
+			authHint:           "unreachable: resolveMockContainerAuth never returns ok=false (mock authenticates against no vendor)",
+			overlayDirs:        mockOverlayDirs,
+			transcriptStoreRel: "",
+		}
 	default:
 		// This used to be resolveAuth: resolveClaudeContainerAuth —
 		// the unknown-backend default failed OPEN on credentials, so any

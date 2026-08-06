@@ -70,10 +70,17 @@ Feature: Engine switch day
   # migration day, when every engine name in play is unfamiliar, the error that
   # fires is about directory state.
   #
-  # UNTAG WHEN: the refusal names the engine argument as the problem and lists
-  # the engines ctxloom knows. RED today for the reason above, not for the
-  # originally-reported one.
-  @wip
+  # UNTAGGED: `manage install --engine` now validates the argument BEFORE the
+  # already-exists check gets a chance to fire, so a typo is diagnosed as a
+  # typo even against an already-initialized project. The check lives in
+  # cli.checkEngineKnown (internal/cli/manage.go) and runs ahead of
+  # checkInstallEngineApplies. Its roster is backends.List(), not
+  # operations.AvailableLLMNames — unlike `agent edit --engine`, this flag
+  # ends up as the TYPE of a real `{type: engine}` LM config entry
+  # (operations.engineRegistry/fallbackRegistry) when scaffolding, so it needs
+  # no project config and applies identically whether or not .ctxloom exists
+  # yet, the same set InitializeProject already enforces via backends.Exists
+  # for the fresh-scaffold path.
   Scenario: A typo in the engine name is caught, not reported as success
     When I run "ctxloom manage install --engine bogus-engine"
     Then ctxloom refuses and names the engines it knows

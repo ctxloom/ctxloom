@@ -14,8 +14,9 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   it was not possible at all. It stated the whole claim anyway, because the
   claim is what the bundle-as-tree restructure is FOR, and a journey that only
   asserted the parts that already worked would have gone green while the
-  capability stayed missing. Most of it is green now; what is not is named,
-  with its reason, at the scenario that carries it.
+  capability stayed missing. It is all green now; the block below records what
+  each blocker was and how it closed, because a journey that goes green
+  silently is as easy to misread as one that never does.
 
   # ============================================================================
   # WHY THIS IS A NEW JOURNEY (J20) AND NOT AN EXTENSION OF J2/J3/J18
@@ -51,7 +52,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # ============================================================================
 
   # ============================================================================
-  # WHAT IS STILL @wip HERE, AND WHAT UNTAGS IT
+  # WHAT WAS @wip HERE, AND WHAT UNTAGGED EACH PART
   #
   # THE PRIMARY BLOCKER IS FIXED. It was: a directory-form bundle could not be
   # fetched from a remote at all — fetchAtLockedSHA resolved a ref to ONE file
@@ -83,11 +84,11 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # the Given always claimed it did, so five of the six kinds — fragment,
   # command, mcp, hook and the whole skill package — reach Alice's assistant.
   #
-  # ONE THING REMAINS RED; the second entry below records what came off the
-  # list and what is left of it.
+  # Two more things were red, and both are green now:
   #
-  # (a) HOOK ORDER (one scenario). See the block above that scenario; the
-  #     reason it is red is NOT the fetch gap and never was.
+  # (a) HOOK ORDER (one scenario) was red for a fixture reason, never the fetch
+  #     gap — see the block above that scenario for what was actually wrong
+  #     and how the fixture and its assertions were corrected.
   #
   # (b) was THE CONTAINER HALF OF THE DELIVERY MATRIX (six rows), and is now
   #     GREEN: a hermetic container cell exists
@@ -248,38 +249,44 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # field (wire.UnifiedHooks.Append, agent.MergeHooksConfig). Sequence is
   # therefore a property of the list's ORDER.
   #
-  # The tree format stores one file per hook at hooks/<event>/<name>.yaml and
-  # enumerates a directory, which yields SORTED-BY-NAME order. Those two facts
-  # do not agree, and nothing about the BYTES would show the disagreement: a
-  # tree that round-trips four hooks under one event with their sequence
-  # permuted is byte-identical, file for file, to one that did not.
+  # The tree format stores one file per hook at hooks/<event>/<name>.yaml, and
+  # a directory has no list — so its ONLY order carrier is content.Hook.Order,
+  # a sparse integer in the hook's own ".<name>.meta.yaml" sidecar, resolved by
+  # content.SortHooks (an earlier "NN-" filename-prefix scheme was retracted in
+  # favour of it — see internal/content/convert's package doc). Without that
+  # field a reader has nothing to sort by except the filename, and nothing
+  # about the BYTES would show the disagreement: a tree that round-trips four
+  # hooks under one event with their sequence permuted is byte-identical, file
+  # for file, to one that did not.
   #
   # This scenario asserts the sequence explicitly, per event, and it is the
   # one scenario here that would still be needed if the fetch gap were fixed
-  # tomorrow. The fixture deliberately names its post_file_edit hooks so that
-  # ALPHABETICAL ORDER AND DECLARED ORDER DISAGREE ("stamp" is declared first,
-  # "audit" second) — a fixture whose names happened to sort correctly would
+  # tomorrow. The fixture declares each post_file_edit hook's order via its
+  # sidecar (stamp=100, audit=200) so that ALPHABETICAL ORDER AND DECLARED
+  # ORDER DISAGREE — a fixture whose names happened to sort correctly would
   # pass while proving nothing.
   #
-  # STILL RED AFTER THE FETCH GAP CLOSED, and the reason is not the one above.
-  # The delivery is byte-perfect: both hooks arrive, under the right event, and
-  # the observed failure is exactly "got [audit stamp], want [stamp audit]".
-  # But the tree format DOES have an order carrier — content.Hook.Order, a
-  # sparse integer in the hook's metadata sidecar, resolved by
-  # content.SortHooks (see internal/content/convert's package doc, which
-  # records that an earlier "NN-" filename-prefix scheme was retracted in
-  # favour of it). This fixture uses neither: it authors bare hook files with
-  # no sidecar and no order field, and the assertion reads raw directory order
-  # rather than resolving through SortHooks. So what is red here is a fixture
-  # that declares order by LIST POSITION in a format that has no list, checked
-  # against an enumeration that never consults the field the format provides.
+  # WAS RED AFTER THE FETCH GAP CLOSED, for a fixture reason, not a product
+  # one: content.Hook.Order and content.SortHooks already existed and needed
+  # no change. The fixture authored bare hook files with no sidecar and no
+  # order field, and the assertion read raw directory order (sorted by
+  # filename) rather than resolving through SortHooks — a fixture declaring
+  # order by LIST POSITION in a format that has no list, checked against an
+  # enumeration that never consulted the field the format provides. Fixed by
+  # authoring the sidecar and reading the pulled tree through the same
+  # content.NewTreeStore -> Bundle.Refs/Item/Surface path the product uses,
+  # then resolving with content.SortHooks — the "declared order survives the
+  # trip" claim, for a directory-form bundle, IS "the Order sidecar field
+  # survives the trip", because that field is the only way a tree-form bundle
+  # can declare order at all.
   #
-  # That is left as-is rather than quietly repaired, because repairing it
-  # changes what the scenario proves — from "declared order survives the trip"
-  # to "the Order sidecar field survives the trip", which is a different and
-  # narrower claim. Someone who owns the spec should choose.
+  # The bucketing half reads each hook's DECODED content.Hook.Event (via
+  # Item.Surface, i.e. hookType.Decode), not the ref's path string — the ref
+  # path only proves a hook's file sits in the right directory, where the
+  # decoded Event field is what internal/bundles.ReadTree's reader.add
+  # actually keys its per-event grouping on once a real pulled tree becomes
+  # the bundle the product merges.
   # --------------------------------------------------------------------------
-  @wip
   Scenario: Hooks arrive in the right event buckets AND in their declared order within each
     Given Trent publishes the "atelier" tree to his company repo, signed with the company key
     When Alice references the company's "atelier" bundle and pulls it

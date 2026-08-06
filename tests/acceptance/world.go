@@ -162,6 +162,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ10Steps(ctx)
 	registerJ11Steps(ctx)
 	registerJ12Steps(ctx)
+	registerJ14SessionDistillSteps(ctx)
 	registerJ16Steps(ctx)
 	registerJ17Steps(ctx)
 	registerJ18Steps(ctx)

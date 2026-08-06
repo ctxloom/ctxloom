@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -133,8 +134,15 @@ func TestOverlay_RunKeystrokeNavigatesRoster(t *testing.T) {
 
 	_, err := pw.Write([]byte("j"))
 	require.NoError(t, err)
+	// Asserted through the WATCH the navigation causes, not through the
+	// painted title. bubbletea v2's renderer diffs frames: switching feeds
+	// rewrites the single changed cell (\x1b[9A\x1b[63D2 — move up, move
+	// left, print "2"), so the string "feed: h2" is never written to the tty
+	// and a substring match cannot see it. Opening h2's feed still proves the
+	// keystroke crossed the pipe, reached Model.Update inside a real Program,
+	// and that its command ran.
 	waitForOverlay(t, "j navigates to the second row's feed", func() bool {
-		return strings.Contains(tty.String(), "feed: h2")
+		return slices.Contains(f.watchedHarps(), "h2")
 	})
 
 	_, err = pw.Write([]byte("q"))

@@ -53,9 +53,17 @@ jobs:
     # suite execs it as a subprocess), which needs generated protobuf code
     # (buf/protoc-gen-go, gitignored — see internal/agentcoord) that only the
     # devcontainer image carries. Reuses the SAME image ci.yml's build-container
-    # job publishes (":latest" on every push to main; a fresh checkout of THIS
-    # commit's source is what actually gets built, so a same-day image lag is
-    # harmless — the image only supplies the toolchain, never the source).
+    # job publishes. That job tags ":latest" with
+    # enable={{is_default_branch}}, and the default branch IS release/0.7 — the
+    # branch this workflow triggers on — so ":latest" is refreshed by the same
+    # pushes that run this. (It said "every push to main", which has been wrong
+    # since the default branch moved; main is 4615 commits behind and would
+    # have meant a permanently stale toolchain here.)
+    #
+    # A fresh checkout of THIS commit's source is what actually gets built, so
+    # a same-day image lag is harmless — the image only supplies the toolchain,
+    # never the source. Giving this workflow its own build-container dependency
+    # remains open as manly-crib.
     container:
       image: ghcr.io/${{ github.repository }}-devcontainer:latest
       credentials:

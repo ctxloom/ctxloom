@@ -98,9 +98,13 @@ Feature: Dana in her editor
   # bundle without the team's guardrails, and it is the same missing
   # capability: a per-engine report of what this binding cannot carry.
   #
-  # UNTAG WHEN: onboarding or listing a generic ACP agent reports what that
-  # binding does not inherit. Expected RED.
-  @wip
+  # UNTAGGED (trusting-ambiguity): `acp list`'s human rendering now says so —
+  # a standing note (renderACPAgents, acp_agents_cmd.go), unconditional on
+  # whether any binding actually declares `engine: acp` yet, since the whole
+  # point is telling Dana BEFORE she configures one, not diagnosing one after
+  # the fact. This scenario's own fixture (j25Setup) never creates such a
+  # binding, which is exactly why the note has to be structural rather than
+  # computed per-entry.
   Scenario: She is told what the editor door does not carry
     When I run "ctxloom acp list"
     Then ctxloom says what a bare ACP agent will not inherit

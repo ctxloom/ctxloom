@@ -72,23 +72,31 @@ not "did it work" — they can see that — but "what did I just lose?"
 
 On this exact engine pair the answer is concrete and verified: codex has no
 `session_end` hook. A team moving from claude-code to codex loses a hook event
-they may well have built on, and no surface anywhere mentions it, before or
-after. They will find out when something stops happening, on a day they are no
-longer thinking about the migration.
+they may well have built on, and — until this was wired — no surface anywhere
+mentioned it, before or after. `agent show <name>` now names it directly:
+`NOT carried: hooks (1 session_end) — codex has no session-end event`, printed
+alongside the resolved engine rather than in a separate pass, so scanning only
+the top of the command's output cannot be mistaken for the whole story.
 
 <!-- doc:outro -->
-This is the same missing capability that appears in U3 wearing different
+This was the same missing capability that appears in U3 wearing different
 clothes. There, a new hire's opencode-using deskmate silently receives the team
 bundle without the team's guardrails, and nothing tells either of them. Here, a
-whole team silently loses a hook event. Both are the absence of one report:
+whole team silently lost a hook event. Both are the absence of one report:
 what does this engine binding NOT carry?
 
-That report would close two journeys' worth of findings at once, and it needs
-no new protocol work — the per-engine capability matrix is already known to the
-product, since the code has to branch on it to function. It is known
-internally and never said out loud.
+That report closed two journeys' worth of findings at once, and needed no new
+protocol work — the per-engine capability matrix was already known to the
+product, since the code has to branch on it to function. It was known
+internally and never said out loud until `backends.UncarriedSurfaces` (already
+proven by `profile materialize`, whiny-exclusive) was wired to `agent show`
+too, gaining a PER-EVENT declaration (`agentDescriptor.unsupportedHookKinds`)
+alongside its existing whole-mechanism one, so a backend that has hooks in
+general but lacks one specific native event — codex's case — is reportable and
+not just a backend with none at all.
 
-Five scenarios, all `@wip` with untag conditions in the feature file. Two pass:
-the swap itself, and the survival of history across it. Which is to say the
-expensive half works and the cheap half was never written.
+Five scenarios. Four pass now: the swap itself, the survival of history across
+it, the capability-loss report above, and the agent-edit engine-name
+validation. One typo-name row (`manage install --engine`) stays red — a
+separate validation gap, not this report.
 <!-- /doc:outro -->

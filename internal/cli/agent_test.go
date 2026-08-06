@@ -70,7 +70,7 @@ func TestRenderAgentShow_Resolved(t *testing.T) {
 		Fragments: []string{"a", "b"},
 	}
 	var buf bytes.Buffer
-	assert.NoError(t, renderAgentShow(&buf, def, resolved, nil))
+	assert.NoError(t, renderAgentShow(&buf, def, resolved, nil, nil))
 	out := buf.String()
 
 	assert.Contains(t, out, "Agent: dev")
@@ -87,14 +87,14 @@ func TestRenderAgentShow_Driving(t *testing.T) {
 	def := &operations.AgentEntry{Name: "shooter", Engine: "slow", Driving: "oneshot", Source: "config"}
 	resolved := &operations.ResolvedAgent{Name: "shooter", Label: "slow", Backend: "mock"}
 	var buf bytes.Buffer
-	assert.NoError(t, renderAgentShow(&buf, def, resolved, nil))
+	assert.NoError(t, renderAgentShow(&buf, def, resolved, nil, nil))
 	assert.Contains(t, buf.String(), "Driving: oneshot")
 }
 
 func TestRenderAgentShow_ResolutionFailureStillPrintsDefinition(t *testing.T) {
 	def := &operations.AgentEntry{Name: "dev", Profiles: []string{"missing"}}
 	var buf bytes.Buffer
-	assert.NoError(t, renderAgentShow(&buf, def, nil, errors.New("profile missing not found")))
+	assert.NoError(t, renderAgentShow(&buf, def, nil, errors.New("profile missing not found"), nil))
 	out := buf.String()
 
 	assert.Contains(t, out, "Agent: dev")
@@ -152,7 +152,7 @@ func TestAgentShow_JSONCarriesTheResolutionFailure(t *testing.T) {
 	// Text and JSON must agree: the text renderer reports the same failure.
 	var text bytes.Buffer
 	require.NoError(t, renderAgentShow(&text, &operations.AgentEntry{Name: "broken"}, nil,
-		errors.New("no-such-profile not found")))
+		errors.New("no-such-profile not found"), nil))
 	assert.Contains(t, text.String(), "Resolved engine: unavailable")
 }
 
@@ -194,7 +194,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		}
 
 		var buf bytes.Buffer
-		require.NoError(t, renderAgentShow(&buf, def, resolved, nil))
+		require.NoError(t, renderAgentShow(&buf, def, resolved, nil, nil))
 		out := buf.String()
 
 		for _, want := range []string{
@@ -219,7 +219,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 	t.Run("nothing optional declared, minimal resolution", func(t *testing.T) {
 		var buf bytes.Buffer
 		require.NoError(t, renderAgentShow(&buf, &operations.AgentEntry{Name: "bare"},
-			&operations.ResolvedAgent{Label: "default"}, nil))
+			&operations.ResolvedAgent{Label: "default"}, nil, nil))
 		out := buf.String()
 
 		assert.Contains(t, out, "Agent: bare\n")
@@ -234,14 +234,14 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 	t.Run("a backend without a model omits the model clause", func(t *testing.T) {
 		var buf bytes.Buffer
 		require.NoError(t, renderAgentShow(&buf, &operations.AgentEntry{Name: "b"},
-			&operations.ResolvedAgent{Label: "l", Backend: "mock"}, nil))
+			&operations.ResolvedAgent{Label: "l", Backend: "mock"}, nil, nil))
 		assert.Contains(t, buf.String(), "Resolved engine: l (backend: mock)\n")
 	})
 
 	t.Run("a failed resolution stops after the declaration", func(t *testing.T) {
 		var buf bytes.Buffer
 		require.NoError(t, renderAgentShow(&buf, &operations.AgentEntry{Name: "x", Profiles: []string{"p"}},
-			nil, errors.New("boom")))
+			nil, errors.New("boom"), nil))
 		out := buf.String()
 		assert.Contains(t, out, "Resolved engine: unavailable (boom)\n")
 		assert.NotContains(t, out, "Composed fragments:")
@@ -249,7 +249,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 
 	t.Run("a write failure is reported, not swallowed", func(t *testing.T) {
 		err := renderAgentShow(&failingWriter{err: errWriteRefused}, &operations.AgentEntry{Name: "x"},
-			&operations.ResolvedAgent{Label: "l"}, nil)
+			&operations.ResolvedAgent{Label: "l"}, nil, nil)
 		assert.ErrorIs(t, err, errWriteRefused)
 	})
 }

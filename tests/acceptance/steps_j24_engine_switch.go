@@ -45,6 +45,13 @@ const (
 	// j24Agent is the binding the whole team runs through — the thing the
 	// switch is performed ON.
 	j24Agent = "dev"
+
+	// j24HookCommand is the team's session_end hook — real config the switch
+	// actually costs something against. claude-code (the old engine) carries
+	// session_end; codex (the new one) has no native session-end event
+	// (codex.NoSessionEndReason), so this is what "what did the team just
+	// give up" measures concretely.
+	j24HookCommand = "echo j24-session-end"
 )
 
 // j24State is this journey's fixture state.
@@ -90,7 +97,8 @@ func j24Setup(w *World) error {
 		return err
 	}
 	if err := w.env.WriteFile(".ctxloom/content/bundles/house.yaml",
-		fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  house-guidance:\n    content: %q\n", j24Marker)); err != nil {
+		fmt.Sprintf("version: \"1.0.0\"\nfragments:\n  house-guidance:\n    content: %q\nhooks:\n  session_end:\n    - command: %q\n      type: command\n",
+			j24Marker, j24HookCommand)); err != nil {
 		return err
 	}
 	if err := runOK(w, "profile", "modify", "default", "--add-bundle", "house"); err != nil {

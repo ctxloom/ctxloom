@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
@@ -162,6 +163,77 @@ func TestListSessions_KeepsSessionWithOnlyACanonicalTranscript(t *testing.T) {
 		onDisk = append(onDisk, s.HarpName)
 	}
 	assert.Contains(t, onDisk, e.HarpName, "the index on disk must still hold the entry")
+}
+
+// TestListSessions_PurgedSessionSurvivesReconcile is the mutation target for
+// isUnrecoverable's PurgedAt guard (j22 close-out area 2's must-fix,
+// docs/design/j22-closeout-surfaces.design.md §4.5). Without that guard —
+// checked FIRST, ahead of the Summary/Detail/CanonicalTranscriptPath checks —
+// a session `ctxloom session purge` destroyed the transcript of, and that was
+// never distilled (no Summary, no Detail, no CanonicalTranscriptPath), is
+// judged unrecoverable by every OTHER branch of the predicate and silently
+// dropped by the very next listing: the exact "vanishes from the index,
+// indistinguishable from one that never existed" outcome PurgedAt exists to
+// prevent.
+//
+// This exercises the real end-to-end path (a real *Manager over a real
+// index.yaml, not isUnrecoverable called directly with a hand-built Entry) so
+// a defect anywhere in the wiring — MarkPurged not persisting, Reconcile not
+// seeing the persisted field — would be caught here, the same reasoning
+// TestListSessions_KeepsSessionWithOnlyACanonicalTranscript documents for its
+// sibling fix.
+//
+// MUTATION PROOF: deleting the `if e.PurgedAt != nil { return false }` guard
+// from isUnrecoverable (internal/operations/sessions.go) turns this red —
+// ListSessions() no longer contains the harp, and the reap persists (the
+// on-disk index.yaml loses the row too). Restoring the guard turns it green
+// again. Verified by hand while writing this test (see the agent's report).
+func TestListSessions_PurgedSessionSurvivesReconcile(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	e, err := mgr.AssignHarp("/proj", "claude-code")
+	require.NoError(t, err)
+
+	// A real, now-deleted transcript: exactly what `session purge` leaves
+	// behind. No Summary, no Detail, no CanonicalTranscriptPath — this entry
+	// was NEVER distilled, so every other recoverability branch reads false.
+	transcript := filepath.Join(t.TempDir(), "transcript.jsonl")
+	require.NoError(t, os.WriteFile(transcript, []byte("{}\n"), 0o644))
+	require.NoError(t, mgr.BindSession(e.HarpName, "sess-1", transcript))
+	now := time.Now()
+	require.NoError(t, mgr.MarkEnded(e.HarpName, now))
+
+	// Mark-before-destroy, exactly as PurgeSession orders it.
+	require.NoError(t, mgr.MarkPurged(e.HarpName, now))
+	require.NoError(t, os.Remove(transcript))
+
+	got, err := ListSessions()
+	require.NoError(t, err)
+	var names []string
+	for _, s := range got {
+		names = append(names, s.HarpName)
+	}
+	assert.Contains(t, names, e.HarpName,
+		"a purged session's row must survive reconciliation even though its transcript is gone and it was never distilled")
+
+	// The reap Reconcile performs is a saveLocked — persisted, not just
+	// returned — so the on-disk index must agree.
+	idx, err := mgr.Load()
+	require.NoError(t, err)
+	var onDisk []string
+	var purgedAt *sessions.Entry
+	for i := range idx.Sessions {
+		onDisk = append(onDisk, idx.Sessions[i].HarpName)
+		if idx.Sessions[i].HarpName == e.HarpName {
+			purgedAt = &idx.Sessions[i]
+		}
+	}
+	assert.Contains(t, onDisk, e.HarpName, "the index on disk must still hold the purged entry")
+	if assert.NotNil(t, purgedAt, "the purged entry must still be findable in the on-disk index") {
+		assert.NotNil(t, purgedAt.PurgedAt, "PurgedAt itself must have persisted, not just survived in memory")
+	}
 }
 
 // TestBindSession_TransientIndexReadFailureWarnsRatherThanFailingSilently:

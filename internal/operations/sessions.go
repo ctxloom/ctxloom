@@ -26,6 +26,13 @@ func openSessions() (sessions.Store, error) {
 // to fall back on. A still-pending entry (no transcript bound yet — a run in
 // flight) and a distilled entry are recoverable, so both are kept.
 func isUnrecoverable(e sessions.Entry) bool {
+	if e.PurgedAt != nil {
+		return false // purged on purpose: the row IS the record now, checked
+		// first so a purge that already destroyed the transcript this
+		// predicate would otherwise flag can never race its own index write —
+		// see operations.PurgeSession and sessions.Manager.MarkPurged's
+		// mark-before-destroy ordering.
+	}
 	if e.Summary != "" || len(e.Detail) > 0 {
 		return false // distilled: essence.md is still viewable
 	}

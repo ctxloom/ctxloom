@@ -157,6 +157,24 @@ func (m *MemStore) MarkEnded(harpName string, at time.Time) error {
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
+// MarkPurged stamps PurgedAt on the named entry. Idempotent. Mirrors
+// Manager.MarkPurged's ordering contract (mark before the caller destroys any
+// file) — this fake exists so operations-level tests can exercise that
+// ordering without a real index.yaml.
+func (m *MemStore) MarkPurged(harpName string, at time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName != harpName {
+			continue
+		}
+		t := at.UTC()
+		m.sessions[i].PurgedAt = &t
+		return nil
+	}
+	return fmt.Errorf("harp not found: %q", harpName)
+}
+
 // Rename changes a harp name, erroring if oldName is absent, newName is taken,
 // or newName is not a usable harp identifier. The last check mirrors
 // Manager.Rename exactly: this is the fake every other package's

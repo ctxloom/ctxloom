@@ -25,6 +25,7 @@ type Store interface {
 	AssignHarp(projectDir, backend string) (Entry, error)
 	BindSession(harpName, sessionID, transcriptPath string) error
 	MarkEnded(harpName string, at time.Time) error
+	MarkPurged(harpName string, at time.Time) error
 	Rename(oldName, newName string) error
 	Forget(harpName string) error
 	PendingUpgrade() *upgrade.Pending

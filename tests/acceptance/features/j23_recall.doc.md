@@ -51,41 +51,60 @@ to ask the question.
 
 ## The archive and the archive
 
-Then the resume scenario goes red, and the reason is more interesting than the
-failure.
+The resume scenario went red, and the reason was more interesting than the
+failure — and it is now fixed.
 
 `run --session <harp>` is the payoff the whole capture apparatus exists for. It
-does not read the canonical transcript. `operations.RecordedSessionEntries`
-resumes by asking the BACKEND's own session reader for the entry's native
-session id — so what gets folded back into a run comes from the vendor's
+used not to read the canonical transcript. `operations.RecordedSessionEntries`
+resumed by asking the BACKEND's own session reader for the entry's native
+session id — so what got folded back into a run came from the vendor's
 private store, not from ctxloom's copy.
 
-Which means ctxloom maintains two archives and reads back from the wrong one.
+Which meant ctxloom maintained two archives and read back from the wrong one.
 The canonical transcript is the artifact it owns, converts, schema-versions and
-promises portability for. The vendor store is the artifact it actually resumes
+promises portability for. The vendor store was the artifact it actually resumed
 from, and the vendor store is precisely the thing that goes away — when a
 vendor rotates its format, when a session ages out, when the team switches
 engines, when someone clears their cache. A session whose vendor store is gone
-is exactly the case `session backfill` exists to rescue, and it may not be
+is exactly the case `session backfill` exists to rescue, and it was not
 resumable from the copy backfill just made.
 
-Nothing about this is hard to fix and nothing about it is visible without
-asking. It has presumably been true the whole time.
+Fixed 2026-08-05: `RecordedSessionEntries` now prefers
+`entry.CanonicalTranscriptPath` (populated only when `transcript.jsonl` exists
+on disk) via `transcript.ParseTranscriptFile`, falling back to the backend
+reader only for a session that predates canonical capture. Nothing about this
+was hard to fix and nothing about it was visible without asking; it had
+presumably been true the whole time, and closing it also closed a measured
+blind spot in the retention scenario below (a consuming resume placed right
+after the canonical read is now on the path the guard actually watches).
+
+## The assistant's own side of recall
+
+`load_session` is the model reaching for its own memory mid-conversation
+rather than a human running `session show`. It returns the harp's distilled
+ESSENCE, not the raw conversation — confirmed by `mcp_tools.feature`'s own
+"Load a prior session's essence over MCP" scenario, which names it that way in
+its title. That is the deliberate design, not a gap: on-demand distillation
+(`load_session`, `recover_session`, `get_previous_session`,
+`list_sessions(distill_missing)`) is the surface the project has committed to
+keeping (task `close-ducky` removes only the automatic *post-session* distill
+pass; this on-demand path is explicitly unaffected).
 
 ## The mistyped harp
 
 A harp is three random words. Mistyping one is the single most ordinary error
-available on this command, and today it takes the process down with a nil
+available on this command, and it used to take the process down with a nil
 dereference: `operations.GetSession` returns `(nil, nil)` for an absent harp
-and `RecordedSessionEntries` dereferences the entry without checking.
+and `RecordedSessionEntries` dereferenced the entry without checking.
 
-The detail that makes it worth a scenario rather than a one-line fix is that
+The detail that made it worth a scenario rather than a one-line fix is that
 `resumeFullContext` documents a contract covering both halves of the problem —
-an unresolvable harp and an unbound one — and only the unbound half is
-honoured. The unbound case degrades correctly with a warning. The unresolvable
-case never reaches the warn that was written for it. The same call is shared by
+an unresolvable harp and an unbound one — and only the unbound half was
+honoured. The unbound case degraded correctly with a warning. The unresolvable
+case never reached the warn that was written for it. The same call is shared by
 the ACP resume path and the coordinator's ended-child resume, so the blast
-radius is wider than one flag on one command.
+radius was wider than one flag on one command. Fixed at the shared primitive;
+this scenario now proves the unresolvable half degrades the same way.
 
 It is filed (task `diffusive-dazzler`) and reported in the CLI package's own
 characterization tests. This journey reproduces it at the surface a person
@@ -98,27 +117,36 @@ the model: the whole conversation versus the conclusion. The scenario asserts
 that as a three-way discrimination — essence present, raw absent — so neither
 "carried everything" nor "carried nothing" can pass.
 
-It fails on the third branch: neither marker appears. The distilled path rides
-`CTXLOOM_RESUMED_FROM/PARTS` and a SessionStart hook rather than the assembled
-context, so a `--dry-run` shows nothing of what was resumed. That may be the
-intended plumbing. It is still a finding, and the finding is about visibility
-rather than mechanism: a user who cannot see what a resume brought in has no
+It still fails on the third branch: neither marker appears, and this one stays
+`@wip`. The distilled path rides `CTXLOOM_RESUMED_FROM/PARTS` and a
+SessionStart hook, both applied in `openSession`/`applyResumeEnv` — which
+`--dry-run` never reaches at all (it returns before `openSession` is even
+called). So this is not a rendering gap in an otherwise-complete assembly; the
+distilled-resume mechanism simply never runs under `--dry-run`, on-demand
+distill included. Making it visible is a real design decision (preview the
+essence for display only, vs. folding it into the assembled context the way
+full resume does — which would change what a REAL `--distill` run delivers,
+redundantly with the hook it already rides), not something this journey
+decides unilaterally. A user who cannot see what a resume brought in has no
 way to tell a working resume from a silent one, which is the same problem J21
-spends twelve scenarios on at a different layer.
+spends twelve scenarios on at a different layer — so the finding stands even
+though the row stays red.
 
 <!-- doc:outro -->
-The pattern across these four reds is that recall is built as plumbing and not
-as a surface anyone can inspect. Resume folds something in from somewhere, the
-distilled mode folds something else in through a different channel, the memory
-tool returns an envelope — and at no point can the person relying on it see
-what arrived. That is survivable for a feature nobody depends on and corrosive
-for a memory system, because the failure mode of a memory system is not an
-error, it is a confident answer assembled from nothing.
+As of 2026-08-05, nine of these ten scenarios are untagged: verified to pass
+AND to catch a real mutation to the production code they name. The pattern
+across the three that were genuinely red was that recall was built as plumbing
+and not as a surface anyone could inspect — resume folded a transcript in from
+the wrong archive, a step table used the wrong argument name, and a resume
+mode's delivery mechanism was invisible to `--dry-run` by construction. Two of
+those are now fixed (`RecordedSessionEntries` reads ctxloom's own canonical
+transcript first; the MCP argument name and marker were corrected to match
+`load_session`'s real, deliberate essence-only behaviour). The third —
+`--distill --dry-run` showing nothing — remains open pending a design decision
+on where the preview lives; see its own scenario comment for the two shapes
+considered and why neither was picked unilaterally.
 
 The capture side of this story is genuinely good, and it is the expensive side.
-It would be a shame to own four vendors' history in a portable schema, and then
-resume from the vendor.
-
-All ten scenarios are `@wip` with their untag conditions in the feature file.
-Six pass today.
+It would have been a shame to own four vendors' history in a portable schema,
+and then resume from the vendor — the resume path no longer does.
 <!-- /doc:outro -->

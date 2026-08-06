@@ -5,7 +5,21 @@ name: Deploy Documentation
 on:
   push:
     branches:
-      - main
+      # The ACTIVE release line, pinned deliberately rather than wildcarded.
+      #
+      # This was `main`, which is dead: 0 ahead of and 4615 behind release/0.7
+      # since 2026-06-20, so the site never published for the branch actually
+      # being released. Work lands directly on the release line, so that is
+      # what has to trigger here.
+      #
+      # NOT `release/*`, unlike ci.yml. origin carries every historical release
+      # line (v0.3.11, v0.5.0..v0.5.4, ...); running CI on one of those is
+      # harmless, but PUBLISHING THE SITE from one is not — a single push to a
+      # two-year-old branch would overwrite the live docs with its content.
+      #
+      # Cutting a new release line means changing this entry. That is a
+      # deliberate one-line edit, and publishing should be an explicit choice.
+      - release/0.7
     paths:
       - 'website/**'
       - 'README.md'

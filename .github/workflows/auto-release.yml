@@ -1,6 +1,6 @@
 name: Auto Release
 
-# On a successful CI run for a push to main (i.e. a merged PR), tag the version
+# On a successful CI run for a push to the active release line, tag the version
 # in the VERSION file and push that tag, which triggers release-completer.yml.
 #
 # This does NOT bump the version — the version is set deliberately in the PR via
@@ -18,7 +18,12 @@ on:
     workflows: ["CI"]
     types:
       - completed
-    branches: [main]
+    # The ACTIVE release line — see docs.yml for the full reasoning. `main` is
+    # dead (0 ahead, 4615 behind release/0.7), so auto-release never fired for
+    # the branch being released; and `release/*` is unsafe here for a sharper
+    # reason than for docs — it would CUT A RELEASE from any historical line
+    # that received a push. Bump this when a new line opens.
+    branches: [release/0.7]
 
 permissions:
   contents: write
@@ -32,10 +37,15 @@ jobs:
       github.event.workflow_run.event == 'push'
 
     steps:
-      - name: Checkout main
+      # Check out the SAME commit CI just went green on, not a branch name.
+      # This said `ref: main` — so even with the trigger fixed, the tag would
+      # have been cut from the dead branch's tree rather than the one that
+      # passed. Using the triggering SHA also closes the race where another
+      # push lands between CI finishing and this job checking out.
+      - name: Checkout the commit CI validated
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
           token: ${{ secrets.RELEASE_TAG_TOKEN }}
 

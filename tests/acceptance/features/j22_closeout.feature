@@ -246,7 +246,6 @@ Feature: The close-out — the end of a workstream
   # UNTAG WHEN: `ctxloom session purge <harp>` reports without destroying.
   # Expected RED: no purge, gc, prune, retention or forget verb exists anywhere
   # in the CLI (boundary B11).
-  @wip
   Scenario: Purge shows its work before it destroys anything
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And a finished session "brisk-copper-moth" that was never distilled
@@ -262,7 +261,6 @@ Feature: The close-out — the end of a workstream
   # but never mentioned is a file nobody will ever file.
   #
   # UNTAG WHEN: purge implements the three-class split. Expected RED.
-  @wip
   Scenario: Purge destroys the bulk, keeps the meaning, and never eats authored work
     Given a finished session "amber-quiet-heron" carrying design notes nobody filed
     When I run "ctxloom session purge amber-quiet-heron --yes"
@@ -278,7 +276,6 @@ Feature: The close-out — the end of a workstream
   #
   # UNTAG WHEN: `--everything` refuses undistilled sessions without
   # `--undistilled`. Expected RED.
-  @wip
   Scenario: Forgetting a session nobody ever summarised takes an extra deliberate flag
     Given a finished session "brisk-copper-moth" that was never distilled
     When I run "ctxloom session purge brisk-copper-moth --everything --yes"
@@ -293,7 +290,6 @@ Feature: The close-out — the end of a workstream
   #
   # UNTAG WHEN: purge leaves scratch worktrees registered and on disk.
   # Expected RED: the leaf does not exist.
-  @wip
   Scenario: Purging a session does not reap the worktrees living inside it
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And session "amber-quiet-heron" left a scratch worktree holding uncommitted work

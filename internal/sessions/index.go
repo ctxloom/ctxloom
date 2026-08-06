@@ -90,6 +90,17 @@ type Entry struct {
 	// TranscriptPath; it does not change which reader any existing consumer
 	// selects (that is S4's job).
 	CanonicalTranscriptPath string `yaml:"-" json:"canonical_transcript_path,omitempty"`
+
+	// PurgedAt records when `ctxloom session purge` destroyed this session's
+	// machine-written bulk (transcript.jsonl, persist/transcripts/…). It is
+	// why the row survives its own transcript: isUnrecoverable
+	// (internal/operations/sessions.go) treats a non-nil PurgedAt as
+	// recoverable-by-fiat, ahead of its transcript-existence check, so a
+	// purged session stays visible in `session list` — marked, not gone —
+	// rather than being silently reconciled away the next time anything
+	// lists sessions. Additive + omitempty: an older binary reading this
+	// index simply never sees it, and no index schema upgrade is needed.
+	PurgedAt *time.Time `yaml:"purged_at,omitempty" json:"purged_at,omitempty"`
 }
 
 // Index is the on-disk form of the session index.
@@ -653,6 +664,42 @@ func (m *Manager) MarkEnded(harpName string, at time.Time) error {
 		}
 		t := at.UTC()
 		idx.Sessions[i].EndedAt = &t
+		return m.saveLocked(idx)
+	}
+	return fmt.Errorf("harp not found: %q", harpName)
+}
+
+// MarkPurged stamps PurgedAt on the named entry. Idempotent (re-marking an
+// already-purged entry just advances the timestamp).
+//
+// Callers MUST call this BEFORE unlinking any files (`operations.PurgeSession`
+// does): if the index write lands first and the process then dies mid-destroy,
+// the row is left with PurgedAt set and a dangling TranscriptPath, which
+// isUnrecoverable now reads as "purged on purpose" rather than "gone,
+// forget it". Reversing the order — destroy then mark — reopens exactly the
+// silent-deletion window PurgedAt exists to close: a transcript already gone,
+// no PurgedAt yet written, and the next `session list` reconciles the row away
+// for good.
+func (m *Manager) MarkPurged(harpName string, at time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	unlock, err := m.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	idx, err := m.loadLocked()
+	if err != nil {
+		return err
+	}
+	for i := range idx.Sessions {
+		if idx.Sessions[i].HarpName != harpName {
+			continue
+		}
+		t := at.UTC()
+		idx.Sessions[i].PurgedAt = &t
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found: %q", harpName)

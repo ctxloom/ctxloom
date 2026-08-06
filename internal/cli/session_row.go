@@ -45,6 +45,15 @@ type SessionRow struct {
 	Start       sessionTime  `json:"start" label:"Start" col:"START"`
 	End         *sessionTime `json:"end,omitempty" label:"End" col:"END"`
 	EssencePath string       `json:"essence_path,omitempty" label:"Essence Path" col:"ESSENCE PATH"`
+	// Purged mirrors sessions.Entry.PurgedAt != nil: `ctxloom session purge`
+	// destroyed this row's machine-written bulk. Structured consumers (a
+	// script filtering `--format json`) get a plain boolean; the same fact
+	// also rides the Summary badge below so it is visible in TEXT output too
+	// (the same "shows up in every format" posture SourceStale's "out of
+	// date" badge already established here) — a purged session must never
+	// read, in a table a human is actually looking at, as indistinguishable
+	// from one that was never purged.
+	Purged bool `json:"purged,omitempty" label:"Purged" col:"PURGED"`
 }
 
 // newSessionRow projects a full index entry down to a SessionRow. Summary
@@ -65,10 +74,14 @@ func newSessionRow(e sessions.Entry, appDir string) SessionRow {
 	if stale, known := e.SourceStale(); known && stale {
 		summary += "  ⚠ out of date"
 	}
+	if e.PurgedAt != nil {
+		summary += "  🗑 purged (transcript destroyed)"
+	}
 	row := SessionRow{
 		Harp:    e.HarpName,
 		Summary: summary,
 		Start:   sessionTime(e.StartedAt),
+		Purged:  e.PurgedAt != nil,
 	}
 	if e.EndedAt != nil {
 		end := sessionTime(*e.EndedAt)

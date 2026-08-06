@@ -133,9 +133,15 @@ Feature: Engine switch day
   # arriving through a different door: there, a new hire silently inherits less
   # than his deskmate; here, a whole team silently loses something it had.
   #
-  # UNTAG WHEN: any surface reports, for a given engine binding, which
-  # protocols and hook events that engine does not support. Expected RED.
-  @wip
+  # UNTAGGED (trusting-ambiguity): `agent show <name>` now reports it —
+  # operations.CapabilityLoss wraps the SAME backends.UncarriedSurfaces read
+  # `profile materialize` already performed (whiny-exclusive), against the
+  # resolved agent's ACTUAL backend and profiles rather than a materialize
+  # target. codex declaring only a whole-mechanism noHooksReason (empty for
+  # codex — it has hooks) could not have caught this: the gap was PER-EVENT,
+  # so agentDescriptor gained unsupportedHookKinds (codex: session_end →
+  # codex.NoSessionEndReason, the SAME string addUnifiedHooks' route already
+  # used to warn at write time) and UncarriedSurfaces now checks it too.
   Scenario: Nothing tells her what the team just gave up
     When Alice swaps the engine under the binding
     And Alice asks ctxloom what the switch changed and what to verify

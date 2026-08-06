@@ -37,7 +37,7 @@ surface is EXPERIMENTAL and this file does not pretend otherwise.
 What IS assertable is the configuration edge — everything Dana touches before
 an editor is involved. Which turns out to be where the problems are.
 
-## Three scenarios, and the one that passes
+## Three scenarios
 
 `acp list` emits a block that genuinely parses as JSON and genuinely names the
 command an editor will run. That is the green one, and the assertion is
@@ -46,48 +46,51 @@ describing the agent would contain all the same words and none of the same
 usefulness — a difference that would surface only when Dana pastes it and her
 editor's config stops loading.
 
-Then the two reds, which are the same failure at two scales.
+Then two findings that were the same failure at two scales, both now fixed.
 
-**A flag accepted and discarded.** The bare `ctxloom acp` parent registers
-`--agent`, `--llm`, `--profile` and `--workspace`, and does nothing with them.
-Dana binds an agent, sees exit 0, and gets a session carrying none of that
+**A flag accepted and discarded.** The bare `ctxloom acp` parent registered
+`--agent`, `--llm`, `--profile` and `--workspace`, and did nothing with them.
+Dana bound an agent, saw exit 0, and got a session carrying none of that
 agent's context.
 
 A flag that is REJECTED teaches the user their command was wrong. A flag that
-is ACCEPTED and ignored teaches them it was right. She will conclude that
-ctxloom does not deliver context to editors, and she will be reasoning
-correctly from everything she is able to observe. That is the worst property a
-bug can have: it does not merely fail, it teaches a false model, and the false
-model is unfalsifiable from the outside. Filed as task `broken-sage`.
+is ACCEPTED and ignored teaches them it was right. She would have concluded
+that ctxloom does not deliver context to editors, and she would have been
+reasoning correctly from everything she was able to observe. That is the worst
+property a bug can have: it does not merely fail, it teaches a false model, and
+the false model is unfalsifiable from the outside. Filed as task `broken-sage`,
+fixed by removing the bare command's flag registration — cobra's own
+unknown-flag refusal now catches it before anything is silently discarded.
 
-**A door that looks equivalent and is not.** A generic ACP agent onboarded as
+**A door that looked equivalent and was not.** A generic ACP agent onboarded as
 configuration inherits no materialized native surface — P1 is ABSENT BY DESIGN
 for generic acp — no hooks, and no history. Which is to say none of the three
 things that distinguish ctxloom from pointing the editor straight at the vendor.
 
-That may well be the correct engineering outcome; the protocol carries what it
-carries, and no amount of wanting changes that. What is not correct is that
-nobody is told. Everything reports success. Dana gets a door that looks like the
-terminal one, delivers a fraction of it, and says nothing about the difference.
+That is the correct engineering outcome; the protocol carries what it carries,
+and no amount of wanting changes that. What was not correct is that nobody was
+told. `acp list` now says so directly — a standing note naming the generic
+`acp` engine's structural loss (no hooks, no history), printed whether or not a
+binding uses it yet, since the whole point is telling Dana BEFORE she
+configures one (trusting-ambiguity).
 
 <!-- doc:outro -->
-Both reds are the same shape as findings in two other journeys, which is what
-makes them worth fixing rather than filing. U3's new hire silently receives the
-team bundle without the team's guardrails because opencode has no hook
-mechanism. U12's team silently loses a hook event on engine switch day. Dana
-silently gets a context-free session through a door that advertises
-equivalence.
+Both fixes closed the same shape of gap found in two other journeys. U3's new
+hire silently received the team bundle without the team's guardrails because
+opencode has no hook mechanism. U12's team silently lost a hook event on
+engine switch day. Dana was silently getting a context-free session through a
+door that advertised equivalence.
 
 Three journeys, three personas, one missing report: **what does this binding
-not carry?** The product already knows the answer in every case — it has to,
-because the code branches on exactly that matrix to function. It knows, and
-never says.
+not carry?** The product already knew the answer in every case — it has to,
+because the code branches on exactly that matrix to function. It knew, and
+never said — until `agent show` (U12) and `acp list` (here) were wired to say
+it.
 
-For Dana specifically the stakes are higher than for the others, because she is
-the persona most likely to conclude the product does not work and stop. The
+For Dana specifically the stakes were higher than for the others, because she
+is the persona most likely to conclude the product does not work and stop. The
 terminal users hit these gaps mid-workflow, with enough context to file a bug.
-She hits them on day one, with none.
+She hit them on day one, with none.
 
-Three scenarios, all `@wip` with untag conditions in the feature file. One
-passes.
+Three scenarios. All pass now.
 <!-- /doc:outro -->

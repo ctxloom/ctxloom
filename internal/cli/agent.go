@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/resources"
@@ -137,9 +138,17 @@ func runAgentShow(cmd *cobra.Command, args []string) error {
 	payload := agentShowJSON{Definition: def, Resolved: resolved}
 	if rerr != nil {
 		payload.ResolutionError = rerr.Error()
+	} else {
+		// The loss half of the report, read the SAME way `profile materialize`
+		// already reads it (operations.CapabilityLoss wraps the identical
+		// backends.UncarriedSurfaces call) — so switching an agent's engine
+		// binding names what the NEW engine cannot carry that the resolved
+		// profiles' hooks configuration actually uses, instead of `agent show`
+		// reporting only the swap succeeded (trusting-ambiguity, j24).
+		payload.CapabilityLoss = operations.CapabilityLoss(cfg, resolved.Backend, resolved.Profiles)
 	}
 	return emit(cmd, payload, func() error {
-		return renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr)
+		return renderAgentShow(cmd.OutOrStdout(), def, resolved, rerr, payload.CapabilityLoss)
 	})
 }
 
@@ -156,6 +165,11 @@ type agentShowJSON struct {
 	Definition      *operations.AgentEntry    `json:"definition"`
 	Resolved        *operations.ResolvedAgent `json:"resolved,omitempty"`
 	ResolutionError string                    `json:"resolution_error,omitempty"`
+	// CapabilityLoss names the parts of the resolved profiles' hooks
+	// configuration the resolved backend has no structural place for — empty
+	// (omitted) when resolution failed or nothing configured is lost. Additive
+	// field, same shape MaterializeProfileResult.NotCarried already carries.
+	CapabilityLoss []agent.SurfaceLoss `json:"capability_loss,omitempty"`
 }
 
 // renderAgentShow writes the human view of one agent: what the definition
@@ -163,10 +177,10 @@ type agentShowJSON struct {
 // functions because they answer different questions — "what did I write down?"
 // and "what will actually run?" — and each is a run of independent
 // omit-when-empty arms.
-func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operations.ResolvedAgent, rerr error) error {
+func renderAgentShow(out io.Writer, def *operations.AgentEntry, resolved *operations.ResolvedAgent, rerr error, losses []agent.SurfaceLoss) error {
 	w := iox.NewErrWriter(out)
 	renderAgentDeclaration(w, def)
-	renderAgentResolution(w, resolved, rerr)
+	renderAgentResolution(w, resolved, rerr, losses)
 	return w.Err()
 }
 
@@ -218,7 +232,14 @@ func renderAgentEscalation(w *iox.ErrWriter, ladder []agents.EscalationRung) {
 // renderAgentResolution writes what the declaration actually resolves to. A
 // resolution FAILURE is reported and ends the view: there is no resolved engine
 // to describe, and `agent show` stays fault-tolerant rather than erroring.
-func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent, rerr error) {
+//
+// losses is the capability-loss report (operations.CapabilityLoss) for this
+// same resolved engine binding — printed alongside the resolution, not in a
+// separate pass, for the same reason profile_materialize.go interleaves NOT
+// carried lines with wrote lines: a reader who scans only the top of `agent
+// show` must not come away with "the swap succeeded" as the whole story when
+// the new engine silently drops something the old one carried (j24).
+func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent, rerr error, losses []agent.SurfaceLoss) {
 	if rerr != nil {
 		w.Printf("Resolved engine: unavailable (%v)\n", rerr)
 		return
@@ -238,6 +259,9 @@ func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent,
 		w.Printf("Resolved permissions: %s\n", resolved.EffectivePermissions)
 	}
 	w.Printf("Composed fragments: %d\n", len(resolved.Fragments))
+	for _, loss := range losses {
+		w.Printf("  NOT carried: %s (%s) — %s\n", loss.Surface, loss.Detail, loss.Reason)
+	}
 }
 
 // runSetupPromptCmd prints the full five-phase ctxloom setup prompt for the

@@ -396,6 +396,16 @@ func hasManagedHook(cfg map[string]any) bool {
 	return found
 }
 
+// NoSessionEndReason is the one-clause reason Codex has no native event for
+// the unified session_end hook — the SAME string used both by
+// addUnifiedHooks' route below (to warn once, at write time, when a
+// session_end hook is actually configured and would otherwise vanish
+// silently) and by internal/lm/backends' registry descriptor (to report the
+// identical loss to a caller that never writes settings at all — doctor/
+// agent show/acp list, wiring an existing declaration to more surfaces
+// rather than hand-maintaining a second copy of the sentence).
+const NoSessionEndReason = "codex has no session-end event"
+
 // addUnifiedHooks translates unified hooks to Codex event names and adds them.
 // Codex lacks a SessionEnd event, so unified SessionEnd hooks cannot be emitted
 // — the route declares that gap explicitly so a configured
@@ -403,7 +413,7 @@ func hasManagedHook(cfg map[string]any) bool {
 func addUnifiedHooks(cfg map[string]any, u wire.UnifiedHooks) {
 	agent.RouteUnifiedHooks("codex", []agent.HookRoute{
 		{Hooks: u.SessionStart, Event: "SessionStart"},
-		{Hooks: u.SessionEnd, Kind: "session_end", Unsupported: "codex has no session-end event"},
+		{Hooks: u.SessionEnd, Kind: "session_end", Unsupported: NoSessionEndReason},
 		{Hooks: u.PreTool, Event: "PreToolUse"},
 		{Hooks: u.PostTool, Event: "PostToolUse"},
 		{Hooks: u.PreShell, Event: "PreToolUse", DefaultMatcher: "Bash"},

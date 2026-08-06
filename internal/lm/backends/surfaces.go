@@ -53,20 +53,56 @@ func (wellKnownPlacement) Dir() string { return "" }
 // delivered. A capability gap nobody asked to use costs nothing and stays quiet,
 // which is the rule agent.RouteUnifiedHooks already applies one level down.
 //
-// Hooks are the only genuine loss today. A surface KIND a backend declares no
-// approach for is not one: every such absence is a FOLD (codex's and opencode's
-// MCP both ride their settings surface), and reporting a folded surface as lost
-// would be a false alarm — the fastest way to get the real line ignored.
+// Hooks are the only genuine loss today, in two shapes: a backend with NO hook
+// mechanism at all (noHooksReason — opencode) and a backend that has one but
+// lacks a native event for a SPECIFIC unified kind (unsupportedHookKinds —
+// codex has no session_end). A surface KIND a backend declares no approach for
+// is neither: every such absence is a FOLD (codex's and opencode's MCP both
+// ride their settings surface), and reporting a folded surface as lost would be
+// a false alarm — the fastest way to get the real line ignored.
 func UncarriedSurfaces(name string, in agent.SurfaceInputs) []agent.SurfaceLoss {
 	d, ok := descriptors[name]
-	if !ok || d.noHooksReason == "" || in.Hooks == nil {
+	if !ok || in.Hooks == nil {
 		return nil
 	}
-	detail := droppedHookDetail(name, *in.Hooks)
-	if detail == "" {
+	if d.noHooksReason != "" {
+		detail := droppedHookDetail(name, *in.Hooks)
+		if detail == "" {
+			return nil
+		}
+		return []agent.SurfaceLoss{{Surface: "hooks", Detail: detail, Reason: d.noHooksReason}}
+	}
+	return unsupportedHookKindLosses(d, *in.Hooks)
+}
+
+// unsupportedHookKindLosses reports, for a backend that carries hooks
+// generally but declares specific unified KINDS it has no native event for
+// (agentDescriptor.unsupportedHookKinds), the ones the inputs actually
+// configure — same "only when it costs something" rule as the whole-backend
+// case above. Sorted by kind so the report is stable across a map's
+// randomized range order.
+func unsupportedHookKindLosses(d *agentDescriptor, hooks wire.HooksConfig) []agent.SurfaceLoss {
+	if len(d.unsupportedHookKinds) == 0 {
 		return nil
 	}
-	return []agent.SurfaceLoss{{Surface: "hooks", Detail: detail, Reason: d.noHooksReason}}
+	kinds := make([]string, 0, len(d.unsupportedHookKinds))
+	for k := range d.unsupportedHookKinds {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	var losses []agent.SurfaceLoss
+	for _, kind := range kinds {
+		n := len(unifiedEventHooks(hooks.Unified, kind))
+		if n == 0 {
+			continue
+		}
+		losses = append(losses, agent.SurfaceLoss{
+			Surface: "hooks",
+			Detail:  fmt.Sprintf("%d %s", n, kind),
+			Reason:  d.unsupportedHookKinds[kind],
+		})
+	}
+	return losses
 }
 
 // droppedHookDetail names what a hookless backend loses, in the user's own

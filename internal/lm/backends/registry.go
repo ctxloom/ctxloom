@@ -122,6 +122,16 @@ type agentDescriptor struct {
 	// holds this field honest against the delivered payload, so it cannot drift
 	// from what the backend's settings writer actually does.
 	noHooksReason string
+	// unsupportedHookKinds is the PER-EVENT twin of noHooksReason, for a
+	// backend that has a hook mechanism generally but lacks a native event
+	// for specific unified KINDS ("session_end") — keyed by the same kind
+	// string a HookRoute.Kind declares at write time (e.g. codex's
+	// addUnifiedHooks route for u.SessionEnd), valued with that SAME
+	// Unsupported reason, so UncarriedSurfaces can report the identical loss
+	// to a caller that never writes settings (doctor/agent show/acp list)
+	// without hand-maintaining a second copy of either string. nil = every
+	// kind this backend's mechanism carries is natively supported.
+	unsupportedHookKinds map[string]string
 }
 
 // descriptors holds the per-agent descriptor table, keyed by backend name.
@@ -415,6 +425,12 @@ func init() {
 		skillExports:         codexSkillExports,
 		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
 		acpTransport:         codex.CodexACPTransport,
+		// codex has hooks generally (unlike opencode, so noHooksReason stays
+		// empty) but no native session_end event — see codex.NoSessionEndReason
+		// and addUnifiedHooks' route for the write-time half of this same fact.
+		unsupportedHookKinds: map[string]string{
+			bundles.HookEventSessionEnd: codex.NoSessionEndReason,
+		},
 		// codex's project config-home (codex.ProjectHome) collapses onto its
 		// bare GLOBAL home (codex.GlobalHome) exactly when workDir == $HOME --
 		// the same collision class found for claude.

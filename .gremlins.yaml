@@ -68,28 +68,24 @@ unleash:
   # unbearable — a false timeout silently voids a mutant.
   timeout-coefficient: 30
 
-  # Quality gates - fail if scores drop below these thresholds (0 = disabled).
+  # Quality gates. EFFICACY is the mutant KILL RATE (killed / killed+lived) and
+  # is set to the project standard of 80%, decided 2026-08-06. It is expected to
+  # FAIL until the tests earn it — that is the point. A gate set to the current
+  # sorry state measures nothing and ratchets nothing; a gate set to the
+  # standard names the gap every time it runs.
   #
-  # BOTH ARE DISABLED PENDING A REAL MEASUREMENT. They previously read
-  # efficacy:60 / mutant-coverage:45, justified by a comment claiming "current
-  # baseline is ~48%". That 48% was never measured — it was invented. The real
-  # whole-module figure, once exclude-files was fixed so generated code stopped
-  # being counted, is 22.90% mutant coverage: roughly HALF the threshold that
-  # was supposedly set "slightly below" it. The gate passed only because the CI
-  # job is advisory.
+  # Do NOT lower this to make a run green. Four separate times a threshold here
+  # was chosen before a measurement and tuned until it passed, most memorably
+  # efficacy:60 justified by an invented "~48% baseline" when the real figure
+  # was 22.90%. Raising coverage is the way to green, not editing this number.
   #
-  # Do not restore a number here from memory, intuition, or a doc. MEASURE, publish
-  # the figure, then set a floor just under it and ratchet. A threshold chosen
-  # before the measurement is how a gate gets tuned into measuring nothing — which
-  # has now happened to this gate four separate times (taskloom urban-depth).
-  #
-  # NOTE: the 22.90% figure is itself under investigation — gremlins reports 22.90%
-  # mutant coverage where `go tool cover` reports 72.5% statement coverage on the
-  # same test set, and that ~50-point gap is not yet explained (see shady-reply for
-  # one known coverage-position-mapping bug). Do not set a threshold off either
-  # number until that contradiction is resolved.
+  # MUTANT-COVERAGE stays 0 deliberately, and is NOT the same knob. It measures
+  # how many mutants the coverage profile could even see, which is bounded by
+  # instrumentation rather than by test quality — and for anything driven as a
+  # subprocess it is structurally near-zero. Gating on it would fail for a
+  # reason no test author can fix.
   threshold:
-    efficacy: 0
+    efficacy: 80
     mutant-coverage: 0
 
 # Mutation operators to enable

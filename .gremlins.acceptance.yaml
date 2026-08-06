@@ -83,12 +83,24 @@ unleash:
   # unit profile rather than tuned down.
   timeout-coefficient: 30
 
-  # MEASURE FIRST. Do not pick a threshold before a real number exists —
-  # choosing one in advance is exactly how a gate gets tuned into measuring
-  # nothing (see .gremlins.yaml's own efficacy/mutant-coverage history). Both
-  # gates are OFF until a real baseline run reports honest numbers.
+  # Quality gates. EFFICACY is the mutant KILL RATE (killed / killed+lived) and
+  # is set to the project standard of 80%, decided 2026-08-06. It is expected to
+  # FAIL until the tests earn it — that is the point. A gate set to the current
+  # sorry state measures nothing and ratchets nothing; a gate set to the
+  # standard names the gap every time it runs.
+  #
+  # Do NOT lower this to make a run green. Four separate times a threshold here
+  # was chosen before a measurement and tuned until it passed, most memorably
+  # efficacy:60 justified by an invented "~48% baseline" when the real figure
+  # was 22.90%. Raising coverage is the way to green, not editing this number.
+  #
+  # MUTANT-COVERAGE stays 0 deliberately, and is NOT the same knob. It measures
+  # how many mutants the coverage profile could even see, which is bounded by
+  # instrumentation rather than by test quality — and for anything driven as a
+  # subprocess it is structurally near-zero. Gating on it would fail for a
+  # reason no test author can fix.
   threshold:
-    efficacy: 0
+    efficacy: 80
     mutant-coverage: 0
 
   # Scope narrowing: this profile targets ONLY internal/operations/trust.go

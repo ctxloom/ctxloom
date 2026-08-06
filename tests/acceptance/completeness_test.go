@@ -138,6 +138,21 @@ func isLeafIdentByte(b byte) bool {
 // must be pruned back down). Every entry names the task that will backfill
 // it; that task is the only legitimate way an entry leaves this list.
 var knownUncoveredCLI = []string{
+	// The three content-distill leaves are covered ONLY by distill_live.feature,
+	// which is @live and never runs by default. They were credited as covered
+	// until loadCorpus began filtering non-running scenarios; that credit was
+	// always an illusion. They are TRACKED DEBT rather than excludedLeaves on
+	// purpose — excludedLeaves is skipped before counting, so parking them there
+	// would hide them from the very ratchet that is supposed to burn them down.
+	//
+	// Note what this replaced: "ctxloom session distill" was excused in
+	// excludedLeaves as "@live ... the fragment/command/bundle distill paths
+	// cover the distiller". Both halves were false — those paths are @live-only
+	// themselves — and the session leaf is now genuinely covered by
+	// j14_session_distill, which is the worked example to copy for these three.
+	"ctxloom bundle distill",
+	"ctxloom command distill",
+	"ctxloom fragment distill",
 	// The publisher-signing surface is now covered by J18 (steps_j18_signing.go,
 	// j18_signing.feature): `ctxloom bundle sign` (bare ref, --all, an item ref,
 	// and the empty-publish-set failure), `ctxloom trust signer list`,
@@ -297,7 +312,6 @@ var excludedLeaves = map[string]string{
 	// content scenarios (browse/install/sync/lock against a seeded file:// repo).
 	"ctxloom remote update":         "checks installed bundles for a newer SHA; needs a second remote commit. Core fetch covered by @remote scenarios",
 	"ctxloom remote upgrade":        "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
-	"ctxloom session distill":       "@live + requires a real backend session transcript; the fragment/command/bundle distill paths cover the distiller",
 	"ctxloom completion zsh":        "shell variant; the completion path is covered via bash",
 	"ctxloom completion fish":       "shell variant; the completion path is covered via bash",
 	"ctxloom completion powershell": "shell variant; the completion path is covered via bash",
@@ -352,7 +366,24 @@ var excludedTemplates = map[string]string{}
 // be re-spelled onto their canonical spelling, which is what actually closed
 // the gaps. Lowering the ceiling in the same change is the point — a reorg
 // that shrank the debt while leaving the ratchet at 43 would just bank slack.
-const maxKnownUncoveredTotal = 22
+//
+// RAISED from 22 to 24 on 2026-08-06, deliberately, and this is the one
+// direction that normally must not happen — so the reason matters. The number
+// did not get worse; the MEASUREMENT got honest. loadCorpus used to credit a
+// leaf as covered on the strength of raw feature-file text, so scenarios tagged
+// @wip or @live — which never execute — granted coverage. It now counts only
+// scenarios that would actually run.
+//
+// That exposed three leaves whose sole coverage is @live: bundle, command and
+// fragment distill. They were always uncovered; nothing regressed. Recording
+// them as tracked debt rather than parking them in excludedLeaves is the point,
+// because excludedLeaves is skipped BEFORE counting and would have hidden them
+// from this ratchet entirely.
+//
+// Decided with the human (set it and ratchet): take the true number now and
+// burn it down from here. Do not raise it again to accommodate a real
+// regression — 24 is a floor to work off, not a budget to spend.
+const maxKnownUncoveredTotal = 24
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.
@@ -595,24 +626,116 @@ func liveSurface(t *testing.T) (tools, resources, templates []string) {
 	return tools, resources, templates
 }
 
-// loadCorpus concatenates every feature file and step-definition source so a
-// command/tool/resource exercised through a friendly step wrapper still counts
-// as covered.
+// loadCorpus concatenates step-definition source plus the feature-file text of
+// scenarios that WOULD ACTUALLY RUN, so a command exercised through a friendly
+// step wrapper still counts as covered — but one named only by a scenario that
+// never executes does not.
+//
+// The tag filter is the whole point. This used to concatenate every feature
+// file verbatim, which meant a @wip scenario credited its command as covered
+// while being excluded from every run by acceptance_test.go's default
+// expression. Measured: `ctxloom session distill` was "covered" by four @wip
+// rows driving --skill and --to-bundle, flags that do not exist on the command,
+// and deleting its excludedLeaves entry left TestCompleteness passing with no
+// scenario at all. The gate was most generous exactly where coverage was most
+// absent, since @wip IS the tag for "cannot be honestly greened yet".
 func loadCorpus(t *testing.T) string {
 	t.Helper()
 	var b strings.Builder
-	add := func(glob string) {
-		matches, _ := filepath.Glob(glob)
-		for _, m := range matches {
-			data, err := os.ReadFile(m)
-			if err != nil {
-				t.Fatalf("read %s: %v", m, err)
-			}
-			b.Write(data)
-			b.WriteByte('\n')
+	for _, m := range globOrFail(t, "features/*.feature") {
+		b.WriteString(runnableFeatureText(t, m))
+		b.WriteByte('\n')
+	}
+	for _, m := range globOrFail(t, "steps_*.go") {
+		b.Write(readOrFail(t, m))
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+// excludedCorpusTags mirrors acceptance_test.go's default tag expression. A
+// scenario carrying any of these does not run by default, so its text must not
+// grant coverage. Keep in step with that expression: a tag excluded there and
+// missing here silently re-opens this hole.
+var excludedCorpusTags = []string{"@wip", "@live", "@future", "@network"}
+
+// runnableFeatureText returns the feature's text with every non-running
+// scenario body removed. Tags are inherited: a tag line above `Feature:`
+// excludes the whole file, exactly as godog treats it.
+//
+// The parse is deliberately line-based rather than a real Gherkin parse. It
+// only has to answer "would this block run", and a dependency on a parser here
+// would be a second, drifting model of the tag rules the suite already owns.
+func runnableFeatureText(t *testing.T, path string) string {
+	t.Helper()
+	lines := strings.Split(string(readOrFail(t, path)), "\n")
+
+	var out []string
+	var pending []string // tag lines seen since the last block
+	skipping := false
+	featureExcluded := false
+	seenFeature := false
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		if strings.HasPrefix(trimmed, "@") {
+			pending = append(pending, trimmed)
+			out = append(out, line) // tags themselves never name a command
+			continue
+		}
+
+		isFeature := strings.HasPrefix(trimmed, "Feature:")
+		isBlock := strings.HasPrefix(trimmed, "Scenario:") ||
+			strings.HasPrefix(trimmed, "Scenario Outline:") ||
+			strings.HasPrefix(trimmed, "Background:")
+
+		switch {
+		case isFeature:
+			seenFeature = true
+			featureExcluded = anyExcludedTag(pending)
+			pending = nil
+			skipping = featureExcluded
+		case isBlock:
+			skipping = featureExcluded || anyExcludedTag(pending)
+			pending = nil
+		}
+		_ = seenFeature
+
+		if !skipping {
+			out = append(out, line)
 		}
 	}
-	add("features/*.feature")
-	add("steps_*.go")
-	return b.String()
+	return strings.Join(out, "\n")
+}
+
+func anyExcludedTag(tagLines []string) bool {
+	for _, l := range tagLines {
+		for _, field := range strings.Fields(l) {
+			for _, ex := range excludedCorpusTags {
+				if field == ex || strings.HasPrefix(field, ex+".") {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func globOrFail(t *testing.T, glob string) []string {
+	t.Helper()
+	matches, err := filepath.Glob(glob)
+	if err != nil {
+		t.Fatalf("glob %s: %v", glob, err)
+	}
+	return matches
+}
+
+func readOrFail(t *testing.T, path string) []byte {
+	t.Helper()
+	data, err := os.ReadFile(path) //nolint:gosec // a test-owned path from a fixed glob
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return data
 }

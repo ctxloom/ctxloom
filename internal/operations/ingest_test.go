@@ -242,23 +242,34 @@ func TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne(t *testing.T)
 		return lines
 	}
 
-	t.Run("same ref twice: silent", func(t *testing.T) {
-		_, loader := setupContextTestFS(t)
-		cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
-		cfg = withProfileDefs(cfg, map[string]config.Profile{
-			"a": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
-			"b": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
-		})
+	// The same-ref arrival is asserted on the accumulator directly, not through
+	// AssembleContext, and that is a measurement rather than a convenience:
+	// dedupeFragmentRefs collapses two identical ref strings BEFORE ingest, so
+	// no assembly reachable today calls add twice with one ref. The branch is
+	// still live code and still has to be right — this is the ingest layer, and
+	// it may not assume a caller pre-deduped for it — so it is exercised where
+	// it can be reached. Routing this through AssembleContext instead would
+	// assert nothing at all: the drop would happen upstream and the silence
+	// would be an artefact, not a decision.
+	t.Run("same ref twice: dropped, and silent", func(t *testing.T) {
 		lines := captureIngestWarnings(t, func() {
-			result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
-				Profiles: []string{"a", "b"},
-				Pipeline: opPipe(cfg, loader),
-			})
-			require.NoError(t, err)
-			require.Equal(t, 1, strings.Count(result.Context, "Always validate input"),
-				"sanity: the fragment really was collapsed, so silence is a decision and not a no-op")
+			in := newContextIngest()
+			require.True(t, in.add(ingestedFragment{Ref: "dev#fragments/rules", Name: "dev/rules", Content: "RULES"}))
+			require.False(t, in.add(ingestedFragment{Ref: "dev#fragments/rules", Name: "dev/rules", Content: "RULES"}),
+				"a re-ingest of the same ref is a duplicate and must be dropped")
+			assert.Equal(t, "RULES", in.join(), "and delivered once")
 		})
 		assert.Empty(t, lines, "re-selecting the same ref is unambiguous; it must not warn")
+	})
+
+	t.Run("two different refs, one item: dropped at the accumulator, and it says so", func(t *testing.T) {
+		lines := captureIngestWarnings(t, func() {
+			in := newContextIngest()
+			require.True(t, in.add(ingestedFragment{Ref: "ctxloom:local@bundles/dev#fragments/rules", Name: "dev/rules", Content: "RULES"}))
+			require.False(t, in.add(ingestedFragment{Ref: "builtin:dev#fragments/rules", Name: "builtin dev/rules", Content: "RULES"}))
+		})
+		require.Len(t, lines, 1)
+		assert.Contains(t, lines[0], "reached this context twice")
 	})
 
 	t.Run("two different refs, one item: warns and names both", func(t *testing.T) {

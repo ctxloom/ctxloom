@@ -140,6 +140,13 @@ var ingestWarn = func(format string, args ...any) {
 // warning about it would put a line on stderr for every existing configuration
 // that composes overlapping profiles.
 //
+// No assembly reachable TODAY takes that branch — dedupeFragmentRefs collapses
+// two identical ref strings before either reaches ingest — but this is the
+// ingest layer and it may not assume its callers pre-deduped for it, so the
+// branch is live and pinned (see the accumulator-level subtest in
+// TestIngest_DropIsSilentForTheSameRefAndSpeaksForADifferentOne, which is
+// deliberately not routed through AssembleContext for exactly that reason).
+//
 // A drop under a DIFFERENT ref WARNS, once per pair. That is the only case
 // where the user wrote two textually different selections and got one fragment,
 // so "I meant two different fragments and mis-spelled one" is a live reading

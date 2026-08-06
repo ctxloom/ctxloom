@@ -76,9 +76,13 @@ type Bundle struct {
 	// through FSDir, which refuses the non-filesystem values instead of
 	// silently yielding "." (see FSDir's doc for what that cost).
 	Path string `yaml:"-"` // File path for saving; see FSDir before using as one
-	// sourceRef is the bundle's canonical ref when it was seeded from a remote
-	// (cloned) source — the lockfile key shape, e.g. "https://…@bundles/x". It is
-	// empty for a project (fs) bundle. Set at seed time (WithSeededBundles).
+	// sourceRef is the bundle's canonical ref when it did not come from the
+	// project's own tree: the lockfile key shape for a remote (cloned) source,
+	// e.g. "https://…@bundles/x" (set at seed time, WithSeededBundles), or
+	// "builtin:<name>" for a bundle embedded in the binary (set by
+	// localFSReader.readBundle when its provenance is ProvenanceBuiltin). It is
+	// empty for a project (fs) bundle — contentSourceRef falls back to Name for
+	// that case, which is what lets project content auto-trust.
 	sourceRef string `yaml:"-"`
 
 	// signer is the VERIFIED publisher identity of this bundle's file bytes: the
@@ -179,10 +183,17 @@ func (b *Bundle) StampUntrustedSignerFingerprint(fingerprint string) {
 }
 
 // contentSourceRef returns the bundle's honest source ref for content trust
-// gating: the canonical ref of a seeded (cloned) bundle, or the local bundle.Name
-// for a project (fs) bundle. Locality flows from this into the trust cascade, so
-// a clone's TEXT gates like its executables while a project bundle's text
-// auto-trusts. "Text to an LLM is executable."
+// gating: the canonical ref of a seeded (cloned) bundle, the "builtin:<name>"
+// ref of a bundle embedded in the binary, or the local bundle.Name for a
+// project (fs) bundle. Locality/builtin-ness flows from this into the trust
+// cascade, so a clone's TEXT gates like its executables, a builtin's TEXT
+// carries the SAME identity whether it was selected by ref through the loader
+// or injected unconditionally (trust rework: a builtin read through
+// localFSReader used to fall through to the bare-Name case below and key as
+// LOCAL, a different trust identity than the "builtin:<name>" ref injection
+// uses for the identical item — a rejection via one route did not withhold the
+// other; see crispy-scoop), and a project bundle's text auto-trusts. "Text to
+// an LLM is executable."
 func (b *Bundle) contentSourceRef() string {
 	if b.sourceRef != "" {
 		return b.sourceRef

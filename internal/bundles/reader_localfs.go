@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/trust"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -244,6 +245,26 @@ func (r *localFSReader) readBundle(path, name string) (BundleRead, error) {
 	// resolves by ("lang/go"). They differ for nested bundles and both have
 	// callers, so neither may quietly become the other.
 	bundle.Name = ExtractBundleName(path)
+
+	// A builtin's content trust identity is stamped HERE, at the read that
+	// knows this bundle is ProvenanceBuiltin, using `name` — the same
+	// path-relative resolution identity newRead below hands out as
+	// BundleRead.ref, which is what config.ResolveBuiltinBundleFragments'
+	// injection route (trust.BuiltinSourcePrefix+read.Ref()) already builds
+	// its ref from. Stamping the SAME "builtin:<name>" string into
+	// bundle.sourceRef makes Bundle.contentSourceRef() (the fragment/prompt/
+	// skill trust ref for the loader-resolved-by-ref route) produce the
+	// identical string, so trust.ParseItemRef resolves both routes to one
+	// Ref{IsBuiltin: true} and one store key. Before this, a builtin read
+	// through this reader left sourceRef empty, contentSourceRef fell back to
+	// the bare bundle.Name, and trust.ParseItemRef's bare-token fallback keyed
+	// that route as IsLocal — a second trust identity for the same item, so a
+	// rejection recorded against one route did not withhold the other
+	// (crispy-scoop). A project bundle's sourceRef is untouched (stays ""), so
+	// contentSourceRef's project fallback — and its auto-trust — is unchanged.
+	if r.provenance == ProvenanceBuiltin {
+		bundle.sourceRef = trust.BuiltinSourcePrefix + name
+	}
 
 	// Skills are a PACKAGE (a directory tree: SKILL.md plus siblings), which a
 	// single-file bundle has no filesystem room to hold alongside it. Fail loud

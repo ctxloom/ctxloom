@@ -114,6 +114,22 @@ func newContextIngest() *contextIngest {
 	return &contextIngest{seen: make(map[ingestIdentity]string)}
 }
 
+// ingestWarn is the sink for add's cross-route duplicate diagnostic.
+//
+// It is a variable, not a direct clidiag.WarnOnce call, purely so a test can
+// observe the diagnostic deterministically: WarnOnce dedups on the formatted
+// line for the whole PROCESS, and the line here is built from the two refs
+// alone, so whichever test collapses a given pair FIRST consumes the key and
+// every later one sees silence regardless of what it asserts.
+//
+// WarnOnce is still the production behaviour, and deliberately: AssembleContext
+// runs once per conversation turn, so a per-call warning would reprint the same
+// line for the life of the session — the same reasoning warnSubstitutionFor
+// documents for undefined variables.
+var ingestWarn = func(format string, args ...any) {
+	clidiag.WarnOnce("ctxloom", format, args...)
+}
+
 // add ingests one fragment, reporting whether it was ingested (true) or dropped
 // as a second copy of content already ingested (false).
 //
@@ -136,7 +152,7 @@ func (in *contextIngest) add(f ingestedFragment) bool {
 	id := ingestIdentity{item: ingestItemKey(f.Ref), content: strings.TrimSpace(f.Content)}
 	if kept, dup := in.seen[id]; dup {
 		if kept != f.Ref {
-			clidiag.WarnOnce("ctxloom",
+			ingestWarn(
 				"the same fragment reached this context twice: %q is already assembled and %q is the same item with identical content, so the second copy was dropped "+
 					"— if these were meant to be two DIFFERENT fragments, one of the two references is wrong",
 				kept, f.Ref)

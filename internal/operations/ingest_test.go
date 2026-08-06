@@ -567,3 +567,70 @@ func TestIngest_FirstOccurrenceIsTheOneKept(t *testing.T) {
 		"the FIRST occurrence is kept: the fragment stays where the profile selected it, not at the end where the builtin injection would have put it")
 	assert.Equal(t, 1, strings.Count(result.Context, body), "and still only once")
 }
+
+// TestIngest_BuiltinsAreIngestedAfterSelectedContent pins the ORDER that makes
+// first-occurrence-wins mean what it is supposed to mean. Unconditional builtin
+// injection arrives LAST, after everything the profile or request selected, so
+// when a builtin collides with a selection it is the SELECTION that survives —
+// the user's specific ask, carrying variable substitution and any pinned
+// content version — and the always-on copy that is dropped. Ingesting builtins
+// first would silently invert that: same bytes, opposite precedence, and the
+// injected copy sitting ahead of the content the user actually chose.
+func TestIngest_BuiltinsAreIngestedAfterSelectedContent(t *testing.T) {
+	body := builtinIsolationContent(t)
+	_, loader := setupContextTestFS(t)
+
+	cfg := config.NewFixture(config.Fixture{AppPaths: []string{testBaseDir}})
+	cfg = withProfileDefs(cfg, map[string]config.Profile{
+		"p": {Fragments: []config.FragmentRef{{Name: "dev#fragments/security-rules"}}},
+	})
+
+	result, err := AssembleContext(context.Background(), cfg, AssembleContextRequest{
+		Profile:  "p",
+		Pipeline: opPipe(cfg, loader),
+	})
+	require.NoError(t, err)
+
+	sec := strings.Index(result.Context, "Always validate input")
+	iso := strings.Index(result.Context, body)
+	require.NotEqual(t, -1, sec)
+	require.NotEqual(t, -1, iso)
+	assert.Less(t, sec, iso,
+		"the always-on builtin injection must sit AFTER selected content, which is what makes the selection the occurrence that survives a collision")
+}
+
+// TestIngest_RegenerateContext_BuiltinsAreIngestedAfterSelectedContent is
+// TestIngest_BuiltinsAreIngestedAfterSelectedContent at the second accumulation
+// point. The two paths must agree: a SessionStart context file whose precedence
+// differs from what `ctxloom run` assembles is two different sessions from one
+// configuration.
+func TestIngest_RegenerateContext_BuiltinsAreIngestedAfterSelectedContent(t *testing.T) {
+	body := builtinIsolationContent(t)
+	appDir, workDir := regenTestApp(t)
+	writeRegenBundle(t, appDir, "dev", `version: "1.0"
+fragments:
+  alpha:
+    content: "ALPHA-BODY"
+`)
+
+	cfg := config.NewFixture(config.Fixture{
+		AppPaths:     []string{appDir},
+		DefaultAgent: "default",
+		Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
+		Profiles: config.ProfilesConfig{Definitions: map[string]config.Profile{
+			"default": {Fragments: []config.FragmentRef{{Name: "dev#fragments/alpha"}}},
+		}},
+	})
+
+	hash, err := regenerateContext(cfg, workDir, nil)
+	require.NoError(t, err)
+	written, err := agent.ReadContextFile(workDir, hash)
+	require.NoError(t, err)
+
+	alpha := strings.Index(written, "ALPHA-BODY")
+	iso := strings.Index(written, body)
+	require.NotEqual(t, -1, alpha)
+	require.NotEqual(t, -1, iso)
+	assert.Less(t, alpha, iso,
+		"the context file must place the always-on builtin injection after selected content, same as AssembleContext")
+}

@@ -488,14 +488,23 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []config.B
 	uniqueFragments := dedupeFragmentRefs(allFragments)
 	orderedRefs := sortFragmentsByPriority(uniqueFragments)
 
-	var backendFrags []*agent.Fragment
+	// The SAME ingest accumulator AssembleContext uses, for the same reason:
+	// this function has two routes into one context (loader-resolved here,
+	// injected builtins below) and only one of them may deliver a given piece
+	// of content. See contextIngest for the identity rule and the order/silence
+	// decisions.
+	ingest := newContextIngest()
 	for _, ref := range orderedRefs {
 		content, err := loadFragmentRef(pipe, ref)
 		if err != nil {
 			warnFragmentLoadFailure(ref, err)
 			continue
 		}
-		backendFrags = append(backendFrags, &agent.Fragment{
+		// Ref is the canonical item ref (identity); Name is the reporting name
+		// this path has always written into the context file. They differ here
+		// and contextIngest keeps them apart on purpose.
+		ingest.add(ingestedFragment{
+			Ref:     ref.Name,
 			Name:    content.Name,
 			Content: substituteVariables(content.Content, profileVars, warnSubstitutionFor(content.Name)),
 		})
@@ -510,11 +519,15 @@ func regenerateContext(cfg *config.Config, workDir string, bundleOpts []config.B
 	// matches AssembleContext. Skipped when the companion binary is absent.
 	// Gated through the SAME content gate as loader-resolved fragments
 	// (pipe.Authorizer()) so a rejected builtin fragment is withheld here too.
+	// Ingested AFTER the loader-resolved fragments so a builtin that was also
+	// selected by ref collapses into the selection, not the reverse.
 	for _, bf := range cfg.ResolveBuiltinBundleFragments(pipe.Authorizer()) {
-		backendFrags = append(backendFrags, &agent.Fragment{
-			Name:    bf.Name,
-			Content: bf.Content,
-		})
+		ingest.add(ingestedFragment{Ref: bf.Name, Name: bf.Name, Content: bf.Content})
+	}
+
+	var backendFrags []*agent.Fragment
+	for _, f := range ingest.fragments() {
+		backendFrags = append(backendFrags, &agent.Fragment{Name: f.Name, Content: f.Content})
 	}
 
 	if len(backendFrags) == 0 {

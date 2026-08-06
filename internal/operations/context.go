@@ -150,7 +150,13 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// "lost in the middle" optimization.
 	orderedRefs := sortFragmentsByPriority(dedupeFragmentRefs(allFragments))
 
-	contextContent, loaderNames, err := loadAssembledContext(pipe, orderedRefs, profileVars)
+	// ONE ingest accumulator for BOTH routes into this context — loader-resolved
+	// below, injected builtins further down. It is what makes ingest idempotent:
+	// the same content arriving by two routes is assembled once (see
+	// contextIngest for the identity rule and the order/silence decisions).
+	ingest := newContextIngest()
+
+	loaderNames, err := ingestFragmentRefs(ingest, pipe, orderedRefs, profileVars)
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +175,10 @@ func AssembleContext(ctx context.Context, cfg *config.Config, req AssembleContex
 	// the SAME content gate as loader-resolved fragments (pipe.Authorizer(), nil
 	// for an injected gate-free pipeline) so a rejected builtin fragment is
 	// withheld exactly like a rejected builtin MCP server/hook.
-	contextContent, loadedNames := appendBuiltinFragments(cfg, pipe.Authorizer(), contextContent, loaderNames)
+	loadedNames := ingestBuiltinFragments(ingest, cfg, pipe.Authorizer(), loaderNames)
+
+	// The assembled bytes, in ingest order, duplicates already collapsed.
+	contextContent := ingest.join()
 
 	// Surface (content-free) any items the trust gate withheld during this
 	// assembly so the user knows content was hidden, WHY, and how to review it.
@@ -208,25 +217,23 @@ func missingFrom(requested, loaded []string) []string {
 	return missing
 }
 
-// appendBuiltinFragments appends the always-on built-in bundle fragments to the
-// assembled context, joined with the same separator LoadMultiple uses so the
-// output is indistinguishable from loader-sourced fragments. gate is the
-// content gate builtins are routed through (see ResolveBuiltinBundleFragments).
-func appendBuiltinFragments(cfg *config.Config, gate bundles.Authorizer, content string, loaded []string) (string, []string) {
-	builtins := cfg.ResolveBuiltinBundleFragments(gate)
-	if len(builtins) == 0 {
-		return content, loaded
-	}
-	parts := make([]string, 0, len(builtins))
-	for _, f := range builtins {
-		parts = append(parts, strings.TrimSpace(f.Content))
+// ingestBuiltinFragments ingests the always-on built-in bundle fragments,
+// AFTER the loader-resolved ones, so a builtin that was also selected by ref
+// collapses into the selection rather than the other way round (contextIngest
+// keeps the first occurrence). gate is the content gate builtins are routed
+// through (see ResolveBuiltinBundleFragments).
+//
+// Every builtin's name is reported in the returned loaded list whether or not
+// its bytes were ingested a second time: a collapsed duplicate's content IS in
+// the assembled context, via the occurrence that survived, so reporting it as
+// missing would be a lie — and warnGuttedProfiles would then accuse a profile
+// of contributing nothing when its fragment is right there.
+func ingestBuiltinFragments(ingest *contextIngest, cfg *config.Config, gate bundles.Authorizer, loaded []string) []string {
+	for _, f := range cfg.ResolveBuiltinBundleFragments(gate) {
+		ingest.add(ingestedFragment{Ref: f.Name, Name: f.Name, Content: strings.TrimSpace(f.Content)})
 		loaded = append(loaded, f.Name)
 	}
-	joined := strings.Join(parts, "\n\n---\n\n")
-	if content == "" {
-		return joined, loaded
-	}
-	return content + "\n\n---\n\n" + joined, loaded
+	return loaded
 }
 
 // resolveContextProfileNames picks the profiles to assemble from: the explicit
@@ -360,9 +367,13 @@ func normalizeFragmentRef(ref config.FragmentRef) config.FragmentRef {
 	return ref
 }
 
-// loadAssembledContext loads the ordered fragments (honoring per-ref content
-// versions) and applies variable substitution PER FRAGMENT, before joining —
-// not on the joined whole. Returns empty content when there are no fragments.
+// ingestFragmentRefs loads the ordered fragments (honoring per-ref content
+// versions), applies variable substitution PER FRAGMENT, and ingests each one —
+// it does not join, because the builtin injection route ingests into the same
+// accumulator afterwards and only the accumulator may decide what is a
+// duplicate. Returns the names of every fragment that LOADED, which is
+// deliberately not the same as the ones ingested: a fragment collapsed as a
+// duplicate loaded fine and its content is in the context.
 // A fragment that fails to load — not found, gate-withheld, or a pinned
 // version that fails to fetch — is skipped so the rest still assemble in
 // degraded mode; in strict mode the skip records a fatal finding (see
@@ -376,11 +387,11 @@ func normalizeFragmentRef(ref config.FragmentRef) config.FragmentRef {
 // footgun) can no longer swallow a NEIGHBORING fragment's real variables —
 // the escape state is scoped to one substituteVariables call, hence one
 // fragment, same as hooks.go's regenerateContext already did.
-func loadAssembledContext(pipe *bundles.Pipeline, ordered []config.FragmentRef, profileVars map[string]string) (string, []string, error) {
+func ingestFragmentRefs(ingest *contextIngest, pipe *bundles.Pipeline, ordered []config.FragmentRef, profileVars map[string]string) ([]string, error) {
 	if len(ordered) == 0 {
-		return "", nil, nil
+		return nil, nil
 	}
-	var parts, loadedNames []string
+	var loadedNames []string
 	for _, ref := range ordered {
 		lc, err := loadFragmentRef(pipe, ref)
 		if err != nil {
@@ -388,13 +399,10 @@ func loadAssembledContext(pipe *bundles.Pipeline, ordered []config.FragmentRef, 
 			continue
 		}
 		substituted := substituteVariables(strings.TrimSpace(lc.Content), profileVars, warnSubstitutionFor(ref.Name))
-		parts = append(parts, substituted)
+		ingest.add(ingestedFragment{Ref: ref.Name, Name: ref.Name, Content: substituted})
 		loadedNames = append(loadedNames, ref.Name)
 	}
-	// Joined with the same separator LoadMultiple uses so the output is
-	// indistinguishable regardless of which load path produced each fragment.
-	content := strings.Join(parts, "\n\n---\n\n")
-	return content, loadedNames, nil
+	return loadedNames, nil
 }
 
 // warnSubstitutionFor returns a substituteVariables warnFunc that names

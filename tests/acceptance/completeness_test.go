@@ -170,13 +170,12 @@ var knownUncoveredCLI = []string{
 	// Long-lived watcher with no bounded/hermetic exit in this harness yet.
 	// Backfill: task cheap-pug.
 	"ctxloom session watch",
-	// Hidden machine callbacks that run on every session (SessionStart/tool
-	// hooks) but have no scenario driving their stdin payload directly.
-	// Backfill: task weary-crowd.
-	"ctxloom hook inject-context",
-	"ctxloom hook session-bind",
-	"ctxloom hook stamp-plan",
-	"ctxloom hook hud",
+	// The four hidden machine callbacks LEFT this list when
+	// session_hooks.feature landed. They were uncovered for a structural
+	// reason, not an oversight: CTXLOOM_SESSION_HARP is on the ambient-session
+	// scrub list, so no scenario could hand a child the harp that session-bind
+	// and stamp-plan do nothing without. testenv.SetChildEnv is the deliberate
+	// door through that scrub, and it is what made these coverable at all.
 	// Post-reorg coverage debt, now MUCH smaller: the verb-spine reorg deleted
 	// every deprecated alias, so the ~15 canonical leaves whose only coverage
 	// used to ride an alias (`blacklist`, bare `trust`, `signer *`, `tooling`,
@@ -339,8 +338,8 @@ var excludedTools = map[string]string{}
 var excludedTemplates = map[string]string{}
 
 // maxKnownUncoveredTotal is a RATCHET on the combined size of every
-// knownUncovered* allowlist (currently 12 CLI leaves + 4 MCP tools + 3
-// runner-only MCP tools = 19). It exists because assertExactUncovered's
+// knownUncovered* allowlist (currently 8 CLI leaves + 4 MCP tools + 3
+// runner-only MCP tools = 15). It exists because assertExactUncovered's
 // exact-set check only catches a leaf/tool going uncovered WITHOUT anyone
 // updating the matching allowlist — it does nothing to stop someone from
 // adding a new gap AND an allowlist entry for it in the same change, which
@@ -383,7 +382,10 @@ var excludedTemplates = map[string]string{}
 // distill`). Lowering it in the same change is the mechanism working as
 // intended: the ratchet only tracks the debt down if closing gaps costs the
 // allowlist its slack.
-const maxKnownUncoveredTotal = 21
+//
+// LOWERED again, 21 to 17, by session_hooks.feature retiring the four hidden
+// hook callbacks.
+const maxKnownUncoveredTotal = 17
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.

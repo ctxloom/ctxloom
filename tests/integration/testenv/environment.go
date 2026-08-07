@@ -52,6 +52,11 @@ type TestEnvironment struct {
 	// originalEnv stores original environment variables for restoration
 	originalEnv map[string]string
 
+	// childEnv holds variables forced onto every spawned ctxloom process
+	// AFTER the ambient-session scrub. See SetChildEnv for why SetEnv cannot
+	// serve this purpose.
+	childEnv map[string]string
+
 	// runs is the ordered history of every CLI invocation (Run / RunWithStdin),
 	// oldest first — replacing a single mutable lastOutput/lastError/
 	// lastExitCode slot. A single slot forced any scenario that
@@ -368,6 +373,30 @@ func (e *TestEnvironment) SetEnv(key, value string) {
 	e.storeAndSetEnv(key, value)
 }
 
+// SetChildEnv forces key=value onto every ctxloom process this environment
+// spawns, overriding the ambient-session scrub.
+//
+// SetEnv cannot do this. isolatedEnv drops every testsupport.EnvKeys variable
+// — CTXLOOM_SESSION_HARP, CTXLOOM_PROJECT_ID and the rest — before handing the
+// child its environment, so that a suite run from inside a real ctxloom
+// session never inherits that session's identity. That scrub is correct and
+// stays: it is why these tests do not silently pass by picking up the
+// developer's own harp.
+//
+// But it also meant NO scenario could exercise anything a session variable
+// gates, because the only channel those variables travel on was closed in both
+// directions. The hidden hook callbacks are the clearest case — session-bind
+// and stamp-plan read CTXLOOM_SESSION_HARP and do nothing without it — and
+// they went uncovered for exactly this reason. This is the deliberate,
+// per-scenario door through the scrub: the value is one the scenario CHOSE, so
+// it can never be the ambient one.
+func (e *TestEnvironment) SetChildEnv(key, value string) {
+	if e.childEnv == nil {
+		e.childEnv = map[string]string{}
+	}
+	e.childEnv[key] = value
+}
+
 // Cleanup removes the test environment and restores original env vars.
 func (e *TestEnvironment) Cleanup() error {
 	// Restore original environment
@@ -481,11 +510,23 @@ func (e *TestEnvironment) isolatedEnv() []string {
 		if _, shouldReplace := replacements[key]; shouldReplace {
 			continue // Skip, we'll add our own
 		}
+		if _, forced := e.childEnv[key]; forced {
+			continue // SetChildEnv wins; appended below
+		}
 		env = append(env, v)
 	}
 
 	// Add our isolated paths
 	for key, value := range replacements {
+		env = append(env, key+"="+value)
+	}
+
+	// Scenario-forced variables last, and only after their ambient namesakes
+	// were filtered out above: a duplicate key in a child's environment is
+	// resolved by the C library, not by Go, and glibc's getenv returns the
+	// FIRST match — so appending without that filter would silently lose to
+	// whatever the host already had set.
+	for key, value := range e.childEnv {
 		env = append(env, key+"="+value)
 	}
 

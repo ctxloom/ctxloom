@@ -107,6 +107,15 @@ type j18State struct {
 	// before `bundle move` runs, so the destination can be compared against
 	// what was really there rather than against a re-render of it.
 	movedSource string
+
+	// declared is the key the REPO says may publish its bundles (the identity
+	// named in its allowed_signers), and declaredPrincipal the label it is
+	// named under. Deliberately a separate signer from st.signer for the
+	// refusal scenario: "the key that would sign" and "the key the repo
+	// authorises" being the same value is exactly the condition under which
+	// the wrong-key defect is invisible.
+	declared          *testenv.TestSigner
+	declaredPrincipal string
 }
 
 func j18Of(w *World) *j18State {
@@ -163,6 +172,58 @@ func j18VerifyDetachedSignature(w *World, bundleName string) error {
 	if err := signing.Verify([]byte(body), []byte(sig), j18Of(w).signer.Public, signing.NamespacePublish); err != nil {
 		return fmt.Errorf("%s does not verify against the %d bytes of %s read fresh off disk, under Trent's key %s: %w",
 			sigPath, len(body), rel, j18Of(w).signer.Fingerprint(), err)
+	}
+	return nil
+}
+
+// j18DeclaredSignersPath is where a repository declares WHO may publish it:
+// the ssh-keygen allowed_signers file every git-signing setup already knows,
+// at the location ctxloom's own publishing repos use and CI verifies against
+// (.github/verify-signatures.sh reads this exact file).
+const j18DeclaredSignersPath = ".github/allowed_signers"
+
+// j18DeclarePublisher writes that declaration: principal, the publish
+// namespace, and pub's key line — byte-for-byte the shape of
+// ctxloom-default's own .github/allowed_signers.
+func j18DeclarePublisher(w *World, principal string, key *testenv.TestSigner) error {
+	st := j18Of(w)
+	st.declared = key
+	st.declaredPrincipal = principal
+	line := fmt.Sprintf("%s namespaces=%q %s", principal, signing.NamespacePublish,
+		strings.TrimSpace(string(ssh.MarshalAuthorizedKey(key.Public))))
+	return w.env.WriteFile(j18DeclaredSignersPath, line+"\n")
+}
+
+// j18DirBundleDir / j18DirBundleManifest name a DIRECTORY-form bundle's tree
+// and its manifest — the shape whose detached signature was never refreshed.
+func j18DirBundleDir(name string) string      { return j18BundlesDir + "/" + name }
+func j18DirBundleManifest(name string) string { return j18DirBundleDir(name) + "/bundle.yaml" }
+
+// j18VerifyDirectorySignature is defect B's assertion: the detached signature
+// beside a directory bundle's manifest must cover the manifest's CURRENT bytes.
+//
+// It reads both fresh off disk after the edit, so a signature produced by an
+// earlier signing of the same bundle — which is precisely what `bundle sign`
+// used to leave behind — cannot satisfy it.
+func j18VerifyDirectorySignature(w *World, name string) error {
+	rel := j18DirBundleManifest(name)
+	body, err := w.env.ReadFile(rel)
+	if err != nil {
+		return fmt.Errorf("read signed manifest %s: %w", rel, err)
+	}
+	sigPath := rel + ".sig"
+	sig, err := w.env.ReadFile(sigPath)
+	if err != nil {
+		return fmt.Errorf("no detached signature at %s — `bundle sign` signed the tree and left the manifest's own "+
+			"sibling untouched, so anything reading it (bundles' localFSReader, a publishing repo's CI) sees an "+
+			"unsigned or stale bundle. ctxloom reported:\n%s\nerror: %w", sigPath, w.env.LastOutput(), err)
+	}
+	if strings.TrimSpace(sig) == "" {
+		return fmt.Errorf("%s exists but is EMPTY (%d bytes); ctxloom reported:\n%s", sigPath, len(sig), w.env.LastOutput())
+	}
+	if err := signing.Verify([]byte(body), []byte(sig), j18Of(w).signer.Public, signing.NamespacePublish); err != nil {
+		return fmt.Errorf("%s does not cover the %d bytes of %s read fresh off disk under Trent's key %s — the signature "+
+			"is STALE, which reads downstream as tampering: %w", sigPath, len(body), rel, j18Of(w).signer.Fingerprint(), err)
 	}
 	return nil
 }
@@ -591,6 +652,107 @@ func registerJ18Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Trent has signed the bundle "([^"]*)"$`, func(c context.Context, name string) error {
 		return runOK(worldFrom(c), "bundle", "sign", name)
+	})
+
+	// A DIRECTORY-form bundle: <name>/bundle.yaml, the shape that can also ship
+	// skills, and the one whose detached signature `bundle sign` never
+	// refreshed.
+	ctx.Step(`^Trent's project publishes the directory bundle "([^"]*)" carrying the fragment "([^"]*)"$`, func(c context.Context, name, frag string) error {
+		w := worldFrom(c)
+		return w.env.WriteFile(j18DirBundleManifest(name), j18BundleYAML(j18Fragment{name: frag, content: j18TDDMarker}))
+	})
+
+	// Edited IN PLACE, not through `ctxloom bundle modify`: this is the
+	// publisher's real motion (open the YAML, change the guidance, re-sign), and
+	// it is what leaves a signature covering bytes that are no longer there.
+	ctx.Step(`^Trent revises the directory bundle "([^"]*)"$`, func(c context.Context, name string) error {
+		w := worldFrom(c)
+		rel := j18DirBundleManifest(name)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return err
+		}
+		return w.env.WriteFile(rel, body+"  revised:\n    content: \"revised after the first signature\"\n")
+	})
+
+	// --- Who the repo authorises to publish it -------------------------------
+
+	ctx.Step(`^Trent's repo declares "([^"]*)" as the only identity allowed to publish, holding a key Trent does not have$`, func(c context.Context, principal string) error {
+		w := worldFrom(c)
+		release, err := testenv.GenerateTestSigner()
+		if err != nil {
+			return fmt.Errorf("generate the release identity's key: %w", err)
+		}
+		if release.Fingerprint() == j18Of(w).signer.Fingerprint() {
+			return fmt.Errorf("the release key and Trent's key came out identical; this fixture is meaningless unless they differ")
+		}
+		return j18DeclarePublisher(w, principal, release)
+	})
+
+	ctx.Step(`^Trent's repo declares "([^"]*)" as the only identity allowed to publish, and it is Trent's own key$`, func(c context.Context, principal string) error {
+		w := worldFrom(c)
+		return j18DeclarePublisher(w, principal, j18Of(w).signer)
+	})
+
+	// BOTH halves, because a refusal naming only one leaves the publisher
+	// guessing: WHICH key was about to sign (there may be several in the agent,
+	// and the one git points at is not always the one intended), and WHICH
+	// identity the repo actually requires.
+	ctx.Step(`^the refusal names the key it would have signed with and the principal the repo requires$`, func(c context.Context) error {
+		w := worldFrom(c)
+		st := j18Of(w)
+		out := w.env.LastOutput()
+		for _, want := range []struct{ what, text string }{
+			{"the key it would have signed with", st.signer.Fingerprint()},
+			{"the principal the repo requires", st.declaredPrincipal},
+			{"where that requirement is declared", j18DeclaredSignersPath},
+		} {
+			if !strings.Contains(out, want.text) {
+				return fmt.Errorf("the refusal does not name %s (%q); ctxloom said:\n%s", want.what, want.text, out)
+			}
+		}
+		w.docStepMaterialized = out
+		return nil
+	})
+
+	// The .github/verify-signatures.sh check, in Go: every signature in the tree
+	// must verify against the DECLARED key in the publish namespace. An empty
+	// sweep fails rather than passing vacuously — a check that verified nothing
+	// is indistinguishable from one that verified everything.
+	ctx.Step(`^every signature in the published bundle tree verifies against the key the repo declares$`, func(c context.Context) error {
+		w := worldFrom(c)
+		st := j18Of(w)
+		if st.declared == nil {
+			return fmt.Errorf("no publisher identity has been declared by this fixture")
+		}
+		bundles, err := j18ListBundles(w)
+		if err != nil {
+			return err
+		}
+		if len(bundles) == 0 {
+			return fmt.Errorf("no published bundles at all — refusing to report a verification that checked nothing")
+		}
+		for _, name := range bundles {
+			rel := j18BundlePath(name)
+			body, rerr := w.env.ReadFile(rel)
+			if rerr != nil {
+				return fmt.Errorf("read %s: %w", rel, rerr)
+			}
+			sig, serr := w.env.ReadFile(rel + ".sig")
+			if serr != nil {
+				return fmt.Errorf("no signature beside %s (ctxloom reported:\n%s): %w", rel, w.env.LastOutput(), serr)
+			}
+			if verr := signing.Verify([]byte(body), []byte(sig), st.declared.Public, signing.NamespacePublish); verr != nil {
+				return fmt.Errorf("%s.sig does not verify under %s, the key %s declares for %s — this is exactly what a "+
+					"consumer sees before it withholds the bundle: %w",
+					rel, ssh.FingerprintSHA256(st.declared.Public), j18DeclaredSignersPath, st.declaredPrincipal, verr)
+			}
+		}
+		return nil
+	})
+
+	ctx.Step(`^the signature beside the directory bundle "([^"]*)" verifies against its bundle\.yaml on disk$`, func(c context.Context, name string) error {
+		return j18VerifyDirectorySignature(worldFrom(c), name)
 	})
 
 	ctx.Step(`^Trent edits the bundle "([^"]*)" after signing it$`, func(c context.Context, name string) error {

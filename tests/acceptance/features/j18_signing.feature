@@ -48,6 +48,59 @@ Feature: A signature somebody can check
     Then the command succeeds
     And every published bundle carries a signature that verifies, and there are exactly 3
 
+  # MEASURED IN PRODUCTION, on ctxloom's own default-content repo: `bundle sign
+  # --all` with no --key fell through to `git config user.signingkey`, which in
+  # that checkout resolved to the author's PERSONAL key while the repo's
+  # allowed_signers names the release identity. 43 of 45 bundles were re-signed
+  # with a key the repo does not authorise — every one printing "signed by ..."
+  # and exiting 0. Nothing surfaces at the publisher: the failure lands in a
+  # CONSUMER, which withholds the bundle, and any profile inheriting it silently
+  # degrades.
+  #
+  # So the guard is: when a repo DECLARES who may publish it, a run that would
+  # sign as anyone else must refuse before it writes a byte. The count assertion
+  # is the load-bearing one — a refusal that still wrote the unverifiable
+  # signatures would be the same defect wearing an error message.
+  Scenario: Signing with a key the repo does not authorise refuses instead of writing signatures nobody can verify
+    Given Trent's repo declares "releases@acme.example" as the only identity allowed to publish, holding a key Trent does not have
+    And Trent's project publishes 3 bundles
+    When I run "ctxloom bundle sign --all"
+    Then the command fails
+    And the refusal names the key it would have signed with and the principal the repo requires
+    And exactly 0 signature files exist in the published bundle tree
+
+  # The other branch of the same guard, and the one that stops it degenerating
+  # into "refuse whenever a declaration exists": the authorised key still signs,
+  # and what it writes is checked the way .github/verify-signatures.sh checks it
+  # — ssh-keygen -Y verify semantics against the declared key, in the publish
+  # namespace — never against ctxloom's own success line.
+  Scenario: Signing with the key the repo does authorise writes signatures that repo's own trust root accepts
+    Given Trent's repo declares "releases@acme.example" as the only identity allowed to publish, and it is Trent's own key
+    And Trent's project publishes 3 bundles
+    When I run "ctxloom bundle sign --all"
+    Then the command succeeds
+    And every signature in the published bundle tree verifies against the key the repo declares
+
+  # DIRECTORY-form bundles (<name>/bundle.yaml) are signed twice over, and only
+  # one half was ever refreshed: `bundle sign` signs the TREE (SHA256SUMS ->
+  # .sigs/) and left the detached bundle.yaml.sig sibling exactly as it found it
+  # — absent on a first signing, STALE on a re-signing. Anything reading the
+  # sibling (bundles' own localFSReader, .github/verify-signatures.sh, a
+  # publishing repo's CI) then reports "incorrect signature" on a bundle its
+  # author just signed and was told was signed.
+  #
+  # Reproduced on ctxloom-personal's `unattended` bundle; the workaround was to
+  # run ssh-keygen -Y sign by hand. Asserted against the bundle.yaml bytes read
+  # fresh off disk AFTER the edit, so a signature left over from the first
+  # signing cannot satisfy it.
+  Scenario: Re-signing a directory bundle refreshes the signature beside its manifest
+    Given Trent's project publishes the directory bundle "unattended" carrying the fragment "policy"
+    And Trent has signed the bundle "unattended"
+    And Trent revises the directory bundle "unattended"
+    When I run "ctxloom bundle sign unattended"
+    Then the command succeeds
+    And the signature beside the directory bundle "unattended" verifies against its bundle.yaml on disk
+
   # The other half of the same failure: --all with nothing to sign must FAIL,
   # not report success over an empty set.
   Scenario: Signing everything when there is nothing to sign fails instead of reporting success

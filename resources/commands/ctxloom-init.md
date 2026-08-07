@@ -117,37 +117,42 @@ commands — then move straight into phase 4 to bind the agents that use it;
 don't break the conversation between the two, profiles are only half the
 picture. Five beats, the same shape as phase 2:
 
-### 3a. Survey — the WHOLE set, not a relevant shortlist
+### 3a. Survey — the `default` set, plus what belongs to this project
 
-Remotes are already cloned locally. Enumerate everything available: read
-`ctxloom://remotes`, then `ctxloom://remotes/{name}/contents` for EACH remote.
-That is the complete catalog. (**search_library** requires a query and can only
-ever hand back a filtered subset, so it cannot answer "what is there" — use it
-to look something up, never to survey. `search_content` reaches only what is
-already installed.)
+Two sources, and neither is your own guess about what they need:
 
-Then walk the user through the whole set, include or exclude, item by item.
-Group it so it stays tractable — capability tools, language/stack content,
-standards and process, commands and skills — and say what each thing is FOR in
-one line. Batch the obvious cases and ask about them together; do not make them
-sit through a recital. But every item gets a decision: **silence is not
-exclusion**, and an item nobody was shown was not declined.
+1. **Everything tagged `default`.** That tag is the probable-inclusion set —
+   content a curator has marked as wanted by most projects regardless of stack.
+   Present all of it.
+2. **What is logically part of, or shared with, THIS project** — its stack, and
+   anything the project or its organisation already references.
 
-This replaced an instruction to present "a short, relevant list", and the
-reason matters, because the shortcut is tempting and looks like good manners.
-Relevance was computed from the detected STACK, so anything whose value is a
-CAPABILITY rather than a language went unmentioned forever — the user never
-learned it existed and never got to say no. A code-intelligence MCP that makes
-editing cleaner and cheaper in context (serena is the standing example, tagged
-`mcp, code-intelligence, lsp`) is invisible to a search for `tag:golang` and
-useful to nearly every project. Survey the catalog, not your model of what they
-need.
+Remotes are already cloned locally: read `ctxloom://remotes`, then
+`ctxloom://remotes/{name}/contents` per remote to see what is actually there;
+`search_library` takes a query (`tag:default`) and is the right tool for
+pulling the tagged set specifically. It cannot enumerate — an empty query is an
+error — so use the contents resource when you need to see the whole shape.
 
-**Capability content defaults to ON.** For items that improve how the agent
-works rather than what it knows — editing and code-intelligence MCPs, search,
-task tracking — the default answer is INCLUDE, and the user opts out. Present
-them as "these are on unless you'd rather not", not as an invitation to opt in.
-Stack and standards content stays an ordinary choice.
+**Treat the `default` set as probable inclusions: on unless the user says
+otherwise.** Present them as "these come as standard, tell me if you'd rather
+not" — not as an invitation to opt in.
+
+Why the tag exists, because the alternative was tried and is worse. This
+instruction used to say "present a short, relevant list", with relevance
+computed from the detected STACK — so anything whose value was a CAPABILITY
+rather than a language was never mentioned, and the user never learned it
+existed. A code-intelligence MCP that makes editing cleaner and cheaper in
+context (serena, tagged `mcp, code-intelligence, lsp`) is invisible to a search
+for `tag:golang` and useful to nearly every project. The fix is NOT for you to
+enumerate the entire catalog and make them sit through it — it is that
+`default` carries that judgment explicitly, made by whoever published the
+content. Trust the tag; do not re-derive relevance yourself, and do not silently
+drop something because it looks unrelated to the stack.
+
+Every item you present gets a decision: **silence is not exclusion**, and an
+item nobody was shown was not declined. Group and batch so it stays a
+conversation — capability tools, stack content, standards and process, commands
+and skills — and say what each thing is FOR in one line.
 
 Before leaving this phase, say back what was EXCLUDED and why, not just what
 was taken — a user who later wonders "why don't I have X" should have heard the

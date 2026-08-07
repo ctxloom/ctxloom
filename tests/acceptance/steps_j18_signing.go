@@ -46,13 +46,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cucumber/godog"
+	"github.com/spf13/afero"
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/content"
+	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
+	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 	"github.com/ctxloom/ctxloom/internal/signing/countersign"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
@@ -224,6 +229,49 @@ func j18VerifyDirectorySignature(w *World, name string) error {
 	if err := signing.Verify([]byte(body), []byte(sig), j18Of(w).signer.Public, signing.NamespacePublish); err != nil {
 		return fmt.Errorf("%s does not cover the %d bytes of %s read fresh off disk under Trent's key %s — the signature "+
 			"is STALE, which reads downstream as tampering: %w", sigPath, len(body), rel, j18Of(w).signer.Fingerprint(), err)
+	}
+	return nil
+}
+
+// j18VerifyTreeAttestation runs the CONSUMER's verifier over a directory
+// bundle: attest.VerifyBundle, the same call config.loadTreeBundle makes for
+// every pulled tree, against a trust root holding Trent's key.
+//
+// It is what makes the sibling signature's WRITE ORDER assertable. The sibling
+// lives at the bundle root, which content.ManifestCovers includes, so a sibling
+// written after the manifest was built is a file the manifest never claims —
+// VerifyContents reports it Unclaimed and the bundle reads as content-added.
+// The sibling's own signature verifies perfectly in that world, so nothing but
+// this assertion can tell the two orderings apart.
+func j18VerifyTreeAttestation(w *World, name string) error {
+	dir := filepath.Join(w.env.ProjectDir, filepath.FromSlash(j18DirBundleDir(name)))
+	store, err := content.NewTreeStore(afero.NewOsFs(), filepath.Dir(dir), content.Provenance{IsLocal: true})
+	if err != nil {
+		return fmt.Errorf("open the bundle tree at %s: %w", dir, err)
+	}
+	ctx := context.Background()
+	tree, err := store.Open(ctx, content.BundleID(name))
+	if err != nil {
+		return fmt.Errorf("open the bundle tree %s: %w", name, err)
+	}
+	root := allowedsigners.NewStore(allowedsigners.Entry{
+		Principals: []string{j18Principal},
+		Namespaces: []string{signing.NamespacePublish},
+		PublicKey:  j18Of(w).signer.Public,
+		KeyType:    j18Of(w).signer.Public.Type(),
+	})
+	verdict, err := attest.VerifyBundle(ctx, tree, root, time.Now())
+	if err != nil {
+		return fmt.Errorf("verify the bundle tree %s: %w", name, err)
+	}
+	if verdict.Contents != nil {
+		return fmt.Errorf("the tree of %s does not match the manifest just signed over it: %v — a signature written "+
+			"AFTER the manifest was built is a file the manifest never claims, and every consumer reads that as "+
+			"content having been added to a signed bundle", name, verdict.Contents)
+	}
+	if !verdict.OK() {
+		return fmt.Errorf("the freshly signed bundle %s verifies as %q (%s), not as attested by its publisher",
+			name, verdict.Status, verdict.Detail)
 	}
 	return nil
 }
@@ -753,6 +801,10 @@ func registerJ18Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the signature beside the directory bundle "([^"]*)" verifies against its bundle\.yaml on disk$`, func(c context.Context, name string) error {
 		return j18VerifyDirectorySignature(worldFrom(c), name)
+	})
+
+	ctx.Step(`^the directory bundle "([^"]*)" still verifies as a whole tree, with nothing unclaimed$`, func(c context.Context, name string) error {
+		return j18VerifyTreeAttestation(worldFrom(c), name)
 	})
 
 	ctx.Step(`^Trent edits the bundle "([^"]*)" after signing it$`, func(c context.Context, name string) error {

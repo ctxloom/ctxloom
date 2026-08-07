@@ -100,6 +100,13 @@ Feature: A signature somebody can check
     When I run "ctxloom bundle sign unattended"
     Then the command succeeds
     And the signature beside the directory bundle "unattended" verifies against its bundle.yaml on disk
+    # And the sibling must not have cost the bundle its OTHER attestation. The
+    # sibling sits at the bundle root, where the manifest covers everything but
+    # SHA256SUMS and .sigs/ — so writing it after the manifest is built leaves a
+    # file the manifest never claims, and every consumer reads the freshly
+    # signed bundle as content-added. Asserted through the consumer's own
+    # verifier, which is the only thing that can tell.
+    And the directory bundle "unattended" still verifies as a whole tree, with nothing unclaimed
 
   # The other half of the same failure: --all with nothing to sign must FAIL,
   # not report success over an empty set.

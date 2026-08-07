@@ -13,8 +13,9 @@
 
 ctxloom's acceptance suite is organised as user **journeys** — end-to-end
 narratives a real person would actually perform, expressed as Gherkin. J1–J17
-exist; J1–J12 and J16–J17 are wired, J13–J15 are prose/Gherkin drafts under
-`tests/acceptance/features-draft/`. `tests/acceptance/completeness_test.go`
+exist; J1–J12 and J14–J17 are wired. J13 (ensemble) is the last unwritten
+journey — the `features-draft/` directory it once shared with J14 and J15 is
+gone, both having been wired. `tests/acceptance/completeness_test.go`
 enumerates every CLI leaf and MCP tool and holds an **exact-set** allowlist of
 what is still uncovered: it fails in *both* directions, so the allowlist is a
 live measurement rather than a cap.
@@ -142,11 +143,11 @@ on the very next command (`value must be "claude-code"`). Exit 0, a success
 message, and a corrupt payload — the house failure mode exactly. J20 below
 carries a scenario for it, which will be RED until the validation lands.
 
-**(c) The `J14` draft is written against a command group that no longer
-exists.** `tests/acceptance/features-draft/j14_memory.feature` narrates
-`ctxloom memory compact/list/show` and cites `internal/cli/memory.go`. That
-surface is now `session distill` / `session list` / `session show`. The draft
-needs retargeting before it can be wired; see §4.
+**(c) RESOLVED — the `J14` draft was written against a command group that no
+longer existed.** It narrated `ctxloom memory compact/list/show`; that surface
+is now `session distill` / `session list` / `session show`. The draft was
+retired rather than retargeted, and `j14_session_distill.feature` was written
+against the live surface instead.
 
 **(d) Five `excludedLeaves` entries are dormant.** `ctxloom llm serve`,
 `ctxloom completion {zsh,fish,powershell}`, `ctxloom help`, and
@@ -680,9 +681,8 @@ the actual sections and on a value the fixture set. Re-spelling a vacuous
 assertion onto a canonical leaf is worse than leaving the leaf uncovered,
 because it converts a known gap into a false green.
 
-**`container tooling` → the J15 container draft
-(`features-draft/j15_container.feature`).** J15 already narrates the container
-command surface and already notes that `agent.feature` covers the deprecated
+**`container tooling` → J15 (`j15_container.feature`, now wired).** J15
+narrates the container command surface and notes that `agent.feature` covers the deprecated
 `tooling` spelling. Add a scenario there in the canonical spelling, and make it
 prove the **trust gate**, which is the interesting claim and is currently
 unasserted anywhere: an unreviewed bundle's `tooling` declaration is withheld,

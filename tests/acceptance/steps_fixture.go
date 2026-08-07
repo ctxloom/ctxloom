@@ -89,6 +89,22 @@ editor:
     - editor
 `
 
+// commandEditorConfig pins the editor to a command that rewrites a `command:`
+// line, which is what an MCP server entry is made of. markerEditorConfig's
+// append would corrupt the YAML and descriptionEditorConfig rewrites the wrong
+// key, so neither can serve `mcp server edit` — the round trip has to leave a
+// valid manifest behind or the command reads back garbage.
+//
+// Lives entirely in the HOME layer — see markerEditorConfig's doc for why.
+const commandEditorConfig = `version: 4
+editor:
+  command: sh
+  args:
+    - "-c"
+    - 'sed "s/^\( *\)command:.*/\1command: EDITED-BY-TEST/" "$1" > "$1.edited" && mv "$1.edited" "$1"'
+    - editor
+`
+
 // fixtureFragmentBody and fixtureCommandBody are the bodies the fragment and
 // command fixtures seed over `create`'s placeholder.
 //
@@ -172,6 +188,17 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 	// A project whose editor rewrites `description:` in place — the YAML-safe
 	// round-trip an `edit` on a structured document (a profile) needs.
 	// descriptionEditorConfig lives in HOME for the identical reason.
+	ctx.Step(`^a ctxloom project with a command-rewriting editor$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := w.env.InitGitRepo(); err != nil {
+			return err
+		}
+		if err := w.env.WriteFile(".ctxloom/config.yaml", minimalConfig); err != nil {
+			return err
+		}
+		return w.env.WriteHomeFile(".ctxloom/config.yaml", commandEditorConfig)
+	})
+
 	ctx.Step(`^a ctxloom project with a description-rewriting editor$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := w.env.InitGitRepo(); err != nil {

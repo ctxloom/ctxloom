@@ -157,3 +157,6 @@ DECISIONS.md
 
 # ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)
 .codex/auth.json
+
+# ctxloom private working state (rebuildable/local — cache, fetched pieces, sessions, ephemeral scratch, project id)
+.ctxloom/state/

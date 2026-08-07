@@ -1,7 +1,8 @@
 check-triggers/SKILL.md
 ctxloom-init/SKILL.md
 discover/SKILL.md
-sequential-thinking/complex-problem/SKILL.md
 ltk/tooling/SKILL.md
-serena/agent-setup/SKILL.md
-ltk/task-runner/SKILL.md
+versionator/release/SKILL.md
+versionator/suggest-version/SKILL.md
+versionator/version-bump/SKILL.md
+sequential-thinking/complex-problem/SKILL.md

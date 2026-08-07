@@ -60,7 +60,7 @@ Scan the current project and discover matching ctxloom content from configured r
      ref with `@`: `ctxloom-default/go-developer@v1.2.0`. Unpinned refs track
      the remote's default branch.
    - Make a profile the default context by binding it into an agent and pointing
-     `default_agent` at it (`ctxloom agent set dev --profiles <name>` then
+     `default_agent` at it (`ctxloom agent create dev --profiles <name>` then
      `ctxloom agent default dev`), so a bare `ctxloom run` loads it automatically.
      An agent's profiles are a list; each may be a local name or a remote ref.
 

@@ -1,7 +1,0 @@
-parents:
-    - project-base
-description: 'Code-review lens: maintainability.'
-bundles:
-    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-base#fragments/conduct
-    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-base#fragments/thorough
-    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-maintainability#fragments/general

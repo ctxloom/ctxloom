@@ -139,7 +139,7 @@ updates. `ctxloom profile create --help` has the exact flags.
 ### 3c. Default
 
 Bind the chosen profile(s) into an agent and point `default_agent` there
-(`ctxloom agent set dev --profiles <name>`, `ctxloom agent default dev`) so
+(`ctxloom agent create dev --profiles <name>`, `ctxloom agent default dev`) so
 a bare `ctxloom run` picks it up — confirm the choice with the user.
 
 ### 3d. Review
@@ -168,7 +168,7 @@ Don't guess — you have this already from phase 1 (engines via `ctxloom llm
 list`, existing agents via `ctxloom agent list`, container viability via
 `ctxloom container check`) and phase 3 (profiles). If containers would
 degrade here, plan on `--runtime host` and say why. If they're viable and a
-bundle declares tooling needs, `ctxloom tooling` shows the proposed
+bundle declares tooling needs, `ctxloom container tooling` shows the proposed
 Containerfile diff — apply only what's approved, then `ctxloom container
 build`.
 
@@ -208,13 +208,14 @@ code review (often cheaper than the developer).
 Write what's agreed:
 
 ```
-ctxloom agent set <name> --engine <engine> --profiles <p1,p2,...> --runtime host|container
+ctxloom agent create <name> --engine <engine> --profiles <p1,p2,...> --runtime host|container
 ```
 
-(`ctxloom agent set --help` has the full flag list.) Worth knowing beyond
+(`ctxloom agent create --help` has the full flag list.) Worth knowing beyond
 the syntax: `--profiles` composes several into one context; `--runtime
 container` needs a reachable container runtime, else fall back to host and
-say why; re-running `set` upserts, `agent remove <name>` deletes. Confirm
+say why; change an existing one with `agent edit <name>`, drop one with
+`agent delete <name>`. Confirm
 with `ctxloom agent list`, then tell the user how to use what they built
 (`ctxloom run --agent coordinator`, which fans the review ensemble out via
 `agent_run` when asked).

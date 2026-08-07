@@ -1,77 +1,53 @@
 agents:
-    coder:
-        engine: claude-sonnet
-        profiles:
-            - default
-            - developer-escalation
-        runtime: container
-        permissions: bypass
     coordinator:
+        coordinator: true
         engine: claude-code
+        permissions: bypass
         profiles:
             - coordinator
         runtime: host
-        permissions: bypass
-        coordinator: true
     default:
         engine: claude-code
         profiles:
-            - https://github.com/benjaminabbitt/ctxloom-personal@bundles/go-development#profiles/go-developer
+            - default
         runtime: host
     developer:
         engine: claude-code
+        permissions: bypass
         profiles:
             - default
             - developer-escalation
         runtime: container
-        permissions: bypass
     finder:
         engine: claude-fast
-        profiles:
-            - finder
-        runtime: host
         permissions: plan
-    haiku:
-        engine: claude-fast
         profiles:
             - finder
-        runtime: container
-        permissions: bypass
-    host-dev:
-        engine: claude-code
-        profiles:
-            - default
-            - developer-escalation
         runtime: host
-        permissions: bypass
-    triage:
-        engine: claude-fast
-        profiles:
-            - coordinator
-        coordinator: true
 config:
     use_distilled: true
 default_agent: coordinator
+dirty_tree_handler: commit
 llm:
     configs:
         claude-code:
+            model: claude-opus-5
             type: claude-code
-            model: claude-opus-4-8
         claude-fast:
-            type: claude-code
             model: claude-haiku-4-5-20251001
-        claude-sonnet:
             type: claude-code
+        claude-sonnet:
             model: claude-sonnet-5
+            type: claude-code
         gemini-code:
-            type: antigravity
             model: gemini-2.5-pro
-        gemini-fast:
             type: antigravity
+        gemini-fast:
             model: gemini-2.5-flash
+            type: antigravity
     defaults:
-        primary: claude-code
         fast: claude-fast
+        primary: claude-code
 mcp:
     auto_register_ctxloom: true
 version: 6

@@ -1,12 +1,28 @@
-description: 'Local default coding profile scaffolded by `ctxloom init`: your project''s primary heavy-implementer context. Inherits the ctxloom-default baseline (conduct + sequential-thinking) and developer practices. Edit it freely; the agents bound during setup (coordinator, containerized developer, cheap finder, ...) compose it — `ctxloom agent setup` re-enters that interview any time.'
-parents:
-    - project-base
-    - https://github.com/ctxloom/ctxloom-default@bundles/default#profiles/default
-    - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer
+version: "1.0.0"
+description: "Local default coding profile scaffolded by `ctxloom init`: your project's primary heavy-implementer context. Inherits the ctxloom-default baseline (conduct + sequential-thinking) and developer practices. Edit it freely; the agents bound during setup (coordinator, containerized developer, cheap finder, ...) compose it — `ctxloom init prompt` re-enters that interview any time."
 tags:
-    - default
+  - default
+# A LOCAL profile (owned and editable in this project's .ctxloom), not a bare
+# remote reference. It composes ctxloom-default's `default` and `developer`
+# bundle profiles (baseline conduct/practice + developer coding practices), so
+# the seeded default is a real coding profile you can extend, set as the
+# orchestrating/developer member, or split into tighter per-role profiles.
+parents:
+  - project-base
+  - https://github.com/ctxloom/ctxloom-default@bundles/default@branch:main#profiles/default
+  - https://github.com/ctxloom/ctxloom-default@bundles/ai-developer@branch:main#profiles/developer
 bundles:
-    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/serena
-    - https://github.com/ctxloom/ctxloom-default@bundles/go-ai-practices
-    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/go-development
-    - https://github.com/benjaminabbitt/ctxloom-personal@bundles/source-organization
+  # Language: upstream Go practices plus the personal composition on top.
+  - https://github.com/ctxloom/ctxloom-default@bundles/go-ai-practices
+  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/go-development
+  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/source-organization
+  # Tooling this repo actually runs. Each one exists because an agent that does
+  # not know the tool reaches past it: invoking `go test` instead of the recipe,
+  # treating an ltk redirect as a failure, or re-solving duplication reprise
+  # already reports.
+  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/just
+  - https://github.com/ctxloom/ctxloom-default@bundles/lefthook
+  - https://github.com/ctxloom/ctxloom-default@bundles/ltk
+  - https://github.com/ctxloom/ctxloom-default@bundles/reprise
+  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/containers
+  - https://github.com/benjaminabbitt/ctxloom-personal@bundles/github

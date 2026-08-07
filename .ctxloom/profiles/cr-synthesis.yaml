@@ -1,6 +1,0 @@
-parents:
-    - project-base
-description: Synthesis (reduce) member for the code-review weave ensemble.
-llm: claude-code
-bundles:
-    - https://github.com/ctxloom/ctxloom-default@bundles/code-review-base#fragments/synthesis

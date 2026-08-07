@@ -1,16 +1,5 @@
 {
   "hooks": {
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "command": "ctxloom hook stamp-plan",
-            "type": "command"
-          }
-        ],
-        "matcher": "Edit|Write"
-      }
-    ],
     "PreToolUse": [
       {
         "hooks": [
@@ -26,31 +15,27 @@
       {
         "hooks": [
           {
-            "command": "ctxloom hook session-bind",
-            "type": "command"
-          },
-          {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 5 868179845751bc91",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 1 --of 5 1a8e0e882f58587e",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 5 868179845751bc91",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 2 --of 5 1a8e0e882f58587e",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 5 868179845751bc91",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 3 --of 5 1a8e0e882f58587e",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 5 868179845751bc91",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 4 --of 5 1a8e0e882f58587e",
             "timeout": 60,
             "type": "command"
           },
           {
-            "command": "'/home/babbitt/go/bin/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 5 868179845751bc91",
+            "command": "'/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom' hook inject-context --project '/home/babbitt/workspace/ctxloom/ctxloom/main' --part 5 --of 5 1a8e0e882f58587e",
             "timeout": 60,
             "type": "command"
           }
@@ -59,7 +44,7 @@
     ]
   },
   "statusLine": {
-    "command": "/home/babbitt/go/bin/ctxloom hook hud",
+    "command": "/home/babbitt/workspace/ctxloom/ctxloom/main/ctxloom hook hud",
     "type": "command"
   },
   "worktree": {

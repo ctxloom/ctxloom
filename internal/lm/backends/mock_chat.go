@@ -86,12 +86,44 @@ func (b *Mock) Chat(ctx context.Context, req agent.ChatRequest, in <-chan agent.
 					return ctx.Err()
 				}
 			default:
+				if err := b.recordChatTurn(req, msg.Text); err != nil {
+					return err
+				}
 				if !send(agent.ChatEvent{Entry: &agent.SessionEntry{Type: agent.EntryTypeAssistant, Content: "mock chat: " + msg.Text}}) || !complete("end_turn") {
 					return ctx.Err()
 				}
 			}
 		}
 	}
+}
+
+// recordChatTurn writes this turn's record when CTXLOOM_MOCK_RECORD_FILE is
+// set, the same evidence Execute leaves.
+//
+// Chat and Execute are not interchangeable arms of one path — they are the ONLY
+// arms, split by transport: a container structured/oneshot run goes through
+// Chat (run.go's armOwnedRunContainer), everything else through Execute. While
+// only Execute recorded, the container arm left no evidence at all, so a run
+// that never containerized and a run that containerized perfectly produced the
+// identical observable: exit 0 and an echo. Every isolation scenario reads this
+// record to decide WHERE the engine ran, and none of them could be written for
+// the one axis where the question matters most.
+//
+// A write failure is returned rather than warned, for the reason Execute's own
+// path documents: reporting success with no record file lets a later assertion
+// silently read a STALE record from a previous run.
+//
+// The turn text is recorded as the prompt because on this arm it IS the
+// prompt — the host composes context and prompt into one lead block
+// (JoinLeadBlocks) before the turn is issued.
+func (b *Mock) recordChatTurn(req agent.ChatRequest, text string) error {
+	return writeMockRecord(getEnvFromMap(req.Env, "CTXLOOM_MOCK_RECORD_FILE"), mockRecordFields{
+		WorkDir:       req.WorkDir,
+		Env:           req.Env,
+		Prompt:        text,
+		Context:       agent.AssembleContext(b.fragments),
+		FragmentCount: len(b.fragments),
+	}, b.managed)
 }
 
 // chatPermissionTurn emits one permission request and parks until its answer.

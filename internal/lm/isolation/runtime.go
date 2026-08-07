@@ -10,6 +10,7 @@ import (
 	"time"
 
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
 
@@ -619,47 +620,23 @@ func newDockerRuntime(reachable func(string) bool) Runtime {
 // degrade warnings and feeds `container check`; the actual can-containers-
 // launch decision is behavior-based (runtime reachability + the shared-fs
 // probe), never this heuristic alone.
-func InContainer() bool { return len(containerMarkers()) > 0 }
+func InContainer() bool { return containerprobe.InContainer() }
 
 // containerMarkers returns the matched in-container markers (empty = none),
 // for InContainer and the `container check` diagnosis.
-func containerMarkers() []string {
-	return inContainerFrom(
-		func(p string) error { _, err := os.Stat(p); return err },
-		os.ReadFile,
-		os.Getenv,
-	)
-}
+//
+// The probe itself lives in internal/shared/containerprobe because
+// internal/lm/backends' mock records the same answer as evidence of where an
+// engine ran, and backends cannot import this package (isolation -> backends
+// -> acp -> isolation). Two copies of the marker list would drift the first
+// time a runtime changed a sentinel.
+func containerMarkers() []string { return containerprobe.Markers() }
 
-// inContainerFrom is the seam-injected core of the in-container detection:
-// stat/readFile/getenv arrive as functions so tests never touch the real
-// /proc, sentinel files, or process env (CI itself runs inside containers,
-// and the hostile-env suite junks the environment). Returns every marker that
-// matched, named for diagnostics.
+// inContainerFrom is retained as this package's name for the injected seam so
+// the detection stays testable from here — the behavior is one definition, in
+// containerprobe.
 func inContainerFrom(stat func(string) error, readFile func(string) ([]byte, error), getenv func(string) string) []string {
-	var markers []string
-	for _, f := range []string{"/.dockerenv", "/run/.containerenv"} {
-		if stat(f) == nil {
-			markers = append(markers, f)
-		}
-	}
-	for _, e := range []string{"REMOTE_CONTAINERS", "CODESPACES", "DEVCONTAINER", "KUBERNETES_SERVICE_HOST"} {
-		if getenv(e) != "" {
-			markers = append(markers, "$"+e)
-		}
-	}
-	// cgroup v1 runtime signatures — BEST-EFFORT ONLY: cgroup v2 exposes a
-	// bare "0::/" with no runtime marker, which is why the sentinel-file and
-	// env probes lead and this never stands alone as a negative signal.
-	if b, err := readFile("/proc/1/cgroup"); err == nil {
-		s := string(b)
-		for _, marker := range []string{"docker", "containerd", "kubepods", "/lxc/"} {
-			if strings.Contains(s, marker) {
-				markers = append(markers, "cgroup:"+marker)
-			}
-		}
-	}
-	return markers
+	return containerprobe.MarkersFrom(stat, readFile, getenv)
 }
 
 // SelectRuntime picks the container runtime by config preference then detection.

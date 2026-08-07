@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 )
 
 // Mock implements the Backend interface for testing purposes.
@@ -163,22 +164,63 @@ var configHomeEnvKeys = []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIRO_HOME"}
 // resolved isolation workspace and is what a hermetic test must read to
 // observe the workspace boundary; cwd is kept alongside it for diagnostics.
 func recordMockInput(recordFile string, req *agent.ExecuteRequest, managed *agent.ManagedConfig, contextStr, promptContent string, fragmentCount int) error {
+	return writeMockRecord(recordFile, mockRecordFields{
+		Mode:          int32(req.Mode),
+		WorkDir:       req.WorkDir,
+		Env:           req.Env,
+		Context:       contextStr,
+		Prompt:        promptContent,
+		FragmentCount: fragmentCount,
+	}, managed)
+}
+
+// mockRecordFields is what a record is written FROM, named independently of
+// which request type produced it. Execute is handed an agent.ExecuteRequest and
+// Chat an agent.ChatRequest; both must be able to leave the same evidence,
+// because a scenario asserting WHERE an engine ran must not first have to know
+// which transport arm the run happened to take.
+type mockRecordFields struct {
+	Mode          int32
+	WorkDir       string
+	Env           map[string]string
+	Context       string
+	Prompt        string
+	FragmentCount int
+}
+
+// writeMockRecord renders one record. See recordMockInput for what the fields
+// mean and why cwd and workdir are both present.
+func writeMockRecord(recordFile string, in mockRecordFields, managed *agent.ManagedConfig) error {
 	if recordFile == "" {
 		return nil
 	}
 	var input strings.Builder
 	input.WriteString("=== Arguments ===\n")
-	_, _ = fmt.Fprintf(&input, "mode=%d\n", req.Mode)
-	_, _ = fmt.Fprintf(&input, "fragments=%d\n", fragmentCount)
+	_, _ = fmt.Fprintf(&input, "mode=%d\n", in.Mode)
+	_, _ = fmt.Fprintf(&input, "fragments=%d\n", in.FragmentCount)
 	if cwd, err := os.Getwd(); err == nil {
 		_, _ = fmt.Fprintf(&input, "cwd=%s\n", cwd)
 	} else {
 		_, _ = fmt.Fprintf(&input, "cwd=<error: %v>\n", err)
 	}
-	_, _ = fmt.Fprintf(&input, "workdir=%s\n", req.WorkDir)
+	_, _ = fmt.Fprintf(&input, "workdir=%s\n", in.WorkDir)
+	// WHERE THE ENGINE RAN, in two independent signals, because neither is
+	// sufficient alone. container_markers is a heuristic that reads TRUE on
+	// both sides when the test harness itself runs inside a devcontainer — a
+	// scenario trusting it alone would then pass without any container being
+	// launched. hostname is what breaks that tie: a container gets its own UTS
+	// namespace, so it never matches the launching process's hostname, nested
+	// or not. cwd and workdir cannot serve here at all: the container mounts
+	// the project at the SAME absolute path by design.
+	if host, err := os.Hostname(); err == nil {
+		_, _ = fmt.Fprintf(&input, "hostname=%s\n", host)
+	} else {
+		_, _ = fmt.Fprintf(&input, "hostname=<error: %v>\n", err)
+	}
+	_, _ = fmt.Fprintf(&input, "container_markers=%s\n", strings.Join(containerprobe.Markers(), ","))
 	input.WriteString("=== Env ===\n")
 	for _, key := range configHomeEnvKeys {
-		if v := getEnvFromMap(req.Env, key); v != "" {
+		if v := getEnvFromMap(in.Env, key); v != "" {
 			_, _ = fmt.Fprintf(&input, "%s=%s\n", key, v)
 		}
 	}
@@ -199,9 +241,9 @@ func recordMockInput(recordFile string, req *agent.ExecuteRequest, managed *agen
 		}
 	}
 	input.WriteString("=== Context ===\n")
-	input.WriteString(contextStr)
+	input.WriteString(in.Context)
 	input.WriteString("\n=== Prompt ===\n")
-	input.WriteString(promptContent)
+	input.WriteString(in.Prompt)
 	input.WriteString("\n")
 
 	if err := os.WriteFile(recordFile, []byte(input.String()), 0644); err != nil {

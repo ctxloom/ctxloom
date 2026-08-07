@@ -228,26 +228,53 @@ func fileContains(c context.Context, home bool, rel, want string) error {
 }
 
 // readBundleFragment returns the original and distilled content of a fragment
-// from a created bundle file, used by @live distill assertions. Bundles live at
+// from a created bundle file, used by the distill assertions. Bundles live at
 // .ctxloom/content/bundles/<bundle>.yaml.
 func readBundleFragment(w *World, bundle, fragment string) (content, distilled string, err error) {
+	return readBundleItem(w, "fragments", bundle, fragment)
+}
+
+// readBundleCommand is readBundleFragment's counterpart for the commands
+// section. Both kinds distill through the same seam, so a scenario that can
+// only read one of them cannot tell "distillation works" from "distillation
+// works for fragments" — which is exactly the regression `bundle distill`
+// (every item at once) has to be able to fail on.
+func readBundleCommand(w *World, bundle, command string) (content, distilled string, err error) {
+	return readBundleItem(w, "commands", bundle, command)
+}
+
+// readBundleItem reads one named item out of a bundle manifest's section.
+// Section-agnostic on purpose: fragments and commands carry the same
+// content/distilled pair, and two near-identical readers would drift the first
+// time the manifest shape changed under one of them.
+func readBundleItem(w *World, section, bundle, name string) (content, distilled string, err error) {
 	rel := filepath.Join(".ctxloom", "content", "bundles", bundle+".yaml")
 	body, err := os.ReadFile(filepath.Join(w.env.ProjectDir, rel))
 	if err != nil {
 		return "", "", fmt.Errorf("read bundle %q: %w", bundle, err)
 	}
+	type item struct {
+		Content   string `yaml:"content"`
+		Distilled string `yaml:"distilled"`
+	}
+	// Not map[string]map[string]item over the whole document: a manifest's
+	// top-level also carries scalars (version, description), which that shape
+	// fails to unmarshal.
 	var doc struct {
-		Fragments map[string]struct {
-			Content   string `yaml:"content"`
-			Distilled string `yaml:"distilled"`
-		} `yaml:"fragments"`
+		Fragments map[string]item `yaml:"fragments"`
+		Commands  map[string]item `yaml:"commands"`
 	}
 	if err := yaml.Unmarshal(body, &doc); err != nil {
 		return "", "", fmt.Errorf("parse bundle %q: %w", bundle, err)
 	}
-	f, ok := doc.Fragments[fragment]
-	if !ok {
-		return "", "", fmt.Errorf("fragment %q not in bundle %q", fragment, bundle)
+	sections := map[string]map[string]item{"fragments": doc.Fragments, "commands": doc.Commands}
+	items, known := sections[section]
+	if !known {
+		return "", "", fmt.Errorf("bundle section %q is not one this reader knows (fragments, commands)", section)
 	}
-	return f.Content, f.Distilled, nil
+	it, ok := items[name]
+	if !ok {
+		return "", "", fmt.Errorf("%s %q not in bundle %q's %s", strings.TrimSuffix(section, "s"), name, bundle, section)
+	}
+	return it.Content, it.Distilled, nil
 }

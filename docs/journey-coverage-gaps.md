@@ -13,9 +13,11 @@
 
 ctxloom's acceptance suite is organised as user **journeys** — end-to-end
 narratives a real person would actually perform, expressed as Gherkin. J1–J17
-exist; J1–J12 and J14–J17 are wired. J13 (ensemble) is the last unwritten
-journey — the `features-draft/` directory it once shared with J14 and J15 is
-gone, both having been wired. `tests/acceptance/completeness_test.go`
+exist; J1–J12 and J14–J17 are wired, and the `features-draft/` directory is
+gone. J13 is not pending work: its ensemble draft narrated `ctxloom map`,
+which no longer existed, and the draft was deleted rather than retargeted —
+`weave`, the surviving spelling, is itself slated for removal (taskloom
+hungry-bribe), so there is no J13 to write. `tests/acceptance/completeness_test.go`
 enumerates every CLI leaf and MCP tool and holds an **exact-set** allowlist of
 what is still uncovered: it fails in *both* directions, so the allowlist is a
 live measurement rather than a cap.

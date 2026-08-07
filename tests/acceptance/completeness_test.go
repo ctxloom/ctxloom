@@ -138,21 +138,15 @@ func isLeafIdentByte(b byte) bool {
 // must be pruned back down). Every entry names the task that will backfill
 // it; that task is the only legitimate way an entry leaves this list.
 var knownUncoveredCLI = []string{
-	// The three content-distill leaves are covered ONLY by distill_live.feature,
-	// which is @live and never runs by default. They were credited as covered
-	// until loadCorpus began filtering non-running scenarios; that credit was
-	// always an illusion. They are TRACKED DEBT rather than excludedLeaves on
-	// purpose — excludedLeaves is skipped before counting, so parking them there
-	// would hide them from the very ratchet that is supposed to burn them down.
+	// `ctxloom bundle|command|fragment distill` LEFT this list when
+	// content_distill.feature landed: they had been credited as covered on the
+	// strength of distill_live.feature alone, which is @live and never runs, and
+	// the credit evaporated the moment loadCorpus began counting only scenarios
+	// that execute. They are now driven hermetically against the mock, asserting
+	// both halves (the item's content reaching the distiller, the distiller's
+	// answer being stored) plus the two refusal paths — a truncated answer and a
+	// backend that dies.
 	//
-	// Note what this replaced: "ctxloom session distill" was excused in
-	// excludedLeaves as "@live ... the fragment/command/bundle distill paths
-	// cover the distiller". Both halves were false — those paths are @live-only
-	// themselves — and the session leaf is now genuinely covered by
-	// j14_session_distill, which is the worked example to copy for these three.
-	"ctxloom bundle distill",
-	"ctxloom command distill",
-	"ctxloom fragment distill",
 	// The publisher-signing surface is now covered by J18 (steps_j18_signing.go,
 	// j18_signing.feature): `ctxloom bundle sign` (bare ref, --all, an item ref,
 	// and the empty-publish-set failure), `ctxloom trust signer list`,
@@ -345,8 +339,8 @@ var excludedTools = map[string]string{}
 var excludedTemplates = map[string]string{}
 
 // maxKnownUncoveredTotal is a RATCHET on the combined size of every
-// knownUncovered* allowlist (currently 15 CLI leaves + 4 MCP tools + 3
-// runner-only MCP tools = 22). It exists because assertExactUncovered's
+// knownUncovered* allowlist (currently 12 CLI leaves + 4 MCP tools + 3
+// runner-only MCP tools = 19). It exists because assertExactUncovered's
 // exact-set check only catches a leaf/tool going uncovered WITHOUT anyone
 // updating the matching allowlist — it does nothing to stop someone from
 // adding a new gap AND an allowlist entry for it in the same change, which
@@ -382,8 +376,14 @@ var excludedTemplates = map[string]string{}
 //
 // Decided with the human (set it and ratchet): take the true number now and
 // burn it down from here. Do not raise it again to accommodate a real
-// regression — 24 is a floor to work off, not a budget to spend.
-const maxKnownUncoveredTotal = 24
+// regression — that number was a floor to work off, not a budget to spend.
+//
+// LOWERED from 24 to 21 by content_distill.feature, which retired exactly the
+// three leaves that raise had exposed (`bundle`, `command` and `fragment
+// distill`). Lowering it in the same change is the mechanism working as
+// intended: the ratchet only tracks the debt down if closing gaps costs the
+// allowlist its slack.
+const maxKnownUncoveredTotal = 21
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.

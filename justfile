@@ -787,10 +787,19 @@ clean-caches:
     set -uo pipefail
     echo "before: $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
     go clean -cache
+    # RECREATE after removing. ~/.cache/gotmp is this machine's configured
+    # GOTMPDIR (`go env GOTMPDIR`, persisted in ~/.config/go/env), and Go does
+    # NOT create it on demand: with the directory gone, every subsequent go
+    # invocation dies with "creating work dir: stat .../gotmp: no such file or
+    # directory". Deleting it therefore broke `just test`, `just lint` and
+    # `just test-acceptance` outright — measured, after this recipe reclaimed
+    # 145 GB and left the tree unbuildable. Emptying reclaims the same space;
+    # only the directory itself has to survive.
     for d in "$HOME/.cache/gotmp" "$HOME/.cache/ctxloom-agent-tmp" "$HOME/.cache/goimports"; do
         [ -d "$d" ] || continue
         chmod -R u+w "$d" 2>/dev/null || true
         rm -rf "$d" 2>/dev/null || echo "  (some of $d was container-owned and left in place)"
+        mkdir -p "$d" 2>/dev/null || true
     done
     echo "after:  $(df -h "$HOME" | awk 'NR==2{print $4" free, "$5" used"}')"
 

@@ -32,3 +32,30 @@ pre-commit:
       # SILENT empty commit — no error anywhere. Cheap insurance against an
       # expensive, invisible loss (only-viper).
       run: env -u GIT_INDEX_FILE reprise check --base HEAD .
+
+pre-push:
+  commands:
+    cache-report:
+      # Bound the Go build cache. ~/.cache/go-build has no native size cap: Go
+      # trims entries unused for ~5 days, which bounds it at five days of churn
+      # and nothing more. A heavy multi-agent day here produces ~100 GB, and
+      # worktrees multiply it because `go test` compiles without -trimpath, so
+      # identical source in N worktrees is N entries (obtuse-equinox).
+      #
+      # This is not hypothetical maintenance. On 2026-08-07 the cache reached
+      # 145 GB, /home hit 100%, and the linker started failing with "no space
+      # left on device" — while `just build` and `just test-acceptance` kept
+      # passing, because their link footprints differ. It read as a flaky test
+      # and cost a 35-run investigation before anyone looked at df
+      # (scruffy-attractor). `just cache-report` already existed and enforced
+      # the 40 GB limit correctly; nothing ran it. This runs it.
+      #
+      # PRE-PUSH, not pre-commit: pushes are frequent enough here to bound
+      # growth and rare enough not to tax iteration, and the check costs ~2s
+      # against a healthy cache. Eviction is age-based and a missing entry is a
+      # plain cache miss, never a wrong build, so this can never corrupt a
+      # result — worst case it costs a recompile.
+      #
+      # Local only by design: CI runners get ephemeral disks, so this protects
+      # the developer boxes that actually fill up.
+      run: just cache-report

@@ -198,13 +198,19 @@ var knownUncoveredCLI = []string{
 	// fixture for (its predecessor was `excludedLeaves`-excluded for exactly
 	// that reason).
 	"ctxloom mcp server edit",
-	// Engine-matrix variants: only the claude-code path is exercised;
-	// codex/kiro/antigravity need their own fixtures. Backfill: task glad-skid.
-	"ctxloom manage install --engine codex",
-	"ctxloom manage install --engine kiro",
+	// Engine-matrix variants. The codex and kiro rows LEFT this list when
+	// manage.feature gained a scenario per engine per leaf, each asserting that
+	// engine's OWN surfaces (codex's config.toml + AGENTS.md, kiro's mcp.json +
+	// agent definition) rather than the shared .ctxloom scaffold, which all
+	// three write identically and which therefore proves nothing about which
+	// engine ran.
+	//
+	// The ANTIGRAVITY rows stay, deliberately and not for want of a fixture:
+	// frosty-punk removes that engine in 0.7.0, so a scenario for it would be
+	// written to be deleted. Covering it is the wrong call, but so is quietly
+	// dropping the rows — they are real uncovered surface until the engine is
+	// gone, and they leave this list when the engine does.
 	"ctxloom manage install --engine antigravity",
-	"ctxloom config init --engine codex",
-	"ctxloom config init --engine kiro",
 	"ctxloom config init --engine antigravity",
 }
 
@@ -340,8 +346,8 @@ var excludedTools = map[string]string{}
 var excludedTemplates = map[string]string{}
 
 // maxKnownUncoveredTotal is a RATCHET on the combined size of every
-// knownUncovered* allowlist (currently 8 CLI leaves + 1 MCP tool + 3
-// runner-only MCP tools = 12). It exists because assertExactUncovered's
+// knownUncovered* allowlist (currently 4 CLI leaves + 1 MCP tool + 3
+// runner-only MCP tools = 8). It exists because assertExactUncovered's
 // exact-set check only catches a leaf/tool going uncovered WITHOUT anyone
 // updating the matching allowlist — it does nothing to stop someone from
 // adding a new gap AND an allowlist entry for it in the same change, which
@@ -387,8 +393,9 @@ var excludedTemplates = map[string]string{}
 //
 // LOWERED again, 21 to 17, by session_hooks.feature retiring the four hidden
 // hook callbacks, then 17 to 14 by mcp_tools.feature retiring compact_session,
-// get_previous_session and list_sessions.
-const maxKnownUncoveredTotal = 14
+// get_previous_session and list_sessions, then 14 to 10 by manage.feature
+// retiring the codex and kiro engine-matrix rows.
+const maxKnownUncoveredTotal = 10
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.

@@ -222,3 +222,64 @@ Feature: Manage the project harness
     Then the output contains "refusing to write settings.json"
     And the file ".claude/settings.json" contains "ccusage"
     And the file ".claude/settings.json" does not contain "ctxloom hook"
+
+  # THE PER-ENGINE MATRIX. Everything above installs against claude-code, and a
+  # substring check on the leaf is satisfied by that one engine forever — so
+  # codex's and kiro's install paths could break without a single red test.
+  # They are written as separate scenarios rather than one Scenario Outline
+  # deliberately: the completeness gate reads the corpus as TEXT and looks for
+  # a literal `I run "ctxloom manage install --engine codex"`, which an
+  # Examples table never produces. It would report these leaves uncovered no
+  # matter how thoroughly an Outline exercised them.
+  #
+  # Each asserts the engine's OWN surfaces, because that is what differs: the
+  # three engines share the .ctxloom scaffold and agree about nothing else.
+  # Payload, not existence — an empty settings file exists just as convincingly
+  # as a wired one.
+
+  # codex is configured through a TOML file plus a repo-root AGENTS.md, and its
+  # SessionStart hook is what delivers context. Asserting the hook line proves
+  # the wiring, not merely that a config file was created.
+  Scenario: Install wires codex through its own config surfaces
+    Given an empty project directory
+    When I run "ctxloom manage install --engine codex"
+    Then the command succeeds
+    And the file ".ctxloom/config.yaml" exists
+    And the file ".codex/config.toml" contains "[mcp_servers.ctxloom]"
+    And the file ".codex/config.toml" contains "hook inject-context"
+    And the file "AGENTS.md" exists
+    And the file ".gitignore" contains "ctxloom"
+
+  # kiro takes JSON, and registers ctxloom as an MCP server plus an agent
+  # definition. Its skills land as directories rather than a single file, which
+  # is the shape j10 already proves elsewhere; here the claim is only that
+  # install reached kiro's surfaces at all.
+  Scenario: Install wires kiro through its own config surfaces
+    Given an empty project directory
+    When I run "ctxloom manage install --engine kiro"
+    Then the command succeeds
+    And the file ".ctxloom/config.yaml" exists
+    And the file ".kiro/settings/mcp.json" contains "ctxloom"
+    And the file ".kiro/agents/ctxloom.json" exists
+    And the file ".gitignore" contains "ctxloom"
+
+  # `config init --engine` writes no engine files at all — it selects the
+  # engine INSIDE config.yaml. Probed on a real run: the codex and kiro
+  # invocations produce byte-identical trees apart from that one file, so the
+  # config's contents are the only place the flag is observable and asserting
+  # a file exists would prove nothing about which engine was asked for.
+  Scenario: Config init selects codex as the project's engine
+    Given an empty project directory
+    When I run "ctxloom config init --engine codex"
+    Then the command succeeds
+    And the file ".ctxloom/config.yaml" contains "engine: codex"
+    And the file ".ctxloom/config.yaml" contains "type: codex"
+    And the file ".ctxloom/config.yaml" contains "primary: codex"
+
+  Scenario: Config init selects kiro as the project's engine
+    Given an empty project directory
+    When I run "ctxloom config init --engine kiro"
+    Then the command succeeds
+    And the file ".ctxloom/config.yaml" contains "engine: kiro"
+    And the file ".ctxloom/config.yaml" contains "type: kiro"
+    And the file ".ctxloom/config.yaml" contains "primary: kiro"

@@ -55,7 +55,8 @@ var manageInstallCmd = &cobra.Command{
 	Short: "Scaffold .ctxloom and wire hooks, MCP, gitignore, and config",
 	Long: `One-shot, non-interactive setup: scaffold the .ctxloom skeleton (if absent),
 exclude ctxloom's private state from git, and apply hooks/MCP/statusline to
-every supported backend. Unlike 'manage init', it never launches an AI.`,
+every supported backend. Unlike root 'ctxloom init', it never prompts and never
+launches an AI, so it is the form to use from a script or CI.`,
 	Args: cobra.NoArgs,
 	RunE: runManageInstall,
 }

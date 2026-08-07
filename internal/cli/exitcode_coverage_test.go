@@ -34,7 +34,6 @@
 package cli
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -92,12 +91,44 @@ func findSilentFailureSites(t *testing.T) []string {
 			t.Fatalf("read %s: %v", name, err)
 		}
 		for _, loc := range silentFailureLoopRE.FindAllIndex(src, -1) {
-			line := 1 + bytes.Count(src[:loc[0]], []byte("\n"))
-			sites = append(sites, fmt.Sprintf("%s:%d", name, line))
+			sites = append(sites, fmt.Sprintf("%s:%s", name, enclosingFunc(src, loc[0])))
 		}
 	}
 	sort.Strings(sites)
 	return sites
+}
+
+// enclosingFuncRE finds a top-level function or method declaration.
+var enclosingFuncRE = regexp.MustCompile(`(?m)^func (?:\([^)]*\) )?(\w+)`)
+
+// enclosingFunc names the function containing the byte at off, and is the
+// ledger KEY below.
+//
+// The key used to be a LINE NUMBER, and that was a standing tax rather than a
+// one-off annoyance: every entry in the ledger carries its own changelog of
+// renumbering ("Line renumbered from :129 to :134", ":62 to :77 to :80 to
+// :82"), each triggered by an edit that had nothing to do with the debt it
+// tracks. Adding one line of unrelated HELP PROSE to manage.go shifted four
+// entries at once and turned the gate red in both directions simultaneously —
+// four "new undeclared site" errors and four "stale entry, debt paid down?"
+// errors, for a change that touched no error handling at all. A gate that
+// cries wolf on unrelated edits gets its ledger updated mechanically, which is
+// exactly how a real new site would slip in disguised as renumbering.
+//
+// A function name moves only when someone renames or deletes the function,
+// which is a change worth a ledger update. If a function ever holds TWO
+// matching loops they collapse to one key; that is acceptable, because the
+// debt this tracks ("can this command warn and still exit 0") is a property of
+// the function, not of the individual loop.
+func enclosingFunc(src []byte, off int) string {
+	last := "<file scope>"
+	for _, m := range enclosingFuncRE.FindAllSubmatchIndex(src, -1) {
+		if m[0] > off {
+			break
+		}
+		last = string(src[m[2]:m[3]])
+	}
+	return last
 }
 
 // silentFailureAllowlist is this gate's enforcement ledger, shaped like
@@ -113,44 +144,28 @@ func findSilentFailureSites(t *testing.T) []string {
 // instead of nil), then delete this line. Each entry is independent — fixing
 // one never requires touching another.
 //
-// Confirmed by RUNNING the command against an induced failure (not just
-// reading the source): manage.go:143 (`manage install`) and manage.go:308
-// (`manage hooks install`) both exit 0 with "permission denied" writing
-// backend settings. manage.go:224/344 (uninstall counterparts) and
-// remote_discover.go:62 share the identical shape by source inspection.
+// Confirmed by RUNNING the command against an induced failure, not just by
+// reading the source: runManageInstall (`manage install`) and
+// runManageHooksInstall (`manage hooks install`) both exit 0 with "permission
+// denied" writing backend settings. Their uninstall counterparts and
+// runRemoteDiscover share the identical shape by source inspection.
 //
-// Line numbers shifted again (143/224/308/344 -> 145/226/311/347) when a fix
-// removed ApplyHooks' unread *config.Config parameter, which turned
-// two `cfg, err := GetConfig()` guards in this file into two-line comments
-// plus an `if _, err :=` form. The swallow shapes are untouched.
-//
-// Line numbers shifted (117/154/266/287 -> 140/205/332/368 -> 157/238/326/364
-// -> 154/233/321/359 -> 156/342/430/468 -> 157/343/431/469) during an
-// output-flow batch's format-debt paydown (--format json now routes through
-// emit() for all four sites), then again when the engine-validation-scoping
-// fix inserted the checkInstallEngineApplies doc lines and the --engine
-// hook-backend-scoping block ahead of runManageInstall's ApplyHooks call,
-// then again when a stray duplicated doc-comment paragraph was deleted from
-// runManageInstall and ensureHarnessGitignore, then again when
-// ensureHarnessGitignore grew the gitignoreOutcome reporting (so `manage
-// gitignore install` stops printing "Updated <path>" over a file it did not
-// change), and most recently (157/343/431/469 -> 162/379/467/505) when
-// `manage install --engine <typo>` gained checkEngineKnown — a pre-flight
-// argument-membership check plus its doc comment, inserted ahead of
-// checkInstallEngineApplies so a typo'd engine is diagnosed as a typo even
-// against an already-scaffolded .ctxloom — the underlying anti-pattern
-// (ApplyHooks/RemoveHooks per-backend errors warned, then `return nil`) is
-// unchanged throughout every renumbering; only the ledger keys were
-// re-pointed at the new line numbers.
+// Keys are file:FUNCTION, never file:line. The 23 lines of renumbering
+// archaeology this comment replaced are the argument: every entry had been
+// re-pointed repeatedly by edits that touched no error handling at all, most
+// recently by a one-line help-prose change that shifted four entries at once
+// and reported them simultaneously as new debt AND as paid-down debt. The
+// underlying anti-pattern (per-backend errors warned, then `return nil`) was
+// unchanged through every one of those churns.
 var silentFailureAllowlist = map[string]string{
-	"manage.go:162": "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:379": "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:162",
-	"manage.go:467": "`manage hooks install` RunE (runManageHooksInstall): ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
-	"manage.go:505": "`manage hooks uninstall` RunE (runManageHooksUninstall): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as manage.go:467",
+	"manage.go:runManageInstall":        "runManageInstall (`manage install`): ApplyHooks' per-backend errors are only warned, then the function unconditionally `return nil`s — confirmed by running against a permission-denied backend write (exit 0)",
+	"manage.go:runManageUninstall":      "runManageUninstall (`manage uninstall`): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as runManageInstall",
+	"manage.go:runManageHooksInstall":   "`manage hooks install` RunE (runManageHooksInstall): ApplyHooks' per-backend errors are only warned, then `return nil` — confirmed by running against a permission-denied backend write (exit 0)",
+	"manage.go:runManageHooksUninstall": "`manage hooks uninstall` RunE (runManageHooksUninstall): RemoveHooks' per-backend errors are only warned, then `return nil` — same shape as runManageHooksInstall",
 
-	"bundle_distill.go:134": "the print-only `for _, e := range result.Errors` loop inside emit()'s text closure stays (it must — this same result.Errors also rides the --format json payload, so deleting it would drop the JSON error detail); the actual T9/R1 bug (U034-F02) is FIXED by a check placed AFTER emit() returns, `if len(result.Errors) > 0 { return ... }`, in runBundleDistill itself — that path covers text AND structured formats alike, which folding the fix into this closure's return value could not (Emit only calls the closure for --format text; a json/yaml/toml run never executes it, so an error returned from inside it would still be silently lost for every non-text format). Kept allowlisted because the regex keys on this loop's SHAPE, not on whether the surrounding function still swallows it. Line renumbered from :129 to :134 by U034-F11, which moved the loop down (a comment plus the iox.ErrWriter construction) AND rewrote its body from `fmt.Fprintln(os.Stderr, e)` to `errw.Println(e)`; that rewrite also made the loop stop matching silentFailureLoopRE entirely, which the gate reported as a stale entry (\"debt paid down\") when in fact only the writer had changed — see the regex's own comment for the vocabulary widening that restores detection. The loop's warn-only SHAPE and the fix below emit() are both unchanged.",
+	"bundle_distill.go:runBundleDistill": "the print-only `for _, e := range result.Errors` loop inside emit()'s text closure stays (it must — this same result.Errors also rides the --format json payload, so deleting it would drop the JSON error detail); the actual T9/R1 bug (U034-F02) is FIXED by a check placed AFTER emit() returns, `if len(result.Errors) > 0 { return ... }`, in runBundleDistill itself — that path covers text AND structured formats alike, which folding the fix into this closure's return value could not (Emit only calls the closure for --format text; a json/yaml/toml run never executes it, so an error returned from inside it would still be silently lost for every non-text format). Kept allowlisted because the regex keys on this loop's SHAPE, not on whether the surrounding function still swallows it.",
 
-	"remote_discover.go:82": "`remote discover`: per-source discovery errors are only warned by this loop, but U040-F01 already added a check just below it (`if result.Count == 0 && len(result.Errors) > 0 { return ... }`) so a total search failure does exit non-zero; kept allowlisted because the regex keys on this loop's SHAPE (warn-only, no return), not on whether the surrounding function still swallows the failure. Line renumbered from :62 to :77 when discoverCmd's inline RunE was extracted into runRemoteDiscover (U040-F01 escalation: the extraction itself, needed so the fix has a regression test — see remote_discover_test.go), from :77 to :80 when the DiscoverRemotes error path grew a newline to close the progress line (U040-F22), and from :80 to :82 when the Phase-2 hoist moved discoverCmd's RunE literal out of the composite literal. The loop's shape is unchanged in every case; only the ledger key moved.",
+	"remote_discover.go:runRemoteDiscover": "`remote discover`: per-source discovery errors are only warned by this loop, but U040-F01 already added a check just below it (`if result.Count == 0 && len(result.Errors) > 0 { return ... }`) so a total search failure does exit non-zero; kept allowlisted because the regex keys on this loop's SHAPE (warn-only, no return), not on whether the surrounding function still swallows the failure.",
 }
 
 // TestExitCodePolicy_SilentFailureSitesAreAllowlisted is this gate's enforcing

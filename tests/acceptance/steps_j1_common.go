@@ -6,8 +6,8 @@
 // Deliberately does NOT drive a fresh `ctxloom init` for its hermetic
 // scenarios: a first-time init on a NEW .ctxloom dir always clones the seeded
 // "ctxloom-default" remote (internal/cli/init.go's setupNewCtxloomDir ->
-// cloneConfiguredRemotes/pullSeededDependencies) — which is exactly why
-// init.feature's own plain-init scenario is tagged @network. J1's scenarios
+// cloneConfiguredRemotes/pullSeededDependencies), so any scenario driving a
+// first-time init reaches the network and cannot be hermetic. J1's scenarios
 // are not @network, so this harness authors config.yaml/profile/agent
 // scaffolding directly (mirroring steps_fixture.go's minimalConfig approach)
 // and only drives a REAL `ctxloom init` on an ALREADY-existing .ctxloom dir

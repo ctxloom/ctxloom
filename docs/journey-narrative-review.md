@@ -532,6 +532,13 @@ credentials, a real leak found by running kiro), and J9's own comments say so.
   *inside the acceptance suite*. `ctxloom manage install --help` also still
   refers to `manage init` in its prose. Both need fixing; neither is in this
   pass's scope.
+
+  **RESOLVED 2026-08-06 (`wieldable-washcloth`).** `init.feature` is deleted and
+  the `manage install` help prose now contrasts against root `ctxloom init`
+  instead of the removed command. The class is guarded too:
+  `TestExcludedScenarios_InvokeCommandsThatStillExist` resolves every excluded
+  scenario's command against the live cobra tree, so a deleted command breaks
+  its scenario the same day rather than hiding behind a tag.
 - `skill.feature` — half journey already (Alice authors a package, a tampered
   signature fails, a bundle skill beats a kiro builtin). Overlaps J10
   substantially. Recommend merging J10 into it rather than the reverse: the
@@ -666,7 +673,9 @@ and a fixture-set value. Worth recording so nobody re-files it.
 **(g) A defect it could not have known about: `init.feature` is dead.** Its
 single scenario drives `ctxloom manage init`, deleted from the binary and
 asserted deleted by `manage_test.go`, surviving only because `@network` keeps it
-from ever running. See §4.
+from ever running. See §4. **Resolved 2026-08-06** — file deleted, help prose
+corrected, and the blind spot itself closed by a guard over every excluded
+scenario.
 
 ---
 

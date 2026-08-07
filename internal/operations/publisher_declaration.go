@@ -152,7 +152,7 @@ func AuthorizePublisher(cfg *config.Config, fs afero.Fs, signer ssh.Signer, sour
 	if source != "" {
 		from = ", from " + source
 	}
-	return fmt.Errorf("ctxloom bundle sign: refusing to sign as a key this repository does not authorise to publish.\n\n"+
+	return fmt.Errorf("ctxloom bundle sign: refusing to sign as a key this repository does not authorise to publish\n\n"+
 		"  would have signed with:  %s%s\n"+
 		"  repository authorises:   %s\n"+
 		"  declared in:             %s\n\n"+
@@ -160,7 +160,7 @@ func AuthorizePublisher(cfg *config.Config, fs afero.Fs, signer ssh.Signer, sour
 		"and every consumer would withhold the bundle while any profile inheriting it silently degraded. "+
 		"Sign with the declared key instead:\n\n"+
 		"  ctxloom bundle sign --key <fingerprint | path to the .pub | ssh-agent comment>\n"+
-		"  ctxloom config set sign.key <same>\n",
+		"  ctxloom config set sign.key <same>",
 		ssh.FingerprintSHA256(signer.PublicKey()), from,
 		strings.Join(declaration.Principals, ", "),
 		declaration.Path)

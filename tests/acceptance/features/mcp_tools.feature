@@ -165,3 +165,40 @@ Feature: MCP tools
     Then the tool call succeeds
     And the tool result field "loaded" equals "true"
     And the tool result contains "RECOVER-IDENTITY-ROUND-TRIP"
+
+  # evaluate_triggers asks a model whether each Deferred task's revive
+  # condition has fired, with the repository's recent commits as evidence. Its
+  # result is mostly COUNTERS — evaluated, cache_hits, cache_misses, omitted —
+  # and a run that produced no usable verdict fills those in exactly as
+  # convincingly as one that worked. The tool's own `omitted` field exists
+  # because a model chunk can come back well-formed while silently not
+  # mentioning a task, so the claim here is the verdict's ATTRIBUTION, not the
+  # count.
+  #
+  # Single-round only, deliberately: a "needs-investigation" answer carries
+  # follow-up queries that ctxloom runs before asking again, and a canned
+  # response would hand back the same array in round two — testing an
+  # escalation loop against a stub that cannot escalate. That path needs a
+  # fixture that can answer differently the second time.
+  Scenario: A deferred task's trigger verdict reaches the caller, attributed to it
+    Given an initialized ctxloom project
+    And the mock LLM responds "placeholder, replaced once the task's harp exists"
+    And a fresh taskloom store
+    And a deferred task "revisit the cache eviction policy" waiting on "the v2 API ships"
+    And the trigger model answers "fired" for that task
+    When the agent calls tool "evaluate_triggers"
+    Then the tool call succeeds
+    And the tool result field "evaluated" equals "1"
+    And the verdict is attributed to that task, with outcome "fired"
+    And the tool result contains "TRIGGER-VERDICT-REACHED-THE-CALLER"
+
+  # The empty case, which must NOT reach the model at all: with nothing
+  # deferred there is nothing to judge, and a run that called the LLM anyway
+  # would burn a request per invocation on a backlog that asks no questions.
+  # evaluated=0 is the observable for that.
+  Scenario: With nothing deferred, evaluate_triggers judges nothing
+    Given an initialized ctxloom project
+    And a fresh taskloom store
+    When the agent calls tool "evaluate_triggers"
+    Then the tool call succeeds
+    And the tool result field "evaluated" equals "0"

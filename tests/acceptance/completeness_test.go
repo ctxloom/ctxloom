@@ -228,9 +228,15 @@ var knownUncoveredTools = []string{
 	// — the real two-way bus, both directions, content asserted on each side).
 	// agent_stop is now exercised by J6's failure-path scenario: idempotent
 	// double-stop plus a refused stop on a run id that was never spawned (a
-	// real regression this scenario now pins). Trigger evaluation remains
-	// unexercised. Backfill: task spry-niece.
-	"evaluate_triggers",
+	// real regression this scenario now pins).
+	//
+	// evaluate_triggers LEFT this list when mcp_tools.feature gained a scenario
+	// that seeds a Deferred task, cans the model's verdict around the harp
+	// taskloom mints for it, and asserts the verdict is ATTRIBUTED to that
+	// task — the result's counters cannot distinguish a real answer from a
+	// silently dropped one, which is exactly why the tool carries an `omitted`
+	// field. Writing it found runTriageCall omitting the label's env entirely.
+	//
 	// compact_session, get_previous_session and list_sessions LEFT this list
 	// when mcp_tools.feature gained scenarios that actually invoke them. They
 	// had been named only in that feature's own prose, which satisfied a bare
@@ -348,8 +354,8 @@ var excludedTools = map[string]string{}
 var excludedTemplates = map[string]string{}
 
 // maxKnownUncoveredTotal is a RATCHET on the combined size of every
-// knownUncovered* allowlist (currently 3 CLI leaves + 1 MCP tool + 3
-// runner-only MCP tools = 7). It exists because assertExactUncovered's
+// knownUncovered* allowlist (currently 3 CLI leaves + 0 MCP tools + 3
+// runner-only MCP tools = 6). It exists because assertExactUncovered's
 // exact-set check only catches a leaf/tool going uncovered WITHOUT anyone
 // updating the matching allowlist — it does nothing to stop someone from
 // adding a new gap AND an allowlist entry for it in the same change, which
@@ -397,8 +403,9 @@ var excludedTemplates = map[string]string{}
 // hook callbacks, then 17 to 14 by mcp_tools.feature retiring compact_session,
 // get_previous_session and list_sessions, then 14 to 10 by manage.feature
 // retiring the codex and kiro engine-matrix rows, then 10 to 9 by mcp.feature
-// retiring `mcp server edit`.
-const maxKnownUncoveredTotal = 9
+// retiring `mcp server edit`, then 9 to 8 by mcp_tools.feature retiring
+// evaluate_triggers — the last uncovered MCP tool.
+const maxKnownUncoveredTotal = 8
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.

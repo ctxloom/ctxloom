@@ -314,6 +314,46 @@ func (c *Config) GetLLMEntry(label string) (LLMConfig, bool) {
 	return cloneLLMConfigEntry(entry), true
 }
 
+// LabelEnv returns the environment a label declares (llm.configs.<label>.env),
+// or nil when the label is unknown or declares none.
+//
+// This exists because forgetting it is a REPEATED defect, not a hypothetical
+// one. llm.configs.<label>.env is the documented home for a backend's
+// credentials, and a caller that builds a RunStart without forwarding it runs
+// the backend unconfigured — which does not error, so it fails silently and
+// looks like the model simply answered badly. internal/memory's runDistill
+// shipped that way (see CompactionConfig.Env), and internal/operations'
+// runTriageCall then reproduced it while explicitly claiming to mirror
+// runDistill: it copied the shape before the fix.
+//
+// Resolving it HERE, from the entry's own body, is what stops the next caller
+// repeating it — the alternative pattern (each caller resolves the env and
+// passes it in) is exactly what both of those callers failed to do.
+//
+// The read is generic rather than type-switched per backend: env is an
+// ordinary key in the entry's inline Body (mapstructure ",remain"), so this
+// needs no knowledge of which backend the label names.
+func (c *Config) LabelEnv(label string) map[string]string {
+	entry, ok := c.lm.Configs[label]
+	if !ok {
+		return nil
+	}
+	raw, ok := entry.Body["env"].(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil
+	}
+	env := make(map[string]string, len(raw))
+	for k, v := range raw {
+		if s, ok := v.(string); ok {
+			env[k] = s
+		}
+	}
+	if len(env) == 0 {
+		return nil
+	}
+	return env
+}
+
 // GetLLMLabels returns every configured LLM registry label, sorted.
 func (c *Config) GetLLMLabels() []string {
 	return collections.SortedKeys(c.lm.Configs)

@@ -252,7 +252,7 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 		// run with bounded concurrency — rather than one call for the whole
 		// miss set. See defaultTriageChunkSize for why: a big-enough single
 		// call makes the model silently drop tasks from its JSON response.
-		chunkResults := runTriageChunks(ctx, chunkMissTasks(missTasks, missInputs, chunkSize), batch, factory, backendName, label, model)
+		chunkResults := runTriageChunks(ctx, chunkMissTasks(missTasks, missInputs, chunkSize), batch, factory, backendName, label, model, cfg.LabelEnv(label))
 
 		// A verdict is cacheable once it is a GENUINE model answer — anything
 		// the model actually returned this round, including a
@@ -293,6 +293,7 @@ func EvaluateTriggers(ctx context.Context, cfg *config.Config, req EvaluateTrigg
 			backendName:    backendName,
 			label:          label,
 			model:          model,
+			env:            cfg.LabelEnv(label),
 			gitClient:      gitClient,
 			repoDir:        req.RepoDir,
 			otherByHarp:    allByHarp,
@@ -440,10 +441,10 @@ func summarizeCommits(entries []git.LogEntry, maxFiles int) ([]triggers.CommitSu
 // (LLM error or unparseable output) degrade gracefully: the caller falls
 // back to cannot-determine verdicts rather than surfacing a hard error, since
 // a check-triggers run finding nothing conclusive is still a valid outcome.
-func runTriageWithRetry(ctx context.Context, factory pb.ClientFactory, backendName, label, model, prompt string) (verdicts []triggers.Verdict, degraded bool, warning string) {
+func runTriageWithRetry(ctx context.Context, factory pb.ClientFactory, backendName, label, model string, env map[string]string, prompt string) (verdicts []triggers.Verdict, degraded bool, warning string) {
 	var lastErr error
 	for attempt := 0; attempt < 2; attempt++ {
-		out, err := runTriageCall(ctx, factory, backendName, label, model, prompt)
+		out, err := runTriageCall(ctx, factory, backendName, label, model, env, prompt)
 		if err != nil {
 			lastErr = err
 			continue
@@ -462,7 +463,7 @@ func runTriageWithRetry(ctx context.Context, factory pb.ClientFactory, backendNa
 // This mirrors internal/memory/compactor.go's runDistill — the established
 // prompt-in/text-out seam for a headless, minimal-mode LLM call — rather than
 // inventing a new transport.
-func runTriageCall(ctx context.Context, factory pb.ClientFactory, backendName, label, model, prompt string) (string, error) {
+func runTriageCall(ctx context.Context, factory pb.ClientFactory, backendName, label, model string, env map[string]string, prompt string) (string, error) {
 	client, err := factory(backendName, label, 0)
 	if err != nil {
 		return "", fmt.Errorf("start plugin: %w", err)
@@ -472,8 +473,15 @@ func runTriageCall(ctx context.Context, factory pb.ClientFactory, backendName, l
 	req := &pb.RunStart{
 		Prompt: &pb.Fragment{Content: prompt},
 		Options: &pb.RunOptions{
-			Mode:      pb.ExecutionMode_ONESHOT,
-			Model:     model,
+			Mode:  pb.ExecutionMode_ONESHOT,
+			Model: model,
+			// The label's declared environment, which this call omitted
+			// entirely while claiming to mirror runDistill — it copied that
+			// seam's shape from BEFORE runDistill was fixed. Without it a
+			// backend whose credentials live in llm.configs.<label>.env runs
+			// unconfigured, which does not error: the model just answers
+			// badly, and every trigger degrades to cannot-determine.
+			Env:       env,
 			SkipSetup: true, // headless triage: no hooks/commands/context writes
 		},
 	}
@@ -544,7 +552,7 @@ type chunkResult struct {
 // goroutine finishes first. Chunks are independent (each is a disjoint task
 // subset with no cross-chunk data dependency), so one chunk's failure never
 // blocks or corrupts another's result.
-func runTriageChunks(ctx context.Context, chunks []taskChunk, batch triggers.Batch, factory pb.ClientFactory, backendName, label, model string) []chunkResult {
+func runTriageChunks(ctx context.Context, chunks []taskChunk, batch triggers.Batch, factory pb.ClientFactory, backendName, label, model string, env map[string]string) []chunkResult {
 	results := make([]chunkResult, len(chunks))
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, triageConcurrency)
@@ -554,7 +562,7 @@ func runTriageChunks(ctx context.Context, chunks []taskChunk, batch triggers.Bat
 		go func(i int, c taskChunk) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			results[i] = runTriageChunk(ctx, c, batch, factory, backendName, label, model)
+			results[i] = runTriageChunk(ctx, c, batch, factory, backendName, label, model, env)
 		}(i, c)
 	}
 	wg.Wait()
@@ -568,11 +576,11 @@ func runTriageChunks(ctx context.Context, chunks []taskChunk, batch triggers.Bat
 // cannot-determine with the failure as its reason (same as the pre-chunking
 // behavior, just scoped to this chunk); a successful call falls back only
 // the tasks the response omitted, and counts them.
-func runTriageChunk(ctx context.Context, c taskChunk, batch triggers.Batch, factory pb.ClientFactory, backendName, label, model string) chunkResult {
+func runTriageChunk(ctx context.Context, c taskChunk, batch triggers.Batch, factory pb.ClientFactory, backendName, label, model string, env map[string]string) chunkResult {
 	chunkBatch := batch
 	chunkBatch.Tasks = c.inputs
 	prompt := triggers.BuildPrompt(chunkBatch)
-	parsed, degraded, warning := runTriageWithRetry(ctx, factory, backendName, label, model, prompt)
+	parsed, degraded, warning := runTriageWithRetry(ctx, factory, backendName, label, model, env, prompt)
 	if degraded {
 		return chunkResult{
 			verdicts: fillMissingVerdicts(c.tasks, nil, warning),
@@ -622,6 +630,11 @@ type escalationParams struct {
 	backendName string
 	label       string
 	model       string
+	// env is the label's declared environment, carried into round 2 for the
+	// same reason round 1 needs it: an escalation call that dropped the
+	// backend's credentials would degrade every re-asked trigger while the
+	// round-1 answers looked fine.
+	env map[string]string
 
 	gitClient git.Git
 	repoDir   string
@@ -855,7 +868,7 @@ func runFollowupChunk(ctx context.Context, chunk []triggers.FollowupTask, p esca
 		Repo:       p.repo,
 		Now:        time.Now().UTC(),
 	})
-	final, degraded, warning := runTriageWithRetry(ctx, p.factory, p.backendName, p.label, p.model, prompt)
+	final, degraded, warning := runTriageWithRetry(ctx, p.factory, p.backendName, p.label, p.model, p.env, prompt)
 
 	res := followupChunkResult{finalByHarp: map[string]triggers.Verdict{}, degradedByHarp: map[string]string{}}
 	if degraded {

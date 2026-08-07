@@ -117,14 +117,42 @@ commands — then move straight into phase 4 to bind the agents that use it;
 don't break the conversation between the two, profiles are only half the
 picture. Four beats, the same shape as phase 2:
 
-### 3a. Discover
+### 3a. Survey — the WHOLE set, not a relevant shortlist
 
-Remotes are already cloned locally — read `ctxloom://remotes`, then search
-with the **search_library** MCP tool (by tag, e.g. `tag:golang`, or free
-text) using the stack phase 1 already found; each result carries a
-`pull_ref`. (`search_content` only reaches what's ALREADY installed — use
-search_library for anything new.) Present a short, relevant list and ask
-what to reference — a conversation, not a catalog to exhaustively enumerate.
+Remotes are already cloned locally. Enumerate everything available: read
+`ctxloom://remotes`, then `ctxloom://remotes/{name}/contents` for EACH remote.
+That is the complete catalog. (**search_library** requires a query and can only
+ever hand back a filtered subset, so it cannot answer "what is there" — use it
+to look something up, never to survey. `search_content` reaches only what is
+already installed.)
+
+Then walk the user through the whole set, include or exclude, item by item.
+Group it so it stays tractable — capability tools, language/stack content,
+standards and process, commands and skills — and say what each thing is FOR in
+one line. Batch the obvious cases and ask about them together; do not make them
+sit through a recital. But every item gets a decision: **silence is not
+exclusion**, and an item nobody was shown was not declined.
+
+This replaced an instruction to present "a short, relevant list", and the
+reason matters, because the shortcut is tempting and looks like good manners.
+Relevance was computed from the detected STACK, so anything whose value is a
+CAPABILITY rather than a language went unmentioned forever — the user never
+learned it existed and never got to say no. A code-intelligence MCP that makes
+editing cleaner and cheaper in context (serena is the standing example, tagged
+`mcp, code-intelligence, lsp`) is invisible to a search for `tag:golang` and
+useful to nearly every project. Survey the catalog, not your model of what they
+need.
+
+**Capability content defaults to ON.** For items that improve how the agent
+works rather than what it knows — editing and code-intelligence MCPs, search,
+task tracking — the default answer is INCLUDE, and the user opts out. Present
+them as "these are on unless you'd rather not", not as an invitation to opt in.
+Stack and standards content stays an ordinary choice.
+
+Before leaving this phase, say back what was EXCLUDED and why, not just what
+was taken — a user who later wonders "why don't I have X" should have heard the
+answer once already. Say it; ctxloom has nowhere durable to keep it today, so
+do not imply it is saved anywhere and do not invent a file to put it in.
 
 ### 3b. Reference
 
@@ -218,6 +246,33 @@ say why; change an existing one with `agent edit <name>`, drop one with
 with `ctxloom agent list`, then tell the user how to use what they built
 (`ctxloom run --agent coordinator`, which fans the review ensemble out via
 `agent_run` when asked).
+
+### 4d. ctxloom's own agents — distiller and triage
+
+ctxloom itself calls an LLM: to distil sessions and bundle content, and to
+judge whether a deferred task's revive condition has fired. Those calls are
+ordinary runs, so they need ordinary agents — set them up here, with the user,
+the same as any other.
+
+Create a `distiller` and a `triage` agent. They take the same flags as
+anything above, and the two that matter are:
+
+- `--engine` — these run often and on cheap work, so a small fast model is
+  usually right; the user chooses, you explain the trade-off.
+- `--runtime` — they honour the runtime axis like any agent. Say so plainly:
+  if the user containerises their work agents and leaves these on the host,
+  ctxloom's own calls run on the host.
+
+Their `--profiles` are a real choice, not a formality. Behavioural guidance
+(write tests first, use this linter) is noise to a summariser and can distort
+it; domain guidance (the glossary, the architecture vocabulary, what this
+project's terms mean) is what makes a distillation or a trigger verdict
+sensible rather than generic. Steer toward the latter.
+
+Nothing falls back if these are missing: a project without them cannot distil
+or evaluate triggers, and the command says so rather than quietly using some
+built-in default. That is deliberate — a hidden default is how ctxloom's own
+LLM calls drifted out of the user's control in the first place.
 
 If they want to stop, that's fine — `/ctxloom-init` reconfigures any time.
 Don't write anything the user didn't agree to.

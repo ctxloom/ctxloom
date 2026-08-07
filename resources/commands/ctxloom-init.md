@@ -115,7 +115,7 @@ hooks install` pass that wires ctxloom's own MCP server.
 Find and reference the context this project needs — profiles, fragments,
 commands — then move straight into phase 4 to bind the agents that use it;
 don't break the conversation between the two, profiles are only half the
-picture. Four beats, the same shape as phase 2:
+picture. Five beats, the same shape as phase 2:
 
 ### 3a. Survey — the WHOLE set, not a relevant shortlist
 
@@ -163,13 +163,47 @@ one fragment of it); a `@<tag-or-sha>` suffix on the ref pins a version. Then
 `ctxloom remote pull` so the reference actually resolves and the lockfile
 updates. `ctxloom profile create --help` has the exact flags.
 
-### 3c. Default
+### 3c. Role profiles — one per job, not one for everything
+
+A profile is a composition for a JOB, and the jobs differ enough that one
+profile serving all of them serves none of them well. Author a profile per role
+the user actually wants, with them, and steer HARD away from a single
+do-everything profile — the same argument phase 4 makes about agents, one layer
+down.
+
+The roles worth naming, because they are the ones that exist whether or not
+anyone sets them up:
+
+- **the working profile** — whatever this project's actual development needs:
+  stack conventions, standards, process. The one a bare `ctxloom run` uses.
+- **reader / searcher** — for agents that go and find out and report back.
+  Wants domain vocabulary and navigation, and almost none of the behavioural
+  standards: a finder is not writing code, so a linter's rules are dead weight
+  in its context and dilute what it is actually for.
+- **triage** — for judging deferred tasks' revive conditions. Wants domain
+  context above all: whether "the v2 API ships" has fired is answerable only by
+  someone who knows what this project's terms mean.
+- **distiller** — for compressing sessions and content. Same instinct as
+  triage: domain vocabulary so a summary reads in the project's own terms, and
+  NOT behavioural guidance, which distorts a summariser rather than helping it.
+
+These are configurable, not fixed: the user decides what composes each, and can
+skip any they do not want. Explain what each is for and let them choose — but
+do offer all of them, because an agent whose profile nobody authored falls back
+to nothing, not to something sensible.
+
+What each profile CONSIDERED is recorded per profile — included and declined
+alike, keyed by the item's canonical ref — so an item turned down for the
+distiller is still offered for the working profile. Ask in each profile's own
+context rather than once globally.
+
+### 3d. Default
 
 Bind the chosen profile(s) into an agent and point `default_agent` there
 (`ctxloom agent create dev --profiles <name>`, `ctxloom agent default dev`) so
 a bare `ctxloom run` picks it up — confirm the choice with the user.
 
-### 3d. Review
+### 3e. Review
 
 Anything pulled from a remote the user hasn't seen before is held, not
 silently active. Run `ctxloom review` (`--list` for just the queue) and walk

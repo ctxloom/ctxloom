@@ -60,7 +60,11 @@ func TestAcceptance(t *testing.T) {
 		// @wip: a scenario that cannot be honestly greened yet because of a real
 		//   product gap, not a harness gap (see j3_corporate_signed.feature's
 		//   retraction scenario and the filed task) — excluded from the default run.
-		tags = "~@live && ~@network && ~@future && ~@wip"
+		// @container: needs a reachable docker/podman daemon AND builds an agent
+		//   image on first use (measured at minutes, against a suite that already
+		//   brushes go test's 10m default). It has its own gate,
+		//   `just test-acceptance-container`, which really performs the launch.
+		tags = "~@live && ~@network && ~@future && ~@wip && ~@container"
 	}
 	paths := []string{"features"}
 	// ACCEPTANCE_PATHS narrows the run to specific feature files for fast local

@@ -21,7 +21,7 @@ var runStepCommand = regexp.MustCompile(`I run "ctxloom ([^"]+)"`)
 // excludedScenarioTags are the tags that keep a scenario out of the default
 // run. It is the same set completeness_test.go's excludedCorpusTags names, for
 // the same reason, and the two are asserted equal below so they cannot drift.
-var excludedScenarioTags = []string{"@wip", "@live", "@future", "@network"}
+var excludedScenarioTags = []string{"@wip", "@live", "@future", "@network", "@container"}
 
 // TestExcludedScenarios_InvokeCommandsThatStillExist closes the blind spot that
 // let a whole feature file rot unnoticed.

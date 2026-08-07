@@ -476,6 +476,24 @@ test-integration-run PATTERN: build
 test-acceptance: build
     go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
+# Run the @container acceptance rows — the ones that actually launch an engine
+# inside a container (j15_container.feature's differential host-vs-container
+# row). Excluded from `test-acceptance` for one measured reason: the first
+# containerized run BUILDS the agent image, which took 75s for a minimal
+# fixture and over six minutes in this repo, against a suite that already
+# brushes go test's 10m default. The image tag is a hash of the ctxloom binary
+# plus companions plus base config, so any binary change mints a new tag and
+# pays that cost again — there is no warm cache to rely on in CI.
+#
+# Self-skips loudly, naming what is missing, when no docker/podman daemon is
+# reachable: this gate asserts what happens when a runtime IS present, and a
+# machine without one has nothing to say about it. The longer timeout is the
+# image build, not a slow test.
+test-acceptance-container: build
+    ACCEPTANCE_PATHS=features/j15_container.feature \
+    ACCEPTANCE_TAGS="@container" \
+    go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
+
 # test-docker-integration lives in build/gates.justfile, imported at the top
 # of this file and by justfile.container, so the host recipe and the one CI
 # runs are the SAME recipe over the SAME package list. What it covers:

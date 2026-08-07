@@ -657,7 +657,7 @@ func loadCorpus(t *testing.T) string {
 // scenario carrying any of these does not run by default, so its text must not
 // grant coverage. Keep in step with that expression: a tag excluded there and
 // missing here silently re-opens this hole.
-var excludedCorpusTags = []string{"@wip", "@live", "@future", "@network"}
+var excludedCorpusTags = []string{"@wip", "@live", "@future", "@network", "@container"}
 
 // runnableFeatureText returns the feature's text with every non-running
 // scenario body removed. Tags are inherited: a tag line above `Feature:`

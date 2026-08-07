@@ -1,12 +1,15 @@
 Feature: MCP tools
   The agent drives ctxloom through tools. These exercise the context and search
-  tools end to end, plus load_session and recover_session (below).
-  compact_session and get_previous_session are still NOT covered here or
-  anywhere else — the live distillation suite tagged live in
-  distill_live.feature never touches the session tools, it only exercises
-  fragment/command/bundle distillation. That is a real, tracked gap (see
-  tests/acceptance/completeness_test.go), not something to paper over with a
-  false "covered elsewhere" claim.
+  tools end to end, plus the four session-memory tools — load_session,
+  recover_session, compact_session, get_previous_session — and list_sessions.
+
+  The session tools share one hazard and it is why their assertions look the
+  way they do. Every one of them can answer successfully while delivering
+  nothing: distillation that ran and was discarded, an essence written under a
+  key nobody reads back, a listing of sessions with no titles. So each
+  scenario names a marker that exists ONLY in its own fixture's transcript,
+  and asserts that marker in the result. An envelope with the right fields is
+  not evidence.
 
   # `fragments_loaded` has no omitempty, so the KEY is present even when the
   # value is null: asserting it proved only that the envelope had a field,
@@ -106,3 +109,59 @@ Feature: MCP tools
     # identity, this came back as "steady-vellum-crane" — a different session
     # than the caller named, silently.
     And the tool result field "session_id" equals "seeded-steady-vellum-crane"
+
+  # list_sessions is the agent's index reader. The claim is not that it
+  # returned a list — an empty list is a list — but that it returned BOTH
+  # seeded sessions WITH the titles their index entries carry. A handler that
+  # listed harps and dropped summaries would still look right to a caller
+  # counting rows, and would leave an agent unable to tell one prior session
+  # from another, which is the entire point of the tool.
+  Scenario: list_sessions returns every session in the index, with its title
+    Given an initialized ctxloom project
+    And a recorded session "amber-quiet-heron" summarised as "chose the ledger shape"
+    And a recorded session "brisk-copper-moth" summarised as "ruled out the shim"
+    When the agent calls tool "list_sessions"
+    Then the tool call succeeds
+    And the tool result contains "amber-quiet-heron"
+    And the tool result contains "chose the ledger shape"
+    And the tool result contains "brisk-copper-moth"
+    And the tool result contains "ruled out the shim"
+
+  # compact_session distills on demand. Its result envelope carries only
+  # bookkeeping — chunk count, token counts, a reduction ratio, an output path
+  # — and every one of those is reported identically by a compaction that ran
+  # against an empty session. So the payload assertion has to follow the
+  # output_path the tool reports and read what actually landed there.
+  #
+  # WHERE it lands is deliberately NOT asserted, because it is currently
+  # wrong and that is a decision rather than a fix: the essence is filed under
+  # the CALLING session's harp, not the harp of the session named by
+  # session_id, while the result echoes back the id that was asked for
+  # (taskloom onshore-pardon). Asserting the location would mean either
+  # encoding today's behaviour as intended or leaving a red scenario behind;
+  # asserting the CONTENT proves the distillation genuinely ran on the seeded
+  # transcript either way. Tighten this to the requested session's own path
+  # once that decision is made.
+  Scenario: compact_session distills the session it was handed
+    Given an initialized ctxloom project
+    And a captured session "quiet-ember-drift" bound to a backend-native session id
+    And the compaction LLM is a mock that never compresses
+    When the agent calls tool "compact_session" with:
+      | session_id | seeded-quiet-ember-drift |
+    Then the tool call succeeds
+    And the tool result field "session_id" equals "seeded-quiet-ember-drift"
+    And the essence the tool reports writing contains "RECOVER-IDENTITY-ROUND-TRIP"
+
+  # get_previous_session takes no arguments at all: it resolves the previous
+  # session itself. That makes it the easiest of these to satisfy vacuously —
+  # "no previous session" is a perfectly good answer shape — so the assertion
+  # is the seeded transcript's marker coming back through a distillation the
+  # tool had to perform, the essence having been deliberately left absent.
+  Scenario: get_previous_session finds the prior session and returns its content
+    Given an initialized ctxloom project
+    And a captured session "wispy-harbor-glint" bound to a backend-native session id
+    And the compaction LLM is a mock that never compresses
+    When the agent calls tool "get_previous_session"
+    Then the tool call succeeds
+    And the tool result field "loaded" equals "true"
+    And the tool result contains "RECOVER-IDENTITY-ROUND-TRIP"

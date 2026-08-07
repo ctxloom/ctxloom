@@ -223,11 +223,13 @@ var knownUncoveredTools = []string{
 	// real regression this scenario now pins). Trigger evaluation remains
 	// unexercised. Backfill: task spry-niece.
 	"evaluate_triggers",
-	// Session-memory tools named only in mcp_tools.feature's prose, never
-	// actually invoked (see ranAsTool's doc comment). Backfill: task spry-niece.
-	"compact_session",
-	"get_previous_session",
-	"list_sessions",
+	// compact_session, get_previous_session and list_sessions LEFT this list
+	// when mcp_tools.feature gained scenarios that actually invoke them. They
+	// had been named only in that feature's own prose, which satisfied a bare
+	// substring check while nothing called them — the hole ranAsTool closed.
+	// Each is now asserted on a marker that exists only in its fixture's
+	// transcript, so a well-formed report of nothing cannot pass; covering
+	// compact_session is also what surfaced onshore-pardon.
 }
 
 // knownUncoveredRunnerOnlyTools is the exact set of tools that exist ONLY on
@@ -338,8 +340,8 @@ var excludedTools = map[string]string{}
 var excludedTemplates = map[string]string{}
 
 // maxKnownUncoveredTotal is a RATCHET on the combined size of every
-// knownUncovered* allowlist (currently 8 CLI leaves + 4 MCP tools + 3
-// runner-only MCP tools = 15). It exists because assertExactUncovered's
+// knownUncovered* allowlist (currently 8 CLI leaves + 1 MCP tool + 3
+// runner-only MCP tools = 12). It exists because assertExactUncovered's
 // exact-set check only catches a leaf/tool going uncovered WITHOUT anyone
 // updating the matching allowlist — it does nothing to stop someone from
 // adding a new gap AND an allowlist entry for it in the same change, which
@@ -384,8 +386,9 @@ var excludedTemplates = map[string]string{}
 // allowlist its slack.
 //
 // LOWERED again, 21 to 17, by session_hooks.feature retiring the four hidden
-// hook callbacks.
-const maxKnownUncoveredTotal = 17
+// hook callbacks, then 17 to 14 by mcp_tools.feature retiring compact_session,
+// get_previous_session and list_sessions.
+const maxKnownUncoveredTotal = 14
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.

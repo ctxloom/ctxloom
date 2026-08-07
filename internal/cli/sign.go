@@ -132,8 +132,9 @@ func runSign(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.Discov
 	result := signCmdResult{Signed: make([]signCmdTarget, 0, len(targets))}
 	for _, target := range targets {
 		res, err := operations.SignBundleFile(cfg, operations.SignBundleRequest{
-			Target: target,
-			Signer: discovered.Signer,
+			Target:       target,
+			Signer:       discovered.Signer,
+			SignerSource: discovered.Source,
 		})
 		if err != nil {
 			return err

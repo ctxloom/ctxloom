@@ -107,6 +107,13 @@ type SignBundleRequest struct {
 	// caller) so this function stays pure and trivially testable with a
 	// fake signer.
 	Signer ssh.Signer
+	// SignerSource describes where Signer came from ("git config
+	// user.signingkey", "--key", ...), for the refusal AuthorizePublisher
+	// raises when the repository does not authorise that key. Optional: the
+	// fingerprint is always named, this says which link of the discovery chain
+	// produced it — the difference between "wrong key" and "your git config is
+	// pointing at your personal key".
+	SignerSource string
 	// Store overrides the default filesystem bundle store (ADR 0026); nil
 	// uses bundles.NewFSStore(fs, cfg.GetBundleDirs()).
 	Store bundles.Store
@@ -149,6 +156,13 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 	if req.Signer == nil {
 		return nil, fmt.Errorf("sign %s: no signer supplied", req.Target.BundleName)
 	}
+	// Checked HERE rather than in the CLI so no signing caller can bypass it —
+	// `bundle push --sign` resolves its own key through the same discovery chain
+	// and would otherwise inherit the exact defect this refuses. It runs before
+	// the bundle is even loaded: the whole point is that nothing is written.
+	if err := AuthorizePublisher(cfg, req.FS, req.Signer, req.SignerSource); err != nil {
+		return nil, err
+	}
 
 	store := bundleStore(cfg, req.Store)
 	bundle, err := loadBundleForUpdate(store, cfg, req.Target.BundleName)
@@ -158,7 +172,7 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 
 	fs := getFS(req.FS)
 	if filepath.Base(bundle.Path) == bundles.DirectoryFormManifest {
-		return signBundleTree(req, bundle.Path, fs)
+		return signBundleTree(req, bundle, fs)
 	}
 	item := &bundleSignable{bundle: bundle, fs: fs}
 	if err := SignItem(fs, item, req.Signer); err != nil {
@@ -173,9 +187,31 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 	}, nil
 }
 
-// signBundleTree signs a DIRECTORY-form bundle as a tree: it builds the
-// SHA256SUMS manifest over every covered file and files a publisher signature
-// against it in the bundle's own .sigs/ store.
+// signBundleTree signs a DIRECTORY-form bundle: it refreshes the detached
+// `bundle.yaml.sig` sibling beside the manifest, then builds the SHA256SUMS
+// manifest over every covered file and files a publisher signature against it
+// in the bundle's own .sigs/ store.
+//
+// BOTH, because a directory bundle is read through both. The tree attestation
+// is what config.loadTreeBundle/attest.VerifyBundle check for a pulled bundle;
+// the detached sibling is what bundles' own localFSReader.signatureFactsFor
+// reads for an authored one, and what a publishing repo's CI checks
+// (.github/verify-signatures.sh runs `ssh-keygen -Y verify` against exactly
+// that file). Signing only the tree left the sibling ABSENT on a first signing
+// and STALE on a re-signing — so `ctxloom bundle sign` reported success and
+// every reader of the sibling went on seeing an unsigned or, worse, a
+// tampered-looking bundle. Measured on ctxloom-personal's `unattended` bundle,
+// where the fix was to run ssh-keygen by hand.
+//
+// ORDER IS LOAD-BEARING: the sibling is written FIRST, before the manifest is
+// built. content.ManifestCovers exempts exactly two paths — SHA256SUMS itself
+// and everything under .sigs/ — so `bundle.yaml.sig` sits at the bundle root
+// and IS manifest-covered. Written after the manifest, it would be an Unclaimed
+// file the manifest never mentions, and every consumer's VerifyContents would
+// report the freshly signed bundle as content-added. Written first, the
+// manifest covers it and the two attestations agree. There is no cycle: the
+// sibling covers bundle.yaml, the manifest covers the sibling, and nothing
+// covers the manifest but its own .sigs/ entry.
 //
 // This is not a variant spelling of the single-file path, it is the only one
 // that attests anything. A directory-form bundle's content lives in files BESIDE
@@ -195,7 +231,12 @@ func SignBundleFile(cfg *config.Config, req SignBundleRequest) (*SignBundleResul
 // hook is cheap to fix, and the manifest would otherwise happily cover
 // `guard.yml` by path and produce a perfectly signed bundle in which the
 // guardrail does not exist.
-func signBundleTree(req SignBundleRequest, manifestPath string, fs afero.Fs) (*SignBundleResult, error) {
+func signBundleTree(req SignBundleRequest, bundle *bundles.Bundle, fs afero.Fs) (*SignBundleResult, error) {
+	manifestPath := bundle.Path
+	sibling := &bundleSignable{bundle: bundle, fs: fs}
+	if err := SignItem(fs, sibling, req.Signer); err != nil {
+		return nil, fmt.Errorf("sign %s: %w", req.Target.BundleName, err)
+	}
 	dir := filepath.Dir(manifestPath)
 	store, err := content.NewTreeStore(fs, filepath.Dir(dir), content.Provenance{IsLocal: true})
 	if err != nil {

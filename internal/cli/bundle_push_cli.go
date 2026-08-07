@@ -153,8 +153,9 @@ func mintPushSignature(cmd *cobra.Command, cfg *config.Config, discoverer *agent
 	defer func() { _ = discovered.Close() }()
 
 	res, err := operations.SignBundleFile(cfg, operations.SignBundleRequest{
-		Target: operations.SignTarget{BundleName: bundleName},
-		Signer: discovered.Signer,
+		Target:       operations.SignTarget{BundleName: bundleName},
+		Signer:       discovered.Signer,
+		SignerSource: discovered.Source,
 	})
 	if err != nil {
 		return err

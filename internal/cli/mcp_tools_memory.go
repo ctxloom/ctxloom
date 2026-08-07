@@ -816,7 +816,11 @@ func (s *ctxServer) distillSession(ctx context.Context, sessionID, backendName, 
 func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendName, model, workDir, sessionsDir, harp string) (*loadSessionResult, error) {
 	// Recovery must never block the agent (CLAUDE.md): a compactor/distill failure
 	// degrades to a usable "couldn't distill" message rather than a tool error.
-	compactor, err := memory.NewCompactor(memory.CompactionConfig{
+	makeCompactor := s.compactorFactory
+	if makeCompactor == nil {
+		makeCompactor = memory.NewCompactor
+	}
+	compactor, err := makeCompactor(memory.CompactionConfig{
 		LLM:       s.cfg.GetCompactionLLM(),
 		Model:     model,
 		Backend:   backendName,
@@ -835,9 +839,15 @@ func (s *ctxServer) distillSessionOnce(ctx context.Context, sessionID, backendNa
 		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distillation failed for session %s: %v", sessionID, err)}, nil
 	}
 
-	distilled, err := memory.LoadDistilledSession(sessionsDir, sessionID)
+	// Read back under the key Compact actually WROTE, not the one the caller
+	// passed: Compact resolves the session to its harp (result.SessionID =
+	// session.ID) and saveDistilled keys the mirror off that. Reading by the
+	// caller's id made a successful distillation report "couldn't read it back"
+	// for every session whose vendor id differs from its harp — the essence was
+	// on disk the whole time, under a name this lookup never asked for.
+	distilled, err := memory.LoadDistilledSession(sessionsDir, compactResult.SessionID)
 	if err != nil {
-		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distilled session %s but couldn't read it back: %v", sessionID, err)}, nil
+		return &loadSessionResult{Loaded: false, Message: fmt.Sprintf("Distilled session %s but couldn't read it back: %v", compactResult.SessionID, err)}, nil
 	}
 
 	return &loadSessionResult{

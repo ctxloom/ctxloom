@@ -448,3 +448,77 @@ func TestRetiredScraperRoster_IsClosedAndImmutable(t *testing.T) {
 	assert.Equal(t, []string{"antigravity", "claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
 	assert.False(t, IsRetiredScraperBackend("tampered"))
 }
+
+// TestCanonicalFallbackSource_GetSession_PreservesCallerIDAcrossBothPaths pins
+// goofy-dingo defect 1: whichever leg resolves the session, the returned
+// Session.ID must be the id the CALLER passed.
+//
+// Resolving a backend-native id through the reverse index means asking the
+// canonical source for the HARP, and the session that comes back is keyed by
+// that harp. Letting it out unchanged silently re-keys everything downstream:
+// Compactor keys the essence it writes off session.ID, so recover_session then
+// reads back under the id it passed and finds nothing. A correct, fully paid-for
+// distillation becomes unreadable the instant it is written — exit 0, a success
+// message, and an essence nobody can address.
+//
+// The existing HarpFirstDoesNotBreakSessionIDPath test drives this same leg but
+// asserts only the payload, which is why the defect survived. Assert the id.
+func TestCanonicalFallbackSource_GetSession_PreservesCallerIDAcrossBothPaths(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	const harp = "harp-identity-kept"
+	const vendorID = "12b623a9-b883-4ded-a058-73aba1d1c53c"
+
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, harp, "/proj", vendorID)
+	writeCanonicalFixture(t, harp, "claude-code", "IDENTITY-PAYLOAD")
+
+	legacy := &fakeSessionSource{getErr: fmt.Errorf("legacy GetSession must not be called when canonical exists")}
+	src := NewCanonicalFallbackSource(legacy, "/proj", store)
+
+	t.Run("resolved via the sessionID->harp reverse lookup", func(t *testing.T) {
+		sess, err := src.GetSession(ctx, vendorID)
+		require.NoError(t, err)
+		require.Len(t, sess.Entries, 1)
+		assert.Equal(t, "IDENTITY-PAYLOAD", sess.Entries[0].Content, "the right session must still be found")
+		assert.Equal(t, vendorID, sess.ID,
+			"the caller addressed this session by %q; resolving through harp %q is an implementation detail and must not change the identity that comes back", vendorID, harp)
+	})
+
+	t.Run("resolved directly as a harp", func(t *testing.T) {
+		sess, err := src.GetSession(ctx, harp)
+		require.NoError(t, err)
+		require.Len(t, sess.Entries, 1)
+		assert.Equal(t, harp, sess.ID, "a caller addressing the session by harp must get the harp back")
+	})
+}
+
+// TestCanonicalFallbackSource_GetSession_SpecificFirstErrorSurvives pins
+// goofy-dingo defect 2: when no leg resolves, the FIRST attempt's error is the
+// answer, because it is the specific one.
+//
+// A NoCanonicalTranscriptError names the harp AND the concrete remedy
+// (`ctxloom session backfill <harp>`). It is set aside during selection as a
+// "try the other leg" signal, which is right — but discarding it at the END
+// replaced an actionable message with a generic "legacy scraper reader retired"
+// that tells the caller nothing about what to do.
+func TestCanonicalFallbackSource_GetSession_SpecificFirstErrorSurvives(t *testing.T) {
+	testsupport.Isolate(t)
+	ctx := context.Background()
+
+	// A harp with no captured transcript, addressed directly, on a
+	// retired-scraper backend (legacy == nil): the first leg fails with the
+	// specific error and the reverse lookup matches nothing.
+	store := sessions.NewMemStore()
+	mintBoundHarp(t, store, "harp-uncaptured", "/proj", "")
+	src := NewCanonicalFallbackSource(nil, "/proj", store)
+
+	_, err := src.GetSession(ctx, "harp-uncaptured")
+	require.Error(t, err)
+
+	var uncaptured *transcript.NoCanonicalTranscriptError
+	require.ErrorAs(t, err, &uncaptured,
+		"the specific first-attempt error must reach the caller, not be replaced by a generic one")
+	assert.Equal(t, "harp-uncaptured", uncaptured.Harp, "and it must still name the harp the remedy applies to")
+}

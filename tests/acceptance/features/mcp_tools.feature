@@ -75,3 +75,34 @@ Feature: MCP tools
     Then the tool call succeeds
     And the tool result is under 5000 bytes
     And the tool result field "loaded" equals "false"
+
+  # goofy-dingo: a session is normally addressed by the backend-native id its
+  # index entry binds, NOT by its harp — and resolving that id goes THROUGH the
+  # harp. When that resolution let the harp escape as the session's identity,
+  # every downstream key was chosen from it: the essence was written under the
+  # harp while the caller read back under the id it passed. The distillation
+  # succeeded, the file was on disk, and recover_session still answered
+  # "couldn't read it back" — work done, LLM call paid for, result discarded,
+  # no error anywhere. One measured incident re-derived 143,878 input tokens
+  # this way, on every single attempt, because the cache lookup missed for the
+  # same reason.
+  #
+  # The scenario above cannot see any of this: it addresses the session BY ITS
+  # HARP, so both keys are the same string and agree no matter what. This one
+  # uses the production shape, where they differ, and asserts the essence comes
+  # back with its real content rather than an apology.
+  Scenario: A distilled session is readable back by the id the caller passed
+    Given an initialized ctxloom project
+    And a captured session "steady-vellum-crane" bound to a backend-native session id
+    And the compaction LLM is a mock that never compresses
+    When the agent calls tool "recover_session" with:
+      | session_id | seeded-steady-vellum-crane |
+    Then the tool call succeeds
+    And the tool result field "loaded" equals "true"
+    And the tool result contains "RECOVER-IDENTITY-ROUND-TRIP"
+    # The identity claim itself, and the only assertion here that the read-back
+    # fix cannot satisfy on its behalf: the tool must report back the session it
+    # was ASKED for. When resolution let the harp escape as the session's
+    # identity, this came back as "steady-vellum-crane" — a different session
+    # than the caller named, silently.
+    And the tool result field "session_id" equals "seeded-steady-vellum-crane"

@@ -29,11 +29,12 @@ import (
 // exactly quit-eagle's shape: a pipeline that behaves (no errors) but never
 // actually shrinks the content. A large-enough seeded transcript reproduces
 // the original bug's scale on its own, with no need to hand-craft an
-// oversized canned response (which, for what it's worth, would NOT reach the
-// backend here anyway — Compactor.runDistill's pb.RunOptions carries no Env
-// field, so a labeled LLM config's env map, e.g. CTXLOOM_MOCK_RESPONSE, never
-// reaches this call the way it reaches a normal `ctxloom run`/llmEnvFor path;
-// a real, separate gap, noted but out of this task's scope).
+// oversized canned response.
+// recoverIdentityMarker appears ONLY in the production-shape scenario's seeded
+// transcript, so finding it in the recovered essence proves real content made
+// the round trip rather than an empty or placeholder result.
+const recoverIdentityMarker = "RECOVER-IDENTITY-ROUND-TRIP"
+
 func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// A SYNTHETIC canonical transcript — no real session content — sized and
 	// shaped (session/entry/complete kind mix, alternating user/assistant/
@@ -78,6 +79,30 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 		}
 		w.mock = mock
 		return nil
+	})
+
+	// The PRODUCTION identity shape, and the one the large-transcript scenario
+	// above deliberately avoids: the session index binds a backend-native id
+	// (seeded-<harp>, per j23AddIndexEntry) that is NOT the harp, so a caller
+	// addressing the session by that id makes recover_session resolve THROUGH
+	// the harp. Every downstream key is chosen from what that resolution
+	// returns, which is exactly where the identity defect lived.
+	//
+	// The transcript is small and real rather than synthetic-and-huge: this
+	// scenario is about identity surviving the round trip, not about bounding.
+	ctx.Step(`^a captured session "([^"]*)" bound to a backend-native session id$`, func(c context.Context, harp string) error {
+		w := worldFrom(c)
+		transcriptPath := w.env.HomeDir + "/" + j23HarpHome(harp) + "/persist/transcript.jsonl"
+		if err := j23AddIndexEntry(w, harp, "seeded production-shape session", transcriptPath); err != nil {
+			return fmt.Errorf("seed index entry for %s: %w", harp, err)
+		}
+		// Two turns, not zero: Compact short-circuits an empty session to a
+		// placeholder dump with no LLM call, which would let this pass without
+		// a real distillation ever happening.
+		return j23WriteCanonicalTranscript(w, harp, []string{
+			"What broke the essence read-back? " + recoverIdentityMarker,
+			"The write key and the read key disagreed. " + recoverIdentityMarker,
+		})
 	})
 
 	ctx.Step(`^the tool result is under (\d+) bytes$`, func(c context.Context, max int) error {

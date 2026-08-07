@@ -16,6 +16,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -45,6 +46,13 @@ type ctxServer struct {
 	// fresh one per relayed call), so it is injected, never owned here. Nil
 	// disables the dedupe — the work still happens, just undeduped.
 	distill *singleflight.Group
+	// compactorFactory builds the compactor distillSessionOnce runs. Nil means
+	// the real one, which is every production path; a test substitutes a
+	// mock-backed one. It exists because distillSessionOnce's post-distill
+	// behaviour — above all WHICH KEY it reads the fresh essence back under —
+	// was otherwise unreachable without a live LLM, and a mutation swapping that
+	// key survived the entire package unnoticed.
+	compactorFactory func(memory.CompactionConfig) (*memory.Compactor, error)
 }
 
 // mcpServerInstructions tells the client what this reduced MCP surface is for.

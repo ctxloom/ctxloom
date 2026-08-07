@@ -169,6 +169,14 @@ func (f *CanonicalFallbackSource) GetSession(ctx context.Context, id string) (*a
 	if harp := f.harpForSessionID(id); harp != "" {
 		sess, err := f.canonical.GetSession(ctx, harp)
 		if err == nil {
+			// Resolving THROUGH the harp is an implementation detail of this
+			// lookup, not a change of identity: the caller addressed the session
+			// by id and must get that id back. Letting the harp leak out here
+			// re-keys everything downstream — Compactor keys the essence it
+			// writes off session.ID, so the caller then reads back under the id
+			// it passed and finds nothing, and a correctly distilled essence is
+			// silently unreadable the moment it is written.
+			sess.ID = id
 			return sess, nil
 		}
 		// No canonical transcript (or it failed to parse) for this harp: fall
@@ -182,6 +190,15 @@ func (f *CanonicalFallbackSource) GetSession(ctx context.Context, id string) (*a
 	if f.legacy == nil {
 		if lastErr != nil {
 			return nil, lastErr
+		}
+		// Nothing better emerged, so the FIRST attempt's error is the answer.
+		// It was set aside above as a selection signal ("try the other leg"),
+		// not because it was uninformative — a NoCanonicalTranscriptError names
+		// the harp and the concrete remedy (`ctxloom session backfill <harp>`),
+		// and discarding it here replaced that with a generic message the
+		// caller cannot act on.
+		if firstErr != nil {
+			return nil, firstErr
 		}
 		return nil, fmt.Errorf("no canonical transcript for session %q (legacy scraper reader retired)", id)
 	}

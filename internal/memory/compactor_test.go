@@ -1965,3 +1965,60 @@ func TestRunDistill_ForwardsConfiguredEnvOntoTheRequest(t *testing.T) {
 	assert.Equal(t, "keep", gotEnv["OTHER"],
 		"the whole configured env is forwarded, not a hand-picked subset")
 }
+
+// TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder pins the
+// contract every caller that reads an essence back depends on: the key
+// CompactionResult reports must be a key saveDistilled actually wrote.
+//
+// The two can diverge, and did. Compact resolves its own session (result.
+// SessionID = session.ID) and keys saveDistilled off that same value, so for an
+// interactive session whose vendor id is a UUID the essence lands under the
+// HARP. cli.distillSessionOnce used to read back with the id its CALLER passed
+// instead, which nothing writes — so a completely successful distillation
+// reported "couldn't read it back", and the cache lookup on the way in missed
+// forever, re-distilling an essence already on disk.
+//
+// Fixing the caller is not enough on its own: it now trusts this invariant, so
+// the invariant needs a test of its own. A mutation keying saveDistilled off
+// anything other than the value Compact reports kills this immediately.
+func TestCompact_ResultSessionIDIsTheKeyTheEssenceWasWrittenUnder(t *testing.T) {
+	testsupport.Isolate(t)
+	outputDir := t.TempDir()
+
+	// The shape that broke: the session's own id is NOT a plausible vendor
+	// UUID, it is the harp, because that is what Compact resolves to.
+	const resolvedID = "shut-hoary-yahoo"
+	mockBe := &mockBackend{history: &mockSessionHistory{
+		currentSession: &agent.Session{
+			ID: resolvedID,
+			Entries: []agent.SessionEntry{
+				{Type: agent.EntryTypeUser, Content: "where did the essence go"},
+				{Type: agent.EntryTypeAssistant, Content: "written under one key, read under another"},
+			},
+		},
+	}}
+	const body = "Distilled: the write key and the read key must agree."
+	mockClient := &pb.MockClient{
+		RunFunc: func(ctx context.Context, req *pb.RunStart, stdout, stderr io.Writer) (int32, error) {
+			_, _ = stdout.Write([]byte(body))
+			return 0, nil
+		},
+	}
+
+	compactor, err := NewCompactor(CompactionConfig{
+		BackendOverride: mockBe,
+		ClientFactory:   pb.MockClientFactory(mockClient),
+		OutputDir:       outputDir,
+	})
+	require.NoError(t, err)
+
+	result, err := compactor.Compact(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, result.SessionID, "a distillation that wrote a file must report the key it used")
+
+	// The assertion that matters: reading back by the REPORTED key finds the
+	// essence, and finds the real body rather than an empty file.
+	loaded, err := LoadDistilledSession(outputDir, result.SessionID)
+	require.NoError(t, err, "LoadDistilledSession(outputDir, result.SessionID) must find what Compact just wrote")
+	assert.Contains(t, loaded.Body, body, "the essence read back must carry the distilled content, not be empty")
+}

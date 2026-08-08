@@ -4,6 +4,7 @@ package acceptance
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -74,29 +75,53 @@ var strictRunLeaves = []string{
 	"ctxloom acp serve",
 }
 
-// ranAsCommand reports whether path was actually invoked by a scenario (a
-// genuine "When/And I run "<path>..."" step), as opposed to merely
-// appearing as a substring somewhere in the corpus — e.g. quoted inside an
-// unrelated assertion like `the file "settings.json" contains "ctxloom hook
-// session-bind"`, which mentions the string without ever running the
-// command. Substring-only matching is exactly the vacuous-coverage failure
-// mode this gate exists to catch, so the required-hidden-leaf and
-// engine-matrix checks (the newly-honest parts of this gate) use this
-// stricter form instead of the plain corpus.Contains used elsewhere.
+// ranAsCommand reports whether a scenario actually INVOKED path, as opposed to
+// merely mentioning it — e.g. quoted inside an unrelated assertion like `the
+// file "settings.json" contains "ctxloom hook session-bind"`, which names the
+// string without running anything. Substring-only matching is the
+// vacuous-coverage failure this gate exists to catch, so the hidden-leaf,
+// engine-matrix and strict-run checks use this form rather than the plain
+// corpus.Contains used for ordinary leaves.
+//
+// TWO INVOCATION FORMS, because the corpus has two. The mechanical form is
+// `I run "<cmd>"`. The NARRATED form carries a business sentence in the step
+// text and the command in a DocString:
+//
+//	When Alice wires ctxloom into her project:
+//	  """
+//	  ctxloom manage install --engine claude-code
+//	  """
+//
+// Both really run the command — runNarratedCommands routes to the same runCLI
+// as `I run` — so both credit. Recognising only one form would make this gate
+// dictate how feature files are STRUCTURED, which is backwards: a scenario
+// should be written in whatever shape reads best.
+//
+// The DocString form is matched at LINE START (after indentation) so it is as
+// exact as the quoted form: a command named inside prose, or appearing as a
+// substring of a longer command line, does not count. That exactness is the
+// point of this function — a bare strings.Contains over the corpus is the
+// vacuous-coverage hole it exists to close.
 func ranAsCommand(corpus, path string) bool {
-	return strings.Contains(corpus, `I run "`+path)
+	if strings.Contains(corpus, `I run "`+path) {
+		return true
+	}
+	for _, line := range strings.Split(corpus, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), path) {
+			return true
+		}
+	}
+	return false
 }
 
 // ranAsTool reports whether an MCP tool was actually invoked by a scenario (a
 // genuine `the agent calls tool "<name>"` step — see steps_mcp.go), as
 // opposed to merely being named somewhere in the corpus. Plain substring
 // matching over tool names is the same vacuous-coverage hole ranAsCommand
-// closes for CLI leaves: mcp_tools.feature used to preface its scenarios with
-// prose naming compact_session/get_previous_session as explicitly NOT
-// covered, which nonetheless satisfied a bare strings.Contains check and hid
-// the gap. Every real invocation in this suite goes through callTool via one
-// of the two `calls tool "<name>"` step patterns, so that literal substring
-// is the correct, exact signal.
+// closes for CLI leaves — a feature's own prose naming a tool as explicitly
+// NOT covered satisfies it just as well as an invocation does. Every real
+// invocation goes through callTool via one of the two `calls tool "<name>"`
+// step patterns, so that literal substring is the exact signal.
 func ranAsTool(corpus, name string) bool {
 	return strings.Contains(corpus, `calls tool "`+name+`"`)
 }
@@ -109,8 +134,8 @@ func ranAsTool(corpus, name string) bool {
 // positive that would have silently pruned an actually-uncovered leaf from
 // the allowlist (exactly the vacuous-coverage failure mode this gate exists
 // to catch). A match only counts when the byte right after it is absent or
-// not itself an identifier character, so "ctxloom sign" no longer matches
-// inside "ctxloom signer ...".
+// not itself an identifier character, so "ctxloom sign" does not match inside
+// "ctxloom signer ...".
 func containsLeafPath(corpus, path string) bool {
 	for idx := 0; ; {
 		i := strings.Index(corpus[idx:], path)
@@ -138,11 +163,11 @@ func isLeafIdentByte(b byte) bool {
 // must be pruned back down). Every entry names the task that will backfill
 // it; that task is the only legitimate way an entry leaves this list.
 var knownUncoveredCLI = []string{
-	// `ctxloom bundle|command|fragment distill` LEFT this list when
-	// content_distill.feature landed: they had been credited as covered on the
-	// strength of distill_live.feature alone, which is @live and never runs, and
-	// the credit evaporated the moment loadCorpus began counting only scenarios
-	// that execute. They are now driven hermetically against the mock, asserting
+	// `ctxloom bundle|command|fragment distill` are absent from this list
+	// because content_distill.feature drives them HERMETICALLY. An @live-only
+	// coverer does not count: those scenarios never execute in a default run,
+	// so the leaf would be uncovered in practice. They are driven against the
+	// mock, asserting
 	// both halves (the item's content reaching the distiller, the distiller's
 	// answer being stored) plus the two refusal paths — a truncated answer and a
 	// backend that dies.
@@ -176,12 +201,10 @@ var knownUncoveredCLI = []string{
 	// scrub list, so no scenario could hand a child the harp that session-bind
 	// and stamp-plan do nothing without. testenv.SetChildEnv is the deliberate
 	// door through that scrub, and it is what made these coverable at all.
-	// Post-reorg coverage debt, now MUCH smaller: the verb-spine reorg deleted
-	// every deprecated alias, so the ~15 canonical leaves whose only coverage
-	// used to ride an alias (`blacklist`, bare `trust`, `signer *`, `tooling`,
-	// `acp agents`, `manage config *`, `manage mcp *`) were re-spelled onto
-	// their canonical leaves in the same change and left this list. What
-	// remains is genuinely uncovered. Backfill: one task.
+	// Coverage must be spelled on the CANONICAL leaf. A scenario driving a
+	// deprecated alias credits nothing once the alias is gone, so an alias
+	// deletion and the re-spelling of its scenarios belong in one change. What
+	// remains below is genuinely uncovered. Backfill: one task.
 	"ctxloom acp client",
 	"ctxloom acp serve",
 	// `ctxloom session search` was pruned from this list when
@@ -212,7 +235,6 @@ var knownUncoveredCLI = []string{
 	// written to be deleted. Covering it is the wrong call, but so is quietly
 	// dropping the rows — they are real uncovered surface until the engine is
 	// gone, and they leave this list when the engine does.
-	"ctxloom manage install --engine antigravity",
 	"ctxloom config init --engine antigravity",
 }
 
@@ -237,23 +259,21 @@ var knownUncoveredTools = []string{
 	// silently dropped one, which is exactly why the tool carries an `omitted`
 	// field. Writing it found runTriageCall omitting the label's env entirely.
 	//
-	// compact_session, get_previous_session and list_sessions LEFT this list
-	// when mcp_tools.feature gained scenarios that actually invoke them. They
-	// had been named only in that feature's own prose, which satisfied a bare
-	// substring check while nothing called them — the hole ranAsTool closed.
-	// Each is now asserted on a marker that exists only in its fixture's
-	// transcript, so a well-formed report of nothing cannot pass; covering
-	// compact_session is also what surfaced onshore-pardon.
+	// compact_session, get_previous_session and list_sessions are absent
+	// because mcp_tools.feature actually INVOKES them — being named in a
+	// feature's prose is not coverage, which is the hole ranAsTool closes.
+	// Each is asserted on a marker that exists only in its own fixture's
+	// transcript, so a well-formed report of nothing cannot pass.
 }
 
 // knownUncoveredRunnerOnlyTools is the exact set of tools that exist ONLY on
 // the documented (runner-terminated, cli.NewDocMCPServer) MCP surface -- not
 // on the standalone `ctxloom mcp serve` surface knownUncoveredTools governs
-// -- and are not yet exercised by any scenario. roster,
-// agent_report, and agent_fetch_artifact are named explicitly in
-// scripts/gendocs/main.go's mcpIntro as existing only on this surface;
-// before this list and its subtest existed, they had no completeness
-// coverage of any kind. Backfill: task spry-niece (same task as above).
+// -- and are not yet exercised by any scenario. roster, agent_report and
+// agent_fetch_artifact are named in scripts/gendocs/main.go's mcpIntro as
+// existing only on this surface, which is exactly why they need a list of
+// their own: the standalone-surface census cannot see them at all, so without
+// this list they are invisible rather than red. Backfill: task spry-niece.
 var knownUncoveredRunnerOnlyTools = []string{
 	"agent_fetch_artifact",
 	"agent_report",
@@ -332,20 +352,13 @@ var excludedLeaves = map[string]string{
 
 // excludedTools are registered MCP tools no hermetic scenario reaches.
 //
-// compact_session and get_previous_session used to be listed here too, with
-// justifications that turned out to be unearned: compact_session's claimed
-// "exercised at the operations layer in tests/integration" but grep finds no
-// Compact/Recover reference there at all, and get_previous_session's claim of
-// alternate coverage never existed anywhere. Both are now genuinely
-// uncovered — a real gap, not a documented, accepted one — and show RED
-// below rather than being quietly excluded. Tracked as a follow-up (Phase 0
-// only fixes the gate; it doesn't backfill the missing scenarios).
-//
-// recover_session used to be listed here too ("requires a real backend
-// transcript"), which was also unearned: a MOCK backend plus a directly
-// seeded canonical transcript.jsonl (see steps_recover_session.go) reaches it
-// hermetically, no real backend needed. A flow-level regression
-// scenario in mcp_tools.feature now drives it for real — pruned.
+// It is EMPTY, and keeping it empty is the standard: an entry here silences a
+// real gap, so it earns its place only with a reason that survives checking.
+// "Exercised at another layer" must name the test that does it; "requires a
+// real backend" must be true — a mock backend plus a directly seeded canonical
+// transcript reaches more of this surface hermetically than it first appears
+// (see steps_recover_session.go). A tool nothing drives belongs RED below,
+// where it is visible, not excluded here where it is not.
 var excludedTools = map[string]string{}
 
 // excludedTemplates are resource templates with no hermetic scenario. Currently
@@ -376,15 +389,11 @@ var excludedTemplates = map[string]string{}
 // the gaps. Lowering the ceiling in the same change is the point — a reorg
 // that shrank the debt while leaving the ratchet at 43 would just bank slack.
 //
-// RAISED from 22 to 24 on 2026-08-06, deliberately, and this is the one
-// direction that normally must not happen — so the reason matters. The number
-// did not get worse; the MEASUREMENT got honest. loadCorpus used to credit a
-// leaf as covered on the strength of raw feature-file text, so scenarios tagged
-// @wip or @live — which never execute — granted coverage. It now counts only
-// scenarios that would actually run.
-//
-// That exposed three leaves whose sole coverage is @live: bundle, command and
-// fragment distill. They were always uncovered; nothing regressed. Recording
+// RAISING this number is the one direction that normally must not happen, so
+// a raise carries its reason. A raise is legitimate when the MEASUREMENT gets
+// stricter rather than the coverage getting worse — tightening loadCorpus to
+// count only scenarios that actually RUN exposes leaves whose sole coverage is
+// @wip or @live, which were never covered in the first place. Recording
 // them as tracked debt rather than parking them in excludedLeaves is the point,
 // because excludedLeaves is skipped BEFORE counting and would have hidden them
 // from this ratchet entirely.
@@ -460,11 +469,9 @@ func TestCompleteness(t *testing.T) {
 
 	tools, resources, templates := liveSurface(t)
 
-	// listNames/ListToolDetails used to return (nil, nil) when the
-	// server's response array was missing or malformed, so "the server
-	// advertised zero tools" and "the response never parsed" looked
-	// identical — and the loop below iterates an empty slice and passes
-	// vacuously either way. mcpclient.go's parseNamedArray now errors on a
+	// "The server advertised zero tools" and "the response never parsed" must
+	// not look identical: the loop below iterates an empty slice and passes
+	// vacuously either way. mcpclient.go's parseNamedArray errors on a
 	// malformed response (liveSurface already t.Fatalf's on that), but a
 	// genuinely empty registration is itself a real regression this
 	// completeness gate exists to catch — an explicit floor makes that case
@@ -613,7 +620,6 @@ func liveSurface(t *testing.T) (tools, resources, templates []string) {
 	if err != nil {
 		t.Fatalf("test env: %v", err)
 	}
-	// Cleanup's error used to be discarded here too.
 	t.Cleanup(func() {
 		if err := env.Cleanup(); err != nil {
 			t.Errorf("test environment cleanup: %v", err)
@@ -653,18 +659,22 @@ func liveSurface(t *testing.T) (tools, resources, templates []string) {
 // step wrapper still counts as covered — but one named only by a scenario that
 // never executes does not.
 //
-// The tag filter is the whole point. This used to concatenate every feature
-// file verbatim, which meant a @wip scenario credited its command as covered
-// while being excluded from every run by acceptance_test.go's default
-// expression. Measured: `ctxloom session distill` was "covered" by four @wip
-// rows driving --skill and --to-bundle, flags that do not exist on the command,
-// and deleting its excludedLeaves entry left TestCompleteness passing with no
-// scenario at all. The gate was most generous exactly where coverage was most
-// absent, since @wip IS the tag for "cannot be honestly greened yet".
+// The tag filter is the whole point. Concatenating every feature file verbatim
+// would credit a @wip scenario's command as covered while acceptance_test.go's
+// default expression excludes it from every run — and @wip IS the tag for
+// "cannot be honestly greened yet", so the gate would be most generous exactly
+// where coverage is most absent. A @wip row can even drive flags that do not
+// exist on the command and still grant credit.
 func loadCorpus(t *testing.T) string {
 	t.Helper()
 	var b strings.Builder
-	for _, m := range globOrFail(t, "features/*.feature") {
+	// RECURSIVE, deliberately: features/ is being split into journeys/ and
+	// cli/ subdirectories. A flat "features/*.feature" glob silently stops
+	// seeing a file the moment it moves into one — and this gate reads the
+	// corpus to decide what is COVERED, so a blind glob does not fail loudly,
+	// it reports the whole CLI surface as uncovered (or, with an allowlist
+	// that happens to match, reports nothing at all). Walk instead.
+	for _, m := range featureFilesOrFail(t, "features") {
 		b.WriteString(runnableFeatureText(t, m))
 		b.WriteByte('\n')
 	}
@@ -728,7 +738,76 @@ func runnableFeatureText(t *testing.T, path string) string {
 			out = append(out, line)
 		}
 	}
-	return strings.Join(out, "\n")
+	return expandOutlineRows(strings.Join(out, "\n"))
+}
+
+// expandOutlineRows appends, for every Examples row in the text, a copy of the
+// preceding step lines with each <placeholder> substituted by that row's value.
+//
+// WHY THIS EXISTS. This gate credits a leaf on literal command text, and an
+// Examples table never produces that text — a step reads `--engine <engine>`,
+// while the census is looking for `--engine codex`. Without expansion, a
+// per-engine matrix written as an Outline reports every one of its engines
+// uncovered no matter how thoroughly it exercises them, which pushes authors
+// into writing N near-identical scenarios to satisfy the gate.
+//
+// Expanding the rows here lets a scenario be written in whatever shape reads
+// best while the census still sees every command the suite will actually
+// run.
+//
+// It is deliberately TEXTUAL and appended rather than substituted in place:
+// this function feeds a substring census, not a parser, so a sloppy expansion
+// can only ADD text that a real row really produces — it can never hide a
+// command that was already visible.
+func expandOutlineRows(text string) string {
+	lines := strings.Split(text, "\n")
+	var out strings.Builder
+	out.WriteString(text)
+
+	var steps []string  // step lines seen since the last Examples block
+	var header []string // column names of the Examples table being read
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(trimmed, "Scenario Outline:"):
+			steps, header = nil, nil
+		case strings.HasPrefix(trimmed, "Scenario:"), strings.HasPrefix(trimmed, "Feature:"):
+			steps, header = nil, nil
+		case strings.HasPrefix(trimmed, "Examples:"):
+			header = nil
+		case strings.HasPrefix(trimmed, "|"):
+			cells := splitRow(trimmed)
+			if header == nil {
+				header = cells
+				continue
+			}
+			for _, s := range steps {
+				expanded := s
+				for i, col := range header {
+					if i < len(cells) {
+						expanded = strings.ReplaceAll(expanded, "<"+col+">", cells[i])
+					}
+				}
+				out.WriteString("\n")
+				out.WriteString(expanded)
+			}
+		case strings.Contains(trimmed, "<"):
+			// A placeholder-bearing step of the Outline currently being read.
+			steps = append(steps, line)
+		}
+	}
+	return out.String()
+}
+
+// splitRow splits a Gherkin table row into trimmed cell values.
+func splitRow(row string) []string {
+	parts := strings.Split(strings.Trim(row, "|"), "|")
+	cells := make([]string, 0, len(parts))
+	for _, p := range parts {
+		cells = append(cells, strings.TrimSpace(p))
+	}
+	return cells
 }
 
 func anyExcludedTag(tagLines []string) bool {
@@ -742,6 +821,32 @@ func anyExcludedTag(tagLines []string) bool {
 		}
 	}
 	return false
+}
+
+// featureFilesOrFail walks dir recursively and returns every .feature file,
+// sorted. Replaces a flat glob so the journeys/ + cli/ split cannot make this
+// gate blind — see loadCorpus. Sorted so the corpus text is stable run to run.
+func featureFilesOrFail(t *testing.T, dir string) []string {
+	t.Helper()
+	var found []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".feature") {
+			found = append(found, path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
+	}
+	if len(found) == 0 {
+		t.Fatalf("walk %s: no .feature files found — this gate reads the corpus to "+
+			"decide coverage, so an empty result is a broken walk, not an empty suite", dir)
+	}
+	sort.Strings(found)
+	return found
 }
 
 func globOrFail(t *testing.T, glob string) []string {

@@ -75,6 +75,14 @@ func gherkinKeyword(stepType, prevType string) string {
 	return kw
 }
 
+// isOutcomeStep reports whether a step is Then-governed: a Then, or an And/But
+// continuing a run of Thens. Gherkin gives a continuation the previous step's
+// type, so the pickle type alone is the signal; the rendered keyword is used
+// only to keep this readable at the call site.
+func isOutcomeStep(stepType, keyword string) bool {
+	return stepType == "Outcome" && (keyword == "Then" || keyword == "And" || keyword == "But")
+}
+
 // scenarioIDRe turns a scenario name (+ Examples row, for Outlines) into a
 // filesystem-safe capture filename.
 var scenarioIDRe = regexp.MustCompile(`[^a-zA-Z0-9]+`)
@@ -182,7 +190,9 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 		// state never bleeds into the next.
 		w.docPrevStepType = ""
 		w.docLastBobOutput = ""
+		w.docLastCommandOutput = ""
 		w.docStepMaterialized = ""
+		w.docLastToolCalls = w.toolCalls
 		if w.env != nil {
 			w.docLastRunCount = w.env.RunCount()
 		}
@@ -199,18 +209,44 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 		w.docPrevStepType = string(st.Type)
 
 		if w.env != nil {
-			// Attribute CLI output to THIS step only if a command actually ran
-			// during it — env.RunCount() advances per invocation, so this
-			// distinguishes "a command ran (even one whose output is identical
-			// to the previous step's, e.g. two materialize calls)" from "no
-			// command ran and LastOutput is just stale from an earlier step".
-			// The earlier string-equality guard suppressed the former by
-			// mistake; the counter does not.
+			// A step that RAN a command owns that command's output.
+			// env.RunCount() advances per invocation, so this credits "a
+			// command ran, even one whose output is identical to the previous
+			// step's (two materialize calls)" while a step that ran nothing
+			// does not silently inherit a stale LastOutput. A string-equality
+			// guard cannot draw that line; the counter can.
 			if rc := w.env.RunCount(); rc != w.docLastRunCount {
 				if out := w.env.LastOutput(); out != "" {
 					step.CLIOutput = out
+					w.docLastCommandOutput = out
 				}
 				w.docLastRunCount = rc
+			} else if tc := w.toolCalls; tc != w.docLastToolCalls {
+				// The MCP channel, same rule as the CLI one: a step that
+				// INVOKED a tool owns its result as evidence. Without this,
+				// every assertion in a tool-driven scenario is undocumentable
+				// for the same reason a CLI one would be.
+				if out := w.lastTool.JSON(); out != "" {
+					step.CLIOutput = out
+					w.docLastCommandOutput = out
+				}
+				w.docLastToolCalls = tc
+			} else if isOutcomeStep(string(st.Type), step.Keyword) {
+				// A Then INHERITS the output of the command it is asserting
+				// about. `Then the command succeeds` runs nothing itself, and
+				// an assertion that reads a file rather than stdout runs
+				// nothing either — but both are claims ABOUT the invocation
+				// that just happened, and its output is the evidence a reader
+				// needs beside them. Without this, any assertion phrased on
+				// state rather than output is undocumentable, which excludes
+				// every scenario whose proof is a file on disk.
+				//
+				// Bounded on both sides so this cannot become the stale-output
+				// hole the counters exist to prevent: docLastCommandOutput is
+				// cleared per scenario, and replaced the moment the next
+				// invocation happens. A Then can only ever inherit from an
+				// invocation in its own scenario, and only the most recent one.
+				step.CLIOutput = w.docLastCommandOutput
 			}
 		}
 		// J2 runs the teammate's (Bob's) commands in a separate checkout via its

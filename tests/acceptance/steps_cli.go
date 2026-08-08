@@ -21,6 +21,26 @@ func registerCLISteps(ctx *godog.ScenarioContext) {
 		return runCLI(c, cmdline, doc.Content)
 	})
 
+	// THE NARRATED-COMMAND STEP. The step TEXT carries the generality in
+	// business language; the DocString carries the specific command. Both are
+	// parsed Gherkin nodes, which is what makes this work where a `#` comment
+	// cannot: comments are dropped by the parser, so the living-docs generator
+	// can never read one.
+	//
+	// The pattern is deliberately anchored on nothing but "not starting with a
+	// keyword the other steps own" — any business sentence matches, and ONE Go
+	// function backs every variant. That is what keeps a CLI spec's step text
+	// indistinguishable in shape from a journey's: the vocabulary is shared,
+	// only the granularity differs.
+	//
+	// Multi-line DocStrings run each non-empty, non-comment line in order, so a
+	// scenario can narrate a SEQUENCE under one sentence ("Alice wires ctxloom
+	// in and checks it took") without inventing a step per command. The last
+	// command's exit code and output are what the following Thens assert on.
+	ctx.Step(`^(?:Alice|Bob|Carol|Trent|Dana|Priya|she|he|they) [^"]*:$`, func(c context.Context, doc *godog.DocString) error {
+		return runNarratedCommands(c, doc.Content)
+	})
+
 	ctx.Step(`^the command succeeds$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if code := w.env.LastExitCode(); code != 0 {
@@ -166,7 +186,7 @@ func lastOutputJSONArray(w *World, key string) ([]any, error) {
 // the ldflags-stamped family stamp (`v<maj.min.patch>[-<sha>-<utc>]`), or the
 // literal "dev" an unstamped `go build` leaves in internal/cli.Version. Any
 // other text — notably a rendering that forgot to print the version at all —
-// is refused. `version.feature` used to assert `the output matches "."`: one
+// is refused. A looser pattern is worthless here: `matches "."` accepts one
 // arbitrary character, which the literal "MUTATION-not-the-version" satisfies
 // as happily as the truth does.
 var versionStampRE = regexp.MustCompile(`^(dev|v?[0-9]+\.[0-9]+\.[0-9]+\S*)$`)
@@ -293,6 +313,37 @@ func runCLI(c context.Context, cmdline, stdin string) error {
 		_ = w.env.RunWithStdin(stdin, args...)
 	}
 	return nil // exit status is asserted by a dedicated step
+}
+
+// runNarratedCommands runs each command line in a narrated step's DocString,
+// in order. Blank lines and #-comments are skipped so a block can be annotated
+// without inventing a second step.
+//
+// It DOES NOT assert exit status — that stays the following Then's job, exactly
+// as it is for the plain `I run` step, so a scenario can still narrate a
+// command it expects to FAIL. The last command's exit code and output are what
+// those Thens see.
+//
+// A block that contains no runnable line at all is an ERROR rather than a
+// silent pass: an empty DocString under a business sentence is the shape where
+// a scenario reads as exercising something and exercises nothing, which is the
+// vacuous-assertion failure this suite has been audited for.
+func runNarratedCommands(c context.Context, block string) error {
+	ran := 0
+	for _, line := range strings.Split(block, "\n") {
+		cmdline := strings.TrimSpace(line)
+		if cmdline == "" || strings.HasPrefix(cmdline, "#") {
+			continue
+		}
+		if err := runCLI(c, cmdline, ""); err != nil {
+			return err
+		}
+		ran++
+	}
+	if ran == 0 {
+		return fmt.Errorf("narrated step ran no commands: its block held only blanks/comments:\n%s", block)
+	}
+	return nil
 }
 
 // ctxloomArgs strips the leading "ctxloom " from a feature command line and

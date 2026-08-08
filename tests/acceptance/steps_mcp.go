@@ -154,6 +154,12 @@ func callTool(c context.Context, name string, args map[string]any) error {
 	}
 	w.lastTool = res
 	w.lastInner, w.lastInnerErr = res.Inner()
+	// An MCP tool call is an invocation like a CLI command, so it advances a
+	// counter the doc-capture sidecar reads for the same reason it reads
+	// env.RunCount(): a step that INVOKED something owns the result as its
+	// evidence, and a later assertion about it inherits that result rather
+	// than showing nothing.
+	w.toolCalls++
 	return nil
 }
 

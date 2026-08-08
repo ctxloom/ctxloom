@@ -462,8 +462,13 @@ test-vendor-claude:
 # both invisible until something finally ran this. Wired into both `test`
 # below and `lint` (justfile.container), so it gates the default local AND CI
 # paths. vet, not test/run — stays cheap.
+# The SECOND vet line covers the `acceptance` tag, which gates ~23k lines the
+# integration tag does not reach. Both matrices are vetted because a package
+# that compiles under one tag set and not the other is invisible to `go build
+# ./...` either way, and golangci-lint does not build tag-gated files at all.
 vet-integration: _require-generated
     go vet -tags integration ./tests/...
+    go vet -tags "acceptance integration" ./tests/...
 
 # Run integration tests (requires ctxloom binary)
 test-integration: build _ensure-gotmpdir

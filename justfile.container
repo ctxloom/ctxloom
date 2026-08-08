@@ -404,8 +404,13 @@ proto:
 # (claude.NewClaudeCode's old one-arg signature), both invisible until
 # something finally ran `go vet -tags integration`. vet, not test/run — stays
 # cheap enough to gate every lint pass.
+# The SECOND vet line covers the `acceptance` tag, which gates ~23k lines the
+# integration tag does not reach. Both matrices are vetted because a package
+# that compiles under one tag set and not the other is invisible to `go build
+# ./...` either way, and golangci-lint does not build tag-gated files at all.
 vet-integration:
     go vet -tags integration ./tests/...
+    go vet -tags "acceptance integration" ./tests/...
 
 # Lint code, plus the integration-tag rot gate (see vet-integration).
 lint: vet-integration

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -168,9 +169,23 @@ func tagsStartNewScenario(lines []string, i int) bool {
 // means a new journey (J5+) gets a page for free the moment it lands and is
 // tagged @doc.
 func DiscoverDocFeatures(dir string) ([]string, error) {
-	matches, err := filepath.Glob(filepath.Join(dir, "*.feature"))
+	// RECURSIVE, deliberately: features/ is split into journeys/ and cli/
+	// subdirectories, and a flat glob stops seeing a file the moment it moves
+	// into one. Failing to FIND a @doc feature does not fail loudly here — it
+	// silently drops that feature's page from the published site, which is the
+	// quietest possible way for documentation to go missing.
+	var matches []string
+	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".feature") {
+			matches = append(matches, path)
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("glob %s: %w", dir, err)
+		return nil, fmt.Errorf("walk %s: %w", dir, err)
 	}
 	sort.Strings(matches)
 

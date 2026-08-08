@@ -79,8 +79,27 @@ func WithRawPolicy(p RawPolicy) RecorderOption {
 	return func(r *fileRecorder) { r.policy = normalizeRawPolicy(p) }
 }
 
-// NewRecorder returns a Recorder for harp/engine, targeting
+// WithPath overrides the file a Recorder writes to, which otherwise is always
 // paths.HarpCanonicalTranscriptPath(harp).
+//
+// It exists for RE-conversion. A Recorder APPENDS (openAppendFile), and a
+// VendorAdapter always re-reads its source from the beginning, so converting a
+// harp that already has a canonical transcript would duplicate every entry
+// rather than replace it. A caller that must re-convert a still-growing session
+// therefore converts into a temporary sibling and renames it over the real file,
+// which needs somewhere else to write. Live capture never passes this: the harp
+// IS the destination there, and letting a capture path choose its own file would
+// put a session's bytes somewhere nothing reads back.
+func WithPath(p string) RecorderOption {
+	return func(r *fileRecorder) {
+		if p != "" {
+			r.path = p
+		}
+	}
+}
+
+// NewRecorder returns a Recorder for harp/engine, targeting
+// paths.HarpCanonicalTranscriptPath(harp) unless WithPath overrides it.
 //
 // The underlying file is opened LAZILY, on the first successful Record call —
 // NOT eagerly here — and the persist/ directory is created at that same

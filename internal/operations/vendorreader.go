@@ -143,25 +143,56 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 // for the same harp after the first call actually wrote a canonical file
 // would DUPLICATE every entry, not merge them. The guard against that is
 // hasCanonicalTranscript below: once ANY canonical transcript exists for a
-// harp, this is a permanent no-op for it, by design — never "check if the
-// vendor file grew and reconvert."
+// harp, this is a permanent no-op for it, by design.
+//
+// A session that is STILL GROWING is the one case that guard answers wrongly,
+// and RefreshVendorTranscript — not this function — is the answer to it.
 //
 // Best-effort at the CALLER's discretion: this function returns a real error
 // when Convert or Recorder construction fails (so a caller can tell "genuinely
 // nothing to import" from "tried and failed" — the two need different UX,
 // silence vs. a warning/report row) — it does not swallow errors itself.
 //
-// A Convert failure that happened AFTER some lines were already recorded
-// has its partial canonical file removed before returning: without
-// that, hasCanonicalTranscript's presence-only guard would treat the partial
-// file as a complete one forever, silently masking the original failure on
-// every later call for this harp instead of allowing a genuine retry.
+// A Convert failure never leaves a partial canonical file behind: conversion
+// writes to a temporary sibling that is renamed into place only on success, so
+// a failure mid-transcript leaves the harp exactly as it was. Without that,
+// hasCanonicalTranscript's presence-only guard would treat a partial file as a
+// complete one forever, silently masking the original failure on every later
+// call for this harp instead of allowing a genuine retry.
 func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted bool, err error) {
+	return convertVendorTranscript(ctx, e, false)
+}
+
+// RefreshVendorTranscript re-converts e's vendor-native transcript even when a
+// canonical one already exists, atomically replacing it.
+//
+// It is for a session that is STILL BEING WRITTEN. ConvertVendorTranscript's
+// presence-only idempotency is correct for a finished session — a transcript
+// that cannot change need never be re-read — and is exactly wrong for a live
+// one: converting at 12:00 and reading back at 14:00 yields a transcript
+// silently frozen at noon, which is worse than the failure it replaced because
+// it is indistinguishable from a complete one.
+//
+// The cost this accepts is the whole vendor transcript being re-read and
+// re-written on each call, since no adapter can resume from an offset
+// (vendorreader.VendorAdapter). That is why this is a separate verb rather than
+// the default: callers that know their session is finished should not pay it,
+// and `session backfill` sweeping an index must not.
+func RefreshVendorTranscript(ctx context.Context, e sessions.Entry) (converted bool, err error) {
+	return convertVendorTranscript(ctx, e, true)
+}
+
+// convertVendorTranscript is the shared body of ConvertVendorTranscript and
+// RefreshVendorTranscript. refresh drops the already-captured guard and lets the
+// resulting file replace an existing canonical transcript; everything else —
+// adapter selection, the refusal level, degrade-to-partial, the temp-then-rename
+// write — is identical, so the two verbs cannot drift into two conversions.
+func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool) (converted bool, err error) {
 	reg, ok := vendorReaderRegistry[e.Backend]
 	if !ok || e.HarpName == "" {
 		return false, nil
 	}
-	if hasCanonicalTranscript(e.HarpName) {
+	if !refresh && hasCanonicalTranscript(e.HarpName) {
 		return false, nil
 	}
 	src, ok := reg.locate(ctx, e)
@@ -186,7 +217,29 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 		return false, aerr
 	}
 
-	rec, err := transcript.NewRecorder(e.HarpName, e.Backend)
+	// Convert into a temporary sibling, never straight at the canonical file.
+	//
+	// Two distinct hazards need this, and neither is hypothetical. Convert can
+	// fail AFTER recording some lines (a bad byte partway through a large
+	// transcript), and a Recorder creates its file on the first SUCCESSFUL
+	// Record — so writing in place leaves a real, non-empty, PARTIAL canonical
+	// file, which hasCanonicalTranscript's presence-only guard then treats as a
+	// complete one on every future call, permanently masking the failure. And a
+	// refresh writing in place would APPEND a second full copy of the vendor
+	// transcript onto the existing one, since a Recorder appends and no adapter
+	// resumes from an offset. Renaming only on success answers both: the harp
+	// keeps whatever it had until a complete replacement exists.
+	dest, derr := canonicalDestination(e.HarpName, refresh)
+	if derr != nil {
+		return true, fmt.Errorf("resolve canonical transcript path for %s: %w", e.HarpName, derr)
+	}
+	tmp := dest + ".rebuild"
+	// A previous crash between write and rename leaves this behind; it carries
+	// no information (the vendor source is re-read in full) and would otherwise
+	// be appended to.
+	_ = os.Remove(tmp)
+
+	rec, err := transcript.NewRecorder(e.HarpName, e.Backend, transcript.WithPath(tmp))
 	if err != nil {
 		return true, fmt.Errorf("open recorder for %s: %w", e.HarpName, err)
 	}
@@ -194,22 +247,9 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 	cerr := adapter.Convert(ctx, rec, src)
 	_ = rec.Close()
 	if cerr != nil {
-		// Convert can fail AFTER already recording some lines (a
-		// bad byte partway through a large transcript), and
-		// transcript.Recorder creates its file on the first SUCCESSFUL
-		// Record (recorder.go's NewRecorder doc) — so a failure here can
-		// still leave a real, non-empty canonical file on disk.
-		// hasCanonicalTranscript's guard is presence-only (by design: see
-		// its own doc comment on why content-diffing is wrong), so without
-		// cleanup THIS partial file would be indistinguishable from a
-		// complete one on every future call for this harp — permanently
-		// masking the failure instead of allowing a retry once the vendor
-		// format or a parser bug is fixed. Best-effort: removal failing is
-		// not itself reported, since the conversion error is already the
-		// actionable fact.
-		if p, perr := paths.HarpCanonicalTranscriptPath(e.HarpName); perr == nil {
-			_ = os.Remove(p)
-		}
+		// Best-effort: removal failing is not itself reported, since the
+		// conversion error is already the actionable fact.
+		_ = os.Remove(tmp)
 		return true, fmt.Errorf("convert %s transcript for %s: %w", e.Backend, e.HarpName, cerr)
 	}
 	// Convert succeeding is NOT the same fact as bytes landing on
@@ -225,10 +265,31 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 	// that wants to know Convert was genuinely attempted-but-empty can still
 	// distinguish it from "not attempted at all" by checking
 	// hasCanonicalTranscript(harp) itself.
-	if !hasCanonicalTranscript(e.HarpName) {
+	if _, serr := os.Stat(tmp); serr != nil {
 		return false, nil
 	}
+	if rerr := os.Rename(tmp, dest); rerr != nil {
+		_ = os.Remove(tmp)
+		return true, fmt.Errorf("install canonical transcript for %s: %w", e.HarpName, rerr)
+	}
 	return true, nil
+}
+
+// canonicalDestination is the file a conversion for harp should end up at.
+//
+// A refresh must land on the transcript that is ALREADY THERE, resolved name and
+// all: a pre-rename session carries only the legacy transcript.acp.jsonl, and
+// writing the replacement under the current name would leave BOTH on disk — the
+// duplication the whole temp-then-rename dance exists to prevent, arrived at from
+// the other direction. A first conversion has nothing to resolve and takes the
+// current name.
+func canonicalDestination(harp string, refresh bool) (string, error) {
+	if refresh {
+		if p, err := paths.ResolveHarpCanonicalTranscriptPath(harp); err == nil && p != "" {
+			return p, nil
+		}
+	}
+	return paths.HarpCanonicalTranscriptPath(harp)
 }
 
 // hasCanonicalTranscript reports whether harp already has a canonical

@@ -329,7 +329,7 @@ func (s *ctxServer) handleLoadSession(ctx context.Context, _ *mcp.CallToolReques
 	if in.SessionID == "" {
 		return nil, nil, fmt.Errorf("either session_id or harp_name is required")
 	}
-	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, false)
+	return s.loadOrDistillSession(ctx, in.SessionID, in.Backend, in.Model, policyArchived)
 }
 
 // loadHarpEssence reads ~/.ctxloom/sessions/<harp>/essence.md and returns
@@ -423,7 +423,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 	// hasn't moved), but when that size can't be determined recover errs toward
 	// re-distilling — a cached essence from an earlier /clear in this same session
 	// covers only an earlier slice. redistillWhenUnknown=true encodes that bias.
-	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, true)
+	return s.loadOrDistillSession(ctx, targetSessionID, backendName, in.Model, policyLive)
 }
 
 // recoverTargetSessionID resolves which session recover_session should target
@@ -521,7 +521,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 		}, nil
 	}
 
-	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, false)
+	return s.loadOrDistillSession(ctx, sessionID, backendName, in.Model, policyArchived)
 }
 
 // previousSessionByHarp materializes a canonical/ACP previous session — one
@@ -643,6 +643,30 @@ func previousSessionFromMtime(activeSessionID string, metas []agent.SessionMeta)
 // handleBrowseSessionHistory and its input/result types removed in Phase 4 Lever A.
 // Use ctxloom://sessions/recent for the AI-friendly summary view.
 
+// sessionLoadPolicy distinguishes loading a session that is STILL BEING WRITTEN
+// from loading one that is finished. Both differences below follow from that one
+// fact, which is why they travel together rather than as two loose booleans at a
+// call site — the second bool argument is where "which flag was which" bugs live.
+type sessionLoadPolicy struct {
+	// RedistillWhenUnknown re-distills when transcript staleness cannot be
+	// determined, rather than trusting the cached essence.
+	RedistillWhenUnknown bool
+	// LiveTranscript re-converts a vendor transcript that has ALREADY been
+	// converted, instead of accepting the existing canonical file as current.
+	LiveTranscript bool
+}
+
+// policyLive loads the session the caller is sitting in — recover_session, after
+// a /clear. It is the only policy that pays to re-read a vendor transcript it has
+// already read, because it is the only one whose source can have grown since.
+var policyLive = sessionLoadPolicy{RedistillWhenUnknown: true, LiveTranscript: true}
+
+// policyArchived loads a session that is over — load_session and
+// get_previous_session. A finished session's transcript cannot change, so the
+// cached essence and the existing canonical transcript are both trusted; spending
+// an LLM call or a full re-conversion on one buys nothing.
+var policyArchived = sessionLoadPolicy{}
+
 // loadOrDistillSession is the shared body for load_session, recover_session,
 // and get_previous_session. It reuses the cached distilled essence when it is
 // still current and otherwise re-distills on demand, then loads what was just
@@ -651,11 +675,17 @@ func previousSessionFromMtime(activeSessionID string, metas []agent.SessionMeta)
 //
 //   - cache is current (size unchanged)  -> return the cache
 //   - cache is stale (size changed)      -> re-distill from the full transcript
-//   - staleness can't be determined      -> redistillWhenUnknown decides:
+//   - staleness can't be determined      -> policy.RedistillWhenUnknown decides:
 //     recover_session re-distills (the live session may have grown past the
 //     cache); load_session / get_previous_session keep the cache (a finished
 //     session rarely changes, so spending an LLM call on it isn't worth it).
-func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, redistillWhenUnknown bool) (*mcp.CallToolResult, *loadSessionResult, error) {
+//
+// A session whose transcript was never captured is CONVERTED on demand rather
+// than refused. Interactive sessions have no live tee, so their canonical
+// transcript is produced by reading the engine's own store back afterward — and
+// requiring the user to run `session backfill` by hand first made the tool fail
+// at exactly the moment it was reached for.
+func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, policy sessionLoadPolicy) (*mcp.CallToolResult, *loadSessionResult, error) {
 	workDir, err := os.Getwd()
 	if err != nil {
 		return nil, nil, fmt.Errorf("get working directory: %w", err)
@@ -669,35 +699,52 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 		return nil, nil, fmt.Errorf("session_id is required; list sessions via the ctxloom://sessions/recent resource to find one")
 	}
 
+	// A LIVE session's canonical transcript is re-read from the engine's own
+	// store BEFORE it is loaded, not merely when it is missing. This is the
+	// second-/recover case and it fails silently without this line: the first
+	// recovery converts the transcript as of that moment, so every later one
+	// finds a canonical file already present, reads it, and returns a session
+	// frozen at the first recovery — complete-looking, confidently wrong, and
+	// indistinguishable from a working recovery by anything downstream.
+	if policy.LiveTranscript {
+		if harp, _ := operations.HarpForSession(sessionID); harp != "" {
+			if _, herr := healCanonicalTranscript(ctx, harp, true); herr != nil {
+				// The stored transcript may still be readable; a refresh failure
+				// costs freshness, not the recovery.
+				clidiag.Warn("ctxloom", "refresh canonical transcript for %s: %v", harp, herr)
+			}
+		}
+	}
+
 	session, err := source.GetSession(ctx, sessionID)
 	if err != nil {
 		// Degrade a lookup failure to a usable "couldn't load" message rather than a
 		// tool error — recovery must never block the agent (CLAUDE.md).
 		//
-		// A harp with no captured canonical transcript (an
-		// interactive session — capture itself is a separate, tracked gap)
-		// gets a special-cased message naming the harp AND the
-		// concrete remedy, instead of making the caller decode a bare
-		// "no canonical transcript captured"/"legacy scraper reader retired"
-		// wrapper error.
+		// A harp with no captured canonical transcript is an INTERACTIVE session:
+		// the structured tee cannot reach a pty, so the engine's own store is the
+		// only record and has to be read back. Convert it here and retry once. This
+		// used to return a message telling the user to run `ctxloom session
+		// backfill <harp>` themselves — a correct instruction that arrived at the
+		// worst possible moment, since the caller reaching for /recover has just
+		// lost the context in which to act on it.
 		var noCanon *transcript.NoCanonicalTranscriptError
 		if errors.As(err, &noCanon) {
+			healed, herr := healCanonicalTranscript(ctx, noCanon.Harp, policy.LiveTranscript)
+			if !healed {
+				return nil, &loadSessionResult{
+					Loaded:  false,
+					Message: noCaptureMessage(sessionID, noCanon.Harp, err, herr),
+				}, nil
+			}
+			session, err = source.GetSession(ctx, sessionID)
+		}
+		if err != nil {
 			return nil, &loadSessionResult{
-				Loaded: false,
-				Message: fmt.Sprintf(
-					"No transcript was captured for session %s (harp %q): %v. "+
-						"Interactive-session capture only runs at process exit today, so a "+
-						"mid-session /recover can find nothing yet — this is a known gap, not "+
-						"a bug in recover itself. Run `ctxloom session backfill %s` to convert "+
-						"that session's own transcript into one recover_session can read, then "+
-						"try again.",
-					sessionID, noCanon.Harp, err, noCanon.Harp),
+				Loaded:  false,
+				Message: fmt.Sprintf("Couldn't load session %s: %v", sessionID, err),
 			}, nil
 		}
-		return nil, &loadSessionResult{
-			Loaded:  false,
-			Message: fmt.Sprintf("Couldn't load session %s: %v", sessionID, err),
-		}, nil
 	}
 	if len(session.Entries) == 0 {
 		return nil, &loadSessionResult{
@@ -740,7 +787,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	if cached, stampedSize := loadCachedDistilledSession(sessionsDir, sessionID); cached != nil {
 		stale, known := sessions.TranscriptStale(transcriptPath, stampedSize)
 		withinBound := len(cached.Content) <= memory.MaxEssenceChars
-		if withinBound && ((known && !stale) || (!known && !redistillWhenUnknown)) {
+		if withinBound && ((known && !stale) || (!known && !policy.RedistillWhenUnknown)) {
 			return nil, cached, nil
 		}
 		// stale, oversized, or indeterminate with a re-distill bias: fall through.
@@ -750,6 +797,52 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	// gRPC transcript read is self-situated and ignores it.
 	result, err := s.distillSession(ctx, sessionID, backendName, model, workDir, sessionsDir, harp)
 	return nil, result, err
+}
+
+// healCanonicalTranscript converts harp's vendor-native transcript into the
+// canonical one the session readers expect, so a caller never has to run
+// `ctxloom session backfill` by hand first.
+//
+// live selects WHICH conversion. A finished session gets the idempotent one,
+// which is a no-op once a canonical transcript exists; a live session gets the
+// refreshing one, which replaces it, because its source keeps growing. Reported
+// as (converted, err) rather than swallowed: the caller distinguishes "nothing
+// could be converted" (an unregistered backend, no locatable vendor store) from
+// "conversion was attempted and failed", and those need different messages.
+func healCanonicalTranscript(ctx context.Context, harp string, live bool) (bool, error) {
+	if harp == "" {
+		return false, nil
+	}
+	entry, err := operations.GetSession(harp)
+	if err != nil || entry == nil {
+		return false, err
+	}
+	if live {
+		return operations.RefreshVendorTranscript(ctx, *entry)
+	}
+	return operations.ConvertVendorTranscript(ctx, *entry)
+}
+
+// noCaptureMessage explains a session that could not be read even after a
+// conversion was attempted on the caller's behalf.
+//
+// It deliberately does NOT tell the reader to run `ctxloom session backfill`:
+// that is the command just tried for them, so repeating it as advice would send
+// someone to re-run the thing that already failed. What is actionable is WHY —
+// an engine ctxloom has no reader for, or a vendor store that is not where the
+// index says.
+func noCaptureMessage(sessionID, harp string, readErr, convertErr error) string {
+	if convertErr != nil {
+		return fmt.Sprintf(
+			"No transcript could be read for session %s (harp %q): converting this engine's own transcript failed: %v",
+			sessionID, harp, convertErr)
+	}
+	return fmt.Sprintf(
+		"No transcript was captured for session %s (harp %q): %v. Nothing could be "+
+			"converted from the engine's own store either — this engine has no "+
+			"transcript reader in ctxloom, or its transcript is not where the session "+
+			"index records it.",
+		sessionID, harp, readErr)
 }
 
 // loadCachedDistilledSession returns a result from an already-distilled session

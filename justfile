@@ -528,32 +528,76 @@ container-build-acceptance: dev-image
         -f .devcontainer/acceptance.Dockerfile .
 
 # Run the full acceptance suite (incl. @live real-agent scenarios) inside the
-# acceptance container as the non-root `ctxloom` user, on THIS machine. Builds
-# the image first. Your ~/.claude and ~/.gemini are copied to a world-readable
-# staging dir and mounted read-only — under rootless docker the non-root user
-# maps to a subuid that cannot read your 0600 credentials directly. Set
-# {ANTHROPIC,GEMINI,GOOGLE}_API_KEY to use the unattended API-key path instead.
-# ctxloom is built at runtime from the read-only workspace mount; all writes go
-# to the container HOME / tmp. Each agent's @live rows self-skip without creds.
+# acceptance container as the invoking host user, on THIS machine. Builds the
+# image first.
+#
+# CREDENTIALS ARE MAPPED, NEVER COPIED (tasks erased-collar / jovial-employee).
+# Each engine's real credential DIRECTORY is bind-mounted READ-WRITE at the path
+# the container HOME resolves it from, so the engine reads and WRITES the real
+# file and a provider-side token rotation lands on the host. The copy this
+# replaces was strictly one-way: codex refreshed inside the copy, the provider
+# consumed the old refresh token SERVER-SIDE, the rotated value died with the
+# container, and the host was left with a token that returned
+# `401 refresh_token_reused` until a manual re-login.
+#
+# THE DIRECTORY IS MOUNTED, NEVER THE INDIVIDUAL FILE: credential files are
+# written with an atomic temp-file-plus-rename, which a bind-mounted file does
+# not survive — the rename would fail or land only inside the container,
+# silently recreating the bug. That is why ~/.claude.json (a FILE at HOME level)
+# is no longer carried at all: CLAUDE_CONFIG_DIR points at the mounted ~/.claude
+# instead, and claude auto-creates its own .claude.json inside that directory.
+#
+# UID, and why this no longer runs as the image's `ctxloom` user: rootless
+# docker/podman map that non-root user onto a subuid that cannot read the host's
+# 0600 credential files — which is exactly why this recipe used to stage
+# world-readable copies. Mounting the real directories instead means the
+# container must run as the host uid that OWNS them. Under a rootless daemon
+# that is container uid 0, which maps to the invoking user (so this is NOT root
+# on the host). Under a rootful daemon it is the invoking uid itself — running
+# as root there would leave root-owned files in your real credential
+# directories.
+#
+# Set {ANTHROPIC,GEMINI,GOOGLE,OPENAI,CODEX}_API_KEY to use the unattended
+# API-key path instead: that path mounts nothing, copies nothing, and rotates
+# nothing. ctxloom is built at runtime from the read-only workspace mount; all
+# other writes go to the container HOME / tmp. Each agent's @live rows self-skip
+# without creds.
 test-acceptance-live-container: container-build-acceptance
     #!/usr/bin/env bash
     set -euo pipefail
     staging="$(mktemp -d)"
     trap 'chmod -R u+w "$staging" 2>/dev/null; rm -rf "$staging"' EXIT
 
-    # Credentials: copy only the files the live steps read (copyClaudeCredentials /
-    # copyGeminiCredentials), not the whole credential trees — they hold large logs,
-    # caches, and dangling symlinks.
-    mkdir -p "$staging/.claude"
-    for f in .credentials.json settings.json config.json; do
-        if [ -f "$HOME/.claude/$f" ]; then cp "$HOME/.claude/$f" "$staging/.claude/$f"; fi
-    done
-    if [ -f "$HOME/.claude.json" ]; then cp "$HOME/.claude.json" "$staging/.claude.json"; fi
+    # Credentials: MAP the real directories read-write. Nothing is copied, so
+    # there is no rotated value to lose. An absent directory is named OUT LOUD
+    # rather than silently skipped — an unmounted credential directory is how a
+    # run comes back mysteriously unauthenticated.
+    creds=()
+    map_cred() { # $1 = host dir, $2 = container path, $3 = engine
+        if [ -d "$1" ]; then
+            creds+=(-v "$1:$2")
+            echo "live-container: MAPPED $3 -> $1 (read-write: a token rotation lands on the host)"
+        else
+            echo "live-container: NOT MAPPED $3 — $1 does not exist; its @live rows will self-skip" >&2
+        fi
+    }
+    map_cred "$HOME/.claude" /home/ctxloom/.claude claude
+    map_cred "$HOME/.gemini" /home/ctxloom/.gemini antigravity
+    map_cred "$HOME/.codex" /home/ctxloom/.codex codex
+    # claude is the one engine CTXLOOM_LIVE_REQUIRE names below, so it is the
+    # one whose absence must fail the run rather than quietly shrink coverage.
+    if [ ! -d "$HOME/.claude" ] && [ -z "${ANTHROPIC_API_KEY:-}" ]; then
+        echo "live-container: FATAL — CTXLOOM_LIVE_REQUIRE names claude, but neither $HOME/.claude nor ANTHROPIC_API_KEY is present" >&2
+        exit 1
+    fi
 
-    mkdir -p "$staging/.gemini"
-    for f in oauth_creds.json google_accounts.json settings.json installation_id user_id; do
-        if [ -f "$HOME/.gemini/$f" ]; then cp "$HOME/.gemini/$f" "$staging/.gemini/$f"; fi
-    done
+    # See the UID note above: pick the user whose host identity actually owns
+    # the mounted credential directories.
+    if {{container_cmd}} info 2>/dev/null | grep -qi 'rootless'; then
+        run_as=(--user 0:0)
+    else
+        run_as=(--user "$(id -u):$(id -g)")
+    fi
 
     # Source: stage a copy of the working tree (minus .git) so the non-root user
     # can read it. Rootless docker maps that user to a subuid, and the working
@@ -570,22 +614,24 @@ test-acceptance-live-container: container-build-acceptance
     tar -cf - --exclude=./.git --exclude='*.test' --exclude=./website/node_modules . | tar -xf - -C "$staging/src"
     chmod -R a+rX "$staging"
 
-    mounts=(-v "$staging/.claude:/home/ctxloom/.claude:ro" -v "$staging/.gemini:/home/ctxloom/.gemini:ro" -v "$staging/src:/workspace:ro")
-    if [ -f "$staging/.claude.json" ]; then mounts+=(-v "$staging/.claude.json:/home/ctxloom/.claude.json:ro"); fi
+    mounts=(${creds[@]+"${creds[@]}"} -v "$staging/src:/workspace:ro")
     # Reuse the host module cache read-only so the runtime build doesn't re-download.
     if [ -d "$HOME/go/pkg/mod" ]; then mounts+=(-v "$HOME/go/pkg/mod:/home/ctxloom/go/pkg/mod:ro"); fi
 
     # Forward API keys when present so the unattended API-key path runs without
-    # copied subscription creds. Absent keys fall back to the mounted cred dirs.
+    # touching a subscription credential at all. Absent keys fall back to the
+    # mapped cred dirs above.
     keys=()
-    for k in ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY; do
+    for k in ANTHROPIC_API_KEY GEMINI_API_KEY GOOGLE_API_KEY OPENAI_API_KEY CODEX_API_KEY; do
         if [ -n "${!k:-}" ]; then keys+=(-e "$k"); fi
     done
 
     {{container_cmd}} run --rm \
+        "${run_as[@]}" \
         "${mounts[@]}" \
         ${keys[@]+"${keys[@]}"} \
         -e HOME=/home/ctxloom \
+        -e CLAUDE_CONFIG_DIR=/home/ctxloom/.claude \
         -e CTXLOOM_ACCEPTANCE_LIVE=1 \
         -e ACCEPTANCE_TAGS="~@network" \
         -e CTXLOOM_LIVE_REQUIRE=claude \

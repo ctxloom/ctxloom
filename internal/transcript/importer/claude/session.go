@@ -50,6 +50,17 @@ type line struct {
 	// session's permission mode at the time that turn was sent.
 	PermissionMode string   `json:"permissionMode"`
 	Message        *message `json:"message"`
+	// ToolUseResult is claude's TOP-LEVEL structured result for the
+	// tool_result block carried in this same line's message content — the
+	// richer counterpart of that block's flattened text (a Bash call's
+	// {stdout,stderr,interrupted}, an Edit's {originalFile,structuredPatch},
+	// a ToolSearch's {matches,query,total_deferred_tools}).
+	//
+	// Left raw and classified by shape in toolUseResultBlocks. Verified 1:1
+	// with the tool_result block: all 15821 lines carrying this key have
+	// exactly one tool_result in message.content, so it folds into that
+	// entry rather than becoming an entry of its own.
+	ToolUseResult json.RawMessage `json:"toolUseResult,omitempty"`
 }
 
 // message is a line's "message" object. Content is left as json.RawMessage
@@ -112,6 +123,12 @@ type contentBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	IsError   bool            `json:"is_error,omitempty"`
 	Content   json.RawMessage `json:"content,omitempty"`
+	// Raw is this element's own bytes, verbatim, populated by
+	// decodeContentBlocks rather than by the json tags. It is what lets an
+	// element this struct does not model survive canonicalization instead of
+	// going on the floor — see toolResultContent. Skipped by encoding/json on
+	// the way in ("-") because it is filled in afterwards, from the outside.
+	Raw json.RawMessage `json:"-"`
 }
 
 // decodeContentBlocks normalizes claude's dual-shaped content field (bare
@@ -132,11 +149,28 @@ func decodeContentBlocks(raw json.RawMessage) []contentBlock {
 		if s == "" {
 			return nil
 		}
-		return []contentBlock{{Type: "text", Text: s}}
+		return []contentBlock{{Type: "text", Text: s, Raw: raw}}
 	}
-	var blocks []contentBlock
-	if err := json.Unmarshal(raw, &blocks); err != nil {
+	// Decoded element-at-a-time rather than straight into []contentBlock so
+	// each block keeps its OWN bytes in Raw. That is what makes
+	// canonicalization total: an element type this struct does not model is
+	// still carried verbatim instead of being silently flattened away.
+	var elems []json.RawMessage
+	if err := json.Unmarshal(raw, &elems); err != nil {
 		return nil
+	}
+	blocks := make([]contentBlock, 0, len(elems))
+	for _, e := range elems {
+		var b contentBlock
+		if err := json.Unmarshal(e, &b); err != nil {
+			// Unparseable element: keep the bytes under an empty Type, which
+			// canonicalizes to the generic kind. Degrade-to-partial, never
+			// abort (importer.VendorAdapter's contract).
+			blocks = append(blocks, contentBlock{Raw: e})
+			continue
+		}
+		b.Raw = e
+		blocks = append(blocks, b)
 	}
 	return blocks
 }
@@ -389,7 +423,7 @@ func (c *converter) handleUser(l line) error {
 		return nil
 	}
 	blocks := decodeContentBlocks(l.Message.Content)
-	evs := messageEntries("user", l.IsMeta, blocks, &c.drops)
+	evs := messageEntries("user", l.IsMeta, blocks, l.ToolUseResult, &c.drops)
 	return c.recordAll(evs, l.IsSidechain)
 }
 
@@ -404,7 +438,7 @@ func (c *converter) handleAssistant(l line) error {
 		return nil
 	}
 	blocks := decodeContentBlocks(l.Message.Content)
-	evs := messageEntries("assistant", false, blocks, &c.drops)
+	evs := messageEntries("assistant", false, blocks, l.ToolUseResult, &c.drops)
 	if err := c.recordAll(evs, l.IsSidechain); err != nil {
 		return err
 	}
@@ -467,7 +501,10 @@ func (c *converter) recordAll(evs []agent.ChatEvent, sidechain bool) error {
 // array on this box's captured transcripts; processing in encounter order
 // rather than assuming a fixed grouping keeps this correct even if that ever
 // changes.
-func messageEntries(role string, isMeta bool, blocks []contentBlock, drops *dropTally) []agent.ChatEvent {
+// toolUseResult is the line's own top-level structured result, folded into
+// the tool_result entry this content produces (see line.ToolUseResult). Nil
+// on every line that carries no tool_result.
+func messageEntries(role string, isMeta bool, blocks []contentBlock, toolUseResult json.RawMessage, drops *dropTally) []agent.ChatEvent {
 	// isMeta can only ever be true on the "user" call path — handleAssistant
 	// (below) hardcodes isMeta=false at its call site, so the role=="user"
 	// half of this guard was always true whenever isMeta was.
@@ -499,7 +536,12 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock, drops *drop
 			evs = append(evs, importer.ToolUseEvent(b.Name, b.ID, b.Input))
 		case "tool_result":
 			flushText()
-			evs = append(evs, importer.ToolResultEvent(b.ToolUseID, toolResultText(b.Content, drops), b.IsError))
+			text, content := toolResultContent(b.Content)
+			// The line's structured result belongs to THIS entry: appended
+			// after the block's own elements so the flattened text and the
+			// elements behind it stay in encounter order.
+			content = append(content, toolUseResultBlocks(toolUseResult)...)
+			evs = append(evs, importer.ToolResultEvent(b.ToolUseID, text, b.IsError, content))
 		default:
 			// An unmodeled/future block type (e.g. "image" pasted directly
 			// into a user turn — observed but rare on this box): skip, not
@@ -513,24 +555,103 @@ func messageEntries(role string, isMeta bool, blocks []contentBlock, drops *drop
 	return evs
 }
 
-// toolResultText flattens a tool_result block's own (dual-shaped) content
-// into the flat string agent.SessionEntry.ToolOutput expects: a bare string
-// passes through directly (via decodeContentBlocks' string-wrapping), and an
-// array joins only its "text"-type elements. "tool_reference" and "image"
-// elements (observed inside real tool_result content arrays on this box —
-// tool_reference names an available tool the model was pointed at,  image
-// carries binary bytes this schema has no field for) are DROPPED here, not
-// fabricated into text — an honest gap, matching codex's own
-// function_call_output "no error field, don't sniff prose" discipline.
-func toolResultText(raw json.RawMessage, drops *dropTally) string {
-	blocks := decodeContentBlocks(raw)
-	parts := make([]string, 0, len(blocks))
-	for _, b := range blocks {
-		if b.Type == "text" {
-			parts = append(parts, b.Text)
-			continue
-		}
-		drops.add("tool_result:" + b.Type)
+// toolResultContent canonicalizes a tool_result block's own (dual-shaped)
+// content TOTALLY: every element becomes a canonical block, and the "text"
+// ones additionally join into the flat string agent.SessionEntry.ToolOutput
+// expects.
+//
+// It takes no *dropTally because it drops nothing. That is the layer-1 rule:
+// an adapter canonicalizes, it does not decide what is worth keeping — that
+// is internal/transcript/policy's job, one layer up, where the decision is
+// written down once and reads the same for every engine.
+//
+// The predecessor (toolResultText) kept only type:"text" and tallied the rest
+// as having "no canonical representation", which was simply false —
+// agent.ToolContentBlock.Raw is documented as carrying "the element verbatim
+// regardless, for anything this type doesn't otherwise model", and
+// transcript.toolContentPayload already serializes it. Measured over 1030
+// claude transcripts: 677 tool_reference + 1 image elements discarded, and
+// 385 tool_result entries flattened to COMPLETELY EMPTY across 145 files —
+// entries that read as "this tool returned nothing", which is this project's
+// characteristic silent-no-op shape, written deliberately.
+func toolResultContent(raw json.RawMessage) (text string, blocks []agent.ToolContentBlock) {
+	elems := decodeContentBlocks(raw)
+	if len(elems) == 0 {
+		return "", nil
 	}
-	return importer.JoinNonEmpty(parts)
+	parts := make([]string, 0, len(elems))
+	blocks = make([]agent.ToolContentBlock, 0, len(elems))
+	for _, e := range elems {
+		switch e.Type {
+		case "text":
+			parts = append(parts, e.Text)
+			blocks = append(blocks, agent.ToolContentBlock{
+				Kind: agent.KindContent, Text: e.Text, Raw: e.Raw,
+			})
+		case "tool_reference":
+			// A listing of tools the model was pointed at. Named by purpose so
+			// the policy layer never has to know the vendor spelling.
+			blocks = append(blocks, agent.ToolContentBlock{
+				Kind: agent.KindToolCatalog, Raw: e.Raw,
+			})
+		default:
+			// Everything else — image, and whatever claude ships next — is
+			// preserved verbatim in Raw under the generic kind rather than
+			// discarded. An unnamed element is not a lost one.
+			blocks = append(blocks, agent.ToolContentBlock{
+				Kind: agent.KindContent, Raw: e.Raw,
+			})
+		}
+	}
+	return importer.JoinNonEmpty(parts), blocks
+}
+
+// toolUseResultBlocks canonicalizes claude's top-level "toolUseResult" key —
+// a vendor field previously parsed NOT AT ALL, measured at 11.0 MB over 4378
+// records in the last 40 sessions of this project alone. It rides on the same
+// line as the tool_result block it belongs to (verified: all 15821
+// toolUseResult lines carry exactly one tool_result block), so it is folded
+// into that entry's content rather than becoming an entry of its own.
+//
+// Classification is BY SHAPE — which keys are present — not by tool name.
+// Two reasons, and the second is the load-bearing one:
+//   - the converter keeps no tool_use_id -> tool-name map, so a name-based
+//     rule would need correlation state invented purely to classify;
+//   - a shape survives a tool being renamed or a new tool arriving with the
+//     same result shape, and naming vendor keys is precisely what an ADAPTER
+//     is for. The prohibition on naming vendor fields binds the policy layer,
+//     not this one.
+//
+// Shapes below are every one observed at scale in this project's own
+// transcripts; anything unrecognized keeps its bytes under the generic kind.
+func toolUseResultBlocks(raw json.RawMessage) []agent.ToolContentBlock {
+	if len(raw) == 0 {
+		return nil
+	}
+	var keyed map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &keyed); err != nil {
+		// A scalar toolUseResult (2297 bare strings measured) or an array (41):
+		// no shape to classify, but the bytes are still real content.
+		return []agent.ToolContentBlock{{Kind: agent.KindContent, Raw: raw}}
+	}
+	has := func(names ...string) bool {
+		for _, n := range names {
+			if _, ok := keyed[n]; !ok {
+				return false
+			}
+		}
+		return true
+	}
+	kind := agent.KindContent
+	switch {
+	case has("stdout", "stderr", "interrupted"):
+		kind = agent.KindProcessOutput
+	case has("originalFile", "structuredPatch"):
+		kind = agent.KindFileSnapshot
+	case has("total_deferred_tools"):
+		kind = agent.KindToolCatalog
+	case has("agentId", "status"):
+		kind = agent.KindAgentResult
+	}
+	return []agent.ToolContentBlock{{Kind: kind, Raw: raw}}
 }

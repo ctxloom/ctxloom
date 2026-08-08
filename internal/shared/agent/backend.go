@@ -304,9 +304,46 @@ type ContentBlock struct {
 // toolContentText) and a diff-aware consumer wants the structured form
 // without a second JSON round-trip; Raw carries the element verbatim
 // regardless, for anything this type doesn't otherwise model.
+// Canonical ToolContentBlock.Kind values.
+//
+// These are named BY PURPOSE, never after the vendor field that produced
+// them, because the transcript policy layer (internal/transcript/policy)
+// discriminates on them and a policy rule naming a vendor field is a defect:
+// the same rule has to read correctly for claude, codex, kiro and whatever
+// comes next.
+//
+// The vocabulary is deliberately NOT a taxonomy of every vendor shape. It is
+// exactly the set of discriminators the policy needs, plus the generic
+// KindContent for everything else — whose Raw still carries the vendor
+// element verbatim, so nothing is lost by not having a name. Adding a kind
+// per vendor shape would produce a catalogue that drifts the moment an engine
+// ships a new tool.
+const (
+	// KindContent is the default: an element with no policy significance.
+	// Its Raw holds the vendor element verbatim.
+	KindContent  = "content"
+	KindDiff     = "diff"
+	KindTerminal = "terminal"
+
+	// KindProcessOutput is a process's stdout/stderr/exit status.
+	KindProcessOutput = "process_output"
+	// KindFileSnapshot is a whole-file image, pre- or post-change.
+	KindFileSnapshot = "file_snapshot"
+	// KindToolCatalog is a listing of available tools.
+	KindToolCatalog = "tool_catalog"
+	// KindAgentResult is a delegated agent's outcome.
+	KindAgentResult = "agent_result"
+	// KindExcluded marks an element the policy withheld. It always replaces
+	// the withheld element rather than removing it, so a reader can always
+	// tell "policy withheld this" from "the tool returned nothing" — the
+	// silent-omission shape this whole layer exists to stop.
+	KindExcluded = "excluded"
+)
+
 type ToolContentBlock struct {
-	Kind        string // "content" | "diff" | "terminal"
-	Text        string // flattened text, when Kind == "content"
+	// Kind is one of the Kind* constants above.
+	Kind        string
+	Text        string // flattened text, when Kind == KindContent
 	DiffPath    string
 	DiffOldText string // empty means "new file" (ACP's OldText is nil)
 	DiffNewText string

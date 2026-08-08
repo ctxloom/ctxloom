@@ -517,5 +517,5 @@ func functionCallOutputEvents(p responseItemPayload) []agent.ChatEvent {
 	if p.CallID == "" && p.Output == "" {
 		return nil
 	}
-	return []agent.ChatEvent{importer.ToolResultEvent(p.CallID, p.Output, false)}
+	return []agent.ChatEvent{importer.ToolResultEvent(p.CallID, p.Output, false, nil)}
 }

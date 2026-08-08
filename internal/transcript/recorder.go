@@ -12,6 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/transcript/policy"
 )
 
 // Recorder appends one canonical JSONL line per agent.ChatEvent to a harp's
@@ -120,7 +121,17 @@ func NewRecorder(harp, engine string, opts ...RecorderOption) (Recorder, error) 
 	for _, opt := range opts {
 		opt(r)
 	}
-	return r, nil
+	// Content policy is applied HERE, at the one construction point, rather
+	// than at each of the four call sites that build a Recorder — those would
+	// drift, and a path that quietly skipped the wrap would write unfiltered
+	// megabytes with nothing to indicate it. See Filtered.
+	//
+	// Filtering at WRITE time is safe precisely because the canonical
+	// transcript is DERIVED: it lives in the session's ephemeral/ dir and is
+	// re-materialized from the engine's own vendor log, which still holds
+	// every byte. A policy change therefore takes effect on the next
+	// materialization instead of needing a migration.
+	return Filtered(r, policy.Default()), nil
 }
 
 // rawToPersist decides what (if anything) of ev.Raw this recorder's policy

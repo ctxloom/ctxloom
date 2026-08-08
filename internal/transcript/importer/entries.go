@@ -69,11 +69,18 @@ func ToolUseEvent(name, callID string, input json.RawMessage) agent.ChatEvent {
 // each adapter decides its own IsError value; some vendors have no such
 // signal at all and must honestly pass false, see codex's
 // functionCallOutputEvents).
-func ToolResultEvent(callID, output string, isError bool) agent.ChatEvent {
+// content carries the STRUCTURED elements behind that flattened text, when
+// the adapter could recover them. It is a separate parameter rather than a
+// second constructor because there is exactly one canonical tool_result
+// shape: an adapter with nothing structured to report passes nil and says so
+// honestly, instead of the two near-identical constructors that would
+// otherwise drift.
+func ToolResultEvent(callID, output string, isError bool, content []agent.ToolContentBlock) agent.ChatEvent {
 	return agent.ChatEvent{Entry: &agent.SessionEntry{
-		Type:       agent.EntryTypeToolResult,
-		ToolOutput: output,
-		ToolCallID: callID,
-		IsError:    isError,
+		Type:        agent.EntryTypeToolResult,
+		ToolOutput:  output,
+		ToolCallID:  callID,
+		IsError:     isError,
+		ToolContent: content,
 	}}
 }

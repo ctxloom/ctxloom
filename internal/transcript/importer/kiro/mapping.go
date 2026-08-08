@@ -118,7 +118,7 @@ func toolResultEvents(results []toolUseResult) []agent.ChatEvent {
 		for i, c := range r.Content {
 			texts[i] = c.Text
 		}
-		evs = append(evs, importer.ToolResultEvent(r.ToolUseID, importer.JoinNonEmpty(texts), r.Status != statusSuccess))
+		evs = append(evs, importer.ToolResultEvent(r.ToolUseID, importer.JoinNonEmpty(texts), r.Status != statusSuccess, nil))
 	}
 	return evs
 }

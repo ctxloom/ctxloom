@@ -225,14 +225,71 @@ func toolContentFromIR(content []agent.ToolContentBlock) []api.ToolCallContent {
 			out = append(out, api.ToolCallContent{Diff: d})
 		case "terminal":
 			out = append(out, api.ToolCallContent{Terminal: &api.ToolCallContentTerminal{TerminalId: api.TerminalId(c.TerminalID)}})
-		case "content":
-			out = append(out, api.ToolCallContent{Content: &api.ToolCallContentContent{Content: textBlock(c.Text)}})
+		default:
+			// EVERY other kind, not just "content". The switch used to list
+			// "content" explicitly and silently drop anything else, which
+			// turned each purpose-named kind the transcript layer produces
+			// (process_output, file_snapshot, tool_catalog, agent_result,
+			// excluded — see agent.Kind*) into nothing at all on the way out.
+			// A default that carries them is what keeps this mapping total as
+			// the vocabulary grows.
+			out = append(out, contentBlockFromIR(c))
 		}
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+// contentBlockFromIR rebuilds one outbound content block, preferring the
+// flattened Text and falling back to the verbatim Raw.
+//
+// The Raw leg is load-bearing, not a nicety. A block whose Text is empty but
+// whose Raw is populated is the NORMAL shape for anything non-textual — an
+// image, an ACP resource, a claude tool_reference, a structured toolUseResult.
+// Emitting textBlock(c.Text) for those sent the far client an EMPTY text block
+// where the content should have been: present in the frame, carrying nothing,
+// indistinguishable from a tool that genuinely returned no content.
+//
+// Two Raw shapes reach here and they are handled differently on purpose:
+//   - a block that came IN over ACP has Raw = json.Marshal(api.ToolCallContent)
+//     (internal/acp/mapping.go), so it decodes straight back and round-trips
+//     losslessly. That is the round-trip full-gap named.
+//   - a block from a vendor transcript importer has Raw in the ENGINE's own
+//     shape, which is not an ACP variant and must not be forced into one. It
+//     is emitted as text so the content is at least VISIBLE, rather than
+//     silently becoming an empty block.
+func contentBlockFromIR(c agent.ToolContentBlock) api.ToolCallContent {
+	if c.Text != "" {
+		return api.ToolCallContent{Content: &api.ToolCallContentContent{Content: textBlock(c.Text)}}
+	}
+	if len(c.Raw) > 0 {
+		// Gated on the ACP "type" DISCRIMINATOR, not on whether the decode
+		// merely succeeded. api.ToolCallContent has a custom UnmarshalJSON
+		// that populates its Content variant for an arbitrary object, so
+		// "err == nil" — and even "some variant is non-nil" — is satisfied by
+		// a foreign vendor payload. Measured: a claude tool_reference decoded
+		// "successfully" into a ToolCallContent whose inner ContentBlock was
+		// zero-valued, which then failed to MARSHAL at all ("unexpected end
+		// of JSON input") and would have put an unserializable frame on the
+		// wire. Only a payload that names itself an ACP variant is treated as
+		// one.
+		var probe struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(c.Raw, &probe); err == nil {
+			switch probe.Type {
+			case "content", "diff", "terminal":
+				var rt api.ToolCallContent
+				if err := json.Unmarshal(c.Raw, &rt); err == nil {
+					return rt
+				}
+			}
+		}
+		return api.ToolCallContent{Content: &api.ToolCallContentContent{Content: textBlock(string(c.Raw))}}
+	}
+	return api.ToolCallContent{Content: &api.ToolCallContentContent{Content: textBlock("")}}
 }
 
 // planEntriesFromIR rebuilds ACP plan entries from the IR2 structured form.

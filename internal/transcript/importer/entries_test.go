@@ -40,7 +40,7 @@ func TestToolUseEvent(t *testing.T) {
 }
 
 func TestToolResultEvent(t *testing.T) {
-	ev := ToolResultEvent("call-1", "output text", true)
+	ev := ToolResultEvent("call-1", "output text", true, nil)
 	require.NotNil(t, ev.Entry)
 	assert.Equal(t, agent.EntryTypeToolResult, ev.Entry.Type)
 	assert.Equal(t, "call-1", ev.Entry.ToolCallID)

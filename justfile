@@ -507,7 +507,7 @@ test-acceptance: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run the @container acceptance rows — the ones that actually launch an engine
-# inside a container (j24_container.feature's differential host-vs-container
+# inside a container (j002400_container.feature's differential host-vs-container
 # row). Excluded from `test-acceptance` for one measured reason: the first
 # containerized run BUILDS the agent image, which took 75s for a minimal
 # fixture and over six minutes in this repo, against a suite that already
@@ -520,7 +520,7 @@ test-acceptance: build _ensure-gotmpdir
 # machine without one has nothing to say about it. The longer timeout is the
 # image build, not a slow test.
 test-acceptance-container: build _ensure-gotmpdir
-    ACCEPTANCE_PATHS=features/j24_container.feature \
+    ACCEPTANCE_PATHS=features/j002400_container.feature \
     ACCEPTANCE_TAGS="@container" \
     GOTMPDIR="{{go_tmp}}" \
     go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...

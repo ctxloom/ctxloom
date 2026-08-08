@@ -6,6 +6,24 @@
 # Restore the standard exclusions so errcheck stops flagging those as failures.
 version: "2"
 
+# Build tags golangci-lint type-checks in addition to the default build.
+#
+# Without `mutation` here, every `//go:build mutation` file — the whole of
+# tests/mutation/ — is invisible to `just lint`: golangci-lint loads only the
+# default build, and the vet step ahead of it runs `-tags integration`. The
+# gate exited 0 having never looked at them, which is this repo's recurring
+# vacuous-green shape. Measured both ways with a deliberate `unused` violation
+# planted in tests/mutation/targets_test.go: 0 issues without this block, 1
+# issue with it.
+#
+# Only tags whose files NOTHING else type-checks belong here. `integration`
+# does not: the vet-integration recipe already covers it, and adding it would
+# double-report. Every entry costs a second type-check pass over the packages
+# it opens up, so this list stays short by intent rather than by accident.
+run:
+  build-tags:
+    - mutation
+
 linters:
   enable:
     - forbidigo

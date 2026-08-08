@@ -47,15 +47,11 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 		if err := w.env.WriteFile(".ctxloom/config.yaml", a.config); err != nil {
 			return err
 		}
-		// Subscription path: copy just the credential files into the isolated HOME
-		// so the backend authenticates without dragging the whole credential tree.
-		// The API-key path needs nothing — it flows through the env.
-		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
-			if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
-				return err
-			}
-		}
-		return nil
+		// Subscription path: MAP the engine at its real credential directory
+		// (erased-collar) so a provider-side token rotation lands on the host
+		// instead of dying with this scenario's temp HOME. The API-key path
+		// needs nothing — it flows through the env.
+		return seedLiveCredentials(key, a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
 	})
 
 	// A long, information-dense fragment gives distillation something real to

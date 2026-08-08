@@ -77,11 +77,45 @@ type liveAgent struct {
 	// tests prove context DELIVERY, not model quality, and a bigger model
 	// proves nothing extra while costing real money on every run.
 	config string
-	// copyCreds copies just the auth files from the real HOME into the
-	// isolated one for the subscription path, and errors when it copied
-	// zero files — a caller that seeded no credentials must not be
-	// indistinguishable from one that seeded correctly. Every
-	// registered engine has a non-nil copier today, codex included.
+	// mapCreds returns the env-var-to-real-directory pointers that make this
+	// engine read AND WRITE its REAL credential files from inside an
+	// otherwise-isolated run — the MAPPED half of the mapped-or-API-key
+	// policy (task erased-collar). Non-nil only for engines whose own
+	// config-home var relocates CREDENTIALS
+	// (internal/lm/isolation/auth.go's credentialSeedSpecs
+	// HonoursVarForCreds==true: claude's CLAUDE_CONFIG_DIR, codex's
+	// CODEX_HOME, opencode's XDG_DATA_HOME). It NEVER writes, copies, moves
+	// or chmods a credential file: it only points at directories, and errors
+	// loudly when the real credential material is absent.
+	//
+	// WHY MAPPING, NOT COPYING (task jovial-employee): a copy into a
+	// throwaway HOME is strictly one-way. The engine refreshes inside the
+	// copy, the provider ROTATES the refresh token and invalidates the old
+	// one SERVER-SIDE, the rotated value dies with the temp dir, and the
+	// host's file is left holding a token the provider considers consumed —
+	// measured for codex as `401 refresh_token_reused`, which costs the
+	// human a manual re-login. A read-only copy does NOT fix this: the
+	// damage is the server-side consumption, not the local mutation. A
+	// symlink does not fix it either — credential files are written with an
+	// atomic temp-file-plus-rename, which replaces the symlink with a
+	// regular file and leaves the real credential stale.
+	mapCreds func(realHome string) ([]credentialMapping, error)
+	// copyCreds is the LEGACY copy path. It copies just the auth files from
+	// the real HOME into the isolated one, and errors when it copied zero
+	// files — a caller that seeded no credentials must not be
+	// indistinguishable from one that seeded correctly.
+	//
+	// It is NO LONGER how an @live scenario gate seeds an engine that has a
+	// mapCreds mapper (seedLiveCredentials prefers mapping, always). It
+	// survives for exactly two uses: (1) kiro and antigravity, the two
+	// engines with no config-home var that relocates credentials at all
+	// (kiro: HonoursVarForCreds FALSE — a global sqlite no HomeVar moves;
+	// antigravity: no credentialSeedSpecs entry at all), which therefore
+	// cannot be mapped this way and keep their previous behaviour pending a
+	// human decision; and (2) isolation_probe.go, whose census
+	// DELIBERATELY builds a stand-in host home to measure what production's
+	// own seeding leaks — mapping there would point the measurement at the
+	// developer's real directories and destroy the thing being measured.
 	copyCreds func(realHome, fakeHome string) error
 	// authCheck determines whether the engine is AUTHENTICATED — not merely
 	// installed — via the subscription path. Only consulted when apiKeyEnvs
@@ -122,6 +156,7 @@ llm:
 profiles:
   defaults: []
 `,
+		mapCreds:  mapClaudeCredentials,
 		copyCreds: copyClaudeCredentials,
 		authCheck: authCheckClaude,
 	},
@@ -230,6 +265,7 @@ llm:
 profiles:
   defaults: []
 `,
+		mapCreds:  mapCodexCredentials,
 		copyCreds: copyCodexCredentials,
 		authCheck: authCheckCodex,
 	},
@@ -262,6 +298,7 @@ llm:
 profiles:
   defaults: []
 `,
+		mapCreds:  mapOpencodeCredentials,
 		copyCreds: copyOpencodeCredentials,
 		authCheck: authCheckOpencode,
 	},
@@ -649,6 +686,144 @@ func authCheckOpencode(realHome string) (bool, string) {
 		names = append(names, k)
 	}
 	return true, fmt.Sprintf("%s: provider(s) configured: %s (local credential-file heuristic only, not a verified login check)", p, strings.Join(names, ","))
+}
+
+// credentialMapping is one env-var-to-directory pointer: setting EnvVar to Dir
+// on the child process makes the engine resolve its credential material from
+// Dir, the REAL host directory, rather than from the scenario's isolated HOME.
+// Nothing is copied and nothing is written by ctxloom — the engine reads and
+// writes the real file itself, so a provider-side rotation lands on the host
+// and is simply picked up next time.
+type credentialMapping struct {
+	EnvVar string
+	Dir    string
+}
+
+// mapCredentialHome builds the single mapping for an engine whose config-home
+// env var relocates credentials, and FAILS LOUD when the real credential
+// material is not there: dir must exist and be a directory, and every
+// required file (relative to dir) must exist. This is the mapping-path
+// equivalent of the copiers' "copied 0 files" error — a caller that mapped an
+// engine at nothing must not be indistinguishable from one that mapped it
+// correctly, or the run comes back mysteriously unauthenticated.
+//
+// It only ever calls os.Stat. It never reads a credential's contents, and
+// never creates, writes, moves, chmods or removes anything.
+func mapCredentialHome(engine, envVar, dir string, required ...string) ([]credentialMapping, error) {
+	info, err := os.Stat(dir)
+	if err != nil {
+		return nil, fmt.Errorf("map %s credentials: %s would point at %s, which is not there: %w", engine, envVar, dir, err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("map %s credentials: %s would point at %s, which is not a directory", engine, envVar, dir)
+	}
+	for _, rel := range required {
+		p := filepath.Join(dir, rel)
+		if _, serr := os.Stat(p); serr != nil {
+			return nil, fmt.Errorf("map %s credentials: required credential file %s is missing: %w", engine, p, serr)
+		}
+	}
+	return []credentialMapping{{EnvVar: envVar, Dir: dir}}, nil
+}
+
+// mapClaudeCredentials points CLAUDE_CONFIG_DIR at the REAL ~/.claude.
+// credentialSeedSpecs["claude-code"] records HonoursVarForCreds true —
+// CLAUDE_CONFIG_DIR relocates both config AND credentials — and marks
+// .credentials.json the one REQUIRED source file, so that file's absence is
+// the loud failure here too.
+//
+// COST, ACCEPTED AND STATED (erased-collar's "decide per engine and say where
+// it lands"): the whole config-home is mapped, so claude's run state written
+// under it during a live scenario — history/projects, and the .claude.json it
+// auto-creates inside CLAUDE_CONFIG_DIR when the var is set — lands in the
+// human's real ~/.claude rather than in a temp dir. That is the price of the
+// engine writing a rotated token where the host can see it.
+func mapClaudeCredentials(realHome string) ([]credentialMapping, error) {
+	return mapCredentialHome("claude", "CLAUDE_CONFIG_DIR", filepath.Join(realHome, ".claude"), ".credentials.json")
+}
+
+// mapCodexCredentials points CODEX_HOME at the REAL ~/.codex. This is the
+// engine jovial-employee was measured on: codex's auth.json resolves from
+// $CODEX_HOME only (credentialSeedSpecs["codex"], HonoursVarForCreds true),
+// so the var is a complete mapping and the copy it replaces is what consumed
+// the human's refresh token.
+//
+// COST, ACCEPTED AND STATED, AND THE LARGEST OF THE THREE: $CODEX_HOME is
+// codex's ENTIRE runtime state root, not just its credential — sessions/
+// rollouts, memories, logs, goals, the model-list cache and plugins all
+// resolve from it (472MB on this box). Mapping it means a live scenario's
+// rollouts are written into the human's real ~/.codex/sessions. erased-collar
+// accepts this rather than keep a copy-back mess; it is worth re-reading if
+// that directory's growth ever becomes a nuisance.
+func mapCodexCredentials(realHome string) ([]credentialMapping, error) {
+	return mapCredentialHome("codex", "CODEX_HOME", filepath.Join(realHome, ".codex"), "auth.json")
+}
+
+// mapOpencodeCredentials points XDG_DATA_HOME at the REAL ~/.local/share.
+// credentialSeedSpecs["opencode"] records HonoursVarForCreds true, and its
+// destSubdir is NESTED ("xdg-data/opencode") because opencode appends
+// "/opencode" onto XDG_DATA_HOME itself — so the var must point one level
+// ABOVE the credential directory, and the required file is checked at
+// opencode/auth.json beneath it.
+//
+// COST, STATED AND WORTH A SECOND LOOK: XDG_DATA_HOME is not an
+// opencode-owned directory the way CLAUDE_CONFIG_DIR/CODEX_HOME are — it is a
+// SHARED XDG root. Mapping it hands the child the human's whole
+// ~/.local/share, which also holds kiro-cli's credential sqlite. No other
+// engine runs in an opencode @live scenario, and opencode's own auth.json is
+// a wrapped API key that does not rotate at all (so this engine had the least
+// to gain from mapping), but this is the one mapping whose blast radius is
+// wider than the engine that needs it. XDG_CONFIG_HOME is deliberately NOT
+// mapped: it carries no credentials, so widening it would buy nothing.
+func mapOpencodeCredentials(realHome string) ([]credentialMapping, error) {
+	return mapCredentialHome("opencode", "XDG_DATA_HOME", filepath.Join(realHome, ".local", "share"), filepath.Join("opencode", "auth.json"))
+}
+
+// seedLiveCredentials is THE single door every @live scenario gate goes
+// through to make a real engine authenticate from inside an isolated run, and
+// the enforcement point for erased-collar's policy: credentials reach a live
+// run exactly one of two ways — an API-key env var, or MAPPED — and never as
+// a copy.
+//
+// setEnv is the per-scenario door through testenv's ambient-session scrub
+// (TestEnvironment.SetChildEnv); it is a parameter rather than a direct call
+// so this decision stays unit-testable without any acceptance fixture, and so
+// a test can assert the env var that was ACTUALLY set and its value.
+//
+// Order, and why:
+//  1. apiKeyEnvs set → nothing is copied and nothing is mapped. The key rides
+//     the inherited env, and nothing rotates.
+//  2. no real HOME captured → a loud error, not a silent skip. Reaching here
+//     means engineAvailable already passed, and it only passes the
+//     subscription path with a real HOME in hand.
+//  3. mapCreds set → map, and set every returned var.
+//  4. otherwise copyCreds → the legacy copy, for the engines that cannot be
+//     mapped (see the copyCreds field doc).
+//  5. neither → a loud error rather than an unauthenticated run.
+func seedLiveCredentials(name string, a liveAgent, realHome, fakeHome string, setEnv func(key, value string)) error {
+	if envSet(a.apiKeyEnvs) {
+		return nil
+	}
+	if realHome == "" {
+		return fmt.Errorf("seed %s credentials: no real HOME captured to map credentials from", name)
+	}
+	if a.mapCreds != nil {
+		mappings, err := a.mapCreds(realHome)
+		if err != nil {
+			return err
+		}
+		if len(mappings) == 0 {
+			return fmt.Errorf("seed %s credentials: mapper returned no env-var mappings", name)
+		}
+		for _, m := range mappings {
+			setEnv(m.EnvVar, m.Dir)
+		}
+		return nil
+	}
+	if a.copyCreds != nil {
+		return a.copyCreds(realHome, fakeHome)
+	}
+	return fmt.Errorf("seed %s credentials: engine has neither a credential mapping nor a copier configured", name)
 }
 
 // copyOneCredFile reads name from srcDir and, if present, writes it to

@@ -800,6 +800,16 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 		return nil, err
 	}
 	if authPath == probeAuthSeeded {
+		// DELIBERATELY still a COPY, not the mapping the @live gates now use
+		// (seedLiveCredentials, erased-collar): this probe's whole
+		// measurement is a before/after census of a STAND-IN host home,
+		// watching what production's own seeding and the engine leak into
+		// it. Mapping would point that census at the developer's REAL
+		// ~/.claude / ~/.codex and destroy the thing being measured. The
+		// consequence is that a codex isolation-probe row still carries
+		// jovial-employee's refresh-token-consumption hazard — flagged for
+		// the human, not silently resolved here.
+		//
 		// probeDecideAuthPath already confirmed (via its own dry copy) that
 		// a host credential file exists; a zero-files-copied error here
 		// means the real copy disagreed with that dry probe (a race, a
@@ -890,7 +900,9 @@ func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, 
 	// isolated stand-in-for-host directory, or production's own container
 	// auth resolver finds nothing there and degrades — this is production
 	// behavior working correctly, not a probe bug; the probe must set up its
-	// stand-in host the same way for both axes.
+	// stand-in host the same way for both axes. Same reason as the worktree
+	// axis above for why this one call site keeps COPYING while the @live
+	// gates map: the stand-in host IS the measurement.
 	if authPath == probeAuthSeeded {
 		key := backendTypeToLiveKey(backendType)
 		if err := liveAgents[key].copyCreds(realHomeDir, w.env.HomeDir); err != nil {

@@ -86,7 +86,7 @@ it wraps `agent.ChatEvent` in an envelope, verbatim.
 
 These are NOT what the Recorder reads (it reads `agent.ChatEvent`, already
 normalized), and as of S5 nothing in ctxloom reads them anymore either — the
-readers below were deleted, not demoted to importers (§8). Kept here only to
+readers below were deleted, not demoted to vendor readers (§8). Kept here only to
 explain why the *old* per-engine readers broke, for anyone tracing history.
 
 - **codex** (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`): an *envelope*
@@ -156,7 +156,7 @@ collide.
 Named `transcript.jsonl`, not `transcript.acp.jsonl` (its name through
 v0.7.0-pre1 up to the rename described here): the file is engine-agnostic by
 construction (§2c) — fed by every structured/ACP engine, the oneshot regime,
-AND the vendor importers (§8) — so a name suggesting it was ACP-specific was
+AND the vendor readers (§8) — so a name suggesting it was ACP-specific was
 misleading. Sessions captured before the rename have only the old filename
 on disk; every reader resolves through
 `paths.ResolveHarpCanonicalTranscriptPath`, which falls back to
@@ -361,7 +361,7 @@ exist for any workDir containing a dot, underscore, or space).
 (`internal/sessions/index.go`) and the `persist/transcripts/` bind-mount
 discovery were NOT removed by S5 — they still resolve a harp's legacy
 engine-native transcript by location (`fillTranscriptByLocation`) and back
-`sessions.Entry.TranscriptPath`, which the vendor-importer locate step below
+`sessions.Entry.TranscriptPath`, which the vendor-reader locate step below
 (codex/claude/antigravity) reads from. **opencode is explicitly excluded**
 from the S5 removal: its native reader (`internal/opencode/capabilities.go`,
 driving `opencode session list`/`opencode export`) was never broken — it
@@ -379,8 +379,8 @@ for v0.7.0-pre1 — not a silent regression — tracked as task `petty-green`
 (interactive-session memory).
 
 **Update (writer-a-wiring, closing petty-green's importer half):** the four
-per-engine `importer.VendorAdapter` implementations this section's own
-successor work built (`internal/transcript/importer/{codex,claude,
+per-engine `vendorreader.VendorAdapter` implementations this section's own
+successor work built (`internal/transcript/vendorreader/{codex,claude,
 antigravity,kiro}`) are now WIRED IN, closing the gap described above for
 the two moments that matter:
 
@@ -398,14 +398,14 @@ the two moments that matter:
   or ones whose exit-seam import failed — instead of a just-exited one.
   Safe to re-run at any time for the same idempotency reason.
 
-The engine→adapter+locate registry (`internal/operations/vendorimport.go`)
+The engine→adapter+locate registry (`internal/operations/vendorreader.go`)
 prefers each harp's already-bound `sessions.Entry.TranscriptPath` (the
 SessionStart bind hook, or its PreToolUse-fallback equivalent for
 antigravity) for codex/claude/antigravity — sidestepping the very cwd→slug
 bug this section describes above. kiro is the one exception
-(`vendorimport_kiro.go`): its bind, where one lands at all, is a
+(`vendorreader_kiro.go`): its bind, where one lands at all, is a
 session_id, not a file path, so its locate falls back to
-`kiroimporter.EnumerateConversations` matched by project dir — a
+`kiroreader.EnumerateConversations` matched by project dir — a
 best-effort heuristic, not a guarantee (two concurrent kiro-cli sessions in
 the same project dir within the same window are indistinguishable by that
 signal).

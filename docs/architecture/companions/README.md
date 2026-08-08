@@ -15,7 +15,7 @@ its own documentation.
 |---|---|---|
 | [ltk.md](ltk.md) | `cmd/ltk` + `internal/ltk/{app,engine,frontend,frontend/shell,frontend/pwsh,frontend/cmd,ir,rules,state,scm,shellenv,tools/extract-defaults}` | The command guard: a PreToolUse hook that parses a tool call into a shell-agnostic IR, matches it against a YAML rule file, and emits an allow-or-deny decision in the harness's own wire format |
 | [taskloom.md](taskloom.md) | `cmd/taskloom` + `internal/taskloom/{config,engine,workdir}` | Per-project task tracking over an append-only harp-keyed log, exposed as both a CLI and an MCP server, with its own config surface and project-root resolution that do not depend on ctxloom |
-| [transcript.md](transcript.md) | `internal/transcript` + `internal/transcript/importer/{,codex,claude,kiro,antigravity}` | ctxloom's own canonical conversation record: the versioned append-only JSONL schema, the writer every capture path shares, the reader, and the four vendor-format importers |
+| [transcript.md](transcript.md) | `internal/transcript` + `internal/transcript/vendorreader/{,codex,claude,kiro,antigravity}` | ctxloom's own canonical conversation record: the versioned append-only JSONL schema, the writer every capture path shares, the reader, and the four vendor-format readers |
 | [sessions.md](sessions.md) | `internal/sessions` | The harp-keyed session index (`~/.ctxloom/sessions/index.yaml`) binding harp → backend session ID → project dir → transcript path → summary, behind a two-adapter storage port |
 | [memory.md](memory.md) | `internal/memory` | Map/reduce compaction of a session transcript into a persisted essence document, plus the index projection the resume picker renders, plus plan-file harp stamping |
 | [termui.md](termui.md) | `internal/termui` | The raw-ANSI terminal frontend for an interactive run: prefix-key interceptor, reserved status row, output hold gate, and a VT-sequence guard |
@@ -69,7 +69,7 @@ Three patterns show up in more than one of these subsystems, and knowing them ma
 shorter to read:
 
 1. **The type has nowhere to put the bad news.** `ltk`'s `engine.Response` has no "unanalyzed"
-   state, so a parse failure is encoded as an allow. `importer.VendorAdapter.Convert` returns only
+   state, so a parse failure is encoded as an allow. `vendorreader.VendorAdapter.Convert` returns only
    `error` with no count, so "the format drifted and I recognized nothing" is encoded as success.
    `vpio.Session` has no `Close`, so each implementation invents its own teardown. In each case the
    diagnostic exists at the point of failure and is destroyed by the signature it has to pass

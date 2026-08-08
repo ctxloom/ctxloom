@@ -31,7 +31,7 @@ session can grep straight to it.
 - Session index, feeds, resume, engine sessions, delegation, and one-shot launches
   (`sessions.go`, `sessionfeed.go`, `resume.go`, `engine_session.go`, `engine_types.go`,
   `delegate.go`, `oneshot.go`).
-- Vendor transcript import (`vendorimport*.go`) and Deferred-task trigger triage (`task_triggers*.go`).
+- Vendor transcript import (`vendorreader*.go`) and Deferred-task trigger triage (`task_triggers*.go`).
 - The hand-maintained JSON-Schema target registry (`schematargets.go`).
 
 ## Non-responsibilities
@@ -270,8 +270,8 @@ flowchart LR
 | `WatchSessionFeed` / `watchLiveFeed` / `watchStoreFeed` / `adaptConsumerFeed` | `sessionfeed.go:96,133,460,264` | Unified observation feed: prefer a live coordinator over gRPC, fall back to the recorded store. `adaptConsumerFeed` folds live item-lifecycle deltas back into whole `agent.SessionEntry` values with seq-based gap detection. |
 | `feedScrollback` | `sessionfeed.go:422` | Reads the harp's recorded transcript once as the live feed's prefix. |
 | `RecordedSessionEntries` / `RenderResumedTranscript` / `JoinLeadBlocks` | `resume.go:16,41,82` | Transcript replay for resume; the rendered block is tail-truncated to 32 KiB. `JoinLeadBlocks` joins non-empty lead blocks with a blank line and has six production call sites across three packages. |
-| `ConvertVendorTranscript` / `BackfillVendorTranscripts` | `vendorimport.go:122`, `vendorimport_backfill.go:37` | Converts a vendor-native transcript into the canonical JSONL via a per-engine registry (`claude`, `codex`, `antigravity`, `kiro`); backfill never stops early and records per-harp failures. |
-| `locateKiroConversation` / `candidateKiroDBPaths` / `locateKiroConversationInDB` | `vendorimport_kiro.go:38,67,88` | Kiro's sqlite locator: per-harp isolated DBs first, then the host DB. |
+| `ConvertVendorTranscript` / `BackfillVendorTranscripts` | `vendorreader.go:122`, `vendorreader_backfill.go:37` | Converts a vendor-native transcript into the canonical JSONL via a per-engine registry (`claude`, `codex`, `antigravity`, `kiro`); backfill never stops early and records per-harp failures. |
+| `locateKiroConversation` / `candidateKiroDBPaths` / `locateKiroConversationInDB` | `vendorreader_kiro.go:38,67,88` | Kiro's sqlite locator: per-harp isolated DBs first, then the host DB. |
 
 ## Review, search and schema targets
 

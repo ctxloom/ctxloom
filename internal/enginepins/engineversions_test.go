@@ -7,7 +7,7 @@
 // consumer can't silently stop deriving from the lock file.
 //
 // engine-versions.env pins the last-known-good CLI version per engine that
-// ctxloom's importer (internal/transcript/importer/{codex,claude,
+// ctxloom's reader (internal/transcript/vendorreader/{codex,claude,
 // antigravity,kiro}) has been validated against. It is deliberately NOT
 // folded into .devcontainer/tool-versions.env / buildpins: that file pins
 // build/codegen tooling baked into the devcontainer image, and engine CLIs

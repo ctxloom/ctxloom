@@ -217,8 +217,8 @@ the same hookless engine and say nothing. Only materialize reports the loss toda
 codex, kiro, antigravity, claude-code. A `nil` history now **fails loudly** at both
 consumers (`internal/operations/sessionfeed.go:509`,
 `internal/lm/grpc/sessionhistory.go:245`). Canonical capture rides the ACP stream
-(`internal/transcript`); claude and codex additionally have opt-in vendor importers
-for the interactive-pty gap (`internal/operations/vendorimport.go:71`, `:72`).
+(`internal/transcript`); claude and codex additionally have opt-in vendor readers
+for the interactive-pty gap (`internal/operations/vendorreader.go:71`, `:72`).
 
 ## 7. One-shot driving and resume
 

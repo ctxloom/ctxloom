@@ -1549,7 +1549,7 @@ func recordOneshotAnswer(harp, backend, prompt, answer string) error {
 	return nil
 }
 
-// convertVendorTranscriptOnExit runs the vendor-transcript importer
+// convertVendorTranscriptOnExit runs the vendor-transcript reader
 // (operations.ConvertVendorTranscript) for an interactive-pty session that
 // just exited. Extracted to its own small, directly-unit-testable function
 // (no goplugin/pty involved) rather than inlined at the call site above,
@@ -1577,7 +1577,7 @@ func convertVendorTranscriptOnExit(harp string) {
 	// this runs whenever the interactive session ended via the same Ctrl-C
 	// that stops most interactive TUIs — arguably the MOST common clean-exit
 	// path. Reusing it would make Convert abort immediately
-	// (importer.VendorAdapter implementations check ctx.Err() up front) on
+	// (vendorreader.VendorAdapter implementations check ctx.Err() up front) on
 	// exactly the sessions this hook most needs to capture.
 	if _, cerr := operations.ConvertVendorTranscript(context.Background(), *entry); cerr != nil {
 		clidiag.Warn("ctxloom", "vendor transcript import: %v", cerr)

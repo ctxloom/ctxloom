@@ -2,7 +2,7 @@
 
 **What it is.** `internal/transcript` owns ctxloom's **own** record of a conversation: a
 versioned, append-only JSONL envelope schema, the writer that stamps it, and the reader that
-turns the file back into an `agent.Session`. `internal/transcript/importer` and its four
+turns the file back into an `agent.Session`. `internal/transcript/vendorreader` and its four
 per-engine adapters (`codex`, `claude`, `kiro`, `antigravity`) convert a **vendor-native**
 transcript into the same canonical stream through the same writer.
 
@@ -36,11 +36,11 @@ flowchart TD
 
     subgraph vendor["Regime C — interactive pty, read back after the fact"]
       VF[("vendor file<br/>rollout-*.jsonl · &lt;uuid&gt;.jsonl<br/>transcript_full.jsonl · data.sqlite3")]
-      CVT["operations.ConvertVendorTranscript<br/>vendorimport.go:122"]
-      VA["importer.VendorAdapter.Convert<br/>adapter.go:68"]
-      DRV["importer.ConvertJSONLLines<br/>driver.go:29"]
-      SIB["importer.SessionInfoBuilder<br/>sessioninfo.go:16"]
-      RF["importer.RecordFunc<br/>record.go:17"]
+      CVT["operations.ConvertVendorTranscript<br/>vendorreader.go:122"]
+      VA["vendorreader.VendorAdapter.Convert<br/>adapter.go:68"]
+      DRV["vendorreader.ConvertJSONLLines<br/>driver.go:29"]
+      SIB["vendorreader.SessionInfoBuilder<br/>sessioninfo.go:16"]
+      RF["vendorreader.RecordFunc<br/>record.go:17"]
     end
 
     GC --> CR
@@ -74,7 +74,7 @@ flowchart TD
    conversion or chat that produces zero events therefore leaves **no file at all** — this is
    deliberate, so that "file absent" means "nothing was ever recorded" rather than "a zero-byte
    file exists". `NewRecorder` (`recorder.go:79`) only validates and resolves the path.
-2. **`operations.hasCanonicalTranscript` gates re-import on file *existence*** (`vendorimport.go:158`).
+2. **`operations.hasCanonicalTranscript` gates re-import on file *existence*** (`vendorreader.go:158`).
    Composed with (1), a zero-entry import is retried forever; composed with a *partial* write, the
    harp becomes permanently un-importable.
 
@@ -110,7 +110,7 @@ enforcing parity. `record.go:9-12` claims the payloads mirror `agent.ChatEvent` 
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `Recorder` (interface) | `recorder.go:20` | `Record(agent.ChatEvent) error` + `Close() error`. The seam every capture path shares; `importer.VendorAdapter` takes it as a parameter |
+| `Recorder` (interface) | `recorder.go:20` | `Record(agent.ChatEvent) error` + `Close() error`. The seam every capture path shares; `vendorreader.VendorAdapter` takes it as a parameter |
 | `NewRecorder` | `recorder.go:79` | Validates harp + engine non-empty, resolves the path via `paths.HarpCanonicalTranscriptPath`, applies options. **Does not open the file** |
 | `RecorderOption` / `WithRawPolicy` | `recorder.go:50`, `:56` | The only option. Reachable only through `agent.ChatRequest.TranscriptRawPolicy`, which nothing in the codebase ever sets — so in production the policy is always `DefaultRawPolicy` |
 | `fileRecorder.Record` | `recorder.go:116` | Classifies via `payloadFromChatEvent`, stamps the envelope, lazily creates dir + file, appends one line, bumps `seq`. Refuses a fully-zero `ChatEvent` |
@@ -161,11 +161,11 @@ situation; that holds only for an **absent** file.
 
 ---
 
-## 5. The importer layer
+## 5. The vendor-reader layer
 
 ```mermaid
 flowchart TD
-    OPS["operations.ConvertVendorTranscript<br/>vendorimport.go:122<br/>registry: vendorimport.go:70-75"]
+    OPS["operations.ConvertVendorTranscript<br/>vendorreader.go:122<br/>registry: vendorreader.go:70-75"]
     OPS -->|"Convert(ctx, rec, src)"| IFACE["VendorAdapter (interface)<br/>adapter.go:68"]
 
     IFACE -.implemented by.-> CODEX["codex.Adapter<br/>codex.go:30"]
@@ -208,7 +208,7 @@ flowchart TD
 **The contract's central limitation.** `Convert` returns **only `error`** — no count of records
 written, lines seen, or lines skipped. So no caller can distinguish "the vendor format drifted and
 I recognized nothing" from "the session was genuinely empty".
-`operations/vendorimport.go:99-106` documents that loss as intentional: `converted` reports
+`operations/vendorreader.go:99-106` documents that loss as intentional: `converted` reports
 whether an import was *attempted*, "not whether it produced any canonical lines". Downstream,
 `BackfillResult` has three buckets (`Converted`, `Skipped`, `Failed`) and a zero-entry conversion
 lands in `Converted` beside a 5,000-line import; `cli/session_backfill.go:77` prints
@@ -257,7 +257,7 @@ Three variants worth naming individually:
 and the presence-only guard treats it as complete permanently. `ConvertJSONLLines` widens the
 window by recording the `Session` event at `driver.go:31` *before* the first `ctx.Err()` check at
 `:37`, so even an already-cancelled context can leave a one-line stub.
-`operations/vendorimport.go:139`'s defer only `Close`s; nothing removes the partial file.
+`operations/vendorreader.go:139`'s defer only `Close`s; nothing removes the partial file.
 
 ---
 
@@ -309,7 +309,7 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
 - **`kiro/store.go:32-34` calls `mode=ro` "a load-bearing guarantee"** — the URI is built by string
   concatenation with no escaping, so a db path containing `#` or `?` silently drops the query and
   opens **writable**. Verified by probe against `modernc.org/sqlite v1.54.0`.
-- **`importer/adapter.go:9` still names the on-disk file `transcript.acp.jsonl`**, the pre-rename
+- **`vendorreader/adapter.go:9` still names the on-disk file `transcript.acp.jsonl`**, the pre-rename
   leaf; the fixtures under `internal/transcript/testdata/fixtures/` carry the same stale suffix.
 - **`RawPolicy` is unreachable in production** — nothing sets `agent.ChatRequest.TranscriptRawPolicy`,
   so `RawOff`/`RawAll` are test-only constants and the default `RawLossyOnly` always applies.
@@ -321,9 +321,9 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
 - **`internal/sessions`** supplies the harp→project index `CanonicalHistory` enumerates, and
   `Entry.CanonicalTranscriptPath` is filled by `sessions.fillCanonicalTranscript` using the same
   resolver `GetSession` calls independently.
-- **`internal/operations/vendorimport*.go`** owns adapter registration, locator discovery, the
+- **`internal/operations/vendorreader*.go`** owns adapter registration, locator discovery, the
   `hasCanonicalTranscript` idempotency guard, and the `BackfillResult` bucketing — every
-  consequence of "the importer cannot report a count" surfaces there, not here.
+  consequence of "the vendor reader cannot report a count" surfaces there, not here.
 - **`internal/memory`** reads through `pb.SessionSource`, which `CanonicalHistory` satisfies via
   `pb.NewCanonicalFallbackSource` (canonical first, legacy second).
 - **`internal/lm/grpc`** owns both live producers (`chat.go`'s `CoordinatedRecorder` wiring) and

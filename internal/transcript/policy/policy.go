@@ -2,7 +2,7 @@
 // transcript.
 //
 // It sits ABOVE every vendor adapter, and that separation is the whole point.
-// An adapter (internal/transcript/importer/{claude,codex,kiro,...})
+// An adapter (internal/transcript/vendorreader/{claude,codex,kiro,...})
 // canonicalizes its vendor's format into ctxloom's shape TOTALLY and without
 // judgement — every element becomes a block, with Raw carrying the vendor
 // bytes verbatim. Only then does this package drop anything.

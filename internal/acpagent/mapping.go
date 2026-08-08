@@ -256,7 +256,7 @@ func toolContentFromIR(content []agent.ToolContentBlock) []api.ToolCallContent {
 //   - a block that came IN over ACP has Raw = json.Marshal(api.ToolCallContent)
 //     (internal/acp/mapping.go), so it decodes straight back and round-trips
 //     losslessly. That is the round-trip full-gap named.
-//   - a block from a vendor transcript importer has Raw in the ENGINE's own
+//   - a block from a vendor transcript reader has Raw in the ENGINE's own
 //     shape, which is not an ACP variant and must not be forced into one. It
 //     is emitted as text so the content is at least VISIBLE, rather than
 //     silently becoming an empty block.

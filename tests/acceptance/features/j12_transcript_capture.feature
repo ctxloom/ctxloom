@@ -23,7 +23,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
 
   # WHAT THIS JOURNEY CAN AND CANNOT SEE (honesty, mirroring j6/j9's own
   # notes). Grounded by reading the writer-a wiring (anchor commit 6e63ae1)
-  # and its importers, not guessed:
+  # and its readers, not guessed:
   #
   #   * The suite drives a real `ctxloom` SUBPROCESS and can seed the home
   #     session index directly, WITHOUT launching any backend — the existing
@@ -32,23 +32,23 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #     claude-code, no engine spawned). Every hermetic scenario below builds
   #     on exactly that: seed an index entry whose transcript_path points at a
   #     vendor-native fixture this repo ALREADY ships in-tree
-  #     (internal/transcript/importer/{claude,codex,antigravity}/testdata/
+  #     (internal/transcript/vendorreader/{claude,codex,antigravity}/testdata/
   #     *-fixture.{jsonl,json}), then run `ctxloom session backfill`. The
-  #     conversion (importer.VendorAdapter.Convert, adapter.go) is a PURE
+  #     conversion (reader.VendorAdapter.Convert, adapter.go) is a PURE
   #     file->file transform through a transcript.Recorder — it spawns no
   #     engine — so this is honestly green with no live binary.
   #
   #   * The built-in `mock` backend the suite CAN drive hermetically is a bare
-  #     echo, and it has NO entry in vendorimport.go's vendorImportRegistry
+  #     echo, and it has NO entry in vendorreader.go's vendorReaderRegistry
   #     (only claude-code/codex/kiro/antigravity are registered). So a live
-  #     hermetic run NEVER exercises the importer — mock has no vendor-native
+  #     hermetic run NEVER exercises the reader — mock has no vendor-native
   #     store to import from. That is not a gap we paper over: it is asserted
   #     as its own scenario below ("A mock-engine session has nothing to
   #     import").
   #
   #   * The canonical Engine field carries the BACKEND REGISTRY name, not the
-  #     importer's short package name — ConvertVendorTranscript stamps
-  #     transcript.NewRecorder(harp, e.Backend), and vendorimport.go's registry
+  #     reader's short package name — ConvertVendorTranscript stamps
+  #     transcript.NewRecorder(harp, e.Backend), and vendorreader.go's registry
   #     comment makes this load-bearing on purpose (a harp's oneshot and
   #     interactive lines must not disagree about who wrote them). So a
   #     backfilled CLAUDE transcript's engine reads "claude-code" (NOT the
@@ -71,7 +71,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #      a registered backend) needs a real engine binary AND a pty. The mock
   #      never reaches that branch. Proven only under @live, which self-skips
   #      without credentials — never faked here.
-  #   2. KIRO backfill is real code (vendorimport_kiro.go's
+  #   2. KIRO backfill is real code (vendorreader_kiro.go's
   #      locateKiroConversation over the conversations_v2 sqlite store) but is
   #      NOT hermetically seeded below: kiroDBPath reads a fixed
   #      $XDG_DATA_HOME/kiro-cli/data.sqlite3 (not the index entry's
@@ -84,13 +84,13 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
     Given an initialized ctxloom project
 
   # LOCKED — the crux claim, with the exact real payloads verified against
-  # internal/transcript/importer/claude/testdata/golden.transcript.acp.jsonl and
+  # internal/transcript/vendorreader/claude/testdata/golden.transcript.acp.jsonl and
   # its MANIFEST.json (a real interrupted docs-audit session on this box). A
   # claude-code session's native project JSONL is converted, through the real
-  # claudeimporter.VendorAdapter, into the canonical schema: its user turn, its
+  # claudereader.VendorAdapter, into the canonical schema: its user turn, its
   # thinking block, its assistant reply, its Glob/Bash tool_use calls and the
   # is_error tool_result all land as ordered Records — and the Engine field is
-  # the BACKEND name "claude-code", not the importer's "claude" shorthand.
+  # the BACKEND name "claude-code", not the reader's "claude" shorthand.
   Scenario: A prior claude session's native log becomes the canonical transcript you own
     Given a recorded "claude-code" session "amber-claude-harp" bound to the shipped claude vendor-transcript fixture
     When I run "ctxloom session backfill amber-claude-harp"
@@ -107,7 +107,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   # positional pairing ("the assistant text right after a user line answers
   # that user line") gets this wrong the moment a second prompt is delivered
   # mid-response: the real answer to the FIRST prompt can land in the vendor
-  # file AFTER the interleaved second prompt's own "user" line. The importer
+  # file AFTER the interleaved second prompt's own "user" line. The reader
   # never does that kind of pairing — it streams user/assistant lines straight
   # through in the vendor file's own order (session.go's convertLines) — so
   # the real chronology survives instead of being silently reshuffled. This
@@ -123,7 +123,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
     And the canonical transcript for "queued-claude-harp" contains no trace of the removed, never-delivered prompt
 
   # LOCKED — the SAME conversion holds across engines whose vendor store is a
-  # bare per-session file (locateBoundTranscript in vendorimport.go, shared by
+  # bare per-session file (locateBoundTranscript in vendorreader.go, shared by
   # codex and antigravity). Each engine's shipped golden was checked: codex's
   # rollout carries a session line (model gpt-5.5) then user/tool_use/... turns;
   # antigravity's brain log carries no session id and no session line at all
@@ -140,8 +140,8 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
     # honesty block: its conversations_v2 sqlite store is resolved via a fixed
     # $XDG_DATA_HOME path plus a best-effort enumeration heuristic, not the
     # index entry's transcript_path, so it cannot be seeded by the same
-    # file-path fixture route these two use. Its importer path is real
-    # (vendorimport_kiro.go) but needs a real sqlite fixture + @live-style
+    # file-path fixture route these two use. Its reader path is real
+    # (vendorreader_kiro.go) but needs a real sqlite fixture + @live-style
     # setup this journey does not yet own.
     Examples:
       | engine      | harp                    |
@@ -149,7 +149,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
       | antigravity | amber-antigravity-harp  |
 
   # LOCKED — "ONE canonical transcript you own": the import is idempotent BY
-  # NON-REPETITION (vendorimport.go's hasCanonicalTranscript guard). Convert
+  # NON-REPETITION (vendorreader.go's hasCanonicalTranscript guard). Convert
   # re-reads the vendor source from the top every call and has no resume
   # concept, so a second run MUST be a no-op or it would duplicate every entry.
   # The second backfill reports the harp skipped, and the canonical transcript
@@ -177,7 +177,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
 
   # LOCKED — the honest boundary, asserted as behavior, not just prose: the one
   # engine the hermetic suite can actually RUN (mock) has no vendor-native
-  # store, so it is absent from vendorImportRegistry and backfill treats it as
+  # store, so it is absent from vendorReaderRegistry and backfill treats it as
   # "nothing to import" — skipped, never failed. This is the green counterpart
   # to the honesty block: it proves the registry gate exists rather than
   # asserting it in a comment alone.
@@ -190,7 +190,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   # LOCKED — the bulk backfill (no harp argument) walks every indexed session
   # across every project (runSessionBackfill -> ListAllSessions) and never
   # stops early on one entry: BackfillVendorTranscripts warns-and-continues per
-  # entry (vendorimport_backfill.go, mirroring distillMissingOrStale's fault
+  # entry (vendorreader_backfill.go, mirroring distillMissingOrStale's fault
   # tolerance). A convertible session and a non-convertible one in the same
   # index both get their honest verdict — one converted, one skipped — and the
   # summary counts both, so a single dead session can't silently swallow the

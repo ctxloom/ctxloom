@@ -132,7 +132,7 @@ A generic `Set[T]` over `map[T]struct{}` plus a map-key sorter, used as readabil
 | `(Set[T]).Has(v T) bool` | `internal/shared/collections/set.go:61` | Membership. Passed as a *method value* at `internal/bundles/loader_content.go:485` (`slices.ContainsFunc(info.Tags, tagSet.Has)`). 20+ call sites |
 | `(Set[T]).Items() []T` | `internal/shared/collections/set.go:68` | Pre-sized slice; **order not guaranteed**. 6 call sites, incl. `internal/config/config_resolve.go:270,271,272` |
 | `(Set[T]).Clone() Set[T]` | `internal/shared/collections/set.go:77` | Pre-sized copy. 1 production call site: `internal/config/config_resolve.go:337` (`visited.Clone()` per DAG branch) |
-| `SortedKeys[K ~string, V](m map[K]V) []K` | `internal/shared/collections/sorted_keys.go:9` | Collects keys, `sort.Slice` by `<`. 3 call sites: `internal/config/accessors.go:363`, `internal/config/config_bundles.go:301`, `internal/operations/vendorimport_backfill.go:60` |
+| `SortedKeys[K ~string, V](m map[K]V) []K` | `internal/shared/collections/sorted_keys.go:9` | Collects keys, `sort.Slice` by `<`. 3 call sites: `internal/config/accessors.go:363`, `internal/config/config_bundles.go:301`, `internal/operations/vendorreader_backfill.go:60` |
 
 Go 1.25 equivalents, for reference when reading call sites: `NewSet` = `make(map[T]struct{})`, `Items` = `slices.Collect(maps.Keys(s))`, `Clone` = `maps.Clone(s)`, `SortedKeys` = `slices.Sorted(maps.Keys(m))`.
 

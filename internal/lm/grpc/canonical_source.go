@@ -30,7 +30,7 @@ import (
 //
 // S5: the four broken per-engine scrapers (codex, kiro,
 // antigravity, claude-code) were DELETED outright (the user's explicit
-// decision — not demoted to a fixture-pinned importer, §4c/§4d of the
+// decision — not demoted to a fixture-pinned vendor reader, §4c/§4d of the
 // removal plan). retiredScraperBackends names them. A caller building a
 // source for one of those backends passes legacy=nil: canonical capture is
 // the ONLY source, matching the delete decision (no legacy leg to ever fall
@@ -52,7 +52,7 @@ import (
 // Unexported: a roster is data this package owns, and an exported map is
 // writable by every importer. Reach it through IsRetiredScraperBackend or
 // RetiredScraperBackendNames — the same shape the sibling engine rosters use
-// (operations.VendorImportEngineNames, isolation.ComposableEngines).
+// (operations.VendorReaderEngineNames, isolation.ComposableEngines).
 var retiredScraperBackends = map[string]bool{
 	"codex":       true,
 	"kiro":        true,

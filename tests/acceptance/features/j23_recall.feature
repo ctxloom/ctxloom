@@ -115,7 +115,7 @@ Feature: The archaeologist — what did we decide in March?
     When I run "ctxloom session show brisk-copper-moth"
     Then ctxloom says the session was never distilled and names how to distill it
 
-  # THE PAYOFF. Everything upstream — the tee, the importers, the canonical
+  # THE PAYOFF. Everything upstream — the tee, the readers, the canonical
   # schema, four vendors' conversion — exists to make this one line work.
   #
   # UNTAGGED 2026-08-05, confirmed to go red on the described defect and green

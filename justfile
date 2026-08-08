@@ -401,30 +401,30 @@ test-coverage: cover
 test-conformance:
     go test -race -tags conformance ./internal/lm/conformance/...
 
-# Validate ONE vendor-transcript importer in isolation (its own package,
+# Validate ONE vendor-transcript reader in isolation (its own package,
 # already part of `go test ./...`, but named here so a release-monitoring job
 # can point at exactly this engine's parser against a fresh vendor transcript
 # without pulling in the rest of the suite). Add a sibling target per engine
-# as internal/transcript/importer/<engine> lands (kiro/claude/antigravity).
+# as internal/transcript/vendorreader/<engine> lands (kiro/claude/antigravity).
 test-vendor-codex:
-    go test -race ./internal/transcript/importer/codex/...
+    go test -race ./internal/transcript/vendorreader/codex/...
 
-# Validate the antigravity vendor-transcript importer in isolation — see
+# Validate the antigravity vendor-transcript reader in isolation — see
 # test-vendor-codex's comment above, same rationale, one target per engine.
 test-vendor-antigravity:
-    go test -race ./internal/transcript/importer/antigravity/...
+    go test -race ./internal/transcript/vendorreader/antigravity/...
 
-# Validate the kiro vendor-transcript importer in isolation. Its own fixture
+# Validate the kiro vendor-transcript reader in isolation. Its own fixture
 # is a sqlite db built at test time (see
-# internal/transcript/importer/kiro/testdata/MANIFEST.json) via
+# internal/transcript/vendorreader/kiro/testdata/MANIFEST.json) via
 # modernc.org/sqlite, the pure-Go (CGO_ENABLED=0-safe) driver this package
 # isolates to itself — -race here also exercises that driver under the race
 # detector, not just this package's own goroutine-free logic.
 test-vendor-kiro:
-    go test -race ./internal/transcript/importer/kiro/...
+    go test -race ./internal/transcript/vendorreader/kiro/...
 
 test-vendor-claude:
-    go test -race ./internal/transcript/importer/claude/...
+    go test -race ./internal/transcript/vendorreader/claude/...
 
 # Compile-check the `-tags integration` build fence — a cheap rot gate for
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet

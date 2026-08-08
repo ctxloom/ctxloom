@@ -156,6 +156,47 @@ func TestRefreshVendorTranscript_KeepsExistingTranscriptWhenNothingToConvert(t *
 	assert.Equal(t, before, canonicalLines(t, harp), "a refresh that converts nothing must leave the existing transcript byte-identical — nothing was rewritten, so even the stamps must match")
 }
 
+// TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad is the claim
+// the temp-then-rename write actually protects, and the one with teeth: a
+// refresh REPLACES a transcript that already exists, so a conversion that dies
+// partway through has a complete record in its hands and must not end up
+// destroying it.
+//
+// Written after a surviving mutation. Pointing the conversion straight at the
+// canonical file — no temporary sibling — passed the whole suite, because a
+// refresh that removes-then-rewrites is indistinguishable from one that
+// renames INTO PLACE for as long as every conversion succeeds. The difference
+// is only visible on failure, which is where the data loss would be.
+func TestRefreshVendorTranscript_FailedRefreshKeepsTheTranscriptItHad(t *testing.T) {
+	testsupport.Isolate(t)
+	harp := "refresh-failure-harp"
+	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath, EngineVersion: stubEngineVersion}
+
+	converted, err := ConvertVendorTranscript(context.Background(), e)
+	require.NoError(t, err)
+	require.True(t, converted)
+	before := canonicalLines(t, harp)
+	require.NotEmpty(t, before, "the harp must start with a real transcript, or there is nothing to lose")
+
+	// The engine's store is now unreadable partway through — a bad byte on a
+	// line the first conversion never reached.
+	orig := vendorReaderRegistry["codex"]
+	vendorReaderRegistry["codex"] = vendorReaderEntry{
+		adapters: stubVersionedAdapter(partialFailAdapter{n: 3}),
+		locate:   orig.locate,
+	}
+	defer func() { vendorReaderRegistry["codex"] = orig }()
+
+	_, err = RefreshVendorTranscript(context.Background(), e)
+	require.Error(t, err, "a conversion that dies partway must surface, not be swallowed")
+
+	after := canonicalLines(t, harp)
+	assert.Equal(t, before, after,
+		"a failed refresh must leave the transcript it was replacing exactly as it was — losing a complete record to a half-finished re-read is worse than not refreshing at all")
+	assert.NotContains(t, strings.Join(after, "\n"), "partial content",
+		"none of the failed conversion's output may reach the canonical transcript")
+}
+
 // TestRefreshVendorTranscript_LeavesNoRebuildArtifact pins that the temporary
 // file conversion writes through is not left in the harp's persist directory.
 // It sits beside the canonical transcript, so a stray one is both litter and a

@@ -195,7 +195,20 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// the first) is what lets degraded mode produce maximal output. res.Wrote lists
 	// the kinds that ACTUALLY delivered — codex's context surface is a no-op here (no
 	// fragments → no native context file), so codex reports settings + commands only.
-	sel := agent.Select(set).WithEverything()
+	// Materialize writes a tree for a launch with ctxloom OUT of the loop, so it
+	// names the context approach rather than inheriting the engine's live
+	// default. Those defaults are ordered for a RUNNING session — an out-of-cwd
+	// scratch file first, a SessionStart hook next — and neither survives
+	// ctxloom's absence: the scratch is passed by flag on a command line nobody
+	// here will issue, and the hook invokes a ctxloom that may not be installed.
+	// The native file is the only context an engine reads unaided, which is the
+	// whole product of this command.
+	//
+	// Every engine declares unsafe-file for context, so this request is always
+	// honourable: claude, kiro, opencode and antigravity have always had it, and
+	// codex gained it when its native AGENTS.md route stopped being folded
+	// invisibly into the hook approach.
+	sel := agent.Select(set).WithEverything().WithApproach(agent.SurfaceContext, agent.ApproachUnsafeFile)
 	for kind, approach := range req.Surfaces {
 		sel = sel.WithApproach(kind, approach)
 	}

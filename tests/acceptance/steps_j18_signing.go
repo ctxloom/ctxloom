@@ -45,6 +45,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,6 +54,7 @@ import (
 	"golang.org/x/crypto/ssh"
 	"gopkg.in/yaml.v3"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/content"
 	"github.com/ctxloom/ctxloom/internal/content/attest"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -121,6 +123,14 @@ type j18State struct {
 	// the wrong-key defect is invisible.
 	declared          *testenv.TestSigner
 	declaredPrincipal string
+
+	// storeSnapshot is the project allowed_signers file's exact bytes,
+	// captured before a `trust signer delete` that is expected to change
+	// nothing. "Reported no entry" and "left the trust root alone" are
+	// different claims: a remove that rewrites the store while reporting
+	// nothing removed has still edited the trust root, and only a
+	// byte-for-byte comparison against what was there can see it.
+	storeSnapshot string
 }
 
 func j18Of(w *World) *j18State {
@@ -572,6 +582,19 @@ func j18AssertReviewState(w *World, fragment, want string) error {
 	return fmt.Errorf("no %q fragment of bundle %q in `fragment list --format json`:\n%s", fragment, j18PublishedName, out)
 }
 
+// j18EmbeddedPrincipals returns the principals ctxloom's compiled-in trust
+// root names, read from the SAME embedded bytes the product reads rather than
+// hard-coded here. A literal would rot the moment the release key rotates,
+// and would rot SILENTLY: the scenario would go on asserting a suppression of
+// a principal nothing trusts any more, which passes for the wrong reason.
+func j18EmbeddedPrincipals() []string {
+	var out []string
+	for _, e := range config.EmbeddedSigners().Entries() {
+		out = append(out, e.Principals...)
+	}
+	return out
+}
+
 // j18StoreEntry is one parsed allowed_signers line.
 type j18StoreEntry struct {
 	principal  string
@@ -615,7 +638,18 @@ func j18ParseStore(body string) ([]j18StoreEntry, error) {
 
 // j18AssertTrustRoot asserts that body (an allowed_signers file's contents)
 // names principal, for TRENT'S actual key, in the publish namespace.
-func j18AssertTrustRoot(w *World, label, body, principal string) error {
+//
+// The namespace check is EXACT, not a substring. A grant is the set of things
+// a key may do, so "the publish namespace appears somewhere in this field"
+// passes just as happily on `namespaces="publish.v1.ctxloom.dev"` as on
+// `namespaces=",publish.v1.ctxloom.dev"` or on a field that silently carries
+// approve as well — and the difference between those is the difference
+// between the trust root a human authorised and a wider one. Compare the
+// whole field against exactly the namespaces expected.
+func j18AssertTrustRoot(w *World, label, body, principal string, wantNamespaces ...string) error {
+	if len(wantNamespaces) == 0 {
+		wantNamespaces = []string{signing.NamespacePublish}
+	}
 	entries, err := j18ParseStore(body)
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
@@ -629,9 +663,9 @@ func j18AssertTrustRoot(w *World, label, body, principal string) error {
 		if got != want {
 			return fmt.Errorf("%s trusts %s for key %s, but Trent's key is %s", label, principal, got, want)
 		}
-		if !strings.Contains(e.namespaces, signing.NamespacePublish) {
-			return fmt.Errorf("%s trusts %s for namespaces %q, which does not include %q — the grant that lets his content publish",
-				label, principal, e.namespaces, signing.NamespacePublish)
+		if e.namespaces != strings.Join(wantNamespaces, ",") {
+			return fmt.Errorf("%s trusts %s for namespaces %q, but the grant authorised was exactly %q — a trust root that grants more (or is malformed) than what was asked for is not the one the operator approved",
+				label, principal, e.namespaces, strings.Join(wantNamespaces, ","))
 		}
 		return nil
 	}
@@ -941,6 +975,206 @@ func registerJ18Steps(ctx *godog.ScenarioContext) {
 		for _, e := range entries {
 			if ssh.FingerprintSHA256(e.pub) == want {
 				return fmt.Errorf("the key line for %s is still in %s after `trust signer remove`; contents:\n%s", want, rel, body)
+			}
+		}
+		return nil
+	})
+
+	// --- The store as a FILE: what a removal leaves behind ------------------
+	//
+	// Every step below asserts allowed_signers CONTENT, because that file IS
+	// the trust root. `trust signer delete` reporting "removed 1 entry" is a
+	// claim about one line; what makes the store still a trust root is every
+	// OTHER line surviving the rewrite unchanged. The removal path rebuilds
+	// the whole file from the lines it decided to keep, so a bug there is
+	// silent: the command still exits 0 and still prints the right count
+	// while the file it wrote has lost, duplicated, or re-joined its
+	// remaining entries.
+
+	ctx.Step(`^Trent's team trusts "([^"]*)" in the committable project store$`, func(c context.Context, principals string) error {
+		w := worldFrom(c)
+		for _, p := range strings.Split(principals, ",") {
+			if err := runOK(w, "trust", "signer", "create", strings.TrimSpace(p), "--key", j18PubKeyFile, "--namespace", "publish", "--project", "--yes"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
+	ctx.Step(`^the project store "([^"]*)" holds exactly the entries for "([^"]*)"$`, func(c context.Context, rel, principals string) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read project trust store %s (ctxloom reported:\n%s): %w", rel, w.env.LastOutput(), err)
+		}
+		var want []string
+		for _, p := range strings.Split(principals, ",") {
+			want = append(want, strings.TrimSpace(p))
+		}
+		entries, perr := j18ParseStore(body)
+		if perr != nil {
+			return fmt.Errorf("project trust store %s is unparseable after the removal: %w", rel, perr)
+		}
+		var got []string
+		for _, e := range entries {
+			got = append(got, e.principal)
+		}
+		// Order and multiplicity both matter. The rewrite reassembles the
+		// file from a kept-lines slice, so a dropped survivor, a duplicated
+		// one, and a reordered one are all distinct ways for it to be wrong,
+		// and comparing the sequence catches every one of them.
+		if !slices.Equal(got, want) {
+			return fmt.Errorf("project store %s holds entries for %v, want exactly %v (in that order) — the surviving lines of a trust root must outlive the removal of an unrelated one; contents:\n%s",
+				rel, got, want, body)
+		}
+		// Each survivor must still be a USABLE grant, not merely a line that
+		// happens to mention the right principal: a rewrite that mangled the
+		// key or the namespace field would leave the principal readable while
+		// trusting nothing (or trusting more).
+		for _, p := range want {
+			if aerr := j18AssertTrustRoot(w, "the project store "+rel, body, p); aerr != nil {
+				return aerr
+			}
+		}
+		// The file must be a well-formed allowed_signers file, which means
+		// exactly one line per entry and a final newline. `out += "\n"` on a
+		// non-empty result is the whole of what guarantees the last entry is
+		// terminated; without it the store's final line is one ssh-keygen
+		// refuses to read, and the key silently stops counting.
+		if !strings.HasSuffix(body, "\n") {
+			return fmt.Errorf("project store %s does not end in a newline; ssh-keygen drops an unterminated final line, so the last entry silently grants nothing. Contents:\n%q", rel, body)
+		}
+		if n := len(strings.Split(strings.TrimSuffix(body, "\n"), "\n")); n != len(want) {
+			return fmt.Errorf("project store %s has %d line(s) for %d entries — the rewrite added or lost a line; contents:\n%q", rel, n, len(want), body)
+		}
+		return nil
+	})
+
+	// Removing the LAST entry is the one case where the kept-lines slice is
+	// empty, and "no entries" is not the same file as "one blank line": a
+	// store left holding a stray newline is a trust root the rewrite decided
+	// to terminate when it had nothing to terminate. Asserting emptiness
+	// rather than "no longer names Trent's key" is what separates them.
+	ctx.Step(`^the project store "([^"]*)" holds nothing at all$`, func(c context.Context, rel string) error {
+		w := worldFrom(c)
+		if !w.env.FileExists(rel) {
+			return nil // removing the last entry may leave no file at all
+		}
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read project trust store %s: %w", rel, err)
+		}
+		if body != "" {
+			return fmt.Errorf("the project store %s still holds %q after its last entry was removed; an emptied trust root should be empty, not a file with a line in it", rel, body)
+		}
+		return nil
+	})
+
+	ctx.Step(`^the project store "([^"]*)" trusts "([^"]*)" for exactly the namespaces "([^"]*)"$`, func(c context.Context, rel, principal, namespaces string) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read project trust store %s (ctxloom reported:\n%s): %w", rel, w.env.LastOutput(), err)
+		}
+		return j18AssertTrustRoot(w, "the project store "+rel, body, principal, strings.Split(namespaces, ",")...)
+	})
+
+	// Hand-edited stores really do end without a newline; the fixture writes
+	// one on purpose rather than hoping a previous command left one.
+	ctx.Step(`^the project store "([^"]*)" holds one entry with no trailing newline$`, func(c context.Context, rel string) error {
+		w := worldFrom(c)
+		line := fmt.Sprintf("handwritten@acme.example namespaces=%q %s",
+			signing.NamespacePublish, strings.TrimSpace(j18Of(w).signer.AuthorizedKey(j18KeyComment)))
+		return w.env.WriteFile(rel, line) // deliberately no "\n"
+	})
+
+	ctx.Step(`^I note exactly what the project store "([^"]*)" holds$`, func(c context.Context, rel string) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read project trust store %s: %w", rel, err)
+		}
+		j18Of(w).storeSnapshot = body
+		return nil
+	})
+
+	ctx.Step(`^the project store "([^"]*)" is byte-for-byte what it was$`, func(c context.Context, rel string) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read project trust store %s: %w", rel, err)
+		}
+		if body != j18Of(w).storeSnapshot {
+			return fmt.Errorf("removing a principal the store does not hold rewrote the trust root anyway.\nbefore:\n%q\nafter:\n%q", j18Of(w).storeSnapshot, body)
+		}
+		return nil
+	})
+
+	// A line the parser cannot read is the dangerous case: it contributes no
+	// entry, so the principal it names LOOKS absent, and a remove that
+	// cheerfully reports "no entry for X" tells an operator a key is
+	// untrusted while a line they cannot see stays in the file.
+	ctx.Step(`^one line in the project store "([^"]*)" cannot be read$`, func(c context.Context, rel string) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read project trust store %s: %w", rel, err)
+		}
+		return w.env.WriteFile(rel, body+"this-line-is-not-an-allowed-signers-entry\n")
+	})
+
+	ctx.Step(`^the project store "([^"]*)" still holds the line that could not be read$`, func(c context.Context, rel string) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read project trust store %s: %w", rel, err)
+		}
+		if !strings.Contains(body, "this-line-is-not-an-allowed-signers-entry") {
+			return fmt.Errorf("the unreadable line was dropped from %s; a refusal must leave the trust root exactly as it found it. Contents:\n%s", rel, body)
+		}
+		return nil
+	})
+
+	// --- The embedded trust root: withdrawing trust in ctxloom's own key ----
+
+	ctx.Step(`^ctxloom's own compiled-in publishing key is trusted$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if len(j18EmbeddedPrincipals()) == 0 {
+			return fmt.Errorf("this build has no compiled-in trust root, so there is no embedded key to withdraw trust in")
+		}
+		return runOK(w, "trust", "signer", "list")
+	})
+
+	ctx.Step(`^the distrusted store "([^"]*)" records every principal that entry names$`, func(c context.Context, rel string) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read project distrusted store %s (ctxloom reported:\n%s): %w", rel, w.env.LastOutput(), err)
+		}
+		// The suppression the read side honours is a LITERAL membership check
+		// against the embedded entry's OWN principals, so recording anything
+		// other than those exact strings reports success while suppressing
+		// nothing. Assert the recorded strings, not that the file is non-empty.
+		var recorded []string
+		for _, line := range strings.Split(body, "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				recorded = append(recorded, line)
+			}
+		}
+		want := j18EmbeddedPrincipals()
+		for _, p := range want {
+			if !slices.Contains(recorded, p) {
+				return fmt.Errorf("the distrusted store %s does not record %q — the read side's literal check will never match, so the withdrawal suppresses nothing. Recorded: %v", rel, p, recorded)
+			}
+		}
+		// Idempotence is a property of the FILE, not of the exit code: a
+		// second withdrawal that appends the same principal again leaves a
+		// store that grows without bound and no longer says one thing once.
+		seen := map[string]int{}
+		for _, p := range recorded {
+			seen[p]++
+			if seen[p] > 1 {
+				return fmt.Errorf("the distrusted store %s records %q %d times; suppression must be idempotent. Contents:\n%s", rel, p, seen[p], body)
 			}
 		}
 		return nil

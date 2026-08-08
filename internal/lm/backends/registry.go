@@ -11,6 +11,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/engineversion"
 	"github.com/ctxloom/ctxloom/internal/kiro"
 	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -122,6 +123,20 @@ type agentDescriptor struct {
 	// holds this field honest against the delivered payload, so it cannot drift
 	// from what the backend's settings writer actually does.
 	noHooksReason string
+	// versionCommand declares how to ask THIS engine's binary for its own
+	// version — the flag(s) to pass and how to read the answer out of what it
+	// prints (see engineversion.go for the three measured output shapes and
+	// why one shared regex would be a guess). It belongs here, with the other
+	// per-engine facts, rather than in a switch inside the prober.
+	//
+	// Read by VersionCommandFor/ResolveEngineVersionCommand, which feed
+	// internal/engineversion's cached Prober; the probed version is recorded
+	// on the session at start (sessions.Entry.EngineVersion) and is what
+	// selects a vendor transcript reader later. The zero value (nil Parse)
+	// means "this engine cannot be asked" — correct for mock (no binary) and
+	// the generic acp backend (whatever command config names), and a
+	// REFUSAL-CAUSING gap for any engine whose transcripts ctxloom reads.
+	versionCommand engineversion.Command
 	// unsupportedHookKinds is the PER-EVENT twin of noHooksReason, for a
 	// backend that has a hook mechanism generally but lacks a native event
 	// for specific unified KINDS ("session_end") — keyed by the same kind
@@ -371,6 +386,7 @@ func init() {
 		enforcesReadOnlyPlan: true, // --permission-mode plan is read-only
 		acpTransport:         claude.ClaudeACPTransport,
 		resolveModel:         claude.ResolveModel,
+		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseClaudeCodeVersion},
 		// claude's project settings.json (claude.ProjectSettingsPath) collapses
 		// onto its user-global one (claude.GlobalSettingsPath) exactly when
 		// workDir == $HOME — found live 2026-07-14 (`manage
@@ -393,11 +409,12 @@ func init() {
 		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
 			return decodeBody(body, &antigravity.AntigravityConfig{})
 		},
-		newWriter:    antigravity.NewWriter,
-		newSurfaces:  func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
-		exports:      antigravityExports,
-		skillExports: antigravitySkillExports,
-		acpTransport: antigravityACPTransport,
+		newWriter:      antigravity.NewWriter,
+		newSurfaces:    func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
+		exports:        antigravityExports,
+		skillExports:   antigravitySkillExports,
+		acpTransport:   antigravityACPTransport,
+		versionCommand: engineversion.Command{Args: []string{"--version"}, Parse: parseAntigravityVersion},
 	})
 
 	// LIVE-UNTESTED: codex has never been run against a real account on any
@@ -425,6 +442,7 @@ func init() {
 		skillExports:         codexSkillExports,
 		enforcesReadOnlyPlan: true, // plan → --sandbox read-only (both subcommands; see codex.buildArgs)
 		acpTransport:         codex.CodexACPTransport,
+		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseCodexVersion},
 		// codex has hooks generally (unlike opencode, so noHooksReason stays
 		// empty) but no native session_end event — see codex.NoSessionEndReason
 		// and addUnifiedHooks' route for the write-time half of this same fact.
@@ -474,6 +492,7 @@ func init() {
 		// land. See kiro.buildArgs (backend.go) for the mapping.
 		enforcesReadOnlyPlan: true,
 		acpTransport:         kiroACPTransport,
+		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseKiroVersion},
 		// kiro's project .kiro dir (kiro.ProjectHome) collapses onto its bare
 		// GLOBAL home (kiro.GlobalHome) exactly when workDir == $HOME --
 		// the same collision class found for claude.
@@ -542,6 +561,7 @@ func init() {
 		skillExports:         opencodeSkillExports,
 		enforcesReadOnlyPlan: true, // plan -> opencode.json permission {edit:deny, bash:deny}
 		acpTransport:         opencodeACPTransport,
+		versionCommand:       engineversion.Command{Args: []string{"--version"}, Parse: parseOpencodeVersion},
 		// opencode is the one backend with no hooks surface of any shape:
 		// opencode.json has no hook key, there is no settings event vocabulary
 		// to route the six unified events onto, and OpencodeWriter.WriteSettings

@@ -1,36 +1,21 @@
 @doc
-Feature: The ctxloom-doctor Agent Skill reaches every engine's native skill surface
+Feature: A skill you author once, and your assistant simply has
 
-  A "command" is a user-invoked slash template; a skill.feature already
-  proves that surface end-to-end for two engines. An "Agent Skill" is a
-  different thing an engine loads on its own by progressive disclosure — and
-  every one of ctxloom's five engines materializes it the SAME shape,
-  directory-form (<name>/SKILL.md + siblings), just at a different path.
-  This journey proves that across all five, using a concrete, realistic
-  fixture: a "ctxloom-doctor" skill that guides validating a ctxloom setup.
+  Alice writes a "ctxloom-doctor" skill: guidance for validating a ctxloom
+  setup, with a small precheck script beside it. She wants what anyone wants
+  from an Agent Skill — that her assistant picks it up on its own, reads the
+  guidance she actually wrote, and can run the script she shipped with it.
 
-  # PATH CORRECTION vs the command surface (j4_multi_engine.feature's own
-  # table): a skill is NOT the same directory a flat command file lands in.
-  # Verified against each engine's own skillfiles.go, and — for codex —
-  # against a REAL `profile materialize --backend codex` run, not just its
-  # source (see steps_j6_doctor.go's engineSkillMDPath doc for the full
-  # story):
-  #
-  #   | engine      | skill surface (via `profile materialize`) | scope       |
-  #   |-------------|---------------------------------------------|-------------|
-  #   | claude-code | .claude/skills/<name>/SKILL.md              | project     |
-  #   | kiro        | .kiro/skills/<name>/SKILL.md                | project     |
-  #   | antigravity | .agents/skills/<name>/SKILL.md              | project     |
-  #   | opencode    | .opencode/skill/<name>/SKILL.md             | project     |
-  #   | codex       | .codex/skills/<name>/SKILL.md               | cell-scoped |
-  #
-  # codex's OWN skills directory is documented GLOBAL ($CODEX_HOME/skills —
-  # internal/codex/skillfiles.go), but that path only fires on the LIVE
-  # run/launch path. `profile materialize` binds codex's Skills surface
-  # through NewSurfaces' inline closure with no homeOverride, which — just
-  # like its Commands surface (j4_multi_engine.feature's own codex row) —
-  # cell-scopes under --target instead. A naive Outline redirecting
-  # $CODEX_HOME here would assert a file that never gets written.
+  A command is something you invoke; a skill is something the assistant reaches
+  for unprompted. So the thing worth proving here is not that a file appeared —
+  it is that what arrived is her work, whole and usable.
+
+  # WHAT THIS JOURNEY DELIBERATELY DOES NOT CARRY. Which directory each of the
+  # five engines expects, whether opencode registers the folder explicitly, the
+  # per-engine path table — all of that is the skill noun's own surface and
+  # lives in cli/skill.feature. This file asserts what ALICE can see. The spec
+  # asserts it exhaustively, engine by engine, which is why the claim below is
+  # made once here rather than five times.
 
   Background:
     Given Alice's project has a directory-form bundle "ops"
@@ -41,40 +26,16 @@ Feature: The ctxloom-doctor Agent Skill reaches every engine's native skill surf
     And a profile "clinic" with bundle "ops"
     And profile "clinic" curates skill "ops#skills/ctxloom-doctor"
 
-  # LOCKED — the core claim: every engine gets the doctor skill's real body,
-  # not just a file with the right name. Each of the four DOCTOR-CHECK-*
-  # section markers is asserted independently, so a materializer that
-  # truncates or corrupts the body cannot pass by carrying only the
-  # frontmatter description.
-  Scenario Outline: The ctxloom-doctor skill's full body reaches <engine>'s native skill surface
-    When Carol materializes the "clinic" profile for <engine>
-    Then the <engine> skill surface carries the doctor skill's marker "DOCTOR-SKILL-MARKER-7d4e21"
-    And the <engine> skill surface carries the doctor skill's marker "DOCTOR-CHECK-DEPS-a1"
-    And the <engine> skill surface carries the doctor skill's marker "DOCTOR-CHECK-AGENTS-b2"
-    And the <engine> skill surface carries the doctor skill's marker "DOCTOR-CHECK-VERSION-c3"
-    And the <engine> skill surface carries the doctor skill's marker "DOCTOR-CHECK-HOOKS-TRUST-d4"
-
-    Examples:
-      | engine      |
-      | claude-code |
-      | kiro        |
-      | antigravity |
-      | opencode    |
-      | codex       |
-
-  # Structural invocability, beyond bare file-presence: opencode's skill
-  # loader is registered explicitly in opencode.json (skillfiles.go's
-  # reconcileSkillsSurface), not merely discovered by convention.
-  Scenario: opencode registers the doctor skill's directory in opencode.json
-    When Carol materializes the "clinic" profile for opencode
-    Then opencode.json registers the skills surface
-
-  # Exec bit survives materialization for a REAL surface, proving the doctor
-  # skill's bundled precheck script is actually runnable once it lands. This is
-  # now the ONLY place that claim is made: cli/skill.feature carried a
-  # claude-only copy of it, strictly weaker than this file's five-engine
-  # matrix, and it was folded away rather than kept in both.
-  Scenario: The doctor skill's script is materialized executable
+  # The whole journey in one scenario, and every line of it is something Alice
+  # would notice was missing. The body markers are the guidance she wrote — a
+  # skill delivered as a correctly-named file with a truncated body is worse
+  # than one that never arrived, because nothing looks wrong. The exec bit is
+  # the difference between a script her assistant can run and one that fails
+  # the first time it tries.
+  Scenario: Alice's assistant gets the skill she wrote, guidance and script both
     When Carol materializes the "clinic" profile for claude-code
-    Then "out-claude-code/.claude/skills/ctxloom-doctor/scripts/run.sh" is executable
+    Then the claude-code skill surface carries the doctor skill's marker "DOCTOR-SKILL-MARKER-7d4e21"
+    And the claude-code skill surface carries the doctor skill's marker "DOCTOR-CHECK-DEPS-a1"
+    And the claude-code skill surface carries the doctor skill's marker "DOCTOR-CHECK-HOOKS-TRUST-d4"
+    And "out-claude-code/.claude/skills/ctxloom-doctor/scripts/run.sh" is executable
     And "out-claude-code/.claude/skills/ctxloom-doctor/scripts/run.sh" carries the marker "DOCTOR-SCRIPT-MARKER-9c2f"

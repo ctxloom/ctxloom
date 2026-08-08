@@ -8,25 +8,12 @@ Every engine supports skills. Every engine also expects them somewhere
 different, and calls the folder something slightly different. Written by hand,
 one skill means five copies drifting apart.
 
-You author it once. ctxloom puts it where each engine looks.
-
 ## Where it lands
 
-| Engine | Skill folder |
-|---|---|
-| claude-code | `.claude/skills/<name>/SKILL.md` |
-| kiro | `.kiro/skills/<name>/SKILL.md` |
-| antigravity | `.agents/skills/<name>/SKILL.md` |
-| opencode | `.opencode/skill/<name>/SKILL.md` |
-| codex | `.codex/skills/<name>/SKILL.md` |
-
-Note `opencode` uses `skill/`, singular, where everyone else uses `skills/`.
-That is the kind of detail that costs an afternoon when you are placing files by
-hand, and it is the reason this is worth automating rather than documenting.
-
-The shape is the same everywhere: a directory, a `SKILL.md`, and whatever else
-the skill needs beside it. A skill is not a single file — it is a small tree, and
-it arrives as one.
+You author it once. ctxloom puts it where each engine looks — and each engine
+looks somewhere different, down to one of them spelling the folder `skill`
+rather than `skills`. The full per-engine table is in the skill command's own
+reference, which is where that claim is proven engine by engine.
 
 ## Whole, not just present
 

@@ -703,7 +703,25 @@ test-mutation-acceptance *ARGS: build
     trap 'rm -rf "{{mutation_tmp}}"/gremlins-*' EXIT
     export CTXLOOM_BINARY="$(pwd)/ctxloom"
     export GOFLAGS="-run=TestAcceptance"
-    TMPDIR="{{mutation_tmp}}" gremlins --config .gremlins.acceptance.yaml unleash ./internal/operations {{ARGS}}
+    set +e
+    output=$(TMPDIR="{{mutation_tmp}}" gremlins --config .gremlins.acceptance.yaml unleash ./internal/operations {{ARGS}} 2>&1)
+    status=$?
+    set -e
+    printf '%s\n' "$output"
+    if [ "$status" -ne 0 ]; then
+        exit "$status"
+    fi
+    # A run with zero RUNNABLE mutants has measured nothing, and must not report
+    # success: the configured threshold is efficacy (killed/(killed+lived)), a
+    # ratio over an empty set, so it is satisfied vacuously and the gate goes
+    # green while proving exactly nothing about the suite.
+    if grep -qE 'Runnable: 0([^0-9]|$)' <<<"$output"; then
+        echo "error: 0 runnable mutants — this gate measured NOTHING (efficacy over an empty mutant set passes vacuously)." >&2
+        echo "       Coverage-gated mutation testing cannot observe this suite: it execs a PRE-BUILT ctxloom binary, so a" >&2
+        echo "       mutant is never present in the process under test and Go coverage cannot cross the exec boundary." >&2
+        echo "       \`just test-mutation-cucumber\` is the harness that actually works — it rebuilds the binary from each mutant." >&2
+        exit 1
+    fi
 
 # Install gremlins
 test-mutation-install:

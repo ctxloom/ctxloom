@@ -3,7 +3,7 @@
 // T12: engine identity was enumerated in (at least) four independently
 // maintained rosters with four different memberships —
 // internal/lm/grpc.RetiredScraperBackendNames, internal/operations'
-// vendorImportRegistry, internal/lm/isolation's composableEngines, and
+// vendorReaderRegistry, internal/lm/isolation's composableEngines, and
 // internal/lm/isolation's credentialSeedSpecs — and internal/operations (the
 // ADR-0026 core) imported internal/claude/codex/kiro directly to branch on
 // backend identity (hooks.go's checkHookTargetScope, delegate.go's
@@ -41,7 +41,7 @@
 //
 // Neither gate forces every roster to contain every registered backend: an
 // engine legitimately absent from a roster (e.g. "acp" from
-// vendorImportRegistry — it has no vendor-native transcript store) is not a
+// vendorReaderRegistry — it has no vendor-native transcript store) is not a
 // failure. The gate is a floor (every listed name is real), not a ceiling
 // (every real name must be listed everywhere).
 package arch
@@ -132,7 +132,7 @@ func TestArch_EngineIdentityRosters_MembersAreRegisteredBackends(t *testing.T) {
 
 	rosters := []rosterCheck{
 		{source: "internal/lm/grpc.RetiredScraperBackendNames", members: grpc.RetiredScraperBackendNames()},
-		{source: "internal/operations.VendorImportEngineNames (vendorImportRegistry)", members: operations.VendorImportEngineNames()},
+		{source: "internal/operations.VendorReaderEngineNames (vendorReaderRegistry)", members: operations.VendorReaderEngineNames()},
 		{source: "internal/lm/isolation.ComposableEngines (composableEngines)", members: isolation.ComposableEngines()},
 		{source: "internal/lm/isolation.CredentialSeedEngineNames (credentialSeedSpecs)", members: isolation.CredentialSeedEngineNames()},
 	}

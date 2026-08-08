@@ -13,7 +13,7 @@ import (
 
 // locateKiroConversation resolves kiro's composite "<db-path>#<conversation-id>"
 // locator (kiroreader.Locator) for one indexed entry — the one engine
-// vendorimport.go's locateBoundTranscript cannot serve, because kiro has no
+// vendorreader.go's locateBoundTranscript cannot serve, because kiro has no
 // per-session FILE to bind: every conversation lives as one row in a single
 // per-user sqlite db (kiroreader's package doc). Two resolution routes:
 //

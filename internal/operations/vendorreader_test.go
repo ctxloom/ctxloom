@@ -83,7 +83,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 	// Every written record must carry the REGISTRY backend name
 	// (config.BackendClaudeCode == "claude-code"), not the reader
 	// package's own short test-fixture name ("claude") — see
-	// vendorImportRegistry's doc comment for why: RecordOneshot and the live
+	// vendorReaderRegistry's doc comment for why: RecordOneshot and the live
 	// structured-chat tee (lm/grpc/chat.go's openRecorder, keyed off the
 	// plugin's own Info RPC name) both already stamp "claude-code" for this
 	// harp/engine, and a mismatched Engine value on the SAME harp would be
@@ -252,12 +252,12 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 	assert.False(t, converted)
 }
 
-// TestVendorImportRegistry_CoversFourEngines locks in exactly which backend
+// TestVendorReaderRegistry_CoversFourEngines locks in exactly which backend
 // names carry a vendor reader — a change here (adding/removing an engine) should
 // be a deliberate, visible edit to this test, not a silent registry drift.
-func TestVendorImportRegistry_CoversFourEngines(t *testing.T) {
-	got := make([]string, 0, len(vendorImportRegistry))
-	for name := range vendorImportRegistry {
+func TestVendorReaderRegistry_CoversFourEngines(t *testing.T) {
+	got := make([]string, 0, len(vendorReaderRegistry))
+	for name := range vendorReaderRegistry {
 		got = append(got, name)
 	}
 	assert.ElementsMatch(t, []string{config.BackendClaudeCode, "codex", "antigravity", "kiro"}, got)

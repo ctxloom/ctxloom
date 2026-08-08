@@ -45,12 +45,12 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 	testsupport.Isolate(t)
 	harp := "convert-partial-failure-harp"
 
-	orig := vendorImportRegistry["codex"]
-	vendorImportRegistry["codex"] = vendorImportEntry{
+	orig := vendorReaderRegistry["codex"]
+	vendorReaderRegistry["codex"] = vendorReaderEntry{
 		adapter: partialFailAdapter{n: 3},
 		locate:  orig.locate,
 	}
-	defer func() { vendorImportRegistry["codex"] = orig }()
+	defer func() { vendorReaderRegistry["codex"] = orig }()
 
 	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath}
 
@@ -92,12 +92,12 @@ func TestConvertVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T)
 	testsupport.Isolate(t)
 	harp := "convert-zero-lines-harp"
 
-	orig := vendorImportRegistry["codex"]
-	vendorImportRegistry["codex"] = vendorImportEntry{
+	orig := vendorReaderRegistry["codex"]
+	vendorReaderRegistry["codex"] = vendorReaderEntry{
 		adapter: zeroLineAdapter{},
 		locate:  orig.locate,
 	}
-	defer func() { vendorImportRegistry["codex"] = orig }()
+	defer func() { vendorReaderRegistry["codex"] = orig }()
 
 	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath}
 

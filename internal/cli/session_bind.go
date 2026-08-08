@@ -141,7 +141,7 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 	// environment, confirmed (by direct sqlite query against the real
 	// conversations_v2 table) to equal that conversation's actual
 	// conversation_id. Falling back to it here means locateKiroConversation
-	// (vendorimport_kiro.go) hits its SessionID-bound fast path — an exact
+	// (vendorreader_kiro.go) hits its SessionID-bound fast path — an exact
 	// match, not the best-effort enumerate-by-workdir heuristic — for every
 	// ctxloom-launched kiro session, since the agentSpawn hook always fires.
 	if payload.SessionID == "" {

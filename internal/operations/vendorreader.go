@@ -36,13 +36,13 @@ import (
 // a failure a caller should ever warn about.
 type vendorLocate func(ctx context.Context, e sessions.Entry) (src string, ok bool)
 
-// vendorImportEntry pairs one engine's VendorAdapter with its locate func.
-type vendorImportEntry struct {
+// vendorReaderEntry pairs one engine's VendorAdapter with its locate func.
+type vendorReaderEntry struct {
 	adapter vendorreader.VendorAdapter
 	locate  vendorLocate
 }
 
-// vendorImportRegistry maps a backend registry name — the SAME name
+// vendorReaderRegistry maps a backend registry name — the SAME name
 // backends.descriptors registers it under (agent.NewBaseBackend's first arg:
 // config.BackendClaudeCode "claude-code", "codex", "kiro", "antigravity"),
 // the plugin's own Info RPC reports, and transcript.RecordOneshot's engine
@@ -64,17 +64,17 @@ type vendorImportEntry struct {
 // ctxloom's OWN index — see sessions.Manager.BindSession — so there is no
 // path-derivation logic to duplicate here, and no chance of resurrecting the
 // deleted reader's claude cwd→slug bug (docs/transcript-schema.md §8). kiro
-// is the one exception, wired separately in vendorimport_kiro.go: its bind
+// is the one exception, wired separately in vendorreader_kiro.go: its bind
 // (on the rare path where one lands at all) is a session_id, not a file
 // path, because a single sqlite db holds every conversation.
-var vendorImportRegistry = map[string]vendorImportEntry{
+var vendorReaderRegistry = map[string]vendorReaderEntry{
 	config.BackendClaudeCode: {adapter: claudereader.Adapter{}, locate: locateBoundTranscript},
 	"codex":                  {adapter: codexreader.Adapter{}, locate: locateBoundTranscript},
 	"antigravity":            {adapter: antigravityreader.Adapter{}, locate: locateBoundTranscript},
 	"kiro":                   {adapter: kiroreader.Adapter{}, locate: locateKiroConversation},
 }
 
-// VendorImportEngineNames returns the backend names vendorImportRegistry
+// VendorReaderEngineNames returns the backend names vendorReaderRegistry
 // covers (one of the four independently-maintained engine-identity
 // rosters found spread across the codebase — see
 // tests/arch/engine_identity_arch_test.go's TestArch_EngineIdentityRosters_
@@ -83,9 +83,9 @@ var vendorImportRegistry = map[string]vendorImportEntry{
 // read-only so that gate can reach this package's otherwise-unexported
 // roster without operations importing backends any more than it already
 // does, and without the gate importing operations' internals.
-func VendorImportEngineNames() []string {
-	names := make([]string, 0, len(vendorImportRegistry))
-	for name := range vendorImportRegistry {
+func VendorReaderEngineNames() []string {
+	names := make([]string, 0, len(vendorReaderRegistry))
+	for name := range vendorReaderRegistry {
 		names = append(names, name)
 	}
 	return names
@@ -143,7 +143,7 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 // file as a complete one forever, silently masking the original failure on
 // every later call for this harp instead of allowing a genuine retry.
 func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted bool, err error) {
-	reg, ok := vendorImportRegistry[e.Backend]
+	reg, ok := vendorReaderRegistry[e.Backend]
 	if !ok || e.HarpName == "" {
 		return false, nil
 	}

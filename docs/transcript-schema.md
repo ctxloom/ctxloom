@@ -398,12 +398,12 @@ the two moments that matter:
   or ones whose exit-seam import failed — instead of a just-exited one.
   Safe to re-run at any time for the same idempotency reason.
 
-The engine→adapter+locate registry (`internal/operations/vendorimport.go`)
+The engine→adapter+locate registry (`internal/operations/vendorreader.go`)
 prefers each harp's already-bound `sessions.Entry.TranscriptPath` (the
 SessionStart bind hook, or its PreToolUse-fallback equivalent for
 antigravity) for codex/claude/antigravity — sidestepping the very cwd→slug
 bug this section describes above. kiro is the one exception
-(`vendorimport_kiro.go`): its bind, where one lands at all, is a
+(`vendorreader_kiro.go`): its bind, where one lands at all, is a
 session_id, not a file path, so its locate falls back to
 `kiroreader.EnumerateConversations` matched by project dir — a
 best-effort heuristic, not a guarantee (two concurrent kiro-cli sessions in

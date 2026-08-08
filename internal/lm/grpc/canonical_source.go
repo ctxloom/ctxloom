@@ -52,7 +52,7 @@ import (
 // Unexported: a roster is data this package owns, and an exported map is
 // writable by every importer. Reach it through IsRetiredScraperBackend or
 // RetiredScraperBackendNames — the same shape the sibling engine rosters use
-// (operations.VendorImportEngineNames, isolation.ComposableEngines).
+// (operations.VendorReaderEngineNames, isolation.ComposableEngines).
 var retiredScraperBackends = map[string]bool{
 	"codex":       true,
 	"kiro":        true,

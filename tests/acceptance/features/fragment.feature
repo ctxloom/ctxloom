@@ -3,12 +3,20 @@ Feature: Fragments
   the CLI is listed there, searchable, written into the bundle file, and visible
   to the agent through the fragments resource.
 
+  # Every literal on the three axes below is "testing" — the argument the
+  # command line just passed. It is the YAML key in the manifest, the name in
+  # the listing, and the name in the resource, so a create that stored ZERO
+  # BYTES of content left all three green (Content: "" in cli.createItem):
+  # this project's characteristic silent no-op, on its primary authoring verb.
+  # "Add content here." is the placeholder body the create actually writes,
+  # and it appears nowhere else in a freshly created project.
   Scenario: Create a fragment and see it on every axis
     Given an initialized ctxloom project
     And a bundle "demo" exists
     When I run "ctxloom fragment create demo testing"
     Then the command succeeds
     And the file ".ctxloom/content/bundles/demo.yaml" contains "testing"
+    And the file ".ctxloom/content/bundles/demo.yaml" contains "Add content here."
     When I run "ctxloom fragment list"
     Then the command succeeds
     And the output contains "testing"

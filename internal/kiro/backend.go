@@ -16,7 +16,7 @@
 // than being accepted and ignored (cf. claude-code-acp's silent-ignore).
 //
 // The session-history reader (formerly internal/kiro/session.go) was DELETED
-// outright, not demoted to an importer — the user's explicit decision. It was
+// outright, not demoted to a vendor reader — the user's explicit decision. It was
 // CONFIRMED BROKEN against real session files (tall-grab): it read the v1
 // sessions/cli/*.jsonl store, but a real `kiro-cli chat --no-interactive`
 // oneshot — the mode ctxloom's own oneshot Execute path uses — persists into

@@ -34,7 +34,7 @@ const feedWait = 5 * time.Second
 // persist/transcripts store, exercising the by-location LEGACY reader
 // (operations.HistoryForBackend -> claude's SessionHistory). That reader was
 // deleted outright (the user's DELETE decision — claude's scraper is gone,
-// not demoted to an importer; see internal/claude/claudecode.go's doc).
+// not demoted to a vendor reader; see internal/claude/claudecode.go's doc).
 // These tests were never actually about claude's file format — they exist
 // to exercise the store-tail SOURCE-SELECTION mechanism (live vs. store,
 // auto fallback) — so they now seed the one by-location association every

@@ -21,18 +21,18 @@ import (
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
-// msToTime mirrors kiroimporter.EnumerateConversations' own
+// msToTime mirrors kiroreader.EnumerateConversations' own
 // time.UnixMilli(...).UTC() conversion, so a test-built StartedAt compares on
 // the same footing as the UpdatedAt values locateKiroConversation reads back
 // from the fixture db.
 func msToTime(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
 
-// kiroFixturePath is the REAL kiro conversation row the kiro importer
+// kiroFixturePath is the REAL kiro conversation row the kiro reader
 // package's own test suite already exercises
-// (internal/transcript/importer/kiro/testdata/conversation-fixture.json) —
+// (internal/transcript/vendorreader/kiro/testdata/conversation-fixture.json) —
 // reused here rather than a second hand-rolled row, same discipline as
 // vendorimport_test.go's codex/claude/antigravity fixtures.
-var kiroFixturePath = filepath.Join(thisDir(), "..", "transcript", "importer", "kiro", "testdata", "conversation-fixture.json")
+var kiroFixturePath = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "kiro", "testdata", "conversation-fixture.json")
 
 // kiroFixtureRow mirrors kiro_test.go's own fixtureRow shape (conversations_v2
 // row: key/conversation_id/created_at/updated_at + the row's own value blob).

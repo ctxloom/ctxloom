@@ -8,14 +8,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	kiroimporter "github.com/ctxloom/ctxloom/internal/transcript/importer/kiro"
+	kiroreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/kiro"
 )
 
 // locateKiroConversation resolves kiro's composite "<db-path>#<conversation-id>"
-// locator (kiroimporter.Locator) for one indexed entry — the one engine
+// locator (kiroreader.Locator) for one indexed entry — the one engine
 // vendorimport.go's locateBoundTranscript cannot serve, because kiro has no
 // per-session FILE to bind: every conversation lives as one row in a single
-// per-user sqlite db (kiroimporter's package doc). Two resolution routes:
+// per-user sqlite db (kiroreader's package doc). Two resolution routes:
 //
 //  1. e.SessionID, when bound, IS the kiro conversation_id — kiro-cli's own
 //     agentSpawn hook maps to the same `ctxloom hook session-bind` target
@@ -31,7 +31,7 @@ import (
 //     UNCONFIRMED, unlike Codex's/Claude's SessionStart payload, which is
 //     live-verified to carry one; flagged in the wiring report, not
 //     silently assumed to work). Falls back to
-//     kiroimporter.EnumerateConversations and picks the most-recently
+//     kiroreader.EnumerateConversations and picks the most-recently
 //     updated conversation whose WorkDir matches e.ProjectDir and whose
 //     UpdatedAt is not older than e.StartedAt: "the conversation kiro-cli
 //     itself just finished writing in this project, since this run
@@ -49,7 +49,7 @@ func locateKiroConversation(ctx context.Context, e sessions.Entry) (string, bool
 		return "", false
 	}
 	if e.SessionID != "" {
-		src, err := kiroimporter.Locator(kiroDBHoldingConversation(ctx, dbs, e.SessionID), e.SessionID)
+		src, err := kiroreader.Locator(kiroDBHoldingConversation(ctx, dbs, e.SessionID), e.SessionID)
 		return src, err == nil
 	}
 	for _, dbPath := range dbs {
@@ -85,7 +85,7 @@ func kiroDBHoldingConversation(ctx context.Context, dbs []string, conversationID
 		return dbs[0]
 	}
 	for _, dbPath := range dbs {
-		refs, err := kiroimporter.EnumerateConversations(ctx, dbPath)
+		refs, err := kiroreader.EnumerateConversations(ctx, dbPath)
 		if err != nil {
 			clidiag.Warn("ctxloom", "kiro conversation store %s is unreadable (%v); it was skipped while looking for conversation %s", dbPath, err, conversationID)
 			continue
@@ -141,7 +141,7 @@ func locateKiroConversationInDB(ctx context.Context, dbPath string, e sessions.E
 	if e.ProjectDir == "" {
 		return "", false
 	}
-	refs, err := kiroimporter.EnumerateConversations(ctx, dbPath)
+	refs, err := kiroreader.EnumerateConversations(ctx, dbPath)
 	if err != nil {
 		// "I cannot read this store" is not "this session has nothing to
 		// import", and collapsing the two hid a corrupt, truncated or locked
@@ -155,7 +155,7 @@ func locateKiroConversationInDB(ctx context.Context, dbPath string, e sessions.E
 	if len(refs) == 0 {
 		return "", false
 	}
-	var best *kiroimporter.ConversationRef
+	var best *kiroreader.ConversationRef
 	for i := range refs {
 		r := &refs[i]
 		if r.WorkDir != e.ProjectDir {
@@ -171,14 +171,14 @@ func locateKiroConversationInDB(ctx context.Context, dbPath string, e sessions.E
 	if best == nil {
 		return "", false
 	}
-	src, err := kiroimporter.Locator(dbPath, best.ConversationID)
+	src, err := kiroreader.Locator(dbPath, best.ConversationID)
 	return src, err == nil
 }
 
 // kiroDBPath resolves kiro-cli's HOST-AMBIENT conversation store:
 // $XDG_DATA_HOME/kiro-cli/data.sqlite3, falling back to
 // ~/.local/share/kiro-cli/data.sqlite3 when XDG_DATA_HOME is unset — the
-// same convention kiroimporter/schema.go's package doc and
+// same convention kiroreader/schema.go's package doc and
 // internal/lm/isolation/auth.go's credentialSeedSpecs["kiro"] both document
 // independently. Reads the CURRENT PROCESS's own env, which is correct for
 // an unisolated (host-mode) kiro run but NOT for an isolated (worktree)

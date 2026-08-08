@@ -223,8 +223,8 @@ const (
 	//
 	// Named "transcript.jsonl", NOT "transcript.acp.jsonl" (the pre-rename
 	// name): the file is fed by every structured/ACP engine AND the oneshot
-	// regime (transcript.RecordOneshot) AND the vendor importers
-	// (internal/transcript/importer/*) — engine-agnostic by construction, per
+	// regime (transcript.RecordOneshot) AND the vendor readers
+	// (internal/transcript/vendorreader/*) — engine-agnostic by construction, per
 	// this constant's own doc comment above. The old name read as "an ACP
 	// artifact" to anyone browsing a session's persist/ dir, which it never
 	// was. See legacyCanonicalTranscriptFileName for the back-compat reader

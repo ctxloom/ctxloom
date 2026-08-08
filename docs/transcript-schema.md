@@ -379,8 +379,8 @@ for v0.7.0-pre1 — not a silent regression — tracked as task `petty-green`
 (interactive-session memory).
 
 **Update (writer-a-wiring, closing petty-green's importer half):** the four
-per-engine `importer.VendorAdapter` implementations this section's own
-successor work built (`internal/transcript/importer/{codex,claude,
+per-engine `vendorreader.VendorAdapter` implementations this section's own
+successor work built (`internal/transcript/vendorreader/{codex,claude,
 antigravity,kiro}`) are now WIRED IN, closing the gap described above for
 the two moments that matter:
 
@@ -405,7 +405,7 @@ antigravity) for codex/claude/antigravity — sidestepping the very cwd→slug
 bug this section describes above. kiro is the one exception
 (`vendorimport_kiro.go`): its bind, where one lands at all, is a
 session_id, not a file path, so its locate falls back to
-`kiroimporter.EnumerateConversations` matched by project dir — a
+`kiroreader.EnumerateConversations` matched by project dir — a
 best-effort heuristic, not a guarantee (two concurrent kiro-cli sessions in
 the same project dir within the same window are indistinguishable by that
 signal).

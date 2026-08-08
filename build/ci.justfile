@@ -294,7 +294,7 @@ engine-latest-version ENGINE:
     if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "version=$version" >> "$GITHUB_OUTPUT"; fi
 
 # The tested-version lock for LOCK_KEY, from .github/engine-versions.env — the
-# version ctxloom's transcript importer has actually been validated against.
+# version ctxloom's transcript reader has actually been validated against.
 # Under Actions this also sets the `version` step output.
 engine-pinned-version LOCK_KEY:
     #!/usr/bin/env bash
@@ -309,7 +309,7 @@ engine-pinned-version LOCK_KEY:
     echo "Pinned lock $key = $pinned"
     if [ -n "${GITHUB_OUTPUT:-}" ]; then echo "version=$pinned" >> "$GITHUB_OUTPUT"; fi
 
-# Open (or reuse) the tracking issue for an engine version ctxloom's importer
+# Open (or reuse) the tracking issue for an engine version ctxloom's reader
 # has never been validated against. Requires `gh` authenticated via GH_TOKEN.
 #
 # Idempotent per new version: the labels are created --force (no-op if they
@@ -323,7 +323,7 @@ engine-drift-alert ENGINE PINNED LATEST RUN_URL:
     title="engine-drift: $engine $pinned -> $latest"
 
     gh label create "engine-drift" --color "B60205" \
-        --description "A new engine CLI version was detected that ctxloom's importer has not been validated against" \
+        --description "A new engine CLI version was detected that ctxloom's reader has not been validated against" \
         --force
     gh label create "engine-drift:$engine" --color "5319E7" \
         --description "Drift alert for the $engine engine specifically" \
@@ -347,8 +347,8 @@ engine-drift-alert ENGINE PINNED LATEST RUN_URL:
     This is an **alert-only** notification (P0 of the self-healing engine-format
     pipeline) -- nothing has been installed, captured, or changed. A human should:
 
-    1. Confirm \`internal/transcript/importer/$engine\` (or the closest match --
-       \`claude-code\` -> the \`claude\` importer package) still parses a transcript
+    1. Confirm \`internal/transcript/vendorreader/$engine\` (or the closest match --
+       \`claude-code\` -> the \`claude\` reader package) still parses a transcript
        produced by \`$latest\`.
     2. If it does, bump \`$engine\`'s key in \`.github/engine-versions.env\` to
        \`$latest\` in a PR (internal/enginepins will fail CI if the bump isn't a

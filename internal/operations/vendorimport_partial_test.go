@@ -72,7 +72,7 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 // zeroLineAdapter succeeds (nil error) without ever calling rec.Record —
 // standing in for a legitimately-empty-but-parseable vendor transcript
 // (every line malformed-but-skippable, or a genuinely empty session):
-// importer.VendorAdapter's own contract treats this as a valid outcome, not
+// vendorreader.VendorAdapter's own contract treats this as a valid outcome, not
 // a failure.
 type zeroLineAdapter struct{}
 

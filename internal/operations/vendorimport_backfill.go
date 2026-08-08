@@ -36,7 +36,7 @@ type BackfillResult struct {
 // per-entry warn-and-continue rule to distillation).
 //
 // CANCELLATION is the one thing that DOES stop it, and is not a per-entry
-// failure. Every registered adapter honours ctx (importer.ConvertJSONLLines'
+// failure. Every registered adapter honours ctx (vendorreader.ConvertJSONLLines'
 // per-line check, kiro's per-turn one), so without this the run continued and
 // recorded context.Canceled against each remaining harp in turn — one
 // "failed: <harp>" line per session for what was a single event, blaming

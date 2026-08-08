@@ -30,16 +30,16 @@ func thisDir() string {
 }
 
 // codexFixturePath, claudeFixturePath, antigravityFixturePath resolve to the
-// REAL vendor-native fixture files each importer package's own test suite
-// already exercises (internal/transcript/importer/<engine>/testdata) — this
+// REAL vendor-native fixture files each reader package's own test suite
+// already exercises (internal/transcript/vendorreader/<engine>/testdata) — this
 // suite reuses them rather than inventing a second, parallel set, per the
 // project's fixture-reuse discipline (memory "silent-no-op-failure-mode":
 // assert on real payload content, not a hand-rolled minimal stub that could
 // never expose a real parse bug).
 var (
-	codexFixturePath       = filepath.Join(thisDir(), "..", "transcript", "importer", "codex", "testdata", "rollout-fixture.jsonl")
-	claudeFixturePath      = filepath.Join(thisDir(), "..", "transcript", "importer", "claude", "testdata", "transcript-fixture.jsonl")
-	antigravityFixturePath = filepath.Join(thisDir(), "..", "transcript", "importer", "antigravity", "testdata", "transcript_full-fixture.jsonl")
+	codexFixturePath       = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "codex", "testdata", "rollout-fixture.jsonl")
+	claudeFixturePath      = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
+	antigravityFixturePath = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "antigravity", "testdata", "transcript_full-fixture.jsonl")
 )
 
 // canonicalLines reads harp's canonical transcript.jsonl back and returns
@@ -81,7 +81,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 	lines := canonicalLines(t, harp)
 	require.NotEmpty(t, lines, "Convert should have produced canonical lines from a real fixture")
 	// Every written record must carry the REGISTRY backend name
-	// (config.BackendClaudeCode == "claude-code"), not the importer
+	// (config.BackendClaudeCode == "claude-code"), not the reader
 	// package's own short test-fixture name ("claude") — see
 	// vendorImportRegistry's doc comment for why: RecordOneshot and the live
 	// structured-chat tee (lm/grpc/chat.go's openRecorder, keyed off the
@@ -128,7 +128,7 @@ func TestConvertVendorTranscript_UnregisteredBackend(t *testing.T) {
 	harp := "convert-unregistered-harp"
 	e := sessions.Entry{
 		HarpName:       harp,
-		Backend:        "opencode", // opencode keeps its own native reader — no importer entry
+		Backend:        "opencode", // opencode keeps its own native reader — no vendor-reader entry
 		TranscriptPath: claudeFixturePath,
 	}
 
@@ -253,7 +253,7 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 }
 
 // TestVendorImportRegistry_CoversFourEngines locks in exactly which backend
-// names carry an importer — a change here (adding/removing an engine) should
+// names carry a vendor reader — a change here (adding/removing an engine) should
 // be a deliberate, visible edit to this test, not a silent registry drift.
 func TestVendorImportRegistry_CoversFourEngines(t *testing.T) {
 	got := make([]string, 0, len(vendorImportRegistry))

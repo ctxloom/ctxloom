@@ -47,13 +47,13 @@ func j12From(w *World) *j12State {
 }
 
 // j12FixtureFile maps the feature file's <engine> token to the REAL, shipped
-// importer testdata fixture importer.VendorAdapter.Convert reads in
+// reader testdata fixture vendorreader.VendorAdapter.Convert reads in
 // production — the same file each package's own _test.go golden-compares
 // against, never a hand-rolled duplicate.
 var j12FixtureFile = map[string]string{
-	"claude":      filepath.Join("internal", "transcript", "importer", "claude", "testdata", "transcript-fixture.jsonl"),
-	"codex":       filepath.Join("internal", "transcript", "importer", "codex", "testdata", "rollout-fixture.jsonl"),
-	"antigravity": filepath.Join("internal", "transcript", "importer", "antigravity", "testdata", "transcript_full-fixture.jsonl"),
+	"claude":      filepath.Join("internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl"),
+	"codex":       filepath.Join("internal", "transcript", "vendorreader", "codex", "testdata", "rollout-fixture.jsonl"),
+	"antigravity": filepath.Join("internal", "transcript", "vendorreader", "antigravity", "testdata", "transcript_full-fixture.jsonl"),
 }
 
 // j12RepoRoot resolves the repo root relative to THIS source file via
@@ -175,7 +175,7 @@ type j12EngineTurnCheck struct {
 
 // j12EngineTurnChecks pins the Scenario Outline's per-<engine> real-turn
 // assertions, grounded in each package's own shipped golden.transcript.acp.jsonl
-// (internal/transcript/importer/{codex,antigravity}/testdata/): codex's
+// (internal/transcript/vendorreader/{codex,antigravity}/testdata/): codex's
 // exec_command call/result/reply carry the real "HELLO_FROM_TOOL_CALL_42"
 // sentinel; antigravity's carry the real "XXX-OVERWRITTEN-XXX" one. kiro is
 // deliberately absent — see the feature file's own deferral note.

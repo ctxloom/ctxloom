@@ -2,7 +2,7 @@
 
 **What it is.** `internal/transcript` owns ctxloom's **own** record of a conversation: a
 versioned, append-only JSONL envelope schema, the writer that stamps it, and the reader that
-turns the file back into an `agent.Session`. `internal/transcript/importer` and its four
+turns the file back into an `agent.Session`. `internal/transcript/vendorreader` and its four
 per-engine adapters (`codex`, `claude`, `kiro`, `antigravity`) convert a **vendor-native**
 transcript into the same canonical stream through the same writer.
 
@@ -37,10 +37,10 @@ flowchart TD
     subgraph vendor["Regime C — interactive pty, read back after the fact"]
       VF[("vendor file<br/>rollout-*.jsonl · &lt;uuid&gt;.jsonl<br/>transcript_full.jsonl · data.sqlite3")]
       CVT["operations.ConvertVendorTranscript<br/>vendorimport.go:122"]
-      VA["importer.VendorAdapter.Convert<br/>adapter.go:68"]
-      DRV["importer.ConvertJSONLLines<br/>driver.go:29"]
-      SIB["importer.SessionInfoBuilder<br/>sessioninfo.go:16"]
-      RF["importer.RecordFunc<br/>record.go:17"]
+      VA["vendorreader.VendorAdapter.Convert<br/>adapter.go:68"]
+      DRV["vendorreader.ConvertJSONLLines<br/>driver.go:29"]
+      SIB["vendorreader.SessionInfoBuilder<br/>sessioninfo.go:16"]
+      RF["vendorreader.RecordFunc<br/>record.go:17"]
     end
 
     GC --> CR
@@ -110,7 +110,7 @@ enforcing parity. `record.go:9-12` claims the payloads mirror `agent.ChatEvent` 
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `Recorder` (interface) | `recorder.go:20` | `Record(agent.ChatEvent) error` + `Close() error`. The seam every capture path shares; `importer.VendorAdapter` takes it as a parameter |
+| `Recorder` (interface) | `recorder.go:20` | `Record(agent.ChatEvent) error` + `Close() error`. The seam every capture path shares; `vendorreader.VendorAdapter` takes it as a parameter |
 | `NewRecorder` | `recorder.go:79` | Validates harp + engine non-empty, resolves the path via `paths.HarpCanonicalTranscriptPath`, applies options. **Does not open the file** |
 | `RecorderOption` / `WithRawPolicy` | `recorder.go:50`, `:56` | The only option. Reachable only through `agent.ChatRequest.TranscriptRawPolicy`, which nothing in the codebase ever sets — so in production the policy is always `DefaultRawPolicy` |
 | `fileRecorder.Record` | `recorder.go:116` | Classifies via `payloadFromChatEvent`, stamps the envelope, lazily creates dir + file, appends one line, bumps `seq`. Refuses a fully-zero `ChatEvent` |

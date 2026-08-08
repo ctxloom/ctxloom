@@ -92,7 +92,7 @@ type Record struct {
 	// antigravity's lines do not arrive through the structured tee: its
 	// StructuredChat is a bespoke prose driver over `agy -p` rather than
 	// internal/acp.NewChatDriver, so its canonical lines come from the
-	// oneshot/importer regimes (plan §2d), which stamp Engine the same way.
+	// oneshot/reader regimes (plan §2d), which stamp Engine the same way.
 	Engine string `json:"engine"`
 	// Seq is monotonically increasing per transcript, starting at 0, with NO
 	// gaps — the ordering key. A reader can detect truncation/corruption by a

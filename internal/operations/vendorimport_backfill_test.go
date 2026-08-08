@@ -99,7 +99,7 @@ func TestBackfillResult_FailedHarps_Sorted(t *testing.T) {
 
 // TestBackfillVendorTranscripts_CancellationStopsRatherThanFailingEveryEntry:
 // every registered adapter checks ctx per line
-// (importer.ConvertJSONLLines, kiro's own per-turn loop), so a cancelled
+// (vendorreader.ConvertJSONLLines, kiro's own per-turn loop), so a cancelled
 // backfill did not stop — it kept calling Convert, and each call returned
 // context.Canceled, which the loop recorded as a per-harp FAILURE. The user
 // got one "failed: <harp> (context canceled)" line per remaining session,

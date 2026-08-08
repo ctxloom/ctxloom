@@ -281,7 +281,7 @@ func seedUnboundHarp(t *testing.T, home, backend, rel, fixture string) string {
 
 // TestRunSessionWatch_ByLocation_RetiredScrapersErrorCleanly: a prior change
 // deleted the by-location legacy-file readers for claude-code/codex/kiro/
-// antigravity outright (the user's DELETE decision, not a demoted importer —
+// antigravity outright (the user's DELETE decision, not a demoted reader —
 // see each package's backend.go doc). A watch addressed by HARP whose only
 // association is a located legacy-format transcript (no hook-bound session,
 // no captured canonical transcript.jsonl — the containerized-child

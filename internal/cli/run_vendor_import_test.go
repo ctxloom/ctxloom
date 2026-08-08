@@ -17,13 +17,13 @@ import (
 )
 
 // claudeVendorFixturePath resolves the same real claude transcript fixture
-// internal/transcript/importer/claude's own test suite exercises, anchored
+// internal/transcript/vendorreader/claude's own test suite exercises, anchored
 // via runtime.Caller so it resolves regardless of the test binary's cwd.
 func claudeVendorFixturePath(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
 	require.True(t, ok)
-	return filepath.Join(filepath.Dir(file), "..", "transcript", "importer", "claude", "testdata", "transcript-fixture.jsonl")
+	return filepath.Join(filepath.Dir(file), "..", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
 }
 
 // canonicalTranscriptExists reports whether harp has a non-empty canonical
@@ -64,7 +64,7 @@ func TestConvertVendorTranscriptOnExit_UnknownHarp(t *testing.T) {
 }
 
 // TestConvertVendorTranscriptOnExit_UnregisteredBackend covers a backend with
-// no vendor importer (e.g. opencode, which keeps its own native reader —
+// no vendor reader (e.g. opencode, which keeps its own native reader —
 // docs/transcript-schema.md §8): a silent no-op, no canonical file.
 func TestConvertVendorTranscriptOnExit_UnregisteredBackend(t *testing.T) {
 	testsupport.Isolate(t)

@@ -1,5 +1,5 @@
-// This file wires the four per-engine importer.VendorAdapter implementations
-// (internal/transcript/importer/{codex,claude,antigravity,kiro}) into the two
+// This file wires the four per-engine vendorreader.VendorAdapter implementations
+// (internal/transcript/vendorreader/{codex,claude,antigravity,kiro}) into the two
 // call sites that actually need a converted transcript: the interactive-pty
 // exit seam (internal/cli/run.go, right where transcript.RecordOneshot hooks
 // the oneshot exit) and the `session backfill` command (session_cmd.go),
@@ -20,15 +20,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/transcript"
-	"github.com/ctxloom/ctxloom/internal/transcript/importer"
-	antigravityimporter "github.com/ctxloom/ctxloom/internal/transcript/importer/antigravity"
-	claudeimporter "github.com/ctxloom/ctxloom/internal/transcript/importer/claude"
-	codeximporter "github.com/ctxloom/ctxloom/internal/transcript/importer/codex"
-	kiroimporter "github.com/ctxloom/ctxloom/internal/transcript/importer/kiro"
+	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
+	antigravityreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/antigravity"
+	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
+	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
+	kiroreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/kiro"
 )
 
 // vendorLocate resolves the vendor-native transcript locator (the src string
-// importer.VendorAdapter.Convert expects — a bare file path for every engine
+// vendorreader.VendorAdapter.Convert expects — a bare file path for every engine
 // but kiro, kiro's own "<db-path>#<conversation-id>" composite for it) for
 // one indexed session entry. ok=false means "nothing to convert" — an
 // unbound session, a bind whose file has since vanished, an engine this
@@ -38,7 +38,7 @@ type vendorLocate func(ctx context.Context, e sessions.Entry) (src string, ok bo
 
 // vendorImportEntry pairs one engine's VendorAdapter with its locate func.
 type vendorImportEntry struct {
-	adapter importer.VendorAdapter
+	adapter vendorreader.VendorAdapter
 	locate  vendorLocate
 }
 
@@ -47,7 +47,7 @@ type vendorImportEntry struct {
 // config.BackendClaudeCode "claude-code", "codex", "kiro", "antigravity"),
 // the plugin's own Info RPC reports, and transcript.RecordOneshot's engine
 // param already carries — to its VendorAdapter + locate pair. This is
-// deliberately the REGISTRY name, not the importer packages' own short test
+// deliberately the REGISTRY name, not the reader packages' own short test
 // names ("claude"/"codex"/"kiro"/"antigravity" in their _test.go fixtures):
 // using anything else would make a harp's oneshot-mode entries (Engine:
 // "claude-code") and its interactive-mode entries (this file) disagree about
@@ -68,10 +68,10 @@ type vendorImportEntry struct {
 // (on the rare path where one lands at all) is a session_id, not a file
 // path, because a single sqlite db holds every conversation.
 var vendorImportRegistry = map[string]vendorImportEntry{
-	config.BackendClaudeCode: {adapter: claudeimporter.Adapter{}, locate: locateBoundTranscript},
-	"codex":                  {adapter: codeximporter.Adapter{}, locate: locateBoundTranscript},
-	"antigravity":            {adapter: antigravityimporter.Adapter{}, locate: locateBoundTranscript},
-	"kiro":                   {adapter: kiroimporter.Adapter{}, locate: locateKiroConversation},
+	config.BackendClaudeCode: {adapter: claudereader.Adapter{}, locate: locateBoundTranscript},
+	"codex":                  {adapter: codexreader.Adapter{}, locate: locateBoundTranscript},
+	"antigravity":            {adapter: antigravityreader.Adapter{}, locate: locateBoundTranscript},
+	"kiro":                   {adapter: kiroreader.Adapter{}, locate: locateKiroConversation},
 }
 
 // VendorImportEngineNames returns the backend names vendorImportRegistry
@@ -115,7 +115,7 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 //
 // converted reports whether an import was actually ATTEMPTED (Convert
 // invoked), not whether it produced any canonical lines — Convert's own
-// degrade-to-partial contract (importer.VendorAdapter's doc comment) means a
+// degrade-to-partial contract (vendorreader.VendorAdapter's doc comment) means a
 // vendor file that parses to zero real entries is a legitimate outcome, not
 // a signal this function should try to distinguish from "nothing to
 // import." converted=false, err=nil covers every "nothing to do" case: e's
@@ -123,7 +123,7 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 // canonical transcript already exists for the harp.
 //
 // Idempotent BY NON-REPETITION, not by content-diffing: Convert re-reads the
-// vendor source from its own beginning every call (importer.VendorAdapter
+// vendor source from its own beginning every call (vendorreader.VendorAdapter
 // has no incremental/resume concept — see adapter.go's doc comment on a
 // Recorder that "already has lines written to it"), so calling this twice
 // for the same harp after the first call actually wrote a canonical file
@@ -184,7 +184,7 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 	// Convert succeeding is NOT the same fact as bytes landing on
 	// disk. transcript.Recorder only creates its canonical file on the FIRST
 	// SUCCESSFUL Record, so a Convert that (legitimately, per
-	// importer.VendorAdapter's own degrade-to-partial contract) wrote zero
+	// vendorreader.VendorAdapter's own degrade-to-partial contract) wrote zero
 	// entries leaves no canonical file at all. Reporting converted=true here
 	// regardless used to make `session backfill` print "converted: <harp>"
 	// for a harp with nothing delivered — and because no file exists,

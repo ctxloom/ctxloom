@@ -547,8 +547,8 @@ func TestChat_Live_EchoesContextSentinel(t *testing.T) {
 // documents now assert in prose: antigravity DOES offer the optional
 // StructuredChat capability, implemented here as a bespoke prose driver over
 // `agy -p` rather than through internal/acp.NewChatDriver. Both
-// docs/transcript-schema.md §2 and the transcript importer's package doc
-// (internal/transcript/importer/antigravity) previously claimed the opposite
+// docs/transcript-schema.md §2 and the transcript reader's package doc
+// (internal/transcript/vendorreader/antigravity) previously claimed the opposite
 // — "antigravity has no StructuredChat capability at all (no
 // internal/antigravity/chat.go)" — and reasoned from it. This assertion is
 // what makes the corrected prose maintained rather than merely asserted: if

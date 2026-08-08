@@ -40,8 +40,21 @@ Feature: Fault tolerance
     Then the command fails
     And the output contains "invalid reference format: expected bundle#fragments/name"
 
-  Scenario: An unreachable remote does not crash pull
+  # This scenario used to REGISTER the unreachable remote and never depend on
+  # it, so `remote pull` printed "No remote dependencies to pull." and exited
+  # 0 — the subject never ran, and the whole Then block was that exit code.
+  # An early `return nil` in the pull path was indistinguishable from a pull
+  # that degraded gracefully. A profile referencing broken/demo puts the
+  # unreachable remote INTO the dependency closure, so the clone is really
+  # attempted; the assertions then name the failing reference, the count, and
+  # the underlying git cause — a swallowed diagnostic or a skipped fetch
+  # cannot produce any of them.
+  Scenario: An unreachable remote fails the pull cleanly rather than crashing
     Given an initialized ctxloom project
     And I run "ctxloom remote create broken file:///nonexistent/ctxloom-repo.git --forge git"
+    And I run "ctxloom profile create dev --bundle broken/demo"
     When I run "ctxloom remote pull"
-    Then the command succeeds
+    Then the command fails
+    And the output contains "Failed: 1"
+    And the output contains "@bundles/demo"
+    And the output contains "does not appear to be a git repository"

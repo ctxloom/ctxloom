@@ -323,6 +323,19 @@ Feature: A signature somebody can check
     Then the command succeeds
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "handwritten@acme.example,second@acme.example"
 
+  # The mirror of the refusal above. When something WAS removed the command
+  # did its job, so an unrelated unreadable line is a WARNING, not a failure —
+  # but it must still be left in place rather than quietly dropped by the
+  # rewrite. Losing it would be the rewrite silently editing a line it could
+  # not read, which is the one thing a trust root must never do.
+  Scenario: Removing a signer alongside an unreadable line warns but keeps the line
+    Given Trent's team trusts "alpha@acme.example,context@acme.example" in the committable project store
+    And one line in the project store ".ctxloom/allowed_signers" cannot be read
+    When I run "ctxloom trust signer delete context@acme.example --project"
+    Then the command succeeds
+    And the output contains "removed 1 entry for context@acme.example"
+    And the project store ".ctxloom/allowed_signers" still holds the line that could not be read
+
   # ctxloom's own compiled-in release key is the one entry no `delete` can
   # edit, so the withdrawal has to be a RECORD the read side subtracts. The
   # record is only worth anything if it names the embedded entry's own

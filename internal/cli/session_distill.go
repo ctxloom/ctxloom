@@ -17,6 +17,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
+	"github.com/ctxloom/ctxloom/internal/transcript/policy"
 )
 
 // The distillation/compaction cluster the session commands share with the MCP
@@ -220,9 +221,19 @@ func resolveSessionSource(cfg *config.Config, backendName, workDir string) (pb.S
 	if err != nil {
 		clidiag.Warn("ctxloom", "session index open failed, reading legacy transcripts only: %v", err)
 		if legacy != nil {
-			return legacy, backendName, nil
+			return pb.NewFilteredSource(legacy, policy.Default()), backendName, nil
 		}
 		return nil, backendName, fmt.Errorf("session index unavailable and %s has no legacy transcript reader: %w", backendName, err)
 	}
-	return pb.NewCanonicalFallbackSource(legacy, workDir, store), backendName, nil
+	// The content policy is applied HERE, at the one place a read source is
+	// built, so every consumer that resolves a source through this function —
+	// `session distill`, and the load/recover/get_previous MCP tools — sees
+	// the same filtered view without each having to remember to wrap. The
+	// wrap is on the READ side on purpose: what is on disk stays total, so
+	// changing the policy changes what every existing transcript yields, with
+	// no migration. See grpc.FilteredSource.
+	return pb.NewFilteredSource(
+		pb.NewCanonicalFallbackSource(legacy, workDir, store),
+		policy.Default(),
+	), backendName, nil
 }

@@ -12,7 +12,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
-	"github.com/ctxloom/ctxloom/internal/transcript/policy"
 )
 
 // Recorder appends one canonical JSONL line per agent.ChatEvent to a harp's
@@ -121,17 +120,20 @@ func NewRecorder(harp, engine string, opts ...RecorderOption) (Recorder, error) 
 	for _, opt := range opts {
 		opt(r)
 	}
-	// Content policy is applied HERE, at the one construction point, rather
-	// than at each of the four call sites that build a Recorder — those would
-	// drift, and a path that quietly skipped the wrap would write unfiltered
-	// megabytes with nothing to indicate it. See Filtered.
+	// NO CONTENT POLICY HERE, deliberately. A Recorder writes what it is
+	// given, in full; filtering happens on the READ side
+	// (grpc.NewFilteredSource). Storage stays total.
 	//
-	// Filtering at WRITE time is safe precisely because the canonical
-	// transcript is DERIVED: it lives in the session's ephemeral/ dir and is
-	// re-materialized from the engine's own vendor log, which still holds
-	// every byte. A policy change therefore takes effect on the next
-	// materialization instead of needing a migration.
-	return Filtered(r, policy.Default()), nil
+	// An earlier revision wrapped this return in a filtering decorator. That
+	// was wrong in a way worth naming, because it looked safe: it reasoned
+	// that a filtered write is recoverable because the canonical transcript
+	// is re-derivable from the engine's vendor log. That holds ONLY for
+	// tier-1 sources. A tier-2 source (a raw stream teed from an engine with
+	// no vendor log — generic ACP, 0.8) is GONE once transformed, so this
+	// file is its only copy and a write-time filter would destroy those bytes
+	// permanently. A constructor named NewRecorder is also the wrong place to
+	// hide a policy decision its callers never asked for.
+	return r, nil
 }
 
 // rawToPersist decides what (if anything) of ev.Raw this recorder's policy

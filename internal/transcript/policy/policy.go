@@ -112,34 +112,59 @@ func Excluded(kind, reason string, n int) agent.ToolContentBlock {
 	}
 }
 
-// Apply returns e with every withheld tool-content block replaced by its
-// marker. Blocks that survive are untouched, and an event carrying no tool
-// content is returned unchanged.
-func (p Policy) Apply(e agent.ChatEvent) agent.ChatEvent {
-	if e.Entry == nil || len(e.Entry.ToolContent) == 0 {
-		return e
+// ApplyBlocks returns blocks with every withheld one replaced by its marker.
+// Survivors pass through untouched. Returns the input slice unchanged when
+// nothing is withheld, so a read that filters nothing allocates nothing.
+func (p Policy) ApplyBlocks(blocks []agent.ToolContentBlock) []agent.ToolContentBlock {
+	if len(blocks) == 0 {
+		return blocks
 	}
-	out := make([]agent.ToolContentBlock, 0, len(e.Entry.ToolContent))
 	changed := false
-	for _, b := range e.Entry.ToolContent {
+	for _, b := range blocks {
+		if keep, _ := p.decide(b); !keep {
+			changed = true
+			break
+		}
+	}
+	if !changed {
+		return blocks
+	}
+	out := make([]agent.ToolContentBlock, 0, len(blocks))
+	for _, b := range blocks {
 		keep, reason := p.decide(b)
 		if keep {
 			out = append(out, b)
 			continue
 		}
-		changed = true
 		out = append(out, Excluded(b.Kind, reason, len(b.Raw)))
 	}
-	if !changed {
-		return e
-	}
-	// The entry is copied before mutation: ChatEvent.Entry is a pointer, and
-	// the caller's event (and anything else holding that entry) must not have
-	// its content rewritten underneath it.
-	entry := *e.Entry
-	entry.ToolContent = out
-	e.Entry = &entry
+	return out
+}
+
+// ApplyEntry returns e with its tool content filtered. The entry is returned
+// BY VALUE and never mutated in place, so a caller holding the original —
+// including the on-disk records a reader just parsed — keeps the total form.
+func (p Policy) ApplyEntry(e agent.SessionEntry) agent.SessionEntry {
+	e.ToolContent = p.ApplyBlocks(e.ToolContent)
 	return e
+}
+
+// ApplySession returns a COPY of s with every entry filtered.
+//
+// A copy, not an in-place rewrite, because this runs on the read path: the
+// session a reader parsed is the total, on-disk truth, and a consumer that
+// filtered it for its own purposes must not have altered what the next
+// consumer sees. Nil in, nil out.
+func (p Policy) ApplySession(s *agent.Session) *agent.Session {
+	if s == nil {
+		return nil
+	}
+	out := *s
+	out.Entries = make([]agent.SessionEntry, 0, len(s.Entries))
+	for _, e := range s.Entries {
+		out.Entries = append(out.Entries, p.ApplyEntry(e))
+	}
+	return &out
 }
 
 // decide runs the rules in order; the first rejection wins.

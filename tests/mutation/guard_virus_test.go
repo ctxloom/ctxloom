@@ -26,18 +26,19 @@ func parseIfStmt(t *testing.T, cond string) *ast.IfStmt {
 }
 
 // TestGuardNegate_MissingTargets_ReportsAnUnfiredGuard pins that, before
-// tracking matches, nothing recorded which of the five cascade guards
-// Incubate actually found, so a guard whose rendered source text drifted
-// (a refactor extracting a variable, inverting the condition, renaming a
-// parameter) silently stopped being attacked with no signal anywhere.
+// tracking matches, nothing recorded which of the cascade guards Incubate
+// actually found, so a guard whose rendered source text drifted (a refactor
+// extracting a variable, inverting the condition, renaming a parameter,
+// MERGING TWO ARMS INTO ONE — which is what really happened to steps 3 and
+// 4; see cascadeGuards' drift note) silently stopped being attacked with no
+// signal anywhere.
 func TestGuardNegate_MissingTargets_ReportsAnUnfiredGuard(t *testing.T) {
 	v := newGuardNegate()
-	// Exercise 4 of the 5 targets — simulating a refactor that changed one
+	// Exercise all but one target — simulating a refactor that changed one
 	// guard's rendered source text out from under cascadeGuards.
 	v.Incubate(parseIfStmt(t, "records.Rejected(req.Ref, req.Payload)"))
 	v.Incubate(parseIfStmt(t, "retracted"))
-	v.Incubate(parseIfStmt(t, "req.Ref.IsLocal"))
-	v.Incubate(parseIfStmt(t, "req.Ref.IsBuiltin"))
+	v.Incubate(parseIfStmt(t, "req.Posture == bundles.TrustCtxLocal"))
 	// "records.Approved(req.Ref, req.Payload, req.Form)" deliberately never
 	// exercised here.
 
@@ -61,7 +62,7 @@ func TestGuardNegate_MissingTargets_EmptyWhenEveryGuardFired(t *testing.T) {
 }
 
 // TestGuardNegate_MatchesRealTrustGo walks the REAL internal/operations/
-// trust.go (not a synthetic snippet) and confirms every one of the five
+// trust.go (not a synthetic snippet) and confirms every one of the
 // cascade guards' rendered source text still matches — a cheap
 // (no-rebuild, no-subprocess) sanity check that the census-time keys
 // haven't already drifted out from under a since-landed refactor, without

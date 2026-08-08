@@ -24,11 +24,35 @@ import (
 // newGuardNegate, while two doc comments referred to a "cascadeGuards"
 // identifier that did not exist anywhere in the file — promoted to a real
 // package-level var so the name is real.
+//
+// DRIFT, 2026-08-07: the keys "req.Ref.IsLocal" and "req.Ref.IsBuiltin" were
+// here until AssertAllTargetsMatched caught that neither text appears in
+// trust.go any more. Steps 3 and 4 were not deleted — they were MERGED. The
+// cascade now decides first-party posture once,
+//
+//	if req.Posture == bundles.TrustCtxLocal {
+//		switch req.Provenance {
+//		case bundles.ProvenanceProject:  ... SourceLocal
+//		case bundles.ProvenanceBuiltin:  ... SourceBuiltin
+//		case bundles.ProvenanceCompanion: ... SourceCompanion
+//		}
+//	}
+//
+// so there is one guard where there were two, and a third arm (COMPANION)
+// that did not exist when these keys were written. The single key below
+// replaces both. The old keys were NOT relaxed into something that would
+// match either shape: an exact match is the only reason the drift was
+// visible at all.
+//
+// The merged guard is a comparison, so the stock comparison viruses now
+// reach it too and this virus's mutant for it is largely redundant. It is
+// kept anyway: dropping it would make the cascade census silently partial
+// again, and the next merge or split of these arms has to be noticed the
+// same way this one was.
 var cascadeGuards = map[string]string{
-	"records.Rejected(req.Ref, req.Payload)": "cascade step 1 REJECTED",
-	"retracted":                              "cascade step 2 RETRACTED",
-	"req.Ref.IsLocal":                        "cascade step 3 LOCAL",
-	"req.Ref.IsBuiltin":                      "cascade step 4 BUILTIN",
+	"records.Rejected(req.Ref, req.Payload)":           "cascade step 1 REJECTED",
+	"retracted":                                        "cascade step 2 RETRACTED",
+	"req.Posture == bundles.TrustCtxLocal":             "cascade step 3/4/4b FIRST PARTY",
 	"records.Approved(req.Ref, req.Payload, req.Form)": "cascade step 6 APPROVED",
 }
 
@@ -36,19 +60,19 @@ var cascadeGuards = map[string]string{
 // `if` statement — `if C { ... }` becomes `if !(C) { ... }`.
 //
 // WHY IT HAD TO BE WRITTEN. ooze's default virus set (and gremlins') mutates
-// only COMPARISONS and ARITHMETIC. But five of the seven steps of the
-// EffectiveTrust cascade are plain boolean guards:
+// only COMPARISONS and ARITHMETIC. But most steps of the EffectiveTrust
+// cascade are plain boolean guards:
 //
-//  1. REJECTED       if records.Rejected(req.Ref, req.Payload)
-//  2. RETRACTED      if retracted, _ := retraction.Retracted(req.Ref); retracted
-//  3. LOCAL          if req.Ref.IsLocal
-//  4. BUILTIN        if req.Ref.IsBuiltin
-//  6. APPROVED       if records.Approved(req.Ref, req.Payload, req.Form)
+//	step 1      REJECTED     if records.Rejected(req.Ref, req.Payload)
+//	step 2      RETRACTED    if retracted, reason := retraction.Retracted(req.Ref); retracted
+//	step 3/4/4b FIRST PARTY  if req.Posture == bundles.TrustCtxLocal
+//	step 6      APPROVED     if records.Approved(req.Ref, req.Payload, req.Form)
 //
-// None of those contain a binary comparison, so the stock viruses emit ZERO
-// mutants for them (measured: of trust.go's 114 stock mutants, not one lands
-// on steps 1,2,3,4,6). Only step 5's `req.Signer != "" && req.Signer !=
-// trust.BuiltinSigner` is a comparison — and its 4 mutants were all killed.
+// Steps 1, 2 and 6 contain no binary comparison, so the stock viruses emit
+// ZERO mutants for them (measured: of trust.go's 114 stock mutants, not one
+// lands on steps 1, 2, 6). Step 5's `req.Signer != "" && req.Signer !=
+// trust.BuiltinSigner` is a comparison — and its 4 mutants were all killed —
+// as is the merged first-party guard (see cascadeGuards' drift note).
 //
 // That means a clean "no survivors in the cascade" from the stock run is NOT
 // evidence the cascade is covered: it is evidence the tool never attacked it.
@@ -68,7 +92,7 @@ type guardNegate struct {
 	targets map[string]string
 	// matched records which targets' labels actually fired during the
 	// Incubate walk. Nothing counted matches before this and nothing
-	// asserted a minimum: a refactor of any of the five conditions
+	// asserted a minimum: a refactor of any of the conditions
 	// (extracting a variable, inverting a guard, renaming a parameter,
 	// reordering arguments) silently drops that step's matches to zero, the
 	// source-text key in targets simply never matches again, and the

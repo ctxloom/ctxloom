@@ -2,8 +2,13 @@
 
 // J001100: plain `ctxloom session distill <harp>` (j001100_session_distill.feature).
 //
-// The stale draft this replaces (features-draft/j14_memory.feature — a
-// deleted file, so its ORIGINAL name, not this journey's current number) narrated
+// DO NOT RENUMBER THE NAME ON THE NEXT LINE. It is a DELETED file's original
+// name, and two renumbering sweeps have now rewritten it automatically because
+// it is indistinguishable from a live reference — each time producing a path
+// that resolves to nothing and a history that cannot be followed. If a sweep
+// touches it again, restore "j14_memory".
+//
+// The stale draft this replaces (features-draft/j14_memory.feature) narrated
 // a `ctxloom memory compact/list/show` command group that no longer exists.
 // Its list/show claims are already owned by j001200_recall.feature; the one live
 // claim worth keeping — that distillation genuinely runs the transcript

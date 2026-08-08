@@ -26,6 +26,19 @@ type MaterializeProfileRequest struct {
 	Target   string   `json:"target"`
 	Backend  string   `json:"backend,omitempty"` // "" or "claude" → claude-code
 	FS       afero.Fs `json:"-"`
+	// Surfaces overrides WHERE a surface kind is delivered, for the kinds named.
+	// An absent kind keeps the engine's own default, so an empty map is exactly
+	// today's behaviour. Overriding is how a caller asks for a portable artifact
+	// an engine would not otherwise leave behind: claude-code delivers context
+	// through a SessionStart hook by default — deliberately, since a hook
+	// reflects the profile as composed at launch — so a user who wants their
+	// assembled context as a file on disk has to say so.
+	//
+	// An unsupported (kind, approach) pair is REFUSED by the builder's Build(),
+	// naming what the engine does support. It is not silently downgraded to the
+	// default: a caller who asked for a file and received a hook would have no
+	// file and no error.
+	Surfaces map[agent.SurfaceKind]agent.Approach `json:"-"`
 }
 
 // MaterializeProfileResult reports which managed surfaces were written under
@@ -182,7 +195,11 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// the first) is what lets degraded mode produce maximal output. res.Wrote lists
 	// the kinds that ACTUALLY delivered — codex's context surface is a no-op here (no
 	// fragments → no native context file), so codex reports settings + commands only.
-	_, kinds, errs := agent.Select(set).WithEverything().DeliverUnder(req.Target)
+	sel := agent.Select(set).WithEverything()
+	for kind, approach := range req.Surfaces {
+		sel = sel.WithApproach(kind, approach)
+	}
+	_, kinds, errs := sel.DeliverUnder(req.Target)
 	for _, e := range errs {
 		strictness.Fail(strictness.ClassApply,
 			"fix the write failure, then re-run (ctxloom profile materialize)",

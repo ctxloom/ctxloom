@@ -1,6 +1,9 @@
 package agent
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // This file defines the APPROACH ENUMS the surface-selection builder (cells.go)
 // dispatches on, plus the shared, DATA-driven
@@ -67,6 +70,38 @@ func (a Approach) String() string {
 	default:
 		return fmt.Sprintf("unknown(%d)", int(a))
 	}
+}
+
+// ParseApproach is Approach.String's inverse, beside it for the same reason
+// ParseSurfaceKind sits beside SurfaceKind.String: the names are now typed by
+// users, so a rename has to move both halves at once.
+//
+// An unrecognised name is an ERROR, never a fallback. ApproachUnsafeFile is
+// iota 0 AND is the least safe approach — the one whose own doc says choosing
+// it IS the race acknowledgment — so a typo resolving to the zero value would
+// silently elect a well-known shared-cwd write that nobody asked for.
+func ParseApproach(s string) (Approach, error) {
+	for _, a := range approachOrder {
+		if a.String() == s {
+			return a, nil
+		}
+	}
+	return 0, fmt.Errorf("unknown approach %q (known: %s)", s, strings.Join(ApproachNames(), ", "))
+}
+
+// approachOrder is the enumeration, least-safe first, mirroring the const block
+// above. It is the ONE list: ParseApproach, error text, --help and shell
+// completion all read it rather than restating the names, so an approach added
+// to the enum reaches every one of them without a second edit.
+var approachOrder = []Approach{ApproachUnsafeFile, ApproachSystemPrompt, ApproachHook}
+
+// ApproachNames lists every approach's label, in approachOrder.
+func ApproachNames() []string {
+	names := make([]string, 0, len(approachOrder))
+	for _, a := range approachOrder {
+		names = append(names, a.String())
+	}
+	return names
 }
 
 // ContextWrite names HOW the context surface is delivered. The caller ALWAYS

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/afero"
 
@@ -85,6 +86,37 @@ func (k SurfaceKind) String() string {
 	default:
 		return "unknown"
 	}
+}
+
+// ParseSurfaceKind is SurfaceKind.String's inverse, and lives beside it so the
+// two cannot drift: a kind renamed for a user's eyes is renamed for their
+// keyboard in the same edit. It exists because the vocabulary is now typed by
+// humans (`profile materialize --surface context=unsafe-file`), not only
+// rendered to them.
+//
+// An unrecognised name is an ERROR rather than a zero value. SurfaceContext is
+// iota 0, so returning the zero value on a typo would silently retarget an
+// override at the context surface — the one kind whose delivery a user is most
+// likely to be overriding on purpose.
+func ParseSurfaceKind(s string) (SurfaceKind, error) {
+	for _, k := range surfaceOrder {
+		if k.String() == s {
+			return k, nil
+		}
+	}
+	return 0, fmt.Errorf("unknown surface kind %q (known: %s)", s, strings.Join(SurfaceKindNames(), ", "))
+}
+
+// SurfaceKindNames lists every kind's label, in delivery order. It reads
+// surfaceOrder — the one enumeration — so error text, --help and shell
+// completion cannot fall out of step with the enum or with each other. A kind
+// added to surfaceOrder appears in all three without touching them.
+func SurfaceKindNames() []string {
+	names := make([]string, 0, len(surfaceOrder))
+	for _, k := range surfaceOrder {
+		names = append(names, k.String())
+	}
+	return names
 }
 
 // KindedDelivery is a Delivery that knows its SurfaceKind, so the SurfaceSelection
@@ -351,6 +383,20 @@ type SurfaceSelection struct {
 // Select begins an opt-in selection over set with NOTHING selected.
 func Select(set SurfaceSet) *SurfaceSelection {
 	return &SurfaceSelection{set: set, approaches: map[SurfaceKind]Approach{}}
+}
+
+// WithApproach opts kind into the selection at a. It is the generic form of the
+// five typed With* methods below, for a caller holding a (kind, approach) pair
+// it parsed rather than one it wrote — `profile materialize --surface
+// context=unsafe-file` is the reason it exists.
+//
+// The typed methods are NOT replaced by it and should stay preferred in code:
+// WithContext(ContextWriteHook) cannot name an approach the context surface has
+// no spelling for, while this can, and only Build() will catch it. That is the
+// right trade for a parsed pair and the wrong one for a literal.
+func (s *SurfaceSelection) WithApproach(kind SurfaceKind, a Approach) *SurfaceSelection {
+	s.approaches[kind] = a
+	return s
 }
 
 // WithContext opts the context surface into the selection at the named approach.

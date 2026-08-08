@@ -13,8 +13,9 @@ import (
 )
 
 var (
-	materializeTarget  string
-	materializeBackend string
+	materializeTarget   string
+	materializeBackend  string
+	materializeSurfaces []string
 )
 
 // profileMaterializeCmd writes a profile's ASSEMBLED, ready-to-run agent surface
@@ -50,11 +51,16 @@ func runProfileMaterialize(cmd *cobra.Command, args []string) error {
 	// fatal surface-write finding it records through strictness is caught here and
 	// aborts the command (exit 3) unless --degraded downgrades them — mirroring
 	// how `ctxloom run`/`mcp`/`acp` gate their own startup findings.
+	overrides, err := parseSurfaceOverrides(materializeSurfaces)
+	if err != nil {
+		return err
+	}
 	mark := strictness.Checkpoint()
 	res, err := operations.MaterializeProfile(cmd.Context(), cfg, operations.MaterializeProfileRequest{
 		Profiles: args,
 		Target:   materializeTarget,
 		Backend:  materializeBackend,
+		Surfaces: overrides,
 	})
 	if err != nil {
 		return err
@@ -86,6 +92,24 @@ func init() {
 	profileCmd.AddCommand(profileMaterializeCmd)
 	profileMaterializeCmd.Flags().StringVar(&materializeTarget, "target", "", "Target directory to write the agent surface into (required)")
 	profileMaterializeCmd.Flags().StringVar(&materializeBackend, "backend", operations.DefaultMaterializeBackend, "Backend surface to write (claude-code)")
+	profileMaterializeCmd.Flags().StringArrayVar(&materializeSurfaces, "surface", nil,
+		"Override where a surface is delivered: <kind>=<approach> (repeatable). See --help for what this project's engines support.")
 	_ = profileMaterializeCmd.MarkFlagRequired("target")
 	profileMaterializeCmd.ValidArgsFunction = completeProfileNames
+	_ = profileMaterializeCmd.RegisterFlagCompletionFunc("surface", completeSurfaceOverrides)
+
+	// Help is computed against THIS project's engines, not written down. The
+	// flag's vocabulary is ctxloom's own and varies per engine, so a static
+	// table would be both a second source and the wrong one for most readers.
+	defaultHelp := profileMaterializeCmd.HelpFunc()
+	profileMaterializeCmd.SetHelpFunc(func(c *cobra.Command, args []string) {
+		defaultHelp(c, args)
+		cfg, err := GetConfig()
+		if err != nil {
+			// No config is a normal state (help outside a project), not a
+			// failure worth interrupting help for.
+			return
+		}
+		fmt.Fprint(c.OutOrStdout(), surfaceHelpFor(configuredEngines(cfg)))
+	})
 }

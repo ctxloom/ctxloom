@@ -31,6 +31,25 @@ func BuildSurfaces(name string, inputs agent.SurfaceInputs, fs afero.Fs) agent.S
 	return agent.EmptySurfaceSet{}
 }
 
+// SurfacesFor returns a CAPABILITY-ONLY surface set for engine: enough to answer
+// SupportedApproaches and DefaultApproach, and nothing more.
+//
+// It exists so help text and shell completion can describe an engine without
+// assembling any content for it. Both are read-only questions about what an
+// engine CAN do, asked before the user has chosen a profile — building real
+// inputs to answer them would mean loading bundles to print a table.
+//
+// The returned set must not be delivered through: its inputs are empty, so any
+// Deliver would write nothing. An unknown engine yields EmptySurfaceSet, which
+// reports no approaches for every kind and renders as "no surface information"
+// rather than as an engine with no surfaces.
+func SurfacesFor(engine string) (agent.SurfaceSet, error) {
+	if _, ok := descriptors[engine]; !ok {
+		return nil, fmt.Errorf("unknown engine %q", engine)
+	}
+	return BuildSurfaces(engine, agent.SurfaceInputs{}, afero.NewMemMapFs()), nil
+}
+
 // wellKnownPlacement is a placeholder agent.Placement for building a SurfaceSet
 // that only drives the well-known Deliveries() path (materialize, which lands
 // native files at the cell's dir). claude's NewSurfaces binds an out-of-cwd

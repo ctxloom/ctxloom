@@ -27,6 +27,27 @@ import (
 // this shared space via its approach() method.
 type Approach int
 
+// PREFERENCE, and it is NOT the order of this enum. Ranked by how little of the
+// user's environment a delivery has to touch to do its job — simplest, lowest
+// interaction first:
+//
+//	1. system-prompt — a flag on the command line. Touches no project file and
+//	   starts no process of ours. Nothing to race, nothing to clean up.
+//	2. hook          — a SessionStart process that invokes ctxloom. More moving
+//	   parts, and it earns them: the context is composed at launch and re-injected
+//	   after a /clear without anyone asking.
+//	3. unsafe-file   — a write into the shared working directory. Highest
+//	   interaction: it lands on well-known paths a concurrent session may be
+//	   reading, which is why choosing it is spelled as an acknowledgment.
+//
+// The iota order below is historical and says nothing about preference — do not
+// read it as a ranking. Nor does an ApproachTable's order, which is a
+// CAPABILITY list whose first entry is only the at-rest default; measured
+// 2026-08-08, no single table order serves every caller (system-prompt first
+// fails every at-rest DeliverUnder for want of an argv sink; hook first breaks
+// claude's launch). Preference is expressed by the CALLER: `profile materialize`
+// names unsafe-file because its output must outlive ctxloom, and a launch takes
+// its agent's configured approach.
 const (
 	// ApproachUnsafeFile writes the engine's native, well-known file the engine
 	// reads directly (CLAUDE.md, AGENTS.md, .kiro/steering, .mcp.json,

@@ -133,8 +133,16 @@ func runHookInjectContext(cmd *cobra.Command, args []string) (err error) {
 	// a prior session existing. Only the first chunk checks (the message also
 	// guards part>1); the stat is local, and on a missing/empty transcript we
 	// stay silent rather than promise a recovery that would come back empty.
+	//
+	// WHY the source is not re-checked here: clearRecoveryMessage owns that
+	// decision, and encoding it in both places made each copy individually
+	// unkillable — removing either one alone changed no observable behaviour,
+	// so no test could tell whether the rule was still enforced. This computes
+	// only the fact (is there anything to recover) and lets one function decide
+	// what to do with it. The cost is a stat on every first-chunk SessionStart
+	// rather than only after a clear, which is one local file stat.
 	clearRecoverable := false
-	if hookInput.Source == "clear" && part <= 1 {
+	if part <= 1 {
 		clearRecoverable = currentSessionRecoverable(hookInput.TranscriptPath)
 	}
 	// Compose the user-facing SessionStart nudges: the clear-recovery hint

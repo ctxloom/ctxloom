@@ -68,13 +68,16 @@ type World struct {
 
 	skillSigners map[string]*testenv.TestSigner // skill.feature: cached per-name test signers (steps_skill.go), so "Trent"/"Mallory" resolve to the same key across a scenario's steps regardless of order
 	// --- @doc capture sidecar (prototype; see steps_doc_capture.go) ---------
-	docCapture          *docCapture // accumulated evidence for the current @doc scenario, nil otherwise
-	docFileName         string      // filename this scenario's capture flushes to
-	docLastMockRecorded string      // last mock-recorded payload already attached, to avoid repeat-attaching it every step
-	docLastRunCount     int         // env.RunCount() at the previous step, so a step that ran a command is attributed its output even when identical to the prior step's (a no-op step, which runs nothing, is not)
-	docLastBobOutput    string      // J2: last teammate-checkout output already attributed (separate stream from w.env)
-	docPrevStepType     string      // previous step's PickleStepType, to reconstruct And/But from a run of same-type steps for Gherkin keyword rendering
-	docStepMaterialized string      // set-and-consume: evidence a step observed that never flows through w.env (a file it read, a captured PTY session, a pre-materialize sync notice); the hook attaches it to that step and clears it
+	docCapture           *docCapture // accumulated evidence for the current @doc scenario, nil otherwise
+	docFileName          string      // filename this scenario's capture flushes to
+	docLastMockRecorded  string      // last mock-recorded payload already attached, to avoid repeat-attaching it every step
+	docLastRunCount      int         // env.RunCount() at the previous step, so a step that ran a command is attributed its output even when identical to the prior step's (a no-op step, which runs nothing, is not)
+	docLastBobOutput     string      // J2: last teammate-checkout output already attributed (separate stream from w.env)
+	toolCalls            int         // MCP tool invocations so far, so doc capture can tell "this step called a tool" from "a tool was called earlier"
+	docLastToolCalls     int         // toolCalls at the previous step, mirroring docLastRunCount for the MCP channel
+	docLastCommandOutput string      // most recent command's output within the current scenario, inherited by the Thens that assert about it; cleared per scenario
+	docPrevStepType      string      // previous step's PickleStepType, to reconstruct And/But from a run of same-type steps for Gherkin keyword rendering
+	docStepMaterialized  string      // set-and-consume: evidence a step observed that never flows through w.env (a file it read, a captured PTY session, a pre-materialize sync notice); the hook attaches it to that step and clears it
 }
 
 type worldKey struct{}
@@ -170,6 +173,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerSessionHookSteps(ctx)
 	registerMCPSessionToolSteps(ctx)
 	registerEvaluateTriggersSteps(ctx)
+	registerJ19Steps(ctx)
 	registerJ15Steps(ctx)
 	registerJ16Steps(ctx)
 	registerJ17Steps(ctx)
@@ -180,6 +184,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ23Steps(ctx)
 	registerJ24Steps(ctx)
 	registerJ25Steps(ctx)
+	registerJ26RecoverSteps(ctx)
 	registerCompanionConsentSteps(ctx)
 	registerTrustCLISteps(ctx)
 	registerTrustSurfaceSteps(ctx)

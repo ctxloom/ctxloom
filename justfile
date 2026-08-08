@@ -860,7 +860,20 @@ test-mutation-cucumber *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
     set +e
-    output=$(go test -tags mutation -count=1 -timeout 120m ./tests/mutation/... "$@" 2>&1)
+    # -v is LOAD-BEARING, not a debugging convenience. ooze prints its per-mutant
+    # diffs and its summary box to STDOUT, and `go test` swallows a PASSING test's
+    # stdout. The mutation test uses WithMinimumThreshold(0), so it ALWAYS passes —
+    # which means without -v this recipe runs for an hour and emits one line:
+    #   ok  github.com/ctxloom/ctxloom/tests/mutation  339.740s
+    # Measured 2026-08-07: a full bundle_sign entry did exactly that. The first
+    # trust_cascade run only showed its 51 survivors because the guard test was
+    # failing beside it and dragged the package output out; fixing that guard
+    # silenced the gate entirely. See taskloom unwanted-deviate.
+    #
+    # 240m, not 120m: the four-entry table measured 111 minutes of mutants
+    # (63 + 30 + 12 + 6) plus the guard test, so 120m was already marginal and a
+    # timeout mid-table loses the whole run's results.
+    output=$(go test -tags mutation -v -count=1 -timeout 240m ./tests/mutation/... "$@" 2>&1)
     status=$?
     set -e
     printf '%s\n' "$output"
@@ -871,6 +884,43 @@ test-mutation-cucumber *ARGS:
         echo "error: -run matched no tests (typo'd or renamed test name?)" >&2
         exit 1
     fi
+    # THE INVARIANT: a mutation run that produced no score has told you nothing,
+    # and must never read as a clean bill of health. Exit 0 here would be the
+    # exact failure this gate replaced (gremlins reporting success over an empty
+    # mutant set).
+    if ! grep -q 'Score:' <<<"$output"; then
+        echo "error: the run produced no mutation score — it measured NOTHING." >&2
+        echo "       ooze prints its summary to stdout; if that is missing, either no" >&2
+        echo "       target was released or the output was swallowed. Do not read this" >&2
+        echo "       as a pass." >&2
+        exit 1
+    fi
+    # Repeat the summary AFTER the -v firehose, so the number is not buried
+    # thousands of scenario lines up.
+    echo
+    echo "=== mutation summary ==="
+    grep -E 'Total:|Killed:|Survived:|Score:' <<<"$output" || true
+
+# Run ONE entry from the mutation target table (see `just test-mutation-entries`).
+# Per-entry is the recommended way to run this: the full table is ~111 minutes,
+# and a single entry gives a number you can act on today.
+#
+#   just test-mutation-entry signer_store
+test-mutation-entry NAME *ARGS:
+    @just test-mutation-cucumber -run 'TestAcceptanceMutation/^{{NAME}}$' {{ARGS}}
+
+# List the mutation target table's entry names, with the file each one mutates.
+# Reads the table itself, so it cannot drift from the code the way a hand-kept
+# list in a comment would.
+test-mutation-entries:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "mutation target table (tests/mutation/, run with: just test-mutation-entry NAME):"
+    grep -A2 -E '^\s+Name:\s+"' tests/mutation/*_test.go \
+      | grep -oE '"(([a-z_]+)|(internal/[^"]+\.go))"' \
+      | tr -d '"' \
+      | paste - - \
+      | awk '{ printf "  %-16s %s\n", $1, $2 }'
 
 # Clean build artifacts
 clean:

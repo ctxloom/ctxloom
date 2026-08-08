@@ -65,12 +65,19 @@ func TestBuild_RejectsSystemPrompt_OnKiroAndCodex(t *testing.T) {
 	assert.Error(t, err, "codex's context is hook-only; system-prompt is unsupported")
 }
 
-// codex has no CLAUDE.md-style native context file — naming UnsafeFile for its
-// context is an unsupported combo the builder rejects loudly.
-func TestBuild_RejectsUnsafeFileContext_OnCodex(t *testing.T) {
-	codexSet := codex.NewSurfaces(agent.SurfaceInputs{}, "", "", nil)
-	_, err := agent.Select(codexSet).WithContext(agent.ContextWriteUnsafeFile).WithSettings(agent.SettingsWriteUnsafeFile).Build()
-	assert.Error(t, err, "codex's context is hook-only; unsafe-file is unsupported")
+// An unsupported (kind, approach) pair is rejected LOUDLY rather than
+// downgraded to the backend's default — a caller who asked for one delivery and
+// silently received another would have no way to tell.
+//
+// kiro is the example because it reads a native steering file and has no hook
+// route at all. This test used to use CODEX and unsafe-file, on the grounds that
+// codex had no native context file; codex reads a workspace-fixed AGENTS.md and
+// now declares that approach, so the pair it asserted was unsupported is
+// supported and the test was pinning a limitation rather than a contract.
+func TestBuild_RejectsUnsupportedContextApproach(t *testing.T) {
+	kiroSet := kiro.NewSurfaces(agent.SurfaceInputs{}, nil)
+	_, err := agent.Select(kiroSet).WithContext(agent.ContextWriteHook).WithSettings(agent.SettingsWriteUnsafeFile).Build()
+	assert.Error(t, err, "kiro's context is native-file-only; hook is unsupported and must be refused, not downgraded")
 }
 
 // The Hook approach rides the settings-carried inject hook: naming it without

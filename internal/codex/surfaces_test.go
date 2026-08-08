@@ -421,13 +421,22 @@ func TestSharedCell_AcceptsOnlyUnsafeCodexSurfaces(t *testing.T) {
 
 // ---- approach dispatch (v2) -------------------------------------
 
-// SupportedApproaches pins codex's per-surface table: context is Hook-only (codex
-// has no CLAUDE.md-style native file), settings/commands are native-file-only, and
-// MCP is absent (folded into the config/settings surface).
+// SupportedApproaches pins codex's per-surface table. Context declares BOTH the
+// Hook route and the native file: codex reads a workspace-fixed AGENTS.md by
+// itself, so claiming it has no native-file approach under-reported the engine
+// and made `--surface context=unsafe-file` a refusal for something codex
+// actually does. Hook stays FIRST because ApproachTable.Default is the first
+// entry, and both materialize and launch resolve through WithEverything —
+// reordering here would silently change what every default delivery does.
 func TestSurfaces_SupportedApproaches(t *testing.T) {
 	s := NewSurfaces(sampleInputs(), "", "", afero.NewMemMapFs())
 
-	assert.Equal(t, []agent.Approach{agent.ApproachHook}, s.SupportedApproaches(agent.SurfaceContext))
+	assert.Equal(t, []agent.Approach{agent.ApproachHook, agent.ApproachUnsafeFile},
+		s.SupportedApproaches(agent.SurfaceContext))
+	def, ok := s.DefaultApproach(agent.SurfaceContext)
+	require.True(t, ok)
+	assert.Equal(t, agent.ApproachHook, def,
+		"the DEFAULT must remain the composed Hook route; adding a nameable approach must not change what an unqualified materialize or launch delivers")
 	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSettings))
 	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceCommands))
 	assert.Equal(t, []agent.Approach{agent.ApproachUnsafeFile}, s.SupportedApproaches(agent.SurfaceSkills))
@@ -461,10 +470,7 @@ func TestSurfaces_DefaultApproach(t *testing.T) {
 // the fix for both the materialize path AND the live run/launch path
 // (`ctxloom run` resolves surfaces through this SAME
 // SurfaceFor(SurfaceContext, Hook) call, so codex's context now genuinely
-// reaches the model on both paths). Naming UnsafeFile for codex's context is
-// unsupported — codex's native AGENTS.md write rides the SAME Hook-declared
-// route (see codexApproaches' doc comment), it is not a separately-selectable
-// approach.
+// reaches the model on both paths).
 func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewSurfaces(sampleInputs(), "", "", fs)
@@ -481,8 +487,36 @@ func TestSurfaceFor_ContextHookWritesCacheFile(t *testing.T) {
 	require.NoError(t, err, "the native AGENTS.md route landed too — SAME Deliver call")
 	assert.Contains(t, string(data), "the secret color is vermilion")
 
-	_, err = s.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
-	assert.Error(t, err, "UnsafeFile is not a separately-selectable approach for codex's context")
+}
+
+// TestSurfaceFor_ContextUnsafeFileIsTheNativeFileAlone is the other half, and
+// the one that used to be a refusal: naming the native file must deliver
+// AGENTS.md and NOTHING else.
+//
+// Selecting it is how a caller asks for the artifact codex reads on its own —
+// the one that outlives ctxloom being uninstalled. Before this it was
+// unsupported, so SupportedApproaches under-reported the engine and the flag
+// refused a delivery codex performs by default anyway.
+func TestSurfaceFor_ContextUnsafeFileIsTheNativeFileAlone(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	s := NewSurfaces(sampleInputs(), "", "", fs)
+
+	d, err := s.SurfaceFor(agent.SurfaceContext, agent.ApproachUnsafeFile)
+	require.NoError(t, err, "codex reads AGENTS.md natively; naming it must be supported")
+	dir := t.TempDir()
+	_, err = d.Deliver(dir)
+	require.NoError(t, err)
+
+	data, rerr := afero.ReadFile(fs, filepath.Join(dir, "AGENTS.md"))
+	require.NoError(t, rerr, "the native file is what this approach delivers")
+	assert.Contains(t, string(data), "the secret color is vermilion")
+
+	// ALONE is the claim. If the hash-file route rode along, this approach
+	// would be a second spelling of Hook rather than a distinct choice, and a
+	// caller asking for a portable artifact would also get a cache file that
+	// means nothing without ctxloom.
+	entries, _ := afero.ReadDir(fs, filepath.Join(dir, agent.SCMContextSubdir))
+	assert.Empty(t, entries, "the hook route's cache file must NOT be written for the native-file approach")
 }
 
 // A past review claimed the exported Context/AgentsMD fields let a caller

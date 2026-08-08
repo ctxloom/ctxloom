@@ -148,8 +148,8 @@ type SurfaceSet interface {
 	// (codex folds MCP into its config/settings surface) — selecting the kind is
 	// then a permitted no-op rather than an error. A non-empty result that omits a
 	// named approach makes that (kind, approach) combination unsupported — the
-	// builder's Build() rejects it loudly (WithContext(UnsafeFile) on codex,
-	// WithContext(Hook) on kiro).
+	// builder's Build() rejects it loudly (WithContext(Hook) on kiro,
+	// WithContext(SystemPrompt) on codex).
 	SupportedApproaches(kind SurfaceKind) []Approach
 	// DefaultApproach reports the approach WithEverything selects for kind — the
 	// backend's native realization. false means kind is absent/folded for this

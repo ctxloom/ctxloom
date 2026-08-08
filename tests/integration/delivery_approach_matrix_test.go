@@ -219,13 +219,21 @@ var matrixSpecs = map[string]deliverySpec{
 	"claude-code/skills/unsafe-file":   {wantFile: ".claude/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 
 	// ---- codex -------------------------------------------------------------
-	// codex is the one backend whose context is declared Hook-ONLY. Its hook
-	// approach delivers BOTH routes: the raw cache file the SessionStart hook
-	// reads (keyed on Fragments) and the native AGENTS.md (keyed on Context).
+	// codex declares TWO context approaches, and they are not two spellings of
+	// one thing. Hook is the DEFAULT and delivers BOTH routes — the raw cache
+	// file the SessionStart hook reads (keyed on Fragments) and the native
+	// AGENTS.md (keyed on Context) — because materialize and launch each get a
+	// single SurfaceFor call and both need what the other needs.
 	"codex/context/hook": {
 		wantFile: "AGENTS.md", wantSlot: slotContext,
 		alsoFile: ".ctxloom/cache/context/*", alsoSlot: slotFragment,
 	},
+	// unsafe-file is the native file ALONE: the artifact codex reads by itself,
+	// which is what makes it the one that outlives ctxloom being uninstalled.
+	// Deliberately NO alsoFile — a cache file riding along would make this a
+	// second spelling of hook, and would hand someone asking for a portable
+	// document a file that means nothing without ctxloom.
+	"codex/context/unsafe-file": {wantFile: "AGENTS.md", wantSlot: slotContext},
 	"codex/settings/unsafe-file": {wantFile: ".codex/config.toml", wantSlot: slotHook},
 	"codex/commands/unsafe-file": {wantFile: ".codex/prompts/ctxsentinelcmd.md", wantSlot: slotCommand},
 	"codex/skills/unsafe-file":   {wantFile: ".codex/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},

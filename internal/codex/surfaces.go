@@ -331,26 +331,36 @@ func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs a
 }
 
 // codexApproaches is codex's DECLARED per-surface approach table (vital-tiger v2
-// per-provider dispatch). context remains declared Hook-ONLY: the SessionStart
-// inject-context hook's raw cache file is the only SEPARATELY-SELECTABLE
-// context approach a caller can name. But `profile materialize` and the live
-// run/launch path both resolve surfaces through
+// per-provider dispatch). Context declares TWO approaches, and the ORDER is
+// load-bearing.
+//
+// Hook is FIRST, so it is ApproachTable.Default and therefore what
+// WithEverything selects. That matters because `profile materialize` and the
+// live run/launch path both resolve through
 // agent.Select(set).WithEverything().Build(), which calls SurfaceFor EXACTLY
-// ONCE per selected kind (cells.go's SurfaceSelection.Build) — so the Hook
-// approach must resolve to something that ALSO performs the native AGENTS.md
-// write, or that write would never reach either path. The routes field
-// (an agent.ComposedDelivery) is that composition: naming UnsafeFile for codex's context
-// remains an unsupported combo the builder rejects — there is no way to select
-// "only the native file" separately through this table, the way
-// claude/antigravity expose UnsafeFile as a first-class choice; codex's native
-// write always rides alongside Hook.
+// ONCE per selected kind (cells.go's SurfaceSelection.Build) — one call has to
+// satisfy both. The routes field (an agent.ComposedDelivery) is that
+// composition: the Hook approach performs the SessionStart cache-file write AND
+// the native AGENTS.md write, so neither path loses one.
+//
+// UnsafeFile is second and resolves, via SurfaceFor's special case below, to the
+// AGENTS.md surface ALONE. codex reads that file natively at session start with
+// no hook involved, which makes it the artifact that survives ctxloom being
+// uninstalled — so a caller must be able to ask for just it. It previously
+// could not: the table declared Hook only, SupportedApproaches under-reported
+// the engine, and `--surface context=unsafe-file` was refused for a delivery
+// codex performs by default anyway.
+//
+// Reordering these two silently changes what every unqualified materialize and
+// launch delivers. TestSurfaces_SupportedApproaches pins Hook as the default for
+// that reason.
 // settings/commands are native-file-only. SurfaceMCP is deliberately ABSENT: MCP
 // folds into the config/settings surface, so codex advertises no distinct MCP
 // surface — selecting MCP is a permitted no-op, resolved by whichever selection
 // also names Settings. The mechanical lookups ride agent.ApproachTable; only
 // this table is codex's.
 var codexApproaches = agent.ApproachTable{
-	agent.SurfaceContext:  {agent.ApproachHook},
+	agent.SurfaceContext:  {agent.ApproachHook, agent.ApproachUnsafeFile},
 	agent.SurfaceSettings: {agent.ApproachUnsafeFile},
 	agent.SurfaceCommands: {agent.ApproachUnsafeFile},
 	agent.SurfaceSkills:   {agent.ApproachUnsafeFile},
@@ -363,6 +373,14 @@ var codexApproaches = agent.ApproachTable{
 // SessionStart hook reads, AND the native AGENTS.md managed-marker write) —
 // settings resolves to the folded config surface.
 func (s Surfaces) SurfaceFor(kind agent.SurfaceKind, a agent.Approach) (agent.Delivery, error) {
+	// The native file, ALONE — no hash file, no hook. Selecting it is how a
+	// caller asks for the artifact codex reads by itself, which is the whole
+	// point of AGENTS.md: it survives ctxloom being uninstalled. The composed
+	// Hook route below still writes it too, so the DEFAULT is unchanged; this
+	// only makes "just the file" nameable, which it previously was not.
+	if kind == agent.SurfaceContext && a == agent.ApproachUnsafeFile {
+		return s.AgentsMD, nil
+	}
 	return codexApproaches.SurfaceFor("codex", s.dispatch, kind, a)
 }
 

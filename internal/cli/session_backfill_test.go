@@ -31,6 +31,30 @@ func execRootCmd(t *testing.T, args ...string) (stdout string, err error) {
 	return out.String(), err
 }
 
+// pinnedEngineVersion is the version a seeded session claims to have run under,
+// per engine. Required, not decorative: reader selection is
+// (engine, RECORDED version) -> adapter, and a session carrying no
+// engine_version REFUSES to be read at all rather than guess at a format
+// (vendorreader.SelectAdapter). Seeding it is what makes these fixtures fail —
+// or pass — for the reason the test names instead of for a missing version.
+//
+// The values are .github/engine-versions.env's pins, so a seeded session claims
+// exactly the version ctxloom's readers are validated against. Same rationale
+// and same source as j12SeededEngineVersion in the acceptance suite.
+var pinnedEngineVersion = map[string]string{
+	"claude-code": "2.1.214",
+	"codex":       "0.144.6",
+}
+
+// seedEngineVersion records the pinned version for harp, so a fixture exercises
+// the behaviour it was written for rather than the unknown-version refusal.
+func seedEngineVersion(t *testing.T, mgr *sessions.Manager, harp, backend string) {
+	t.Helper()
+	v, ok := pinnedEngineVersion[backend]
+	require.True(t, ok, "no pinned engine version for backend %q", backend)
+	require.NoError(t, mgr.RecordEngineVersion(harp, v))
+}
+
 // TestSessionBackfill_NoArgs_ConvertsBoundEntries covers the "backfill
 // everything" shape: one harp with a real bound vendor transcript converts,
 // one with nothing bound is skipped — both reported in the json result.
@@ -41,6 +65,7 @@ func TestSessionBackfill_NoArgs_ConvertsBoundEntries(t *testing.T) {
 
 	converts, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
+	seedEngineVersion(t, mgr, converts.HarpName, "claude-code")
 	require.NoError(t, mgr.BindSession(converts.HarpName, "sess-1", claudeVendorFixturePath(t)))
 
 	skips, err := mgr.AssignHarp(dir, "codex")
@@ -70,6 +95,7 @@ func TestSessionBackfill_NamedHarp(t *testing.T) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
+	seedEngineVersion(t, mgr, entry.HarpName, "claude-code")
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))
 
 	out, err := execRootCmd(t, "session", "backfill", entry.HarpName, "--format", "text")
@@ -98,6 +124,7 @@ func TestSessionBackfill_EveryEntryFailing_IsAnError(t *testing.T) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "codex")
 	require.NoError(t, err)
+	seedEngineVersion(t, mgr, entry.HarpName, "codex")
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", t.TempDir())) // a dir, not a file
 
 	_, err = execRootCmd(t, "session", "backfill", "--format", "text")
@@ -115,6 +142,7 @@ func TestSessionBackfill_Idempotent_ReRun(t *testing.T) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp(dir, "claude-code")
 	require.NoError(t, err)
+	seedEngineVersion(t, mgr, entry.HarpName, "claude-code")
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))
 
 	_, err = execRootCmd(t, "session", "backfill", "--format", "text")

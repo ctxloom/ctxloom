@@ -88,6 +88,7 @@ func TestConvertVendorTranscriptOnExit_ConvertsBoundTranscript(t *testing.T) {
 	require.NoError(t, err)
 	entry, err := mgr.AssignHarp("/tmp/project", "claude-code")
 	require.NoError(t, err)
+	seedEngineVersion(t, mgr, entry.HarpName, "claude-code")
 	require.NoError(t, mgr.BindSession(entry.HarpName, "sess-1", claudeVendorFixturePath(t)))
 
 	convertVendorTranscriptOnExit(entry.HarpName)

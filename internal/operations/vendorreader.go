@@ -36,10 +36,16 @@ import (
 // a failure a caller should ever warn about.
 type vendorLocate func(ctx context.Context, e sessions.Entry) (src string, ok bool)
 
-// vendorReaderEntry pairs one engine's VendorAdapter with its locate func.
+// vendorReaderEntry pairs one engine's version-scoped adapters with its
+// locate func. adapters is a LIST because a vendor's transcript format moves
+// between releases: ctxloom may carry several whole-file adapters per engine,
+// each declaring the version range it was validated against, and the session's
+// RECORDED engine version picks among them (vendorreader.SelectAdapter). A
+// version matching none of them refuses — see version.go for why there is no
+// default to fall through to.
 type vendorReaderEntry struct {
-	adapter vendorreader.VendorAdapter
-	locate  vendorLocate
+	adapters []vendorreader.VersionedAdapter
+	locate   vendorLocate
 }
 
 // vendorReaderRegistry maps a backend registry name — the SAME name
@@ -68,10 +74,10 @@ type vendorReaderEntry struct {
 // (on the rare path where one lands at all) is a session_id, not a file
 // path, because a single sqlite db holds every conversation.
 var vendorReaderRegistry = map[string]vendorReaderEntry{
-	config.BackendClaudeCode: {adapter: claudereader.Adapter{}, locate: locateBoundTranscript},
-	"codex":                  {adapter: codexreader.Adapter{}, locate: locateBoundTranscript},
-	"antigravity":            {adapter: antigravityreader.Adapter{}, locate: locateBoundTranscript},
-	"kiro":                   {adapter: kiroreader.Adapter{}, locate: locateKiroConversation},
+	config.BackendClaudeCode: {adapters: claudereader.VersionedAdapters, locate: locateBoundTranscript},
+	"codex":                  {adapters: codexreader.VersionedAdapters, locate: locateBoundTranscript},
+	"antigravity":            {adapters: antigravityreader.VersionedAdapters, locate: locateBoundTranscript},
+	"kiro":                   {adapters: kiroreader.VersionedAdapters, locate: locateKiroConversation},
 }
 
 // VendorReaderEngineNames returns the backend names vendorReaderRegistry
@@ -122,6 +128,14 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 // backend isn't registered, e has no locatable vendor transcript, or a
 // canonical transcript already exists for the harp.
 //
+// converted=false with an ERROR is the REFUSAL case, and it is new: a session
+// whose recorded engine version matches no adapter ctxloom carries — including
+// a session that records no version at all, which every session predating
+// version recording does — is not read. Nothing is attempted, nothing is
+// written, and the error says which version was refused against which
+// validated ranges. See vendorreader/version.go for why this never falls
+// through to a "newest" adapter.
+//
 // Idempotent BY NON-REPETITION, not by content-diffing: Convert re-reads the
 // vendor source from its own beginning every call (vendorreader.VendorAdapter
 // has no incremental/resume concept — see adapter.go's doc comment on a
@@ -155,12 +169,29 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 		return false, nil
 	}
 
+	// SELECT AFTER LOCATE, deliberately. A refusal is a real, actionable
+	// signal — "you have a transcript ctxloom will not parse, and here is
+	// why" — and it should only be raised about a session that actually HAS
+	// one. Selecting first would make every unbound or already-vanished
+	// session shout about an unknown version instead of being the quiet
+	// nothing-to-do it is, and a refusal that fires constantly stops being
+	// read.
+	//
+	// Everything past this point is the OTHER failure level: with a validated
+	// adapter chosen, a malformed line degrades to partial rather than
+	// refusing (vendorreader.VendorAdapter's contract). The two must not be
+	// collapsed — see vendorreader/version.go's header.
+	adapter, aerr := vendorreader.SelectAdapter(e.Backend, e.EngineVersion, e.HarpName, reg.adapters)
+	if aerr != nil {
+		return false, aerr
+	}
+
 	rec, err := transcript.NewRecorder(e.HarpName, e.Backend)
 	if err != nil {
 		return true, fmt.Errorf("open recorder for %s: %w", e.HarpName, err)
 	}
 
-	cerr := reg.adapter.Convert(ctx, rec, src)
+	cerr := adapter.Convert(ctx, rec, src)
 	_ = rec.Close()
 	if cerr != nil {
 		// Convert can fail AFTER already recording some lines (a

@@ -49,6 +49,34 @@ type Adapter struct{}
 
 var _ vendorreader.VendorAdapter = Adapter{}
 
+// VersionedAdapters declares which kiro CLI versions this adapter is
+// validated to read. Selection is (engine, RECORDED version) -> adapter
+// (vendorreader.SelectAdapter); a version outside every range here REFUSES,
+// and there is deliberately no default to fall through to.
+//
+// The 2.x stable track only, deliberately excluding kiro-cli's 3.x `--v3`
+// early-access track. This adapter reads the conversations_v2 sqlite store,
+// and "kiro v1-vs-v2-sqlite" is named in internal/lm/grpc/canonical_source.go
+// as one of the four defects the deleted scrapers were removed for: a store
+// format that moved underneath a single reader is the exact failure this
+// versioning exists to prevent, and it happened to THIS engine. 3.x gets its
+// own adapter when someone has run it.
+//
+// ValidatedVersion cites .github/engine-versions.env, the tested-version lock
+// CI keeps honest — it is what makes the range above evidence rather than
+// hope, and TestVendorReaderRanges_ContainThePinnedTestedVersion holds the two
+// together.
+//
+// A declared var, in the shape of claude.ClaudeACPTransport and the other
+// per-engine declarations this repo keeps beside their engine: it is a FACT
+// this package states about itself, read once into
+// operations.vendorReaderRegistry, not a computation.
+var VersionedAdapters = []vendorreader.VersionedAdapter{{
+	Adapter:          Adapter{},
+	Versions:         vendorreader.VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
+	ValidatedVersion: "2.13.0",
+}}
+
 // locatorSep separates a kiro composite locator's db path from its
 // conversation id: "<db-path>#<conversation-id>" (vendorreader.VendorAdapter's
 // doc comment). A kiro-cli conversation id is always its own uuid (never

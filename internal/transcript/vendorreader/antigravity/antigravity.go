@@ -53,6 +53,32 @@ type Adapter struct{}
 
 var _ vendorreader.VendorAdapter = Adapter{}
 
+// VersionedAdapters declares which antigravity CLI versions this adapter is
+// validated to read. Selection is (engine, RECORDED version) -> adapter
+// (vendorreader.SelectAdapter); a version outside every range here REFUSES,
+// and there is deliberately no default to fall through to.
+//
+// The 1.x line. agy is not installed on any host this project can reach, so
+// this range rests entirely on the lock's 1.1.4 pin and the CI drift gate over
+// it — narrower than it looks in practice, since any 1.x version outside what
+// the pipeline has validated is a range this project should tighten rather
+// than trust.
+//
+// ValidatedVersion cites .github/engine-versions.env, the tested-version lock
+// CI keeps honest — it is what makes the range above evidence rather than
+// hope, and TestVendorReaderRanges_ContainThePinnedTestedVersion holds the two
+// together.
+//
+// A declared var, in the shape of claude.ClaudeACPTransport and the other
+// per-engine declarations this repo keeps beside their engine: it is a FACT
+// this package states about itself, read once into
+// operations.vendorReaderRegistry, not a computation.
+var VersionedAdapters = []vendorreader.VersionedAdapter{{
+	Adapter:          Adapter{},
+	Versions:         vendorreader.VersionRange{MinInclusive: "1.0.0", MaxExclusive: "2.0.0"},
+	ValidatedVersion: "1.1.4",
+}}
+
 // Convert reads the antigravity transcript_full.jsonl file at src and
 // appends its conversation to rec in the file's own order. See
 // vendorreader.VendorAdapter's doc comment for the general contract (malformed

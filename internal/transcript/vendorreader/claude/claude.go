@@ -40,6 +40,34 @@ type Adapter struct{}
 
 var _ vendorreader.VendorAdapter = Adapter{}
 
+// VersionedAdapters declares which claude-code CLI versions this adapter is
+// validated to read. Selection is (engine, RECORDED version) -> adapter
+// (vendorreader.SelectAdapter); a version outside every range here REFUSES,
+// and there is deliberately no default to fall through to.
+//
+// The 2.x line is one format as far as this adapter is concerned: a
+// project-scoped JSONL file per session, one JSON object per line. The lock
+// pins 2.1.214 and this host runs 2.1.225 — the range covers both, and
+// covering the whole major line is the claim that claude-code has not
+// reshaped its per-line schema within 2.x. It stops at 3.0.0 because a major
+// bump is exactly where a vendor is entitled to reshape it, and an unbounded
+// range would assert compatibility with a format nobody has seen.
+//
+// ValidatedVersion cites .github/engine-versions.env, the tested-version lock
+// CI keeps honest — it is what makes the range above evidence rather than
+// hope, and TestVendorReaderRanges_ContainThePinnedTestedVersion holds the two
+// together.
+//
+// A declared var, in the shape of claude.ClaudeACPTransport and the other
+// per-engine declarations this repo keeps beside their engine: it is a FACT
+// this package states about itself, read once into
+// operations.vendorReaderRegistry, not a computation.
+var VersionedAdapters = []vendorreader.VersionedAdapter{{
+	Adapter:          Adapter{},
+	Versions:         vendorreader.VersionRange{MinInclusive: "2.0.0", MaxExclusive: "3.0.0"},
+	ValidatedVersion: "2.1.214",
+}}
+
 // Convert reads the claude transcript JSONL file at src and appends its
 // conversation to rec in the file's own order. See vendorreader.VendorAdapter's
 // doc comment for the general contract (malformed lines skipped, not fatal;

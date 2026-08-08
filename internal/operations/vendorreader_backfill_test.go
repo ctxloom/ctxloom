@@ -24,6 +24,7 @@ func TestBackfillVendorTranscripts_MixedSet(t *testing.T) {
 			HarpName:       "backfill-converts",
 			Backend:        "codex",
 			TranscriptPath: codexFixturePath,
+			EngineVersion:  "0.144.4",
 		},
 		{ // no adapter for this backend — skipped
 			HarpName:       "backfill-skips-unregistered",
@@ -38,11 +39,13 @@ func TestBackfillVendorTranscripts_MixedSet(t *testing.T) {
 			HarpName:       "backfill-fails",
 			Backend:        "codex",
 			TranscriptPath: t.TempDir(),
+			EngineVersion:  "0.144.4",
 		},
 		{ // converts cleanly, a second engine
 			HarpName:       "backfill-converts-claude",
 			Backend:        "claude-code",
 			TranscriptPath: claudeFixturePath,
+			EngineVersion:  "2.1.225",
 		},
 	}
 
@@ -76,7 +79,7 @@ func TestBackfillVendorTranscripts_Empty(t *testing.T) {
 func TestBackfillVendorTranscripts_Idempotent(t *testing.T) {
 	testsupport.Isolate(t)
 	entries := []sessions.Entry{
-		{HarpName: "backfill-idempotent", Backend: "codex", TranscriptPath: codexFixturePath},
+		{HarpName: "backfill-idempotent", Backend: "codex", TranscriptPath: codexFixturePath, EngineVersion: "0.144.4"},
 	}
 
 	first := BackfillVendorTranscripts(context.Background(), entries)
@@ -113,9 +116,9 @@ func TestBackfillVendorTranscripts_CancellationStopsRatherThanFailingEveryEntry(
 	testsupport.Isolate(t)
 
 	entries := []sessions.Entry{
-		{HarpName: "backfill-cancel-a", Backend: "codex", TranscriptPath: codexFixturePath},
-		{HarpName: "backfill-cancel-b", Backend: "codex", TranscriptPath: codexFixturePath},
-		{HarpName: "backfill-cancel-c", Backend: "claude-code", TranscriptPath: claudeFixturePath},
+		{HarpName: "backfill-cancel-a", Backend: "codex", TranscriptPath: codexFixturePath, EngineVersion: "0.144.4"},
+		{HarpName: "backfill-cancel-b", Backend: "codex", TranscriptPath: codexFixturePath, EngineVersion: "0.144.4"},
+		{HarpName: "backfill-cancel-c", Backend: "claude-code", TranscriptPath: claudeFixturePath, EngineVersion: "2.1.225"},
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

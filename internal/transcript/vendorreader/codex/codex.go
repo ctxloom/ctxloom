@@ -31,6 +31,35 @@ type Adapter struct{}
 
 var _ vendorreader.VendorAdapter = Adapter{}
 
+// VersionedAdapters declares which codex CLI versions this adapter is
+// validated to read. Selection is (engine, RECORDED version) -> adapter
+// (vendorreader.SelectAdapter); a version outside every range here REFUSES,
+// and there is deliberately no default to fall through to.
+//
+// Narrow ON PURPOSE, unlike the other three. codex is pre-1.0, so its minor
+// version is where breaking changes are allowed to land, and its
+// envelope-vs-flat rollout parse is already named in
+// internal/lm/grpc/canonical_source.go as one of the four defects the DELETED
+// per-engine scrapers were removed for — a format this project has already
+// been burned by reading too confidently. The lock pins 0.144.6 and this host
+// runs 0.144.4; both are inside 0.144.x, and anything outside it refuses
+// until someone validates it.
+//
+// ValidatedVersion cites .github/engine-versions.env, the tested-version lock
+// CI keeps honest — it is what makes the range above evidence rather than
+// hope, and TestVendorReaderRanges_ContainThePinnedTestedVersion holds the two
+// together.
+//
+// A declared var, in the shape of claude.ClaudeACPTransport and the other
+// per-engine declarations this repo keeps beside their engine: it is a FACT
+// this package states about itself, read once into
+// operations.vendorReaderRegistry, not a computation.
+var VersionedAdapters = []vendorreader.VersionedAdapter{{
+	Adapter:          Adapter{},
+	Versions:         vendorreader.VersionRange{MinInclusive: "0.144.0", MaxExclusive: "0.145.0"},
+	ValidatedVersion: "0.144.6",
+}}
+
 // Convert reads the codex rollout-*.jsonl file at src and appends its
 // conversation to rec in the file's own order. See vendorreader.VendorAdapter's
 // doc comment for the general contract (malformed lines skipped, not fatal;

@@ -72,6 +72,7 @@ func TestConvertVendorTranscript_ClaudeCodeBoundPath(t *testing.T) {
 		HarpName:       harp,
 		Backend:        config.BackendClaudeCode,
 		TranscriptPath: claudeFixturePath,
+		EngineVersion:  "2.1.225",
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
@@ -100,6 +101,7 @@ func TestConvertVendorTranscript_CodexBoundPath(t *testing.T) {
 		HarpName:       harp,
 		Backend:        "codex",
 		TranscriptPath: codexFixturePath,
+		EngineVersion:  "0.144.4",
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
@@ -115,6 +117,7 @@ func TestConvertVendorTranscript_AntigravityBoundPath(t *testing.T) {
 		HarpName:       harp,
 		Backend:        "antigravity",
 		TranscriptPath: antigravityFixturePath,
+		EngineVersion:  "1.1.4",
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
@@ -175,6 +178,7 @@ func TestConvertVendorTranscript_Idempotent(t *testing.T) {
 		HarpName:       harp,
 		Backend:        "codex",
 		TranscriptPath: codexFixturePath,
+		EngineVersion:  "0.144.4",
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
@@ -211,6 +215,7 @@ func TestConvertVendorTranscript_SkipsWhenLegacyCanonicalExists(t *testing.T) {
 		HarpName:       harp,
 		Backend:        "codex",
 		TranscriptPath: codexFixturePath,
+		EngineVersion:  "0.144.4",
 	}
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)
@@ -236,6 +241,7 @@ func TestConvertVendorTranscript_BestEffortOnFailure(t *testing.T) {
 		HarpName:       harp,
 		Backend:        "codex",
 		TranscriptPath: t.TempDir(), // exists (os.Stat succeeds) but is not a file
+		EngineVersion:  "0.144.4",
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)

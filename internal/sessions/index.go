@@ -101,6 +101,29 @@ type Entry struct {
 	// lists sessions. Additive + omitempty: an older binary reading this
 	// index simply never sees it, and no index schema upgrade is needed.
 	PurgedAt *time.Time `yaml:"purged_at,omitempty" json:"purged_at,omitempty"`
+
+	// EngineVersion is what the engine's own CLI said it was — verbatim, as
+	// `claude --version` printed it — at the moment this session STARTED. It
+	// is the key that selects a vendor transcript reader validated against
+	// that format (vendorreader.SelectAdapter, task wrought-spearman).
+	//
+	// It is recorded, not probed on demand, because a probe reports what is
+	// installed NOW and never what WROTE these bytes: a session run under
+	// claude-code 2.1 and read after upgrading to 2.2 must still be read by
+	// 2.1's adapter. Selecting on a live probe would confidently mis-parse
+	// exactly the sessions that most need care.
+	//
+	// EMPTY MEANS UNKNOWN, AND UNKNOWN REFUSES. A session that predates this
+	// field, or one whose engine could not be asked (binary gone, version
+	// command failed), carries nothing here — and the read path says so and
+	// stops rather than guessing at the newest adapter. That refusal is
+	// recoverable; a silent mis-parse on the path that feeds a model is not.
+	//
+	// Additive + omitempty, the PurgedAt shape: an older binary reading this
+	// index simply never sees the key, a newer binary reading an older index
+	// sees the zero value, and no schema upgrade or on-disk migration is
+	// needed in either direction.
+	EngineVersion string `yaml:"engine_version,omitempty" json:"engine_version,omitempty"`
 }
 
 // Index is the on-disk form of the session index.
@@ -700,6 +723,48 @@ func (m *Manager) MarkPurged(harpName string, at time.Time) error {
 		}
 		t := at.UTC()
 		idx.Sessions[i].PurgedAt = &t
+		return m.saveLocked(idx)
+	}
+	return fmt.Errorf("harp not found: %q", harpName)
+}
+
+// RecordEngineVersion stamps EngineVersion on the named entry — what the
+// engine's CLI reported at session start, which is later the ONLY thing that
+// selects a vendor transcript reader for this session.
+//
+// Separate from AssignHarp rather than an extra parameter to it: probing an
+// engine binary is an exec, and AssignHarp is on `ctxloom run`'s pre-launch
+// path holding the index file lock. Keeping the probe outside means a slow or
+// hanging engine binary cannot stall harp assignment for every other process
+// waiting on that lock.
+//
+// An empty version is a no-op, not a write: a failed probe must leave the
+// field UNSET so the read path can tell "never recorded" from "recorded as
+// nothing". Writing "" would be indistinguishable from a pre-field session and
+// would look, on inspection, like the probe had succeeded.
+func (m *Manager) RecordEngineVersion(harpName, version string) error {
+	if version == "" {
+		return nil
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	unlock, err := m.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+
+	idx, err := m.loadLocked()
+	if err != nil {
+		return err
+	}
+	for i := range idx.Sessions {
+		if idx.Sessions[i].HarpName != harpName {
+			continue
+		}
+		idx.Sessions[i].EngineVersion = version
 		return m.saveLocked(idx)
 	}
 	return fmt.Errorf("harp not found: %q", harpName)

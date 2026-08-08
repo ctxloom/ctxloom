@@ -34,10 +34,10 @@ Feature: The ctxloom-doctor Agent Skill reaches every engine's native skill surf
 
   Background:
     Given Alice's project has a directory-form bundle "ops"
-    And I run "ctxloom skill create ops ctxloom-doctor -d DOCTOR-SKILL-MARKER-7d4e21"
+    And Alice starts a ctxloom-doctor skill in "ops" described as "DOCTOR-SKILL-MARKER-7d4e21"
     And Alice authors the ctxloom-doctor skill's full body in "ops#skills/ctxloom-doctor"
     And Alice adds an executable scripts/run.sh carrying the marker "DOCTOR-SCRIPT-MARKER-9c2f" to the skill "ops#skills/ctxloom-doctor"
-    And I run "ctxloom skill sync ops#skills/ctxloom-doctor"
+    And Alice records the skill's file manifest so tampering would be caught
     And a profile "clinic" with bundle "ops"
     And profile "clinic" curates skill "ops#skills/ctxloom-doctor"
 

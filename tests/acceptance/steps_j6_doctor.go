@@ -89,6 +89,26 @@ type j6State struct {
 }
 
 func registerJ6Steps(ctx *godog.ScenarioContext) {
+	// Two Background preconditions, business-voiced rather than shown as
+	// commands. This journey's SUBJECT is what every engine receives, not how a
+	// skill is authored — and a scenario that spells out its setup in visible
+	// DocStrings hides which command it is actually about (authoring rule 6f).
+	// Both still run the real CLI, so the precondition is a fact the product
+	// established, never a fixture faking one.
+	ctx.Step(`^Alice starts a ctxloom-doctor skill in "([^"]*)" described as "([^"]*)"$`,
+		func(c context.Context, bundle, desc string) error {
+			return runCLI(c, fmt.Sprintf("ctxloom skill create %s ctxloom-doctor -d %s", bundle, desc), "")
+		})
+
+	// `skill sync` recomputes the per-file manifest (sha256 + POSIX mode) into
+	// bundle.yaml. Until it runs, the files: map is empty and a fresh parse of
+	// the tree is trusted unconditionally — so this is the step that arms the
+	// install-time tamper check the later scenarios rely on.
+	ctx.Step(`^Alice records the skill's file manifest so tampering would be caught$`,
+		func(c context.Context) error {
+			return runCLI(c, "ctxloom skill sync ops#skills/ctxloom-doctor", "")
+		})
+
 	ctx.Step(`^Alice authors the ctxloom-doctor skill's full body in "([^"]*)"$`, func(c context.Context, ref string) error {
 		w := worldFrom(c)
 		bundle, name, err := splitSkillRef(ref)

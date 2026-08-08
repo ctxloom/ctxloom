@@ -60,7 +60,10 @@ Feature: Dana in her editor
   # command, and is no longer JSON — turns this red on the Unmarshal, which is
   # exactly the artifact Dana's editor would reject.
   Scenario: The block she is told to paste is one she can actually paste
-    When I run "ctxloom acp list"
+    When Dana asks ctxloom what she should put in her editor:
+      """
+      ctxloom acp list
+      """
     Then the listing is something she can actually paste into her editor's config
     And the listing names the agent she would bind to
 
@@ -81,7 +84,10 @@ Feature: Dana in her editor
   # own unknown-flag error refuses the invocation with a non-zero exit instead
   # of accepting and discarding it.
   Scenario: A flag she passes is honoured or refused, never quietly dropped
-    When I run "ctxloom acp --agent dev"
+    When Dana tries to bind an agent on the bare editor command:
+      """
+      ctxloom acp --agent dev
+      """
     Then ctxloom refuses rather than accepting flags it will discard
 
   # THE DIFFERENTIATOR'S HOLE, and the most important scenario in this file.
@@ -106,5 +112,8 @@ Feature: Dana in her editor
   # binding, which is exactly why the note has to be structural rather than
   # computed per-entry.
   Scenario: She is told what the editor door does not carry
-    When I run "ctxloom acp list"
+    When Dana asks ctxloom what she should put in her editor:
+      """
+      ctxloom acp list
+      """
     Then ctxloom says what a bare ACP agent will not inherit

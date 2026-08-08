@@ -3,13 +3,24 @@ Feature: Manage the project harness
   the .ctxloom scaffold, backend hooks/statusline, MCP registration, and the
   .gitignore entries that keep ctxloom's private state out of source control.
 
+  # Payload, not existence — the same rule the per-engine matrix below states
+  # for codex and kiro, which the default engine was exempt from. An empty
+  # settings file exists just as convincingly as a wired one, and the
+  # surviving mutation was narrower than a wholesale gutting (j19 catches
+  # that): emit the MCP server KEY with an empty body and every engine
+  # launched from the project gets a server entry with no command, while
+  # `exists` and even j19's contains-"ctxloom" both stay green. So this names
+  # the SessionStart hook that actually delivers context, and two fields from
+  # inside the MCP server's body rather than its key.
   Scenario: Install wires ctxloom into an empty project
     Given an empty project directory
     When I run "ctxloom manage install --engine claude-code"
     Then the command succeeds
     And the file ".ctxloom/config.yaml" exists
-    And the file ".claude/settings.json" exists
-    And the file ".mcp.json" exists
+    And the file ".claude/settings.json" contains "SessionStart"
+    And the file ".claude/settings.json" contains "hook inject-context"
+    And the file ".mcp.json" contains "ctxloom-auto"
+    And the file ".mcp.json" contains "${CLAUDE_PROJECT_DIR}"
     And the file ".gitignore" contains "ctxloom"
 
   # The engine NAME appears in both "claude-code: not configured" and

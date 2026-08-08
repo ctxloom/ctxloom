@@ -7,6 +7,7 @@ package tests
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -19,8 +20,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// binDir is the MkdirTemp directory holding binPath, tracked separately rather
+// than recomputed with filepath.Dir(binPath) at teardown: filepath.Dir("") is
+// ".", so a teardown that ran before any build would RemoveAll the package
+// source directory. See removeTasksBinary.
 var (
 	buildOnce sync.Once
+	binDir    string
 	binPath   string
 	buildErr  error
 )
@@ -29,11 +35,17 @@ var (
 func tasksBinary(t *testing.T) string {
 	t.Helper()
 	buildOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "tasks-bin-*")
+		// GOTMPDIR when set, not the default system temp: on hosts where /tmp
+		// is a small tmpfs the linker's mmap of the ~30MB output ENOSPCs.
+		// Mirrors testenv.TaskloomBinary; the justfile's test recipes default
+		// GOTMPDIR to a disk-backed dir so this actually fires. Empty GOTMPDIR
+		// falls back to os.TempDir.
+		dir, err := os.MkdirTemp(os.Getenv("GOTMPDIR"), "tasks-bin-*")
 		if err != nil {
 			buildErr = err
 			return
 		}
+		binDir = dir
 		binPath = filepath.Join(dir, "tasks")
 		cmd := exec.Command("go", "build", "-o", binPath, "github.com/ctxloom/ctxloom/cmd/taskloom")
 		out, err := cmd.CombinedOutput()
@@ -43,6 +55,38 @@ func tasksBinary(t *testing.T) string {
 	})
 	require.NoError(t, buildErr)
 	return binPath
+}
+
+// removeTasksBinary deletes the ~30MB build directory tasksBinary created.
+// Behind a sync.Once the binary is shared by every test in this process, so
+// this belongs in TestMain AFTER m.Run() returns -- never in a per-test
+// t.Cleanup, which would delete the binary out from under the tests that
+// follow. Idempotent, and deliberately silent on failure: a suite that goes
+// red because it could not unlink a temp directory is worse than the leak.
+//
+// Without it the directory outlived the process forever, once per test BINARY
+// (not per test): 161 orphans / 4.5G of /tmp measured here. See task
+// smashing-olive.
+func removeTasksBinary() {
+	if binDir == "" {
+		return
+	}
+	dir := binDir
+	binDir = ""
+	binPath = ""
+	// Fail loud rather than hand a later caller a path that no longer exists:
+	// buildOnce has already fired, so tasksBinary would otherwise return the
+	// deleted path with a nil error.
+	buildErr = errors.New("tasks binary was removed by removeTasksBinary: teardown ran while the binary was still in use")
+	_ = os.RemoveAll(dir)
+}
+
+// TestMain exists only to run the teardown above. m.Run's code is preserved
+// and re-exited with, so the teardown cannot change the suite's verdict.
+func TestMain(m *testing.M) {
+	code := m.Run()
+	removeTasksBinary()
+	os.Exit(code)
 }
 
 // env is an isolated home + project directory for one test.

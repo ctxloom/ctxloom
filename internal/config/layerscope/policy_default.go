@@ -35,6 +35,13 @@ func DefaultPolicy() Policy {
 		// outside a one-off --config-set flag. That is a functional
 		// regression far outside this fix's three named targets.
 		{Path: "agents.*.runtime", Scope: ScopeShared, Note: "which context (and posture) this project's roles compose; strictness.ClassIsolation already refuses per-machine when the runtime isn't available"},
+		// Shared, and the reasoning is the same as agents.*.engine's: which
+		// approaches EXIST is the engine's answer, so a preference is only
+		// meaningful beside the engine it was validated against. A home config
+		// filling one in for a project-defined agent would be naming a
+		// delivery for an engine it cannot see — and agentBindingMergeFunc
+		// replaces a binding wholesale, so it could not stick anyway.
+		{Path: "agents.*.surfaces.*", Scope: ScopeShared, Note: "a delivery choice validated against the binding's engine; it is only meaningful where that engine is named"},
 		{Path: "agents.*.permissions", Scope: ScopeShared, Note: "a privilege grant; a team may decide it, but a user's home config must never fill it in for a project"},
 		{Path: "agents.*.coordinator", Scope: ScopeShared, Note: "a privilege grant; a team may decide it, but a user's home config must never fill it in for a project"},
 

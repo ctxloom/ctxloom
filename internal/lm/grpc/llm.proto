@@ -475,6 +475,17 @@ message ManagedConfig {
   // to close stayed open. Never trust-gated: a deny entry only narrows a
   // launch, it never executes anything.
   repeated string deny_tools = 7;
+  // surfaces mirrors agent.ManagedConfig.Surfaces: the AGENT BINDING's declared
+  // delivery preference, one approach per surface kind, resolved host-side
+  // against the engine's own SupportedApproaches. Keys and values are the
+  // stable lowercase labels agent.SurfaceKind.String / agent.Approach.String
+  // render ("context" -> "system-prompt"), parsed back with the matching
+  // Parse* functions — names rather than enum numbers so the wire stays
+  // readable and an unknown label fails loudly instead of resolving to iota 0.
+  //
+  // Empty means "take the engine's default", which is every agent that has not
+  // asked for anything.
+  map<string, string> surfaces = 8;
 }
 
 // SkillExport mirrors agent.SkillExport: one Agent Skill package's

@@ -473,3 +473,49 @@ func TestAgentSetupNudge_InlineDefinitionsCountAsProfiles(t *testing.T) {
 	})
 	assert.NotEmpty(t, AgentSetupNudge(cfg))
 }
+
+// TestSetAgent_PersistsTheSurfacePreference is a REGRESSION on a defect that
+// shipped for real in this feature's first draft: the preference was parsed by
+// the CLI, validated by SetAgent — and then never copied onto the stored entry.
+// `agent create writer --engine claude-code --surface context=system-prompt`
+// reported "Created agent" and wrote a binding with no surfaces key at all.
+//
+// That is this project's characteristic shape wearing new clothes: a flag
+// accepted, a success line printed, and nothing recorded. Only an assertion on
+// what RELOADS can catch it — the create call's own return value carried the
+// engine correctly and would have looked fine.
+func TestSetAgent_PersistsTheSurfacePreference(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+
+	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+		Name:     "writer",
+		Engine:   ptr("claude-code"),
+		Surfaces: map[string]string{"context": "system-prompt"},
+	})
+	require.NoError(t, err)
+
+	reloaded, err := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, err)
+	sub, ok := reloaded.Agent("writer")
+	require.True(t, ok)
+	assert.Equal(t, map[string]string{"context": "system-prompt"}, sub.Surfaces,
+		"the preference must survive the write and a reload, not just the validation")
+}
+
+// A preference the engine cannot honour is refused, and the refusal must leave
+// NOTHING behind — the whole point of validating before the transaction opens.
+func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
+	cfg, appDir := loadConfigDir(t, "version: 5\n")
+
+	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
+		Name:     "scout",
+		Engine:   ptr("kiro"),
+		Surfaces: map[string]string{"context": "system-prompt"},
+	})
+	require.Error(t, err, "system-prompt is claude-only; kiro must refuse it")
+
+	reloaded, rerr := config.Load(config.WithAppDir(appDir))
+	require.NoError(t, rerr)
+	_, ok := reloaded.Agent("scout")
+	assert.False(t, ok, "a refused write must not half-apply a binding")
+}

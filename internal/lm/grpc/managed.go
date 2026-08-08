@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
@@ -36,6 +37,7 @@ func ManagedConfigToProto(m *agent.ManagedConfig) *ManagedConfig {
 		BundleMcp:        mcpServerMapToProto(m.BundleMCP),
 		ManageStatusline: m.ManageStatusline,
 		DenyTools:        m.DenyTools,
+		Surfaces:         surfacesToProto(m.Surfaces),
 	}
 }
 
@@ -53,6 +55,7 @@ func managedConfigFromProto(m *ManagedConfig) *agent.ManagedConfig {
 		BundleMCP:        mcpServerMapFromProto(m.GetBundleMcp()),
 		ManageStatusline: m.GetManageStatusline(),
 		DenyTools:        m.GetDenyTools(),
+		Surfaces:         surfacesFromProto(m.GetSurfaces()),
 	}
 }
 
@@ -382,6 +385,53 @@ func mcpConfigFromProto(c *MCPConfig) *wire.MCPConfig {
 			servers[name] = mcpServerFromProto(s)
 		}
 		out.Plugins[backend] = servers
+	}
+	return out
+}
+
+// --- surface preference ---
+//
+// Carried as the stable lowercase LABELS, never enum numbers: the wire stays
+// readable, and a label the receiver does not know fails loudly through the
+// Parse* functions rather than resolving to iota 0 — which for both enums is
+// the least safe value (SurfaceContext, ApproachUnsafeFile).
+
+func surfacesToProto(in map[agent.SurfaceKind]agent.Approach) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, a := range in {
+		out[k.String()] = a.String()
+	}
+	return out
+}
+
+// surfacesFromProto drops a pair it cannot parse, with a warning, rather than
+// failing the whole launch: a preference is an optimisation over the engine's
+// default, so an unreadable one costs the caller its preference and not its
+// session. Silence is what is refused — an agent that quietly ran with a
+// different delivery than it asked for is the defect this field exists inside.
+func surfacesFromProto(in map[string]string) map[agent.SurfaceKind]agent.Approach {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[agent.SurfaceKind]agent.Approach, len(in))
+	for name, approach := range in {
+		k, err := agent.ParseSurfaceKind(name)
+		if err != nil {
+			clidiag.Warn("ctxloom", "agent surface preference: %v (using the engine default for it)", err)
+			continue
+		}
+		a, aerr := agent.ParseApproach(approach)
+		if aerr != nil {
+			clidiag.Warn("ctxloom", "agent surface preference for %s: %v (using the engine default)", name, aerr)
+			continue
+		}
+		out[k] = a
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

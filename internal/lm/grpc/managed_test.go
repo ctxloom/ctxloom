@@ -148,3 +148,35 @@ func TestMCPConfig_ProtoRoundTrip_PreservesTriState(t *testing.T) {
 		})
 	}
 }
+
+// TestManagedConfig_SurfacePreferenceSurvivesTheWire guards the failure this
+// file's own comments record twice: Skills and DenyTools each existed
+// host-side with no proto field, so "the host wrote it into the payload and the
+// wire dropped it". A delivery preference dropped the same way would be worse
+// than absent — the agent would run with a delivery it did not choose, and the
+// only symptom is context arriving by a different route.
+func TestManagedConfig_SurfacePreferenceSurvivesTheWire(t *testing.T) {
+	in := &agent.ManagedConfig{
+		Surfaces: map[agent.SurfaceKind]agent.Approach{
+			agent.SurfaceContext: agent.ApproachSystemPrompt,
+			agent.SurfaceSkills:  agent.ApproachUnsafeFile,
+		},
+	}
+	out := managedConfigFromProto(ManagedConfigToProto(in))
+	require.NotNil(t, out)
+	assert.Equal(t, in.Surfaces, out.Surfaces, "the preference must round-trip unchanged")
+}
+
+// An unparseable label costs the caller its PREFERENCE, not its session — but
+// never silently: the engine default is a legitimate fallback, running with a
+// delivery nobody chose while reporting nothing is not.
+func TestManagedConfig_UnparseableSurfaceLabelDegradesRatherThanCorrupting(t *testing.T) {
+	out := managedConfigFromProto(&ManagedConfig{
+		Surfaces: map[string]string{"context": "telepathy", "skills": "unsafe-file"},
+	})
+	require.NotNil(t, out)
+	assert.NotContains(t, out.Surfaces, agent.SurfaceContext,
+		"an unknown approach must be dropped, never resolved to iota 0 (unsafe-file, the least safe)")
+	assert.Equal(t, agent.ApproachUnsafeFile, out.Surfaces[agent.SurfaceSkills],
+		"the readable pairs still apply")
+}

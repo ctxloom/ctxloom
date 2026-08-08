@@ -1,6 +1,5 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-
   "$id": "https://ctxloom.dev/schemas/config.json",
   "title": "ctxloom Configuration",
   "description": "Schema for ctxloom config.yaml files",
@@ -9,11 +8,14 @@
     "version": {
       "type": "integer",
       "description": "Config schema version (integer; distinct from the application version)",
-      "examples": [1, 2]
+      "examples": [
+        1,
+        2
+      ]
     },
     "llm": {
       "type": "object",
-      "description": "Large language model configuration: a registry of arbitrarily-labeled backend configs plus a role→label map",
+      "description": "Large language model configuration: a registry of arbitrarily-labeled backend configs plus a role\u2192label map",
       "properties": {
         "configs": {
           "type": "object",
@@ -24,7 +26,7 @@
         },
         "defaults": {
           "type": "object",
-          "description": "Role → config-label map. Roles select which labeled config plays which part.",
+          "description": "Role \u2192 config-label map. Roles select which labeled config plays which part.",
           "properties": {
             "primary": {
               "type": "string",
@@ -47,7 +49,11 @@
         "command": {
           "type": "string",
           "description": "Editor command to use",
-          "examples": ["vim", "nano", "code"]
+          "examples": [
+            "vim",
+            "nano",
+            "code"
+          ]
         },
         "args": {
           "type": "array",
@@ -81,7 +87,7 @@
           "properties": {
             "default": {
               "type": "boolean",
-              "description": "When true, publish commands sign unless --no-sign is given. Defaults to false — signing is opt-in, like `git commit -S` until gpg.commit.sign flips it."
+              "description": "When true, publish commands sign unless --no-sign is given. Defaults to false \u2014 signing is opt-in, like `git commit -S` until gpg.commit.sign flips it."
             },
             "key": {
               "type": "string",
@@ -123,130 +129,144 @@
             "type": "object",
             "properties": {
               "description": {
-            "type": "string",
-            "description": "Human-readable description of this profile"
-          },
-          "llm": {
-            "type": "string",
-            "description": "Preferred LLM config label/backend to launch for this profile (overridable by `run --llm`)"
-          },
-          "parents": {
-            "type": "array",
-            "description": "Parent profiles to inherit from (processed depth-first)",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "uniqueItems": true
-          },
-          "tags": {
-            "type": "array",
-            "description": "Descriptive tags for listing/discovery only — NOT content-selecting. Use `select_tags` to pull in fragments by tag.",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "uniqueItems": true
-          },
-          "select_tags": {
-            "type": "array",
-            "description": "Fragment tags to select content by: fragments carrying any of these tags are included.",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "uniqueItems": true
-          },
-          "fragments": {
-            "type": "array",
-            "description": "Explicit fragment references to include: a plain path string, or an object with a name and optional priority (FragmentRef.UnmarshalYAML accepts both)",
-            "items": {
-              "oneOf": [
-                {
+                "type": "string",
+                "description": "Human-readable description of this profile"
+              },
+              "llm": {
+                "type": "string",
+                "description": "Preferred LLM config label/backend to launch for this profile (overridable by `run --llm`)"
+              },
+              "parents": {
+                "type": "array",
+                "description": "Parent profiles to inherit from (processed depth-first)",
+                "items": {
                   "type": "string",
                   "minLength": 1
                 },
-                {
-                  "type": "object",
-                  "properties": {
-                    "name": {
+                "uniqueItems": true
+              },
+              "tags": {
+                "type": "array",
+                "description": "Descriptive tags for listing/discovery only \u2014 NOT content-selecting. Use `select_tags` to pull in fragments by tag.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "select_tags": {
+                "type": "array",
+                "description": "Fragment tags to select content by: fragments carrying any of these tags are included.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "fragments": {
+                "type": "array",
+                "description": "Explicit fragment references to include: a plain path string, or an object with a name and optional priority (FragmentRef.UnmarshalYAML accepts both)",
+                "items": {
+                  "oneOf": [
+                    {
                       "type": "string",
-                      "description": "Fragment path/name",
                       "minLength": 1
                     },
-                    "priority": {
-                      "type": "integer",
-                      "description": "Higher = more important; bookend-placed in context (default: 0)"
+                    {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "description": "Fragment path/name",
+                          "minLength": 1
+                        },
+                        "priority": {
+                          "type": "integer",
+                          "description": "Higher = more important; bookend-placed in context (default: 0)"
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
                     }
-                  },
-                  "required": ["name"],
-                  "additionalProperties": false
+                  ]
                 }
-              ]
-            }
-          },
-          "bundles": {
-            "type": "array",
-            "description": "Bundle references (e.g. remote/bundle-name)",
-            "items": { "type": "string", "minLength": 1 }
-          },
-          "bundle_items": {
-            "type": "array",
-            "description": "Cherry-picked bundle items (e.g. remote/bundle:fragments/name)",
-            "items": { "type": "string", "minLength": 1 }
-          },
-          "mcp": {
-            "$ref": "#/$defs/mcpConfig",
-            "description": "MCP servers for this profile (inherited)"
-          },
-          "commands": {
-            "type": "array",
-            "description": "Slash-command exports curated for this profile (each a \"<bundle>#commands/<name>\" ref, optionally version-pinned with a trailing \"@<commit>\"). When a resolved active profile declares a NON-EMPTY list, ONLY these commands are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in).",
-            "items": { "type": "string", "minLength": 1 }
-          },
-          "skills": {
-            "type": "array",
-            "description": "Agent Skill packages curated for this profile (each a \"<bundle>#skills/<name>\" ref). When a resolved active profile declares a NON-EMPTY list, ONLY these skills are exported per-engine (force-enabled), suppressing the global bundle-wide auto-export for that profile; an empty list keeps today's global auto-export (every profile-referenced bundle's skills, each still gated by its own per-engine enablement).",
-            "items": { "type": "string", "minLength": 1 }
-          },
-          "variables": {
-            "type": "object",
-            "description": "Variable values for template substitution in fragments",
-            "additionalProperties": {
-              "type": "string"
-            }
-          },
-          "hooks": {
-            "$ref": "#/$defs/hooksConfig",
-            "description": "Hooks configuration for this profile (inherited from parents)"
-          },
-          "exclude_fragments": {
-            "type": "array",
-            "description": "Fragment names to exclude from this profile (filtered after inheritance)",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "uniqueItems": true
-          },
-          "exclude_mcp": {
-            "type": "array",
-            "description": "MCP server names to exclude from this profile (filtered after inheritance)",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "uniqueItems": true
-          },
-          "deny_tools": {
-            "type": "array",
-            "description": "Per-engine tool identifiers this profile denies at launch (e.g. \"Task\" for Claude Code's built-in sub-agent tool). Accumulates through profile inheritance like exclude_mcp — a child cannot un-deny what a parent denied. Currently reaches the claude-code backend only; other backends ignore it.",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "uniqueItems": true
-          }
+              },
+              "bundles": {
+                "type": "array",
+                "description": "Bundle references (e.g. remote/bundle-name)",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "bundle_items": {
+                "type": "array",
+                "description": "Cherry-picked bundle items (e.g. remote/bundle:fragments/name)",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "mcp": {
+                "$ref": "#/$defs/mcpConfig",
+                "description": "MCP servers for this profile (inherited)"
+              },
+              "commands": {
+                "type": "array",
+                "description": "Slash-command exports curated for this profile (each a \"<bundle>#commands/<name>\" ref, optionally version-pinned with a trailing \"@<commit>\"). When a resolved active profile declares a NON-EMPTY list, ONLY these commands are exported, suppressing the global flag-based auto-export for that profile; an empty list keeps today's global auto-export (opt-in).",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "skills": {
+                "type": "array",
+                "description": "Agent Skill packages curated for this profile (each a \"<bundle>#skills/<name>\" ref). When a resolved active profile declares a NON-EMPTY list, ONLY these skills are exported per-engine (force-enabled), suppressing the global bundle-wide auto-export for that profile; an empty list keeps today's global auto-export (every profile-referenced bundle's skills, each still gated by its own per-engine enablement).",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              "variables": {
+                "type": "object",
+                "description": "Variable values for template substitution in fragments",
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "hooks": {
+                "$ref": "#/$defs/hooksConfig",
+                "description": "Hooks configuration for this profile (inherited from parents)"
+              },
+              "exclude_fragments": {
+                "type": "array",
+                "description": "Fragment names to exclude from this profile (filtered after inheritance)",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "exclude_mcp": {
+                "type": "array",
+                "description": "MCP server names to exclude from this profile (filtered after inheritance)",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              },
+              "deny_tools": {
+                "type": "array",
+                "description": "Per-engine tool identifiers this profile denies at launch (e.g. \"Task\" for Claude Code's built-in sub-agent tool). Accumulates through profile inheritance like exclude_mcp \u2014 a child cannot un-deny what a parent denied. Currently reaches the claude-code backend only; other backends ignore it.",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "uniqueItems": true
+              }
             },
             "additionalProperties": false
           }
@@ -256,51 +276,68 @@
     },
     "workspace": {
       "type": "string",
-      "description": "Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/acp --workspace (or an agent_run spawn's workspace field). Deliberately not an agent trait — needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning).",
-      "enum": ["none", "worktree"]
+      "description": "Project default for the SESSION-level workspace axis: where a session's working directory lives. 'none' (default) is the shared live project dir; 'worktree' gives each session its own git worktree. Overridden per invocation by run/acp --workspace (or an agent_run spawn's workspace field). Deliberately not an agent trait \u2014 needing a private cwd is a property of how a session is launched (an unrecognized value degrades to none with a warning).",
+      "enum": [
+        "none",
+        "worktree"
+      ]
     },
     "dirty_tree_handler": {
       "type": "string",
-      "description": "Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it — requires a human dirty-tree-commit acknowledgement recorded via `ctxloom init` or `ctxloom manage dirty-tree-ack grant` (NOT a config key — see .ctxloom/state/dirty_tree_commit_ack.yaml), and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter.",
-      "enum": ["commit", "copy", "stale", "fail"]
+      "description": "Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it \u2014 requires a human dirty-tree-commit acknowledgement recorded via `ctxloom init` or `ctxloom manage dirty-tree-ack grant` (NOT a config key \u2014 see .ctxloom/state/dirty_tree_commit_ack.yaml), and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter.",
+      "enum": [
+        "commit",
+        "copy",
+        "stale",
+        "fail"
+      ]
     },
     "runtime": {
       "type": "string",
-      "description": "Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` — the two axes are never bound together.",
-      "enum": ["host", "container"]
+      "description": "Project default for the AGENT-level runtime axis: where an agent's engine process executes. 'host' (default) runs on the host; 'container' runs it inside the backend's agent image. An agent binding's own `runtime` overrides this default (an unrecognized value degrades to host with a warning). Independent of `workspace` \u2014 the two axes are never bound together.",
+      "enum": [
+        "host",
+        "container"
+      ]
     },
     "agent_turn_cap": {
       "type": "integer",
       "minimum": 1,
-      "description": "RESOURCE ceiling on how many delegated agent_run children may have a turn EXECUTING (a live engine process) at once — bounds concurrent process/resource load, not a correctness setting (the coordinator's own state is safe under concurrency by construction). Unset uses the built-in default. Raise it for more delegation parallelism; lower it to bound resource use on a constrained host. Never unbounded."
+      "description": "RESOURCE ceiling on how many delegated agent_run children may have a turn EXECUTING (a live engine process) at once \u2014 bounds concurrent process/resource load, not a correctness setting (the coordinator's own state is safe under concurrency by construction). Unset uses the built-in default. Raise it for more delegation parallelism; lower it to bound resource use on a constrained host. Never unbounded."
     },
     "isolation_images": {
       "type": "object",
-      "description": "Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (claude-code, kiro, ...). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER — except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity — its writes into the mounted project would land root-owned or otherwise not yours — is a fatal startup finding; --degraded launches it anyway with the image's own identity.",
-      "additionalProperties": { "type": "string", "minLength": 1 }
+      "description": "Per-backend USER-PROVIDED agent images for containerized runs, keyed by backend name (claude-code, kiro, ...). An entry overrides the built-in per-backend default tag and is run as-is: never locally built or overlaid, and an absent image degrades with a warning instead of triggering the on-the-fly build. Missing entries keep the built-in default (auto-built when absent). IDENTITY CONTRACT: an override runs with the identity its image defines, so it must run the ctxloom identity-remap entrypoint (base it on a ctxloom-built agent image, or install ctxloom-entrypoint as its ENTRYPOINT) and must not bake a USER \u2014 except under rootless docker, where the image must simply run as root (the one uid that maps to the launching user). An image that would start with the wrong identity \u2014 its writes into the mounted project would land root-owned or otherwise not yours \u2014 is a fatal startup finding; --degraded launches it anyway with the image's own identity.",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "isolation_base_containerfile": {
       "type": "string",
       "minLength": 1,
-      "description": "USER-PROVIDED base Containerfile for locally-built agent images: local builds (on-the-fly and `ctxloom container build`) build the shared base stage from this file — your tools, your certs — and layer the engine's agent stage on top, instead of an auto-detected devcontainer or the embedded default base. Relative paths resolve against the project root. Beats devcontainer auto-detection."
+      "description": "USER-PROVIDED base Containerfile for locally-built agent images: local builds (on-the-fly and `ctxloom container build`) build the shared base stage from this file \u2014 your tools, your certs \u2014 and layer the engine's agent stage on top, instead of an auto-detected devcontainer or the embedded default base. Relative paths resolve against the project root. Beats devcontainer auto-detection."
     },
     "isolation_devcontainer_base": {
       "type": "boolean",
-      "description": "Toggles auto-detecting the project's .devcontainer/devcontainer.json (or .devcontainer.json) as the locally-built agent image's BASE — \"an isolated agent should run in the environment the human develops in\". Default true; set false to opt out and use the embedded default base (or an explicit isolation_base_containerfile) instead. A devcontainer.json declaring \"features\" is NOT honored (a loud warning names what is skipped); one declaring dockerComposeFile needs isolation_devcontainer_service (or its own \"service\" key) to resolve one service as the base."
+      "description": "Toggles auto-detecting the project's .devcontainer/devcontainer.json (or .devcontainer.json) as the locally-built agent image's BASE \u2014 \"an isolated agent should run in the environment the human develops in\". Default true; set false to opt out and use the embedded default base (or an explicit isolation_base_containerfile) instead. A devcontainer.json declaring \"features\" is NOT honored (a loud warning names what is skipped); one declaring dockerComposeFile needs isolation_devcontainer_service (or its own \"service\" key) to resolve one service as the base."
     },
     "isolation_devcontainer_service": {
       "type": "string",
       "minLength": 1,
-      "description": "Docker-compose service to adopt as the agent image's base when the auto-detected devcontainer.json declares dockerComposeFile — a multi-service compose project does not map to one agent container, so this (or the devcontainer.json's own \"service\" key) is required to resolve one; its absence is a fail-loud finding, never a silent fallback to the default base."
+      "description": "Docker-compose service to adopt as the agent image's base when the auto-detected devcontainer.json declares dockerComposeFile \u2014 a multi-service compose project does not map to one agent container, so this (or the devcontainer.json's own \"service\" key) is required to resolve one; its absence is a fail-loud finding, never a silent fallback to the default base."
     },
     "isolation_engines": {
       "type": "array",
-      "items": { "type": "string", "minLength": 1 },
-      "description": "Selects which engine fragments compose into the shared multi-engine agent image (antigravity, claude-code, codex, kiro, opencode today — each via its OWN official installer, one independently-cacheable Containerfile layer). Empty/unset = every known engine (the biggest image, \"one instance runs any engine\"); an unrecognized name is dropped with a warning."
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "Selects which engine fragments compose into the shared multi-engine agent image (antigravity, claude-code, codex, kiro, opencode today \u2014 each via its OWN official installer, one independently-cacheable Containerfile layer). Empty/unset = every known engine (the biggest image, \"one instance runs any engine\"); an unrecognized name is dropped with a warning."
     },
     "agents": {
       "type": "object",
-      "description": "Local-only engine↔profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/agents/<name>.yaml files.",
+      "description": "Local-only engine\u2194profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY \u2014 never shipped in a bundle or remote; may also be declared as .ctxloom/agents/<name>.yaml files.",
       "additionalProperties": {
         "type": "object",
         "properties": {
@@ -311,21 +348,32 @@
           "profiles": {
             "type": "array",
             "description": "Profiles composed into one assembled context (later wins / union). Members may be local, top-level remote, or bundle profiles (<bundle>#profiles/<name>).",
-            "items": { "type": "string", "minLength": 1 }
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
           },
           "runtime": {
             "type": "string",
             "description": "Runtime axis for this agent: where its engine process executes. Overrides the top-level `runtime` default; empty inherits it, then falls back to host. The workspace axis is a session trait (run/acp --workspace, or an agent_run spawn's workspace field), never declared on an agent.",
-            "enum": ["host", "container"]
+            "enum": [
+              "host",
+              "container"
+            ]
           },
           "permissions": {
             "type": "string",
             "description": "Launch-time permission posture for this agent; empty inherits the engine label's default, then the built-in default.",
-            "enum": ["default", "acceptEdits", "plan", "bypass"]
+            "enum": [
+              "default",
+              "acceptEdits",
+              "plan",
+              "bypass"
+            ]
           },
           "escalation": {
             "type": "array",
-            "description": "The agent's approval-request escalation ladder: an ORDERED list of rungs, each naming which ApprovalRequest kinds it answers and how. Empty derives the ladder from `permissions` (the degenerate two-rung preset: bypass accepts everything; plan declines mutating kinds and relays the rest to the parent). A non-empty list REPLACES the preset entirely — no merge.",
+            "description": "The agent's approval-request escalation ladder: an ORDERED list of rungs, each naming which ApprovalRequest kinds it answers and how. Empty derives the ladder from `permissions` (the degenerate two-rung preset: bypass accepts everything; plan declines mutating kinds and relays the rest to the parent). A non-empty list REPLACES the preset entirely \u2014 no merge.",
             "items": {
               "type": "object",
               "properties": {
@@ -334,13 +382,25 @@
                   "description": "ApprovalRequest kinds this rung matches. Empty matches every kind (a catch-all rung).",
                   "items": {
                     "type": "string",
-                    "enum": ["COMMAND_EXECUTION", "FILE_CHANGE", "TOOL_USE", "PERMISSION_ESCALATION", "ARTIFACT_REVIEW", "CUSTOM"]
+                    "enum": [
+                      "COMMAND_EXECUTION",
+                      "FILE_CHANGE",
+                      "TOOL_USE",
+                      "PERMISSION_ESCALATION",
+                      "ARTIFACT_REVIEW",
+                      "CUSTOM"
+                    ]
                   }
                 },
                 "action": {
                   "type": "string",
                   "description": "The rung's disposition.",
-                  "enum": ["auto_accept", "auto_decline", "relay_to_role", "surface_to_human"]
+                  "enum": [
+                    "auto_accept",
+                    "auto_decline",
+                    "relay_to_role",
+                    "surface_to_human"
+                  ]
                 },
                 "role": {
                   "type": "string",
@@ -351,7 +411,9 @@
                   "description": "Bounds a relay_to_role/surface_to_human rung's wait (Go duration syntax, e.g. \"5m\"). Empty uses the resolver's default. Refused on auto_accept/auto_decline, which resolve immediately."
                 }
               },
-              "required": ["action"],
+              "required": [
+                "action"
+              ],
               "additionalProperties": false
             }
           },
@@ -361,8 +423,18 @@
           },
           "driving": {
             "type": "string",
-            "description": "Per-turn execution axis: conversational (persistent engine process across turns, the default and today's only behavior) or oneshot (engine process ends at each turn boundary; resumed by native session key — requires a resume-capable engine).",
-            "enum": ["conversational", "oneshot"]
+            "description": "Per-turn execution axis: conversational (persistent engine process across turns, the default and today's only behavior) or oneshot (engine process ends at each turn boundary; resumed by native session key \u2014 requires a resume-capable engine).",
+            "enum": [
+              "conversational",
+              "oneshot"
+            ]
+          },
+          "surfaces": {
+            "type": "object",
+            "description": "Delivery preference for this binding: which approach each surface kind is delivered by. Keys are surface kinds (context, mcp, settings, commands, skills); values are approaches (unsafe-file, system-prompt, hook). Omitted takes the engine's own default. Validated against the bound engine when written \u2014 system-prompt is claude-only, so a kiro binding naming it is refused rather than quietly downgraded.",
+            "additionalProperties": {
+              "type": "string"
+            }
           }
         },
         "additionalProperties": false
@@ -370,7 +442,7 @@
     },
     "default_agent": {
       "type": "string",
-      "description": "The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves — its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop)."
+      "description": "The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves \u2014 its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop)."
     },
     "ui": {
       "type": "object",
@@ -379,12 +451,15 @@
         "prefix_key": {
           "type": "string",
           "pattern": "^ctrl[-+].$",
-          "description": "Keystroke that engages the observation viewer during an interactive run; pressing it twice sends one literal prefix byte to the engine. Control keys only (`ctrl-<char>`); keys the engine needs verbatim — ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) — are rejected. Default: ctrl-].",
-          "examples": ["ctrl-]", "ctrl-t"]
+          "description": "Keystroke that engages the observation viewer during an interactive run; pressing it twice sends one literal prefix byte to the engine. Control keys only (`ctrl-<char>`); keys the engine needs verbatim \u2014 ctrl-i (tab), ctrl-j/ctrl-m (newline/return), ctrl-[ (escape) \u2014 are rejected. Default: ctrl-].",
+          "examples": [
+            "ctrl-]",
+            "ctrl-t"
+          ]
         },
         "surround": {
           "type": "boolean",
-          "description": "Persistent bottom status bar (harp · agent · engine │ children digest │ prefix hint), drawn on a reserved terminal row the engine cannot paint over. Default: true."
+          "description": "Persistent bottom status bar (harp \u00b7 agent \u00b7 engine \u2502 children digest \u2502 prefix hint), drawn on a reserved terminal row the engine cannot paint over. Default: true."
         }
       },
       "additionalProperties": false
@@ -393,89 +468,350 @@
   "$defs": {
     "llmConfig": {
       "type": "object",
-      "description": "One labeled backend config. `type` is the discriminator and may be omitted (it defaults to claude-code — see LLMConfig.EffectiveType); the remaining fields are that backend's own config. anyOf (not oneOf): an entry without `type` is shape-compatible with several branches and must still validate.",
+      "description": "One labeled backend config. `type` is the discriminator and may be omitted (it defaults to claude-code \u2014 see LLMConfig.EffectiveType); the remaining fields are that backend's own config. anyOf (not oneOf): an entry without `type` is shape-compatible with several branches and must still validate.",
       "anyOf": [
         {
           "title": "claude-code",
           "properties": {
-            "type": { "const": "claude-code" },
-            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
-            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
-            "model": { "type": "string", "examples": ["opus", "sonnet", "haiku"] },
-            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
-            "args": { "type": "array", "items": { "type": "string" } },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } },
-            "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "default": "medium", "description": "Normalized reasoning/thinking-budget level, translated to claude's MAX_THINKING_TOKENS env var (off unsets it entirely; low/medium/high map to ctxloom-owned token counts, retunable without a schema break). Empty defaults to medium." }
+            "type": {
+              "const": "claude-code"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
+            },
+            "permissions": {
+              "type": "string",
+              "enum": [
+                "default",
+                "acceptEdits",
+                "plan",
+                "bypass"
+              ],
+              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+            },
+            "model": {
+              "type": "string",
+              "examples": [
+                "opus",
+                "sonnet",
+                "haiku"
+              ]
+            },
+            "binary_path": {
+              "type": "string",
+              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "thinking": {
+              "type": "string",
+              "enum": [
+                "off",
+                "low",
+                "medium",
+                "high"
+              ],
+              "default": "medium",
+              "description": "Normalized reasoning/thinking-budget level, translated to claude's MAX_THINKING_TOKENS env var (off unsets it entirely; low/medium/high map to ctxloom-owned token counts, retunable without a schema break). Empty defaults to medium."
+            }
           },
           "additionalProperties": false
         },
         {
           "title": "antigravity",
           "properties": {
-            "type": { "const": "antigravity" },
-            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
-            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
-            "model": { "type": "string", "examples": ["gemini-3-pro"] },
-            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
-            "args": { "type": "array", "items": { "type": "string" } },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+            "type": {
+              "const": "antigravity"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
+            },
+            "permissions": {
+              "type": "string",
+              "enum": [
+                "default",
+                "acceptEdits",
+                "plan",
+                "bypass"
+              ],
+              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+            },
+            "model": {
+              "type": "string",
+              "examples": [
+                "gemini-3-pro"
+              ]
+            },
+            "binary_path": {
+              "type": "string",
+              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
           },
           "additionalProperties": false
         },
         {
           "title": "codex",
           "properties": {
-            "type": { "const": "codex" },
-            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
-            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
-            "model": { "type": "string" },
-            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
-            "args": { "type": "array", "items": { "type": "string" } },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } },
-            "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "default": "medium", "description": "Normalized reasoning/thinking-budget level, translated to codex-acp's model_reasoning_effort (minimal/low/medium/xhigh — codex has no bare \"high\"; ctxloom's \"high\" maps to \"xhigh\") and model_reasoning_summary. Empty defaults to medium. Codex is model-gated and returns no reasoning at all on ChatGPT-OAuth auth (an account-tier limit, not this knob)." }
+            "type": {
+              "const": "codex"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
+            },
+            "permissions": {
+              "type": "string",
+              "enum": [
+                "default",
+                "acceptEdits",
+                "plan",
+                "bypass"
+              ],
+              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+            },
+            "model": {
+              "type": "string"
+            },
+            "binary_path": {
+              "type": "string",
+              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "thinking": {
+              "type": "string",
+              "enum": [
+                "off",
+                "low",
+                "medium",
+                "high"
+              ],
+              "default": "medium",
+              "description": "Normalized reasoning/thinking-budget level, translated to codex-acp's model_reasoning_effort (minimal/low/medium/xhigh \u2014 codex has no bare \"high\"; ctxloom's \"high\" maps to \"xhigh\") and model_reasoning_summary. Empty defaults to medium. Codex is model-gated and returns no reasoning at all on ChatGPT-OAuth auth (an account-tier limit, not this knob)."
+            }
           },
           "additionalProperties": false
         },
         {
           "title": "kiro",
           "properties": {
-            "type": { "const": "kiro" },
-            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
-            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
-            "model": { "type": "string" },
-            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
-            "args": { "type": "array", "items": { "type": "string" } },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } },
-            "effort": { "type": "string", "enum": ["low", "medium", "high", "xhigh", "max"], "description": "Kiro reasoning effort via --effort." },
-            "agent": { "type": "string", "description": "Kiro custom agent selected via --agent (default \"ctxloom\")." },
-            "agent_engine": { "type": "string", "enum": ["v1", "v2", "v3"], "description": "Kiro harness version via --agent-engine." },
-            "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "description": "The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on kiro: no wired mechanism (setting it only logs a warning) — use \"effort\" above instead." }
+            "type": {
+              "const": "kiro"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
+            },
+            "permissions": {
+              "type": "string",
+              "enum": [
+                "default",
+                "acceptEdits",
+                "plan",
+                "bypass"
+              ],
+              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+            },
+            "model": {
+              "type": "string"
+            },
+            "binary_path": {
+              "type": "string",
+              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "effort": {
+              "type": "string",
+              "enum": [
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max"
+              ],
+              "description": "Kiro reasoning effort via --effort."
+            },
+            "agent": {
+              "type": "string",
+              "description": "Kiro custom agent selected via --agent (default \"ctxloom\")."
+            },
+            "agent_engine": {
+              "type": "string",
+              "enum": [
+                "v1",
+                "v2",
+                "v3"
+              ],
+              "description": "Kiro harness version via --agent-engine."
+            },
+            "thinking": {
+              "type": "string",
+              "enum": [
+                "off",
+                "low",
+                "medium",
+                "high"
+              ],
+              "description": "The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on kiro: no wired mechanism (setting it only logs a warning) \u2014 use \"effort\" above instead."
+            }
           },
           "additionalProperties": false
         },
         {
           "title": "opencode",
-          "description": "opencode driven over its first-party `opencode acp` mode (host-only chat spine). The model is delivered through a project-local opencode.json in the run's cwd — `opencode acp` has no --model flag.",
+          "description": "opencode driven over its first-party `opencode acp` mode (host-only chat spine). The model is delivered through a project-local opencode.json in the run's cwd \u2014 `opencode acp` has no --model flag.",
           "properties": {
-            "type": { "const": "opencode" },
-            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
-            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
-            "model": { "type": "string", "examples": ["openrouter/meta-llama/llama-3.3-70b-instruct:free"], "description": "opencode model string (provider/model); written into the run's opencode.json." },
-            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
-            "args": { "type": "array", "items": { "type": "string" } },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } },
-            "thinking": { "type": "string", "enum": ["off", "low", "medium", "high"], "description": "The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on opencode: no wired mechanism was found (setting it only logs a warning)." }
+            "type": {
+              "const": "opencode"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
+            },
+            "permissions": {
+              "type": "string",
+              "enum": [
+                "default",
+                "acceptEdits",
+                "plan",
+                "bypass"
+              ],
+              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+            },
+            "model": {
+              "type": "string",
+              "examples": [
+                "openrouter/meta-llama/llama-3.3-70b-instruct:free"
+              ],
+              "description": "opencode model string (provider/model); written into the run's opencode.json."
+            },
+            "binary_path": {
+              "type": "string",
+              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "thinking": {
+              "type": "string",
+              "enum": [
+                "off",
+                "low",
+                "medium",
+                "high"
+              ],
+              "description": "The cross-engine normalized reasoning knob. DOCUMENTED NO-OP on opencode: no wired mechanism was found (setting it only logs a warning)."
+            }
           },
           "additionalProperties": false
         },
         {
           "title": "mock",
           "properties": {
-            "type": { "const": "mock" },
-            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
-            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
-            "model": { "type": "string" },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+            "type": {
+              "const": "mock"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
+            },
+            "permissions": {
+              "type": "string",
+              "enum": [
+                "default",
+                "acceptEdits",
+                "plan",
+                "bypass"
+              ],
+              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+            },
+            "model": {
+              "type": "string"
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
           },
           "additionalProperties": false
         },
@@ -483,23 +819,90 @@
           "title": "acp",
           "description": "Generic Agent Client Protocol client: drives any ACP-capable agent chosen by config (e.g. \"kiro-cli acp\", \"claude-code-acp\"). Structured chat + headless oneshot only (no TUI); materializes no native settings of its own.",
           "properties": {
-            "type": { "const": "acp" },
-            "role": { "type": "string", "enum": ["primary", "fast"], "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise." },
-            "permissions": { "type": "string", "enum": ["default", "acceptEdits", "plan", "bypass"], "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)." },
-            "command": { "type": "string", "description": "The agent's ACP-mode invocation, whitespace-split into the binary and its leading args (e.g. \"kiro-cli acp\")." },
-            "agent": { "type": "string", "description": "Selects a named agent on the target CLI via `--agent`." },
-            "agent_engine": { "type": "string", "description": "Names the target agent (kiro/claude/codex/agy); also passed as `--agent-engine`." },
-            "model": { "type": "string", "description": "Passed to the spawned agent via `--model` when set." },
-            "model_env_var": { "type": "string", "description": "When set, also delivers the request's model into the spawned agent's environment under this variable name (e.g. claude's ANTHROPIC_MODEL)." },
-            "model_config_key": { "type": "string", "description": "When set, delivers the request's model via a `-c <key>=<value>` config-override flag instead of the generic `--model` flag (mutually exclusive with it)." },
-            "reasoning_config_key": { "type": "string", "description": "When set, delivers reasoning_effort via an ADDITIONAL `-c <key>=<value>` override, independent of model_config_key (e.g. codex's model_reasoning_effort)." },
-            "reasoning_effort": { "type": "string", "description": "The resolved value reasoning_config_key delivers." },
-            "reasoning_summary_config_key": { "type": "string", "description": "A companion `-c <key>=<value>` override in the same shape (e.g. codex's model_reasoning_summary)." },
-            "reasoning_summary": { "type": "string", "description": "The resolved value reasoning_summary_config_key delivers." },
-            "strip_env": { "type": "array", "description": "Inherited environment variables removed from the spawned agent's env.", "items": { "type": "string" } },
-            "binary_path": { "type": "string", "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode." },
-            "args": { "type": "array", "items": { "type": "string" } },
-            "env": { "type": "object", "additionalProperties": { "type": "string" } }
+            "type": {
+              "const": "acp"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "primary",
+                "fast"
+              ],
+              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
+            },
+            "permissions": {
+              "type": "string",
+              "enum": [
+                "default",
+                "acceptEdits",
+                "plan",
+                "bypass"
+              ],
+              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
+            },
+            "command": {
+              "type": "string",
+              "description": "The agent's ACP-mode invocation, whitespace-split into the binary and its leading args (e.g. \"kiro-cli acp\")."
+            },
+            "agent": {
+              "type": "string",
+              "description": "Selects a named agent on the target CLI via `--agent`."
+            },
+            "agent_engine": {
+              "type": "string",
+              "description": "Names the target agent (kiro/claude/codex/agy); also passed as `--agent-engine`."
+            },
+            "model": {
+              "type": "string",
+              "description": "Passed to the spawned agent via `--model` when set."
+            },
+            "model_env_var": {
+              "type": "string",
+              "description": "When set, also delivers the request's model into the spawned agent's environment under this variable name (e.g. claude's ANTHROPIC_MODEL)."
+            },
+            "model_config_key": {
+              "type": "string",
+              "description": "When set, delivers the request's model via a `-c <key>=<value>` config-override flag instead of the generic `--model` flag (mutually exclusive with it)."
+            },
+            "reasoning_config_key": {
+              "type": "string",
+              "description": "When set, delivers reasoning_effort via an ADDITIONAL `-c <key>=<value>` override, independent of model_config_key (e.g. codex's model_reasoning_effort)."
+            },
+            "reasoning_effort": {
+              "type": "string",
+              "description": "The resolved value reasoning_config_key delivers."
+            },
+            "reasoning_summary_config_key": {
+              "type": "string",
+              "description": "A companion `-c <key>=<value>` override in the same shape (e.g. codex's model_reasoning_summary)."
+            },
+            "reasoning_summary": {
+              "type": "string",
+              "description": "The resolved value reasoning_summary_config_key delivers."
+            },
+            "strip_env": {
+              "type": "array",
+              "description": "Inherited environment variables removed from the spawned agent's env.",
+              "items": {
+                "type": "string"
+              }
+            },
+            "binary_path": {
+              "type": "string",
+              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
+            },
+            "args": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "env": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            }
           },
           "additionalProperties": false
         }
@@ -536,7 +939,9 @@
     "mcpServer": {
       "type": "object",
       "description": "MCP server configuration",
-      "required": ["command"],
+      "required": [
+        "command"
+      ],
       "properties": {
         "command": {
           "type": "string",
@@ -584,7 +989,11 @@
         "type": {
           "type": "string",
           "description": "Hook handler type",
-          "enum": ["command", "prompt", "agent"],
+          "enum": [
+            "command",
+            "prompt",
+            "agent"
+          ],
           "default": "command"
         },
         "prompt": {
@@ -593,7 +1002,7 @@
         },
         "timeout": {
           "type": "integer",
-          "description": "Execution timeout in seconds. Unset means no timeout is applied (omitted from the emitted backend settings entirely) — there is no implicit default.",
+          "description": "Execution timeout in seconds. Unset means no timeout is applied (omitted from the emitted backend settings entirely) \u2014 there is no implicit default.",
           "minimum": 1
         },
         "async": {
@@ -603,7 +1012,7 @@
         },
         "pre_tool_fallback": {
           "type": "boolean",
-          "description": "Declares a session_start hook safe to fire on PreToolUse instead (first tool call and every one after) on agents whose harness has no session-start event (e.g. Antigravity). Only meaningful for idempotent hooks — the author opts in because the hook may run many times per session rather than once. Writers for agents with a working session-start event ignore it.",
+          "description": "Declares a session_start hook safe to fire on PreToolUse instead (first tool call and every one after) on agents whose harness has no session-start event (e.g. Antigravity). Only meaningful for idempotent hooks \u2014 the author opts in because the hook may run many times per session rather than once. Writers for agents with a working session-start event ignore it.",
           "default": false
         }
       },

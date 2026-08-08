@@ -407,6 +407,19 @@ type SetupRequest struct {
 // command exports in Commands already have the target agent's enablement +
 // metadata resolved host-side.
 type ManagedConfig struct {
+	// Surfaces is the AGENT BINDING's delivery preference, one approach per
+	// surface kind, already validated host-side against this engine's
+	// SupportedApproaches. Empty takes the engine's default, which is every
+	// agent that has not asked for anything.
+	//
+	// It lives on the binding rather than in the engine's approach table
+	// because preference is a property of the CALLER, not the engine: measured
+	// 2026-08-08, no single table order serves launch, materialize and at-rest
+	// delivery at once. An agent is always launched, so it is the one caller
+	// that can safely prefer system-prompt — the approach with no argv sink at
+	// rest.
+	Surfaces map[SurfaceKind]Approach
+
 	Commands         []CommandExport           // per-target-agent command (slash-command) exports
 	Skills           []SkillExport             // per-target-agent Agent Skill package exports (SurfaceSkills)
 	Hooks            *wire.HooksConfig         // config + default-profile + bundle hooks (no context-injection)

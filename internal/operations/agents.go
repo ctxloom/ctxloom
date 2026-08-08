@@ -1,6 +1,7 @@
 package operations
 
 import (
+	"maps"
 	"context"
 	"fmt"
 	"slices"
@@ -111,6 +112,11 @@ type SetAgentRequest struct {
 	Engine      *string   `json:"engine,omitempty"`
 	Profiles    *[]string `json:"profiles,omitempty"`
 	Runtime     *string   `json:"runtime,omitempty"`
+	// Surfaces sets the binding's delivery preference (kind -> approach). It is
+	// validated against the engine this write RESULTS IN — the requested one if
+	// the same call sets it, otherwise the one already recorded — so a pair is
+	// refused by the command that typed it rather than by a later session.
+	Surfaces map[string]string `json:"surfaces,omitempty"`
 	Permissions *string   `json:"permissions,omitempty"`
 	// Coordinator sets the trust-boundary gate flag: whether this agent, when
 	// run as a delegated child, is trusted with the coordinator-only MCP
@@ -204,6 +210,27 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 			return fmt.Errorf("agent %q: %w", name, err)
 		}
 	}
+
+	// Validate the preference against the engine this write RESULTS IN, not the
+	// one recorded before it. `agent set x --engine kiro --surface
+	// context=system-prompt` must be refused as one act: checking against the
+	// OLD engine would accept a pair the new engine cannot honour, and the
+	// binding would be written already broken.
+	if len(req.Surfaces) > 0 {
+		engine := ""
+		if req.Engine != nil {
+			engine = *req.Engine
+		} else if existing, ok := cfg.Agent(name); ok {
+			engine = existing.Engine
+		}
+		if engine == "" {
+			return fmt.Errorf("agent %q: a surface preference needs a known engine — set --engine in the same command, "+
+				"since which approaches exist is the engine's answer, not ctxloom's", name)
+		}
+		if _, err := ResolveAgentSurfaces(engine, req.Surfaces); err != nil {
+			return fmt.Errorf("agent %q: %w", name, err)
+		}
+	}
 	return nil
 }
 
@@ -273,6 +300,17 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 			entry.Profiles = canonicalizeProfileRefs(*req.Profiles, aliasToURLResolver(cfg))
 		}
 		entry.Engine = orKeep(req.Engine, entry.Engine)
+		// A nil map means "not named" and keeps what is stored; an EMPTY
+		// non-nil map is how a caller clears the preference back to the
+		// engine's default, matching how the pointer fields above treat an
+		// explicit empty string.
+		if req.Surfaces != nil {
+			if len(req.Surfaces) == 0 {
+				entry.Surfaces = nil
+			} else {
+				entry.Surfaces = maps.Clone(req.Surfaces)
+			}
+		}
 		entry.Runtime = orKeep(req.Runtime, entry.Runtime)
 		entry.Permissions = orKeep(req.Permissions, entry.Permissions)
 		entry.Coordinator = orKeep(req.Coordinator, entry.Coordinator)
@@ -389,6 +427,9 @@ type ResolvedAgent struct {
 	// Fragments names what loaded into it.
 	Context   string   `json:"context,omitempty"`
 	Fragments []string `json:"fragments,omitempty"`
+	// Surfaces is the agent's DELIVERY PREFERENCE, parsed and already checked
+	// against this engine's SupportedApproaches. Empty takes the engine default.
+	Surfaces map[agent.SurfaceKind]agent.Approach `json:"-"`
 	// Runtime is the RESOLVED runtime axis for this agent (its own choice →
 	// project `runtime:` default → ""). Empty means "host" — today's
 	// behaviour. Only the runtime axis resolves here: the WORKSPACE axis is a
@@ -510,8 +551,19 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	}
 	labelEntry, _ := cfg.GetLLMEntry(label)
 
+	// A preference that does not survive validation is a WARNING here, not a
+	// failed launch: the binding was already refused at write time, so reaching
+	// this arm means the config was hand-edited or the engine changed under it.
+	// Degrading to the engine's default keeps the session, and saying so keeps
+	// it from being the silent kind.
+	surfaces, serr := ResolveAgentSurfaces(backend, sub.Surfaces)
+	if serr != nil {
+		clidiag.Warn("ctxloom", "agent %q: %v — using %s's default delivery", name, serr, backend)
+	}
+
 	return &ResolvedAgent{
 		Name:        name,
+		Surfaces:    surfaces,
 		Engine:      sub.Engine,
 		Profiles:    sub.Profiles,
 		Label:       label,

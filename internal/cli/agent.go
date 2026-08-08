@@ -290,6 +290,7 @@ var (
 	agentSetEngine      string
 	agentSetProfiles    []string
 	agentSetRuntime     string
+	agentSetSurfaces    []string
 	agentSetPermissions string
 	agentSetCoordinator bool
 	agentSetDriving     string
@@ -414,6 +415,29 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 	}
 	if cmd.Flags().Changed("runtime") {
 		req.Runtime = &agentSetRuntime
+	}
+	if cmd.Flags().Changed("surface") {
+		// Parsed with the SAME function `profile materialize --surface` uses, so
+		// the two spellings cannot drift. Engine support is checked in SetAgent,
+		// which is the only place that knows which engine this write results in.
+		parsed, err := parseSurfaceOverrides(agentSetSurfaces)
+		if err != nil {
+			// Reported by SetAgent's own validation path; leaving the map nil
+			// here would silently drop the flag instead.
+			req.Surfaces = map[string]string{}
+			for _, p := range agentSetSurfaces {
+				if k, v, ok := strings.Cut(p, "="); ok {
+					req.Surfaces[strings.TrimSpace(k)] = strings.TrimSpace(v)
+				} else {
+					req.Surfaces[p] = ""
+				}
+			}
+		} else {
+			req.Surfaces = make(map[string]string, len(parsed))
+			for k, a := range parsed {
+				req.Surfaces[k.String()] = a.String()
+			}
+		}
 	}
 	if cmd.Flags().Changed("permissions") {
 		req.Permissions = &agentSetPermissions
@@ -588,6 +612,8 @@ func registerAgentWriteFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&agentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
 	cmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
 	cmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
+	cmd.Flags().StringArrayVar(&agentSetSurfaces, "surface", nil,
+		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
 	cmd.Flags().BoolVar(&agentSetCoordinator, "coordinator", false, "Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf")
 	cmd.Flags().StringVar(&agentSetDriving, "driving", "", "Per-turn execution axis: conversational|oneshot (empty = conversational, today's default; oneshot requires a resume-capable engine and is EXPERIMENTAL in this release — interfaces and behavior may change)")

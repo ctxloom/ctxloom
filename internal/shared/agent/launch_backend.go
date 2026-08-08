@@ -331,7 +331,17 @@ func (b *LaunchBackend) deliverSet(set SurfaceSet, req *SetupRequest) error {
 	// SharedRealization-converted / warned-native set, an isolated cell over the
 	// well-known set): only the surface LIST is derived from the selection, not the
 	// cell/placement choice.
-	resolved, err := Select(set).WithEverything().Build()
+	sel := Select(set).WithEverything()
+	// The agent binding's preference, applied where it is actually valid: a
+	// launch has the argv sink system-prompt needs, which is exactly why this
+	// belongs on the agent rather than in the engine's table (an at-rest
+	// DeliverUnder inheriting it would fail for want of one).
+	if req != nil && req.Managed != nil {
+		for kind, approach := range req.Managed.Surfaces {
+			sel = sel.WithApproach(kind, approach)
+		}
+	}
+	resolved, err := sel.Build()
 	if err != nil {
 		return err
 	}

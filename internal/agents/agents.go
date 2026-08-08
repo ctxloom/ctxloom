@@ -76,6 +76,24 @@ type Agent struct {
 
 	// Engine is the LLM config label/backend; overrides the profiles' llm.
 	Engine string `yaml:"engine,omitempty"`
+	// Surfaces is this binding's DELIVERY PREFERENCE: which approach each
+	// surface kind is delivered by, as the labels the CLI already uses
+	// ("context: system-prompt"). Empty — the usual case — takes the engine's
+	// own default.
+	//
+	// Preference lives on the binding because it is a property of the CALLER,
+	// not of the engine. The engine's approach table is a CAPABILITY list whose
+	// first entry is only the at-rest default, and measured 2026-08-08 no
+	// single order there serves launch, `profile materialize` and at-rest
+	// delivery at once. An agent is always LAUNCHED, which makes it the one
+	// caller that can safely prefer system-prompt — the approach that has no
+	// argv sink at rest and so cannot be any table's default.
+	//
+	// Validated against the engine's SupportedApproaches when it is WRITTEN
+	// (Validate below), not at launch: system-prompt is claude-only, and a kiro
+	// agent asking for it should learn so from the command that set it rather
+	// than from a session that behaves unexpectedly later.
+	Surfaces map[string]string `yaml:"surfaces,omitempty"`
 	// Profiles compose into one assembled context.
 	Profiles []string `yaml:"profiles,omitempty"`
 	// Runtime is the agent's RUNTIME axis (host | container): where this

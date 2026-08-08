@@ -314,6 +314,9 @@ type runState struct {
 	// (empty for a classic run); the resolver layers the engine label and the
 	// built-in default on top.
 	agentPermissions string
+	// agentSurfaces is the bound agent's resolved delivery preference, carried
+	// to the backend on the managed payload.
+	agentSurfaces map[agent.SurfaceKind]agent.Approach
 	// The session's runtime axis: the agent's resolved runtime, or the project
 	// `runtime:` default for a classic run.
 	agentRuntime string
@@ -634,6 +637,7 @@ func (st *runState) applyResolvedAgent(rs *operations.ResolvedAgent, name string
 	st.label, st.backendName, st.labelModel = rs.Label, rs.Backend, rs.Model
 	st.agentRuntime = rs.Runtime
 	st.agentPermissions = rs.Permissions
+	st.agentSurfaces = rs.Surfaces
 	st.boundAgent = name
 }
 
@@ -1108,6 +1112,13 @@ func (st *runState) buildRunRequest() {
 	st.warnHostBypassStopgap()
 
 	st.managed = backends.AssembleManagedConfig(st.backendName, st.workDir, execGate.Authorizer(), st.ctxResult.Profiles)
+	// The binding's delivery preference rides the managed payload to the
+	// backend, which is the only place with the argv sink system-prompt needs.
+	// Set AFTER assembly rather than inside it: AssembleManagedConfig resolves
+	// PROFILE state and knows nothing about which agent is being launched.
+	if st.managed != nil && len(st.agentSurfaces) > 0 {
+		st.managed.Surfaces = st.agentSurfaces
+	}
 	st.req = &pb.RunStart{
 		Fragments: st.protoFragments,
 		Prompt:    st.promptFragment,

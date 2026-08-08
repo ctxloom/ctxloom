@@ -134,6 +134,17 @@ func (f *parityFiller) fill(v reflect.Value, path string, depth int) {
 		// population is true.
 		v.SetBool(true)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		// An ENUM's distinguishable population is a valid MEMBER, not any int.
+		// The counter below would hand agent.Approach a 4 — a value the enum
+		// does not define and the host side can never hold — and a converter
+		// that carries enums as their stable labels then legitimately refuses
+		// it, failing this test for a case that cannot occur. Filling from the
+		// domain keeps the round trip about what the converter DROPS rather
+		// than about what the filler invented.
+		if members, ok := enumDomain(v.Type()); ok {
+			v.SetInt(members[f.next()%len(members)])
+			return
+		}
 		// Small: several converters narrow int→int32 on the way out.
 		v.SetInt(int64(f.next()))
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -278,6 +289,11 @@ func TestArch_ProtoConverters_MirrorEveryStructField(t *testing.T) {
 
 	// --- managed.go: the host-assembled setup payload ---
 	checkParity(t, hits, "agent.ManagedConfig", ManagedConfigToProto, managedConfigFromProto)
+	// Swept in its own right, not only through ManagedConfig: this pair carries
+	// enums as LABELS, so it is the one conversion in this package that can
+	// refuse its input, and a round trip over the valid domain is what says the
+	// refusal is scoped to values the host cannot hold.
+	checkParity(t, hits, "map[agent.SurfaceKind]agent.Approach", surfacesToProto, surfacesFromProto)
 	checkParity(t, hits, "[]agent.CommandExport", commandExportsToProto, commandExportsFromProto)
 	checkParity(t, hits, "[]agent.SkillExport", skillExportsToProto, skillExportsFromProto)
 	checkParity(t, hits, "[]agent.PackageFile", packageFilesToProto, packageFilesFromProto)
@@ -449,4 +465,36 @@ func TestArch_ProtoConverters_ExclusionsAreLive(t *testing.T) {
 	sort.Strings(missing)
 	require.Empty(t, missing,
 		"parityExclusions names field(s) the parity sweep never encountered — either the field was renamed/removed (delete the entry) or nothing sweeps its type (add the converter pair to TestArch_ProtoConverters_MirrorEveryStructField). A stale exemption silently un-covers whatever inherits the name.")
+}
+
+// enumDomain reports the valid values of the enum types this package's
+// converters carry BY LABEL rather than by number. Carrying labels is what
+// makes an unknown value fail loudly instead of resolving to iota 0 — which for
+// both of these is the least safe member (SurfaceContext, ApproachUnsafeFile) —
+// and the price is that a synthetic out-of-domain int is not round-trippable.
+//
+// Listed from the packages' own exported enumerations, so a member added there
+// widens this automatically rather than silently narrowing what gets exercised.
+func enumDomain(t reflect.Type) ([]int64, bool) {
+	switch t {
+	case reflect.TypeOf(agent.SurfaceKind(0)):
+		out := []int64{}
+		for _, name := range agent.SurfaceKindNames() {
+			k, err := agent.ParseSurfaceKind(name)
+			if err == nil {
+				out = append(out, int64(k))
+			}
+		}
+		return out, len(out) > 0
+	case reflect.TypeOf(agent.Approach(0)):
+		out := []int64{}
+		for _, name := range agent.ApproachNames() {
+			a, err := agent.ParseApproach(name)
+			if err == nil {
+				out = append(out, int64(a))
+			}
+		}
+		return out, len(out) > 0
+	}
+	return nil, false
 }

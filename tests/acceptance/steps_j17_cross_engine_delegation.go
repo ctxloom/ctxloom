@@ -356,23 +356,17 @@ func registerJ17Steps(ctx *godog.ScenarioContext) {
 				return err
 			}
 
-			// Subscription path: copy just the credential files into the
-			// isolated HOME for whichever engine isn't using the API-key
-			// path (exactly steps_live.go's own per-engine logic, applied
-			// twice since this scenario runs both at once).
-			claude := liveAgents["claude"]
-			if !envSet(claude.apiKeyEnvs) && realHomeDir != "" {
-				if err := claude.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
-					return err
-				}
+			// Subscription path: MAP each engine at its own real credential
+			// directory (erased-collar) for whichever isn't using the
+			// API-key path — exactly steps_live.go's own per-engine logic,
+			// applied twice since this scenario runs both at once. This is
+			// the scenario jovial-employee was measured on: the codex half
+			// used to be seeded by COPY, and codex's refresh inside the
+			// throwaway HOME consumed the host's refresh token server-side.
+			if err := seedLiveCredentials("claude", liveAgents["claude"], realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
+				return err
 			}
-			codex := liveAgents["codex"]
-			if !envSet(codex.apiKeyEnvs) && realHomeDir != "" {
-				if err := codex.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
-					return err
-				}
-			}
-			return nil
+			return seedLiveCredentials("codex", liveAgents["codex"], realHomeDir, w.env.HomeDir, w.env.SetChildEnv)
 		})
 
 	// --- Shared: capture a spawned child's harp -----------------------------

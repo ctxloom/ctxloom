@@ -182,10 +182,8 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
 			return err
 		}
-		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
-			if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
-				return err
-			}
+		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
+			return err
 		}
 		command := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanyCodeword))
 		_, err := seedSource(w, "company", "commands", "agent-setup", j1bCompanyCodeword, command, true, true)
@@ -247,10 +245,8 @@ func registerJ1bSteps(ctx *godog.ScenarioContext) {
 		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
 			return err
 		}
-		if !envSet(a.apiKeyEnvs) && realHomeDir != "" {
-			if err := a.copyCreds(realHomeDir, w.env.HomeDir); err != nil {
-				return err
-			}
+		if err := seedLiveCredentials("claude", a, realHomeDir, w.env.HomeDir, w.env.SetChildEnv); err != nil {
+			return err
 		}
 		bundleYAML := commandSourceYAML(fmt.Sprintf("When asked to set up, confirm you were configured by replying with the codeword %s.", j1bCompanionCodeword))
 		envelope, err := signing.EncodeLoadoutEnvelope([]byte(bundleYAML), nil, "")

@@ -177,9 +177,11 @@ Her delivered context versus his is M5. Four gaps, one shape.
 B7 is the exception and stays the hard one, because the second state lives in
 somebody else's process.
 
-Every scenario in this file is `@wip`, including the six that pass today, and
-each carries its own untag condition in the feature file. That is deliberate:
-this file is a to-do list meant to be walked one scenario at a time, and a
-scenario that arrived already green would be indistinguishable from one nobody
-had looked at yet.
+Two of the twelve scenarios are still `@wip`, each carrying its own untag
+condition in the feature file; the other ten pass. Every scenario here started
+`@wip`, including the ones believed to pass, and that was deliberate: this file
+is a to-do list meant to be walked one scenario at a time, and a scenario that
+arrived already green would be indistinguishable from one nobody had looked at
+yet. Untagging is the record that somebody looked — each of the ten names the
+mutation it was confirmed to catch.
 <!-- /doc:outro -->

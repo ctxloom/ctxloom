@@ -19,11 +19,12 @@ Feature: The close-out — the end of a workstream
   deliberately no top-level `cleanup` verb; that question was settled by the
   noun-verb convention and is not re-litigated here.
 
-  # NOTE ON SCOPE — THIS FEATURE IS A SPECIFICATION. Almost nothing it drives
-  # exists yet. `session worktrees`, `session purge`, `session distill --skill
-  # --to-bundle` and doctor's five new checks are proposed surfaces, and these
-  # scenarios are their acceptance definition. Nearly every scenario here is
-  # RED, and that is the deliverable rather than a defect in the file.
+  # NOTE ON SCOPE — THIS FEATURE STARTED AS A SPECIFICATION and is being
+  # walked down. `session worktrees`, `session purge` and doctor's new checks
+  # have since shipped; `session distill --skill --to-bundle` and the `cleanup`
+  # routine have not, and these scenarios remain their acceptance definition.
+  # Ten of the fifteen scenarios pass today; the five still tagged @wip are
+  # red, and that is the deliverable rather than a defect in the file.
   #
   # NOTE ON WHAT THE FIXTURES BUILD. A close-out flow is defined almost
   # entirely by what it REFUSES to do, and a refusal cannot be tested against a
@@ -43,8 +44,10 @@ Feature: The close-out — the end of a workstream
   # no force-remove, no dirty or unmerged or unowned trees, no live session, no
   # undistilled `--everything` without its own flag, no touching vendor stores.
   #
-  # NOTE ON TAGS. Every scenario is @wip with its own untag condition. The
-  # handful believed to pass today say so plainly rather than being left silent.
+  # NOTE ON TAGS. Five of the fifteen scenarios are @wip, each with its own
+  # untag condition. The other ten pass today; each says what closed it rather
+  # than being left silent. Keep this count honest — it is the first thing a
+  # reader uses to decide how much of this file is still a wish.
 
   Background:
     Given the feature shipped on Friday and Alice is closing the workstream out
@@ -212,7 +215,8 @@ Feature: The close-out — the end of a workstream
     Then ctxloom reports that it extracted nothing, and does not call that success
     And nothing was written into the "team-lessons" bundle
 
-  # A VERIFIED SILENT DEGRADE, specified out of existence. A distill skill is a
+  # A SILENT DEGRADE THIS PRODUCT HAS ALREADY SHIPPED ONCE, specified out of
+  # existence before the second surface can repeat it. A distill skill is a
   # context-exfiltration and context-poisoning primitive of the first order: it
   # reads whole session transcripts — the most sensitive artifact ctxloom
   # holds — and decides what gets written back into checked-in, signed,
@@ -220,14 +224,28 @@ Feature: The close-out — the end of a workstream
   # ordinary fragment, which is exactly why it rides the same per-item,
   # hash-bound trust choke as any other skill.
   #
-  # The consumer half is what is broken today: cli.loadDistillPrompt swallows
-  # EVERY GetCommand error including ErrCommandWithheld and silently falls back
-  # to the embedded prompt. So a trust decision silently changes which prompt
-  # runs, and the user is never told the skill they chose was not the one used.
-  # Withheld must FAIL LOUD, with `--degraded` as the only way past it.
+  # DO NOT go fix cli.loadDistillPrompt on the strength of this row. That
+  # function is a real defect — it swallows every operations.GetCommand error,
+  # ErrCommandWithheld included, and silently falls back to the embedded
+  # prompt — but it is NOT on this scenario's path and fixing it would leave
+  # this row exactly as red as it is now. Its only caller is
+  # cli.newLLMDistillerForLabel, which serves `bundle distill`, `fragment
+  # distill` and item edits; the defect is tracked separately as
+  # obligate-synthesis. `session distill` goes cli.runSessionDistill ->
+  # cli.compactEntry -> memory.NewCompactor and never loads a bundle-supplied
+  # prompt at all.
+  #
+  # What is actually missing here is the whole selection surface: `session
+  # distill` accepts neither `--skill` nor `--to-bundle`, so there is no point
+  # at which a trust decision is consulted. When it is built, the withheld
+  # signal it must honour already exists — operations.GetSkill returns
+  # errs.ErrSkillWithheld out of the gated exposure pipeline (see
+  # bundles.pipeline's skill lookup). Withheld must FAIL LOUD there, with
+  # `--degraded` as the only way past it; falling back to the built-in prompt
+  # is what this row forbids.
   #
   # UNTAG WHEN: selecting a withheld distill skill refuses and names the review
-  # command. Expected RED.
+  # command. Expected RED: `session distill` has no `--skill`/`--to-bundle`.
   @wip
   Scenario: A withheld distill skill stops the run instead of quietly swapping itself out
     Given a finished session "amber-quiet-heron" whose work is already distilled
@@ -240,9 +258,12 @@ Feature: The close-out — the end of a workstream
   # payload assertion is that the report DESTROYED NOTHING — a "report" that
   # deletes as a side effect is the worst possible version of this leaf.
   #
-  # UNTAG WHEN: `ctxloom session purge <harp>` reports without destroying.
-  # Expected RED: no purge, gc, prune, retention or forget verb exists anywhere
-  # in the CLI (boundary B11).
+  # Closed: `ctxloom session purge <harp>` ships in
+  # cli.newSessionPurgeCmd (internal/cli/session_purge_cmd.go) and reports
+  # without destroying — without `--yes` nothing on disk or in the session
+  # index changes, TTY or not. The "no purge, gc, prune, retention or forget
+  # verb exists anywhere in the CLI (boundary B11)" this row used to claim was
+  # true when it was written and has not been since.
   Scenario: Purge shows its work before it destroys anything
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And a finished session "brisk-copper-moth" that was never distilled
@@ -257,7 +278,8 @@ Feature: The close-out — the end of a workstream
   # are NAMED in the report rather than silently skipped, because a file kept
   # but never mentioned is a file nobody will ever file.
   #
-  # UNTAG WHEN: purge implements the three-class split. Expected RED.
+  # Closed: purge implements the three-class split (machine / derived /
+  # authored), and `--yes` is what moves it from reporting to destroying.
   Scenario: Purge destroys the bulk, keeps the meaning, and never eats authored work
     Given a finished session "amber-quiet-heron" carrying design notes nobody filed
     When I run "ctxloom session purge amber-quiet-heron --yes"
@@ -271,8 +293,8 @@ Feature: The close-out — the end of a workstream
   # confirmation. For a structured run the canonical transcript is the ONLY
   # copy; nothing promises `session backfill` can re-derive it.
   #
-  # UNTAG WHEN: `--everything` refuses undistilled sessions without
-  # `--undistilled`. Expected RED.
+  # Closed: `--everything` refuses an undistilled session, naming it, unless
+  # `--undistilled` is given alongside.
   Scenario: Forgetting a session nobody ever summarised takes an extra deliberate flag
     Given a finished session "brisk-copper-moth" that was never distilled
     When I run "ctxloom session purge brisk-copper-moth --everything --yes"
@@ -285,8 +307,9 @@ Feature: The close-out — the end of a workstream
   # harp directory would take the scratch worktrees with it, including any
   # holding work, without ever consulting an owner marker.
   #
-  # UNTAG WHEN: purge leaves scratch worktrees registered and on disk.
-  # Expected RED: the leaf does not exist.
+  # Closed: purge leaves scratch worktrees registered and on disk — it never
+  # walks ephemeral/ and runs no git commands, which is `session worktrees
+  # --reap`'s job.
   Scenario: Purging a session does not reap the worktrees living inside it
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And session "amber-quiet-heron" left a scratch worktree holding uncommitted work

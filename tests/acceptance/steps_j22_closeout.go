@@ -585,9 +585,12 @@ func registerJ22Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		if w.env.LastExitCode() == 0 {
-			return fmt.Errorf("ctxloom exited 0 with a withheld distill skill selected. cli.loadDistillPrompt swallows EVERY "+
-				"GetCommand error including ErrCommandWithheld and silently falls back to the embedded prompt, so a trust decision "+
-				"silently changes which prompt runs — and the user is never told their chosen skill was not the one used. Output:\n%s",
+			return fmt.Errorf("ctxloom exited 0 with a withheld distill skill selected. The gate that must refuse is "+
+				"errs.ErrSkillWithheld from operations.GetSkill; `session distill` (cli.runSessionDistill -> cli.compactEntry -> "+
+				"memory.NewCompactor) does not consult it, and accepts no --skill flag to consult it with. Do NOT go looking at "+
+				"cli.loadDistillPrompt: it swallows GetCommand errors the same way, but it serves `bundle distill` via "+
+				"cli.newLLMDistillerForLabel and is not on this path (tracked separately as obligate-synthesis). A withheld skill "+
+				"must fail loud rather than silently changing which prompt runs. Output:\n%s",
 				w.env.LastOutput())
 		}
 		return j22Answered(w, "the refusal", "withheld", "review")

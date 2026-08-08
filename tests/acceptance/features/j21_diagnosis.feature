@@ -47,10 +47,13 @@ Feature: The day the assistant goes blind
   # a round with nothing to do. It sits beside four payload assertions that
   # cover what the human is told; neither substitutes for the other.
   #
-  # NOTE ON TAGS. Every scenario in this file is @wip, including the ones
-  # believed to pass today — this file is a to-do list to be walked one scenario
-  # at a time, and a scenario that arrived green would be indistinguishable from
-  # one nobody had looked at. Each carries its own untag condition.
+  # NOTE ON TAGS. Two of the twelve scenarios are still @wip, each carrying its
+  # own untag condition; the other ten pass. Every scenario in this file
+  # STARTED @wip, including the ones believed to pass, because this file is a
+  # to-do list to be walked one at a time and a scenario that arrived green
+  # would be indistinguishable from one nobody had looked at. Untagging is
+  # therefore the record that somebody looked — see the UNTAGGED notes below,
+  # which name the mutation each one was confirmed to bite on.
 
   Background:
     Given Alice's team ships its deploy process as ctxloom content

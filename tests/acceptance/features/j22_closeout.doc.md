@@ -1,10 +1,11 @@
 <!--
 J22 narration companion (j22_closeout.feature) — FLOWS-UNIFIED.md's U11.
 
-Unlike the other jN companions, this one narrates a journey that is ENTIRELY
-unbuilt: all fifteen scenarios are red, every one against a surface that does
-not exist. The prose therefore argues the design rather than reporting a
-measurement, and says so wherever it does.
+This companion was written when the journey was ENTIRELY unbuilt: all fifteen
+scenarios were red, every one against a surface that did not exist. Ten have
+since gone green — `session worktrees`, `session purge` and doctor's new
+checks shipped — and five remain red. Where the prose argues the design rather
+than reporting a measurement it says so.
 
 The one thing here that IS measured: three of these scenarios initially passed
 green, purely because the commands they drive do not exist, so "nothing was
@@ -150,12 +151,20 @@ ad-hoc mechanism: a config key naming a file path would bypass trust entirely,
 while a skill rides the same per-item, hash-bound choke as every other skill,
 so a changed lessons skill re-enters review like any other content change.
 
-The consumer half is what is broken today, and it is verified:
-`cli.loadDistillPrompt` swallows every error from its lookup — including
-"this content is withheld pending review" — and silently falls back to the
-embedded prompt. So a trust decision quietly changes which prompt runs, and the
-user is never told that the skill they selected was not the skill that ran.
-Withheld must fail loud. That scenario is here.
+The consumer half does not exist yet: `session distill` accepts neither
+`--skill` nor `--to-bundle`, so there is nowhere for a trust decision to be
+consulted. The signal it will have to honour is already built —
+`operations.GetSkill` returns `errs.ErrSkillWithheld` out of the gated exposure
+pipeline — and the requirement is that a withheld skill fails loud there rather
+than falling back to the embedded prompt. That scenario is here.
+
+The degrade is not hypothetical: ctxloom ships it once already, on a different
+command. `cli.loadDistillPrompt` swallows every error from its lookup —
+including "this content is withheld pending review" — and silently falls back
+to the embedded prompt, so on `bundle distill` and `fragment distill` a trust
+decision quietly changes which prompt runs and the user is never told. That is
+tracked on its own; it is *not* on `session distill`'s path, which runs
+`runSessionDistill` -> `compactEntry` -> `memory.NewCompactor`.
 
 And the lessons output must be SIGNED in the same apply, which sounds like
 belt-and-braces until you connect it to J21: an edited-unsigned bundle is
@@ -185,8 +194,9 @@ own supply chain. That is the strongest available argument that the supply
 chain is worth anything: the product uses it on itself, for the thing it cares
 about most.
 
-All fifteen scenarios are `@wip` and all fifteen are red. Each carries its own
-untag condition in the feature file, and none of them can be turned green by
-weakening an assertion — the guard added after the first run makes sure of
-that.
+Five of the fifteen scenarios are still `@wip` and red — the lessons-extraction
+group and the `cleanup` routine — and each carries its own untag condition in
+the feature file. The other ten pass, and each says what closed it. None of the
+fifteen can be turned green by weakening an assertion; the guard added after the
+first run makes sure of that.
 <!-- /doc:outro -->

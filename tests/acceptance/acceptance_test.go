@@ -12,6 +12,7 @@ import (
 	"github.com/cucumber/godog/colors"
 
 	"github.com/ctxloom/ctxloom/internal/testsupport"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // TestMain scrubs the ambient session variables from the test process before any
@@ -26,7 +27,14 @@ func TestMain(m *testing.M) {
 	for _, k := range testsupport.EnvKeys {
 		_ = os.Unsetenv(k)
 	}
-	os.Exit(m.Run())
+	code := m.Run()
+	// The taskloom binary testenv builds for the j11/j16/trigger steps lives
+	// behind a sync.Once and is shared by every scenario, so its ~30MB
+	// directory can only be dropped here, after the whole suite has finished —
+	// not in a per-scenario Cleanup. os.Exit skips defers, so this is an
+	// explicit statement rather than `defer`. See task smashing-olive.
+	testenv.RemoveTaskloomBinary()
+	os.Exit(code)
 }
 
 // TestAcceptance runs the full-stack godog suite. The hermetic suite is the

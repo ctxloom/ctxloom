@@ -820,30 +820,42 @@ test-mutation-container:
         -e TMPDIR=/mutation-tmp \
         -w /app gogremlins/gremlins:v0.6.0 gremlins unleash
 
-# Mutate internal/operations/trust.go and drive the CUCUMBER acceptance suite
+# Mutate one source file per target and drive the CUCUMBER acceptance suite
 # against a binary rebuilt from each mutant (github.com/gtramontina/ooze), not
 # `go test` against source like test-mutation-acceptance above. That is the
 # whole point: test-mutation-acceptance mutates source and runs `go test`,
 # but the acceptance suite execs a PRE-BUILT ctxloom binary
 # (tests/integration/testenv/environment.go) — a gremlins mutant never
-# reaches that already-compiled process (measured: 92 mutants on this same
-# file, 0 runnable, 92 NOT COVERED). ooze's laboratory instead symlinks the
-# repo into a tmpdir, overwrites ONLY the mutated file with real bytes at
-# that path (never the source tree), and runs
+# reaches that already-compiled process (measured: 92 mutants on
+# internal/operations/trust.go, 0 runnable, 92 NOT COVERED). ooze's laboratory
+# instead symlinks the repo into a tmpdir, overwrites ONLY the mutated file
+# with real bytes at that path (never the source tree), and runs
 # tests/mutation/run_scoped_suite.sh with that tmpdir as cwd — which
 # rebuilds ctxloom FROM the mutant and then runs the cucumber suite scoped
-# (ACCEPTANCE_PATHS) to trust_surface.feature + j3_corporate_signed.feature +
-# j7_incident.feature, the three that claim to cover the EffectiveTrust
-# cascade exhaustively. A survivor here is a mechanism one of those features
-# CLAIMS to cover but does not actually verify.
+# (ACCEPTANCE_PATHS) to just the features that CLAIM to cover that file. A
+# survivor is a mechanism one of those features claims to cover but does not
+# actually verify.
+#
+# Which file is paired with which features is the mutationTargets table in
+# tests/mutation/trust_cascade_mutation_test.go — a data change, not a code
+# change. Each entry runs as its own subtest of TestAcceptanceMutation, so a
+# single one can be run alone:
+#
+#   just test-mutation-cucumber -run 'TestAcceptanceMutation/^trust_cascade$'
 #
 # Cost: every mutant is a full build + a ~15-20s scoped suite run (measured
-# ~25-30s/mutant on this machine). Nightly/scoped, never a per-PR gate.
-# Scope is fixed to internal/operations/trust.go inside the test file itself
-# (tests/mutation/trust_cascade_mutation_test.go), built programmatically by
-# walking the repo and ignoring every other .go file — see that file's doc
-# comment for why (RE2 has no lookahead; ooze's own file discovery is as
-# scope-blind as gremlins').
+# ~28s/mutant on this machine); trust_cascade alone is 132 mutants ≈ 63
+# minutes, and the whole table is a multi-hour job that WILL exceed the 120m
+# -timeout below. Nightly/scoped, never a per-PR gate — and run entries one
+# at a time unless you mean to spend the night on it.
+#
+# Scope is enforced inside the test file, built programmatically by walking
+# the repo and ignoring every other .go file — see that file's doc comment for
+# why (RE2 has no lookahead; ooze's own file discovery is as scope-blind as
+# gremlins'). The scoping and the table are pinned by cheap unit tests that
+# need no mutation run:
+#
+#   just test-pkg ./tests/mutation/... -tags mutation -run TestMutationTargets
 test-mutation-cucumber *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail

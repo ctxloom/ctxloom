@@ -69,7 +69,7 @@ func TestGuardNegate_MissingTargets_EmptyWhenEveryGuardFired(t *testing.T) {
 // binary and drives the acceptance suite per mutant).
 func TestGuardNegate_MatchesRealTrustGo(t *testing.T) {
 	root := repoRoot(t)
-	path := filepath.Join(root, targetRelPath)
+	path := filepath.Join(root, trustCascadeTarget.SourceRelPath)
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 	if err != nil {
 		t.Fatalf("parse %s: %v", path, err)

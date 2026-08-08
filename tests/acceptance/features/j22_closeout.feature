@@ -21,10 +21,14 @@ Feature: The close-out — the end of a workstream
 
   # NOTE ON SCOPE — THIS FEATURE STARTED AS A SPECIFICATION and is being
   # walked down. `session worktrees`, `session purge` and doctor's new checks
-  # have since shipped; `session distill --skill --to-bundle` and the `cleanup`
-  # routine have not, and these scenarios remain their acceptance definition.
-  # Ten of the fifteen scenarios pass today; the five still tagged @wip are
-  # red, and that is the deliverable rather than a defect in the file.
+  # have since shipped. The `cleanup` routine has not, and its scenario remains
+  # its acceptance definition. Ten of the eleven scenarios pass today; the one
+  # still tagged @wip is red, and that is the deliverable rather than a defect
+  # in the file.
+  #
+  # The lessons leg — four scenarios specifying
+  # `session distill --skill --to-bundle` — was REMOVED on 2026-08-08 when that
+  # surface was ruled out; see the retired-section note where they stood.
   #
   # NOTE ON WHAT THE FIXTURES BUILD. A close-out flow is defined almost
   # entirely by what it REFUSES to do, and a refusal cannot be tested against a
@@ -44,10 +48,10 @@ Feature: The close-out — the end of a workstream
   # no force-remove, no dirty or unmerged or unowned trees, no live session, no
   # undistilled `--everything` without its own flag, no touching vendor stores.
   #
-  # NOTE ON TAGS. Five of the fifteen scenarios are @wip, each with its own
-  # untag condition. The other ten pass today; each says what closed it rather
-  # than being left silent. Keep this count honest — it is the first thing a
-  # reader uses to decide how much of this file is still a wish.
+  # NOTE ON TAGS. One of the eleven scenarios is @wip, with its own untag
+  # condition. The other ten pass today; each says what closed it rather than
+  # being left silent. Keep this count honest — it is the first thing a reader
+  # uses to decide how much of this file is still a wish.
 
   Background:
     Given the feature shipped on Friday and Alice is closing the workstream out
@@ -166,92 +170,35 @@ Feature: The close-out — the end of a workstream
     When I run "ctxloom session worktrees --reap --yes"
     Then her own long-lived worktree is untouched and was never listed
 
-  # ---- Step 3: lessons ---------------------------------------------------
-  # The flywheel's missing leg (boundary B10: lessons die in essence.md). The
-  # SAME verb as ordinary session distillation, a DIFFERENT skill: extraction
-  # rather than compression. Because the lessons skill is bundle content, a
-  # team ships its house extraction style the way it ships any other context —
-  # ctxloom's own behaviour flowing through ctxloom's own supply chain.
+  # ---- Step 3: lessons — REMOVED 2026-08-08 ------------------------------
+  # Four scenarios lived here specifying
+  #   `ctxloom session distill <harp> --skill <ref> --to-bundle <name>`
+  # as the lessons-extraction surface. That REQUIREMENT IS WITHDRAWN by human
+  # ruling (2026-08-08): `--skill` and `--to-bundle` must not exist on
+  # `session distill`.
   #
-  # UNTAG WHEN: `session distill <harp> --skill <ref> --to-bundle <name>`
-  # emits fragments into the named bundle. Expected RED: `session distill` is
-  # ExactArgs(1) with its output hard-wired to essence.md; neither flag exists.
-  @wip
-  Scenario: A finished session's lessons become fragments a team can read
-    Given a finished session "amber-quiet-heron" whose work is already distilled
-    And Alice's house lessons-extraction skill is trusted content she can select
-    When I run "ctxloom session distill amber-quiet-heron --skill house-style#skills/lessons --to-bundle team-lessons"
-    Then the lessons land as fragments in the "team-lessons" bundle
-    And that bundle is signed in the same breath
-
-  # The signing half is not decoration. An edited-unsigned bundle is silently
-  # withheld once a pin advances — J21's own red scenario is about nothing
-  # else — so a lessons flow that ends unsigned would manufacture the exact
-  # defect it exists to close, and would do it quietly, in a flow whose whole
-  # purpose is preserving knowledge. Asserted separately from the write so a
-  # signature step that silently no-ops cannot hide behind a successful write.
+  # The reason is a scope boundary, not a spelling preference. `session distill`
+  # exists to RECOVER LOCAL STATE — it compresses a session into an essence so
+  # that session can be resumed. Its output is local and per-session. Extracting
+  # lessons and publishing them into a shared, signed, team-distributed bundle
+  # is a different concern with a different lifetime and a different audience,
+  # and hanging it off this verb's flags would overload the one command whose
+  # job has to stay small.
   #
-  # UNTAG WHEN: the lessons write signs its output in the same apply.
-  @wip
-  Scenario: Lessons that ship unsigned would be withheld, so they are signed on the way out
-    Given a finished session "amber-quiet-heron" whose work is already distilled
-    And Alice's house lessons-extraction skill is trusted content she can select
-    When I run "ctxloom session distill amber-quiet-heron --skill house-style#skills/lessons --to-bundle team-lessons"
-    Then that bundle is signed in the same breath
-
-  # THE SILENT-NO-OP GUARD, which this codebase needs more than most. A
-  # distillation that extracts nothing and exits 0 with a success line is
-  # indistinguishable from one that worked, and the bundle it "wrote" is empty.
-  # An unremarkable session with no lessons in it is a perfectly ordinary
-  # outcome — reporting it as a successful extraction is not.
+  # Nothing is asserted here now, deliberately. Whether ctxloom should grow a
+  # lessons-extraction capability AT ALL, and what surface would carry it, is an
+  # open design question — see taskloom pretended-referee. If it is built, it
+  # gets a fresh design and fresh scenarios rather than these, which were
+  # written against a shape that will not exist.
   #
-  # UNTAG WHEN: a lessons run producing zero fragments exits non-zero and says
-  # so. Expected RED: the surface does not exist.
-  @wip
-  Scenario: A session with no lessons in it fails loudly rather than writing an empty bundle
-    Given a finished session "amber-quiet-heron" that was never distilled
-    And Alice's house lessons-extraction skill is trusted content she can select
-    When I run "ctxloom session distill amber-quiet-heron --skill house-style#skills/lessons --to-bundle team-lessons"
-    Then ctxloom reports that it extracted nothing, and does not call that success
-    And nothing was written into the "team-lessons" bundle
-
-  # A SILENT DEGRADE THIS PRODUCT HAS ALREADY SHIPPED ONCE, specified out of
-  # existence before the second surface can repeat it. A distill skill is a
-  # context-exfiltration and context-poisoning primitive of the first order: it
-  # reads whole session transcripts — the most sensitive artifact ctxloom
-  # holds — and decides what gets written back into checked-in, signed,
-  # team-distributed fragments. It is a strictly higher-value target than an
-  # ordinary fragment, which is exactly why it rides the same per-item,
-  # hash-bound trust choke as any other skill.
-  #
-  # DO NOT go fix cli.loadDistillPrompt on the strength of this row. That
-  # function is a real defect — it swallows every operations.GetCommand error,
-  # ErrCommandWithheld included, and silently falls back to the embedded
-  # prompt — but it is NOT on this scenario's path and fixing it would leave
-  # this row exactly as red as it is now. Its only caller is
-  # cli.newLLMDistillerForLabel, which serves `bundle distill`, `fragment
-  # distill` and item edits; the defect is tracked separately as
-  # obligate-synthesis. `session distill` goes cli.runSessionDistill ->
-  # cli.compactEntry -> memory.NewCompactor and never loads a bundle-supplied
-  # prompt at all.
-  #
-  # What is actually missing here is the whole selection surface: `session
-  # distill` accepts neither `--skill` nor `--to-bundle`, so there is no point
-  # at which a trust decision is consulted. When it is built, the withheld
-  # signal it must honour already exists — operations.GetSkill returns
-  # errs.ErrSkillWithheld out of the gated exposure pipeline (see
-  # bundles.pipeline's skill lookup). Withheld must FAIL LOUD there, with
-  # `--degraded` as the only way past it; falling back to the built-in prompt
-  # is what this row forbids.
-  #
-  # UNTAG WHEN: selecting a withheld distill skill refuses and names the review
-  # command. Expected RED: `session distill` has no `--skill`/`--to-bundle`.
-  @wip
-  Scenario: A withheld distill skill stops the run instead of quietly swapping itself out
-    Given a finished session "amber-quiet-heron" whose work is already distilled
-    When I run "ctxloom session distill amber-quiet-heron --skill untrusted-remote#skills/lessons --to-bundle team-lessons"
-    Then ctxloom refuses rather than falling back to its built-in prompt
-    And nothing was written into the "team-lessons" bundle
+  # The behaviours those rows described are still worth keeping in mind if that
+  # design happens: extraction must complete BEFORE any write (so "nothing was
+  # written" is true by construction, not by luck); the output must be signed in
+  # the same apply, because an edited-unsigned bundle is silently withheld once
+  # a pin advances; a run extracting zero fragments must fail loudly rather than
+  # report success over an empty bundle; and a withheld extraction skill must
+  # refuse rather than silently fall back to a built-in prompt —
+  # operations.GetSkill already returns errs.ErrSkillWithheld for that.
 
   # ---- Step 4: retention -------------------------------------------------
   # Read-only default, the confirmation line's first rule. Inspect always. The

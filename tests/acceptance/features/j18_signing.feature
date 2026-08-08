@@ -222,7 +222,137 @@ Feature: A signature somebody can check
     Then the command succeeds
     And the output contains "removed 1 entry for context@acme.example"
     And the project store ".ctxloom/allowed_signers" no longer names Trent's key
+    And the project store ".ctxloom/allowed_signers" holds nothing at all
     And her assistant does not receive the "tdd" guidance
+
+  # The scenario above removes the store's ONLY entry, so it can never see what
+  # a removal does to the lines it keeps. That is the whole of the removal
+  # path: it parses the file, decides which lines to drop, and REWRITES the
+  # file from the survivors. Every failure mode of that rewrite — dropping a
+  # neighbouring entry, duplicating one, reordering them, losing the final
+  # newline that makes the last line readable at all — leaves a command that
+  # exits 0 and prints exactly the right count over a trust root that has
+  # quietly changed. Only the file's contents can tell the two apart.
+  Scenario: Removing one signer leaves every other entry in the store intact
+    Given Trent's team trusts "alpha@acme.example,context@acme.example,omega@acme.example" in the committable project store
+    And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,context@acme.example,omega@acme.example"
+    When I run "ctxloom trust signer delete context@acme.example --project"
+    Then the command succeeds
+    And the output contains "removed 1 entry for context@acme.example"
+    And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,omega@acme.example"
+    # Down to a SINGLE survivor, because "join the kept lines and terminate the
+    # result" behaves differently at one than at several: a rewrite that only
+    # terminates the last line when there are at least two leaves a lone
+    # surviving entry unterminated, and an unterminated final line is one
+    # ssh-keygen does not read — the key stops counting while `list` and the
+    # exit code both still look right.
+    When I run "ctxloom trust signer delete omega@acme.example --project"
+    Then the command succeeds
+    And the output contains "removed 1 entry for omega@acme.example"
+    And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example"
+
+  # "Nothing to remove" must be a no-op on disk as well as a message. A remove
+  # that reports "no entry" while rewriting the store has still edited the
+  # trust root, and a remove that reports having removed something when it
+  # removed nothing tells an operator a key is gone while it still signs.
+  Scenario: Removing a principal the store does not hold changes nothing
+    Given Trent's team trusts "alpha@acme.example,omega@acme.example" in the committable project store
+    And I note exactly what the project store ".ctxloom/allowed_signers" holds
+    When I run "ctxloom trust signer delete nobody@acme.example --project"
+    Then the command succeeds
+    And the output contains "no entry for nobody@acme.example"
+    And the output does not contain "removed"
+    And the project store ".ctxloom/allowed_signers" is byte-for-byte what it was
+    And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,omega@acme.example"
+
+  # No store file at all is the state every project starts in, and it is
+  # "nothing to remove", not "removed something". Reporting a removal against
+  # a file that does not exist tells an operator they have withdrawn trust
+  # they never granted — and leaves them believing a key is handled.
+  Scenario: Removing a signer when the project has no store yet reports nothing removed
+    Given the file ".ctxloom/allowed_signers" does not exist
+    When I run "ctxloom trust signer delete nobody@acme.example --project"
+    Then the command succeeds
+    And the output contains "no entry for nobody@acme.example"
+    And the output does not contain "removed"
+    And the file ".ctxloom/allowed_signers" does not exist
+
+  # A line the parser cannot read contributes no entry, so a principal hiding
+  # in it looks ABSENT. Reporting "no entry for X" there would tell an operator
+  # a key is untrusted while the line that may grant it stays in the file —
+  # the failure mode this refusal exists to prevent. It must refuse, name the
+  # unreadable line, and leave the store exactly as it found it.
+  Scenario: Removing nothing from a store with an unreadable line refuses instead of reporting nothing to remove
+    Given Trent's team trusts "alpha@acme.example" in the committable project store
+    And one line in the project store ".ctxloom/allowed_signers" cannot be read
+    And I note exactly what the project store ".ctxloom/allowed_signers" holds
+    When I run "ctxloom trust signer delete nobody@acme.example --project"
+    Then the command fails
+    And the output contains "could not be read"
+    And the project store ".ctxloom/allowed_signers" is byte-for-byte what it was
+    And the project store ".ctxloom/allowed_signers" still holds the line that could not be read
+
+  # A scripted caller writes the FULL namespace strings the store itself uses
+  # rather than the short aliases a human types, and both spellings have to
+  # land the same grant — otherwise a CI job that says "approve" the long way
+  # silently trusts a key for nothing, or for more than it asked. The grant
+  # written is asserted exactly, because "trusted for approve" and "trusted
+  # for approve and publish" differ by the ability to publish.
+  Scenario: A grant written with full namespace strings lands exactly that grant
+    When I run "ctxloom trust signer create scripted@acme.example --key acme-publish.pub --namespace publish.v1.ctxloom.dev,approve.v1.ctxloom.dev,reject.v1.ctxloom.dev --project --yes"
+    Then the command succeeds
+    And the project store ".ctxloom/allowed_signers" trusts "scripted@acme.example" for exactly the namespaces "publish.v1.ctxloom.dev,approve.v1.ctxloom.dev,reject.v1.ctxloom.dev"
+
+  # A namespace ctxloom does not recognise must be REFUSED, not written
+  # through. Storing it verbatim would produce an allowed_signers line that
+  # grants nothing while reading, to anyone auditing the file, as a grant.
+  Scenario: A grant naming an unrecognised namespace is refused, and writes nothing
+    When I run "ctxloom trust signer create typo@acme.example --key acme-publish.pub --namespace publsh --project --yes"
+    Then the command fails
+    And the output contains "unknown namespace"
+    And the file ".ctxloom/allowed_signers" does not exist
+
+  # `signer create` APPENDS to whatever is already there, and a store whose
+  # last line has no terminating newline is the ordinary result of a human
+  # editing it by hand. Appending without repairing that would splice the new
+  # entry onto the end of the existing one, destroying both: one unparseable
+  # line where there were two grants.
+  Scenario: Trusting a second signer repairs a store whose last line is unterminated
+    Given the project store ".ctxloom/allowed_signers" holds one entry with no trailing newline
+    When I run "ctxloom trust signer create second@acme.example --key acme-publish.pub --namespace publish --project --yes"
+    Then the command succeeds
+    And the project store ".ctxloom/allowed_signers" holds exactly the entries for "handwritten@acme.example,second@acme.example"
+
+  # ctxloom's own compiled-in release key is the one entry no `delete` can
+  # edit, so the withdrawal has to be a RECORD the read side subtracts. The
+  # record is only worth anything if it names the embedded entry's own
+  # principal strings: the subtraction is a literal membership check, so a
+  # record naming anything else reports success and suppresses nothing.
+  Scenario: Withdrawing trust in ctxloom's own embedded key records a suppression the read side can honour
+    Given ctxloom's own compiled-in publishing key is trusted
+    When I run "ctxloom trust signer delete ben+ctxloom@abbitt.me --project"
+    Then the command succeeds
+    And the output contains "cannot be deleted"
+    And the output contains "DISTRUSTED"
+    # The message must NAME the file it recorded the withdrawal in. A
+    # suppression an operator cannot locate is one they cannot audit or undo,
+    # and "recorded in " with nothing after it reads as success either way.
+    And the output contains ".ctxloom/distrusted_signers"
+    And the distrusted store ".ctxloom/distrusted_signers" records every principal that entry names
+    When I run "ctxloom trust signer list"
+    Then the command succeeds
+    And the output contains "LOCALLY DISTRUSTED"
+
+  # Withdrawing twice must leave one record, not two. Idempotence here is a
+  # property of the FILE — the second run takes the "already suppressed" path
+  # only if it actually reads back what the first one wrote.
+  Scenario: Withdrawing trust in the embedded key twice records it once
+    Given ctxloom's own compiled-in publishing key is trusted
+    When I run "ctxloom trust signer delete ben+ctxloom@abbitt.me --project"
+    Then the command succeeds
+    When I run "ctxloom trust signer delete ben+ctxloom@abbitt.me --project"
+    Then the command succeeds
+    And the distrusted store ".ctxloom/distrusted_signers" records every principal that entry names
 
   # This scenario is the SECOND branch of its own title, and it was a PRODUCT
   # BUG until it was one — carried @wip for as long as neither branch held.

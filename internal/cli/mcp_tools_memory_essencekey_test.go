@@ -137,7 +137,7 @@ func TestLoadOrDistillSession_DistillsOnceThenServesTheCache(t *testing.T) {
 		compactorFactory: fixedCompactor(vendorSessionID, body),
 	}
 
-	_, first, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", true)
+	_, first, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err, "recovery must never block the agent")
 	require.NotNil(t, first)
 	require.True(t, first.Loaded, "the first call must distill and load: %s", first.Message)
@@ -147,7 +147,7 @@ func TestLoadOrDistillSession_DistillsOnceThenServesTheCache(t *testing.T) {
 	// The assertion that matters: the same request again must find what the
 	// first one wrote. A miss here is invisible in production — it just quietly
 	// pays for the same distillation a second time.
-	_, second, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", true)
+	_, second, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
 	require.NoError(t, err)
 	require.NotNil(t, second)
 	require.True(t, second.Loaded, "the second call must load: %s", second.Message)

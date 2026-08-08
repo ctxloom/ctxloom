@@ -16,7 +16,13 @@ Feature: MCP tools
   # which assembly delivering zero fragments and an empty context satisfies
   # perfectly. The assertions name the fragment that must have been resolved
   # and the marker from inside its stored body, so an empty assembly cannot
-  # pass.
+  # pass. The `contains "fragments_loaded"` line those two replaced is gone:
+  # it could not fail independently of them, and a line that reads as an
+  # assertion while being incapable of failing is worse than no line. (An
+  # exact-list assertion on the field was considered and rejected — the
+  # always-on builtin companion fragments make its contents depend on what the
+  # machine has installed, which is how a green-for-the-wrong-reason scenario
+  # is born.)
   Scenario: Assemble context from a profile
     Given an initialized ctxloom project
     And a bundle "demo" exists
@@ -25,10 +31,15 @@ Feature: MCP tools
     When the agent calls tool "assemble_context" with:
       | profile | dev |
     Then the tool call succeeds
-    And the tool result contains "fragments_loaded"
     And the tool result contains "demo#fragments/testing"
     And the tool result contains "FRAGMENT-BODY-testing"
 
+  # SearchContentResult.Query has no omitempty, so the QUERY is echoed into
+  # the envelope whether or not the search matched anything: `the tool result
+  # contains "testing"` was satisfied by {"results":null,"count":0,
+  # "query":"testing"} — a search that found nothing. count is the
+  # load-bearing half (SearchResult carries Type/Name/Source but no body), so
+  # this asserts it, exactly as the sibling search_library scenario below does.
   Scenario: Search content over MCP
     Given an initialized ctxloom project
     And a bundle "demo" exists
@@ -36,7 +47,8 @@ Feature: MCP tools
     When the agent calls tool "search_content" with:
       | query | testing |
     Then the tool call succeeds
-    And the tool result contains "testing"
+    And the tool result field "count" equals "1"
+    And the tool result contains "demo"
 
   # "Degrades gracefully" means it RAN and found nothing, not that it exited 0.
   # A handler that never called SearchRemotes at all — and so never surfaced an

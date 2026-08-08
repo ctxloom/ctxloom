@@ -453,7 +453,8 @@ test-vendor-claude:
 # tag-gated tests (tests/integration/*_test.go). No container needed: vet
 # doesn't touch CGO/treesitter, just the generated proto stubs (`just build`
 # once in a fresh worktree first). Nothing else on the default path ever
-# type-checks this tag: golangci-lint runs the default build only, and
+# type-checks this tag: golangci-lint's build-tags list carries only
+# `mutation` (see .golangci.yml for why this one is not on it), and
 # `test`/coverage exclude build-tagged files by construction. A test file
 # that only compiles under the tag can therefore bit-rot silently — exactly
 # what happened to acp_agent_test.go (stale agent.ChatRequest.AutoApprove

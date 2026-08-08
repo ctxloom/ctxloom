@@ -1,11 +1,14 @@
 package operations
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/engineversion"
+	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -210,15 +213,58 @@ func ForgetSession(harp string) error {
 	return mgr.Forget(harp)
 }
 
+// probeEngineVersion is the seam AssignSession probes through. A package var
+// so tests can drive both outcomes without an engine binary installed — the
+// production value execs the real CLI through backends' shared cached prober.
+var probeEngineVersion = backends.ProbeEngineVersion
+
 // AssignSession mints a fresh harp for a new run in projectDir under backend
 // and returns the pending index entry (SessionID unbound until the spawned LLM
 // initializes). The pre-launch naming step in `ctxloom run`.
+//
+// It is also where the engine's version is PROBED AND RECORDED (task
+// wrought-spearman): session start is the only moment at which "what is
+// installed" and "what will write this session's transcript" are the same
+// fact. Read it back later and a probe would answer for whatever is installed
+// THEN — see sessions.Entry.EngineVersion.
+//
+// A failed probe does NOT fail the run. The two failure levels are different
+// costs: refusing to START a session because an engine could not be asked its
+// version would deny a user their working engine over a diagnostic, while
+// reading a stored transcript with no idea what wrote it silently returns a
+// plausible-but-wrong conversation. So this warns and records nothing, and the
+// refusal lands where it actually protects something — the read path, which
+// treats an unrecorded version as unknown and stops.
 func AssignSession(projectDir, backend string) (sessions.Entry, error) {
 	mgr, err := openSessions()
 	if err != nil {
 		return sessions.Entry{}, err
 	}
-	return mgr.AssignHarp(projectDir, backend)
+	entry, err := mgr.AssignHarp(projectDir, backend)
+	if err != nil {
+		return sessions.Entry{}, err
+	}
+
+	version, perr := probeEngineVersion(context.Background(), backend)
+	if perr != nil {
+		// An engine that declares no version command at all (mock, the
+		// generic acp backend — neither has one binary whose version would
+		// mean anything) is not a problem to report: it is a stated fact about
+		// that backend, and warning on every run would train users to ignore
+		// the warning that matters.
+		var undeclared *engineversion.NoVersionCommandError
+		if !errors.As(perr, &undeclared) {
+			clidiag.Warn("ctxloom", "engine version: %v — this session's transcript will not be readable back, "+
+				"because ctxloom will not guess which format wrote it", perr)
+		}
+		return entry, nil
+	}
+	if rerr := mgr.RecordEngineVersion(entry.HarpName, version); rerr != nil {
+		clidiag.Warn("ctxloom", "engine version: record %s for %s: %v", version, entry.HarpName, rerr)
+		return entry, nil
+	}
+	entry.EngineVersion = version
+	return entry, nil
 }
 
 // MarkSessionEnded stamps the harp entry's end time. Idempotent; lets the

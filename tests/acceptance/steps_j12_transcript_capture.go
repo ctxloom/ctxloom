@@ -85,6 +85,30 @@ func j12FixturePath(engineKey string) (string, error) {
 	return path, nil
 }
 
+// j12SeededEngineVersion is the engine version a seeded session claims to have
+// run under. It is required, not decorative: reader selection is (engine,
+// RECORDED version) -> adapter, and a session with no engine_version REFUSES
+// to be read at all (vendorreader.SelectAdapter) — which is the correct
+// production behaviour and would make every backfill scenario here fail for
+// the wrong reason. The values are .github/engine-versions.env's pins, so a
+// seeded session claims exactly the version ctxloom's readers are validated
+// against. An unrecognised backend deliberately gets no version, so a
+// scenario that WANTS the refusal can still ask for one.
+func j12SeededEngineVersion(backend string) string {
+	switch backend {
+	case "claude-code":
+		return "2.1.214"
+	case "codex":
+		return "0.144.6"
+	case "antigravity":
+		return "1.1.4"
+	case "kiro":
+		return "2.13.0"
+	default:
+		return ""
+	}
+}
+
 // j12AddIndexEntry appends one session to the home index.yaml, preserving
 // every entry a prior call in this scenario already wrote (see j12State's
 // doc comment). project_dir is the live project so current-project listing
@@ -97,7 +121,9 @@ func j12AddIndexEntry(w *World, harp, backend, transcriptPath string) error {
 		"    project_dir: %s\n"+
 		"    started_at: 2026-01-01T00:00:00Z\n"+
 		"    transcript_path: %q\n"+
-		"    summary: seeded acceptance session\n", harp, harp, backend, w.env.ProjectDir, transcriptPath)
+		"    engine_version: %s\n"+
+		"    summary: seeded acceptance session\n",
+		harp, harp, backend, w.env.ProjectDir, transcriptPath, j12SeededEngineVersion(backend))
 	st.indexEntries = append(st.indexEntries, entry)
 	body := "sessions:\n" + strings.Join(st.indexEntries, "")
 	return w.env.WriteHomeFile(".ctxloom/sessions/index.yaml", body)

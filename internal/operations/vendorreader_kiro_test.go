@@ -252,10 +252,11 @@ func TestConvertVendorTranscript_KiroEnumerateFallback(t *testing.T) {
 
 	harp := "convert-kiro-harp"
 	e := sessions.Entry{
-		HarpName:   harp,
-		Backend:    "kiro",
-		ProjectDir: row.Key,
-		StartedAt:  msToTime(row.UpdatedAt - 60_000),
+		HarpName:      harp,
+		Backend:       "kiro",
+		ProjectDir:    row.Key,
+		StartedAt:     msToTime(row.UpdatedAt - 60_000),
+		EngineVersion: "2.13.0",
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)

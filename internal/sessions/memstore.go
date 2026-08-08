@@ -175,6 +175,26 @@ func (m *MemStore) MarkPurged(harpName string, at time.Time) error {
 	return fmt.Errorf("harp not found: %q", harpName)
 }
 
+// RecordEngineVersion stamps EngineVersion on the named entry, matching
+// *Manager.RecordEngineVersion — including its empty-version no-op, which is
+// the behaviour that keeps "probe failed" distinguishable from "recorded as
+// nothing".
+func (m *MemStore) RecordEngineVersion(harpName, version string) error {
+	if version == "" {
+		return nil
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.sessions {
+		if m.sessions[i].HarpName != harpName {
+			continue
+		}
+		m.sessions[i].EngineVersion = version
+		return nil
+	}
+	return fmt.Errorf("harp not found: %q", harpName)
+}
+
 // Rename changes a harp name, erroring if oldName is absent, newName is taken,
 // or newName is not a usable harp identifier. The last check mirrors
 // Manager.Rename exactly: this is the fake every other package's

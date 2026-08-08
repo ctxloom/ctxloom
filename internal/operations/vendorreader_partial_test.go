@@ -47,12 +47,12 @@ func TestConvertVendorTranscript_FailurePartwayDoesNotPermanentlyMaskAsCaptured(
 
 	orig := vendorReaderRegistry["codex"]
 	vendorReaderRegistry["codex"] = vendorReaderEntry{
-		adapter: partialFailAdapter{n: 3},
-		locate:  orig.locate,
+		adapters: stubVersionedAdapter(partialFailAdapter{n: 3}),
+		locate:   orig.locate,
 	}
 	defer func() { vendorReaderRegistry["codex"] = orig }()
 
-	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath}
+	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath, EngineVersion: stubEngineVersion}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	assert.True(t, converted, "Convert was genuinely attempted")
@@ -94,12 +94,12 @@ func TestConvertVendorTranscript_ZeroLinesIsNotReportedAsConverted(t *testing.T)
 
 	orig := vendorReaderRegistry["codex"]
 	vendorReaderRegistry["codex"] = vendorReaderEntry{
-		adapter: zeroLineAdapter{},
-		locate:  orig.locate,
+		adapters: stubVersionedAdapter(zeroLineAdapter{}),
+		locate:   orig.locate,
 	}
 	defer func() { vendorReaderRegistry["codex"] = orig }()
 
-	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath}
+	e := sessions.Entry{HarpName: harp, Backend: "codex", TranscriptPath: codexFixturePath, EngineVersion: stubEngineVersion}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
 	require.NoError(t, err)

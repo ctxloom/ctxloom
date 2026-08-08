@@ -28,6 +28,12 @@ Feature: Bundles
     And the output contains "Commands (1):"
     And the output contains "Example prompt"
 
+  # `bundle view <name>` dumps the whole bundle YAML, and "testing" is the
+  # fragment's YAML KEY — so re-marshalling through a struct that omits each
+  # item's content (or emitting only Bundle.Refs()) left this green while view
+  # showed nothing of the fragment it is named after. bundle view appears in
+  # exactly one scenario in the whole suite, so nothing else caught it. The
+  # marker exists only inside the fragment's stored bytes.
   Scenario: View a bundle shows its fragment
     Given an initialized ctxloom project
     And a bundle "demo" exists
@@ -35,6 +41,7 @@ Feature: Bundles
     When I run "ctxloom bundle view demo"
     Then the command succeeds
     And the output contains "testing"
+    And the output contains "FRAGMENT-BODY-testing"
 
   Scenario: Holding a local bundle reports it is not lockfile-tracked
     Given an initialized ctxloom project

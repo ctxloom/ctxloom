@@ -69,9 +69,11 @@ Feature: The ctxloom-doctor Agent Skill reaches every engine's native skill surf
     When Carol materializes the "clinic" profile for opencode
     Then opencode.json registers the skills surface
 
-  # Exec bit survives materialization for a REAL surface (mirrors skill.feature's
-  # own claude-code exec-bit scenario), proving the doctor skill's bundled
-  # precheck script is actually runnable once it lands.
+  # Exec bit survives materialization for a REAL surface, proving the doctor
+  # skill's bundled precheck script is actually runnable once it lands. This is
+  # now the ONLY place that claim is made: cli/skill.feature carried a
+  # claude-only copy of it, strictly weaker than this file's five-engine
+  # matrix, and it was folded away rather than kept in both.
   Scenario: The doctor skill's script is materialized executable
     When Carol materializes the "clinic" profile for claude-code
     Then "out-claude-code/.claude/skills/ctxloom-doctor/scripts/run.sh" is executable

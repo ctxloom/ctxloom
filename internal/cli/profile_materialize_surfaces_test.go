@@ -102,21 +102,35 @@ func TestSurfaceHelpFor_DescribesEachEngineFromTheBackendsThemselves(t *testing.
 	assert.Contains(t, help, "(default)", "a reader has to be able to tell which approach is taken without asking")
 }
 
-// TestSurfaceHelpFor_OffersTheFileExampleOnlyWhereItWouldWork is the
-// context-sensitivity that matters most. codex's context surface supports the
-// hook and nothing else, so telling a codex user to keep their context as a file
-// sends them to a refusal — help that costs them a round trip to learn it was
-// wrong.
-func TestSurfaceHelpFor_OffersTheFileExampleOnlyWhereItWouldWork(t *testing.T) {
-	claude := surfaceHelpFor([]string{"claude-code"})
-	assert.Contains(t, claude, "--surface context=unsafe-file",
-		"claude-code can deliver context as a file, so the example belongs")
+// TestSurfaceHelpFor_NeverClaimsAnEngineCannotProduceAContextFile is a
+// REGRESSION on a false statement this help actually shipped.
+//
+// It used to infer "cannot keep context as a file" from an engine whose context
+// surface declares no unsafe-file approach, and told codex users there was no
+// way to keep their assembled context as a document. codex writes AGENTS.md —
+// verified by materializing one. The approach table names HOW a surface is
+// delivered, not whether the user is left with a file, so it cannot answer that
+// question and must never be asked it.
+func TestSurfaceHelpFor_NeverClaimsAnEngineCannotProduceAContextFile(t *testing.T) {
+	for _, engine := range []string{"codex", "claude-code", "kiro"} {
+		help := strings.ToLower(surfaceHelpFor([]string{engine}))
+		assert.NotContains(t, help, "no way to",
+			"%s: help must not deny a capability it cannot see from the approach table", engine)
+		assert.NotContains(t, help, "cannot deliver context",
+			"%s: same claim, other wording", engine)
+	}
+}
 
-	codex := surfaceHelpFor([]string{"codex"})
-	assert.NotContains(t, codex, "--surface context=unsafe-file",
-		"codex cannot deliver context as a file; offering the example would send the user to a refusal")
-	assert.Contains(t, strings.ToLower(codex), "no way to",
-		"and it must say so rather than staying silent about why the example is missing")
+// TestSurfaceHelpFor_PointsAtTheDefaultInvocationForKeepingContext: the useful
+// answer to "how do I keep my context" is that materialize already does it, into
+// whichever native file the engine reads. Pointing at an override instead would
+// send a reader to a flag they do not need.
+func TestSurfaceHelpFor_PointsAtTheDefaultInvocationForKeepingContext(t *testing.T) {
+	for _, engine := range []string{"codex", "claude-code"} {
+		help := surfaceHelpFor([]string{engine})
+		assert.Contains(t, help, "materialize default --target ./keep",
+			"%s: the no-flag invocation is the answer", engine)
+	}
 }
 
 // TestSurfaceHelpFor_NoEnginesSaysSoRatherThanRenderingAnEmptyTable guards the

@@ -135,18 +135,21 @@ func surfaceHelpFor(engines []string) string {
 			fmt.Fprintf(&b, "    %-9s %s\n", k, strings.Join(names, ", "))
 		}
 	}
-	// The example is only offered to engines that can actually honour it.
-	// Advertising a portable context file to a codex user — whose context
-	// surface supports the hook and nothing else — would send them to a refusal.
-	if canFile := enginesSupportingContextFile(engines); len(canFile) > 0 {
-		fmt.Fprintf(&b, "\n  Example — keep your assembled context as a plain file (%s):\n"+
-			"    ctxloom profile materialize default --target ./keep --surface context=unsafe-file\n",
-			strings.Join(canFile, ", "))
-	} else {
-		b.WriteString("\n  None of this project's engines can deliver context as a plain file;\n" +
-			"  their context surface supports no file approach, so there is no way to\n" +
-			"  keep the assembled context as a document from here.\n")
-	}
+	// The example is the DEFAULT invocation, not an override, because keeping
+	// the assembled context as a document needs no flag: materialize writes
+	// whichever context file the engine reads natively — CLAUDE.md for claude,
+	// AGENTS.md for codex.
+	//
+	// An earlier version of this help inferred "cannot produce a file" from an
+	// engine whose context surface declares no unsafe-file approach, and told
+	// codex users there was no way to keep their context as a document. codex
+	// writes AGENTS.md. The lesson is narrow and worth keeping: the approach
+	// table names HOW a surface is delivered, not whether a reader is left with
+	// a file, so it cannot answer that question and must not be asked it.
+	b.WriteString("\n  Keeping your assembled context as a document needs no override — it is\n" +
+		"  what materialize already does, into each engine's own native file:\n" +
+		"    ctxloom profile materialize default --target ./keep\n" +
+		"\n  Use --surface only to choose a DIFFERENT delivery than the default above.\n")
 	return b.String()
 }
 
@@ -185,26 +188,6 @@ func surfaceKinds() []agent.SurfaceKind {
 	for _, n := range names {
 		if k, err := agent.ParseSurfaceKind(n); err == nil {
 			out = append(out, k)
-		}
-	}
-	return out
-}
-
-// enginesSupportingContextFile reports which of engines can deliver the context
-// surface as a file a reader keeps. It is what stops the help offering an
-// example that the user's own engine would refuse.
-func enginesSupportingContextFile(engines []string) []string {
-	var out []string
-	for _, e := range engines {
-		set, err := backends.SurfacesFor(e)
-		if err != nil || set == nil {
-			continue
-		}
-		for _, a := range set.SupportedApproaches(agent.SurfaceContext) {
-			if a == agent.ApproachUnsafeFile {
-				out = append(out, e)
-				break
-			}
 		}
 	}
 	return out

@@ -4,6 +4,7 @@ package testenv
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -17,8 +18,14 @@ import (
 // TestEnvironment (and so a fresh isolated HOME/project) but there is no
 // reason to pay a `go build` per scenario for a binary whose source doesn't
 // change mid-run.
+//
+// taskloomBinDir is that build's MkdirTemp directory, tracked separately
+// rather than recomputed with filepath.Dir(taskloomBinPath) at teardown:
+// filepath.Dir("") is ".", so a teardown that ran before any build would
+// RemoveAll the process's working directory. See RemoveTaskloomBinary.
 var (
 	taskloomBuildOnce sync.Once
+	taskloomBinDir    string
 	taskloomBinPath   string
 	taskloomBuildErr  error
 )
@@ -58,6 +65,7 @@ func TaskloomBinary() (string, error) {
 			taskloomBuildErr = err
 			return
 		}
+		taskloomBinDir = dir
 		taskloomBinPath = filepath.Join(dir, "taskloom")
 		cmd := exec.Command("go", "build", "-o", taskloomBinPath, "github.com/ctxloom/ctxloom/cmd/taskloom")
 		cmd.Dir = findProjectRoot()
@@ -68,6 +76,37 @@ func TaskloomBinary() (string, error) {
 		}
 	})
 	return taskloomBinPath, taskloomBuildErr
+}
+
+// RemoveTaskloomBinary deletes the ~30MB build directory TaskloomBinary
+// created. Call it ONCE, from a TestMain after m.Run() has returned —
+// tests/acceptance/acceptance_test.go is the only caller, because
+// tests/acceptance is the only package that calls TaskloomBinary/RunTaskloom.
+// It must not be a per-test t.Cleanup: the binary lives behind a sync.Once and
+// is shared by every scenario in the process, so removing it mid-run would
+// yank the binary out from under later scenarios.
+//
+// Without this the directory outlived the process forever, once per test
+// BINARY (not per test): 304 orphans / 8.5G of /tmp measured on this machine,
+// which took a 16G tmpfs to 90% and made `just test-acceptance` fail with
+// "link: mapping output file failed: no space left on device" reported as a
+// container build defect. See task smashing-olive.
+//
+// Idempotent, and deliberately silent on failure: a suite that goes red
+// because it could not unlink a temp directory is worse than the leak. A
+// second call is a no-op, and a call before any build never touches the disk.
+func RemoveTaskloomBinary() {
+	if taskloomBinDir == "" {
+		return
+	}
+	dir := taskloomBinDir
+	taskloomBinDir = ""
+	taskloomBinPath = ""
+	// Fail loud rather than silently hand back a path that no longer exists:
+	// any TaskloomBinary() call after teardown is a wiring bug (the sync.Once
+	// has already fired, so it would otherwise return the deleted path, nil).
+	taskloomBuildErr = errors.New("taskloom binary was removed by RemoveTaskloomBinary: teardown ran while the binary was still in use")
+	_ = os.RemoveAll(dir)
 }
 
 // RunTaskloom executes the taskloom binary in e's project directory with e's

@@ -30,6 +30,28 @@ default: build
 # explicit for the docker `-e` passthroughs.
 export GOWORK := "off"
 
+# The test suites build a ~30MB taskloom binary of their own
+# (testenv.TaskloomBinary for acceptance, tasksBinary for tests/taskloom) and
+# both site it under GOTMPDIR — because on a tmpfs /tmp the linker's mmap of
+# that output ENOSPCs under the suite's parallel builds. GOTMPDIR was UNSET
+# here, so MkdirTemp fell back to os.TempDir() = the exact tmpfs those helpers
+# were trying to avoid: the intent was written into the code and never wired
+# up. Default it to disk so a future leak (or just a big parallel run) cannot
+# kill the tmpfs. `go build` honors it for its own intermediates too. Same
+# shape and same reason as `mutation_tmp` in build/ci.justfile.
+#
+# Recipes that use it depend on _ensure-gotmpdir: Go does NOT create GOTMPDIR
+# on demand — with the directory missing, every go invocation dies with
+# "creating work dir: ... no such file or directory" (see clean-caches, which
+# learned that the hard way).
+go_tmp := env_var_or_default("CTXLOOM_GOTMPDIR", "/var/tmp/ctxloom-gotmp")
+
+# Create the GOTMPDIR above. Cheap, idempotent, and a dependency rather than a
+# global export so a missing directory can never break a recipe that never
+# asked for it.
+_ensure-gotmpdir:
+    @mkdir -p "{{go_tmp}}"
+
 # Get version from versionator (with fallback for CI without versionator).
 # Standardized stamp format across the ctxloom family:
 #   v<major.minor.patch>-<short-sha>-<YYYYMMDDTHHMMSS commit datetime, utc>
@@ -278,9 +300,10 @@ test:
 # `just test-integration` (CLI/bundle/path changes) and `just test-acceptance`
 # (cross-surface journeys) explicitly for real local verification — see
 # README's Development section.
-test-default: build _ensure-covdata vet-integration
+test-default: build _ensure-covdata vet-integration _ensure-gotmpdir
     #!/usr/bin/env bash
     set -e
+    export GOTMPDIR="{{go_tmp}}"
     # Gate on BOTH configurations, not just -race. gremlins and `just cover`
     # both run WITHOUT -race, and that no-race path caught a real flake in
     # internal/lm/grpc that -race's slower goroutine scheduling was masking —
@@ -322,8 +345,8 @@ _check-no-ctxloom-leak:
     fi
 
 # Run tests with verbose output
-test-verbose:
-    go test -v ./...
+test-verbose: _ensure-gotmpdir
+    GOTMPDIR="{{go_tmp}}" go test -v ./...
 
 # Run the offline suite under a hostile environment to prove test isolation: a
 # junk HOME (no real ~/.ctxloom) plus poison session env. A green run means no
@@ -442,15 +465,16 @@ vet-integration: _require-generated
     go vet -tags integration ./tests/...
 
 # Run integration tests (requires ctxloom binary)
-test-integration: build
-    go test -v -tags integration ./tests/integration/...
+test-integration: build _ensure-gotmpdir
+    GOTMPDIR="{{go_tmp}}" go test -v -tags integration ./tests/integration/...
 
 # Run integration tests matching a -run PATTERN (requires ctxloom binary).
 # Same false-green hazard as test-pkg: a PATTERN that matches nothing still
 # exits 0 from `go test` (`[no tests to run]`). Detect and fail on that.
-test-integration-run PATTERN: build
+test-integration-run PATTERN: build _ensure-gotmpdir
     #!/usr/bin/env bash
     set -euo pipefail
+    export GOTMPDIR="{{go_tmp}}"
     set +e
     output=$(go test -v -tags integration -run "$1" ./tests/integration/... 2>&1)
     status=$?
@@ -473,8 +497,8 @@ test-integration-run PATTERN: build
 # failure — which had silently made every green CI run of this suite mute.
 # The report exists specifically so a run tells you what it covered even when
 # it passes; that only works if it is actually visible.
-test-acceptance: build
-    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
+test-acceptance: build _ensure-gotmpdir
+    GOTMPDIR="{{go_tmp}}" go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Run the @container acceptance rows — the ones that actually launch an engine
 # inside a container (j15_container.feature's differential host-vs-container
@@ -489,9 +513,10 @@ test-acceptance: build
 # reachable: this gate asserts what happens when a runtime IS present, and a
 # machine without one has nothing to say about it. The longer timeout is the
 # image build, not a slow test.
-test-acceptance-container: build
+test-acceptance-container: build _ensure-gotmpdir
     ACCEPTANCE_PATHS=features/j15_container.feature \
     ACCEPTANCE_TAGS="@container" \
+    GOTMPDIR="{{go_tmp}}" \
     go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # test-docker-integration lives in build/gates.justfile, imported at the top
@@ -632,9 +657,10 @@ isolation-probe ENGINE AXIS: build
 # catch it: a package built to zero test files reports `[no test files]`,
 # which is treated as green. `just test-acceptance` is the only gate that
 # runs those scenarios — do not cite this one for them.
-test-pkg PKG *ARGS: _require-generated
+test-pkg PKG *ARGS: _require-generated _ensure-gotmpdir
     #!/usr/bin/env bash
     set -euo pipefail
+    export GOTMPDIR="{{go_tmp}}"
     pkg="$1"; shift
     set +e
     output=$(go test -race "$@" "$pkg" 2>&1)
@@ -1320,5 +1346,5 @@ dev-shell: dev-image
 
 # TEMP (trust/fail-loudly validation): acceptance without the buf-invoking build
 # chain — proto artifacts are already generated on disk. Remove after use.
-test-acceptance-nobuild:
-    go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
+test-acceptance-nobuild: _ensure-gotmpdir
+    GOTMPDIR="{{go_tmp}}" go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...

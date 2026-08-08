@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -41,6 +42,37 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the file "([^"]*)" contains "([^"]*)"$`, func(c context.Context, rel, want string) error {
 		return fileContains(c, false, rel, want)
+	})
+
+	// Regex counterpart to `contains`, and the reason it exists: substring
+	// containment cannot express STRUCTURE, so assertions on generated JSON
+	// were being written as quote-free fragments chosen to dodge quoting
+	// ("ctxloom-auto", "${CLAUDE_PROJECT_DIR}") instead of `"command": ...`.
+	// A fragment picked for what it can express, rather than for what the
+	// scenario means, matches whatever else happens to contain it — j19's
+	// `contains "ctxloom hook"` was satisfied by the statusLine command and
+	// survived deleting the SessionStart hook it named.
+	//
+	// The pattern capture is `(.*)` and NOT the `([^"]*)` used by every other
+	// step in this file, deliberately: a `[^"]*` capture cannot carry a double
+	// quote, which is precisely the character these assertions need. The step
+	// text is a whole line, so anchoring the closing quote at `$` keeps the
+	// greedy capture unambiguous. Write literal quotes in the pattern as \"
+	// (Go's regexp reads it as a plain quote) to keep the Gherkin readable.
+	ctx.Step(`^the file "([^"]*)" matches "(.*)"$`, func(c context.Context, rel, pattern string) error {
+		w := worldFrom(c)
+		re, err := regexp.Compile(pattern)
+		if err != nil {
+			return fmt.Errorf("invalid regexp %q: %w", pattern, err)
+		}
+		body, err := w.env.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("read file %q: %w", rel, err)
+		}
+		if !re.MatchString(body) {
+			return fmt.Errorf("file %q does not match /%s/; content:\n%s", rel, pattern, body)
+		}
+		return nil
 	})
 
 	ctx.Step(`^the file "([^"]*)" does not contain "([^"]*)"$`, func(c context.Context, rel, unwanted string) error {

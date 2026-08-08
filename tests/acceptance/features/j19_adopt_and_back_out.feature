@@ -39,12 +39,21 @@ Feature: Adopt without regret — the first hour, and the exit verified before c
   # assertion names a DIFFERENT file, so a partial install (the shape that
   # exits 0 having written one of three) cannot pass by satisfying the
   # others.
+  #
+  # The settings.json assertion is a REGEX, not a substring, because the two
+  # things ctxloom writes there overlap textually. This used to read
+  # `contains "ctxloom hook"`, which the statusLine command
+  # (`<abs>/ctxloom hook hud`) satisfies on its own — the SessionStart hook's
+  # own command is `'<abs>/ctxloom' hook inject-context ...`, with a quote
+  # between the two words, so it never matched the hook at all and deleting
+  # the hook outright left this scenario green. Naming the SessionStart key
+  # and the inject-context leaf together is what makes the claim checkable.
   Scenario: What ctxloom reports it wired is what is actually on disk
     Given an empty project directory
     When I run "ctxloom manage install --engine claude-code"
     Then the command succeeds
     And the file ".ctxloom/config.yaml" is valid YAML
-    And the file ".claude/settings.json" contains "ctxloom hook"
+    And the file ".claude/settings.json" matches "(?s)\"SessionStart\".*\"command\": \"[^\"]*' hook inject-context"
     And the file ".mcp.json" contains "ctxloom"
     And the file ".gitignore" contains ".ctxloom/ephemeral/"
     When I run "ctxloom manage status"
@@ -70,17 +79,26 @@ Feature: Adopt without regret — the first hour, and the exit verified before c
   # registration is gone from .mcp.json, and .ctxloom survives.
   #
   # BREAK-POINT: make uninstall a no-op that prints its success line and the
-  # two "does not contain" assertions go red; make it delete .ctxloom and the
+  # "does not contain" assertions go red; make it delete .ctxloom and the
   # survival assertion goes red. The success message alone distinguishes
   # neither.
+  #
+  # Both the precondition and the removal check name the hook and the
+  # statusLine SEPARATELY. "ctxloom hook" alone reaches only the statusLine
+  # (see the regex note above), so on its own it certified neither half: as a
+  # precondition it passed with no SessionStart hook ever written, and as a
+  # removal check it passed on an uninstall that dropped the statusLine and
+  # left the hook behind.
   Scenario: Alice verifies she can leave before she commits
     Given an empty project directory
     When I run "ctxloom manage install --engine claude-code"
     Then the command succeeds
-    And the file ".claude/settings.json" contains "ctxloom hook"
+    And the file ".claude/settings.json" contains "hook inject-context"
+    And the file ".claude/settings.json" contains "ctxloom hook hud"
     And the file ".mcp.json" contains "ctxloom"
     When I run "ctxloom manage uninstall"
     Then the command succeeds
+    And the file ".claude/settings.json" does not contain "hook inject-context"
     And the file ".claude/settings.json" does not contain "ctxloom hook"
     And the file ".mcp.json" does not contain "ctxloom hook"
     And the file ".ctxloom/config.yaml" exists

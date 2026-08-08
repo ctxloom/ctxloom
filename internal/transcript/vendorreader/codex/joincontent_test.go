@@ -18,7 +18,7 @@ import (
 // distinguishes a join implementation at all: nothing, everything empty,
 // leading/interior/trailing empties, and a single element (where the
 // separator must not appear).
-func TestJoinContentText_MatchesImporterJoinNonEmpty(t *testing.T) {
+func TestJoinContentText_MatchesVendorReaderJoinNonEmpty(t *testing.T) {
 	cases := map[string][]string{
 		"no blocks":            nil,
 		"one block":            {"only"},

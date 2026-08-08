@@ -161,7 +161,7 @@ situation; that holds only for an **absent** file.
 
 ---
 
-## 5. The importer layer
+## 5. The vendor-reader layer
 
 ```mermaid
 flowchart TD
@@ -309,7 +309,7 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
 - **`kiro/store.go:32-34` calls `mode=ro` "a load-bearing guarantee"** — the URI is built by string
   concatenation with no escaping, so a db path containing `#` or `?` silently drops the query and
   opens **writable**. Verified by probe against `modernc.org/sqlite v1.54.0`.
-- **`importer/adapter.go:9` still names the on-disk file `transcript.acp.jsonl`**, the pre-rename
+- **`vendorreader/adapter.go:9` still names the on-disk file `transcript.acp.jsonl`**, the pre-rename
   leaf; the fixtures under `internal/transcript/testdata/fixtures/` carry the same stale suffix.
 - **`RawPolicy` is unreachable in production** — nothing sets `agent.ChatRequest.TranscriptRawPolicy`,
   so `RawOff`/`RawAll` are test-only constants and the default `RawLossyOnly` always applies.
@@ -323,7 +323,7 @@ window by recording the `Session` event at `driver.go:31` *before* the first `ct
   resolver `GetSession` calls independently.
 - **`internal/operations/vendorreader*.go`** owns adapter registration, locator discovery, the
   `hasCanonicalTranscript` idempotency guard, and the `BackfillResult` bucketing — every
-  consequence of "the importer cannot report a count" surfaces there, not here.
+  consequence of "the vendor reader cannot report a count" surfaces there, not here.
 - **`internal/memory`** reads through `pb.SessionSource`, which `CanonicalHistory` satisfies via
   `pb.NewCanonicalFallbackSource` (canonical first, legacy second).
 - **`internal/lm/grpc`** owns both live producers (`chat.go`'s `CoordinatedRecorder` wiring) and

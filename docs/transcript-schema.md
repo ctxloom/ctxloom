@@ -86,7 +86,7 @@ it wraps `agent.ChatEvent` in an envelope, verbatim.
 
 These are NOT what the Recorder reads (it reads `agent.ChatEvent`, already
 normalized), and as of S5 nothing in ctxloom reads them anymore either — the
-readers below were deleted, not demoted to importers (§8). Kept here only to
+readers below were deleted, not demoted to vendor readers (§8). Kept here only to
 explain why the *old* per-engine readers broke, for anyone tracing history.
 
 - **codex** (`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`): an *envelope*
@@ -156,7 +156,7 @@ collide.
 Named `transcript.jsonl`, not `transcript.acp.jsonl` (its name through
 v0.7.0-pre1 up to the rename described here): the file is engine-agnostic by
 construction (§2c) — fed by every structured/ACP engine, the oneshot regime,
-AND the vendor importers (§8) — so a name suggesting it was ACP-specific was
+AND the vendor readers (§8) — so a name suggesting it was ACP-specific was
 misleading. Sessions captured before the rename have only the old filename
 on disk; every reader resolves through
 `paths.ResolveHarpCanonicalTranscriptPath`, which falls back to
@@ -361,7 +361,7 @@ exist for any workDir containing a dot, underscore, or space).
 (`internal/sessions/index.go`) and the `persist/transcripts/` bind-mount
 discovery were NOT removed by S5 — they still resolve a harp's legacy
 engine-native transcript by location (`fillTranscriptByLocation`) and back
-`sessions.Entry.TranscriptPath`, which the vendor-importer locate step below
+`sessions.Entry.TranscriptPath`, which the vendor-reader locate step below
 (codex/claude/antigravity) reads from. **opencode is explicitly excluded**
 from the S5 removal: its native reader (`internal/opencode/capabilities.go`,
 driving `opencode session list`/`opencode export`) was never broken — it

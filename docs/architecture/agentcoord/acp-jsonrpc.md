@@ -75,14 +75,14 @@ flowchart TD
 
 | # | Contract | Where |
 |---|---|---|
-| J2 | Construct with `NewConn`, then `Start` exactly once — the split is a required happens-before edge, not ceremony | `jsonrpc.go:128-153` |
-| J7 | Frames are newline-delimited, one JSON object per line | `jsonrpc.go:317` |
-| J15 | `Handler.HandleRequest`'s `reply` must be called exactly once; a second call is swallowed by a `sync.Once` | `jsonrpc.go:266` |
-| J8 | Handlers run on the read-loop goroutine, so a slow handler must reply asynchronously | `jsonrpc.go:87` |
-| J4 | Exactly one `await` must follow a successful `Go` — it owns the pending slot's cleanup | `jsonrpc.go:172` |
-| J21 | Notifications carry no id and are never replied to | `jsonrpc.go:216`, `:249` |
-| J17 | `routeResponse` and `failPending` are reachable only from the read loop, so a send-on-closed-channel is impossible — load-bearing and undocumented | `jsonrpc.go:243,252` |
-| J18 | Diagnostics go to stderr (`clidiag`), never stdout, so they cannot corrupt a stdio protocol stream | `jsonrpc.go:359` |
+| J000200 | Construct with `NewConn`, then `Start` exactly once — the split is a required happens-before edge, not ceremony | `jsonrpc.go:128-153` |
+| J000700 | Frames are newline-delimited, one JSON object per line | `jsonrpc.go:317` |
+| J001500 | `Handler.HandleRequest`'s `reply` must be called exactly once; a second call is swallowed by a `sync.Once` | `jsonrpc.go:266` |
+| J000800 | Handlers run on the read-loop goroutine, so a slow handler must reply asynchronously | `jsonrpc.go:87` |
+| J000400 | Exactly one `await` must follow a successful `Go` — it owns the pending slot's cleanup | `jsonrpc.go:172` |
+| J002100 | Notifications carry no id and are never replied to | `jsonrpc.go:216`, `:249` |
+| J001700 | `routeResponse` and `failPending` are reachable only from the read loop, so a send-on-closed-channel is impossible — load-bearing and undocumented | `jsonrpc.go:243,252` |
+| J001800 | Diagnostics go to stderr (`clidiag`), never stdout, so they cannot corrupt a stdio protocol stream | `jsonrpc.go:359` |
 
 ## Divergences and real behaviour
 

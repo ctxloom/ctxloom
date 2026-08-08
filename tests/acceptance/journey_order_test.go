@@ -14,26 +14,47 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// journeyStem matches a journey feature's number and name: j9_context_exhaustion.
-var journeyStem = regexp.MustCompile(`^j(\d+)_[a-z0-9_]+\.feature$`)
+// journeyWidth is how many digits a journey number carries. FIXED width is the
+// whole mechanism: numbers are spaced by 100 so a new journey can be inserted
+// where it belongs, and only a fixed width makes a lexical sort (what `ls`, a
+// file tree and a docs nav all do) agree with the numeric reading order.
+// j000900 sorts before j001000; j900 would sort after it.
+const journeyWidth = 6
 
-// TestJourneyNumbers_AreContiguousAndUnique pins the property the 2026-08-08
-// renumbering established: journey numbers are the READING ORDER, so they run
-// 1..N with no gaps and no duplicates.
+// journeyStem matches a journey feature's number and name, and it is DELIBERATELY
+// strict about the digit count — a name with the wrong width does not match, and
+// the "every file is claimed" check below then fails it by name.
+var journeyStem = regexp.MustCompile(`^j(\d{6})_[a-z0-9_]+\.feature$`)
+
+// misWidened catches a FEATURE that looks like a journey but does not satisfy
+// the strict stem, so a wrong digit count is reported rather than silently
+// skipped. Scoped to .feature on purpose: a .doc.md companion is named after
+// its feature and is not independently numbered, so holding it to the stem
+// would flag every companion in the directory.
+var misWidened = regexp.MustCompile(`^j\d+.*\.feature$`)
+
+// TestJourneyNumbers_AreSpacedFixedWidthAndUnique pins the numbering the
+// reading order depends on.
 //
-// This guards the operation, not the ordering. Reordering journeys means
-// renumbering them, the mapping is a permutation, and a permutation applied
-// carelessly collides — two journeys landing on one number, or a number vanishing
-// mid-sequence. Both are silent: the suite still passes, every scenario still
-// runs, and only a human reading the directory notices. The old corpus carried
-// exactly this damage for months (13 was simply skipped, and nobody could say
-// whether it meant a deleted journey or a typo).
+// Three properties, and only the third is about ordering:
 //
-// What it deliberately does NOT check is whether each journey sits at the RIGHT
-// position — that judgement lives in journey-usability-order.plan.md and cannot
-// be derived from the files. A future j27 appended for a journey belonging at
-// position 5 passes this test and is still wrong.
-func TestJourneyNumbers_AreContiguousAndUnique(t *testing.T) {
+//  1. FIXED WIDTH — six digits, always. This is what makes a lexical sort match
+//     the reading order, so a directory listing tells the truth without anyone
+//     consulting a manifest.
+//  2. UNIQUE — two journeys on one number means a renumbering permutation
+//     collided, which is silent: the suite still passes and every scenario still
+//     runs.
+//  3. GAPS ARE EXPECTED, not a defect. Numbers advance by 100 precisely so a
+//     journey can later be inserted NEXT TO the one it belongs beside instead of
+//     appended to the end. An earlier version of this test asserted contiguity,
+//     which was right for a 1..N scheme and would now forbid the thing the
+//     scheme exists to allow.
+//
+// What it still cannot check is whether a journey sits at the RIGHT position.
+// That judgement lives in journey-usability-order.plan.md and is not derivable
+// from the files: a journey inserted at j001250 passes this and may still be in
+// the wrong place.
+func TestJourneyNumbers_AreSpacedFixedWidthAndUnique(t *testing.T) {
 	seen := map[int]string{}
 	for _, dir := range []string{"features", filepath.Join("features", "journeys")} {
 		entries, err := os.ReadDir(dir)
@@ -42,17 +63,24 @@ func TestJourneyNumbers_AreContiguousAndUnique(t *testing.T) {
 		}
 		require.NoError(t, err)
 		for _, e := range entries {
-			m := journeyStem.FindStringSubmatch(e.Name())
+			name := e.Name()
+			m := journeyStem.FindStringSubmatch(name)
 			if m == nil {
+				if misWidened.MatchString(name) {
+					t.Errorf("%s: a journey number must be exactly %d digits, zero-padded — "+
+						"a different width sorts wrong, and the filename order IS the reading order",
+						name, journeyWidth)
+				}
 				continue
 			}
 			n, err := strconv.Atoi(m[1])
 			require.NoError(t, err)
 			if prev, dup := seen[n]; dup {
-				t.Errorf("journey number %d is used twice: %s and %s — a renumbering permutation collided", n, prev, e.Name())
+				t.Errorf("journey number %d is used twice: %s and %s — a renumbering permutation collided",
+					n, prev, name)
 				continue
 			}
-			seen[n] = e.Name()
+			seen[n] = name
 		}
 	}
 	require.NotEmpty(t, seen, "no journey features found; this test would pass vacuously")
@@ -63,13 +91,9 @@ func TestJourneyNumbers_AreContiguousAndUnique(t *testing.T) {
 	}
 	sort.Ints(nums)
 
-	assert.Equal(t, 1, nums[0], "journeys start at j1 — the first thing a reader meets")
-	for i, n := range nums {
-		if n != i+1 {
-			t.Fatalf("journey numbers are not contiguous: expected j%d, found j%d (%s). "+
-				"A gap means a journey was deleted or a renumbering dropped one; "+
-				"the reading order is the numbering, so a hole in it is a hole in the order.",
-				i+1, n, seen[n])
-		}
+	assert.Positive(t, nums[0], "journey numbers start above zero")
+	for _, n := range nums {
+		assert.LessOrEqual(t, len(strconv.Itoa(n)), journeyWidth,
+			"%s: number exceeds the fixed width, so it can no longer be zero-padded into sort order", seen[n])
 	}
 }

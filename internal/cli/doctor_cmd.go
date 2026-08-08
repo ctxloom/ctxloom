@@ -995,7 +995,7 @@ func init() {
 // doctorCheckContentTrust names remote bundles whose content is being WITHHELD
 // because ctxloom cannot attribute it to a publisher it trusts.
 //
-// This is the diagnosis gap J19's B2 hop exists to close, and it is sharp
+// This is the diagnosis gap J001900's B2 hop exists to close, and it is sharp
 // because every other inspector is legitimately silent about it:
 //
 //   - `review --list` does NOT name it, and that is correct by design — unsigned
@@ -1106,14 +1106,14 @@ func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) doctorCheck
 			len(refused), strings.Join(parts, "; "))}
 }
 
-// ===== J13 close-out: doctor checks 1, 4, 5 (of the feature's numbering) ====
+// ===== J001300 close-out: doctor checks 1, 4, 5 (of the feature's numbering) ====
 //
 // The feature file and its step definitions both describe "doctor's five new
-// checks"; this file adds exactly THREE — the ones the J13 close-out design
-// doc (docs/design/j13-closeout-surfaces.design.md §6, area 4) scopes as
+// checks"; this file adds exactly THREE — the ones the J001300 close-out design
+// doc (docs/design/j001300-closeout-surfaces.design.md §6, area 4) scopes as
 // doctor's share of that journey, and the ones the corresponding scenarios'
 // own comments number 1, 4 and 5. Checks 2 and 3 of that numbering belong to
-// a different area of J13 (worktrees/purge/lessons) and are not implemented
+// a different area of J001300 (worktrees/purge/lessons) and are not implemented
 // here — see this slice's own commit message / the design doc's §1 table for
 // where they actually land.
 

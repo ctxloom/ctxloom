@@ -114,9 +114,9 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 			return probeSkip("kiro", probeAxisWorktree, authPath, "no kiro credentials at all (neither KIRO_API_KEY nor a host subscription file) — "+reason)
 		}
 		if authPath == probeAuthEnvKey {
-			// KIRO_API_KEY genuinely isolates the credential store (j22's own
+			// KIRO_API_KEY genuinely isolates the credential store (j002200's own
 			// hermetic proof) — there is no leak to observe on this path.
-			return probeSkip("kiro", probeAxisWorktree, authPath, "KIRO_API_KEY is set, so kiro's credential store genuinely isolates on this box (per j22's own hermetic proof) — there is no leak to demonstrate; unset KIRO_API_KEY to exercise this scenario against the subscription-only leak path")
+			return probeSkip("kiro", probeAxisWorktree, authPath, "KIRO_API_KEY is set, so kiro's credential store genuinely isolates on this box (per j002200's own hermetic proof) — there is no leak to demonstrate; unset KIRO_API_KEY to exercise this scenario against the subscription-only leak path")
 		}
 		return nil
 	})

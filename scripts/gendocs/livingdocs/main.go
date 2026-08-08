@@ -26,7 +26,7 @@ import (
 )
 
 // slug turns a feature file path into its output page name:
-// tests/acceptance/features/j2_setup.feature -> j2-setup.md.
+// tests/acceptance/features/j000200_setup.feature -> j000200-setup.md.
 func slug(featurePath string) string {
 	base := strings.TrimSuffix(filepath.Base(featurePath), ".feature")
 	return strings.ReplaceAll(base, "_", "-") + ".md"
@@ -124,7 +124,7 @@ func buildPage(featurePath, captureDir string, captures map[string][]DocCapture)
 // acceptance suite didn't actually execute, the capture dir got cleared after
 // the run) — not a legitimate "nothing to show" case. Every @doc feature in
 // this repo mixes captured scenarios with, at most, a handful of
-// individually-tagged @live/@wip ones (see j4_multi_engine.feature) — no @doc
+// individually-tagged @live/@wip ones (see j000400_multi_engine.feature) — no @doc
 // feature is EVER entirely uncaptured by design. Left unchecked, this is the
 // other half of the same class of bug as EvidenceGapError: every scenario
 // would quietly render "Not captured in this build" and both the test run and

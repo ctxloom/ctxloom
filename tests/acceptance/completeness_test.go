@@ -51,7 +51,7 @@ var engineMatrixLeaves = map[string][]string{
 // from the substring containsLeafPath check to the stricter ranAsCommand
 // ("I run") check because the command string ALSO appears as inert prose
 // elsewhere in the corpus: `ctxloom doctor` is quoted inside the
-// "ctxloom-doctor" Agent Skill body in steps_j6_doctor.go, so a bare
+// "ctxloom-doctor" Agent Skill body in steps_j000600_doctor.go, so a bare
 // substring match would credit that vacuous mention as coverage and let the
 // gate stay green even after the real coverer (doctor.feature) is gone. Listed
 // here so only a genuine `I run "<leaf>"` invocation counts — the same
@@ -59,13 +59,13 @@ var engineMatrixLeaves = map[string][]string{
 var strictRunLeaves = []string{
 	"ctxloom doctor",
 	// Same hazard, same fix, different quoter: `ctxloom acp serve` is the
-	// command an editor spawns, so j5_editor.feature and its steps NAME it
+	// command an editor spawns, so j000500_editor.feature and its steps NAME it
 	// repeatedly — in the feature's prose, in the step file's header, and
 	// inside a failure message that checks whether `acp list` emitted a
 	// pasteable block mentioning it. Every one of those is inert text. None of
 	// them serves anything, and none of them could: the leaf is a long-running
 	// stdio server that needs a live ACP client on the other end, which is
-	// exactly why j5 records it as unverifiable rather than faking it.
+	// exactly why j000500 records it as unverifiable rather than faking it.
 	//
 	// Under the plain substring check those mentions silently flipped the leaf
 	// from "allowlisted uncovered" to "covered", which would have converted an
@@ -129,8 +129,8 @@ func ranAsTool(corpus, name string) bool {
 // containsLeafPath is the ordinary (non-"I run") leaf check's substring test,
 // hardened against a PREFIX collision: "ctxloom sign" is a literal prefix of
 // "ctxloom signer add"/"ctxloom signer remove" (distinct leaves), so a bare
-// strings.Contains credited "ctxloom sign" with coverage the moment J15
-// (steps_j15.go) started mentioning the signer leaves in comments — a false
+// strings.Contains credited "ctxloom sign" with coverage the moment J001500
+// (steps_j001500.go) started mentioning the signer leaves in comments — a false
 // positive that would have silently pruned an actually-uncovered leaf from
 // the allowlist (exactly the vacuous-coverage failure mode this gate exists
 // to catch). A match only counts when the byte right after it is absent or
@@ -172,8 +172,8 @@ var knownUncoveredCLI = []string{
 	// answer being stored) plus the two refusal paths — a truncated answer and a
 	// backend that dies.
 	//
-	// The publisher-signing surface is now covered by J16 (steps_j16_signing.go,
-	// j16_signing.feature): `ctxloom bundle sign` (bare ref, --all, an item ref,
+	// The publisher-signing surface is now covered by J001600 (steps_j001600_signing.go,
+	// j001600_signing.feature): `ctxloom bundle sign` (bare ref, --all, an item ref,
 	// and the empty-publish-set failure), `ctxloom trust signer list`,
 	// `trust signer create|show|delete`, `trust accept`, `trust reject`, and
 	// `bundle move` (verbatim relocation plus the refused-move path). Every one
@@ -183,12 +183,12 @@ var knownUncoveredCLI = []string{
 	// location is asserted on BOTH the project and the user path.
 	//
 	// "ctxloom trust signer create"/"ctxloom trust signer delete" left this
-	// list earlier: J15 (steps_j15.go, j15_corporate_signed.feature) drives both —
+	// list earlier: J001500 (steps_j001500.go, j001500_corporate_signed.feature) drives both —
 	// the Background's "Alice trusts the company key" step runs
 	// `ctxloom trust signer create ... --project`, and scenario 6's "Alice
 	// revokes her trust in the company key" runs
 	// `ctxloom trust signer delete ... --project`. "ctxloom trust signer show"
-	// left it when J17 (steps_j17.go, j17_incident.feature)'s
+	// left it when J001700 (steps_j001700.go, j001700_incident.feature)'s
 	// irrevocable-embedded-key scenario started driving it before and after the
 	// removal attempt.
 	//
@@ -208,9 +208,9 @@ var knownUncoveredCLI = []string{
 	"ctxloom acp client",
 	"ctxloom acp serve",
 	// `ctxloom session search` was pruned from this list when
-	// j12_recall.feature landed, because THIS GATE READS THE FEATURE CORPUS AS
+	// j001200_recall.feature landed, because THIS GATE READS THE FEATURE CORPUS AS
 	// TEXT and its scenarios drive the leaf — but read that credit narrowly:
-	// every scenario in j12_recall.feature is @wip and therefore excluded from
+	// every scenario in j001200_recall.feature is @wip and therefore excluded from
 	// the default run, so the leaf is SPECIFIED rather than exercised today.
 	// The gate has no notion of @wip and cannot make that distinction itself;
 	// this comment is where the distinction lives. Real execution arrives when
@@ -242,13 +242,13 @@ var knownUncoveredCLI = []string{
 // set of registered tools (from a plain, non-forwarding `mcp serve`) this
 // gate accepts as uncovered, checked for exact-set equality the same way.
 var knownUncoveredTools = []string{
-	// Agent-delegation bus + trigger evaluation: agent_run is exercised by J21
-	// (steps_j21_delegation.go, j21_delegation.feature — a coordinator spawning
+	// Agent-delegation bus + trigger evaluation: agent_run is exercised by J002100
+	// (steps_j002100_delegation.go, j002100_delegation.feature — a coordinator spawning
 	// delegated children and auditing their journaled privilege grant).
-	// agent_send/agent_recv are now exercised by J23
-	// (steps_j23_cross_engine_delegation.go, j23_cross_engine_delegation.feature
+	// agent_send/agent_recv are now exercised by J002300
+	// (steps_j002300_cross_engine_delegation.go, j002300_cross_engine_delegation.feature
 	// — the real two-way bus, both directions, content asserted on each side).
-	// agent_stop is now exercised by J21's failure-path scenario: idempotent
+	// agent_stop is now exercised by J002100's failure-path scenario: idempotent
 	// double-stop plus a refused stop on a run id that was never spawned (a
 	// real regression this scenario now pins).
 	//

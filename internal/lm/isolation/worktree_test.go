@@ -241,7 +241,7 @@ func TestWorktree_UnregisteredBackendRecordsFinding(t *testing.T) {
 // TestWorktree_MockBackendExemptFromUnregisteredFinding is the negative
 // space the fix above must not break: the built-in "mock" test backend is a
 // NAMED, independently-verified exemption (a bare echo with no on-disk
-// global state — see j22_isolation.feature's own hermeticity note), not an
+// global state — see j002200_isolation.feature's own hermeticity note), not an
 // unregistered real backend, so it must never fire the new finding.
 func TestWorktree_MockBackendExemptFromUnregisteredFinding(t *testing.T) {
 	resetStrictness(t)

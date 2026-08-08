@@ -9,16 +9,16 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
   This is the comprehensive per-noun spec for `ctxloom skill` — authoring a
   package, recording its manifest, listing and showing it, curating which
   skills a profile exports, and round-tripping one through sign/export/import.
-  The narrative version is journeys/j6_agent_skill.feature, which asserts what
+  The narrative version is journeys/j000600_agent_skill.feature, which asserts what
   a PERSON gets: one authored skill arriving whole in every engine's own skill
   folder.
 
   # WHERE THE BOUNDARY FALLS, and it is not where it first looks. MATERIALIZING
   # a skill into an engine's native directory is not a `skill` verb at all — it
   # is `profile materialize`, and the per-engine matrix that proves it lives in
-  # j6_agent_skill.feature across all five engines. A claude-only copy of that
+  # j000600_agent_skill.feature across all five engines. A claude-only copy of that
   # matrix used to sit in this file (D6 in the suite-unification plan); it was
-  # strictly weaker than j6's, asserted nothing j6 does not, and is gone. What
+  # strictly weaker than j000600's, asserted nothing j000600 does not, and is gone. What
   # remains here is what the noun itself owns.
 
   Rule: Authoring a package records what is actually on disk
@@ -123,11 +123,11 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     belongs to this noun, even though the command that triggers it is
     `profile materialize`. The trigger is not the subject.
 
-    # PATH CORRECTION vs the command surface (j4_multi_engine.feature's own
+    # PATH CORRECTION vs the command surface (j000400_multi_engine.feature's own
     # table): a skill is NOT the same directory a flat command file lands in.
     # Verified against each engine's own skillfiles.go, and — for codex —
     # against a REAL `profile materialize --backend codex` run, not just its
-    # source (see steps_j6_doctor.go's engineSkillMDPath doc for the full
+    # source (see steps_j000600_doctor.go's engineSkillMDPath doc for the full
     # story):
     #
     #   | engine      | skill surface (via `profile materialize`) | scope       |
@@ -142,7 +142,7 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     # internal/codex/skillfiles.go), but that path only fires on the LIVE
     # run/launch path. `profile materialize` binds codex's Skills surface
     # through NewSurfaces' inline closure with no homeOverride, which — just
-    # like its Commands surface (j4_multi_engine.feature's own codex row) —
+    # like its Commands surface (j000400_multi_engine.feature's own codex row) —
     # cell-scopes under --target instead. A naive Outline redirecting
     # $CODEX_HOME here would assert a file that never gets written.
 

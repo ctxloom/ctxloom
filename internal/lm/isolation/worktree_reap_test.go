@@ -246,8 +246,8 @@ func TestReapOrphanedWorktrees_CleanSweepIsSilent(t *testing.T) {
 
 // buildFourVerdictFixture plants one real repo with four scratch worktrees —
 // clean+dead-owner, dirty+dead-owner, no-marker, and live-owner — the same
-// four populations J13's own acceptance fixture builds (tests/acceptance/
-// steps_j13_closeout.go), so this test's fixture is not a narrower stand-in.
+// four populations J001300's own acceptance fixture builds (tests/acceptance/
+// steps_j001300_closeout.go), so this test's fixture is not a narrower stand-in.
 // Returns the four checkout dirs so the caller can register cleanup.
 func buildFourVerdictFixture(t *testing.T) (repo string, dirs []string) {
 	t.Helper()

@@ -166,7 +166,7 @@ func tagsStartNewScenario(lines []string, i int) bool {
 
 // DiscoverDocFeatures returns every @doc-tagged .feature file in dir, sorted
 // by path. Rendering the whole directory rather than a hardcoded journey list
-// means a new journey (J4+) gets a page for free the moment it lands and is
+// means a new journey (J000400+) gets a page for free the moment it lands and is
 // tagged @doc.
 func DiscoverDocFeatures(dir string) ([]string, error) {
 	// RECURSIVE, deliberately: features/ is split into journeys/ and cli/

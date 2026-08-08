@@ -25,10 +25,10 @@ Three observed consequences:
 1. **Adding an engine touches callers**, because the caller's rendering has to
    learn the new engine's folding rules.
 2. **`manage status` cannot report delivery.** There is no read half, so nothing
-   can ask a route "is what you carry current?" (taskloom `hefty-gallery`; J19's
+   can ask a route "is what you carry current?" (taskloom `hefty-gallery`; J001900's
    B6 hop, where the boundary table credits an inspector with a hop it does not
    watch).
-3. **The mock backend materializes nothing** (`EmptySurfaceSet`), so J14's
+3. **The mock backend materializes nothing** (`EmptySurfaceSet`), so J001400's
    twelve delivery-matrix rows cannot be exercised hermetically at all.
 
 ---
@@ -241,7 +241,7 @@ Three properties this shape buys:
 **The object that applied answers for it.** A separate reporting path is free to
 disagree with the one that delivered; walking the same objects makes a status
 report truthful by construction. That — not a missing accessor — is the bug
-behind J19's B6.
+behind J001900's B6.
 
 **Optional, not nullable.** A route that cannot be observed is structurally
 absent from a report rather than forcing every caller to remember a
@@ -256,14 +256,14 @@ user to fix what is already correct.
 
 ### The mock engine implements both halves
 
-The mock has `EmptySurfaceSet` and materializes nothing, which is why J14's
+The mock has `EmptySurfaceSet` and materializes nothing, which is why J001400's
 delivery matrix is untestable. It gains a real context route implementing
 `EngineDelivery` and `StateReader`.
 
 This is not a test convenience. A mock that delivers nothing cannot prove
 delivery, so every delivery assertion either runs against a live engine or is
 vacuous — and a vacuous green is indistinguishable from a real one. The mock's
-route is the hermetic vehicle J14's own untag condition names.
+route is the hermetic vehicle J001400's own untag condition names.
 
 ---
 

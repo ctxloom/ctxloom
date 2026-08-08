@@ -109,7 +109,7 @@ func renderBundleListEntry(w *iox.ErrWriter, info *bundles.BundleInfo) {
 	// bundle looks exactly like a failing sync, and a retracted one is still
 	// installed and still being served while its publisher has said not to use
 	// it. Rendering neither is what made `bundle list` unable to tell a
-	// deliberate freeze from a broken pull (J19's B3 hop).
+	// deliberate freeze from a broken pull (J001900's B3 hop).
 	if info.Held {
 		w.Print(" [held]")
 	}

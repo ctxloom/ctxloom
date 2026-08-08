@@ -9,7 +9,7 @@
 // demo#fragments/guide" is the argument echoed back — so neutering
 // countersign.Store's two write paths, until the store recorded NOTHING AT
 // ALL, left all four trust_cli scenarios green (audit irate-catfish, F2). That
-// is precisely the product failure j16_signing.feature's @wip scenario
+// is precisely the product failure j001600_signing.feature's @wip scenario
 // describes in prose: exit 0, a success message naming the key, and no effect,
 // in the flagship trust command.
 //

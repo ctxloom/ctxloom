@@ -44,7 +44,7 @@ func resetSessionWorktreesFlags() {
 	clidiag.SetStructured(false)
 }
 
-// swtDeadPid mirrors isolation's own deadPid / tests/acceptance's j13DeadPid:
+// swtDeadPid mirrors isolation's own deadPid / tests/acceptance's j001300DeadPid:
 // a pid guaranteed not to name a live process on any real Linux
 // kernel.pid_max configuration, so "this owner is confirmed dead" is
 // deterministic with no fork/kill/race.

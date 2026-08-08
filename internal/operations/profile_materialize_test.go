@@ -290,7 +290,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 // with --backend mock, must land under mock's own skills directory with the
 // modes its bundle manifest DECLARES.
 //
-// It exists because eight rows of J14's delivery matrix assert
+// It exists because eight rows of J001400's delivery matrix assert
 // skills/reviewer/SKILL.md at 0644 and skills/reviewer/scripts/run.sh at 0755
 // at a path an agent can read, and `profile materialize --backend mock` is the
 // vehicle those rows retarget onto (taskloom unlikable-comma). Without a mock
@@ -389,7 +389,7 @@ func TestMaterializeProfile_Validation(t *testing.T) {
 // req.Surfaces onto the selection — so every override was parsed, validated and
 // then silently dropped — passed this package's entire suite. The flag would
 // have shipped accepting a value, reporting success, and changing nothing:
-// exactly the accepted-and-ignored shape j5_editor.feature exists to catch on a
+// exactly the accepted-and-ignored shape j000500_editor.feature exists to catch on a
 // different command.
 //
 // claude-code is the engine that can show it, because its context surface is

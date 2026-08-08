@@ -281,7 +281,7 @@ func buildMockResponse(customResponse, contextStr, promptContent string, mode ag
 		// The doc comment above ("echoes back prompts and context") promised
 		// the CONTENT, not just its length — before this line, a hermetic
 		// caller could prove a fragment was ASSEMBLED (the length changed) but
-		// never that its actual guidance reached the child's own output. J23
+		// never that its actual guidance reached the child's own output. J002300
 		// (cross-engine delegation) needs exactly that: two children with
 		// different composed profiles must each emit evidence, in their OWN
 		// stdout, of guidance present in their OWN context and absent from a

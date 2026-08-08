@@ -5,7 +5,7 @@
 //
 //	GOWORK=off just test-pkg ./internal/lm/isolation/... -tags docker_integration -run TestContainerRun_
 //
-// WHY THIS FILE EXISTS. J14's container delivery rows (tests/acceptance,
+// WHY THIS FILE EXISTS. J001400's container delivery rows (tests/acceptance,
 // through internal/testsupport/containercell) prove that delivery INTO a
 // bind-mounted workspace survives a process boundary: bytes, POSIX mode and
 // host ownership all come out of the mount intact. What they cannot prove is
@@ -14,7 +14,7 @@
 // mounted workspace rather than at the per-run scratch overlay it mounts over
 // the engine's managed-config directory (containerConfigOverlay), which is
 // removed at teardown and never copied back out. That residue is stated at the
-// scenario in j14_bundle_distribution.feature; this file closes it.
+// scenario in j001400_bundle_distribution.feature; this file closes it.
 //
 // THE VEHICLE. The cell supplies the hermetic ingredients — the runtime probe
 // and its skip vocabulary (dockergate), the statically linked ctxloom, and a
@@ -28,7 +28,7 @@
 // THE VANTAGE POINT IS MID-TURN, and it is the only honest one. grpc.RunTurn
 // calls Cleanup the instant Execute returns and the shared LIFO reversal strips
 // the delivered managed section, so a test that stats the workspace after the
-// turn observes nothing whether delivery worked or not (the same reason J14's
+// turn observes nothing whether delivery worked or not (the same reason J001400's
 // host rows use `profile materialize`, and the same window
 // container_mcp_integration_test.go reads .mcp.json through). The mock's
 // interactive echo mode (CTXLOOM_MOCK_ECHO_STDIN) blocks the turn on stdin,

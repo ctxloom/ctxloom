@@ -451,7 +451,7 @@ func (e *TestEnvironment) InitGitRepo() error {
 // scrubbed), so no caller has to hand-roll HOME redirection to make git read
 // the fake home instead of the developer's.
 //
-// It exists for `user.signingkey`: J16 drives ctxloom's zero-config
+// It exists for `user.signingkey`: J001600 drives ctxloom's zero-config
 // key-discovery chain (internal/signing/agentkey step 2, `git config
 // user.signingkey`), which reads the REPOSITORY's own .git/config, so the
 // fixture must write there — repository-local, never global, never the host's.

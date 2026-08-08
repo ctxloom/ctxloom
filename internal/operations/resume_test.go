@@ -51,7 +51,7 @@ func TestRecordedSessionEntries_UnknownHarpErrorsRatherThanPanicking(t *testing.
 }
 
 // TestRecordedSessionEntries_PrefersCanonicalTranscriptOverBackend pins the
-// J12 "archive and the archive" fix: RecordedSessionEntries used to resolve a
+// J001200 "archive and the archive" fix: RecordedSessionEntries used to resolve a
 // harp's entries by asking the BACKEND's own session reader for
 // entry.SessionID, never reading the canonical transcript ctxloom itself
 // captured, converted and schema-versions. That meant a session whose vendor
@@ -64,12 +64,12 @@ func TestRecordedSessionEntries_UnknownHarpErrorsRatherThanPanicking(t *testing.
 // all: it must resolve entirely from entry.CanonicalTranscriptPath.
 func TestRecordedSessionEntries_PrefersCanonicalTranscriptOverBackend(t *testing.T) {
 	testsupport.Isolate(t)
-	entry := seedCanonicalFeedHarp(t, "J12-RESUME-REGRESSION-CANONICAL-PAYLOAD")
+	entry := seedCanonicalFeedHarp(t, "J001200-RESUME-REGRESSION-CANONICAL-PAYLOAD")
 
 	entries, err := RecordedSessionEntries(context.Background(), entry.HarpName)
 	require.NoError(t, err, "a canonical-backed harp must resolve without ever touching the (unbound) backend reader")
 	require.Len(t, entries, 1)
-	assert.Equal(t, "J12-RESUME-REGRESSION-CANONICAL-PAYLOAD", entries[0].Content)
+	assert.Equal(t, "J001200-RESUME-REGRESSION-CANONICAL-PAYLOAD", entries[0].Content)
 }
 
 // TestRenderResumedTranscript_EmptyEntriesWarns is a regression guard: a

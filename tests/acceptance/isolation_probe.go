@@ -3,8 +3,8 @@
 // Package acceptance: the ISOLATION PROBE — a standalone, reusable live
 // regression oracle for ctxloom's isolation seam.
 //
-// WHAT THIS IS, AND WHY IT IS NOT A j22 SCENARIO. j22_isolation.feature's own
-// matrix (steps_j22_isolation_matrix.go) proves ctxloom's SIDE of isolation —
+// WHAT THIS IS, AND WHY IT IS NOT A j002200 SCENARIO. j002200_isolation.feature's own
+// matrix (steps_j002200_isolation_matrix.go) proves ctxloom's SIDE of isolation —
 // the right env var, pointed at the right scratch dir, seeded with the right
 // bytes — against a cooperative recording SPY, on a PATH sanitized so no real
 // engine binary is ever resolved. That is fast, hermetic, and exactly what a
@@ -15,7 +15,7 @@
 // engine and one axis at a time, because its real job is not "pass once in
 // this repo's CI" — it is "answer the same question again, unattended, every
 // time claude-code/codex/kiro/opencode/antigravity ship a new version." A
-// scenario welded into j22's own feature file could not serve that; see
+// scenario welded into j002200's own feature file could not serve that; see
 // features/isolation_probe.feature and website/src/content/docs/security/
 // isolation.md's "The executable probe" section for how to invoke it for a
 // single engine/axis and how to read a failure.
@@ -37,7 +37,7 @@
 //     ~/.ctxloom/sessions/<harp>/ephemeral/ WHILE the live run is still in
 //     flight and keeps the last non-empty snapshot observed — the same
 //     "only vantage point is DURING the run" constraint
-//     steps_j22_isolation_matrix.go's package doc states for its own spy.
+//     steps_j002200_isolation_matrix.go's package doc states for its own spy.
 //  2. Container axis: `docker run --rm` (internal/lm/isolation/runtime.go)
 //     auto-removes the container the instant its process exits, so
 //     `docker diff` after the run has nothing to inspect either.
@@ -983,7 +983,7 @@ func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, 
 // known leak is asserted separately (see the feature file's dedicated
 // --degraded scenario), because a bare worktree run for kiro without
 // KIRO_API_KEY never reaches this far, and WITH KIRO_API_KEY kiro is no
-// longer a leak case at all (both HomeVars relocate, per j22's own hermetic
+// longer a leak case at all (both HomeVars relocate, per j002200's own hermetic
 // proof).
 func assertProbeWorktree(res *probeResult) error {
 	if res.ExitCode != 0 {

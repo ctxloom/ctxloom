@@ -437,7 +437,7 @@ writing down what happened. That does not scale to "does it still hold on the ve
 shipped this morning" — so the same measurement is also a standing, runnable probe:
 `tests/acceptance/features/isolation_probe.feature`, driven by `just isolation-probe <engine>
 <axis>`. It is deliberately a *different layer* from the fast, hermetic isolation matrix
-(`j22_isolation.feature`) that runs on every commit: that matrix proves ctxloom's own
+(`j002200_isolation.feature`) that runs on every commit: that matrix proves ctxloom's own
 bookkeeping is correct — the right variable, pointed at the right scratch directory, seeded
 with the right bytes — against a cooperative recording stand-in, never a real engine binary. It
 is fast and it is honest about what it covers, but it is structurally incapable of catching the

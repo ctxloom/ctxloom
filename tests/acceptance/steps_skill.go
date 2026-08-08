@@ -11,11 +11,11 @@
 // Bundles here are always DIRECTORY-FORM (bundle.yaml + skills/<name>/):
 // `ctxloom skill create`/`sync`/`import` all reject a single-file bundle
 // (loud validation error), and `ctxloom bundle create` (steps_fixture.go's
-// fixture) only ever writes a single-file bundle — so, like J4's own "team"
+// fixture) only ever writes a single-file bundle — so, like J000400's own "team"
 // bundle, the bundle.yaml is written directly rather than through that
 // fixture.
 //
-// Signing here mirrors steps_j2_common.go/signing_acceptance.go's approach
+// Signing here mirrors steps_j000200_common.go/signing_acceptance.go's approach
 // (a generated ed25519 TestSigner + signing.Sign / TrustSigner) rather than
 // driving `ctxloom skill export --sign`: that flag resolves a key through a
 // real ssh-agent (internal/signing/agentkey), which is not something a
@@ -282,11 +282,11 @@ func registerSkillSteps(ctx *godog.ScenarioContext) {
 
 	// Generic payload check reused across every materialize/export/import
 	// scenario: a project-relative file's real content contains marker.
-	// j4FileContains (steps_j4.go) already does exactly this — real read,
+	// j000400FileContains (steps_j000400.go) already does exactly this — real read,
 	// real error, real @doc-capture excerpt — so this is a thin step-text
 	// wrapper over it rather than a duplicate implementation.
 	ctx.Step(`^"([^"]*)" carries the marker "([^"]*)"$`, func(c context.Context, rel, marker string) error {
-		return j4FileContains(worldFrom(c), rel, marker)
+		return j000400FileContains(worldFrom(c), rel, marker)
 	})
 
 	ctx.Step(`^"([^"]*)" is executable$`, func(c context.Context, rel string) error {

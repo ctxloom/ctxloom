@@ -144,7 +144,7 @@ func runAgentShow(cmd *cobra.Command, args []string) error {
 		// backends.UncarriedSurfaces call) — so switching an agent's engine
 		// binding names what the NEW engine cannot carry that the resolved
 		// profiles' hooks configuration actually uses, instead of `agent show`
-		// reporting only the swap succeeded (trusting-ambiguity, j20).
+		// reporting only the swap succeeded (trusting-ambiguity, j002000).
 		payload.CapabilityLoss = operations.CapabilityLoss(cfg, resolved.Backend, resolved.Profiles)
 	}
 	return emit(cmd, payload, func() error {
@@ -238,7 +238,7 @@ func renderAgentEscalation(w *iox.ErrWriter, ladder []agents.EscalationRung) {
 // separate pass, for the same reason profile_materialize.go interleaves NOT
 // carried lines with wrote lines: a reader who scans only the top of `agent
 // show` must not come away with "the swap succeeded" as the whole story when
-// the new engine silently drops something the old one carried (j20).
+// the new engine silently drops something the old one carried (j002000).
 func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent, rerr error, losses []agent.SurfaceLoss) {
 	if rerr != nil {
 		w.Printf("Resolved engine: unavailable (%v)\n", rerr)

@@ -494,7 +494,7 @@ func TestRenderBundleMCPEntry_EnvIsSortedAndStable(t *testing.T) {
 // indistinguishable from a broken pull. Rendering a held entry as an ordinary
 // one makes "someone froze this deliberately" and "the sync is failing" the same
 // two lines of output, which is exactly the distinction this listing exists to
-// make (J19's B3 hop).
+// make (J001900's B3 hop).
 func TestRenderBundleList_HeldBundleNamesTheHold(t *testing.T) {
 	infos := []*bundles.BundleInfo{{
 		Name:    "team/deploy-runbook",

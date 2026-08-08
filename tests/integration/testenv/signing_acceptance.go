@@ -16,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// TestSigner is a generated ed25519 identity for the J2 trust scenarios: a
+// TestSigner is a generated ed25519 identity for the J000200 trust scenarios: a
 // signer that can sign bundle bytes (SeedSignedRemote) and be trusted
 // (TrustSigner), without any real ssh-agent or on-disk private key — the same
 // approach internal/operations/sign_test.go's testSigner uses at the unit
@@ -29,7 +29,7 @@ type TestSigner struct {
 	// StartSSHAgent can hand it to agent.NewKeyring: the ssh-agent keyring
 	// holds PRIVATE keys and signs with them, and ssh.Signer exposes no way
 	// back to the material it wraps. Nothing outside this package's own
-	// in-process agent should read it — J16 drives `ctxloom bundle sign`,
+	// in-process agent should read it — J001600 drives `ctxloom bundle sign`,
 	// which never sees a private key, only the agent socket.
 	Private crypto.PrivateKey
 }
@@ -73,7 +73,7 @@ func (s *TestSigner) Fingerprint() string { return ssh.FingerprintSHA256(s.Publi
 // signer under the publish namespace — the same detached-sibling contract
 // verifyBundlePublisher reads (internal/remote.SignatureSuffix). A caller that
 // wants unsigned content simply uses SeedRemote directly; this helper exists
-// for the signed/trusted J2 scenarios.
+// for the signed/trusted J000200 scenarios.
 func (e *TestEnvironment) SeedSignedRemote(files map[string]string, signPaths []string, signer *TestSigner) (string, error) {
 	seeded := make(map[string]string, len(files)+len(signPaths))
 	for k, v := range files {
@@ -98,7 +98,7 @@ func (e *TestEnvironment) SeedSignedRemote(files map[string]string, signPaths []
 // regenerated over the new bytes in files, signed by signer under the publish
 // namespace. Use this for a legitimate new signed version (e.g. a publisher
 // adding content to an already-signed bundle). For an illegitimate change —
-// content mutated WITHOUT a matching re-sign, the J15 tamper scenario — call
+// content mutated WITHOUT a matching re-sign, the J001500 tamper scenario — call
 // AdvanceRemote directly instead and leave the old ".sig" sibling in place, so
 // it no longer verifies over the new bytes (signing.ErrSignatureTampered).
 func (e *TestEnvironment) AdvanceSignedRemote(bareDir string, files map[string]string, signPaths []string, signer *TestSigner) error {

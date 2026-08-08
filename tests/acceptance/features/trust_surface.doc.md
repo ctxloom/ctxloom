@@ -6,7 +6,7 @@ and it carries no assertions of its own — trust_surface.feature next to it is
 the single source of truth for what this reference proves. What lives here is
 the connective tissue a terse Given/When/Then cannot carry.
 
-Unlike J2-J4's narration, this one has no persona and no arc to connect —
+Unlike J000200-J000400's narration, this one has no persona and no arc to connect —
 that absence is deliberate (see the feature file's own header). The connective
 tissue here is instead: why the question is worth asking exhaustively, why it
 took two different starting fixtures to ask it honestly, and what a reader
@@ -15,7 +15,7 @@ should walk away able to say with confidence.
 Marker convention: an opening prose block, one block per scenario keyed to
 that scenario's exact name (a Scenario Outline's marker uses the Outline's own
 name once — it is not repeated per Examples row), and a closing block — the
-same three HTML-comment marker pairs the generator splits j2_setup.doc.md on.
+same three HTML-comment marker pairs the generator splits j000200_setup.doc.md on.
 -->
 
 <!-- doc:intro -->
@@ -44,7 +44,7 @@ ability to fail. Reject an item that was already going to be withheld anyway
 (nothing signed it, nobody reviewed it) and the test passes whether or not
 rejection does anything at all — the pending default was doing all the work.
 So the REJECT outline starts every item from a state where it is already
-being delivered — signed by a publisher this project trusts, exactly J15's own
+being delivered — signed by a publisher this project trusts, exactly J001500's own
 Background — and rejection has to visibly turn that off. The APPROVE outline
 runs the opposite way, starting from an unsigned bundle nobody has looked at,
 so approving one item is the only thing that could possibly expose it.
@@ -69,7 +69,7 @@ than a single example standing in for the rest.
 
 <!-- doc:scenario: Rejecting the shipped item withholds it, even though a trusted publisher signed it -->
 This is the sharpest row on the page, repeated for all four kinds instead of
-just the two J15 already covered. A trusted publisher's signature is real
+just the two J001500 already covered. A trusted publisher's signature is real
 permission — the content/executable gate allows it by default — and a
 rejection still beats it, every time, for a fragment and a skill exactly as
 much as for an MCP server and a hook. That symmetry is the point: before this
@@ -266,7 +266,7 @@ different one. For the deeper mechanics — the decision function, the
 acceptance/rejection stores, what a signature does and does not buy — see
 [Trust states and the gate](/security/trust-states/) and
 [Review and trust](/concepts/review-and-trust/). For the two scenarios this
-page deliberately leaves to J15 rather than re-proving — tamper-after-signing
+page deliberately leaves to J001500 rather than re-proving — tamper-after-signing
 and untrusted-publisher content — see
-[Skills my company has validated](/journeys/j15-corporate-signed/).
+[Skills my company has validated](/journeys/j001500-corporate-signed/).
 <!-- /doc:outro -->

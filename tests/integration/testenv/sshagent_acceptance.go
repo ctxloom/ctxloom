@@ -37,8 +37,8 @@ import (
 // It also deliberately does NOT set SSH_AUTH_SOCK itself. Pointing the world
 // at the agent is one line at the call site
 // (w.env.SetEnv("SSH_AUTH_SOCK", sock)) and keeping it there keeps the
-// interaction with steps_j15.go's DELIBERATE blanking of the same variable
-// visible: J15 sets it to "" to force agentkey's no-key-anywhere branch, J16
+// interaction with steps_j001500.go's DELIBERATE blanking of the same variable
+// visible: J001500 sets it to "" to force agentkey's no-key-anywhere branch, J001600
 // sets it to this socket to force the key-found branch, and neither can
 // silently change the other's meaning because both writes are explicit,
 // per-scenario, and restored by TestEnvironment.Cleanup (SetEnv's

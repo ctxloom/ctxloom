@@ -301,7 +301,7 @@ func mustAllowedSignersProjectPath(t *testing.T, cfg *config.Config) string {
 // testEmbeddedPrincipal is ctxloom's REAL compiled-in publisher principal
 // (internal/config/embedded_signers.allowed_signers) — these tests target the
 // actual production identity, not a stand-in, mirroring
-// tests/acceptance/steps_j17.go's j17EmbeddedPrincipal.
+// tests/acceptance/steps_j001700.go's j001700EmbeddedPrincipal.
 const testEmbeddedPrincipal = "ben+ctxloom@abbitt.me"
 
 func TestListSigners_IncludesEmbeddedEntry(t *testing.T) {

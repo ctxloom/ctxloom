@@ -134,10 +134,10 @@ func scrubTempPaths(w *World, s string) string {
 	// "<tmp>" fragment is left dangling in front of the placeholder below —
 	// the two-level fixture shapes collapse to a single, clean token.
 	s = regexp.MustCompile(root+`/remote-\d+/remote\.git`).ReplaceAllString(s, "<remote>.git")
-	s = regexp.MustCompile(root+`/j7-origin-\d+/team\.git`).ReplaceAllString(s, "<team-origin>.git")
+	s = regexp.MustCompile(root+`/j000700-origin-\d+/team\.git`).ReplaceAllString(s, "<team-origin>.git")
 
-	if w.j7s != nil && w.j7s.bobDir != "" {
-		s = strings.ReplaceAll(s, w.j7s.bobDir, "<bob-checkout>")
+	if w.j000700s != nil && w.j000700s.bobDir != "" {
+		s = strings.ReplaceAll(s, w.j000700s.bobDir, "<bob-checkout>")
 	}
 	if w.env.ProjectDir != "" {
 		s = strings.ReplaceAll(s, w.env.ProjectDir, "/project")
@@ -249,13 +249,13 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 				step.CLIOutput = w.docLastCommandOutput
 			}
 		}
-		// J7 runs the teammate's (Bob's) commands in a separate checkout via its
+		// J000700 runs the teammate's (Bob's) commands in a separate checkout via its
 		// own exec plumbing, so that output never touches w.env.LastOutput() or
 		// its run counter. Surface it on a new-since-last-step basis so each
 		// teammate-side step shows its real output rather than inheriting a
 		// prior step's.
-		if w.j7s != nil {
-			if bob := w.j7s.bobOutput; bob != "" && bob != w.docLastBobOutput {
+		if w.j000700s != nil {
+			if bob := w.j000700s.bobOutput; bob != "" && bob != w.docLastBobOutput {
 				if step.CLIOutput == "" {
 					step.CLIOutput = bob
 				} else {
@@ -273,16 +273,16 @@ func registerDocCaptureHooks(ctx *godog.ScenarioContext) {
 			w.docStepMaterialized = ""
 		}
 		// Whichever mock-recorded slot this scenario populated most recently —
-		// j2_setup's restart-delivery scenario uses j2RestartRecorded, j3's
-		// discovery-interview scenarios use j3Recorded. Attach whichever is
+		// j000200_setup's restart-delivery scenario uses j000200RestartRecorded, j000300's
+		// discovery-interview scenarios use j000300Recorded. Attach whichever is
 		// non-empty and hasn't already been attached to an earlier step (avoid
 		// repeating the same payload on every subsequent step once it's set).
-		if w.j2RestartRecorded != "" && w.j2RestartRecorded != w.docLastMockRecorded {
-			step.MockRecorded = w.j2RestartRecorded
-			w.docLastMockRecorded = w.j2RestartRecorded
-		} else if w.j3Recorded != "" && w.j3Recorded != w.docLastMockRecorded {
-			step.MockRecorded = w.j3Recorded
-			w.docLastMockRecorded = w.j3Recorded
+		if w.j000200RestartRecorded != "" && w.j000200RestartRecorded != w.docLastMockRecorded {
+			step.MockRecorded = w.j000200RestartRecorded
+			w.docLastMockRecorded = w.j000200RestartRecorded
+		} else if w.j000300Recorded != "" && w.j000300Recorded != w.docLastMockRecorded {
+			step.MockRecorded = w.j000300Recorded
+			w.docLastMockRecorded = w.j000300Recorded
 		}
 		// Scrub every throwaway hermetic path this scenario's TestEnvironment
 		// created (project checkout, Bob's separate clone, bare-git remote/

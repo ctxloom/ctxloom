@@ -39,10 +39,10 @@ type DocCaptureStep struct {
 	CLIOutput    string `json:"cli_output,omitempty"`
 	MockRecorded string `json:"mock_recorded,omitempty"`
 	// Materialized is evidence a step observed that never flowed through
-	// w.env.LastOutput(): a file it read (J7 teammate's materialized command,
-	// J15's assembled CLAUDE.md / generated .mcp.json / settings.json), a
-	// captured PTY session (J15 forgery refusal), or a sync notice that a later
-	// materialize overwrote (J15 retraction). Marker-bearing proof no CLI stdout
+	// w.env.LastOutput(): a file it read (J000700 teammate's materialized command,
+	// J001500's assembled CLAUDE.md / generated .mcp.json / settings.json), a
+	// captured PTY session (J001500 forgery refusal), or a sync notice that a later
+	// materialize overwrote (J001500 retraction). Marker-bearing proof no CLI stdout
 	// carries; rendered as its own captured block.
 	Materialized string `json:"materialized,omitempty"`
 }

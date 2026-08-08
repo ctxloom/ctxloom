@@ -10,7 +10,7 @@ import (
 // lastOutput/lastError/lastExitCode slot, so any scenario that ran two
 // commands lost the first's output the moment the second ran. Five
 // acceptance journeys had invented private snapshot fields to work around
-// exactly this (j15State.lastSyncOutput, four j17State fields, ...). The
+// exactly this (j001500State.lastSyncOutput, four j001700State fields, ...). The
 // history-based replacement must let a caller reach back to an earlier
 // run's output without a private field.
 func TestTestEnvironment_NthLastOutput_SeesAnEarlierRunAfterALaterOneOverwritesLast(t *testing.T) {

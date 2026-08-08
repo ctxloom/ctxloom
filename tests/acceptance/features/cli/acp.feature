@@ -7,7 +7,7 @@ Feature: acp — the editor door, and the entries an editor is told to paste
 
   This is the comprehensive per-noun spec. The narrative version — Dana, who
   lives in her editor and will not adopt a terminal workflow — is
-  journeys/j5_editor.feature, which asserts what a PERSON sees.
+  journeys/j000500_editor.feature, which asserts what a PERSON sees.
 
   # WHAT THIS SPEC DOES NOT REACH, said plainly rather than left to be
   # discovered. `acp serve` (ctxloom serving the protocol on stdio for an

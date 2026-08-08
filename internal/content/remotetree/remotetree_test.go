@@ -100,7 +100,7 @@ func TestNew_RefusesAnUnpinnedRef(t *testing.T) {
 // TestNew_RefusesAnEmptyTree guards this codebase's characteristic failure. A
 // content root that lists nothing is not an empty store: it is a wrong root, a
 // wrong SHA, or a publisher who published a file where a directory was expected
-// — which is the exact shape of the J14 failure this backend exists to fix.
+// — which is the exact shape of the J001400 failure this backend exists to fix.
 // Returning a store that enumerates zero items would report success and deliver
 // nothing.
 func TestNew_RefusesAnEmptyTree(t *testing.T) {

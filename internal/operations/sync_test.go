@@ -491,7 +491,7 @@ remotes:
 // re-evaluated on every sync, not just on a fresh pull. Before the fix,
 // syncItem's install-skip meant a retracted-after-the-fact bundle was
 // reported "skipped" forever with no warning and no lockfile record — see
-// tests/acceptance/features/j15_corporate_signed.feature's retraction
+// tests/acceptance/features/j001500_corporate_signed.feature's retraction
 // scenario, which exercises the same gap end to end through the real CLI.
 func TestSyncDependencies_RetractedInstalledRef(t *testing.T) {
 	fs := afero.NewMemMapFs()

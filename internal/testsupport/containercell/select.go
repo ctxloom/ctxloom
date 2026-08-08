@@ -26,7 +26,7 @@ import (
 //  4. With none available at all, fall back to the reachability gate —
 //     CTXLOOM_REQUIRE_DOCKER=1 makes it a Fail, unset it is a Skip.
 //
-// what names the caller in every message ("J14's container delivery rows").
+// what names the caller in every message ("J001400's container delivery rows").
 func Select(ctx context.Context, what string) (Runtime, dockergate.Decision, string) {
 	if err := dockergate.ValidateRequiredRuntimes(Names()); err != nil {
 		return Runtime{}, dockergate.Fail, err.Error()

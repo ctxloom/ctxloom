@@ -199,7 +199,7 @@ func assertAllPassed(featurePath, scenarioName string, captures []DocCapture) er
 // second half of the "a feature that does not work cannot be documented"
 // guarantee: a scenario every step of which is green, but whose assertions
 // leave no observable trace, proves nothing to a reader — three journeys
-// (J4, J17, J18) shipped exactly this defect before this guard existed.
+// (J000400, J001700, J001800) shipped exactly this defect before this guard existed.
 type EvidenceGapError struct {
 	Feature  string
 	Scenario string

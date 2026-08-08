@@ -16,7 +16,7 @@ import (
 // Steps for the coordination-contract feature: what the agent-delegation tools
 // ADVERTISE on the surface a real harness actually talks to.
 //
-// WHAT THIS CAN AND CANNOT SEE — the same honesty constraint j21_delegation.feature
+// WHAT THIS CAN AND CANNOT SEE — the same honesty constraint j002100_delegation.feature
 // documents, and the reason these steps do not go through w.agent(). The rest of
 // this suite drives a `ctxloom mcp serve` SUBPROCESS, whose agent-delegation
 // tools are a deliberately reduced surface with DIFFERENT, hand-written schemas

@@ -34,7 +34,7 @@ import (
 // two — EngineHost, Home, gRPC RunChannel, Coordinator, ladder, journals —
 // is production code.
 //
-// The hang j23 reported live is exactly what this reproduces when the path
+// The hang j002300 reported live is exactly what this reproduces when the path
 // is broken: the child's turn never completes, so its roster state never
 // leaves Executing and the marker never lands.
 
@@ -273,7 +273,7 @@ func TestACPLivePath_ChildResultBridgesToParentMailbox(t *testing.T) {
 // TestInjectMCPSocketEnv covers the codex-child reach-back fix: the ctxloom
 // forwarder MCP entry gets the runner's socket in its OWN declared env, so
 // delivery does not depend on the engine adapter propagating ambient env
-// (codex-acp does not — j23 @live).
+// (codex-acp does not — j002300 @live).
 func TestInjectMCPSocketEnv(t *testing.T) {
 	servers := []agent.ChatMCPServer{
 		{Name: agent.MCPServerName, Command: "ctxloom", Args: []string{"mcp"}},

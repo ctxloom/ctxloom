@@ -34,7 +34,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		// Set-and-consume evidence (steps_doc_capture.go): this engine's actual
 		// resolved availability, in the SAME one-line shape as the suite-wide
-		// report, so the published J4 living-docs page carries the real,
+		// report, so the published J000400 living-docs page carries the real,
 		// per-row honesty rather than a bare pass with no reason attached — a
 		// reader cannot mistake a skip for a fourth proven row.
 		w.docStepMaterialized = formatLiveEngineReport([]engineStatus{status})

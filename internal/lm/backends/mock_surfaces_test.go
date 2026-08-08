@@ -271,7 +271,7 @@ func TestMockSurfaces_WithEverything_MaterializesBothSurfaces(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // reviewerSkillExport is the fixture package the skills tests below deliver:
-// SKILL.md plus an executable script, i.e. the shape J14's delivery matrix
+// SKILL.md plus an executable script, i.e. the shape J001400's delivery matrix
 // asserts (skills/reviewer/SKILL.md at 0644, skills/reviewer/scripts/run.sh at
 // 0755).
 //

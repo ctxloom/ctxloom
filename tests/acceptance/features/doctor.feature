@@ -3,7 +3,7 @@ Feature: ctxloom doctor — deterministic setup checks
   `ctxloom doctor` is the thin, deterministic half of setup diagnosis: PATH
   binaries, whether configured agents resolve, hook-surface presence, and
   trust-store signer count. Each line carries a DOCTOR-CHECK-* marker — the
-  SAME vocabulary the "ctxloom-doctor" Agent Skill (j6_agent_skill.feature)
+  SAME vocabulary the "ctxloom-doctor" Agent Skill (j000600_agent_skill.feature)
   uses, so a human or an LLM reading either surface sees one language.
   Version currency is deliberately skill-guided (no automated check yet),
   so its line is informational, not pass/fail.

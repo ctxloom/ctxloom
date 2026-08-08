@@ -11,7 +11,7 @@ import (
 
 func TestLoadNarration_Basic(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "j1_setup.doc.md")
+	path := filepath.Join(dir, "j2_setup.doc.md")
 	writeFile(t, path, `Some preamble text not inside any marker (ignored).
 
 <!-- doc:intro -->

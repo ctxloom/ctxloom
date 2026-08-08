@@ -287,14 +287,14 @@
 ./tests/acceptance/steps_cli.go|shellSplit cmdline string|1|18|shellSplit|104-157
 ./tests/acceptance/steps_doc_capture.go| c context . Context , st * godog . Step , status godog . StepResultStatus , err error|1|18||192-285
 ./tests/acceptance/steps_isolation_probe.go| c context . Context , engine , axisStr string|1|13||190-253
-./tests/acceptance/steps_j11_taskloom.go| c context . Context , untagged , tagged string|1|11||225-248
-./tests/acceptance/steps_j17_cross_engine_delegation.go| c context . Context|1|15||315-376
-./tests/acceptance/steps_j18_signing.go|j18SeedFromDisk w * World , name string|1|11|j18SeedFromDisk|288-328
-./tests/acceptance/steps_j5.go|j5AssertHook w * World , engine string|1|11|j5AssertHook|419-483
-./tests/acceptance/steps_j6_delegation.go| c context . Context|1|12||520-562
-./tests/acceptance/steps_j6_delegation.go|j6AttachedCapabilities w * World|1|12|j6AttachedCapabilities|569-606
-./tests/acceptance/steps_j7.go| c context . Context , bundleName string|1|18||94-181
-./tests/acceptance/steps_j9_isolation.go| c context . Context|1|11||173-198
+./tests/acceptance/steps_j25_taskloom.go| c context . Context , untagged , tagged string|1|11||225-248
+./tests/acceptance/steps_j23_cross_engine_delegation.go| c context . Context|1|15||315-376
+./tests/acceptance/steps_j16_signing.go|j16SeedFromDisk w * World , name string|1|11|j16SeedFromDisk|288-328
+./tests/acceptance/steps_j4.go|j4AssertHook w * World , engine string|1|11|j4AssertHook|419-483
+./tests/acceptance/steps_j21_delegation.go| c context . Context|1|12||520-562
+./tests/acceptance/steps_j21_delegation.go|j21AttachedCapabilities w * World|1|12|j21AttachedCapabilities|569-606
+./tests/acceptance/steps_j17.go| c context . Context , bundleName string|1|18||94-181
+./tests/acceptance/steps_j22_isolation.go| c context . Context|1|11||173-198
 ./tests/acceptance/steps_skill.go| c context . Context , ref , skillMDPath , scriptPath string|1|12||195-247
 ./tests/arch/arch_test.go| p string , d fs . DirEntry , err error|1|18||118-166
 ./tests/arch/arch_test.go|TestArch_ShippedBinaries_DoNotDependOnTestSupport t * testing . T|1|13|TestArch_ShippedBinaries_DoNotDependOnTestSupport|204-248

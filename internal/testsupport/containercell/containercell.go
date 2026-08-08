@@ -8,7 +8,7 @@
 //
 //   - the suite is daemon-free by design, so nothing in it launched a
 //     container at all;
-//   - what did exist was the DEGRADE contract (j9's "mock-container" agent
+//   - what did exist was the DEGRADE contract (j22's "mock-container" agent
 //     proves a requested container that cannot launch ABORTS) — a different
 //     claim from "a container run delivered these bytes";
 //   - the fixture image had no engine, and the mock backend is COMPILED INTO

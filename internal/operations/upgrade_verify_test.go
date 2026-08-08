@@ -17,7 +17,7 @@ import (
 // trustPublisher writes the project allowed_signers line that makes signer a
 // key this machine trusts to PUBLISH. Without it, a stale signature is merely
 // "unsigned to you" (signing.VerifyPublisher's quiet outcome) and the tamper
-// case under test is never reached — the same trap the j21 journey fell into.
+// case under test is never reached — the same trap the j19 journey fell into.
 func trustPublisher(t *testing.T, baseDir string, signer ssh.Signer) {
 	t.Helper()
 	require.NoError(t, os.MkdirAll(baseDir, 0o755))

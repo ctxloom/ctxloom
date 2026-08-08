@@ -1103,7 +1103,7 @@ func TestDoctorIsRemoteBundle_OnlyCanonicalRemoteRefsAreExpectedToBeSigned(t *te
 	}
 }
 
-// --- DOCTOR-CHECK-GITIGNORE-f6 (J22 row 1) -----------------------------------
+// --- DOCTOR-CHECK-GITIGNORE-f6 (J13 row 1) -----------------------------------
 
 func TestDoctorCheckGitignorePosture_RightState_NoBlanketRule(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
@@ -1119,10 +1119,10 @@ func TestDoctorCheckGitignorePosture_RightState_NoFileAtAll(t *testing.T) {
 	assert.Equal(t, doctorOK, check.Status, "an absent .gitignore has nothing superseded in it")
 }
 
-// TestDoctorCheckGitignorePosture_WrongState_BlanketRulePresent is J22 row 1's
+// TestDoctorCheckGitignorePosture_WrongState_BlanketRulePresent is J13 row 1's
 // own assertion, pinned directly: the check must name BOTH the ignore rule
 // AND the exact retirement command (`ctxloom manage gitignore install`) —
-// tests/acceptance/steps_j22_closeout.go's j22Answered checks for
+// tests/acceptance/steps_j13_closeout.go's j13Answered checks for
 // literal ".ctxloom" and "manage gitignore install" in the combined output.
 func TestDoctorCheckGitignorePosture_WrongState_BlanketRulePresent(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
@@ -1162,7 +1162,7 @@ func TestDoctorCheckGitignorePosture_NoMarkerDir(t *testing.T) {
 	assert.Equal(t, doctorInfo, check.Status)
 }
 
-// --- DOCTOR-CHECK-FOREIGN-WORKTREES-r8 (J22 row 2) ---------------------------
+// --- DOCTOR-CHECK-FOREIGN-WORKTREES-r8 (J13 row 2) ---------------------------
 
 func TestDoctorCheckForeignWorktrees_NoProjectDir(t *testing.T) {
 	check := doctorCheckForeignWorktrees(context.Background(), nil, "")
@@ -1202,7 +1202,7 @@ func TestDoctorCheckForeignWorktrees_SessionsRootExcluded(t *testing.T) {
 }
 
 // TestDoctorCheckForeignWorktrees_WrongState_NamesUnmergedDirtyAndExactCommands
-// is J22 row 2's own assertion, pinned directly: the report must carry the
+// is J13 row 2's own assertion, pinned directly: the report must carry the
 // foreign tree's name, that it is unmerged, that it is dirty, and the exact
 // (safe) commands to remove it — `git worktree remove <path>` then
 // `git branch -d <branch>`, NEVER `-D` (the project's refusal list forbids
@@ -1285,7 +1285,7 @@ func TestDoctorCheckForeignWorktrees_MergedBranchesErrorDoesNotClaimUnmerged(t *
 	assert.NotContains(t, check.Detail, "unmerged")
 }
 
-// --- DOCTOR-CHECK-HARP-DURABILITY-s9 (J22 row 3) -----------------------------
+// --- DOCTOR-CHECK-HARP-DURABILITY-s9 (J13 row 3) -----------------------------
 
 func TestDoctorCheckHarpDurability_RightState_NoSessionsDirYet(t *testing.T) {
 	testsupport.Isolate(t)
@@ -1307,7 +1307,7 @@ func TestDoctorCheckHarpDurability_RightState_OnlyClassifiedFiles(t *testing.T) 
 	assert.Equal(t, doctorOK, check.Status)
 }
 
-// TestDoctorCheckHarpDurability_WrongState_NamesTheAuthoredFile is J22 row
+// TestDoctorCheckHarpDurability_WrongState_NamesTheAuthoredFile is J13 row
 // 3's own assertion: an authored plan file sitting at a harp directory's TOP
 // LEVEL must be named, with the word "persist" in the fix.
 func TestDoctorCheckHarpDurability_WrongState_NamesTheAuthoredFile(t *testing.T) {

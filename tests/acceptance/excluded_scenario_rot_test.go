@@ -42,7 +42,7 @@ var excludedScenarioTags = []string{"@wip", "@live", "@future", "@network", "@co
 // so a deletion breaks the scenario that depends on it the same day.
 //
 // WHAT THIS DELIBERATELY DOES NOT CHECK: flags. A @wip scenario is often
-// written AHEAD of the surface it describes — j22_closeout's `session distill
+// written AHEAD of the surface it describes — j13_closeout's `session distill
 // --skill/--to-bundle` rows are exactly that, tracked separately, and failing
 // them here would punish the legitimate use of @wip. A missing COMMAND is
 // different in kind: you cannot write a scenario ahead of a command and have it

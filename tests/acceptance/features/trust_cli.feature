@@ -10,7 +10,7 @@ Feature: Trust posture CLI
   # of the output, and "Approved demo#fragments/guide" is the argument echoed
   # back. Neutering countersign.Store's write paths until the store recorded
   # NOTHING AT ALL left all four scenarios on this page green — the exact
-  # product failure j18_signing.feature's @wip scenario describes in prose
+  # product failure j16_signing.feature's @wip scenario describes in prose
   # ("exit 0, a success message naming the key, and no effect, in the flagship
   # trust command"). So each decision is now read back out of the store by the
   # same lookup the trust gate performs, and the rejection is read out of the

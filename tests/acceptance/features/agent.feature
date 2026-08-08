@@ -37,7 +37,7 @@ Feature: Agent bindings and container tooling
   # obvious from the surface:
   #
   # create and edit already share ONE body (operations.SetAgent, which
-  # j24_engine_switch.feature relies on for its --engine validation), so the
+  # j20_engine_switch.feature relies on for its --engine validation), so the
   # refusals are the only thing that distinguishes the verbs. Making them
   # upsert is DELETING TWO GUARDS from a shared function, not merging two
   # implementations. And a binding carries engine, profiles, runtime and
@@ -125,11 +125,11 @@ Feature: Agent bindings and container tooling
   # RESTORED 2026-08-08 after being deleted in an uncommitted working-tree
   # change. Worth stating why, because the deletion was invisible to every
   # gate: `ctxloom acp list` stays credited as a covered leaf by
-  # j25_editor.feature, so completeness_test.go went right on passing — it
+  # j5_editor.feature, so completeness_test.go went right on passing — it
   # compares LEAVES, and cannot see that a leaf's only assertion about its
   # PAYLOAD has gone.
   #
-  # What lives only here: the PER-BINDING entry. j25 proves the block is
+  # What lives only here: the PER-BINDING entry. j5 proves the block is
   # pasteable JSON and names the agent; nothing anywhere else asserts that a
   # configured agent gets its own server line carrying `--agent <name>`, which
   # is the whole point of advertising one entry per binding rather than one

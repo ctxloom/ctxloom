@@ -15,11 +15,11 @@ import (
 // this package (the canonical body), internal/config's frozen acceptance gate
 // (byte-for-byte unmodifiable, so it keeps its own copy), the acceptance
 // suite's TestEnvironment, which must route git through its own isolated
-// env/dir plumbing and so cannot call the canonical body at all, and J22's
+// env/dir plumbing and so cannot call the canonical body at all, and J13's
 // close-out steps (both the acceptance scenarios and `session worktrees`'
 // own CLI-level unit tests).
 //
-// J22 is the exception that is about the worktrees themselves rather than
+// J13 is the exception that is about the worktrees themselves rather than
 // about something that happens to need one. Its scenarios triage a POPULATION
 // in deliberately varied states — merged and clean, unmerged, dirty with
 // uncommitted work, owned by another process — because the whole point of
@@ -35,7 +35,7 @@ var sanctionedWorktreeFixtureFiles = map[string]bool{
 	filepath.Join("internal", "shared", "tasks", "taskstest", "gitfixture_test.go"): true,
 	filepath.Join("internal", "config", "worktree_signpost_test.go"):                true,
 	filepath.Join("tests", "integration", "testenv", "environment.go"):              true,
-	filepath.Join("tests", "acceptance", "steps_j22_closeout.go"):                   true,
+	filepath.Join("tests", "acceptance", "steps_j13_closeout.go"):                   true,
 	filepath.Join("internal", "cli", "session_worktrees_test.go"):                   true,
 }
 

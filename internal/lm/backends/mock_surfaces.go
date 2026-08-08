@@ -17,7 +17,7 @@ import (
 // the mock materialized nothing, so no hermetic test could prove a fragment
 // actually reached a delivered FILE — every delivery assertion either ran
 // against a live engine or was vacuous. This is not a test convenience; it is
-// the hermetic vehicle J20's own delivery-matrix scenario names as its own
+// the hermetic vehicle J14's own delivery-matrix scenario names as its own
 // untag condition.
 //
 // mock's context surface writes the managed section of MOCK_CONTEXT.md at the

@@ -263,7 +263,7 @@ func runRemotePull(cmd *cobra.Command, _ []string) error {
 func pullResultErr(result *operations.SyncDependenciesResult) error {
 	// Retracted is NOT a failure: it is the retraction mechanism working as
 	// designed — a bad dependency detected and withheld automatically while
-	// the rest of the sync proceeds (see j3/j7/trust_surface's acceptance
+	// the rest of the sync proceeds (see j15/j17/trust_surface's acceptance
 	// journeys, whose entire narrative is "the sync still succeeds; the
 	// retracted content just never reaches the user"). Only Errors (a real
 	// fetch/apply failure) makes the pull itself fail.

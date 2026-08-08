@@ -49,7 +49,7 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 	// were being written as quote-free fragments chosen to dodge quoting
 	// ("ctxloom-auto", "${CLAUDE_PROJECT_DIR}") instead of `"command": ...`.
 	// A fragment picked for what it can express, rather than for what the
-	// scenario means, matches whatever else happens to contain it — j19's
+	// scenario means, matches whatever else happens to contain it — j1's
 	// `contains "ctxloom hook"` was satisfied by the statusLine command and
 	// survived deleting the SessionStart hook it named.
 	//
@@ -138,7 +138,7 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 
 	// Exact-count variant of the above: "exists" only proves presence, which
 	// cannot catch a SECOND store silently getting minted alongside the
-	// first (J16 worktree-task-store journey's critical payload assertion —
+	// first (J26 worktree-task-store journey's critical payload assertion —
 	// a redirect that quietly does nothing would still leave a home file
 	// matching the glob, just an extra one).
 	ctx.Step(`^exactly (\d+) home files? match(?:es)? "([^"]*)"$`, func(c context.Context, n int, glob string) error {

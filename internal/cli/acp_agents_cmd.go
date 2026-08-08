@@ -119,7 +119,7 @@ func renderACPAgents(out io.Writer, entries []acpAgentEntry) error {
 	// own claude-code/codex/kiro/opencode backends) has no materialized
 	// native surface at all (agent.EmptySurfaceSet — P1 absent by design), no
 	// hooks attach, and no session history is captured for it. Nothing else
-	// warns about this today, and it is the exact silence J25/U10 and the
+	// warns about this today, and it is the exact silence J5/U10 and the
 	// capability-loss task (trusting-ambiguity) name: an editor door that
 	// LOOKS equivalent to a terminal run and quietly is not.
 	w.Println("Note: binding an agent's engine to the generic 'acp' backend (any third-party ACP-speaking command) inherits none of ctxloom's own materialized surfaces — no hooks fire and no session history is captured for it; only the live composed context crosses the protocol.")

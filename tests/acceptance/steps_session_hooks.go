@@ -65,7 +65,7 @@ func registerSessionHookSteps(ctx *godog.ScenarioContext) {
 	// An index entry with NO session_id, which is the only state a bind can
 	// actually change: operations.BindSession is first-bind-wins and no-ops a
 	// harp that is absent OR already bound, so seeding a bound entry (what
-	// j23's own helper writes, since its scenarios need bindings that already
+	// j12's own helper writes, since its scenarios need bindings that already
 	// exist) would make the bind a no-op and the assertion below vacuous.
 	ctx.Step(`^the session index has an unbound entry for harp "([^"]*)"$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)

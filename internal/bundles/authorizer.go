@@ -313,7 +313,7 @@ func (r Reason) Explain(detail string) string {
 		// ReasonUnsigned, ReasonPending, ReasonUnset, and the fail-closed
 		// default for any reason added without a case here — pending review is
 		// the safe, actionable answer and never a bare "withheld". The wording
-		// is load-bearing: tests/acceptance/steps_j1_setup.go asserts on the
+		// is load-bearing: tests/acceptance/steps_j2_setup.go asserts on the
 		// "awaiting review" substring.
 		return "awaiting review — run 'ctxloom review'"
 	}

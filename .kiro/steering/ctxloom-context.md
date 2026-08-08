@@ -768,7 +768,7 @@ Every one of those had been green for as long as it had existed.
 `tests/acceptance/steps_skill.go` compares bytes with an explicit
 zero-length guard — "comparing two empty reads is trivially
 identical" — which is the line that stops a byte comparison from
-being vacuous. `j16` asserts an exact file COUNT rather than
+being vacuous. `j26` asserts an exact file COUNT rather than
 existence. `run.feature`'s recorded-input assertion reads what the
 engine actually received rather than what the CLI said it sent.
 

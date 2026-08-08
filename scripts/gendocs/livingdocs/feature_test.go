@@ -17,7 +17,7 @@ func writeFile(t *testing.T, path, content string) {
 
 func TestParseFeature_Basic(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "j1_setup.feature")
+	path := filepath.Join(dir, "j2_setup.feature")
 	writeFile(t, path, `@doc
 Feature: Setting up a project
 

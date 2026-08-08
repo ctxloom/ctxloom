@@ -15,9 +15,9 @@ interesting question, because a third of the allowlist retired without a single
 new journey being written. It is left in the tree as the historical record with
 a superseded banner; §7 lists what it got factually wrong beyond spelling.
 
-The standard applied throughout is the one J18 sets:
+The standard applied throughout is the one J16 sets:
 
-> J3 owns the ADVERSARY; J18 owns the PRODUCTION of the artifacts J3 assumes.
+> J15 owns the ADVERSARY; J16 owns the PRODUCTION of the artifacts J15 assumes.
 
 A journey states its own scope, names the seam between itself and its
 neighbours, and has an actor whose goal a real person would recognise as their
@@ -40,7 +40,7 @@ The completeness gate at this commit accepts **22** uncovered surfaces
 | MCP tools, standalone surface (4) | `evaluate_triggers`, `compact_session`, `get_previous_session`, `list_sessions` |
 | MCP tools, runner-only surface (3) | `roster`, `agent_report`, `agent_fetch_artifact` |
 
-This reshapes the proposal work substantially. The old J19 (MCP server
+This reshapes the proposal work substantially. The old J1 (MCP server
 management) is **coverage-complete already** — `mcp server create/list/show/
 delete`, `mcp register`, `mcp unregister` all left the allowlist when the
 deprecated aliases were deleted and `mcp.feature` was re-spelled. Same for
@@ -89,14 +89,14 @@ This is my top recommendation regardless of what else gets written.
 
 ### 1.2 Adopting ctxloom on a repo that already has a life — and backing out
 
-J1 opens `Given Alice has a fresh project directory`. Almost nobody adopts a
+J2 opens `Given Alice has a fresh project directory`. Almost nobody adopts a
 tool this way. The real adopter has a repo with 40 contributors, a hand-written
 `CLAUDE.md` that someone spent a weekend on, a `.mcp.json` with three servers,
 `.claude/settings.json` with hooks from two other tools, and an `AGENTS.md`
 because half the team moved to codex.
 
 The narrative is: *will this wreck what I already have, and can I get out?*
-Pieces of the answer exist scattered as surface tests — J5 has one row proving
+Pieces of the answer exist scattered as surface tests — J4 has one row proving
 a hand-authored `CLAUDE.md` survives materialization; `manage.feature` has
 "Installing hooks preserves the exact numbers the user wrote by hand" and "A
 statusline ctxloom cannot read refuses the write instead of replacing it"; there
@@ -123,21 +123,21 @@ assistant to behave; I work in eleven repos; I want my opinions in all eleven
 without copying anything, and I want to change them in one place. That is the
 user-scope-versus-project-scope story — `~/.ctxloom` content following the
 person, project content following the repo, and what happens where they
-conflict. J1 gestures at "her personal ctxloom repository" but immediately
+conflict. J2 gestures at "her personal ctxloom repository" but immediately
 routes it through signing and remotes, i.e. through the team machinery. The
 plain version is the on-ramp for every other journey in this suite and it is
 missing.
 
 ### 1.4 Recall — using the sessions you captured
 
-J12 proves every engine's native log becomes a canonical transcript you own.
+J10 proves every engine's native log becomes a canonical transcript you own.
 Nothing proves anyone ever *uses* one. The whole point of capture is the
 Tuesday-afternoon moment: "I fixed this exact TLS handshake thing three weeks
 ago, where is it."
 
 The surfaces are all there and all uncovered or excluded: `ctxloom session
 search <words>` (uncovered), `ctxloom session show <harp>`, `ctxloom session
-distill` (excluded @live), and — the piece the old J14 draft explicitly
+distill` (excluded @live), and — the piece the old J11 draft explicitly
 declined — **`ctxloom run --session <harp>`, which folds a recorded transcript
 into a new run's assembled context, and `ctxloom run --session <harp>
 --distill`, which folds the essence instead**. That is the delivery half. It
@@ -150,7 +150,7 @@ an agent's own reasoning loop.
 
 ### 1.5 Switching engines mid-project
 
-J5 proves one profile reaching four engines *simultaneously*. J4 proves Bob
+J4 proves one profile reaching four engines *simultaneously*. J8 proves Bob
 arrives on a different engine from Alice. Neither is the migration: I used
 claude-code for three months, my team is moving to codex, what happens to my
 agents, my default, my sessions, and — the part that bites — **the surfaces the
@@ -165,7 +165,7 @@ see §7(b) — and no scenario ever removes an engine.
 
 ### 1.6 Review as a recurring chore, not a single decision
 
-J3, J18, `review.feature` and `trust_surface.feature` between them prove the
+J15, J16, `review.feature` and `trust_surface.feature` between them prove the
 review *mechanism* to a level of rigour I have not seen elsewhere in this
 codebase. All of them review one item. The lived experience is fourteen items
 pending after a Monday pull, most of them re-review of things you already
@@ -175,13 +175,13 @@ facing that list every week learns to accept everything without reading.
 That is a UX-shaped failure with a testable core: does re-review actually only
 fire on *meaningful* change; does `ctxloom review --list` group so a human can
 triage; does `--project` let a lead decide once for the team so twelve people
-don't each face the same list. J18's content-hash-rebinding scenario is one
+don't each face the same list. J16's content-hash-rebinding scenario is one
 piece of this told at item scale. The volume story is where trust models
 actually fail and it is untold.
 
 ### 1.7 Watching a delegated agent and steering it
 
-J6 proves the privilege boundary. J17 proves the bus carries words. Neither has
+J21 proves the privilege boundary. J23 proves the bus carries words. Neither has
 a human in the loop while the child is running. The operator's actual arc is:
 spawn it, watch it (`ctxloom session watch <harp>`), notice it going the wrong
 way, and either redirect it (`agent_send`) or kill it (`agent_stop`).
@@ -223,47 +223,47 @@ the old gaps doc already showed were stale.
 
 | Journey | Verdict |
 |---|---|
-| **J1 setup** | **Strong.** Real actor, real goal, and the two-phase configure-then-restart arc is a genuine product truth most suites would have faked. Only flaw: it starts from a fresh directory, which is the least common real starting point (§1.2). |
-| **J1b source augmentation** | **Weak — not its own journey.** No protagonist of its own; it is three riders on J1's setup interview. Every scenario is marked PROPOSED against unlanded work, so the file is RED by construction. The `b` suffix is itself the admission that nobody believed this was a journey. Fold into J1. |
-| **J2 team authoring** | **Strong but thin.** Carol authors, Bob receives — a real loop, told three times (author, distill, change). The `@future` scenario about Carol's own live session is honest. Would benefit from the failure direction: Carol authors something malformed. |
-| **J3 corporate signed** | **Exemplary.** Named adversary, stated scope ("provenance not secrecy, there is no Eve"), and every scenario is a way the claim could be a lie. This and J18 are the standard. |
-| **J4 onboarding** | **Exemplary.** "Cloning IS the onboarding" is a thesis, and the scenarios attack it: pinning, the trust gate surviving a fresh machine, degradation on a machine missing companions, a different engine. Best-argued journey in the suite. |
-| **J5 multi-engine** | **Strong.** The four-engine table is a claim about the world, and the preamble is careful to distinguish "we wrote the bytes" from "an engine read them". The hand-authored-file-survives scenario is one of the most valuable in the corpus. |
-| **J6 delegation** | **Strong mechanism, weak narrative — and it should say so.** Alice appears in the Background and never again; every scenario is `the agent calls tool "agent_run"`. This is an excellent *threat model*, not a journey. `trust_surface.feature` handles exactly this situation by declaring "this is a REFERENCE, not a journey" in its preamble; J6 should do the same rather than keep a persona it doesn't use. |
-| **J7 incident** | **Strong, slightly mixed.** The multi-developer retraction and the remote-goes-dark scenarios are a real incident shape and state precisely what they decline to restate from J3. The third scenario (embedded publisher key visibility) is a different story — trust-store honesty, not incident response — and sits oddly. |
-| **J8 guardrails** | **Strong and unusual.** It narrates the limit of the product's own claim, and the overclaim scenario ("ltk is a cooperative redirect, not a sandbox") turns an honesty commitment into an executable assertion. More journeys should do this. |
-| **J9 isolation** | **Weakest narrative-to-length ratio in the suite.** 289 lines, ~12 scenarios, and the actor's goal is "runs the mock agent under workspace worktree" — nobody's goal. It is a superb engineering matrix with the best honesty commentary in the repo, and it never states the story that motivates it: *I want to run a task I don't fully trust without it reaching my machine, my credentials, or my other work.* Add that opening and half the criticism dissolves; the scenarios themselves are excellent. |
-| **J10 agent skill** | **Medium — J5's row promoted to a file.** Real fixture (the ctxloom-doctor skill), but the arc is "Carol materializes for five engines", which is J5's outline with a different payload. Its distinct claim (an engine loads this on its own, by progressive disclosure, without the user invoking anything) is stated in the preamble and never tested. |
-| **J11 taskloom tags** | **Weak as a journey, excellent as a contract test.** Its own preamble says so: "proves the seam those tiers cannot see". No persona anywhere. The final scenario — an agent discovering the tag surface purely from what the MCP server advertises, with no prior knowledge — is the one genuine narrative in the file and is worth more than the rest combined. |
-| **J12 transcript capture** | **Strong promise, mechanical body.** "Every engine's native log becomes one transcript you own" is a claim a person cares about, and the honesty block is exemplary. But every scenario is `I run "ctxloom session backfill <harp>"`; the person who wanted the transcript never appears and never reads one (§1.4). |
-| **J16 worktree task store** | **Medium — a regression test with a good sentence on top.** "The finding dies with the worktree" is a real motivation crisply stated, and the exactly-one-store-file assertion is exactly right. Two scenarios; honest about being narrow. |
-| **J17 cross-engine delegation** | **Strong.** Names the differentiator, states its seam against J6 precisely, and its `@wip` comment reporting a live-verified vendor limitation is a model of how to fail honestly in a test file. |
-| **J18 signing** | **Exemplary — the stated standard, earned.** Named actor with an ordinary setup ("he configures nothing ctxloom-specific"), an explicit scope seam, payload assertions that read bytes fresh off disk, and a product bug filed as a `@wip` scenario rather than hidden. |
+| **J2 setup** | **Strong.** Real actor, real goal, and the two-phase configure-then-restart arc is a genuine product truth most suites would have faked. Only flaw: it starts from a fresh directory, which is the least common real starting point (§1.2). |
+| **J3 source augmentation** | **Weak — not its own journey.** No protagonist of its own; it is three riders on J2's setup interview. Every scenario is marked PROPOSED against unlanded work, so the file is RED by construction. The `b` suffix is itself the admission that nobody believed this was a journey. Fold into J2. |
+| **J7 team authoring** | **Strong but thin.** Carol authors, Bob receives — a real loop, told three times (author, distill, change). The `@future` scenario about Carol's own live session is honest. Would benefit from the failure direction: Carol authors something malformed. |
+| **J15 corporate signed** | **Exemplary.** Named adversary, stated scope ("provenance not secrecy, there is no Eve"), and every scenario is a way the claim could be a lie. This and J16 are the standard. |
+| **J8 onboarding** | **Exemplary.** "Cloning IS the onboarding" is a thesis, and the scenarios attack it: pinning, the trust gate surviving a fresh machine, degradation on a machine missing companions, a different engine. Best-argued journey in the suite. |
+| **J4 multi-engine** | **Strong.** The four-engine table is a claim about the world, and the preamble is careful to distinguish "we wrote the bytes" from "an engine read them". The hand-authored-file-survives scenario is one of the most valuable in the corpus. |
+| **J21 delegation** | **Strong mechanism, weak narrative — and it should say so.** Alice appears in the Background and never again; every scenario is `the agent calls tool "agent_run"`. This is an excellent *threat model*, not a journey. `trust_surface.feature` handles exactly this situation by declaring "this is a REFERENCE, not a journey" in its preamble; J21 should do the same rather than keep a persona it doesn't use. |
+| **J17 incident** | **Strong, slightly mixed.** The multi-developer retraction and the remote-goes-dark scenarios are a real incident shape and state precisely what they decline to restate from J15. The third scenario (embedded publisher key visibility) is a different story — trust-store honesty, not incident response — and sits oddly. |
+| **J18 guardrails** | **Strong and unusual.** It narrates the limit of the product's own claim, and the overclaim scenario ("ltk is a cooperative redirect, not a sandbox") turns an honesty commitment into an executable assertion. More journeys should do this. |
+| **J22 isolation** | **Weakest narrative-to-length ratio in the suite.** 289 lines, ~12 scenarios, and the actor's goal is "runs the mock agent under workspace worktree" — nobody's goal. It is a superb engineering matrix with the best honesty commentary in the repo, and it never states the story that motivates it: *I want to run a task I don't fully trust without it reaching my machine, my credentials, or my other work.* Add that opening and half the criticism dissolves; the scenarios themselves are excellent. |
+| **J6 agent skill** | **Medium — J4's row promoted to a file.** Real fixture (the ctxloom-doctor skill), but the arc is "Carol materializes for five engines", which is J4's outline with a different payload. Its distinct claim (an engine loads this on its own, by progressive disclosure, without the user invoking anything) is stated in the preamble and never tested. |
+| **J25 taskloom tags** | **Weak as a journey, excellent as a contract test.** Its own preamble says so: "proves the seam those tiers cannot see". No persona anywhere. The final scenario — an agent discovering the tag surface purely from what the MCP server advertises, with no prior knowledge — is the one genuine narrative in the file and is worth more than the rest combined. |
+| **J10 transcript capture** | **Strong promise, mechanical body.** "Every engine's native log becomes one transcript you own" is a claim a person cares about, and the honesty block is exemplary. But every scenario is `I run "ctxloom session backfill <harp>"`; the person who wanted the transcript never appears and never reads one (§1.4). |
+| **J26 worktree task store** | **Medium — a regression test with a good sentence on top.** "The finding dies with the worktree" is a real motivation crisply stated, and the exactly-one-store-file assertion is exactly right. Two scenarios; honest about being narrow. |
+| **J23 cross-engine delegation** | **Strong.** Names the differentiator, states its seam against J21 precisely, and its `@wip` comment reporting a live-verified vendor limitation is a model of how to fail honestly in a test file. |
+| **J16 signing** | **Exemplary — the stated standard, earned.** Named actor with an ordinary setup ("he configures nothing ctxloom-specific"), an explicit scope seam, payload assertions that read bytes fresh off disk, and a product bug filed as a `@wip` scenario rather than hidden. |
 
-**Named weak:** J1b (fold into J1), J6 (relabel as reference), J9 (missing its
-own motivating story), J10 (subsumed claim), J11 (contract test, no persona),
-J16 (regression test, honestly narrow).
+**Named weak:** J3 (fold into J2), J21 (relabel as reference), J22 (missing its
+own motivating story), J6 (subsumed claim), J25 (contract test, no persona),
+J26 (regression test, honestly narrow).
 
 ---
 
-## 3. J19–J23, rewritten
+## 3. J1–J12, rewritten
 
 The old numbering does not survive, because two of the five were coverage
 groupings rather than use cases and one is now redundant. New proposals, in
 priority order. Every spelling below was verified against the built binary.
 
-### Declined outright: old J19 — "One MCP server, every engineer's assistant"
+### Declined outright: old J1 — "One MCP server, every engineer's assistant"
 
 Its six leaves are all covered (`mcp.feature` drives `mcp server create/list/
 show/delete`; `read_extras.feature` drives the auto-registration toggle). Its
 one genuinely unnarrated claim — *declare a server once and it appears in
 whatever file each engine actually reads, and a `--backend` filter is honoured*
-— is J5's thesis applied to MCP, and J5 already carries a per-engine MCP row.
-**Add two rows to J5 rather than write J19.** A journey whose whole arc is
+— is J4's thesis applied to MCP, and J4 already carries a per-engine MCP row.
+**Add two rows to J4 rather than write J1.** A journey whose whole arc is
 "create a thing, list it, delete it" is a CRUD test with a persona pasted on;
 Priya deserves better than being the name on a CRUD test.
 
-### Declined as a standalone: old J20 — "Joining a team that does not use claude-code"
+### Declined as a standalone: old J14 — "Joining a team that does not use claude-code"
 
 Sam/Ravi/Mei are three names for three rows of an Examples table. The six
 engine-matrix leaves are a real gap, but they are a *matrix*, and the honest
@@ -273,7 +273,7 @@ unknown-engine fail-loud — are absorbed below.
 
 ---
 
-### J19 — Adopting ctxloom on a repo that already has a life
+### J1 — Adopting ctxloom on a repo that already has a life
 
 **Actor and goal.** Dev leads a service repo with two years of history: a
 hand-written `AGENTS.md` the team argued over, `.mcp.json` with servers from
@@ -309,7 +309,7 @@ implying a scoping it does not have.
 
 **Blockers.** None. Fully hermetic; no engine binary required.
 
-### J20 — Why can't my assistant see this?
+### J14 — Why can't my assistant see this?
 
 **Actor and goal.** Alice's teammate says the commit-convention guidance is
 reaching *his* assistant and not hers. She has one goal: find out why, using
@@ -336,7 +336,7 @@ buys no coverage and is still the most valuable item on this list.**
 
 **Blockers.** None.
 
-### J21 — The four callbacks every session already depends on
+### J19 — The four callbacks every session already depends on
 
 **Actor and goal.** Alice installed ctxloom weeks ago and has not thought about
 it since. Four ctxloom callbacks run on every session she starts. She never
@@ -363,7 +363,7 @@ hook ..."` step (`ranAsCommand`).
 **Blockers.** None. One new step shape ("I run the hook command the harness
 installed for <event>"), which is the point.
 
-### J22 — Driving ctxloom from an editor
+### J13 — Driving ctxloom from an editor
 
 **Actor and goal.** Dana works in Zed and does not want a second terminal. She
 wants her editor's agent panel to talk to ctxloom directly — assembled context,
@@ -392,13 +392,13 @@ editors" in their own help. Say so, so the journey's guarantees are not read as
 stability promises.
 
 **Blockers.** An in-harness ACP client driver (for `acp serve`) and a stub ACP
-agent (for `acp client`). Real work; schedule after J19–J21.
+agent (for `acp client`). Real work; schedule after J1–J19.
 
-### J23 — Finding the session where you already solved this
+### J12 — Finding the session where you already solved this
 
-**This is the retargeted J14, not a renumbered J23.** The old J23 bolted
+**This is the retargeted J11, not a renumbered J12.** The old J12 bolted
 `session search` to `session watch` because both are session subcommands. They
-are two people doing two unrelated things; the watch half moves to J24.
+are two people doing two unrelated things; the watch half moves to J20.
 
 **Actor and goal.** Marcus debugged this exact TLS handshake failure about three
 weeks ago, in some session, in some repo. He wants it back — not just to *find*
@@ -408,11 +408,11 @@ the session, but to start today's work with what he learned in it.
 for distilled sessions, the essence body, requiring every word to match. He
 narrows with a third word and the set shrinks; `--all` widens beyond the current
 project; `--full` prints the matched essences. He reads one with `ctxloom
-session show <harp>`. Then the payoff the old J14 declined: **`ctxloom run
+session show <harp>`. Then the payoff the old J11 declined: **`ctxloom run
 --session <harp>`** folds that session's recorded transcript into today's
 assembled context, and **`ctxloom run --session <harp> --distill`** folds the
 essence instead. The assertion is on the payload the mock engine receives — the
-same `=== Prompt ===` technique J1 and J9 already use — because "the command
+same `=== Prompt ===` technique J2 and J22 already use — because "the command
 succeeded" proves nothing here.
 
 The MCP half is the same story from inside an agent's reasoning loop:
@@ -432,7 +432,7 @@ distill` is currently `excludedLeaves`-excluded as `@live`; whether
 `compact_session` is hermetic against the mock is worth one experiment, because
 if it is, that exclusion is stale.
 
-### J24 — Watching a delegated agent, and steering it before it finishes
+### J20 — Watching a delegated agent, and steering it before it finishes
 
 **Actor and goal.** Alice hands a refactor to a delegated child and does not
 want to find out how it went forty minutes later. She wants to see the turns as
@@ -455,19 +455,19 @@ success flag. Then she stops one (`agent_stop`).
 
 **Blockers, stated plainly.** `session watch` has no bounded hermetic exit
 today; the tractable route is `--source live` against a delegated child that
-terminates, which J6 and J17 already know how to spawn and stop. The three
+terminates, which J21 and J23 already know how to spawn and stop. The three
 runner-only tools are reachable **only** through the runner-terminated MCP
 surface — a scenario written against a standalone `ctxloom mcp serve` will
-silently never see them. J6/J17 already run there. That colocation is the
+silently never see them. J21/J23 already run there. That colocation is the
 argument for putting all four in one journey; it is also why this one is
-genuinely harder than J19–J21 and should be scheduled accordingly.
+genuinely harder than J1–J19 and should be scheduled accordingly.
 
 ---
 
 ### Second tier — named, not specified
 
-Worth writing, in this order, once the above land: **J25 the solo developer**
-(§1.3, user-scope vs project-scope content), **J26 switching engines
+Worth writing, in this order, once the above land: **J5 the solo developer**
+(§1.3, user-scope vs project-scope content), **J9 switching engines
 mid-project** (§1.5, including stale-surface cleanup), **J27 upgrade breakage**
 (§1.8, the no-backward-compat failure message as product), **J28 staying current
 without surprise** (§1.9, absorbing `remote_content.feature`), **J29 review at
@@ -477,7 +477,7 @@ volume** (§1.6).
 predecessor `bundle mcp edit` was `excludedLeaves`-excluded for exactly that
 reason. Recommend moving it to `excludedLeaves` alongside `config edit` rather
 than leaving it on the uncovered list indefinitely. `evaluate_triggers` (the
-last uncovered standalone tool) folds into J11 as the gaps doc proposed — a
+last uncovered standalone tool) folds into J25 as the gaps doc proposed — a
 deferred task with a revive trigger, the tool returning *that* task and not a
 task whose trigger has not fired.
 
@@ -498,30 +498,30 @@ sections and a fixture-set value.
 `trust_surface.feature` already opens "This is a REFERENCE, not a journey: there
 is no persona and no story arc." That is exactly right and it is the model.
 `coordination_contract.feature` and `mcp_tools.feature` are the same kind of
-document and should carry the same disclaimer. So should J6, which is a
+document and should carry the same disclaimer. So should J21, which is a
 reference wearing a Background persona.
 
 **@live twins; keep (4).** `distill_live`, `remote_content_live`,
 `isolation_probe`, and the `@live` rows inside journeys. `isolation_probe` is
-notable: it is where J9's *narrative* actually lives (a real engine, real
-credentials, a real leak found by running kiro), and J9's own comments say so.
+notable: it is where J22's *narrative* actually lives (a real engine, real
+credentials, a real leak found by running kiro), and J22's own comments say so.
 
 **Should be absorbed into narratives (7).**
 
 | File | Goes to | Why |
 |---|---|---|
-| `fault_tolerance.feature` | **J20** | Five scenarios that *are* the diagnosis story, told with no person. |
-| `doctor.feature` | **J20** | Doctor is the diagnosis entry point; it currently proves marker vocabulary, not that anything gets diagnosed. |
-| `manage.feature` | **J19** | Contains the three best adoption-risk scenarios in the corpus (hand-written numbers preserved, unreadable statusline refused, uninstall keeps `.ctxloom`) filed under a utility heading. |
+| `fault_tolerance.feature` | **J14** | Five scenarios that *are* the diagnosis story, told with no person. |
+| `doctor.feature` | **J14** | Doctor is the diagnosis entry point; it currently proves marker vocabulary, not that anything gets diagnosed. |
+| `manage.feature` | **J1** | Contains the three best adoption-risk scenarios in the corpus (hand-written numbers preserved, unreadable statusline refused, uninstall keeps `.ctxloom`) filed under a utility heading. |
 | `review.feature` | **J29** (second tier) | The mechanism is proven; the chore is not. |
 | `remote_content.feature` | **J28** (second tier) | Nine narrative-shaped scenarios with no narrative. |
-| `session.feature` | **J23** | Its seeded-session fixture is J23's fixture. |
-| `run.feature` | **J20** / **J1** | `--dry-run` is a diagnostic; the deny_tools and empty-tag-selection scenarios are guardrail material. |
+| `session.feature` | **J12** | Its seeded-session fixture is J12's fixture. |
+| `run.feature` | **J14** / **J2** | `--dry-run` is a diagnostic; the deny_tools and empty-tag-selection scenarios are guardrail material. |
 
 **Duplicates or dead (3).**
 
 - `trust_cli.feature` — one scenario, "A per-item acceptance and a rejection are
-  recorded", fully subsumed by J18's accept/reject scenarios and
+  recorded", fully subsumed by J16's accept/reject scenarios and
   `trust_surface.feature`'s exhaustive table. Delete or merge.
 - `init.feature` — **dead and hidden.** Its single scenario runs `ctxloom manage
   init`, a command that **does not exist in this tree**. `manage_test.go:43`
@@ -540,17 +540,17 @@ credentials, a real leak found by running kiro), and J9's own comments say so.
   scenario's command against the live cobra tree, so a deleted command breaks
   its scenario the same day rather than hiding behind a tag.
 - `skill.feature` — half journey already (Alice authors a package, a tampered
-  signature fails, a bundle skill beats a kiro builtin). Overlaps J10
-  substantially. Recommend merging J10 into it rather than the reverse: the
+  signature fails, a bundle skill beats a kiro builtin). Overlaps J6
+  substantially. Recommend merging J6 into it rather than the reverse: the
   authoring arc is the story, the five-engine materialization is the matrix.
 
 ---
 
-## 5. J13 / J14 / J15 verdicts
+## 5. J13 / J11 / J24 verdicts
 
 ### J13 ensemble — **right story, stale surface. Do not wire as written.**
 
-The brief flagged J14 as the stale draft. **J13 is stale too, and nobody
+The brief flagged J11 as the stale draft. **J13 is stale too, and nobody
 noticed.** It narrates `ctxloom map` throughout and cites `internal/cli/map.go`.
 Neither exists. There is no `map` leaf in this tree and no `map.go` in
 `internal/cli`. The surface is now `ctxloom weave --map-only` (its own help
@@ -560,7 +560,7 @@ names `--map-only` as an alias for `--no-synthesize`), with members supplied by
 The *story* is sound and worth telling: fan one task across several members,
 each on its own binding and its own workspace, then reduce. The claim that an
 ensemble is not a shared blast radius wearing a plural name is exactly the right
-thesis and it echoes J6's correctly. Its per-member-record-file discipline
+thesis and it echoes J21's correctly. Its per-member-record-file discipline
 (honesty note 1) is a genuinely good piece of harness design.
 
 Retarget every `ctxloom map` to `ctxloom weave --map-only`, re-verify the source
@@ -571,7 +571,7 @@ analysis contradicts, since the mock-backed fan is hermetic and only the
 *synthesis quality* needs a model. That exclusion should be narrowed or dropped
 when this lands.
 
-### J14 memory — **wrong surface AND wrong scope. Rewrite as J23.**
+### J11 memory — **wrong surface AND wrong scope. Rewrite as J12.**
 
 Two problems, and the second is worse than the rename.
 
@@ -588,12 +588,12 @@ round-trip, not a memory journey. And the reason given is no longer true:
 essence into a new run's assembled context, today, on the covered `run` path
 with the mock engine, observable through the mock record.
 
-Do not retarget this draft. **Write J23 (§3) instead**, which keeps the good
+Do not retarget this draft. **Write J12 (§3) instead**, which keeps the good
 parts — the mock-as-compaction-engine technique, the transcript-must-exist
 caveat, the "Alice's earlier self is the only party" framing — and puts the
 delivery half back where it belongs.
 
-### J15 container — **still the right story; wire it, with one correction.**
+### J24 container — **still the right story; wire it, with one correction.**
 
 The framing is genuinely good: an operator deciding whether to mandate
 `runtime: container` across a fleet needs to know *before* running anything, and
@@ -647,15 +647,15 @@ document's own prediction came true and it is not recorded anywhere.
 this commit: `--engine` only sets `agents.default.engine`; every engine's
 surfaces are written regardless. `--engine bogus` still exits 0 with a success
 message and writes a config that fails ctxloom's own schema validation on the
-next command. Carried into J19.
+next command. Carried into J1.
 
 **(c) Its `opencode` drift finding is still live.** `engineMatrixLeaves` lists
 four engines; the binary supports five. `manage install --engine opencode` and
 `config init --engine opencode` are two further uncovered variants the gate is
-structurally blind to. J9 and J10 both already drive opencode as a first-class
+structurally blind to. J22 and J6 both already drive opencode as a first-class
 engine, which makes the omission harder to defend now than when it was written.
 
-**(d) It did not know J13 was stale.** It calls out J14's dead `ctxloom memory`
+**(d) It did not know J13 was stale.** It calls out J11's dead `ctxloom memory`
 group and says nothing about J13's dead `ctxloom map` — same class of defect,
 same drafts directory, unflagged. See §5.
 

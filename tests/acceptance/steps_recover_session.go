@@ -83,7 +83,7 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 
 	// The PRODUCTION identity shape, and the one the large-transcript scenario
 	// above deliberately avoids: the session index binds a backend-native id
-	// (seeded-<harp>, per j23AddIndexEntry) that is NOT the harp, so a caller
+	// (seeded-<harp>, per j12AddIndexEntry) that is NOT the harp, so a caller
 	// addressing the session by that id makes recover_session resolve THROUGH
 	// the harp. Every downstream key is chosen from what that resolution
 	// returns, which is exactly where the identity defect lived.
@@ -92,14 +92,14 @@ func registerRecoverSessionSteps(ctx *godog.ScenarioContext) {
 	// scenario is about identity surviving the round trip, not about bounding.
 	ctx.Step(`^a captured session "([^"]*)" bound to a backend-native session id$`, func(c context.Context, harp string) error {
 		w := worldFrom(c)
-		transcriptPath := w.env.HomeDir + "/" + j23HarpHome(harp) + "/persist/transcript.jsonl"
-		if err := j23AddIndexEntry(w, harp, "seeded production-shape session", transcriptPath); err != nil {
+		transcriptPath := w.env.HomeDir + "/" + j12HarpHome(harp) + "/persist/transcript.jsonl"
+		if err := j12AddIndexEntry(w, harp, "seeded production-shape session", transcriptPath); err != nil {
 			return fmt.Errorf("seed index entry for %s: %w", harp, err)
 		}
 		// Two turns, not zero: Compact short-circuits an empty session to a
 		// placeholder dump with no LLM call, which would let this pass without
 		// a real distillation ever happening.
-		return j23WriteCanonicalTranscript(w, harp, []string{
+		return j12WriteCanonicalTranscript(w, harp, []string{
 			"What broke the essence read-back? " + recoverIdentityMarker,
 			"The write key and the read key disagreed. " + recoverIdentityMarker,
 		})

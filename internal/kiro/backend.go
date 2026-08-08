@@ -8,7 +8,7 @@
 // LIVE-VERIFIED against an authenticated kiro-cli: hermetic backend parity
 // (TestStartRun_BackendParity), a real oneshot `kiro-cli chat` echoing a
 // sentinel planted in the materialized steering context back through a live
-// model (J5's @live "Kiro" row), and --model HONOR — confirmed two
+// model (J4's @live "Kiro" row), and --model HONOR — confirmed two
 // independent ways: self-report matches the requested model across every
 // model kiro-cli lists (auto, claude-*, deepseek, minimax, glm, qwen), and an
 // unrecognized --model value is REJECTED before any chat runs ("Model '<x>'

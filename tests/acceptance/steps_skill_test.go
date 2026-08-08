@@ -8,22 +8,22 @@ import (
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
-// TestJ5FileContains_UnderliesCarriesTheMarkerStep pins that the
+// TestJ4FileContains_UnderliesCarriesTheMarkerStep pins that the
 // `^"([^"]*)" carries the marker "([^"]*)"$` step (steps_skill.go:289,
-// `return j5FileContains(worldFrom(c), rel, marker)`), once flagged by
-// review as "a one-line pass-through to j5FileContains" but explicitly kept --
+// `return j4FileContains(worldFrom(c), rel, marker)`), once flagged by
+// review as "a one-line pass-through to j4FileContains" but explicitly kept --
 // the step text gives the trust/skill features their own attribution for the
 // living-docs generator's evidence gate, and it is not a duplicate
 // implementation. It is also not merely a doc fixture: skill.feature:38,40,51
-// and j10_agent_skill.feature:78 all drive real scenarios through it.
+// and j6_agent_skill.feature:78 all drive real scenarios through it.
 //
 // Since the step registration itself is an inline closure (not independently
 // callable), this exercises the one real function it delegates every byte of
-// behaviour to -- j5FileContains (steps_j5.go) -- against a real
+// behaviour to -- j4FileContains (steps_j4.go) -- against a real
 // testenv.TestEnvironment, confirming both the success path (file exists,
 // contains the marker) and the failure path (marker absent fails loud with
 // the file's real content, not a silent pass).
-func TestJ5FileContains_UnderliesCarriesTheMarkerStep(t *testing.T) {
+func TestJ4FileContains_UnderliesCarriesTheMarkerStep(t *testing.T) {
 	env, err := testenv.NewTestEnvironment()
 	if err != nil {
 		t.Fatalf("test env: %v", err)
@@ -44,11 +44,11 @@ func TestJ5FileContains_UnderliesCarriesTheMarkerStep(t *testing.T) {
 	}
 
 	w := &World{env: env}
-	if err := j5FileContains(w, rel, marker); err != nil {
-		t.Fatalf("j5FileContains: expected marker %q to be found in %s, got: %v", marker, rel, err)
+	if err := j4FileContains(w, rel, marker); err != nil {
+		t.Fatalf("j4FileContains: expected marker %q to be found in %s, got: %v", marker, rel, err)
 	}
 
-	if err := j5FileContains(w, rel, "MARKER-NOT-PRESENT-ANYWHERE"); err == nil {
-		t.Fatal("j5FileContains: expected an error when the marker is absent, got nil")
+	if err := j4FileContains(w, rel, "MARKER-NOT-PRESENT-ANYWHERE"); err == nil {
+		t.Fatal("j4FileContains: expected an error when the marker is absent, got nil")
 	}
 }

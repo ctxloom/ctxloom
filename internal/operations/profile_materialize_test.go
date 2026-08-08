@@ -289,7 +289,7 @@ func TestMaterializeProfile_WritesSkills(t *testing.T) {
 // with --backend mock, must land under mock's own skills directory with the
 // modes its bundle manifest DECLARES.
 //
-// It exists because eight rows of J20's delivery matrix assert
+// It exists because eight rows of J14's delivery matrix assert
 // skills/reviewer/SKILL.md at 0644 and skills/reviewer/scripts/run.sh at 0755
 // at a path an agent can read, and `profile materialize --backend mock` is the
 // vehicle those rows retarget onto (taskloom unlikable-comma). Without a mock

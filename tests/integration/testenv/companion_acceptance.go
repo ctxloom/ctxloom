@@ -27,7 +27,7 @@ import (
 // later scenario in the same test process.
 //
 // Calling this more than once in one scenario (e.g. faking BOTH ltk and
-// reprise together, as J8's guardrails journey does) installs each fake
+// reprise together, as J18's guardrails journey does) installs each fake
 // independently: the env var names are namespaced per bin (companionEnvVar),
 // not shared globals, so a second call cannot clobber the first fake's
 // payload out from under it — a real bug this fix replaces (a shared

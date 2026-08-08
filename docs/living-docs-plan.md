@@ -12,8 +12,8 @@ the way the page claims — and the only thing that notices is a human
 happening to try it. There is no structural link between "the docs say X"
 and "X is true of the running system."
 
-Acceptance journeys tagged `@doc` (`tests/acceptance/features/j1_setup.feature`,
-`j1b_source_augmentation.feature`) already assert real, user-visible behavior
+Acceptance journeys tagged `@doc` (`tests/acceptance/features/j2_setup.feature`,
+`j3_source_augmentation.feature`) already assert real, user-visible behavior
 end to end: real CLI invocations against a real built `ctxloom` binary, real
 trust/signing machinery, and — for the scenarios that exercise agent
 delivery — a real assembled payload via the mock LLM backend. That is already
@@ -88,10 +88,10 @@ When the env var is set, for every scenario carrying the `@doc` tag:
   name, feature URI, tags).
 - `ctx.StepContext().After` fires after **every** step (not just the ones a
   feature author remembered to instrument — this is the load-bearing design
-  choice: no step in `steps_j1_setup.go` / `steps_j1b.go` needed to change).
+  choice: no step in `steps_j2_setup.go` / `steps_j3.go` needed to change).
   It reads `World.env.LastOutput()` (the CLI stdout+stderr the harness
   already tracks) and whichever mock-recorded slot the scenario populated
-  (`j1RestartRecorded` / `j1bRecorded`), de-duplicating so a no-op step
+  (`j2RestartRecorded` / `j3Recorded`), de-duplicating so a no-op step
   doesn't inherit the *previous* step's output as if it had produced it
   too — a real bug this prototype hit and fixed (see "Bugs found" below).
   It both calls `godog.Attach` (the native channel) **and** appends to the
@@ -132,7 +132,7 @@ cwd=...
 
 to `CTXLOOM_MOCK_RECORD_FILE`. This is the gold artifact for delivery
 scenarios — it is not a proxy (exit code, file-exists) but literally what an
-agent process received. J1's own step assertions already check `Contains`
+agent process received. J2's own step assertions already check `Contains`
 against this text; the capture sidecar just also preserves it for the page.
 
 ### Site conventions (matched exactly)
@@ -162,7 +162,7 @@ The lean going in was "code blocks for hermetic scenarios, SVG only for a
 real `@live` colored terminal recording." Running the actual suite confirmed
 this rather than just asserting it:
 
-- Every `@doc` scenario in J1 that isn't `@live` drives the CLI through
+- Every `@doc` scenario in J2 that isn't `@live` drives the CLI through
   `TestEnvironment.Run`, which uses `exec.Command` with `bytes.Buffer` stdout/
   stderr — not a pty. No TTY means the CLI's own color/isatty detection
   never fires, so the captured text contains **zero ANSI escape codes**,
@@ -170,14 +170,14 @@ this rather than just asserting it:
   SVG renderer to add: the payload already *is* plain text, and a code block
   is that text, verbatim, diffable in git, greppable, selectable, and
   requiring no renderer at all under the site's strict CSP.
-- One `@doc` scenario (`j1b`'s "Trusted sources augment the setup
+- One `@doc` scenario (`j3`'s "Trusted sources augment the setup
   interview") *does* drive a real pty
   (`driveDiscoverySessionViaMock` → `TestEnvironment.RunPTY`), because it has
   to answer an interactive prompt. Its captured mock-recorded payload was
   inspected for ANSI content: none appeared in this run (the discovery
   session's own output — not captured here, the *mock's received input* was
   — would be the place color could appear, and wasn't examined for this
-  reason: it's out of scope for a J1-focused page). If a *future* `@live`
+  reason: it's out of scope for a J2-focused page). If a *future* `@live`
   scenario capture — a real engine's own colored terminal session — turns
   out to carry meaningful ANSI, SVG becomes worth the renderer investment
   then, on that evidence. Building it speculatively now, with no real
@@ -188,8 +188,8 @@ this rather than just asserting it:
 
 ## The narration companion format
 
-One new file per feature: `tests/acceptance/features/j1_setup.doc.md`
-(prototype ships this one; `j1b_source_augmentation.doc.md` would follow the
+One new file per feature: `tests/acceptance/features/j2_setup.doc.md`
+(prototype ships this one; `j3_source_augmentation.doc.md` would follow the
 same shape, not authored in this pass). The `.feature` file is untouched —
 it stays a clean spec, no doc-comments bolted in.
 
@@ -218,7 +218,7 @@ block, which is easy to spot in review). A scenario with no matching
 `doc:scenario` block still renders in full (Gherkin + evidence); narration is
 strictly additive, never required for the page to build.
 
-(This repo's actual `j1_setup.doc.md` explains its own marker syntax
+(This repo's actual `j2_setup.doc.md` explains its own marker syntax
 descriptively rather than reproducing the literal marker text — the first
 prototype draft had the *literal* marker syntax written out inside its own
 explanatory header comment, which the parser's regex then matched *first*,
@@ -287,15 +287,15 @@ fence and corrupt the page.
 
 1. **CLI-output misattribution across no-op steps.** `TestEnvironment.LastOutput()`
    persists until the next command runs. A step that runs no CLI command
-   (several J1 steps are intentionally no-ops — see
-   `steps_j1_setup.go`'s "ctxloom offers to restart..." comment) would
+   (several J2 steps are intentionally no-ops — see
+   `steps_j2_setup.go`'s "ctxloom offers to restart..." comment) would
    otherwise inherit the *previous* step's captured output as if it had
    produced it. Fixed by tracking the last-attached output on `World` and
    only attributing genuinely new output to a step
    (`World.docLastCLIOutput`).
 2. **Feature parser scenario-boundary bug.** The first parser version only
    treated an `@tag` line as a new-scenario boundary. Most scenarios in
-   `j1_setup.feature` are preceded only by a `#`-comment (e.g. `# LOCKED —
+   `j2_setup.feature` are preceded only by a `#`-comment (e.g. `# LOCKED —
    ...`), not a tag, so consecutive untagged scenarios were silently
    concatenated into one giant scenario body. Fixed by also breaking on a
    bare `Scenario:`/`Scenario Outline:` line.
@@ -306,7 +306,7 @@ fence and corrupt the page.
    ("...") as the page's intro. Fixed by describing the syntax without
    reproducing it verbatim.
 4. **Fence-collision risk (caught, not yet triggered on this page).**
-   `j1b`'s captured mock-recorded payload (not used on the J1 page shipped
+   `j3`'s captured mock-recorded payload (not used on the J2 page shipped
    here) contains an onboarding skill's own ` ``` `-fenced example. A naive
    ` ```text ` wrapper would have been closed early by that inner fence.
    Fixed with `safe_fence()` before it could corrupt any page — caught by

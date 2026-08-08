@@ -40,7 +40,7 @@ func execRootCmd(t *testing.T, args ...string) (stdout string, err error) {
 //
 // The values are .github/engine-versions.env's pins, so a seeded session claims
 // exactly the version ctxloom's readers are validated against. Same rationale
-// and same source as j12SeededEngineVersion in the acceptance suite.
+// and same source as j10SeededEngineVersion in the acceptance suite.
 var pinnedEngineVersion = map[string]string{
 	"claude-code": "2.1.214",
 	"codex":       "0.144.6",

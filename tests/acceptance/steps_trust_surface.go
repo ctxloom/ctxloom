@@ -12,16 +12,16 @@
 // from (unsigned, never reviewed) can never fail for the reason it claims to
 // prove — rejecting it changes nothing observable, so a broken reject path
 // would still pass. Denial is proven from a bundle a TRUSTED publisher
-// signed (allowed by default, exactly J3's Background); approval is proven
+// signed (allowed by default, exactly J15's Background); approval is proven
 // from an unsigned bundle (denied by default). Each Outline's Given step
 // seeds the fixture that makes ITS verb meaningful.
 //
-// Reuses steps_j1_common.go's ensureProjectWithEngine/runOK, steps_j3.go's
+// Reuses steps_j2_common.go's ensureProjectWithEngine/runOK, steps_j15.go's
 // signed-remote pattern (testenv.GenerateTestSigner/SeedSignedRemote/
-// TrustSigner), and steps_j5.go's JSON/hook-command parsing helpers
-// (j5ReadJSON, j5HookCommandsFrom, j5FormatArgs) rather than re-deriving
+// TrustSigner), and steps_j4.go's JSON/hook-command parsing helpers
+// (j4ReadJSON, j4HookCommandsFrom, j4FormatArgs) rather than re-deriving
 // them — same package, same conventions. "Alice starts a session" is
-// steps_j1_setup.go's existing step (materialize "default" into "out"),
+// steps_j2_setup.go's existing step (materialize "default" into "out"),
 // reused VERBATIM.
 package acceptance
 
@@ -74,7 +74,7 @@ const (
 // bundle name inside it, and (signed-fixture only) the trusted principal and
 // its signer — retained so a later step can RE-SIGN the bundle after
 // legitimately changing it (GAP A's rename-and-resign), the same way
-// steps_j3.go's j3State keeps its signer for AdvanceSignedRemote.
+// steps_j15.go's j15State keeps its signer for AdvanceSignedRemote.
 type tsState struct {
 	url        string
 	bundleName string
@@ -193,7 +193,7 @@ fragments:
 
 // tsRef composes the canonical item ref for this feature's seeded bundle:
 // "file://<bare>@bundles/<bundleName>#<selector>", the same shape
-// steps_j3.go/steps_review.go drive `ctxloom trust accept`/`trust reject` with.
+// steps_j15.go/steps_review.go drive `ctxloom trust accept`/`trust reject` with.
 func tsRef(w *World, selector string) string {
 	ts := tsOf(w)
 	return ts.url + "@bundles/" + ts.bundleName + "#" + selector
@@ -219,8 +219,8 @@ func tsSelector(element string) (string, error) {
 
 // tsWireAndPull adds the seeded remote and references its bundle from the
 // "default" profile — the same reference-then-pull mechanic every other
-// journey's sources use (steps_j1_common.go's addSourceAsRemote, steps_j3.go's
-// j3WireReference) — then pulls, so the freshly seeded content resolves
+// journey's sources use (steps_j2_common.go's addSourceAsRemote, steps_j15.go's
+// j15WireReference) — then pulls, so the freshly seeded content resolves
 // through the config bundle loader before any trust/blacklist/materialize call.
 func tsWireAndPull(w *World, url string) error {
 	ts := tsOf(w)
@@ -286,7 +286,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		// Trust the key BEFORE wiring/pulling: every item is allowed by
 		// default (trusted-signer, EffectiveTrust step 5) — the meaningful
 		// state for the REJECT outline (see file doc): rejecting one item
-		// must beat an allow that is already in effect, exactly as J3 proves
+		// must beat an allow that is already in effect, exactly as J15 proves
 		// for hooks/MCP servers.
 		if err := w.env.TrustSigner(signer, "trustsurface-publisher@example.com", true); err != nil {
 			return fmt.Errorf("trust the trust-surface signer: %w", err)
@@ -313,9 +313,9 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		return runOK(w, "trust", "reject", tsRef(w, selector))
 	})
 
-	// "Alice starts a session" is steps_j1_setup.go's existing step
+	// "Alice starts a session" is steps_j2_setup.go's existing step
 	// (materializes "default" into "out") — reused verbatim; godog rejects an
-	// ambiguous second match for the same step text (steps_j3.go:229-235).
+	// ambiguous second match for the same step text (steps_j15.go:229-235).
 
 	ctx.Step(`^the (fragment|command|MCP server|hook) is present in her assistant's delivered surface$`, func(c context.Context, element string) error {
 		return tsAssertPresence(worldFrom(c), element, true)
@@ -398,7 +398,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		}
 		has := strings.Contains(body, marker)
 		if has {
-			w.docStepMaterialized = j5Excerpt(body, marker, 1)
+			w.docStepMaterialized = j4Excerpt(body, marker, 1)
 		} else {
 			w.docStepMaterialized = fmt.Sprintf("%s: does not contain %q (%d bytes assembled)", rel, marker, len(body))
 		}
@@ -698,8 +698,8 @@ func tsReportedContentForms(w *World) string {
 
 // tsSetUseDistilled appends a top-level "config:\n  use_distilled: <bool>\n"
 // block to the project's config.yaml (which ensureProjectWithEngine's
-// buildJ1Config never emits one of, so this is additive, never a collision —
-// see steps_j1_common.go's addMockAlongside for the same read-then-append
+// buildJ2Config never emits one of, so this is additive, never a collision —
+// see steps_j2_common.go's addMockAlongside for the same read-then-append
 // convention). internal/config has no CLI setter for this value; a direct
 // config.yaml edit is the only way a black-box CLI-driving test can toggle it.
 func tsSetUseDistilled(w *World, use bool) error {
@@ -810,7 +810,7 @@ func tsAssertFragment(w *World, present bool) error {
 	if err != nil {
 		return fmt.Errorf("read materialized %s (materialize output:\n%s): %w", rel, w.env.LastOutput(), err)
 	}
-	// Excerpt around the marker (reusing steps_j5.go's j5Excerpt) rather than
+	// Excerpt around the marker (reusing steps_j4.go's j4Excerpt) rather than
 	// the whole assembled CLAUDE.md, which on this host also carries whatever
 	// companions (ltk, taskloom) are on PATH — the excerpt keeps the
 	// published page focused on this scenario's own payload. When the marker
@@ -818,7 +818,7 @@ func tsAssertFragment(w *World, present bool) error {
 	// negative result directly instead of dumping the whole file.
 	has := strings.Contains(body, tsFragmentMarker)
 	if has {
-		w.docStepMaterialized = j5Excerpt(body, tsFragmentMarker, 1)
+		w.docStepMaterialized = j4Excerpt(body, tsFragmentMarker, 1)
 	} else {
 		w.docStepMaterialized = fmt.Sprintf("%s: does not contain %q (%d bytes assembled)", rel, tsFragmentMarker, len(body))
 	}
@@ -856,13 +856,13 @@ func tsAssertCommand(w *World, present bool) error {
 	return nil
 }
 
-// tsAssertMCP parses the generated .mcp.json (reusing steps_j5.go's
-// j5ReadJSON/j5FormatArgs) and asserts the "toolserver" entry's own command
+// tsAssertMCP parses the generated .mcp.json (reusing steps_j4.go's
+// j4ReadJSON/j4FormatArgs) and asserts the "toolserver" entry's own command
 // and args carry the marker — or that the entry is ABSENT entirely, never
 // merely emptied.
 func tsAssertMCP(w *World, present bool) error {
 	rel := filepath.Join("out", ".mcp.json")
-	doc, err := j5ReadJSON(w, rel)
+	doc, err := j4ReadJSON(w, rel)
 	if err != nil {
 		return err
 	}
@@ -876,7 +876,7 @@ func tsAssertMCP(w *World, present bool) error {
 		return nil
 	}
 	cmd, _ := srv["command"].(string)
-	args := j5FormatArgs(srv["args"])
+	args := j4FormatArgs(srv["args"])
 	w.docStepMaterialized = fmt.Sprintf("%s → mcpServers.toolserver\n  command: %s\n  args:    %s", rel, cmd, args)
 	if !present {
 		return fmt.Errorf("%s unexpectedly has a mcpServers.toolserver entry (command=%q, args=%s); it should have been withheld", rel, cmd, args)
@@ -888,16 +888,16 @@ func tsAssertMCP(w *World, present bool) error {
 }
 
 // tsAssertHook parses the generated .claude/settings.json (reusing
-// steps_j5.go's j5ReadJSON/j5HookCommandsFrom) and asserts the SessionStart
+// steps_j4.go's j4ReadJSON/j4HookCommandsFrom) and asserts the SessionStart
 // hook list carries (or lacks) the marker command.
 func tsAssertHook(w *World, present bool) error {
 	rel := filepath.Join("out", ".claude", "settings.json")
-	doc, err := j5ReadJSON(w, rel)
+	doc, err := j4ReadJSON(w, rel)
 	if err != nil {
 		return err
 	}
 	top, _ := doc["hooks"].(map[string]any)
-	cmds := j5HookCommandsFrom(top["SessionStart"])
+	cmds := j4HookCommandsFrom(top["SessionStart"])
 	found := false
 	for _, cmd := range cmds {
 		if cmd == tsHookMarker {
@@ -1113,7 +1113,7 @@ func registerTrustVocabularySteps(ctx *godog.ScenarioContext) {
 		if !strings.Contains(body, tsMCPMarker) {
 			return fmt.Errorf("%s does not carry the approved fragment's body; the approval Alice actually made must be honoured, or this scenario proves nothing:\n%s", rel, body)
 		}
-		w.docStepMaterialized = j5Excerpt(body, tsMCPMarker, 1)
+		w.docStepMaterialized = j4Excerpt(body, tsMCPMarker, 1)
 		return nil
 	})
 

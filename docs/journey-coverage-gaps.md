@@ -12,8 +12,8 @@
 > §5 is the authoritative rename mapping.
 
 ctxloom's acceptance suite is organised as user **journeys** — end-to-end
-narratives a real person would actually perform, expressed as Gherkin. J1–J17
-exist; J1–J12 and J14–J17 are wired, and the `features-draft/` directory is
+narratives a real person would actually perform, expressed as Gherkin. J2–J23
+exist; J2–J10 and J11–J23 are wired, and the `features-draft/` directory is
 gone. J13 is not pending work: its ensemble draft narrated `ctxloom map`,
 which no longer existed, and the draft was deleted rather than retargeted —
 `weave`, the surviving spelling, is itself slated for removal (taskloom
@@ -72,11 +72,11 @@ and the corpus still drives the old spellings:
 
 | canonical leaf (uncovered) | deprecated alias (covered by) |
 |---|---|
-| `trust accept <ref>` | `ctxloom trust <ref>` — `trust_cli.feature`, `trust_surface.feature`, J3 |
+| `trust accept <ref>` | `ctxloom trust <ref>` — `trust_cli.feature`, `trust_surface.feature`, J15 |
 | `trust reject <ref>` | `ctxloom blacklist <ref>` — `trust_cli.feature` |
-| `trust signer add` | `ctxloom signer add` — J3 Background |
-| `trust signer remove` | `ctxloom signer remove` — J3 scenario 6 |
-| `trust signer show` | `ctxloom signer show` — J7 |
+| `trust signer add` | `ctxloom signer add` — J15 Background |
+| `trust signer remove` | `ctxloom signer remove` — J15 scenario 6 |
+| `trust signer show` | `ctxloom signer show` — J17 |
 | `mcp server add/list/remove/show` | `ctxloom mcp add/list/remove/show` |
 | `mcp register` / `mcp unregister` | `manage mcp register` / `manage mcp unregister` |
 | `config get` / `config show` | `manage config get` / `manage config show` — `config.feature` |
@@ -142,13 +142,13 @@ at `agents.default.engine` in `config.yaml`. And `--engine bogus` exits **0**,
 prints `Initialized ctxloom directory`, and writes `engine: bogus` into
 `config.yaml`, producing a file that fails ctxloom's own JSON-schema validation
 on the very next command (`value must be "claude-code"`). Exit 0, a success
-message, and a corrupt payload — the house failure mode exactly. J20 below
+message, and a corrupt payload — the house failure mode exactly. J14 below
 carries a scenario for it, which will be RED until the validation lands.
 
-**(c) RESOLVED — the `J14` draft was written against a command group that no
+**(c) RESOLVED — the `J11` draft was written against a command group that no
 longer existed.** It narrated `ctxloom memory compact/list/show`; that surface
 is now `session distill` / `session list` / `session show`. The draft was
-retired rather than retargeted, and `j14_session_distill.feature` was written
+retired rather than retargeted, and `j11_session_distill.feature` was written
 against the live surface instead.
 
 **(d) Five `excludedLeaves` entries are dormant.** `ctxloom llm serve`,
@@ -164,29 +164,29 @@ what it says.
 
 ## 3. Proposed journeys
 
-Six new journeys, J18–J23 (J17 is the highest existing number; verified across
+Six new journeys, J16–J12 (J23 is the highest existing number; verified across
 `docs/`, `tests/`, and `scripts/`), plus four folds into existing coverage.
 
 ### Coverage map
 
 | Journey | Leaves covered |
 |---|---|
-| **J18** — A signature somebody can check | `bundle sign`, `sign`, `trust signer add`, `trust signer list`, `signer list`, `trust signer show`, `trust signer remove`, `trust accept`, `trust reject`, `bundle move` |
-| **J19** — One MCP server, every engineer's assistant | `mcp server add`, `mcp server list`, `mcp server show`, `mcp server remove`, `mcp register`, `mcp unregister` |
-| **J20** — Joining a team that does not use claude-code | `manage install --engine {codex,kiro,antigravity}`, `manage config init --engine {codex,kiro,antigravity}`, `config init` |
-| **J21** — The four callbacks every session already depends on | `hook inject-context`, `hook session-bind`, `hook stamp-plan`, `hook hud` |
-| **J22** — Driving ctxloom from an editor | `acp entries`, `acp server`, `acp client` |
-| **J23** — Finding the session where you already solved this | `session query`, `session watch` |
+| **J16** — A signature somebody can check | `bundle sign`, `sign`, `trust signer add`, `trust signer list`, `signer list`, `trust signer show`, `trust signer remove`, `trust accept`, `trust reject`, `bundle move` |
+| **J1** — One MCP server, every engineer's assistant | `mcp server add`, `mcp server list`, `mcp server show`, `mcp server remove`, `mcp register`, `mcp unregister` |
+| **J14** — Joining a team that does not use claude-code | `manage install --engine {codex,kiro,antigravity}`, `manage config init --engine {codex,kiro,antigravity}`, `config init` |
+| **J19** — The four callbacks every session already depends on | `hook inject-context`, `hook session-bind`, `hook stamp-plan`, `hook hud` |
+| **J13** — Driving ctxloom from an editor | `acp entries`, `acp server`, `acp client` |
+| **J12** — Finding the session where you already solved this | `session query`, `session watch` |
 | fold → `config.feature` | `config get`, `config show` |
-| fold → J15 draft (container) | `container tooling` |
-| fold → J1 (`j1_setup`) | `init prompt` |
-| fold → J6 / J17 / J11 / J23 | the 7 MCP tools (see §4) |
+| fold → J24 draft (container) | `container tooling` |
+| fold → J2 (`j2_setup`) | `init prompt` |
+| fold → J21 / J23 / J25 / J12 | the 7 MCP tools (see §4) |
 
 All 36 CLI leaves and all 7 MCP tools are assigned. Nothing is declined.
 
 ---
 
-### J18 — A signature somebody can check
+### J16 — A signature somebody can check
 
 **Actor and goal.** Trent runs platform engineering at a company that has
 decided its coding standards will be *enforced*, not merely published. Alice is
@@ -197,7 +197,7 @@ she wants to accept exactly one publisher's authority and retain the right to
 override it item by item.
 
 **Why this is the highest-value gap.** Signed, verifiable context is the thing
-ctxloom has that its competitors do not. J3 already proves the *consumption*
+ctxloom has that its competitors do not. J15 already proves the *consumption*
 half beautifully — tamper detection, executable gating, retraction, key
 revocation — but it proves it against fixtures signed **in Go**, by a
 `TestSigner`, with the trust root sometimes written directly to disk. The
@@ -234,7 +234,7 @@ Alice clones. She never runs `signer add` — she inherits the project store, an
 her own `ctxloom trust signer list` shows *both* stores' contents distinguished
 by scope, plus ctxloom's embedded release key. She references Trent's bundle;
 its guidance reaches her assistant because a key she trusts signed it. That much
-J3 already proves; here it holds for a signature the CLI actually made.
+J15 already proves; here it holds for a signature the CLI actually made.
 
 Then Alice exercises her own authority, in the canonical spelling. There is one
 fragment in Trent's bundle she wants pinned to its current wording, so
@@ -307,7 +307,7 @@ move`.
 does not exist today**: an ssh-agent the acceptance world can sign against.
 `ctxloom bundle sign` resolves its key through `internal/signing/agentkey`,
 which needs `SSH_AUTH_SOCK`; the suite deliberately avoids that today —
-`steps_skill.go:19-27` says so outright, and `steps_j3.go:473-478` goes further
+`steps_skill.go:19-27` says so outright, and `steps_j15.go:473-478` goes further
 and *blanks* `SSH_AUTH_SOCK` so an ambient developer agent cannot contaminate a
 run.
 
@@ -319,27 +319,27 @@ world's temp dir, and point the world's `SSH_AUTH_SOCK` at it.
 `net.Pipe` — the only new work is a real socket so a subprocess can dial it.
 Call it `testenv.StartSSHAgent(signer) (sockPath string, stop func())`.
 
-With that in place, everything in J18 is hermetic. The three key-discovery
+With that in place, everything in J16 is hermetic. The three key-discovery
 branches can each be driven deliberately: `git config user.signingkey` (write it
 into the fixture repo's git config), sole-agent-identity (add exactly one key),
 and `--key` by fingerprint / path / agent comment substring.
 
 **What blocks wiring today.** Only the ssh-agent fixture above. Nothing needs
-`@live`, no network, no TTY, no container. J18 is the highest-value journey on
+`@live`, no network, no TTY, no container. J16 is the highest-value journey on
 this list and also one of the cheapest to unblock — one helper in
 `tests/integration/testenv/`.
 
-**One thing to decide before wiring.** J18 and J3 will overlap at the edges
+**One thing to decide before wiring.** J16 and J15 will overlap at the edges
 (both have a publisher, a trusted key, and content reaching Alice). Keep the
-seam explicit: **J3 owns the adversary** — tamper, retraction, revocation,
-rejection beating trust. **J18 owns the production of the artifacts J3 assumes**
-— the signature, the trust root, the stores on disk. J18 should state that
-scope in its feature preamble the way J3 states its "provenance not secrecy"
+seam explicit: **J15 owns the adversary** — tamper, retraction, revocation,
+rejection beating trust. **J16 owns the production of the artifacts J15 assumes**
+— the signature, the trust root, the stores on disk. J16 should state that
+scope in its feature preamble the way J15 states its "provenance not secrecy"
 scope, and should not re-prove tamper detection.
 
 ---
 
-### J19 — One MCP server, every engineer's assistant
+### J1 — One MCP server, every engineer's assistant
 
 **Actor and goal.** Priya maintains her team's developer platform. Staging has a
 read-only Postgres replica, and she wants every engineer's assistant to be able
@@ -387,7 +387,7 @@ worst outcome here, because the credentialed tool keeps working.
 - After applying: each engine's file **parsed in its own format** — `.mcp.json`
   as JSON, `.codex/config.toml` as TOML, `.kiro/settings/mcp.json` as JSON,
   `.agents/mcp_config.json` as JSON — with the command *and* the args asserted,
-  following J5's rule that a row must parse the file rather than substring-match
+  following J4's rule that a row must parse the file rather than substring-match
   a key name. (`manage.feature`'s existing bare `the file ".mcp.json" exists`
   is exactly the assertion this journey must not repeat.)
 - `mcp server list` names the server, its command, its args and its scope;
@@ -407,7 +407,7 @@ project" fixture plus `manage hooks install` is enough.
 
 ---
 
-### J20 — Joining a team that does not use claude-code
+### J14 — Joining a team that does not use claude-code
 
 **Actor and goal.** Sam joins a team standardised on codex. Later the same
 journey follows Ravi (kiro) and Mei (antigravity). Each wants one command that
@@ -444,7 +444,7 @@ the outline exists, and `engineMatrixLeaves` should gain the fifth engine.
   engine. Verified live: this is the *only* thing `--engine` actually changes.
 - The requested engine's own surfaces exist and parse: `.codex/config.toml` as
   TOML with a `[hooks]` section; `.kiro/` steering + `settings/mcp.json`;
-  `.agents/AGENTS.md` with managed markers + `mcp_config.json`. Reuse J5's
+  `.agents/AGENTS.md` with managed markers + `mcp_config.json`. Reuse J4's
   per-engine table rather than inventing a second one.
 - **The unknown-engine scenario.** `ctxloom manage install --engine bogus` must
   fail, and must write nothing. Today it exits **0**, prints `Initialized
@@ -468,7 +468,7 @@ their own fixtures"; that is **stale**. They need no fixtures at all.
 
 ---
 
-### J21 — The four callbacks every session already depends on
+### J19 — The four callbacks every session already depends on
 
 **Actor and goal.** Alice installed ctxloom weeks ago and has not thought about
 it since. Every session she starts silently runs four ctxloom callbacks that the
@@ -537,7 +537,7 @@ more than four unit tests.
 
 ---
 
-### J22 — Driving ctxloom from an editor
+### J13 — Driving ctxloom from an editor
 
 **Actor and goal.** Dana works in Zed and does not want a second terminal.
 She wants her editor's agent panel to talk to ctxloom directly — assembled
@@ -572,7 +572,7 @@ the answer.
 - `acp server`: a real ACP client in the test drives initialise → session/new →
   session/prompt against the **mock engine**, and the assertion is that the
   assembled context reached the engine (the mock record's `=== Prompt ===`
-  block carries the profile's fragment marker — the same technique J1 and J9
+  block carries the profile's fragment marker — the same technique J2 and J22
   already use) and that the reply streamed back. Then `session/set_mode` changes
   the assembled lead context for the next turn while the engine binding is
   unchanged; then `session/load` on the recorded harp replays history.
@@ -589,7 +589,7 @@ the answer.
   subprocess's stdio. ctxloom already has an ACP client implementation
   (`internal/acp`), and `steps_coordination_contract.go` already drives the
   runner-terminated surface, so the machinery is close by. This is the one piece
-  of new harness work in J22.
+  of new harness work in J13.
 - `acp client` needs an ACP-speaking agent on the other end. Hermetically, that
   means a **stub ACP agent** — a small scripted responder the fixture spawns —
   configured as an `llm:` entry with `type: acp`. Against a real
@@ -598,14 +598,14 @@ the answer.
 
 **Blockers.** An in-harness ACP client driver (for `acp server`) and a stub ACP
 agent (for `acp client`). Both are ordinary test code, but they are real work
-and they are why J22 should be scheduled after J18–J21. Note also that both
+and they are why J13 should be scheduled after J16–J19. Note also that both
 `acp server` and `acp client` are marked **Experimental** in their own help
 text — worth stating in the feature preamble so the journey's guarantees are not
 read as stability promises.
 
 ---
 
-### J23 — Finding the session where you already solved this
+### J12 — Finding the session where you already solved this
 
 **Actor and goal.** Marcus knows he debugged this exact TLS handshake failure
 about three weeks ago, in some session, in some repository. He wants to find it
@@ -658,7 +658,7 @@ per line, each carrying exactly one of `entry` or `boundary`.
 - **`session watch` is blocked.** It is a long-lived watcher: `--source store`
   polls until interrupted, `--source live` ends only when the child's engine
   exits. There is no bounded hermetic exit today. The tractable path is
-  `--source live` against a delegated child that terminates — J6 and J17 already
+  `--source live` against a delegated child that terminates — J21 and J23 already
   spawn and stop children — so the watch ends naturally when the child does. If
   that proves fragile, `session watch` should move to `excludedLeaves` with the
   same reason `plan watch` already carries, rather than sitting on the
@@ -683,7 +683,7 @@ the actual sections and on a value the fixture set. Re-spelling a vacuous
 assertion onto a canonical leaf is worse than leaving the leaf uncovered,
 because it converts a known gap into a false green.
 
-**`container tooling` → J15 (`j15_container.feature`, now wired).** J15
+**`container tooling` → J24 (`j24_container.feature`, now wired).** J24
 narrates the container command surface and notes that `agent.feature` covers the deprecated
 `tooling` spelling. Add a scenario there in the canonical spelling, and make it
 prove the **trust gate**, which is the interesting claim and is currently
@@ -694,9 +694,9 @@ so the withheld case and the "genuinely nothing declared" case currently produce
 **the same output**, which is exactly the distinction a scenario should force
 apart.
 
-**`init prompt` → J1 (`j1_setup.feature`).** It is a re-entry pointer onto the
+**`init prompt` → J2 (`j2_setup.feature`).** It is a re-entry pointer onto the
 same setup prompt body `ctxloom init` hands the engine at bootstrap and
-`/ctxloom-init` loads in an ordinary session. J1 is the setup journey; this is
+`/ctxloom-init` loads in an ordinary session. J2 is the setup journey; this is
 one scenario there. Assert the emitted body is non-empty and **identical** to
 the body the other two paths deliver — a drifting triple is the failure worth
 catching, and a one-command journey would never think to compare them.
@@ -709,28 +709,28 @@ covered *inside* journeys where an agent has a reason to call them, not in a
 tools-only feature — `mcp_tools.feature` already demonstrates the failure mode
 of naming tools in prose without invoking them, which is why `ranAsTool` exists.
 
-**`roster`, `agent_report`, `agent_fetch_artifact` → fold into J6 and J17.**
+**`roster`, `agent_report`, `agent_fetch_artifact` → fold into J21 and J23.**
 These exist **only** on the runner-terminated (`cli.NewDocMCPServer`) surface —
 the one a real harness sees through `ctxloom run` / `ctxloom acp` — and are
 invisible to the standalone `mcp serve` enumeration. They are a coordinator's
 view of its own children: `roster` is "who is running", `agent_report` is a
 child reporting back, `agent_fetch_artifact` is the coordinator collecting what
-a child produced. J6 already spawns delegated children and audits their journaled
-privilege grants; J17 already drives the two-way bus in both directions with
-content asserted on each side. Add to J6: after spawning two children, the
+a child produced. J21 already spawns delegated children and audits their journaled
+privilege grants; J23 already drives the two-way bus in both directions with
+content asserted on each side. Add to J21: after spawning two children, the
 coordinator calls `roster` and the result names both, with their run ids and
 states; a child calls `agent_report` and the coordinator's next `roster` or
 fetch reflects it; the coordinator calls `agent_fetch_artifact` and gets the
 **bytes the child wrote**, not a path or a success flag.
 
-*Blocker:* these must be invoked against the runner surface. J6/J17 already run
+*Blocker:* these must be invoked against the runner surface. J21/J23 already run
 there, so the step machinery exists — but any new `mcp_tools.feature`-style
 scenario would hit the standalone server and never see these tools at all. That
 mismatch is the trap; state it in whichever feature ends up carrying them.
 
 **`compact_session`, `get_previous_session`, `list_sessions` → retarget and wire
-the J14 memory draft.** These are the session-memory tools, and J14 is the
-journey about knowledge surviving a session boundary. **J14 must be retargeted
+the J11 memory draft.** These are the session-memory tools, and J11 is the
+journey about knowledge surviving a session boundary. **J11 must be retargeted
 first**: it is written against `ctxloom memory compact/list/show` and cites
 `internal/cli/memory.go`, a command group that no longer exists — the surface is
 now `session distill` / `session list` / `session show`. Once retargeted, the
@@ -743,9 +743,9 @@ tools may be reachable hermetically against the mock backend even so — worth
 checking, because if `compact_session` is hermetic then so is the CLI path and
 the exclusion is stale.
 
-**`evaluate_triggers` → fold into J11 (`j11_taskloom_tags`).** Trigger
+**`evaluate_triggers` → fold into J25 (`j25_taskloom_tags`).** Trigger
 evaluation is the deferred-task revive mechanism: a task parked with a revive
-trigger becomes live again when its condition fires. J11 is the taskloom
+trigger becomes live again when its condition fires. J25 is the taskloom
 journey and already has the task store in play. Add a scenario where a task is
 deferred with a trigger, the agent calls `evaluate_triggers`, and the tool
 returns **that specific task** as fired — with a negative case in the same
@@ -767,13 +767,13 @@ current fixture capability:
 | `mcp serve` | the server itself; exercised by every `@mcp` scenario | **Holds** — and it is a genuine exclusion, not a gap. |
 | `remote discover` | network discovery; no deterministic fixture | **Holds.** |
 | `bundle mcp edit` | needs a bundle-embedded MCP fixture (niche) | **Weakening.** `trust_surface.feature` already builds bundles shipping an MCP server, so the fixture the reason calls missing now exists. The honest reason is "niche", not "no fixture" — reword it or write the scenario. |
-| `remote update` | needs a second remote commit | **Stale.** `testenv.AdvanceSignedRemote` (used by J3 and `trust_surface`) exists precisely to add a second commit to a seeded remote. The stated blocker is gone; only the scenario is missing. Recommend moving to the uncovered list with a backfill task. |
+| `remote update` | needs a second remote commit | **Stale.** `testenv.AdvanceSignedRemote` (used by J15 and `trust_surface`) exists precisely to add a second commit to a seeded remote. The stated blocker is gone; only the scenario is missing. Recommend moving to the uncovered list with a backfill task. |
 | `remote upgrade` | needs an update cycle | **Stale, same reason.** `AdvanceSignedRemote` plus an installed bundle is an update cycle. |
 | `bundle push` | needs a writable remote | **Holds** for a real forge — but the suite already seeds `file://` bare repos it can push to, so a hermetic push to a local bare remote is reachable. The reason should be narrowed to "PR creation against a real forge", which is what is genuinely out of scope. |
 | `command push` | same | **Same verdict.** |
-| `container build` | needs a container runtime + network pulls | **Holds.** The J15 draft's own analysis reaches the same conclusion and tags it `@container`. |
+| `container build` | needs a container runtime + network pulls | **Holds.** The J24 draft's own analysis reaches the same conclusion and tags it `@container`. |
 | `plan watch` | long-lived watcher, no hermetic exit | **Holds.** |
-| `session distill` | `@live` + needs a real backend transcript | **Questionable.** `steps_recover_session.go` seeds a canonical `transcript.jsonl` directly and reaches the recover path with a **mock** backend, no real backend needed. If the distiller can be pointed at the mock as its compaction engine — which the J14 draft asserts it can, reading the prompt out of `CTXLOOM_MOCK_RECORD_FILE` — this exclusion is stale. Worth one experiment before accepting it. |
+| `session distill` | `@live` + needs a real backend transcript | **Questionable.** `steps_recover_session.go` seeds a canonical `transcript.jsonl` directly and reaches the recover path with a **mock** backend, no real backend needed. If the distiller can be pointed at the mock as its compaction engine — which the J11 draft asserts it can, reading the prompt out of `CTXLOOM_MOCK_RECORD_FILE` — this exclusion is stale. Worth one experiment before accepting it. |
 | `weave` | fans out across parallel LLM sessions + LLM synthesis; `@live`-only | **Holds** for the real thing; a mock-backend fan-out would prove the orchestration but not the synthesis, which is the part that needs a model. |
 
 **Summary: 8 hold, 2 are stale (`remote update`, `remote upgrade`), 3 have
@@ -788,30 +788,30 @@ needs either a reworded reason or a backfill task.
 Everything that stands between this document and wired journeys:
 
 1. **No ssh-agent in the acceptance world.** Blocks `bundle sign` / `sign`, and
-   therefore the production half of J18. Fix: `testenv.StartSSHAgent(signer)`
+   therefore the production half of J16. Fix: `testenv.StartSSHAgent(signer)`
    serving `agent.NewKeyring` on a unix socket; `internal/signing/agent_signer_test.go`
    is the template. Small, hermetic, and it unblocks the highest-value journey.
-   Note the interaction with `steps_j3.go:473-478`, which deliberately blanks
-   `SSH_AUTH_SOCK`: J18 must set it, J3 must keep clearing it, and neither
+   Note the interaction with `steps_j15.go:473-478`, which deliberately blanks
+   `SSH_AUTH_SOCK`: J16 must set it, J15 must keep clearing it, and neither
    should quietly change the other's behaviour.
-2. **No in-harness ACP client.** Blocks `acp server` (J22).
-3. **No stub ACP agent.** Blocks the hermetic path for `acp client` (J22);
+2. **No in-harness ACP client.** Blocks `acp server` (J13).
+3. **No stub ACP agent.** Blocks the hermetic path for `acp client` (J13);
    without one it is `@live`.
-4. **`session watch` has no bounded exit.** Blocks it in J23. Most promising
+4. **`session watch` has no bounded exit.** Blocks it in J12. Most promising
    route: `--source live` against a delegated child that terminates. If that
    fails, exclude it with `plan watch`'s reason.
 5. **Runner-only MCP tools are unreachable from the standalone server.**
    `roster`, `agent_report`, `agent_fetch_artifact` must be driven through
-   J6/J17's runner-terminated surface; a scenario written against `mcp serve`
+   J21/J23's runner-terminated surface; a scenario written against `mcp serve`
    will silently never see them.
-6. **The J14 draft is stale** and must be retargeted from `ctxloom memory` to
+6. **The J11 draft is stale** and must be retargeted from `ctxloom memory` to
    `session distill`/`list`/`show` before it or its three MCP tools can be
    wired.
-7. **`manage install --engine <unknown>` does not validate.** J20's fail-loud
+7. **`manage install --engine <unknown>` does not validate.** J14's fail-loud
    scenario will be RED until the product is fixed. That is a product bug found
    while writing this document, not a journey blocker — but the scenario should
    be written for the intended behaviour, not the current one.
 
 Nothing else on the list needs a fixture that does not exist. In particular
-J19 (MCP servers), J20 (engine matrix), J21 (hooks), the `session query` half of
-J23, and all four folds are wirable against today's harness.
+J1 (MCP servers), J14 (engine matrix), J19 (hooks), the `session query` half of
+J12, and all four folds are wirable against today's harness.

@@ -16,7 +16,7 @@ sibling's, and never assumed — they're resolved fresh from that child's own co
 because "trust me, it's scoped correctly" isn't something an operator can act on after the
 fact, that grant is written to a durable journal the moment the child is enqueued — not
 reconstructed from whatever the config happens to say today. A [real acceptance
-journey](/journeys/j6-delegation/) proves both halves against a live coordinator and its
+journey](/journeys/j21-delegation/) proves both halves against a live coordinator and its
 journal, not just against the spawning code in isolation.
 
 ## Spawn, message, stop — the shape of a delegated run
@@ -63,7 +63,7 @@ in the spawning code without anyone noticing for a while: a coordinator that com
 MCP set by unioning *all* the profiles resolved anywhere in the run — instead of scoping strictly
 to that one child's own profiles — would still look correct in the common case (each child
 reaching its own tools) and only reveal the bug when a child reaches for a sibling's. The
-[delegation journey](/journeys/j6-delegation/)'s sharpest scenario exists because of exactly
+[delegation journey](/journeys/j21-delegation/)'s sharpest scenario exists because of exactly
 that shape of bug: two children, "reviewer" (a read-only `plan`-mode agent with its own
 `docs-lookup` MCP server) and "fixer" (a `bypass`-mode agent with its own `deploy-tool` server),
 spawned from the same coordinator. Verified: each child's journaled grant carries *only* its own
@@ -118,7 +118,7 @@ either.
 
 - [Agents & Isolation](/concepts/agents/) — how an agent's engine, profiles, runtime, and
   permission mode are defined; every child's grant traces back to this.
-- [The delegation journey](/journeys/j6-delegation/) — the real Gherkin and captured evidence
+- [The delegation journey](/journeys/j21-delegation/) — the real Gherkin and captured evidence
   this page is drawn from.
 - [MCP Tools Reference](/reference/mcp-tools/) — full parameter schemas for every tool above.
 - [MCP Server guide](/guides/mcp-server/) — why the standalone `ctxloom mcp serve` surface is

@@ -33,10 +33,10 @@ Feature: The trust surface — what "review" actually controls
   TWO OUTLINES, NOT ONE, and deliberately so: a denial test that starts from a
   state the item would be withheld from ANYWAY (e.g. unsigned, never
   reviewed) can never fail for the reason it claims to prove — rejecting it
-  changes nothing observable. So denial is proven the way J3 already proved
+  changes nothing observable. So denial is proven the way J15 already proved
   it for hooks and MCP servers: start from a bundle a TRUSTED publisher
   signed (which the content/executable gate allows by default, the same as
-  J3's Background), then reject one item and watch it — and ONLY it — go
+  J15's Background), then reject one item and watch it — and ONLY it — go
   dark, even though the signature is still good. Approval is proven the
   opposite way: start from an UNSIGNED, never-reviewed bundle (denied by
   default), then approve one item and watch it — and ONLY it — start

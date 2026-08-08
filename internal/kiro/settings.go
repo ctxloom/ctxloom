@@ -31,7 +31,7 @@ const (
 
 // NewWriter constructs the Kiro CLI settings writer.
 //
-// LIVE-VERIFIED for the paths J5's @live "Kiro" row exercises: kiro-cli
+// LIVE-VERIFIED for the paths J4's @live "Kiro" row exercises: kiro-cli
 // resolves the materialized WORKSPACE .kiro/agents/<name>.json over any
 // global ~/.kiro/agents copy (its own "Agent conflict ... Using workspace
 // version" precedence, confirmed via `kiro-cli agent list`), the agentSpawn

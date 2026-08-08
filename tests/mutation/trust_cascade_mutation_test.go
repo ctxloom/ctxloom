@@ -108,8 +108,8 @@ var trustCascadeTarget = mutationTarget{
 	SourceRelPath: "internal/operations/trust.go",
 	Features: []string{
 		"features/trust_surface.feature",
-		"features/j3_corporate_signed.feature",
-		"features/j7_incident.feature",
+		"features/j15_corporate_signed.feature",
+		"features/j17_incident.feature",
 	},
 }
 
@@ -138,8 +138,8 @@ var mutationTargets = []mutationTarget{
 		// target) and internal/cli/bundle_push_cli.go.
 		//
 		// EVIDENCE: of the 12 `ctxloom sign`/`bundle sign` occurrences in
-		// the entire feature corpus, 11 are in j18_signing.feature and the
-		// 12th is a COMMENT in j21_diagnosis.feature. j18 is not merely the
+		// the entire feature corpus, 11 are in j16_signing.feature and the
+		// 12th is a COMMENT in j19_diagnosis.feature. j16 is not merely the
 		// best claimant, it is the only one. Its 16 scenarios (all of them
 		// live under the default tag filter — the file carries @doc and
 		// nothing else) name every branch of this file: sign by bare name,
@@ -149,7 +149,7 @@ var mutationTargets = []mutationTarget{
 		// report success over zero bytes.
 		Name:          "bundle_sign",
 		SourceRelPath: "internal/operations/sign.go",
-		Features:      []string{"features/j18_signing.feature"},
+		Features:      []string{"features/j16_signing.feature"},
 	},
 	{
 		// `ctxloom trust signer create|show|list|delete`: AddSigner,
@@ -159,8 +159,8 @@ var mutationTargets = []mutationTarget{
 		// reached from internal/cli/signer.go.
 		//
 		// EVIDENCE: `trust signer` appears in exactly two feature files;
-		// all three occurrences in j21_diagnosis.feature are COMMENTS, so
-		// j18_signing.feature holds every real invocation. Its scenarios
+		// all three occurrences in j19_diagnosis.feature are COMMENTS, so
+		// j16_signing.feature holds every real invocation. Its scenarios
 		// cover the create/show/delete round trip across BOTH stores
 		// (project and user), the fingerprint and namespace rendering, and
 		// the removal count.
@@ -172,7 +172,7 @@ var mutationTargets = []mutationTarget{
 		// means the two runs cost the same suite per mutant.
 		Name:          "signer_store",
 		SourceRelPath: "internal/operations/signer.go",
-		Features:      []string{"features/j18_signing.feature"},
+		Features:      []string{"features/j16_signing.feature"},
 	},
 	{
 		// Workspace/runtime AXIS RESOLUTION: Axes, WantsWorktree,
@@ -180,7 +180,7 @@ var mutationTargets = []mutationTarget{
 		// RuntimeNames, warnUnknownAxes — the code that decides which
 		// isolation policy chain a run gets.
 		//
-		// EVIDENCE: j9_isolation.feature is the axis matrix. 30 of the 47
+		// EVIDENCE: j22_isolation.feature is the axis matrix. 30 of the 47
 		// `workspace` mentions across the corpus are in it, and its
 		// scenarios are written directly against this file's decisions:
 		// "The same run lands in the workspace its axis dictates"
@@ -190,7 +190,7 @@ var mutationTargets = []mutationTarget{
 		// isolation_probe.feature is deliberately NOT listed: it is @live,
 		// so the default tag filter (~@live) drops every scenario in it and
 		// naming it would add a feature file that contributes zero
-		// executed steps. All 15 of j9's scenarios do run by default.
+		// executed steps. All 15 of j22's scenarios do run by default.
 		//
 		// Expect survivors in this file's container-image and mount
 		// plumbing: the suite drives a recording spy, not a real engine or
@@ -198,7 +198,7 @@ var mutationTargets = []mutationTarget{
 		// acceptance suite's reach, which is the measurement.
 		Name:          "isolation_axes",
 		SourceRelPath: "internal/lm/isolation/isolation.go",
-		Features:      []string{"features/j9_isolation.feature"},
+		Features:      []string{"features/j22_isolation.feature"},
 	},
 }
 

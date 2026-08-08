@@ -28,7 +28,7 @@ func TestMain(m *testing.M) {
 		_ = os.Unsetenv(k)
 	}
 	code := m.Run()
-	// The taskloom binary testenv builds for the j11/j16/trigger steps lives
+	// The taskloom binary testenv builds for the j25/j26/trigger steps lives
 	// behind a sync.Once and is shared by every scenario, so its ~30MB
 	// directory can only be dropped here, after the whole suite has finished —
 	// not in a per-scenario Cleanup. os.Exit skips defers, so this is an
@@ -63,10 +63,10 @@ func TestAcceptance(t *testing.T) {
 	if tags == "" {
 		// out (real init clones the default remote). Both are opt-in.
 		// @future: behavior this suite deliberately does not implement yet (see
-		//   j2_team_authoring.feature's own-active-session scenario) — excluded
+		//   j7_team_authoring.feature's own-active-session scenario) — excluded
 		//   rather than left undefined, which Strict mode would fail on.
 		// @wip: a scenario that cannot be honestly greened yet because of a real
-		//   product gap, not a harness gap (see j3_corporate_signed.feature's
+		//   product gap, not a harness gap (see j15_corporate_signed.feature's
 		//   retraction scenario and the filed task) — excluded from the default run.
 		// @container: needs a reachable docker/podman daemon AND builds an agent
 		//   image on first use (measured at minutes, against a suite that already
@@ -76,7 +76,7 @@ func TestAcceptance(t *testing.T) {
 	}
 	paths := []string{"features"}
 	// ACCEPTANCE_PATHS narrows the run to specific feature files for fast local
-	// iteration (comma-separated, e.g. "features/j1_setup.feature"); unset runs
+	// iteration (comma-separated, e.g. "features/j2_setup.feature"); unset runs
 	// the whole suite, exactly as before this existed.
 	if p := os.Getenv("ACCEPTANCE_PATHS"); p != "" {
 		paths = strings.Split(p, ",")

@@ -25,8 +25,8 @@ import (
 
 // mcpIndexEntries accumulates this scenario's seeded index rows. The shared
 // "a recorded session" fixture in steps_fixture.go writes a SINGLE-entry index
-// and would silently drop the earlier harp on a second call — j22 hit the same
-// wall and notes it in j22WriteIndex. list_sessions is inherently multi-session
+// and would silently drop the earlier harp on a second call — j13 hit the same
+// wall and notes it in j13WriteIndex. list_sessions is inherently multi-session
 // (a listing that can only be proven with one row proves nothing about
 // listing), so it needs the accumulating writer.
 type mcpIndexState struct {

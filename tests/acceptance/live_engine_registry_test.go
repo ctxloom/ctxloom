@@ -252,7 +252,7 @@ func TestResolveOptIn(t *testing.T) {
 }
 
 // TestLiveAgentAvailable_UsesSameDecision guards the backward-compat path
-// steps_j1_setup.go's own @live scenario calls directly: it must agree with
+// steps_j2_setup.go's own @live scenario calls directly: it must agree with
 // engineAvailable, never drift into a second, silently-different notion of
 // "available".
 func TestLiveAgentAvailable_UsesSameDecision(t *testing.T) {
@@ -271,7 +271,7 @@ func TestMatchedEnvAndEnvSet(t *testing.T) {
 	assert.False(t, envSet([]string{"CTXLOOM_TEST_ENV_A"}))
 }
 
-// TestBackendTypeToLiveKey guards the one mapping the hermetic j9 matrix's
+// TestBackendTypeToLiveKey guards the one mapping the hermetic j22 matrix's
 // backend-type vocabulary (claude-code/codex/kiro/opencode/antigravity) and
 // the live isolation probe (tests/acceptance/isolation_probe.go, behind the
 // acceptance tag) both resolve through to reach this registry's own liveAgents

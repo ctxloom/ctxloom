@@ -10,7 +10,7 @@ import (
 
 func passingFeature() Feature {
 	return Feature{
-		Path:        "tests/acceptance/features/j1_setup.feature",
+		Path:        "tests/acceptance/features/j2_setup.feature",
 		Name:        "Setting up a project",
 		Description: []string{"A description line."},
 		Tags:        []string{"@doc"},
@@ -103,7 +103,7 @@ func TestGeneratePage_IncludesNarrationProseWhenPresent(t *testing.T) {
 		},
 	}
 
-	page, err := GeneratePage(feat, narr, captures, "j1_setup.doc.md")
+	page, err := GeneratePage(feat, narr, captures, "j2_setup.doc.md")
 	require.NoError(t, err)
 	assert.Contains(t, page, "Intro prose.")
 	assert.Contains(t, page, "Outro prose.")

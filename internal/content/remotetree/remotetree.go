@@ -306,7 +306,7 @@ func fetchFile(ctx context.Context, f remote.Fetcher, spec Spec, limits Limits, 
 
 // listError distinguishes the three ways a listing can fail. Collapsing them is
 // how a publisher's mistake reaches the user as a bare "remote content not
-// found" with nothing to act on — which is precisely the J20 symptom.
+// found" with nothing to act on — which is precisely the J14 symptom.
 func listError(spec Spec, rel string, err error) error {
 	if !errors.Is(err, errs.ErrRemoteContentNotFound) {
 		return fmt.Errorf("content/remotetree: listing %s at %s: %w", repoPath(spec, rel), spec.SHA, err)

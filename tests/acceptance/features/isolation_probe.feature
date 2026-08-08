@@ -1,7 +1,7 @@
 @live
 Feature: Isolation probe — live proof against real vendor engines
 
-  j9_isolation.feature's own matrix proves ctxloom's SIDE of isolation — the right
+  j22_isolation.feature's own matrix proves ctxloom's SIDE of isolation — the right
   env var, pointed at the right scratch dir, seeded with the right bytes — against
   a cooperative recording spy, never a real engine binary. That is fast, hermetic,
   and correctly scoped for a regression test. It cannot prove the other half: that
@@ -179,6 +179,6 @@ Feature: Isolation probe — live proof against real vendor engines
     When the probe runs it live under --degraded, writing a unique token in one turn
     Then the probe confirms antigravity's global scratch directory was touched, as expected
 
-  # Back to: tests/acceptance/features/j9_isolation.feature (the hermetic layer
+  # Back to: tests/acceptance/features/j22_isolation.feature (the hermetic layer
   # this feature complements) · website/src/content/docs/security/isolation.md
   # (the narrative account of what these engines actually do).

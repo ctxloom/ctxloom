@@ -15,7 +15,7 @@ import (
 // parent list is what `ctxloom init` composes into a user's very first
 // context, and NOTHING asserted it. The only two references anywhere were a
 // ref-PARSING fixture string in internal/remote and a file-exists check in
-// j20 — so a parent could be removed, renamed, or pointed at a bundle that no
+// j14 — so a parent could be removed, renamed, or pointed at a bundle that no
 // longer exists, and every gate would stay green while new projects silently
 // got different context.
 //

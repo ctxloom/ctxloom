@@ -10,7 +10,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   including the refusals and the shapes that only matter to a machine. The
   narrative version — Alice's first hour, and satisfying herself she can back
-  out — is journeys/j19_adopt_and_back_out.feature, which asserts what a PERSON
+  out — is journeys/j1_adopt_and_back_out.feature, which asserts what a PERSON
   sees.
 
   Rule: Installing wires the project for one engine, and validates which

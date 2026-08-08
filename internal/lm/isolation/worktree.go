@@ -29,7 +29,7 @@ const credentialSeedFixIt = "authenticate the engine on this host (e.g. `claude 
 // "unregistered backend" finding below must not fire for them. Only
 // entry today: "mock", ctxloom's own built-in test double — a bare echo that
 // never spawns a grandchild process and never touches disk (see
-// tests/acceptance/features/j9_isolation.feature's own hermeticity note).
+// tests/acceptance/features/j22_isolation.feature's own hermeticity note).
 // This is a NAMED, independently-verified exemption, never a convenience
 // default — a real, user-selectable backend (e.g. "acp") that falls through
 // both registries is exactly the bug this guards against, not a candidate for
@@ -740,7 +740,7 @@ func teardownWorktree(ctx context.Context, g git.Git, repoDir, target string) {
 	// NOT auto-retiring the shared config-exclude block here.
 	// A first draft called gitignore.RetireWorktreeConfigBlock once no
 	// linked worktree remained, and it regressed a live, currently-passing
-	// acceptance contract — tests/acceptance/features/j9_isolation.feature's
+	// acceptance contract — tests/acceptance/features/j22_isolation.feature's
 	// "A worktree run leaves the project tree clean" asserts the shared
 	// common-dir info/exclude STILL carries the ctxloom worktree-config
 	// block immediately after a single worktree's teardown (the scenario's

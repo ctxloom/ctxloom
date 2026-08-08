@@ -247,7 +247,7 @@ profiles:
 	// given — bigger than the known materialize-only gap, since
 	// this is the launch/run path. So codex reports AUTHENTICATED here (that
 	// axis is real and correct), but is NOT YET a proven context-delivering
-	// live row — do not add a J5 @live Examples row for codex until this is
+	// live row — do not add a J4 @live Examples row for codex until this is
 	// fixed, or it would be red (or falsely green on a weakened assertion).
 	"codex": {
 		binary:     "codex",
@@ -306,12 +306,12 @@ profiles:
 
 // backendTypeToLiveKey maps a REGISTERED backend type name (the config
 // `llm.configs.*.type` value, and the identifier
-// tests/acceptance/steps_j9_isolation_matrix.go's spy fixture and the
+// tests/acceptance/steps_j22_isolation_matrix.go's spy fixture and the
 // isolation-probe feature both use: "claude-code"/"codex"/"kiro"/"opencode"/
 // "antigravity") onto this registry's own liveAgents map key. Every name is
 // identical except claude-code -> claude, a historical mismatch (the @live
 // Examples tables predate the isolation matrix and used the short form).
-// Extracted here — not duplicated — so both the hermetic j9 matrix's engine
+// Extracted here — not duplicated — so both the hermetic j22 matrix's engine
 // vocabulary and the live isolation probe's agree on one mapping.
 func backendTypeToLiveKey(backendType string) string {
 	if backendType == "claude-code" {
@@ -471,7 +471,7 @@ func checkRequiredEngines(report []engineStatus, required []string) error {
 
 // liveAgentAvailable reports whether the named real agent can be reached.
 // Kept as a single-argument, bool-returning function (rather than folded
-// away) because steps_j1_setup.go's own @live scenario predates this
+// away) because steps_j2_setup.go's own @live scenario predates this
 // registry and calls it directly with the liveAgents["claude"] entry it
 // looked up itself. It delegates to the exact same engineAvailable decision
 // the report and the require-list floor use, so every caller agrees on

@@ -45,7 +45,7 @@ func TestRenderPullSummary_NothingToPull(t *testing.T) {
 // code (not scraping stdout) can actually tell. Retracted is deliberately
 // NOT a failure here (see the "retracted item does not fail the pull"
 // subtest below): it is the retraction mechanism working as designed, and
-// the acceptance journeys for it (j3/j7/trust_surface) require `remote pull`
+// the acceptance journeys for it (j15/j17/trust_surface) require `remote pull`
 // to keep exiting 0 when a dependency is withheld this way — an earlier
 // version of this fix treated Retracted as a failure too and broke exactly
 // those three scenarios.

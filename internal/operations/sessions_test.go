@@ -166,8 +166,8 @@ func TestListSessions_KeepsSessionWithOnlyACanonicalTranscript(t *testing.T) {
 }
 
 // TestListSessions_PurgedSessionSurvivesReconcile is the mutation target for
-// isUnrecoverable's PurgedAt guard (j22 close-out area 2's must-fix,
-// docs/design/j22-closeout-surfaces.design.md §4.5). Without that guard —
+// isUnrecoverable's PurgedAt guard (j13 close-out area 2's must-fix,
+// docs/design/j13-closeout-surfaces.design.md §4.5). Without that guard —
 // checked FIRST, ahead of the Summary/Detail/CanonicalTranscriptPath checks —
 // a session `ctxloom session purge` destroyed the transcript of, and that was
 // never distilled (no Summary, no Detail, no CanonicalTranscriptPath), is

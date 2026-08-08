@@ -235,7 +235,7 @@ func (r EffectiveTrustResult) Reason() string {
 		// deny source that forgets to add a case here — pending review is
 		// the safe, actionable default, never a bare "withheld". Wording
 		// ("awaiting review") matches warnPendingTally's existing phrasing —
-		// tests/acceptance/steps_j1_setup.go's "Alice is told the content is
+		// tests/acceptance/steps_j2_setup.go's "Alice is told the content is
 		// held for her review" step asserts on this exact substring.
 		return "awaiting review — run 'ctxloom review'"
 	}

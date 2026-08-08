@@ -321,9 +321,9 @@ must be *one* commit, not a drizzle.
   `session query`, `bundle mcp edit`, `acp entries`, `acp server`.
 - **Added (4):** `llm show`, `skill delete`, `mcp server edit`, `agent edit`.
 
-### Cost to J18 (in flight, being written now)
+### Cost to J16 (in flight, being written now)
 
-J18's spine survives intact: `bundle sign`, `bundle move`, `trust accept`,
+J16's spine survives intact: `bundle sign`, `bundle move`, `trust accept`,
 `trust reject`, `trust signer list`, `trust signer show` are all unchanged.
 Three hits:
 
@@ -335,32 +335,32 @@ Three hits:
    Same for any `signer list` twin scenario.
 3. Allowlist rows for `sign` and `signer list` are deleted, not covered.
 
-**Recommendation: do not stall J18.** Let it land against current spellings —
+**Recommendation: do not stall J16.** Let it land against current spellings —
 its value is the ssh-agent fixture and the payload assertions, which are
 spelling-independent. The reorg commit then re-spells the corpus mechanically
 (the gate enforces completeness of that re-spell) and deletes the two
 deprecated-twin scenarios.
 
-### Cost to J19–J23 (planned, per `docs/journey-coverage-gaps.md`)
+### Cost to J1–J12 (planned, per `docs/journey-coverage-gaps.md`)
 
 Write these against the **new** surface from the start — none exists yet, so
 renames cost nothing if the reorg's spelling table is handed to their author:
 
-- **J19:** `mcp server add/remove` → `create`/`delete`; `list`, `show`,
+- **J1:** `mcp server add/remove` → `create`/`delete`; `list`, `show`,
   `register`, `unregister` unchanged. Gains a scenario slot for the new
   `mcp server edit`.
-- **J20:** `manage config init --engine X` is **deleted**, so
+- **J14:** `manage config init --engine X` is **deleted**, so
   `engineMatrixLeaves` in `completeness_test.go` must repoint its matrix rows
   to `config init --engine X`. The gaps doc's deliberate both-spellings
   scenario ("use the deprecated spelling for the matrix, add one canonical")
   collapses to a single spelling — a simplification, not a loss.
   `manage install --engine X` is unchanged.
-- **J21:** untouched — the four hidden `hook` leaves are outside this
+- **J19:** untouched — the four hidden `hook` leaves are outside this
   proposal.
-- **J22:** `acp entries` → `acp list`, `acp server` → `acp serve`;
+- **J13:** `acp entries` → `acp list`, `acp server` → `acp serve`;
   `acp client` unchanged. The gaps doc's note that `agent.feature:52` covers
   via deprecated `acp agents` becomes moot (alias deleted).
-- **J23:** `session query` → `session search`; `session watch` unchanged.
+- **J12:** `session query` → `session search`; `session watch` unchanged.
 - **Folds:** the `config get`/`config show` fold into `config.feature`
   becomes `config show` + `config show <section>`; `container tooling` and
   `init prompt` folds are unchanged.
@@ -369,7 +369,7 @@ renames cost nothing if the reorg's spelling table is handed to their author:
 
 The gaps doc's own table (§1 there) shows ~15 canonical leaves are covered
 *only* through deprecated spellings — `trust_cli.feature` drives `blacklist`
-and bare `trust`, J3 drives `signer add/remove/show`, `agent.feature` drives
+and bare `trust`, J15 drives `signer add/remove/show`, `agent.feature` drives
 `tooling` and `acp agents`, `config.feature`/`manage.feature` drive
 `manage config *`. **Deleting the aliases turns all of those scenarios RED at
 reorg time.** They must be re-spelled to canonical in the same commit — which
@@ -384,10 +384,10 @@ right tool).
 
 ### Order of work
 
-1. J18 lands on current spellings (in flight, don't touch).
+1. J16 lands on current spellings (in flight, don't touch).
 2. One reorg commit: rename/delete/add in `internal/cli`, re-spell the whole
    corpus, update the gate's three lists, regenerate docs.
-3. J19–J23 authored against the new surface using the §5 table.
+3. J1–J12 authored against the new surface using the §5 table.
 
 ---
 

@@ -119,7 +119,7 @@ func RemoveTaskloomBinary() {
 // build), so cross-process concurrency scenarios can drive it from goroutines.
 // Delegates to RunTaskloomIn(e.ProjectDir, ...) so this remains the common
 // case while callers that need a DIFFERENT cwd (e.g. a linked git worktree —
-// see the J16 worktree-task-store journey) have a seam of their own.
+// see the J26 worktree-task-store journey) have a seam of their own.
 func (e *TestEnvironment) RunTaskloom(extraEnv []string, args ...string) (stdout, stderr string, err error) {
 	return e.RunTaskloomIn(e.ProjectDir, extraEnv, args...)
 }

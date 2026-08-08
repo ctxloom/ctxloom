@@ -14,7 +14,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 )
 
-// Session purge — j22 close-out area 2 (docs/design/j22-closeout-surfaces.design.md
+// Session purge — j13 close-out area 2 (docs/design/j13-closeout-surfaces.design.md
 // §4). A harp directory holds three content classes, and purge treats each one
 // differently:
 //

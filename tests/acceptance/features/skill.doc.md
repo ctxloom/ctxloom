@@ -6,8 +6,8 @@ and carries no assertions of its own — skill.feature next to it is the single
 source of truth for what this journey promises. Marker convention: an opening
 prose block, one block per scenario keyed to that scenario's exact name (a
 Scenario Outline's marker uses the Outline's own name once — not repeated per
-Examples row), and a closing block — the same convention j1_setup.doc.md and
-j5_multi_engine.doc.md already use.
+Examples row), and a closing block — the same convention j2_setup.doc.md and
+j4_multi_engine.doc.md already use.
 -->
 
 <!-- doc:intro -->

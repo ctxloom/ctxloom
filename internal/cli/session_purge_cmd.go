@@ -13,7 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
-// session purge — j22 close-out area 2. Destroys a finished session's
+// session purge — j13 close-out area 2. Destroys a finished session's
 // machine-written bulk (transcript.jsonl, persist/transcripts/…), keeping the
 // distilled essence and the index entry by default; --everything also
 // destroys the essence. Human-authored files anywhere under the harp

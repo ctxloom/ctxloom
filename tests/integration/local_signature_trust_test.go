@@ -26,7 +26,7 @@ import (
 // They deliberately do NOT weaken remote trust: everything here is
 // ctxloom:local content in the project's own tree. The remote counterpart —
 // signed bytes fetched from another repo, where a trusted key over
-// non-matching bytes IS a tamper alarm — is J3's, and is untouched.
+// non-matching bytes IS a tamper alarm — is J15's, and is untouched.
 
 const localSigFragmentBody = "LOCAL-SIG-CHARACTERIZATION-PAYLOAD"
 
@@ -126,7 +126,7 @@ func TestLocalBundle_ValidSignature_Delivers(t *testing.T) {
 //
 // The TRUSTED-key variant is the sharp one. For REMOTE content that same
 // on-disk shape — a key you trust, over bytes it does not cover — is
-// signing.ErrSignatureTampered and the bundle is withheld entirely (J3). The
+// signing.ErrSignatureTampered and the bundle is withheld entirely (J15). The
 // distinction being asserted here is local-tree provenance vs fetched-content
 // provenance: on content you authored yourself there is no adversary to
 // detect, only a chore you skipped.

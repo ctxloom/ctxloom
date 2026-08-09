@@ -3,6 +3,7 @@ package cli
 import (
 	"testing"
 
+	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,6 +27,28 @@ const helpMarker = "Available Commands:"
 // namespace. helpMarker only appears on a namespace, so a leaf that was
 // silently turned into a help print is invisible to it.
 const usageMarker = "Usage:"
+
+// TestGroupNodeDefault_NamesAChildThatExists checks every bare-noun delegate
+// in the tree, not just the pilot's.
+//
+// The delegate is named by string and resolved at dispatch, so a typo or a
+// renamed subcommand turns the bare noun into a runtime error that nothing
+// notices until a user types it. This walk finds it at build time and covers
+// each noun wired later without being edited.
+func TestGroupNodeDefault_NamesAChildThatExists(t *testing.T) {
+	var wired int
+	walkCommands(rootCommand(), func(c *cobra.Command) {
+		primary, ok := groupNodeDefaultChild(c)
+		if !ok {
+			return
+		}
+		wired++
+		assert.NotNil(t, findSub(c, primary),
+			"%s answers its bare form with %q, which is not one of its subcommands",
+			c.CommandPath(), primary)
+	})
+	assert.Positive(t, wired, "at least one namespace answers its bare form with a listing")
+}
 
 // TestRemoteBare_ListsRatherThanTeaches is the pilot for the bare-noun rule.
 // `ctxloom remote` answers with the registry, the way `git remote` does.

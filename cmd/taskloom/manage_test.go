@@ -222,11 +222,11 @@ func TestManageUninstall_NotRegisteredIsNotReportedAsRemoved(t *testing.T) {
 		"a config with no taskloom entry must not be rewritten at all")
 }
 
-// A config `manage status` cannot READ is not the same as one that is absent,
+// A config `manage check` cannot READ is not the same as one that is absent,
 // and reporting neither is the worst answer: the user asks "where am I
 // registered?" and a permission-denied or wrong-type config drops out of the
 // table with no trace, reading exactly like "this backend has no config".
-func TestManageStatus_UnreadableConfigIsReportedNotSkipped(t *testing.T) {
+func TestManageCheck_UnreadableConfigIsReportedNotSkipped(t *testing.T) {
 	fakeHome(t)
 	proj := t.TempDir()
 	// A directory where the config file belongs: os.ReadFile fails with a
@@ -234,7 +234,7 @@ func TestManageStatus_UnreadableConfigIsReportedNotSkipped(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".agents", "mcp_config.json"), 0o755))
 
 	var out bytes.Buffer
-	require.NoError(t, manageStatus(proj, &out))
+	require.NoError(t, manageCheck(proj, &out))
 
 	assert.Contains(t, out.String(), "unreadable",
 		"a config that cannot be read must be reported, not silently skipped")

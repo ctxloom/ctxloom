@@ -58,15 +58,15 @@ func runManageUninstall(*cobra.Command, []string) error {
 	return manageUninstall(manageEngine, manageDir, !manageProject, os.Stderr)
 }
 
-var manageStatusCmd = &cobra.Command{
-	Use:   "status",
+var manageCheckCmd = &cobra.Command{
+	Use:   "check",
 	Short: "Report where the taskloom MCP server is registered",
 	Args:  cobra.NoArgs,
-	RunE:  runManageStatus,
+	RunE:  runManageCheck,
 }
 
-func runManageStatus(cmd *cobra.Command, _ []string) error {
-	return manageStatus(manageDir, cmd.OutOrStdout())
+func runManageCheck(cmd *cobra.Command, _ []string) error {
+	return manageCheck(manageDir, cmd.OutOrStdout())
 }
 
 // resolveEngines picks the engines to operate on: the one explicitly named
@@ -177,7 +177,7 @@ func manageUninstall(name, dir string, global bool, errOut io.Writer) error {
 	return nil
 }
 
-func manageStatus(dir string, out io.Writer) error {
+func manageCheck(dir string, out io.Writer) error {
 	if err := engine.VerifyCommandResolvable(); err != nil {
 		fmt.Fprintln(out, "binary: taskloom NOT on PATH")
 	} else {
@@ -251,11 +251,11 @@ func init() {
 		c.Flags().BoolVar(&manageProject, "project", false, "Write the project-scoped config under --dir instead of the user-level one")
 	}
 	manageInstallCmd.Flags().BoolVar(&managePrintOnly, "print-only", false, "Print the merged configs to stderr instead of writing them")
-	for _, c := range []*cobra.Command{manageInstallCmd, manageUninstallCmd, manageStatusCmd} {
+	for _, c := range []*cobra.Command{manageInstallCmd, manageUninstallCmd, manageCheckCmd} {
 		c.Flags().StringVar(&manageDir, "dir", ".", "Project directory for project-scoped configs")
 	}
 	manageCmd.AddCommand(manageInstallCmd)
 	manageCmd.AddCommand(manageUninstallCmd)
-	manageCmd.AddCommand(manageStatusCmd)
+	manageCmd.AddCommand(manageCheckCmd)
 	rootCmd.AddCommand(manageCmd)
 }

@@ -155,7 +155,7 @@ func groupNodeDefaultChild(cmd *cobra.Command) (string, bool) {
 // ONLY A TERMINAL NAMESPACE, which is the distinction that matters most here.
 // --format is a persistent ROOT flag, so it may legitimately be typed anywhere;
 // what decides the outcome is the command it lands on, never the flag's
-// position. `ctxloom --format json manage status` runs `manage status`, whose
+// position. `ctxloom --format json manage check` runs `manage check`, whose
 // own RunE honors json — this never sees it. Only a namespace as the ENTIRE
 // command reaches this.
 //

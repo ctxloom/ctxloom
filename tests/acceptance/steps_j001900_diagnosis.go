@@ -865,7 +865,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^the wiring report names the materialized surface as stale$`, func(c context.Context) error {
-		return j001900OutputNamesAll(worldFrom(c), "`manage status`", "stale")
+		return j001900OutputNamesAll(worldFrom(c), "`manage check`", "stale")
 	})
 
 	// --- B7: delivered -> ingested ------------------------------------------

@@ -208,12 +208,12 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # "claude-code: hooks=true ...", so matching it says nothing about whether
     # anything was wired. The per-surface flags are what "wired" means, so the
     # assertion is a regex over them.
-    Scenario: Status reports which surfaces are actually wired
+    Scenario: Check reports which surfaces are actually wired
       Given an initialized ctxloom project
       When Alice wires the hooks in and asks what is configured:
         """
         ctxloom manage hooks install
-        ctxloom manage status
+        ctxloom manage check
         """
       Then the command succeeds
       And the output matches "claude-code: hooks=true[^\n]*mcp=true"

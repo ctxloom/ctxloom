@@ -33,7 +33,7 @@ command files, .gitignore, and configuration.
 
   ctxloom manage install      Scaffold and wire ctxloom into this project
   ctxloom manage uninstall    Remove ctxloom's hooks, MCP entry, and commands
-  ctxloom manage status       Show what ctxloom has wired in
+  ctxloom manage check        Show what ctxloom has wired in
   ctxloom manage hooks        Install/uninstall/inspect backend hooks
   ctxloom manage gitignore    Maintain ctxloom's .gitignore entries
 
@@ -71,11 +71,11 @@ contents (profiles, bundles, config) untouched.`,
 	RunE: runManageUninstall,
 }
 
-var manageStatusCmd = &cobra.Command{
-	Use:   "status",
+var manageCheckCmd = &cobra.Command{
+	Use:   "check",
 	Short: "Show what ctxloom has wired into this project",
 	Args:  cobra.NoArgs,
-	RunE:  runManageStatus,
+	RunE:  runManageCheck,
 }
 
 // runManageInstall scaffolds and wires ctxloom into the current project. Fault
@@ -400,7 +400,7 @@ func runManageUninstall(cmd *cobra.Command, _ []string) error {
 	})
 }
 
-func runManageStatus(cmd *cobra.Command, _ []string) error {
+func runManageCheck(cmd *cobra.Command, _ []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return err
@@ -523,7 +523,7 @@ var manageHooksStatusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show which backends have ctxloom hooks wired in",
 	Args:  cobra.NoArgs,
-	RunE:  runManageStatus,
+	RunE:  runManageCheck,
 }
 
 var (
@@ -834,7 +834,7 @@ func init() {
 	// Orchestrators.
 	manageCmd.AddCommand(manageInstallCmd)
 	manageCmd.AddCommand(manageUninstallCmd)
-	manageCmd.AddCommand(manageStatusCmd)
+	manageCmd.AddCommand(manageCheckCmd)
 	manageInstallCmd.Flags().StringVar(&manageInstallEngine, "engine", "claude-code", "AI engine to record when scaffolding")
 	manageInstallCmd.Flags().BoolVar(&manageInstallPrint, "print", false, "Print the steps that would run, without executing")
 

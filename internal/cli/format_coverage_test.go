@@ -173,8 +173,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 		// list`), not exercising a real hit — that's session_query_test.go's job.
 		return []string{"coverage-query-no-hit"}
 	}},
-	"remote list":   {extraArgs: noExtraArgs},
-	"manage status": {extraArgs: noExtraArgs},
+	"remote list":  {extraArgs: noExtraArgs},
+	"manage check": {extraArgs: noExtraArgs},
 	// Read-only: resolves the hook set in memory and writes nothing, so unlike
 	// its install/uninstall siblings it is genuinely exercisable here.
 	"manage hooks list": {extraArgs: noExtraArgs},

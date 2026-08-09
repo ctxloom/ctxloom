@@ -132,7 +132,7 @@ detail (config paths, on-disk format, merge semantics) lives in each agent modul
 **Invariants**
 
 - **`Command` is a bare PATH name**, resolved against *the agent's* environment at some future
-  invocation, not verified at registration. `manage status` reports it
+  invocation, not verified at registration. `manage check` reports it
   (`cmd/taskloom/manage.go:150-153` runs `exec.LookPath`); `manage install` does not.
 - **opencode is absent** from the registry and cannot appear — `rg 'MCPRegistrar' internal/opencode/`
   returns nothing. The user-visible error at `cmd/taskloom/manage.go:91` enumerates only the four.
@@ -271,7 +271,7 @@ its primary checkout's task store rather than one that dies with the worktree.
   install` in the identical situation errors (`manage.go:120-147` has no `len(engines) == 0`
   guard). It also reports `"removed MCP server from <engine>"` and rewrites the config even when
   the taskloom entry was never present.
-- **`manage status` silently skips any config it cannot stat or read**
+- **`manage check` silently skips any config it cannot stat or read**
   (`if err != nil || raw == nil { continue }`, `manage.go:165`) — in the one command whose job is
   telling you the truth about your configs.
 - **The list pipeline exists twice** (`runListCmd` `commands.go:163` and `handleTaskList`

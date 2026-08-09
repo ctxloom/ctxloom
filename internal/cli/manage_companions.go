@@ -6,7 +6,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-// Companion-binary status for `manage status`. Companions are separate binaries
+// Companion-binary status for `manage check`. Companions are separate binaries
 // (taskloom, ltk) that ctxloom never installs; a missing one silently disables
 // the builtin bundle wiring that needs it, so the status report names what is
 // disabled and how to install it.

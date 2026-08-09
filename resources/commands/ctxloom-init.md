@@ -71,7 +71,7 @@ Then lead straight into the scan — don't recite the phase list mechanically.
 - `ctxloom llm list` — configured engines/models (the candidate `--engine`
   values for anything you bind later)
 - `ctxloom container check` — whether containerized agents are viable here
-- `ctxloom manage status` — hooks/MCP/statusline wiring per backend, plus
+- `ctxloom manage check` — hooks/MCP/statusline wiring per backend, plus
   which first-party companions (taskloom, ltk) are on PATH
 
 If the dep check reports something missing, surface it to the user and
@@ -96,7 +96,7 @@ without any ctxloom code change:
   invocations before they run.
 
 **Detect:** check PATH yourself (`which taskloom`, `which ltk`) and/or run
-`ctxloom manage status`, which reports each companion's presence and what it
+`ctxloom manage check`, which reports each companion's presence and what it
 enables (and what's disabled without it).
 
 **Explain + guide install** for anything missing — give the install command
@@ -104,8 +104,8 @@ enables (and what's disabled without it).
 but the user runs it themselves; ctxloom never installs a binary for you.
 
 **Verify:** once a companion is on PATH, its loadout is picked up
-automatically (no separate registration step) — `ctxloom manage status`
-should now show it, and `ctxloom manage hooks status` should show its hooks
+automatically (no separate registration step) — `ctxloom manage check`
+should now show it, and `ctxloom manage hooks check` should show its hooks
 applied to the backends in use. ltk self-installs its own pre-tool hook the
 first time it's invoked; taskloom's MCP tools ride the same `ctxloom manage
 hooks install` pass that wires ctxloom's own MCP server.

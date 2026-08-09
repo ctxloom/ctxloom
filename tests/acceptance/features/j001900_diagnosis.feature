@@ -367,11 +367,11 @@ Feature: The day the assistant goes blind
 
   # ---- B6: composed -> delivered ----------------------------------------
   # Silent-loss mode: hooks not installed, or a materialized surface that has
-  # gone stale under content that moved on. Inspectors: `manage status`,
+  # gone stale under content that moved on. Inspectors: `manage check`,
   # `doctor`. Verdict OK in the boundary table — this scenario tests the
   # staleness half specifically, which is the half a user actually hits.
   #
-  # MEASURED: RED, and a finding against B6's "OK" verdict. `manage status`
+  # MEASURED: RED, and a finding against B6's "OK" verdict. `manage check`
   # reports the project path, whether MCP auto-registration and the statusline
   # are on, one "not configured" line per engine, and the companion binaries it
   # found. It never mentions a materialized surface at all — so it cannot
@@ -383,13 +383,13 @@ Feature: The day the assistant goes blind
   # it asserts the surface on disk holds last week's bytes and NOT this week's.
   # So the red here is a product answer, not a harness artifact.
   #
-  # UNTAG WHEN: `manage status` (or doctor) reports a materialized surface whose
+  # UNTAG WHEN: `manage check` (or doctor) reports a materialized surface whose
   # content no longer matches what the profile composes.
   @wip
   Scenario: The composed context moved on and the engine's file did not, and the wiring report says so
     Given the runbook is composed into Alice's profile
     And the engine's own surface on disk still holds last week's copy
-    When I run "ctxloom manage status"
+    When I run "ctxloom manage check"
     Then the wiring report names the materialized surface as stale
 
   # ---- B7: delivered -> ingested ----------------------------------------
@@ -419,7 +419,7 @@ Feature: The day the assistant goes blind
   # before.
   #
   # WHAT THE PRODUCT ACTUALLY SAID, measured against a fresh build before this
-  # change: doctor, manage status, agent show, and session list all said
+  # change: doctor, manage check, agent show, and session list all said
   # NOTHING about whether the engine read anything — not an overclaim, just a
   # silence a reader could misread as "nothing to report" instead of "this
   # cannot be known". `ctxloom doctor` now carries a new check,

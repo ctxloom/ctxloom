@@ -37,7 +37,7 @@ func TestManageNamespace_HasExpectedSubcommands(t *testing.T) {
 	// deleted the whole deprecated `manage mcp *` / `manage config *` alias
 	// namespace, whose real homes are the top-level `ctxloom mcp` and
 	// `ctxloom config`.
-	for _, name := range []string{"install", "uninstall", "status", "hooks", "statusline", "gitignore"} {
+	for _, name := range []string{"install", "uninstall", "check", "hooks", "statusline", "gitignore"} {
 		assert.NotNil(t, findSub(manage, name), "manage %s should exist", name)
 	}
 	assert.Nil(t, findSub(manage, "init"), "manage init was deleted; root `ctxloom init` is the sole bootstrap")

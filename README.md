@@ -132,7 +132,7 @@ What works with what:
 
 Opt out at install time: `--no-taskloom`, `--no-ltk`, `--no-companions`
 (script) or just don't `brew install` them. Check wiring anytime:
-`ctxloom manage status`.
+`ctxloom manage check`.
 
 ## Development
 

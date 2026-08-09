@@ -211,22 +211,22 @@ func TestGroupNode_UnresolvableFormatIsRefused(t *testing.T) {
 
 // TestGroupNode_PersistentFormatAheadOfSubcommandStillWorks is the guard on
 // the guard, and the one that would hurt most to get wrong. --format is a
-// persistent ROOT flag, so `ctxloom --format json manage status` is an
+// persistent ROOT flag, so `ctxloom --format json manage check` is an
 // ordinary scripted invocation: the flag is typed ahead of a namespace, but
-// the command it lands on is `manage status`, which honors json. The refusal
+// the command it lands on is `manage check`, which honors json. The refusal
 // keys on the INVOKED command, never on where the flag was typed — otherwise
 // every script that sets --format globally would break at once.
 func TestGroupNode_PersistentFormatAheadOfSubcommandStillWorks(t *testing.T) {
 	for _, args := range [][]string{
-		{"--format", "json", "manage", "status"},
-		{"manage", "--format", "json", "status"},
-		{"manage", "status", "--format", "json"},
+		{"--format", "json", "manage", "check"},
+		{"manage", "--format", "json", "check"},
+		{"manage", "check", "--format", "json"},
 	} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			out, err := runRoot(t, args...)
 
 			require.NoError(t, err,
-				"--format json reaches `manage status`, which honors it, whatever the flag's position")
+				"--format json reaches `manage check`, which honors it, whatever the flag's position")
 			assert.Contains(t, out, "{", "and the payload really is json")
 		})
 	}

@@ -38,8 +38,8 @@ flowchart TD
         MI["manage install :52"] --> EHG["ensureHarnessGitignore :137"]
         MI --> PIP["printInstallPlan :124 (--print)"]
         MU["manage uninstall :62"]
-        MS["manage status :72"] --> PHS["printHarnessStatus :177"] --> PCS["printCompanionStatus :222"] --> HFC["hintForCompanion :210 → companionHint :194"]
-        MH["manage hooks install/uninstall/status :248,274,295"]
+        MS["manage check :72"] --> PHS["printHarnessStatus :177"] --> PCS["printCompanionStatus :222"] --> HFC["hintForCompanion :210 → companionHint :194"]
+        MH["manage hooks install/uninstall/check :248,274,295"]
         MMCP["manage mcp * (DEPRECATED) :309"] --> SMAR["setMcpAutoRegister :331"]
         MSL["manage statusline install/uninstall :366,373"] --> SSL["setStatusline :380"]
         MC["manage config * (DEPRECATED) :406"] --> config

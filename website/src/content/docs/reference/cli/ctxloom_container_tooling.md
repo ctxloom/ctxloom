@@ -9,7 +9,7 @@ This page is generated from `ctxloom container tooling --help`.
 
 ## ctxloom container tooling
 
-Emit trusted bundles' agent-image tooling declarations for the LLM to apply
+Agent-image tooling declarations from trusted bundles
 
 ### Synopsis
 
@@ -22,10 +22,6 @@ user's explicit approval per change, then rebuild ('ctxloom container build').
 Collection is TRUST-GATED: declarations from unreviewed bundles are withheld
 like any other gated content, and nothing is ever applied automatically on
 pull/sync — the edit is the LLM's, gated by the user.
-
-```
-ctxloom container tooling [flags]
-```
 
 ### Options
 
@@ -45,4 +41,4 @@ ctxloom container tooling [flags]
 ### SEE ALSO
 
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
-
+* [ctxloom container tooling list](/reference/cli/ctxloom_container_tooling_list/)	 - Emit trusted bundles' agent-image tooling declarations for the LLM to apply

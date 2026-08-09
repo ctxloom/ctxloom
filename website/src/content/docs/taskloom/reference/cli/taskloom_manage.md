@@ -30,7 +30,7 @@ Register the taskloom MCP server with agent backends
 ### SEE ALSO
 
 * [taskloom](/taskloom/reference/cli/taskloom/)	 - Manage the per-project task store
+* [taskloom manage check](/taskloom/reference/cli/taskloom_manage_check/)	 - Report where the taskloom MCP server is registered
 * [taskloom manage install](/taskloom/reference/cli/taskloom_manage_install/)	 - Add the taskloom MCP server to backend configs
-* [taskloom manage status](/taskloom/reference/cli/taskloom_manage_status/)	 - Report where the taskloom MCP server is registered
 * [taskloom manage uninstall](/taskloom/reference/cli/taskloom_manage_uninstall/)	 - Remove the taskloom MCP server from backend configs
 

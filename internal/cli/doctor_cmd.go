@@ -654,7 +654,7 @@ func doctorCheckVersion() doctorCheck {
 
 // doctorCheckHooksTrust cross-references doctorConfiguredEngines (every
 // backend a configured agent resolves to) against operations.HarnessStatus —
-// the SAME read `ctxloom manage status`/`ctxloom manage hooks status` already
+// the SAME read `ctxloom manage check`/`ctxloom manage hooks check` already
 // expose — reporting hooks AND MCP registration per backend (a real
 // read, not a bare file-existence guess), plus how many signers the trust
 // store carries (operations.ListSigners — always includes the embedded root,
@@ -675,7 +675,7 @@ func doctorCheckHooksTrust(ctx context.Context, cfg *config.Config, cfgErr error
 
 // doctorHooksWiringDetail reports hooks + MCP registration for every backend a
 // configured agent resolves to, reading operations.HarnessStatus (the SAME read
-// `ctxloom manage status` exposes). ok=false is the caller's warn signal.
+// `ctxloom manage check` exposes). ok=false is the caller's warn signal.
 func doctorHooksWiringDetail(ctx context.Context, cfg *config.Config) (detail string, ok bool) {
 	configured := doctorConfiguredEngines(cfg)
 	if len(configured) == 0 {

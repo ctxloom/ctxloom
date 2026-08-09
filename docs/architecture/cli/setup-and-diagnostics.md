@@ -31,15 +31,15 @@ flowchart TD
         CS["config show :35"] --> RCY["renderConfigYAML :77"]
         CG["config get &lt;section&gt; :59"] --> RCS["resolveConfigSection :90 → renderConfigSection :107"]
         CE["config edit :121"] --> OIE["openInEditor :188 (env-only editor resolution)"]
-        CI["config init :145"] --> IPJ[["operations.InitializeProject"]]
+        CI["config create :145"] --> IPJ[["operations.InitializeProject"]]
     end
 
     subgraph manage["manage.go"]
         MI["manage install :52"] --> EHG["ensureHarnessGitignore :137"]
         MI --> PIP["printInstallPlan :124 (--print)"]
         MU["manage uninstall :62"]
-        MS["manage status :72"] --> PHS["printHarnessStatus :177"] --> PCS["printCompanionStatus :222"] --> HFC["hintForCompanion :210 → companionHint :194"]
-        MH["manage hooks install/uninstall/status :248,274,295"]
+        MS["manage check :72"] --> PHS["printHarnessStatus :177"] --> PCS["printCompanionStatus :222"] --> HFC["hintForCompanion :210 → companionHint :194"]
+        MH["manage hooks install/uninstall/check :248,274,295"]
         MMCP["manage mcp * (DEPRECATED) :309"] --> SMAR["setMcpAutoRegister :331"]
         MSL["manage statusline install/uninstall :366,373"] --> SSL["setStatusline :380"]
         MC["manage config * (DEPRECATED) :406"] --> config
@@ -49,7 +49,7 @@ flowchart TD
     subgraph container["container_cmd.go"]
         CB["container build &lt;backend&gt; :39"] --> BAI[["isolation.BuildAgentImage"]]
         CP["container provenance :149 (hidden)"]
-        CT["container tooling :188 / tooling (DEPRECATED) :215"] --> RTC["runToolingCmd :202 → renderTooling :231"]
+        CT["container tooling list :188 / tooling (DEPRECATED) :215"] --> RTC["runToolingListCmd :202 → renderTooling :231"]
         CSF["container scaffold :255"] --> SCB[["operations.ScaffoldContainerBase"]]
         CC["container check &lt;backend&gt; :287"] --> CD["containerDiagnose → renderContainerCheck :324"]
     end
@@ -169,7 +169,7 @@ TOML integer round-trip does not fail verification.
 
 - **`config edit` must not depend on a config load.** `openInEditor:188` reads the
   editor from `$VISUAL`/`$EDITOR` only.
-- **`config init` refuses to overwrite.** It stats the path first and errors when
+- **`config create` refuses to overwrite.** It stats the path first and errors when
   something is there.
 - **`config-write` verifies its own payload.** Nothing else in the package
   re-reads what it wrote to confirm the write landed.
@@ -227,9 +227,9 @@ TOML integer round-trip does not fail verification.
 - Both `container check` and `doctor` document "always exits 0", but both
   `return emit(...)`, which errors (→ exit 1) on an unparseable `--format`;
   `container check` also exits 1 on an unknown backend argument.
-- `config edit` and `config init` treat `os.Stat` as a boolean
+- `config edit` and `config create` treat `os.Stat` as a boolean
   (`config.go:129,158`): a permission error or broken symlink falls through to
-  launching the editor / initializing over the path. `config init` also passes
+  launching the editor / initializing over the path. `config create` also passes
   `context.Background()` instead of `cmd.Context()`, so it cannot be cancelled.
 - `config.go:167`, `container_cmd.go:132` and `edit_helpers.go:31,38,45-47` print
   success messages to `os.Stdout` via bare `fmt.Print*`.

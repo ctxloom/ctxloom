@@ -16,15 +16,14 @@ import (
 // separate `ctxloom review` porcelain.)
 
 var bundleHoldCmd = &cobra.Command{
-	Use:     "hold <name>",
-	Aliases: []string{"pin"},
-	Short:   "Hold an item at its locked SHA so `upgrade` won't advance it",
+	Use:   "hold <name>",
+	Short: "Hold an item at its locked SHA so `upgrade` won't advance it",
 	Long: `Set the hold flag on a bundle's active lockfile entry so 'remote upgrade'
 leaves it frozen at its currently-locked commit — even when its version
 constraint would otherwise allow a newer one. The hold is policy only: it does
-not edit the manifest, and the held SHA still satisfies the constraint. Unhold to
-let it move again. ('hold' was formerly 'pin', which now risks confusion with an
-exact version pin in the manifest.)`,
+not edit the manifest, and the held SHA still satisfies the constraint. Unhold
+to let it move again. Called 'hold' rather than 'pin' to keep clear of an exact
+version pin in the manifest, a different concept.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runBundleHold,
 }
@@ -82,11 +81,10 @@ func reportNothingToHold(cfg *config.Config, name, verb string, errOut io.Writer
 }
 
 var bundleUnholdCmd = &cobra.Command{
-	Use:     "unhold <name>",
-	Aliases: []string{"unpin"},
-	Short:   "Release a hold so `upgrade` can advance the item again",
-	Args:    cobra.ExactArgs(1),
-	RunE:    runBundleUnhold,
+	Use:   "unhold <name>",
+	Short: "Release a hold so `upgrade` can advance the item again",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runBundleUnhold,
 }
 
 func runBundleUnhold(cmd *cobra.Command, args []string) error {

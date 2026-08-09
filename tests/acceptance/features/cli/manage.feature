@@ -169,28 +169,28 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file ".ctxloom/config.yaml" does not exist
       And the file ".mcp.json" does not exist
 
-  Rule: Config init selects the engine without writing any engine files
+  Rule: Config create selects the engine without writing any engine files
 
-    `config init` scaffolds `.ctxloom` and records which engine the project
+    `config create` scaffolds `.ctxloom` and records which engine the project
     uses — it writes no engine-native files at all. Every engine therefore
     produces a byte-identical tree apart from config.yaml, so the config's
     CONTENTS are the only place the flag is observable and a file-exists check
     proves nothing about which engine was asked for.
 
-    Scenario: Config init scaffolds a config in a bare project
+    Scenario: Config create scaffolds a config in a bare project
       Given an empty project directory
       When Alice scaffolds a config without wiring any engine:
         """
-        ctxloom config init --engine claude-code
+        ctxloom config create --engine claude-code
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" exists
 
-    Scenario Outline: Config init records which engine the project uses
+    Scenario Outline: Config create records which engine the project uses
       Given an empty project directory
       When Alice scaffolds a config for <engine>:
         """
-        ctxloom config init --engine <engine>
+        ctxloom config create --engine <engine>
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" contains "engine: <engine>"
@@ -208,12 +208,12 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # "claude-code: hooks=true ...", so matching it says nothing about whether
     # anything was wired. The per-surface flags are what "wired" means, so the
     # assertion is a regex over them.
-    Scenario: Status reports which surfaces are actually wired
+    Scenario: Check reports which surfaces are actually wired
       Given an initialized ctxloom project
       When Alice wires the hooks in and asks what is configured:
         """
         ctxloom manage hooks install
-        ctxloom manage status
+        ctxloom manage check
         """
       Then the command succeeds
       And the output matches "claude-code: hooks=true[^\n]*mcp=true"
@@ -256,7 +256,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook inject-context"
       When Alice inspects and then removes them:
         """
-        ctxloom manage hooks status
+        ctxloom manage hooks check
         ctxloom manage hooks uninstall
         """
       Then the command succeeds

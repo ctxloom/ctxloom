@@ -84,7 +84,7 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom acp` | Serve ctxloom as an Agent Client Protocol agent (stdio) |
 | `ctxloom manage` | Install and manage ctxloom's project harness |
 | `ctxloom container` | Manage agent container images |
-| `ctxloom container tooling` | Emit trusted bundles' agent-image tooling declarations for the LLM to apply |
+| `ctxloom container tooling` | Agent-image tooling declarations from trusted bundles |
 | `ctxloom llm` | Manage LLM backends |
 | `ctxloom version` | Print the version number |
 
@@ -132,7 +132,7 @@ What works with what:
 
 Opt out at install time: `--no-taskloom`, `--no-ltk`, `--no-companions`
 (script) or just don't `brew install` them. Check wiring anytime:
-`ctxloom manage status`.
+`ctxloom manage check`.
 
 ## Development
 

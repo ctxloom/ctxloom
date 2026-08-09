@@ -27,7 +27,7 @@ Examples:
   ctxloom config show              # Show full configuration
   ctxloom config get defaults      # Get a specific section
   ctxloom config edit              # Open config.yaml in $EDITOR
-  ctxloom config init              # Scaffold a default config.yaml`,
+  ctxloom config create            # Scaffold a default config.yaml`,
 })
 
 var configShowCmd = &cobra.Command{
@@ -164,7 +164,7 @@ func runConfigEdit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 	if !exists {
-		return fmt.Errorf("no config at %s — run 'ctxloom config init' first", path)
+		return fmt.Errorf("no config at %s — run 'ctxloom config create' first", path)
 	}
 	return openInEditor(path)
 }
@@ -188,23 +188,23 @@ func configFileExists(path string) (bool, error) {
 	return true, nil
 }
 
-// configInitLong is configInitCmd's Long text.
-const configInitLong = `Write a default config.yaml AND a default remotes.yaml into the project
+// configCreateLong is configCreateCmd's Long text.
+const configCreateLong = `Write a default config.yaml AND a default remotes.yaml into the project
 .ctxloom directory.
 
 Refuses to overwrite an existing config.yaml, but the accompanying remotes.yaml
 is (re)written with defaults — back up a customized remotes.yaml first. For a
 fuller project scaffold (hooks, discovery), use 'ctxloom init'.`
 
-var configInitCmd = &cobra.Command{
-	Use:   "init",
+var configCreateCmd = &cobra.Command{
+	Use:   "create",
 	Short: "Scaffold a default config.yaml (and remotes.yaml)",
-	Long:  configInitLong,
+	Long:  configCreateLong,
 	Args:  cobra.NoArgs,
-	RunE:  runConfigInit,
+	RunE:  runConfigCreate,
 }
 
-func runConfigInit(cmd *cobra.Command, _ []string) error {
+func runConfigCreate(cmd *cobra.Command, _ []string) error {
 	appDir, err := resolveAppDir(false)
 	if err != nil {
 		return err
@@ -219,7 +219,7 @@ func runConfigInit(cmd *cobra.Command, _ []string) error {
 	}
 	if _, err := operations.InitializeProject(cmd.Context(), operations.InitializeProjectRequest{
 		AppDir: appDir,
-		Engine: configInitEngine,
+		Engine: configCreateEngine,
 	}); err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func runConfigInit(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-var configInitEngine string
+var configCreateEngine string
 
 // projectConfigPath returns the path to the project's config.yaml.
 func projectConfigPath() string {
@@ -258,6 +258,6 @@ func init() {
 	configCmd.AddCommand(configShowCmd)
 	configCmd.AddCommand(configGetCmd)
 	configCmd.AddCommand(configEditCmd)
-	configCmd.AddCommand(configInitCmd)
-	configInitCmd.Flags().StringVar(&configInitEngine, "engine", "claude-code", "AI engine to record in the scaffolded config")
+	configCmd.AddCommand(configCreateCmd)
+	configCreateCmd.Flags().StringVar(&configCreateEngine, "engine", "claude-code", "AI engine to record in the scaffolded config")
 }

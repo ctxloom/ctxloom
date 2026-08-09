@@ -183,47 +183,47 @@ func TestRunConfigEdit_InconclusiveStatDoesNotLaunchTheEditor(t *testing.T) {
 	assert.Contains(t, err.Error(), "cannot determine whether")
 }
 
-// TestRunConfigInit_InconclusiveStatIsReportedByTheGuard pins the write
+// TestRunConfigCreate_InconclusiveStatIsReportedByTheGuard pins the write
 // half: `if err == nil` treated every stat failure as "no config here", so the
-// one thing config init promises — never overwriting an existing config.yaml —
+// one thing config create promises — never overwriting an existing config.yaml —
 // rested on the downstream writer happening to fail too. The guard now reports
 // the unanswerable stat itself.
-func TestRunConfigInit_InconclusiveStatIsReportedByTheGuard(t *testing.T) {
+func TestRunConfigCreate_InconclusiveStatIsReportedByTheGuard(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom"), []byte("not a directory"), 0o644))
 
-	err := runConfigInit(&cobra.Command{}, nil)
+	err := runConfigCreate(&cobra.Command{}, nil)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot determine whether",
 		"the refusal must come from the exists-check, not from a later write that happened to fail")
 }
 
-// TestRunConfigInit_WritesTheScaffoldPayload is the characterization test for
+// TestRunConfigCreate_WritesTheScaffoldPayload is the characterization test for
 // the context.Background() -> cmd.Context() swap. That swap is not
 // observable: operations.InitializeProject's signature is
 // `InitializeProject(_ context.Context, ...)` — it DISCARDS the context
 // entirely (init.go), so no cancellation test can discriminate the two, and
-// the row's claim that `config init` cannot be interrupted holds for the
-// callee, not the caller. What this pins instead is the payload: config init
+// the row's claim that `config create` cannot be interrupted holds for the
+// callee, not the caller. What this pins instead is the payload: config create
 // writes a real config.yaml AND remotes.yaml, so the command remains exercised
 // end to end through the context it is given.
-func TestRunConfigInit_WritesTheScaffoldPayload(t *testing.T) {
+func TestRunConfigCreate_WritesTheScaffoldPayload(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 
 	cmd := &cobra.Command{}
 	cmd.SetContext(context.Background())
-	require.NoError(t, runConfigInit(cmd, nil))
+	require.NoError(t, runConfigCreate(cmd, nil))
 
 	data, err := os.ReadFile(filepath.Join(dir, ".ctxloom", "config.yaml"))
-	require.NoError(t, err, "config init must write config.yaml")
+	require.NoError(t, err, "config create must write config.yaml")
 	assert.NotEmpty(t, data, "an empty config.yaml is the silent no-op this project keeps shipping")
 	remotes, err := os.ReadFile(filepath.Join(dir, ".ctxloom", "remotes.yaml"))
-	require.NoError(t, err, "config init also writes remotes.yaml (documented in configInitLong)")
+	require.NoError(t, err, "config create also writes remotes.yaml (documented in configCreateLong)")
 	assert.NotEmpty(t, remotes)
 
 	// Second run refuses rather than clobbering what it just wrote.
-	require.Error(t, runConfigInit(cmd, nil))
+	require.Error(t, runConfigCreate(cmd, nil))
 }
 
 // TestConfigShowGet_HonorEveryFormatWithARealPayload pins that a SILENTNOOP
@@ -267,17 +267,17 @@ func TestConfigPayload_SectionKeysStaySnakeCase(t *testing.T) {
 	assert.NotContains(t, m, "CompactionChunks")
 }
 
-// TestConfigInitWritesItsSuccessLineToTheCommandWriter pins that
-// `config init`'s "Wrote <path>" line went to os.Stdout via a bare
+// TestConfigCreateWritesItsSuccessLineToTheCommandWriter pins that
+// `config create`'s "Wrote <path>" line went to os.Stdout via a bare
 // fmt.Printf, so it was invisible to this package's cobra output-capture tests
 // and unredirectable by any embedding frontend.
-func TestConfigInitWritesItsSuccessLineToTheCommandWriter(t *testing.T) {
+func TestConfigCreateWritesItsSuccessLineToTheCommandWriter(t *testing.T) {
 	dir := testsupport.ProjectDir(t)
 
 	var buf bytes.Buffer
 	cmd := &cobra.Command{}
 	cmd.SetOut(&buf)
-	require.NoError(t, runConfigInit(cmd, nil))
+	require.NoError(t, runConfigCreate(cmd, nil))
 
 	assert.Contains(t, buf.String(), "Wrote ")
 	assert.Contains(t, buf.String(), filepath.Join(dir, ".ctxloom", "config.yaml"))

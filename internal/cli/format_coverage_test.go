@@ -173,8 +173,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 		// list`), not exercising a real hit — that's session_query_test.go's job.
 		return []string{"coverage-query-no-hit"}
 	}},
-	"remote list":   {extraArgs: noExtraArgs},
-	"manage status": {extraArgs: noExtraArgs},
+	"remote list":  {extraArgs: noExtraArgs},
+	"manage check": {extraArgs: noExtraArgs},
 	// Read-only: resolves the hook set in memory and writes nothing, so unlike
 	// its install/uninstall siblings it is genuinely exercisable here.
 	"manage hooks list": {extraArgs: noExtraArgs},
@@ -183,9 +183,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"search":            {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
 
 	// --- exercised: canonical spine leaves ---
-	"trust signer list": {extraArgs: noExtraArgs},
-	"mcp server list":   {extraArgs: noExtraArgs},
-	"container tooling": {extraArgs: noExtraArgs},
+	"trust signer list":      {extraArgs: noExtraArgs},
+	"mcp server list":        {extraArgs: noExtraArgs},
+	"container tooling list": {extraArgs: noExtraArgs},
 
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
 	"acp":        {skip: "deprecated bare alias for `acp serve`; serves an ACP session, not a single rendered result"},
@@ -282,7 +282,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"manage uninstall":             {skip: "installer: side-effecting project teardown"},
 	"manage hooks install":         {skip: "installer: writes real hook files"},
 	"manage hooks uninstall":       {skip: "installer: removes real hook files"},
-	"manage hooks status":          {skip: "reads the hook files the installer above would write; not fixtured here — wired to emit() (shares runManageStatus with `manage status`); registry was stale, not debt"},
+	"manage hooks check":           {skip: "reads the hook files the installer above would write; not fixtured here — wired to emit() (shares runManageCheck with `manage check`); registry was stale, not debt"},
 	"mcp register":                 {skip: "installer: registers ctxloom as an MCP server in editor config"},
 	"mcp unregister":               {skip: "installer: unregisters ctxloom as an MCP server"},
 	"mcp server create":            {skip: "wired to emit(); mutating, not exercised here"},
@@ -294,7 +294,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"manage dirty-tree-ack grant":  {skip: "installer: writes the dirty-tree-commit admission-store file"},
 	"manage dirty-tree-ack revoke": {skip: "installer: removes the dirty-tree-commit admission-store record"},
 	"config edit":                  {skip: "not wired to emit() yet; also opens an editor", formatDebt: true},
-	"config init":                  {skip: "not wired to emit() yet; also an installer", formatDebt: true},
+	"config create":                {skip: "not wired to emit() yet; also an installer", formatDebt: true},
 
 	// --- skip: acp entries needing configured agents ---
 	"acp list": {skip: "wired to emit(), but needs a configured ACP agent entry fixture; not exercised here"},
@@ -471,8 +471,8 @@ var formatDebtAllowlist = map[string]string{
 	// `config show`/`config get` were paid down:
 	// both RunEs route through emit() over a yaml-round-tripped
 	// payload, so all five encodings carry the real configuration.
-	"config edit": "config.go: runConfigEdit must route through emit() (or be reclassified as structurally exempt: it only launches $EDITOR, no renderable result)",
-	"config init": "config.go: runConfigInit must route through emit() instead of a bare fmt.Fprintf",
+	"config edit":   "config.go: runConfigEdit must route through emit() (or be reclassified as structurally exempt: it only launches $EDITOR, no renderable result)",
+	"config create": "config.go: runConfigCreate must route through emit() instead of a bare fmt.Fprintf",
 
 	// --- remote surface (remote.go, remote_browse.go, remote_discover.go, remote_update.go, remote_upgrade.go) ---
 	"remote create":   "remote.go: remoteCreateCmd's inline RunE must route through emit() instead of fmt.Printf",

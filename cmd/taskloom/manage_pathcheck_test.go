@@ -17,7 +17,7 @@ import (
 // moment of registration, so an install onto a machine where the binary is not
 // reachable reports "registered MCP server for claude-code" and produces a
 // server that silently never starts, hours later and far from this command.
-// `manage status` already runs exactly this lookup; install must not be the
+// `manage check` already runs exactly this lookup; install must not be the
 // one path that declines to.
 //
 // The assertion is on the PAYLOAD (the diagnostic the user actually sees), not

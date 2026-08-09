@@ -40,7 +40,7 @@ Feature: Adopting ctxloom without regret — the first hour, and the exit verifi
     Given ctxloom is already wired into her project
     When Alice asks ctxloom what it has configured:
       """
-      ctxloom manage status
+      ctxloom manage check
       """
     Then the command succeeds
     And ctxloom reports the engine it wired her project for

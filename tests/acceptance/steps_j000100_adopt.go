@@ -116,7 +116,7 @@ func registerJ000100Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^ctxloom reports the engine it wired her project for$`, func(c context.Context) error {
 		out := worldFrom(c).env.LastOutput()
 		if !strings.Contains(out, "claude-code") {
-			return fmt.Errorf("manage status never named the engine it wired:\n%s", out)
+			return fmt.Errorf("manage check never named the engine it wired:\n%s", out)
 		}
 		return nil
 	})

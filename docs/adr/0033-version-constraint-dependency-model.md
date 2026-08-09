@@ -56,5 +56,5 @@ Mechanics:
 - **Transitive freeze falls out for free.** A held parent profile resolves to its old commit; `ResolveShortRefs` makes its short child refs inherit that commit as an exact pin — so holding a profile freezes its whole subtree.
 - **One source of truth** for the resolved SHA (the lock) eliminates the ref-vs-lock drift bug class that motivated this work.
 - **Hold inherits 0003's gitignore caveat.** The hold lives on the (typically gitignored) lock entry, so it does not travel across `git clone`. Same revive trigger as 0003: if a user wants a hold to survive clone, it must move into committed config.
-- `bundle pin`/`unpin` are kept as aliases of `bundle hold`/`unhold` so the rename is non-breaking; MCP tool names `pin_bundle`/`unpin_bundle` are unchanged.
+- `bundle pin`/`unpin` were kept as aliases of `bundle hold`/`unhold` so the rename was non-breaking; **superseded** — the aliases were deleted outright (no-backward-compat-shims policy) because they re-taught the exact confusion the `hold` rename exists to remove. MCP tool names `pin_bundle`/`unpin_bundle` are a separate surface and are unchanged.
 - Naming: "hold" (not "pin") for the freeze, so it never collides with the idea of an exact version pin in the manifest.

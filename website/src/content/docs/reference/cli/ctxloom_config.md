@@ -19,7 +19,7 @@ Examples:
   ctxloom config show              # Show full configuration
   ctxloom config get defaults      # Get a specific section
   ctxloom config edit              # Open config.yaml in $EDITOR
-  ctxloom config init              # Scaffold a default config.yaml
+  ctxloom config create            # Scaffold a default config.yaml
 
 ### Options
 
@@ -39,8 +39,8 @@ Examples:
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom config create](/reference/cli/ctxloom_config_create/)	 - Scaffold a default config.yaml (and remotes.yaml)
 * [ctxloom config edit](/reference/cli/ctxloom_config_edit/)	 - Open config.yaml in $EDITOR
 * [ctxloom config get](/reference/cli/ctxloom_config_get/)	 - Get a configuration section
-* [ctxloom config init](/reference/cli/ctxloom_config_init/)	 - Scaffold a default config.yaml (and remotes.yaml)
 * [ctxloom config show](/reference/cli/ctxloom_config_show/)	 - Show full configuration
 

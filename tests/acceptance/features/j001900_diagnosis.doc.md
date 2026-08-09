@@ -52,7 +52,7 @@ prediction are marked.
 | B3 attested → distributed | OK | **red** ← moved | `bundle list` renders a held bundle as an ordinary entry |
 | B4 distributed → admitted | OK | **green** for "pending"; **red** for "by whom" |`1 item(s) pending review`, and no signer information at all |
 | B5 admitted → composed | OK | **green**, all three inspectors | `profile show`, `agent show`, and `run --dry-run` ← moved |
-| B6 composed → delivered | OK | **red** ← moved | `manage status` never mentions a materialized surface |
+| B6 composed → delivered | OK | **red** ← moved | `manage check` never mentions a materialized surface |
 | B7 delivered → ingested | DEFECT | **red** | nothing, by design-so-far |
 | M5 two machines | miss | **red** | `unknown flag: --compare` |
 
@@ -112,7 +112,7 @@ runbook as an ordinary entry at `(v1.0.0)` and says nothing about the hold. A
 deliberate freeze and a broken sync produce identical output. That distinction
 is the entire job of this hop's inspector.
 
-`manage status` reports the project path, whether MCP auto-registration and
+`manage check` reports the project path, whether MCP auto-registration and
 the statusline are on, one line per engine, and which companion binaries it
 found. It never mentions a materialized surface, so it cannot report one as
 stale. It is an inspector of WIRING, not of DELIVERY. The fixture proves the
@@ -145,7 +145,7 @@ lockfile, diff the signature, cat the materialized file. B7 cannot, because
 the fact you need is inside a process ctxloom does not own. J000400's live table
 proves ingestion in CI; it is not a tool anybody can run on a Monday morning.
 
-The scenario probes `doctor`, `manage status`, `agent show` and
+The scenario probes `doctor`, `manage check`, `agent show` and
 `session list`, and fails quoting all four, so the red is itself the record of
 what the product says instead of an answer.
 

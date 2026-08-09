@@ -207,7 +207,7 @@ func runContainerProvenance(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// toolingPrompt is the instruction preamble `container tooling`
+// toolingPrompt is the instruction preamble `container tooling list`
 // emits above the collected bundle declarations: locate/scaffold the base
 // Containerfile, propose a diff, get EXPLICIT per-change user approval,
 // rebuild. A markdown resource, not Go — the procedure is data.
@@ -224,12 +224,13 @@ Collection is TRUST-GATED: declarations from unreviewed bundles are withheld
 like any other gated content, and nothing is ever applied automatically on
 pull/sync — the edit is the LLM's, gated by the user.`
 
-// runToolingCmd is containerToolingCmd's RunE. It emits the agent-image
-// tooling instructions plus every TRUSTED bundle's `tooling` command: the LLM
-// runs this, reads the declarations, and folds them — with the user's explicit
-// approval — into the scaffolded base Containerfile. Read-only: collection
-// goes through the trust gate and nothing is written here.
-func runToolingCmd(cmd *cobra.Command, args []string) error {
+// runToolingListCmd is containerToolingListCmd's RunE. It emits the
+// agent-image tooling instructions plus every TRUSTED bundle's `tooling`
+// command: the LLM runs this, reads the declarations, and folds them — with
+// the user's explicit approval — into the scaffolded base Containerfile.
+// Read-only: collection goes through the trust gate and nothing is written
+// here.
+func runToolingListCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
@@ -240,16 +241,27 @@ func runToolingCmd(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// containerToolingCmd is the container noun's `tooling` domain verb.
-var containerToolingCmd = &cobra.Command{
+// containerToolingCmd is the container noun's `tooling` sub-noun: a namespace
+// carrying the spine verb `list` rather than a bare leaf, so it composes with
+// the rest of the CLI's noun-verb shape. Its bare form still lists — the same
+// bare-noun-lists-by-default seam `ctxloom remote` uses — so nothing a caller
+// already types (`ctxloom container tooling`) stops working.
+var containerToolingCmd = groupNodeDefault(&cobra.Command{
 	Use:   "tooling",
-	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
+	Short: "Agent-image tooling declarations from trusted bundles",
 	Long:  toolingCmdLong,
+}, "list")
+
+// containerToolingListCmd is the tooling sub-noun's `list` domain verb: emit
+// every trusted bundle's declared agent-image tooling for the LLM to apply.
+var containerToolingListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "Emit trusted bundles' agent-image tooling declarations for the LLM to apply",
 	Args:  cobra.NoArgs,
-	RunE:  runToolingCmd,
+	RunE:  runToolingListCmd,
 }
 
-// toolingJSON is the --format json shape for `container tooling`.
+// toolingJSON is the --format json shape for `container tooling list`.
 type toolingJSON struct {
 	Instructions string                          `json:"instructions"`
 	Declarations []operations.ToolingDeclaration `json:"declarations"`
@@ -441,5 +453,6 @@ func init() {
 	// Real home of the deprecated top-level `ctxloom tooling`: the container
 	// image is (today) where declarations land.
 	containerCmd.AddCommand(containerToolingCmd)
+	containerToolingCmd.AddCommand(containerToolingListCmd)
 	rootCmd.AddCommand(containerCmd)
 }

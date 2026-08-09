@@ -26,7 +26,7 @@ import (
 // SAME shared marker-merge core (agent.WriteManagedContext /
 // agent.ReadManagedContext) rather than a second implementation of the
 // marker split. It additionally implements agent.StateReader, which nothing
-// did before this: the read half the design's "manage status" step (3) will
+// did before this: the read half the design's "manage check" step (3) will
 // walk.
 //
 // mock's SKILLS surface is that same reuse argument applied to a TREE: the

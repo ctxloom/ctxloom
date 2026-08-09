@@ -50,14 +50,22 @@ bare `ctxloom mcp` starts a stdio MCP server, and that exact invocation is
 written into users' engine settings on disk. The ladder governs containers that
 do nothing of their own.
 
-**`help` is a universal suffix, and it is always present.** Append it to
-anything, at any depth: `ctxloom help`, `ctxloom bundle help`, `ctxloom trust
-signer help`, `ctxloom run help`. There is no command where it is missing and no
-level where it stops working. `--help` and `-h` keep working everywhere too; the
-suffix is added alongside them, not in place of them.
+**`--help` is a universal suffix, and it is always present.** Append it to
+anything, at any depth: `ctxloom --help`, `ctxloom bundle --help`, `ctxloom
+trust signer --help`, `ctxloom run --help`. There is no command where it is
+missing and no level where it stops working. `-h` works everywhere it does
+today.
 
-Nothing is exempt from this one, including the namespaces above. `ctxloom mcp`
-keeps starting a server when bare, and `ctxloom mcp help` still teaches. The
+It has to be the flag rather than a bare `help` word, for addressability. A bare
+word in suffix position competes for the same slot as a positional argument, so
+on a leaf taking open-ended text — `ctxloom search help`, `ctxloom run help` —
+one meaning has to lose, and whichever loses becomes silently unreachable. A
+flag lives in a different namespace from operands and collides with nothing. The
+bare `help` word is still available on containers, which have no positionals to
+compete with, but it is not the universal rule.
+
+Nothing is exempt from the flag, including the namespaces above. `ctxloom mcp`
+keeps starting a server when bare, and `ctxloom mcp --help` still teaches. The
 exception is about what a bare invocation does; it is never an exception to
 help.
 

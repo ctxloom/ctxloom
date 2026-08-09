@@ -7,7 +7,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -26,6 +25,15 @@ import (
 // uncovered. Listed explicitly here so they're checked the same as any other
 // leaf. They are expected to show RED until real scenarios exist for them;
 // that redness is the fix, not a regression to paper over.
+//
+// CENSUS ONLY, not credit: this list exists solely to get these four leaves
+// INTO the set TestCompleteness walks (leafCommands can't discover them at
+// all). Crediting them, once discovered, is identical to crediting any other
+// leaf — both go through the same executed() check below. Before the
+// execution-based rewrite this list also had to promote its entries to the
+// stricter ranAsCommand text check (see the now-removed strictRunLeaves);
+// that promotion is gone because there is no longer a weaker check to
+// promote FROM — every leaf is credited by execution now.
 var requiredHiddenLeaves = []string{
 	"ctxloom hook inject-context",
 	"ctxloom hook session-bind",
@@ -47,68 +55,46 @@ var engineMatrixLeaves = map[string][]string{
 	"ctxloom config init": {"claude-code", "codex", "kiro", "antigravity"},
 }
 
-// strictRunLeaves are ordinary (visible, non-engine-matrix) leaves promoted
-// from the substring containsLeafPath check to the stricter ranAsCommand
-// ("I run") check because the command string ALSO appears as inert prose
-// elsewhere in the corpus: `ctxloom doctor` is quoted inside the
-// "ctxloom-doctor" Agent Skill body in steps_j000600_doctor.go, so a bare
-// substring match would credit that vacuous mention as coverage and let the
-// gate stay green even after the real coverer (doctor.feature) is gone. Listed
-// here so only a genuine `I run "<leaf>"` invocation counts — the same
-// hardening already applied to the hidden and engine-matrix leaves.
-var strictRunLeaves = []string{
-	"ctxloom doctor",
-	// Same hazard, same fix, different quoter: `ctxloom acp serve` is the
-	// command an editor spawns, so j000500_editor.feature and its steps NAME it
-	// repeatedly — in the feature's prose, in the step file's header, and
-	// inside a failure message that checks whether `acp list` emitted a
-	// pasteable block mentioning it. Every one of those is inert text. None of
-	// them serves anything, and none of them could: the leaf is a long-running
-	// stdio server that needs a live ACP client on the other end, which is
-	// exactly why j000500 records it as unverifiable rather than faking it.
-	//
-	// Under the plain substring check those mentions silently flipped the leaf
-	// from "allowlisted uncovered" to "covered", which would have converted an
-	// honest statement of a coverage gap into a false claim that the gap had
-	// been closed by a file that explicitly says it has not been. Listed here
-	// so only a genuine `I run "ctxloom acp serve"` counts.
-	"ctxloom acp serve",
+// executed reports whether the suite actually INVOKED path (e.g. "ctxloom
+// manage install"), based on testenv.RecordedInvocations() — the argvs the
+// suite genuinely STARTED, never text merely mentioned in a feature file's
+// prose or a step file's source. This is the replacement for both the old
+// ranAsCommand (which still only read scenario TEXT, just more strictly) and
+// containsLeafPath (a bare substring match): crediting on what actually ran
+// closes every hazard those two existed to patch over one at a time —
+// prose that names a command without running it (`ctxloom doctor` quoted
+// inside an Agent Skill body, `ctxloom acp serve` named in j000500_editor's
+// own "this is unverifiable" comment) credits nothing, because neither ever
+// appends to the recorder; a @wip scenario's command credits nothing, for
+// the same reason; a leaf that is a literal prefix of another
+// ("ctxloom sign" / "ctxloom signer add") cannot collide, because
+// testenv.Invocation.Leaf is cobra's OWN resolved command path, not a
+// string search.
+func executed(invocations []testenv.Invocation, path string) bool {
+	for _, inv := range invocations {
+		if inv.Leaf == path {
+			return true
+		}
+	}
+	return false
 }
 
-// ranAsCommand reports whether a scenario actually INVOKED path, as opposed to
-// merely mentioning it — e.g. quoted inside an unrelated assertion like `the
-// file "settings.json" contains "ctxloom hook session-bind"`, which names the
-// string without running anything. Substring-only matching is the
-// vacuous-coverage failure this gate exists to catch, so the hidden-leaf,
-// engine-matrix and strict-run checks use this form rather than the plain
-// corpus.Contains used for ordinary leaves.
-//
-// TWO INVOCATION FORMS, because the corpus has two. The mechanical form is
-// `I run "<cmd>"`. The NARRATED form carries a business sentence in the step
-// text and the command in a DocString:
-//
-//	When Alice wires ctxloom into her project:
-//	  """
-//	  ctxloom manage install --engine claude-code
-//	  """
-//
-// Both really run the command — runNarratedCommands routes to the same runCLI
-// as `I run` — so both credit. Recognising only one form would make this gate
-// dictate how feature files are STRUCTURED, which is backwards: a scenario
-// should be written in whatever shape reads best.
-//
-// The DocString form is matched at LINE START (after indentation) so it is as
-// exact as the quoted form: a command named inside prose, or appearing as a
-// substring of a longer command line, does not count. That exactness is the
-// point of this function — a bare strings.Contains over the corpus is the
-// vacuous-coverage hole it exists to close.
-func ranAsCommand(corpus, path string) bool {
-	if strings.Contains(corpus, `I run "`+path) {
-		return true
-	}
-	for _, line := range strings.Split(corpus, "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), path) {
-			return true
+// executedWithEngine is executed's engine-matrix counterpart: true when the
+// suite invoked path with a literal "--engine <engine>" pair among that
+// invocation's own args. Checking the recorded argv (not a reconstructed or
+// rejoined string) means a flag VALUE that happens to contain "--engine" as
+// a substring elsewhere can never false-positive — same principle as
+// executed, applied to the one leaf class whose credit also depends on which
+// flag value rode the invocation.
+func executedWithEngine(invocations []testenv.Invocation, path, engine string) bool {
+	for _, inv := range invocations {
+		if inv.Leaf != path {
+			continue
+		}
+		for i, a := range inv.Args {
+			if a == "--engine" && i+1 < len(inv.Args) && inv.Args[i+1] == engine {
+				return true
+			}
 		}
 	}
 	return false
@@ -124,34 +110,6 @@ func ranAsCommand(corpus, path string) bool {
 // step patterns, so that literal substring is the exact signal.
 func ranAsTool(corpus, name string) bool {
 	return strings.Contains(corpus, `calls tool "`+name+`"`)
-}
-
-// containsLeafPath is the ordinary (non-"I run") leaf check's substring test,
-// hardened against a PREFIX collision: "ctxloom sign" is a literal prefix of
-// "ctxloom signer add"/"ctxloom signer remove" (distinct leaves), so a bare
-// strings.Contains credited "ctxloom sign" with coverage the moment J001500
-// (steps_j001500.go) started mentioning the signer leaves in comments — a false
-// positive that would have silently pruned an actually-uncovered leaf from
-// the allowlist (exactly the vacuous-coverage failure mode this gate exists
-// to catch). A match only counts when the byte right after it is absent or
-// not itself an identifier character, so "ctxloom sign" does not match inside
-// "ctxloom signer ...".
-func containsLeafPath(corpus, path string) bool {
-	for idx := 0; ; {
-		i := strings.Index(corpus[idx:], path)
-		if i < 0 {
-			return false
-		}
-		end := idx + i + len(path)
-		if end >= len(corpus) || !isLeafIdentByte(corpus[end]) {
-			return true
-		}
-		idx += i + 1
-	}
-}
-
-func isLeafIdentByte(b byte) bool {
-	return b == '_' || ('a' <= b && b <= 'z') || ('A' <= b && b <= 'Z') || ('0' <= b && b <= '9')
 }
 
 // knownUncoveredCLI is the EXACT set of CLI leaves (bare leaves, hidden
@@ -419,6 +377,25 @@ const maxKnownUncoveredTotal = 8
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.
 func TestCompleteness(t *testing.T) {
+	// CLI-leaf credit is decided by EXECUTION, not text: see executed() /
+	// executedWithEngine() below. That only works if testenv's recorder was
+	// actually populated by the acceptance scenarios before this runs — see
+	// the ORDERING note below for the mechanism and why it cannot silently
+	// regress into a vacuous pass.
+	invocations := testenv.RecordedInvocations()
+	if len(invocations) == 0 {
+		t.Fatal("testenv.RecordedInvocations() returned NOTHING: this gate credits every CLI leaf by " +
+			"what the suite actually executed, so an empty recorder means it examined ZERO invocations " +
+			"and cannot make any coverage determination — passing here would silently recreate the " +
+			"exact vacuous-green shape this rewrite exists to remove, so it fails loud instead. Two " +
+			"likely causes: (1) ORDERING — TestCompleteness ran in this `go test` binary before " +
+			"TestAcceptance populated the recorder (today's ordering is Go's normal same-package rule " +
+			"of file name then declaration order — acceptance_test.go sorts before completeness_test.go " +
+			"— which is why this has never fired; if a new test file sorts ahead of both, or someone " +
+			"pins -run to only TestCompleteness, this is what catches it); (2) SCOPE — ACCEPTANCE_PATHS " +
+			"or ACCEPTANCE_TAGS narrowed TestAcceptance's own run down to zero scenarios.")
+	}
+
 	corpus := loadCorpus(t)
 
 	// Populated by the three allowlisted subtests below, then folded into one
@@ -441,26 +418,13 @@ func TestCompleteness(t *testing.T) {
 			}
 			if engines, ok := engineMatrixLeaves[path]; ok {
 				for _, engine := range engines {
-					invocation := path + " --engine " + engine
-					if !ranAsCommand(corpus, invocation) {
-						uncovered = append(uncovered, invocation)
+					if !executedWithEngine(invocations, path, engine) {
+						uncovered = append(uncovered, path+" --engine "+engine)
 					}
 				}
 				continue
 			}
-			if slices.Contains(requiredHiddenLeaves, path) {
-				if !ranAsCommand(corpus, path) {
-					uncovered = append(uncovered, path)
-				}
-				continue
-			}
-			if slices.Contains(strictRunLeaves, path) {
-				if !ranAsCommand(corpus, path) {
-					uncovered = append(uncovered, path)
-				}
-				continue
-			}
-			if !containsLeafPath(corpus, path) {
+			if !executed(invocations, path) {
 				uncovered = append(uncovered, path)
 			}
 		}

@@ -72,6 +72,7 @@ import (
 	"time"
 
 	"github.com/ctxloom/ctxloom/internal/lm/isolation"
+	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 // probeAxis names the isolation axis under test.
@@ -602,9 +603,20 @@ const probeRunTimeout = 5 * time.Minute
 // within probeRunTimeout, and returns cmd.Wait's error either way — a
 // killed-on-timeout run still reports SOME exit error, which the caller's
 // existing exit-code handling turns into a FAILED (not a silent hang).
-func runWithTimeout(cmd *exec.Cmd) error {
+//
+// env, if non-nil, is told about the invocation via RecordCommandStart right
+// after cmd.Start() succeeds — the genuine-start point, not the earlier
+// env.Command(...) call that only BUILT cmd (this file's two callers build
+// with cmd.Stdout/Stderr rewired and this timeout wrapper applied before
+// anything actually runs, so recording at build time would credit a command
+// that might still fail to start). cmd.Args[1:] is the argv passed to
+// Command, since exec.Command sets cmd.Args = append([]string{name}, arg...).
+func runWithTimeout(env *testenv.TestEnvironment, cmd *exec.Cmd) error {
 	if err := cmd.Start(); err != nil {
 		return err
+	}
+	if env != nil && len(cmd.Args) > 0 {
+		env.RecordCommandStart(cmd.Args[1:])
 	}
 	timer := time.AfterFunc(probeRunTimeout, func() {
 		if cmd.Process != nil {
@@ -847,7 +859,7 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 	ctx, cancel := context.WithCancel(context.Background())
 	scratchCh := watchScratch(ctx, w.env.HomeDir)
 
-	runErr := runWithTimeout(cmd)
+	runErr := runWithTimeout(w.env, cmd)
 	// Grace window: lets the watcher's ticker take at least a couple more
 	// polls right as the process exits and Cleanup begins, without changing
 	// the "keep last non-empty" semantics that make the exact stop time
@@ -944,7 +956,7 @@ func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, 
 	ctx, cancel := context.WithCancel(context.Background())
 	diffCh := watchContainerDiff(ctx, runtimeBin)
 
-	runErr := runWithTimeout(cmd)
+	runErr := runWithTimeout(w.env, cmd)
 	time.Sleep(150 * time.Millisecond)
 	cancel()
 	res.Container = <-diffCh

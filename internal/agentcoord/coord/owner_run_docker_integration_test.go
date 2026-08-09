@@ -140,7 +140,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	require.True(t, ok)
 
 	// Watch BEFORE the run so the first turn's deltas are not missed.
-	_, events, wcancel := c.WatchRuns(nil)
+	_, events, wcancel, _ := c.WatchRuns(nil)
 	defer wcancel()
 	collector := newDeltaCollector(events)
 	defer collector.stop()
@@ -248,7 +248,7 @@ func TestCoordOwnerRun_Oneshot_NoPluginNoPort(t *testing.T) {
 	owner, ok := c.Identify(token)
 	require.True(t, ok)
 
-	_, events, wcancel := c.WatchRuns(nil)
+	_, events, wcancel, _ := c.WatchRuns(nil)
 	defer wcancel()
 	collector := newDeltaCollector(events)
 	defer collector.stop()

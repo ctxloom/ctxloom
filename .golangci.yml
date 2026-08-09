@@ -20,9 +20,25 @@ version: "2"
 # does not: the vet-integration recipe already covers it, and adding it would
 # double-report. Every entry costs a second type-check pass over the packages
 # it opens up, so this list stays short by intent rather than by accident.
+#
+# `arch`, `conformance` and `docker_integration` are ADDITIVE: no file carries
+# a negated constraint for any of them, so enabling them only opens files up
+# and cannot close any. Their first pass found a docker_integration test that
+# no longer compiled against the signature it called.
+#
+# `docsgen` and `schemagen` are deliberately ABSENT, and appending them here is
+# the wrong fix. Each has files on BOTH sides of its constraint —
+# cmd/{ltk,taskloom}/docs_off.go and cmd/gen-schemas/stub.go are `!docsgen` /
+# `!schemagen`. Enabling the tag SWAPS which file builds rather than opening
+# another, so this list would trade away coverage of the files it currently
+# lints. Covering those two needs a second invocation under the tag, not an
+# entry here.
 run:
   build-tags:
     - mutation
+    - arch
+    - conformance
+    - docker_integration
 
 # Report EVERY instance, not a sample of each.
 #

@@ -436,7 +436,7 @@ func stampValue(t *testing.T, fv reflect.Value, path string, n int) {
 		return fmt.Sprintf("sentinel-%d-%s%s", n, lastSegment(path), suffix)
 	}
 	switch fv.Kind() {
-	case reflect.Ptr:
+	case reflect.Pointer:
 		// A pointer field is nil by default, and nil stamps as nothing — which
 		// would leave the field silently uncovered rather than loudly unstamped.
 		// Allocate and stamp the pointee, so an optional field is exercised

@@ -360,11 +360,26 @@ var oneWayConverters = map[string]string{
 // pair and fails when one is missing from the sweep — turning "remember to add
 // it" into a gate.
 func TestArch_ProtoConverters_EveryPairIsSwept(t *testing.T) {
+	// Parsed file by file rather than with parser.ParseDir: ParseDir ignores
+	// build constraints when it groups files into packages, so a converter
+	// behind a build tag would be swept here but absent from the build under
+	// test. The sweep is over this package's own non-test sources, which is
+	// exactly what the file list below enumerates.
 	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go")
-	}, 0)
-	require.NoError(t, err, "parse this package's own source")
+	entries, err := os.ReadDir(".")
+	require.NoError(t, err, "read this package's own directory")
+
+	var files []*ast.File
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, name, nil, 0)
+		require.NoError(t, perr, "parse %s", name)
+		files = append(files, f)
+	}
+	require.NotEmpty(t, files, "found no source files at all — the walk is broken, not the package")
 
 	base := func(name string) string {
 		for _, suffix := range []string{"ToProto", "FromProto", "ToInput", "FromInput"} {
@@ -376,23 +391,21 @@ func TestArch_ProtoConverters_EveryPairIsSwept(t *testing.T) {
 	}
 
 	encoders, decoders := map[string]string{}, map[string]string{}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				fd, ok := decl.(*ast.FuncDecl)
-				if !ok || fd.Recv != nil {
-					continue // methods are not converter functions
-				}
-				name := fd.Name.Name
-				key := base(name)
-				if key == "" {
-					continue
-				}
-				if strings.HasSuffix(name, "ToProto") || strings.HasSuffix(name, "ToInput") {
-					encoders[key] = name
-				} else {
-					decoders[key] = name
-				}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			fd, ok := decl.(*ast.FuncDecl)
+			if !ok || fd.Recv != nil {
+				continue // methods are not converter functions
+			}
+			name := fd.Name.Name
+			key := base(name)
+			if key == "" {
+				continue
+			}
+			if strings.HasSuffix(name, "ToProto") || strings.HasSuffix(name, "ToInput") {
+				encoders[key] = name
+			} else {
+				decoders[key] = name
 			}
 		}
 	}

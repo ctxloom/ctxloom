@@ -108,15 +108,15 @@ func TestACPAdapterRuns_Codex(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // buildFragmentImageErr is buildFragmentImage's non-fatal twin: it returns the
-// build's error and combined output instead of failing the test, because the
+// build's combined output and error instead of failing the test, because the
 // gate tests below assert that a build FAILS.
-func buildFragmentImageErr(t *testing.T, tag, body string) (error, string) {
+func buildFragmentImageErr(t *testing.T, tag, body string) (string, error) {
 	t.Helper()
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte(body), 0o644))
 	out, err := exec.Command("docker", "build", "-t", tag, dir).CombinedOutput()
 	t.Cleanup(func() { _ = exec.Command("docker", "rmi", "-f", tag).Run() })
-	return err, string(out)
+	return string(out), err
 }
 
 // stubEngineLayer installs a shell stand-in for an engine client at
@@ -168,12 +168,12 @@ func TestNativeACPGate_RedAgainstBrokenEngine(t *testing.T) {
 
 			// (a) the OLD gate: `--version` only. A dead engine ships green.
 			oldGate := stub + "RUN " + tc.client + " --version\n"
-			err, out := buildFragmentImageErr(t, "ctxloom-acpprobe-oldgate-"+tc.client+":latest", oldGate)
+			out, err := buildFragmentImageErr(t, "ctxloom-acpprobe-oldgate-"+tc.client+":latest", oldGate)
 			require.NoError(t, err, "the OLD --version-only gate is supposed to be blind to this; if it caught it, re-read the premise:\n%s", out)
 
 			// (b) the NEW gate: run the surface structured chat actually spawns.
 			newGate := stub + "RUN true \\\n" + nativeACPRunGate(tc.client, "acp")
-			err, out = buildFragmentImageErr(t, "ctxloom-acpprobe-newgate-"+tc.client+":latest", newGate)
+			out, err = buildFragmentImageErr(t, "ctxloom-acpprobe-newgate-"+tc.client+":latest", newGate)
 			require.Error(t, err, "a broken %s acp MUST fail the build:\n%s", tc.client, out)
 			require.Contains(t, out, tc.wantText, "the build must SAY what was wrong, not just fail:\n%s", out)
 			require.Contains(t, out, tc.client+" acp is installed but its ACP surface cannot start",
@@ -190,7 +190,7 @@ func TestNativeACPGate_PassesAHealthyEngine(t *testing.T) {
 	dockergate.RequireRuntime(t, (Docker{}).Available(), "the native ACP gate healthy-engine test")
 	stub := stubEngineLayer("kiro-cli", `cat >/dev/null; exit 0`)
 	body := stub + "RUN true \\\n" + nativeACPRunGate("kiro-cli", "acp")
-	err, out := buildFragmentImageErr(t, "ctxloom-acpprobe-healthy:latest", body)
+	out, err := buildFragmentImageErr(t, "ctxloom-acpprobe-healthy:latest", body)
 	require.NoError(t, err, "a healthy acp surface must build clean:\n%s", out)
 }
 

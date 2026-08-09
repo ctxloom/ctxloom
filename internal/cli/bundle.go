@@ -4,7 +4,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var bundleCmd = groupNode(&cobra.Command{
+// Bare `ctxloom bundle` lists the installed bundles: the collection is the
+// one thing the noun is about, and reading it touches nothing.
+var bundleCmd = groupNodeDefault(&cobra.Command{
 	Use:   "bundle",
 	Short: "Manage ctxloom bundles",
 	// Unhidden: every command's help already assumed 'bundle' as the
@@ -22,7 +24,7 @@ Examples:
   ctxloom bundle export go-tools ./out # Export bundle to directory
   ctxloom bundle import ./my-bundle.yaml # Import bundle from file
   ctxloom bundle move go-tools --to ctxloom-default # Relocate a bundle (signature and all)`,
-})
+}, "list")
 
 func init() {
 	rootCmd.AddCommand(bundleCmd)

@@ -4,7 +4,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var fragmentCmd = groupNode(&cobra.Command{
+// Bare `ctxloom fragment` lists the fragments: the collection is the one
+// thing the noun is about, and reading it touches nothing.
+var fragmentCmd = groupNodeDefault(&cobra.Command{
 	Use:   "fragment",
 	Short: "Manage context fragments",
 	Long: `Manage context fragments - reusable context snippets for AI coding assistants.
@@ -18,7 +20,7 @@ Examples:
   ctxloom fragment show core#fragments/tdd           # Show fragment content
   ctxloom fragment edit core#fragments/tdd           # Edit fragment content
   ctxloom fragment create my-bundle coding-standards # Create new fragment`,
-})
+}, "list")
 
 var fragmentListCmd = &cobra.Command{
 	Use:   "list",

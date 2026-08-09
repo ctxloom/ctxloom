@@ -18,7 +18,11 @@ import (
 
 // configCmd is the top-level home of ctxloom configuration; the old `manage
 // config *` path was removed, not kept as an alias.
-var configCmd = groupNode(&cobra.Command{
+//
+// Bare `ctxloom config` shows the configuration: config is a singleton, not
+// a collection, so the read-one view IS the default — there is no `list` to
+// default to.
+var configCmd = groupNodeDefault(&cobra.Command{
 	Use:   "config",
 	Short: "Show or modify ctxloom configuration",
 	Long: `Show or modify ctxloom configuration.
@@ -28,7 +32,7 @@ Examples:
   ctxloom config get defaults      # Get a specific section
   ctxloom config edit              # Open config.yaml in $EDITOR
   ctxloom config create            # Scaffold a default config.yaml`,
-})
+}, "show")
 
 var configShowCmd = &cobra.Command{
 	Use:   "show",

@@ -61,13 +61,13 @@ func TestMcpNamespace_SplitsRegistrationFromServerCRUD(t *testing.T) {
 	assert.ElementsMatch(t, []string{"list", "show", "create", "edit", "delete"}, subNames(servers))
 }
 
-func TestManageHooks_HasInstallUninstallStatusList(t *testing.T) {
+func TestManageHooks_HasInstallUninstallCheckList(t *testing.T) {
 	hooks := findSub(findSub(rootCmd, "manage"), "hooks")
 	require.NotNil(t, hooks)
 	// `list` is the canonical spine verb for "enumerate this noun's instances",
-	// and it answers a question `status` does not: status reports which BACKENDS
+	// and it answers a question `check` does not: check reports which BACKENDS
 	// are wired, list reports which HOOKS run and in what order.
-	assert.ElementsMatch(t, []string{"install", "uninstall", "status", "list"}, subNames(hooks))
+	assert.ElementsMatch(t, []string{"install", "uninstall", "check", "list"}, subNames(hooks))
 }
 
 func TestOldTopLevelPaths_AreRemoved(t *testing.T) {

@@ -519,8 +519,8 @@ func runManageHooksUninstall(cmd *cobra.Command, _ []string) error {
 	})
 }
 
-var manageHooksStatusCmd = &cobra.Command{
-	Use:   "status",
+var manageHooksCheckCmd = &cobra.Command{
+	Use:   "check",
 	Short: "Show which backends have ctxloom hooks wired in",
 	Args:  cobra.NoArgs,
 	RunE:  runManageCheck,
@@ -535,13 +535,13 @@ var (
 // noun's instances — docs/cli-surface-recommendation.md §3), on the `manage
 // hooks` noun that already exists.
 //
-// It is a NEW LEAF rather than an extension of `manage hooks status` on purpose,
-// having checked what status does: status answers "which BACKENDS have ctxloom
+// It is a NEW LEAF rather than an extension of `manage hooks check` on purpose,
+// having checked what check does: check answers "which BACKENDS have ctxloom
 // wired in" — a question about installation, whose result is one row per backend
 // and no hooks at all. This answers "which HOOKS run, and in what order" — one
 // row per hook and no backends. Folding them together would give one command two
 // unrelated answers and one output shape that suits neither, and would take
-// `status`'s existing JSON contract with it.
+// `check`'s existing JSON contract with it.
 var manageHooksListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List the hooks that will fire, per event, in their resolved order",
@@ -842,7 +842,7 @@ func init() {
 	manageCmd.AddCommand(manageHooksCmd)
 	manageHooksCmd.AddCommand(manageHooksInstallCmd)
 	manageHooksCmd.AddCommand(manageHooksUninstallCmd)
-	manageHooksCmd.AddCommand(manageHooksStatusCmd)
+	manageHooksCmd.AddCommand(manageHooksCheckCmd)
 	manageHooksCmd.AddCommand(manageHooksListCmd)
 	manageHooksListCmd.Flags().StringVar(&manageHooksListEvent, "event", "",
 		"Report only this lifecycle event (pre_tool, post_tool, session_start, session_end, pre_shell, post_file_edit)")

@@ -282,7 +282,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"manage uninstall":             {skip: "installer: side-effecting project teardown"},
 	"manage hooks install":         {skip: "installer: writes real hook files"},
 	"manage hooks uninstall":       {skip: "installer: removes real hook files"},
-	"manage hooks status":          {skip: "reads the hook files the installer above would write; not fixtured here — wired to emit() (shares runManageStatus with `manage status`); registry was stale, not debt"},
+	"manage hooks check":           {skip: "reads the hook files the installer above would write; not fixtured here — wired to emit() (shares runManageCheck with `manage check`); registry was stale, not debt"},
 	"mcp register":                 {skip: "installer: registers ctxloom as an MCP server in editor config"},
 	"mcp unregister":               {skip: "installer: unregisters ctxloom as an MCP server"},
 	"mcp server create":            {skip: "wired to emit(); mutating, not exercised here"},

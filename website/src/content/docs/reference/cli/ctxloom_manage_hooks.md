@@ -29,7 +29,7 @@ Install, uninstall, or inspect ctxloom backend hooks
 ### SEE ALSO
 
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
+* [ctxloom manage hooks check](/reference/cli/ctxloom_manage_hooks_check/)	 - Show which backends have ctxloom hooks wired in
 * [ctxloom manage hooks install](/reference/cli/ctxloom_manage_hooks_install/)	 - Apply ctxloom hooks and regenerate context into backend config
-* [ctxloom manage hooks status](/reference/cli/ctxloom_manage_hooks_status/)	 - Show which backends have ctxloom hooks wired in
 * [ctxloom manage hooks uninstall](/reference/cli/ctxloom_manage_hooks_uninstall/)	 - Remove ctxloom hooks, statusline, MCP entries, and command files
 

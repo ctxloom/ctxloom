@@ -256,7 +256,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook inject-context"
       When Alice inspects and then removes them:
         """
-        ctxloom manage hooks status
+        ctxloom manage hooks check
         ctxloom manage hooks uninstall
         """
       Then the command succeeds

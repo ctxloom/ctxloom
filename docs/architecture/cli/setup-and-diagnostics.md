@@ -49,7 +49,7 @@ flowchart TD
     subgraph container["container_cmd.go"]
         CB["container build &lt;backend&gt; :39"] --> BAI[["isolation.BuildAgentImage"]]
         CP["container provenance :149 (hidden)"]
-        CT["container tooling :188 / tooling (DEPRECATED) :215"] --> RTC["runToolingCmd :202 → renderTooling :231"]
+        CT["container tooling list :188 / tooling (DEPRECATED) :215"] --> RTC["runToolingListCmd :202 → renderTooling :231"]
         CSF["container scaffold :255"] --> SCB[["operations.ScaffoldContainerBase"]]
         CC["container check &lt;backend&gt; :287"] --> CD["containerDiagnose → renderContainerCheck :324"]
     end

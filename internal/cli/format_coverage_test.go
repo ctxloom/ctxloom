@@ -183,9 +183,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"search":            {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
 
 	// --- exercised: canonical spine leaves ---
-	"trust signer list": {extraArgs: noExtraArgs},
-	"mcp server list":   {extraArgs: noExtraArgs},
-	"container tooling": {extraArgs: noExtraArgs},
+	"trust signer list":      {extraArgs: noExtraArgs},
+	"mcp server list":        {extraArgs: noExtraArgs},
+	"container tooling list": {extraArgs: noExtraArgs},
 
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
 	"acp":        {skip: "deprecated bare alias for `acp serve`; serves an ACP session, not a single rendered result"},

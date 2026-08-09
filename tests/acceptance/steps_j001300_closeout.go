@@ -4,10 +4,13 @@
 //
 // THIS JOURNEY SPECIFIES A SURFACE THAT DOES NOT EXIST. Almost every scenario
 // here is red, and that is the deliverable: `session worktrees`,
-// `session purge`, `session distill --skill/--to-bundle`, and doctor's five
-// new checks are the C10 set FLOWS-UNIFIED proposes, and this file is their
-// acceptance specification. A red scenario naming a real gap is worth more
-// than a green one that dodged the assertion.
+// `session purge`, and doctor's five new checks are the C10 set FLOWS-UNIFIED
+// proposes, and this file is their acceptance specification. A red scenario
+// naming a real gap is worth more than a green one that dodged the assertion.
+//
+// `session distill` takes NO --skill and NO --to-bundle. That leg was
+// specified here and rejected: extraction-into-a-bundle is not a close-out
+// concern, so do not re-add steps for it.
 //
 // WHY THE FIXTURES ARE THIS DETAILED. A close-out flow is defined almost
 // entirely by what it REFUSES to do, and a refusal cannot be tested against a
@@ -47,8 +50,6 @@ import (
 	"strings"
 
 	"github.com/cucumber/godog"
-
-	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
 
 const (
@@ -68,12 +69,6 @@ const (
 	j001300EssenceMarker  = "J001300-DERIVED-ESSENCE"
 	j001300AuthoredMarker = "J001300-HUMAN-AUTHORED-PLAN"
 	j001300WIPMarker      = "J001300-UNCOMMITTED-WIP"
-
-	// j001300LessonsBundle is where the lessons leg lands its fragments.
-	j001300LessonsBundle = "team-lessons"
-	// j001300LessonsSkill is the distill skill the lessons leg selects — a ref in
-	// the "<bundle>#skills/<name>" grammar FLOWS-UNIFIED §5.3 specifies.
-	j001300LessonsSkill = "house-style#skills/lessons"
 )
 
 // j001300Harp records one seeded harp directory and what was planted in it.
@@ -91,9 +86,7 @@ type j001300State struct {
 	order   []string // seeding order, so the index renders deterministically
 	foreign map[string]string
 
-	signer    *testenv.TestSigner
-	stopAgent func() error
-	ready     bool
+	ready bool
 
 	probes []j001900ProbeResult
 }
@@ -118,8 +111,7 @@ func j001300Git(w *World, dir string, args ...string) (string, error) {
 }
 
 // j001300Setup is the Background: a real git repo with a commit to branch
-// worktrees from, a configured project, and Carol's signing key live, since
-// the lessons leg must SIGN what it writes.
+// worktrees from, and a configured project.
 func j001300Setup(w *World) error {
 	st := j001300Of(w)
 	if st.ready {
@@ -133,24 +125,6 @@ func j001300Setup(w *World) error {
 		return err
 	}
 	if err := w.env.GitCommit("initial commit"); err != nil {
-		return err
-	}
-
-	signer, err := testenv.GenerateTestSigner()
-	if err != nil {
-		return fmt.Errorf("generate the close-out signing key: %w", err)
-	}
-	st.signer = signer
-	if err := w.env.WriteFile("closeout.pub", signer.AuthorizedKey("alice@acme.example")); err != nil {
-		return err
-	}
-	sock, stop, err := testenv.StartSSHAgent(w.env.Root, testenv.SSHAgentIdentity{Signer: signer, Comment: "alice@acme.example"})
-	if err != nil {
-		return fmt.Errorf("start hermetic ssh-agent: %w", err)
-	}
-	st.stopAgent = stop
-	w.env.SetEnv("SSH_AUTH_SOCK", sock)
-	if err := w.env.GitConfigLocal("user.signingkey", filepath.Join(w.env.ProjectDir, "closeout.pub")); err != nil {
 		return err
 	}
 
@@ -351,21 +325,6 @@ func j001300RanRealSurface(w *World) error {
 }
 
 func registerJ001300Steps(ctx *godog.ScenarioContext) {
-	ctx.After(func(c context.Context, sc *godog.Scenario, err error) (context.Context, error) {
-		w := worldFrom(c)
-		if w == nil || w.j001300 == nil {
-			return c, nil
-		}
-		if w.j001300.stopAgent != nil {
-			stop := w.j001300.stopAgent
-			w.j001300.stopAgent = nil
-			if serr := stop(); serr != nil {
-				return c, fmt.Errorf("stop hermetic ssh-agent: %w", serr)
-			}
-		}
-		return c, nil
-	})
-
 	// --- Background ---------------------------------------------------------
 
 	ctx.Step(`^the feature shipped on Friday and Alice is closing the workstream out$`, func(c context.Context) error {
@@ -522,104 +481,6 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 				return fmt.Errorf("`session worktrees` listed the foreign worktree %s; that population is doctor's to REPORT on, "+
 					"and listing it under a verb that also reaps invites exactly the removal that is forbidden. Output:\n%s", dir, w.env.LastOutput())
 			}
-		}
-		return nil
-	})
-
-	// --- Lessons: session distill --skill --to-bundle ------------------------
-
-	ctx.Step(`^Alice's house lessons-extraction skill is trusted content she can select$`, func(c context.Context) error {
-		w := worldFrom(c)
-		// A directory-form bundle: skills require one (single-file bundles
-		// refuse with a re-init message), and the lessons skill is a package.
-		dir := ".ctxloom/content/bundles/house-style"
-		if err := w.env.WriteFile(dir+"/bundle.yaml", "version: \"1.0.0\"\ndescription: house authoring style\n"); err != nil {
-			return err
-		}
-		return w.env.WriteFile(dir+"/skills/lessons/SKILL.md",
-			"---\nname: lessons\ndescription: extract decisions, traps and invariants as candidate fragments\n---\n\n"+
-				"Read the session and emit, for each decision reached, one candidate fragment stating the decision and why.\n")
-	})
-
-	ctx.Step(`^the lessons land as fragments in the "([^"]*)" bundle$`, func(c context.Context, bundle string) error {
-		w := worldFrom(c)
-		rel := ".ctxloom/content/bundles/" + bundle + ".yaml"
-		body, err := w.env.ReadFile(rel)
-		if err != nil {
-			// Directory form is equally acceptable — check before failing.
-			if dirBody, derr := w.env.ReadFile(".ctxloom/content/bundles/" + bundle + "/bundle.yaml"); derr == nil {
-				body = dirBody
-			} else {
-				return fmt.Errorf("no %q bundle was written at all (exit %d). ctxloom reported:\n%s\n(read error: %v)",
-					bundle, w.env.LastExitCode(), w.env.LastOutput(), err)
-			}
-		}
-		if !strings.Contains(body, "fragments:") {
-			return fmt.Errorf("the %q bundle exists but carries no fragments section — a lessons run that writes a bundle and no lessons "+
-				"is this codebase's characteristic bug. It holds:\n%s", bundle, body)
-		}
-		return nil
-	})
-
-	ctx.Step(`^that bundle is signed in the same breath$`, func(c context.Context) error {
-		w := worldFrom(c)
-		for _, rel := range []string{
-			".ctxloom/content/bundles/" + j001300LessonsBundle + ".yaml.sig",
-			".ctxloom/content/bundles/" + j001300LessonsBundle + "/bundle.yaml.sig",
-		} {
-			if body, err := w.env.ReadFile(rel); err == nil {
-				if strings.TrimSpace(body) == "" {
-					return fmt.Errorf("%s exists but is EMPTY — a signature file carrying nothing", rel)
-				}
-				return nil
-			}
-		}
-		return fmt.Errorf("the lessons bundle was written UNSIGNED. An edited-unsigned bundle is silently withheld "+
-			"(boundary B2, and J001900's own red scenario), so a lessons flow that ends unsigned manufactures the exact defect "+
-			"it exists to close. ctxloom reported (exit %d):\n%s", w.env.LastExitCode(), w.env.LastOutput())
-	})
-
-	ctx.Step(`^ctxloom refuses rather than falling back to its built-in prompt$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := j001300RanRealSurface(w); err != nil {
-			return err
-		}
-		if w.env.LastExitCode() == 0 {
-			return fmt.Errorf("ctxloom exited 0 with a withheld distill skill selected. The gate that must refuse is "+
-				"errs.ErrSkillWithheld from operations.GetSkill; `session distill` (cli.runSessionDistill -> cli.compactEntry -> "+
-				"memory.NewCompactor) does not consult it, and accepts no --skill flag to consult it with. Do NOT go looking at "+
-				"cli.loadDistillPrompt: it swallows GetCommand errors the same way, but it serves `bundle distill` via "+
-				"cli.newLLMDistillerForLabel and is not on this path (tracked separately as obligate-synthesis). A withheld skill "+
-				"must fail loud rather than silently changing which prompt runs. Output:\n%s",
-				w.env.LastOutput())
-		}
-		return j001300Answered(w, "the refusal", "withheld", "review")
-	})
-
-	ctx.Step(`^nothing was written into the "([^"]*)" bundle$`, func(c context.Context, bundle string) error {
-		w := worldFrom(c)
-		if err := j001300RanRealSurface(w); err != nil {
-			return err
-		}
-		for _, rel := range []string{
-			".ctxloom/content/bundles/" + bundle + ".yaml",
-			".ctxloom/content/bundles/" + bundle + "/bundle.yaml",
-		} {
-			if body, err := w.env.ReadFile(rel); err == nil && strings.Contains(body, "fragments:") {
-				return fmt.Errorf("%s carries fragments after a run that should have written nothing; it holds:\n%s", rel, body)
-			}
-		}
-		return nil
-	})
-
-	ctx.Step(`^ctxloom reports that it extracted nothing, and does not call that success$`, func(c context.Context) error {
-		w := worldFrom(c)
-		if err := j001300RanRealSurface(w); err != nil {
-			return err
-		}
-		if w.env.LastExitCode() == 0 {
-			return fmt.Errorf("ctxloom exited 0 having written zero fragments. 'wrote 0 fragments' must be exit-nonzero, never success — "+
-				"the standing silent-no-op rule, and the failure mode this whole suite exists to catch. Output:\n%s", w.env.LastOutput())
 		}
 		return nil
 	})

@@ -4,7 +4,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var commandCmd = groupNode(&cobra.Command{
+// Bare `ctxloom command` lists the commands: the collection is the one
+// thing the noun is about, and reading it touches nothing.
+var commandCmd = groupNodeDefault(&cobra.Command{
 	Use:   "command",
 	Short: "Manage commands",
 	Long: `Manage commands - reusable prompt/command templates for AI coding assistants.
@@ -18,7 +20,7 @@ Examples:
   ctxloom command show core#commands/code-review        # Show command content
   ctxloom command edit core#commands/code-review        # Edit command content
   ctxloom command create my-bundle code-review          # Create new command`,
-})
+}, "list")
 
 var commandListCmd = &cobra.Command{
 	Use:   "list",

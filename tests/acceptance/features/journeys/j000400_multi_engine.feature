@@ -32,18 +32,27 @@ Feature: One shared profile, reaching four engines in their own native format
   proving any engine READ them — that is what the second, much smaller table
   below exists to prove, for the engines where it can honestly be proven today.
 
+  # THE UNIQUE CLAIM HERE IS THE FAN-OUT, and it is the reason this outline
+  # survives alongside four specs that each look stronger than it in isolation.
+  # Every individual surface is asserted comprehensively by the noun that owns
+  # it — context in cli/fragment.feature, MCP in cli/mcp.feature, hooks in
+  # cli/manage.feature, commands in cli/command.feature. What ONE materialize
+  # delivering ALL FOUR TOGETHER proves, no per-surface spec can see: a
+  # regression that writes three surfaces and silently drops the fourth passes
+  # every one of those files and fails only here. Do not fold this into them.
+  #
   # LOCKED — materialization only (hermetic, no engine binary required). Every
   # row PARSES the generated file in its own format (JSON, TOML, or plain
-  # markdown) and asserts the actual field — never a bare file-exists or a
-  # substring-of-a-key-name (the exact vacuousness `manage.feature`'s ".mcp.json"
-  # assertion still carries, which this outline does not repeat). codex is now a
-  # FOURTH ROW: `profile materialize` used to leave codex's context surface a
-  # silent no-op (it was keyed on agent.SurfaceInputs.Fragments, which
-  # materialize never populates); codex's context surface now ALSO writes
-  # AGENTS.md from agent.SurfaceInputs.Context (the assembled string materialize
-  # DOES populate), so this row proves the gap the table used to document is
-  # closed — the Outline's own design (add an engine, add a row) proves it a
-  # fourth time.
+  # markdown) and asserts the actual field, never a bare file-exists and never
+  # a substring of a key name: a key name is satisfied by the file merely
+  # mentioning it, which is true whether or not any content landed.
+  #
+  # codex's context row is the one to read carefully. Its surface writes
+  # AGENTS.md from agent.SurfaceInputs.Context — the assembled string, which
+  # materialize populates. It must never be keyed on SurfaceInputs.Fragments:
+  # materialize never fills that field, so a fragments-keyed context surface is
+  # a silent no-op on this path, exit 0 with nothing written. Adding an engine
+  # here is adding a ROW, not new Go.
   Scenario Outline: The same profile materializes into each engine's own native surfaces
     Given Carol's team profile carries a shared fragment, command, MCP server, and hook
     When Alice materializes the team profile for <engine>

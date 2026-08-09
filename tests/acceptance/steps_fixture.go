@@ -71,6 +71,23 @@ editor:
     - editor
 `
 
+// emptyEditorConfig pins the editor to a command that TRUNCATES the file it is
+// given to zero bytes — standing in for a crashed editor, a truncated write, or
+// a wrapper script that never actually saved. `command edit`/`fragment edit`
+// must refuse this rather than overwrite the item's stored content with
+// nothing (checkEditedContent in internal/cli/item_crud.go); this fixture is
+// what makes that refusal path reachable hermetically.
+//
+// Lives entirely in the HOME layer — see markerEditorConfig's doc for why.
+const emptyEditorConfig = `version: 4
+editor:
+  command: sh
+  args:
+    - "-c"
+    - 'printf "" > "$1"'
+    - editor
+`
+
 // descriptionEditorConfig pins the editor to a command that REWRITES the
 // document's `description:` line rather than appending free text, so the
 // round-trip is observable on a file whose content must stay valid YAML —
@@ -208,6 +225,20 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		return w.env.WriteHomeFile(".ctxloom/config.yaml", descriptionEditorConfig)
+	})
+
+	// A project whose editor truncates whatever it is given to zero bytes — the
+	// crashed/truncated-write case `edit` must refuse rather than silently
+	// stamping the item's stored content empty. See emptyEditorConfig's doc.
+	ctx.Step(`^a ctxloom project with an editor that empties the file$`, func(c context.Context) error {
+		w := worldFrom(c)
+		if err := w.env.InitGitRepo(); err != nil {
+			return err
+		}
+		if err := w.env.WriteFile(".ctxloom/config.yaml", minimalConfig); err != nil {
+			return err
+		}
+		return w.env.WriteHomeFile(".ctxloom/config.yaml", emptyEditorConfig)
 	})
 
 	// A malformed config exercises fault tolerance: ctxloom must warn and fall

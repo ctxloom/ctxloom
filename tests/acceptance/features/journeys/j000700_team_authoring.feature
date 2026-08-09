@@ -9,6 +9,20 @@ Feature: A team lead shares a command with the team
   is the team's own project, it is trusted as first-party: no signing, no
   review — the team already owns what it wrote.
 
+  # Every Then here names something a TEAMMATE can see: the command reaches
+  # his assistant, review has nothing pending for it, the compact form is
+  # what he receives, the stale version is gone once he pulls again. The
+  # byte-level proofs — that create writes real content and not just a name,
+  # how a single command is read over CLI and MCP, what deleting one actually
+  # removes, how --no-distill and an empty editor buffer are refused — belong
+  # to cli/command.feature, which owns that noun.
+  #
+  # This journey deliberately authors and edits the command by writing the
+  # bundle manifest directly rather than through `command create`/`command
+  # edit`: the mechanism under test here is propagation across a real git
+  # pull, first-party trust, and distillation-serving — not the editor
+  # round-trip, which cli/command.feature already covers on its own terms.
+
   # LOCKED — the core loop, lean: authored in-project → a teammate gains it,
   # trusted first-party (no review).
   Scenario: Carol authors a command and a teammate gains it

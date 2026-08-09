@@ -23,7 +23,7 @@ var bundleMoveCmd = &cobra.Command{
 
 The bundle's bytes are carried VERBATIM — never re-parsed, re-serialized, or
 re-signed. A detached publisher signature (<name>.yaml.sig, made by
-'ctxloom sign') therefore stays valid at the destination, because the bytes it
+'ctxloom bundle sign') therefore stays valid at the destination, because the bytes it
 covers do not change. If a signature exists but cannot be carried, the move
 FAILS: it never lands the bundle unsigned behind your back.
 

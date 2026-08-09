@@ -60,8 +60,8 @@ Non-interactive (piped, --list, or any --format but text): print the pending
 table and exit.
 
 The scriptable plumbing under this porcelain:
-  ctxloom trust <ref>       accept one item
-  ctxloom blacklist <ref>   reject one item`,
+  ctxloom trust accept <ref>   accept one item
+  ctxloom trust reject <ref>   reject one item`,
 	Args: cobra.NoArgs,
 	RunE: runReviewCmd,
 }
@@ -260,7 +260,7 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 		}
 	}
 	fmt.Fprintln(w, "\nRun 'ctxloom review' in a terminal to review interactively, or use the")
-	fmt.Fprintln(w, "plumbing per item: ctxloom trust <bundle-ref>#<kind>/<name> / ctxloom blacklist <ref>.")
+	fmt.Fprintln(w, "plumbing per item: ctxloom trust accept <bundle-ref>#<kind>/<name> / ctxloom trust reject <ref>.")
 }
 
 // renderReviewPublisher prints the two lines that say WHO signed a pending

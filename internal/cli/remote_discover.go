@@ -123,7 +123,7 @@ func runRemoteDiscover(cmd *cobra.Command, args []string, loadConfig func() (*co
 	// it rather than skipping silently.
 	if !isInteractiveTerminal() {
 		fmt.Println("Run 'ctxloom remote discover' in a terminal to add one of these interactively,")
-		fmt.Println("or add it directly: ctxloom remote add <name> <url>")
+		fmt.Println("or add it directly: ctxloom remote create <name> <url>")
 		return nil
 	}
 	if err := interactiveAdd(cmd, cfg, result.Repositories); err != nil {

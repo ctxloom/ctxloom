@@ -66,7 +66,7 @@ always human text or always YAML):
 
 | Command(s) | Where the text is written |
 |---|---|
-| `config show`, `config get`, `config edit`, `config init` (and their `manage config *` aliases) | `renderConfigYAML` (`config.go:77`) — always YAML, so `--format json` exits 0 emitting YAML a JSON parser rejects |
+| `config show`, `config get`, `config edit`, `config create` (and their `manage config *` aliases) | `renderConfigYAML` (`config.go:77`) — always YAML, so `--format json` exits 0 emitting YAML a JSON parser rejects |
 | `bundle hold`, `bundle unhold` | `bundle_hold_cli.go:41,59` |
 | `bundle mcp edit` | `bundle_items.go:75,98` (package-level `fmt`, not even `cmd.OutOrStdout()`) |
 | `bundle delete` | `bundle_edit.go:199` |

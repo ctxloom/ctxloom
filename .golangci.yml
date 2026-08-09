@@ -24,6 +24,17 @@ run:
   build-tags:
     - mutation
 
+# Report EVERY instance, not a sample of each.
+#
+# The defaults cap a linter at 50 findings and any one message at 3, so a
+# repo-wide drift is reported three files at a time. The count is then a
+# floor wearing the clothes of a total: nine unformatted files reported as
+# "3 issues", and fixing those three revealed the next three. A gate whose
+# number cannot be trusted is worse than a loud one.
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
 linters:
   enable:
     - forbidigo

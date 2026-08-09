@@ -159,6 +159,7 @@ func InitializeScenario(ctx *godog.ScenarioContext) {
 	registerJ001500Steps(ctx)
 	registerJ000800Steps(ctx)
 	registerJ000400Steps(ctx)
+	registerCLIManageShapeSteps(ctx)
 	registerJ002100Steps(ctx)
 	registerJ001700Steps(ctx)
 	registerJ001800Steps(ctx)

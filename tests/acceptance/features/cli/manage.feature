@@ -218,8 +218,34 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the output matches "claude-code: hooks=true[^\n]*mcp=true"
 
+  Rule: A materialized hook reaches every engine in its own native shape
+
+    # ONE hook, FOUR files, FOUR formats — PARSED in its own format and
+    # asserted on the actual command field under the right event, never a
+    # bare file-exists or a substring of a key name. Two engines fold hooks
+    # into the same config file that also carries their MCP registration
+    # (codex's config.toml); kiro and antigravity each get a hook surface of
+    # their own. kiro diverts the event name itself — session_start becomes
+    # agentSpawn — because that is kiro's own name for it, not ctxloom's.
+    Scenario Outline: A team's hook reaches every engine's own hook surface
+      Given Carol's team profile carries a shared fragment, command, MCP server, and hook
+      When Alice materializes the team profile for <engine>
+      Then the materialized <engine> hook configuration carries the shared hook's command, in its own native shape
+
+      Examples:
+        | engine      |
+        | claude-code |
+        | codex       |
+        | kiro        |
+        | antigravity |
+
   Rule: Hooks install, list, and genuinely uninstall
 
+    # A claim scoped to hooks.SessionStart specifically, parsed rather than a
+    # whole-file substring: ctxloom's own statusLine command also carries the
+    # substring "ctxloom hook" (`ctxloom hook hud`), so a bare `contains`
+    # check here is satisfied by the statusline whether or not any hook was
+    # ever installed or removed.
     Scenario: Hooks can be installed, inspected, and actually removed
       Given an initialized ctxloom project
       When Alice installs the hooks:
@@ -227,14 +253,14 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks install
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "ctxloom hook"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook inject-context"
       When Alice inspects and then removes them:
         """
         ctxloom manage hooks status
         ctxloom manage hooks uninstall
         """
       Then the command succeeds
-      And the file ".claude/settings.json" does not contain "ctxloom hook"
+      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook inject-context"
 
     Scenario: Re-applying hooks does not duplicate them
       Given an initialized ctxloom project
@@ -388,7 +414,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         ctxloom manage hooks install
         """
       Then the command succeeds
-      And the file ".claude/settings.json" contains "ctxloom hook"
+      And the file ".claude/settings.json" registers a SessionStart hook whose command contains "hook inject-context"
       And the file ".claude/settings.json" contains "1234567890123456789"
       And the file ".claude/settings.json" contains "-9223372036854775808"
       And the file ".claude/settings.json" contains "18446744073709551615"
@@ -412,7 +438,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         """
       Then the output contains "refusing to write settings.json"
       And the file ".claude/settings.json" contains "ccusage"
-      And the file ".claude/settings.json" does not contain "ctxloom hook"
+      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook inject-context"
 
   Rule: ctxloom's private state stays out of source control
 
@@ -468,6 +494,11 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # it is satisfied as a precondition with no context hook ever written, and
     # as a removal check by an uninstall that drops the statusline and leaves
     # the hook behind.
+    #
+    # The MCP claim PARSES the file rather than checking for the bare
+    # substring "ctxloom": .mcp.json containing that word somewhere is
+    # satisfied by almost anything, so both the precondition and the removal
+    # check name the actual mcpServers registration by its own key.
     Scenario: Uninstall strips the harness but keeps the project's own content
       Given an empty project directory
       When Alice wires ctxloom in:
@@ -477,13 +508,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Then the command succeeds
       And the file ".claude/settings.json" contains "hook inject-context"
       And the file ".claude/settings.json" contains "ctxloom hook hud"
-      And the file ".mcp.json" contains "ctxloom"
+      And the file ".mcp.json" registers an MCP server named "ctxloom"
       When Alice takes it back out:
         """
         ctxloom manage uninstall
         """
       Then the command succeeds
       And the file ".claude/settings.json" does not contain "hook inject-context"
-      And the file ".claude/settings.json" does not contain "ctxloom hook"
-      And the file ".mcp.json" does not contain "ctxloom hook"
+      And the file ".claude/settings.json" registers no SessionStart hook whose command contains "hook inject-context"
+      And the file ".mcp.json" registers no MCP server named "ctxloom"
       And the file ".ctxloom/config.yaml" exists

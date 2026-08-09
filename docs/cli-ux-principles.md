@@ -42,6 +42,26 @@ feature so well it can't be found (see §5).
 **Check:** what does the bare command with no arguments do? If the answer is
 "error" or "nothing useful," the defaults are wrong.
 
+**A bare LEAF and a bare NAMESPACE are different questions.** The check above is
+about leaves — `git log`, `docker ps`, commands that *do* something. A namespace
+(`ctxloom bundle`, `ctxloom trust`) is a container, and for a container the
+useful answer is **help**: it teaches what the noun can do, which is the one
+thing a user standing at that level actually needs.
+
+So: a bare leaf does the obvious thing; a bare namespace teaches. Neither is
+"nothing useful", and printing an inventory is not an upgrade on either.
+
+Making a bare namespace *list* was considered in full and rejected. The measured
+landscape is not behind it — across fifteen production CLIs, five print help on
+a bare noun (`gh`, `docker`, `flyctl`, `wrangler`, `stripe`), four error
+(`gcloud`, `az`, `aws`, `terraform`), and three list (git's noun-commands,
+`systemctl`, heroku by doctrine). The nearest cobra-based cousins, `gh` and
+`docker`, both print help. The guideline literature does not settle it either:
+Heroku's style guide mandates bare-lists while 12-Factor CLI Apps — written by
+the Heroku CLI's own author — argues the opposite. And listing would cost the
+noun its teaching surface at its most-typed spelling to save one word on nouns
+that already carry a two-letter `ls` alias.
+
 ## 3. Sensible defaults — and defaults that hide data must say so
 
 Defaults encode the tool's opinion of the common case, and a *view* default

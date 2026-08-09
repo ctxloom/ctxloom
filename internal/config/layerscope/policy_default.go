@@ -65,9 +65,10 @@ func DefaultPolicy() Policy {
 
 		{Path: "mcp.servers.*", Scope: ScopeShared, Note: "what the team wires in"},
 		// DIVERGES from the design doc (ScopeMachine there). MEASURED against
-		// a real acceptance scenario (features/mcp.feature "Add an MCP
-		// server"/"Show an MCP server's configuration"/"Remove an MCP
-		// server"): mcpServer's own schema REQUIRES command
+		// a real acceptance scenario (features/cli/mcp.feature "Alice
+		// registers a shared MCP server"/"Showing an MCP server's
+		// configuration"/"Removing an MCP server"): mcpServer's own schema
+		// REQUIRES command
 		// ("required": ["command"]), so ScopeMachine here does not merely
 		// restrict a project-committed value, it makes mcp.servers.* — a
 		// group the design's own table calls ScopeShared ("what the team

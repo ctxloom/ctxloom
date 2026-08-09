@@ -48,6 +48,12 @@ about leaves — `git log`, `docker ps`, commands that *do* something. A namespa
 useful answer is **help**: it teaches what the noun can do, which is the one
 thing a user standing at that level actually needs.
 
+This was a close call, and the tiebreaker generalizes: **when two defaults are
+genuinely close, give the default to whoever cannot cheaply recover from the
+other choice.** An expert wanting the listing types `ls`, two characters. A
+newcomer wanting to know what a noun does has no shortcut if the bare form prints
+data, because they do not yet know what to ask for.
+
 So: a bare leaf does the obvious thing; a bare namespace teaches. Neither is
 "nothing useful", and printing an inventory is not an upgrade on either.
 

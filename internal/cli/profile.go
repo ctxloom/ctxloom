@@ -15,14 +15,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-var profileCmd = groupNode(&cobra.Command{
+// Bare `ctxloom profile` lists the profiles: the collection is the one
+// thing the noun is about, and reading it touches nothing.
+var profileCmd = groupNodeDefault(&cobra.Command{
 	Use:   "profile",
 	Short: "Manage profiles (named fragment collections)",
 	Long: `Manage profiles - named collections of context fragments, bundles, and configuration.
 
 Profiles are stored as YAML files in .ctxloom/profiles/<name>.yaml and allow you to
 quickly switch between different sets of context without specifying them individually.`,
-})
+}, "list")
 
 var profileListCmd = &cobra.Command{
 	Use:     "list",

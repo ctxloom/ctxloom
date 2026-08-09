@@ -72,9 +72,9 @@ func groupNode(cmd *cobra.Command) *cobra.Command {
 //
 // WHY THE BARE FORM ANSWERS RATHER THAN TEACHES. The most-typed spelling should
 // answer the most common question, and someone typing a noun on its own almost
-// always wants to know what they have. The teaching surface is not lost, it is
-// spelled explicitly: installHelpSuffix puts `help` on every namespace, so
-// `ctxloom remote help` is always there for the caller who wants it.
+// always wants to know what they have. The teaching surface is not lost, it
+// moves to the flag: --help reaches every command in the tree, so
+// `ctxloom remote --help` is always there for the caller who wants it.
 //
 // THE CHILD MUST BE READ-ONLY AND SIDE-EFFECT-FREE. This runs on a bare noun,
 // which is the invocation a caller types while exploring, so anything it can

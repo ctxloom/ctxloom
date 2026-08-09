@@ -184,16 +184,18 @@ func GetRootCmd() *cobra.Command {
 }
 
 // rootCommand returns the assembled root: the tree the init() functions built,
-// plus the `help` child every namespace carries.
+// with --help reaching every command and no `help` command anywhere.
 //
 // Every path that dispatches or documents the CLI goes through here, so the
-// suffix cannot be missing from one entry point and present in another. The
-// assembly is deferred to first use rather than done in an init() because it
-// has to observe a COMPLETE tree, and Go does not order package init()
-// functions for you — a walk in one of them would see whichever namespaces
-// happened to be registered already.
+// help affordance cannot be present at one entry point and missing at another.
+// The assembly is deferred to first use rather than done in an init() because
+// it has to observe a COMPLETE tree, and Go does not order package init()
+// functions for you.
 func rootCommand() *cobra.Command {
-	rootAssembly.Do(func() { installHelpSuffix(rootCmd) })
+	rootAssembly.Do(func() {
+		installHelpFlag(rootCmd)
+		disableHelpCommand(rootCmd)
+	})
 	resetHelpFlag(rootCmd)
 	return rootCmd
 }

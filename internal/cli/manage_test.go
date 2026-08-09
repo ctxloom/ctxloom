@@ -19,17 +19,9 @@ func findSub(parent *cobra.Command, name string) *cobra.Command {
 }
 
 // subNames returns the names of parent's immediate subcommands.
-// subNames lists the VERBS a namespace offers. The `help` child every
-// namespace carries is left out: it is installed on all of them by
-// construction, so naming it in each expected-roster list below would say
-// nothing about the namespace under test. TestHelpSuffix_ResolvesOnEveryNamespace
-// is what holds it present.
 func subNames(parent *cobra.Command) []string {
 	names := make([]string, 0, len(parent.Commands()))
 	for _, c := range parent.Commands() {
-		if isHelpSuffix(c) {
-			continue
-		}
 		names = append(names, c.Name())
 	}
 	return names

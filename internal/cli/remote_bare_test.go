@@ -87,21 +87,9 @@ func TestRemoteBare_ListSubcommandAndAliasStillWork(t *testing.T) {
 	assert.Equal(t, listed, aliased, "`ls` stays an alias of `list`")
 }
 
-// TestRemoteBare_HelpSuffixTeaches is the other half of the trade: the bare
-// form gave up teaching, so the explicit spelling must deliver it.
-func TestRemoteBare_HelpSuffixTeaches(t *testing.T) {
-	remoteBareFixture(t)
-
-	out, err := runRoot(t, "remote", "help")
-
-	require.NoError(t, err)
-	assert.Contains(t, out, helpMarker, "`ctxloom remote help` teaches")
-	assert.Contains(t, out, usageAnchor("remote"), "it teaches about remote specifically")
-}
-
-// TestRemoteBare_HelpFlagsUntouched pins the flags as untouched. They are the
-// spelling every other CLI trains users on, and the new suffix is an addition
-// to them rather than a replacement.
+// TestRemoteBare_HelpFlagsUntouched is the other half of the trade: the bare
+// form gave up teaching, so the flag must deliver it. It is the only spelling
+// there is, which makes it the one the bare-noun rule depends on.
 func TestRemoteBare_HelpFlagsUntouched(t *testing.T) {
 	remoteBareFixture(t)
 

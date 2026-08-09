@@ -77,20 +77,24 @@ type formatCoverageEntry struct {
 // subcommand fail instead of silently printing help; its RunE emits no
 // payload, so there is nothing for the five encodings to render and a skip
 // entry per namespace would say only "this is a namespace" twenty times over.
+//
+// The `help` child every namespace carries is excluded for the same reason it
+// refuses a structured --format: its output is prose, which no encoding
+// renders as a payload, and it exists on every namespace by construction.
 func formatCoverageWalk(t *testing.T) []string {
 	t.Helper()
 	var paths []string
 	var walk func(cmd *cobra.Command, prefix string)
 	walk = func(cmd *cobra.Command, prefix string) {
 		full := strings.TrimSpace(prefix + " " + cmd.Name())
-		if cmd.Runnable() && !cmd.Hidden && !isGroupNode(cmd) {
+		if cmd.Runnable() && !cmd.Hidden && !isGroupNode(cmd) && !isHelpSuffix(cmd) {
 			paths = append(paths, full)
 		}
 		for _, c := range cmd.Commands() {
 			walk(c, full)
 		}
 	}
-	for _, c := range rootCmd.Commands() {
+	for _, c := range rootCommand().Commands() {
 		walk(c, "")
 	}
 	return paths

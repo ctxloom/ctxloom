@@ -54,7 +54,7 @@ func runRoot(t *testing.T, args ...string) (string, error) {
 		// helper's to undo.
 		clidiag.SetStructured(false)
 	})
-	err := rootCmd.Execute()
+	err := rootCommand().Execute()
 	return out.String(), err
 }
 

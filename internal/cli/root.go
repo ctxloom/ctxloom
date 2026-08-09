@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -179,8 +180,24 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 
 // GetRootCmd returns the root command for documentation generation.
 func GetRootCmd() *cobra.Command {
+	return rootCommand()
+}
+
+// rootCommand returns the assembled root: the tree the init() functions built,
+// plus the `help` child every namespace carries.
+//
+// Every path that dispatches or documents the CLI goes through here, so the
+// suffix cannot be missing from one entry point and present in another. The
+// assembly is deferred to first use rather than done in an init() because it
+// has to observe a COMPLETE tree, and Go does not order package init()
+// functions for you — a walk in one of them would see whichever namespaces
+// happened to be registered already.
+func rootCommand() *cobra.Command {
+	rootAssembly.Do(func() { installHelpSuffix(rootCmd) })
 	return rootCmd
 }
+
+var rootAssembly sync.Once
 
 // Run dispatches the root command and RETURNS the process exit code; it never
 // calls os.Exit itself. The exit belongs to main, because os.Exit runs no
@@ -189,7 +206,7 @@ func GetRootCmd() *cobra.Command {
 // main installed (the zap logger's sinks) would be dropped on exactly the runs
 // that failed. Returning the code keeps the exit and the teardown in one frame.
 func Run() int {
-	err := rootCmd.Execute()
+	err := rootCommand().Execute()
 	if err == nil {
 		return 0
 	}

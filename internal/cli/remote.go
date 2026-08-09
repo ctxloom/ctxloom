@@ -11,7 +11,9 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-var remoteCmd = groupNode(&cobra.Command{
+// Bare `ctxloom remote` lists the configured remotes: the registry is the one
+// thing the noun is about, and reading it touches nothing.
+var remoteCmd = groupNodeDefault(&cobra.Command{
 	Use:   "remote",
 	Short: "Manage remotes and discover content",
 	Long: `Manage remote sources and discover bundles/profiles.
@@ -38,7 +40,7 @@ Examples:
   ctxloom remote create alice alice/ctxloom
   ctxloom search "golang testing"
   ctxloom remote show ctxloom-default`,
-})
+}, "list")
 
 var remoteAddForge string
 

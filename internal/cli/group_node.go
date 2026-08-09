@@ -53,10 +53,7 @@ import (
 // and Go does not order those for you. TestGroupNodes_AreAllGuarded is what
 // keeps the 22 sites from becoming 21.
 func groupNode(cmd *cobra.Command) *cobra.Command {
-	if cmd.Annotations == nil {
-		cmd.Annotations = map[string]string{}
-	}
-	cmd.Annotations[groupNodeAnnotation] = "true"
+	markGroupNode(cmd)
 	cmd.RunE = func(c *cobra.Command, args []string) error {
 		if len(args) > 0 {
 			return unknownSubcommandError(c, args[0])
@@ -67,6 +64,81 @@ func groupNode(cmd *cobra.Command) *cobra.Command {
 		return c.Help()
 	}
 	return cmd
+}
+
+// groupNodeDefault is groupNode for a namespace that has a safe default view of
+// what it holds: the bare form runs the named child instead of printing help.
+// `ctxloom remote` lists remotes, the way `git remote` and `systemctl` do.
+//
+// WHY THE BARE FORM ANSWERS RATHER THAN TEACHES. The most-typed spelling should
+// answer the most common question, and someone typing a noun on its own almost
+// always wants to know what they have. The teaching surface is not lost, it is
+// spelled explicitly: installHelpSuffix puts `help` on every namespace, so
+// `ctxloom remote help` is always there for the caller who wants it.
+//
+// THE CHILD MUST BE READ-ONLY AND SIDE-EFFECT-FREE. This runs on a bare noun,
+// which is the invocation a caller types while exploring, so anything it can
+// reach must be safe to reach by accident. A namespace with no such view keeps
+// plain groupNode and falls back to help, which still answers with something
+// worth having; erroring on a bare noun is never the answer.
+//
+// --format is NOT refused here, unlike plain groupNode: the delegate produces a
+// real payload, and its own emit() honors the flag.
+func groupNodeDefault(cmd *cobra.Command, primary string) *cobra.Command {
+	markGroupNode(cmd)
+	cmd.Annotations[groupNodeDefaultAnnotation] = primary
+	cmd.RunE = func(c *cobra.Command, args []string) error {
+		if len(args) > 0 {
+			return unknownSubcommandError(c, args[0])
+		}
+		return runGroupNodeDefault(c, primary)
+	}
+	return cmd
+}
+
+// runGroupNodeDefault dispatches a bare namespace to its default child.
+//
+// The child is looked up by name at call time rather than captured at
+// declaration time: the namespace variable is constructed before any init()
+// adds children to it, so at declaration there is nothing to capture.
+//
+// The context is carried across explicitly. Cobra sets the context on the
+// command it dispatched to — the namespace — and the child, never having been
+// dispatched to, would otherwise run with none.
+func runGroupNodeDefault(cmd *cobra.Command, primary string) error {
+	for _, child := range cmd.Commands() {
+		if child.Name() != primary {
+			continue
+		}
+		child.SetContext(cmd.Context())
+		if child.PreRunE != nil {
+			if err := child.PreRunE(child, nil); err != nil {
+				return err
+			}
+		}
+		return child.RunE(child, nil)
+	}
+	return fmt.Errorf("%s: no %q subcommand to answer the bare form", cmd.CommandPath(), primary)
+}
+
+// markGroupNode records that cmd is a namespace, which is what lets tree
+// walkers tell a namespace's RunE from a command that does work.
+func markGroupNode(cmd *cobra.Command) {
+	if cmd.Annotations == nil {
+		cmd.Annotations = map[string]string{}
+	}
+	cmd.Annotations[groupNodeAnnotation] = "true"
+}
+
+// groupNodeDefaultAnnotation names the child a bare namespace runs, so tests
+// can check the delegate exists and is safe without invoking it.
+const groupNodeDefaultAnnotation = "ctxloom.group-node-default"
+
+// groupNodeDefaultChild returns the child cmd's bare form runs, and whether it
+// has one.
+func groupNodeDefaultChild(cmd *cobra.Command) (string, bool) {
+	name, ok := cmd.Annotations[groupNodeDefaultAnnotation]
+	return name, ok
 }
 
 // groupNodeFormatRefusal rejects a machine-readable --format aimed at a

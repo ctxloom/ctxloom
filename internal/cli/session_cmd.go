@@ -13,14 +13,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
-var sessionCmd = groupNode(&cobra.Command{
+// Bare `ctxloom session` lists the recorded sessions: the collection is the
+// one thing the noun is about, and reading it touches nothing.
+var sessionCmd = groupNodeDefault(&cobra.Command{
 	Use:   "session",
 	Short: "Browse and manage harp-named sessions",
 	Long: `Read and manage the harp-keyed session index at
 ~/.ctxloom/sessions/index.yaml. Use to list/show/rename/delete
 sessions without launching the LLM. Sessions appear here automatically
 once ` + "`ctxloom run`" + ` has been used to launch a backend.`,
-})
+}, "list")
 
 var (
 	sessionListAll     bool

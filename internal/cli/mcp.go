@@ -400,11 +400,13 @@ func runMCPServerEdit(cmd *cobra.Command, args []string) error {
 }
 
 // mcpServerCmd is the MCP-server noun: the canonical spine over the
-// config-level MCP server store.
-var mcpServerCmd = groupNode(&cobra.Command{
+// config-level MCP server store. Bare `ctxloom mcp server` lists the
+// configured servers: the collection is the one thing the noun is about,
+// and reading it touches nothing.
+var mcpServerCmd = groupNodeDefault(&cobra.Command{
 	Use:   "server",
 	Short: "List, show, create, edit, or delete configured MCP servers",
-})
+}, "list")
 
 // mcpRegisterCmd / mcpUnregisterCmd toggle ctxloom's own auto-registration,
 // sharing setMcpAutoRegister (manage.go).

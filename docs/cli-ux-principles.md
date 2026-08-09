@@ -60,9 +60,14 @@ It has to be the flag rather than a bare `help` word, for addressability. A bare
 word in suffix position competes for the same slot as a positional argument, so
 on a leaf taking open-ended text — `ctxloom search help`, `ctxloom run help` —
 one meaning has to lose, and whichever loses becomes silently unreachable. A
-flag lives in a different namespace from operands and collides with nothing. The
-bare `help` word is still available on containers, which have no positionals to
-compete with, but it is not the universal rule.
+flag lives in a different namespace from operands and collides with nothing.
+
+**There is no bare `help` command at any level, including the root and the
+namespaces**, where no positional would have collided with it. The carve-out is
+declined on purpose: an affordance present at some levels and absent at others
+is one the user has to model rather than simply use, and this rule's whole value
+is that it needs no model. One spelling everywhere beats one spelling plus an
+exception, even an exception in the user's favour.
 
 Nothing is exempt from the flag, including the namespaces above. `ctxloom mcp`
 keeps starting a server when bare, and `ctxloom mcp --help` still teaches. The

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -109,11 +110,11 @@ QUICK START
 CONTENT COMMANDS
   fragment      Manage fragments (list, show, create, delete, edit, search)
   command       Manage commands (list, show, create, delete, edit)
-  profile       Manage profiles (list, show, create, delete, edit, default)
+  profile       Manage profiles (list, show, create, delete, edit)
 
 INFRASTRUCTURE
   manage        Install/manage ctxloom's project harness (init, hooks, mcp, config)
-  remote        Manage remotes (add, remove, list, default, pull, update, upgrade)
+  remote        Manage remotes (create, delete, list, default, pull, update, upgrade)
   mcp           Run ctxloom as an MCP server
 
 WORKFLOW
@@ -179,8 +180,27 @@ func rootPersistentPreRun(cmd *cobra.Command, args []string) {
 
 // GetRootCmd returns the root command for documentation generation.
 func GetRootCmd() *cobra.Command {
+	return rootCommand()
+}
+
+// rootCommand returns the assembled root: the tree the init() functions built,
+// with --help reaching every command and no `help` command anywhere.
+//
+// Every path that dispatches or documents the CLI goes through here, so the
+// help affordance cannot be present at one entry point and missing at another.
+// The assembly is deferred to first use rather than done in an init() because
+// it has to observe a COMPLETE tree, and Go does not order package init()
+// functions for you.
+func rootCommand() *cobra.Command {
+	rootAssembly.Do(func() {
+		installHelpFlag(rootCmd)
+		disableHelpCommand(rootCmd)
+	})
+	resetHelpFlag(rootCmd)
 	return rootCmd
 }
+
+var rootAssembly sync.Once
 
 // Run dispatches the root command and RETURNS the process exit code; it never
 // calls os.Exit itself. The exit belongs to main, because os.Exit runs no
@@ -189,7 +209,7 @@ func GetRootCmd() *cobra.Command {
 // main installed (the zap logger's sinks) would be dropped on exactly the runs
 // that failed. Returning the code keeps the exit and the teardown in one frame.
 func Run() int {
-	err := rootCmd.Execute()
+	err := rootCommand().Execute()
 	if err == nil {
 		return 0
 	}

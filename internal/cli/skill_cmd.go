@@ -285,7 +285,7 @@ skill) containing every manifest file, with POSIX modes preserved.
 
 --sign additionally writes a detached signature over the skill's manifest
 (the same bytes 'ctxloom skill import' verifies), using the same zero-config
-key discovery 'ctxloom sign' uses.
+key discovery 'ctxloom bundle sign' uses.
 
 Examples:
   ctxloom skill export my-bundle#skills/code-reviewer

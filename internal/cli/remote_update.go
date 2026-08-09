@@ -32,7 +32,7 @@ Without arguments, checks all items in the lockfile for updates. With a
 reference, checks only that item. The reference is a canonical bundle
 reference — a full repository URL plus its bundle path, e.g.
 https://github.com/alice/ctxloom@bundles/security — not a remote name (see
-"ctxloom remote add --help" for the repository URL formats a remote itself
+"ctxloom remote create --help" for the repository URL formats a remote itself
 may take).
 
 By default this only reports what is out of date. Pass --apply to actually

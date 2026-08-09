@@ -90,7 +90,7 @@ func formatCoverageWalk(t *testing.T) []string {
 			walk(c, full)
 		}
 	}
-	for _, c := range rootCmd.Commands() {
+	for _, c := range rootCommand().Commands() {
 		walk(c, "")
 	}
 	return paths

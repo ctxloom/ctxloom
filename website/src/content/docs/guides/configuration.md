@@ -36,7 +36,7 @@ ctxloom uses a single source (no merging):
 
 ## config.yaml Reference
 
-The current schema is version 6. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom config init` scaffolds one.
+The current schema is version 6. The canonical commented example ships as `resources/example-config.yaml` in the repo; `ctxloom config create` scaffolds one.
 
 :::note[Unknown keys are rejected]
 `config.yaml` is validated against its schema on load. A key the current schema doesn't recognize — including a retired one, like the old top-level `profiles: defaults:` list below — fails startup with a diagnostic naming the key and, where one exists, its replacement. Pass `--degraded` or set `CTXLOOM_DEGRADED=1` to downgrade this to a warning and continue.

@@ -46,7 +46,7 @@ import (
 // runCLIFixture writes the smallest project config the run path needs (the
 // same shape as the acceptance suite's minimalConfig) into a fresh isolated
 // project dir, plus a bundle/fragment/profile so an assembly actually
-// resolves. `config init`'s generated config is deliberately NOT used: its
+// resolves. `config create`'s generated config is deliberately NOT used: its
 // default profile carries uninstalled remote parents, which is itself a
 // characterized behaviour below (the startup gate aborts on it).
 func runCLIFixture(t *testing.T) string {
@@ -203,7 +203,7 @@ func TestRunCharacterization_FlagValidationRejectsBeforeAnyWork(t *testing.T) {
 // The strictness gate that stands between assembly and launch
 // -----------------------------------------------------------------------------
 
-// `config init` writes a default profile whose parents are remote bundles that
+// `config create` writes a default profile whose parents are remote bundles that
 // are not installed. config.Load downgrades that to warnings; the run path
 // surfaces them AND records them as fatal findings, so the startup gate aborts
 // with the dedicated exit code rather than launching an empty-context session.
@@ -213,7 +213,7 @@ func TestRunCharacterization_StartupGateAbortsOnRecordedFindings(t *testing.T) {
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
 
-	require.NoError(t, runCLI(t, "config", "init").err)
+	require.NoError(t, runCLI(t, "config", "create").err)
 
 	res := runCLI(t, "run", "--dry-run", "--format", "text", "hello")
 	require.Error(t, res.err, "unresolvable default-profile parents must abort the startup gate")

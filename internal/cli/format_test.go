@@ -166,14 +166,14 @@ func TestOutputFormatOf_MarksFormatWasHonored(t *testing.T) {
 }
 
 // TestUnwiredCommand_FormatJSONErrorsLoudly is the end-to-end pin: `config
-// init` is a real, currently-unwired command (format_coverage_test.go's
-// formatDebtAllowlist: "config.go: runConfigInit must route through emit()
+// create` is a real, currently-unwired command (format_coverage_test.go's
+// formatDebtAllowlist: "config.go: runConfigCreate must route through emit()
 // instead of a bare fmt.Fprintf" — owned by a different flow batch, not touched
 // here) — exactly the "accepted and silently ignored on dozens of
 // commands" shape formatWasHonored guards against. An unwired command must
 // refuse loudly instead of exiting 0 while lying about having honored the flag.
 //
-// It drives `config init` rather than `config show`: `config show`/`config
+// It drives `config create` rather than `config show`: `config show`/`config
 // get` were wired through emit(), so they no longer exhibit the shape this
 // guard exists to catch.
 func TestUnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
@@ -184,7 +184,7 @@ func TestUnwiredCommand_FormatJSONErrorsLoudly(t *testing.T) {
 	var out bytes.Buffer
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
-	rootCmd.SetArgs([]string{"config", "init", "--format", "json"})
+	rootCmd.SetArgs([]string{"config", "create", "--format", "json"})
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)
@@ -212,7 +212,7 @@ func TestUnwiredCommand_DefaultTextStillWorks(t *testing.T) {
 	// default between Execute() calls sharing the same *cobra.Command tree,
 	// so an earlier test in this binary leaving it at "json" would otherwise
 	// leak into this one (test-order hazard, not a product bug).
-	rootCmd.SetArgs([]string{"config", "init", "--format", "text"})
+	rootCmd.SetArgs([]string{"config", "create", "--format", "text"})
 	t.Cleanup(func() {
 		rootCmd.SetOut(nil)
 		rootCmd.SetErr(nil)

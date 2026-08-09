@@ -100,7 +100,7 @@ func surfaceHelpFor(engines []string) string {
 		"  fires — so it favours files an engine reads on its own.\n")
 	if len(engines) == 0 {
 		b.WriteString("  No engine is configured for this project yet, so there is nothing to\n" +
-			"  override. Run `ctxloom config init --engine <engine>` first.\n")
+			"  override. Run `ctxloom config create --engine <engine>` first.\n")
 		return b.String()
 	}
 	for _, e := range engines {

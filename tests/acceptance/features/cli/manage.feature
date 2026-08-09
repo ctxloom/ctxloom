@@ -169,28 +169,28 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file ".ctxloom/config.yaml" does not exist
       And the file ".mcp.json" does not exist
 
-  Rule: Config init selects the engine without writing any engine files
+  Rule: Config create selects the engine without writing any engine files
 
-    `config init` scaffolds `.ctxloom` and records which engine the project
+    `config create` scaffolds `.ctxloom` and records which engine the project
     uses — it writes no engine-native files at all. Every engine therefore
     produces a byte-identical tree apart from config.yaml, so the config's
     CONTENTS are the only place the flag is observable and a file-exists check
     proves nothing about which engine was asked for.
 
-    Scenario: Config init scaffolds a config in a bare project
+    Scenario: Config create scaffolds a config in a bare project
       Given an empty project directory
       When Alice scaffolds a config without wiring any engine:
         """
-        ctxloom config init --engine claude-code
+        ctxloom config create --engine claude-code
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" exists
 
-    Scenario Outline: Config init records which engine the project uses
+    Scenario Outline: Config create records which engine the project uses
       Given an empty project directory
       When Alice scaffolds a config for <engine>:
         """
-        ctxloom config init --engine <engine>
+        ctxloom config create --engine <engine>
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" contains "engine: <engine>"

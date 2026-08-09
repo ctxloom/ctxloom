@@ -118,7 +118,7 @@ Grouped so a reader can tell at a glance whether invoking something is safe.
 `session list`/`show`/`query`/`watch`, `search`, `remote list`/`browse`/`discover`,
 `trust signer list`/`show`, `plan watch`, `acp entries`, `run --dry-run`.
 
-**Mutates local state:** `init`, `config init`/`edit`, `manage install`/`uninstall`/`hooks *`/`statusline *`/`gitignore install`,
+**Mutates local state:** `init`, `config create`/`edit`, `manage install`/`uninstall`/`hooks *`/`statusline *`/`gitignore install`,
 `mcp register`/`unregister`/`server add`/`server remove`, `bundle create`/`edit`/`delete`/`move`/`hold`/`unhold`/`mcp edit`/`import`/`distill`,
 `fragment|command create`/`delete`/`edit`/`distill`, `skill create`/`sync`/`import`,
 `profile create`/`delete`/`modify`/`edit`/`import`/`materialize`, `agent set`/`default`/`remove`,
@@ -151,7 +151,7 @@ Documented here because a reader will otherwise assume uniformity that does not 
   act on a resource named `help`, and `profile edit` omits the guard its four
   siblings in the same file have.
 - **`context.Background()` vs `cmd.Context()`.** Six of seven `skill` subcommands
-  (`skill_cmd.go:54,120,170,216,278,326`), `config init` (`config.go:161`) and
+  (`skill_cmd.go:54,120,170,216,278,326`), `config create` (`config.go:161`) and
   `editProfileFile` (`edit_helpers.go:20,34`) use `context.Background()`, so
   Ctrl-C does not reach the operations layer.
 - **Deprecated alias trees** are carried in five places (`signer *` → `trust signer *`,

@@ -52,7 +52,7 @@ var engineMatrixLeaves = map[string][]string{
 	"ctxloom manage install": {"claude-code", "codex", "kiro", "antigravity"},
 	// Repointed by the verb-spine reorg: `manage config init` was a deprecated
 	// alias and is DELETED, so the matrix rides its canonical twin.
-	"ctxloom config init": {"claude-code", "codex", "kiro", "antigravity"},
+	"ctxloom config create": {"claude-code", "codex", "kiro", "antigravity"},
 }
 
 // executed reports whether the suite actually INVOKED path (e.g. "ctxloom
@@ -193,7 +193,7 @@ var knownUncoveredCLI = []string{
 	// written to be deleted. Covering it is the wrong call, but so is quietly
 	// dropping the rows — they are real uncovered surface until the engine is
 	// gone, and they leave this list when the engine does.
-	"ctxloom config init --engine antigravity",
+	"ctxloom config create --engine antigravity",
 }
 
 // knownUncoveredTools is knownUncoveredCLI's MCP-tool counterpart: the exact

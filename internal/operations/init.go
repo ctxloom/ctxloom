@@ -68,7 +68,7 @@ const SeedProfileName = "default"
 // rather than scaffolding a config.yaml that then fails ctxloom's own
 // JSON-schema validation on the very next command (the silent-no-op-shaped
 // failure this codebase treats as a bug, not a shortcut). Every caller that
-// accepts a user-typed --engine (manage install, config init and its
+// accepts a user-typed --engine (manage install, config create and its
 // deprecated aliases, root init) funnels through here, so this is the single
 // choke point — no per-call-site duplicate check needed.
 func InitializeProject(_ context.Context, req InitializeProjectRequest) (*InitializeProjectResult, error) {

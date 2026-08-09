@@ -134,10 +134,10 @@ func TestSurfaceHelpFor_PointsAtTheDefaultInvocationForKeepingContext(t *testing
 }
 
 // TestSurfaceHelpFor_NoEnginesSaysSoRatherThanRenderingAnEmptyTable guards the
-// empty case: a project before `config init`. An empty table reads as "this
+// empty case: a project before `config create`. An empty table reads as "this
 // engine supports nothing", which is a different and alarming claim.
 func TestSurfaceHelpFor_NoEnginesSaysSoRatherThanRenderingAnEmptyTable(t *testing.T) {
 	help := surfaceHelpFor(nil)
-	assert.Contains(t, help, "config init")
+	assert.Contains(t, help, "config create")
 	assert.NotContains(t, help, "(default)")
 }

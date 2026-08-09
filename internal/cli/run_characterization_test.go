@@ -136,7 +136,7 @@ func runCLI(t *testing.T, args ...string) cliResult {
 	errR, errW, _ := os.Pipe()
 	os.Stdout, os.Stderr = outW, errW
 
-	execErr := rootCmd.Execute()
+	execErr := rootCommand().Execute()
 
 	_ = outW.Close()
 	_ = errW.Close()

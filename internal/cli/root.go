@@ -194,6 +194,7 @@ func GetRootCmd() *cobra.Command {
 // happened to be registered already.
 func rootCommand() *cobra.Command {
 	rootAssembly.Do(func() { installHelpSuffix(rootCmd) })
+	resetHelpFlag(rootCmd)
 	return rootCmd
 }
 

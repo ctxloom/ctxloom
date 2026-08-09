@@ -22,6 +22,11 @@ func remoteBareFixture(t *testing.T) {
 // answered me".
 const helpMarker = "Available Commands:"
 
+// usageMarker is the heading cobra prints for EVERY command's help, leaf or
+// namespace. helpMarker only appears on a namespace, so a leaf that was
+// silently turned into a help print is invisible to it.
+const usageMarker = "Usage:"
+
 // TestRemoteBare_ListsRatherThanTeaches is the pilot for the bare-noun rule.
 // `ctxloom remote` answers with the registry, the way `git remote` does.
 //
@@ -38,7 +43,7 @@ func TestRemoteBare_ListsRatherThanTeaches(t *testing.T) {
 
 	assert.Equal(t, listed, bare,
 		"bare `ctxloom remote` is the same entry point as `ctxloom remote list`")
-	assert.NotContains(t, bare, helpMarker,
+	assert.NotContains(t, bare, usageMarker,
 		"bare `ctxloom remote` answers with the registry; help has its own spelling")
 	assert.Contains(t, bare, "remote",
 		"the listing names the resource it is a listing of")
@@ -55,7 +60,7 @@ func TestRemoteBare_ListSubcommandAndAliasStillWork(t *testing.T) {
 	aliased, err := runRoot(t, "remote", "ls")
 	require.NoError(t, err)
 
-	assert.NotContains(t, listed, helpMarker, "`remote list` lists")
+	assert.NotContains(t, listed, usageMarker, "`remote list` lists")
 	assert.Equal(t, listed, aliased, "`ls` stays an alias of `list`")
 }
 

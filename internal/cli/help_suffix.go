@@ -73,6 +73,23 @@ func installHelpFlag(root *cobra.Command) {
 	root.PersistentFlags().BoolP("help", "h", false, "show help for this command")
 }
 
+// resetHelpFlag puts --help back to false before a dispatch.
+//
+// The flag asks a question about ONE invocation, and a persistent flag is a
+// single shared variable rather than a fresh one per command. Left set, it
+// answers for every later dispatch in the same process: the command prints
+// help, exits 0, and does none of the work it was asked to do — a success
+// status over nothing. Any process that dispatches more than once (the test
+// harness today) reads a stale answer without it.
+func resetHelpFlag(root *cobra.Command) {
+	flag := root.PersistentFlags().Lookup("help")
+	if flag == nil {
+		return
+	}
+	_ = flag.Value.Set("false")
+	flag.Changed = false
+}
+
 // newHelpSuffixCommand builds the `help` child that teaches about parent.
 //
 // It resolves paths against PARENT, which is what cobra's own default help

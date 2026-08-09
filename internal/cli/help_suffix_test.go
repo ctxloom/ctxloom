@@ -48,6 +48,28 @@ func TestHelpAffordance_ShorthandStaysAvailable(t *testing.T) {
 	assert.Equal(t, "h", flag.Shorthand, "-h stays the shorthand for --help")
 }
 
+// TestHelpAffordance_DoesNotLeakIntoTheNextCommand guards the hazard a
+// PERSISTENT --help introduces that a per-command one cannot: one shared
+// variable, read by every command in the process.
+//
+// Left set by an earlier invocation, it makes the next command print help and
+// exit 0 while doing none of the work it was asked to do — a success status
+// over an empty result, which is this project's characteristic failure and
+// invisible to any exit-code-only assertion. Asserting on the OUTPUT is what
+// catches it.
+func TestHelpAffordance_DoesNotLeakIntoTheNextCommand(t *testing.T) {
+	remoteBareFixture(t)
+
+	_, err := runRoot(t, "remote", "--help")
+	require.NoError(t, err)
+
+	after, err := runRoot(t, "remote", "list")
+
+	require.NoError(t, err)
+	assert.NotContains(t, after, usageMarker,
+		"a --help on one command must not turn the next one into a no-op that prints help")
+}
+
 // TestHelpSuffix_ResolvesOnEveryNamespace is the gate that keeps "always" from
 // decaying into "mostly".
 //

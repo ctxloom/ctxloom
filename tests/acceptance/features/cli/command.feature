@@ -14,17 +14,49 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
   every teammate's assistant untouched — is
   journeys/j000700_team_authoring.feature, which asserts what a PERSON sees.
 
-  # WHERE THE BOUNDARY FALLS, and it is not where it first looks. WHICH
-  # engine-native file a materialized command lands in (.claude/commands/,
-  # .codex/prompts/, a SKILL.md package for the engines with no slash-command
-  # idiom of their own) is per-engine knowledge this noun owns by SUBJECT even
-  # though the command that writes it is `profile materialize` — but that
-  # five-engine matrix already lives in journeys/j000400_multi_engine.feature,
-  # and cli/manage.feature's own "shipped commands in its own idiom" scenario
-  # covers the built-in discover command landing correctly across every
-  # engine. A claude-only copy of that matrix here would be strictly weaker
-  # than either and is deliberately not built — see the pairing brief's
-  # decision 7a.
+  # WHERE THE BOUNDARY FALLS. WHICH engine-native file a materialized command
+  # lands in (.claude/commands/, $CODEX_HOME/prompts/, a SKILL.md package for
+  # the engines with no slash-command idiom of their own) is per-engine
+  # knowledge this noun owns by SUBJECT, even though the command that writes
+  # it is `profile materialize` — so the full four-engine matrix is built
+  # HERE, never sampled down to one engine, which would prove strictly less.
+  #
+  # cli/manage.feature's own "shipped commands in its own idiom" scenario
+  # covers a DIFFERENT claim through the same renderer: that `manage install`
+  # ships ctxloom's own first-party "discover" command, including to a fifth
+  # engine (opencode) this outline does not reach. Built-in content via
+  # install, a team's own authored content via materialize — two claims, not
+  # one doubled.
+
+  Rule: A materialized command lands in each engine's own native surface
+
+    # ONE command, FOUR files, FOUR idioms — PARSED in its own native shape,
+    # never a bare file-exists. claude and codex each get a flat command
+    # file; kiro and antigravity render the SAME command through
+    # RenderCommandAsSkillFile into a `<name>/SKILL.md` package — what the
+    # caller hands that renderer is always a CommandExport, never a Skill, so
+    # this is a command wearing a skill's file convention, not the command
+    # becoming one. Genuine Agent Skill packages are a different SurfaceKind,
+    # covered by cli/skill.feature.
+    #
+    # codex's row is the one asymmetric idiom worth calling out by name:
+    # every other engine's command surface is project-local, codex's own
+    # prompts directory is not — codex discovers prompts ONLY from
+    # $CODEX_HOME/prompts, with no project-level directory of its own
+    # (internal/codex/enginecli.go). ctxloom scopes CODEX_HOME to the
+    # materialize target for the run, which is what keeps this row hermetic
+    # rather than reaching for a real home directory.
+    Scenario Outline: A team's command lands in each engine's own command surface
+      Given Carol's team profile carries a shared fragment, command, MCP server, and hook
+      When Alice materializes the team profile for <engine>
+      Then the materialized <engine> command file carries the shared command's body, in its own native shape
+
+      Examples:
+        | engine      |
+        | claude-code |
+        | codex       |
+        | kiro        |
+        | antigravity |
 
   Rule: Creating a command writes real content, and it reaches every surface
 

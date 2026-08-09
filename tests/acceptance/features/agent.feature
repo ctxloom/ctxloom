@@ -95,7 +95,7 @@ Feature: Agent bindings and container tooling
     And the output contains "Untrusted declarations are withheld"
     And the output does not contain "TOOLING-DECL-SHADY"
     Given a bundle "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
-    When I run "ctxloom container tooling"
+    When I run "ctxloom container tooling list"
     Then the command succeeds
     And the output contains "TOOLING-DECL-TOOLED"
     And the output does not contain "TOOLING-DECL-SHADY"

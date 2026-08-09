@@ -31,14 +31,14 @@ type Approach int
 // user's environment a delivery has to touch to do its job — simplest, lowest
 // interaction first:
 //
-//	1. system-prompt — a flag on the command line. Touches no project file and
-//	   starts no process of ours. Nothing to race, nothing to clean up.
-//	2. hook          — a SessionStart process that invokes ctxloom. More moving
-//	   parts, and it earns them: the context is composed at launch and re-injected
-//	   after a /clear without anyone asking.
-//	3. unsafe-file   — a write into the shared working directory. Highest
-//	   interaction: it lands on well-known paths a concurrent session may be
-//	   reading, which is why choosing it is spelled as an acknowledgment.
+//  1. system-prompt — a flag on the command line. Touches no project file and
+//     starts no process of ours. Nothing to race, nothing to clean up.
+//  2. hook          — a SessionStart process that invokes ctxloom. More moving
+//     parts, and it earns them: the context is composed at launch and re-injected
+//     after a /clear without anyone asking.
+//  3. unsafe-file   — a write into the shared working directory. Highest
+//     interaction: it lands on well-known paths a concurrent session may be
+//     reading, which is why choosing it is spelled as an acknowledgment.
 //
 // The iota order below is historical and says nothing about preference — do not
 // read it as a ranking. Nor does an ApproachTable's order, which is a

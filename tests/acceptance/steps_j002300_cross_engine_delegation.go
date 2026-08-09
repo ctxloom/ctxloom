@@ -184,7 +184,7 @@ type j002300TranscriptEntry struct {
 // j002300TranscriptLine is one transcript.jsonl line's envelope
 // (transcript.Record, field-subset): only "kind"/"entry" are needed here.
 type j002300TranscriptLine struct {
-	Kind  string              `json:"kind"`
+	Kind  string                  `json:"kind"`
 	Entry *j002300TranscriptEntry `json:"entry,omitempty"`
 }
 

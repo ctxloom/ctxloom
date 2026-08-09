@@ -13,9 +13,9 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/config"
-	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/paths"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )

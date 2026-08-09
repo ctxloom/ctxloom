@@ -63,7 +63,7 @@ type j002100State struct {
 	specs      map[string]*j002100AgentSpec
 	beforeEdit map[string]*j002100AgentSpec // agent name -> its spec as captured just before an edit
 	snapshots  map[string]j002100RunFact    // "remembered as" label -> captured journal fact
-	harps      map[string]string       // agent name -> its most recently spawned session harp
+	harps      map[string]string            // agent name -> its most recently spawned session harp
 }
 
 // j002100RunFact is runEnqueued's (coord/facts.go) payload, decoded straight off

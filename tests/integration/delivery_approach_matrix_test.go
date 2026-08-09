@@ -233,7 +233,7 @@ var matrixSpecs = map[string]deliverySpec{
 	// Deliberately NO alsoFile — a cache file riding along would make this a
 	// second spelling of hook, and would hand someone asking for a portable
 	// document a file that means nothing without ctxloom.
-	"codex/context/unsafe-file": {wantFile: "AGENTS.md", wantSlot: slotContext},
+	"codex/context/unsafe-file":  {wantFile: "AGENTS.md", wantSlot: slotContext},
 	"codex/settings/unsafe-file": {wantFile: ".codex/config.toml", wantSlot: slotHook},
 	"codex/commands/unsafe-file": {wantFile: ".codex/prompts/ctxsentinelcmd.md", wantSlot: slotCommand},
 	"codex/skills/unsafe-file":   {wantFile: ".codex/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},

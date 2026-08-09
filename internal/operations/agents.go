@@ -1,9 +1,9 @@
 package operations
 
 import (
-	"maps"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -109,15 +109,15 @@ type SetAgentRequest struct {
 	// registered backend or a config-declared label) — see checkAgentWrite.
 	// Empty CLEARS the override, falling back to the profiles' llm and then
 	// the project default.
-	Engine      *string   `json:"engine,omitempty"`
-	Profiles    *[]string `json:"profiles,omitempty"`
-	Runtime     *string   `json:"runtime,omitempty"`
+	Engine   *string   `json:"engine,omitempty"`
+	Profiles *[]string `json:"profiles,omitempty"`
+	Runtime  *string   `json:"runtime,omitempty"`
 	// Surfaces sets the binding's delivery preference (kind -> approach). It is
 	// validated against the engine this write RESULTS IN — the requested one if
 	// the same call sets it, otherwise the one already recorded — so a pair is
 	// refused by the command that typed it rather than by a later session.
-	Surfaces map[string]string `json:"surfaces,omitempty"`
-	Permissions *string   `json:"permissions,omitempty"`
+	Surfaces    map[string]string `json:"surfaces,omitempty"`
+	Permissions *string           `json:"permissions,omitempty"`
 	// Coordinator sets the trust-boundary gate flag: whether this agent, when
 	// run as a delegated child, is trusted with the coordinator-only MCP
 	// tools (agent_run/roster/agent_stop/agent_fetch_artifact). Default false

@@ -51,12 +51,20 @@ thing a user standing at that level actually needs.
 So: a bare leaf does the obvious thing; a bare namespace teaches. Neither is
 "nothing useful", and printing an inventory is not an upgrade on either.
 
-Making a bare namespace *list* was considered in full and rejected. The measured
-landscape is not behind it — across fifteen production CLIs, five print help on
-a bare noun (`gh`, `docker`, `flyctl`, `wrangler`, `stripe`), four error
-(`gcloud`, `az`, `aws`, `terraform`), and three list (git's noun-commands,
-`systemctl`, heroku by doctrine). The nearest cobra-based cousins, `gh` and
-`docker`, both print help. The guideline literature does not settle it either:
+**One exception, and ctxloom itself is it.** A namespace that carries its own
+`RunE` is not a namespace for this purpose — it is a leaf that happens to have
+children. Bare `ctxloom mcp` starts a stdio MCP server, and that invocation is
+materialized into users' engine settings (`agent.CtxloomMCPArgs`). The rule is
+therefore about namespaces with no behaviour of their own, which is the only kind
+where "teach" is the useful answer.
+
+Making a bare namespace *list* was considered in full and rejected. Of fifteen
+production CLIs surveyed, twelve have a bare-noun case at all (`cargo`, `npm` and
+`kubectl` have no noun namespaces to invoke bare). Of those twelve: five print
+help (`gh`, `docker`, `flyctl`, `wrangler`, `stripe`), four error (`gcloud`,
+`az`, `aws`, `terraform`), and three list (git's noun-commands, `systemctl`,
+heroku by doctrine). The nearest cobra-based cousins, `gh` and `docker`, both
+print help. The guideline literature does not settle it either:
 Heroku's style guide mandates bare-lists while 12-Factor CLI Apps — written by
 the Heroku CLI's own author — argues the opposite. And listing would cost the
 noun its teaching surface at its most-typed spelling to save one word on nouns

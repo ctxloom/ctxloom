@@ -8,8 +8,8 @@
 //
 // The product claim this enforces: a feature that does not work cannot be
 // documented — AND a feature that proves nothing cannot be documented either.
-// If any scenario's capture has a non-passing step, or a passing scenario's
-// assertion step captured no evidence at all, or an entire @doc feature has
+// If any scenario's capture has a non-passing step, or a passing scenario
+// captured no evidence anywhere in its run, or an entire @doc feature has
 // zero captured scenarios (the capture directory misconfigured, or the
 // capture run never executed it), this command writes NOTHING and exits
 // nonzero — see RefusalError and EvidenceGapError in render.go.

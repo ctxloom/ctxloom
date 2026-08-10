@@ -81,7 +81,7 @@ func TestGeneratePage_NarrationOptional(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}} // no .doc.md loaded
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed"}}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
 		},
 	}
 
@@ -99,7 +99,7 @@ func TestGeneratePage_IncludesNarrationProseWhenPresent(t *testing.T) {
 	}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed"}}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "a precondition", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
 		},
 	}
 
@@ -115,8 +115,8 @@ func TestGeneratePage_MultipleExamplesLabeled(t *testing.T) {
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row one", Keyword: "Given", Status: "passed"}}},
-			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row two", Keyword: "Given", Status: "passed"}}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row one", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
+			{Scenario: "First scenario", Steps: []DocCaptureStep{{Text: "row two", Keyword: "Given", Status: "passed", CLIOutput: "ok"}}},
 		},
 	}
 

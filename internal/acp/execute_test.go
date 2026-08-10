@@ -90,7 +90,10 @@ func TestExecute_InjectsManagedMCPServersAtSessionNew(t *testing.T) {
 	// Command names the self-exec absolute path (agent.CtxloomCommand), not
 	// the bare name — see its doc for the staged-vs-installed invariant.
 	assert.Equal(t, agent.CtxloomCommand(), got.McpServers[0].Command)
-	assert.Equal(t, []string{"mcp"}, got.McpServers[0].Args)
+	// `mcp serve` is ctxloom's machine surface; bare `mcp` lists the
+	// configured servers for a human, so an engine handed it would get a
+	// listing where it expected a protocol.
+	assert.Equal(t, []string{"mcp", "serve"}, got.McpServers[0].Args)
 	assert.Equal(t, "taskloom", got.McpServers[1].Name)
 	assert.Equal(t, []string{"mcp"}, got.McpServers[1].Args)
 }

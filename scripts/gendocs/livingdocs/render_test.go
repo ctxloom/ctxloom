@@ -126,13 +126,50 @@ func TestGeneratePage_MultipleExamplesLabeled(t *testing.T) {
 	assert.Contains(t, page, "**Example 2**")
 }
 
-func TestGeneratePage_RefusesOnThenStepWithNoEvidence(t *testing.T) {
+// TestGeneratePage_CommandRunEarlierProvesTheScenario_AssertionStepsRunNoCommand
+// pins the case this fix exists for: real journeys (e.g.
+// j001000_transcript_capture.feature's "A prior claude session's native log
+// becomes the canonical transcript you own") run a command in a When step,
+// then assert its effects in one or more Then steps that read state off disk
+// or check an exit code -- no command, so no CLIOutput/MockRecorded/
+// Materialized on THOSE steps. Evidence belongs to the scenario, not to
+// whichever step happened to run the command: the When step's captured
+// output is what proves the assertions true, and the page must render with
+// no error. This is the scenario that was wrongly refused before this fix --
+// under the old per-step rule, "an assertion with nothing to show" alone
+// would have failed the whole page.
+func TestGeneratePage_CommandRunEarlierProvesTheScenario_AssertionStepsRunNoCommand(t *testing.T) {
+	feat := passingFeature()
+	narr := Narration{Scenarios: map[string]string{}}
+	captures := map[string][]DocCapture{
+		"First scenario": {
+			{Scenario: "First scenario", Steps: []DocCaptureStep{
+				{Text: "I run \"ctxloom session backfill amber-claude-harp\"", Keyword: "When", Status: "passed", CLIOutput: "backfilled 4 turns"},
+				{Text: "the canonical transcript replays the fixture's real turns", Keyword: "Then", Status: "passed"},
+				{Text: "every line is stamped engine \"claude-code\"", Keyword: "And", Status: "passed"},
+			}},
+		},
+	}
+
+	page, err := GeneratePage(feat, narr, captures, "")
+	require.NoError(t, err, "a scenario that ran a command and then asserted its effects has evidence at the scenario level")
+	assert.Contains(t, page, "backfilled 4 turns", "the captured command output must still appear on the page")
+	assert.Contains(t, page, "the canonical transcript replays the fixture's real turns")
+}
+
+// TestGeneratePage_RefusesWhenScenarioCapturedNoEvidenceAnywhere pins the
+// other half: a scenario where NOTHING in the whole run -- no step, of any
+// keyword -- ever captured CLIOutput/MockRecorded/Materialized still refuses.
+// Evidence moved from per-step to per-scenario, but a scenario that proves
+// nothing must still not be published as though it did.
+func TestGeneratePage_RefusesWhenScenarioCapturedNoEvidenceAnywhere(t *testing.T) {
 	feat := passingFeature()
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
 		"First scenario": {
 			{Scenario: "First scenario", Steps: []DocCaptureStep{
 				{Text: "a precondition", Keyword: "Given", Status: "passed"},
+				{Text: "an action that captured nothing", Keyword: "When", Status: "passed"},
 				{Text: "an assertion with nothing to show", Keyword: "Then", Status: "passed"},
 			}},
 		},
@@ -141,7 +178,7 @@ func TestGeneratePage_RefusesOnThenStepWithNoEvidence(t *testing.T) {
 	_, err := GeneratePage(feat, narr, captures, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "First scenario")
-	assert.Contains(t, err.Error(), "an assertion with nothing to show")
+	assert.Contains(t, err.Error(), feat.Path)
 	assert.Contains(t, err.Error(), "proves nothing")
 
 	var gap *EvidenceGapError
@@ -150,25 +187,7 @@ func TestGeneratePage_RefusesOnThenStepWithNoEvidence(t *testing.T) {
 	assert.Equal(t, 0, gap.Example)
 }
 
-func TestGeneratePage_AndContinuingAThenAlsoRequiresEvidence(t *testing.T) {
-	feat := passingFeature()
-	narr := Narration{Scenarios: map[string]string{}}
-	captures := map[string][]DocCapture{
-		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
-				{Text: "a precondition", Keyword: "Given", Status: "passed"},
-				{Text: "the first assertion", Keyword: "Then", Status: "passed", CLIOutput: "real output"},
-				{Text: "a second assertion with nothing to show", Keyword: "And", Status: "passed"},
-			}},
-		},
-	}
-
-	_, err := GeneratePage(feat, narr, captures, "")
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "a second assertion with nothing to show")
-}
-
-func TestGeneratePage_GivenAndWhenStepsExemptFromEvidenceRequirement(t *testing.T) {
+func TestGeneratePage_GivenAndWhenStepsAloneCanCarryTheEvidence(t *testing.T) {
 	feat := passingFeature()
 	narr := Narration{Scenarios: map[string]string{}}
 	captures := map[string][]DocCapture{
@@ -176,8 +195,8 @@ func TestGeneratePage_GivenAndWhenStepsExemptFromEvidenceRequirement(t *testing.
 			{Scenario: "First scenario", Steps: []DocCaptureStep{
 				{Text: "a precondition", Keyword: "Given", Status: "passed"},
 				{Text: "an And continuing the Given", Keyword: "And", Status: "passed"},
-				{Text: "an action", Keyword: "When", Status: "passed"},
-				{Text: "the one assertion", Keyword: "Then", Status: "passed", Materialized: "the real payload"},
+				{Text: "an action", Keyword: "When", Status: "passed", Materialized: "the real payload"},
+				{Text: "the one assertion", Keyword: "Then", Status: "passed"},
 			}},
 		},
 	}
@@ -185,30 +204,6 @@ func TestGeneratePage_GivenAndWhenStepsExemptFromEvidenceRequirement(t *testing.
 	page, err := GeneratePage(feat, narr, captures, "")
 	require.NoError(t, err)
 	assert.Contains(t, page, "the real payload")
-}
-
-// A step whose OWN keyword the capture side could not classify
-// (empty -- steps_doc_capture.go's gherkinKeyword returns "" for any pickle
-// type outside Context/Action/Outcome, e.g. a godog version change or an
-// unrecognized step type) used to be silently treated as non-assertion --
-// exempt from the evidence gate, the one guard that stops a proves-nothing
-// scenario from being published. Proves it now fails closed with a named
-// error instead of guessing "not an assertion".
-func TestGeneratePage_UnclassifiableStepKeywordFailsClosed(t *testing.T) {
-	feat := passingFeature()
-	narr := Narration{Scenarios: map[string]string{}}
-	captures := map[string][]DocCapture{
-		"First scenario": {
-			{Scenario: "First scenario", Steps: []DocCaptureStep{
-				{Text: "a precondition", Keyword: "Given", Status: "passed"},
-				{Text: "a step of some new unrecognized pickle type", Keyword: "", Status: "passed"},
-			}},
-		},
-	}
-
-	_, err := GeneratePage(feat, narr, captures, "")
-	require.Error(t, err, "an unclassifiable step must not be silently exempted from the evidence gate")
-	assert.Contains(t, err.Error(), "a step of some new unrecognized pickle type")
 }
 
 func TestGeneratePage_EvidenceGapNamesTheExampleRowForOutlines(t *testing.T) {

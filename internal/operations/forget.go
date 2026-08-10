@@ -60,6 +60,14 @@ type ForgetItemDecisionRequest struct {
 	FS     afero.Fs        `json:"-"`
 }
 
+// The two outcomes ForgetItemDecisionResult.Status can report. They are
+// different events — a decision withdrawn, and a ref that had none — and a
+// caller that renders them alike confirms a mistyped ref as a success.
+const (
+	ForgetStatusForgotten       = "forgotten"
+	ForgetStatusNothingRecorded = "nothing-recorded"
+)
+
 // ForgetItemDecisionResult reports what was withdrawn, and what still stands.
 type ForgetItemDecisionResult struct {
 	// Status is "forgotten" when at least one record went, and
@@ -95,6 +103,17 @@ type ForgetItemDecisionResult struct {
 	StillDecided string `json:"still_decided,omitempty"`
 }
 
+// ClearedAnything reports whether a decision was actually withdrawn.
+//
+// It exists so a renderer asks the RESULT what happened instead of
+// re-deriving it from a count. Two places deciding "was anything cleared" is
+// two places that can disagree, and the direction that disagreement runs — a
+// success line over a ref nobody ever decided about — is the one that
+// confirms a typo as a working command.
+func (r ForgetItemDecisionResult) ClearedAnything() bool {
+	return r.Status == ForgetStatusForgotten
+}
+
 // ForgetItemDecision removes every countersignature record this store holds
 // about an item — approval, sticky ref block, and content-scoped rejection —
 // returning it to pending.
@@ -126,7 +145,7 @@ func ForgetItemDecision(cfg *config.Config, req ForgetItemDecisionRequest) (*For
 	refStr := countersignRef(tRef)
 
 	res := &ForgetItemDecisionResult{
-		Status:  "nothing-recorded",
+		Status:  ForgetStatusNothingRecorded,
 		Ref:     tRef.Key(),
 		RepoURL: tRef.CanonicalURL(),
 		Store:   storeName,
@@ -191,7 +210,7 @@ func ForgetItemDecision(cfg *config.Config, req ForgetItemDecisionRequest) (*For
 	}
 	res.Records = approveRemoved + rejectRemoved
 	if res.Records > 0 {
-		res.Status = "forgotten"
+		res.Status = ForgetStatusForgotten
 	}
 	res.StillDecided = remainingDecision(cfg, req, tRef, attestations)
 	return res, nil

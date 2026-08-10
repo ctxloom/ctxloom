@@ -230,7 +230,8 @@ func TestForgetItemDecision_NothingRecorded_IsReportedAsSuch(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, res.Cleared)
 	assert.Zero(t, res.Records)
-	assert.Equal(t, "nothing-recorded", res.Status)
+	assert.Equal(t, ForgetStatusNothingRecorded, res.Status)
+	assert.False(t, res.ClearedAnything(), "the predicate every renderer branches on must agree with the status")
 }
 
 // TestForgetItemDecision_SaysSoWhenTheOtherStoreStillDecides. Decisions live in

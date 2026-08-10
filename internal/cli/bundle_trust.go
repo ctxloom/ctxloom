@@ -237,7 +237,7 @@ func runItemForget(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	refreshManagedArtifacts(cmd.Context(), cfg)
 	return emit(cmd, res, func() error {
 		out := cmd.OutOrStdout()
-		if res.Records == 0 {
+		if !res.ClearedAnything() {
 			fmt.Fprintf(out, "No decision was recorded for %s — nothing to clear.\n", res.Ref)
 			return nil
 		}

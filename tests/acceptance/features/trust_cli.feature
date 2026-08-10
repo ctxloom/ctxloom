@@ -1,6 +1,6 @@
 Feature: Trusting and untrusting, on the noun that owns the thing
   Trust is a posture toward something, so the verb lives on the noun that owns
-  it. `bundle trust`/`bundle untrust` decide about ITEM CONTENT — one fragment,
+  it. `bundle trust`/`bundle reject` decide about ITEM CONTENT — one fragment,
   command, MCP server or hook at a time. `companion trust`/`untrust` decide
   which binaries may be EXECUTED. `remote trust`/`untrust` decide where signed
   content may be PUBLISHED. `signer trust`/`untrust` decide whose signature
@@ -43,7 +43,7 @@ Feature: Trusting and untrusting, on the noun that owns the thing
     And the output contains "Approved demo#fragments/guide"
     And the output contains "UNSIGNED"
     And the approvals store holds an acceptance of "demo#fragments/guide" over the fragment's current bytes
-    When I run "ctxloom bundle untrust demo#fragments/guide"
+    When I run "ctxloom bundle reject demo#fragments/guide"
     Then the command succeeds
     And the output contains "Rejected demo#fragments/guide"
     And the output contains "rejected in form(s) raw"

@@ -74,7 +74,7 @@ func TestRunBlacklist_Hook(t *testing.T) {
 	require.NoError(t, err)
 
 	c, out := testCmd()
-	require.NoError(t, runBlacklist(c, cfg, "hookb#hooks/pre_tool/0"))
+	require.NoError(t, runItemReject(c, cfg, "hookb#hooks/pre_tool/0"))
 	assert.Contains(t, out.String(), "Rejected hookb#hooks/pre_tool/0")
 
 	store := userApprovalsStore(t)

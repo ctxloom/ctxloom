@@ -407,7 +407,7 @@ func j001600PublishedBundle(tddContent string) string {
 // accepts or rejects and the item the exposure path actually delivers are two
 // different things, and every per-item trust assertion silently measures
 // nothing. Measured: with the authoring copy left in place, `bundle trust`
-// released nothing and `bundle untrust` withheld nothing, both while exiting 0.
+// released nothing and `bundle reject` withheld nothing, both while exiting 0.
 func j001600SeedFromDisk(w *World, name string) error {
 	st := j001600Of(w)
 	rel := j001600BundlePath(name)
@@ -506,7 +506,7 @@ func j001600Reference(w *World) error {
 }
 
 // j001600ItemRef builds the canonical item ref for a fragment of the PUBLISHED
-// bundle — the same grammar `bundle trust`, `bundle untrust` and `bundle sign`
+// bundle — the same grammar `bundle trust`, `bundle reject` and `bundle sign`
 // all share.
 func j001600ItemRef(w *World, fragment string) string {
 	return "file://" + j001600Of(w).bare + "@bundles/" + j001600PublishedName + "#fragments/" + fragment
@@ -1259,7 +1259,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return runOK(worldFrom(c), "bundle", "trust", j001600ItemRef(worldFrom(c), frag))
 	})
 
-	ctx.Step(`^I run "ctxloom bundle untrust" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
+	ctx.Step(`^I run "ctxloom bundle reject" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
 		return runOK(worldFrom(c), "bundle", "untrust", j001600ItemRef(worldFrom(c), frag))
 	})
 

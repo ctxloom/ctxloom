@@ -133,7 +133,7 @@ var knownUncoveredCLI = []string{
 	// The publisher-signing surface is now covered by J001600 (steps_j001600_signing.go,
 	// j001600_signing.feature): `ctxloom bundle sign` (bare ref, --all, an item ref,
 	// and the empty-publish-set failure), `ctxloom signer list`,
-	// `signer trust|show|delete`, `bundle trust`, `bundle untrust`, and
+	// `signer trust|show|delete`, `bundle trust`, `bundle reject`, and
 	// `bundle move` (verbatim relocation plus the refused-move path). Every one
 	// runs against a real ssh-agent (testenv.StartSSHAgent) and asserts payload:
 	// each `.sig` is verified independently against bundle bytes read fresh off

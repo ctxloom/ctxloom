@@ -12,10 +12,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// Per-item trust CLI: the scriptable plumbing of the three-state review model
-// (trust-simplify). `bundle trust` records accepted, `bundle untrust` records
-// rejected — the same states the interactive `ctxloom review` porcelain
-// (slice 2) writes.
+// Per-item content-decision CLI: the scriptable plumbing of the three-state
+// review model. The store holds three states, so there are three verbs, each
+// named for what it writes — `bundle trust` records an approval, `bundle
+// reject` records a rejection, and `bundle forget` records NOTHING: it clears
+// whichever decision is on file and returns the item to pending. They are the
+// same states, through the same mutation path, the interactive `ctxloom
+// review` porcelain writes.
+//
 // Management is CLI-only: there are deliberately NO MCP tools for any of these.
 // (Source-level `remote trust/untrust` is deleted — trust is now keyed to a
 // publisher signing key, not a remote; see docs/trust-model.md.)
@@ -44,7 +48,9 @@ Examples:
   ctxloom bundle trust ctxloom:local@bundles/dev#commands/review
   ctxloom bundle trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
-Reject an item with 'ctxloom bundle untrust <ref>'.`
+Reject an item with 'ctxloom bundle reject <ref>'. Withdraw this approval —
+returning the item to pending, without rejecting it — with
+'ctxloom bundle forget <ref>'.`
 
 // runBundleTrustCmd is bundleTrustCmd's RunE.
 func runBundleTrustCmd(cmd *cobra.Command, args []string) error {
@@ -89,8 +95,8 @@ func runItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	})
 }
 
-// bundleUntrustLong documents `ctxloom bundle untrust`.
-const bundleUntrustLong = `Reject an item, withholding it from every exposure surface, always.
+// bundleRejectLong documents `ctxloom bundle reject`.
+const bundleRejectLong = `Reject an item, withholding it from every exposure surface, always.
 
 A rejection writes two companion entries: the ref-level rejected state (denies
 this ref regardless of content/version, surviving content changes) and the
@@ -99,34 +105,37 @@ copy stays rejected too). The denylist entries are only recorded when the item
 can be resolved; the ref-level rejection is written regardless.
 
 Rejection beats every exemption: it withholds the item even from a trusted
-source and even for project-local content.
+source and even for project-local content. That is why this is not the way to
+undo an approval — it is a stronger, stickier statement than withdrawing one.
+To return an item to pending, decided neither way, use
+'ctxloom bundle forget <ref>'.
 
 Reference format matches 'ctxloom bundle trust' (see its help).
 
 Examples:
-  ctxloom bundle untrust tooling#fragments/curl-pipe-sh
-  ctxloom bundle untrust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
+  ctxloom bundle reject tooling#fragments/curl-pipe-sh
+  ctxloom bundle reject 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
 
-// runBlacklistCmd is bundleUntrustCmd's RunE.
-func runBlacklistCmd(cmd *cobra.Command, args []string) error {
+// runBundleRejectCmd is bundleRejectCmd's RunE.
+func runBundleRejectCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return err
 	}
-	return runBlacklist(cmd, cfg, args[0])
+	return runItemReject(cmd, cfg, args[0])
 }
 
-// bundleUntrustCmd withholds an item from every exposure surface.
-var bundleUntrustCmd = &cobra.Command{
-	Use:   "untrust <ref>",
-	Short: "Untrust an item so it is withheld from the agent",
-	Long:  bundleUntrustLong,
+// bundleRejectCmd withholds an item from every exposure surface.
+var bundleRejectCmd = &cobra.Command{
+	Use:   "reject <ref>",
+	Short: "Reject an item so it is withheld from the agent, always",
+	Long:  bundleRejectLong,
 	Args:  cobra.ExactArgs(1),
-	RunE:  runBlacklistCmd,
+	RunE:  runBundleRejectCmd,
 }
 
-// runBlacklist records both rejection components and reports what was written.
-func runBlacklist(cmd *cobra.Command, cfg *config.Config, ref string) error {
+// runItemReject records both rejection components and reports what was written.
+func runItemReject(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	res, err := operations.SetBlacklist(cfg, operations.SetBlacklistRequest{Ref: ref})
 	if err != nil {
 		return err
@@ -212,5 +221,5 @@ func harnessApplied(ctx context.Context, cfg *config.Config) bool {
 func init() {
 	// Per-item decisions belong to the noun that owns the items.
 	bundleCmd.AddCommand(bundleTrustCmd)
-	bundleCmd.AddCommand(bundleUntrustCmd)
+	bundleCmd.AddCommand(bundleRejectCmd)
 }

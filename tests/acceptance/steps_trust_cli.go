@@ -1,7 +1,7 @@
 //go:build acceptance
 
 // The trust posture CLI (trust_cli.feature): what `ctxloom bundle trust` and
-// `ctxloom bundle untrust` actually DO, as opposed to what they print.
+// `ctxloom bundle reject` actually DO, as opposed to what they print.
 //
 // This file exists because the scenario titled "A per-item acceptance and a
 // rejection ARE RECORDED" recorded nothing that any assertion looked at. Every
@@ -92,7 +92,7 @@ func tcFragmentPayload(w *World, bundle, fragment string) ([]byte, error) {
 }
 
 // tcApprovalsStore opens Alice's user countersignature store — the one
-// `bundle trust`/`bundle untrust` write to when no signing key is available
+// `bundle trust`/`bundle reject` write to when no signing key is available
 // (spec §9.5's degraded path, which the scenario's "UNSIGNED" assertion pins).
 // Reading it through countersign.Store rather than by listing filenames is
 // deliberate: the record's identity is a hash of the framed preimage, so only
@@ -170,12 +170,12 @@ func registerTrustCLISteps(ctx *godog.ScenarioContext) {
 			// another name. A reject that wrote only one of them would still
 			// print both lines.
 			if !store.HasUnsignedRefReject(refStr) {
-				return fmt.Errorf("the approvals store holds NO ref block for %s, though `bundle untrust` printed "+
+				return fmt.Errorf("the approvals store holds NO ref block for %s, though `bundle reject` printed "+
 					"\"ref block: recorded\"; ctxloom reported:\n%s", refStr, w.env.LastOutput())
 			}
 			if !store.HasUnsignedContentReject(signing.AttestFragmentRaw, payload) {
 				return fmt.Errorf("the approvals store holds NO content block in form %q over the %d bytes of %s, though "+
-					"`bundle untrust` printed \"rejected in form(s) raw\"; ctxloom reported:\n%s",
+					"`bundle reject` printed \"rejected in form(s) raw\"; ctxloom reported:\n%s",
 					signing.AttestFragmentRaw, len(payload), refStr, w.env.LastOutput())
 			}
 			w.docStepMaterialized = fmt.Sprintf("approvals store: ref-block %s + content-block form=%s over %d bytes — both recorded",
@@ -231,7 +231,7 @@ func registerTrustCLISteps(ctx *godog.ScenarioContext) {
 }
 
 // tcSplitSelector splits a "<bundle>#fragments/<name>" selector — the exact
-// spelling the feature file hands `bundle trust`/`bundle untrust` — into its two
+// spelling the feature file hands `bundle trust`/`bundle reject` — into its two
 // components. It fails loud on anything else rather than silently asserting
 // about "": an empty bundle or fragment name would make every lookup above
 // resolve to nothing and read as a product failure.

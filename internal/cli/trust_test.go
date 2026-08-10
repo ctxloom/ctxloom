@@ -153,7 +153,7 @@ func TestRunBlacklist_WritesBothComponents(t *testing.T) {
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
 	c, out := testCmd()
-	require.NoError(t, runBlacklist(c, cfg, "demo#fragments/curl-pipe-sh"))
+	require.NoError(t, runItemReject(c, cfg, "demo#fragments/curl-pipe-sh"))
 	assert.Contains(t, out.String(), "Rejected demo#fragments/curl-pipe-sh")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
@@ -180,7 +180,7 @@ func TestRunBlacklist_CanonicalizedKeying(t *testing.T) {
 
 	c, _ := testCmd()
 	// Reject with a .git suffix + mixed case + trailing variant.
-	require.NoError(t, runBlacklist(c, cfg,
+	require.NoError(t, runItemReject(c, cfg,
 		"https://github.com/Acme/Repo.git@bundles/tooling#fragments/solid"))
 
 	// Query with an entirely different spelling of the same repo (git@ form).

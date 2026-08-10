@@ -429,7 +429,7 @@ bytes** with the reviewer's own SSH key:
   look.
 - `init`'s interview ends with a review session when anything is pending.
 
-`ctxloom bundle trust <ref>` and `ctxloom bundle untrust <ref>` are the
+`ctxloom bundle trust <ref>` and `ctxloom bundle reject <ref>` are the
 scriptable plumbing beneath the porcelain — they write the same
 countersignatures through the same mutation path, so the porcelain and the
 plumbing produce identical on-disk results.
@@ -441,15 +441,15 @@ back to undecided:
 | verb | writes | effect | today |
 |---|---|---|---|
 | `bundle trust <ref>` | an approval | the item is delivered | **exists** |
-| `bundle untrust <ref>` | a rejection | withheld everywhere; **overrides a trusted publisher and overrides local content** | **exists**, to be renamed `reject` |
+| `bundle reject <ref>` | a rejection | withheld everywhere; **overrides a trusted publisher and overrides local content** | **exists** |
 | `bundle forget <ref>` | nothing — it CLEARS | removes an approval **and** a rejection, returning the item to pending | **decided, not built** |
 
-`untrust` reads as the inverse of `trust` and is not one: it writes a rejection,
-which is a stronger and stickier statement than withdrawing an approval. Someone
-who reaches for it to undo a `trust` has done something they did not mean. The
-decided fix is to rename it `reject`, naming what it writes, and to add `forget`
-as the actual inverse of both — clearing whichever decision is recorded and
-leaving the item as if it had never been reviewed.
+The second verb is named for what it writes. It used to be spelled `untrust`,
+which reads as the inverse of `trust` and is not one: it writes a rejection,
+which is a stronger and stickier statement than withdrawing an approval, so
+someone who reached for it to undo a `trust` did something they did not mean.
+`forget` is the actual inverse of both — clearing whichever decision is
+recorded and leaving the item as if it had never been reviewed.
 
 Until `forget` exists, a decision made in error can only be replaced by the
 opposite decision, never withdrawn.

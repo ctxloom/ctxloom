@@ -61,7 +61,8 @@ table and exit.
 
 The scriptable plumbing under this porcelain:
   ctxloom bundle trust <ref>   accept one item
-  ctxloom bundle untrust <ref>   reject one item`,
+  ctxloom bundle reject <ref>  reject one item
+  ctxloom bundle forget <ref>  clear either decision, back to pending`,
 	Args: cobra.NoArgs,
 	RunE: runReviewCmd,
 }
@@ -260,7 +261,8 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 		}
 	}
 	fmt.Fprintln(w, "\nRun 'ctxloom review' in a terminal to review interactively, or use the")
-	fmt.Fprintln(w, "plumbing per item: ctxloom bundle trust <bundle-ref>#<kind>/<name> / ctxloom bundle untrust <ref>.")
+	fmt.Fprintln(w, "plumbing per item: ctxloom bundle trust <bundle-ref>#<kind>/<name>, ctxloom bundle reject <ref>,")
+	fmt.Fprintln(w, "or ctxloom bundle forget <ref> to clear a decision already made.")
 }
 
 // renderReviewPublisher prints the two lines that say WHO signed a pending

@@ -213,7 +213,7 @@ Feature: The trust surface — what "review" actually controls
 
   # GAP C — the DECISION THAT WAS RECORDED, not the payload that was served.
   # Every assertion above reads the downstream materialized surface. None of them
-  # ever look at what `ctxloom bundle trust`/`bundle untrust` actually wrote, so the
+  # ever look at what `ctxloom bundle trust`/`bundle reject` actually wrote, so the
   # write path could record a block for a form the item does not even have — or
   # silently fail to record one it does — and the whole table would stay green.
   # A rejection's content component is written PER FORM the item currently has

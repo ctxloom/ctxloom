@@ -193,7 +193,7 @@ fragments:
 
 // tsRef composes the canonical item ref for this feature's seeded bundle:
 // "file://<bare>@bundles/<bundleName>#<selector>", the same shape
-// steps_j001500.go/steps_review.go drive `ctxloom bundle trust`/`bundle untrust` with.
+// steps_j001500.go/steps_review.go drive `ctxloom bundle trust`/`bundle reject` with.
 func tsRef(w *World, selector string) string {
 	ts := tsOf(w)
 	return ts.url + "@bundles/" + ts.bundleName + "#" + selector
@@ -664,7 +664,7 @@ func tsAssertRecordedContentRejects(w *World, dualForm bool) error {
 		recorded, tsReportedContentForms(w))
 	if len(recorded) != len(want) {
 		return fmt.Errorf("the approvals store carries content-reject records for forms %v, want exactly %v.\n"+
-			"This reads the STORE, not `bundle untrust --format json`'s own report of what it wrote — which said: %s",
+			"This reads the STORE, not `bundle reject --format json`'s own report of what it wrote — which said: %s",
 			recorded, want, tsReportedContentForms(w))
 	}
 	for i := range want {
@@ -684,7 +684,7 @@ func tsReportedContentForms(w *World) string {
 	out := w.env.LastOutput()
 	start := strings.Index(out, "{")
 	if start < 0 {
-		return "(no JSON object in `bundle untrust --format json` output)"
+		return "(no JSON object in `bundle reject --format json` output)"
 	}
 	var res struct {
 		Status       string   `json:"status"`

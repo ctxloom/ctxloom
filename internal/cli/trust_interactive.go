@@ -27,7 +27,7 @@ import (
 // asserted from a command harness.
 //
 // The actual mutations reuse the single plumbing path (runItemTrust /
-// runBlacklist → operations.Set*), and the interactive read reuses the single
+// runItemReject → operations.Set*), and the interactive read reuses the single
 // shared stdin reader via promptLine / promptYesNo (prompt.go) — no second
 // bufio.Reader is created (ctxloom-code-08-002).
 
@@ -67,7 +67,7 @@ func applyItemTrustChoice(cmd *cobra.Command, cfg *config.Config, ref string, ch
 	case itemTrustGrant:
 		return runItemTrust(cmd, cfg, ref)
 	case itemTrustBlacklist:
-		return runBlacklist(cmd, cfg, ref)
+		return runItemReject(cmd, cfg, ref)
 	default:
 		return nil // skip — viewing never trusts
 	}

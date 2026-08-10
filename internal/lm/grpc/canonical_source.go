@@ -194,7 +194,7 @@ func (f *CanonicalFallbackSource) GetSession(ctx context.Context, id string) (*a
 		// Nothing better emerged, so the FIRST attempt's error is the answer.
 		// It was set aside above as a selection signal ("try the other leg"),
 		// not because it was uninformative — a NoCanonicalTranscriptError names
-		// the harp and the concrete remedy (`ctxloom session backfill <harp>`),
+		// the harp and the concrete remedy (importing the vendor transcript),
 		// and discarding it here replaced that with a generic message the
 		// caller cannot act on.
 		if firstErr != nil {

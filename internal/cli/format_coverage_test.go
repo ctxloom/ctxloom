@@ -351,7 +351,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"session edit":        {skip: "wired to emit(), but needs an existing session fixture (a harp in the index) and MUTATES it; covered directly by session_edit_test.go, which drives all five decisions on a seeded harp"},
 	"session delete":      {skip: "not confirmed wired; destructive; not exercised here; T19 audit confirmed NOT wired: session_cmd.go's delete RunE is an inline closure that never calls emit()", formatDebt: true},
 	"session distill":     {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: runSessionDistill never calls emit()", formatDebt: true},
-	"session backfill":    {skip: "wired to emit(), but needs an existing session fixture; covered directly by session_backfill_test.go instead"},
 	"session purge":       {skip: "wired to emit(), but needs an existing session fixture and is destructive under --yes; not exercised here — covered directly by the j001300_closeout acceptance scenarios instead"},
 	"config":              {skip: "not wired to emit() yet; NOTE: bare `config` has no RunE and is not cobra-Runnable, so formatCoverageWalk never actually visits it — this entry is inert/dead and not counted toward the T19 total"},
 	"init":                {skip: "interactive bootstrap interview; not exercised here; T19 audit confirmed NOT wired: runInit never calls emit()", formatDebt: true},

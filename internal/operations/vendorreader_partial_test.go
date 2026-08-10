@@ -84,7 +84,7 @@ func (zeroLineAdapter) Convert(_ context.Context, _ transcript.Recorder, _ strin
 // whenever Convert itself succeeded, with NO check that any bytes actually
 // landed on disk. transcript.Recorder creates its canonical file only on the
 // FIRST SUCCESSFUL Record (recorder.go's NewRecorder doc), so a Convert that
-// writes zero lines leaves no canonical file at all — yet `session backfill`
+// writes zero lines leaves no canonical file at all — yet the importer
 // reported "converted: <harp>" for it anyway. Because hasCanonicalTranscript
 // then still sees no file, EVERY subsequent backfill run repeats the same
 // false "converted" report — not a one-time lie, a standing one.

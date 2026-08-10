@@ -145,7 +145,7 @@ func locateKiroConversationInDB(ctx context.Context, dbPath string, e sessions.E
 	if err != nil {
 		// "I cannot read this store" is not "this session has nothing to
 		// import", and collapsing the two hid a corrupt, truncated or locked
-		// db behind the Skipped count `session backfill` reports for the
+		// db behind the Skipped count a sweeping import reports for the
 		// ordinary nothing-to-do case. The locator still degrades to not-found
 		// — one bad store must never abort a whole backfill (CLAUDE.md fault
 		// tolerance) — but the reason is stated, and it names the file.

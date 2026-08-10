@@ -499,7 +499,7 @@ func TestCanonicalFallbackSource_GetSession_PreservesCallerIDAcrossBothPaths(t *
 // answer, because it is the specific one.
 //
 // A NoCanonicalTranscriptError names the harp AND the concrete remedy
-// (`ctxloom session backfill <harp>`). It is set aside during selection as a
+// (the vendor-transcript import). It is set aside during selection as a
 // "try the other leg" signal, which is right — but discarding it at the END
 // replaced an actionable message with a generic "legacy scraper reader retired"
 // that tells the caller nothing about what to do.

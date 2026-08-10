@@ -683,7 +683,7 @@ var policyArchived = sessionLoadPolicy{}
 // A session whose transcript was never captured is CONVERTED on demand rather
 // than refused. Interactive sessions have no live tee, so their canonical
 // transcript is produced by reading the engine's own store back afterward — and
-// requiring the user to run `session backfill` by hand first made the tool fail
+// requiring the user to import the vendor transcript by hand first made the tool fail
 // at exactly the moment it was reached for.
 func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backendName, model string, policy sessionLoadPolicy) (*mcp.CallToolResult, *loadSessionResult, error) {
 	workDir, err := os.Getwd()
@@ -801,7 +801,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 
 // healCanonicalTranscript converts harp's vendor-native transcript into the
 // canonical one the session readers expect, so a caller never has to run
-// `ctxloom session backfill` by hand first.
+// a manual vendor-transcript import first.
 //
 // live selects WHICH conversion. A finished session gets the idempotent one,
 // which is a no-op once a canonical transcript exists; a live session gets the
@@ -826,7 +826,7 @@ func healCanonicalTranscript(ctx context.Context, harp string, live bool) (bool,
 // noCaptureMessage explains a session that could not be read even after a
 // conversion was attempted on the caller's behalf.
 //
-// It deliberately does NOT tell the reader to run `ctxloom session backfill`:
+// It deliberately does NOT tell the reader to import the transcript by hand:
 // that is the command just tried for them, so repeating it as advice would send
 // someone to re-run the thing that already failed. What is actionable is WHY —
 // an engine ctxloom has no reader for, or a vendor store that is not where the

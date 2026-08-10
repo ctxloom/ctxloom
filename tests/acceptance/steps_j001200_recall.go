@@ -5,7 +5,7 @@
 // THIS JOURNEY OWNS RECALL, NOT CAPTURE. J001000 (j001000_transcript_capture.feature)
 // already proves the import side thoroughly — four vendors' private stores
 // converging into the canonical transcript, idempotent re-backfill, live
-// capture left untouched. Nothing here re-drives `session backfill`. What is
+// capture left untouched. Nothing here re-drives the transcript import. What is
 // unproven, and what this journey is for, is the PAYOFF: having captured all
 // that history, can anyone actually find a decision in it and put it back in
 // front of a model?

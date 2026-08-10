@@ -20,7 +20,7 @@ import (
 // entry.SessionID, meaning what got folded back into a run came from the
 // vendor's private store rather than from ctxloom's own copy of it — so
 // ctxloom maintained two archives and resumed from the wrong one. A vendor
-// store is precisely the thing `session backfill` exists to rescue a
+// store is precisely the thing the vendor-transcript importer rescues a
 // conversation FROM (format rotation, cache clears, an engine switch); a
 // session already rescued into the canonical schema must be resumable from
 // that copy without needing the vendor store to still be there. The backend

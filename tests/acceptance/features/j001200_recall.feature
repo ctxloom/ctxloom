@@ -8,21 +8,21 @@ Feature: The archaeologist — what did we decide in March?
   and put it back in front of a model.
 
   ctxloom captures a great deal. It tees every structured run into a canonical
-  transcript it owns, and `session backfill` converts four different vendors'
-  private stores into that same format, so history survives an engine switch
-  and outlives the tool that produced it. That is the expensive half, and it is
-  built.
+  transcript it owns, and converts four different vendors' private stores into
+  that same format the moment someone reaches for a session the tee never
+  covered, so history survives an engine switch and outlives the tool that
+  produced it. That is the expensive half, and it is built.
 
   This journey is the other half: the payoff. Search finds the session, show
   prints what it concluded, and `run --session` folds it back into a live run's
   context. History that can be captured but not recalled is an archive, not a
   memory — the disk fills up and nothing gets easier.
 
-  # NOTE ON SCOPE. J001000 (j001000_transcript_capture.feature) owns CAPTURE and proves
-  # it thoroughly: per-engine vendor-log conversion, idempotent re-backfill,
-  # live-captured sessions left untouched, bulk conversion accounting. Nothing
-  # here re-drives `session backfill`. This journey owns RECALL, which is the
-  # unproven half.
+  # NOTE ON SCOPE. J001000 (j001000_transcript_capture.feature) owns CAPTURE and
+  # proves it thoroughly: per-engine vendor-log conversion, a second recall that
+  # never doubles the conversation, and a live-captured session served from its
+  # own record. Nothing here re-drives that conversion. This journey owns RECALL,
+  # which is the unproven half.
   #
   # NOTE ON THE THREE MARKERS. A session's searchable text lives in three
   # places — harp name, index summary, distilled essence — and a search

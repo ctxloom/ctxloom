@@ -39,10 +39,10 @@ func ResolveSetupPrompt(cfg *config.Config, builtin string) string {
 		return builtin
 	}
 	// Agent-setup guidance is NOT an exposure surface: it composes text for the
-	// setup interview, not for an agent's context, and it resolves ungated. The
-	// nil gate here is a deliberate statement to that effect — an omitted gate
-	// argument would read identically to forgetting to gate at all.
-	pipe := bundles.NewPipeline(loader, nil, false)
+	// setup interview, not for an agent's context, and it resolves ungated.
+	// AdmitAll says so as a value; a nil authorizer here would be an omission,
+	// and this pipeline would then deliver nothing.
+	pipe := bundles.NewPipeline(loader, bundles.AdmitAll(), false)
 	infos, err := loader.ListAllCommands()
 	if err != nil {
 		// Falling back to the built-in prompt on a listing failure is correct

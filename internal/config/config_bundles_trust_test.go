@@ -84,7 +84,7 @@ func TestExtractMCPFromBundle_NilGate_Ungated(t *testing.T) {
 	b := &bundles.Bundle{Name: "tools", MCP: map[string]bundles.BundleMCP{
 		"alpha": {Command: "a"}, "beta": {Command: "b"},
 	}}
-	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "builtin:tools", nil)
+	got := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", b), "builtin:tools", bundles.AdmitAll())
 	assert.Len(t, got, 2, "nil gate must not gate anything")
 }
 

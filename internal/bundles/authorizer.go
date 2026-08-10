@@ -184,6 +184,18 @@ const (
 	// it came from no reader. Zero means unset and unset means withhold, or a
 	// struct literal would read as "local, unsigned, no signer".
 	ReasonUnestablished
+
+	// --- the gate's own state, appended last so no reason above renumbers ---
+
+	// ReasonUngated: nobody gates this surface, and it says so (AdmitAll). An
+	// ADMIT that names the absence of a rule rather than claiming one decided,
+	// which is what a management or listing path is honestly doing.
+	ReasonUngated
+	// ReasonUngoverned: the exposure reached the gate with NO authorizer at all.
+	// A fault in the CALLER, not a fact about the content — so it is not
+	// reviewable and no human action clears it. Withheld, because the
+	// alternative is delivering content nothing ever decided about.
+	ReasonUngoverned
 )
 
 // NeedsReview reports whether a WITHHELD item is one a human can act on by
@@ -263,6 +275,10 @@ func (r Reason) String() string {
 		return "unaddressable"
 	case ReasonUnestablished:
 		return "unestablished"
+	case ReasonUngated:
+		return "ungated"
+	case ReasonUngoverned:
+		return "ungoverned"
 	default:
 		return "unset"
 	}
@@ -302,6 +318,10 @@ func (r Reason) Explain(detail string) string {
 		return "its ref could not be parsed, so nothing could decide about it"
 	case ReasonUnestablished:
 		return "it reached the gate without established provenance"
+	case ReasonUngoverned:
+		return "it reached delivery with no authorizer, so nothing decided about it — this is a defect in ctxloom, not in the content"
+	case ReasonUngated:
+		return "allowed: " + r.String()
 	case ReasonStaleLocalSignature:
 		if detail != "" {
 			return detail
@@ -377,16 +397,26 @@ type UnaddressableReporter interface {
 // ReportVerdict). A surface that called a Authorizer directly would be one that
 // could forget the last of those.
 //
-// A nil authorizer admits: that is the management/listing shape, which still
-// resolves pending content so a human can review, accept or stamp it. It is a
-// statement written out loud at the construction site, never an omission here.
+// A NIL authorizer withholds, and says so. "I deliberately have no gate" is
+// spelled AdmitAll — a value the caller writes — so nil is left meaning the one
+// thing it cannot be a policy for: nobody supplied a gate. Admitting on it would
+// make a forgotten gate indistinguishable from an intended one at every call
+// site, and would resolve the mistake toward exposure.
 //
 // An UNPARSEABLE ref withholds. An item nothing can address is an item the
 // decision function was never able to key on, and exposing it would be exposing
 // content no rule ever saw.
 func Decide(authorizer Authorizer, read BundleRead, ref string, payload []byte, form ContentForm) Verdict {
 	if authorizer == nil {
-		return Verdict{Allow: true, Reason: ReasonUnset}
+		v := Verdict{Reason: ReasonUngoverned}
+		clidiag.Warn("ctxloom", "withheld %s: %s", ref, v.Reason.Explain(v.Detail))
+		return v
+	}
+	// AdmitAll answers here, above the parse, so an ungated surface behaves
+	// exactly as it did when it was spelled nil — including for a ref nothing
+	// can address.
+	if !Gates(authorizer) {
+		return authorizer.Admit(Exposure{Read: read, Bytes: payload, Form: form})
 	}
 	tRef, _, _, err := trust.ParseItemRef(ref)
 	if err != nil {

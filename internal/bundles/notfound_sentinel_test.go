@@ -73,7 +73,9 @@ func TestVersionedRef_MissingItemWrapsItsNotFoundSentinel(t *testing.T) {
 			Commands:  map[string]BundleCommand{"solid": {Content: "v1 body"}},
 		},
 	}
-	l := versionedLoader(t, cqRef, def, versions, nil)
+	// AdmitAll: this test is about the not-found sentinel, so it states that it
+	// gates nothing rather than leaving the authorizer out (which withholds).
+	l := versionedLoader(t, cqRef, def, versions, AdmitAll())
 
 	// Fixture check: the present item resolves at c1, so a "not found" below is
 	// about the item and not about the version resolver.

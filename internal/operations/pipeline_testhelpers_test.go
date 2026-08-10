@@ -12,5 +12,5 @@ import (
 // Form comes from cfg because that is where the exposure surfaces read it —
 // never from the reader.
 func opPipe(cfg *config.Config, l *bundles.Loader) *bundles.Pipeline {
-	return bundles.NewPipeline(l, nil, cfgPreferDistilled(cfg))
+	return bundles.NewPipeline(l, bundles.AdmitAll(), cfgPreferDistilled(cfg))
 }

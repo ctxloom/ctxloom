@@ -6,9 +6,11 @@ package bundles
 
 // ungated wraps a reader in a pipeline that does NOT gate — the
 // management/listing shape, and the right one for a test that is exercising
-// resolution rather than trust.
+// resolution rather than trust. AdmitAll, never nil: nil is a forgotten gate
+// and delivers nothing, which would make every resolution test here fail for a
+// reason that has nothing to do with what it is testing.
 func ungated(l *Loader, preferDistilled bool) *Pipeline {
-	return NewPipeline(l, nil, preferDistilled)
+	return NewPipeline(l, AdmitAll(), preferDistilled)
 }
 
 // gatedPipe wraps a reader in a pipeline that decides with authorizer — the

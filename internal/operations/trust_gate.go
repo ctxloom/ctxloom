@@ -294,8 +294,8 @@ func buildContentGate(cfg *config.Config, records ReviewRecords, fs afero.Fs) *c
 // content-free advisory.
 //
 // Construct ONCE per apply/run (it builds the review-records store up front).
-// A nil *ExecutableTrustGate is a no-op (Authorizer() returns nil = no gating),
-// matching the nil bundles.Authorizer convention.
+// A nil *ExecutableTrustGate is a no-op: Authorizer() returns bundles.AdmitAll,
+// which states the absence of gating rather than leaving a nil to travel.
 type ExecutableTrustGate struct {
 	gate *contentGate
 }
@@ -306,11 +306,11 @@ func NewExecutableTrustGate(cfg *config.Config) *ExecutableTrustGate {
 	return &ExecutableTrustGate{gate: buildContentGate(cfg, nil, cfgFS(cfg))}
 }
 
-// Authorizer returns the bundles.Authorizer the resolvers/loaders consult, or nil
-// (no gating) for a nil receiver/gate.
+// Authorizer returns the bundles.Authorizer the resolvers/loaders consult, or
+// bundles.AdmitAll (deliberately no gating) for a nil receiver/gate.
 func (e *ExecutableTrustGate) Authorizer() bundles.Authorizer {
 	if e == nil || e.gate == nil {
-		return nil
+		return bundles.AdmitAll()
 	}
 	return e.gate
 }

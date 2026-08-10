@@ -77,8 +77,11 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	// byte-identical to pre-P3; gate construction runs the trust baseline +
 	// opens the store). Ignored on the injected-Factory path.
 	axes := isolation.Axes{Workspace: isolation.WorkspaceAxis(cfg.GetWorkspace()), Runtime: isolation.RuntimeAxis(cfg.GetRuntime())}
+	// The all-defaults member writes no per-member config, so nothing consults
+	// this gate at all — AdmitAll states that, where a nil would claim the gate
+	// was forgotten and withhold if anything ever did consult it.
 	var execGate *ExecutableTrustGate
-	var gate bundles.Authorizer
+	gate := bundles.AdmitAll()
 	if !axes.Zero() {
 		execGate = NewExecutableTrustGate(cfg)
 		gate = execGate.Authorizer()
@@ -166,8 +169,8 @@ type resolvedRunRequest struct {
 	Profiles []string
 	// Gate is the shared executable trust gate (built ONCE per fan) threaded into
 	// the isolated member's ManagedConfig assembly, so bundle MCP/hooks/command
-	// exports gate at their own choke exactly as the top-level run. nil = no gating
-	// (and none members never consult it).
+	// exports gate at their own choke exactly as the top-level run.
+	// bundles.AdmitAll = deliberately no gating (and none members never consult it).
 	Gate bundles.Authorizer
 
 	// ExtraEnv is merged over the workspace env into the member engine's

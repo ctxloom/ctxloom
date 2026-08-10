@@ -30,7 +30,8 @@ import (
 //   - The authorizer can no longer be forgotten by OMISSION. A caller holding a
 //     Loader cannot reach an exposed body at all — Loader's read methods are
 //     named Read* and return candidate sets, and every delivery-shaped Get*
-//     lives here. Not gating now requires writing the nil authorizer out loud.
+//     lives here. Not gating requires writing AdmitAll out loud; a pipeline
+//     built with a nil authorizer delivers nothing (see Decide).
 //
 // FAIL-CLOSED is preserved verbatim and is the Authorizer's own contract: a resolve
 // or store error inside it withholds, and a withheld verdict here means the
@@ -39,8 +40,8 @@ import (
 
 // Pipeline pairs a read stage (a *Loader) with the process stage's two
 // policies: which Authorizer decides admissibility, and which layout form to
-// serve. A nil authorizer means no gating — the management/listing shape, which
-// still resolves pending content so a human can review, accept or stamp it.
+// serve. AdmitAll is the management/listing shape, which gates nothing and so
+// still resolves pending content for a human to review, accept or stamp.
 type Pipeline struct {
 	loader     *Loader
 	authorizer Authorizer
@@ -56,9 +57,9 @@ type Pipeline struct {
 	withheld   map[string]struct{}
 }
 
-// NewPipeline builds the process stage over loader. authorizer may be nil (no
-// gating). Passing nil is a deliberate statement that this surface does not
-// gate, never an omission: there is no other way to reach an exposed body.
+// NewPipeline builds the process stage over loader. A surface that does not
+// gate passes AdmitAll — the deliberate statement, spelled as a value. A nil
+// authorizer is an omission, and this pipeline then delivers nothing.
 func NewPipeline(loader *Loader, authorizer Authorizer, preferDistilled bool) *Pipeline {
 	return &Pipeline{loader: loader, authorizer: authorizer, preferDistilled: preferDistilled}
 }
@@ -74,8 +75,8 @@ func (p *Pipeline) Loader() *Loader {
 	return p.loader
 }
 
-// Authorizer returns the authorizer this pipeline decides with (nil when it does not
-// gate). Lets a caller that must decide about OTHER items through the IDENTICAL
+// Authorizer returns the authorizer this pipeline decides with. Lets a caller
+// that must decide about OTHER items through the IDENTICAL
 // decision — builtin bundle fragments, which never resolve through a Loader at
 // all — share this authorizer rather than building a redundant one.
 func (p *Pipeline) Authorizer() Authorizer {
@@ -89,7 +90,7 @@ func (p *Pipeline) Authorizer() Authorizer {
 func (p *Pipeline) PreferDistilled() bool { return p != nil && p.preferDistilled }
 
 // Withheld returns the item refs this pipeline's authorizer withheld over its
-// lifetime, deduplicated and sorted. Empty when no authorizer is set or nothing was
+// lifetime, deduplicated and sorted. Empty when nothing was
 // withheld. Callers surface the COUNT (or the refs) so the user knows content
 // was hidden; returning refs and never bodies keeps the disclosure
 // content-free.
@@ -108,8 +109,8 @@ func (p *Pipeline) Withheld() []string {
 }
 
 // admit reports whether these bytes may be delivered, recording the ref when
-// they may not and SURFACING a verdict that admits with a warning. A nil authorizer
-// admits everything.
+// they may not and SURFACING a verdict that admits with a warning. AdmitAll
+// admits everything; a nil authorizer delivers nothing.
 //
 // The authorizer is handed the EXACT bytes about to be exposed (pre-mustache)
 // rather than a hash: a hash can only be compared against a recorded hash, and a

@@ -256,6 +256,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// runRemoteRemove now calls emit() on both its report and --yes branches
 	// (it did not before) — not format debt, just fixture-gated.
 	"remote remove": {skip: "needs a configured remote fixture"},
+	// Wired to emit() on both the changed and unchanged renders; fixture-gated
+	// like its neighbours, not format debt.
+	"remote edit": {skip: "wired to emit(), but needs a configured remote fixture; not exercised here"},
 	// The `deps` noun. `deps list` is the one leaf that reads no network at
 	// all — it is the offline lockfile view — so it is exercised for real; the
 	// rest reach a git remote.

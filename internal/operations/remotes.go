@@ -220,6 +220,100 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	return result, nil
 }
 
+// EditRemoteRequest contains parameters for editing a registered remote.
+// A nil field is unchanged; see remote.RemoteEdit for why these are pointers.
+type EditRemoteRequest struct {
+	Name    string  `json:"name"`
+	NewName *string `json:"new_name,omitempty"`
+	URL     *string `json:"url,omitempty"`
+	Forge   *string `json:"forge,omitempty"`
+
+	// Registry is an optional pre-configured registry (for testing).
+	Registry *remote.Registry `json:"-"`
+	// FS is an optional filesystem (for testing).
+	FS afero.Fs `json:"-"`
+}
+
+// EditRemoteResult reports what an edit actually changed.
+//
+// Changed names the fields that really moved, which is why Before and After
+// are both here: a caller that only learned "status: edited" could not tell an
+// applied edit from one that restated the values already on disk, and this
+// project's characteristic bug is exactly that — a success message over no
+// effect.
+type EditRemoteResult struct {
+	Status  string        `json:"status"`
+	Name    string        `json:"name"`
+	Before  remote.Remote `json:"before"`
+	After   remote.Remote `json:"after"`
+	Changed []string      `json:"changed"`
+
+	// DefaultPointerUpdated reports a rename that carried the default remote
+	// with it. That silently changes which remote every bare command reaches,
+	// so it is named rather than left for the reader to infer.
+	DefaultPointerUpdated bool `json:"default_pointer_updated,omitempty"`
+}
+
+// EditRemote changes a registered remote's name, URL or forge binding.
+//
+// A remote is an address and carries no authority (see remote.Remote's own
+// note), so editing one has no trust consequence: exposure is gated on a
+// signature over the bytes, not on where they came from. Installed
+// dependencies are unaffected too — each lockfile entry records its own URL
+// rather than pointing back at a remote by name.
+func EditRemote(_ context.Context, cfg *config.Config, req EditRemoteRequest) (*EditRemoteResult, error) {
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	if req.NewName == nil && req.URL == nil && req.Forge == nil {
+		return nil, fmt.Errorf("nothing to edit: pass at least one of --name, --url or --forge")
+	}
+
+	registry := req.Registry
+	if registry == nil {
+		var err error
+		registry, err = getRegistry(cfg, remote.WithRegistryFS(getFS(req.FS)))
+		if err != nil {
+			return nil, fmt.Errorf("failed to initialize registry: %w", err)
+		}
+	}
+
+	before, err := registry.Get(req.Name)
+	if err != nil {
+		return nil, err
+	}
+	wasDefault := registry.GetDefault() == req.Name
+
+	after, err := registry.Update(req.Name, remote.RemoteEdit{
+		Name:  req.NewName,
+		URL:   req.URL,
+		Forge: req.Forge,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var changed []string
+	if before.Name != after.Name {
+		changed = append(changed, "name")
+	}
+	if before.URL != after.URL {
+		changed = append(changed, "url")
+	}
+	if before.Forge != after.Forge {
+		changed = append(changed, "forge")
+	}
+
+	return &EditRemoteResult{
+		Status:                "edited",
+		Name:                  after.Name,
+		Before:                *before,
+		After:                 *after,
+		Changed:               changed,
+		DefaultPointerUpdated: wasDefault && before.Name != after.Name,
+	}, nil
+}
+
 // RemoveRemoteRequest contains parameters for removing a remote.
 type RemoveRemoteRequest struct {
 	Name string `json:"name"`

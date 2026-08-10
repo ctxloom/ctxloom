@@ -200,6 +200,36 @@ var mutationTargets = []mutationTarget{
 		SourceRelPath: "internal/lm/isolation/isolation.go",
 		Features:      []string{"features/j002200_isolation.feature"},
 	},
+	{
+		// The remote REGISTRY: Add, Update, Remove, Get, List, SetDefault,
+		// GetDefault, SetForge, GetOrCreateByURL, ResolveItemRemote and the
+		// load/save pair beneath them — the code that decides what
+		// .ctxloom/remotes.yaml says, and therefore which address every
+		// dependency operation resolves to.
+		//
+		// EVIDENCE, by census of `ctxloom remote ` across the whole corpus:
+		// cli/remote.feature holds 21 of the 44 invocations and cli/deps.feature
+		// 15, together 36 of 44. The remaining eight are spread one to five
+		// across content_decision, mcp_resources, fault_tolerance and init,
+		// none of which drives a registry verb these two do not.
+		//
+		// BOTH are named because they reach different halves: remote.feature
+		// drives the write verbs (create/edit/remove/default) while
+		// deps.feature drives the READ path that resolves a remote name to an
+		// address during a pull. An entry naming only the first would leave
+		// every resolution mutant surviving for want of a caller.
+		//
+		// Expect survivors in the GitHub-specific and network-adjacent
+		// branches: the suite drives seeded file:// repositories, so a mutant
+		// reachable only through a real forge API has no scenario that can
+		// kill it. That is a true statement about the suite's reach.
+		Name:          "remote_registry",
+		SourceRelPath: "internal/remote/registry.go",
+		Features: []string{
+			"features/cli/remote.feature",
+			"features/cli/deps.feature",
+		},
+	},
 }
 
 // minIgnoredFiles is the floor for buildIgnorePattern's ignored count. An

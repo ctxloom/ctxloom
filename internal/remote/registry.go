@@ -254,6 +254,98 @@ func (r *Registry) GetOrCreateByURL(repoURL string) (*Remote, error) {
 	return &remoteCopy, nil
 }
 
+// RemoteEdit names the fields Update may change. A nil field is unchanged.
+//
+// The pointers are load-bearing for Forge, where the empty string is a VALUE
+// ("resolve by URL host") and not an omission — a plain string could not tell
+// "--forge was not passed" from "--forge ''", so clearing a binding would be
+// unexpressible.
+type RemoteEdit struct {
+	Name  *string
+	URL   *string
+	Forge *string
+}
+
+// Update applies edit to the named remote and persists the registry, returning
+// the remote as it now stands.
+//
+// It is one method rather than three setters because an edit spanning several
+// fields must not half-land: separate calls each save, so a failure partway
+// leaves a remote renamed but still addressing the old URL, and nothing
+// records which half applied. Here every field is validated before anything
+// mutates, one save covers them all, and a save failure restores the whole
+// prior state.
+//
+// A rename carries the default pointer, which is stored by NAME and would
+// otherwise be left naming a remote that no longer exists.
+func (r *Registry) Update(name string, edit RemoteEdit) (*Remote, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	rem, ok := r.remotes[name]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", errs.ErrRemoteNotFound, name)
+	}
+
+	// Validate everything BEFORE mutating anything, so a refusal on the third
+	// field cannot leave the first two applied.
+	newName := name
+	if edit.Name != nil && *edit.Name != name {
+		if *edit.Name == "" {
+			return nil, fmt.Errorf("new name must not be empty")
+		}
+		if _, exists := r.remotes[*edit.Name]; exists {
+			return nil, fmt.Errorf("remote already exists: %s", *edit.Name)
+		}
+		newName = *edit.Name
+	}
+
+	newURL := rem.URL
+	if edit.URL != nil {
+		normalized := NormalizeURL(*edit.URL)
+		if existing, found := r.findByURLLocked(normalized); found && existing != name {
+			return nil, fmt.Errorf("remote '%s' already points to this URL", existing)
+		}
+		newURL = normalized
+	}
+
+	newForge := rem.Forge
+	if edit.Forge != nil {
+		if *edit.Forge != "" {
+			if _, known := MergeForges(r.forges)[*edit.Forge]; !known {
+				return nil, fmt.Errorf("unknown forge %q: configure it under forges: or use a built-in (%q, %q)",
+					*edit.Forge, ForgeGitHub, ForgeGitGeneric)
+			}
+		}
+		newForge = *edit.Forge
+	}
+
+	prev := *rem
+	prevDefault := r.defaultRemote
+
+	rem.Name, rem.URL, rem.Forge = newName, newURL, newForge
+	if newName != name {
+		delete(r.remotes, name)
+		r.remotes[newName] = rem
+		if prevDefault == name {
+			r.defaultRemote = newName
+		}
+	}
+
+	if err := r.save(); err != nil {
+		*rem = prev
+		if newName != name {
+			delete(r.remotes, newName)
+			r.remotes[name] = rem
+			r.defaultRemote = prevDefault
+		}
+		return nil, err
+	}
+
+	out := *rem
+	return &out, nil
+}
+
 // SetForge binds the named remote to a forge label and persists the registry.
 // The label must name a configured or built-in forge (github / git / a forges:
 // entry); an unknown label is rejected so a typo surfaces at bind time rather

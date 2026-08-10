@@ -1,7 +1,7 @@
 @doc
 Feature: remote — registering the sources content comes from, and browsing them
 
-  Covers: `ctxloom remote create`, `remote list`, `remote show`, `remote
+  Covers: `ctxloom remote create`, `remote edit`, `remote list`, `remote show`, `remote
   default`, `remote remove`, and the bare `ctxloom remote` form.
 
   A remote is an ADDRESS. Registering one is local bookkeeping over
@@ -85,6 +85,54 @@ Feature: remote — registering the sources content comes from, and browsing the
       Then the command succeeds
       When I run "ctxloom remote list"
       Then the output does not contain "origin"
+
+  Rule: A registered remote can be corrected in place
+
+    An address changes — a repository moves host, a forge is misresolved, a
+    name stops describing what it points at. Editing is the same local
+    bookkeeping as registering: content already installed is untouched,
+    because each lockfile entry records the URL it came from rather than
+    naming a remote, and trust is unaffected because a remote never carried
+    any.
+
+    Scenario: Correcting a remote's URL records the new address and drops the old
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      When Alice corrects the remote's address:
+        """
+        ctxloom remote edit origin --url file:///tmp/acceptance-moved.git
+        """
+      Then the command succeeds
+      And the file ".ctxloom/remotes.yaml" contains "acceptance-moved.git"
+      And the file ".ctxloom/remotes.yaml" does not contain "acceptance-remote.git"
+
+    # The rename must carry the default with it. The pointer is stored BY NAME,
+    # so a rename that ignored it would leave `default:` naming a remote that
+    # no longer exists — and every bare command reaching for a default would
+    # find nothing, with the registry looking perfectly well-formed.
+    Scenario: Renaming the default remote carries the default with it
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      And I run "ctxloom remote default origin"
+      When Alice renames the remote:
+        """
+        ctxloom remote edit origin --name upstream
+        """
+      Then the command succeeds
+      And the file ".ctxloom/remotes.yaml" contains "default: upstream"
+      And the file ".ctxloom/remotes.yaml" does not contain "default: origin"
+      When I run "ctxloom remote list"
+      Then the output contains "upstream"
+      And the output does not contain "origin"
+
+    # An edit naming no field is a refusal, not a success. Reporting exit 0
+    # over an untouched registry is this project's characteristic bug.
+    Scenario: An edit that asks for nothing is refused
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      When I run "ctxloom remote edit origin"
+      Then the command fails
+      And the file ".ctxloom/remotes.yaml" contains "origin"
 
   Rule: A remote's catalog can be browsed without installing anything
 

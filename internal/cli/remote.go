@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -256,16 +257,101 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+var (
+	remoteEditName  string
+	remoteEditURL   string
+	remoteEditForge string
+)
+
+var remoteEditCmd = &cobra.Command{
+	Use:   "edit <name>",
+	Short: "Change a remote's name, URL or forge binding",
+	Long: `Change a registered remote in place, rather than removing and re-creating it.
+
+Editing a remote is safe for content already pulled from it: every lockfile
+entry records its own URL, so nothing installed is repointed. It is also
+irrelevant to trust, which is keyed to a signing identity and verified over
+the bytes themselves — a remote is an address and carries no authority.
+
+Renaming the default remote carries the default with it; the report says so.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runRemoteEdit,
+}
+
+func runRemoteEdit(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+
+	// Read each field through Changed rather than off the string: an empty
+	// --forge is a VALUE ("resolve by URL host") and not an omission, so a
+	// non-empty test would make clearing a forge binding unexpressible.
+	req := operations.EditRemoteRequest{Name: args[0]}
+	if cmd.Flags().Changed("name") {
+		req.NewName = &remoteEditName
+	}
+	if cmd.Flags().Changed("url") {
+		req.URL = &remoteEditURL
+	}
+	if cmd.Flags().Changed("forge") {
+		req.Forge = &remoteEditForge
+	}
+
+	result, err := operations.EditRemote(cmd.Context(), cfg, req)
+	if err != nil {
+		return err
+	}
+
+	return emit(cmd, result, func() error {
+		if len(result.Changed) == 0 {
+			fmt.Fprintf(cmd.OutOrStdout(), "remote %q unchanged\n", result.Name)
+			return nil
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Edited remote %q (%s)\n",
+			result.Name, strings.Join(result.Changed, ", "))
+		if result.Before.Name != result.After.Name {
+			fmt.Fprintf(cmd.OutOrStdout(), "  name:  %s → %s\n", result.Before.Name, result.After.Name)
+		}
+		if result.Before.URL != result.After.URL {
+			fmt.Fprintf(cmd.OutOrStdout(), "  url:   %s → %s\n", result.Before.URL, result.After.URL)
+		}
+		if result.Before.Forge != result.After.Forge {
+			fmt.Fprintf(cmd.OutOrStdout(), "  forge: %s → %s\n",
+				forgeLabelOrHost(result.Before.Forge), forgeLabelOrHost(result.After.Forge))
+		}
+		if result.DefaultPointerUpdated {
+			fmt.Fprintf(cmd.OutOrStdout(), "  the default remote followed the rename\n")
+		}
+		return nil
+	})
+}
+
+// forgeLabelOrHost renders an empty forge as what it MEANS rather than as
+// blank, so a cleared binding reads as a decision instead of a missing value.
+func forgeLabelOrHost(label string) string {
+	if label == "" {
+		return "(resolved from URL host)"
+	}
+	return label
+}
+
 func init() {
 	rootCmd.AddCommand(remoteCmd)
 
 	remoteCmd.AddCommand(remoteCreateCmd)
+	remoteCmd.AddCommand(remoteEditCmd)
 	remoteCmd.AddCommand(remoteRemoveCmd)
 	remoteCmd.AddCommand(remoteListCmd)
 	remoteCmd.AddCommand(remoteDefaultCmd)
 
 	remoteCreateCmd.Flags().StringVar(&remoteAddForge, "forge", "",
 		"Forge to bind this remote to: github, git, or a configured forges: label (default: resolve from URL host)")
+
+	remoteEditCmd.Flags().StringVar(&remoteEditName, "name", "", "Rename the remote (the default remote pointer follows)")
+	remoteEditCmd.Flags().StringVar(&remoteEditURL, "url", "", "Change the repository URL")
+	remoteEditCmd.Flags().StringVar(&remoteEditForge, "forge", "",
+		"Rebind to a forge: github, git, or a configured forges: label (empty resolves from the URL host)")
 
 	remoteRemoveCmd.Flags().BoolVarP(&remoteRemoveYes, "yes", "y", false,
 		"Apply the removal this invocation would report (default: report only)")

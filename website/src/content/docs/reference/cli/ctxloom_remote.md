@@ -62,6 +62,7 @@ ctxloom remote [flags]
 * [ctxloom remote create](/reference/cli/ctxloom_remote_create/)	 - Register a remote source
 * [ctxloom remote default](/reference/cli/ctxloom_remote_default/)	 - Set the default remote
 * [ctxloom remote discover](/reference/cli/ctxloom_remote_discover/)	 - Search GitHub for ctxloom repositories
+* [ctxloom remote edit](/reference/cli/ctxloom_remote_edit/)	 - Change a remote's name, URL or forge binding
 * [ctxloom remote list](/reference/cli/ctxloom_remote_list/)	 - List configured remotes
 * [ctxloom remote remove](/reference/cli/ctxloom_remote_remove/)	 - Remove a remote source
 * [ctxloom remote show](/reference/cli/ctxloom_remote_show/)	 - Show a remote and the bundles it publishes

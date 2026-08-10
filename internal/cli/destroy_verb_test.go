@@ -65,6 +65,11 @@ func TestDestroyVerbIsUniformlyRemove(t *testing.T) {
 	}
 
 	// The absence half, now that the fixture is known to be looking at something.
+	//
+	// The line is drawn at the full word. Shorthand aliases (`rm`, `del` on
+	// `remote remove`) are abbreviations OF the canonical verb and stay; what
+	// this refuses is a second full name that reads as a peer of `remove` and
+	// leaves a reader to guess which noun took which.
 	assert.Empty(t, deletes,
 		"`delete` is a second spelling for `remove`; one destroy verb, everywhere")
 }

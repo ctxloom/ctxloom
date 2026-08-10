@@ -71,7 +71,7 @@ func TestRunOneShot_StaysMutuallyExclusiveWithStructured(t *testing.T) {
 // TestACPClient_RequiresOneShotToBeStated is the loud half of giving the acp
 // leaf the same flag.
 //
-// `acp client` drives exactly one turn and has no interactive form. A flag
+// `acp run` drives exactly one turn and has no interactive form. A flag
 // named --one-shot implies a bare invocation is something else, so accepting a
 // bare one would teach a caller that they had opened a session when they had
 // not. Requiring the flag says the same thing the interactive capability would
@@ -79,20 +79,20 @@ func TestRunOneShot_StaysMutuallyExclusiveWithStructured(t *testing.T) {
 // SHOULD grow an interactive form is a product question, not this flag's to
 // answer.
 func TestACPClient_RequiresOneShotToBeStated(t *testing.T) {
-	flags := acpClientCmd.Flags()
-	require.NotNil(t, flags.Lookup("one-shot"), "acp client takes the same --one-shot spelling as run")
+	flags := acpRunCmd.Flags()
+	require.NotNil(t, flags.Lookup("one-shot"), "acp run takes the same --one-shot spelling as run")
 
-	assert.Error(t, acpClientCmd.ValidateRequiredFlags(),
-		"a bare `acp client` must refuse rather than behave as a one-shot its own flag says it is not")
+	assert.Error(t, acpRunCmd.ValidateRequiredFlags(),
+		"a bare `acp run` must refuse rather than behave as a one-shot its own flag says it is not")
 
-	saved := acpClientOneShot
+	saved := acpRunOneShot
 	t.Cleanup(func() {
-		acpClientOneShot = saved
+		acpRunOneShot = saved
 		_ = flags.Set("one-shot", "false")
 		flags.Lookup("one-shot").Changed = false
 	})
 	require.NoError(t, flags.Set("one-shot", "true"))
-	assert.True(t, acpClientOneShot, "--one-shot must write through to acpClientOneShot")
-	assert.NoError(t, acpClientCmd.ValidateRequiredFlags(),
+	assert.True(t, acpRunOneShot, "--one-shot must write through to acpRunOneShot")
+	assert.NoError(t, acpRunCmd.ValidateRequiredFlags(),
 		"stating the mode satisfies the requirement")
 }

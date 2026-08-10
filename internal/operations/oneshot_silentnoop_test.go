@@ -11,7 +11,7 @@ import (
 )
 
 // TestRunOneshot_EmptyStdoutIsLoud pins that the launch tail every headless
-// run shares (a delegated oneshot turn, `acp client`, mirrored by run --one-shot)
+// run shares (a delegated oneshot turn, `acp run`, mirrored by run --one-shot)
 // used to accept exit 0 with nothing on stdout as a successful run, publishing
 // Output:"" into RunOneshotResult.Output / a child's assistant entry with no
 // error anywhere. A oneshot exists ONLY to capture output, so zero bytes

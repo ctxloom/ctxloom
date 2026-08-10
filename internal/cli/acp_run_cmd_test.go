@@ -13,56 +13,56 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// resetACPClientFlags restores every acp-client package flag var (and the
+// resetACPRunFlags restores every acp-client package flag var (and the
 // Factory test seam) to its zero value, undone via t.Cleanup — these are
-// cobra-bound package vars (see acpClientCmd's init()), so a test that sets
+// cobra-bound package vars (see acpRunCmd's init()), so a test that sets
 // one must not leak it into the next.
-func resetACPClientFlags(t *testing.T) {
+func resetACPRunFlags(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() {
-		acpClientLLM = ""
-		acpClientProfile = ""
-		acpClientWorkDir = ""
-		acpClientVerbosity = 0
-		acpClientFactory = nil
+		acpRunLLM = ""
+		acpRunProfile = ""
+		acpRunWorkDir = ""
+		acpRunVerbosity = 0
+		acpRunFactory = nil
 	})
 }
 
-// acpClientStubClient is a minimal pb.Client for testing runACPClient without
+// acpRunStubClient is a minimal pb.Client for testing runACPRun without
 // spawning a real ACP subprocess — mirrors internal/operations/oneshot_test.go's
 // stubClient (same seam, one door).
-type acpClientStubClient struct {
+type acpRunStubClient struct {
 	out    string
 	gotReq *pb.RunStart
 }
 
-func (s *acpClientStubClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdout, _ io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
+func (s *acpRunStubClient) Run(_ context.Context, req *pb.RunStart, _ io.Reader, stdout, _ io.Writer, _ <-chan *pb.WindowSize) (int32, error) {
 	s.gotReq = req
 	_, _ = io.WriteString(stdout, s.out)
 	return 0, nil
 }
-func (s *acpClientStubClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
-func (s *acpClientStubClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (*pb.RunResult, error) {
+func (s *acpRunStubClient) Info(context.Context) (*pb.LLMInfo, error) { return &pb.LLMInfo{}, nil }
+func (s *acpRunStubClient) RunWithModelInfo(context.Context, *pb.RunStart, io.Reader, io.Writer, io.Writer, <-chan *pb.WindowSize) (*pb.RunResult, error) {
 	return &pb.RunResult{}, nil
 }
-func (s *acpClientStubClient) GetSession(context.Context, string) (*agent.Session, error) {
+func (s *acpRunStubClient) GetSession(context.Context, string) (*agent.Session, error) {
 	return nil, nil
 }
-func (s *acpClientStubClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
+func (s *acpRunStubClient) WatchSession(context.Context, string) (<-chan *pb.WatchEvent, <-chan error, error) {
 	return nil, nil, nil
 }
-func (s *acpClientStubClient) Chat(context.Context, agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
+func (s *acpRunStubClient) Chat(context.Context, agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
 	return nil, nil, nil, nil
 }
-func (s *acpClientStubClient) ListSessions(context.Context) ([]agent.SessionMeta, error) {
+func (s *acpRunStubClient) ListSessions(context.Context) ([]agent.SessionMeta, error) {
 	return nil, nil
 }
-func (s *acpClientStubClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) {
+func (s *acpRunStubClient) GetPlans(context.Context, string) ([]agent.PlanFile, error) {
 	return nil, nil
 }
-func (s *acpClientStubClient) Kill() {}
+func (s *acpRunStubClient) Kill() {}
 
-func acpClientTestConfig() *config.Config {
+func acpRunTestConfig() *config.Config {
 	return config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
@@ -78,10 +78,10 @@ func acpClientTestConfig() *config.Config {
 // refuses to run (and never touches config or the plugin door) when --llm is
 // unset: there is no "the" ACP-client label to default to.
 func TestRunACPClient_RequiresLLMFlag(t *testing.T) {
-	resetACPClientFlags(t)
+	resetACPRunFlags(t)
 	cmd, _ := formatCmd(formatText)
-	err := runACPClient(cmd, []string{"hello"})
-	require.ErrorIs(t, err, errACPClientLLMRequired)
+	err := runACPRun(cmd, []string{"hello"})
+	require.ErrorIs(t, err, errACPRunLLMRequired)
 }
 
 // TestRunACPClientWithConfig_RejectsNonACPBackend proves --llm is validated
@@ -89,11 +89,11 @@ func TestRunACPClient_RequiresLLMFlag(t *testing.T) {
 // engine (e.g. claude-code) is refused with a named fix, never silently
 // spawned as if it were ACP.
 func TestRunACPClientWithConfig_RejectsNonACPBackend(t *testing.T) {
-	resetACPClientFlags(t)
-	acpClientLLM = "claude-fast"
+	resetACPRunFlags(t)
+	acpRunLLM = "claude-fast"
 
 	cmd, _ := formatCmd(formatText)
-	err := runACPClientWithConfig(cmd, acpClientTestConfig(), "hello")
+	err := runACPRunWithConfig(cmd, acpRunTestConfig(), "hello")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), `"claude-code"`)
 	assert.Contains(t, err.Error(), "ctxloom llm list")
@@ -105,18 +105,18 @@ func TestRunACPClientWithConfig_RejectsNonACPBackend(t *testing.T) {
 // captured output reaches stdout — all through operations.RunOneshot, never a
 // CLI-local internal/acp construction.
 func TestRunACPClientWithConfig_DrivesConfiguredACPLabel(t *testing.T) {
-	resetACPClientFlags(t)
-	acpClientLLM = "acp-kiro"
+	resetACPRunFlags(t)
+	acpRunLLM = "acp-kiro"
 
-	stub := &acpClientStubClient{out: "  hello from kiro  \n"}
+	stub := &acpRunStubClient{out: "  hello from kiro  \n"}
 	var gotBackend string
-	acpClientFactory = func(backendName, _ string, _ int) (pb.Client, error) {
+	acpRunFactory = func(backendName, _ string, _ int) (pb.Client, error) {
 		gotBackend = backendName
 		return stub, nil
 	}
 
 	cmd, buf := formatCmd(formatText)
-	require.NoError(t, runACPClientWithConfig(cmd, acpClientTestConfig(), "ping"))
+	require.NoError(t, runACPRunWithConfig(cmd, acpRunTestConfig(), "ping"))
 
 	assert.Equal(t, "acp", gotBackend)
 	require.NotNil(t, stub.gotReq.Prompt)

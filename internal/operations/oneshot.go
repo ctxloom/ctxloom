@@ -518,7 +518,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	}
 
 	// A oneshot exists ONLY to capture output — this tail is shared by
-	// a delegated oneshot turn and `acp client` (and mirrored by `run --print`),
+	// a delegated oneshot turn and `acp run` (and mirrored by `run --print`),
 	// and every one of them publishes res.Output as the run's whole product
 	// (a child's assistant SessionEntry, RunOneshotResult.Output). Exit 0
 	// with zero bytes is therefore never "nothing to do, legitimately": it is an
@@ -540,7 +540,7 @@ func runResolvedAgent(ctx context.Context, req resolvedRunRequest) (*RunOneshotR
 	// transcript.RecordOneshot's doc. The harp rides req.ExtraEnv exactly
 	// like the delegated-child structured path (agent.SessionHarpEnv,
 	// stamped by coord/children.go's childEnv); RunOneshot's own direct
-	// callers (`acp client`, the init auth-ping) carry no harp and degrade to
+	// callers (`acp run`, the init auth-ping) carry no harp and degrade to
 	// RecordOneshot's own empty-harp no-op. Best-effort: a capture failure
 	// warns but must never fail an otherwise-successful run.
 	if harp := req.ExtraEnv[agent.SessionHarpEnv]; harp != "" {

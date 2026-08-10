@@ -21,7 +21,7 @@ var (
 // acpCmd is the ACP (Agent Client Protocol) command tree: SERVER (ctxloom
 // speaks ACP to an editor that connects in) and CLIENT (ctxloom connects OUT
 // to an ACP-speaking agent) are the two directions — see acpServeCmd and
-// acpClientCmd.
+// acpRunCmd.
 //
 // Bare `ctxloom acp` lists the ACP agent-server entries (acpListCmd): the
 // entry list is the one thing a caller exploring this noun wants, and
@@ -37,7 +37,7 @@ subcommand:
   ctxloom acp serve    ctxloom SERVES the protocol (stdio) so an ACP editor
                         client (Zed's agent panel, VS Code, Nori, ...)
                         connects IN and drives ctxloom sessions.
-  ctxloom acp client    ctxloom CONNECTS OUT to an ACP-speaking agent (a
+  ctxloom acp run       ctxloom CONNECTS OUT to an ACP-speaking agent (a
                         third-party command that itself speaks ACP) and
                         drives one headless turn against it.
   ctxloom acp list      Lists the ACP agent-server entries to paste into an
@@ -140,6 +140,6 @@ func registerACPServerFlags(cmd *cobra.Command) {
 func init() {
 	registerACPServerFlags(acpServeCmd)
 	acpCmd.AddCommand(acpServeCmd)
-	acpCmd.AddCommand(acpClientCmd)
+	acpCmd.AddCommand(acpRunCmd)
 	rootCmd.AddCommand(acpCmd)
 }

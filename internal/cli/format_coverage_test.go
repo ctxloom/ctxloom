@@ -197,7 +197,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
 	"acp":        {skip: "deprecated bare alias for `acp serve`; serves an ACP session, not a single rendered result"},
 	"acp serve":  {skip: "serve: serves an ACP session over stdio for an editor to connect to, not a single rendered result"},
-	"acp client": {skip: "requires a configured ACP-type llm label (--llm) and spawns a real third-party ACP-speaking subprocess via the plugin door; covered directly by acp_client_cmd_test.go's stub-Factory tests instead"},
+	"acp run":    {skip: "requires a configured ACP-type llm label (--llm) and spawns a real third-party ACP-speaking subprocess via the plugin door; covered directly by acp_run_cmd_test.go's stub-Factory tests instead"},
 	"mcp":        {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
 	"mcp serve":  {skip: "serve: runs the stdio MCP server"},
 

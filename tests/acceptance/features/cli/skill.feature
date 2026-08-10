@@ -43,6 +43,35 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
       When the agent reads resource "ctxloom://skills/reviewer"
       Then the skill resource contains "SKILL-MARKER-reviewer-9f3c21"
 
+  Rule: A skill package can be created and removed
+
+    Before `skill remove`, a skill package could be created and never
+    removed at all. Bare invocation reports what would be removed and
+    removes nothing; --yes applies it — the same posture every other
+    `remove` leaf in this CLI shares.
+
+
+    Scenario: Removing a skill drops both its bundle.yaml registration and its on-disk directory
+      Given Alice's project has a directory-form bundle "vault"
+      And I run "ctxloom skill create vault reviewer -d SKILL-MARKER-reviewer-9f3c21"
+      When I run "ctxloom skill remove vault#skills/reviewer"
+      Then the command succeeds
+      And the output contains "Nothing was removed"
+      And the output contains "--yes"
+      When I run "ctxloom skill list"
+      Then the skill list output includes "reviewer" from bundle "vault"
+      When I run "ctxloom skill remove vault#skills/reviewer --yes"
+      Then the command succeeds
+      And the output contains "Removed skill"
+      And the file ".ctxloom/content/bundles/vault/skills/reviewer" does not exist
+      When I run "ctxloom skill list"
+      Then the output does not contain "reviewer"
+
+    Scenario: Removing a skill nobody created is refused, not silently reported as done
+      Given Alice's project has a directory-form bundle "vault"
+      When I run "ctxloom skill remove vault#skills/never-created --yes"
+      Then the command fails
+
   Rule: A profile exports only the skills it curates
 
     Shipping a skill in a bundle does not push it at every project. Curation is

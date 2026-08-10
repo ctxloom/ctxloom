@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
 )
@@ -34,6 +36,7 @@ Examples:
   ctxloom skill list                                   # List all skills
   ctxloom skill show core#skills/code-reviewer          # Show frontmatter + manifest
   ctxloom skill create my-bundle code-reviewer          # Scaffold a new skill package
+  ctxloom skill remove my-bundle#skills/code-reviewer --yes  # Remove a skill package
   ctxloom skill sync my-bundle#skills/code-reviewer      # Recompute + write the manifest
   ctxloom skill export my-bundle#skills/code-reviewer    # Pack to an Anthropic-shaped .zip
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle`,
@@ -201,6 +204,90 @@ func runSkillCreate(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(out, "Edit %s/SKILL.md, then run: ctxloom skill sync %s#skills/%s\n", res.Dir, res.Bundle, res.Name)
 		return nil
 	})
+}
+
+var skillRemoveYes bool
+
+var skillRemoveCmd = &cobra.Command{
+	Use:     "remove <bundle>#skills/<name>",
+	Aliases: []string{"rm", "del"},
+	Short:   "Remove an Agent Skill package",
+	Long: `Remove a skill package: its bundle.yaml registration and its on-disk
+directory tree (skills/<name>/).
+
+Bare invocation reports what would be removed and removes nothing (exit 0).
+Pass --yes to apply it.
+
+Reference format: bundle#skills/name
+
+Examples:
+  ctxloom skill remove my-bundle#skills/old-skill
+  ctxloom skill remove my-bundle#skills/old-skill --yes`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSkillRemove,
+}
+
+func runSkillRemove(cmd *cobra.Command, args []string) error {
+	bundleName, skillName, ok := strings.Cut(args[0], "#skills/")
+	if !ok {
+		return fmt.Errorf("invalid skill reference: expected bundle#skills/name (got %q)", args[0])
+	}
+	cfg, err := GetConfig()
+	if err != nil {
+		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	applyCmd := fmt.Sprintf("ctxloom skill remove %s --yes", args[0])
+	if !skillRemoveYes {
+		// Confirm the skill exists before reporting: a preview naming a
+		// target that isn't there would be worse than the not-found error.
+		// Deliberately the UNGATED listing (ListSkills, the same one `skill
+		// list` uses) rather than GetSkill's content-validating read: a
+		// skill whose SKILL.md is malformed or withheld must still be
+		// removable — this is a bundle.yaml membership check, not a
+		// well-formedness one.
+		if !skillExistsInBundle(cmd.Context(), cfg, bundleName, skillName) {
+			return fmt.Errorf("skill %q not found in bundle %q", skillName, bundleName)
+		}
+		target := fmt.Sprintf("skill %q from bundle %q", skillName, bundleName)
+		return emit(cmd, newRemovePreviewResult(target, nil, applyCmd), func() error {
+			printRemovePreview(cmd.OutOrStdout(), target, nil, applyCmd)
+			return nil
+		})
+	}
+
+	res, err := operations.RemoveSkill(cmd.Context(), cfg, operations.RemoveSkillRequest{Bundle: bundleName, Name: skillName})
+	if err != nil {
+		return err
+	}
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		fmt.Fprintf(out, "Removed skill %q from bundle %q\n", res.Name, res.Bundle)
+		fmt.Fprintf(out, "  %s\n", res.Dir)
+		return nil
+	})
+}
+
+// skillExistsInBundle reports whether bundle registers a skill named name —
+// a bundle.yaml membership check via the same ungated ListSkills path `skill
+// list` uses, degrading to false (not found) rather than propagating a
+// listing error, since a listing failure and "this one skill is absent" are
+// both refused identically by runSkillRemove's caller.
+func skillExistsInBundle(ctx context.Context, cfg *config.Config, bundle, name string) bool {
+	res, err := operations.ListSkills(ctx, cfg, operations.ListSkillsRequest{})
+	if err != nil {
+		return false
+	}
+	for _, e := range res.Skills {
+		// SkillEntry.Name is sometimes the bare name and sometimes
+		// "<bundle>/<name>" depending on how the loader disambiguated it —
+		// match either spelling rather than depending on which one the
+		// listing path happens to produce.
+		if e.Source == bundle && (e.Name == name || e.Name == bundle+"/"+name) {
+			return true
+		}
+	}
+	return false
 }
 
 var skillSyncCmd = &cobra.Command{
@@ -393,12 +480,14 @@ func init() {
 	skillCmd.AddCommand(skillListCmd)
 	skillCmd.AddCommand(skillShowCmd)
 	skillCmd.AddCommand(skillCreateCmd)
+	skillCmd.AddCommand(skillRemoveCmd)
 	skillCmd.AddCommand(skillSyncCmd)
 	skillCmd.AddCommand(skillExportCmd)
 	skillCmd.AddCommand(skillImportCmd)
 
 	skillListCmd.Flags().StringVarP(&skillListBundle, "bundle", "b", "", "Filter by bundle name")
 	skillCreateCmd.Flags().StringVarP(&skillCreateDescription, "description", "d", "", "SKILL.md frontmatter description (default: a TODO placeholder)")
+	skillRemoveCmd.Flags().BoolVarP(&skillRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 	skillExportCmd.Flags().StringVarP(&skillExportOut, "out", "o", "", "Output .zip path (default: <name>.zip)")
 	skillExportCmd.Flags().BoolVar(&skillExportSign, "sign", false, "sign the exported manifest (writes a detached .sig sibling)")
 	skillImportCmd.Flags().StringVar(&skillImportBundle, "bundle", "", "target bundle to import into (required)")

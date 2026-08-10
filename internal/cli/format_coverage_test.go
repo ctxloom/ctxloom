@@ -125,6 +125,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"config show": {extraArgs: noExtraArgs},
 	"config get":  {extraArgs: func(string) []string { return []string{"config"} }},
 	"llm default": {extraArgs: noExtraArgs}, // show path; set is exercised directly in llm_default_test.go
+	"llm create":  {skip: "wired to emit(), but mutating and needs a valid --type fixture; not exercised here"},
+	"llm edit":    {skip: "wired to emit(), but mutating and needs an existing llm fixture; not exercised here"},
+	"llm remove":  {skip: "destructive; not exercised here (needs an llm fixture)"},
 
 	"bundle list": {extraArgs: noExtraArgs},
 	"bundle create": {extraArgs: func(f string) []string {
@@ -221,6 +224,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// to resolve and hash; exercised end to end in trust_cli.feature instead.
 	"companion trust":   {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
 	"companion untrust": {skip: "needs a recorded decision to remove; covered by trust_cli.feature"},
+	"companion show":    {skip: "needs a real companion binary on PATH to resolve+hash; covered by companion_test.go"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	// Three of these ARE format debt too (bundle_hold_cli.go's hold/unhold
@@ -316,6 +320,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"command distill":  {skip: "wired to emit(); needs an LLM-backed distiller, exercised directly in item_format_test.go"},
 	"skill show":       {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
 	"skill create":     {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
+	"skill remove":     {skip: "destructive; not exercised here (needs an existing skill package fixture)"},
 	"skill export":     {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
 	"skill import":     {skip: "wired to emit(), but needs an existing skill archive fixture; not exercised here"},
 	"skill sync":       {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},

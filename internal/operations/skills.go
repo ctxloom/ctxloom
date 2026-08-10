@@ -293,6 +293,78 @@ func CreateSkill(_ context.Context, cfg *config.Config, req CreateSkillRequest) 
 	return &CreateSkillResult{Status: "created", Bundle: req.Bundle, Name: req.Name, Dir: dir}, nil
 }
 
+// RemoveSkillRequest is the input for RemoveSkill.
+type RemoveSkillRequest struct {
+	Bundle string `json:"bundle"`
+	Name   string `json:"name"`
+
+	// Store, when non-nil, is the bundle storage adapter (ADR 0026); nil
+	// defaults to the filesystem.
+	Store bundles.Store `json:"-"`
+	// FS, when non-nil, is the afero filesystem the skill directory is
+	// removed from; nil defaults to the OS filesystem.
+	FS afero.Fs `json:"-"`
+}
+
+// RemoveSkillResult reports what was removed.
+type RemoveSkillResult struct {
+	Status string `json:"status"`
+	Bundle string `json:"bundle"`
+	Name   string `json:"name"`
+	Dir    string `json:"dir"`
+}
+
+// RemoveSkill deletes a skill package: its bundle.yaml `skills:`
+// registration AND its on-disk directory tree — CreateSkill's write surface
+// in reverse. A skill package could be created and never removed until this;
+// an unknown name is ErrItemNotFound, never a silent no-op.
+//
+// The registration is dropped and SAVED first, the directory tree removed
+// second: if the directory removal then fails (a permissions problem, a
+// concurrent process holding a file open), the store already reflects the
+// truth — no listing surface can find a directory that is about to vanish —
+// and the error names the orphaned path for a human to clear by hand, rather
+// than leaving bundle.yaml pointing at a directory whose removal already
+// half-succeeded.
+func RemoveSkill(_ context.Context, cfg *config.Config, req RemoveSkillRequest) (*RemoveSkillResult, error) {
+	if req.Name == "" {
+		return nil, fmt.Errorf("name is required")
+	}
+	store := bundleStore(cfg, req.Store)
+	bundle, err := loadBundleForUpdate(store, cfg, req.Bundle)
+	if err != nil {
+		return nil, err
+	}
+	entry, ok := bundle.Skills[req.Name]
+	if !ok {
+		return nil, fmt.Errorf("skill %q: %w", req.Name, ErrItemNotFound)
+	}
+
+	// Bundle.Path is overloaded; FSDir refuses the values that are not
+	// filesystem paths rather than yielding "." and resolving this skill
+	// against the process working directory.
+	bundleDir, err := bundle.FSDir()
+	if err != nil {
+		return nil, err
+	}
+	dir, err := bundles.ResolveSkillDir(bundleDir, req.Name, entry)
+	if err != nil {
+		return nil, fmt.Errorf("skill %q: %w", req.Name, err)
+	}
+
+	delete(bundle.Skills, req.Name)
+	if err := store.Save(bundle); err != nil {
+		return nil, fmt.Errorf("failed to save bundle: %w", err)
+	}
+
+	fs := getFS(req.FS)
+	if err := fs.RemoveAll(dir); err != nil {
+		return nil, fmt.Errorf("skill %q: bundle.yaml no longer lists it, but removing %s failed: %w — remove it by hand", req.Name, dir, err)
+	}
+
+	return &RemoveSkillResult{Status: "removed", Bundle: req.Bundle, Name: req.Name, Dir: dir}, nil
+}
+
 // SyncSkillRequest is the input for SyncSkill.
 type SyncSkillRequest struct {
 	Bundle string `json:"bundle"`

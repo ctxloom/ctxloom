@@ -77,6 +77,14 @@ var companionUntrustCmd = &cobra.Command{
 	RunE:  runCompanionUntrustCmd,
 }
 
+var companionShowCmd = &cobra.Command{
+	Use:   "show <path-or-name>",
+	Short: "Show ctxloom's exec-consent decision for one companion binary",
+	Long:  companionLong,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runCompanionShowCmd,
+}
+
 // companionListing is the emitted shape of `companion list`.
 type companionListing struct {
 	Path       string `json:"path" yaml:"path" toml:"path"`
@@ -112,6 +120,55 @@ func printCompanionListings(w io.Writer, listings []companionListing) error {
 		func(l companionListing) string {
 			return fmt.Sprintf("%-8s %s (sha256 %s)", l.Bin, l.Path, shortSHA(l.SHA256))
 		})
+}
+
+// companionShow is the emitted shape of `companion show` — the read-one
+// gap-fill (`companion` had `list` and no way to inspect a single binary's
+// decision without scanning the whole listing by eye).
+type companionShow struct {
+	Bin     string `json:"bin" yaml:"bin" toml:"bin"`
+	Path    string `json:"path,omitempty" yaml:"path,omitempty" toml:"path,omitempty"`
+	SHA256  string `json:"sha256,omitempty" yaml:"sha256,omitempty" toml:"sha256,omitempty"`
+	Allowed bool   `json:"allowed" yaml:"allowed" toml:"allowed"`
+	Reason  string `json:"reason" yaml:"reason" toml:"reason"`
+}
+
+// runCompanionShowCmd answers "would ctxloom execute this companion right
+// now, and why" by running the EXACT SAME decision cascade the two real
+// probes consult (config.AdmitCompanions) — never a second, hand-rolled
+// re-derivation that could disagree with what actually happens at session
+// start. prompt=false: merely LOOKING at companion state must never itself
+// conjure a security question (the same posture `status`/`doctor` take).
+func runCompanionShowCmd(cmd *cobra.Command, args []string) error {
+	admissions := config.AdmitCompanions([]string{args[0]}, false)
+	a := admissions[0]
+	payload := companionShow{Bin: a.Bin, Path: a.Path, SHA256: a.SHA256, Allowed: a.Allow, Reason: string(a.Reason)}
+	return emit(cmd, payload, func() error {
+		return printCompanionShow(cmd.OutOrStdout(), payload)
+	})
+}
+
+// printCompanionShow renders the text form: the resolved path (if any), the
+// digest the decision would bind to, and the allow/reason verdict.
+func printCompanionShow(w io.Writer, s companionShow) error {
+	if s.Path == "" {
+		_, err := fmt.Fprintf(w, "%s: not found (%s)\n", s.Bin, s.Reason)
+		return err
+	}
+	status := "DENIED"
+	if s.Allowed {
+		status = "allowed"
+	}
+	if _, err := fmt.Fprintf(w, "%-8s %s\n", s.Bin, s.Path); err != nil {
+		return err
+	}
+	if s.SHA256 != "" {
+		if _, err := fmt.Fprintf(w, "  sha256: %s\n", s.SHA256); err != nil {
+			return err
+		}
+	}
+	_, err := fmt.Fprintf(w, "  %s (%s)\n", status, s.Reason)
+	return err
 }
 
 // companionDecision is the emitted shape of `allow` / `forget`.
@@ -160,6 +217,7 @@ func shortSHA(sum string) string {
 func init() {
 	rootCmd.AddCommand(companionCmd)
 	companionCmd.AddCommand(companionListCmd)
+	companionCmd.AddCommand(companionShowCmd)
 	companionCmd.AddCommand(companionTrustCmd)
 	companionCmd.AddCommand(companionUntrustCmd)
 }

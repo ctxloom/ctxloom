@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
@@ -80,6 +81,82 @@ func TestRunSignerAdd_ProjectFlagWritesProjectStore(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, found, 1)
 	assert.Equal(t, "project", found[0].Source)
+}
+
+// TestRunSignerAdd_OutsideProjectFallsBackAndSaysSo is the edge `signer
+// trust`'s project-by-default posture must handle: run outside a project
+// (cfg carries no .ctxloom directory), the write must not fail. It falls
+// back to the user store and the output says so — WHICH store it used and
+// WHY — rather than silently landing somewhere the user did not expect.
+func TestRunSignerAdd_OutsideProjectFallsBackAndSaysSo(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{}) // no AppPaths: outside a project
+	t.Setenv("HOME", t.TempDir())
+	line := testSignerKeyLine(t)
+
+	cmd, out := testCmd()
+	require.NoError(t, runSignerAdd(cmd, cfg, "solo@example.com", line, nil, "", true, true))
+
+	output := out.String()
+	assert.Contains(t, output, "no project", "the output must say WHY it fell back")
+	assert.Contains(t, output, "user store", "the output must name WHICH store it used")
+	assert.Contains(t, output, "Trusted solo@example.com")
+
+	found, err := operations.ShowSigner(cfg, "solo@example.com", nil)
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	assert.Equal(t, "user", found[0].Source, "outside a project, the entry must land in the user store")
+}
+
+// TestRunSignerAdd_InsideProjectNeverFallsBack is the fallback's negative
+// case: WITH a project configured, the default write must land in the
+// project store and print no fallback explanation at all — a message that
+// only belongs on the edge case must not leak into the common path.
+func TestRunSignerAdd_InsideProjectNeverFallsBack(t *testing.T) {
+	_, cfg := setupSignTestDir(t)
+	t.Setenv("HOME", t.TempDir())
+	line := testSignerKeyLine(t)
+
+	cmd, out := testCmd()
+	require.NoError(t, runSignerAdd(cmd, cfg, "team@example.com", line, nil, "", true, true))
+
+	assert.NotContains(t, out.String(), "no project", "a configured project must never print the fallback explanation")
+
+	found, err := operations.ShowSigner(cfg, "team@example.com", nil)
+	require.NoError(t, err)
+	require.Len(t, found, 1)
+	assert.Equal(t, "project", found[0].Source)
+}
+
+// --- signer trust's --project/--user flag wiring ---------------------------
+//
+// effectiveSignerAddProject is the pure resolution function runSignerAddCmd
+// calls to turn the two flags into the single `project` bool AddSigner
+// takes; tested directly, independent of cobra flag parsing. The flags'
+// DEFAULT VALUES are tested against the live cobra.Command below — that is
+// the one property a pure-function test cannot see.
+
+func TestEffectiveSignerAddProject_DefaultIsProjectStore(t *testing.T) {
+	assert.True(t, effectiveSignerAddProject(true, false), "project defaults true, user defaults false: the default posture is the project store")
+}
+
+func TestEffectiveSignerAddProject_UserFlagOverridesProject(t *testing.T) {
+	assert.False(t, effectiveSignerAddProject(true, true), "--user must win even though --project is still true by default")
+}
+
+func TestEffectiveSignerAddProject_UserAlone(t *testing.T) {
+	assert.False(t, effectiveSignerAddProject(false, true))
+}
+
+func TestSignerTrustCmd_ProjectFlagDefaultsTrue(t *testing.T) {
+	f := signerTrustCmd.Flags().Lookup("project")
+	require.NotNil(t, f, "`signer trust` must still carry --project")
+	assert.Equal(t, "true", f.DefValue, "the project store is now the default write target")
+}
+
+func TestSignerTrustCmd_HasUserFlagDefaultingFalse(t *testing.T) {
+	f := signerTrustCmd.Flags().Lookup("user")
+	require.NotNil(t, f, "`signer trust` needs the inverse of --project for the per-machine case")
+	assert.Equal(t, "false", f.DefValue)
 }
 
 func TestRunSignerAdd_BadNamespaceIsUsageError(t *testing.T) {

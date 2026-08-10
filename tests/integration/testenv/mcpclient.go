@@ -174,15 +174,49 @@ func (c *MCPClient) Close() error {
 	}
 	children := PluginChildrenOf(pid)
 
+	// Closing stdin is the server's shutdown signal; GIVE IT TIME TO ACT ON IT.
+	// Cancelling straight after the close made the signal decorative — the
+	// context's default Cancel is a raw Process.Kill, so the server was killed
+	// mid-shutdown essentially every time.
+	//
+	// That is not only unkind, it destroyed measurement. A process killed by
+	// signal never runs its exit handlers, and a coverage-instrumented binary
+	// writes its counters in one of them: `ctxloom mcp serve` reported 0.0%
+	// coverage under `just test-acceptance-cover` while running in every @mcp
+	// scenario. Every long-lived leaf this harness terminated was a guaranteed
+	// coverage false negative.
+	//
+	// The kill remains as a BACKSTOP, not the primary path: a server that
+	// ignores EOF still gets stopped, it just no longer takes the well-behaved
+	// ones down with it. The grace period is only ever paid by a server that
+	// does not exit, so the common case costs nothing measurable.
 	_ = c.stdin.Close()
-	if c.cancel != nil {
-		c.cancel()
+
+	waited := make(chan error, 1)
+	go func() { waited <- c.cmd.Wait() }()
+
+	select {
+	case <-waited:
+		// Exited on its own. Cancel anyway to release the context's resources;
+		// it is a no-op against an already-reaped process.
+		if c.cancel != nil {
+			c.cancel()
+		}
+	case <-time.After(mcpShutdownGrace):
+		if c.cancel != nil {
+			c.cancel()
+		}
+		<-waited
 	}
-	_ = c.cmd.Wait()
 
 	KillPids(children)
 	return nil
 }
+
+// mcpShutdownGrace is how long Close waits for a server to exit on its own
+// after stdin EOF before killing it. Paid only by a server that does not
+// exit, so it costs the common case nothing.
+const mcpShutdownGrace = 5 * time.Second
 
 // send writes one newline-delimited JSON-RPC request to the server's stdin.
 // Its former near-duplicate, internal/agentbus/socket.go's writeObserveEvent

@@ -513,12 +513,22 @@ build-cover: dev-image
 # Run the acceptance suite against a COVERAGE-INSTRUMENTED ctxloom and report
 # what it actually executed.
 #
-# WHY THIS EXISTS. Everything else here answers "is this CLI covered?" by
-# reading TEXT — completeness_test.go credits a leaf on a literal
-# `I run "<leaf>"` string in the corpus, which is satisfied by a mention and
-# blind to whether the scenario ran. The reason it reads text is that the
-# suite drives ctxloom as a SUBPROCESS, and `go test -coverprofile` cannot
-# follow an exec.
+# WHY THIS EXISTS, and what it is NOT for. completeness_test.go answers
+# "was this leaf REACHED?" from testenv.RecordedInvocations() — the argv the
+# suite actually started, resolved to a leaf by cobra's own root.Find(). That
+# gate is correct and stays: it keeps flag-level credit (`--engine antigravity`
+# is a separate row), works in both lanes, and cannot be fooled by a mention.
+#
+# What it cannot answer is "how MUCH of that leaf ran". A leaf invoked once
+# with no flags is fully credited. This lane answers that second question, and
+# only that one — it is a DEPTH signal, never the reach gate.
+#
+# Coverage is measurable here at all only because the suite drives ctxloom as a
+# SUBPROCESS and `go test -coverprofile` cannot follow an exec.
+#
+# DO NOT repoint the reach gate at this data. Measured: a SIGKILLed process
+# never flushes its counters, and the harness hard-kills servers — `mcp serve`
+# reads 0.0% while running in every @mcp scenario (taskloom unsure-cadet).
 #
 # `go build -cover` + GOCOVERDIR (Go 1.20+) can: the instrumented binary
 # writes counters at exit, once per exec, and covdata merges them. That is the

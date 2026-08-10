@@ -278,8 +278,8 @@ Feature: The day the assistant goes blind
 
   # B4's second half, and the one likely to be red. "Pending" and "pending
   # because I do not trust who signed it" are different diagnoses with different
-  # fixes — the first wants `ctxloom review`, the second wants `trust signer
-  # create`. A pending list that renders them identically sends Alice to the
+  # fixes — the first wants `ctxloom review`, the second wants `ctxloom signer
+  # trust`. A pending list that renders them identically sends Alice to the
   # wrong command. The assertion names the actual key fingerprint, so a generic
   # "review these items" banner cannot satisfy it.
   #

@@ -125,6 +125,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"config show": {extraArgs: noExtraArgs},
 	"config get":  {extraArgs: func(string) []string { return []string{"config"} }},
 	"llm default": {extraArgs: noExtraArgs}, // show path; set is exercised directly in llm_default_test.go
+	"llm create":  {skip: "wired to emit(), but mutating and needs a valid --type fixture; not exercised here"},
+	"llm edit":    {skip: "wired to emit(), but mutating and needs an existing llm fixture; not exercised here"},
+	"llm remove":  {skip: "destructive; not exercised here (needs an llm fixture)"},
 
 	"bundle list": {extraArgs: noExtraArgs},
 	"bundle create": {extraArgs: func(f string) []string {

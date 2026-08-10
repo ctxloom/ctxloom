@@ -45,6 +45,15 @@ func NewManager(opts ...LoadOption) *Manager {
 	return &Manager{opts: opts}
 }
 
+// Options returns the LoadOption set m was constructed with, so a caller
+// that needs to re-Load the SAME target after a write (e.g. to read back a
+// fully merged view spanning more than one Manager.Update transaction) can
+// do so without duplicating or guessing m's own resolution — a test seam
+// (WithFS/WithAppDir) given to m is honored by the re-read too.
+func (m *Manager) Options() []LoadOption {
+	return append([]LoadOption(nil), m.opts...)
+}
+
 // Update runs fn as ONE serialized write transaction: it acquires an advisory
 // file lock (filelock.PathFor(configPath)), re-reads the config FRESH from
 // disk while holding it, hands fn a Draft built from that fresh read, applies

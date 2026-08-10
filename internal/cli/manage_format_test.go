@@ -121,7 +121,15 @@ func TestManageStatusline_FormatJSON(t *testing.T) {
 // applied payload and that the server is actually GONE — the two directions
 // of the safety posture, not just that the command exits 0.
 func TestMcpServerCreateDelete_FormatJSON(t *testing.T) {
-	testsupport.ProjectDir(t)
+	dir := testsupport.ProjectDir(t)
+	// A genuine project marker, not just a bare cwd: with none at all,
+	// findAppDir's walk-up finds nothing and falls all the way back to the
+	// isolated HOME fallback (config.go, SourceHome) — which correctly
+	// enforces that mcp.servers.*.command (ScopeShared: "never home", see
+	// this test's own doc above) cannot be set from there. This test's
+	// whole point is the COMMITTED PROJECT file, so it needs an actual one.
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".ctxloom"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, ".ctxloom", "config.yaml"), []byte("version: 6\n"), 0o644))
 
 	payload := runCLIJSON(t, "mcp", "server", "create", "coverage-server", "--command", "echo")
 	require.Equal(t, "coverage-server", payload["name"])

@@ -23,6 +23,8 @@ package config
 // enforcement mechanism.
 
 import (
+	"reflect"
+
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/shared/collections"
 	"github.com/ctxloom/ctxloom/internal/shared/upgrade"
@@ -312,6 +314,36 @@ func (c *Config) GetLLMEntry(label string) (LLMConfig, bool) {
 		return LLMConfig{}, false
 	}
 	return cloneLLMConfigEntry(entry), true
+}
+
+// IsLLMUserAuthored reports whether label's llm.configs entry was actually
+// declared by the user (in config.yaml, any layer) rather than merged in by
+// mergeDefaultConfig's whole-registry fallback for a project that configured
+// no LLMs at all (LMConfig's own doc: "not a per-key overlay" — it is a
+// stand-in for the ENTIRE registry, not a per-label default). Without this
+// distinction, `llm remove claude-code` on a project that never wrote a
+// single llm.configs line would see "claude-code" as already present (the
+// fallback put it there) and report success while deleting nothing: the
+// merged entry was never going to be persisted to begin with (see
+// userAuthoredLM, the identical comparison this method exposes per-label).
+func (c *Config) IsLLMUserAuthored(label string) bool {
+	entry, ok := c.lm.Configs[label]
+	if !ok {
+		return false
+	}
+	// lmDefaultOverlay is nil whenever mergeDefaultConfig never ran (the
+	// user's llm.configs was non-empty to begin with, so every entry is
+	// unambiguously theirs) OR the embedded default failed to parse — either
+	// way, nothing in cfg.lm.Configs could have come from the fallback.
+	if c.lmDefaultOverlay == nil {
+		return true
+	}
+	def, inOverlay := c.lmDefaultOverlay.Configs[label]
+	// Present in the overlay AND byte-identical to it: exactly what the
+	// fallback injected, untouched — not user-authored. Absent from the
+	// overlay, or present but CHANGED from it (a user override sharing a
+	// default's name), is user-authored.
+	return !inOverlay || !reflect.DeepEqual(entry, def)
 }
 
 // LabelEnv returns the environment a label declares (llm.configs.<label>.env),

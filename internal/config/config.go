@@ -1236,6 +1236,22 @@ func loadUncached(opts ...LoadOption) (*Config, error) {
 	if options.appDir != "" {
 		appPath = options.appDir
 		source = SourceProject
+		// An explicit appDir that IS the home directory is home acting
+		// alone, not an arbitrary "project" — resolveConfigLayerPaths
+		// already treats this exact case specially on the READ side (its
+		// home/project dedup collapses to a single file). The WRITE side
+		// must agree: saveLocked's layerscope filter strips ScopeMachine
+		// values (llm.configs.*.env, credentials — "a committed value is a
+		// leaked secret") whenever source is SourceProject, on the theory
+		// that the file is a committed project file every clone shares. A
+		// caller that deliberately targets ~/.ctxloom (the only way today to
+		// write a ScopeMachine value at all, since there is no separate
+		// "write home" API) must not have that write silently stripped
+		// because it happened to arrive via an explicit option instead of
+		// findAppDir's own home fallback.
+		if homeAppDir, herr := HomeConfigDir(); herr == nil && filepath.Clean(appPath) == filepath.Clean(homeAppDir) {
+			source = SourceHome
+		}
 	} else {
 		appPath, source = findAppDir(fs)
 	}
@@ -1437,7 +1453,22 @@ func loadLayeredConfig(cfg *Config, homeConfigPath, projectConfigPath string, va
 		}
 	}
 
-	projectValues, pending, err := loadConfigLayer(cfg, layerscope.LayerProject, appPath, homeAppPath, projectConfigPath, validator, fs)
+	// The single-file case (homeConfigPath == "") is tagged LayerProject by
+	// default, but that is wrong when this ONE file genuinely IS home acting
+	// alone (cfg.source == SourceHome — findAppDir fell all the way back to
+	// home, or an explicit WithAppDir named ~/.ctxloom directly): tagging it
+	// LayerProject would make dropLayerScopeViolations strip every
+	// ScopeMachine value (llm.configs.*.env, credentials) from a file that
+	// was never a committed project file to begin with. The home==project
+	// DEDUP case (resolveConfigLayerPaths' other homeConfigPath=="" arm,
+	// cfg.source == SourceProject) is unaffected — that file really is being
+	// read AS the project, home just happens to sit at the same path, so it
+	// keeps the ordinary project scope check.
+	layer := layerscope.LayerProject
+	if homeConfigPath == "" && cfg.source == SourceHome {
+		layer = layerscope.LayerHome
+	}
+	projectValues, pending, err := loadConfigLayer(cfg, layer, appPath, homeAppPath, projectConfigPath, validator, fs)
 	if err != nil {
 		return err
 	}

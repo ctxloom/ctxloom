@@ -23,9 +23,10 @@ import (
 // answered by a file of URLs and never touches the network. "What do I have"
 // is answered by the lockfile, is a property of this checkout, and is what
 // every install, upgrade and freeze acts on. Under one noun those read as the
-// same subject, and `remote pull` in particular reads as "pull the remote" —
-// which is not what it does. It installs this project's closure, and no remote
-// is even an argument to it.
+// same subject, and a verb phrased "<source-noun> pull" reads as "pull the
+// source" — which is not what installing a closure does. `deps pull` takes no
+// remote argument at all: it acts on everything this project's profiles name,
+// across every remote at once.
 //
 // Bare `ctxloom deps` lists the closure: the most-typed spelling answers the
 // most common question, and reading the lockfile touches nothing.

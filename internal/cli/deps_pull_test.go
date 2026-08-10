@@ -38,11 +38,11 @@ func TestRenderPullSummary_NothingToPull(t *testing.T) {
 	assert.Contains(t, out.String(), "No remote dependencies to pull.")
 }
 
-// `ctxloom deps pull` used to exit 0 even when a dependency FAILED to
-// fetch/apply — the failures were printed to stdout (renderPullSummary) but
-// RunE always returned nil regardless. pullResultErr is the extracted
-// decision `remotePullCmd`'s RunE defers to, so a caller scripting on exit
-// code (not scraping stdout) can actually tell. Retracted is deliberately
+// A pull that could not fetch or apply a dependency EXITS NON-ZERO. The
+// failures are printed to stdout by renderPullSummary, so without this a caller
+// scripting on the exit code (rather than scraping stdout) could not tell a
+// broken sync from a clean one. pullResultErr is the extracted decision
+// runDepsPull defers to. Retracted is deliberately
 // NOT a failure here (see the "retracted item does not fail the pull"
 // subtest below): it is the retraction mechanism working as designed, and
 // the acceptance journeys for it (j001500/j001700/trust_surface) require `deps pull`

@@ -1320,7 +1320,7 @@ func TestExtractMCPFromBundle(t *testing.T) {
 		},
 	}
 
-	result := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), "my-bundle", nil)
+	result := extractMCPFromBundle(bundles.ProjectAuthoredRead("fixture", bundle), "my-bundle", bundles.AdmitAll())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -1815,7 +1815,7 @@ mcp:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "test-bundle.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadMCPFromBundleRef("test-bundle", loader, nil)
+	result := loadMCPFromBundleRef("test-bundle", loader, bundles.AdmitAll())
 
 	assert.Len(t, result, 1)
 	assert.Equal(t, "test-cmd", result["test-server"].Command)
@@ -1826,7 +1826,7 @@ func TestLoadMCPFromBundleRef_InvalidRef(t *testing.T) {
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{tmpDir}))
 
 	// Invalid bundle reference
-	result := loadMCPFromBundleRef("nonexistent-bundle", loader, nil)
+	result := loadMCPFromBundleRef("nonexistent-bundle", loader, bundles.AdmitAll())
 	assert.Empty(t, result)
 }
 
@@ -1845,7 +1845,7 @@ func TestLoadMCPFromBundleRef_SeededRemoteBundle(t *testing.T) {
 	require.NoError(t, err)
 	loader := bundles.NewLoader(bundles.NewRepoFSReader(tree, ref))
 
-	result := loadMCPFromBundleRef(ref, loader, nil)
+	result := loadMCPFromBundleRef(ref, loader, bundles.AdmitAll())
 	assert.Contains(t, result, "sequential-thinking",
 		"a remote bundle resolved only via the seed must still yield its MCP server")
 	assert.Equal(t, "npx", result["sequential-thinking"].Command)
@@ -1876,7 +1876,7 @@ hooks:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "with-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef("with-hooks", loader, nil)
+	result := loadHooksFromBundleRef("with-hooks", loader, bundles.AdmitAll())
 
 	require.Len(t, result.PostTool, 1)
 	assert.Equal(t, "TodoWrite", result.PostTool[0].Matcher)
@@ -1903,7 +1903,7 @@ mcp:
 	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "no-hooks.yaml"), []byte(bundleContent), 0644))
 
 	loader := bundles.NewLoader(bundles.NewProjectReader(nil, []string{bundlesDir}))
-	result := loadHooksFromBundleRef("no-hooks", loader, nil)
+	result := loadHooksFromBundleRef("no-hooks", loader, bundles.AdmitAll())
 
 	assert.Empty(t, result.PostTool)
 	assert.Empty(t, result.PreTool)
@@ -1919,7 +1919,7 @@ mcp:
 // directly via a synthetic bundle through extractHooksFromBundle — the exact
 // code path resolveBuiltinBundleHooks takes.
 func TestResolveBuiltinBundleHooks(t *testing.T) {
-	hooks := resolveBuiltinBundleHooks(nil)
+	hooks := resolveBuiltinBundleHooks(bundles.AdmitAll())
 	assert.Empty(t, hooks.PreTool)
 	assert.Empty(t, hooks.PostTool)
 	assert.Empty(t, hooks.SessionStart)
@@ -1929,7 +1929,7 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 
 	synthetic := extractHooksFromBundle(bundles.ProjectAuthoredRead("fixture", &bundles.Bundle{
 		Hooks: bundles.BundleHooks{PostFileEdit: []bundles.BundleHook{{Command: "echo hi", Type: "command"}}},
-	}), "builtin:future-bundle", nil)
+	}), "builtin:future-bundle", bundles.AdmitAll())
 	require.Len(t, synthetic.PostFileEdit, 1)
 	assert.Equal(t, "bundle:builtin:future-bundle", synthetic.PostFileEdit[0].SCM,
 		"extractHooksFromBundle prepends 'bundle:' to whatever source it gets, including builtin:")
@@ -1945,7 +1945,7 @@ func TestResolveBuiltinBundleHooks(t *testing.T) {
 // code path resolveBuiltinBundleMCPServers takes.
 func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 	stubLookPath(t)
-	got := resolveBuiltinBundleMCPServers(nil)
+	got := resolveBuiltinBundleMCPServers(bundles.AdmitAll())
 	require.NotNil(t, got, "resolveBuiltinBundleMCPServers must return a non-nil map even when empty")
 	assert.Empty(t, got, "no embedded builtin bundle ships an MCP server anymore")
 
@@ -1955,7 +1955,7 @@ func TestResolveBuiltinBundleMCPServers(t *testing.T) {
 		MCP: map[string]bundles.BundleMCP{
 			"synthetic": {Command: "fake"},
 		},
-	}), "builtin:future-bundle", nil)
+	}), "builtin:future-bundle", bundles.AdmitAll())
 	require.Contains(t, synthetic, "synthetic")
 	assert.Equal(t, "bundle:builtin:future-bundle", synthetic["synthetic"].SCM,
 		"extractMCPFromBundle prepends 'bundle:' to whatever source it gets, including builtin:")

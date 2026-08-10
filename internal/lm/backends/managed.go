@@ -32,7 +32,7 @@ import (
 // exports) for the `ctxloom run` setup payload (trust rework). It is built
 // by the run command (which can reach operations.EffectiveTrust); attaching it
 // to the loaded config flows it to ResolveBundleMCPServers / AssembleManagedHooks
-// / LoadCommandExports. nil = no gating.
+// / LoadCommandExports. bundles.AdmitAll = deliberately no gating.
 //
 // profileNames is the run's SELECTED profile set (the same set AssembleContext
 // scoped context to), so the managed mcp/commands/hooks track the chosen profile
@@ -394,10 +394,10 @@ func profileGateRefFor(cfg *config.Config, resolved *profiles.ResolvedProfile, p
 // directly-declared MCP servers — unlike a trusted-local config.yaml inline
 // profile's — pass the SAME per-item executable gate as bundle MCP servers
 // (config.extractMCPFromBundle), keyed "<ref.Base>#mcp/<name>" with the server's
-// executable-surface hash. A DENY omits the server (fail-closed). A nil gate
-// (management paths) admits everything unchanged.
+// executable-surface hash. A DENY omits the server (fail-closed). An AdmitAll
+// gate (management paths) admits everything unchanged.
 func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authorizer) wire.MCPConfig {
-	if gate == nil {
+	if !bundles.Gates(gate) {
 		return mcp
 	}
 	out := wire.MCPConfig{AutoRegisterCtxloom: mcp.AutoRegisterCtxloom}
@@ -440,10 +440,10 @@ func gateProfileMCP(ref profileGateRef, mcp wire.MCPConfig, gate bundles.Authori
 // gateProfileHooks returns the hooks of a directory-resolved profile that the
 // executable trust gate allows. Each hook is keyed "<ref.Base>#hooks/<event>/
 // <index>" (the SAME identity scheme bundle hooks use, bundles.HookEntry) with
-// its executable-surface hash; a DENY omits it (fail-closed). A nil gate
+// its executable-surface hash; a DENY omits it (fail-closed). An AdmitAll gate
 // (management paths) admits everything unchanged.
 func gateProfileHooks(ref profileGateRef, h wire.HooksConfig, gate bundles.Authorizer) wire.HooksConfig {
-	if gate == nil {
+	if !bundles.Gates(gate) {
 		return h
 	}
 	keep := func(event string, hooks []wire.Hook) []wire.Hook {

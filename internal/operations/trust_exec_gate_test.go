@@ -264,9 +264,14 @@ func TestExecGate_FailClosed(t *testing.T) {
 		"a read that established nothing must never be treated as local/unsigned")
 	assert.Contains(t, g2.withheldRefs(), gatePostgresRef)
 
-	// A nil *ExecutableTrustGate is a no-op (no gating, no panic).
+	// A nil *ExecutableTrustGate is a no-op (no gating, no panic), and it says so
+	// with AdmitAll rather than handing back a nil that would withhold
+	// everything downstream.
 	var nilGate *ExecutableTrustGate
-	assert.Nil(t, nilGate.Authorizer())
+	assert.False(t, bundles.Gates(nilGate.Authorizer()),
+		"a nil gate must hand back the ungated authorizer, not a real one")
+	assert.True(t, nilGate.Authorizer().Admit(bundles.Exposure{}).Allow,
+		"the no-op gate must admit")
 	nilGate.WarnWithheld()
 }
 

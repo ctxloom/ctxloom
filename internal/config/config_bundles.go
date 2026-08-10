@@ -24,15 +24,26 @@ var lookPath = exec.LookPath
 // bundle hooks (ResolveBundleHooks), and prompt command-file exports
 // (backends.LoadCommandExports). The operations/run consumers set it before
 // writing backend settings (trust rework, TR5) so an untrusted bundle's
-// executables are omitted; management/listing paths leave it nil (no gating).
+// executables are omitted; management/listing paths never call it.
 // Builtin bundles are always exempt regardless of the gate.
 func (c *Config) SetExecutableTrustGate(gate bundles.Authorizer) {
 	c.execGate = gate
 }
 
-// ExecutableTrustGate returns the injected executable trust gate (nil when none
-// was set — no gating).
+// ExecutableTrustGate returns the gate the bundle executable surfaces decide
+// with — never nil, because a nil authorizer withholds everything downstream
+// (bundles.Decide) and a management path asking for a config's gate is not a
+// fault.
+//
+// A config nobody attached a gate to is a MANAGEMENT/LISTING config, and it
+// decides with bundles.AdmitAll: that shape resolves pending content on purpose,
+// so a human can review, accept or stamp it. The statement is made HERE, once,
+// rather than travelling onward as a nil that the delivery seam would then have
+// to guess about.
 func (c *Config) ExecutableTrustGate() bundles.Authorizer {
+	if c.execGate == nil {
+		return bundles.AdmitAll()
+	}
 	return c.execGate
 }
 
@@ -164,10 +175,10 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality and aren't gated on profile membership. Run them
 	// first so profile-sourced servers can intentionally override. They ARE
-	// routed through c.execGate (nil on management/listing paths, matching the
-	// no-gating convention there) so a builtin item can still be REJECTED —
-	// see resolveBuiltinBundleMCPServers.
-	addServers(resolveBuiltinBundleMCPServers(c.execGate))
+	// routed through c.ExecutableTrustGate() (AdmitAll on management/listing
+	// paths, which state that they gate nothing) so a builtin item can still be
+	// REJECTED — see resolveBuiltinBundleMCPServers.
+	addServers(resolveBuiltinBundleMCPServers(c.ExecutableTrustGate()))
 
 	// BundleLoader includes remote bundles from the active lockfile AND every
 	// discovered companion's loadout, read under its ctxloom:companion@<bin>
@@ -181,14 +192,14 @@ func (c *Config) ResolveBundleMCPServers(profileNames []string) map[string]wire.
 	// verified Signer(), never the builtin exemption. Sorted for a
 	// deterministic result across runs.
 	for _, ref := range companionRefs(bundleLoader) {
-		addServers(loadMCPFromBundleRef(ref, bundleLoader, c.execGate))
+		addServers(loadMCPFromBundleRef(ref, bundleLoader, c.ExecutableTrustGate()))
 	}
 
 	// Finally the profile-referenced bundles, so profile-sourced servers still
 	// override builtin/companion ones of the same name.
 	for _, resolved := range scopedProfiles {
 		for _, bundleRef := range resolved.Bundles {
-			addServers(loadMCPFromBundleRef(bundleRef, bundleLoader, c.execGate))
+			addServers(loadMCPFromBundleRef(bundleRef, bundleLoader, c.ExecutableTrustGate()))
 		}
 	}
 
@@ -312,10 +323,10 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality (session bind, plan-stamping). No profile
-	// gating, no deps pull. Routed through c.execGate (see
+	// gating, no deps pull. Routed through c.ExecutableTrustGate() (see
 	// resolveBuiltinBundleMCPServers for why: allowed by default, but now
 	// reachable by a rejection).
-	result.Append(resolveBuiltinBundleHooks(c.execGate))
+	result.Append(resolveBuiltinBundleHooks(c.ExecutableTrustGate()))
 
 	bundleLoader := c.BundleLoader()
 
@@ -323,7 +334,7 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 	// bundle uses, keyed and signed by the companion's OWN bundle — never the
 	// builtin exemption. Sorted for a deterministic result across runs.
 	for _, ref := range companionRefs(bundleLoader) {
-		result.Append(loadHooksFromBundleRef(ref, bundleLoader, c.execGate))
+		result.Append(loadHooksFromBundleRef(ref, bundleLoader, c.ExecutableTrustGate()))
 	}
 
 	profiles := c.resolveProfileScope(profileNames)
@@ -341,7 +352,7 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 			continue
 		}
 		for _, bundleRef := range resolved.Bundles {
-			hooks := loadHooksFromBundleRef(bundleRef, bundleLoader, c.execGate)
+			hooks := loadHooksFromBundleRef(bundleRef, bundleLoader, c.ExecutableTrustGate())
 			result.Append(hooks)
 		}
 	}
@@ -591,8 +602,8 @@ type BuiltinFragment struct {
 // builtin exemption. Callers on an exposure surface pass the SAME gate their
 // content loader is using (Pipeline.Authorizer()) so builtin fragments gate through the
 // identical decision as the loader-resolved ones, sharing its trust-store
-// open and its withheld-ref tally. nil (management/listing callers) is fully
-// ungated, matching every other resolver here.
+// open and its withheld-ref tally. bundles.AdmitAll (management/listing
+// callers) is fully ungated, matching every other resolver here.
 func (c *Config) ResolveBuiltinBundleFragments(gate bundles.Authorizer) []BuiltinFragment {
 	preferDistilled := c.ShouldUseDistilled()
 	var out []BuiltinFragment
@@ -692,12 +703,15 @@ func loadHooksFromBundleRef(bundleRef string, loader *bundles.Loader, gate bundl
 	return extractHooksFromBundle(read, bundleRef, gate)
 }
 
-// extractHooksFromBundle converts a bundle's hooks to wire.Hooks. When gate is
-// non-nil (the executable trust gate, TR5), each hook's executable surface is
+// extractHooksFromBundle converts a bundle's hooks to wire.Hooks. When gate
+// decides anything (bundles.Gates — the executable trust gate, TR5), each
+// hook's executable surface is
 // hashed (BundleHook.ComputeContentHash) and run through the cascade keyed
 // "<bundle>#hooks/<event>/<index>"; a DENY omits the hook — a bundle hook is an
 // arbitrary-command executable that must never be applied unevaluated
-// (fail-closed). Builtin callers pass nil (in-binary, exempt). The identity
+// (fail-closed). Builtin callers pass bundles.AdmitAll (in-binary, exempt): the
+// preimage is never even built, which is why this branches rather than letting
+// Decide answer. The identity
 // scheme is bundles.HookEntry, shared with the migration baseline so a baselined
 // hook's ref matches.
 func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles.Authorizer) wire.UnifiedHooks {
@@ -736,7 +750,7 @@ func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles
 		out := make([]wire.Hook, 0, len(in))
 		for _, i := range order {
 			h := in[i]
-			if gate != nil {
+			if bundles.Gates(gate) {
 				// Key by the bundle's source ref (canonical for a remote/cloned
 				// bundle, the local name for a project bundle) — NOT bundle.Name,
 				// whose short form is ambiguous across local and cloned bundles.
@@ -775,18 +789,19 @@ func extractHooksFromBundle(read bundles.BundleRead, source string, gate bundles
 	}
 }
 
-// extractMCPFromBundle extracts MCP servers from a loaded bundle. When gate is
-// non-nil (the executable trust gate, TR5), each server's executable surface
+// extractMCPFromBundle extracts MCP servers from a loaded bundle. When gate
+// decides anything (bundles.Gates — the executable trust gate, TR5), each
+// server's executable surface
 // (Command+Args+Env+Installation) is hashed and run through the cascade keyed
 // "<bundle>#mcp/<name>"; a DENY omits the server entirely — an arbitrary-command
 // executable must never reach settings unevaluated (fail-closed). Builtin
-// callers pass nil (in-binary, exempt).
+// callers pass bundles.AdmitAll (in-binary, exempt).
 func extractMCPFromBundle(read bundles.BundleRead, source string, gate bundles.Authorizer) map[string]wire.MCPServer {
 	bundle := read.Bundle
 	result := make(map[string]wire.MCPServer)
 
 	for name, mcp := range bundle.MCP {
-		if gate != nil {
+		if bundles.Gates(gate) {
 			// Key by the source ref (canonical for a cloned bundle, local name for
 			// a project bundle) so the cascade's IsLocal/RepoURL are honest and the
 			// gate key matches the baseline/grant key. See extractHooksFromBundle.

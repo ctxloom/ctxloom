@@ -87,7 +87,7 @@ func TestBuiltinBundleReaders_UseTheCanonicalParser(t *testing.T) {
 	// on each of their live paths rather than merely present in the file.
 	assert.NotPanics(t, func() {
 		_ = BuiltinCompanionBins()
-		_ = resolveBuiltinBundleMCPServers(nil)
-		_ = resolveBuiltinBundleHooks(nil)
+		_ = resolveBuiltinBundleMCPServers(bundles.AdmitAll())
+		_ = resolveBuiltinBundleHooks(bundles.AdmitAll())
 	})
 }

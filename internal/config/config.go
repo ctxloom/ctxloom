@@ -253,9 +253,11 @@ type Config struct {
 
 	// execGate gates the bundle EXECUTABLE surfaces (bundle MCP servers + bundle
 	// hooks resolved by ResolveBundleMCPServers/ResolveBundleHooks, and prompt
-	// command-file exports via LoadCommandExports) when set. nil = no enforcement,
-	// matching the gate-free management/listing paths. The operations/run
-	// consumers inject it before writing backend settings (trust rework, TR5);
+	// command-file exports via LoadCommandExports) when set. nil means UNSET, and
+	// ExecutableTrustGate turns that into bundles.AdmitAll — the gate-free
+	// management/listing shape, named rather than implied. Read it through that
+	// accessor, never directly: a nil reaching bundles.Decide withholds. The
+	// operations/run consumers inject it before writing backend settings (TR5);
 	// operations can't be imported here, so the gate is a plain bundles.Authorizer
 	// func. Never persisted.
 	execGate bundles.Authorizer

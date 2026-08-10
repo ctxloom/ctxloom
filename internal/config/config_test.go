@@ -61,6 +61,42 @@ func withDefaultProfiles(cfg *Config, names ...string) *Config {
 //
 // =============================================================================
 
+// TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored pins the load-bearing half
+// of the agent_turn_cap -> delegation.concurrency rename: a config still
+// carrying the retired flat key must FAIL LOUD, naming the new key — never
+// silently drop the setting back to the built-in default. This decode path
+// (loadLayeredConfig's merged-layer Unmarshal) is lenient (no KnownFields),
+// so without this explicit check an untouched `agent_turn_cap:` would be
+// dropped in silence.
+//
+// Load() itself is fault-tolerant by this package's own design (every load
+// fault, this one included, downgrades to a recorded Warning rather than a
+// returned error — see decodeMergedLayers and warnings.go's "EVERY kind
+// declared below is fatal-class in strict mode"): the actual fail-loud
+// enforcement is the STRICT-MODE gate a caller runs over cfg.GetWarnings()
+// (config.RecordWarnings + strictness.FindingsError), not Load's own return
+// value. So this test asserts what Load() actually contracts: cfg still
+// loads (never nil), but carries a warning whose text names BOTH the
+// retired key and its replacement — the exact text a fatal-class finding
+// surfaces to a user under that gate.
+func TestLoad_RetiredAgentTurnCapKeyRefusedNotIgnored(t *testing.T) {
+	fs := afero.NewMemMapFs()
+	require.NoError(t, afero.WriteFile(fs, "/proj/.ctxloom/config.yaml", []byte("version: 6\nagent_turn_cap: 3\n"), 0644))
+
+	cfg, err := Load(WithFS(fs), WithAppDir("/proj/.ctxloom"))
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	var found *Warning
+	for _, w := range cfg.GetWarnings() {
+		if strings.Contains(w.Text, "agent_turn_cap") {
+			found = &w
+		}
+	}
+	require.NotNil(t, found, "a config carrying the retired key must record a warning naming it, not silently ignore it: %+v", cfg.GetWarnings())
+	assert.Contains(t, found.Text, "delegation.concurrency", "the warning must name the CURRENT key, not just reject the old one")
+}
+
 // =============================================================================
 // Default Plugin Tests
 // =============================================================================

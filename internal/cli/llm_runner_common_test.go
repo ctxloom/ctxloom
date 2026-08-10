@@ -183,12 +183,12 @@ func TestStandUpRunner_ConfiguresFromTheLabelItWasGiven(t *testing.T) {
 // removed from the environment, so nothing the runner spawns can inherit it.
 func TestConsumeCoordinatorReachBack_ReadsThenScrubs(t *testing.T) {
 	env := map[string]string{
-		coord.EnvCoordURL:         "tcp://127.0.0.1:1",
-		coord.EnvCoordCred:        "the-token",
-		coord.EnvRunID:            "run-7",
-		coord.EnvAgentCoordinator: "1",
-		coord.EnvCellWorkDir:      "/work/cell",
-		"CTXLOOM_SESSION_HARP":    "regal-rash-dash",
+		coord.EnvCoordURL:      "tcp://127.0.0.1:1",
+		coord.EnvCoordCred:     "the-token",
+		coord.EnvRunID:         "run-7",
+		coord.EnvRunDepth:      "1",
+		coord.EnvCellWorkDir:   "/work/cell",
+		"CTXLOOM_SESSION_HARP": "regal-rash-dash",
 	}
 	reach, err := consumeCoordinatorReachBack("mock",
 		func(k string) string { return env[k] },
@@ -201,28 +201,88 @@ func TestConsumeCoordinatorReachBack_ReadsThenScrubs(t *testing.T) {
 	assert.Equal(t, "mock", reach.home.Harness)
 	assert.Equal(t, "regal-rash-dash", reach.harp)
 	assert.Equal(t, "/work/cell", reach.cellWorkDir)
-	assert.False(t, reach.leaf, "a Coordinator-capable delegated child is not a leaf")
+	assert.Equal(t, 1, reach.depth, "the stamped depth is read as-is, leafness is decided later against the resolved cap")
 
 	for _, k := range coordinatorEnvKeys {
 		assert.NotContainsf(t, env, k, "%s must not survive into the engine child's environment", k)
 	}
 }
 
-// TestConsumeCoordinatorReachBack_LeafGate pins the leaf classification, which
-// decides whether the coordinator-only MCP tools are served: a delegated child
-// (RunID set) that was not resolved Coordinator-capable is a leaf; the top-level
-// human session, which sets no RunID, never is.
-func TestConsumeCoordinatorReachBack_LeafGate(t *testing.T) {
-	leafFor := func(env map[string]string) bool {
+// TestConsumeCoordinatorReachBack_DepthParsing pins parseRunDepth's contract:
+// unset, empty, and unparseable ALL read as depth 0 — never an error, never
+// "unknown" — and a real numeric value round-trips exactly. This is read-only
+// env parsing; the leaf DECISION (depth compared against the resolved cap)
+// is a separate concern — see TestRunnerIsLeaf_* below.
+func TestConsumeCoordinatorReachBack_DepthParsing(t *testing.T) {
+	depthFor := func(env map[string]string) int {
 		reach, err := consumeCoordinatorReachBack("mock",
 			func(k string) string { return env[k] },
 			func(string) error { return nil })
 		require.NoError(t, err)
-		return reach.leaf
+		return reach.depth
 	}
-	assert.True(t, leafFor(map[string]string{coord.EnvRunID: "run-7"}), "delegated child, not coordinator-capable")
-	assert.False(t, leafFor(map[string]string{coord.EnvRunID: "run-7", coord.EnvAgentCoordinator: "1"}))
-	assert.False(t, leafFor(map[string]string{}), "the human session is never gated")
+	assert.Equal(t, 0, depthFor(map[string]string{}), "unset reads as depth 0 (the session owner)")
+	assert.Equal(t, 0, depthFor(map[string]string{coord.EnvRunDepth: ""}), "empty reads as depth 0")
+	assert.Equal(t, 0, depthFor(map[string]string{coord.EnvRunDepth: "not-a-number"}), "unparseable reads as depth 0, never an error")
+	assert.Equal(t, 3, depthFor(map[string]string{coord.EnvRunDepth: "3"}), "a real numeric value round-trips exactly")
+}
+
+// TestRunnerIsLeaf_OwnerNeverLeafAtBuiltInCap pins the regression this whole
+// design exists to prevent: depth 0, conversational (the session owner, on
+// EITHER the plugin-hosted or the container ViaStartRun owned-run path) is
+// never a leaf at the built-in default cap.
+func TestRunnerIsLeaf_OwnerNeverLeafAtBuiltInCap(t *testing.T) {
+	assert.False(t, runnerIsLeaf(0, false, testConfig()))
+}
+
+// TestRunnerIsLeaf_DelegatedChildIsLeafAtBuiltInCap pins the other direction:
+// a depth-1 delegated child IS a leaf at the built-in default cap (1) — it
+// must not receive the coordinator-only MCP tools.
+func TestRunnerIsLeaf_DelegatedChildIsLeafAtBuiltInCap(t *testing.T) {
+	assert.True(t, runnerIsLeaf(1, false, testConfig()))
+}
+
+// TestRunnerIsLeaf_CapBoundary pins the exact boundary the comparison must
+// use: a run AT the cap is a leaf, a run one shallower is not. Using a
+// RAISED cap (3, not the built-in 1) also proves the cap is read from
+// config, not hardcoded — see the next test for the direct version of that
+// claim.
+func TestRunnerIsLeaf_CapBoundary(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{Delegation: config.DelegationConfig{Depth: 3}})
+	assert.False(t, runnerIsLeaf(2, false, cfg), "one shallower than the cap must NOT be a leaf")
+	assert.True(t, runnerIsLeaf(3, false, cfg), "AT the cap must be a leaf")
+}
+
+// TestRunnerIsLeaf_CapIsReadFromConfig pins that the cap is genuinely
+// resolved from the loaded config, not the built-in default: with
+// delegation.depth raised to 2, a depth-1 caller (a leaf at the built-in
+// default of 1) is no longer a leaf. If GetDelegationDepth ever started
+// ignoring the config value and returning only the built-in default, this
+// assertion would flip to true and the test would fail — the config key
+// would be decorative.
+func TestRunnerIsLeaf_CapIsReadFromConfig(t *testing.T) {
+	raised := config.NewFixture(config.Fixture{Delegation: config.DelegationConfig{Depth: 2}})
+	assert.False(t, runnerIsLeaf(1, false, raised), "delegation.depth=2 must let a depth-1 caller through")
+	assert.True(t, runnerIsLeaf(1, false, testConfig()), "the built-in default (1) still gates the same caller")
+}
+
+// TestRunnerIsLeaf_OneShotIsLeafEvenAtDepthZero pins the newest rule: a
+// `driving: oneshot` run is a leaf REGARDLESS of depth — its engine tears
+// down at every turn boundary, so it cannot hold a coordination
+// relationship with a child across turns. Depth 0 is the interesting case:
+// the depth term ALONE would say "not a leaf" (see
+// TestRunnerIsLeaf_OwnerNeverLeafAtBuiltInCap), so this is the one case
+// that actually exercises the OR.
+func TestRunnerIsLeaf_OneShotIsLeafEvenAtDepthZero(t *testing.T) {
+	assert.True(t, runnerIsLeaf(0, true, testConfig()))
+}
+
+// TestRunnerIsLeaf_ConversationalAtDepthZeroIsNotLeaf is the control for the
+// test above: a conversational (non-oneshot) run at depth 0 is NOT a leaf,
+// so a rule that degenerated to "always leaf" (e.g. dropping the `oneshot ||`
+// and returning true unconditionally) cannot pass both tests at once.
+func TestRunnerIsLeaf_ConversationalAtDepthZeroIsNotLeaf(t *testing.T) {
+	assert.False(t, runnerIsLeaf(0, false, testConfig()))
 }
 
 // TestConsumeCoordinatorReachBack_FailedScrubRefusesToLaunch pins the

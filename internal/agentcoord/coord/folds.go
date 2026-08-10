@@ -22,16 +22,22 @@ type RunRecord struct {
 	Harp       string
 	Agent      string
 	ParentHarp string
-	// ParentRunID is the SPAWNING run's run_id (D5/manly-grant (5) durable
-	// lineage) — empty for a depth-1 (top-level) child spawned by the
-	// session owner (depth 0 has no run_id of its own to be a parent of);
-	// set for a depth-2+ grandchild. Mirrors StartRun/RunStarted.parent_run_id
-	// (rev 5) on the read-side roster projection (D1's ListRunsResult.RunInfo).
+	// ParentRunID is the SPAWNING run's run_id — durable delegation lineage,
+	// set only when the caller has a run of its own to be a parent of. A
+	// plugin-hosted top-level session's own credential carries no run id, so
+	// a child it spawns directly leaves this empty; a container top-level
+	// session's owned run (StartOwnedRun) DOES carry a run id from the
+	// moment it starts, even at depth 0, so a child it spawns has this set —
+	// as does any child spawned by an already-delegated child. Mirrors
+	// StartRun/RunStarted.parent_run_id on the read-side roster projection
+	// (ListRunsResult.RunInfo).
 	ParentRunID string
 	Runtime     string
 	CredHash    string
 	Depth       int
-	Prompt      string
+	// OneShot mirrors Identity.OneShot — see its doc.
+	OneShot bool
+	Prompt  string
 	State       string
 	Ended       bool
 	Cause       string
@@ -128,6 +134,7 @@ func (f *runsFold) applyEnqueued(p runEnqueued, at time.Time) {
 		Runtime:      p.Runtime,
 		CredHash:     p.CredHash,
 		Depth:        p.Depth,
+		OneShot:      p.OneShot,
 		Prompt:       p.Prompt,
 		State:        StateQueued,
 		EnqueuedAt:   at,
@@ -138,7 +145,7 @@ func (f *runsFold) applyEnqueued(p runEnqueued, at time.Time) {
 	}
 	f.byHarp[p.Harp] = p.RunID
 	if p.CredHash != "" {
-		f.creds[p.CredHash] = Identity{Harp: p.Harp, RunID: p.RunID, Depth: p.Depth, Project: f.project}
+		f.creds[p.CredHash] = Identity{Harp: p.Harp, RunID: p.RunID, Depth: p.Depth, OneShot: p.OneShot, Project: f.project}
 	}
 }
 
@@ -189,7 +196,10 @@ func (f *runsFold) applySessionCred(p sessionCred, _ time.Time) {
 	if p.Project != "" {
 		f.project = p.Project
 	}
-	f.creds[p.CredHash] = Identity{Harp: p.Harp, Depth: 0, Project: p.Project}
+	// The session-owner credential is never a resolved `driving: oneshot`
+	// agent — it is the human's own top-level session — so OneShot stays
+	// the zero value (false), explicit here for parity with Depth: 0.
+	f.creds[p.CredHash] = Identity{Harp: p.Harp, Depth: 0, OneShot: false, Project: p.Project}
 }
 
 func (f *runsFold) applySessionCredRevoked(p sessionCred, _ time.Time) {

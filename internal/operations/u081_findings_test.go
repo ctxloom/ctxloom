@@ -26,8 +26,8 @@ import (
 // on an EXISTING binding: a request that carries only the field the user
 // actually named must leave every other field alone. The old behaviour was a
 // whole-record replace, so `ctxloom agent set dev --runtime container` wiped
-// the engine, the profiles, the permission posture, the coordinator flag and
-// the approval-escalation ladder — none of which the user mentioned.
+// the engine, the profiles, the permission posture and the
+// approval-escalation ladder — none of which the user mentioned.
 func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := managerFor(appDir)
@@ -37,7 +37,6 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 		LLM:         ptr("claude-code"),
 		Profiles:    ptr([]string{"go-developer"}),
 		Permissions: ptr("acceptEdits"),
-		Coordinator: ptr(true),
 	})
 	require.NoError(t, err)
 
@@ -68,7 +67,6 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	assert.Equal(t, "claude-code", got.LLM, "engine must survive an unrelated set")
 	assert.Equal(t, []string{"go-developer"}, got.Profiles, "profiles must survive an unrelated set")
 	assert.Equal(t, "acceptEdits", got.Permissions, "permissions must survive an unrelated set")
-	assert.True(t, got.Coordinator, "coordinator flag must survive an unrelated set")
 	assert.Len(t, got.Escalation, 1, "the escalation ladder must survive an unrelated set")
 }
 

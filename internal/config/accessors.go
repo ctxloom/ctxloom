@@ -269,10 +269,30 @@ func (c *Config) GetDirtyTreeHandler() string { return c.dirtyTreeHandler }
 // container).
 func (c *Config) GetRuntime() string { return c.runtime }
 
-// GetAgentTurnCap returns the project-wide RESOURCE ceiling on concurrently
-// EXECUTING delegated child turns (0/unset means "use the built-in
-// default" — see coord.agentTurnCap and Config.agentTurnCap's doc).
-func (c *Config) GetAgentTurnCap() int { return c.agentTurnCap }
+// GetDelegationConcurrency returns delegation.concurrency: the project-wide
+// RESOURCE ceiling on concurrently EXECUTING delegated child turns (0/unset
+// means "use the built-in default" — see coord.agentConcurrencyCap and
+// DelegationConfig.Concurrency's doc). Renamed/regrouped from
+// GetAgentTurnCap.
+func (c *Config) GetDelegationConcurrency() int { return c.delegation.Concurrency }
+
+// GetDelegationDepth returns the RESOLVED delegation.depth: the project-wide
+// STRUCTURAL ceiling on the delegation tree's depth, with the built-in
+// default (DefaultDelegationDepth) already applied when the config leaves it
+// unset. This is DELIBERATELY UNLIKE GetDelegationConcurrency, which returns
+// the raw 0-means-unset value and leaves resolution to its one consumer
+// (coord.resolveTunables): depth's cap must be computed IDENTICALLY by two
+// independent processes that never talk to each other — the coordinator
+// (server-side "may this run spawn" guard) and a spawned runner (local leaf
+// computation, attachRunnerMCP) — so the resolved number has to come from
+// one place both can reach. This accessor is that place; coord.agentDepthCap
+// is defined in terms of DefaultDelegationDepth for the identical reason.
+func (c *Config) GetDelegationDepth() int {
+	if c.delegation.Depth > 0 {
+		return c.delegation.Depth
+	}
+	return DefaultDelegationDepth
+}
 
 // GetDefaultAgent returns the name of the always-bound default agent (may be
 // empty or reference an undefined agent).

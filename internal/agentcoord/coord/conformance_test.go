@@ -150,15 +150,17 @@ func TestAgentRun_QueuePastCap(t *testing.T) {
 	assert.Contains(t, sp.engine(1).recordedTexts()[0], "task two")
 }
 
-// TestAgentRun_GrandchildAllowed pins D5 (manly-grant (4)): the B-window
-// refusal is lifted — a depth-1 delegated child MAY now spawn a depth-2
-// grandchild, through the exact same AgentRun/enqueueRun path a depth-0
-// session owner uses (the credential-derived depth guard is
-// generic in the caller's depth — nothing here is grandchild-specific).
+// TestAgentRun_GrandchildAllowed pins that raising delegation.depth (here, 2)
+// re-enables one further level with no other code change: a depth-1
+// delegated child MAY spawn a depth-2 grandchild, through the exact same
+// AgentRun/enqueueRun path a depth-0 session owner uses (the
+// credential-derived depth guard is generic in the caller's depth — nothing
+// here is grandchild-specific). At the BUILT-IN default cap (1) this same
+// caller would be refused — see TestAgentRun_DepthAtCapRefused.
 func TestAgentRun_GrandchildAllowed(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
-	c := newTestCoordinator(t, sp, nil)
+	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	childCaller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
 	out, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "", "")
 	require.NoError(t, err)
@@ -177,17 +179,40 @@ func TestAgentRun_GrandchildAllowed(t *testing.T) {
 	assert.Equal(t, 2, rec.Depth)
 }
 
-// TestAgentRun_GreatGrandchildRefused pins the guard's new floor: maxAgentDepth
-// is 2 now (was 1), so a depth-2 grandchild still may not spawn further.
+// TestAgentRun_GreatGrandchildRefused pins the guard's floor at a RAISED cap
+// (2): a depth-2 grandchild — already at the cap — still may not spawn
+// further, exercising the boundary at a cap other than the built-in default
+// so this test does not collapse into TestAgentRun_DepthAtCapRefused.
 func TestAgentRun_GreatGrandchildRefused(t *testing.T) {
 	resetStrictness(t)
 	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
-	c := newTestCoordinator(t, sp, nil)
+	c := newTestCoordinatorDepthCap(t, sp, nil, 2)
 	grandchildCaller := Identity{Harp: "some-grandchild", RunID: "run-grandchild", Depth: 2}
 	_, err := c.AgentRun(context.Background(), grandchildCaller, "worker", "go deeper still", "", "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "maximum delegation depth")
 	assert.Equal(t, 0, sp.spawnCount())
+}
+
+// TestAgentRun_DepthAtCapRefused pins the BUILT-IN default cap (1): a
+// depth-1 delegated child — the first generation below the session owner —
+// may not itself spawn. This is the flat-fan-out regression this whole
+// design exists to prevent: a top-level session (depth 0) must still be
+// able to delegate at the default cap, but its children must not be able to
+// delegate further.
+func TestAgentRun_DepthAtCapRefused(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	c := newTestCoordinator(t, sp, nil) // built-in default depth cap (1)
+	childCaller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
+	_, err := c.AgentRun(context.Background(), childCaller, "worker", "go deeper", "", "")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "maximum delegation depth")
+	assert.Equal(t, 0, sp.spawnCount())
+
+	ownerCaller := Identity{Harp: "owner", Depth: 0}
+	_, err = c.AgentRun(context.Background(), ownerCaller, "worker", "go deeper", "", "")
+	require.NoError(t, err, "the session owner (depth 0) must still be able to delegate at the default cap")
 }
 
 // TestAgentSend_MidTurnQueuesForBoundary_FIFO pins §6a mid-turn delivery and

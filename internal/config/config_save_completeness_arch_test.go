@@ -83,7 +83,7 @@ func TestArch_ConfigSave_PrunesUnsetSections(t *testing.T) {
 	var got map[string]any
 	require.NoError(t, yaml.Unmarshal(data, &got))
 
-	for _, key := range []string{"ui", "agents", "default_agent", "workspace", "runtime", "agent_turn_cap"} {
+	for _, key := range []string{"ui", "agents", "default_agent", "workspace", "runtime", "delegation"} {
 		assert.NotContains(t, got, key, "an unset %q must be pruned, not written as an empty block", key)
 	}
 }

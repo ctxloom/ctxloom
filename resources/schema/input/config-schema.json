@@ -300,10 +300,22 @@
         "container"
       ]
     },
-    "agent_turn_cap": {
-      "type": "integer",
-      "minimum": 1,
-      "description": "RESOURCE ceiling on how many delegated agent_run children may have a turn EXECUTING (a live engine process) at once \u2014 bounds concurrent process/resource load, not a correctness setting (the coordinator's own state is safe under concurrency by construction). Unset uses the built-in default. Raise it for more delegation parallelism; lower it to bound resource use on a constrained host. Never unbounded."
+    "delegation": {
+      "type": "object",
+      "description": "The two agent-delegation limits. Grouped because both are limits ON delegation, not because they share a mechanism \u2014 they differ in kind (see each member's own description).",
+      "additionalProperties": false,
+      "properties": {
+        "concurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of delegated child turns executing at once; each is a live engine process. A child waiting on a message yields its slot. This bounds resource load only \u2014 raise it for more parallelism, lower it on a small machine. Unset uses the built-in default."
+        },
+        "depth": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum nesting depth of delegated agents. The session owner is depth 0, its subagents depth 1, theirs depth 2. A run at the cap cannot delegate and is not given the coordination tools (agent_run, roster, agent_stop, agent_fetch_artifact). Raising this above 1 gives those tools to non-root agents, which can leave an agent waiting on children it never spawned. Unset uses the built-in default."
+        }
+      }
     },
     "isolation_images": {
       "type": "object",
@@ -416,10 +428,6 @@
               ],
               "additionalProperties": false
             }
-          },
-          "coordinator": {
-            "type": "boolean",
-            "description": "Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf."
           },
           "driving": {
             "type": "string",

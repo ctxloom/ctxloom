@@ -60,16 +60,23 @@ type Options struct {
 	Factory pb.ClientFactory
 	// Clock overrides command time (tests). Nil = time.Now.
 	Clock func() time.Time
-	// TurnCap overrides the number of concurrently EXECUTING child turns the
-	// coordinator admits (turnSlots' cap). <= 0 keeps the package default
-	// (agentTurnCap, children.go). This is a RESOURCE ceiling — it bounds how
-	// many live engine processes run at once — NOT a correctness gate (see
-	// agentTurnCap's doc): the coordinator's own state is safe under
-	// concurrency by construction (partitioned by child identity), proven by
-	// the invariant-asserting concurrent test (turncap_concurrent_test.go).
-	// Production sources this from coordinator config (config.Config); tests
-	// raise it directly to exercise real overlap.
-	TurnCap int
+	// ConcurrencyCap overrides the number of concurrently EXECUTING child
+	// turns the coordinator admits (turnSlots' cap). <= 0 keeps the package
+	// default (agentConcurrencyCap, children.go). This is a RESOURCE
+	// ceiling — it bounds how many live engine processes run at once, not
+	// how many turns a run may take — and is not a correctness gate: the
+	// coordinator's own state is safe under concurrency by construction
+	// (partitioned by child identity). Production sources this from
+	// coordinator config (config.Config.GetDelegationConcurrency); tests
+	// raise it directly to exercise real overlap. Renamed from TurnCap.
+	ConcurrencyCap int
+	// Depth overrides the maximum nesting depth of the delegation tree
+	// (children.go's AgentRun guard and the runner-side leaf computation
+	// both read it). <= 0 keeps the package default (agentDepthCap,
+	// children.go). Unlike ConcurrencyCap this IS a correctness setting —
+	// see agentDepthCap's doc for what raising it changes. Production
+	// sources this from coordinator config (config.Config.GetDelegationDepth).
+	Depth int
 	// EndedRunTail bounds how many ENDED, non-current run records the live
 	// folds retain across all harps — the one-shot retention reap (Slice 4 /
 	// Fork 2.3). One-shot mints one ended run per turn per harp, so without a
@@ -124,6 +131,12 @@ type Coordinator struct {
 
 	spawner Spawner
 	slots   *turnSlots
+	// depthCap is the resolved maximum nesting depth of the delegation tree
+	// (Options.Depth, <= 0 falls back to agentDepthCap) — AgentRun's "may
+	// this run spawn" guard reads it per call, unlike concurrencyCap (which
+	// is consumed once into slots at construction and needs no persisted
+	// field).
+	depthCap int
 	// endedRunTail / endedRunMaxAge are the one-shot retention reap bounds
 	// (Slice 4 / Fork 2.3) — see Options.EndedRunTail/EndedRunMaxAge.
 	endedRunTail   int
@@ -271,7 +284,8 @@ func New(opts Options) (*Coordinator, error) {
 		now:                t.now,
 		releaseOwner:       claim.release,
 		spawner:            opts.Spawner,
-		slots:              newTurnSlots(t.turnCap),
+		slots:              newTurnSlots(t.concurrencyCap),
+		depthCap:           t.depthCap,
 		endedRunTail:       t.endedRunTail,
 		endedRunMaxAge:     t.endedRunMaxAge,
 		runnerAwaitTimeout: t.runnerAwaitTimeout,
@@ -334,7 +348,8 @@ func (c *Coordinator) abortNew(err error) error {
 // ONCE, at construction, so no hot path re-derives one.
 type tunables struct {
 	now                func() time.Time
-	turnCap            int
+	concurrencyCap     int
+	depthCap           int
 	endedRunTail       int
 	endedRunMaxAge     time.Duration
 	runnerAwaitTimeout time.Duration
@@ -347,7 +362,8 @@ type tunables struct {
 func resolveTunables(opts Options) tunables {
 	t := tunables{
 		now:                opts.Clock,
-		turnCap:            opts.TurnCap,
+		concurrencyCap:     opts.ConcurrencyCap,
+		depthCap:           opts.Depth,
 		endedRunTail:       opts.EndedRunTail,
 		endedRunMaxAge:     opts.EndedRunMaxAge,
 		runnerAwaitTimeout: opts.RunnerAwaitTimeout,
@@ -355,8 +371,11 @@ func resolveTunables(opts Options) tunables {
 	if t.now == nil {
 		t.now = time.Now
 	}
-	if t.turnCap <= 0 {
-		t.turnCap = agentTurnCap
+	if t.concurrencyCap <= 0 {
+		t.concurrencyCap = agentConcurrencyCap
+	}
+	if t.depthCap <= 0 {
+		t.depthCap = agentDepthCap
 	}
 	if t.endedRunTail <= 0 {
 		t.endedRunTail = defaultEndedRunTail

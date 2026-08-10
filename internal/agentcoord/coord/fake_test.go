@@ -479,26 +479,44 @@ func (s *fakeSpawner) engine(i int) *fakeEngine {
 // newTestCoordinator builds a coordinator over a fake spawner in a temp state
 // dir, serving loopback listeners (so host children resolve a reach-back URL).
 // The Clock defaults to real time unless overridden. Runs at the package
-// default turn cap (agentTurnCap, children.go) — tests pinning D4 QUEUEING
-// behavior at a SPECIFIC cap (most commonly 1, to exercise "past the cap
-// enqueues") must use newTestCoordinatorCap instead: the default stopped
-// being 1 once agentTurnCap became a configurable resource ceiling
-// (fix/turncap-to-resource-ceiling) rather than a correctness serializer.
+// default concurrency cap (agentConcurrencyCap, children.go) — tests pinning
+// D4 QUEUEING behavior at a SPECIFIC cap (most commonly 1, to exercise "past
+// the cap enqueues") must use newTestCoordinatorCap instead: the default is a
+// configurable resource ceiling, not a correctness serializer, and is not
+// guaranteed to be 1.
 func newTestCoordinator(t *testing.T, sp Spawner, clock func() time.Time) *Coordinator {
 	t.Helper()
 	return newTestCoordinatorCap(t, sp, clock, 0)
 }
 
-// newTestCoordinatorCap is newTestCoordinator with an explicit turn cap
-// (Options.TurnCap; <= 0 keeps the package default).
+// newTestCoordinatorCap is newTestCoordinator with an explicit concurrency cap
+// (Options.ConcurrencyCap; <= 0 keeps the package default).
 func newTestCoordinatorCap(t *testing.T, sp Spawner, clock func() time.Time, cap int) *Coordinator {
 	t.Helper()
+	return newTestCoordinatorOpts(t, sp, clock, cap, 0)
+}
+
+// newTestCoordinatorDepthCap is newTestCoordinator with an explicit
+// delegation-depth cap (Options.Depth; <= 0 keeps the package default,
+// currently 1). Tests exercising a specific depth cap (raising it above the
+// default to permit a deeper tree, or pinning it at 1 to assert flat fan-out)
+// use this instead of relying on the package default's current value.
+func newTestCoordinatorDepthCap(t *testing.T, sp Spawner, clock func() time.Time, depthCap int) *Coordinator {
+	t.Helper()
+	return newTestCoordinatorOpts(t, sp, clock, 0, depthCap)
+}
+
+// newTestCoordinatorOpts is the shared constructor both cap-specific helpers
+// above wrap.
+func newTestCoordinatorOpts(t *testing.T, sp Spawner, clock func() time.Time, concurrencyCap, depthCap int) *Coordinator {
+	t.Helper()
 	c, err := New(Options{
-		ProjectDir: t.TempDir(),
-		StateDir:   t.TempDir(),
-		Spawner:    sp,
-		Clock:      clock,
-		TurnCap:    cap,
+		ProjectDir:     t.TempDir(),
+		StateDir:       t.TempDir(),
+		Spawner:        sp,
+		Clock:          clock,
+		ConcurrencyCap: concurrencyCap,
+		Depth:          depthCap,
 	})
 	if err != nil {
 		t.Fatalf("new coordinator: %v", err)

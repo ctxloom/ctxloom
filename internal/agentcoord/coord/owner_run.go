@@ -112,16 +112,34 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 		Ladder:      presetLadder(spec.Permission),
 		MCPServers:  spec.MCPServers,
 		ViaStartRun: true,
-		// The session owner is the top of the delegation tree: keep its own
-		// run coordinator-capable so a top-level structured/oneshot session can
-		// still delegate (the go-plugin owner path is coordinator-capable too —
-		// its runner carries no run-id, so standUpRunner's leaf gate never
-		// fires). Deliberately NOT the plan's illustrative `false`, which would
-		// silently strip delegation from a top-level container session.
-		Coordinator: true,
 	}
 
-	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}))
+	// The owned run REUSES the owner's own identity rather than spawning a
+	// child of it — it IS the session owner, running over a different
+	// transport (ViaStartRun/container instead of the plugin-hosted path).
+	// So its stamped depth is the owner's OWN depth (owner.Depth, normally
+	// 0), not owner.Depth+1: enqueueRun's depth parameter is explicit for
+	// exactly this reason (a genuine child, by contrast, always gets
+	// caller.Depth+1 — see AgentRun). This is what keeps a top-level
+	// container session able to delegate on the same terms as the
+	// plugin-hosted top-level session: both present depth 0 to the
+	// recursion guard and to the runner-side leaf computation.
+	//
+	// This also flips Identity.IsChild() (Depth > 0) to FALSE for the owned
+	// run's own credential, where it used to be true (depth was 1 before
+	// this depth parameter existed). That corrects three call sites that
+	// gate on IsChild() — peerSend's childSend/ownerSend split, AgentStop,
+	// and serveListRuns (roster) — each of which was refusing or
+	// misrouting a call the owned run's OWN engine made about ITSELF
+	// (childSend's ParentHarp resolution hit the self-loop below; AgentStop
+	// and roster both explicitly refuse an IsChild() caller). It also flips
+	// serveApproval's guard (approval.go — the OPPOSITE sense: only a
+	// caller WHERE IsChild() is true may raise one), which an owned run's
+	// EngineHost.resolveApproval reaches whenever its escalation ladder has
+	// a relay_to_role/surface_to_human rung — whether that path still
+	// resolves correctly for an owned run is UNVERIFIED as of this change;
+	// no existing test exercises an owned run's approval flow.
+	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +151,13 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	c.setState(rt, StateExecuting)
 	c.audit("owner_run", owner.Harp, map[string]string{"harp": spec.Harp, "run_id": rt.runID, "backend": spec.Backend})
 
-	kill, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, plan.Coordinator))
+	// plan.ResumeMode is never set on the owned run's synthetic plan (zero
+	// value ResumeModePersistent), so this is always false today — written
+	// as the same expression every other runnerEnv call site uses, not a
+	// hardcoded false, so it stays correct if that ever changes. This is
+	// UNRELATED to rt.oneshot/spec.Oneshot above (the --print single-turn
+	// CLI axis) — see Identity.OneShot's doc for the distinction.
+	kill, err := start(ctx, runnerEnv(spec.Harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		// ONE error, both destinations: the run's terminal record and the
 		// caller get the same text. Returning the bare cause here left the

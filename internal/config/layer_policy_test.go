@@ -56,9 +56,9 @@ func TestLoad_EscalationPath1_ConfigSetCannotGrantDirtyTreeCommitAck(t *testing.
 		"--config-set must never grant the dirty-tree-commit acknowledgement either")
 }
 
-// ===== Escalation path 2: two env vars cannot mint a coordinator agent ======
+// ===== Escalation path 2: an env var cannot mint a privileged agent =========
 
-func TestLoad_EscalationPath2_EnvCannotMintCoordinatorAgent(t *testing.T) {
+func TestLoad_EscalationPath2_EnvCannotMintPrivilegedAgent(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
@@ -66,16 +66,15 @@ func TestLoad_EscalationPath2_EnvCannotMintCoordinatorAgent(t *testing.T) {
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644))
 
 	overrides := confload.Overrides{Env: map[string]any{
-		"AGENTS_EVIL_COORDINATOR": true,
 		"AGENTS_EVIL_PERMISSIONS": "bypass",
 	}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
 	require.NoError(t, err)
 
 	// MUTATION TARGET: with ScopeAllows/agentBindingMergeFunc removed, this
-	// would be a real, coordinator-trusted, permission-bypassing "evil" agent.
+	// would be a real, permission-bypassing "evil" agent.
 	_, exists := cfg.agents["evil"]
-	assert.False(t, exists, "two env vars must not be able to mint a brand-new agent binding at all")
+	assert.False(t, exists, "an env var must not be able to mint a brand-new agent binding at all")
 
 	foundLayerScopeWarning := false
 	for _, w := range cfg.warnings {
@@ -86,21 +85,20 @@ func TestLoad_EscalationPath2_EnvCannotMintCoordinatorAgent(t *testing.T) {
 	assert.True(t, foundLayerScopeWarning, "the drop must be reported as a WarnKindLayerScope finding, not silent")
 }
 
-// TestLoad_ConfigSetCanStillMintACoordinatorAgent_ByDesign is the deliberate
+// TestLoad_ConfigSetCanStillMintAPrivilegedAgent_ByDesign is the deliberate
 // NON-goal alongside path 2: ScopeShared keeps --config-set reach (decision 6
 // / Scope's own doc) because a flag is scoped to ONE invocation, auditable in
 // a process listing, and never inherited by a spawned child -- unlike env,
 // which every child inherits. An operator typing --config-set on their own
 // invocation is exactly the flag's purpose, so this must still work; only the
 // AMBIENT env channel is closed.
-func TestLoad_ConfigSetCanStillMintACoordinatorAgent_ByDesign(t *testing.T) {
+func TestLoad_ConfigSetCanStillMintAPrivilegedAgent_ByDesign(t *testing.T) {
 	testsupport.Isolate(t)
 	fs := afero.NewMemMapFs()
 	appDir := "/proj/.ctxloom"
 	require.NoError(t, afero.WriteFile(fs, paths.ConfigPath(appDir), []byte("version: 1\n"), 0644))
 
 	overrides := confload.Overrides{Flags: map[string]any{
-		"agents.evil.coordinator": true,
 		"agents.evil.permissions": "bypass",
 	}}
 	cfg, err := Load(WithFS(fs), WithAppDir(appDir), WithOverrides(overrides))
@@ -108,7 +106,6 @@ func TestLoad_ConfigSetCanStillMintACoordinatorAgent_ByDesign(t *testing.T) {
 
 	evil, exists := cfg.agents["evil"]
 	require.True(t, exists, "--config-set targets ScopeShared, which explicitly keeps flag reach")
-	assert.True(t, evil.Coordinator)
 	assert.Equal(t, "bypass", evil.Permissions)
 }
 
@@ -121,7 +118,6 @@ func TestLoad_EscalationPath3_HomeCannotEscalateProjectAgent(t *testing.T) {
 agents:
   reviewer:
     permissions: bypass
-    coordinator: true
     runtime: container
 `), 0o644))
 
@@ -141,8 +137,7 @@ agents:
 	require.True(t, ok, "the project's own agent must still be present")
 
 	// MUTATION TARGET: with agentBindingMergeFunc removed (falling back to
-	// koanf's default deep merge), these three would leak in from home.
-	assert.False(t, reviewer.Coordinator, "home must not be able to grant coordinator trust to the project's agent")
+	// koanf's default deep merge), these two would leak in from home.
 	assert.Equal(t, "", reviewer.Permissions, "home must not be able to grant a permission bypass to the project's agent")
 	assert.Equal(t, "", reviewer.Runtime, "home's runtime must not leak in either -- the whole binding comes from the layer that named it")
 	assert.Equal(t, []string{"default"}, reviewer.Profiles, "the project's own field must survive untouched")
@@ -200,15 +195,15 @@ func TestAgentBindingMergeFunc_AgentNamedOnlyByLowerLayerSurvives(t *testing.T) 
 // consult the SAME layerscope.DefaultPolicy() the file-layer check uses (a
 // dedicated, drifted copy would be the exact class of bug this design closes).
 func TestScopeAllows_UsesSharedPolicyTable(t *testing.T) {
-	ok, why := scopeAllows(confload.SourceEnv, []string{"agents", "reviewer", "coordinator"})
+	ok, why := scopeAllows(confload.SourceEnv, []string{"agents", "reviewer", "permissions"})
 	assert.False(t, ok)
 	assert.NotEmpty(t, why)
 
-	ok, _ = scopeAllows(confload.SourceEnv, []string{"agent_turn_cap"})
-	assert.True(t, ok, "agent_turn_cap is ScopeMachine, which env is allowed to set")
+	ok, _ = scopeAllows(confload.SourceEnv, []string{"delegation", "concurrency"})
+	assert.True(t, ok, "delegation.concurrency is ScopeMachine, which env is allowed to set")
 
-	ok, _ = scopeAllows(confload.SourceFlag, []string{"agents", "reviewer", "coordinator"})
-	assert.True(t, ok, "agents.*.coordinator is ScopeShared, which --config-set is allowed to set")
+	ok, _ = scopeAllows(confload.SourceFlag, []string{"agents", "reviewer", "permissions"})
+	assert.True(t, ok, "agents.*.permissions is ScopeShared, which --config-set is allowed to set")
 
 	// A path with no policy opinion at all must be permissive (unknown-key
 	// handling is separate machinery this hook must not duplicate).

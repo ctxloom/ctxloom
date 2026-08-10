@@ -17,7 +17,7 @@ Every field on this page can also be set without editing a config file, in ascen
 
 An environment variable override starts with `CTXLOOM_CONFIG_`, followed by the field's dotted path with each segment upper-cased and joined by `_` (e.g. `agents.mycoder.runtime` becomes `CTXLOOM_CONFIG_AGENTS_MYCODER_RUNTIME`). A CLI override uses the repeatable `--config-set <dotted.path>=<value>` flag (`--config-set agents.mycoder.runtime=container`) — never a per-field flag of its own, since a command's OWN flags (`--format`, `--bundle`, ...) are not config overrides. Both forms are matched case-insensitively against whatever your config file already has, adopting its casing; unlike an environment variable's name, `--config-set`'s path preserves whatever case you type, so it can also CREATE a new case-sensitive key (e.g. `--config-set agents.MyCoder.runtime=container`), which an environment variable cannot do.
 
-For example, `agent_turn_cap` can be set via `CTXLOOM_CONFIG_AGENT_TURN_CAP=<value>` or `--config-set agent_turn_cap=<value>`.
+For example, `default_agent` can be set via `CTXLOOM_CONFIG_DEFAULT_AGENT=<value>` or `--config-set default_agent=<value>`.
 
 ## Top-Level Fields
 
@@ -25,10 +25,10 @@ Schema for ctxloom config.yaml files
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `agent_turn_cap` | integer | RESOURCE ceiling on how many delegated agent_run children may have a turn EXECUTING (a live engine process) at once — bounds concurrent process/resource load, not a correctness setting (the coordinator's own state is safe under concurrency by construction). Unset uses the built-in default. Raise it for more delegation parallelism; lower it to bound resource use on a constrained host. Never unbounded. |
 | `agents` | map → object | Local-only engine↔profile bindings. An agent names an engine (LLM config label/backend) and the profiles composed into one assembled context. LOCAL ONLY — never shipped in a bundle or remote; may also be declared as .ctxloom/agents/<name>.yaml files. |
 | `config` | object | Behavioral settings |
 | `default_agent` | string | The always-bound default agent: names an entry in `agents` (or a .ctxloom/agents/<name>.yaml file) that a bare `ctxloom run` (no --agent, no -p/-f/-t) resolves — its composed profiles become the context and its engine + runtime + permissions the transport. Replaces the retired profiles.defaults: 'the default profile set' is now whatever this agent composes. Empty or naming an undefined agent degrades to empty context with a warning (never a hard stop). |
+| `delegation` | object | The two agent-delegation limits. Grouped because both are limits ON delegation, not because they share a mechanism — they differ in kind (see each member's own description). |
 | `dirty_tree_handler` | string | Project default for what a delegated agent_run spawn does when it resolves to worktree isolation while THIS project's own live checkout is dirty (a worktree checkout only ever contains committed state). 'commit' (default): auto-commit the dirty tree first, so the child sees it — requires a human dirty-tree-commit acknowledgement recorded via `ctxloom init` or `ctxloom manage dirty-tree-ack grant` (NOT a config key — see .ctxloom/state/dirty_tree_commit_ack.yaml), and always warns before each commit. 'copy': carve the worktree at HEAD, then reproduce the uncommitted changes inside it as uncommitted WIP (tracked and untracked both), never touching this branch. 'stale': proceed with the child seeing committed state only, warning that it will not see the listed changes. 'fail': refuse the spawn (today's original behavior), naming the uncommitted paths and the alternatives. Overridden per call by agent_run's `dirty_tree_handler` parameter. Allowed values: `commit`, `copy`, `stale`, `fail`. |
 | `editor` | object | Editor configuration for fragment/prompt editing |
 | `hooks` | hooksConfig | Hooks configuration applied globally |
@@ -50,7 +50,6 @@ Schema for ctxloom config.yaml files
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `coordinator` | boolean | Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf. |
 | `driving` | string | Per-turn execution axis: conversational (persistent engine process across turns, the default and today's only behavior) or oneshot (engine process ends at each turn boundary; resumed by native session key — requires a resume-capable engine). Allowed values: `conversational`, `oneshot`. |
 | `escalation` | object[] | The agent's approval-request escalation ladder: an ORDERED list of rungs, each naming which ApprovalRequest kinds it answers and how. Empty derives the ladder from `permissions` (the degenerate two-rung preset: bypass accepts everything; plan declines mutating kinds and relays the rest to the parent). A non-empty list REPLACES the preset entirely — no merge. |
 | `llm` | string | llm.configs label hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend). A label names an engine AND a model AND its credentials — it is not an engine, and the retired spelling 'engine' is refused at load |
@@ -87,6 +86,15 @@ Publisher-signing defaults for `bundle push`.
 |-------|------|-------------|
 | `default` | boolean | When true, publish commands sign unless --no-sign is given. Defaults to false — signing is opt-in, like `git commit -S` until gpg.commit.sign flips it. |
 | `key` | string | Explicit --key-equivalent: a path to a public key or a SHA256:... fingerprint. Empty uses the zero-config discovery chain (git config user.signingkey, then the sole ssh-agent identity). |
+
+### delegation
+
+The two agent-delegation limits. Grouped because both are limits ON delegation, not because they share a mechanism — they differ in kind (see each member's own description).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `concurrency` | integer | Maximum number of delegated child turns executing at once; each is a live engine process. A child waiting on a message yields its slot. This bounds resource load only — raise it for more parallelism, lower it on a small machine. Unset uses the built-in default. |
+| `depth` | integer | Maximum nesting depth of delegated agents. The session owner is depth 0, its subagents depth 1, theirs depth 2. A run at the cap cannot delegate and is not given the coordination tools (agent_run, roster, agent_stop, agent_fetch_artifact). Raising this above 1 gives those tools to non-root agents, which can leave an agent waiting on children it never spawned. Unset uses the built-in default. |
 
 ### editor
 

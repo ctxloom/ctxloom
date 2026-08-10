@@ -68,7 +68,7 @@ name.
 | `AgentRun` | `children.go:200` | validates (empty agent name and empty prompt are both refused loudly at `:201-206`), resolves, assigns the harp, resolves reach-back, enqueues, dispatches `runChild` on a tracked goroutine, returns immediately |
 | `enqueueRun` | `children.go:272` | mints run id + credential and journals `factRunEnqueued` inside the serialized window; publishes `childRt` |
 | `spawnReachURL` | `children.go:514` | resolves the child-reachable coordinator URL; **fatal unless `--degraded`**, with a remediation hint |
-| `childEnv` / `runnerEnv` | `children.go:467,493` | the child ENGINE env (harp + project id, deliberately no credential) vs the RUNNER env (reach-back trio + coordinator flag) |
+| `childEnv` / `runnerEnv` | `children.go:467,493` | the child ENGINE env (harp + project id, deliberately no credential) vs the RUNNER env (reach-back trio + delegation-depth stamp) |
 | `runChild` | `children.go:529` | slot acquire → launch context → migrated or legacy spawn; every failure routes to `failChild` |
 | `runChildViaStartRun` / `issueStartRun` | `children.go:616,661` | build the `HarnessSpec`, join context+prompt, await dial-home, send `StartRun`, audit, drain queued mail, mark attached |
 | `driveChild` / `handleChildEvent` / `onTurnBoundary` | `children.go:1010,1046,1086` | the legacy event loop and its turn boundary |
@@ -83,7 +83,7 @@ name.
 
 ## Execution slots and the concurrency ceiling
 
-`agent_turn_cap` (default 4) is a **throughput ceiling, not a correctness gate** —
+`delegation.concurrency` (default 4) is a **throughput ceiling, not a correctness gate** —
 children run concurrently. `queueFold.executing` is the exact counter the admission
 logic reads.
 

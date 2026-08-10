@@ -31,10 +31,14 @@ func newHostedCoordinator(cfg *config.Config, projectDir string) (*coord.Coordin
 		ProjectDir: projectDir,
 		ProjectKey: key,
 		// A configurable RESOURCE ceiling (concurrent live engine
-		// processes), not a correctness gate — see coord.agentTurnCap's
+		// processes), not a correctness gate — see coord.agentConcurrencyCap's
 		// doc. <= 0 (unset project config) falls back to the built-in
 		// default inside coord.New.
-		TurnCap: cfg.GetAgentTurnCap(),
+		ConcurrencyCap: cfg.GetDelegationConcurrency(),
+		// A configurable STRUCTURAL ceiling on the delegation tree's depth —
+		// see coord.agentDepthCap's doc. <= 0 (unset project config) falls
+		// back to the built-in default inside coord.New.
+		Depth: cfg.GetDelegationDepth(),
 	})
 	if err != nil {
 		return nil, err

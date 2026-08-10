@@ -96,9 +96,6 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 		if s.Permissions != "" {
 			w.Printf("    permissions: %s\n", s.Permissions)
 		}
-		if s.Coordinator {
-			w.Printf("    coordinator: true\n")
-		}
 		if s.Driving != "" {
 			w.Printf("    driving: %s\n", s.Driving)
 		}
@@ -204,9 +201,6 @@ func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	}
 	if def.Permissions != "" {
 		w.Printf("Permissions: %s\n", def.Permissions)
-	}
-	if def.Coordinator {
-		w.Println("Coordinator: true")
 	}
 	if def.Driving != "" {
 		w.Printf("Driving: %s\n", def.Driving)
@@ -343,12 +337,12 @@ var agentEditCmd = &cobra.Command{
 
 Only the flags you pass are applied; every unnamed field keeps its current
 value, so 'ctxloom agent edit dev --runtime container' does not wipe dev's
-llm, profiles, posture, coordinator trust or escalation ladder. An
-explicitly-supplied empty value (--llm "") clears that field.
+llm, profiles, posture or escalation ladder. An explicitly-supplied empty
+value (--llm "") clears that field.
 
-coordinator and driving have NO flags: they are agent DATA, authored in
-config.yaml under agents.<name>. A flag that only writes a config field is a
-second way to say the same thing, and the two spellings drift.
+driving has NO flag: it is agent DATA, authored in config.yaml under
+agents.<name>. A flag that only writes a config field is a second way to say
+the same thing, and the two spellings drift.
 
 ` + agentWriteLong + `
 
@@ -470,9 +464,6 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 	}
 	if entry.Permissions != "" {
 		w.Printf(", permissions: %s", entry.Permissions)
-	}
-	if entry.Coordinator {
-		w.Printf(", coordinator: true")
 	}
 	if entry.Driving != "" {
 		w.Printf(", driving: %s", entry.Driving)

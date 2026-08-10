@@ -13,6 +13,73 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
+// TestRunnerEnv_StampsDepth pins that runnerEnv stamps EnvRunDepth and
+// EnvRunOneShot UNCONDITIONALLY — unlike the reach-back trio
+// (EnvCoordURL/EnvCoordCred/EnvRunID), which is omitted whole when url == ""
+// (a degraded launch), both must always be present: leafness must not depend
+// on reach-back being available.
+func TestRunnerEnv_StampsDepth(t *testing.T) {
+	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3, true)
+	assert.Equal(t, "3", withURL[EnvRunDepth])
+	assert.Equal(t, "true", withURL[EnvRunOneShot])
+
+	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0, false)
+	assert.Equal(t, "0", degraded[EnvRunDepth], "depth is stamped even on a degraded (no reach-back) launch")
+	assert.Equal(t, "false", degraded[EnvRunOneShot], "oneshot is stamped even on a degraded (no reach-back) launch")
+	assert.NotContains(t, degraded, EnvCoordURL, "the trio is still omitted whole on a degraded launch")
+}
+
+// TestEnqueueRun_DepthIncrementsFromCallerDepth pins the depth ARITHMETIC
+// directly: a genuinely delegated child's depth is its CALLER's depth + 1,
+// computed at the AgentRun call site (children.go) and threaded through as
+// enqueueRun's explicit depth parameter — never re-derived inside
+// enqueueRun itself, and never assumed to be a constant 1. A depth-1
+// caller's child must land at depth 2, both on the journaled fact
+// (readable back later as this run's own credential Identity, via
+// applyEnqueued) and on the live childRt.
+func TestEnqueueRun_DepthIncrementsFromCallerDepth(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	c := newTestCoordinator(t, sp, nil)
+
+	caller := Identity{Harp: "some-child", RunID: "run-child", Depth: 1}
+	plan, err := c.spawner.Resolve(context.Background(), "worker")
+	require.NoError(t, err)
+
+	rt, _, err := c.enqueueRun(caller, plan, "grandchild-harp", "go deeper", false, make(chan struct{}), caller.Depth+1)
+	require.NoError(t, err)
+	assert.Equal(t, 2, rt.depth, "a depth-1 caller's child must be depth 2, not a hardcoded 1")
+
+	var rec *RunRecord
+	c.runs.View(func() {
+		if r := c.runsF.run(rt.runID); r != nil {
+			cp := *r
+			rec = &cp
+		}
+	})
+	require.NotNil(t, rec)
+	assert.Equal(t, 2, rec.Depth, "the journaled fact must agree with the live childRt")
+}
+
+// TestAgentRun_OneShotCallerRefusedLoudly pins that a `driving: oneshot`
+// caller may not spawn AT ALL, regardless of depth: a total, LOUD refusal
+// (a real error, no child spawned) — never a nil error with nothing
+// launched, and never silently ignoring OneShot and falling through to the
+// depth check. Depth 0 (which the depth check alone would allow) is the
+// deliberate choice here, so this cannot pass by accident via the depth
+// guard firing for an unrelated reason.
+func TestAgentRun_OneShotCallerRefusedLoudly(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	c := newTestCoordinator(t, sp, nil)
+	caller := Identity{Harp: "oneshot-owner", Depth: 0, OneShot: true}
+
+	_, err := c.AgentRun(context.Background(), caller, "worker", "go deeper", "", "")
+	require.Error(t, err, "a one-shot caller must be refused, not silently accepted with no child")
+	assert.Contains(t, err.Error(), "one-shot")
+	assert.Equal(t, 0, sp.spawnCount(), "no child may be launched for a refused spawn")
+}
+
 // D5 (manly-grant (4)/(5)): the depth-2 echo — parent spawns a depth-1
 // child, the child spawns its OWN depth-2 grandchild (through the exact
 // SAME AgentRun/plane-2 SpawnAgentRequest path a root session uses — flat-
@@ -31,7 +98,11 @@ func workerSpawner() *fakeSpawner {
 
 func TestDepthTwo_MarkerRelayedThroughTwoMailboxes(t *testing.T) {
 	resetStrictness(t)
-	c := newTestCoordinator(t, workerSpawner(), nil)
+	// This test's whole point is exercising a depth-2 grandchild, which the
+	// BUILT-IN default depth cap (1) now refuses — raise it here so the test
+	// still exercises the peer-relay mechanics it targets, independent of
+	// the built-in default's current value.
+	c := newTestCoordinatorDepthCap(t, workerSpawner(), nil, 2)
 
 	// depth 0 -> depth 1
 	child, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "delegate this", "", "")

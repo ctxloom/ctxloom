@@ -81,9 +81,9 @@ rules:
 	})
 }
 
-// A rules file that exists but cannot be parsed must DENY, not error: both hook
-// hosts fail OPEN on a non-zero exit (Claude Code treats exit 1 as non-blocking,
-// agy proceeds on any crashing hook), so a one-character typo in .ltk/config.yaml
+// A rules file that exists but cannot be parsed must DENY, not error: the hook
+// host fails OPEN on a non-zero exit (Claude Code treats exit 1 as
+// non-blocking), so a one-character typo in .ltk/config.yaml
 // erroring out would silently disable every rule.
 func TestEvaluateFailsClosedOnBrokenConfig(t *testing.T) {
 	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
@@ -95,7 +95,6 @@ func TestEvaluateFailsClosedOnBrokenConfig(t *testing.T) {
 
 	payloads := map[string]string{
 		"claude-code": `{"tool_name":"Bash","tool_input":{"command":"git push --force"}}`,
-		"antigravity": `{"toolCall":{"name":"run_command","args":{"CommandLine":"git push --force"}}}`,
 	}
 	for engineName, payload := range payloads {
 		t.Run(engineName, func(t *testing.T) {
@@ -313,7 +312,6 @@ func TestEvaluateFailsClosedOnUnknownShell(t *testing.T) {
 
 	payloads := map[string]string{
 		"claude-code": `{"tool_name":"Bash","tool_input":{"command":"git status"}}`,
-		"antigravity": `{"toolCall":{"name":"run_command","args":{"CommandLine":"git status"}}}`,
 	}
 	for engineName, payload := range payloads {
 		t.Run(engineName, func(t *testing.T) {
@@ -363,93 +361,20 @@ func TestEvaluateFailsClosedOnUnknownEngine(t *testing.T) {
 	}
 }
 
-// TestEvaluateUnknownEngineDetectsRealHostFromPayload pins that the
-// unknown-engine fail-closed branch must not blindly guess claude-code's wire
-// format. Before the fix it always encoded the deny as claude-code — correct
-// by accident when the real host IS claude-code, but on an actual Antigravity
-// host (payload shaped `{"toolCall":{...}}`) the deny rode a format agy does
-// not recognize, so agy's own doc says it "proceeds on any crashing/unreadable
-// hook" — the fail-closed deny was silently invisible, i.e. failed OPEN in
-// practice. With the fix, evaluate tries every registered engine's Decode
-// against the actual payload and fails closed in the format that decoded it.
-func TestEvaluateUnknownEngineDetectsRealHostFromPayload(t *testing.T) {
-	cfgPath := filepath.Join(t.TempDir(), "rules.yaml")
-	cfg := "version: 1\nrules:\n  - id: x\n    match: { command: [git, push, --force] }\n    message: no\n"
-	if err := os.WriteFile(cfgPath, []byte(cfg), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	// An antigravity-shaped payload, but the installed hook names a bogus
-	// --engine (a stale/mistyped hook command).
-	payload := `{"toolCall":{"name":"run_command","args":{"CommandLine":"git status"}}}`
-	out, err := evaluate("not-an-engine", cfgPath, "", strings.NewReader(payload))
-	if err != nil {
-		t.Fatalf("unknown --engine must deny, not error: %v", err)
-	}
-	if out.ExitCode != 0 {
-		t.Fatalf("want exit 0 (fail closed, not fail open), got %+v", out)
-	}
-	got := string(out.Stdout)
-	if strings.Contains(got, "hookSpecificOutput") || strings.Contains(got, "permissionDecision") {
-		t.Errorf("payload was antigravity-shaped but the deny rode claude-code's wire format (invisible to the real host): %s", got)
-	}
-	if !strings.Contains(got, `"decision":"deny"`) {
-		t.Errorf("want antigravity's own deny shape, got %s", got)
-	}
-}
-
-// TestEvaluateFindsConfigFromHookCwd pins the default-config search against
-// Antigravity's hook environment: agy runs hooks with cwd <workspace>/.agents,
-// so the search must walk up to the repository root and find the project's
-// rules — falling back to the built-in allow-all config from there would make
-// the guard silently approve everything.
-func TestEvaluateFindsConfigFromHookCwd(t *testing.T) {
-	ws := t.TempDir()
-	// Mark the workspace as the repository root and place rules + an
-	// out-of-repo decoy that the walk must NOT pick up.
-	for _, dir := range []string{".git", ".ltk", ".agents"} {
-		if err := os.MkdirAll(filepath.Join(ws, dir), 0o755); err != nil {
-			t.Fatal(err)
-		}
-	}
-	cfg := `version: 1
-rules:
-  - id: no-force-push
-    match: { command: [git, push, --force] }
-    message: "no force pushes"
-`
-	if err := os.WriteFile(filepath.Join(ws, ".ltk", "config.yaml"), []byte(cfg), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	decoy := `version: 1
-rules:
-  - id: decoy
-    match: { command: [git] }
-    message: "decoy above the repo root must not load"
-`
-	if err := os.WriteFile(filepath.Join(filepath.Dir(ws), ".ltk.yaml"), []byte(decoy), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Chdir(filepath.Join(ws, ".agents"))
-
-	agyPayload := `{"toolCall":{"name":"run_command","args":{"CommandLine":"git push --force","Cwd":"` + ws + `"}}}`
-	out, err := evaluate("antigravity", "", "", strings.NewReader(agyPayload))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(out.Stdout), `"deny"`) || !strings.Contains(string(out.Stdout), "no force pushes") {
-		t.Fatalf("project rules must apply from the .agents hook cwd, got %+v", out)
-	}
-
-	allowOut, err := evaluate("antigravity", "", "", strings.NewReader(
-		`{"toolCall":{"name":"run_command","args":{"CommandLine":"git status"}}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(allowOut.Stdout), "decoy") {
-		t.Fatalf("config above the repository root must not be loaded: %+v", allowOut)
-	}
-}
+// TestEvaluateUnknownEngineDetectsRealHostFromPayload and
+// TestEvaluateFindsConfigFromHookCwd used to pin two-host (Claude Code +
+// Antigravity) behavior — the unknown-engine fail-closed branch picking the
+// wire format that actually decoded the payload (rather than blindly
+// guessing claude-code), and the default-config search walking up from
+// Antigravity's `.agents` hook cwd to find project rules. Both were deleted
+// with antigravity in 0.7.0: ltk now has exactly one registered host
+// (engine.engines() == []Engine{ClaudeCode{}}), so there is no second wire
+// format for the first test to disambiguate and no second hook cwd for the
+// second to search from. denyUnknownEngine's every-registered-engine loop and
+// loadConfig's ancestor walk both remain general-purpose (see their own
+// docs) for whichever engine is added next; this is not a design reversion,
+// only the loss of the second data point that made these two tests
+// meaningful.
 
 // TestEvaluateNoConfigFoundAnywhereWarns is a DEFECT WITH NO CENSUS ROW found
 // while walking the guardrail flow's fail-open paths: when no rules config
@@ -694,19 +619,6 @@ rules:
 		}
 	})
 
-	t.Run("antigravity denies too", func(t *testing.T) {
-		payload := `{"toolCall":{"name":"edit_file_v2","args":{}}}`
-		out, err := evaluate("antigravity", cfgPath, "", strings.NewReader(payload))
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(out.Stdout), "edit_file_v2") {
-			t.Errorf("an ungated agy tool must be named in the deny reason, got stdout=%q", out.Stdout)
-		}
-		if !strings.Contains(string(out.Stdout), `"deny"`) {
-			t.Errorf("agy must also deny, got stdout=%q", out.Stdout)
-		}
-	})
 }
 
 // The 2026-07-24 incident, end to end through the real `ltk evaluate` path: a

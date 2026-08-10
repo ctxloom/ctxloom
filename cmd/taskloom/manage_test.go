@@ -205,13 +205,13 @@ func TestManageCheck_UnreadableConfigIsReportedNotSkipped(t *testing.T) {
 	proj := t.TempDir()
 	// A directory where the config file belongs: os.ReadFile fails with a
 	// real error that is not fs.ErrNotExist, on every platform and every uid.
-	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".agents", "mcp_config.json"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".kiro", "settings", "mcp.json"), 0o755))
 
 	var out bytes.Buffer
 	require.NoError(t, manageCheck(proj, &out))
 
 	assert.Contains(t, out.String(), "unreadable",
 		"a config that cannot be read must be reported, not silently skipped")
-	assert.Contains(t, out.String(), filepath.Join(proj, ".agents", "mcp_config.json"),
+	assert.Contains(t, out.String(), filepath.Join(proj, ".kiro", "settings", "mcp.json"),
 		"the report must name the path that could not be read")
 }

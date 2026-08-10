@@ -89,10 +89,12 @@ type Record struct {
 	// is an open contract decision; it cannot be settled by normalizing here,
 	// because "mock" has no enum member to normalize onto.
 	//
-	// antigravity's lines do not arrive through the structured tee: its
-	// StructuredChat is a bespoke prose driver over `agy -p` rather than
-	// internal/acp.NewChatDriver, so its canonical lines come from the
-	// oneshot/reader regimes (plan §2d), which stamp Engine the same way.
+	// antigravity's lines (before the engine was removed in 0.7.0) never
+	// arrived through the structured tee either: its StructuredChat was a
+	// bespoke prose driver over `agy -p` rather than internal/acp.NewChatDriver,
+	// so its canonical lines came from the oneshot/reader regimes (plan §2d),
+	// which stamp Engine the same way — a fact still worth knowing when
+	// reading one of its historical transcripts back.
 	Engine string `json:"engine"`
 	// Seq is monotonically increasing per transcript, starting at 0, with NO
 	// gaps — the ordering key. A reader can detect truncation/corruption by a

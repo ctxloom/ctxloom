@@ -17,8 +17,8 @@ Feature: container — the images isolated agents run in, and the questions you 
   container build` needs a real container runtime, network pulls of each
   engine's official installer, and minutes of wall clock. It is listed in
   completeness_test.go's excludedLeaves for exactly that reason, and no
-  scenario here drives it; the containerized run path is exercised behind the
-  @container tag (j002400_container.feature), which the default suite skips.
+  scenario here drives it; the containerized run path is exercised by
+  j002400_container.feature, behind a tag the default suite skips.
   What IS specifiable without a runtime is everything around it: the read-only
   diagnosis, the file scaffold, the trust-gated collection, and the namespace's
   own dispatch. `container provenance` is hidden plumbing (the digest the

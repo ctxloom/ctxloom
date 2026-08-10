@@ -20,6 +20,7 @@ package acceptance
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,13 @@ func registerCompanionConsentSteps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^a discovered companion "([^"]*)" is on PATH, never confirmed$`, func(c context.Context, bin string) error {
 		w := worldFrom(c)
 		return installUnconfirmedCompanion(w, bin)
+	})
+
+	// The first-party PROVENANCE fixture. See installFirstPartyBesideCtxloom
+	// for why co-location is the only way to reproduce the exemption.
+	ctx.Step(`^ctxloom is installed beside a first-party companion "([^"]*)"$`, func(c context.Context, bin string) error {
+		w := worldFrom(c)
+		return installFirstPartyBesideCtxloom(w, bin)
 	})
 
 	ctx.Step(`^the companion "([^"]*)" was never executed$`, func(c context.Context, bin string) error {
@@ -77,6 +85,18 @@ func installUnconfirmedCompanion(w *World, bin string) error {
 	if err != nil {
 		return fmt.Errorf("create unconfirmed companion dir: %w", err)
 	}
+	if err := writeFakeCompanion(w, dir, bin); err != nil {
+		return err
+	}
+	prependPATH(w, dir)
+	return nil
+}
+
+// writeFakeCompanion writes the witnessing fake named bin into dir. Split out
+// of installUnconfirmedCompanion so the first-party fixture below installs the
+// IDENTICAL binary: the only thing that differs between the two scenarios is
+// WHERE it resolves from, which is the entire content of the provenance rule.
+func writeFakeCompanion(w *World, dir, bin string) error {
 	witness := filepath.Join(w.env.Root, companionWitnessName)
 	script := fmt.Sprintf(`#!/bin/sh
 printf '%s %%s\n' "$1" >> %q
@@ -87,10 +107,77 @@ esac
 `, bin, witness, bin)
 	path := filepath.Join(dir, bin)
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil { //nolint:gosec // a fake companion must be executable
-		return fmt.Errorf("write unconfirmed companion %q: %w", bin, err)
+		return fmt.Errorf("write fake companion %q: %w", bin, err)
 	}
-	pathSep := string(os.PathListSeparator)
-	w.env.SetEnv("PATH", dir+pathSep+os.Getenv("PATH"))
+	return nil
+}
+
+// prependPATH puts dir ahead of everything else on $PATH, so a fake shadows
+// any same-named binary this developer really has installed.
+func prependPATH(w *World, dir string) {
+	w.env.SetEnv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+}
+
+// installFirstPartyBesideCtxloom reproduces the ONE place in the trust model
+// where a missing record does not deny: a shipped companion (ltk, taskloom,
+// reprise) resolving from the directory the running ctxloom binary itself
+// lives in is executed with no consent record at all (docs/trust-model.md,
+// "First-party companions are exempt, but pinned by location").
+//
+// It copies the ctxloom under test into a fresh directory, writes the fake
+// companion BESIDE it, prepends that directory to $PATH, and repoints the
+// environment at the copy — so config.companionInstallDir (which is
+// os.Executable's own directory, by construction) and the companion's
+// resolved path are the same directory.
+//
+// The co-location is unavoidable, and that is the point of the step existing
+// at all: the exemption is pinned to where the RUNNING binary lives precisely
+// so that nothing an env var, a config key or a recorded install path can say
+// will move it. Reproducing it therefore means moving the binary, which is
+// what this does. No consent is granted anywhere here: if the exemption
+// stopped working, the fake would be refused as unconfirmed and the scenario
+// would go red rather than quietly proving nothing.
+func installFirstPartyBesideCtxloom(w *World, bin string) error {
+	dir, err := os.MkdirTemp(w.env.Root, "install-dir-*")
+	if err != nil {
+		return fmt.Errorf("create fake install dir: %w", err)
+	}
+	copied := filepath.Join(dir, "ctxloom")
+	if err := copyExecutable(w.env.AppBinary, copied); err != nil {
+		return err
+	}
+	if err := writeFakeCompanion(w, dir, bin); err != nil {
+		return err
+	}
+	prependPATH(w, dir)
+	// Every later `I run "ctxloom ..."` in this scenario runs the COPY, which
+	// is what makes its own directory the install directory.
+	w.env.AppBinary = copied
+	return nil
+}
+
+// copyExecutable copies src to dst with the executable bit set. A copy rather
+// than a symlink: config.companionInstallDir resolves symlinks before taking
+// the directory, so a symlinked ctxloom would report the directory it points
+// AT — the real build output — and the companion beside the link would not
+// match it.
+func copyExecutable(src, dst string) error {
+	in, err := os.Open(src) //nolint:gosec // the ctxloom binary under test
+	if err != nil {
+		return fmt.Errorf("open ctxloom binary %q: %w", src, err)
+	}
+	defer func() { _ = in.Close() }()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755) //nolint:gosec // it must be executable
+	if err != nil {
+		return fmt.Errorf("create %q: %w", dst, err)
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return fmt.Errorf("copy ctxloom binary to %q: %w", dst, err)
+	}
+	if err := out.Close(); err != nil {
+		return fmt.Errorf("close %q: %w", dst, err)
+	}
 	return nil
 }
 

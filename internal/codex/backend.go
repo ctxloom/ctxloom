@@ -86,7 +86,7 @@ type Codex struct {
 }
 
 // NewCodex creates a new Codex backend with default settings. Its InitLaunch
-// call necessarily diverges from NewAntigravity/NewClaudeCode/NewKiro's: codex
+// call necessarily diverges from NewClaudeCode/NewKiro's: codex
 // alone needs Setup-time state (resolvedProjectDir/resolvedTrustAbsPath, see
 // buildSurfaces) threaded into its CellDelivery.Build, so it supplies a bound
 // method instead of the shared agent.BuildWellKnown every other well-known-

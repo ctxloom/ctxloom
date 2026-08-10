@@ -76,8 +76,8 @@ func newContextSurface(context string, isolated agent.Placement, fs afero.Fs) *c
 // reversal of a MARKER-MERGED write. (Before markers landed, this used
 // fs.Remove to reverse a whole-file write; a plain removal would now delete
 // hand-authored content that lived outside the markers.) This is the shared
-// agent.DeliverManagedContext shape, the same one antigravity's AGENTS.md and
-// codex's AGENTS.md context surfaces use.
+// agent.DeliverManagedContext shape, the same one
+// codex's AGENTS.md context surface uses.
 func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	return agent.DeliverManagedContext(&ClaudeCodeHookWriter{FS: s.fs}, dir, s.context)
 }
@@ -271,7 +271,7 @@ type Surfaces struct {
 // defaults to the OS filesystem. Every surface's well-known Delivery takes its
 // target dir at call time, so only the race-safe variants bind isolated here.
 //
-// It takes the SHARED agent.SurfaceInputs, exactly as antigravity/kiro/opencode
+// It takes the SHARED agent.SurfaceInputs, exactly as kiro/opencode
 // do. A local copy of it (agent.SurfaceInputs minus Fragments) would force two
 // hand-maintained field-by-field mappers — claudecode.go's buildSurfaces and
 // lm/backends/registry.go's newSurfaces closure — and those drift: one copied

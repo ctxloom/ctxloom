@@ -90,7 +90,7 @@
 // still no agent.Delivery surface objects here (an empty set is not a
 // surface), consistent with the opt-out this section records.
 //
-// The other launch backends (claude, codex, antigravity, kiro) each
+// The other launch backends (claude, codex, kiro) each
 // materialize their loadout as files at engine-native well-known paths —
 // CLAUDE.md, .mcp.json, .codex/config.toml, .agents/*, .kiro/* — so each gets
 // a set of agent.Delivery surface objects the isolation cells dispatch. The

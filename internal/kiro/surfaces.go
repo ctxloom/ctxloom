@@ -61,8 +61,8 @@ type contextSurface struct {
 
 // Deliver writes the steering file via WriteContext and returns a handle whose
 // Cleanup removes it (writing empty context). This is the shared
-// agent.DeliverManagedContext shape, the same one antigravity's AGENTS.md,
-// claude's CLAUDE.md, and codex's AGENTS.md context surfaces use.
+// agent.DeliverManagedContext shape, the same one
+// claude's CLAUDE.md and codex's AGENTS.md context surfaces use.
 func (s *contextSurface) Deliver(dir string) (agent.Delivered, error) {
 	return agent.DeliverManagedContext(&KiroWriter{FS: s.fs}, dir, s.context)
 }
@@ -210,10 +210,11 @@ type Surfaces struct {
 // BEFORE the commands delivery is built (via
 // agent.NewSkillShapedCommandsAndSkills), so the skill-wins collision
 // resolution (D6) is baked in here, once, rather than duplicated at every call
-// site — the SAME shared constructor antigravity's NewSurfaces calls (its
-// commands surface converged on the identical SKILL.md shape via the G3 fix),
-// so the two engines' identical assembly sequence lives in ONE place instead
-// of two.
+// site — kiro is currently the only caller of this shared constructor (a
+// prior antigravity caller converged on the identical SKILL.md shape via the
+// G3 fix before the engine was removed in 0.7.0), kept shared rather than
+// inlined so the next engine with this same skill/command collision reuses
+// it instead of a third copy.
 func NewSurfaces(in agent.SurfaceInputs, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	context := &contextSurface{context: in.Context, fs: fs}

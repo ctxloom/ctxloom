@@ -342,7 +342,7 @@ func TestContextDelivery_DistinctHarpsDistinctScratch(t *testing.T) {
 }
 
 // TestSetup_FragmentsAssemblingToNothingIsLoud closes a real divergence: a
-// backend whose context rides the RAW CACHE FILE (codex, antigravity, kiro)
+// backend whose context rides the RAW CACHE FILE (codex, kiro)
 // already refuses this exact input: Provide → WriteContextFile
 // returns agent.ErrNoContext, deliberately distinct from the no-fragments case,
 // because "the user configured no context" and "every fragment the user

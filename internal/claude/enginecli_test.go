@@ -291,8 +291,8 @@ func TestEngineCLI_ProbesMatchTheWriters(t *testing.T) {
 	assert.Equal(t, w.MCPConfigPath(dir), filepath.Join(dir, byKind(agent.ProbeKindMCP).Rel))
 	assert.Equal(t, filepath.Join(dir, ContextFileName), filepath.Join(dir, byKind(agent.ProbeKindContext).Rel))
 
-	// claude reads CLAUDE.md and NOT AGENTS.md — the divergence from codex and
-	// antigravity that makes this contract worth having.
+	// claude reads CLAUDE.md and NOT AGENTS.md — the divergence from codex
+	// that makes this contract worth having.
 	for _, p := range cli.Probes {
 		assert.NotEqual(t, "AGENTS.md", p.Rel, "claude does not read AGENTS.md")
 	}

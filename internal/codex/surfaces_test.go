@@ -191,15 +191,15 @@ func TestAgentsMDSurface_DeliverWritesAGENTSmdFromContextString(t *testing.T) {
 // Empty context writes nothing to disk (the file never existed, so
 // WriteContext("") is a harmless no-op), but — unlike contextSurface's
 // hash-file route — Deliver still returns a real handle: agentsMDSurface
-// follows antigravity's and claude's own native-file ContextWriter surfaces,
-// which always deliver.
+// follows claude's own native-file ContextWriter surface,
+// which always delivers.
 func TestAgentsMDSurface_EmptyContextStillDelivers(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	s := NewSurfaces(agent.SurfaceInputs{}, "", "", fs)
 
 	handle, err := s.AgentsMD.Deliver("/proj")
 	require.NoError(t, err)
-	require.NotNil(t, handle, "matches antigravity/claude's own always-delivers context surface")
+	require.NotNil(t, handle, "matches claude's own always-delivers context surface")
 
 	exists, _ := afero.Exists(fs, "/proj/AGENTS.md")
 	assert.False(t, exists, "empty content creates nothing")

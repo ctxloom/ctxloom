@@ -238,13 +238,6 @@ var matrixSpecs = map[string]deliverySpec{
 	"codex/commands/unsafe-file": {wantFile: ".codex/prompts/ctxsentinelcmd.md", wantSlot: slotCommand},
 	"codex/skills/unsafe-file":   {wantFile: ".codex/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 
-	// ---- antigravity -------------------------------------------------------
-	"antigravity/context/unsafe-file":  {wantFile: ".agents/AGENTS.md", wantSlot: slotContext},
-	"antigravity/mcp/unsafe-file":      {wantFile: ".agents/mcp_config.json", wantSlot: slotMCPCmd},
-	"antigravity/settings/unsafe-file": {wantFile: ".agents/hooks.json", wantSlot: slotHook},
-	"antigravity/commands/unsafe-file": {wantFile: ".agents/skills/ctxsentinelcmd/SKILL.md", wantSlot: slotCommand},
-	"antigravity/skills/unsafe-file":   {wantFile: ".agents/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
-
 	// ---- kiro --------------------------------------------------------------
 	"kiro/context/unsafe-file":  {wantFile: ".kiro/steering/ctxloom-context.md", wantSlot: slotContext},
 	"kiro/mcp/unsafe-file":      {wantFile: ".kiro/settings/mcp.json", wantSlot: slotMCPCmd},
@@ -264,7 +257,7 @@ var matrixSpecs = map[string]deliverySpec{
 	// ---- mock ----------------------------------------------------------
 	// mock declares context and skills (mock_surfaces.go's mockApproaches):
 	// a hermetic, managed-marker MOCK_CONTEXT.md at the target dir root — the
-	// same DeliverManagedContext shape claude's CLAUDE.md and antigravity's
+	// same DeliverManagedContext shape claude's CLAUDE.md and codex's
 	// AGENTS.md use — and a hermetic .mock/skills/ package tree through the
 	// same agent.WriteManagedSkillPackages writer every real engine's skills
 	// surface goes through. Its hook loss is declared via noHooksReason
@@ -484,9 +477,9 @@ func containsApproachValue(list []agent.Approach, a agent.Approach) bool {
 // does not support must fail agent.SurfaceSelection.Build with the SUPPORTED SET
 // in the message, not deliver a different approach's file.
 func TestDeliveryApproach_UndeclaredApproachFailsTheBuilder(t *testing.T) {
-	// kiro/antigravity/opencode declare context as unsafe-file ONLY, so both the
+	// kiro/opencode declare context as unsafe-file ONLY, so both the
 	// hook and the system-prompt approaches must be refused by the builder.
-	for _, name := range []string{"kiro", "antigravity", "opencode"} {
+	for _, name := range []string{"kiro", "opencode"} {
 		for _, w := range []struct {
 			label string
 			write agent.ContextWrite

@@ -31,18 +31,14 @@ package operations
 
 import (
 	"context"
-	"crypto/ed25519"
-	"crypto/rand"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
 	"github.com/ctxloom/ctxloom/internal/claude"
@@ -51,7 +47,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
-	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -189,30 +184,6 @@ func TestManagedSettings_ClaudeCode(t *testing.T) {
 }
 
 // TestManagedSettings_Antigravity tests writing Antigravity hooks with FS injection.
-func TestManagedSettings_Antigravity(t *testing.T) {
-	fs := afero.NewMemMapFs()
-
-	hooks := &wire.HooksConfig{
-		Unified: wire.UnifiedHooks{
-			SessionStart: []wire.Hook{
-				{Command: "echo hello", Type: "command"},
-			},
-		},
-	}
-
-	deliverManagedSettings(t, "antigravity", hooks, nil, nil, true, "/project", fs)
-
-	// Verify hooks file was created
-	exists, err := afero.Exists(fs, "/project/.agents/hooks.json")
-	require.NoError(t, err)
-	assert.True(t, exists, ".agents/hooks.json should be created")
-
-	// Read and verify content contains hooks
-	content, err := afero.ReadFile(fs, "/project/.agents/hooks.json")
-	require.NoError(t, err)
-	assert.Contains(t, string(content), "hooks")
-}
-
 // TestManagedSettings_UnsupportedBackend tests that unsupported backends deliver
 // nothing (EmptySurfaceSet) rather than erroring.
 func TestManagedSettings_UnsupportedBackend(t *testing.T) {
@@ -365,41 +336,6 @@ func TestApplyHooks_ClaudeCodeOnly(t *testing.T) {
 	assert.False(t, exists)
 }
 
-// TestApplyHooks_AntigravityOnly tests applying hooks to the Antigravity backend only.
-func TestApplyHooks_AntigravityOnly(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	tmpDir := "/project"
-
-	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			Hooks: wire.HooksConfig{
-				Unified: wire.UnifiedHooks{
-					SessionStart: []wire.Hook{
-						{Command: "echo test", Type: "command"},
-					},
-				},
-			},
-		}), nil
-	}
-
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:      "antigravity",
-		FS:           fs,
-		ConfigLoader: mockConfigLoader,
-		WorkDir:      tmpDir,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, "applied", result.Status)
-	assert.Contains(t, result.Backends, "antigravity")
-	assert.NotContains(t, result.Backends, "claude-code")
-
-	// Verify Antigravity hooks file was created
-	exists, err := afero.Exists(fs, "/project/.agents/hooks.json")
-	require.NoError(t, err)
-	assert.True(t, exists)
-}
-
 // TestApplyHooks_AllBackends tests applying hooks to all backends.
 func TestApplyHooks_AllBackends(t *testing.T) {
 	fs := afero.NewMemMapFs()
@@ -426,19 +362,14 @@ func TestApplyHooks_AllBackends(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, "applied", result.Status)
-	assert.Len(t, result.Backends, 5)
+	assert.Len(t, result.Backends, 4)
 	assert.Contains(t, result.Backends, "claude-code")
-	assert.Contains(t, result.Backends, "antigravity")
 	assert.Contains(t, result.Backends, "codex")
 	assert.Contains(t, result.Backends, "kiro")
 	assert.Contains(t, result.Backends, "opencode")
 
 	// Verify each backend's settings file was created
 	exists, err := afero.Exists(fs, "/project/.claude/settings.json")
-	require.NoError(t, err)
-	assert.True(t, exists)
-
-	exists, err = afero.Exists(fs, "/project/.agents/hooks.json")
 	require.NoError(t, err)
 	assert.True(t, exists)
 
@@ -474,7 +405,7 @@ func TestApplyHooks_DefaultBackend(t *testing.T) {
 	})
 
 	require.NoError(t, err)
-	assert.Len(t, result.Backends, 5)
+	assert.Len(t, result.Backends, 4)
 }
 
 // TestApplyHooks_ConfigLoadError tests error handling when config load fails.
@@ -959,104 +890,6 @@ func TestApplyHooks_Codex_NoNativeContextFile(t *testing.T) {
 	assert.True(t, exists, "codex's config.toml must be written")
 }
 
-// TestApplyHooks_RegenerateContext_AntigravityAgentsMD pins the antigravity
-// context-delivery channel end to end: agy fires no SessionStart hooks, so
-// ApplyHooks with RegenerateContext must land the assembled context in the
-// managed section of .agents/AGENTS.md (which agy reads), and the injection
-// hook must NOT appear as a dead entry in .agents/hooks.json.
-//
-// A companion loadout (S8) is faked to contribute a real PostFileEdit hook —
-// standing in for taskloom's stamp-plan, which used to come from the now-
-// deleted embedded builtin bundle. Without SOME real managed hook content,
-// antigravity's hooks.json writer intentionally never creates a stray empty
-// file (internal/antigravity/antigravity.go's saveHooksFile: "never create a
-// stray empty {} file"), which would make this test's hooks.json read fail
-// for a reason that has nothing to do with what it's actually pinning. The
-// fake loadout is SIGNED and its key TRUSTED (a project allowed_signers
-// entry) so the real executable trust gate ApplyHooks wires in (TR5) allows
-// it through as trusted-signer, rather than withholding it pending review —
-// an unsigned companion hook would silently make this test assert on
-// nothing, for reasons unrelated to what it pins.
-func TestApplyHooks_RegenerateContext_AntigravityAgentsMD(t *testing.T) {
-	defer config.AdmitEveryDiscoveredCompanionForTesting()()
-	t.Setenv("HOME", t.TempDir())
-	tmpDir := t.TempDir()
-	appDir := filepath.Join(tmpDir, ".ctxloom")
-	bundlesDir := filepath.Join(appDir, "content", "bundles")
-	require.NoError(t, os.MkdirAll(bundlesDir, 0755))
-
-	bundleContent := `version: "1.0"
-description: Test bundle
-fragments:
-  security-rules:
-    tags: ["security"]
-    content: |
-      ## Security Rules
-      - Always validate input
-`
-	require.NoError(t, os.WriteFile(filepath.Join(bundlesDir, "dev.yaml"), []byte(bundleContent), 0644))
-
-	restoreLook := config.SetLookPathForTesting(func(bin string) (string, error) {
-		if bin == "taskloom" {
-			return "/fake/taskloom", nil
-		}
-		return "", exec.ErrNotFound
-	})
-	defer restoreLook()
-
-	_, priv, err := ed25519.GenerateKey(rand.Reader)
-	require.NoError(t, err)
-	sshSigner, err := ssh.NewSignerFromSigner(priv)
-	require.NoError(t, err)
-	pubLine := string(ssh.MarshalAuthorizedKey(sshSigner.PublicKey()))
-	require.NoError(t, os.WriteFile(filepath.Join(appDir, "allowed_signers"),
-		[]byte("taskloom@example.com namespaces=\""+signing.NamespacePublish+"\" "+pubLine), 0644))
-
-	loadoutYAML := []byte("version: \"1.0.0\"\nhooks:\n  post_file_edit:\n    - command: ctxloom hook stamp-plan\n      type: command\n")
-	sig, err := signing.Sign(loadoutYAML, sshSigner, signing.NamespacePublish)
-	require.NoError(t, err)
-	envelope, err := signing.EncodeLoadoutEnvelope(loadoutYAML, sig, "taskloom@example.com")
-	require.NoError(t, err)
-	restoreProbe := config.SetCompanionLoadoutOutputForTesting(func(string) ([]byte, error) { return envelope, nil })
-	defer restoreProbe()
-
-	mockConfigLoader := func() (*config.Config, error) {
-		return config.NewFixture(config.Fixture{
-			AppPaths:     []string{appDir},
-			DefaultAgent: "default",
-			Agents:       map[string]agents.Agent{"default": {Profiles: []string{"default"}}},
-			Profiles: config.ProfilesConfig{
-				Definitions: map[string]config.Profile{
-					"default": {
-						SelectTags: []string{"security"},
-					},
-				},
-			},
-		}), nil
-	}
-
-	result, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:           "antigravity",
-		RegenerateContext: true,
-		ConfigLoader:      mockConfigLoader,
-		WorkDir:           tmpDir,
-	})
-
-	require.NoError(t, err)
-	assert.Equal(t, "applied", result.Status)
-	require.NotEmpty(t, result.ContextHash)
-
-	agentsMD, err := os.ReadFile(filepath.Join(tmpDir, ".agents", "AGENTS.md"))
-	require.NoError(t, err, ".agents/AGENTS.md must carry the assembled context")
-	assert.Contains(t, string(agentsMD), "Always validate input")
-	assert.Contains(t, string(agentsMD), "ctxloom:context:begin")
-
-	hooksJSON, err := os.ReadFile(filepath.Join(tmpDir, ".agents", "hooks.json"))
-	require.NoError(t, err)
-	assert.NotContains(t, string(hooksJSON), "inject-context",
-		"the SessionStart injection hook never fires on agy and must not be registered")
-}
-
 // TestApplyHooks_RegenerateContextSubstitutesVariables pins parity with
 // AssembleContext: profile-declared variables must be substituted into the
 // regenerated context file. regenerateContext is a second assembly of the
@@ -1103,11 +936,11 @@ fragments:
 		}), nil
 	}
 
-	agentsMDPath := filepath.Join(tmpDir, ".agents", "AGENTS.md")
+	agentsMDPath := filepath.Join(tmpDir, "AGENTS.md")
 
 	// First apply: succeeds, installs real managed context.
 	result1, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:           "antigravity",
+		Backend:           "codex",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,
@@ -1115,7 +948,7 @@ fragments:
 	require.NoError(t, err)
 	require.Equal(t, "applied", result1.Status)
 	before, err := os.ReadFile(agentsMDPath)
-	require.NoError(t, err, ".agents/AGENTS.md must carry the assembled context after the first apply")
+	require.NoError(t, err, "AGENTS.md must carry the assembled context after the first apply")
 	require.Contains(t, string(before), "Always validate input")
 
 	// Force the NEXT regeneration to genuinely fail: WriteContextFile's
@@ -1128,7 +961,7 @@ fragments:
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "cache"), []byte("blocking file"), 0644))
 
 	result2, err := ApplyHooks(context.Background(), ApplyHooksRequest{
-		Backend:           "antigravity",
+		Backend:           "codex",
 		RegenerateContext: true,
 		ConfigLoader:      mockConfigLoader,
 		WorkDir:           tmpDir,

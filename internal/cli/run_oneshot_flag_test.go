@@ -68,22 +68,20 @@ func TestRunOneShot_StaysMutuallyExclusiveWithStructured(t *testing.T) {
 	assert.Contains(t, err.Error(), "one-shot")
 }
 
-// TestACPClient_RequiresOneShotToBeStated is the loud half of giving the acp
-// leaf the same flag.
+// TestACPRun_DrawsTheSameModeSplitAsRun pins that the acp leaf splits its two
+// forms on the same flag, in the same word, as root `run`.
 //
-// `acp run` drives exactly one turn and has no interactive form. A flag
-// named --one-shot implies a bare invocation is something else, so accepting a
-// bare one would teach a caller that they had opened a session when they had
-// not. Requiring the flag says the same thing the interactive capability would
-// say, without inventing capability that does not exist. Whether that leaf
-// SHOULD grow an interactive form is a product question, not this flag's to
-// answer.
-func TestACPClient_RequiresOneShotToBeStated(t *testing.T) {
+// Bare is the session — a conversation you keep talking to — and --one-shot is
+// the single turn. The flag is optional on both leaves BECAUSE both forms
+// exist on both: a required --one-shot would say that the other form does not,
+// and a caller reading `run` help would learn a rule that the acp leaf then
+// breaks.
+func TestACPRun_DrawsTheSameModeSplitAsRun(t *testing.T) {
 	flags := acpRunCmd.Flags()
 	require.NotNil(t, flags.Lookup("one-shot"), "acp run takes the same --one-shot spelling as run")
 
-	assert.Error(t, acpRunCmd.ValidateRequiredFlags(),
-		"a bare `acp run` must refuse rather than behave as a one-shot its own flag says it is not")
+	assert.NoError(t, acpRunCmd.ValidateRequiredFlags(),
+		"a bare `acp run` opens a session, so naming the single-turn mode is a choice, not a requirement")
 
 	saved := acpRunOneShot
 	t.Cleanup(func() {
@@ -93,6 +91,4 @@ func TestACPClient_RequiresOneShotToBeStated(t *testing.T) {
 	})
 	require.NoError(t, flags.Set("one-shot", "true"))
 	assert.True(t, acpRunOneShot, "--one-shot must write through to acpRunOneShot")
-	assert.NoError(t, acpRunCmd.ValidateRequiredFlags(),
-		"stating the mode satisfies the requirement")
 }

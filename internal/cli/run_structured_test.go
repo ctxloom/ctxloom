@@ -49,14 +49,14 @@ func TestDecodeMessageLine(t *testing.T) {
 	}
 }
 
-// TestReadMessagesLoop: each input line becomes one message, decoded, in order;
-// the loop returns at EOF.
-func TestReadMessagesLoop(t *testing.T) {
+// TestPumpTurns: each input line becomes one message, decoded, in order;
+// the pump returns at EOF.
+func TestPumpTurns(t *testing.T) {
 	// Two lines; the second carries an escaped tab to prove decoding runs.
 	in := strings.NewReader("hello\nwo\\trld\n")
 	out := make(chan agent.ChatMessage, 8)
 
-	require.NoError(t, readMessagesLoop(context.Background(), in, out))
+	require.NoError(t, pumpTurns(context.Background(), chatTurns{Stdin: in}, out))
 	close(out)
 
 	var got []string
@@ -68,11 +68,11 @@ func TestReadMessagesLoop(t *testing.T) {
 	assert.Equal(t, "wo\trld", got[1])
 }
 
-// TestReadMessagesLoop_NoTrailingNewline: a final line without a newline is
+// TestPumpTurns_NoTrailingNewline: a final line without a newline is
 // still delivered.
-func TestReadMessagesLoop_NoTrailingNewline(t *testing.T) {
+func TestPumpTurns_NoTrailingNewline(t *testing.T) {
 	out := make(chan agent.ChatMessage, 2)
-	require.NoError(t, readMessagesLoop(context.Background(), strings.NewReader("only line"), out))
+	require.NoError(t, pumpTurns(context.Background(), chatTurns{Stdin: strings.NewReader("only line")}, out))
 	close(out)
 
 	var got []string
@@ -80,6 +80,67 @@ func TestReadMessagesLoop_NoTrailingNewline(t *testing.T) {
 		got = append(got, m.Text)
 	}
 	assert.Equal(t, []string{"only line"}, got)
+}
+
+// TestPumpTurns_LeadRidesTheFirstTurnOnly pins where assembled context goes in
+// a conversation: into the first turn, once.
+//
+// The engine is asked a question, and the context is what that question is to
+// be read against — so it travels WITH a turn rather than as a turn of its
+// own. Repeating it on every turn would re-send the whole assembled context
+// with each line typed, which reads as an engine being told the same thing
+// over and over and costs the caller for it every time.
+func TestPumpTurns_LeadRidesTheFirstTurnOnly(t *testing.T) {
+	out := make(chan agent.ChatMessage, 8)
+	require.NoError(t, pumpTurns(context.Background(), chatTurns{
+		Lead:  "house rules",
+		Stdin: strings.NewReader("first\nsecond\n"),
+	}, out))
+	close(out)
+
+	var got []string
+	for m := range out {
+		got = append(got, m.Text)
+	}
+	require.Len(t, got, 2)
+	assert.Equal(t, "house rules\n\nfirst", got[0])
+	assert.Equal(t, "second", got[1])
+}
+
+// TestPumpTurns_OpeningIsTheFirstTurn: a prompt supplied by the caller (the
+// command line) is a turn like any other, taken before the reader is consulted
+// — and it is the turn the lead context rides.
+func TestPumpTurns_OpeningIsTheFirstTurn(t *testing.T) {
+	out := make(chan agent.ChatMessage, 8)
+	require.NoError(t, pumpTurns(context.Background(), chatTurns{
+		Lead:    "house rules",
+		Opening: "opening question",
+		Stdin:   strings.NewReader("typed follow-up\n"),
+	}, out))
+	close(out)
+
+	var got []string
+	for m := range out {
+		got = append(got, m.Text)
+	}
+	require.Len(t, got, 2)
+	assert.Equal(t, "house rules\n\nopening question", got[0])
+	assert.Equal(t, "typed follow-up", got[1])
+}
+
+// TestPumpTurns_NoReaderTakesTheOpeningTurnAlone: a caller with an opening
+// turn and no reader gets that turn and then EOF, rather than a nil-reader
+// panic — the shape a non-interactive caller of the same loop has.
+func TestPumpTurns_NoReaderTakesTheOpeningTurnAlone(t *testing.T) {
+	out := make(chan agent.ChatMessage, 2)
+	require.NoError(t, pumpTurns(context.Background(), chatTurns{Opening: "just this"}, out))
+	close(out)
+
+	var got []string
+	for m := range out {
+		got = append(got, m.Text)
+	}
+	assert.Equal(t, []string{"just this"}, got)
 }
 
 func chatEvents(evs ...agent.ChatEvent) <-chan agent.ChatEvent {

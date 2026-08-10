@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
@@ -32,17 +33,44 @@ import (
 // servers Setup would write to the engine's settings file ride the session
 // instead.
 func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, mcpServers []agent.ChatMCPServer, format string, stdin io.Reader, stdout io.Writer) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	opts := req.GetOptions()
-	in, events, errs, err := client.Chat(ctx, agent.ChatRequest{
+	return runChatSession(ctx, client, agent.ChatRequest{
 		WorkDir:     opts.GetWorkDir(),
 		Model:       opts.GetModel(),
 		Env:         opts.GetEnv(),
 		Permissions: agent.WireMode(opts.GetPermissionMode()),
 		MCPServers:  mcpServers,
-	})
+	}, chatTurns{Stdin: stdin}, format, stdout)
+}
+
+// chatTurns names where one conversation's turns come from, so a caller says
+// it once instead of threading three loose strings through the driver.
+//
+// Lead is ctxloom's assembled context. It is not a turn: it rides the FIRST
+// turn as its lead block — the same delivery `ctxloom acp serve` gives an
+// editor's first prompt — so the engine reads the opening question against
+// the context it was assembled for. Sending it as a turn of its own would ask
+// the engine to answer a pile of fragments.
+type chatTurns struct {
+	Lead string
+	// Opening is a turn the caller already has (a prompt on the command
+	// line). Empty means the conversation opens with whatever is read first.
+	Opening string
+	// Stdin is the turn source read after Opening, one line per turn, until
+	// EOF ends the conversation. nil = the Opening turn is the whole
+	// conversation.
+	Stdin io.Reader
+}
+
+// runChatSession opens the engine's structured chat and drives turns through
+// it until the conversation ends. It is the shared body of every multi-turn
+// CLI surface — `run --structured` and `acp run`'s session form — so the
+// half-close/teardown ordering below is reasoned about once.
+func runChatSession(ctx context.Context, client pb.Client, req agent.ChatRequest, turns chatTurns, format string, stdout io.Writer) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	in, events, errs, err := client.Chat(ctx, req)
 	if err != nil {
 		return fmt.Errorf("start chat: %w", err)
 	}
@@ -64,7 +92,7 @@ func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, 
 	// hanging forever on an open stdin pipe with the stream error unread.
 	scanDone := make(chan error, 1)
 	go func() {
-		scanDone <- readMessagesLoop(ctx, stdin, in)
+		scanDone <- pumpTurns(ctx, turns, in)
 		close(in)
 	}()
 
@@ -397,27 +425,50 @@ func chatPlanEntriesJSON(entries []agent.PlanEntry) []chatPlanEntryJSON {
 	return out
 }
 
-// readMessagesLoop reads in line by line and sends each decoded line as a chat
-// message (one line = one message). Returns at EOF/read error, or when ctx is
-// cancelled while a send is pending — without the ctx guard a send would block
-// forever once a dead/cancelled chat stream stops draining out. Escapes within a
-// line are decoded (see decodeMessageLine) so a single typed line can carry
-// newlines, tabs, and quotes.
-func readMessagesLoop(ctx context.Context, in io.Reader, out chan<- agent.ChatMessage) error {
-	scanner := bufio.NewScanner(in)
+// pumpTurns sends the conversation's turns: the caller's opening turn, if it
+// has one, then each line of turns.Stdin as one more (one line = one turn).
+// The lead context rides whichever of those goes first. Returns at EOF/read
+// error, or when ctx is cancelled while a send is pending — without the ctx
+// guard a send would block forever once a dead/cancelled chat stream stops
+// draining out. Escapes within a line are decoded (see decodeMessageLine) so a
+// single typed line can carry newlines, tabs, and quotes.
+func pumpTurns(ctx context.Context, turns chatTurns, out chan<- agent.ChatMessage) error {
+	lead := turns.Lead
+	send := func(text string) error {
+		// JoinLeadBlocks drops empties, so a turn with no lead (every turn
+		// after the first) is sent exactly as typed. Clearing lead here is
+		// what makes the context ride ONE turn.
+		text = operations.JoinLeadBlocks(lead, text)
+		lead = ""
+		select {
+		case out <- agent.ChatMessage{Text: text}:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+
+	if strings.TrimSpace(turns.Opening) != "" {
+		if err := send(turns.Opening); err != nil {
+			return err
+		}
+	}
+	if turns.Stdin == nil {
+		return nil
+	}
+
+	scanner := bufio.NewScanner(turns.Stdin)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		// A blank line is legitimately nothing to say — drop it here rather
-		// than handing the driver an empty prompt (which now refuses it, and
+		// than handing the driver an empty prompt (which refuses it, and
 		// rightly: a zero-byte turn is the house silent-no-op).
 		text := decodeMessageLine(scanner.Text())
 		if strings.TrimSpace(text) == "" {
 			continue
 		}
-		select {
-		case out <- agent.ChatMessage{Text: text}:
-		case <-ctx.Done():
-			return ctx.Err()
+		if err := send(text); err != nil {
+			return err
 		}
 	}
 	return scanner.Err()

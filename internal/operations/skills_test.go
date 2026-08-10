@@ -75,6 +75,74 @@ func TestCreateSkill_ScaffoldsValidPackage(t *testing.T) {
 	require.ErrorIs(t, err, ErrItemExists)
 }
 
+// TestRemoveSkill_DeletesDirectoryAndBundleEntry proves the full effect: the
+// bundle.yaml `skills:` registration is gone AND the on-disk skill directory
+// tree is gone, not just one half — a skill package can be created and
+// (until this) never removed.
+func TestRemoveSkill_DeletesDirectoryAndBundleEntry(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "b")
+
+	created, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{
+		Bundle: "b", Name: "reviewer", Description: "Reviews things.",
+	})
+	require.NoError(t, err)
+	require.DirExists(t, created.Dir)
+
+	res, err := RemoveSkill(context.Background(), cfg, RemoveSkillRequest{Bundle: "b", Name: "reviewer"})
+	require.NoError(t, err)
+	assert.Equal(t, "removed", res.Status)
+	assert.Equal(t, created.Dir, res.Dir)
+
+	loaded, err := bundleLoader(cfg).Load("b")
+	require.NoError(t, err)
+	_, ok := loaded.Skills["reviewer"]
+	assert.False(t, ok, "the skills: registration must be gone")
+
+	_, statErr := os.Stat(created.Dir)
+	assert.True(t, os.IsNotExist(statErr), "the skill's directory tree must be gone from disk")
+}
+
+// TestRemoveSkill_UnknownNameIsNotFound: removing a skill the bundle never
+// declared is an error, never a silent zero-effect success.
+func TestRemoveSkill_UnknownNameIsNotFound(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "b")
+
+	_, err := RemoveSkill(context.Background(), cfg, RemoveSkillRequest{Bundle: "b", Name: "nope"})
+	require.ErrorIs(t, err, ErrItemNotFound)
+}
+
+// TestRemoveSkill_BundleYAMLUpdatedEvenIfDirRemovalFails proves the write
+// ORDER: the registration is dropped from bundle.yaml FIRST, so a failure
+// removing the directory afterward still leaves `skill list` honest (never
+// pointing at a directory that is about to vanish) rather than a
+// half-applied state where the registration survives pointing at nothing.
+func TestRemoveSkill_BundleYAMLUpdatedEvenIfDirRemovalFails(t *testing.T) {
+	appDir, cfg := setupBundleTestDir(t)
+	writeDirFormBundle(t, appDir, "b")
+
+	created, err := CreateSkill(context.Background(), cfg, CreateSkillRequest{Bundle: "b", Name: "reviewer"})
+	require.NoError(t, err)
+
+	// A read-only PARENT directory makes the child directory's removal fail
+	// (permission denied) without needing a fake filesystem for the whole
+	// call — RemoveSkill's fs write to bundle.yaml happens first and must
+	// still land.
+	parent := filepath.Dir(created.Dir)
+	require.NoError(t, os.Chmod(parent, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
+
+	_, err = RemoveSkill(context.Background(), cfg, RemoveSkillRequest{Bundle: "b", Name: "reviewer"})
+	require.Error(t, err, "a directory-removal failure must be reported, not swallowed")
+
+	require.NoError(t, os.Chmod(parent, 0o755))
+	loaded, lerr := bundleLoader(cfg).Load("b")
+	require.NoError(t, lerr)
+	_, ok := loaded.Skills["reviewer"]
+	assert.False(t, ok, "bundle.yaml's registration must already be gone even though the directory removal failed")
+}
+
 func TestCreateSkill_RefusesSingleFileBundle(t *testing.T) {
 	cfg := newItemTestBundle(t) // "b" is single-file (name.yaml), per CreateBundle
 

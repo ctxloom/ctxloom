@@ -93,6 +93,25 @@ Feature: Trusting and untrusting, on the noun that owns the thing
     Then the command succeeds
     And the output does not contain "ctxloom-companion-acme"
 
+  # `companion show` is the read-one gap-fill: list and no way to inspect
+  # ONE binary's decision without scanning the whole listing by eye. It runs
+  # the EXACT SAME decision cascade `doctor`'s probe consults
+  # (config.AdmitCompanions), so its answer can never disagree with what
+  # actually happens at session start — proven here across the same
+  # unconfirmed -> trusted transition the listing scenario above proves.
+  Scenario: companion show answers whether ctxloom would execute one binary, and why
+    Given an initialized ctxloom project
+    And a discovered companion "ctxloom-companion-acme" is on PATH, never confirmed
+    When I run "ctxloom companion show ctxloom-companion-acme"
+    Then the command succeeds
+    And the output contains "unconfirmed"
+    When I run "ctxloom companion trust ctxloom-companion-acme"
+    Then the command succeeds
+    When I run "ctxloom companion show ctxloom-companion-acme"
+    Then the command succeeds
+    And the output contains "allowed"
+    And the output contains "consented"
+
   # Publish destinations. The first publish to a given non-GitHub remote asks
   # once and records the answer; a session with nobody to ask REFUSES. That
   # refusal used to be a dead end for exactly the callers it fires for: the

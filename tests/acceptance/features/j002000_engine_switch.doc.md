@@ -28,7 +28,7 @@ working exactly as advertised, and it is not a small thing to have built.
 
 ## The finding is the absence of a flow
 
-Everything U12 needs exists. `agent edit --engine` swaps the binding. Profiles
+Everything U12 needs exists. `agent edit --llm` swaps the binding. Profiles
 are engine-neutral by construction. Each engine's native surfaces are written
 from one composed context. The canonical transcript keeps the history readable
 across the switch, and history recorded under the old engine is still listed
@@ -48,7 +48,7 @@ On migration day every engine name in play is unfamiliar. Typing one wrong is
 the likeliest mistake anyone will make, and both commands that take one used
 to handle it badly, in different ways.
 
-`ctxloom agent edit dev --engine bogus-engine` used to exit 0 and write the
+`ctxloom agent edit dev --llm bogus-engine` used to exit 0 and write the
 nonexistent engine into the binding. Nothing validated the name at the moment
 it became the team's configuration, so the failure would have surfaced later,
 somewhere else, as whatever a missing engine happens to look like downstream —

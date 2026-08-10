@@ -330,5 +330,5 @@ func repointDefaultAgentAtMock(w *World) error {
 	if err := w.env.Run("agent", "show", "default"); err == nil {
 		verb = "edit"
 	}
-	return runOK(w, "agent", verb, "default", "--engine", "mock", "--profiles", "default")
+	return runOK(w, "agent", verb, "default", "--llm", "mock", "--profiles", "default")
 }

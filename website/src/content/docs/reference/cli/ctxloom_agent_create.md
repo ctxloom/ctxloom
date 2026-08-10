@@ -41,9 +41,7 @@ ctxloom agent create <name> [flags]
 ### Options
 
 ```
-      --coordinator           Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf
-      --driving string        Per-turn execution axis: conversational|oneshot (empty = conversational, today's default; oneshot requires a resume-capable engine and is EXPERIMENTAL in this release — interfaces and behavior may change)
-      --engine string         LLM engine/label to bind (overrides the profiles' llm; empty = project default)
+      --llm string            llm.configs label to bind (overrides the profiles' llm; empty = project default)
       --permissions string    Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
       --profiles strings      Comma-separated profile name(s)/ref(s) to compose
       --runtime string        Runtime axis: where this agent's engine executes (host|container; empty = project default)

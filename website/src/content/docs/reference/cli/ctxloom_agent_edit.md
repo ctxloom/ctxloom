@@ -19,8 +19,12 @@ Change an EXISTING agent's binding in the 'agents:' key of
 
 Only the flags you pass are applied; every unnamed field keeps its current
 value, so 'ctxloom agent edit dev --runtime container' does not wipe dev's
-engine, profiles, posture, coordinator flag or escalation ladder. An
-explicitly-supplied empty value (--engine "") clears that field.
+llm, profiles, posture, coordinator trust or escalation ladder. An
+explicitly-supplied empty value (--llm "") clears that field.
+
+coordinator and driving have NO flags: they are agent DATA, authored in
+config.yaml under agents.<name>. A flag that only writes a config field is a
+second way to say the same thing, and the two spellings drift.
 
 The engine (optional) overrides the profiles' own llm; omit it to use the project
 default. Profiles compose into one assembled context. Runtime (optional:
@@ -45,9 +49,7 @@ ctxloom agent edit <name> [flags]
 ### Options
 
 ```
-      --coordinator           Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf
-      --driving string        Per-turn execution axis: conversational|oneshot (empty = conversational, today's default; oneshot requires a resume-capable engine and is EXPERIMENTAL in this release — interfaces and behavior may change)
-      --engine string         LLM engine/label to bind (overrides the profiles' llm; empty = project default)
+      --llm string            llm.configs label to bind (overrides the profiles' llm; empty = project default)
       --permissions string    Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
       --profiles strings      Comma-separated profile name(s)/ref(s) to compose
       --runtime string        Runtime axis: where this agent's engine executes (host|container; empty = project default)

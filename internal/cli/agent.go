@@ -289,13 +289,11 @@ func runSetupPromptCmd(cmd *cobra.Command, args []string) error {
 }
 
 var (
-	agentSetEngine      string
+	agentSetLLM         string
 	agentSetProfiles    []string
 	agentSetRuntime     string
 	agentSetSurfaces    []string
 	agentSetPermissions string
-	agentSetCoordinator bool
-	agentSetDriving     string
 )
 
 // agentWriteLong is the shared body text for `agent create` and `agent edit`:
@@ -345,8 +343,12 @@ var agentEditCmd = &cobra.Command{
 
 Only the flags you pass are applied; every unnamed field keeps its current
 value, so 'ctxloom agent edit dev --runtime container' does not wipe dev's
-engine, profiles, posture, coordinator flag or escalation ladder. An
-explicitly-supplied empty value (--engine "") clears that field.
+llm, profiles, posture, coordinator trust or escalation ladder. An
+explicitly-supplied empty value (--llm "") clears that field.
+
+coordinator and driving have NO flags: they are agent DATA, authored in
+config.yaml under agents.<name>. A flag that only writes a config field is a
+second way to say the same thing, and the two spellings drift.
 
 ` + agentWriteLong + `
 
@@ -406,11 +408,11 @@ func checkAgentExistence(cfg *config.Config, name string, mustExist bool) error 
 
 // buildSetAgentRequest sends only the flags the user actually TYPED. A nil
 // field means "not named", which SetAgent keeps at its existing value; an
-// explicitly-supplied empty value (--engine "") still clears.
+// explicitly-supplied empty value (--llm "") still clears.
 func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRequest {
 	req := operations.SetAgentRequest{Name: name}
-	if cmd.Flags().Changed("engine") {
-		req.LLM = &agentSetEngine
+	if cmd.Flags().Changed("llm") {
+		req.LLM = &agentSetLLM
 	}
 	if cmd.Flags().Changed("profiles") {
 		req.Profiles = &agentSetProfiles
@@ -443,12 +445,6 @@ func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRe
 	}
 	if cmd.Flags().Changed("permissions") {
 		req.Permissions = &agentSetPermissions
-	}
-	if cmd.Flags().Changed("coordinator") {
-		req.Coordinator = &agentSetCoordinator
-	}
-	if cmd.Flags().Changed("driving") {
-		req.Driving = &agentSetDriving
 	}
 	return req
 }
@@ -644,23 +640,18 @@ func init() {
 // registerAgentWriteFlags binds the agent-binding axis flags to cmd (shared by
 // `agent create` and `agent edit`).
 func registerAgentWriteFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&agentSetEngine, "engine", "", "LLM engine/label to bind (overrides the profiles' llm; empty = project default)")
+	cmd.Flags().StringVar(&agentSetLLM, "llm", "", "llm.configs label to bind (overrides the profiles' llm; empty = project default)")
 	cmd.Flags().StringSliceVar(&agentSetProfiles, "profiles", nil, "Comma-separated profile name(s)/ref(s) to compose")
 	cmd.Flags().StringVar(&agentSetRuntime, "runtime", "", "Runtime axis: where this agent's engine executes (host|container; empty = project default)")
 	cmd.Flags().StringArrayVar(&agentSetSurfaces, "surface", nil,
 		"Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.")
 	cmd.Flags().StringVar(&agentSetPermissions, "permissions", "", "Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)")
-	cmd.Flags().BoolVar(&agentSetCoordinator, "coordinator", false, "Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf")
-	cmd.Flags().StringVar(&agentSetDriving, "driving", "", "Per-turn execution axis: conversational|oneshot (empty = conversational, today's default; oneshot requires a resume-capable engine and is EXPERIMENTAL in this release — interfaces and behavior may change)")
-	_ = cmd.RegisterFlagCompletionFunc("engine", completeLLMNames)
+	_ = cmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = cmd.RegisterFlagCompletionFunc("profiles", completeProfileNames)
 	_ = cmd.RegisterFlagCompletionFunc("runtime", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 		return isolation.RuntimeNames(), cobra.ShellCompDirectiveNoFileComp
 	})
 	_ = cmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
-	_ = cmd.RegisterFlagCompletionFunc("driving", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
-		return agents.DrivingModeNames(), cobra.ShellCompDirectiveNoFileComp
-	})
 }
 
 // completeWorkspaceNames completes the session-level --workspace flag values

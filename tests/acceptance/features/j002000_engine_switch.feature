@@ -8,7 +8,7 @@ Feature: Engine switch day
   team, not to whichever assistant happened to be fashionable when they were
   written.
 
-  On paper it is one command. `agent edit dev --engine <new>` swaps the engine
+  On paper it is one command. `agent edit dev --llm <new>` swaps the engine
   under the binding; profiles are engine-neutral by construction, so the same
   content composes for the new engine's own native surfaces; the canonical
   transcript keeps the history readable; and reaching for a session the tee
@@ -49,7 +49,7 @@ Feature: Engine switch day
   #
   # UNTAGGED: confirmed to pass as written, and confirmed to BITE. Dropping
   # `entry.Engine = orKeep(...)` from operations.SetAgent — so `agent edit
-  # --engine` reports "Updated agent" and writes the old engine back — turns
+  # --llm` reports "Updated agent" and writes the old engine back — turns
   # this red on the on-disk assertion, which is the failure the scenario names.
   Scenario: The engine changes under the binding and the context does not
     Given the team's guidance reaches the old engine's own surface
@@ -76,7 +76,7 @@ Feature: Engine switch day
   # typo even against an already-initialized project. The check lives in
   # cli.checkEngineKnown (internal/cli/manage.go) and runs ahead of
   # checkInstallEngineApplies. Its roster is backends.List(), not
-  # operations.AvailableLLMNames — unlike `agent edit --engine`, this flag
+  # operations.AvailableLLMNames — unlike `agent edit --llm`, this flag
   # ends up as the TYPE of a real `{type: engine}` LM config entry
   # (operations.engineRegistry/fallbackRegistry) when scaffolding, so it needs
   # no project config and applies identically whether or not .ctxloom exists
@@ -97,7 +97,7 @@ Feature: Engine switch day
   # configuration, so the failure surfaces later, somewhere else, as whatever a
   # missing engine happens to look like downstream.
   #
-  # UNTAGGED: `agent edit --engine` now validates its argument and names the
+  # UNTAGGED: `agent edit --llm` now validates its argument and names the
   # engines it knows. The check lives in operations.SetAgent — `agent create`
   # and `agent edit`'s single shared body, so both verbs are covered — and
   # rejects before the write, so a typo'd edit cannot corrupt a live binding.
@@ -106,7 +106,7 @@ Feature: Engine switch day
   # because an agent's engine is a LABEL and `--engine claude-fast` is one of
   # this command's own documented examples.
   Scenario: Binding an agent to an engine that does not exist is refused
-    When I run "ctxloom agent edit dev --engine bogus-engine"
+    When I run "ctxloom agent edit dev --llm bogus-engine"
     Then ctxloom refuses and names the engines it knows
 
   # THE PORTABILITY PAYOFF, and the reason owning a canonical transcript is

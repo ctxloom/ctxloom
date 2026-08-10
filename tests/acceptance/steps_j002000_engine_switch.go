@@ -174,7 +174,7 @@ func registerJ002000Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice swaps the engine under the binding$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_ = w.env.Run("agent", "edit", j002000Agent, "--engine", j002000NewEngine)
+		_ = w.env.Run("agent", "edit", j002000Agent, "--llm", j002000NewEngine)
 		return nil
 	})
 

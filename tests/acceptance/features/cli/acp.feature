@@ -58,7 +58,7 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
       And a profile "editorial" with bundle "house"
       When Alice defines an agent bound to that profile:
         """
-        ctxloom agent create scribe --engine claude-code --profiles editorial
+        ctxloom agent create scribe --llm claude-code --profiles editorial
         """
       And Alice asks which entries her editor should be given:
         """
@@ -91,7 +91,7 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
       And a profile "editorial" with bundle "house"
       And Alice defines an agent bound to that profile:
         """
-        ctxloom agent create scribe --engine claude-code --profiles editorial
+        ctxloom agent create scribe --llm claude-code --profiles editorial
         """
       When Alice asks which entries her editor should be given:
         """

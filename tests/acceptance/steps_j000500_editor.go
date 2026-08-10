@@ -73,7 +73,7 @@ func j000500Setup(w *World) error {
 	if err := runOK(w, "profile", "modify", "default", "--add-bundle", "house"); err != nil {
 		return err
 	}
-	if err := runOK(w, "agent", "create", j000500Agent, "--engine", "claude-code", "--profiles", "default"); err != nil {
+	if err := runOK(w, "agent", "create", j000500Agent, "--llm", "claude-code", "--profiles", "default"); err != nil {
 		return err
 	}
 	st.ready = true

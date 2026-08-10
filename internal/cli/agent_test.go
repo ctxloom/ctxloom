@@ -380,10 +380,10 @@ func TestBuildSetAgentRequest_OnlySendsChangedFlags(t *testing.T) {
 func TestBuildSetAgentRequest_ExplicitEmptyIsSentAsAClear(t *testing.T) {
 	cmd := &cobra.Command{}
 	registerAgentWriteFlags(cmd)
-	require.NoError(t, cmd.Flags().Parse([]string{"--engine", ""}))
+	require.NoError(t, cmd.Flags().Parse([]string{"--llm", ""}))
 
 	req := buildSetAgentRequest(cmd, "dev")
-	require.NotNil(t, req.LLM, `--engine "" must be sent, not treated as unnamed`)
+	require.NotNil(t, req.LLM, `--llm "" must be sent, not treated as unnamed`)
 	assert.Equal(t, "", *req.LLM)
 }
 

@@ -8,7 +8,7 @@ Feature: llm — the named engine configurations, and the credentials they hold
   (claude-code, codex, kiro, ...), a model string, a launch-time permission
   posture, and — the part that makes this noun different from every other one
   in the CLI — an `env` block holding API credentials. Agents reference these
-  labels by name (`ctxloom agent create dev --engine big`), so this is the
+  labels by name (`ctxloom agent create dev --llm big`), so this is the
   vocabulary cli/agent.feature draws on: a team manages it here, once, instead
   of every binding restating a model string.
 

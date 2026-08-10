@@ -48,7 +48,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And a profile "dev" exists
       When Alice binds an engine and a runtime to a profile:
         """
-        ctxloom agent create developer --engine claude-code --profiles dev --runtime container
+        ctxloom agent create developer --llm claude-code --profiles dev --runtime container
         """
       Then the command succeeds
       And the output contains "Created agent"
@@ -80,7 +80,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     Scenario: Showing one binding reports what was declared and what it resolves to
       Given an initialized ctxloom project
       And a profile "dev" exists
-      And I run "ctxloom agent create developer --engine claude-code --profiles dev --runtime container"
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev --runtime container"
       When Alice inspects one binding:
         """
         ctxloom agent show developer
@@ -115,7 +115,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
     obvious from the surface:
 
     create and edit already share ONE body (operations.SetAgent, which
-    j002000_engine_switch.feature relies on for its --engine validation), so the
+    j002000_engine_switch.feature relies on for its --llm validation), so the
     refusals are the only thing that distinguishes the verbs. Making them upsert
     is DELETING TWO GUARDS from a shared function, not merging two
     implementations. And a binding carries engine, profiles, runtime and
@@ -133,7 +133,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Given an initialized ctxloom project
       And a profile "dev" exists
       And a profile "ops" exists
-      And I run "ctxloom agent create developer --engine claude-code --profiles dev"
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
       When Alice re-uses a name that is already bound:
         """
         ctxloom agent create developer --profiles ops
@@ -170,7 +170,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       Given an initialized ctxloom project
       And a profile "dev" exists
       And a profile "ops" exists
-      And I run "ctxloom agent create developer --engine claude-code --profiles dev,ops --runtime host --permissions plan"
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev,ops --runtime host --permissions plan"
       When Alice moves one binding into a container and changes nothing else:
         """
         ctxloom agent edit developer --runtime container

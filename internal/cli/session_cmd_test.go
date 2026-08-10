@@ -144,32 +144,6 @@ func TestBindSessionFromPayload(t *testing.T) {
 		assert.Equal(t, "/t/session.jsonl", got.TranscriptPath)
 	})
 
-	t.Run("antigravity_payload_binds_conversation_id", func(t *testing.T) {
-		mgr, entry := seedHomeSession(t)
-
-		// agy fires session-bind as a PreToolUse hook (pre_tool_fallback);
-		// the payload shape mirrors a verbatim live capture.
-		payload := `{"conversationId":"c6a3e887-aeea","stepIdx":3,` +
-			`"toolCall":{"name":"run_command","args":{"CommandLine":"echo hi","Cwd":"/tmp/project"}},` +
-			`"transcriptPath":"/h/.gemini/antigravity-cli/brain/c6a3e887-aeea/.system_generated/logs/transcript_full.jsonl",` +
-			`"workspacePaths":["/tmp/project"]}`
-		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
-
-		got, err := mgr.Find(entry.HarpName)
-		require.NoError(t, err)
-		require.NotNil(t, got)
-		assert.Equal(t, "c6a3e887-aeea", got.SessionID)
-		assert.Contains(t, got.TranscriptPath, "transcript_full.jsonl")
-	})
-
-	t.Run("antigravity_payload_skips_harp_marker", func(t *testing.T) {
-		// On agy the hook runs as PreToolUse, where stdout is reserved for
-		// decision JSON — the marker envelope must not be emitted.
-		assert.True(t, isAntigravityHookPayload([]byte(`{"conversationId":"x","toolCall":{"name":"run_command","args":{}}}`)))
-		assert.False(t, isAntigravityHookPayload([]byte(`{"session_id":"x","hook_event_name":"SessionStart"}`)))
-		assert.False(t, isAntigravityHookPayload([]byte(`not json`)))
-	})
-
 	t.Run("kiro_agentSpawn_payload_falls_back_to_KIRO_SESSION_ID_env", func(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
 

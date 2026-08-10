@@ -32,8 +32,8 @@ func TestIsKnownLLM_BuiltIn(t *testing.T) {
 	if !isKnownLLM(cfg, "claude-code") {
 		t.Error("expected claude-code to be known")
 	}
-	if !isKnownLLM(cfg, "antigravity") {
-		t.Error("expected antigravity to be known")
+	if !isKnownLLM(cfg, "codex") {
+		t.Error("expected codex to be known")
 	}
 }
 
@@ -155,7 +155,7 @@ func TestIsKnownLLM_AgreesWithTheAdvertisedSet(t *testing.T) {
 	})
 
 	for _, name := range []string{
-		"claude-code", "antigravity", "codex", mockBackendName,
+		"claude-code", "codex", "kiro", "opencode", mockBackendName,
 		"my-claude", "stale", "nonexistent-plugin", "",
 	} {
 		advertised := slices.Contains(operations.AvailableLLMNames(cfg), name)

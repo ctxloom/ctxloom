@@ -24,8 +24,9 @@ the binary's absolute path AND its SHA-256. Replace the file and you are asked
 again.
 
 A non-interactive session (an agent, CI) is never prompted: an unconfirmed
-companion is skipped with a warning. 'allow' is how you record the decision for
-one anyway.
+companion is skipped with a warning. 'companion trust' is how you record the
+decision for one anyway, and 'companion untrust' drops it so the next run asks
+again.
 
 The shipped companions are exempt from the prompt only when they resolve from
 the directory ctxloom itself is installed in. An 'ltk' found anywhere else is a
@@ -51,5 +52,5 @@ ctxloom companion untrust <path-or-name> [flags]
 
 ### SEE ALSO
 
-* [ctxloom trust companion](/reference/cli/ctxloom_trust_companion/)	 - Inspect and change which companion binaries ctxloom may execute
+* [ctxloom companion](/reference/cli/ctxloom_companion/)	 - Manage which companion binaries ctxloom may execute
 

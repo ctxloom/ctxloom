@@ -9,7 +9,7 @@ This page is generated from `ctxloom manage commit trust --help`.
 
 ## ctxloom manage commit trust
 
-Acknowledge that ctxloom may auto-commit this checkout's dirty tree
+Trust ctxloom to auto-commit this checkout's dirty tree
 
 ```
 ctxloom manage commit trust [flags]
@@ -27,5 +27,5 @@ ctxloom manage commit trust [flags]
 
 ### SEE ALSO
 
-* [ctxloom manage commit](/reference/cli/ctxloom_manage_dirty-tree-ack/)	 - Grant or revoke ctxloom's permission to auto-commit a dirty tree on your behalf
+* [ctxloom manage commit](/reference/cli/ctxloom_manage_commit/)	 - Trust or untrust ctxloom to auto-commit a dirty tree on your behalf
 

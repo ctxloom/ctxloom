@@ -9,7 +9,7 @@ This page is generated from `ctxloom bundle untrust --help`.
 
 ## ctxloom bundle untrust
 
-Reject an item so it is withheld from the agent
+Untrust an item so it is withheld from the agent
 
 ### Synopsis
 
@@ -46,5 +46,5 @@ ctxloom bundle untrust <ref> [flags]
 
 ### SEE ALSO
 
-* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept, reject, or manage the signers of item content
+* [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
 

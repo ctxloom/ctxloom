@@ -9,7 +9,7 @@ This page is generated from `ctxloom remote trusted --help`.
 
 ## ctxloom remote trusted
 
-List recorded publish-destination decisions
+List remotes confirmed as publish destinations
 
 ### Synopsis
 
@@ -24,8 +24,8 @@ That guards three mistakes: a typo or a stale remote in config (a typo is a
 different URL, so it prompts), a committable .ctxloom/ config carrying a remote
 you never chose, and an agent publishing on its own initiative.
 
-'allow' is how a non-interactive host records the decision without a prompt.
-'forget' undoes one, so the next publish asks again. Two spellings of one
+'remote trust' is how a non-interactive host records the decision without a
+prompt. 'remote untrust' undoes one, so the next publish asks again. Two spellings of one
 repository (git@host:o/r.git and https://host/o/r) are ONE destination.
 
 Decisions live in ~/.ctxloom/publish_remotes.yaml. There is deliberately no
@@ -49,5 +49,5 @@ ctxloom remote trusted [flags]
 
 ### SEE ALSO
 
-* [ctxloom trust publish](/reference/cli/ctxloom_trust_publish/)	 - Inspect and change which remotes ctxloom may publish to
+* [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Manage remotes and discover content
 

@@ -15,7 +15,7 @@ Every command accepts the global `--format text|json` flag; `json` emits machine
 - **Workflow** — [`init`](/reference/cli/ctxloom_init/), [`run`](/reference/cli/ctxloom_run/)
 - **Content** — [`fragment`](/reference/cli/ctxloom_fragment/), [`command`](/reference/cli/ctxloom_command/), [`profile`](/reference/cli/ctxloom_profile/), [`search`](/reference/cli/ctxloom_search/)
 - **Agents** — [`agent`](/reference/cli/ctxloom_agent/), [`container`](/reference/cli/ctxloom_container/), [`acp`](/reference/cli/ctxloom_acp/)
-- **Remotes & trust** — [`remote`](/reference/cli/ctxloom_remote/), [`bundle`](/reference/cli/ctxloom_bundle/), [`trust`](/reference/cli/ctxloom_trust/), [`blacklist`](/reference/cli/ctxloom_blacklist/), [`tooling`](/reference/cli/ctxloom_tooling/)
+- **Remotes & trust** — [`remote`](/reference/cli/ctxloom_remote/), [`bundle`](/reference/cli/ctxloom_bundle/), [`signer`](/reference/cli/ctxloom_signer/), [`companion`](/reference/cli/ctxloom_companion/)
 - **Infrastructure** — [`manage`](/reference/cli/ctxloom_manage/), [`mcp`](/reference/cli/ctxloom_mcp/)
 - **Sessions & utilities** — [`session`](/reference/cli/ctxloom_session/), [`memory`](/reference/cli/ctxloom_memory/), [`llm`](/reference/cli/ctxloom_llm/), [`harp`](/reference/cli/ctxloom_harp/), [`version`](/reference/cli/ctxloom_version/), [`completion`](/reference/cli/ctxloom_completion/)
 

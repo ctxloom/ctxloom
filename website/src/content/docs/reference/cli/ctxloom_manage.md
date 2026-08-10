@@ -48,7 +48,7 @@ ctxloom manage [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom manage check](/reference/cli/ctxloom_manage_check/)	 - Show what ctxloom has wired into this project
-* [ctxloom manage commit](/reference/cli/ctxloom_manage_dirty-tree-ack/)	 - Grant or revoke ctxloom's permission to auto-commit a dirty tree on your behalf
+* [ctxloom manage commit](/reference/cli/ctxloom_manage_commit/)	 - Trust or untrust ctxloom to auto-commit a dirty tree on your behalf
 * [ctxloom manage gitignore](/reference/cli/ctxloom_manage_gitignore/)	 - Maintain ctxloom's .gitignore entries
 * [ctxloom manage hooks](/reference/cli/ctxloom_manage_hooks/)	 - Install, uninstall, or inspect ctxloom backend hooks
 * [ctxloom manage install](/reference/cli/ctxloom_manage_install/)	 - Scaffold .ctxloom and wire hooks, MCP, gitignore, and config

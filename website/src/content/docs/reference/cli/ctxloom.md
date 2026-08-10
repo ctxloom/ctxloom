@@ -62,6 +62,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom agent](/reference/cli/ctxloom_agent/)	 - Inspect local agents (engine↔profile bindings)
 * [ctxloom bundle](/reference/cli/ctxloom_bundle/)	 - Manage ctxloom bundles
 * [ctxloom command](/reference/cli/ctxloom_command/)	 - Manage commands
+* [ctxloom companion](/reference/cli/ctxloom_companion/)	 - Manage which companion binaries ctxloom may execute
 * [ctxloom config](/reference/cli/ctxloom_config/)	 - Show or modify ctxloom configuration
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
 * [ctxloom doctor](/reference/cli/ctxloom_doctor/)	 - Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)
@@ -76,7 +77,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom run](/reference/cli/ctxloom_run/)	 - Assemble context and run AI
 * [ctxloom search](/reference/cli/ctxloom_search/)	 - Search content across local and remote sources
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions
+* [ctxloom signer](/reference/cli/ctxloom_signer/)	 - Manage who ctxloom trusts to sign content
 * [ctxloom skill](/reference/cli/ctxloom_skill/)	 - Manage Agent Skills (SKILL.md packages)
-* [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept, reject, or manage the signers of item content
 * [ctxloom version](/reference/cli/ctxloom_version/)	 - Print the version number
 

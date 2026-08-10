@@ -19,7 +19,7 @@ namespace(s) (default: publish).
 <principal> is an arbitrary identity string (spec §7.1) — an email, a team
 name, an org name ("context@acme.com"), or a pipeline identity
 ("releases@ctxloom.dev"). It has no relationship to any account; it is
-purely the label your allowed_signers file and 'trust signer list' display.
+purely the label your allowed_signers file and 'ctxloom signer' display.
 
 By default this writes to your USER store (~/.ctxloom/allowed_signers),
 which follows you across every project. --project writes to the
@@ -56,5 +56,5 @@ ctxloom signer trust <principal> [flags]
 
 ### SEE ALSO
 
-* [ctxloom trust signer](/reference/cli/ctxloom_trust_signer/)	 - Manage trusted signers (allowed_signers)
+* [ctxloom signer](/reference/cli/ctxloom_signer/)	 - Manage who ctxloom trusts to sign content
 

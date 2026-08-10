@@ -9,19 +9,22 @@ This page is generated from `ctxloom manage commit --help`.
 
 ## ctxloom manage commit
 
-Grant or revoke ctxloom's permission to auto-commit a dirty tree on your behalf
+Trust or untrust ctxloom to auto-commit a dirty tree on your behalf
 
 ### Synopsis
 
-Grant or revoke the per-checkout human acknowledgement that
-dirty_tree_handler: "commit" may auto-commit THIS checkout's uncommitted
-changes onto its current branch, so a delegated agent_run child (which only
-ever sees committed state in its own worktree) can see them.
+Trust or untrust ctxloom, for THIS checkout, to auto-commit its uncommitted
+changes onto its current branch when dirty_tree_handler is "commit", so a
+delegated agent_run child (which only ever sees committed state in its own
+worktree) can see them.
 
 This is deliberately NOT a config.yaml key: the config chain has three
 channels an agent can reach (a home file, an environment variable, an argv),
-and this acknowledgement must come from a human, once, through one of exactly
-two surfaces — this command, or the dirty-tree question in 'ctxloom init'.
+and this decision must come from a human, once, through one of exactly two
+surfaces — this command, or the dirty-tree question in 'ctxloom init'.
+
+An absent decision is untrusted, and the spawn is refused rather than
+committing on your behalf.
 
 ```
 ctxloom manage commit [flags]
@@ -40,6 +43,6 @@ ctxloom manage commit [flags]
 ### SEE ALSO
 
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
-* [ctxloom manage commit trust](/reference/cli/ctxloom_manage_dirty-tree-ack_grant/)	 - Acknowledge that ctxloom may auto-commit this checkout's dirty tree
-* [ctxloom manage commit untrust](/reference/cli/ctxloom_manage_dirty-tree-ack_revoke/)	 - Withdraw that acknowledgement for this checkout
+* [ctxloom manage commit trust](/reference/cli/ctxloom_manage_commit_trust/)	 - Trust ctxloom to auto-commit this checkout's dirty tree
+* [ctxloom manage commit untrust](/reference/cli/ctxloom_manage_commit_untrust/)	 - Withdraw that trust for this checkout
 

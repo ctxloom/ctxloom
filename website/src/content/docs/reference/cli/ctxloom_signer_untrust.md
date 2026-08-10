@@ -9,7 +9,7 @@ This page is generated from `ctxloom signer untrust --help`.
 
 ## ctxloom signer untrust
 
-Delete a trusted signer
+Withdraw trust from a signer's public key
 
 ### Synopsis
 
@@ -47,5 +47,5 @@ ctxloom signer untrust <principal> [flags]
 
 ### SEE ALSO
 
-* [ctxloom trust signer](/reference/cli/ctxloom_trust_signer/)	 - Manage trusted signers (allowed_signers)
+* [ctxloom signer](/reference/cli/ctxloom_signer/)	 - Manage who ctxloom trusts to sign content
 

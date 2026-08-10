@@ -574,6 +574,19 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     go tool covdata percent -i="$covdir"
     echo
     echo "(per-function: go tool covdata func -i=$covdir)"
+
+    # The completeness gate, over data rather than over the suite's own account
+    # of itself. It runs as a SECOND `go test` invocation because coverage is
+    # complete only once every exec has flushed — an in-suite check would be
+    # reading a half-written profile. It stays a Go test rather than a shell
+    # comparison so it is discoverable where the other gates are.
+    profile="$covdir/profile.txt"
+    go tool covdata textfmt -i="$covdir" -o="$profile"
+    echo
+    echo "=== every CLI leaf's RunE actually ran? ==="
+    CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{go_tmp}}" \
+        go test -tags "acceptance integration coveragegate" -count=1 \
+        -run TestCLICoverage_EveryLeafActuallyRan ./tests/acceptance/... || status=1
     exit "$status"
 
 # Run the @container acceptance rows — the ones that actually launch an engine

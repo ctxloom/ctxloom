@@ -195,16 +195,16 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"container tooling list": {extraArgs: noExtraArgs},
 
 	// --- skip: serve / long-running (structurally not a single rendered result) ---
-	"acp":        {skip: "deprecated bare alias for `acp serve`; serves an ACP session, not a single rendered result"},
-	"acp serve":  {skip: "serve: serves an ACP session over stdio for an editor to connect to, not a single rendered result"},
-	"acp client": {skip: "requires a configured ACP-type llm label (--llm) and spawns a real third-party ACP-speaking subprocess via the plugin door; covered directly by acp_client_cmd_test.go's stub-Factory tests instead"},
-	"mcp":        {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
-	"mcp serve":  {skip: "serve: runs the stdio MCP server"},
+	"acp":       {skip: "deprecated bare alias for `acp serve`; serves an ACP session, not a single rendered result"},
+	"acp serve": {skip: "serve: serves an ACP session over stdio for an editor to connect to, not a single rendered result"},
+	"acp run":   {skip: "requires a configured ACP-type llm label (--llm) and spawns a real third-party ACP-speaking subprocess via the plugin door; covered directly by acp_run_cmd_test.go's stub-Factory tests instead"},
+	"mcp":       {skip: "serve: bare `ctxloom mcp` runs the stdio MCP server"},
+	"mcp serve": {skip: "serve: runs the stdio MCP server"},
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
 	"session transcript watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
-	"plan watch":    {skip: "streaming: same shape as session transcript watch"},
-	"run":           {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
+	"plan watch":               {skip: "streaming: same shape as session transcript watch"},
+	"run":                      {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
 	"bundle sign":    {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
@@ -360,8 +360,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"session transcript purge": {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered on both sides by session_purge_fanout_test.go"},
 	"session artifacts purge":  {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered on both sides by session_purge_fanout_test.go"},
 	"session worktrees purge":  {skip: "wired to emit(), but needs a real git repo with seeded scratch worktrees and is destructive under --yes; covered on both sides by session_worktrees_test.go"},
-	"config":              {skip: "not wired to emit() yet; NOTE: bare `config` has no RunE and is not cobra-Runnable, so formatCoverageWalk never actually visits it — this entry is inert/dead and not counted toward the T19 total"},
-	"init":                {skip: "interactive bootstrap interview; not exercised here; T19 audit confirmed NOT wired: runInit never calls emit()", formatDebt: true},
+	"config":                   {skip: "not wired to emit() yet; NOTE: bare `config` has no RunE and is not cobra-Runnable, so formatCoverageWalk never actually visits it — this entry is inert/dead and not counted toward the T19 total"},
+	"init":                     {skip: "interactive bootstrap interview; not exercised here; T19 audit confirmed NOT wired: runInit never calls emit()", formatDebt: true},
 }
 
 // noExtraArgs is the extraArgs value for a command whose full invocation is

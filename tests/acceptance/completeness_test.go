@@ -163,7 +163,7 @@ var knownUncoveredCLI = []string{
 	// deprecated alias credits nothing once the alias is gone, so an alias
 	// deletion and the re-spelling of its scenarios belong in one change. What
 	// remains below is genuinely uncovered. Backfill: one task.
-	"ctxloom acp client",
+	"ctxloom acp run",
 	"ctxloom acp serve",
 	// `ctxloom session search` was pruned from this list when
 	// j001200_recall.feature landed, because THIS GATE READS THE FEATURE CORPUS AS

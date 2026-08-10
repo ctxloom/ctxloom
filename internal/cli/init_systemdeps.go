@@ -112,7 +112,7 @@ func warnIfGitIdentityMissing() {
 // `ctxloom doctor --deps` reports. Informational only, like the other warns
 // beside it: the raw-CLI bootstrap interview this gate protects never
 // touches structured chat, so a missing adapter here is a heads-up for
-// LATER (agent_run cross-engine delegation, `ctxloom acp client`), not a
+// LATER (agent_run cross-engine delegation, `ctxloom acp run`), not a
 // block on init completing now — nothing about ACP (server or client) is
 // ever a hard requirement for init; see the acp-setup skill for that
 // separate, optional configuration — and it's a non-issue entirely for an

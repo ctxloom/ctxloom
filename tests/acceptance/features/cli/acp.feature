@@ -1,9 +1,15 @@
 @doc
-Feature: acp — the editor door, and the entries an editor is told to paste
+Feature: acp — the editor door, the agent ctxloom talks out to, and the entries an editor is told to paste
 
   `ctxloom acp` is the noun that owns the Agent Client Protocol surface: the
   two directions ctxloom can speak it in, and the agent-server entries a user
   copies into their editor's configuration to open the door at all.
+
+  The surfaces this file covers are `ctxloom acp` (the bare group node),
+  `ctxloom acp list` (the pasteable entries), `ctxloom acp serve` (ctxloom
+  serving the protocol so an editor connects IN) and `ctxloom acp run`
+  (ctxloom connecting OUT to an ACP-speaking agent — a session, or a single
+  turn with --one-shot).
 
   This is the comprehensive per-noun spec. The narrative version — Dana, who
   lives in her editor and will not adopt a terminal workflow — is
@@ -11,7 +17,7 @@ Feature: acp — the editor door, and the entries an editor is told to paste
 
   # WHAT THIS SPEC DOES NOT REACH, said plainly rather than left to be
   # discovered. `acp serve` (ctxloom serving the protocol on stdio for an
-  # editor to connect INTO) and `acp client` (ctxloom connecting OUT to a
+  # editor to connect INTO) and `acp run` (ctxloom connecting OUT to a
   # third-party ACP agent) are both on completeness_test.go's
   # allowlisted-uncovered list and STAY there. Driving either needs an ACP
   # client harness speaking JSON-RPC over stdio, which does not exist in
@@ -107,23 +113,32 @@ Feature: acp — the editor door, and the entries an editor is told to paste
       Then the command succeeds
       And the output contains "no hooks fire and no session history is captured"
 
-  # DRIVING AN ACP AGENT OUT IS ONE TURN, AND THE INVOCATION SAYS SO.
+  # DRIVING AN ACP AGENT OUT HAS TWO FORMS, AND THEY ARE THE SAME TWO `run` HAS.
   #
-  # `acp client` drives a single turn against a configured ACP agent and exits.
-  # It takes `--one-shot`, the same word `ctxloom run` uses for that mode, and
-  # the flag is REQUIRED rather than assumed: a flag that names a mode implies
-  # the other mode exists, so a bare invocation quietly behaving as a one-shot
-  # would tell a caller they had opened a session when they had not.
+  # Bare `acp run --llm <label>` opens a SESSION with the configured
+  # ACP-speaking agent: one typed line is one turn, and Ctrl-D ends it. A
+  # prompt on the command line opens that session with the first turn.
+  # `--one-shot` drives a SINGLE turn instead — prompt in, response out, exit
+  # — and reads its prompt from piped stdin when the command line carries
+  # none. That is the same word, for the same mode, as `ctxloom run
+  # --one-shot`: the two verbs mean the same thing and differ only in which
+  # engine surface they drive, so a caller who learned the rule on one carries
+  # it to the other.
   #
-  # No scenario here drives that refusal, and the omission is deliberate rather
-  # than an oversight. `acp client` is on completeness_test.go's
+  # No scenario here drives either form, and the omission is deliberate rather
+  # than an oversight. `acp run` is on completeness_test.go's
   # allowlisted-uncovered list precisely because this harness cannot reach its
-  # behaviour at all (see the note at the top of this file), and a scenario
-  # whose whole content is a flag-validation error would CREDIT the leaf to the
+  # behaviour at all (see the note at the top of this file): both forms end at
+  # a live ACP agent on the other side of the plugin door. A scenario whose
+  # whole content is a flag-validation error would CREDIT the leaf to the
   # coverage gate while proving nothing about what it does — the vacuous
-  # coverage that gate exists to refuse. The refusal is pinned in internal/cli
-  # (TestACPClient_RequiresOneShotToBeStated) until the ACP client harness
-  # tracked by taskloom agile-satin makes the leaf itself reachable.
+  # coverage that gate exists to refuse. What keeps the two forms from
+  # collapsing into each other is pinned in internal/cli instead, by counting
+  # the TURNS each one takes and which engine door it took them through
+  # (TestRunACPRun_TakesTheFormTheInvocationAsked,
+  # TestRunACPSession_TakesEveryTypedTurnUntilStdinEnds,
+  # TestRunACPOneshot_TakesExactlyOneTurnAndExits), until the ACP client
+  # harness tracked by taskloom agile-satin makes the leaf itself reachable.
 
   Rule: The group node refuses what it cannot honour
 

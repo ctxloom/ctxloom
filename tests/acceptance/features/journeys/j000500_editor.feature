@@ -11,7 +11,8 @@ Feature: Dana in her editor
   talks the Agent Client Protocol, and the promise is that it is the SAME door —
   same binding, same trust gates, same capture — as a terminal run. `acp list`
   prints the blocks she pastes into her editor's config to make that happen,
-  and `acp client` drives one headless turn outward at any ACP-speaking agent.
+  and `acp run` drives any ACP-speaking agent outward — a session, or a single
+  turn with --one-shot.
 
   # NOTE ON WHAT THIS FEATURE CAN AND CANNOT SEE — the honest limit, stated
   # first, because it governs what is here and what deliberately is not.
@@ -34,7 +35,8 @@ Feature: Dana in her editor
   #   - door equivalence under a real editor (same context, trust gates and tee
   #     as a terminal run) — needs a live ACP client; a Go-level test of the
   #     same name exists, and this journey does not restate it;
-  #   - `acp client` driving a real outbound turn — needs a live ACP agent;
+  #   - `acp run` driving a real outbound session or turn — needs a live ACP
+  #     agent;
   #   - the antigravity row, which is prose-degraded by construction
   #     (STRUCTURAL loss of tool events and permission forwarding), so there is
   #     nothing to assert but the loss itself.

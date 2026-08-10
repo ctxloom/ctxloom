@@ -29,7 +29,7 @@ That is not hermetically assertable here, and scenarios that passed without it
 would prove nothing about whether Zed can actually drive ctxloom.
 
 So three rows are recorded as unverifiable rather than faked: door equivalence
-under a real editor, `acp client` driving a real outbound turn, and the
+under a real editor, `acp run` driving a real outbound turn, and the
 antigravity row, which is prose-degraded by construction and has nothing to
 assert but the loss itself. The live verify stays open and manual. The whole
 surface is EXPERIMENTAL and this file does not pretend otherwise.

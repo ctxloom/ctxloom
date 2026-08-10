@@ -15,7 +15,7 @@ flowchart TD
     subgraph tree["cobra tree"]
         ACP["acpCmd (bare = deprecated alias)<br/>acp_cmd.go:41"]
         ACP --> SRV["acp server — acp_cmd.go:80"]
-        ACP --> CLI["acp client &lt;prompt&gt; — acp_client_cmd.go:47"]
+        ACP --> CLI["acp run [prompt] — acp_run_cmd.go:56"]
         ACP --> ENT["acp entries — acp_agents_cmd.go:33"]
         ACP --> AG["acp agents (Deprecated) — acp_agents_cmd.go:48"]
     end
@@ -58,7 +58,7 @@ flowchart TD
 |---|---|---|
 | `ctxloom acp` | `acp_cmd.go:41` | Bare invocation is a deprecated alias for `acp server`. The deprecation notice is hand-rolled (`runACPServerBareAlias:70`) rather than using cobra's `Deprecated` field, because that field would hide the entire subtree from `--help` (documented at `:30-39`). |
 | `ctxloom acp server` | `acp_cmd.go:80` | Serves an ACP session over stdio. `registerACPServerFlags:145` binds the shared flag set for both spellings. |
-| `ctxloom acp client <prompt>` | `acp_client_cmd.go:47` | Drives a third-party ACP-speaking agent through the plugin door. `--llm` is **required** (sentinel `errACPClientLLMRequired`); the backend must be of type `acp`, and the error names the label, the wrong backend, and the fixing command. |
+| `ctxloom acp run [prompt]` | `acp_run_cmd.go:56` | Drives a third-party ACP-speaking agent through the plugin door: bare opens a session (`runACPSessionWithConfig`, one typed line per turn, EOF ends it), `--one-shot` drives a single turn (`runACPOneshotWithConfig`). `--llm` is **required** (sentinel `errACPRunLLMRequired`); the backend must be of type `acp`, and the error names the label, the wrong backend, and the fixing command. |
 | `ctxloom acp entries` | `acp_agents_cmd.go:33` | Prints one advertisable agent-server entry per configured agent plus a plain `ctxloom` entry, and a Zed `agent_servers` paste block. |
 | `ctxloom acp agents` | `acp_agents_cmd.go:48` | Deprecated alias for `entries`; same `runACPEntries` body. |
 
@@ -105,8 +105,8 @@ Two consumers, one mechanism.
 - **The reach-back pair is the whole credential surface.** `sessionOwnerEnv`
   returns exactly `EnvCoordURL` + `EnvCoordCred`; the runner scrubs both from its
   own environment before spawning the engine (`llm_runner_common.go:53-55`).
-- **`acp client` refuses a non-`acp` backend** rather than trying and failing
-  later (`runACPClientWithConfig:89`).
+- **`acp run` refuses a non-`acp` backend** rather than trying and failing
+  later (`acpRunBackend`), on both of its forms.
 - **`acpCoordinator` satisfies `operations.EngineSessionCoordinator`
   structurally**, deliberately — `operations/engine_session.go:38-40` documents
   the choice as import-cycle avoidance. There is no

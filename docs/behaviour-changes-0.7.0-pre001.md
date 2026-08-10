@@ -208,7 +208,7 @@ in scoped and global listings alike — they are never hidden.
 | `ctxloom run -p <typo>` or an unloadable bundle ref | exit 0, zero MCP servers / hooks / commands / skills delivered | strictness finding — warns always, aborts in strict mode, `--degraded` downgrades |
 | Transcript export / clipboard copy of an all-notice feed | wrote a **0-byte file** reporting `saved`; clipboard copy emitted OSC 52 **clear** while reporting `copied` | both refused |
 | A transcript export whose `kind` is unknown | wrote a file whose extension lied about its contents | refused |
-| `ctxloom run --one-shot`, `map`, `weave`, a delegated turn or `acp client` where the engine exits 0 with **no output** | exit 0, empty report / empty `Part.Output` / empty assistant turn | non-zero, carrying the engine's stderr (in a fan this is one member's error `Part`, not the whole call) |
+| `ctxloom run --one-shot`, `map`, `weave`, a delegated turn or `acp run --one-shot` where the engine exits 0 with **no output** | exit 0, empty report / empty `Part.Output` / empty assistant turn | non-zero, carrying the engine's stderr (in a fan this is one member's error `Part`, not the whole call) |
 | A `map`/`weave` member (or delegated child) whose **named profiles** assemble to nothing | ran context-free, produced plausible output | non-zero — a run naming no profile is still legitimately context-free |
 | `ctxloom manage hooks uninstall --backend <typo>` | `Status: "removed"` listing the typo, nothing removed | non-zero, naming the supported backends |
 
@@ -612,9 +612,10 @@ Typing the bare noun where a machine expects the protocol is caught too: off a
 terminal, `ctxloom mcp` refuses and names `mcp serve` rather than printing a
 listing into a pipe that cannot frame it.
 
-`ctxloom acp client` also takes `--one-shot`, and **requires** it. That leaf
-drives exactly one turn and has no interactive form, so the flag states the mode
-rather than leaving a bare invocation to imply a session it never opens.
+The outbound ACP leaf is `ctxloom acp run`, and it splits its two forms on the
+same word `run` does: bare opens a session with the configured ACP-speaking
+agent (one typed line is one turn, Ctrl-D ends it), and `--one-shot` drives a
+single turn and exits.
 
 ## Upgrading
 

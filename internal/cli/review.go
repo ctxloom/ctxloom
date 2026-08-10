@@ -60,8 +60,8 @@ Non-interactive (piped, --list, or any --format but text): print the pending
 table and exit.
 
 The scriptable plumbing under this porcelain:
-  ctxloom trust accept <ref>   accept one item
-  ctxloom trust reject <ref>   reject one item`,
+  ctxloom bundle trust <ref>   accept one item
+  ctxloom bundle untrust <ref>   reject one item`,
 	Args: cobra.NoArgs,
 	RunE: runReviewCmd,
 }
@@ -260,7 +260,7 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 		}
 	}
 	fmt.Fprintln(w, "\nRun 'ctxloom review' in a terminal to review interactively, or use the")
-	fmt.Fprintln(w, "plumbing per item: ctxloom trust accept <bundle-ref>#<kind>/<name> / ctxloom trust reject <ref>.")
+	fmt.Fprintln(w, "plumbing per item: ctxloom bundle trust <bundle-ref>#<kind>/<name> / ctxloom bundle untrust <ref>.")
 }
 
 // renderReviewPublisher prints the two lines that say WHO signed a pending
@@ -268,7 +268,7 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 // what separates the three states is the NEXT COMMAND: an unsigned or
 // trusted-signer bundle wants the human to read the content (`ctxloom review`),
 // while a bundle signed by a key this machine does not trust has a second,
-// entirely different fix available (`trust signer create`) that the pending
+// entirely different fix available (`signer trust`) that the pending
 // list is the only place to learn about.
 //
 // The untrusted wording carries the weight. A fingerprint printed in a surface
@@ -286,7 +286,7 @@ func renderReviewPublisher(w io.Writer, b operations.ReviewBundle) {
 		fmt.Fprintln(w, "           Signed, but by a key this machine does not trust to publish.")
 		fmt.Fprintln(w, "           That fingerprint is a string to COMPARE, not a name: confirm it")
 		fmt.Fprintln(w, "           with the publisher out of band, then trust the key by principal:")
-		fmt.Fprintln(w, "             ctxloom trust signer create <principal> --key <key.pub>")
+		fmt.Fprintln(w, "             ctxloom signer trust <principal> --key <key.pub>")
 	case bundles.ReasonTrustedSigner:
 		fmt.Fprintf(w, "  signer:  %s — a key you trust to publish\n", b.Signer)
 		fmt.Fprintln(w, "           Read the items and decide: ctxloom review")

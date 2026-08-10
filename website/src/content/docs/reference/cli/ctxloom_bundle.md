@@ -55,6 +55,8 @@ ctxloom bundle [flags]
 * [ctxloom bundle remove](/reference/cli/ctxloom_bundle_remove/)	 - Remove a bundle
 * [ctxloom bundle show](/reference/cli/ctxloom_bundle_show/)	 - Show bundle contents
 * [ctxloom bundle sign](/reference/cli/ctxloom_bundle_sign/)	 - Sign a local bundle for publication
+* [ctxloom bundle trust](/reference/cli/ctxloom_bundle_trust/)	 - Trust an item's current content (fragment, command, MCP server, or hook)
 * [ctxloom bundle unhold](/reference/cli/ctxloom_bundle_unhold/)	 - Release a hold so `upgrade` can advance the item again
+* [ctxloom bundle untrust](/reference/cli/ctxloom_bundle_untrust/)	 - Untrust an item so it is withheld from the agent
 * [ctxloom bundle view](/reference/cli/ctxloom_bundle_view/)	 - View bundle content
 

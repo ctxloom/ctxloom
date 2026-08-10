@@ -26,7 +26,7 @@ Registry:
   ctxloom remote default <name>          Set the default remote
 
 A remote is just an address; its content takes the review path. To auto-trust a
-publisher's content, trust their signing key (ctxloom trust signer create) — not
+publisher's content, trust their signing key (ctxloom signer trust) — not
 the URL.
 
 Discovery:
@@ -62,6 +62,9 @@ ctxloom remote [flags]
 * [ctxloom remote pull](/reference/cli/ctxloom_remote_pull/)	 - Pull dependencies from profiles
 * [ctxloom remote remove](/reference/cli/ctxloom_remote_remove/)	 - Remove a remote source
 * [ctxloom remote show](/reference/cli/ctxloom_remote_show/)	 - Show a remote and the bundles it publishes
+* [ctxloom remote trust](/reference/cli/ctxloom_remote_trust/)	 - Record that ctxloom may publish to a remote
+* [ctxloom remote trusted](/reference/cli/ctxloom_remote_trusted/)	 - List remotes confirmed as publish destinations
+* [ctxloom remote untrust](/reference/cli/ctxloom_remote_untrust/)	 - Drop the recorded decision for a remote (it is asked about again)
 * [ctxloom remote update](/reference/cli/ctxloom_remote_update/)	 - Check for and apply updates to remote items
 * [ctxloom remote upgrade](/reference/cli/ctxloom_remote_upgrade/)	 - Upgrade pinned dependencies to the latest available
 

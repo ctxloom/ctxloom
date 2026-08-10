@@ -304,11 +304,11 @@ func TestSignerConsequenceText_PublishWinsInAMixedGrant(t *testing.T) {
 // it is the one remaining invariant: the canonical trust-signer leaves carry
 // the flags themselves, and nothing in the tree is deprecated any more.
 func TestTrustSignerLeavesCarryTheirOwnFlags(t *testing.T) {
-	require.NotNil(t, trustSignerCreateCmd.Flags().Lookup("key"),
-		"`trust signer create` owns --key; it used to be registered twice, once per spelling")
-	require.NotNil(t, trustSignerDeleteCmd.Flags().Lookup("project"),
-		"`trust signer delete` owns --project")
-	for _, c := range []*cobra.Command{trustSignerCreateCmd, trustSignerListCmd, trustSignerShowCmd, trustSignerDeleteCmd, bundleSignCmd} {
+	require.NotNil(t, signerTrustCmd.Flags().Lookup("key"),
+		"`signer trust` owns --key; it used to be registered twice, once per spelling")
+	require.NotNil(t, signerUntrustCmd.Flags().Lookup("project"),
+		"`signer untrust` owns --project")
+	for _, c := range []*cobra.Command{signerTrustCmd, signerListCmd, signerShowCmd, signerUntrustCmd, bundleSignCmd} {
 		assert.Empty(t, c.Deprecated, "%s: no leaf in the reorged tree is deprecated", c.Name())
 	}
 }

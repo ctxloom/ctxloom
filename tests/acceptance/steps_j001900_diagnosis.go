@@ -710,7 +710,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		j001900Probe(w, "review", "--list")
 		j001900Probe(w, "bundle", "list")
 		j001900Probe(w, "bundle", "show", j001900LockedName())
-		j001900Probe(w, "trust", "signer", "list")
+		j001900Probe(w, "signer", "list")
 		return nil
 	})
 

@@ -72,7 +72,7 @@ hand-edited since; the engine reads a surface ctxloom didn't write; the content
 is retracted; the session ran `--degraded` and the finding scrolled past.
 
 The tools for this all exist and are individually covered — `ctxloom doctor`,
-`ctxloom review --list`, `ctxloom config show`, `ctxloom trust signer list`,
+`ctxloom review --list`, `ctxloom config show`, `ctxloom signer list`,
 `ctxloom run --dry-run`, `ctxloom manage status`, `ctxloom search`. What does
 not exist is a narrative that walks one symptom to one cause, and there is
 nothing anywhere that proves the *diagnostic chain is complete* — that for a
@@ -318,7 +318,7 @@ ctxloom, in under five minutes, without reading source.
 **Arc.** Each scenario seeds exactly one way content can go missing and asserts
 that a deterministic command **names that cause**: the item is pending review
 (`ctxloom review --list` names it and says why); the publisher's key is not
-trusted (`ctxloom trust signer list` shows the key absent, `ctxloom doctor`
+trusted (`ctxloom signer list` shows the key absent, `ctxloom doctor`
 reports the signer count); the fragment is in a bundle her profile does not name
 (`ctxloom run --dry-run` shows the assembled context without it, `ctxloom
 search` finds the fragment and shows which bundle holds it); the hooks were
@@ -328,7 +328,7 @@ makes this a journey rather than five unit tests: for every seeded cause, *some*
 command names it — a silent failure with no diagnostic is a failing scenario.
 
 **Leaves covered.** `ctxloom doctor`, `ctxloom review --list`, `ctxloom manage
-status`, `ctxloom config show`, `ctxloom trust signer list`, `ctxloom run
+status`, `ctxloom config show`, `ctxloom signer list`, `ctxloom run
 --dry-run`, `ctxloom search`. All already covered as leaves — **this journey
 buys no coverage and is still the most valuable item on this list.**
 

@@ -886,7 +886,7 @@ func TestHandleDirtyParentTree_Commit_NoAckRefusesAndNamesKey(t *testing.T) {
 	assert.Contains(t, err.Error(), "internal/foo.go")
 	assert.Contains(t, err.Error(), "internal/bar.go")
 	assert.Contains(t, err.Error(), "committed state", "explains a worktree checkout's limit")
-	assert.Contains(t, err.Error(), "ctxloom manage dirty-tree-ack grant", "names the exact remedy")
+	assert.Contains(t, err.Error(), "ctxloom manage commit trust", "names the exact remedy")
 	assert.Contains(t, err.Error(), "dirty_tree_commit_ack", "names the acknowledgement by its key name")
 	assert.Contains(t, err.Error(), `"copy"`)
 	assert.Contains(t, err.Error(), `"stale"`)

@@ -173,8 +173,8 @@ func TestParse_CRLFLineEndingsTolerated(t *testing.T) {
 // A BOM is not Unicode whitespace, so TrimSpace leaves it in place and it
 // becomes the first byte of the first PRINCIPAL. Nothing downstream survives
 // that: MatchesPrincipal stops matching the identity the operator wrote, so
-// TrustedAs refuses; `trust signer delete <principal>` compares principals
-// literally, so the entry cannot be revoked; and `trust signer show` cannot find it.
+// TrustedAs refuses; `signer untrust <principal>` compares principals
+// literally, so the entry cannot be revoked; and `signer show` cannot find it.
 // Meanwhile TrustedForNamespace matches on the KEY and keeps granting trust —
 // an entry that is live, unnamed and unrevokable.
 //
@@ -230,13 +230,13 @@ func TestParse_OverlongLineIsSkippedNotFatal(t *testing.T) {
 	require.Len(t, perrs, 1)
 	assert.ErrorIs(t, perrs[0].Err, errLineTooLong)
 	assert.Equal(t, 1, perrs[0].Line)
-	// ParseError.Text reaches the user through pe.Error() on `trust signer list`
-	// and `trust signer delete`; echoing a megabyte of it back is a diagnostic
+	// ParseError.Text reaches the user through pe.Error() on `signer list`
+	// and `signer untrust`; echoing a megabyte of it back is a diagnostic
 	// that destroys the terminal it is trying to inform.
 	assert.Less(t, len(perrs[0].Text), 1024, "the reported text must be truncated, not the whole line")
 
 	// The rest of the file still counts, and line numbering — which
-	// `trust signer delete` uses to decide which physical lines to DELETE — is
+	// `signer untrust` uses to decide which physical lines to DELETE — is
 	// unaffected by the skip.
 	require.Len(t, store.Entries(), 1)
 	assert.Equal(t, []string{"ben@abbitt.me"}, store.Entries()[0].Principals)

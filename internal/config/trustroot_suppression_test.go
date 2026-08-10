@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/ed25519"
 	"crypto/rand"
+	"errors"
 	"testing"
 	"time"
 
@@ -194,4 +195,74 @@ func TestFilterSuppressedPrincipals_MultiPrincipalEntry_DropsEveryGrantOnTheLine
 		"suppressing ONE principal drops the whole line, taking partner@example.com's grant with it")
 	assert.False(t, filtered.TrustedForNamespace(pub, signing.NamespacePublish, time.Now()).Trusted,
 		"the un-suppressed principal on the same line no longer grants trust either")
+}
+
+// unreadableFs makes exactly one path fail to open, so a test can distinguish
+// "the file is not there" from "the file is there and I cannot read it".
+type unreadableFs struct {
+	afero.Fs
+	openErr map[string]error
+}
+
+func (f *unreadableFs) Open(name string) (afero.File, error) {
+	if err, ok := f.openErr[name]; ok {
+		return nil, err
+	}
+	return f.Fs.Open(name)
+}
+
+// A revocation the operator wrote must hold even when the file recording it
+// cannot be read. Untrusting takes effect immediately and stays in effect; a
+// permissions problem is not a change of mind, and a trust root that quietly
+// re-grants a key over an I/O error has reversed a human's "no" without
+// telling anyone who could act on it.
+//
+// The two sides are the same fixture differing in one thing — whether the
+// principal is revoked at all — so the negative assertion is proven capable of
+// failing by the positive one directly above it.
+func TestTrustRoot_UnreadableRevocationListDoesNotResurrectTrust(t *testing.T) {
+	key := parseAuthorizedKey(t, ctxloomReleasePubkey)
+	now := time.Now()
+
+	newCfg := func(t *testing.T, revoked bool, readable bool) *Config {
+		t.Helper()
+		base := afero.NewMemMapFs()
+		appDir := "/project/.ctxloom"
+		require.NoError(t, base.MkdirAll(appDir, 0o755))
+		path := paths.DistrustedSignersPath(appDir)
+		if revoked {
+			require.NoError(t, afero.WriteFile(base, path, []byte("ben+ctxloom@abbitt.me\n"), 0o600))
+		}
+		var fs afero.Fs = base
+		if !readable {
+			fs = &unreadableFs{Fs: base, openErr: map[string]error{path: errors.New("permission denied")}}
+		}
+		cfg := &Config{appPaths: []string{appDir}}
+		cfg.SetFS(fs)
+		return cfg
+	}
+
+	// TRUSTED SIDE. Nothing revoked, list readable: the embedded release key
+	// is trusted to publish. Without this, the assertions below could pass
+	// against a trust root that trusts nothing at all.
+	t.Run("a key nobody revoked is trusted", func(t *testing.T) {
+		cfg := newCfg(t, false, true)
+		assert.True(t, cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now).Trusted,
+			"the embedded release key starts out trusted for publish")
+	})
+
+	// UNTRUSTED SIDE, the ordinary one: revoked and readable.
+	t.Run("a revoked key is not trusted", func(t *testing.T) {
+		cfg := newCfg(t, true, true)
+		assert.False(t, cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now).Trusted,
+			"a revoked principal's key must not be trusted")
+	})
+
+	// UNTRUSTED SIDE, the one that matters: revoked, and the record of the
+	// revocation cannot be read.
+	t.Run("a revoked key stays untrusted when the revocation list is unreadable", func(t *testing.T) {
+		cfg := newCfg(t, true, false)
+		assert.False(t, cfg.TrustRoot().TrustedForNamespace(key, signing.NamespacePublish, now).Trusted,
+			"an unreadable revocation list must not re-grant a key the operator revoked")
+	})
 }

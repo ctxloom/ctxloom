@@ -138,7 +138,7 @@ func TestAdmitCompanions_UnconfirmedThirdPartyRefusedNonInteractively(t *testing
 	assert.Equal(t, CompanionAdmissionUnconfirmed, got.Reason)
 	assert.Contains(t, f.warnLog.String(), "never confirmed for execution",
 		"the refusal must be VISIBLE — a silently skipped companion is the silent no-op")
-	assert.Contains(t, f.warnLog.String(), "trust companion allow",
+	assert.Contains(t, f.warnLog.String(), "companion trust",
 		"the warning must name the way out, or the user is stuck")
 	assert.Equal(t, 0, f.prompted, "a non-interactive session must never prompt")
 }

@@ -885,7 +885,7 @@ func doctorCheckSetupCompanions(cfg *config.Config, cfgErr error) doctorCheck {
 	}
 	notRunDetail := ""
 	if len(notRun) > 0 {
-		notRunDetail = fmt.Sprintf("; NOT RUN: %s — allow with 'ctxloom trust companion allow <path>'", strings.Join(notRun, ", "))
+		notRunDetail = fmt.Sprintf("; NOT RUN: %s — allow with 'ctxloom companion trust <path>'", strings.Join(notRun, ", "))
 	}
 	return doctorCheck{Marker: marker, Status: doctorOK, Detail: fmt.Sprintf(
 		"discovered: %s; on PATH: %s; loadouts read: %d%s",
@@ -1040,7 +1040,7 @@ func doctorCheckContentTrust(cfg *config.Config, cfgErr error) doctorCheck {
 	sort.Strings(unsigned)
 	return doctorCheck{Marker: marker, Status: doctorWarn,
 		Detail: fmt.Sprintf("%d remote bundle(s) are UNSIGNED to this machine, so their content is withheld from your assistant: %s "+
-			"(the publisher never signed these bytes, or signed with a key you do not trust — `ctxloom trust signer create` to trust the key, or ask the publisher to sign)",
+			"(the publisher never signed these bytes, or signed with a key you do not trust — `ctxloom signer trust` to trust the key, or ask the publisher to sign)",
 			len(unsigned), strings.Join(unsigned, ", "))}
 }
 

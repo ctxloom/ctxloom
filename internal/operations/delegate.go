@@ -718,7 +718,7 @@ func commitDirtyTree(ctx context.Context, cfg *config.Config, gitClient git.Git,
 		var b strings.Builder
 		fmt.Fprintf(&b, "agent_run: refusing to auto-commit for delegated agent %q on branch %q — %s has uncommitted changes, a worktree checkout only ever contains committed state, and dirty_tree_handler is configured to \"commit\" (the default), but this checkout has not acknowledged that ctxloom may commit on your behalf:\n", agentName, branch, workDir)
 		files.writeTo(&b)
-		fmt.Fprintf(&b, "\nThe \"commit\" handler WOULD stage and commit these to branch %q so the child could see them. To allow this, a human must run `ctxloom manage dirty-tree-ack grant` (or answer yes to the dirty-tree question in `ctxloom init`) — this acknowledgement (%s) is a human act only; it cannot be set from config.yaml, an environment variable, or any per-call parameter.\n\n", branch, commitDirtyTreeAckKey)
+		fmt.Fprintf(&b, "\nThe \"commit\" handler WOULD stage and commit these to branch %q so the child could see them. To allow this, a human must run `ctxloom manage commit trust` (or answer yes to the dirty-tree question in `ctxloom init`) — this acknowledgement (%s) is a human act only; it cannot be set from config.yaml, an environment variable, or any per-call parameter.\n\n", branch, commitDirtyTreeAckKey)
 		b.WriteString(`Or, for this call, choose a different handler instead: dirty_tree_handler: "copy" (reproduce these changes as uncommitted WIP inside the child's worktree — nothing committed), "stale" (spawn the child without these changes), "fail" (refuse the spawn outright).`)
 		return errors.New(b.String())
 	}
@@ -748,7 +748,7 @@ func renderCommitPreview(agentName, workDir, branch string, files dirtyFileList)
 	files.writeTo(&b)
 	b.WriteString(`This is happening because dirty_tree_handler is configured to "commit" (the default, acknowledged via `)
 	b.WriteString(commitDirtyTreeAckKey)
-	b.WriteString(`, set by ctxloom init or ctxloom manage dirty-tree-ack grant). Alternatives for this call: dirty_tree_handler "copy" (reproduce these changes as uncommitted WIP inside the child's worktree instead of committing them here), "stale" (spawn the child without these changes), "fail" (refuse the spawn instead of touching this branch); or pass workspace: "none" to run against the live checkout instead.`)
+	b.WriteString(`, set by ctxloom init or ctxloom manage commit trust). Alternatives for this call: dirty_tree_handler "copy" (reproduce these changes as uncommitted WIP inside the child's worktree instead of committing them here), "stale" (spawn the child without these changes), "fail" (refuse the spawn instead of touching this branch); or pass workspace: "none" to run against the live checkout instead.`)
 	return b.String()
 }
 

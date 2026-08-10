@@ -250,7 +250,7 @@ func TestRenderReviewPublisher_ThreeStatesNameTheirOwnNextCommand(t *testing.T) 
 			"           Signed, but by a key this machine does not trust to publish.\n"+
 			"           That fingerprint is a string to COMPARE, not a name: confirm it\n"+
 			"           with the publisher out of band, then trust the key by principal:\n"+
-			"             ctxloom trust signer create <principal> --key <key.pub>\n",
+			"             ctxloom signer trust <principal> --key <key.pub>\n",
 		render(operations.ReviewBundle{
 			Publisher:         bundles.ReasonUntrustedSigner,
 			SignerFingerprint: fingerprint,
@@ -292,7 +292,7 @@ func TestRenderReviewPublisher_UntrustedKeyReadsAsAWarningNotAnIdentity(t *testi
 		"the key must not be re-rendered as a bare identity line")
 	assert.Less(t,
 		strings.Index(text, "out of band"),
-		strings.Index(text, "ctxloom trust signer create"),
+		strings.Index(text, "ctxloom signer trust"),
 		"the comparison must be stated before the command that acts on it")
 }
 

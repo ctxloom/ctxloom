@@ -31,7 +31,7 @@ const signCmdLong = `Sign a local bundle file, writing a detached <bundle>.yaml.
 lets anyone who trusts your key verify the bundle came from you (signature-
 envelope spec §3.1, §4.2).
 
-ref is a bundle ref or an item ref — the same grammar 'ctxloom trust accept'
+ref is a bundle ref or an item ref — the same grammar 'ctxloom bundle trust'
 uses. A publisher signature covers the whole bundle FILE, so an item ref
 ("<bundle>#fragments/<name>") resolves to its CONTAINING bundle and signs
 that; ctxloom bundle sign says so.

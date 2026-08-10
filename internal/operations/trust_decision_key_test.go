@@ -23,7 +23,7 @@ import (
 // assertion's namespace — VerifyCountersignature asks TrustedForNamespace
 // before it verifies a byte, and reports a flat "not countersigned" when the
 // answer is no. Until this gate existed, the WRITE side never asked: `ctxloom
-// trust accept` with an ordinary ssh-agent key that nobody had granted the
+// bundle trust` with an ordinary ssh-agent key that nobody had granted the
 // approve namespace wrote a well-formed record, printed "Approved … signed by
 // SHA256:…", exited 0, and left the item withheld forever.
 //
@@ -79,7 +79,7 @@ func TestSetItemTrust_RefusesAKeyUntrustedForApprove(t *testing.T) {
 	msg := err.Error()
 	assert.Contains(t, msg, ssh.FingerprintSHA256(rogue.PublicKey()), "the refusal must name the key it refused")
 	assert.Contains(t, msg, signing.NamespaceApprove, "the refusal must name the namespace the key lacks")
-	assert.Contains(t, msg, "ctxloom trust signer create", "the refusal must say how to trust the key")
+	assert.Contains(t, msg, "ctxloom signer trust", "the refusal must say how to trust the key")
 
 	// THE LOAD-BEARING ASSERTION. A refusal that wrote the record anyway
 	// leaves exactly the artifact the bug produced.

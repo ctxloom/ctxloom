@@ -80,7 +80,7 @@ A set of source repos whose content is exempt from review, updates included.
 - Acceptance records the hash pair; rejection records ref block + content hash.
 - `init`'s interview ends with a review session when pending items exist.
 
-`ctxloom trust <ref>` and `ctxloom blacklist <ref>` remain as scriptable
+`ctxloom bundle trust <ref>` and `ctxloom blacklist <ref>` remain as scriptable
 plumbing that write the same accepted/rejected states.
 
 ### Deletions

@@ -168,7 +168,7 @@ ctxloom run -p my-dev "help with code"
 ```
 
 If your team signs its bundles and everyone trusts the team's signing key
-(`ctxloom trust signer create context@myorg.example --key team-publish.pub`), the review
+(`ctxloom signer trust context@myorg.example --key team-publish.pub`), the review
 step is unnecessary: content from a trusted signer is exempt from the gate. Trust
 is anchored to the key, not to the remote's URL.
 

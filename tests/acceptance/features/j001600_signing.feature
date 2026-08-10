@@ -143,11 +143,11 @@ Feature: A signature somebody can check
   # paths are asserted — a trust root written to the wrong store is invisible
   # until a teammate's clone silently trusts nothing.
   Scenario: Trent distributes his trust root in the store his teammates inherit by cloning
-    When I run "ctxloom trust signer create context@acme.example --key acme-publish.pub --project --yes"
+    When I run "ctxloom signer trust context@acme.example --key acme-publish.pub --project --yes"
     Then the command succeeds
     And the project store ".ctxloom/allowed_signers" trusts "context@acme.example" for publishing, with Trent's own key
     And the user store ".ctxloom/allowed_signers" was never written
-    When I run "ctxloom trust signer list"
+    When I run "ctxloom signer list"
     Then the command succeeds
     And the listing names "context@acme.example" in the "project" store, with Trent's fingerprint and the publish namespace
 
@@ -157,7 +157,7 @@ Feature: A signature somebody can check
   Scenario: A signer trusted in both stores is shown from both
     Given Trent's key is trusted in the committable project store as "context@acme.example"
     And Trent's key is also trusted in his personal user store as "context@acme.example"
-    When I run "ctxloom trust signer show context@acme.example"
+    When I run "ctxloom signer show context@acme.example"
     Then the command succeeds
     And the listing names "context@acme.example" in the "project" store, with Trent's fingerprint and the publish namespace
     And the listing names "context@acme.example" in the "user" store, with Trent's fingerprint and the publish namespace
@@ -184,7 +184,7 @@ Feature: A signature somebody can check
     And Alice's own review key is trusted for approve and reject as "reviewer@acme.example"
     And Trent publishes the signed bundle to his company repo, and Alice references it
     And her assistant does not receive the "tdd" guidance
-    When I run "ctxloom trust accept" on the published "tdd" fragment
+    When I run "ctxloom bundle trust" on the published "tdd" fragment
     Then her assistant receives the "tdd" guidance
     When Trent revises the "tdd" fragment, re-signs it, and publishes again
     And Alice pulls the newly published version
@@ -203,7 +203,7 @@ Feature: A signature somebody can check
     And Alice's own review key is trusted for approve and reject as "reviewer@acme.example"
     And Trent publishes the signed bundle to his company repo, and Alice references it
     And her assistant receives the "curl-pipe-sh" guidance
-    When I run "ctxloom trust reject" on the published "curl-pipe-sh" fragment
+    When I run "ctxloom bundle untrust" on the published "curl-pipe-sh" fragment
     Then the output contains "ref block: recorded"
     And the output contains "content:   rejected in form(s)"
     And her assistant does not receive the "curl-pipe-sh" guidance
@@ -218,7 +218,7 @@ Feature: A signature somebody can check
     And Trent's key is trusted in the committable project store as "context@acme.example"
     And Trent publishes the signed bundle to his company repo, and Alice references it
     And her assistant receives the "tdd" guidance
-    When I run "ctxloom trust signer delete context@acme.example --project"
+    When I run "ctxloom signer untrust context@acme.example --project"
     Then the command succeeds
     And the output contains "removed 1 entry for context@acme.example"
     And the project store ".ctxloom/allowed_signers" no longer names Trent's key
@@ -236,7 +236,7 @@ Feature: A signature somebody can check
   Scenario: Removing one signer leaves every other entry in the store intact
     Given Trent's team trusts "alpha@acme.example,context@acme.example,omega@acme.example" in the committable project store
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,context@acme.example,omega@acme.example"
-    When I run "ctxloom trust signer delete context@acme.example --project"
+    When I run "ctxloom signer untrust context@acme.example --project"
     Then the command succeeds
     And the output contains "removed 1 entry for context@acme.example"
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example,omega@acme.example"
@@ -246,7 +246,7 @@ Feature: A signature somebody can check
     # surviving entry unterminated, and an unterminated final line is one
     # ssh-keygen does not read — the key stops counting while `list` and the
     # exit code both still look right.
-    When I run "ctxloom trust signer delete omega@acme.example --project"
+    When I run "ctxloom signer untrust omega@acme.example --project"
     Then the command succeeds
     And the output contains "removed 1 entry for omega@acme.example"
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "alpha@acme.example"
@@ -258,7 +258,7 @@ Feature: A signature somebody can check
   Scenario: Removing a principal the store does not hold changes nothing
     Given Trent's team trusts "alpha@acme.example,omega@acme.example" in the committable project store
     And I note exactly what the project store ".ctxloom/allowed_signers" holds
-    When I run "ctxloom trust signer delete nobody@acme.example --project"
+    When I run "ctxloom signer untrust nobody@acme.example --project"
     Then the command succeeds
     And the output contains "no entry for nobody@acme.example"
     And the output does not contain "removed"
@@ -271,7 +271,7 @@ Feature: A signature somebody can check
   # they never granted — and leaves them believing a key is handled.
   Scenario: Removing a signer when the project has no store yet reports nothing removed
     Given the file ".ctxloom/allowed_signers" does not exist
-    When I run "ctxloom trust signer delete nobody@acme.example --project"
+    When I run "ctxloom signer untrust nobody@acme.example --project"
     Then the command succeeds
     And the output contains "no entry for nobody@acme.example"
     And the output does not contain "removed"
@@ -286,7 +286,7 @@ Feature: A signature somebody can check
     Given Trent's team trusts "alpha@acme.example" in the committable project store
     And one line in the project store ".ctxloom/allowed_signers" cannot be read
     And I note exactly what the project store ".ctxloom/allowed_signers" holds
-    When I run "ctxloom trust signer delete nobody@acme.example --project"
+    When I run "ctxloom signer untrust nobody@acme.example --project"
     Then the command fails
     And the output contains "could not be read"
     And the project store ".ctxloom/allowed_signers" is byte-for-byte what it was
@@ -299,7 +299,7 @@ Feature: A signature somebody can check
   # written is asserted exactly, because "trusted for approve" and "trusted
   # for approve and publish" differ by the ability to publish.
   Scenario: A grant written with full namespace strings lands exactly that grant
-    When I run "ctxloom trust signer create scripted@acme.example --key acme-publish.pub --namespace publish.v1.ctxloom.dev,approve.v1.ctxloom.dev,reject.v1.ctxloom.dev --project --yes"
+    When I run "ctxloom signer trust scripted@acme.example --key acme-publish.pub --namespace publish.v1.ctxloom.dev,approve.v1.ctxloom.dev,reject.v1.ctxloom.dev --project --yes"
     Then the command succeeds
     And the project store ".ctxloom/allowed_signers" trusts "scripted@acme.example" for exactly the namespaces "publish.v1.ctxloom.dev,approve.v1.ctxloom.dev,reject.v1.ctxloom.dev"
 
@@ -307,7 +307,7 @@ Feature: A signature somebody can check
   # through. Storing it verbatim would produce an allowed_signers line that
   # grants nothing while reading, to anyone auditing the file, as a grant.
   Scenario: A grant naming an unrecognised namespace is refused, and writes nothing
-    When I run "ctxloom trust signer create typo@acme.example --key acme-publish.pub --namespace publsh --project --yes"
+    When I run "ctxloom signer trust typo@acme.example --key acme-publish.pub --namespace publsh --project --yes"
     Then the command fails
     And the output contains "unknown namespace"
     And the file ".ctxloom/allowed_signers" does not exist
@@ -319,7 +319,7 @@ Feature: A signature somebody can check
   # line where there were two grants.
   Scenario: Trusting a second signer repairs a store whose last line is unterminated
     Given the project store ".ctxloom/allowed_signers" holds one entry with no trailing newline
-    When I run "ctxloom trust signer create second@acme.example --key acme-publish.pub --namespace publish --project --yes"
+    When I run "ctxloom signer trust second@acme.example --key acme-publish.pub --namespace publish --project --yes"
     Then the command succeeds
     And the project store ".ctxloom/allowed_signers" holds exactly the entries for "handwritten@acme.example,second@acme.example"
 
@@ -331,7 +331,7 @@ Feature: A signature somebody can check
   Scenario: Removing a signer alongside an unreadable line warns but keeps the line
     Given Trent's team trusts "alpha@acme.example,context@acme.example" in the committable project store
     And one line in the project store ".ctxloom/allowed_signers" cannot be read
-    When I run "ctxloom trust signer delete context@acme.example --project"
+    When I run "ctxloom signer untrust context@acme.example --project"
     Then the command succeeds
     And the output contains "removed 1 entry for context@acme.example"
     And the project store ".ctxloom/allowed_signers" still holds the line that could not be read
@@ -343,7 +343,7 @@ Feature: A signature somebody can check
   # record naming anything else reports success and suppresses nothing.
   Scenario: Withdrawing trust in ctxloom's own embedded key records a suppression the read side can honour
     Given ctxloom's own compiled-in publishing key is trusted
-    When I run "ctxloom trust signer delete ben+ctxloom@abbitt.me --project"
+    When I run "ctxloom signer untrust ben+ctxloom@abbitt.me --project"
     Then the command succeeds
     And the output contains "cannot be deleted"
     And the output contains "DISTRUSTED"
@@ -352,7 +352,7 @@ Feature: A signature somebody can check
     # and "recorded in " with nothing after it reads as success either way.
     And the output contains ".ctxloom/distrusted_signers"
     And the distrusted store ".ctxloom/distrusted_signers" records every principal that entry names
-    When I run "ctxloom trust signer list"
+    When I run "ctxloom signer list"
     Then the command succeeds
     And the output contains "LOCALLY DISTRUSTED"
 
@@ -361,9 +361,9 @@ Feature: A signature somebody can check
   # only if it actually reads back what the first one wrote.
   Scenario: Withdrawing trust in the embedded key twice records it once
     Given ctxloom's own compiled-in publishing key is trusted
-    When I run "ctxloom trust signer delete ben+ctxloom@abbitt.me --project"
+    When I run "ctxloom signer untrust ben+ctxloom@abbitt.me --project"
     Then the command succeeds
-    When I run "ctxloom trust signer delete ben+ctxloom@abbitt.me --project"
+    When I run "ctxloom signer untrust ben+ctxloom@abbitt.me --project"
     Then the command succeeds
     And the distrusted store ".ctxloom/distrusted_signers" records every principal that entry names
 
@@ -372,7 +372,7 @@ Feature: A signature somebody can check
   #
   # What it used to do, on the ORDINARY developer setup — a signing key in
   # ssh-agent, which is exactly what the rest of this feature establishes:
-  # `ctxloom trust accept` recorded a SIGNED approval, printed "Approved …
+  # `ctxloom bundle trust` recorded a SIGNED approval, printed "Approved …
   # signed by SHA256:…", exited 0, and the item stayed withheld. The signed
   # record and the unsigned one carried the SAME ref and the SAME payload_hash
   # in ~/.ctxloom/approvals/index.yaml, differing only in `unsigned: true`
@@ -405,7 +405,7 @@ Feature: A signature somebody can check
     And Trent has signed the bundle "secure-coding"
     And Trent publishes the signed bundle to his company repo, and Alice references it
     And her assistant does not receive the "tdd" guidance
-    When I try to run "ctxloom trust accept" on the published "tdd" fragment
+    When I try to run "ctxloom bundle trust" on the published "tdd" fragment
     Then the command fails
     And the refusal names Alice's key, the "approve" namespace, and how to trust it
     And the approvals store holds no approve record at all

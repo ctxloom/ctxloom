@@ -56,7 +56,7 @@ func printCompanionStatus() {
 		case adm.Path == "":
 			fmt.Printf("  %s: NOT FOUND — %s disabled (install: %s)\n", adm.Bin, hint.feature, hint.install)
 		case !adm.Allow:
-			fmt.Printf("  %s: %s — NOT RUN (%s); %s disabled (allow: ctxloom trust companion allow %s)\n",
+			fmt.Printf("  %s: %s — NOT RUN (%s); %s disabled (allow: ctxloom companion trust %s)\n",
 				adm.Bin, adm.Path, adm.Reason, hint.feature, adm.Path)
 		default:
 			fmt.Printf("  %s: %s\n", adm.Bin, adm.Path)

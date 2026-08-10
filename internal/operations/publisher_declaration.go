@@ -64,7 +64,7 @@ type PublisherDeclaration struct {
 // So the trigger is an EXPLICIT publish grant: at least one entry whose
 // namespaces= option names publish.v1.ctxloom.dev. That is a repository saying
 // "these keys publish ctxloom content from here" and nothing else says it — it
-// is exactly what `ctxloom trust signer create` writes, and what ctxloom's own
+// is exactly what `ctxloom signer trust` writes, and what ctxloom's own
 // content repos already carry.
 //
 // A file that exists but cannot be READ or PARSED is an error, never "no

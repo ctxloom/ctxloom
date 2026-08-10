@@ -22,7 +22,7 @@ import (
 // told it was dead. sweepLegacyPublishRemotesDir is that sweep.
 //
 // It runs from DefaultPublishRemoteStore, i.e. exactly when publish consent
-// is actually consulted (`ctxloom trust publish list/allow/deny/forget`, and
+// is actually consulted (`ctxloom remote trusted/allow/deny/forget`, and
 // the publish gate itself) — never from unconditional startup, so a session
 // that never touches publish never pays for a stat call.
 //

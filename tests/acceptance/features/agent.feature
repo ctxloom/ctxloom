@@ -97,7 +97,7 @@ Feature: Agent bindings and container tooling
   Scenario: Container tooling withholds an untrusted declaration and reports none
     Given an initialized ctxloom project
     And a bundle "shady" declaring container tooling "TOOLING-DECL-SHADY"
-    And I run "ctxloom trust reject shady#commands/tooling"
+    And I run "ctxloom bundle untrust shady#commands/tooling"
     When I run "ctxloom container tooling"
     Then the command succeeds
     And the output contains "No trusted bundles declare container tooling"

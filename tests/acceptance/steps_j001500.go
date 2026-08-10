@@ -215,10 +215,10 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		if err := os.WriteFile(keyPath, pubBytes, 0o644); err != nil {
 			return fmt.Errorf("write company public key: %w", err)
 		}
-		// Drives the real "ctxloom trust signer create" leaf (project store, so the
+		// Drives the real "ctxloom signer trust" leaf (project store, so the
 		// whole team inherits the trust decision) — see completeness_test.go's
 		// knownUncoveredCLI, pruned for this ref by J001500.
-		return runOK(w, "trust", "signer", "create", j001500.principal, "--key", keyPath, "--project")
+		return runOK(w, "signer", "trust", j001500.principal, "--key", keyPath, "--project")
 	})
 
 	// --- Scenario 1: reference mechanic ---------------------------------------
@@ -323,7 +323,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
 		ref := j001500.url + "@bundles/" + j001500.bundleName + "#hooks/session_start/0"
-		return runOK(w, "trust", "reject", ref)
+		return runOK(w, "bundle", "untrust", ref)
 	})
 
 	ctx.Step(`^the MCP server appears in her assistant's configuration$`, func(c context.Context) error {
@@ -437,9 +437,9 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice revokes her trust in the company key$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// Drives the real "ctxloom trust signer delete" leaf — see
+		// Drives the real "ctxloom signer untrust" leaf — see
 		// completeness_test.go's knownUncoveredCLI, pruned for this ref by J001500.
-		return runOK(w, "trust", "signer", "delete", j001500Of(w).principal, "--project")
+		return runOK(w, "signer", "untrust", j001500Of(w).principal, "--project")
 	})
 
 	ctx.Step(`^her assistant no longer receives any content signed by that key$`, func(c context.Context) error {

@@ -454,7 +454,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
     # The dirty-tree-commit acknowledgement moved out of config.yaml into its
     # own gitignored state-store record: the value records a prior HUMAN
     # authorization, not configuration, and is ScopeNever — no config layer may
-    # set it. `manage dirty-tree-ack` is the scriptable counterpart to
+    # set it. `manage commit` is the scriptable counterpart to
     # `ctxloom init`'s interview question, the only other writer.
     # The two states are asserted rather than "absent, then present": a record
     # that reads `approved: true` after granting and `approved: false` after
@@ -465,7 +465,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Given an initialized ctxloom project
       When Alice grants the acknowledgement:
         """
-        ctxloom manage dirty-tree-ack grant
+        ctxloom manage commit trust
         """
       Then the command succeeds
       And the output contains "granted"
@@ -473,7 +473,7 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       And the file ".ctxloom/state/dirty_tree_commit_ack.yaml" contains "approved: true"
       When Alice revokes it again:
         """
-        ctxloom manage dirty-tree-ack revoke
+        ctxloom manage commit untrust
         """
       Then the command succeeds
       And the output contains "revoked"

@@ -217,7 +217,7 @@ func admitCompanion(
 	if fault != nil {
 		clidiag.WarnOnce("ctxloom",
 			"companion consent record unreadable, refusing to execute any companion: %v "+
-				"(fix or remove it, then re-decide with 'ctxloom trust companion allow <path>')", fault)
+				"(fix or remove it, then re-decide with 'ctxloom companion trust <path>')", fault)
 		return newCompanionAdmission(key, false, CompanionAdmissionStoreFault)
 	}
 
@@ -229,7 +229,7 @@ func admitCompanion(
 	if consent.Declined(key) {
 		clidiag.WarnOnce("ctxloom",
 			"companion %q at %s: execution declined by a recorded decision, skipping "+
-				"(undo with 'ctxloom trust companion forget %s')", bin, resolved, resolved)
+				"(undo with 'ctxloom companion untrust %s')", bin, resolved, resolved)
 		return newCompanionAdmission(key, false, CompanionAdmissionDeclined)
 	}
 
@@ -287,13 +287,13 @@ func admitCompanion(
 		if ask == nil {
 			clidiag.WarnOnce("ctxloom",
 				"companion %q at %s: never confirmed for execution, skipping "+
-					"(no terminal to ask on — run ctxloom interactively once, or 'ctxloom trust companion allow %s')",
+					"(no terminal to ask on — run ctxloom interactively once, or 'ctxloom companion trust %s')",
 				bin, resolved, resolved)
 		}
 	case CompanionAdmissionStoreFault:
 		clidiag.WarnOnce("ctxloom",
 			"companion consent record unreadable, refusing to execute any companion: %v "+
-				"(fix or remove it, then re-decide with 'ctxloom trust companion allow <path>')", d.Detail)
+				"(fix or remove it, then re-decide with 'ctxloom companion trust <path>')", d.Detail)
 	}
 	return CompanionAdmission{CompanionKey: key, Decision: d}
 }
@@ -335,7 +335,7 @@ func askCompanionConsent(_ context.Context, k CompanionKey) (allowed, answered b
 	case "y", "yes":
 		return true, true, nil
 	default:
-		fmt.Fprintf(companionPromptOut, "not running %s (undo with 'ctxloom trust companion forget %s')\n", k.Bin, k.Path)
+		fmt.Fprintf(companionPromptOut, "not running %s (undo with 'ctxloom companion untrust %s')\n", k.Bin, k.Path)
 		return false, true, nil
 	}
 }

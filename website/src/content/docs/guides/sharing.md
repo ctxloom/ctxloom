@@ -169,7 +169,7 @@ key they trust is exempt from it, so it reaches their agent as soon as they
 pull it. Everything else is born pending regardless of how it was published.
 Signing only authenticates the bundle as genuinely yours — it never vouches
 for whether it's safe — so trusting your key is a separate decision each
-consumer makes for themselves (`ctxloom trust signer create`).
+consumer makes for themselves (`ctxloom signer trust`).
 
 The easiest way to sign is at publish time: `ctxloom bundle push my-bundle
 mybundles --sign` (see Validation below) signs the exact bytes it publishes

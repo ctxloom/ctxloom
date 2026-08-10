@@ -189,7 +189,7 @@ Feature: The day the assistant goes blind
   # B2's DEFECT, and it is CLOSED. Boundary-table verdict was PARTIAL — nothing
   # named the cause, and Alice found it by diffing lockfiles by hand. The step
   # probes every inspector the boundary table nominates (doctor, review --list,
-  # bundle list, bundle show, trust signer list) and fails with all five outputs
+  # bundle list, bundle show, signer list) and fails with all five outputs
   # quoted, so a red run is itself the evidence of what each surface says.
   #
   # UNTAGGED 2026-08-05. `ctxloom doctor` answers it:
@@ -294,7 +294,7 @@ Feature: The day the assistant goes blind
   # distinct publisher states — unsigned, signed by an untrusted key (with that
   # key's fingerprint), signed by a trusted key — and names a DIFFERENT next
   # command for each, which is the part that closes the diagnosis gap: an
-  # untrusted signer sends Alice to `trust signer create`, not to `ctxloom
+  # untrusted signer sends Alice to `signer trust`, not to `ctxloom
   # review`. The fingerprint is display-only and comes from
   # signing.SignatureKeyFingerprint, which reads the key out of the signature
   # blob and is never a trust input; VerifyPublisher is unchanged and still

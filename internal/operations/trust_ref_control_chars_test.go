@@ -11,7 +11,7 @@ import (
 )
 
 // trust.ParseItemRef is the door a trust ref comes through from argv
-// (`ctxloom trust <ref>`), from an MCP argument, and from the gates built over
+// (`ctxloom bundle trust <ref>`), from an MCP argument, and from the gates built over
 // bundle-authored names. Whatever it yields is interpolated verbatim into the
 // countersign preimage by countersignRef, so a control character surviving here
 // reaches the bytes a human's signature covers — where an LF closes the `ref:`

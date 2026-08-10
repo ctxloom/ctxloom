@@ -773,7 +773,7 @@ func requireTrustedForAssertion(root signing.TrustRoot, key ssh.PublicKey, asser
 		"%w: %s is not trusted for the %q namespace.\n"+
 			"Recording this decision anyway would write a countersignature nothing honours: the command would report success and the item would stay withheld, with no sign that anything went wrong.\n"+
 			"Trust this key to make review decisions, then run this again:\n"+
-			"    ctxloom trust signer create <you@example.com> --key <path/to/your_key.pub> --namespace approve,reject\n"+
+			"    ctxloom signer trust <you@example.com> --key <path/to/your_key.pub> --namespace approve,reject\n"+
 			"(add --project to record the grant in the committable project store). "+
 			"With no signing key at all, decisions are recorded unsigned in your personal store instead",
 		ErrReviewKeyUntrusted, ssh.FingerprintSHA256(key), ns)

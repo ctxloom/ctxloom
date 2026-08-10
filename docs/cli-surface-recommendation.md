@@ -145,7 +145,7 @@ command      list · show · create · edit · delete · distill                
 skill        list · show · create · delete · sync · export · import                      (7)
 session      list · show · rename · delete · search · watch · distill · backfill        (8)
 trust        accept · reject
-trust signer list · show · create · delete                                               (6)
+signer list · show · create · delete                                               (6)
 agent        list · show · create · edit · delete · default                              (6)
 remote       list · show · create · delete · default · pull · update · upgrade
              · discover                                                                  (9)
@@ -181,7 +181,7 @@ instance address, and this proposal leans on it harder:
 | Change | Runnable spellings |
 |---|---|
 | Delete all 20 deprecated command aliases (§6) | −20 |
-| Delete bare runnable `trust <ref>` (duplicate of `trust accept`) | −1 |
+| Delete bare runnable `trust <ref>` (duplicate of `bundle trust`) | −1 |
 | Merge `profile modify` → `profile edit` (flags) | −1 |
 | Merge `bundle view` → `fragment/command show` + `bundle show --raw` | −1 |
 | Merge `config get` → `config show [section]` | −1 |
@@ -206,9 +206,9 @@ proposal (deprecated aliases are in §6 instead).
 | `remote browse` | `remote show <name>` | also fills remote's missing `show`; shows URL, default status, and the remote's bundles |
 | `mcp server add` | `mcp server create` | |
 | `mcp server remove` | `mcp server delete` | |
-| `trust signer add` | `trust signer create` | |
-| `trust signer remove` | `trust signer delete` | |
-| `trust <ref>` (bare runnable) | `trust accept <ref>` | bare `trust` becomes a pure group node |
+| `trust signer add` | `signer trust` | |
+| `trust signer remove` | `signer untrust` | |
+| `trust <ref>` (bare runnable) | `bundle trust <ref>` | bare `trust` becomes a pure group node |
 | `session forget` | `session delete` | help text keeps the "transcript and essence stay on disk" sentence |
 | `session query` | `session search` | one spelling for content search, matching top-level `search` |
 | `profile modify` | `profile edit` + flags | verified distinct behaviours today; merged per spine rule 2 |
@@ -272,7 +272,7 @@ the deprecated spelling (§8).
   create-or-update (used by the init setup interview's LLM-driven flow) now
   needs two attempts or a `--replace` flag on `create`. Cost is one sentence
   in the regenerated `init prompt` text.
-- Bare `trust <ref>`: two extra words (`trust accept`) for the most common
+- Bare `trust <ref>`: two extra words (`bundle trust`) for the most common
   trust action. Deliberate: an imperative bare noun that silently means
   "accept" is exactly the kind of surface a user can't guess *safely*.
 
@@ -323,12 +323,12 @@ must be *one* commit, not a drizzle.
 
 ### Cost to J001600 (in flight, being written now)
 
-J001600's spine survives intact: `bundle sign`, `bundle move`, `trust accept`,
-`trust reject`, `trust signer list`, `trust signer show` are all unchanged.
+J001600's spine survives intact: `bundle sign`, `bundle move`, `bundle trust`,
+`bundle untrust`, `signer list`, `signer show` are all unchanged.
 Three hits:
 
-1. `trust signer add` → `trust signer create` and `trust signer remove` →
-   `trust signer delete`: mechanical re-spell of the affected steps.
+1. `trust signer add` → `signer trust` and `trust signer remove` →
+   `signer untrust`: mechanical re-spell of the affected steps.
 2. The planned scenario driving deprecated `sign` and asserting its
    deprecation notice on stderr **dies entirely** — under this proposal there
    is no deprecation notice to assert, because there is no deprecated twin.

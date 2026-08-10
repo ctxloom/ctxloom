@@ -28,14 +28,14 @@ var (
 	signerAddYes        bool
 )
 
-// signerCreateLong documents `ctxloom trust signer create`.
+// signerCreateLong documents `ctxloom signer trust`.
 const signerCreateLong = `Add a public key to your allowed_signers store, trusted for the given
 namespace(s) (default: publish).
 
 <principal> is an arbitrary identity string (spec §7.1) — an email, a team
 name, an org name ("context@acme.com"), or a pipeline identity
 ("releases@ctxloom.dev"). It has no relationship to any account; it is
-purely the label your allowed_signers file and 'trust signer list' display.
+purely the label your allowed_signers file and 'ctxloom signer' display.
 
 By default this writes to your USER store (~/.ctxloom/allowed_signers),
 which follows you across every project. --project writes to the
@@ -43,10 +43,10 @@ COMMITTABLE project store (.ctxloom/allowed_signers) instead — the way a
 team distributes "trust our lead's approval key" to everyone who clones.
 
 Examples:
-  ctxloom trust signer create context@acme.com --key ~/.ssh/acme-publish.pub
-  ctxloom trust signer create lead@team.example --key lead.pub --namespace approve,reject --project`
+  ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
+  ctxloom signer trust lead@team.example --key lead.pub --namespace approve,reject --project`
 
-// runSignerAddCmd is trustSignerCreateCmd's RunE.
+// runSignerAddCmd is signerTrustCmd's RunE.
 func runSignerAddCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
@@ -55,7 +55,7 @@ func runSignerAddCmd(cmd *cobra.Command, args []string) error {
 	return runSignerAdd(cmd, cfg, args[0], signerAddKey, signerAddNamespaces, signerAddComment, signerAddProject, signerAddYes)
 }
 
-// runSignerAdd is the testable body of `ctxloom trust signer create`: cfg is DI'd
+// runSignerAdd is the testable body of `ctxloom signer trust`: cfg is DI'd
 // (a real config.Config over a temp project) and every flag value is an
 // explicit parameter, so a test can drive the confirmation → write path
 // without touching cobra's global flag vars or a real home directory.
@@ -94,8 +94,7 @@ func runSignerAdd(cmd *cobra.Command, cfg *config.Config, principal, keyArg stri
 
 // confirmSignerAdd names the real consequence of trusting a signer (spec
 // §7.2) and shows the fingerprint the user is supposed to check out of
-// band, mirroring the deleted `remote trust`'s consequence-naming
-// confirmation. --yes and a non-interactive terminal (scripted/CI use, or
+// band. --yes and a non-interactive terminal (scripted/CI use, or
 // a piped stdin already consumed by --key -) both skip the prompt and
 // proceed — trusting a signer is a deliberate, explicit CLI invocation either way,
 // never a first-sight TOFU prompt (spec explicitly rejects TOFU; this
@@ -219,7 +218,7 @@ func printSignerListings(w io.Writer, listings []operations.SignerListing) error
 
 // embeddedAnnotation renders the trailing note for an "embedded" trust-root
 // entry: always not-removable via this CLI, and — when a local suppression
-// record exists (`trust signer delete <embedded-principal>`) — that it is
+// record exists (`signer untrust <embedded-principal>`) — that it is
 // DISTRUSTED and no longer actually trusted despite still being listed.
 // Visibility never regresses just
 // because an entry was suppressed: an operator must be able to see both that
@@ -256,12 +255,12 @@ func runSignerShowCmd(cmd *cobra.Command, args []string) error {
 
 var signerRemoveProject bool
 
-// signerDeleteLong documents `ctxloom trust signer delete`.
+// signerDeleteLong documents `ctxloom signer untrust`.
 const signerDeleteLong = `Removes every entry for <principal> from your allowed_signers store (user
 store by default; --project for the committable project store). This does
 NOT reject any content that signer already published or approved — it
 means "I will review this myself from now on", not "deny". Use
-'ctxloom trust reject'/'ctxloom review --reject' to actually reject content.
+'ctxloom bundle untrust'/'ctxloom review --reject' to actually reject content.
 
 <principal> naming ctxloom's OWN embedded release key is a special case: that
 key is compiled into the binary and cannot be deleted by this command. Instead
@@ -300,65 +299,72 @@ func runSignerRemoveCmd(cmd *cobra.Command, args []string) error {
 	})
 }
 
-// --- trust signer: the canonical spine over the allowed_signers store -------
+// --- signer: the canonical spine over the allowed_signers store -------------
 
-var trustSignerCmd = groupNode(&cobra.Command{
+// Bare `ctxloom signer` lists the trusted signers: the trust root is the one
+// thing the noun is about, and reading it touches nothing.
+var signerCmd = groupNodeDefault(&cobra.Command{
 	Use:   "signer",
-	Short: "Manage trusted signers (allowed_signers)",
+	Short: "Manage who ctxloom trusts to sign content",
 	Long: `Manage who ctxloom trusts to publish or approve/reject content: entries in
 the ssh-keygen "allowed_signers" format (spec §7), layered over ctxloom's
 own embedded trust root.
 
 Trusting a signer is the single most consequential command in the signing
 feature: everything that key ever publishes (or approves, for an
-approve-namespace key) reaches your agent WITHOUT REVIEW, forever, until
-you remove it. 'trust signer create' names that consequence and shows the
-fingerprint you are supposed to verify out of band before continuing.`,
-})
+approve-namespace key) reaches your agent WITHOUT REVIEW, forever, until you
+untrust it. 'signer trust' names that consequence and shows the fingerprint
+you are supposed to verify out of band before continuing.
 
-var trustSignerCreateCmd = &cobra.Command{
-	Use:   "create <principal>",
+  ctxloom signer                         List trusted signers
+  ctxloom signer show <principal>        Show every trust-root entry for one
+  ctxloom signer trust <principal> --key <key.pub>
+  ctxloom signer untrust <principal>`,
+}, "list")
+
+var signerTrustCmd = &cobra.Command{
+	Use:   "trust <principal>",
 	Short: "Trust a signer's public key",
 	Long:  signerCreateLong,
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSignerAddCmd,
 }
 
-var trustSignerListCmd = &cobra.Command{
+var signerListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List trusted signers",
 	RunE:  runSignerListCmd,
 }
 
-var trustSignerShowCmd = &cobra.Command{
+var signerShowCmd = &cobra.Command{
 	Use:   "show <principal>",
 	Short: "Show every trust-root entry for a principal",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSignerShowCmd,
 }
 
-var trustSignerDeleteCmd = &cobra.Command{
-	Use:   "delete <principal>",
-	Short: "Delete a trusted signer",
+var signerUntrustCmd = &cobra.Command{
+	Use:   "untrust <principal>",
+	Short: "Withdraw trust from a signer's public key",
 	Long:  signerDeleteLong,
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSignerRemoveCmd,
 }
 
 func init() {
-	// Wired here since the flag vars and RunE bodies are local to this file;
-	// trust.go adds trustSignerCmd itself under trustCmd.
-	trustSignerCmd.AddCommand(trustSignerListCmd)
-	trustSignerCmd.AddCommand(trustSignerShowCmd)
-	trustSignerCmd.AddCommand(trustSignerCreateCmd)
-	trustSignerCmd.AddCommand(trustSignerDeleteCmd)
+	rootCmd.AddCommand(signerCmd)
 
-	trustSignerCreateCmd.Flags().StringVar(&signerAddKey, "key", "", "public key: a file path, '-' for stdin, or a literal authorized_keys line (required)")
-	trustSignerCreateCmd.Flags().StringSliceVar(&signerAddNamespaces, "namespace", nil, "namespace(s) to trust this key for: publish|approve|reject (default: publish)")
-	trustSignerCreateCmd.Flags().StringVar(&signerAddComment, "comment", "", "override the key's own comment")
-	trustSignerCreateCmd.Flags().BoolVar(&signerAddProject, "project", false, "write to the committable project store (.ctxloom/allowed_signers) instead of the user store")
-	trustSignerCreateCmd.Flags().BoolVarP(&signerAddYes, "yes", "y", false, "skip the confirmation prompt")
-	_ = trustSignerCreateCmd.MarkFlagRequired("key")
+	signerCmd.AddCommand(signerListCmd)
+	signerCmd.AddCommand(signerShowCmd)
+	signerCmd.AddCommand(signerTrustCmd)
+	signerCmd.AddCommand(signerUntrustCmd)
 
-	trustSignerDeleteCmd.Flags().BoolVar(&signerRemoveProject, "project", false, "delete from the committable project store instead of the user store")
+	signerTrustCmd.Flags().StringVar(&signerAddKey, "key", "", "public key: a file path, '-' for stdin, or a literal authorized_keys line (required)")
+	signerTrustCmd.Flags().StringSliceVar(&signerAddNamespaces, "namespace", nil, "namespace(s) to trust this key for: publish|approve|reject (default: publish)")
+	signerTrustCmd.Flags().StringVar(&signerAddComment, "comment", "", "override the key's own comment")
+	signerTrustCmd.Flags().BoolVar(&signerAddProject, "project", false, "write to the committable project store (.ctxloom/allowed_signers) instead of the user store")
+	signerTrustCmd.Flags().BoolVarP(&signerAddYes, "yes", "y", false, "skip the confirmation prompt")
+	_ = signerTrustCmd.MarkFlagRequired("key")
+
+	signerUntrustCmd.Flags().BoolVar(&signerRemoveProject, "project", false, "delete from the committable project store instead of the user store")
 }

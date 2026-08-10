@@ -126,9 +126,9 @@ Trust a **key**, and everything that key signs — text, executables, and all
 future updates — skips review:
 
 ```bash
-ctxloom trust signer create context@acme.com --key ~/.ssh/acme-publish.pub
+ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
 ctxloom trust signer list
-ctxloom trust signer delete context@acme.com
+ctxloom signer untrust context@acme.com
 ```
 
 The principal (`context@acme.com`) is just a label; the key is the trust. Keys
@@ -163,8 +163,8 @@ anything you've rejected.
 per item:
 
 ```bash
-ctxloom trust accept <ref>       # approve one item (e.g. code-quality#fragments/solid)
-ctxloom trust reject <ref>   # reject one item everywhere
+ctxloom bundle trust <ref>       # approve one item (e.g. code-quality#fragments/solid)
+ctxloom bundle untrust <ref>   # reject one item everywhere
 ```
 
 Both write the same countersignatures `ctxloom review` writes, through the same

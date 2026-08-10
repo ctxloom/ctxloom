@@ -193,7 +193,7 @@ fragments:
 
 // tsRef composes the canonical item ref for this feature's seeded bundle:
 // "file://<bare>@bundles/<bundleName>#<selector>", the same shape
-// steps_j001500.go/steps_review.go drive `ctxloom bundle trust`/`bundle reject` with.
+// steps_j001500.go/steps_content_decision.go drive `ctxloom bundle trust`/`bundle reject` with.
 func tsRef(w *World, selector string) string {
 	ts := tsOf(w)
 	return ts.url + "@bundles/" + ts.bundleName + "#" + selector

@@ -1,25 +1,27 @@
 //go:build acceptance
 
-// The trust posture CLI (trust_cli.feature): what `ctxloom bundle trust` and
-// `ctxloom bundle reject` actually DO, as opposed to what they print.
+// The content-decision state machine (features/cli/content_decision.feature):
+// what `ctxloom review`, `ctxloom bundle trust`, `ctxloom bundle reject` and
+// `ctxloom bundle forget` actually DO, as opposed to what they print.
 //
-// This file exists because the scenario titled "A per-item acceptance and a
+// This file exists because a scenario titled "a per-item acceptance and a
 // rejection ARE RECORDED" recorded nothing that any assertion looked at. Every
 // step was an exit code plus a substring of the output, and "Approved
 // demo#fragments/guide" is the argument echoed back — so neutering
 // countersign.Store's two write paths, until the store recorded NOTHING AT
-// ALL, left all four trust_cli scenarios green (audit irate-catfish, F2). That
-// is precisely the product failure j001600_signing.feature's @wip scenario
-// describes in prose: exit 0, a success message naming the key, and no effect,
-// in the flagship trust command.
+// ALL, left all four scenarios green (audit irate-catfish, F2). That is
+// precisely the product failure j001600_signing.feature's scenario describes
+// in prose: exit 0, a success message naming the key, and no effect, in the
+// flagship trust command.
 //
-// So the assertions here read the two places a decision can actually be
-// observed, and neither is the command's own report of itself:
+// So the assertions here read the three places a decision can actually be
+// observed, and none of them is the command's own report of itself:
 //
 //  1. THE RECORD. countersign.Store's own Has* predicates, asked about the
 //     exact (ref, attestation form, payload) triple the CLI should have
 //     written — the same lookup EffectiveTrust performs when it decides
-//     whether to serve the item. A store that wrote nothing answers false.
+//     whether to serve the item. A store that wrote nothing answers false, and
+//     a store that FORGOT correctly answers false to every one of them.
 //
 //  2. THE EFFECT. `ctxloom fragment list --format json`'s "state" — the
 //     review-state label a human reads, stamped by the same
@@ -28,12 +30,17 @@
 //     stays "accepted": the flip AND the isolation, because a gate that
 //     withheld everything would satisfy the first half alone.
 //
-// LOCAL CONTENT, AND WHY THE ACCEPTANCE IS ASSERTED ON THE RECORD ONLY. This
-// fixture's bundle is project-authored, and local content is auto-allowed at
-// step 3 of the trust cascade, ahead of any review — so `demo#fragments/guide`
-// reads "accepted" BEFORE anybody accepts anything, and a state assertion on
-// the accept half would be tautological a second time. The acceptance's one
-// observable consequence here is the countersignature, which is exactly what
+//  3. THE DELIVERY, for the remote-backed scenarios: the bytes' presence in
+//     the materialized context, and the item's presence in `review --list`.
+//     Those two together separate "approved" from "undecided" from
+//     "rejected", which a single one of them cannot.
+//
+// LOCAL CONTENT, AND WHY THE ACCEPTANCE IS ASSERTED ON THE RECORD ONLY. The
+// project-authored fixture's bundle is local content, auto-allowed at step 3
+// of the trust cascade ahead of any review — so `demo#fragments/guide` reads
+// "accepted" BEFORE anybody accepts anything, and a state assertion on the
+// accept half would be tautological a second time. The acceptance's one
+// observable consequence there is the countersignature, which is exactly what
 // (1) reads. The rejection, which beats the local allowance, is asserted both
 // ways.
 package acceptance
@@ -126,7 +133,42 @@ func tcFragmentStates(w *World) (map[string]string, error) {
 	return states, nil
 }
 
-func registerTrustCLISteps(ctx *godog.ScenarioContext) {
+// runDecisionPlumbing runs `ctxloom bundle <verb> file://<bare>@bundles/<item>`
+// for a seeded remote. item is "<bundle>#<kind>/<name>", e.g. "demo#fragments/x".
+//
+// A seeded file:// remote's canonical bundle refs embed the scenario's temp
+// path, so a feature file cannot spell the full ref statically; this composes
+// it from the seeded remote's bare-repo path and drives the same scriptable
+// plumbing the review porcelain writes through. Exit status flows into the
+// shared runner state, so "the command succeeds" keeps working.
+//
+// It fails LOUD (runOK) rather than deferring to a later exit assertion: none
+// of the step texts below reads as an action whose result something else will
+// check, so a feature author could omit that assertion and silently accept a
+// failed decision write.
+func runDecisionPlumbing(c context.Context, verb, item, remoteName string) error {
+	w := worldFrom(c)
+	bare := w.remoteBare[remoteName]
+	if bare == "" {
+		return fmt.Errorf("remote %q was not seeded", remoteName)
+	}
+	ref := fmt.Sprintf("file://%s@bundles/%s", bare, item)
+	return runOK(w, "bundle", verb, ref)
+}
+
+func registerContentDecisionSteps(ctx *godog.ScenarioContext) {
+	ctx.Step(`^I accept the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, item, name string) error {
+		return runDecisionPlumbing(c, "trust", item, name)
+	})
+
+	ctx.Step(`^I reject the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, item, name string) error {
+		return runDecisionPlumbing(c, "reject", item, name)
+	})
+
+	ctx.Step(`^I clear the decision on the pending item "([^"]*)" from remote "([^"]*)"$`, func(c context.Context, item, name string) error {
+		return runDecisionPlumbing(c, "forget", item, name)
+	})
+
 	ctx.Step(`^the approvals store holds an acceptance of "([^"]*)" over the fragment's current bytes$`,
 		func(c context.Context, sel string) error {
 			w := worldFrom(c)
@@ -228,6 +270,89 @@ func registerTrustCLISteps(ctx *godog.ScenarioContext) {
 				bundle, fragment, got, siblings)
 			return nil
 		})
+
+	// The forget half. Every record the two writers can lay down is checked
+	// ABSENT — the approval, the sticky ref block, and the content block — one
+	// at a time, because they are written independently and a clear that
+	// removed only some of them would leave the item decided while the command
+	// reported it back to pending. That is this project's characteristic
+	// failure with the direction reversed.
+	ctx.Step(`^the approvals store holds no decision about "([^"]*)"$`,
+		func(c context.Context, sel string) error {
+			w := worldFrom(c)
+			bundle, fragment, err := tcSplitSelector(sel)
+			if err != nil {
+				return err
+			}
+			payload, err := tcFragmentPayload(w, bundle, fragment)
+			if err != nil {
+				return err
+			}
+			refStr := tcLocalRef(bundle, fragment)
+			store := tcApprovalsStore(w)
+			for _, check := range []struct {
+				what    string
+				present bool
+			}{
+				{"an approval over its current bytes", store.HasUnsignedApprove(refStr, signing.AttestFragmentRaw, payload)},
+				{"a sticky ref block", store.HasUnsignedRefReject(refStr)},
+				{"a content block over its current bytes", store.HasUnsignedContentReject(signing.AttestFragmentRaw, payload)},
+			} {
+				if check.present {
+					return fmt.Errorf("the approvals store still holds %s for %s after `bundle forget` reported success.\n"+
+						"An item reported back to pending that is still decided is the same silent no-op read backwards; ctxloom said:\n%s",
+						check.what, refStr, w.env.LastOutput())
+				}
+			}
+			w.docStepMaterialized = fmt.Sprintf("approvals store: no approve, no ref block, no content block for %s — undecided", refStr)
+			return nil
+		})
+
+	// The POSITIVE twin of the withheld step above, and the reason that one can
+	// be believed: the same fixture, the same listing, the same sibling check,
+	// reading the state back the other way. Without it "not rejected" would be
+	// satisfied by a listing that had simply lost the bundle.
+	ctx.Step(`^"([^"]*)" reaches the agent again, alongside the bundle's other fragment$`,
+		func(c context.Context, sel string) error {
+			w := worldFrom(c)
+			bundle, fragment, err := tcSplitSelector(sel)
+			if err != nil {
+				return err
+			}
+			states, err := tcFragmentStates(w)
+			if err != nil {
+				return err
+			}
+			got, listed := states[bundle+"#"+fragment]
+			if !listed {
+				return fmt.Errorf("%s#fragments/%s is not listed at all, so \"it reaches the agent again\" asserts nothing; states: %v",
+					bundle, fragment, states)
+			}
+			if got != "accepted" {
+				return fmt.Errorf("%s#fragments/%s reads %q in `fragment list --format json`, want \"accepted\" — "+
+					"clearing the rejection must return the item to undecided, where the first-party allowance delivers it again; states: %v",
+					bundle, fragment, got, states)
+			}
+			siblings := 0
+			for key, state := range states {
+				name, ok := strings.CutPrefix(key, bundle+"#")
+				if !ok || name == fragment {
+					continue
+				}
+				siblings++
+				if state != "accepted" {
+					return fmt.Errorf("the bundle's untouched fragment %q reads %q (want \"accepted\") — "+
+						"clearing one item's decision must leave every other item alone; states: %v", name, state, states)
+				}
+			}
+			if siblings == 0 {
+				return fmt.Errorf("bundle %q lists no fragment other than %q, so the isolation half asserts nothing; states: %v",
+					bundle, fragment, states)
+			}
+			w.docStepMaterialized = fmt.Sprintf("fragment list --format json → %s#%s: %q · %d sibling fragment(s) also \"accepted\"",
+				bundle, fragment, got, siblings)
+			return nil
+		})
 }
 
 // tcSplitSelector splits a "<bundle>#fragments/<name>" selector — the exact
@@ -239,7 +364,7 @@ func tcSplitSelector(sel string) (bundle, fragment string, err error) {
 	const infix = "#fragments/"
 	i := strings.Index(sel, infix)
 	if i < 1 || i+len(infix) >= len(sel) {
-		return "", "", fmt.Errorf("trust_cli: %q is not a \"<bundle>#fragments/<name>\" selector", sel)
+		return "", "", fmt.Errorf("content_decision: %q is not a \"<bundle>#fragments/<name>\" selector", sel)
 	}
 	return sel[:i], sel[i+len(infix):], nil
 }

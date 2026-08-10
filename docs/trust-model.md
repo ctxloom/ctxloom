@@ -278,6 +278,24 @@ third-party binary that picked a familiar name, and goes through the prompt like
 any other: the name list is three guessable strings discovered unconditionally,
 so a name-only exemption would be the same hole in a smaller costume.
 
+**Acknowledged: this is the one place a missing record does not mean "not
+trusted".** Everywhere else in this document, absence of a decision denies —
+that is the rule the whole model rests on. Here a first-party binary resolving
+from ctxloom's own install directory executes with no record at all, and the
+exception is deliberate rather than an oversight.
+
+The reason it is safe is that the exemption is pinned to a location an attacker
+must already own to use: someone who can write to the directory the running
+`ctxloom` lives in can replace `ctxloom` itself, so the gate would be protecting
+you from a position they have already taken. A gate that only stops attackers
+who have not yet won is friction without security, and friction on every rebuild
+is what trains people to approve without reading.
+
+Stated here explicitly because a reader who finds `firstPartyPinned` in the code
+and knows the rule will otherwise read it as a bug and "fix" it — which would
+refuse `ltk`, `taskloom` and `reprise` out of the box for every user, on first
+run, to close nothing.
+
 **A loadout's signature is a diagnostic, not a gate.** This is the second place
 the companion class parts company with remote content, and it follows from the
 same fact. A publisher signature exists to protect bytes from an
@@ -411,10 +429,30 @@ bytes** with the reviewer's own SSH key:
   look.
 - `init`'s interview ends with a review session when anything is pending.
 
-`ctxloom bundle trust <ref>` and `ctxloom bundle untrust <ref>` are the scriptable plumbing
-beneath the porcelain — they write the same countersignatures through the same
-mutation path, so the porcelain and the plumbing produce identical on-disk
-results.
+`ctxloom bundle trust <ref>` and `ctxloom bundle untrust <ref>` are the
+scriptable plumbing beneath the porcelain — they write the same
+countersignatures through the same mutation path, so the porcelain and the
+plumbing produce identical on-disk results.
+
+**The store holds three states and the CLI has two verbs, which is the gap.**
+Approved, rejected and undecided each need a way in, and today there is no way
+back to undecided:
+
+| verb | writes | effect | today |
+|---|---|---|---|
+| `bundle trust <ref>` | an approval | the item is delivered | **exists** |
+| `bundle untrust <ref>` | a rejection | withheld everywhere; **overrides a trusted publisher and overrides local content** | **exists**, to be renamed `reject` |
+| `bundle forget <ref>` | nothing — it CLEARS | removes an approval **and** a rejection, returning the item to pending | **decided, not built** |
+
+`untrust` reads as the inverse of `trust` and is not one: it writes a rejection,
+which is a stronger and stickier statement than withdrawing an approval. Someone
+who reaches for it to undo a `trust` has done something they did not mean. The
+decided fix is to rename it `reject`, naming what it writes, and to add `forget`
+as the actual inverse of both — clearing whichever decision is recorded and
+leaving the item as if it had never been reviewed.
+
+Until `forget` exists, a decision made in error can only be replaced by the
+opposite decision, never withdrawn.
 
 **The namespace check runs on the WRITE side too, and refuses.** Recording a
 decision resolves the countersigning key and then asks the *same* trust root

@@ -12,21 +12,18 @@
 //
 //  1. liveAgents: one entry per engine the @live suite can drive, describing
 //     the BINARY to probe (not necessarily the engine's own name — kiro's is
-//     kiro-cli, antigravity's is agy), how to tell INSTALLED apart from
-//     AUTHENTICATED, the credential material an isolated run needs, and one
-//     cheap pinned model (claude, kiro, codex) or an explicit "no pin, use the
-//     engine's own default" (antigravity has no verified cheap-model slug
-//     recorded here yet — see the config comment below). codex's authCheck
-//     and credential copier are real as of 2026-07-14, but a direct
-//     (non-suite) live run found its run-path context delivery broken — see
-//     the codex entry's own comment; it is NOT yet a proven context-delivering
-//     row.
+//     kiro-cli), how to tell INSTALLED apart from AUTHENTICATED, the
+//     credential material an isolated run needs, and one cheap pinned model
+//     (claude, kiro, codex). codex's authCheck and credential copier are real
+//     as of 2026-07-14, but a direct (non-suite) live run found its run-path
+//     context delivery broken — see the codex entry's own comment; it is NOT
+//     yet a proven context-delivering row.
 //  2. computeLiveEngineReport / formatLiveEngineReport: what actually ran vs.
 //     skipped, per engine, WITH THE REASON — printed on every acceptance run
 //     (TestAcceptance), not only live ones, so credential expiry shows up as
 //     a loud line instead of a silently-lower pass count.
 //  3. parseRequiredEngines / checkRequiredEngines: the floor.
-//     CTXLOOM_LIVE_REQUIRE=claude,kiro,antigravity makes a missing/
+//     CTXLOOM_LIVE_REQUIRE=claude,kiro,codex makes a missing/
 //     unauthenticated engine a hard failure instead of a quiet skip — this is
 //     what stops a credential expiry from silently deleting live coverage.
 package acceptance
@@ -62,7 +59,7 @@ const authProbeTimeout = 8 * time.Second
 type liveAgent struct {
 	// binary is the executable actually probed on PATH. NOT necessarily the
 	// same as the engine's own name in the Examples table — kiro's binary is
-	// kiro-cli, antigravity's is agy.
+	// kiro-cli.
 	binary string
 	// apiKeyEnvs are the env vars whose presence enables the unattended
 	// API-key path. They flow to the CLI through the inherited subprocess
@@ -107,15 +104,14 @@ type liveAgent struct {
 	//
 	// It is NO LONGER how an @live scenario gate seeds an engine that has a
 	// mapCreds mapper (seedLiveCredentials prefers mapping, always). It
-	// survives for exactly two uses: (1) kiro and antigravity, the two
-	// engines with no config-home var that relocates credentials at all
-	// (kiro: HonoursVarForCreds FALSE — a global sqlite no HomeVar moves;
-	// antigravity: no credentialSeedSpecs entry at all), which therefore
-	// cannot be mapped this way and keep their previous behaviour pending a
-	// human decision; and (2) isolation_probe.go, whose census
-	// DELIBERATELY builds a stand-in host home to measure what production's
-	// own seeding leaks — mapping there would point the measurement at the
-	// developer's real directories and destroy the thing being measured.
+	// survives for exactly two uses: (1) kiro, the engine with no
+	// config-home var that relocates credentials at all (HonoursVarForCreds
+	// FALSE — a global sqlite no HomeVar moves), which therefore cannot be
+	// mapped this way and keeps its previous behaviour pending a human
+	// decision; and (2) isolation_probe.go, whose census DELIBERATELY builds
+	// a stand-in host home to measure what production's own seeding leaks —
+	// mapping there would point the measurement at the developer's real
+	// directories and destroy the thing being measured.
 	copyCreds func(realHome, fakeHome string) error
 	// authCheck determines whether the engine is AUTHENTICATED — not merely
 	// installed — via the subscription path. Only consulted when apiKeyEnvs
@@ -127,7 +123,7 @@ type liveAgent struct {
 }
 
 // liveAgentOrder is the availability report's fixed display order, matching
-// the Examples tables' own convention (claude, antigravity, kiro) plus codex
+// the Examples tables' own convention (claude, kiro) plus codex
 // and opencode last — codex now genuinely authenticates on a box with a real
 // `codex` on PATH (confirmed 2026-07-14), so it is no longer a
 // permanently-unavailable row; opencode joined 2026-07-22 (isolation-probe
@@ -135,9 +131,9 @@ type liveAgent struct {
 // as the newest/most-recently-wired entries. Kept separate from the map
 // because map iteration order is unspecified and this report's whole point
 // is to be predictable and diffable across runs.
-var liveAgentOrder = []string{"claude", "antigravity", "kiro", "codex", "opencode"}
+var liveAgentOrder = []string{"claude", "kiro", "codex", "opencode"}
 
-// liveAgents maps the lowercased scenario token ("claude", "antigravity",
+// liveAgents maps the lowercased scenario token ("claude",
 // "kiro", "codex") to its backend wiring.
 var liveAgents = map[string]liveAgent{
 	"claude": {
@@ -159,33 +155,6 @@ profiles:
 		mapCreds:  mapClaudeCredentials,
 		copyCreds: copyClaudeCredentials,
 		authCheck: authCheckClaude,
-	},
-	// Antigravity CLI (agy) authenticates via OAuth only — there is no
-	// API-key env path — and stores its auth under ~/.gemini (shared with the
-	// retired Gemini CLI's directory layout). Model pinned to "Gemini 3.5
-	// Flash (Low)": verified live against a real, authenticated `agy` on
-	// 2026-07-14 (`agy --model "Gemini 3.5 Flash (Low)" -p "..."` replied
-	// correctly) — agy validates --model against its OWN `agy models` display
-	// names verbatim (confirmed: a slug like "gemini-3.5-flash" is REJECTED
-	// with "not recognized as a known model"), so this exact string, spaces
-	// and parens included, is required.
-	"antigravity": {
-		binary:  "agy",
-		credDir: ".gemini",
-		config: `version: 4
-llm:
-  configs:
-    antigravity:
-      type: antigravity
-      model: "Gemini 3.5 Flash (Low)"
-  defaults:
-    primary: antigravity
-    fast: antigravity
-profiles:
-  defaults: []
-`,
-		copyCreds: copyAntigravityCredentials,
-		authCheck: authCheckAntigravity,
 	},
 	// Kiro CLI (kiro-cli) authenticates via `kiro-cli login` (OAuth: GitHub/
 	// Google/Builder ID social login) or KIRO_API_KEY for headless. Confirmed
@@ -307,8 +276,8 @@ profiles:
 // backendTypeToLiveKey maps a REGISTERED backend type name (the config
 // `llm.configs.*.type` value, and the identifier
 // tests/acceptance/steps_j002200_isolation_matrix.go's spy fixture and the
-// isolation-probe feature both use: "claude-code"/"codex"/"kiro"/"opencode"/
-// "antigravity") onto this registry's own liveAgents map key. Every name is
+// isolation-probe feature both use: "claude-code"/"codex"/"kiro"/"opencode")
+// onto this registry's own liveAgents map key. Every name is
 // identical except claude-code -> claude, a historical mismatch (the @live
 // Examples tables predate the isolation matrix and used the short form).
 // Extracted here — not duplicated — so both the hermetic j002200 matrix's engine
@@ -408,7 +377,7 @@ func computeLiveEngineReport(realHome string, optIn bool) []engineStatus {
 
 // formatLiveEngineReport renders the loud, one-line availability table, e.g.:
 //
-//	live engines: claude ✓ · antigravity ✓ · kiro ✓ · codex ✗ (binary not found)
+//	live engines: claude ✓ · kiro ✓ · codex ✗ (binary not found)
 //
 // A skip is never silent: every unavailable engine carries its reason inline,
 // right next to the ones that ran.
@@ -424,7 +393,7 @@ func formatLiveEngineReport(report []engineStatus) string {
 	return "live engines: " + strings.Join(parts, " · ")
 }
 
-// parseRequiredEngines splits CTXLOOM_LIVE_REQUIRE ("claude,kiro,antigravity")
+// parseRequiredEngines splits CTXLOOM_LIVE_REQUIRE ("claude,kiro,codex")
 // into lowercased, trimmed, non-empty engine names. Empty/unset returns nil —
 // the floor is off by default (a dev box runs whatever is available).
 func parseRequiredEngines(raw string) []string {
@@ -508,8 +477,8 @@ func authCheckClaude(realHome string) (bool, string) {
 // authCheckKiro runs `kiro-cli whoami`, a local, non-interactive status read
 // (confirmed: well under a second, no network stall observed) that exits
 // nonzero when not logged in — a genuine authentication probe, unlike the
-// local-credential-file heuristic authCheckAntigravity is stuck with below
-// (agy exposes no equivalent status subcommand at all).
+// local-credential-file heuristic authCheckOpencode below is stuck with
+// (opencode exposes no equivalent status subcommand at all).
 //
 // CAVEAT — this probe is NOT side-effect-free: measured 2026-07-22
 // (reproduced independently), a bare `kiro-cli whoami` with no login/logout
@@ -534,108 +503,6 @@ func authCheckKiro(realHome string) (bool, string) {
 	return true, strings.TrimSpace(string(out))
 }
 
-// authCheckAntigravity inspects agy's file-based OAuth token file CONTENT
-// (token.access_token / token.refresh_token / token.expiry), not merely the
-// file's presence.
-//
-// WRONG FILE, CORRECTED (2026-07-22): this used to read
-// ~/.gemini/oauth_creds.json — a guess that turned out to be leftover state
-// from the retired standalone Gemini CLI (same shared ~/.gemini directory
-// layout), not an antigravity credential at all. The live-investigated,
-// CONFIRMED file is ~/.gemini/antigravity-cli/antigravity-oauth-token — the
-// same path internal/lm/isolation/auth.go's resolveAntigravityContainerAuth
-// now seeds — with the shape {"auth_method": "...", "token": {"access_token",
-// "refresh_token", "token_type", "expiry"}} (expiry an RFC3339 STRING, unlike
-// oauth_creds.json's unix-millis expiry_date INT — a second reason the two
-// were never interchangeable).
-//
-// ESCALATE, STILL (installed vs. authenticated, the exact distinction whose
-// absence hid kiro's own breakage for weeks): confirmed 2026-07-15, agy 1.1.2
-// exposes NO auth-status/whoami-equivalent subcommand — `agy auth`, `agy
-// whoami`, `agy status`, `agy login`, `agy account`, `agy session` and `agy
-// config` all silently fall through to the top-level `--help` text (none is
-// a real subcommand registered with the CLI), and the two subcommands that
-// DO exist and looked promising, `agy models` and `agy agent`, are static/
-// local: verified they print the identical list under a fresh, empty HOME
-// with no credential file at all as under the real authenticated HOME, so
-// neither carries any auth signal. There is no local, free, non-interactive
-// command surface to probe, unlike claude/kiro/codex above.
-//
-// So this remains a LOCAL CREDENTIAL FILE heuristic, not a verified login
-// check — but it now parses the file (matching authCheckClaude's JSON-field
-// style) instead of just calling os.Stat: a refresh_token present, or an
-// access_token whose expiry has not passed, is treated as evidence of a live
-// credential; an expired access_token with no refresh_token, or a file that
-// fails to parse, is treated as evidence against one. This is strictly more
-// accurate than plain presence for the "stale/revoked token still on disk"
-// case a pure file-presence check cannot distinguish.
-//
-// KNOWN, MEASURED LIMITATION THIS CANNOT FIX (2026-07-14 investigation,
-// predating the file-name correction above but unaffected by it):
-// this file's existence is neither necessary nor sufficient evidence of the
-// TRUE authentication condition on a HOST run. A FRESH HOME containing no
-// file-based token anywhere still let a real `agy -p` call authenticate and
-// correctly answer a prompt on a real host — with no API-key env var set and
-// the D-Bus/keyring session severed by env alone (the socket itself is
-// UID-addressed and does not need the env var — see
-// internal/lm/isolation/curatedhome.go's package doc). That is expected and
-// does not contradict this file's role: this token file is agy's fallback
-// for when NO keyring is reachable AT ALL (a real container, not merely an
-// env var cleared on a host), which is exactly the case the container axis's
-// probeContainerAuthAvailable / resolveAntigravityContainerAuth exercise. A
-// "false" from this function does NOT reliably mean agy is unauthenticated
-// on a HOST run (the keyring may still cover it there); a "true" is the
-// best available local, free, non-interactive signal for the FILE-BASED
-// fallback specifically. Deliberately NOT "fixed" by shelling out to a real
-// `agy -p <prompt>` call instead: that would make this probe a paid,
-// possibly network-stalling model call on every opted-in acceptance run,
-// breaking the same "never a paid model call" contract authProbeTimeout's
-// doc comment states for every authCheck* in this file. If agy ever grows a
-// real status subcommand, replace this outright.
-func authCheckAntigravity(realHome string) (bool, string) {
-	type fileToken struct {
-		AccessToken  string `json:"access_token"`
-		RefreshToken string `json:"refresh_token"`
-		Expiry       string `json:"expiry"` // RFC3339; empty if absent
-	}
-	type tokenFile struct {
-		AuthMethod string    `json:"auth_method"`
-		Token      fileToken `json:"token"`
-	}
-	const limitation = "local credential-file heuristic only, not a verified login check (agy has no auth-status subcommand) — see authCheckAntigravity doc comment for its known limits"
-	p := filepath.Join(realHome, ".gemini", "antigravity-cli", "antigravity-oauth-token")
-	data, err := os.ReadFile(p)
-	if err != nil {
-		return false, fmt.Sprintf("no %s found — NOTE: this is not reliable evidence of unauthenticated on a HOST run (the OS keyring may still cover it there); see authCheckAntigravity doc comment", p)
-	}
-	var tf tokenFile
-	if jerr := json.Unmarshal(data, &tf); jerr != nil {
-		return false, fmt.Sprintf("%s exists but is not valid JSON: %v", p, jerr)
-	}
-	if tf.Token.RefreshToken != "" {
-		// A refresh token lets the client mint a fresh access token past
-		// expiry, so its presence is the stronger liveness signal — avoids
-		// flip-flopping this probe false purely because a short-lived access
-		// token aged out between two runs.
-		return true, fmt.Sprintf("%s: refresh_token present (%s)", p, limitation)
-	}
-	if tf.Token.AccessToken == "" {
-		return false, fmt.Sprintf("%s exists but has no access_token or refresh_token", p)
-	}
-	if tf.Token.Expiry != "" {
-		expiry, perr := time.Parse(time.RFC3339, tf.Token.Expiry)
-		if perr != nil {
-			return true, fmt.Sprintf("%s: access_token present, expiry %q unparseable as RFC3339 (%s)", p, tf.Token.Expiry, limitation)
-		}
-		if time.Now().After(expiry) {
-			return false, fmt.Sprintf("%s: access_token expired %s ago, no refresh_token", p, time.Since(expiry).Round(time.Second))
-		}
-		return true, fmt.Sprintf("%s: access_token valid until %s (%s)", p, expiry.Format(time.RFC3339), limitation)
-	}
-	// access_token present with no expiry field to check against.
-	return true, fmt.Sprintf("%s: access_token present, no expiry field to verify (%s)", p, limitation)
-}
-
 // authCheckCodex runs `codex login status`, a local, non-interactive status
 // read confirmed live 2026-07-14 (~0.1s, no network stall observed): exit 0
 // with "Logged in using ChatGPT" on the subscription path, exit 1 with "Not
@@ -657,9 +524,9 @@ func authCheckCodex(realHome string) (bool, string) {
 	return true, fmt.Sprintf("codex login status: %s", text)
 }
 
-// authCheckOpencode is a LOCAL CREDENTIAL FILE heuristic, the same shape as
-// authCheckAntigravity: opencode 1.18.1 exposes no auth-status/whoami
-// subcommand of its own (`opencode auth list` prints configured providers,
+// authCheckOpencode is a LOCAL CREDENTIAL FILE heuristic: opencode 1.18.1
+// exposes no auth-status/whoami subcommand of its own (`opencode auth list`
+// prints configured providers,
 // not a login/expiry verdict), so this parses
 // ~/.local/share/opencode/auth.json (matching auth.go's
 // credentialSeedSpecs["opencode"] destination) and treats a non-empty
@@ -897,46 +764,12 @@ func copyClaudeCredentials(realHome, fakeHome string) error {
 	return nil
 }
 
-// copyAntigravityCredentials copies just the auth-relevant files for
-// Antigravity CLI (agy) into the isolated home, best effort — never the whole
-// tree (which holds the brain conversation store and caches). agy keeps its
-// file-based OAuth fallback token at
-// ~/.gemini/antigravity-cli/antigravity-oauth-token — CONFIRMED 2026-07-22
-// as the real credential agy's own file-based fallback reads/
-// writes when no OS keyring is reachable; google_accounts.json and
-// installation_id/settings.json keep the CLI out of its interactive
-// first-run flow. oauth_creds.json is DELIBERATELY not copied here: it was an
-// earlier wrong-file guess (corrected auth.go's resolveAntigravityContainerAuth
-// doc) — on this project's own dev host it turned out to be leftover state
-// from the retired standalone Gemini CLI (same shared ~/.gemini directory
-// layout), not an antigravity credential at all, and copying it would make
-// this probe's auth-path decision (probeDecideAuthPath) report a false
-// "seeded" path off a file production's resolver never reads.
-func copyAntigravityCredentials(realHome, fakeHome string) error {
-	copiedAny := false
-	for _, sub := range []string{".gemini", filepath.Join(".gemini", "antigravity-cli")} {
-		srcDir := filepath.Join(realHome, sub)
-		dstDir := filepath.Join(fakeHome, sub)
-		for _, name := range []string{"antigravity-oauth-token", "google_accounts.json", "settings.json", "installation_id", "user_id"} {
-			copied, err := copyOneCredFile(srcDir, dstDir, name)
-			if err != nil {
-				return fmt.Errorf("copy antigravity credentials: %w", err)
-			}
-			copiedAny = copiedAny || copied
-		}
-	}
-	if !copiedAny {
-		return fmt.Errorf("copy antigravity credentials: copied 0 files under %s/.gemini", realHome)
-	}
-	return nil
-}
-
 // copyKiroCredentials copies the ONE file kiro-cli's subscription auth lives
 // in: ~/.local/share/kiro-cli/data.sqlite3, a sqlite3 database that mixes the
 // auth token (table auth_kv) with conversation/telemetry state — confirmed
 // live against an authenticated `kiro-cli login`. There is no separate
-// credential-only file to extract (unlike claude/antigravity's small JSON
-// sidecars): the whole opaque db is the smallest unit that carries the token,
+// credential-only file to extract (unlike claude's small JSON
+// sidecar): the whole opaque db is the smallest unit that carries the token,
 // so the isolated run inherits harmless local conversation/telemetry rows
 // alongside it. Nothing under ~/.kiro (agents/settings/skills/steering/
 // sessions — all project- or workspace-scoped, never auth) is touched.

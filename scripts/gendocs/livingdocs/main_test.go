@@ -23,9 +23,14 @@ func TestSlug(t *testing.T) {
 	}
 }
 
+// writeCapture writes a one-step capture carrying real evidence (cli_output)
+// on its only step — these tests exercise page assembly (narration, batch
+// failure, stale-page clearing, ...), not the evidence gate itself, so the
+// fixture must represent a scenario that legitimately ran something rather
+// than tripping EvidenceGapError as a side effect.
 func writeCapture(t *testing.T, dir, name, scenario, status string) {
 	t.Helper()
-	writeFile(t, filepath.Join(dir, name), `{"scenario":"`+scenario+`","steps":[{"text":"a step","keyword":"Given","status":"`+status+`"}]}`)
+	writeFile(t, filepath.Join(dir, name), `{"scenario":"`+scenario+`","steps":[{"text":"a step","keyword":"Given","status":"`+status+`","cli_output":"ok"}]}`)
 }
 
 func TestRun_GeneratesPageForEachDocFeature(t *testing.T) {

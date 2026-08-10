@@ -194,16 +194,27 @@ func assertAllPassed(featurePath, scenarioName string, captures []DocCapture) er
 }
 
 // EvidenceGapError is returned when a scenario that actually ran and passed
-// has an assertion step (governed by "Then") with NO captured evidence at
-// all — CLIOutput, MockRecorded, and Materialized all empty. This is the
+// captured NO evidence anywhere across its steps — CLIOutput, MockRecorded,
+// and Materialized all empty on every step of the capture. This is the
 // second half of the "a feature that does not work cannot be documented"
-// guarantee: a scenario every step of which is green, but whose assertions
-// leave no observable trace, proves nothing to a reader — three journeys
-// (J000400, J001700, J001800) shipped exactly this defect before this guard existed.
+// guarantee: a scenario every step of which is green, but which leaves no
+// observable trace anywhere in its run, proves nothing to a reader — three
+// journeys (J000400, J001700, J001800) shipped exactly this defect before
+// this guard existed.
+//
+// Evidence is attributed to the SCENARIO (one capture = one run — one
+// Examples row for an Outline), not to any individual step. A step is
+// evidence for the run it belongs to whether or not that particular step is
+// the one that ran a command: env.RunCount() only advances on the step that
+// actually executes something, so an assertion step that reads state off
+// disk or checks an exit code — including the ordinary "Then the command
+// succeeds" — never carries its own evidence and never can. Requiring every
+// step to individually prove itself made that normal, correctly-written
+// pattern undocumentable; what matters is that the SCENARIO, somewhere in
+// its run, proved something.
 type EvidenceGapError struct {
 	Feature  string
 	Scenario string
-	StepText string
 	Example  int // 1-based Examples row within this scenario's captures; 0 when the scenario is not an Outline (a single capture)
 }
 
@@ -213,41 +224,9 @@ func (e *EvidenceGapError) Error() string {
 		suffix = fmt.Sprintf(" (Example %d)", e.Example)
 	}
 	return fmt.Sprintf(
-		"REFUSING TO GENERATE: scenario %q (%s)%s has an assertion step with no captured evidence (%q) — a step that proves nothing cannot be documented",
-		e.Scenario, e.Feature, suffix, e.StepText,
+		"REFUSING TO GENERATE: scenario %q (%s)%s captured no evidence anywhere in its run — a scenario that proves nothing cannot be documented",
+		e.Scenario, e.Feature, suffix,
 	)
-}
-
-// stepIsAssertion reports whether the step at index i is governed by "Then"
-// — an assertion — as opposed to "Given"/"When" (setup/action). godog's
-// pickle steps carry only a coarse Context/Action/Outcome type, and
-// tests/acceptance/steps_doc_capture.go's gherkinKeyword collapses a run of
-// same-type steps to "And" after the first (see that function's own doc
-// comment) — so an "And" step's real governing keyword is whichever
-// Given/When/Then most recently preceded it in THIS capture's own step list,
-// not a fixed value.
-//
-// A step whose OWN keyword the capture side could not classify
-// (empty — gherkinKeyword returns "" for any pickle type outside
-// Context/Action/Outcome) used to be treated as non-assertion: "there is
-// nothing to conservatively enforce evidence against." That is backwards —
-// it silently turns the evidence gate off for exactly the input a godog
-// version change or a new step type would produce, on the one guard that
-// stops a proves-nothing scenario from being published. This step's own
-// classification is unknown, not "known to be non-assertion", so it now
-// fails closed with a named error instead of guessing.
-func stepIsAssertion(steps []DocCaptureStep, i int) (bool, error) {
-	if steps[i].Keyword == "" {
-		return false, fmt.Errorf("step %d (%q) carries no Gherkin keyword — the capture side could not classify it, so this generator cannot tell assertion from setup/action", i, steps[i].Text)
-	}
-	governing := ""
-	for j := 0; j <= i; j++ {
-		switch steps[j].Keyword {
-		case "Given", "When", "Then":
-			governing = steps[j].Keyword
-		}
-	}
-	return governing == "Then", nil
 }
 
 // hasEvidence reports whether a step captured ANY of the three evidence
@@ -256,31 +235,35 @@ func hasEvidence(step DocCaptureStep) bool {
 	return step.CLIOutput != "" || step.MockRecorded != "" || step.Materialized != ""
 }
 
-// assertAllHaveEvidence enforces that guarantee: every "Then"-governed step
-// (an And/But continuing a Then counts) of every capture for this scenario
-// must carry at least one non-empty evidence stream. Given/When steps are
-// exempt — they are setup and action; capturing their output is a bonus, not
-// the load-bearing proof a reader needs the assertions to carry.
+// assertAllHaveEvidence enforces the honesty rule at scenario granularity:
+// each capture (one full run of the scenario — one per Examples row for an
+// Outline) must carry at least one non-empty evidence stream SOMEWHERE
+// across its steps, regardless of which step or keyword produced it. A
+// scenario that ran a command in a When step and then asserted the effect in
+// a later Then step that itself ran nothing has proven something — the run
+// is the evidence, and it belongs to the scenario, not to whichever step
+// happened to execute the command. Only a capture with NO evidence anywhere
+// fails this gate.
 func assertAllHaveEvidence(featurePath, scenarioName string, captures []DocCapture) error {
 	for idx, cap := range captures {
-		for i, step := range cap.Steps {
-			isAssertion, err := stepIsAssertion(cap.Steps, i)
-			if err != nil {
-				return fmt.Errorf("%s %q: %w", featurePath, scenarioName, err)
+		anyEvidence := false
+		for _, step := range cap.Steps {
+			if hasEvidence(step) {
+				anyEvidence = true
+				break
 			}
-			if !isAssertion || hasEvidence(step) {
-				continue
-			}
-			example := 0
-			if len(captures) > 1 {
-				example = idx + 1
-			}
-			return &EvidenceGapError{
-				Feature:  featurePath,
-				Scenario: scenarioName,
-				StepText: step.Text,
-				Example:  example,
-			}
+		}
+		if anyEvidence {
+			continue
+		}
+		example := 0
+		if len(captures) > 1 {
+			example = idx + 1
+		}
+		return &EvidenceGapError{
+			Feature:  featurePath,
+			Scenario: scenarioName,
+			Example:  example,
 		}
 	}
 	return nil
@@ -323,9 +306,9 @@ func renderScenario(sc Scenario, narr Narration, captures []DocCapture) string {
 //
 // Returns a *RefusalError (see assertAllPassed) if any scenario's capture has
 // a non-passed step, or an *EvidenceGapError (see assertAllHaveEvidence) if a
-// passing scenario's assertion step has no captured evidence at all — the
-// caller must not write the returned page in either case (there isn't one;
-// the string is empty).
+// passing scenario captured no evidence anywhere in its run — the caller must
+// not write the returned page in either case (there isn't one; the string is
+// empty).
 func GeneratePage(feat Feature, narr Narration, capturesByName map[string][]DocCapture, narrationPath string) (string, error) {
 	var lines []string
 

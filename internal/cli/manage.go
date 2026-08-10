@@ -795,14 +795,29 @@ var manageCommitTrustCmd = &cobra.Command{
 	Use:   "trust",
 	Short: "Trust ctxloom to auto-commit this checkout's dirty tree",
 	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return runManageDirtyTreeAck(cmd, true) },
+	RunE:  runManageCommitTrust,
 }
 
 var manageCommitUntrustCmd = &cobra.Command{
 	Use:   "untrust",
 	Short: "Withdraw that trust for this checkout",
 	Args:  cobra.NoArgs,
-	RunE:  func(cmd *cobra.Command, _ []string) error { return runManageDirtyTreeAck(cmd, false) },
+	RunE:  runManageCommitUntrust,
+}
+
+// runManageCommitTrust and runManageCommitUntrust are named rather than inline
+// closures over the bool. A RunE written as a func literal in a package-level
+// var initializer compiles into `init.funcN`, which carries no trace of the
+// command it belongs to — so every tool that identifies a leaf by its RunE
+// symbol loses these two, and loses them SILENTLY. `go tool covdata func` does
+// not emit closures at all, so they simply do not appear in a coverage report
+// rather than appearing as uncovered.
+func runManageCommitTrust(cmd *cobra.Command, _ []string) error {
+	return runManageDirtyTreeAck(cmd, true)
+}
+
+func runManageCommitUntrust(cmd *cobra.Command, _ []string) error {
+	return runManageDirtyTreeAck(cmd, false)
 }
 
 // manageDirtyTreeAckResult is the emit()-friendly payload both grant/revoke

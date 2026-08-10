@@ -16,10 +16,11 @@ in March, I think".
 The session from March is still on disk. So are four thousand others.
 
 ctxloom captures a great deal, and the capture half is genuinely built: every
-structured run is teed into a canonical transcript ctxloom owns, and
-`session backfill` converts four different vendors' private stores into that
-same format, so a conversation outlives both the session and the engine that
-produced it. J001000 proves all of that, thoroughly, per engine.
+structured run is teed into a canonical transcript ctxloom owns, and any
+session that tee never reached is converted out of its engine's own private
+store into that same format the moment someone reaches for it — so a
+conversation outlives both the session and the engine that produced it.
+J001000 proves all of that, thoroughly, per engine.
 
 This journey is the other half, and it is the half nobody had asserted. Capture
 without recall is not memory, it is disk usage. The question is not "did we
@@ -66,8 +67,8 @@ promises portability for. The vendor store was the artifact it actually resumed
 from, and the vendor store is precisely the thing that goes away — when a
 vendor rotates its format, when a session ages out, when the team switches
 engines, when someone clears their cache. A session whose vendor store is gone
-is exactly the case `session backfill` exists to rescue, and it was not
-resumable from the copy backfill just made.
+is exactly the case the vendor-store conversion exists to rescue, and it was
+not resumable from the copy that conversion had just made.
 
 Fixed 2026-08-05: `RecordedSessionEntries` now prefers
 `entry.CanonicalTranscriptPath` (populated only when `transcript.jsonl` exists

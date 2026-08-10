@@ -116,7 +116,7 @@ func seedSource(w *World, name, kind, item, marker, bundleYAML string, sign, tru
 		}
 		src.principal = name + "@example.com"
 		if err := w.env.TrustSigner(src.signer, src.principal, true); err != nil {
-			return nil, fmt.Errorf("trust signer for %q: %w", name, err)
+			return nil, fmt.Errorf("trust the signing key for %q: %w", name, err)
 		}
 	}
 	return src, nil

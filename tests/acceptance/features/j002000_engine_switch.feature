@@ -11,8 +11,9 @@ Feature: Engine switch day
   On paper it is one command. `agent edit dev --engine <new>` swaps the engine
   under the binding; profiles are engine-neutral by construction, so the same
   content composes for the new engine's own native surfaces; the canonical
-  transcript keeps the history readable; and `session backfill` can still
-  rescue whatever the abandoned vendor's private store holds.
+  transcript keeps the history readable; and reaching for a session the tee
+  never covered still rescues whatever the abandoned vendor's private store
+  holds.
 
   In practice Alice discovers the pieces exist and the FLOW does not. No
   migration story narrates the order, nothing verifies the result, and the one

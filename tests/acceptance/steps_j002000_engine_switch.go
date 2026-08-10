@@ -288,7 +288,7 @@ func registerJ002000Steps(ctx *godog.ScenarioContext) {
 		// No migration surface is claimed to exist. Probe the inspectors that
 		// would plausibly own the answer; the Then reports all of them.
 		j001900Probe(w, "doctor")
-		j001900Probe(w, "manage", "status")
+		j001900Probe(w, "manage", "check")
 		j001900Probe(w, "agent", "show", j002000Agent)
 		return nil
 	})

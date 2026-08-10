@@ -41,12 +41,11 @@ The debris half is what makes anyone actually run it.
 
 Three of these scenarios passed on the first run.
 
-Not because the behaviour was right — because `session purge` and
-`session worktrees --reap` do not exist, so the CLI rejected the invocation
-before doing anything, and "nothing was destroyed", "the worktree is
-untouched" and "it did not report success" were all trivially true. Three
-green ticks, zero coverage, in the scenarios specifically written to protect
-against data loss.
+Not because the behaviour was right — because the verbs they named did not
+exist yet, so the CLI rejected the invocation before doing anything, and
+"nothing was destroyed", "the worktree is untouched" and "it did not report
+success" were all trivially true. Three green ticks, zero coverage, in the
+scenarios specifically written to protect against data loss.
 
 This is the characteristic failure of safety tests, and it is worse than a
 missing test because it reports coverage where there is none. The fix is a
@@ -127,12 +126,12 @@ cleanup that only reports is theatre. The line drawn between them:
 - inspect always — read-only default on every leaf;
 - additive writes proceed on plain apply, WITH payload assertions: "wrote 0
   fragments" is exit-nonzero, never success;
-- destruction confirms per item, against evidence rendered in the same
-  invocation — `--yes` batches only what THIS invocation's plan showed, and no
-  config key may pre-answer a destruction prompt;
+- destruction confirms against evidence rendered in the same invocation —
+  `--yes` applies only what THIS invocation's plan showed, and no config key
+  may pre-answer it;
 - the refusal list is hard-coded: no force-remove, no `-D`, no dirty or
-  unmerged or unowned trees, no live session, no undistilled `--everything`
-  without its own flag, no touching vendor stores.
+  unmerged or unowned trees, no live session, no sweeping a session nobody
+  ever summarised, no touching vendor stores.
 
 Several scenarios here enforce individual lines of that list directly, which is
 the point of writing it as a feature file rather than a paragraph.

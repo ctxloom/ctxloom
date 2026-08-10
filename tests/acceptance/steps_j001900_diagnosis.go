@@ -892,7 +892,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		// against. Probe every surface that could plausibly own it; the Then now
 		// looks for the one that states the LIMIT instead of an answer.
 		j001900Probe(w, "doctor")
-		j001900Probe(w, "manage", "status")
+		j001900Probe(w, "manage", "check")
 		j001900Probe(w, "agent", "show", "default")
 		j001900Probe(w, "session", "list")
 		return nil

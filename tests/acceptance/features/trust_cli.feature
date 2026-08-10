@@ -1,21 +1,29 @@
-Feature: Trust posture CLI
-  Per-item acceptances (`bundle trust`) and rejections (`bundle untrust`) manage
-  what content the agent sees. The retired whole-bundle postures (`bundle
-  trust`/`untrust`, `remote trust`/`untrust`) are DELETED commands, not
-  deprecation stubs — trust is now keyed to a publisher signing key, not a
-  bundle or remote (see docs/trust-model.md, docs/trust-simplify-plan.md).
+Feature: Trusting and untrusting, on the noun that owns the thing
+  Trust is a posture toward something, so the verb lives on the noun that owns
+  it. `bundle trust`/`bundle untrust` decide about ITEM CONTENT — one fragment,
+  command, MCP server or hook at a time. `companion trust`/`untrust` decide
+  which binaries may be EXECUTED. `remote trust`/`untrust` decide where signed
+  content may be PUBLISHED. `signer trust`/`untrust` decide whose signature
+  stands in for review at all.
 
-  # RECORDED is the claim in the title, and until the audit (irate-catfish, F2)
-  # nothing here checked it: every assertion was an exit code plus a substring
-  # of the output, and "Approved demo#fragments/guide" is the argument echoed
-  # back. Neutering countersign.Store's write paths until the store recorded
-  # NOTHING AT ALL left all four scenarios on this page green — the exact
-  # product failure j001600_signing.feature's @wip scenario describes in prose
-  # ("exit 0, a success message naming the key, and no effect, in the flagship
-  # trust command"). So each decision is now read back out of the store by the
-  # same lookup the trust gate performs, and the rejection is read out of the
-  # delivered state as well.
-  #
+  Each is proven in BOTH directions, because one direction alone proves
+  nothing: a scenario that only checks the trusted path passes against a system
+  that admits everything, which is the most dangerous failure there is and
+  looks like a green suite. So each decision below is exercised trusted (the
+  thing happens) and untrusted (it does not), in the same fixture, and the
+  refusal is checked to say so out loud.
+
+  What is asserted is the EFFECT, not the echo. "Approved demo#fragments/guide"
+  is the argument printed back; it is true of a command that recorded nothing.
+  Neutering countersign.Store's write paths until the store recorded NOTHING AT
+  ALL once left every scenario here green — the exact product failure
+  j001600_signing.feature describes in prose ("exit 0, a success message naming
+  the key, and no effect, in the flagship trust command"). So each decision is
+  read back out of the store by the same lookup the trust gate performs, and
+  the refusals are read out of the delivered state.
+
+  See docs/trust-model.md for the model these commands operate.
+
   # The acceptance is asserted on the RECORD only, and deliberately: this
   # bundle is project-authored, and local content is auto-allowed ahead of any
   # review, so the fragment reads "accepted" before anyone accepts anything —

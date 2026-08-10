@@ -280,8 +280,7 @@ func warnOnEmptyLeadContext(rs *ResolvedAgent, lead string) {
 // child's blast radius on the PROJECT CHECKOUT — it does NOT isolate the
 // engine's global config/credential/conversation store, which some engines
 // keep outside any per-agent config-home env lever entirely (see
-// EnvWorkspace's doc and the antigravity fail-loud gate in isolation.go). Do
-// not read a worktree default as "delegated children are now sandboxed from
+// EnvWorkspace's doc). Do not read a worktree default as "delegated children are now sandboxed from
 // the user's engine state" — they are not.
 //
 // The RUNTIME axis carries the agent's own resolved choice through untouched:
@@ -945,7 +944,7 @@ func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProces
 // for this path, StartEngine's for that one) and both are bounding "process/
 // container comes up and finishes a handshake" under the same possible
 // contention (loaded docker daemon, DinD nesting, a busy bridge network).
-// Absent evidence the legacy path's engines (today: antigravity, opencode,
+// Absent evidence the legacy path's engines (today: opencode,
 // mock, or any StartRun-eligible backend launched --degraded) are faster or
 // slower to spawn, matching the sibling path's just-tuned number is the
 // defensible choice — not a copy-paste, an independent application of the

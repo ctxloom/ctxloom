@@ -458,7 +458,7 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-// commandExports maps internal/bundles' five near-identical per-engine structs
+// commandExports maps internal/bundles' four near-identical per-engine structs
 // onto the content package's one engine-keyed map. Engines absent from the
 // source struct simply do not appear; nothing is invented.
 func commandExports(l bundles.LLMExports) content.EngineExports {
@@ -473,7 +473,6 @@ func commandExports(l bundles.LLMExports) content.EngineExports {
 		Enabled: l.ClaudeCode.Enabled, Description: l.ClaudeCode.Description,
 		ArgumentHint: l.ClaudeCode.ArgumentHint, AllowedTools: l.ClaudeCode.AllowedTools, Model: l.ClaudeCode.Model,
 	})
-	add("antigravity", content.EngineExport{Enabled: l.Antigravity.Enabled, Description: l.Antigravity.Description})
 	add("codex", content.EngineExport{Enabled: l.Codex.Enabled, Description: l.Codex.Description})
 	add("kiro", content.EngineExport{Enabled: l.Kiro.Enabled, Description: l.Kiro.Description})
 	add("opencode", content.EngineExport{Enabled: l.Opencode.Enabled, Description: l.Opencode.Description})
@@ -495,7 +494,6 @@ func skillExports(l bundles.SkillLLMExports) content.EngineExports {
 		out[engine] = content.EngineExport{Enabled: e.Enabled}
 	}
 	add("claude-code", l.ClaudeCode)
-	add("antigravity", l.Antigravity)
 	add("codex", l.Codex)
 	add("kiro", l.Kiro)
 	add("opencode", l.Opencode)

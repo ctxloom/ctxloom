@@ -114,37 +114,6 @@ func TestContainerWorktreeWorkspace_NoConfigHomeEnv(t *testing.T) {
 	assert.Nil(t, WorkspaceEnv(ws), "no host config-home envs cross into the container")
 }
 
-// TestNewContainerWorktreeFor_WorktreeIsContainerWrapped is the LOAD-BEARING
-// container-exemption proof, at the exact seam that matters: both
-// constructors container_worktree.go exposes wrap their inner Worktree via
-// forContainer(), so Worktree.containerWrapped is true — which is what makes
-// curatedhome.go's antigravity host-worktree refusal (curatedHomeRefusal)
-// UNREACHABLE through this composition (provisionCuratedHomeFor's
-// `!w.containerWrapped` guard short-circuits it; see
-// TestWorktree_Antigravity_ContainerWrappedKeepsWarnOnlyNoRefusal in
-// curatedhome_test.go for the resulting BEHAVIOUR). White-box (same package)
-// so it can inspect the unexported field directly, independent of whether
-// antigravity's container auth resolves in this build (resolveAntigravityContainerAuth
-// gates PrepareWorkspace BEFORE this base is ever reached — see auth.go — so
-// a full end-to-end PrepareWorkspace() call is not how this property is
-// provable; the constructor's output is).
-func TestNewContainerWorktreeFor_WorktreeIsContainerWrapped(t *testing.T) {
-	c := NewContainerWorktreeFor(fakeRuntime{name: "docker", available: true}, "antigravity", ImageConfig{}, nil)
-	wb, ok := c.base.(worktreeBase)
-	require.True(t, ok, "NewContainerWorktreeFor must inject a worktreeBase")
-	assert.True(t, wb.wt.containerWrapped, "the wrapped Worktree must be marked container-wrapped so the host-only fatal refusal never fires through this composition")
-	assert.Equal(t, "antigravity", wb.wt.backend)
-}
-
-// TestNewContainerWorktree_WorktreeIsContainerWrapped: the generic (test-only)
-// constructor gets the same guarantee even with no backend context.
-func TestNewContainerWorktree_WorktreeIsContainerWrapped(t *testing.T) {
-	c := NewContainerWorktree(fakeRuntime{name: "docker", available: true}, "img", &git.Fake{})
-	wb, ok := c.base.(worktreeBase)
-	require.True(t, ok)
-	assert.True(t, wb.wt.containerWrapped)
-}
-
 // TestChainFor_NonContainer pins the deterministic (runtime-independent) chains:
 // default/none axes resolve to none only; a worktree workspace leads with the
 // bare worktree then none; unknown axis values act as the axis defaults.

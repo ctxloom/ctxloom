@@ -7,7 +7,6 @@ import (
 	"github.com/spf13/afero"
 
 	"github.com/ctxloom/ctxloom/internal/acp"
-	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
@@ -100,9 +99,9 @@ type agentDescriptor struct {
 	// a project/global collision class `manage hooks install` must guard
 	// against (see the claude-code descriptor below for the collision itself,
 	// and CheckHookTargetScope in delegate_seams.go for how it's used). nil =
-	// audited, no guard needed (antigravity has no usable global location;
-	// opencode's global path never collapses onto its project path — see
-	// operations.checkHookTargetScope's historical doc, preserved there).
+	// audited, no guard needed (opencode's global path never collapses onto
+	// its project path — see operations.checkHookTargetScope's historical doc,
+	// preserved there).
 	hookGlobalScopePaths func(workDir string) (projectPath, globalPath string, err error)
 	// hookGlobalScopeLabel is the human-facing name for this backend's global
 	// scope, read into CheckHookTargetScope's refusal/warning message (e.g.
@@ -213,18 +212,10 @@ func Exists(name string) bool {
 // EnforcesReadOnlyPlan reports whether the named backend maps
 // agent.PermissionPlan to a genuinely read-only, non-prompting mode (claude
 // --permission-mode plan, codex --sandbox read-only, opencode.json permission
-// {edit:deny, bash:deny}, kiro --trust-tools=fs_read). Backends that don't
-// (antigravity, acp) would run plan unrestrained and can't be trusted to be
-// headless-safe for it, so the run resolver collapses plan to default for
-// them. antigravity is the deliberate exception even though it now PASSES
-// --mode plan (backend.go's buildArgs): that flag was LIVE VERIFIED
-// (2026-07-15, authenticated agy 1.1.2) to NOT enforce read-only in headless
-// `-p` execution — self-reported "not in read-only mode", a sentinel write
-// and a probe shell command both succeeded unblocked. Flipping this true
-// would tell the resolver to trust a flag proven not to work, the exact
-// silent-no-op class this codebase treats as a bug, not a shortcut. Revisit
-// if a future agy release actually enforces it. An unregistered name reports
-// false.
+// {edit:deny, bash:deny}, kiro --trust-tools=fs_read). A backend that doesn't
+// (acp) would run plan unrestrained and can't be trusted to be headless-safe
+// for it, so the run resolver collapses plan to default for it instead. An
+// unregistered name reports false.
 func EnforcesReadOnlyPlan(name string) bool {
 	d, ok := descriptors[name]
 	return ok && d.enforcesReadOnlyPlan
@@ -321,11 +312,6 @@ var (
 	// opencodeACPTransport: opencode speaks ACP natively (`opencode acp` —
 	// internal/opencode/chat.go) — no separate adapter binary.
 	opencodeACPTransport = agent.ACPTransport{Kind: agent.ACPNative}
-	// antigravityACPTransport: agy has neither a native ACP mode nor a
-	// first-party adapter; its StructuredChat is a bespoke prose driver over
-	// `agy -p` (internal/antigravity/chat.go) — no adapter to install or
-	// probe.
-	antigravityACPTransport = agent.ACPTransport{Kind: agent.ACPBespoke}
 	// acpGenericACPTransport: the generic "acp" backend drives WHATEVER
 	// ACP-speaking command config supplies (`command: "kiro-cli acp"`,
 	// `claude-code-acp`, ...) — from this backend's own point of view that
@@ -336,7 +322,7 @@ var (
 )
 
 // Every backend registered here reaches its model by spawning the VENDOR'S OWN agent
-// binary (claude, codex, kiro-cli, agy) or that vendor's ACP adapter. ctxloom holds no
+// binary (claude, codex, kiro-cli) or that vendor's ACP adapter. ctxloom holds no
 // provider SDK and makes no direct call to any model API — and must not acquire one on
 // any path that carries subscription credentials.
 //
@@ -396,25 +382,6 @@ func init() {
 			return claude.ProjectSettingsPath(workDir), global, err
 		},
 		hookGlobalScopeLabel: "Claude Code's user-global settings file",
-	})
-
-	registerDescriptor(agentDescriptor{
-		name: "antigravity",
-		newBackend: func() agent.Backend {
-			b := antigravity.NewAntigravity()
-			b.SetLauncher(RunLaunchSpec)
-			b.SetACPTransport(antigravityACPTransport)
-			return b
-		},
-		decodeConfig: func(body map[string]interface{}) (agent.BackendConfig, error) {
-			return decodeBody(body, &antigravity.AntigravityConfig{})
-		},
-		newWriter:      antigravity.NewWriter,
-		newSurfaces:    func(in agent.SurfaceInputs, fs afero.Fs) agent.SurfaceSet { return antigravity.NewSurfaces(in, fs) },
-		exports:        antigravityExports,
-		skillExports:   antigravitySkillExports,
-		acpTransport:   antigravityACPTransport,
-		versionCommand: engineversion.Command{Args: []string{"--version"}, Parse: parseAntigravityVersion},
 	})
 
 	// LIVE-UNTESTED: codex has never been run against a real account on any
@@ -504,8 +471,8 @@ func init() {
 	})
 
 	// ACP (generic Agent Client Protocol client): drives ANY ACP-capable agent
-	// chosen by config (`command: "kiro-cli acp"`, `claude-code-acp`, a future
-	// `agy acp`) — new ACP agents become CONFIG, not code. Structured chat +
+	// chosen by config (`command: "kiro-cli acp"`, `claude-code-acp`) — new ACP
+	// agents become CONFIG, not code. Structured chat +
 	// headless oneshot only (no TUI). It deliberately registers NO settings
 	// writer and NO command exports: a GENERIC agent has no known native config
 	// format to materialize (context still reaches a run as the lead fragment /

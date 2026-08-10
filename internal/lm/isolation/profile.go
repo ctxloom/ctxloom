@@ -364,45 +364,12 @@ var opencodeInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (a
     && opencode --version \
 ` + nativeACPRunGate("opencode", "acp"))
 
-// antigravityInstallFragment installs agy via its OFFICIAL install script,
-// live-verified 2026-07-15 by fetching
-// https://antigravity.google/cli/install.sh and reading it: a POSIX
-// bootstrapper that detects the platform, downloads a SHA512-checksummed flat
-// native Go binary release (no node/npm dependency, unlike claude/codex), and
-// writes it to $HOME/.local/bin/agy — $HOME is /root during this build-time
-// RUN, hence the same relocate-if-needed fallback the other fragments use.
-// The script's own trailing step (its `agy install`) only configures PATH/
-// shell aliases for an ALREADY-present binary (confirmed live via `agy
-// install --help`: "Configure environment paths and shell settings") — it is
-// not the fetcher, so it is harmless best-effort here and not relied on for
-// the binary landing at all. This closes the "no known official installer"
-// gap left open (profile.go's prior antigravity case, auth.go's
-// credentialSeedSpecs doc): antigravity is now COMPOSABLE like its siblings.
-// Its auth axis now has a real resolver too (resolveAntigravityContainerAuth,
-// auth.go) that seeds the host's file-based OAuth token
-// (~/.gemini/antigravity-cli/antigravity-oauth-token) into the container —
-// so a containerized antigravity run gets the CLI AND, when that host token
-// exists, working auth (--degraded is still not a bypass for auth when it
-// doesn't; see the antigravity case below).
-var antigravityInstallFragment = []byte(`RUN (command -v curl >/dev/null 2>&1 || (apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*) || true) \
-    && curl -fsSL https://antigravity.google/cli/install.sh | bash \
-    && { command -v agy >/dev/null 2>&1 \
-         || install -m 0755 /root/.local/bin/agy /usr/local/bin/agy; } \
-    && agy --version
-`)
-
 // composableEngines is the deterministic default engine set a composed agent
 // image bakes when isolation_engines is unconfigured — every backend with a
 // known OFFICIAL-installer fragment (locked decision 3: "all engines CAN be
 // present" by default; isolation_engines trims it down), alphabetical order.
-// antigravity joined this set 2026-07-15 once its OWN
-// official installer script (https://antigravity.google/cli/install.sh) was
-// found and live-verified — see antigravityInstallFragment's doc. Composing
-// it in lands the agy CLI in the image; its AUTH resolver
-// (resolveAntigravityContainerAuth) now seeds a real host credential (the
-// file-based OAuth token) when present, degrading honestly when it is not.
 func composableEngines() []string {
-	return []string{"antigravity", "claude-code", "codex", "kiro", "opencode"}
+	return []string{"claude-code", "codex", "kiro", "opencode"}
 }
 
 // ComposableEngines exports composableEngines() (one of the four
@@ -530,32 +497,6 @@ func containerProfileFor(backend string) containerProfile {
 		p.overlayDirs = opencodeOverlayDirs
 		p.transcriptStoreRel = filepath.FromSlash(".local/share/opencode")
 		return p
-	// antigravity is now COMPOSABLE (2026-07-15): its own
-	// official-installer fragment (antigravityInstallFragment) was found and
-	// live-verified, closing the image half of the gap. It keeps
-	// mapping its own native transcript store, but — per the same security
-	// fix as codex/opencode above — it does NOT inherit the default (claude)
-	// profile's auth/overlay: silently mounting the user's ANTHROPIC_*
-	// credentials into an antigravity container is exactly the wrong-provider
-	// security edge this fix closes. The AUTH half of the gap is now CLOSED
-	// too (2026-07-22): resolveAntigravityContainerAuth seeds the
-	// host's file-based OAuth token
-	// (~/.gemini/antigravity-cli/antigravity-oauth-token — CONFIRMED the
-	// real fallback path agy uses when no OS keyring is reachable, e.g. inside
-	// a container) into the container HOME when that host file exists, and
-	// degrades honestly (ok=false) when it does not.
-	case "antigravity":
-		p := containerProfileFor("")
-		p.engineInstall = antigravityInstallFragment
-		p.validate = "agy --version"
-		p.resolveAuth = resolveAntigravityContainerAuth
-		p.authHint = "no host ~/.gemini/antigravity-cli/antigravity-oauth-token to authenticate the in-container engine (no captured file-based OAuth token to seed — the OS keyring channel agy normally uses on a host does not reach into a container)"
-		// No known project-relative managed-config surface to shadow yet:
-		// antigravity's writers (internal/antigravity) all target GLOBAL
-		// ~/.gemini/* paths, not anything under the project dir.
-		p.overlayDirs = nil
-		p.transcriptStoreRel = filepath.FromSlash(".gemini/antigravity-cli/brain")
-		return p
 	// mock is COMPOSABLE (engineInstall != nil, so buildSources stops
 	// reporting "no local build recipe" for it) but — unlike every other
 	// case above — installs NO vendor CLI at all; see mockInstallFragment's
@@ -598,7 +539,7 @@ func containerProfileFor(backend string) containerProfile {
 		// unrecognized/empty engine name as this default profile) got the
 		// user's ANTHROPIC_API_KEY/ANTHROPIC_AUTH_TOKEN passed through and
 		// ~/.claude credentials copy-mounted into a FOREIGN engine's
-		// container. codex/kiro/opencode/antigravity above each earned their
+		// container. codex/kiro/opencode above each earned their
 		// own resolveAuth for exactly this reason; the default must not hand
 		// out Anthropic credentials to an engine nobody vetted. It now fails
 		// closed (noContainerAuthProfile) so an unprofiled engine degrades

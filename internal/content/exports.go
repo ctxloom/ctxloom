@@ -3,12 +3,12 @@ package content
 // EngineExport is one engine's export settings for an item — how a command
 // surfaces as that engine's slash command, or whether a skill is enabled for it.
 //
-// It is ONE struct keyed by engine name rather than five near-identical structs
-// (ClaudeCodeConfig, AntigravityConfig, CodexConfig, KiroConfig, OpencodeConfig in
-// internal/bundles). Those five differ only in which of these fields they use, and
-// mirroring them here would mean five shapes to keep in step with a sixth engine's
-// arrival. A map keyed by engine name also means a NEW ENGINE needs no change to
-// this package at all — the same property the surface-type registry gives kinds.
+// It is ONE struct keyed by engine name rather than four near-identical structs
+// (ClaudeCodeConfig, CodexConfig, KiroConfig, OpencodeConfig in internal/bundles).
+// Those four differ only in which of these fields they use, and mirroring them
+// here would mean four shapes to keep in step with a new engine's arrival. A
+// map keyed by engine name also means a NEW ENGINE needs no change to this
+// package at all — the same property the surface-type registry gives kinds.
 //
 // Fields absent for a given engine are simply unset; nothing here validates which
 // engine honours which field, because that is the exporting backend's business and
@@ -34,7 +34,7 @@ func (e EngineExport) IsEnabled() bool {
 }
 
 // EngineExports is per-engine export settings keyed by engine name
-// ("claude-code", "codex", "kiro", "antigravity", "opencode", …).
+// ("claude-code", "codex", "kiro", "opencode", …).
 //
 // Engine names are NOT validated against a closed list. An unknown engine's
 // settings are carried verbatim rather than dropped: a bundle authored against a

@@ -217,12 +217,12 @@ func TestProvisionConfigHome_OwnerOnly(t *testing.T) {
 	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "engine creds/state dir is owner-only")
 }
 
-// TestWorktree_UnregisteredBackendRecordsFinding pins that a backend
-// registered in NEITHER credentialSeedSpecs nor curatedHomeSpecs (e.g. "acp",
-// a real, user-selectable registered backend — registry.go:392) used to fall
-// through PrepareWorkspace with zero engine-global isolation and no finding
-// at all — the run reports "worktree" isolation while the engine's global
-// config/creds stay fully shared with the host. It must now be loud.
+// TestWorktree_UnregisteredBackendRecordsFinding pins that a backend not
+// registered in credentialSeedSpecs (e.g. "acp", a real, user-selectable
+// registered backend — registry.go:392) used to fall through
+// PrepareWorkspace with zero engine-global isolation and no finding at all —
+// the run reports "worktree" isolation while the engine's global config/creds
+// stay fully shared with the host. It must now be loud.
 func TestWorktree_UnregisteredBackendRecordsFinding(t *testing.T) {
 	resetStrictness(t)
 	common := t.TempDir()
@@ -235,7 +235,7 @@ func TestWorktree_UnregisteredBackendRecordsFinding(t *testing.T) {
 	require.Len(t, findings, 1, "an unregistered backend must record exactly one fatal finding")
 	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
 	assert.Contains(t, findings[0].Message, `"acp"`)
-	assert.Contains(t, findings[0].Message, "neither the credential-seed nor curated-HOME registry")
+	assert.Contains(t, findings[0].Message, "not registered in the credential-seed registry")
 }
 
 // TestWorktree_MockBackendExemptFromUnregisteredFinding is the negative
@@ -251,32 +251,6 @@ func TestWorktree_MockBackendExemptFromUnregisteredFinding(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = ws.Cleanup() })
 	assert.Empty(t, strictness.All(), "the built-in mock backend has no global state to isolate — it must stay exempt")
-}
-
-// TestWorktree_CuratedHomeRefusalFiresDespiteProvisionFailure pins that
-// the fatal curatedHomeRefusal finding used to be gated BEHIND
-// provisionCuratedHome succeeding, so a transient mkdir/symlink failure
-// suppressed the refusal entirely. The refusal exists because auth AND file
-// writes escape a host worktree for this engine — facts wholly independent
-// of the scratch dir's own I/O outcome — so it must fire regardless.
-func TestWorktree_CuratedHomeRefusalFiresDespiteProvisionFailure(t *testing.T) {
-	resetStrictness(t)
-	// Force provisionCuratedHome's MkdirAll to fail: point TMPDIR at a plain
-	// FILE, so any path built beneath scratchBase() (which falls back to
-	// os.TempDir() here) fails with ENOTDIR.
-	notADir := filepath.Join(t.TempDir(), "not-a-dir")
-	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o644))
-	t.Setenv("TMPDIR", notADir)
-
-	spec := curatedHomeSpecs["antigravity"]
-	w := NewWorktree(nil, "antigravity")
-	home := w.provisionCuratedHomeFor("agent-a", spec)
-	assert.Empty(t, home, "provisioning failed, so no curated home path is returned")
-
-	findings := strictness.All()
-	require.Len(t, findings, 1, "the FATAL refusal must still fire even though provisioning itself failed")
-	assert.Equal(t, strictness.ClassIsolation, findings[0].Class)
-	assert.Contains(t, findings[0].Message, "AUTHENTICATION escapes it")
 }
 
 // TestWorktree_ConfigHomeMkdirFailureRecordsFinding pins that a total
@@ -606,7 +580,7 @@ func TestWorktree_ConcurrentAgents_DisjointScratchDirs(t *testing.T) {
 // TestWorktree_ScratchDir_CleanedUpOnTeardown: Cleanup() removes the
 // toolchain scratch dir from disk — an agent's TMPDIR must not outlive its
 // workspace and accumulate as residue across a long-running host (mirroring
-// the configHome/curatedHome cleanup guarantee).
+// the configHome cleanup guarantee).
 func TestWorktree_ScratchDir_CleanedUpOnTeardown(t *testing.T) {
 	common := t.TempDir()
 	f := &git.Fake{CommonDirValue: common}
@@ -652,11 +626,9 @@ func TestWorktree_GitIdentity_AttributesToAgentNotHuman(t *testing.T) {
 
 // TestWorktree_HomeVars_PerBackend is the "descriptor table guard" the
 // per-engine-isolation-home plan §9 asks for: each backend's Env() var-set
-// size must match the cartography table — claude:1, codex:1, kiro:2,
-// antigravity:1 (its curated HOME, via the single "HOME" key — see
-// curatedhome.go and TestWorktree_Antigravity_HomeOverrideAndSymlinks for
-// what that one var actually carries), and "" (no backend context):0 config-
-// home vars (the pre-fix, config-only-isolation default — see
+// size must match the cartography table — claude:1, codex:1, kiro:2, and ""
+// (no backend context):0 config-home vars (the pre-fix, config-only-isolation
+// default — see
 // TestWorktree_NoBackendSkipsSeedingAndFailLoud) — PLUS the 6 toolchain vars
 // (spawner-env: TMPDIR, GOTMPDIR, GIT_AUTHOR_{NAME,EMAIL},
 // GIT_COMMITTER_{NAME,EMAIL}) every backend gets UNCONDITIONALLY, including
@@ -680,7 +652,6 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 		{"codex", 1 + toolchainVars},
 		{"kiro", 2 + toolchainVars},
 		{"opencode", 2 + toolchainVars},
-		{"antigravity", 1 + toolchainVars},
 		{"", 0 + toolchainVars},
 	}
 	for _, c := range cases {
@@ -1064,10 +1035,10 @@ func TestWorktree_ExcludeConfigFromMerge_WritesEveryPattern(t *testing.T) {
 
 // TestWorktreeCleanup_NoResourceStrandedByTheDirGuard pins a claim, and
 // the row is REFUTED on its consequence. The claim: Cleanup's idempotence guard
-// `if w.dir == "" { return nil }` also short-circuits removal of configHome,
-// curatedHome and scratchDir, which are independent resources.
+// `if w.dir == "" { return nil }` also short-circuits removal of configHome
+// and scratchDir, which are independent resources.
 //
-// The guard does gate all four — that half is true. The leak it implies is
+// The guard does gate both — that half is true. The leak it implies is
 // unreachable by construction, and this pins the two properties that make it
 // so: (1) the only production construction of a worktreeWorkspace sets dir
 // FIRST and non-empty, before any scratch home exists to strand, and (2) one
@@ -1079,7 +1050,7 @@ func TestWorktreeCleanup_NoResourceStrandedByTheDirGuard(t *testing.T) {
 	withFakeHome(t)
 	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
 
-	for _, backend := range []string{"claude-code", "antigravity"} {
+	for _, backend := range []string{"claude-code"} {
 		t.Run(backend, func(t *testing.T) {
 			resetStrictness(t)
 			f := &git.Fake{CommonDirValue: t.TempDir()}
@@ -1088,14 +1059,11 @@ func TestWorktreeCleanup_NoResourceStrandedByTheDirGuard(t *testing.T) {
 			requireCleanWorkspace(t, ws)
 			concrete, ok := ws.(*worktreeWorkspace)
 			require.True(t, ok)
-			if concrete.curatedHome != "" {
-				t.Cleanup(func() { _ = os.RemoveAll(concrete.curatedHome) })
-			}
 
 			require.NotEmpty(t, concrete.dir,
 				"the guard's own field is set before any scratch home exists to be stranded by it")
 			var live []string
-			for _, r := range []string{concrete.configHome, concrete.curatedHome, concrete.scratchDir} {
+			for _, r := range []string{concrete.configHome, concrete.scratchDir} {
 				if r != "" {
 					live = append(live, r)
 				}
@@ -1106,7 +1074,6 @@ func TestWorktreeCleanup_NoResourceStrandedByTheDirGuard(t *testing.T) {
 
 			assert.Empty(t, concrete.dir, "dir is cleared")
 			assert.Empty(t, concrete.configHome, "configHome is cleared in the SAME call, never left for a second one")
-			assert.Empty(t, concrete.curatedHome, "curatedHome is cleared in the SAME call")
 			assert.Empty(t, concrete.scratchDir, "scratchDir is cleared in the SAME call")
 			for _, r := range live {
 				assert.NoDirExists(t, r, "Cleanup removed %q from disk", r)

@@ -25,7 +25,7 @@ func harnessSessionID(c *Coordinator, harp string) string {
 
 // TestHandleChildEvent_CapturesLegacySessionID_AndThreadsOnResume is Slice 0
 // (wooly-stove)'s proof: a LEGACY (non-viaStartRun) backend's native session
-// id — antigravity's agy conversation id is the production shape this
+// id — a vendor-native conversation id is the production shape this
 // fakeEngine's `sessionID` field stands in for — is now (a) CAPTURED off
 // ev.Session by handleChildEvent instead of silently dropped, and (b)
 // THREADED back into the backend on resume (Spawner.Launch's new

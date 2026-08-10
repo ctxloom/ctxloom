@@ -83,15 +83,15 @@ func TestContainerProfileFor_UnknownIsDefault(t *testing.T) {
 }
 
 // TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault is a
-// regression guard: every REGISTERED backend (the composable set
-// plus antigravity) must resolve its OWN auth — none of them may reach
+// regression guard: every REGISTERED backend in the composable set must
+// resolve its OWN auth — none of them may reach
 // resolveClaudeContainerAuth/defaultOverlayDirs, the security edge where a
-// containerized codex/opencode/antigravity run would silently authenticate
-// with (or overlay) the user's Anthropic credentials into a foreign engine.
+// containerized codex/opencode run would silently authenticate with (or
+// overlay) the user's Anthropic credentials into a foreign engine.
 func TestContainerProfileFor_NoRegisteredEngineReachesClaudeDefault(t *testing.T) {
 	withFakeHome(t) // no real ~/.codex or ~/.local/share/opencode creds to fall back onto
 	claudeDefault := containerProfileFor("")
-	for _, name := range []string{"codex", "opencode", "antigravity"} {
+	for _, name := range []string{"codex", "opencode"} {
 		p := containerProfileFor(name)
 		require.NotNil(t, p.resolveAuth, "backend %q must wire its own auth resolver", name)
 		// Behavioral check: feed the resolver an ANTHROPIC_API_KEY only and
@@ -145,27 +145,6 @@ func TestContainerProfileFor_Opencode(t *testing.T) {
 	require.True(t, ok, "with OPENROUTER_API_KEY set the wired resolver authenticates")
 	assert.Equal(t, authEnv, auth.mode)
 	assert.Contains(t, auth.envPassthrough, "OPENROUTER_API_KEY")
-}
-
-// TestContainerProfileFor_Antigravity pins the security fix for
-// antigravity plus its image-half landing: antigravity is now
-// COMPOSABLE (its own official-installer fragment, live-verified against
-// https://antigravity.google/cli/install.sh), and (2026-07-22)
-// its AUTH half is now a REAL resolver — it must NOT silently reuse claude's
-// auth/overlay, and must degrade (not authenticate) when the host has no
-// seedable antigravity OAuth token, even with ANTHROPIC_API_KEY set.
-func TestContainerProfileFor_Antigravity(t *testing.T) {
-	withFakeHome(t) // hermetic: no real ~/.gemini/antigravity-cli/antigravity-oauth-token to accidentally pick up
-	p := containerProfileFor("antigravity")
-	assert.Equal(t, defaultContainerImage, p.image, "fallback tag only — the real tag is the composed multi-engine one")
-	assert.NotNil(t, p.engineInstall, "antigravity is composable as of task sweet-fruit")
-	assert.Equal(t, "agy --version", p.validate)
-	assert.Nil(t, p.overlayDirs, "no known project-relative managed-config surface for antigravity yet")
-	require.NotNil(t, p.resolveAuth)
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	_, ok := p.resolveAuth("/root", t.TempDir())
-	assert.False(t, ok, "no host antigravity OAuth token seeded → must degrade, never silently borrow claude's ANTHROPIC_API_KEY")
-	assert.Contains(t, p.authHint, "antigravity-oauth-token")
 }
 
 // TestContainerProfileFor_Mock pins mock's own profile: composable (so

@@ -27,11 +27,10 @@ import (
 // Enabled — a skill's name and description are SKILL.md frontmatter, the
 // single source of truth, and never duplicated into bundle.yaml.
 type SkillLLMExports struct {
-	ClaudeCode  SkillEngineExport `yaml:"claude-code"`
-	Antigravity SkillEngineExport `yaml:"antigravity"`
-	Codex       SkillEngineExport `yaml:"codex"`
-	Kiro        SkillEngineExport `yaml:"kiro"`
-	Opencode    SkillEngineExport `yaml:"opencode"`
+	ClaudeCode SkillEngineExport `yaml:"claude-code"`
+	Codex      SkillEngineExport `yaml:"codex"`
+	Kiro       SkillEngineExport `yaml:"kiro"`
+	Opencode   SkillEngineExport `yaml:"opencode"`
 }
 
 // SkillEngineExport is one engine's enablement setting for a skill.

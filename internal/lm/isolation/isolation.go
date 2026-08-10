@@ -34,20 +34,6 @@ import (
 // regardless of which stage dropped the container.
 const isolationFixIt = "install/build the agent image and start the container runtime (docker/podman), or pass --degraded (env CTXLOOM_DEGRADED=1) to run on the HOST without a sandbox"
 
-// NOTE on a formerly-here antigravityNoLeverFixIt / host+worktree antigravity
-// refusal: that gate claimed antigravity "has no
-// config-home lever at all" and blocked host+worktree isolation for it
-// (a fatal ClassIsolation finding the choke owner aborted strict runs on).
-// The premise was measurably FALSE — HOME does relocate agy's config and
-// session state, just not its authentication (see curatedhome.go's package
-// doc for the measurement) — so the gate has been REPLACED: host+worktree
-// antigravity now proceeds via Worktree's curated-HOME provisioning
-// (curatedHomeSpecs in curatedhome.go), which emits a LOUD but NON-FATAL
-// finding (clidiag.Warn, never strictness.Fail — a partial lever must never
-// enter the same pass/fail signal a genuinely dropped boundary uses) naming
-// exactly what is and isn't isolated. There is no longer a chainFor-level
-// gate for this backend.
-
 // Workspace is the per-agent directory a run executes in (the child engine's
 // cwd) plus its teardown. none → the live project dir (noop cleanup); worktree →
 // a fresh per-agent git worktree (WIP-safe remove); container → the mounted
@@ -390,23 +376,13 @@ func chainFor(axes Axes, backend string, img ImageConfig) []Policy {
 		// Workspace-only isolation, no runtime dependency — the git-repo check
 		// and the worktree-add both degrade to None inside PrepareWorkspace
 		// (prepareChain warns). This is the PURE host+worktree path:
-		// NewWorktree carries backend so PrepareWorkspace can
-		// provision whichever host isolation lever the backend registers —
-		// a scoped config-home var (credentialSeedSpecs, auth.go) for
-		// claude/codex/kiro, or a curated scratch HOME (curatedHomeSpecs,
-		// curatedhome.go) for a backend like antigravity that has no scoped
-		// var at all. Reached both for a bare {worktree, host} request and
-		// for a {worktree, container} request that just degraded to host
-		// above (the container was dropped, worktree stays) — either way the
-		// agent ends up on the HOST with only a worktree.
-		//
-		// No gate here for a backend with only a PARTIAL lever (antigravity):
-		// unlike a genuinely dropped CONTAINER boundary (ClassIsolation,
-		// fatal unless --degraded), a curated HOME that isolates config but
-		// not auth is a KNOWN, ACCEPTED partial boundary this package lets
-		// the run proceed through by design — Worktree.PrepareWorkspace
-		// itself emits the (non-fatal) finding at provisioning time; see
-		// curatedhome.go's curatedHomeAuthFinding.
+		// NewWorktree carries backend so PrepareWorkspace can provision
+		// whichever host isolation lever the backend registers — a scoped
+		// config-home var (credentialSeedSpecs, auth.go) for claude/codex/
+		// kiro. Reached both for a bare {worktree, host} request and for a
+		// {worktree, container} request that just degraded to host above (the
+		// container was dropped, worktree stays) — either way the agent ends
+		// up on the HOST with only a worktree.
 		return []Policy{NewWorktree(nil, backend), None{}}
 	}
 	return []Policy{None{}}

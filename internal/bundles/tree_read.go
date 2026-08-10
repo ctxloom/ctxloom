@@ -315,7 +315,7 @@ func skillFilePerm(m content.ComponentMode) os.FileMode {
 }
 
 // commandLLM is the inverse of commandExports: one engine-keyed map back onto
-// internal/bundles' five near-identical per-engine structs. An engine absent
+// internal/bundles' four near-identical per-engine structs. An engine absent
 // from the map is left zero; nothing is invented.
 //
 // It carries exactly the fields commandExports carries, no more. Codex's
@@ -329,9 +329,6 @@ func commandLLM(e content.EngineExports) LLMExports {
 			Enabled: x.Enabled, Description: x.Description,
 			ArgumentHint: x.ArgumentHint, AllowedTools: x.AllowedTools, Model: x.Model,
 		}
-	}
-	if x, ok := e.For("antigravity"); ok {
-		out.Antigravity = AntigravityConfig{Enabled: x.Enabled, Description: x.Description}
 	}
 	if x, ok := e.For("codex"); ok {
 		out.Codex = CodexConfig{Enabled: x.Enabled, Description: x.Description}
@@ -354,7 +351,6 @@ func skillLLM(e content.EngineExports) SkillLLMExports {
 		}
 	}
 	set(&out.ClaudeCode, "claude-code")
-	set(&out.Antigravity, "antigravity")
 	set(&out.Codex, "codex")
 	set(&out.Kiro, "kiro")
 	set(&out.Opencode, "opencode")

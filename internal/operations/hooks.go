@@ -23,7 +23,7 @@ type ConfigLoaderFunc func() (*config.Config, error)
 
 // ApplyHooksRequest contains parameters for applying hooks.
 type ApplyHooksRequest struct {
-	Backend           string           `json:"backend"`            // claude-code, antigravity, or all
+	Backend           string           `json:"backend"`            // claude-code, codex, or all
 	RegenerateContext bool             `json:"regenerate_context"` // Also regenerate context file
 	FS                afero.Fs         `json:"-"`                  // Optional filesystem for testing
 	ConfigLoader      ConfigLoaderFunc `json:"-"`                  // Optional config loader for testing (defaults to config.Load)
@@ -128,7 +128,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// regenFailed == false — a real, if unwelcome, current state worth
 	// reflecting), a failure or a no-op request must never be indistinguishable
 	// from "the context is now empty" at the write layer: WriteManagedContext
-	// (antigravity) and writeSteering (kiro) both treat Context: "" as "clear
+	// (claude/codex) and writeSteering (kiro) both treat Context: "" as "clear
 	// this," which is exactly right for a real empty state and exactly wrong
 	// for "we don't know" or "we couldn't tell you." Applied below by
 	// omitting WithContext(...) from the surface selection entirely, which is
@@ -136,7 +136,7 @@ func ApplyHooks(ctx context.Context, req ApplyHooksRequest) (*ApplyHooksResult, 
 	// ("opt-in selection... with NOTHING selected").
 	skipContext := !req.RegenerateContext || regenFailed
 
-	// The native-context backends (antigravity/kiro) read context from their own
+	// The native-context backend (kiro) reads context from its own
 	// file, not the injection hook, so apply materializes it from the assembled
 	// context STRING — the same content regenerateContext hashed into the cache the
 	// hook backends (claude/codex) read, so the two paths agree. Assembled only when
@@ -281,15 +281,12 @@ func resolveHookWorkDir(req ApplyHooksRequest) string {
 // (and any other caller of backends.CheckHookTargetScope) picks it up with no
 // operations-side edit.
 //
-// antigravity and opencode are AUDITED, not guarded (nil hookGlobalScopePaths
-// in their descriptors), because neither can hit this collision class:
-// antigravity has no usable global location at all in agy v1.0.7 (see
-// AntigravityHookWriter.SettingsPath's doc — there is nothing for the
-// project write to collapse onto), and opencode's actual global config lives
-// at a DIFFERENT path (~/.config/opencode/opencode.json, per opencode's own
-// docs) than its project file (workDir/opencode.json — see
-// OpencodeWriter.SettingsPath), so workDir==$HOME never makes the two paths
-// equal.
+// opencode is AUDITED, not guarded (nil hookGlobalScopePaths in its
+// descriptor), because it cannot hit this collision class: opencode's actual
+// global config lives at a DIFFERENT path (~/.config/opencode/opencode.json,
+// per opencode's own docs) than its project file (workDir/opencode.json —
+// see OpencodeWriter.SettingsPath), so workDir==$HOME never makes the two
+// paths equal.
 //
 // force downgrades every collision to a loud warning and proceeds — the
 // deliberate escape hatch for a genuine intentional global install.
@@ -392,8 +389,8 @@ func applyHooksToBackends(ctx context.Context, p hookApplyParams) (applied, appl
 // WithContext(Hook) for them — resolving (for claude) to a documented no-op that
 // writes nothing: a static CLAUDE.md alongside the hook would double the context.
 //
-// The NATIVE-file backends (antigravity/kiro) read context from .agents/AGENTS.md /
-// .kiro/steering and DIVERT the injection hook, so for them apply names
+// The NATIVE-file backend (kiro) reads context from
+// .kiro/steering and DIVERTS the injection hook, so for it apply names
 // WithContext(UnsafeFile), materializing the context surface with the assembled
 // context. contextViaHook (descriptor-keyed via SupportedApproaches) picks the
 // right approach per backend — the enum-driven replacement for the retired
@@ -450,7 +447,7 @@ func applyHooksToBackend(backendName string, p hookApplyParams) error {
 // contextViaHook reports whether the backend delivers context through the
 // SessionStart inject-context hook (claude/codex — their context surface
 // advertises agent.ApproachHook) rather than a native context file
-// (antigravity/kiro, UnsafeFile only). It is the descriptor-keyed replacement for
+// (kiro, UnsafeFile only). It is the descriptor-keyed replacement for
 // the retired backends.ContextViaNativeFile: apply reads it to pick
 // WithContext(Hook) vs WithContext(UnsafeFile), so a static native file is never
 // written alongside the hook.

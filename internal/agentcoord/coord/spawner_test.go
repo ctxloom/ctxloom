@@ -29,17 +29,16 @@ func TestChildVerbosity(t *testing.T) {
 // (C1), codex, kiro, and the generic "acp" entry (C3) all route their
 // delegated children over StartRun — every backend whose Chat rides the
 // shared internal/acp driver, verified per-backend in the C3 recon.
-// Backends NOT reviewed onto the migrated path (antigravity, mock, and any
-// unknown/future backend name) stay on the legacy go-plugin Chat dial — this
-// is a deliberate allowlist, not "implements StructuredChat", so a new
-// backend never gets swept onto StartRun unreviewed.
+// Backends NOT reviewed onto the migrated path (mock, and any unknown/future
+// backend name) stay on the legacy go-plugin Chat dial — this is a
+// deliberate allowlist, not "implements StructuredChat", so a new backend
+// never gets swept onto StartRun unreviewed.
 func TestViaStartRunBackends(t *testing.T) {
 	cases := map[string]bool{
 		"claude-code":  true,
 		"codex":        true,
 		"kiro":         true,
 		"acp":          true,
-		"antigravity":  false,
 		"mock":         false,
 		"":             false,
 		"unknown-type": false,
@@ -56,7 +55,7 @@ func TestViaStartRunBackends(t *testing.T) {
 // loud, never silently downgrading to persistent.
 func TestResolveResumeMode(t *testing.T) {
 	t.Run("conversational is always persistent, any backend", func(t *testing.T) {
-		for _, backend := range []string{"claude-code", "codex", "antigravity", "opencode", "kiro", "mock", "unknown", ""} {
+		for _, backend := range []string{"claude-code", "codex", "opencode", "kiro", "mock", "unknown", ""} {
 			mode, err := resolveResumeMode(agents.DrivingConversational, backend)
 			require.NoError(t, err, "backend %q", backend)
 			assert.Equal(t, ResumeModePersistent, mode, "backend %q", backend)
@@ -70,7 +69,7 @@ func TestResolveResumeMode(t *testing.T) {
 	})
 
 	t.Run("oneshot on a resume-capable backend resolves to ResumeModeOneShot", func(t *testing.T) {
-		for _, backend := range []string{"claude-code", "codex", "antigravity"} {
+		for _, backend := range []string{"claude-code", "codex"} {
 			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
 			require.NoError(t, err, "backend %q", backend)
 			assert.Equal(t, ResumeModeOneShot, mode, "backend %q", backend)
@@ -78,7 +77,7 @@ func TestResolveResumeMode(t *testing.T) {
 	})
 
 	t.Run("oneshot on a NON-resumable backend FAILS LOUD, never silently downgrades", func(t *testing.T) {
-		for _, backend := range []string{"opencode", "kiro", "mock", "unknown-backend", ""} {
+		for _, backend := range []string{"opencode", "kiro", "mock", "unknown-backend", "antigravity", ""} {
 			mode, err := resolveResumeMode(agents.DrivingOneshot, backend)
 			require.Error(t, err, "backend %q", backend)
 			assert.Equal(t, ResumeModePersistent, mode, "the returned mode on error must never be ResumeModeOneShot (backend %q)", backend)
@@ -239,14 +238,6 @@ func TestProdSpawner_Resolve_Driving(t *testing.T) {
 		assert.Equal(t, ResumeModeOneShot, plan.ResumeMode)
 	})
 
-	t.Run("driving: oneshot on antigravity (resume-capable but LEGACY, unwired) still fails loud (v0.8 residual), not the capability reason", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: antigravity\n    permissions: bypass\n    driving: oneshot\n")
-		_, err := s.Resolve(context.Background(), "dev")
-		require.Error(t, err, "antigravity's legacy one-shot teardown is not wired this slice (v0.8)")
-		assert.Contains(t, err.Error(), "not yet available")
-		assert.Contains(t, err.Error(), "v0.8")
-		assert.NotContains(t, err.Error(), "has no resume-by-key primitive", "a resume-capable engine must fail for the v0.8 reason, not the capability reason")
-	})
 }
 
 // TestAgentRun_WorkspaceOverrideThreadsToSpawnPlan is GAP 2's threading

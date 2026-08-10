@@ -310,7 +310,7 @@ func TestLocateKiroConversation_BoundSessionIDPicksTheDBThatHoldsIt(t *testing.T
 // sqlite file at all) is a DIFFERENT fact from "this session has no
 // conversation to import", and the two used to be indistinguishable —
 // EnumerateConversations' error was folded into the same ok=false the
-// ordinary nothing-to-do case returns, so `session backfill` counted the harp
+// ordinary nothing-to-do case returns, so a sweeping import counted the harp
 // as Skipped and said nothing. The locator still degrades to "not found"
 // (fault tolerance: one bad store must not abort a whole backfill), but the
 // failure is now stated.

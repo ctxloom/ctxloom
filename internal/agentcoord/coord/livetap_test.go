@@ -274,7 +274,7 @@ func TestLiveTap_ChildItemsReachTheOverlay(t *testing.T) {
 
 	// Resolve the live feed BEFORE the gated turn ever runs: this is the
 	// exact seam operations-backed frontends use (terminalUISources /
-	// `ctxloom session watch`, run_terminal_ui.go:105-113) — discovery and
+	// `ctxloom session transcript watch`, run_terminal_ui.go:105-113) — discovery and
 	// all — called directly (not lazily from the overlay's Watch closure) so
 	// the test can confirm the ConsumerService.WatchRuns subscription is
 	// live BEFORE releasing the gate below.

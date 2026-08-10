@@ -165,7 +165,11 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// exactly what proves the "no ctxloom-owned scratch worktrees" path
 	// renders in all five formats. Mutating flags (--reap --yes) are
 	// deliberately not exercised here; session_worktrees_test.go covers those.
-	"session worktrees": {extraArgs: noExtraArgs},
+	"session worktrees list": {extraArgs: noExtraArgs},
+	// Bare, read-only listings over a fresh sessions dir: an empty report is
+	// exactly what proves the "(no sessions)" path renders in all five formats.
+	"session transcript list": {extraArgs: noExtraArgs},
+	"session artifacts list":  {extraArgs: noExtraArgs},
 	"session search": {extraArgs: func(string) []string {
 		// A word that won't match anything in this test's empty/fresh session
 		// index; the point here is proving `session query` renders cleanly in
@@ -195,8 +199,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"mcp serve":  {skip: "serve: runs the stdio MCP server"},
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
-	"session watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
-	"plan watch":    {skip: "streaming: same shape as session watch"},
+	"session transcript watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
+	"plan watch":    {skip: "streaming: same shape as session transcript watch"},
 	"run":           {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
@@ -340,11 +344,17 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"profile materialize": {skip: "wired to emit(), but needs a resolvable profile + --target fixture; not exercised here (corrected T19 audit: previously mislabeled 'not wired to emit() yet', but profileMaterializeCmd's RunE does call emit())"},
 	"profile modify":      {skip: "not wired to emit() yet", formatDebt: true},
 	"session show":        {skip: "wired to emit(), but needs an existing session fixture; not exercised here"},
-	"session rename":      {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: session_cmd.go's rename RunE is an inline closure that never calls emit()", formatDebt: true},
+	"session edit":        {skip: "wired to emit(), but needs an existing session fixture (a harp in the index) and MUTATES it; covered directly by session_edit_test.go, which drives all five decisions on a seeded harp"},
 	"session delete":      {skip: "not confirmed wired; destructive; not exercised here; T19 audit confirmed NOT wired: session_cmd.go's delete RunE is an inline closure that never calls emit()", formatDebt: true},
 	"session distill":     {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: runSessionDistill never calls emit()", formatDebt: true},
-	"session backfill":    {skip: "wired to emit(), but needs an existing session fixture; covered directly by session_backfill_test.go instead"},
-	"session purge":       {skip: "wired to emit(), but needs an existing session fixture and is destructive under --yes; not exercised here — covered directly by the j001300_closeout acceptance scenarios instead"},
+	// Every destroyer under `session` is wired to emit(), but each needs a
+	// seeded harp directory and is destructive under --yes. They are covered
+	// directly, on BOTH sides (report leaves it, --yes removes it), by
+	// session_purge_fanout_test.go and session_worktrees_test.go.
+	"session purge":            {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered on both sides by session_purge_fanout_test.go"},
+	"session transcript purge": {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered on both sides by session_purge_fanout_test.go"},
+	"session artifacts purge":  {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered on both sides by session_purge_fanout_test.go"},
+	"session worktrees purge":  {skip: "wired to emit(), but needs a real git repo with seeded scratch worktrees and is destructive under --yes; covered on both sides by session_worktrees_test.go"},
 	"config":              {skip: "not wired to emit() yet; NOTE: bare `config` has no RunE and is not cobra-Runnable, so formatCoverageWalk never actually visits it — this entry is inert/dead and not counted toward the T19 total"},
 	"init":                {skip: "interactive bootstrap interview; not exercised here; T19 audit confirmed NOT wired: runInit never calls emit()", formatDebt: true},
 }
@@ -526,7 +536,6 @@ var formatDebtAllowlist = map[string]string{
 	"profile modify": "profile.go: the modify RunE must route through emit()",
 
 	// --- session surface (session_cmd.go) ---
-	"session rename":  "session_cmd.go: the rename RunE (inline closure) must route through emit()",
 	"session delete":  "session_cmd.go: the delete RunE (inline closure) must route through emit()",
 	"session distill": "session_cmd.go: runSessionDistill must route through emit()",
 }

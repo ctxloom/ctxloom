@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -73,75 +74,143 @@ func worktreeOwnerStateText(c isolation.WorktreeCandidate) string {
 	}
 }
 
-var (
-	sessionWorktreesReap bool
-	sessionWorktreesYes  bool
-	sessionWorktreesHarp string
-)
+// session worktrees — the sub-noun for the scratch git checkouts a session
+// leaves behind. Like `transcript` and `artifacts` it is a POPULATION with
+// its own listing and its own destroyer, so it is a namespace whose bare form
+// lists and whose `purge` leaf removes.
+//
+// The old shape was one command with a --reap switch and a --harp selector.
+// Both converge here: the switch becomes the verb, and the selector becomes
+// the positional every other leaf under `session` already takes.
 
-var sessionWorktreesCmd = &cobra.Command{
+var sessionWorktreesPurgeYes bool
+
+var sessionWorktreesCmd = groupNodeDefault(&cobra.Command{
 	Use:   "worktrees",
-	Short: "List ctxloom-owned scratch worktrees, and (with --reap --yes) remove the ones it can prove are safe",
-	Long: `Lists every "ctxloom-wt-*" checkout ctxloom itself created under
+	Short: "The scratch git checkouts a session left behind: list them, remove the safe ones",
+	Long: `Every "ctxloom-wt-*" checkout ctxloom itself created under
 ~/.ctxloom/sessions/<harp>/ephemeral/ — leftovers from a per-agent worktree
-whose owning process crashed before it could clean up after itself — and, for
-each one, the verdict isolation.ReapOrphanedWorktrees' safety rules would
-reach: reapable (orphaned and clean), spared (orphaned but carrying real or
-unknowable work), or skipped (owner alive, or its liveness can't be proven).
+whose owning process crashed before it could clean up after itself.
 
-Read-only by default: bare "session worktrees" only reports, and so does
-"session worktrees --reap" without --yes. Nothing is ever removed unless BOTH
---reap and --yes are given, on this exact invocation — matching "session
-purge"'s rule: the absence of --yes always means report-only, never act,
-regardless of whether the terminal is interactive.
+  list    what is there, and what would happen to each one (the bare form)
+  purge   remove the ones this run can PROVE are safe
 
 A long-lived worktree ctxloom did not create (anything outside
 ~/.ctxloom/sessions/) is never listed or touched here — "ctxloom doctor"
 reports on those, and only ever suggests the commands to remove them by hand.`,
-	Args: cobra.NoArgs,
-	RunE: runSessionWorktrees,
+}, "list")
+
+var sessionWorktreesListCmd = &cobra.Command{
+	Use:   "list [<harp-name>]",
+	Short: "List ctxloom-owned scratch worktrees and the verdict each one would get",
+	Long: `Lists every ctxloom-owned scratch worktree and, for each, the verdict
+isolation.ReapOrphanedWorktrees' safety rules would reach: reapable
+(orphaned and clean), spared (orphaned but carrying real or unknowable
+work), or skipped (owner alive, or its liveness can't be proven).
+
+Read-only. Naming a harp restricts the listing to that one session.`,
+	Args: cobra.MaximumNArgs(1),
+	RunE: runSessionWorktreesList,
+}
+
+var sessionWorktreesPurgeCmd = &cobra.Command{
+	Use:   "purge <harp-name>",
+	Short: "Remove a session's scratch worktrees that this run can prove are safe",
+	Long: `Removes the scratch worktrees that are BOTH orphaned (their owning process
+is confirmed dead) and clean (no uncommitted work, no gitignored content).
+Anything else is left in place and the report says why.
+
+Without --yes this only reports; nothing is removed and no git command that
+changes anything runs, on a TTY or not.
+
+It refuses (exit 2) when it was asked to remove and removed nothing, so an
+unattended run that found nothing to do cannot be mistaken for one that
+cleaned up.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runSessionWorktreesPurge,
 }
 
 func init() {
-	sessionWorktreesCmd.Flags().BoolVar(&sessionWorktreesReap, "reap", false,
-		"Remove the worktrees this run can prove are safe (orphaned AND clean). Read-only without --yes.")
-	sessionWorktreesCmd.Flags().BoolVarP(&sessionWorktreesYes, "yes", "y", false,
-		"Act on exactly the plan this invocation printed. Ignored without --reap; no config key may pre-answer it.")
-	sessionWorktreesCmd.Flags().StringVar(&sessionWorktreesHarp, "harp", "",
-		"Restrict to one harp-named session's scratch worktrees (default: every harp)")
+	sessionWorktreesPurgeCmd.Flags().BoolVarP(&sessionWorktreesPurgeYes, "yes", "y", false,
+		"Act on exactly the plan this invocation printed. No config key may pre-answer it.")
+	sessionWorktreesCmd.AddCommand(sessionWorktreesListCmd, sessionWorktreesPurgeCmd)
 	sessionCmd.AddCommand(sessionWorktreesCmd)
 }
 
-// runSessionWorktrees is the cobra RunE for `ctxloom session worktrees`.
-//
-// It always classifies first (isolation.ClassifyOrphanedWorktrees), then —
-// ONLY when both --reap and --yes were given — runs isolation.ReapWorktrees
-// over exactly what was just classified, on this one invocation's own plan.
-// The report renders through emit() regardless of outcome, so every --format
-// still gets a real result; the exit-2 refusal (an action verb that changed
-// nothing — docs/cli-ux-principles.md §7) is decided AFTER that render, by
-// inspecting the final tally, and adds its own stderr explanation on top.
-func runSessionWorktrees(cmd *cobra.Command, _ []string) error {
-	ctx := cmd.Context()
-
-	harp := sessionWorktreesHarp
-	if harp != "" {
+// runSessionWorktreesList is the read-only half, and the bare sub-noun's
+// answer.
+func runSessionWorktreesList(cmd *cobra.Command, args []string) error {
+	harp := ""
+	if len(args) == 1 {
+		harp = args[0]
 		if err := verifyHarpDirExists(harp); err != nil {
 			return err
 		}
 	}
-
-	candidates, err := isolation.ClassifyOrphanedWorktrees(ctx, nil, harp)
+	rep, err := classifyHarpWorktrees(cmd.Context(), harp, false)
 	if err != nil {
-		return fmt.Errorf("list scratch worktrees: %w", err)
+		return err
+	}
+	return emit(cmd, rep, func() error {
+		return renderSessionWorktrees(cmd.OutOrStdout(), rep)
+	})
+}
+
+// runSessionWorktreesPurge is the destroying half. It reports through emit()
+// regardless of outcome, so every --format still gets a real result; the
+// loud "removed nothing" line and the exit-2 refusal are decided AFTER that
+// render.
+func runSessionWorktreesPurge(cmd *cobra.Command, args []string) error {
+	harp := args[0]
+	if err := verifyHarpDirExists(harp); err != nil {
+		return err
+	}
+	rep, err := classifyHarpWorktrees(cmd.Context(), harp, sessionWorktreesPurgeYes)
+	if err != nil {
+		return err
+	}
+	if emitErr := emit(cmd, rep, func() error {
+		return renderSessionWorktrees(cmd.OutOrStdout(), rep)
+	}); emitErr != nil {
+		return emitErr
 	}
 
-	applied := sessionWorktreesReap && sessionWorktreesYes
-	if applied {
+	if !sessionWorktreesPurgeYes {
+		return reportPlanOnly(cmd, fmt.Sprintf("ctxloom session worktrees purge %s --yes", harp))
+	}
+	// An action verb that changed nothing refuses (docs/cli-ux-principles.md
+	// §7): --yes ran, and not one candidate actually moved to VerdictReaped.
+	// Spared/skipped candidates are not a failure — the report above already
+	// said why each one was left alone — but reporting "0" here would make an
+	// unattended purge that found nothing to do indistinguishable from one
+	// that refused to touch anything it could have.
+	if rep.Reaped == 0 {
+		return reportRefusal(cmd, fmt.Sprintf(
+			"ctxloom: removed no worktree for %s (%d spared, %d skipped) — nothing was provably safe to remove",
+			harp, rep.Spared, rep.Skipped))
+	}
+	return nil
+}
+
+// sweepHarpWorktrees is `session purge`'s worktree half. Same body, called
+// with the sweep's own apply decision.
+func sweepHarpWorktrees(ctx context.Context, harp string, apply bool) (sessionWorktreeReport, error) {
+	return classifyHarpWorktrees(ctx, harp, apply)
+}
+
+// classifyHarpWorktrees always classifies first, then — ONLY when apply —
+// runs isolation.ReapWorktrees over exactly what was just classified, on this
+// one invocation's own plan.
+func classifyHarpWorktrees(ctx context.Context, harp string, apply bool) (sessionWorktreeReport, error) {
+	candidates, err := isolation.ClassifyOrphanedWorktrees(ctx, nil, harp)
+	if err != nil {
+		return sessionWorktreeReport{}, fmt.Errorf("list scratch worktrees: %w", err)
+	}
+	if apply {
 		candidates = isolation.ReapWorktrees(ctx, nil, candidates)
 	}
 
-	rep := sessionWorktreeReport{Worktrees: make([]sessionWorktreeRow, 0, len(candidates)), Applied: applied}
+	rep := sessionWorktreeReport{Worktrees: make([]sessionWorktreeRow, 0, len(candidates)), Applied: apply}
 	for _, c := range candidates {
 		rep.Worktrees = append(rep.Worktrees, newSessionWorktreeRow(c))
 		switch c.Verdict {
@@ -153,28 +222,7 @@ func runSessionWorktrees(cmd *cobra.Command, _ []string) error {
 			rep.Skipped++
 		}
 	}
-
-	if err := emit(cmd, rep, func() error {
-		return renderSessionWorktrees(cmd.OutOrStdout(), rep)
-	}); err != nil {
-		return err
-	}
-
-	// An action verb that changed nothing refuses (docs/cli-ux-principles.md
-	// §7): --reap --yes ran, and not one candidate actually moved to
-	// VerdictReaped. Spared/skipped candidates are not a failure — the report
-	// above already said why each one was left alone — but reporting "0" here
-	// would make an unattended reap that found nothing to do indistinguishable
-	// from one that refused to touch anything it could have.
-	if applied && rep.Reaped == 0 {
-		w := iox.NewErrWriter(cmd.ErrOrStderr())
-		w.Printf("ctxloom: reap changed nothing (%d spared, %d skipped) — nothing was provably safe to remove\n", rep.Spared, rep.Skipped)
-		if werr := w.Err(); werr != nil {
-			return werr
-		}
-		return refusedExit()
-	}
-	return nil
+	return rep, nil
 }
 
 // verifyHarpDirExists returns an ordinary error (exit 1) when --harp names a
@@ -208,9 +256,9 @@ func renderSessionWorktrees(w io.Writer, rep sessionWorktreeReport) error {
 		return err
 	}
 	if rep.Applied {
-		ew.Printf("reaped %d, spared %d, skipped %d\n", rep.Reaped, rep.Spared, rep.Skipped)
+		ew.Printf("removed %d, spared %d, skipped %d\n", rep.Reaped, rep.Spared, rep.Skipped)
 	} else {
-		ew.Printf("%d worktree(s) reviewed; %d spared, %d skipped (read-only — re-run with --reap --yes to remove what is provably safe)\n",
+		ew.Printf("%d worktree(s) reviewed; %d spared, %d skipped (read-only — nothing was removed)\n",
 			len(rep.Worktrees), rep.Spared, rep.Skipped)
 	}
 	return ew.Err()

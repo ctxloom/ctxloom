@@ -86,7 +86,7 @@ func setupTerminalUI(ctx context.Context, cfg *config.Config, sessionCoord *coor
 // receive are the overlay's watch contexts (run-scoped via the factory).
 // sessionCoord's roster/Inject calls are IN-PROCESS Go method calls (D2) —
 // this run process hosts the coordinator itself, so there is no transport to
-// dial for its OWN terminal viewer (unlike `ctxloom session watch`, a
+// dial for its OWN terminal viewer (unlike `ctxloom session transcript watch`, a
 // separate process, which reaches a coordinator over ConsumerService —
 // operations.WatchSessionFeed).
 func terminalUISources(sessionCoord *coord.Coordinator, workDir, selfHarp string) tui.Sources {

@@ -508,7 +508,7 @@ func watchStoreFeed(ctx context.Context, entry *sessions.Entry, backend string) 
 	case entry.CanonicalTranscriptPath != "":
 		// Tough-cloud S4: prefer ctxloom's own captured transcript — host-side,
 		// no plugin round-trip, and correct regardless of which engine or
-		// container ran the session (plan §4b "session watch live feed").
+		// container ran the session (plan §4b "session transcript watch live feed").
 		watchEvents, errs = pb.WatchCanonicalTranscript(ctx, entry.CanonicalTranscriptPath, entry.HarpName, 0)
 	case entry.SessionID != "":
 		var err error

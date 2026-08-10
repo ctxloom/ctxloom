@@ -228,7 +228,7 @@ func TestUnwiredCommand_DefaultTextStillWorks(t *testing.T) {
 // cmd/harp imports cliemit and its resolveFormat delegates to
 // cliemit.Resolve, pinned by cmd/harp/format_parity_test.go. What remains is
 // not a fourth implementation but a deliberate NARROWING, documented in this
-// file's const block: the streaming commands (session watch, plan watch,
+// file's const block: the streaming commands (session transcript watch, plan watch,
 // run's structured stream) render one event at a time and cannot hand clifmt
 // a single result value, so they switch on text/json themselves.
 //

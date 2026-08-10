@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -53,16 +54,44 @@ type PurgeItem struct {
 	Reason string     `json:"reason,omitempty"`
 }
 
-// PurgeSessionRequest is one `session purge` invocation.
+// PurgePopulation names one destroyable population inside a harp directory.
+// Each one has its own CLI destroyer (`session transcript purge`, `session
+// artifacts purge`), and the sweep (`session purge`) asks for both. Authored
+// content is deliberately NOT a population: nothing may ask for it, which is
+// a stronger guarantee than refusing the request after the fact.
+type PurgePopulation string
+
+const (
+	// PurgePopulationTranscript is the machine-written bulk: transcript.jsonl
+	// and everything under persist/transcripts/.
+	PurgePopulationTranscript PurgePopulation = "transcript"
+	// PurgePopulationArtifacts is the derived essence — what distillation
+	// produced, and what can be produced again only while the transcript
+	// still exists.
+	PurgePopulationArtifacts PurgePopulation = "artifacts"
+)
+
+// PurgeSessionRequest is one purge invocation, over one or both populations.
 type PurgeSessionRequest struct {
-	Harp        string
-	Everything  bool
+	Harp string
+	// Populations selects what this invocation destroys. Empty destroys
+	// nothing and is an error: a destroyer with no population is a command
+	// that reports success having done nothing at all.
+	Populations []PurgePopulation
+	// Undistilled permits destroying the TRANSCRIPT of a session that has no
+	// essence. Without an essence the transcript is the only record of what
+	// happened, so this is the deliberate second flag that allows it.
 	Undistilled bool
 	// Apply is the plan/act switch. False walks and classifies only —
-	// nothing on disk or in the index changes. This is `session purge`'s
+	// nothing on disk or in the index changes. This is every destroyer's
 	// default: absence of --yes means report only, never act, regardless of
 	// whether the invocation is on a TTY.
 	Apply bool
+}
+
+// wants reports whether this request asks for population p.
+func (r PurgeSessionRequest) wants(p PurgePopulation) bool {
+	return slices.Contains(r.Populations, p)
 }
 
 // PurgeSessionResult is the plan (and, when Apply, the outcome) of one purge.
@@ -74,11 +103,9 @@ type PurgeSessionResult struct {
 	// BytesFreed sums Bytes over the items actually removed. Zero on a
 	// plan-only run.
 	BytesFreed int64 `json:"bytes_freed"`
-	// Withheld names, by Rel, every authored file --everything asked to
-	// destroy and ctxloom refused. Non-empty here is exactly the condition
-	// under which the CLI exits refused (2): the invocation asked for
-	// something ctxloom withheld.
-	Withheld []string `json:"withheld,omitempty"`
+	// Populations echoes what this invocation asked for, so a report read on
+	// its own says which destroyer produced it.
+	Populations []PurgePopulation `json:"populations"`
 	// PurgedAt is set once MarkPurged has stamped the index entry — the
 	// caller's proof that the mark-before-destroy write happened.
 	PurgedAt *time.Time `json:"purged_at,omitempty"`
@@ -89,11 +116,15 @@ var (
 	// Purging a session still in progress could destroy the only transcript a
 	// live agent is still writing to.
 	ErrPurgeLiveSession = errors.New("session is still live")
-	// ErrPurgeUndistilled is returned when --everything is asked for against
-	// a session with no essence.md and --undistilled was not also given.
-	// --everything without an essence would destroy the session's ONLY
-	// record; this is the extra deliberate flag that permits that.
+	// ErrPurgeUndistilled is returned when the TRANSCRIPT population is asked
+	// for against a session with no essence.md and Undistilled was not also
+	// set. Without an essence the transcript is the session's ONLY record;
+	// this is the extra deliberate flag that permits destroying it.
 	ErrPurgeUndistilled = errors.New("session was never distilled")
+	// ErrPurgeNoPopulation is returned when a request names no population. A
+	// destroyer that was handed nothing to destroy must say so rather than
+	// walk the directory, keep every file, and report success.
+	ErrPurgeNoPopulation = errors.New("purge asked for no population")
 	// ErrPurgeNothingToDo is returned when Apply is true and nothing in the
 	// plan's Destroy list survived to be freed — an action verb that would
 	// change nothing. Nothing is touched and PurgedAt is never written: there
@@ -118,8 +149,8 @@ var (
 // is true long before a real essence has ever been written; using it here
 // would let --everything sail through the one session it exists to protect.
 func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, error) {
-	if req.Undistilled && !req.Everything {
-		return nil, fmt.Errorf("--undistilled has no effect without --everything")
+	if len(req.Populations) == 0 {
+		return nil, fmt.Errorf("%w: %q", ErrPurgeNoPopulation, harp)
 	}
 
 	mgr, err := openSessions()
@@ -139,7 +170,7 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 		return nil, err
 	}
 
-	res := &PurgeSessionResult{Harp: harp}
+	res := &PurgeSessionResult{Harp: harp, Populations: req.Populations}
 
 	if entry.EndedAt == nil {
 		return res, fmt.Errorf("%w: %q has no ended_at yet", ErrPurgeLiveSession, harp)
@@ -149,35 +180,46 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	if _, statErr := os.Stat(filepath.Join(harpDir, paths.EssenceFileName)); statErr == nil {
 		hasEssence = true
 	}
-	if req.Everything && !hasEssence && !req.Undistilled {
-		return res, fmt.Errorf("%w: %q — its transcript is the only record of this session; pass --undistilled to destroy it anyway", ErrPurgeUndistilled, harp)
-	}
+	wantTranscript := req.wants(PurgePopulationTranscript)
+	wantArtifacts := req.wants(PurgePopulationArtifacts)
 
 	items, err := classifyHarpDir(harpDir, entry)
 	if err != nil {
 		return nil, err
 	}
+
+	// The undistilled guard protects a real file, so it asks whether there IS
+	// one. Firing on the request alone would refuse forever for a session
+	// whose transcript is already deliberately gone — the caller would have
+	// done exactly what the refusal asked and still be told no.
+	if wantTranscript && !hasEssence && !req.Undistilled && hasClass(items, PurgeClassMachine) {
+		return res, fmt.Errorf("%w: %q — its transcript is the only record of this session; pass --undistilled to destroy it anyway", ErrPurgeUndistilled, harp)
+	}
+
 	for _, it := range items {
 		switch it.Class {
 		case PurgeClassMachine:
-			it.Action = "destroy"
-			res.Destroy = append(res.Destroy, it)
-		case PurgeClassDerived:
-			if req.Everything {
+			if wantTranscript {
 				it.Action = "destroy"
 				res.Destroy = append(res.Destroy, it)
 			} else {
 				it.Action = "keep"
-				it.Reason = "derived essence: kept by default (pass --everything to destroy it too)"
+				it.Reason = "transcript: not this destroyer's population (see `ctxloom session transcript purge`)"
+				res.Keep = append(res.Keep, it)
+			}
+		case PurgeClassDerived:
+			if wantArtifacts {
+				it.Action = "destroy"
+				res.Destroy = append(res.Destroy, it)
+			} else {
+				it.Action = "keep"
+				it.Reason = "derived essence: not this destroyer's population (see `ctxloom session artifacts purge`)"
 				res.Keep = append(res.Keep, it)
 			}
 		case PurgeClassAuthored:
 			it.Action = "keep"
 			it.Reason = "authored: never destroyed by purge"
 			res.Keep = append(res.Keep, it)
-			if req.Everything {
-				res.Withheld = append(res.Withheld, it.Rel)
-			}
 		}
 	}
 
@@ -190,11 +232,16 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	}
 
 	// MARK BEFORE DESTROY. See the func doc and sessions.Manager.MarkPurged.
-	now := time.Now().UTC()
-	if err := mgr.MarkPurged(harp, now); err != nil {
-		return res, fmt.Errorf("mark %s purged: %w", harp, err)
+	// Only a TRANSCRIPT purge marks: PurgedAt is what keeps a row alive past
+	// its own missing transcript, so it protects exactly that case. An
+	// artifacts-only purge leaves the transcript in place and needs nothing.
+	if wantTranscript {
+		now := time.Now().UTC()
+		if err := mgr.MarkPurged(harp, now); err != nil {
+			return res, fmt.Errorf("mark %s purged: %w", harp, err)
+		}
+		res.PurgedAt = &now
 	}
-	res.PurgedAt = &now
 
 	var freed int64
 	var destroyed []PurgeItem
@@ -212,6 +259,11 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	res.BytesFreed = freed
 	res.Applied = true
 	return res, nil
+}
+
+// hasClass reports whether any classified item belongs to class c.
+func hasClass(items []PurgeItem, c PurgeClass) bool {
+	return slices.ContainsFunc(items, func(it PurgeItem) bool { return it.Class == c })
 }
 
 // classifyHarpDir walks harp's directory, classifying every regular file

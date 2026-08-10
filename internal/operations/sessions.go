@@ -312,7 +312,7 @@ func BindSession(harp, sessionID, transcriptPath string) error {
 		// "no entry for this harp" — both took the silent no-op below.
 		// First-bind-wins never retries, so a harp that misses its bind here
 		// has no session id for the rest of its life, and every later
-		// `session watch`/resume fails with "no session bound". The
+		// `session transcript watch`/resume fails with "no session bound". The
 		// SessionStart hook must still never fail the host backend (CLAUDE.md
 		// fault tolerance), so this warns rather than returning the error.
 		clidiag.Warn("ctxloom", "SessionStart: bind %s: read session index: %v (session id not recorded)", harp, ferr)

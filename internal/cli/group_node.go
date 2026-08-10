@@ -105,12 +105,23 @@ func groupNodeDefault(cmd *cobra.Command, primary string) *cobra.Command {
 // The context is carried across explicitly. Cobra sets the context on the
 // command it dispatched to — the namespace — and the child, never having been
 // dispatched to, would otherwise run with none.
+//
+// The child's INHERITED FLAGS are merged for the same reason, and it is the
+// difference between `ctxloom session --format json` emitting json and
+// emitting a text table under a zero exit status. Cobra merges a command's
+// persistent-flag inheritance inside ParseFlags, which only the dispatched
+// command runs; the child's own Flags() therefore has no "format" entry at
+// all, and cliemit.Resolve reads that absence as "text". InheritedFlags()
+// performs the same merge, and the merged flags are the very same *pflag.Flag
+// values the namespace already parsed — so the child reads what the caller
+// actually typed rather than a fresh set of defaults.
 func runGroupNodeDefault(cmd *cobra.Command, primary string) error {
 	for _, child := range cmd.Commands() {
 		if child.Name() != primary {
 			continue
 		}
 		child.SetContext(cmd.Context())
+		_ = child.InheritedFlags()
 		if child.PreRunE != nil {
 			if err := child.PreRunE(child, nil); err != nil {
 				return err

@@ -245,7 +245,7 @@ var adminLineTypes = map[string]bool{
 // must NOT stay a success is zero entries out of a file that DID contain
 // lines this adapter claims to understand, or whose lines all failed to
 // parse: that is a failed import wearing a success's clothes, and every layer
-// above (ConvertVendorTranscript, `session backfill`, the pty exit seam) is
+// above (ConvertVendorTranscript, the recover_session tool, the pty exit seam) is
 // structurally unable to tell the difference on its own.
 func (c *converter) checkFloor(total int) error {
 	if c.entries > 0 {

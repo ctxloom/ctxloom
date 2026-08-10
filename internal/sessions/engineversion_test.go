@@ -19,7 +19,7 @@ func newIndexManager(t *testing.T) (*Manager, string) {
 }
 
 // The version has to SURVIVE THE FILE, not just the process: it is read back
-// on a later ctxloom invocation (a `session backfill`, a resume) to choose the
+// on a later ctxloom invocation (a vendor-transcript import, a resume) to choose the
 // reader, and an in-memory-only stamp would leave every stored session
 // unreadable while looking correct in the run that recorded it — this
 // project's characteristic silent no-op.

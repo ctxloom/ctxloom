@@ -2,7 +2,7 @@
 // (internal/transcript/vendorreader/{codex,claude,antigravity,kiro}) into the two
 // call sites that actually need a converted transcript: the interactive-pty
 // exit seam (internal/cli/run.go, right where transcript.RecordOneshot hooks
-// the oneshot exit) and the `session backfill` command (session_cmd.go),
+// the oneshot exit) and the recover_session MCP tool (mcp_tools_memory.go),
 // which runs the identical conversion over already-indexed old sessions.
 // Closes docs/transcript-schema.md §8's "interactive-pty gap": an engine
 // driven through its own interactive TUI has no ctxloom memory today because
@@ -116,7 +116,7 @@ func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 // ConvertVendorTranscript imports harp e's vendor-native transcript into
 // ctxloom's canonical transcript.jsonl through a fresh
 // transcript.Recorder, and is the ONE function both the interactive-pty exit
-// seam and `session backfill` call — the same conversion, triggered from two
+// seam and the recover_session tool call — the same conversion, triggered from two
 // different moments (just-exited vs. already-indexed).
 //
 // converted reports whether an import was actually ATTEMPTED (Convert
@@ -177,7 +177,7 @@ func ConvertVendorTranscript(ctx context.Context, e sessions.Entry) (converted b
 // re-written on each call, since no adapter can resume from an offset
 // (vendorreader.VendorAdapter). That is why this is a separate verb rather than
 // the default: callers that know their session is finished should not pay it,
-// and `session backfill` sweeping an index must not.
+// and a sweep across an index must not.
 func RefreshVendorTranscript(ctx context.Context, e sessions.Entry) (converted bool, err error) {
 	return convertVendorTranscript(ctx, e, true)
 }
@@ -257,7 +257,7 @@ func convertVendorTranscript(ctx context.Context, e sessions.Entry, refresh bool
 	// SUCCESSFUL Record, so a Convert that (legitimately, per
 	// vendorreader.VendorAdapter's own degrade-to-partial contract) wrote zero
 	// entries leaves no canonical file at all. Reporting converted=true here
-	// regardless used to make `session backfill` print "converted: <harp>"
+	// regardless used to make the importer report "converted: <harp>"
 	// for a harp with nothing delivered — and because no file exists,
 	// hasCanonicalTranscript's guard above never catches it, so EVERY later
 	// backfill run repeated the same false report, not just once. Fold this

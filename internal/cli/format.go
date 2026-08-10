@@ -11,7 +11,7 @@ import (
 
 // Output formats accepted by the global --format flag. These two remain
 // distinct string constants (not clifmt.Format aliases) because a handful of
-// streaming commands — session watch, plan watch, run's structured REPL/chat
+// streaming commands — session transcript watch, plan watch, run's structured REPL/chat
 // event stream — parse --format themselves via their own text/json-only
 // switch (see unknownFormatError below) rather than going through emit();
 // they render one event at a time and structurally can't hand clifmt a
@@ -53,7 +53,7 @@ func emit(cmd *cobra.Command, data any, text func() error) error {
 // unset flag (e.g. a unit test that never registered it) reads as "".
 //
 // Also marks formatWasHonored, same reasoning as emit(): every
-// current caller (session watch, plan watch, run's structured REPL/chat
+// current caller (session transcript watch, plan watch, run's structured REPL/chat
 // stream) is one of the streaming commands the const block above documents
 // as reading --format itself instead of going through emit() — this is
 // their half of the same proof-of-honoring signal.

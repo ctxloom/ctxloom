@@ -57,7 +57,7 @@ func TestRecordedSessionEntries_UnknownHarpErrorsRatherThanPanicking(t *testing.
 // captured, converted and schema-versions. That meant a session whose vendor
 // store had rotated, aged out, or simply belonged to a mock/test backend
 // (this fixture) could not be resumed from ctxloom's own copy of it — exactly
-// the case `session backfill` exists to rescue a conversation FROM.
+// the case the vendor-transcript importer rescues a conversation FROM.
 //
 // seedCanonicalFeedHarp deliberately leaves SessionID unbound, so this test
 // only passes if RecordedSessionEntries never needs the backend reader at

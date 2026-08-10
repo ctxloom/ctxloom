@@ -38,9 +38,7 @@ import (
 // t.Cleanup, regardless of which flags/format it itself sets, so no test can
 // leak state into whichever test runs after it.
 func resetSessionWorktreesFlags() {
-	sessionWorktreesReap = false
-	sessionWorktreesYes = false
-	sessionWorktreesHarp = ""
+	sessionWorktreesPurgeYes = false
 	clidiag.SetStructured(false)
 }
 
@@ -101,7 +99,7 @@ func swtAddScratchWorktree(t *testing.T, home, repo, harp, name string, ownerPid
 // TestSessionWorktrees_BareListing_ShowsEveryVerdict pins row 4's shape
 // directly against runSessionWorktrees rather than through the acceptance
 // harness: given a clean/dead-owner tree and a dirty/dead-owner tree, the
-// bare (no --reap) listing reports both, reaping neither.
+// bare listing reports both, removing neither.
 func TestSessionWorktrees_BareListing_ShowsEveryVerdict(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
@@ -147,7 +145,7 @@ func TestSessionWorktrees_ReapYes_RemovesOnlyProvenSafe(t *testing.T) {
 	unknowable := swtAddScratchWorktree(t, home, repo, "amber", "unknowable", 0, false)
 	live := swtAddScratchWorktree(t, home, repo, "amber", "live", os.Getpid(), false)
 
-	out, err := execRootCmd(t, "session", "worktrees", "--reap", "--yes", "--format", "json")
+	out, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
 	require.NoError(t, err)
 
 	var rep sessionWorktreeReport
@@ -168,19 +166,19 @@ func TestSessionWorktrees_ReapYes_RemovesOnlyProvenSafe(t *testing.T) {
 
 // TestSessionWorktrees_ReapWithoutYes_NeverActs is the human override this
 // design landed on: the absence of --yes means report-only, unconditionally —
-// no TTY-based prompting path exists at all.
+// no TTY-based prompting path exists at all, and the report says so out loud.
 func TestSessionWorktrees_ReapWithoutYes_NeverActs(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
 	repo := swtInitRepo(t)
 	clean := swtAddScratchWorktree(t, home, repo, "amber", "clean", swtDeadPid, false)
 
-	out, err := execRootCmd(t, "session", "worktrees", "--reap", "--format", "json")
+	out, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--format", "json")
 	require.NoError(t, err)
 
 	var rep sessionWorktreeReport
 	require.NoError(t, json.Unmarshal([]byte(out), &rep))
-	assert.False(t, rep.Applied, "--reap without --yes must never apply")
+	assert.False(t, rep.Applied, "purge without --yes must never apply")
 	assert.DirExists(t, clean, "nothing may be removed without --yes")
 }
 
@@ -194,17 +192,17 @@ func TestSessionWorktrees_ReapYes_ChangedNothing_Refuses(t *testing.T) {
 	repo := swtInitRepo(t)
 	swtAddScratchWorktree(t, home, repo, "amber", "wip", swtDeadPid, true)
 
-	_, err := execRootCmd(t, "session", "worktrees", "--reap", "--yes", "--format", "json")
-	require.Error(t, err, "a reap that changed nothing must refuse, not exit 0")
+	_, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
+	require.Error(t, err, "a purge that removed nothing must refuse, not exit 0")
 	var exitErr *ExitError
 	require.ErrorAs(t, err, &exitErr)
 	assert.Equal(t, exitCodeRefused, exitErr.Code)
 }
 
 // TestSessionWorktrees_ReapYes_SomethingChanged_Succeeds is the contrasting
-// case: an unfiltered sweep that reaps at least one candidate exits 0 even
-// though other candidates were spared — sparing is the delivered effect of
-// --reap, not a refusal, as long as SOMETHING moved.
+// case: a purge that removes at least one candidate exits 0 even though other
+// candidates were spared — sparing is a delivered effect, not a refusal, as
+// long as SOMETHING moved.
 func TestSessionWorktrees_ReapYes_SomethingChanged_Succeeds(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
@@ -212,7 +210,7 @@ func TestSessionWorktrees_ReapYes_SomethingChanged_Succeeds(t *testing.T) {
 	swtAddScratchWorktree(t, home, repo, "amber", "clean", swtDeadPid, false)
 	swtAddScratchWorktree(t, home, repo, "amber", "wip", swtDeadPid, true)
 
-	_, err := execRootCmd(t, "session", "worktrees", "--reap", "--yes", "--format", "json")
+	_, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
 	assert.NoError(t, err)
 }
 
@@ -229,15 +227,15 @@ func TestSessionWorktrees_ForeignWorktreeNeverListed(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(foreignDir), 0o755))
 	swtGit(t, repo, "worktree", "add", "-q", "-b", "stale-feature", foreignDir)
 
-	out, err := execRootCmd(t, "session", "worktrees", "--reap", "--yes", "--format", "json")
+	out, err := execRootCmd(t, "session", "worktrees", "purge", "amber", "--yes", "--format", "json")
 	require.NoError(t, err)
 	assert.NotContains(t, out, foreignDir, "a worktree ctxloom did not create must never appear in this report")
 	assert.DirExists(t, foreignDir, "and must never be touched")
 }
 
-// TestSessionWorktrees_HarpFilter_ScopesToOneHarp proves --harp restricts the
-// scan rather than merely filtering a full listing after the fact — a second
-// harp's own scratch worktree must not even be classified.
+// TestSessionWorktrees_HarpFilter_ScopesToOneHarp proves the positional harp
+// restricts the SCAN rather than merely filtering a full listing after the
+// fact — a second harp's own scratch worktree must not even be classified.
 func TestSessionWorktrees_HarpFilter_ScopesToOneHarp(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	home := testsupport.Isolate(t)
@@ -245,7 +243,7 @@ func TestSessionWorktrees_HarpFilter_ScopesToOneHarp(t *testing.T) {
 	swtAddScratchWorktree(t, home, repo, "amber", "clean", swtDeadPid, false)
 	other := swtAddScratchWorktree(t, home, repo, "brisk", "clean", swtDeadPid, false)
 
-	out, err := execRootCmd(t, "session", "worktrees", "--harp", "amber", "--format", "json")
+	out, err := execRootCmd(t, "session", "worktrees", "list", "amber", "--format", "json")
 	require.NoError(t, err)
 
 	var rep sessionWorktreeReport
@@ -256,12 +254,12 @@ func TestSessionWorktrees_HarpFilter_ScopesToOneHarp(t *testing.T) {
 }
 
 // TestSessionWorktrees_HarpNotFound_IsOrdinaryError pins the design's
-// "--harp <name> names a harp with no directory" row: an ordinary error
-// (exit 1), not a refusal.
+// "the harp named has no directory" row: an ordinary error (exit 1), not a
+// refusal.
 func TestSessionWorktrees_HarpNotFound_IsOrdinaryError(t *testing.T) {
 	t.Cleanup(resetSessionWorktreesFlags)
 	testsupport.Isolate(t)
-	_, err := execRootCmd(t, "session", "worktrees", "--harp", "no-such-harp-ever")
+	_, err := execRootCmd(t, "session", "worktrees", "list", "no-such-harp-ever")
 	require.Error(t, err)
 	var exitErr *ExitError
 	assert.False(t, errors.As(err, &exitErr), "a not-found harp is an ordinary error, not a coded refusal")

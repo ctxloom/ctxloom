@@ -232,8 +232,7 @@ func TestConvertVendorTranscript_SkipsWhenLegacyCanonicalExists(t *testing.T) {
 // directory, standing in for "the bind pointed somewhere Convert's own
 // os.Open/read genuinely can't handle") surfaces as a real error with
 // converted=true — "tried and failed", distinct from every "nothing to do"
-// case above. BackfillVendorTranscripts' own test covers that this failure
-// never stops OTHER entries from converting.
+// case above.
 func TestConvertVendorTranscript_BestEffortOnFailure(t *testing.T) {
 	testsupport.Isolate(t)
 	harp := "convert-failure-harp"

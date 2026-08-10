@@ -47,6 +47,14 @@ func llmListEntries(names []string, defaultLabel string, authored func(string) b
 	return entries
 }
 
+// noneAuthored is the authorship predicate for a run whose config could not be
+// loaded at all. It is a named function rather than an inline closure so the
+// DIRECTION of the degraded default can be pinned by a test: with no config to
+// have written anything in, "not authored" is the fact, and answering the
+// other way would present ctxloom's own built-ins as the user's work — the
+// exact claim this listing exists to stop making.
+func noneAuthored(string) bool { return false }
+
 // llmOriginMarker renders the authored/fallback distinction for the text
 // listing. BOTH kinds are marked explicitly, rather than marking one and
 // leaving the other bare: an unmarked row would be read as "no information",
@@ -98,7 +106,7 @@ func availableLLMsWithDefault() ([]string, string, func(string) bool) {
 	if err != nil {
 		names := backends.List()
 		sort.Strings(names)
-		return names, "", func(string) bool { return false }
+		return names, "", noneAuthored
 	}
 	// Reuse the same name set and default identity `llm default` reports:
 	// built-ins unioned with configured labels, and the primary *label*

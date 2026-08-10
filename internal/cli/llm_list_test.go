@@ -118,3 +118,20 @@ func TestRunLLMList_WholeRegistryFallbackIsNeverAuthored(t *testing.T) {
 			"%v: a project that declared no llm block authored nothing", r["label"])
 	}
 }
+
+// A run whose config could not be loaded marks NOTHING as authored.
+//
+// This pins the direction of the degraded default, which is a claim and not a
+// detail: answering the other way would stamp every one of ctxloom's own
+// built-in engine names as the user's own configuration — precisely the
+// misreading this listing was added to prevent, and worst exactly when the
+// config is broken and the reader is already trying to work out what is real.
+func TestLLMList_DegradedConfigAuthorsNothing(t *testing.T) {
+	entries := llmListEntries([]string{"claude-code", "codex"}, "", noneAuthored)
+
+	require.Len(t, entries, 2, "the built-in names still list")
+	for _, e := range entries {
+		assert.False(t, e.Authored,
+			"%s: with no config to have declared it, nothing is the user's own", e.Label)
+	}
+}

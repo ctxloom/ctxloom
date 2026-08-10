@@ -219,8 +219,8 @@ Feature: The close-out — the end of a workstream
   # WHAT "EMPTY" MEANS, and the one thing it may never take. Emptying a session
   # sweeps every population ctxloom wrote into it — the recorded conversation
   # AND the essence distilled from it. That is the whole point of the verb, and
-  # it is exactly why this journey's lessons leg matters: a lesson that is still
-  # sitting in a session directory on Monday is a lesson with a deadline.
+  # it sets the deadline this whole flywheel runs against: a lesson still
+  # sitting in a session directory when retention reaches it is a lesson lost.
   #
   # Two things survive regardless. The index entry stays, marked purged, because
   # a session that vanishes from the index is indistinguishable from one that

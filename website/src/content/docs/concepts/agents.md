@@ -50,7 +50,7 @@ ctxloom agent create dev --engine claude-code --profiles default,go-developer --
 ctxloom agent create reviewer --profiles cr-correctness-go --permissions plan   # default engine
 ctxloom agent list
 ctxloom agent show dev
-ctxloom agent delete reviewer
+ctxloom agent remove reviewer --yes
 ```
 
 Re-running `agent set` with the same name updates the binding. `agent set` covers every field except `escalation`, which has no flag — write the ladder into `config.yaml` or the agent's own `.ctxloom/agents/<name>.yaml`.

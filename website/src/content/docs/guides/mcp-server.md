@@ -162,7 +162,7 @@ ctxloom manages MCP server configurations with the CLI:
 ctxloom mcp server list
 ctxloom mcp server create tree-sitter -c "npx" -a "tree-sitter-mcp"
 ctxloom mcp server create my-server -c "/path/to/server" -b claude-code
-ctxloom mcp server delete tree-sitter
+ctxloom mcp server remove tree-sitter --yes
 ctxloom mcp server show tree-sitter
 ```
 

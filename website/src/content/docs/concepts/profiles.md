@@ -137,7 +137,7 @@ ctxloom profile list                    # List all profiles
 ctxloom profile show developer          # Show profile details
 ctxloom profile create my-profile       # Create new profile
 ctxloom profile edit developer          # Edit in configured editor
-ctxloom profile delete old-profile      # Remove profile
+ctxloom profile remove old-profile --yes # Remove profile
 ctxloom agent default dev               # Set/show the default agent (the default context)
 ctxloom profile materialize developer --target ./out  # Write the assembled agent surface
 ```

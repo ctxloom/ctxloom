@@ -54,14 +54,28 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
       Then the command succeeds
       And the output contains "echo"
 
-  Rule: Deleting a server removes it from the roster
+  Rule: Removing a server removes it from the roster
+
+    # Bare `remove` is a preview: it must leave the server configured. A guard
+    # that quietly destroyed anyway would still pass a scenario that only
+    # checked exit code — the follow-up `mcp server list` is what actually
+    # catches that.
+    Scenario: Bare mcp server remove reports and destroys nothing
+      Given an initialized ctxloom project
+      And I run "ctxloom mcp server create tools -c echo"
+      When I run "ctxloom mcp server remove tools"
+      Then the command succeeds
+      And the output contains "Nothing was removed"
+      And the output contains "--yes"
+      When I run "ctxloom mcp server list"
+      Then the output contains "tools"
 
     Scenario: Removing an MCP server
       Given an initialized ctxloom project
       And I run "ctxloom mcp server create tools -c echo"
       When Alice removes the server she no longer needs:
         """
-        ctxloom mcp server delete tools
+        ctxloom mcp server remove tools --yes
         """
       Then the command succeeds
       When I run "ctxloom mcp server list"

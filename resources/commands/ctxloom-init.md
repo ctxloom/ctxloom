@@ -281,7 +281,7 @@ ctxloom agent create <name> --engine <engine> --profiles <p1,p2,...> --runtime h
 the syntax: `--profiles` composes several into one context; `--runtime
 container` needs a reachable container runtime, else fall back to host and
 say why; change an existing one with `agent edit <name>`, drop one with
-`agent delete <name>`. Confirm
+`agent remove <name> --yes`. Confirm
 with `ctxloom agent list`, then tell the user how to use what they built
 (`ctxloom run --agent coordinator`, which fans the review ensemble out via
 `agent_run` when asked).

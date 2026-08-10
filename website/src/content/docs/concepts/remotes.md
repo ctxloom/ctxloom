@@ -20,7 +20,7 @@ ctxloom run -p 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#
 ```bash
 ctxloom remote list                     # List configured remotes
 ctxloom remote create <name> <url>         # Register a remote source
-ctxloom remote delete <name>            # Remove a remote
+ctxloom remote remove <name> --yes       # Remove a remote
 ctxloom remote show <name>            # Browse remote contents
 ctxloom remote discover                 # Find public ctxloom repositories
 ctxloom remote default <name>           # Set the default remote

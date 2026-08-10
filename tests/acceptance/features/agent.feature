@@ -5,7 +5,7 @@ Feature: Agent bindings and container tooling
   makes the base Containerfile editable; `container check` is a read-only
   capability diagnosis; `acp list` advertises one ACP server entry per binding.
 
-  Scenario: Agent create, list, show, edit, and delete lifecycle
+  Scenario: Agent create, list, show, edit, and remove lifecycle
     Given an initialized ctxloom project
     And a profile "dev" exists
     When I run "ctxloom agent create developer --profiles dev --runtime container"
@@ -22,7 +22,16 @@ Feature: Agent bindings and container tooling
     # The profiles survived an edit that named only --runtime: `agent edit`
     # merges per field. The upsert it replaced used to wipe every unnamed one.
     And the output contains "profiles: dev"
-    When I run "ctxloom agent delete developer"
+    # Bare `remove` is a preview: it must leave the agent bound. A guard that
+    # quietly destroyed anyway would still pass a scenario that only checked
+    # exit code — the follow-up `agent list` is what actually catches that.
+    When I run "ctxloom agent remove developer"
+    Then the command succeeds
+    And the output contains "Nothing was removed"
+    And the output contains "--yes"
+    When I run "ctxloom agent list"
+    Then the output contains "developer"
+    When I run "ctxloom agent remove developer --yes"
     Then the command succeeds
     When I run "ctxloom agent list"
     Then the output contains "No agents defined"

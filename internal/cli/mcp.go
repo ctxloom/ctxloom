@@ -414,7 +414,7 @@ const mcpServerRefPrefix = "mcp/"
 func splitMCPServerRef(ref string) (bundleName, serverName string, err error) {
 	hash := strings.Index(ref, "#")
 	if hash < 0 || !strings.HasPrefix(ref[hash+1:], mcpServerRefPrefix) {
-		return "", "", fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); editing a config-level server is not implemented — use `ctxloom mcp server delete` then `ctxloom mcp server create`", ref, mcpServerRefPrefix)
+		return "", "", fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); editing a config-level server is not implemented — use `ctxloom mcp server remove --yes` then `ctxloom mcp server create`", ref, mcpServerRefPrefix)
 	}
 	bundleName = ref[:hash]
 	serverName = strings.TrimPrefix(ref[hash+1:], mcpServerRefPrefix)

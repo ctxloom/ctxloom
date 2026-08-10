@@ -124,7 +124,7 @@ ctxloom fragment list --bundle my-bundle
 ctxloom fragment show my-bundle#fragments/name
 ctxloom fragment create my-bundle name  # Create fragment
 ctxloom fragment edit my-bundle#fragments/name
-ctxloom fragment delete my-bundle#fragments/name
+ctxloom fragment remove my-bundle#fragments/name --yes
 ```
 
 ## Distillation

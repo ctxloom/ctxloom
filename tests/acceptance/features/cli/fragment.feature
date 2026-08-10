@@ -67,19 +67,33 @@ Feature: fragment — reusable context units, and the engine surface each one re
       Then the command succeeds
       And the output contains "testing"
 
-  Rule: Deleting a fragment removes it from the manifest and from every listing
+  Rule: Removing a fragment removes it from the manifest and from every listing
 
-    # Both halves are asserted on payload, separately: a delete that only
-    # trimmed the cached listing (leaving the YAML entry behind) and a delete
+    # Bare `remove` is a preview: it must leave the manifest untouched. A
+    # guard that quietly destroyed anyway would still pass a scenario that
+    # only checked exit code — the manifest-still-contains check is what
+    # actually catches that.
+    Scenario: Bare fragment remove reports and destroys nothing
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a fragment "testing" in bundle "demo" exists
+      When I run "ctxloom fragment remove demo#fragments/testing"
+      Then the command succeeds
+      And the output contains "Nothing was removed"
+      And the output contains "--yes"
+      And the file ".ctxloom/content/bundles/demo.yaml" contains "FRAGMENT-BODY-testing"
+
+    # Both halves are asserted on payload, separately: a remove that only
+    # trimmed the cached listing (leaving the YAML entry behind) and a remove
     # that only trimmed the YAML (leaving a stale listing or a stale MCP
     # resource) would each satisfy exactly one of these three checks alone.
-    Scenario: Deleting a fragment removes it from the manifest, the listing, and the agent's resource
+    Scenario: Removing a fragment removes it from the manifest, the listing, and the agent's resource
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a fragment "testing" in bundle "demo" exists
       When Alice removes it:
         """
-        ctxloom fragment delete demo#fragments/testing
+        ctxloom fragment remove demo#fragments/testing --yes
         """
       Then the command succeeds
       And the file ".ctxloom/content/bundles/demo.yaml" does not contain "FRAGMENT-BODY-testing"

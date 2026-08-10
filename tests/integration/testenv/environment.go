@@ -108,15 +108,12 @@ func (e *TestEnvironment) recordRun(args []string, output string, err error) {
 //
 // This is the single funnel both Run and RunWithStdin pass through AFTER
 // cmd.Run()/cmd.Wait() has returned — i.e. after the process has genuinely
-// been started — so it is also where the package-wide completeness recorder
-// (see invocations.go's RecordedInvocations) is fed. Deliberately not hooked
-// into recordRun instead: environment_test.go calls recordRun directly with
-// synthetic args ("first command") to pin RunRecord's own bookkeeping, and
-// those calls must not be credited as real CLI coverage.
+// been started. Deliberately not hooked into recordRun instead:
+// environment_test.go calls recordRun directly with synthetic args ("first
+// command") to pin RunRecord's own bookkeeping.
 func (e *TestEnvironment) recordRunSplit(args []string, stdout, stderr string, err error) {
 	e.recordRun(args, stdout+stderr, err)
 	e.runs[len(e.runs)-1].Stdout = stdout
-	recordInvocation(args)
 }
 
 // forceRemoveAll removes dir even when it contains read-only files or

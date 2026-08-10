@@ -11,94 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/spf13/cobra"
-
 	"github.com/ctxloom/ctxloom/internal/cli"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
-
-// requiredHiddenLeaves are machine callbacks (ctxloom hook ...) that run on
-// EVERY session but are registered Hidden: true, so leafCommands' walk never
-// emits them (a Hidden command fails the `!c.Hidden` gate that admits a node
-// to the walk's output, regardless of whether it's actually a runnable
-// leaf) — the completeness gate structurally could not flag them as
-// uncovered. Listed explicitly here so they're checked the same as any other
-// leaf. They are expected to show RED until real scenarios exist for them;
-// that redness is the fix, not a regression to paper over.
-//
-// CENSUS ONLY, not credit: this list exists solely to get these four leaves
-// INTO the set TestCompleteness walks (leafCommands can't discover them at
-// all). Crediting them, once discovered, is identical to crediting any other
-// leaf — both go through the same executed() check below. Before the
-// execution-based rewrite this list also had to promote its entries to the
-// stricter ranAsCommand text check (see the now-removed strictRunLeaves);
-// that promotion is gone because there is no longer a weaker check to
-// promote FROM — every leaf is credited by execution now.
-var requiredHiddenLeaves = []string{
-	"ctxloom hook inject-context",
-	"ctxloom hook session-bind",
-	"ctxloom hook stamp-plan",
-	"ctxloom hook hud",
-}
-
-// engineMatrixLeaves are CLI leaves parameterized by --engine whose per-engine
-// path (claude-code vs. codex vs. kiro vs. antigravity) can rot silently
-// behind a single scenario that only ever exercises one engine value: a bare
-// substring match on the leaf's command path is satisfied forever by one
-// "--engine claude-code" scenario, so the other three engines' install/init
-// paths get no red signal when they break. Each listed leaf requires a
-// genuine "I run" invocation per engine, not just one for the whole leaf.
-var engineMatrixLeaves = map[string][]string{
-	"ctxloom manage install": {"claude-code", "codex", "kiro", "antigravity"},
-	// Repointed by the verb-spine reorg: `manage config init` was a deprecated
-	// alias and is DELETED, so the matrix rides its canonical twin.
-	"ctxloom config create": {"claude-code", "codex", "kiro", "antigravity"},
-}
-
-// executed reports whether the suite actually INVOKED path (e.g. "ctxloom
-// manage install"), based on testenv.RecordedInvocations() — the argvs the
-// suite genuinely STARTED, never text merely mentioned in a feature file's
-// prose or a step file's source. This is the replacement for both the old
-// ranAsCommand (which still only read scenario TEXT, just more strictly) and
-// containsLeafPath (a bare substring match): crediting on what actually ran
-// closes every hazard those two existed to patch over one at a time —
-// prose that names a command without running it (`ctxloom doctor` quoted
-// inside an Agent Skill body, `ctxloom acp serve` named in j000500_editor's
-// own "this is unverifiable" comment) credits nothing, because neither ever
-// appends to the recorder; a @wip scenario's command credits nothing, for
-// the same reason; a leaf that is a literal prefix of another
-// ("ctxloom sign" / "ctxloom signer add") cannot collide, because
-// testenv.Invocation.Leaf is cobra's OWN resolved command path, not a
-// string search.
-func executed(invocations []testenv.Invocation, path string) bool {
-	for _, inv := range invocations {
-		if inv.Leaf == path {
-			return true
-		}
-	}
-	return false
-}
-
-// executedWithEngine is executed's engine-matrix counterpart: true when the
-// suite invoked path with a literal "--engine <engine>" pair among that
-// invocation's own args. Checking the recorded argv (not a reconstructed or
-// rejoined string) means a flag VALUE that happens to contain "--engine" as
-// a substring elsewhere can never false-positive — same principle as
-// executed, applied to the one leaf class whose credit also depends on which
-// flag value rode the invocation.
-func executedWithEngine(invocations []testenv.Invocation, path, engine string) bool {
-	for _, inv := range invocations {
-		if inv.Leaf != path {
-			continue
-		}
-		for i, a := range inv.Args {
-			if a == "--engine" && i+1 < len(inv.Args) && inv.Args[i+1] == engine {
-				return true
-			}
-		}
-	}
-	return false
-}
 
 // ranAsTool reports whether an MCP tool was actually invoked by a scenario (a
 // genuine `the agent calls tool "<name>"` step — see steps_mcp.go), as
@@ -110,90 +25,6 @@ func executedWithEngine(invocations []testenv.Invocation, path, engine string) b
 // step patterns, so that literal substring is the exact signal.
 func ranAsTool(corpus, name string) bool {
 	return strings.Contains(corpus, `calls tool "`+name+`"`)
-}
-
-// knownUncoveredCLI is the EXACT set of CLI leaves (bare leaves, hidden
-// machine callbacks, and "<leaf> --engine <name>" variants) this gate accepts
-// as uncovered today. This is not a cap or a silencer: TestCompleteness
-// compares the ACTUAL uncovered set against this one and fails on any
-// difference in EITHER direction — something new going uncovered (a
-// regression) or an entry here becoming covered (this list has rotted and
-// must be pruned back down). Every entry names the task that will backfill
-// it; that task is the only legitimate way an entry leaves this list.
-var knownUncoveredCLI = []string{
-	// `ctxloom bundle|command|fragment distill` are absent from this list
-	// because content_distill.feature drives them HERMETICALLY. An @live-only
-	// coverer does not count: those scenarios never execute in a default run,
-	// so the leaf would be uncovered in practice. They are driven against the
-	// mock, asserting
-	// both halves (the item's content reaching the distiller, the distiller's
-	// answer being stored) plus the two refusal paths — a truncated answer and a
-	// backend that dies.
-	//
-	// The publisher-signing surface is now covered by J001600 (steps_j001600_signing.go,
-	// j001600_signing.feature): `ctxloom bundle sign` (bare ref, --all, an item ref,
-	// and the empty-publish-set failure), `ctxloom signer list`,
-	// `signer trust|show|delete`, `bundle trust`, `bundle reject`, and
-	// `bundle move` (verbatim relocation plus the refused-move path). Every one
-	// runs against a real ssh-agent (testenv.StartSSHAgent) and asserts payload:
-	// each `.sig` is verified independently against bundle bytes read fresh off
-	// disk, `--all` is counted against the publish set, and `--project`'s store
-	// location is asserted on BOTH the project and the user path.
-	//
-	// "ctxloom signer trust"/"ctxloom signer untrust" left this
-	// list earlier: J001500 (steps_j001500.go, j001500_corporate_signed.feature) drives both —
-	// the Background's "Alice trusts the company key" step runs
-	// `ctxloom signer trust ... --project`, and scenario 6's "Alice
-	// revokes her trust in the company key" runs
-	// `ctxloom signer untrust ... --project`. "ctxloom signer show"
-	// left it when J001700 (steps_j001700.go, j001700_incident.feature)'s
-	// irrevocable-embedded-key scenario started driving it before and after the
-	// removal attempt.
-	//
-	// Long-lived watcher with no bounded/hermetic exit in this harness yet.
-	// Backfill: task cheap-pug.
-	"ctxloom session transcript watch",
-	// The four hidden machine callbacks LEFT this list when
-	// session_hooks.feature landed. They were uncovered for a structural
-	// reason, not an oversight: CTXLOOM_SESSION_HARP is on the ambient-session
-	// scrub list, so no scenario could hand a child the harp that session-bind
-	// and stamp-plan do nothing without. testenv.SetChildEnv is the deliberate
-	// door through that scrub, and it is what made these coverable at all.
-	// Coverage must be spelled on the CANONICAL leaf. A scenario driving a
-	// deprecated alias credits nothing once the alias is gone, so an alias
-	// deletion and the re-spelling of its scenarios belong in one change. What
-	// remains below is genuinely uncovered. Backfill: one task.
-	"ctxloom acp run",
-	"ctxloom acp serve",
-	// `ctxloom session search` was pruned from this list when
-	// j001200_recall.feature landed, because THIS GATE READS THE FEATURE CORPUS AS
-	// TEXT and its scenarios drive the leaf — but read that credit narrowly:
-	// every scenario in j001200_recall.feature is @wip and therefore excluded from
-	// the default run, so the leaf is SPECIFIED rather than exercised today.
-	// The gate has no notion of @wip and cannot make that distinction itself;
-	// this comment is where the distinction lives. Real execution arrives when
-	// those scenarios are untagged one at a time, which is the workflow that
-	// file was written for.
-	// `mcp server edit` is the new home of the deleted `bundle mcp edit`; it
-	// `ctxloom mcp server edit` LEFT this list when mcp.feature gained the
-	// editor round-trip. The reason it had no fixture is worth keeping: `mcp
-	// server create` cannot produce a server this command can address (create
-	// takes a bare name and writes the project config; edit resolves a
-	// bundle ref), so the fixture authors the bundle manifest directly —
-	// see the scenario's own comment and the filed task.
-	// Engine-matrix variants. The codex and kiro rows LEFT this list when
-	// manage.feature gained a scenario per engine per leaf, each asserting that
-	// engine's OWN surfaces (codex's config.toml + AGENTS.md, kiro's mcp.json +
-	// agent definition) rather than the shared .ctxloom scaffold, which all
-	// three write identically and which therefore proves nothing about which
-	// engine ran.
-	//
-	// The ANTIGRAVITY rows stay, deliberately and not for want of a fixture:
-	// frosty-punk removes that engine in 0.7.0, so a scenario for it would be
-	// written to be deleted. Covering it is the wrong call, but so is quietly
-	// dropping the rows — they are real uncovered surface until the engine is
-	// gone, and they leave this list when the engine does.
-	"ctxloom config create --engine antigravity",
 }
 
 // knownUncoveredTools is knownUncoveredCLI's MCP-tool counterpart: the exact
@@ -286,34 +117,6 @@ func assertExactUncovered(t *testing.T, label string, got, want []string) int {
 	return len(gotSet)
 }
 
-// excludedLeaves are public-surface entry points deliberately not exercised by a
-// scenario, each with the reason. Printed on every run so the exclusion is never
-// silent (see plan §7.5 / "no silent caps").
-var excludedLeaves = map[string]string{
-	"ctxloom config edit":     "opens $EDITOR on config.yaml; TTY-only, no hermetic fixture",
-	"ctxloom mcp serve":       "the MCP server itself; exercised by every @mcp scenario",
-	"ctxloom llm serve":       "internal gRPC plugin server",
-	"ctxloom remote discover": "network discovery search; no deterministic fixture (excluded)",
-	// Remote ops needing richer state than a single-commit fixture provides. The
-	// core clone/fetch/install/sync path is covered hermetically by the @remote
-	// content scenarios (browse/install/sync/lock against a seeded file:// repo).
-	"ctxloom deps check":   "checks installed bundles for a newer SHA; needs a second remote commit. Core fetch covered by @remote scenarios",
-	"ctxloom deps upgrade": "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
-	// DELETED, not re-homed: "ctxloom completion zsh|fish|powershell" and
-	// "ctxloom help" named leaves that DO NOT EXIST in the command tree this
-	// gate walks. `completion` is a single hidden custom command that takes the
-	// shell as an ARGUMENT (internal/cli/completion.go, runCompletion) — it has
-	// no per-shell subcommands — and cobra's default `help` command is only
-	// attached by Execute(), never by the in-process cli.GetRootCmd() census.
-	// A map key that is never looked up silences nothing; it only reads as
-	// tracked debt while tracking none, which is worse than an empty line.
-	// Verified against the built tree: neither path appears among the 137
-	// leaves (visible + hidden) cli.GetRootCmd() actually produces.
-	"ctxloom bundle push":     "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
-	"ctxloom container build": "builds the agent container image; requires a container runtime + network pulls, out of hermetic scope",
-	"ctxloom plan watch":      "long-lived file watcher (runs until interrupted); no hermetic exit",
-}
-
 // excludedTools are registered MCP tools no hermetic scenario reaches.
 //
 // It is EMPTY, and keeping it empty is the standard: an entry here silences a
@@ -378,64 +181,20 @@ var excludedTemplates = map[string]string{}
 // retiring the codex and kiro engine-matrix rows, then 10 to 9 by mcp.feature
 // retiring `mcp server edit`, then 9 to 8 by mcp_tools.feature retiring
 // evaluate_triggers — the last uncovered MCP tool.
-const maxKnownUncoveredTotal = 8
+// LOWERED 8 -> 3: CLI leaves no longer count here at all. Their completeness
+// is decided from real coverage data by TestCLICoverage_EveryLeafActuallyRan,
+// which has its own exemption list and its own fails-in-both-directions
+// contract. What remains under this ratchet is the MCP surface alone.
+const maxKnownUncoveredTotal = 3
 
 // TestCompleteness enforces that every public CLI leaf, MCP tool, and MCP
 // resource is exercised by some scenario or step, or is explicitly excluded.
 func TestCompleteness(t *testing.T) {
-	// CLI-leaf credit is decided by EXECUTION, not text: see executed() /
-	// executedWithEngine() below. That only works if testenv's recorder was
-	// actually populated by the acceptance scenarios before this runs — see
-	// the ORDERING note below for the mechanism and why it cannot silently
-	// regress into a vacuous pass.
-	invocations := testenv.RecordedInvocations()
-	if len(invocations) == 0 {
-		t.Fatal("testenv.RecordedInvocations() returned NOTHING: this gate credits every CLI leaf by " +
-			"what the suite actually executed, so an empty recorder means it examined ZERO invocations " +
-			"and cannot make any coverage determination — passing here would silently recreate the " +
-			"exact vacuous-green shape this rewrite exists to remove, so it fails loud instead. Two " +
-			"likely causes: (1) ORDERING — TestCompleteness ran in this `go test` binary before " +
-			"TestAcceptance populated the recorder (today's ordering is Go's normal same-package rule " +
-			"of file name then declaration order — acceptance_test.go sorts before completeness_test.go " +
-			"— which is why this has never fired; if a new test file sorts ahead of both, or someone " +
-			"pins -run to only TestCompleteness, this is what catches it); (2) SCOPE — ACCEPTANCE_PATHS " +
-			"or ACCEPTANCE_TAGS narrowed TestAcceptance's own run down to zero scenarios.")
-	}
-
 	corpus := loadCorpus(t)
 
 	// Populated by the three allowlisted subtests below, then folded into one
 	// prominent deficit statement (and ratcheted) once they've all run.
-	var cliUncovered, toolsUncovered, runnerOnlyUncovered int
-
-	t.Run("cli leaves", func(t *testing.T) {
-		// requiredHiddenLeaves are appended rather than discovered by
-		// leafCommands: Hidden commands fail that walk's admission gate, which
-		// is the exact structural blind spot this list exists to close.
-		leaves := append([]string{}, leafCommands(cli.GetRootCmd())...)
-		leaves = append(leaves, requiredHiddenLeaves...)
-		sort.Strings(leaves)
-
-		var uncovered []string
-		for _, path := range leaves {
-			if reason, ok := excludedLeaves[path]; ok {
-				t.Logf("excluded: %s — %s", path, reason)
-				continue
-			}
-			if engines, ok := engineMatrixLeaves[path]; ok {
-				for _, engine := range engines {
-					if !executedWithEngine(invocations, path, engine) {
-						uncovered = append(uncovered, path+" --engine "+engine)
-					}
-				}
-				continue
-			}
-			if !executed(invocations, path) {
-				uncovered = append(uncovered, path)
-			}
-		}
-		cliUncovered = assertExactUncovered(t, "cli leaves", uncovered, knownUncoveredCLI)
-	})
+	var toolsUncovered, runnerOnlyUncovered int
 
 	tools, resources, templates := liveSurface(t)
 
@@ -524,11 +283,14 @@ func TestCompleteness(t *testing.T) {
 	// straight to the process's real stderr bypasses that buffering
 	// entirely, so a green run cannot look indistinguishable from a run with
 	// zero coverage gaps.
-	totalUncovered := cliUncovered + toolsUncovered + runnerOnlyUncovered
-	fmt.Fprintf(os.Stderr, "COMPLETENESS DEFICIT: %d leaf/tool surfaces are allowlisted UNCOVERED — "+
-		"%d CLI leaves, %d MCP tools, %d runner-only MCP tools. This is accepted "+
-		"debt (see backfill-task comments above each list), not a clean pass.\n",
-		totalUncovered, cliUncovered, toolsUncovered, runnerOnlyUncovered)
+	totalUncovered := toolsUncovered + runnerOnlyUncovered
+	fmt.Fprintf(os.Stderr, "COMPLETENESS DEFICIT: %d MCP surfaces are allowlisted UNCOVERED — "+
+		"%d MCP tools, %d runner-only MCP tools. This is accepted debt (see "+
+		"backfill-task comments above each list), not a clean pass. CLI LEAF "+
+		"coverage is no longer counted here: it is decided from real coverage "+
+		"data by TestCLICoverage_EveryLeafActuallyRan in the "+
+		"`just test-acceptance-cover` lane.\n",
+		totalUncovered, toolsUncovered, runnerOnlyUncovered)
 	if totalUncovered > maxKnownUncoveredTotal {
 		t.Errorf("COMPLETENESS DEFICIT ratchet: %d allowlisted-uncovered surfaces "+
 			"exceeds the recorded ceiling of %d (maxKnownUncoveredTotal) — either "+
@@ -557,29 +319,6 @@ func TestCompleteness(t *testing.T) {
 			}
 		}
 	})
-}
-
-// leafCommands returns the "ctxloom ..." command path of every runnable,
-// non-hidden leaf in the tree.
-func leafCommands(root *cobra.Command) []string {
-	var out []string
-	var walk func(c *cobra.Command)
-	walk = func(c *cobra.Command) {
-		children := c.Commands()
-		hasVisibleChild := false
-		for _, ch := range children {
-			if !ch.Hidden && ch.Name() != "help" {
-				hasVisibleChild = true
-			}
-			walk(ch)
-		}
-		if !hasVisibleChild && c.Runnable() && !c.Hidden && c != root {
-			out = append(out, c.CommandPath())
-		}
-	}
-	walk(root)
-	sort.Strings(out)
-	return out
 }
 
 // liveSurface starts an MCP server against a minimal project and returns the

@@ -413,11 +413,6 @@ func runBob(w *World, args ...string) error {
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	err := cmd.Run()
-	// cmd.Run() covers Start-through-Wait; by the time it returns (whatever
-	// the outcome) the process has genuinely been started, which is the
-	// point RecordCommandStart exists to require — see its doc comment for
-	// why Command() itself does not record automatically.
-	w.env.RecordCommandStart(args)
 	j000700.bobOutput = stdout.String() + stderr.String()
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		j000700.bobExit = exitErr.ExitCode()

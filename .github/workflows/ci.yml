@@ -315,7 +315,7 @@ jobs:
       # Hermetic only (~@live && ~@network): real CLI subprocesses + a real MCP
       # server + the mock LLM backend. No network, no real agent, no secrets.
       - name: Run acceptance suite
-        run: just test-acceptance
+        run: just test-acceptance-cover
 
   mutation:
     name: Mutation Testing

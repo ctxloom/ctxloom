@@ -21,14 +21,18 @@ name, an org name ("context@acme.com"), or a pipeline identity
 ("releases@ctxloom.dev"). It has no relationship to any account; it is
 purely the label your allowed_signers file and 'ctxloom signer' display.
 
-By default this writes to your USER store (~/.ctxloom/allowed_signers),
-which follows you across every project. --project writes to the
-COMMITTABLE project store (.ctxloom/allowed_signers) instead — the way a
-team distributes "trust our lead's approval key" to everyone who clones.
+By default this writes to the COMMITTABLE PROJECT store
+(.ctxloom/allowed_signers) — the way a team distributes "trust our lead's
+approval key" to everyone who clones, without every colleague having to
+trust the publisher individually. --user writes to your PER-MACHINE USER
+store (~/.ctxloom/allowed_signers) instead, which follows you across every
+project but travels with nobody else. Run outside a project (no .ctxloom
+directory found), the default falls back to the user store automatically
+and says so.
 
 Examples:
   ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
-  ctxloom signer trust lead@team.example --key lead.pub --namespace approve,reject --project
+  ctxloom signer trust lead@team.example --key lead.pub --namespace approve,reject --user
 
 ```
 ctxloom signer trust <principal> [flags]
@@ -40,7 +44,8 @@ ctxloom signer trust <principal> [flags]
       --comment string      override the key's own comment
       --key string          public key: a file path, '-' for stdin, or a literal authorized_keys line (required)
       --namespace strings   namespace(s) to trust this key for: publish|approve|reject (default: publish)
-      --project             write to the committable project store (.ctxloom/allowed_signers) instead of the user store
+      --project             write to the committable project store (.ctxloom/allowed_signers) — the default; falls back to the user store when no project is configured (default true)
+      --user                write to your PER-MACHINE user store (~/.ctxloom/allowed_signers) instead of the project store
   -y, --yes                 skip the confirmation prompt
 ```
 

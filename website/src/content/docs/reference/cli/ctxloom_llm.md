@@ -13,7 +13,14 @@ Manage LLM backends
 
 ### Synopsis
 
-Manage LLM backends - list available LLMs and set the default.
+Manage LLM backends: list available LLMs, create/edit/remove a labeled
+engine config, and set the default.
+
+  ctxloom llm                    List configured LLMs (with the default marked)
+  ctxloom llm create <label>     Create a new labeled engine config
+  ctxloom llm edit <label>       Change an existing one
+  ctxloom llm remove <label>     Remove one (report-only by default; --yes applies)
+  ctxloom llm default [label]    Show or set the default
 
 ```
 ctxloom llm [flags]
@@ -32,6 +39,9 @@ ctxloom llm [flags]
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
+* [ctxloom llm create](/reference/cli/ctxloom_llm_create/)	 - Create a new LLM engine config
 * [ctxloom llm default](/reference/cli/ctxloom_llm_default/)	 - Show or set the default LLM
+* [ctxloom llm edit](/reference/cli/ctxloom_llm_edit/)	 - Edit an existing LLM engine config
 * [ctxloom llm list](/reference/cli/ctxloom_llm_list/)	 - List available LLMs
+* [ctxloom llm remove](/reference/cli/ctxloom_llm_remove/)	 - Remove an LLM engine config from config.yaml
 

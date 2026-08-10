@@ -9,22 +9,16 @@ This page is generated from `ctxloom session worktrees --help`.
 
 ## ctxloom session worktrees
 
-List ctxloom-owned scratch worktrees, and (with --reap --yes) remove the ones it can prove are safe
+The scratch git checkouts a session left behind: list them, remove the safe ones
 
 ### Synopsis
 
-Lists every "ctxloom-wt-*" checkout ctxloom itself created under
+Every "ctxloom-wt-*" checkout ctxloom itself created under
 ~/.ctxloom/sessions/<harp>/ephemeral/ — leftovers from a per-agent worktree
-whose owning process crashed before it could clean up after itself — and, for
-each one, the verdict isolation.ReapOrphanedWorktrees' safety rules would
-reach: reapable (orphaned and clean), spared (orphaned but carrying real or
-unknowable work), or skipped (owner alive, or its liveness can't be proven).
+whose owning process crashed before it could clean up after itself.
 
-Read-only by default: bare "session worktrees" only reports, and so does
-"session worktrees --reap" without --yes. Nothing is ever removed unless BOTH
---reap and --yes are given, on this exact invocation — matching "session
-purge"'s rule: the absence of --yes always means report-only, never act,
-regardless of whether the terminal is interactive.
+  list    what is there, and what would happen to each one (the bare form)
+  purge   remove the ones this run can PROVE are safe
 
 A long-lived worktree ctxloom did not create (anything outside
 ~/.ctxloom/sessions/) is never listed or touched here — "ctxloom doctor"
@@ -32,14 +26,6 @@ reports on those, and only ever suggests the commands to remove them by hand.
 
 ```
 ctxloom session worktrees [flags]
-```
-
-### Options
-
-```
-      --harp string   Restrict to one harp-named session's scratch worktrees (default: every harp)
-      --reap          Remove the worktrees this run can prove are safe (orphaned AND clean). Read-only without --yes.
-  -y, --yes           Act on exactly the plan this invocation printed. Ignored without --reap; no config key may pre-answer it.
 ```
 
 ### Options inherited from parent commands
@@ -55,4 +41,6 @@ ctxloom session worktrees [flags]
 ### SEE ALSO
 
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions
+* [ctxloom session worktrees list](/reference/cli/ctxloom_session_worktrees_list/)	 - List ctxloom-owned scratch worktrees and the verdict each one would get
+* [ctxloom session worktrees purge](/reference/cli/ctxloom_session_worktrees_purge/)	 - Remove a session's scratch worktrees that this run can prove are safe
 

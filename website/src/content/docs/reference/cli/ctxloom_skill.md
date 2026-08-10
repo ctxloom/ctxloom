@@ -25,6 +25,7 @@ Examples:
   ctxloom skill list                                   # List all skills
   ctxloom skill show core#skills/code-reviewer          # Show frontmatter + manifest
   ctxloom skill create my-bundle code-reviewer          # Scaffold a new skill package
+  ctxloom skill remove my-bundle#skills/code-reviewer --yes  # Remove a skill package
   ctxloom skill sync my-bundle#skills/code-reviewer      # Recompute + write the manifest
   ctxloom skill export my-bundle#skills/code-reviewer    # Pack to an Anthropic-shaped .zip
   ctxloom skill import ./code-reviewer.zip --bundle my-bundle
@@ -50,6 +51,7 @@ ctxloom skill [flags]
 * [ctxloom skill export](/reference/cli/ctxloom_skill_export/)	 - Pack a skill to an Anthropic-shaped .zip
 * [ctxloom skill import](/reference/cli/ctxloom_skill_import/)	 - Import a skill archive (.zip/.tar.gz) into a bundle
 * [ctxloom skill list](/reference/cli/ctxloom_skill_list/)	 - List all Agent Skill packages
+* [ctxloom skill remove](/reference/cli/ctxloom_skill_remove/)	 - Remove an Agent Skill package
 * [ctxloom skill show](/reference/cli/ctxloom_skill_show/)	 - Show a skill's frontmatter and file manifest
 * [ctxloom skill sync](/reference/cli/ctxloom_skill_sync/)	 - Recompute and write a skill's per-file manifest
 

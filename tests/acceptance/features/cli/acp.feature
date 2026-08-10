@@ -22,8 +22,12 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
   # allowlisted-uncovered list and STAY there. Driving either needs an ACP
   # client harness speaking JSON-RPC over stdio, which does not exist in
   # testenv — that is its own build, tracked by taskloom agile-satin, not
-  # something to fold in here quietly. Everything below is `acp list` and the
-  # bare group node.
+  # something to fold in here quietly. Everything below is `acp list`, the
+  # bare group node, and `acp serve`'s pre-flight --workspace/--agent
+  # validation (Rule below) — the one piece of `acp serve` that resolves
+  # and exits before the JSON-RPC loop would need a real client on the other
+  # end: the refusal returns immediately, and the accepted case reaches
+  # Serve() only to see stdin at EOF (no client attached) and exit.
 
   Background:
     Given an initialized ctxloom project
@@ -139,6 +143,28 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
   # TestRunACPSession_TakesEveryTypedTurnUntilStdinEnds,
   # TestRunACPOneshot_TakesExactlyOneTurnAndExits), until the ACP client
   # harness tracked by taskloom agile-satin makes the leaf itself reachable.
+
+  Rule: --workspace on acp serve means nothing without --agent, so it is refused
+
+    acpWorkspaceAxis silently returns the empty axis whenever no agent is
+    named — worktree isolation is scoped to a specific agent entry, not the
+    plain `acp serve` a bare editor connection uses. Left unchecked, a user
+    who passes --workspace worktree with no --agent gets NO isolation and is
+    told nothing, which is the worst failure direction for an isolation flag.
+    So --workspace without --agent is refused outright, before the protocol
+    loop even opens. The positive case is pinned in the same fixture: paired
+    with --agent, the identical --workspace value is accepted rather than
+    refused for some unrelated reason — the only way the refusal above can be
+    trusted to be ABOUT the missing --agent.
+    Scenario: --workspace requires --agent, and is accepted once one is named
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      When I run "ctxloom acp serve --workspace worktree"
+      Then the command fails
+      And the output contains "--workspace requires --agent"
+      When I run "ctxloom acp serve --workspace worktree --agent developer"
+      Then the command succeeds
 
   Rule: The group node refuses what it cannot honour
 

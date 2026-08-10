@@ -4,7 +4,7 @@ title: "Remotes"
 
 A teammate pastes you their review checklist in Slack. You paste it into your bundle, tweak two lines for your project, and now there are two versions that will never agree again. Multiply that by every project on the team and "our standards" stops meaning anything specific.
 
-A **remote** is a Git repository ctxloom pulls [bundles](/concepts/bundles/) and profiles from, so a fragment or profile lives in exactly one place and every project references that source instead of a pasted copy. Update the bundle once, and `ctxloom remote pull` brings every project back in sync.
+A **remote** is a Git repository ctxloom pulls [bundles](/concepts/bundles/) and profiles from, so a fragment or profile lives in exactly one place and every project references that source instead of a pasted copy. Update the bundle once, and `ctxloom deps pull` brings every project back in sync.
 
 ## Pre-configured Remote
 
@@ -56,7 +56,7 @@ ctxloom remote create corp https://git.example.com/corp/ctxloom --forge git
 ## Consuming Remote Content
 
 You don't "install" remote items into your project. Instead you author a local
-profile that **references** remote content, then pull. `ctxloom remote pull`
+profile that **references** remote content, then pull. `ctxloom deps pull`
 fetches everything your local profiles reference, updates the lockfile, and
 applies hooks — it takes no item argument.
 
@@ -69,7 +69,7 @@ ctxloom profile create tdd -b ctxloom-default/testing#fragments/tdd
 ctxloom profile create my-dev --parent 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer'
 
 # Fetch everything your profiles reference
-ctxloom remote pull
+ctxloom deps pull
 ```
 
 Pulled content is saved locally in your `.ctxloom/` directory.
@@ -131,11 +131,11 @@ tightest constraint.
 ### Pull, update, upgrade
 
 ```bash
-ctxloom remote pull      # resolve every constraint → lock.yaml and fetch exactly what
+ctxloom deps pull      # resolve every constraint → lock.yaml and fetch exactly what
                          # the lock pins (stable: keeps the current commit while a
                          # constraint is unchanged)
-ctxloom remote update    # report the newest commit available within each constraint
-ctxloom remote upgrade   # re-resolve within constraints and move the LOCK (never the
+ctxloom deps check    # report the newest commit available within each constraint
+ctxloom deps upgrade   # re-resolve within constraints and move the LOCK (never the
                          # manifest); whether changed content reaches the agent is
                          # decided per item at exposure (ctxloom review)
 ```
@@ -157,8 +157,8 @@ policy, not a manifest edit: the held commit still satisfies the constraint, so
 nothing diverges.
 
 ```bash
-ctxloom bundle hold <name>     # freeze at the locked SHA (alias: pin)
-ctxloom bundle unhold <name>   # release the hold (alias: unpin)
+ctxloom deps hold <name>     # freeze at the locked SHA (alias: pin)
+ctxloom deps unhold <name>   # release the hold (alias: unpin)
 ```
 
 Holding a *profile* freezes its whole subtree: the held profile is read at its old

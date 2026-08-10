@@ -67,7 +67,6 @@ func runBundleMove(cmd *cobra.Command, args []string) error {
 		// A move to a remote is a publish, and it DELETES the local source
 		// afterwards — so the "which remote am I sending signed content to"
 		// question matters here at least as much as on push.
-		ConfirmRemote: publishRemoteAsk(cmd),
 	})
 	if err != nil {
 		return err

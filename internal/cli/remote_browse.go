@@ -74,7 +74,7 @@ func runRemoteBrowse(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Fprintln(out)
-	fmt.Fprintln(out, "Use one: add its ref to a profile (ctxloom profile create/edit), then ctxloom remote pull")
+	fmt.Fprintln(out, "Use one: add its ref to a profile (ctxloom profile create/edit), then ctxloom deps pull")
 
 	return nil
 }

@@ -104,22 +104,22 @@ review them. If a bundle's content isn't appearing, run `ctxloom review`.
 
 ## How changes arrive
 
-`ctxloom remote upgrade` re-resolves your dependencies within their version
+`ctxloom deps upgrade` re-resolves your dependencies within their version
 constraints (see [Versioning, locking, and holds](/concepts/remotes/#versioning-locking-and-holds))
 and moves the lockfile to the newest commit each constraint allows. It does not
 gate at the lockfile: changed content no longer verifies against the approval you
 gave the old content, so it re-gates to **pending** and is withheld until you
 review it.
 
-Passive `ctxloom remote pull` fetches exactly what the lock already pins and
+Passive `ctxloom deps pull` fetches exactly what the lock already pins and
 never advances a SHA.
 
 To freeze a dependency so `upgrade` never advances it, [hold](/concepts/remotes/#holds)
 it — this is dependency management, not trust:
 
 ```bash
-ctxloom bundle hold <name>     # freeze at the locked SHA (alias: pin)
-ctxloom bundle unhold <name>   # release the hold (alias: unpin)
+ctxloom deps hold <name>     # freeze at the locked SHA (alias: pin)
+ctxloom deps unhold <name>   # release the hold (alias: unpin)
 ```
 
 ## Trusting a publisher

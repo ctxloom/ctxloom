@@ -201,7 +201,7 @@ ctxloom remote show community
 # Author a local profile referencing the remote bundle, then pull it.
 # A profile's -b accepts the short <remote>/<bundle> form.
 ctxloom profile create go-testing -b community/go-testing
-ctxloom remote pull
+ctxloom deps pull
 
 # Accept the newly pulled content, then run with it
 ctxloom review

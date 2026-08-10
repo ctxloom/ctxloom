@@ -11,10 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 )
 
-// `remote upgrade` is DESTRUCTIVE: it re-resolves the dependency closure and
+// `deps upgrade` is DESTRUCTIVE: it re-resolves the dependency closure and
 // writes the result straight over the active lock. It used to load its config
 // through loadConfigOrFallback — a helper written for the fault-tolerant
-// READ-ONLY startup paths (`remote update`, `search`), which hands back a
+// READ-ONLY startup paths (`deps check`, `search`), which hands back a
 // minimal EMPTY config on any load error. An empty config has no profile
 // definitions, so the closure came out empty and the wholesale write erased
 // every pin, hold and retraction while printing "Everything is up to date."
@@ -23,7 +23,7 @@ import (
 func TestRemoteUpgrade_RefusesToRunOnAnUnloadableConfig(t *testing.T) {
 	loadErr := errors.New("config.yaml: yaml: line 4: did not find expected key")
 
-	err := runRemoteUpgrade(&cobra.Command{}, func() (*config.Config, error) {
+	err := runDepsUpgrade(&cobra.Command{}, func() (*config.Config, error) {
 		return nil, loadErr
 	})
 

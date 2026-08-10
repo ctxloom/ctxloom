@@ -21,8 +21,8 @@ import (
 // review` porcelain writes.
 //
 // Management is CLI-only: there are deliberately NO MCP tools for any of these.
-// (Source-level `remote trust/untrust` is deleted — trust is now keyed to a
-// publisher signing key, not a remote; see docs/trust-model.md.)
+// Trust is keyed to a publisher's signing KEY, never to a remote: an address
+// says nothing about the bytes that arrive from it. See docs/trust-model.md.
 
 // bundleTrustLong documents `ctxloom bundle trust`.
 const bundleTrustLong = `Accept the currently-resolved content of an item so it is exposed to the agent.

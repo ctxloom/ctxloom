@@ -167,11 +167,11 @@ Feature: A signature somebody can check
   #
   # THREE assertions after the pull, not one, because "the revised marker is
   # absent" alone was satisfied by the revision NEVER ARRIVING (audit
-  # irate-catfish, F1): a plain `remote pull` is passive and never advances an
+  # irate-catfish, F1): a plain `deps pull` is passive and never advances an
   # existing pin ("Skipped (kept at their locked commit)"), so Alice went on
   # holding — and being served — the ORIGINAL bytes, and the scenario proved
   # nothing about what an acceptance binds to. Taking the new commit needs
-  # `remote update --apply` first, and the two assertions added here are the
+  # `deps upgrade` first, and the two assertions added here are the
   # ones an absence cannot fake:
   #   - the ORIGINAL guidance stops being delivered. It was approved and
   #     flowing one step earlier, so this can only be true if the revision

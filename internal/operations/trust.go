@@ -182,7 +182,7 @@ type EffectiveTrustResult struct {
 	// (never a decision input). Today only step 2 (retraction) populates it,
 	// with the publisher's stated retraction reason (see
 	// RetractionRecords.Retracted) — the same untrusted, informational string
-	// `ctxloom remote pull`'s "Retracted:" bucket already surfaces at sync
+	// `ctxloom deps pull`'s "Retracted:" bucket already surfaces at sync
 	// time (internal/cli/remote.go). Empty for every other Source.
 	Detail string `json:"detail,omitempty"`
 }

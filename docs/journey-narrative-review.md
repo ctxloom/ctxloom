@@ -214,7 +214,7 @@ upstream change reaches the assembled context, a stale local checkout never
 leaks into what's served, a skipped pull leaves old content and says so. That is
 the "I depend on someone else's standards and I want to control when they change
 under me" story, complete, told with no person and no arc. Two of its leaves
-(`remote update`, `remote upgrade`) are still on `excludedLeaves` with reasons
+(`deps check`, `deps upgrade`) are still on `excludedLeaves` with reasons
 the old gaps doc already showed were stale.
 
 ---
@@ -321,7 +321,7 @@ that a deterministic command **names that cause**: the item is pending review
 trusted (`ctxloom signer list` shows the key absent, `ctxloom doctor`
 reports the signer count); the fragment is in a bundle her profile does not name
 (`ctxloom run --dry-run` shows the assembled context without it, `ctxloom
-search` finds the fragment and shows which bundle holds it); the hooks were
+search` finds the fragment and shows which deps holds it); the hooks were
 never installed (`ctxloom manage status`); the config is malformed (reads still
 work, and the warning names the file). The closing scenario is the one that
 makes this a journey rather than five unit tests: for every seeded cause, *some*
@@ -660,7 +660,7 @@ group and says nothing about J001300's dead `ctxloom map` — same class of defe
 same drafts directory, unflagged. See §5.
 
 **(e) Its excluded-leaf verdicts are still accurate and still unactioned.**
-`remote update` and `remote upgrade` are still excluded with "needs a second
+`deps check` and `deps upgrade` are still excluded with "needs a second
 remote commit" / "needs an update cycle" reasons that `testenv.AdvanceSignedRemote`
 already invalidates. `session distill`'s `@live` exclusion is still questionable
 for the reason it gave. `bundle push`'s reason still overstates the blocker.

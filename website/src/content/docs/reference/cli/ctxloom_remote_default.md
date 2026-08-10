@@ -44,5 +44,5 @@ ctxloom remote default <name> [flags]
 
 ### SEE ALSO
 
-* [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Manage remotes and discover content
+* [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Register and browse the sources content comes from
 

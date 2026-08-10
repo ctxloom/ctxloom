@@ -297,8 +297,8 @@ var excludedLeaves = map[string]string{
 	// Remote ops needing richer state than a single-commit fixture provides. The
 	// core clone/fetch/install/sync path is covered hermetically by the @remote
 	// content scenarios (browse/install/sync/lock against a seeded file:// repo).
-	"ctxloom remote update":         "checks installed bundles for a newer SHA; needs a second remote commit. Core fetch covered by @remote scenarios",
-	"ctxloom remote upgrade":        "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
+	"ctxloom deps check":         "checks installed bundles for a newer SHA; needs a second remote commit. Core fetch covered by @remote scenarios",
+	"ctxloom deps upgrade":        "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
 	"ctxloom completion zsh":        "shell variant; the completion path is covered via bash",
 	"ctxloom completion fish":       "shell variant; the completion path is covered via bash",
 	"ctxloom completion powershell": "shell variant; the completion path is covered via bash",

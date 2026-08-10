@@ -9,16 +9,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// remoteUpgradeCmd is the apt-style "upgrade" verb: it advances every unheld
+// depsUpgradeCmd is the apt-style "upgrade" verb: it advances every unheld
 // pinned dependency to the newest commit its version constraint allows and
-// writes the result straight to the active lock. Where 'remote update' refreshes
-// the local clones (the index), 'remote upgrade' advances your pins.
-var remoteUpgradeCmd = &cobra.Command{
+// writes the result straight to the active lock. Where 'deps check' reads and
+// reports, 'deps upgrade' advances your pins.
+var depsUpgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Upgrade pinned dependencies to the latest available",
 	Long: `Re-resolve each local profile's dependency closure to the newest commit each
 version constraint allows and write the advances straight to the active lock —
-your profile YAML is never rewritten. A held entry ('ctxloom bundle hold') stays
+your profile YAML is never rewritten. A held entry ('ctxloom deps hold') stays
 frozen.
 
 The lockfile is pure dependency pinning: upgrading a pin does not expose new
@@ -36,30 +36,30 @@ something" apart from both "nothing to do" (0) and a failure (1). The refusal
 also survives the run — 'ctxloom doctor' reports it until an upgrade advances
 that pin.
 
-Mirrors apt: where 'remote update' refreshes the local clones (the index),
-'remote upgrade' advances your pins to the newest commit. Passive 'remote pull'
-installs exactly what is already pinned and never advances.
+Mirrors apt: 'deps check' reports what is out of date, 'deps upgrade' advances
+your pins to the newest commit. 'deps pull' installs exactly what is already
+pinned and never advances one.
 
 Examples:
-  ctxloom remote upgrade                 # Advance pins to the latest available`,
-	RunE: runRemoteUpgradeCmd,
+  ctxloom deps upgrade                   # Advance pins to the latest available`,
+	RunE: runDepsUpgradeCmd,
 }
 
-func runRemoteUpgradeCmd(cmd *cobra.Command, args []string) error {
-	return runRemoteUpgrade(cmd, GetConfig)
+func runDepsUpgradeCmd(cmd *cobra.Command, args []string) error {
+	return runDepsUpgrade(cmd, GetConfig)
 }
 
-// runRemoteUpgrade re-resolves and rewrites the active lock.
+// runDepsUpgrade re-resolves and rewrites the active lock.
 //
 // It deliberately does NOT use loadConfigOrFallback. That helper exists for the
-// fault-tolerant READ-ONLY startup paths (`remote update`, `search`) and hands
+// fault-tolerant READ-ONLY startup paths (`deps check`, `search`) and hands
 // back a minimal EMPTY config on any load error so they can keep working.
 // Upgrade is destructive: it rewrites the lockfile wholesale from whatever
 // closure the config yields, and an empty config yields an empty closure — no
 // profile definitions to enumerate, nothing proposed, so the write erased every
 // pin, hold and retraction and printed "Everything is up to date." A command
 // that rewrites state must fail on a config it could not read, not guess.
-func runRemoteUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error)) error {
+func runDepsUpgrade(cmd *cobra.Command, loadConfig func() (*config.Config, error)) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return fmt.Errorf("cannot upgrade dependencies: the config could not be loaded, and upgrade rewrites the lockfile from it: %w", err)
@@ -144,10 +144,10 @@ func reportRefusedAdvances(refused []operations.RefusedAdvance) {
 		fmt.Printf("REFUSED to advance %s: the publisher signature on the content at %s does not verify over those bytes (%s).\n",
 			r.Identity, shortSHA(r.ProposedSHA), r.Detail)
 		fmt.Printf("  Keeping the last verified pin %s — your assistant goes on receiving the content at that pin.\n", shortSHA(r.KeptSHA))
-		fmt.Println("  There is nothing to accept: a signature that does not cover its bytes is a tamper signal, not unsigned content, so it is never offered for review. Ask the publisher to re-sign and publish again, then re-run 'ctxloom remote upgrade'.")
+		fmt.Println("  There is nothing to accept: a signature that does not cover its bytes is a tamper signal, not unsigned content, so it is never offered for review. Ask the publisher to re-sign and publish again, then re-run 'ctxloom deps upgrade'.")
 	}
 }
 
 func init() {
-	remoteCmd.AddCommand(remoteUpgradeCmd)
+	depsCmd.AddCommand(depsUpgradeCmd)
 }

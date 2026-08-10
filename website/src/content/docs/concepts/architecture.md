@@ -217,7 +217,7 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    A["1. ctxloom remote pull"] --> B["2. Load profile dependencies"]
+    A["1. ctxloom deps pull"] --> B["2. Load profile dependencies"]
     B --> C["3. For each remote bundle"]
     C --> D["Fetch via forge adapter (GitHub API or git clone)"]
     C --> E["Validate structure"]

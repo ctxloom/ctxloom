@@ -125,7 +125,7 @@ func seedSource(w *World, name, kind, item, marker, bundleYAML string, sign, tru
 // addSourceAsRemote wires an already-seeded source into the project exactly
 // as a developer adding a personal/company repo: `remote add` (an address),
 // `profile modify <profile> --add-bundle <remote>/<bundle>` (reference it from
-// the composed profile), then `remote pull` (fetch + lock the closure). This
+// the composed profile), then `deps pull` (fetch + lock the closure). This
 // is the ONLY step that can make the source's content reachable — adding a
 // remote never implies trust (spec §11); whether it is EXPOSED is decided
 // later, per item, by the trust gate at materialize/assemble time.

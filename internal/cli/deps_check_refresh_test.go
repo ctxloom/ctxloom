@@ -92,7 +92,7 @@ func cwdAlreadyDirty() bool {
 // Both refresh entry points share one per-repo body, so this pins the
 // behaviour they must keep identical: a repository whose forge cannot be
 // detected is skipped outright — no clone directory, no fetch, no crash.
-// Fault tolerance here is load-bearing: `remote update` reports staleness, and
+// Fault tolerance here is load-bearing: `deps check` reports staleness, and
 // a bad entry must never take the whole check down with it.
 func TestRefreshRemoteClone_SkipsUndetectableForge(t *testing.T) {
 	requireDetectForgeStillFails(t)

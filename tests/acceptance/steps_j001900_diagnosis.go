@@ -107,7 +107,7 @@ type j001900State struct {
 	// against a value captured before the command that would have moved it.
 	pinBeforeSync string
 
-	// syncExit is the exit code Monday's `remote upgrade` returned, captured
+	// syncExit is the exit code Monday's `deps upgrade` returned, captured
 	// alongside syncOutput and for the same reason: every later Then runs more
 	// commands, so w.env.LastExitCode() has moved on by the time the code is
 	// asserted. A script running an unattended sync reads only this — the
@@ -115,7 +115,7 @@ type j001900State struct {
 	// what was printed.
 	syncExit int
 
-	// syncOutput is what Monday's `remote upgrade` said, captured at the
+	// syncOutput is what Monday's `deps upgrade` said, captured at the
 	// moment it ran. Every later Then in this journey materializes the profile
 	// to read a payload, and materializing is itself a command — so
 	// w.env.LastOutput() no longer holds the sync's words by the time a "she
@@ -144,7 +144,7 @@ func j001900Of(w *World) *j001900State {
 //
 // The VERSION is a parameter because it is what makes a republish an actual
 // PIN ADVANCE. Measured while writing this journey: editing a bundle's content
-// while leaving `version:` alone republishes bytes that `remote update` never
+// while leaving `version:` alone republishes bytes that `deps check` never
 // advances to, so the consumer keeps receiving the previous copy and the whole
 // attestation boundary is never reached. B2's silent-loss mode is explicitly
 // "withheld silently ON PIN ADVANCE", so the fixture has to produce one.
@@ -207,7 +207,7 @@ func j001900WriteRevised(w *World, content string) error {
 
 // j001900LockedName is the name the runbook carries in the active lockfile once it
 // has been pulled from the team remote — remote-qualified, which is what
-// `bundle hold` resolves against.
+// `deps hold` resolves against.
 func j001900LockedName() string { return "team/" + j001900Bundle }
 
 // j001900PublishFromDisk publishes exactly what is on disk — bundle bytes plus
@@ -511,14 +511,14 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		// update` is allowed to report problems, so its exit code is not the
 		// assertion — what it SAYS and what arrives afterwards are.
 		//
-		// `remote upgrade` is the third call and it is LOAD-BEARING. B2's
+		// `deps upgrade` is the third call and it is LOAD-BEARING. B2's
 		// silent-loss mode is "withheld silently ON PIN ADVANCE", so a sync
 		// that never advances a pin never reaches the attestation boundary at
 		// all.
 		//
 		// MEASURED 2026-08-05, and the reason this line exists: bare `remote
 		// update` is a DRY CHECK that ends in "Run with --apply to update all
-		// items", and `remote pull` answers "Skipped (kept at their locked
+		// items", and `deps pull` answers "Skipped (kept at their locked
 		// commit): 1 — Pull never moves an existing pin. Run 'ctxloom remote
 		// upgrade' to advance them." With only those two the lockfile stayed
 		// at Friday's commit, so every "the revision never arrived" assertion
@@ -528,7 +528,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		// signing.VerifyPublisher so an invalid signature verifies changed no
 		// outcome either. The signature gate was never consulted.
 		//
-		// `remote upgrade` is what the product's own pull output tells the user
+		// `deps upgrade` is what the product's own pull output tells the user
 		// to run, so it is the ordinary sync a person actually performs when
 		// they want Monday's content.
 		_ = w.env.Run("remote", "update")
@@ -718,7 +718,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Carol publishes a newer signed runbook while Alice's copy is held$`, func(c context.Context) error {
 		w := worldFrom(c)
-		// Held by its LOCKFILE name (remote-qualified): `bundle hold` resolves
+		// Held by its LOCKFILE name (remote-qualified): `deps hold` resolves
 		// against the active lockfile, and the bare name is not an entry there.
 		if err := runOK(w, "bundle", "hold", j001900LockedName()); err != nil {
 			return err

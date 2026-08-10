@@ -19,7 +19,7 @@ flowchart TD
         RR["remote remove &lt;name&gt; :92"]
         RL["remote list :115"]
         RD["remote default &lt;name&gt; :157"] --> RRD["runRemoteDefault :173"]
-        RP["remote pull :209"] --> RPS["renderPullSummary :252"]
+        RP["deps pull :209"] --> RPS["renderPullSummary :252"]
         RP --> SD[["operations.SyncDependencies"]]
     end
 
@@ -32,7 +32,7 @@ flowchart TD
     end
 
     subgraph update["remote_update.go"]
-        RU["remote update &lt;ref&gt; :25"] --> RRU["runRemoteUpdate :49"]
+        RU["deps check &lt;ref&gt; :25"] --> RRU["runRemoteUpdate :49"]
         RRU --> US["updateSingle :68"] --> DSU["detectSingleUpdate :131"]
         RRU --> UA["updateAll :210"] --> RRR["refreshRemoteRepos :319"]
         UA --> DU["detectUpdates :350"] --> LWC["latestWithinConstraint :402"]
@@ -43,7 +43,7 @@ flowchart TD
         UA --> RMD["reportMissingDefaults :561"] --> CDP["checkDefaultProfiles :610"]
     end
 
-    RUP["remote upgrade — remote_upgrade.go:17"] --> UD[["operations.UpgradeDependencies"]]
+    RUP["deps upgrade — remote_upgrade.go:17"] --> UD[["operations.UpgradeDependencies"]]
 
     LCF["loadConfigOrFallback (startup_helpers.go:30)"] --> RRU
     LCF --> RUP
@@ -59,15 +59,15 @@ flowchart TD
 | `remote remove <name>` | `:92` | — |
 | `remote list` | `:115` | — |
 | `remote default <name>` | `:157` | Set or clear the default remote |
-| `remote pull` | `:209` | `--lock` (default true) |
+| `deps pull` | `:209` | `--lock` (default true) |
 | `remote browse <remote>` | `remote_browse.go:17` | `-r/--recursive` (default **true**) |
 | `remote discover [query]` | `remote_discover.go:25` | `--source`, plus 2 more |
-| `remote update [reference]` | `remote_update.go:25` | `--force`, `--cleanup`, plus 1 more |
-| `remote upgrade` | `remote_upgrade.go:17` | — |
+| `deps check [reference]` | `remote_update.go:25` | `--force`, `--cleanup`, plus 1 more |
+| `deps upgrade` | `remote_upgrade.go:17` | — |
 
 ## Update mechanics
 
-`remote update` has two modes sharing an apply phase:
+`deps check` has two modes sharing an apply phase:
 
 - **Single ref** (`updateSingle:68`): parse the ref, refresh that one clone
   (`refreshRemoteClone:172`), resolve its status against the lockfile
@@ -93,13 +93,13 @@ first, `detectUpdates` both.
 
 ## Invariants
 
-- **Each repo is git-fetched at most once per `remote update`.**
+- **Each repo is git-fetched at most once per `deps check`.**
   `refreshRemoteRepos` (`:319`) dedups by URL across lockfile entries.
 - **Updates are applied at a pinned SHA**, never at a floating ref —
   `applyUpdateBatch` passes `LatestSHA` into `PullOptions`.
 - **Refresh failures are best-effort and never fatal**: a `git fetch` that fails
   warns and the run continues against the existing clone.
-- **`remote update` and `remote upgrade` tolerate an unloadable config** by
+- **`deps check` and `deps upgrade` tolerate an unloadable config** by
   design: both use `loadConfigOrFallback` (`startup_helpers.go:30`), which warns
   and substitutes a minimal `.ctxloom`-rooted fixture. They are the only two
   commands that do.
@@ -114,16 +114,16 @@ first, `detectUpdates` both.
   → zero hits). All write with `fmt.Printf` to raw `os.Stdout`, so `--format json`
   is accepted and answered with an ASCII table, and the commands have no
   output-capture seam.
-- `remote pull` returns `nil` unconditionally after `renderPullSummary`
+- `deps pull` returns `nil` unconditionally after `renderPullSummary`
   (`:237-238`), so a pull with `result.Errors > 0` or a non-empty `Retracted`
   list exits 0 — the failures are printed to stdout only.
-- `remote update` prints **"All items are up to date!"** when every entry's
+- `deps check` prints **"All items are up to date!"** when every entry's
   resolution *failed*: `latestWithinConstraint` collapses `ParseRepoURL` and
   `ResolveConstraint` errors into a bare `ok=false` (`:405,:408`), and
   `detectUpdates` silently `continue`s on that plus `ParseReference` (`:377`) and
   fetcher-construction (`:385`) errors. `updateSingle` treats the identical
   condition as a hard error (`:146`), so the two paths disagree.
-- `remote upgrade` prints "Everything is up to date." when part of the dependency
+- `deps upgrade` prints "Everything is up to date." when part of the dependency
   closure could not be expanded: `operations.UpgradeDependencies` returns only
   `(int, error)`, an unreachable parent profile lands in `unexpanded` with no
   error, and the side-channel warning is itself gated on `preserved > 0`

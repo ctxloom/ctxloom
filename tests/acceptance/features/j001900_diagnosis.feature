@@ -41,7 +41,7 @@ Feature: The day the assistant goes blind
   # specific bundle, fragment, or file.
   #
   # THE ONE EXCEPTION, added 2026-08-05 and not a softening of that rule: B2's
-  # refusal row asserts that `remote upgrade` exits 2. That is not "the command
+  # refusal row asserts that `deps upgrade` exits 2. That is not "the command
   # succeeded", it is the OPPOSITE — the code is the only thing an unattended
   # sync tells a script, and 0 there would make a refusal indistinguishable from
   # a round with nothing to do. It sits beside four payload assertions that
@@ -85,7 +85,7 @@ Feature: The day the assistant goes blind
   #
   # WHAT THE PRODUCT DOES, and it is a DECIDED behaviour rather than an
   # observed one (taskloom unearned-cornea, decided 2026-08-05 by the human):
-  # `remote upgrade` REFUSES to advance the pin. The lockfile keeps the last
+  # `deps upgrade` REFUSES to advance the pin. The lockfile keeps the last
   # commit whose signature verified, Alice goes on being served that content,
   # and she is told — by name, with the pin she is being kept at.
   #
@@ -93,15 +93,15 @@ Feature: The day the assistant goes blind
   # because the way it became false is the trap this journey is about. It said
   # the consumer "silently keeps serving the SUPERSEDED copy", and it was
   # written from a scenario that NEVER ADVANCED A PIN: "Alice syncs on Monday"
-  # ran only `remote update` (a dry check ending in "Run with --apply") and
-  # `remote pull` (which says in as many words "Pull never moves an existing
+  # ran only `deps check` (a dry check ending in "Run with --apply") and
+  # `deps pull` (which says in as many words "Pull never moves an existing
   # pin"). The lockfile never left Friday's commit, so the attestation boundary
   # was never reached and the green proved nothing — two checks confirmed it,
   # making the fixture re-sign properly changed no outcome, and gutting
   # signing.VerifyPublisher so an invalid signature verifies changed no outcome
   # either.
   #
-  # Once the step also ran `remote upgrade`, the pin really advanced, and the
+  # Once the step also ran `deps upgrade`, the pin really advanced, and the
   # answer was the OPPOSITE of that paragraph: she was left with NOTHING. The
   # revision was withheld as tampered and the superseded copy went out of reach
   # with the pin that had named it — silent capability loss at exactly the
@@ -235,7 +235,7 @@ Feature: The day the assistant goes blind
   # hold nobody can see is indistinguishable from a broken pull. Inspector:
   # `bundle list`. Verdict OK.
   #
-  # WAS RED, and was a finding against B3's "OK" verdict: `ctxloom bundle hold`
+  # WAS RED, and was a finding against B3's "OK" verdict: `ctxloom deps hold`
   # froze the bundle correctly — the payload half always passed — but
   # `ctxloom bundle list` rendered the runbook as an ordinary entry at "(v1.0.0)"
   # and said NOTHING about the hold. A deliberate freeze and a broken pull were

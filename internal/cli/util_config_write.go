@@ -215,9 +215,11 @@ func verifyConfigWrite(fs afero.Fs, file, ft string, patch map[string]any) error
 	return nil
 }
 
-// sortedKeys returns m's top-level keys in a stable order, so the report names
-// the merged keys the same way on every run.
-func sortedKeys(m map[string]any) []string {
+// sortedKeys returns m's keys in a stable order, so a report names them the
+// same way on every run. Generic in the value type because the two callers
+// carry different ones — a merged config patch, and a reconcile's
+// refs-by-repository — and want the identical ordering guarantee.
+func sortedKeys[V any](m map[string]V) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
 		out = append(out, k)

@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/signing"
 )
 
-// RefusedAdvance is one pin `remote upgrade` DECLINED to move, because the
+// RefusedAdvance is one pin `deps upgrade` DECLINED to move, because the
 // content at the commit it would have advanced to carries a publisher
 // signature that does not verify over those bytes.
 //

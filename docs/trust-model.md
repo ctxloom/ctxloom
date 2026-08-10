@@ -380,11 +380,15 @@ Signing/verification is CLI-only and is
 **never** exposed over MCP — handing the agent a `signer add` capability would
 defeat the property this design exists to provide.
 
-> **Removed:** the `trust_bundles: true` remote flag, the trusted-sources set,
-> and `ctxloom remote trust|untrust`. Adding a remote (an address) and trusting a
-> publisher (a key) are now separate acts. `init --remote` no longer flips a
-> trust flag — a personal repo's content takes the review path until you sign it
-> and trust your own key.
+> **A remote carries no trust.** Adding a remote (an address) and trusting a
+> publisher (a key) are separate acts. `init --remote` flips no trust flag — a
+> personal repo's content takes the review path until you sign it and trust your
+> own key.
+>
+> Publishing is the mirror image and needs no record of its own: registering a
+> remote with `ctxloom remote create` is the deliberate act that names a
+> destination, and `ctxloom bundle push` publishes to a registered remote on the
+> strength of it.
 
 ## The review ceremony
 
@@ -544,7 +548,6 @@ signature body, resolves pending — never allow.
 | `.ctxloom/allowed_signers` (+ `~/.ctxloom/allowed_signers`, + embedded) | The **trust root**: publisher/approver keys in OpenSSH `allowed_signers` format, verbatim. Unioned across all three locations; the `namespaces="…"` option is the role system. Committable. |
 | `<bundle>.yaml.sig` | Detached publisher signature, a sibling of each signed bundle in the same git tree at the same pinned SHA. Verified over the raw file bytes before parse. A missing `.sig` = unsigned. |
 | `~/.ctxloom/companion_consent.yaml` | The **companion exec-consent record**: one decision per companion binary, keyed on resolved absolute path + SHA-256. Mode `0600`, personal only, **no committable twin** — it answers "may ctxloom run this file on this machine", which no repo may answer for you. Plain data, not a signature; its authority is filesystem permissions. Managed with `ctxloom companion list\|allow\|forget`. |
-| `~/.ctxloom/publish_remotes.yaml` | The **publish-destination record**: one decision per remote you have confirmed as a destination for your signed content, keyed on the remote's normalized identity (so two spellings of one repository are one destination). Same shape, same store and same properties as the companion record above — mode `0600`, personal only, no committable twin, plain data whose authority is filesystem permissions. Managed with `ctxloom remote trusted\|allow\|forget`; `allow` is how a CI job or an agent host records a confirmation it has no terminal to be asked for. |
 | `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
 | `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |
 | `cache/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Pure cache: deleting it only degrades update review to a full-content display. |
@@ -603,15 +606,15 @@ item kind — that path never gates ANY item, builtin or not.
 - **Steady-state sync** installs exactly the pinned set. It stages nothing and
   exposes nothing on its own — items land in whatever state their content hash
   resolves to.
-- **`remote pull`** fetches exactly what the lock already pins; it never advances
+- **`deps pull`** fetches exactly what the lock already pins; it never advances
   a SHA and never rewrites the manifest.
-- **`remote upgrade`** re-resolves each dependency to the newest commit its
+- **`deps upgrade`** re-resolves each dependency to the newest commit its
   manifest constraint allows and writes the advance **straight to the active
   lock** — no review gate at the lock layer, held (`pinned`) entries never
   advance, a hash conflict aborts with nothing written. Any changed content then
   re-hashes to pending and is withheld by the content gate until `ctxloom review`
   accepts it.
-- **`bundle hold` / `unhold`** freeze or release a dependency at its locked SHA
+- **`deps hold` / `unhold`** freeze or release a dependency at its locked SHA
   (aliases `pin` / `unpin`); a held entry never advances under `upgrade`. This is
   dependency management, not trust.
 - **Review** is the only exposure gate: `ctxloom review` (or the `trust` /

@@ -40,20 +40,18 @@ func defaultPublisherFactory(repoURL string, auth AuthConfig) (Publisher, error)
 }
 
 // PublishManager handles publish operations with injectable dependencies.
+//
+// THE DESTINATION IS DECIDED AT REGISTRATION, not here. A remote reaches
+// pm.registry because somebody ran `ctxloom remote create <name> <url>` and
+// named it; publish honors that choice rather than asking about it a second
+// time. Naming a remote is the deliberate act, and a per-remote grant on top of
+// it only teaches people to approve the destination they just typed.
 type PublishManager struct {
 	registry         *Registry
 	auth             AuthConfig
 	publisherFactory PublisherFactory
 	fetcherFactory   FetcherFactory
 	fs               afero.Fs
-
-	// confirmed is the record of remotes a human already decided about as
-	// publish destinations; nil means the production store
-	// (~/.ctxloom/publish_remotes.yaml). ask puts the question to a human, and
-	// nil — the DEFAULT — means there is nobody to ask, so an unconfirmed
-	// remote is refused rather than assumed. See publish_confirm.go.
-	confirmed *PublishRemoteStore
-	ask       PublishRemoteAsk
 }
 
 // PublishManagerOption configures a PublishManager.
@@ -77,28 +75,6 @@ func WithPublisherFactory(pf PublisherFactory) PublishManagerOption {
 func WithPublishFetcherFactory(ff FetcherFactory) PublishManagerOption {
 	return func(pm *PublishManager) {
 		pm.fetcherFactory = ff
-	}
-}
-
-// WithRemoteAsk attaches the human who answers "is this the remote you meant?"
-// the first time content is published to a given non-GitHub remote.
-//
-// A frontend supplies this ONLY when it actually has an interactive terminal.
-// Leaving it unset is the fail-closed default and the correct state for an
-// agent, an MCP tool call, an editor session, a CI job or a piped command:
-// those get a refusal that names the remote and says how to confirm it, never
-// a prompt written into a pipe and never an assumed yes.
-func WithRemoteAsk(ask PublishRemoteAsk) PublishManagerOption {
-	return func(pm *PublishManager) {
-		pm.ask = ask
-	}
-}
-
-// WithPublishRemoteStore overrides the record of publish-destination
-// decisions (tests point it at a temp file instead of the user's home).
-func WithPublishRemoteStore(store *PublishRemoteStore) PublishManagerOption {
-	return func(pm *PublishManager) {
-		pm.confirmed = store
 	}
 }
 
@@ -327,20 +303,10 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 		return nil, fmt.Errorf("remote not found: %w", err)
 	}
 
-	// The forge decides two things below: whether this destination needs a
-	// human's confirmation, and whether owner/repo have to parse at all.
+	// The forge decides whether owner/repo have to parse at all.
 	forge, _, ferr := DetectForge(rem.URL)
 	if ferr != nil {
 		return nil, fmt.Errorf("invalid remote URL: %w", ferr)
-	}
-
-	// Confirm the destination BEFORE anything is created or written. Signed
-	// content is about to leave this machine, and "which remote did I just
-	// push signed content to" must have been answered by a human at least
-	// once per remote, whatever forge is behind the URL. See publish_confirm.go
-	// for why a push token is not that answer.
-	if err := pm.authorizeRemote(ctx, rem.URL); err != nil {
-		return nil, err
 	}
 
 	publisher, err := pm.publisherFactory(rem.URL, pm.auth)

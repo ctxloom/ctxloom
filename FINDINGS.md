@@ -13,7 +13,7 @@ The review was written against `0f59fbae`. **Remediation has landed since** — 
 
 | item | state | commit |
 |---|---|---|
-| **T1** `remote upgrade` wipes `lock.yaml` | **RESOLVED** | `fd0d87d6` |
+| **T1** `deps upgrade` wipes `lock.yaml` | **RESOLVED** | `fd0d87d6` |
 | **T2** `deny_tools` / `skills` dropped on the launch wire | **RESOLVED** | `40b49a7f` |
 | **T4** manifest-less skill preimage is a constant | **RESOLVED** | `8d9da20c` |
 | **T7** total-struct parity gate | **RESOLVED** | `40b49a7f` |
@@ -127,12 +127,12 @@ Five constraints. At least two fixes are unsafe applied alone.
 
 ## Tier 1 — act on these
 
-### T1. `remote upgrade` silently wipes `lock.yaml` and reports success — **VERIFIED** · **RESOLVED `fd0d87d6`**
+### T1. `deps upgrade` silently wipes `lock.yaml` and reports success — **VERIFIED** · **RESOLVED `fd0d87d6`**
 Highest data-loss finding in the review. Every link re-read by the coordinator.
 
-**RESOLVED.** Both halves landed, guard before trigger. (b) `LockfileManager.Save` reads back what is on disk and refuses two cases — empty over populated (`ErrLockfileWouldErase`, naming how many entries it protected) and **any** write over an unparseable lockfile (`ErrLockfileUnreadable`, naming the recovery, with no override: holds and retractions that cannot be read cannot be carried forward). `AllowEmpty()` is the opt-in for a caller that emptied the lock deliberately, and relaxes only the first refusal; the signature is variadic so no call site churned. All six call sites covered. (a) `remote upgrade` calls the config loader directly and fails loud. `U085-F01` (a corrupt lock degraded to empty and was then saved, clearing every hold and retraction) folded in — the degrade still happens but can no longer be persisted, and the corrupt file is left byte-identical.
+**RESOLVED.** Both halves landed, guard before trigger. (b) `LockfileManager.Save` reads back what is on disk and refuses two cases — empty over populated (`ErrLockfileWouldErase`, naming how many entries it protected) and **any** write over an unparseable lockfile (`ErrLockfileUnreadable`, naming the recovery, with no override: holds and retractions that cannot be read cannot be carried forward). `AllowEmpty()` is the opt-in for a caller that emptied the lock deliberately, and relaxes only the first refusal; the signature is variadic so no call site churned. All six call sites covered. (a) `deps upgrade` calls the config loader directly and fails loud. `U085-F01` (a corrupt lock degraded to empty and was then saved, clearing every hold and retraction) folded in — the degrade still happens but can no longer be persisted, and the corrupt file is left byte-identical.
 
-**Raised by this fix and still OPEN:** partial closure narrowing still writes a non-empty result; `remote update` still reads via `loadConfigOrFallback`.
+**Raised by this fix and still OPEN:** partial closure narrowing still writes a non-empty result; `deps check` still reads via `loadConfigOrFallback`.
 
 #### T1a. The trust gate failed OPEN on an unreadable lockfile — **RESOLVED `9492dd16`**
 **Not from the original review** — escalated out of T1's own work and recorded here so it is not lost. `buildLockfileRetraction` degraded an unparseable `lock.yaml` to "nothing is retracted", so content a publisher had deliberately **withdrawn** was silently served again. No write is involved, so T1's write guard does not reach it; retraction exists for "this turned out to be harmful", so failing open inverts the control.
@@ -141,11 +141,11 @@ Now denies via `trust.Deny` + `trust.SourcePending`, recorded as `strictness.Fai
 
 `remote_upgrade.go:35` uses `loadConfigOrFallback`, which on ANY config-load error returns a minimal empty config (`startup_helpers.go:38-39`). Empty config → no profile definitions → `closureRoots` empty (`depgraph.go:95-107`) → `proposed` and `unexpanded` both empty → the carry-forward guard at `upgrade.go:77` **never fires** → `Save(newActive)` at `:90` is **unconditional** and writes an empty lockfile, erasing every pin → `advanced == 0` → prints **"Everything is up to date."**, exit 0.
 
-- **Root cause, one line:** a fault-tolerant fallback intended for read-only commands (its own comment names `remote update` and `search`) is used by a destructive one.
+- **Root cause, one line:** a fault-tolerant fallback intended for read-only commands (its own comment names `deps check` and `search`) is used by a destructive one.
 - **The author guarded the wrong case.** `upgrade.go:28-30` reasons explicitly about `Save(newActive)` erasing entries — and applies that reasoning to root-set narrowness and `unexpanded`, not to the empty closure.
-- **Security-relevant, not just inconvenient:** per S12 retraction state is cleared by `remote upgrade`, so a wipe silently **un-retracts** previously retracted content.
+- **Security-relevant, not just inconvenient:** per S12 retraction state is cleared by `deps upgrade`, so a wipe silently **un-retracts** previously retracted content.
 - **Trigger is routine:** a config-load error, not an exotic state.
-- **Fix:** (a) `remote upgrade` must refuse a fallback config and fail loud; (b) `Save` must refuse to write an empty lockfile over a non-empty one absent an explicit force. **Do (b) regardless** — it closes the class.
+- **Fix:** (a) `deps upgrade` must refuse a fallback config and fail loud; (b) `Save` must refuse to write an empty lockfile over a non-empty one absent an explicit force. **Do (b) regardless** — it closes the class.
 
 ### T2. `deny_tools` and `skills` are dropped on the LAUNCH wire — **VERIFIED** · **RESOLVED `40b49a7f`**
 Reported independently by three lenses (D1, W2, S7); reach settled by the coordinator.
@@ -305,7 +305,7 @@ These are not from the review — the implementing agents surfaced them while fi
 | TOCTOU between the confinement check and the syscall — needs `openat2` `RESOLVE_BENEATH` | T13 `73ea8d7f` | **open**, same task |
 | The `Fs` capability is advertised unconditionally | T13 `73ea8d7f` | **open**, same task |
 | **Partial closure narrowing still writes** a non-empty result — the T1 guard refuses empty-over-populated, not populated-but-smaller | T1 `fd0d87d6` | **open** |
-| **`remote update` still reads via `loadConfigOrFallback`** — the same fault-tolerant fallback whose use by a destructive command *was* T1. `remote update` is read-only today, so it is correct-by-accident, not by construction | T1 `fd0d87d6` | **open** |
+| **`deps check` still reads via `loadConfigOrFallback`** — the same fault-tolerant fallback whose use by a destructive command *was* T1. `deps check` is read-only today, so it is correct-by-accident, not by construction | T1 `fd0d87d6` | **open** |
 | T4 **diverges from S2's recommended remedy** (S2: refuse to gate a manifest-less skill; the fix: derive a real preimage instead). Recorded as a **product call**, not a defect — reversing it is a decision, not a bug fix | T4 `8d9da20c` | **open decision** |
 | T4 **invalidates previously-recorded approvals of manifest-less skills.** No honest migration exists — they attested to a constant. They return to pending for one re-review | T4 `8d9da20c` | **accepted consequence**, shipped |
 | A **stale orphaned narration block** in `trust_surface.doc.md` | sweep / `f48ec814` | **open** — see below |

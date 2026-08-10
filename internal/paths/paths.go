@@ -59,24 +59,6 @@ const (
 	// committable) — see HomeApprovalsPath / ApprovalsPath.
 	ApprovalsDirName = "approvals"
 
-	// PublishRemotesFileName is the name (without extension) of the
-	// confirmed-publish-remote record: which remote URLs the user has
-	// explicitly confirmed as destinations for their signed content.
-	// USER-SCOPED ONLY — unlike ApprovalsDirName there is no committable twin;
-	// see HomePublishRemotesPath for why.
-	PublishRemotesFileName = "publish_remotes"
-
-	// LegacyPublishRemotesDirName is PublishRemotesFileName's PRE-ADMISSION
-	// name: the directory (~/.ctxloom/publish-remotes/, hyphenated) the
-	// confirmed-publish-remote store used to be — a MARKER DIRECTORY holding
-	// one <sha256>.confirmed file per confirmed remote, the file's EXISTENCE
-	// being the whole record. It was replaced by a single
-	// admission.Store-backed YAML file at PublishRemotesFileName, and nothing
-	// reads consent from here anymore (this project carries no compatibility
-	// shims; a user who had confirmed remotes there is simply asked once
-	// more). This constant exists ONLY so the orphaned directory can be
-	// found and swept — see remote.sweepLegacyPublishRemotesDir.
-	LegacyPublishRemotesDirName = "publish-remotes"
 	// CompanionConsentFileName is the name (without extension) of the
 	// trust-on-first-use record for EXECUTING a companion binary — see
 	// HomeCompanionConsentPath. It is deliberately a PERSONAL-only file with no
@@ -116,7 +98,7 @@ const (
 	// (config-layer-scope design doc, "The .ctxloom classification"). A file
 	// under here is a fact about THIS checkout on THIS machine that must never
 	// be committed (a clone would arrive carrying somebody else's answer) and
-	// that a cache wipe or a `remote pull` cannot regenerate — see Tier's doc
+	// that a cache wipe or a `deps pull` cannot regenerate — see Tier's doc
 	// for why that distinction, not mere gitignore status, is what earns a path
 	// a place in this directory instead of cache/.
 	StateDir = "state"
@@ -132,7 +114,7 @@ const (
 	ReposCacheDir = "repos"
 
 	// RefusedAdvancesFileName is the name (without extension) of the record of
-	// pin advances `ctxloom remote upgrade` DECLINED to make because the
+	// pin advances `ctxloom deps upgrade` DECLINED to make because the
 	// content at the proposed commit carried a publisher signature that does
 	// not verify over its bytes — see RefusedAdvancesPath.
 	RefusedAdvancesFileName = "refused_advances"
@@ -512,47 +494,6 @@ func HomeApprovalsPath() (string, error) {
 	return filepath.Join(home, AppDirName, ApprovalsDirName), nil
 }
 
-// HomePublishRemotesPath returns ~/.ctxloom/publish_remotes.yaml — the record
-// of which remotes this user has explicitly confirmed as publish destinations
-// (see remote.PublishRemoteStore, an internal/shared/admission store).
-//
-// IT IS PERSONAL AND HAS NO COMMITTABLE TWIN, deliberately, and the asymmetry
-// with ApprovalsPath is the point. An approval says "these bytes are good",
-// which a team genuinely can share. A publish-remote confirmation says "I meant
-// to push MY signed content HERE" — an answer only the person at the keyboard
-// can give, about their own credentials. Committing one would ship it to
-// everyone who clones the repo and pre-answer the question for them, which is
-// exactly one of the three mistakes the confirmation exists to catch: a
-// .ctxloom/ config that arrived carrying a remote the user never chose.
-//
-// It is also, like the approvals store's unsigned markers (spec §9.5), an
-// UNSIGNED record — anything that can write the user's home can forge one. A
-// forgeable record is tolerable strictly locally and never shareable.
-func HomePublishRemotesPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the confirmed publish-remote store ~/%s/%s.yaml: %w", AppDirName, PublishRemotesFileName, err)
-	}
-	return filepath.Join(home, AppDirName, PublishRemotesFileName+".yaml"), nil
-}
-
-// HomeLegacyPublishRemotesDir returns ~/.ctxloom/publish-remotes — the
-// directory the pre-admission confirmed-publish-remote store used to live in
-// (see LegacyPublishRemotesDirName). Nothing reads consent from here anymore;
-// it exists purely so the orphaned directory can be located and swept.
-//
-// Like every other home-rooted resolver here, an unresolvable $HOME is
-// returned as an error rather than papered over — the caller (the sweep) must
-// refuse to act rather than fall back to a path relative to its own working
-// directory.
-func HomeLegacyPublishRemotesDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the legacy publish-remote marker directory ~/%s/%s: %w", AppDirName, LegacyPublishRemotesDirName, err)
-	}
-	return filepath.Join(home, AppDirName, LegacyPublishRemotesDirName), nil
-}
-
 // HomeCompanionConsentPath returns ~/.ctxloom/companion_consent.yaml — the
 // user-scoped record of which companion binaries the human agreed ctxloom may
 // EXECUTE (config.CompanionConsentStore). There is deliberately no project
@@ -670,7 +611,7 @@ func TrustObjectsPath(appPath string) string {
 }
 
 // RefusedAdvancesPath returns the refused-advance record (under cache/): what
-// the last `remote upgrade` round declined to advance, and the pin it kept
+// the last `deps upgrade` round declined to advance, and the pin it kept
 // instead, so an inspector run days later can still say why a revision is not
 // here. Without it the refusal exists only in the transient stdout of the sync
 // that produced it.
@@ -683,7 +624,7 @@ func TrustObjectsPath(appPath string) string {
 // wrong one's problem in the other's directory.
 //
 // Under cache/ because it is DERIVED and regenerable: re-running `ctxloom
-// remote upgrade` reproduces it exactly, deleting it only costs the after-the-
+// deps upgrade` reproduces it exactly, deleting it only costs the after-the-
 // fact advisory (the sync still says so at the moment it refuses), and nothing
 // about it should be committed — it describes what one machine saw upstream at
 // one moment, not a decision the team shares.
@@ -777,9 +718,9 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, AllowedSignersFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, DistrustedSignersFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, ApprovalsDirName), Tier: TierCommitted},
-		{Rel: filepath.Join(AppDirName, CacheDir, BundlesDir), Tier: TierDerived, Rebuild: "ctxloom remote pull"},
-		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom remote pull"},
-		{Rel: filepath.Join(AppDirName, CacheDir, RefusedAdvancesFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom remote upgrade"},
+		{Rel: filepath.Join(AppDirName, CacheDir, BundlesDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
+		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
+		{Rel: filepath.Join(AppDirName, CacheDir, RefusedAdvancesFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom deps upgrade"},
 		{
 			Rel: filepath.Join(AppDirName, CacheDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,
 			Lost: "the content-addressed snapshots review diffed an update against; update review degrades from a diff to a full-content dump, but committed approval signatures still verify",

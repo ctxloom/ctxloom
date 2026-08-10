@@ -50,7 +50,7 @@ func newRefusal(t *testing.T) refusal {
 }
 
 // The refusal has to OUTLIVE the sync that produced it. Before this record
-// existed, `remote upgrade` was the only place the fact was ever stated: close
+// existed, `deps upgrade` was the only place the fact was ever stated: close
 // the terminal and nothing on the machine knew a revision had been refused.
 func TestRefusals_UpgradeRecordsTheRefusalWhereAnInspectorCanReadIt(t *testing.T) {
 	r := newRefusal(t)

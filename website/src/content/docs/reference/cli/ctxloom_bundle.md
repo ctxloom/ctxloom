@@ -48,7 +48,6 @@ ctxloom bundle [flags]
 * [ctxloom bundle edit](/reference/cli/ctxloom_bundle_edit/)	 - Edit a bundle
 * [ctxloom bundle export](/reference/cli/ctxloom_bundle_export/)	 - Export a bundle to a file or directory
 * [ctxloom bundle forget](/reference/cli/ctxloom_bundle_forget/)	 - Clear an item's recorded decision (approval or rejection), back to pending
-* [ctxloom bundle hold](/reference/cli/ctxloom_bundle_hold/)	 - Hold an item at its locked SHA so `upgrade` won't advance it
 * [ctxloom bundle import](/reference/cli/ctxloom_bundle_import/)	 - Import a bundle from a local file
 * [ctxloom bundle list](/reference/cli/ctxloom_bundle_list/)	 - List installed bundles
 * [ctxloom bundle move](/reference/cli/ctxloom_bundle_move/)	 - Move an authored bundle to a remote or another project, carrying its signature
@@ -58,6 +57,5 @@ ctxloom bundle [flags]
 * [ctxloom bundle show](/reference/cli/ctxloom_bundle_show/)	 - Show bundle contents
 * [ctxloom bundle sign](/reference/cli/ctxloom_bundle_sign/)	 - Sign a local bundle for publication
 * [ctxloom bundle trust](/reference/cli/ctxloom_bundle_trust/)	 - Trust an item's current content (fragment, command, MCP server, or hook)
-* [ctxloom bundle unhold](/reference/cli/ctxloom_bundle_unhold/)	 - Release a hold so `upgrade` can advance the item again
 * [ctxloom bundle view](/reference/cli/ctxloom_bundle_view/)	 - View bundle content
 

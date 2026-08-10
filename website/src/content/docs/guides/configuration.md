@@ -281,7 +281,7 @@ The `lock.yaml` records the resolved remote items for reproducible pulls. It is
 updated automatically whenever you pull or upgrade:
 
 ```bash
-ctxloom remote pull        # Fetch referenced content and update lock.yaml
+ctxloom deps pull        # Fetch referenced content and update lock.yaml
 ```
 
 ## Memory Configuration

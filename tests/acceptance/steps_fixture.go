@@ -375,8 +375,40 @@ func registerFixtureSteps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
+	// Deletes a bundle from a seeded remote and pushes that deletion. The
+	// remote stays perfectly reachable, which is what makes the absence
+	// AUTHORITY rather than a failed lookup — see the unreachable step below
+	// for the case a reconcile must never confuse it with.
+	ctx.Step(`^the remote "([^"]*)" stops publishing bundle "([^"]*)"$`, func(c context.Context, name, bundle string) error {
+		w := worldFrom(c)
+		bare := w.remoteBare[name]
+		if bare == "" {
+			return fmt.Errorf("remote %q was not seeded", name)
+		}
+		return w.env.UnpublishFromRemote(bare, ".ctxloom/content/bundles/"+bundle+".yaml")
+	})
+
+	// Takes a seeded remote off the air. The bare repo IS the remote at this
+	// file:// URL, so renaming it away breaks every subsequent fetch and clone
+	// against it exactly as a network partition, an outage or a revoked
+	// credential would: the fetcher gets an undifferentiated failure,
+	// indistinguishable at that seam from a repository that was deleted.
+	ctx.Step(`^the remote "([^"]*)" becomes unreachable$`, func(c context.Context, name string) error {
+		w := worldFrom(c)
+		bare := w.remoteBare[name]
+		if bare == "" {
+			return fmt.Errorf("remote %q was not seeded", name)
+		}
+		broken, err := w.env.BreakRemote(bare)
+		if err != nil {
+			return err
+		}
+		w.remoteBare[name] = broken
+		return nil
+	})
+
 	// Advance a seeded remote with a second commit that changes the demo bundle,
-	// so the next `remote sync` detects the change and stages it for review.
+	// so the next sync detects the change and stages it for review.
 	ctx.Step(`^the remote "([^"]*)" advances its bundle$`, func(c context.Context, name string) error {
 		w := worldFrom(c)
 		bare := w.remoteBare[name]

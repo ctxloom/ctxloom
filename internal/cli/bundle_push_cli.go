@@ -87,7 +87,6 @@ func pushBundleCfg(cmd *cobra.Command, cfg *config.Config, discoverer *agentkey.
 		// The human who confirms a remote nothing has been published to
 		// before — nil unless there is a terminal, which is what makes an
 		// agent or CI invocation refuse instead of prompt.
-		ConfirmRemote: publishRemoteAsk(cmd),
 	}
 	req.Signature, err = resolvePushSignature(cmd, cfg, discoverer, bundleName, bundle.Path, sign, noSign)
 	if err != nil {

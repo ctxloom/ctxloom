@@ -163,7 +163,7 @@ func TestLoader_Load_RemoteRefNotSeeded(t *testing.T) {
 	_, err := loader.Load("https://github.com/owner/repo@profiles/default")
 	assert.Error(t, err)
 	assert.ErrorIs(t, err, errs.ErrProfileNotFound)
-	assert.Contains(t, err.Error(), "ctxloom remote pull")
+	assert.Contains(t, err.Error(), "ctxloom deps pull")
 }
 
 func TestLoader_Load_YmlExtension(t *testing.T) {

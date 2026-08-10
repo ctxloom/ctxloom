@@ -131,7 +131,7 @@ all — it is dependency management, not a security surface. A pull of an unsign
 signed, or rejected bundle **succeeds**; its content is withheld when it would be exposed.
 Verification happens at the exposure choke, never at fetch or lock time.
 
-`ctxloom remote upgrade` moves the lockfile to the newest commit each constraint allows, with
+`ctxloom deps upgrade` moves the lockfile to the newest commit each constraint allows, with
 no gate at the lock layer. The changed content then fails to verify against the approval you
 gave the old content, re-gates to pending, and is withheld until you review it — as a diff
 against what you approved.

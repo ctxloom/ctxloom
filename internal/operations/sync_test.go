@@ -1485,7 +1485,7 @@ func TestRunSyncPostSteps_Guards(t *testing.T) {
 	}
 }
 
-// revealingPuller simulates the real cascade that made `remote pull` need
+// revealingPuller simulates the real cascade that made `deps pull` need
 // repeated invocation: a profile that cannot load until one of its remote
 // dependencies is installed contributes NO references to the first collect
 // pass. Pulling that dependency makes the profile loadable, revealing bundle
@@ -1518,7 +1518,7 @@ func (p *revealingPuller) Pull(_ context.Context, refStr string, _ remote.PullOp
 // contract: references that only become discoverable *because* of an earlier
 // pull in the same run must still be pulled. Without it, sync exits 0 having
 // silently left part of the dependency graph unpinned, and the user must run
-// `remote pull` again (and again) to converge.
+// `deps pull` again (and again) to converge.
 func TestSyncDependencies_PullsRefsRevealedByEarlierPulls(t *testing.T) {
 	fs := afero.NewMemMapFs()
 
@@ -1585,7 +1585,7 @@ func (p *chainRevealingPuller) Pull(_ context.Context, refStr string, _ remote.P
 // the "still revealing new references" warning must describe the GRAPH, not
 // the loop counter. A chain that needs every allowed pass and then converges
 // on the last one is a fully-converged sync — warning there tells the user to
-// re-run `remote pull` for nothing, and the re-run finds no work.
+// re-run `deps pull` for nothing, and the re-run finds no work.
 func TestSyncDependencies_NoUnconvergedWarningWhenLastPassConverges(t *testing.T) {
 	fs := afero.NewMemMapFs()
 

@@ -213,7 +213,7 @@ func (f *RemoteRefFetcher) ListItems(ctx context.Context, kind ItemType) ([]*Ref
 	for _, url := range f.sources() {
 		vcs, err := f.openVCS(url)
 		if err != nil {
-			failures = append(failures, fmt.Errorf("%w: %s — run `ctxloom remote pull` to download it", errs.ErrRemoteNotMaterialized, url))
+			failures = append(failures, fmt.Errorf("%w: %s — run `ctxloom deps pull` to download it", errs.ErrRemoteNotMaterialized, url))
 			continue
 		}
 		paths, err := vcs.ListItems(ctx, kind)

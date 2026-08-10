@@ -27,7 +27,7 @@ Feature: An incident — a bad command ships and must be pulled
   # "already installed" is inherently a multi-machine fact. Carol and Bob each
   # install the bundle independently, on their own separate machines, before
   # Trent retracts it. Both stop receiving it on their own next routine sync,
-  # with neither of them doing anything beyond an ordinary `remote pull` — no
+  # with neither of them doing anything beyond an ordinary `deps pull` — no
   # special "acknowledge the incident" step exists or is needed.
   # Verified: internal/operations/sync.go's checkInstalledRetraction (called
   # from syncItem at :493) re-evaluates retraction for a ref already marked

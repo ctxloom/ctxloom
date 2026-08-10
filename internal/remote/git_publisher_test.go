@@ -85,14 +85,14 @@ func bareRemote(t *testing.T, branch string) (url, bare string) {
 }
 
 // publishFixture wires a PublishManager over a real local file and a real
-// file:// remote, with the remote ALREADY confirmed (the confirmation itself is
-// exercised in publish_confirm_test.go).
+// file:// remote. Registering the remote is the whole admission story —
+// publish_registration_consent_test.go is where that claim is asserted
+// directly.
 type publishFixture struct {
-	pm          *PublishManager
-	localPath   string
-	remoteURL   string
-	bare        string
-	confirmPath string
+	pm        *PublishManager
+	localPath string
+	remoteURL string
+	bare      string
 }
 
 func newPublishFixture(t *testing.T, branch, body string) *publishFixture {
@@ -109,16 +109,8 @@ func newPublishFixture(t *testing.T, branch, body string) *publishFixture {
 	require.NoError(t, err)
 	require.NoError(t, registry.Add("shared", url))
 
-	confirmPath := filepath.Join(work, "publish_remotes.yaml")
-	store := NewPublishRemoteStore(confirmPath, fs)
-	_, serr := store.Set(NewPublishRemoteKey(url), true)
-	require.NoError(t, serr)
-
-	pm := NewPublishManager(registry, AuthConfig{},
-		WithPublishFS(fs),
-		WithPublishRemoteStore(store),
-	)
-	return &publishFixture{pm: pm, localPath: local, remoteURL: url, bare: bare, confirmPath: confirmPath}
+	pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs))
+	return &publishFixture{pm: pm, localPath: local, remoteURL: url, bare: bare}
 }
 
 // remoteFile reads a path out of the BARE repository at branch — the
@@ -258,11 +250,7 @@ func TestGitPublisher_UnreachableRemoteFailsLoudly(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, registry.Add("gone", missing))
 
-	store := NewPublishRemoteStore(filepath.Join(work, "publish_remotes.yaml"), fs)
-	_, serr := store.Set(NewPublishRemoteKey(missing), true)
-	require.NoError(t, serr)
-
-	pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs), WithPublishRemoteStore(store))
+	pm := NewPublishManager(registry, AuthConfig{}, WithPublishFS(fs))
 	_, err = pm.Publish(context.Background(), local, "gone", PublishOptions{
 		ItemType:   ItemTypeBundle,
 		RemotePath: mybundleRemotePath,

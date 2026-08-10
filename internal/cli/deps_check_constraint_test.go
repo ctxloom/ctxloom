@@ -71,7 +71,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 
 	t.Run("constrained entry tracks its branch, not HEAD", func(t *testing.T) {
 		var out strings.Builder
-		ref, rerr := parseUpdateRef("https://github.com/o/r@bundles/x")
+		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x")
 		require.NoError(t, rerr)
 		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, lockfile, ref, "https://github.com/o/r@bundles/x")
 		require.NoError(t, err)
@@ -86,7 +86,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 			"https://github.com/o/r@bundles/x": {SHA: "relsha2", RequestedVersion: "release"},
 		}}
 		var out strings.Builder
-		ref, rerr := parseUpdateRef("https://github.com/o/r@bundles/x")
+		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x")
 		require.NoError(t, rerr)
 		_, upToDate, err := detectSingleUpdate(ctx, &out, mock, lf, ref, "https://github.com/o/r@bundles/x")
 		require.NoError(t, err)
@@ -95,7 +95,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 
 	t.Run("version-suffixed input matches its canonical lock entry", func(t *testing.T) {
 		var out strings.Builder
-		ref, rerr := parseUpdateRef("https://github.com/o/r@bundles/x@release")
+		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x@release")
 		require.NoError(t, rerr)
 		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, lockfile, ref, "https://github.com/o/r@bundles/x@release")
 		require.NoError(t, err)
@@ -108,7 +108,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 		// pulls as a bundle — the only distributed item type.
 		empty := &remote.Lockfile{}
 		var out strings.Builder
-		ref, rerr := parseUpdateRef("https://github.com/o/r@bundles/x")
+		ref, rerr := parseCheckRef("https://github.com/o/r@bundles/x")
 		require.NoError(t, rerr)
 		u, upToDate, err := detectSingleUpdate(ctx, &out, mock, empty, ref, "https://github.com/o/r@bundles/x")
 		require.NoError(t, err)
@@ -121,7 +121,7 @@ func TestDetectSingleUpdate_HonorsConstraint(t *testing.T) {
 // reference could not even be parsed used to `continue` with ZERO
 // diagnostic and zero effect on any counter — indistinguishable from an
 // entry that was checked and found current. If every entry in a lockfile
-// hit this, `updateAll` printed "All items are up to date!" having actually
+// hit this, `checkAll` printed "All items are up to date!" having actually
 // checked nothing. detectUpdates now returns a third count so the caller can
 // tell "verified current" apart from "could not be checked".
 func TestDetectUpdates_FailedChecksAreCounted(t *testing.T) {

@@ -152,7 +152,7 @@ that inherits from it, then pull:
 
 ```bash
 ctxloom profile create my-dev --parent 'https://github.com/ctxloom/ctxloom-default@bundles/ai-developer#profiles/developer'
-ctxloom remote pull
+ctxloom deps pull
 ```
 
 ### Create with Options

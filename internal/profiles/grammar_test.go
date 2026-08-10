@@ -94,7 +94,7 @@ func TestLoad_BundleProfileMiss_HasPullHint(t *testing.T) {
 			_, err := loader.Load(tt.ref)
 			require.Error(t, err)
 			assert.ErrorIs(t, err, errs.ErrProfileNotFound)
-			assert.Contains(t, err.Error(), "ctxloom remote pull")
+			assert.Contains(t, err.Error(), "ctxloom deps pull")
 		})
 	}
 }
@@ -151,7 +151,7 @@ func TestLoad_AliasWithoutResolver_FailsWithHint(t *testing.T) {
 	_, err := loader.Load("myrem/ai-developer#profiles/developer")
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errs.ErrProfileNotFound)
-	assert.Contains(t, err.Error(), "ctxloom remote pull")
+	assert.Contains(t, err.Error(), "ctxloom deps pull")
 }
 
 // TestResolveProfile_VisitedKeyIsCanonical pins that the cycle-detection and

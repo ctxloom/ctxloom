@@ -109,6 +109,59 @@ func (e *TestEnvironment) AdvanceRemote(bareDir string, files map[string]string)
 	return nil
 }
 
+// UnpublishFromRemote pushes a commit to bareDir that DELETES the given
+// repo-relative paths. It is the deliberate counterpart to AdvanceRemote: that
+// one rewrites content, this one takes it away, which is the only way to
+// produce the state a reconcile has to treat as authority — a remote that is
+// perfectly reachable and genuinely no longer serves a bundle.
+func (e *TestEnvironment) UnpublishFromRemote(bareDir string, paths ...string) error {
+	work, err := os.MkdirTemp(e.Root, "unpublish-*")
+	if err != nil {
+		return err
+	}
+	if err := runGitE("", "clone", bareDir, work); err != nil {
+		return err
+	}
+	for _, s := range [][]string{
+		{"config", "user.email", "test@example.com"},
+		{"config", "user.name", "Test User"},
+		{"config", "commit.gpgsign", "false"},
+	} {
+		if err := runGitE(work, s...); err != nil {
+			return err
+		}
+	}
+	for _, rel := range paths {
+		full := filepath.Join(work, filepath.FromSlash(rel))
+		if err := os.Remove(full); err != nil {
+			return fmt.Errorf("unpublish %s: %w", rel, err)
+		}
+	}
+	for _, s := range [][]string{
+		{"add", "-A"},
+		{"commit", "-m", "unpublish"},
+		{"push", "origin", "main"},
+	} {
+		if err := runGitE(work, s...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// BreakRemote renames a bare repository out from under its file:// URL and
+// returns the new path. Every subsequent clone or fetch against that URL fails
+// exactly as a network partition, a revoked credential or a deleted repository
+// would — an undifferentiated failure at the fetcher seam, which is precisely
+// the state a reconcile must never read as "upstream deleted everything".
+func (e *TestEnvironment) BreakRemote(bareDir string) (string, error) {
+	broken := bareDir + ".unreachable"
+	if err := os.Rename(bareDir, broken); err != nil {
+		return "", fmt.Errorf("break remote %s: %w", bareDir, err)
+	}
+	return broken, nil
+}
+
 // FindRepoCacheClone locates the git clone the CLI cached under this
 // environment's project (.ctxloom/cache/repos/...) for a previously seeded
 // remote. Scenarios in this suite seed at most one remote, so the first clone

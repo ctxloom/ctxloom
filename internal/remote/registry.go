@@ -187,7 +187,7 @@ func (r *Registry) Add(name, repoURL string) error {
 
 	// Check if any existing remote points to this URL
 	if existingName, found := r.findByURLLocked(normalizedURL); found {
-		return fmt.Errorf("remote '%s' already points to this URL; use 'ctxloom remote pull %s/<path>' instead", existingName, existingName)
+		return fmt.Errorf("remote '%s' already points to this URL; use 'ctxloom deps pull %s/<path>' instead", existingName, existingName)
 	}
 
 	remote := &Remote{

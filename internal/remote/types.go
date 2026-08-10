@@ -174,7 +174,7 @@ type LockEntry struct {
 	// FetchedAt is when the item was pulled
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"`
 
-	// Pinned freezes this entry at the recorded SHA (a "hold"): `remote upgrade`
+	// Pinned freezes this entry at the recorded SHA (a "hold"): `deps upgrade`
 	// leaves it put even when its constraint would allow a newer commit, and a
 	// lock rebuild carries the flag forward. Toggled via `ctxloom bundle
 	// hold`/`unhold`.

@@ -41,7 +41,7 @@ Feature: Fault tolerance
     And the output contains "invalid reference format: expected bundle#fragments/name"
 
   # This scenario used to REGISTER the unreachable remote and never depend on
-  # it, so `remote pull` printed "No remote dependencies to pull." and exited
+  # it, so `deps pull` printed "No remote dependencies to pull." and exited
   # 0 — the subject never ran, and the whole Then block was that exit code.
   # An early `return nil` in the pull path was indistinguishable from a pull
   # that degraded gracefully. A profile referencing broken/demo puts the
@@ -53,7 +53,7 @@ Feature: Fault tolerance
     Given an initialized ctxloom project
     And I run "ctxloom remote create broken file:///nonexistent/ctxloom-repo.git --forge git"
     And I run "ctxloom profile create dev --bundle broken/demo"
-    When I run "ctxloom remote pull"
+    When I run "ctxloom deps pull"
     Then the command fails
     And the output contains "Failed: 1"
     And the output contains "@bundles/demo"

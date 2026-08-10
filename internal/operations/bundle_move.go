@@ -63,12 +63,6 @@ type MoveBundleRequest struct {
 	// PublishManager overrides the default registry-built one for a remote
 	// destination (tests inject one backed by a mock Publisher).
 	PublishManager *remote.PublishManager `json:"-"`
-
-	// ConfirmRemote is forwarded to PushBundle for a remote destination — the
-	// human who confirms a never-before-published-to remote. Nil (the default)
-	// refuses an unconfirmed one rather than prompting; see
-	// PushBundleRequest.ConfirmRemote.
-	ConfirmRemote remote.PublishRemoteAsk `json:"-"`
 }
 
 // MoveBundleResult reports where the bundle went and that the source is gone.
@@ -174,7 +168,7 @@ func moveByDest(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBu
 // (bundles.Loader refuses `skills:` in single-file form), so the failure lands
 // squarely on the thing the shape was created to carry.
 //
-// The check is by PAYLOAD, not by shape: a directory-form bundle holding nothing
+// The check is by PAYLOAD, not by shape: a directory-form deps holding nothing
 // but its manifest loses nothing and still moves. And it is stated as "anything
 // that is not the manifest or its signature" rather than as "skills/", so it
 // covers a tree-form bundle's fragments/ and prompts/ too — publish cannot carry
@@ -361,7 +355,6 @@ func moveToRemote(ctx context.Context, cfg *config.Config, fs afero.Fs, req Move
 		Message:        req.Message,
 		Signature:      signature,
 		PublishManager: req.PublishManager,
-		ConfirmRemote:  req.ConfirmRemote,
 	})
 	if err != nil {
 		return nil, err

@@ -65,6 +65,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom companion](/reference/cli/ctxloom_companion/)	 - Manage which companion binaries ctxloom may execute
 * [ctxloom config](/reference/cli/ctxloom_config/)	 - Show or modify ctxloom configuration
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
+* [ctxloom deps](/reference/cli/ctxloom_deps/)	 - Manage this project's installed dependency closure
 * [ctxloom doctor](/reference/cli/ctxloom_doctor/)	 - Run deterministic setup checks (deps, agents, hooks, MCP, companions, trust)
 * [ctxloom fragment](/reference/cli/ctxloom_fragment/)	 - Manage context fragments
 * [ctxloom init](/reference/cli/ctxloom_init/)	 - Initialize a new .ctxloom directory
@@ -72,7 +73,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List configured MCP servers, or serve ctxloom as one
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)
-* [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Manage remotes and discover content
+* [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Register and browse the sources content comes from
 * [ctxloom review](/reference/cli/ctxloom_review/)	 - Review pending items: trust or reject what the agent may see
 * [ctxloom run](/reference/cli/ctxloom_run/)	 - Assemble context and run AI
 * [ctxloom search](/reference/cli/ctxloom_search/)	 - Search content across local and remote sources

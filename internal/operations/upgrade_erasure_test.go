@@ -15,7 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
-// The headline data-loss defect. `ctxloom remote upgrade` loaded its config
+// The headline data-loss defect. `ctxloom deps upgrade` loaded its config
 // through loadConfigOrFallback, a FAULT-TOLERANT helper written for read-only
 // commands: on any config-load error it hands back a minimal EMPTY config. An
 // empty config has no profile definitions, so closureRoots enumerates nothing,
@@ -62,7 +62,7 @@ func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
 	before, err := os.ReadFile(remote.NewLockfileManager(baseDir).Path())
 	require.NoError(t, err)
 
-	// The config failed to load: `remote upgrade` proceeds on the empty
+	// The config failed to load: `deps upgrade` proceeds on the empty
 	// fallback, so the closure is empty and there is nothing to propose.
 	_, err = UpgradeDependencies(ctx, fallbackShapedConfig(baseDir))
 	require.Error(t, err, "an upgrade that resolved no dependencies must fail, not silently erase the lock")
@@ -79,7 +79,7 @@ func TestUpgrade_EmptyClosureDoesNotEraseTheLockfile(t *testing.T) {
 
 // The security-relevant payload: a wipe silently un-holds every hold and, far
 // worse, UN-RETRACTS content the publisher withdrew (retraction
-// state is cleared by `remote upgrade`).
+// state is cleared by `deps upgrade`).
 func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 	baseDir, ref, cfg := setupInlineOnlyProject(t)
 	ctx := context.Background()

@@ -227,11 +227,9 @@ func TestSetDefaultRemote_SetAndClear(t *testing.T) {
 	assert.Empty(t, registry.GetDefault(), "cleared default reads back empty")
 }
 
-// Source trust (`ctxloom remote trust`, the RemoteEntry.Trusted flag) is
-// DELETED (spec §11). A remote carries no trust; trust is a property of the
-// publisher key, tested in internal/signing and the decision-function suite.
-// The tests that exercised the removed mechanism (TestSetRemoteTrust,
-// TestListRemotes_SurfacesTrust, TestAddRemote_TrustOnAdd) are gone with it.
+// A remote carries no trust (spec §11), so nothing here tests one: trust is a
+// property of the publisher KEY, exercised in internal/signing and the
+// decision-function suite.
 
 // fakeCloner stands in for *remote.RepoCache in AddRemote tests so the eager
 // clone-on-add never performs a real git clone / network call. It records the

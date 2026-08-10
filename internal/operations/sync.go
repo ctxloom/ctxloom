@@ -97,7 +97,7 @@ type SyncDependenciesResult struct {
 	Synced  []SyncItem `json:"synced,omitempty"`
 	Skipped []SyncItem `json:"skipped,omitempty"`
 	// Retracted lists refs whose remote manifest currently retracts them —
-	// surfaced separately from Skipped/Failed so a caller (the `remote pull`
+	// surfaced separately from Skipped/Failed so a caller (the `deps pull`
 	// CLI) can tell the user their content was retracted, whether that was
 	// learned from a fresh pull or re-checked on an already-installed ref.
 	Retracted []SyncItem `json:"retracted,omitempty"`
@@ -155,7 +155,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 	// re-collect after each pass and pull whatever is newly visible, until the
 	// reference set stops growing. Collecting once leaves part of the graph
 	// unpinned while still exiting 0, which forces the user to re-run
-	// `remote pull` until it happens to converge.
+	// `deps pull` until it happens to converge.
 	synced := collections.NewSet[string]()
 	for pass := 0; pass < maxSyncPasses; pass++ {
 		var pending []string
@@ -206,7 +206,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 		if !synced.Has(ref) {
 			clidiag.Warn("ctxloom",
 				"dependency graph still revealing new references after %d sync passes; "+
-					"run 'ctxloom remote pull' again to continue converging", maxSyncPasses)
+					"run 'ctxloom deps pull' again to continue converging", maxSyncPasses)
 			break
 		}
 	}
@@ -226,7 +226,7 @@ func SyncDependencies(ctx context.Context, cfg *config.Config, req SyncDependenc
 // resolveSyncDeps returns the registry and puller for a sync, preferring
 // injected (test) instances. Sync installs exactly the pinned set and writes
 // each pin straight to the active lockfile; surfacing an upstream change to an
-// already-locked item is `remote upgrade`'s job (operations.UpgradeDependencies),
+// already-locked item is `deps upgrade`'s job (operations.UpgradeDependencies),
 // and the post-sync lock rebuilds the active lockfile from the pinned closure.
 // Whether pulled content ever reaches the agent is decided per item at exposure
 // by the content-hash trust gate, so sync itself needs no review ceremony.

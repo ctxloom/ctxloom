@@ -95,7 +95,7 @@ These hold across every page; each is restated with its citations on the page th
    (`internal/paths/paths.go:447,483,492`). `cache/bundles` is never a bundle *search* dir —
    authored YAML found there raises a fatal migration finding
    (`internal/config/config.go:1659`). Deleting `cache/` must lose nothing that
-   `ctxloom remote pull` cannot rebuild.
+   `ctxloom deps pull` cannot rebuild.
 
 2. **`lock.yaml` is authoritative for the pin, never for the content.** It records
    `{SHA, URL, RequestedVersion, Version, Kind, FetchedAt, Pinned, Retracted, RetractedReason}`

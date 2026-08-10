@@ -33,7 +33,7 @@ func TestFail_StrictCollectsFindings(t *testing.T) {
 	resetForTest(t)
 
 	Fail(ClassConfig, "edit config.yaml", "failed to parse config at %s: %v", "/p/config.yaml", "yaml: bad")
-	Fail(ClassSync, "ctxloom remote pull", "bundle %s unfetchable", "core")
+	Fail(ClassSync, "ctxloom deps pull", "bundle %s unfetchable", "core")
 
 	got := All()
 	require.Len(t, got, 2)
@@ -41,7 +41,7 @@ func TestFail_StrictCollectsFindings(t *testing.T) {
 	assert.Equal(t, "failed to parse config at /p/config.yaml: yaml: bad", got[0].Message)
 	assert.Equal(t, "edit config.yaml", got[0].FixIt)
 	assert.Equal(t, ClassSync, got[1].Class)
-	assert.Equal(t, "ctxloom remote pull", got[1].FixIt)
+	assert.Equal(t, "ctxloom deps pull", got[1].FixIt)
 }
 
 // Degraded mode is the escape hatch: Fail/FailOnce/Record become pure
@@ -69,9 +69,9 @@ func TestDegraded_NothingRecorded(t *testing.T) {
 func TestFailOnce_DedupsRecording(t *testing.T) {
 	resetForTest(t)
 
-	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "core")
-	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "core")
-	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "other")
+	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "other")
 
 	got := All()
 	require.Len(t, got, 2, "identical FailOnce messages collapse within a window; distinct ones don't")
@@ -90,18 +90,18 @@ func TestFailOnce_RefiresAcrossCheckpoints(t *testing.T) {
 	resetForTest(t)
 
 	mark1 := Checkpoint()
-	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
 	require.Len(t, Since(mark1), 1, "first window collects the finding")
 
 	// The session is retried unfixed: a new window, the same FailOnce.
 	mark2 := Checkpoint()
-	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
 	got := Since(mark2)
 	require.Len(t, got, 1, "the re-fired finding must be visible to the NEW window — otherwise the retried session opens silently on broken context")
 	assert.Contains(t, got[0].Message, "parent core")
 
 	// Within the second window the dedup still collapses repeats.
-	FailOnce(ClassRef, "ctxloom remote pull", "profile %q: parent %s not installed", "dev", "core")
+	FailOnce(ClassRef, "ctxloom deps pull", "profile %q: parent %s not installed", "dev", "core")
 	assert.Len(t, Since(mark2), 1, "within one window the recording dedup still applies")
 }
 
@@ -132,7 +132,7 @@ func TestFailOnceAndRecord_BlankMessageStillSayWhatBroke(t *testing.T) {
 	resetForTest(t)
 
 	mark := Checkpoint()
-	FailOnce(ClassRef, "ctxloom remote pull", "")
+	FailOnce(ClassRef, "ctxloom deps pull", "")
 	Record(ClassSync, "", "   \n ")
 
 	got := Since(mark)
@@ -199,9 +199,9 @@ func TestFailOnce_PrintDedupIsProcessWideRecordDedupIsPerWindow(t *testing.T) {
 
 	const msg = "u119f07 probe: profile parent not installed"
 	mark1 := Checkpoint()
-	FailOnce(ClassRef, "ctxloom remote pull", "%s", msg)
+	FailOnce(ClassRef, "ctxloom deps pull", "%s", msg)
 	_ = Checkpoint() // a new window: the retried session
-	FailOnce(ClassRef, "ctxloom remote pull", "%s", msg)
+	FailOnce(ClassRef, "ctxloom deps pull", "%s", msg)
 
 	assert.Equal(t, 1, strings.Count(out.String(), msg),
 		"the warning LINE is deduped process-wide — it prints at most once whatever the window")

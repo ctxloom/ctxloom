@@ -294,7 +294,7 @@ func TestInstallTree_ReplacesRatherThanMerges(t *testing.T) {
 }
 
 // TestReadableEntry_RefusesATreeBundleWithAnActionableSentinel. Collapsing this
-// into a not-found prints a fix ("run remote pull") that cannot fix anything:
+// into a not-found prints a fix ("run deps pull") that cannot fix anything:
 // the pull already succeeded and the bytes are on disk.
 func TestReadableEntry_RefusesATreeBundleWithAnActionableSentinel(t *testing.T) {
 	name := "https://github.com/trent/atelier@bundles/atelier"

@@ -767,8 +767,8 @@ current fixture capability:
 | `mcp serve` | the server itself; exercised by every `@mcp` scenario | **Holds** — and it is a genuine exclusion, not a gap. |
 | `remote discover` | network discovery; no deterministic fixture | **Holds.** |
 | `bundle mcp edit` | needs a bundle-embedded MCP fixture (niche) | **Weakening.** `trust_surface.feature` already builds bundles shipping an MCP server, so the fixture the reason calls missing now exists. The honest reason is "niche", not "no fixture" — reword it or write the scenario. |
-| `remote update` | needs a second remote commit | **Stale.** `testenv.AdvanceSignedRemote` (used by J001500 and `trust_surface`) exists precisely to add a second commit to a seeded remote. The stated blocker is gone; only the scenario is missing. Recommend moving to the uncovered list with a backfill task. |
-| `remote upgrade` | needs an update cycle | **Stale, same reason.** `AdvanceSignedRemote` plus an installed bundle is an update cycle. |
+| `deps check` | needs a second remote commit | **Stale.** `testenv.AdvanceSignedRemote` (used by J001500 and `trust_surface`) exists precisely to add a second commit to a seeded remote. The stated blocker is gone; only the scenario is missing. Recommend moving to the uncovered list with a backfill task. |
+| `deps upgrade` | needs an update cycle | **Stale, same reason.** `AdvanceSignedRemote` plus an installed bundle is an update cycle. |
 | `bundle push` | needs a writable remote | **Holds** for a real forge — but the suite already seeds `file://` bare repos it can push to, so a hermetic push to a local bare remote is reachable. The reason should be narrowed to "PR creation against a real forge", which is what is genuinely out of scope. |
 | `command push` | same | **Same verdict.** |
 | `container build` | needs a container runtime + network pulls | **Holds.** The J002400 draft's own analysis reaches the same conclusion and tags it `@container`. |
@@ -776,7 +776,7 @@ current fixture capability:
 | `session distill` | `@live` + needs a real backend transcript | **Questionable.** `steps_recover_session.go` seeds a canonical `transcript.jsonl` directly and reaches the recover path with a **mock** backend, no real backend needed. If the distiller can be pointed at the mock as its compaction engine — which the J001100 draft asserts it can, reading the prompt out of `CTXLOOM_MOCK_RECORD_FILE` — this exclusion is stale. Worth one experiment before accepting it. |
 | `weave` | fans out across parallel LLM sessions + LLM synthesis; `@live`-only | **Holds** for the real thing; a mock-backend fan-out would prove the orchestration but not the synthesis, which is the part that needs a model. |
 
-**Summary: 8 hold, 2 are stale (`remote update`, `remote upgrade`), 3 have
+**Summary: 8 hold, 2 are stale (`deps check`, `deps upgrade`), 3 have
 reasons that overstate the blocker (`bundle mcp edit`, `bundle push` /
 `command push`, `session distill`).** None should be silently re-scoped; each
 needs either a reworded reason or a backfill task.

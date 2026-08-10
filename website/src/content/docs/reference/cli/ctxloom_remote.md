@@ -9,29 +9,33 @@ This page is generated from `ctxloom remote --help`.
 
 ## ctxloom remote
 
-Manage remotes and discover content
+Register and browse the sources content comes from
 
 ### Synopsis
 
-Manage remote sources and discover bundles/profiles.
+Register the Git repositories (GitHub or generic git) this project draws shared
+bundles from, and browse what they publish.
 
-Remote sources are Git repositories (GitHub or generic git) containing shared
-bundles and profiles.
+A remote is an ADDRESS. Registering one is local bookkeeping over
+.ctxloom/remotes.yaml — no fetch, no credential, nothing installed.
 
 Registry:
   ctxloom remote list                    List configured remotes
-  ctxloom remote show <name>             Show one remote and its bundles
+  ctxloom remote show <name>             Show one remote and the bundles it publishes
   ctxloom remote create <name> <url>     Register a remote
   ctxloom remote remove <name> --yes     Remove a remote
   ctxloom remote default <name>          Set the default remote
 
-A remote is just an address; its content takes the review path. To auto-trust a
-publisher's content, trust their signing key (ctxloom signer trust) — not
-the URL.
-
 Discovery:
   ctxloom search <query>                 Search local and remote content
   ctxloom remote discover                Find ctxloom repositories
+
+What this project has INSTALLED from those remotes is the other noun:
+'ctxloom deps --help'.
+
+A remote carries no trust: its content takes the review path whatever address
+it came from. To auto-trust a publisher's content, trust their signing key
+('ctxloom signer trust') — a key is verified over the bytes, a URL is not.
 
 Examples:
   ctxloom remote create alice alice/ctxloom
@@ -59,12 +63,6 @@ ctxloom remote [flags]
 * [ctxloom remote default](/reference/cli/ctxloom_remote_default/)	 - Set the default remote
 * [ctxloom remote discover](/reference/cli/ctxloom_remote_discover/)	 - Search GitHub for ctxloom repositories
 * [ctxloom remote list](/reference/cli/ctxloom_remote_list/)	 - List configured remotes
-* [ctxloom remote pull](/reference/cli/ctxloom_remote_pull/)	 - Pull dependencies from profiles
 * [ctxloom remote remove](/reference/cli/ctxloom_remote_remove/)	 - Remove a remote source
 * [ctxloom remote show](/reference/cli/ctxloom_remote_show/)	 - Show a remote and the bundles it publishes
-* [ctxloom remote trust](/reference/cli/ctxloom_remote_trust/)	 - Record that ctxloom may publish to a remote
-* [ctxloom remote trusted](/reference/cli/ctxloom_remote_trusted/)	 - List remotes confirmed as publish destinations
-* [ctxloom remote untrust](/reference/cli/ctxloom_remote_untrust/)	 - Drop the recorded decision for a remote (it is asked about again)
-* [ctxloom remote update](/reference/cli/ctxloom_remote_update/)	 - Check for and apply updates to remote items
-* [ctxloom remote upgrade](/reference/cli/ctxloom_remote_upgrade/)	 - Upgrade pinned dependencies to the latest available
 

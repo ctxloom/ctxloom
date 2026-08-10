@@ -417,7 +417,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		assert.Contains(t, loaded.Bundles, "alice/testing")
 	})
 
-	// A blanket re-pull (no explicit version, as in `remote pull --force`) must
+	// A blanket re-pull (no explicit version, as in `deps pull --force`) must
 	// not silently un-hold a held entry or advance its frozen SHA. The hold is a
 	// "do not upgrade" decision; force repairs, it does not move past the hold.
 	t.Run("blanket re-pull preserves hold and frozen SHA", func(t *testing.T) {

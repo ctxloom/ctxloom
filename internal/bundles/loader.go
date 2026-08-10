@@ -364,7 +364,7 @@ type BundleInfo struct {
 	Deleted bool
 
 	// Held marks a lockfile entry frozen at its recorded SHA (LockEntry.Pinned,
-	// toggled by `ctxloom bundle hold`/`unhold`): `remote upgrade` leaves it put
+	// toggled by `ctxloom deps hold`/`unhold`): `deps upgrade` leaves it put
 	// even when its constraint would allow a newer commit.
 	//
 	// It is carried into the listing because a hold is a decision someone made

@@ -430,7 +430,7 @@ func TestLocalItemPath_StaysInsideTheCacheRoot(t *testing.T) {
 
 // TestRemoveLocalItems_DoesNotRemoveOutsideCache is the end-to-end proof on a
 // REAL filesystem: the file outside the cache root survives
-// `remote update --cleanup`.
+// `deps check --cleanup`.
 func TestRemoveLocalItems_DoesNotRemoveOutsideCache(t *testing.T) {
 	root := t.TempDir()
 	appDir := filepath.Join(root, ".ctxloom")

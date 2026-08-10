@@ -25,7 +25,7 @@ flowchart TD
         BE["bundle edit — :79"] --> RBE["runBundleEdit :93 → placeholders&lt;T&gt; :154"]
         BD["bundle delete — :186"] --> RBD["runBundleDelete :199 → stdinConfirmer :238"]
         BM["bundle move --to — bundle_move.go:19"] --> RBM["runBundleMove :55"]
-        BH["bundle hold / unhold — bundle_hold_cli.go:19,55"] --> HI["holdItem :41"]
+        BH["deps hold / unhold — bundle_hold_cli.go:19,55"] --> HI["holdItem :41"]
         BV["bundle view name#path — bundle_view.go:30"] --> RBV["runBundleView :56 → renderBundleViewItem :116"]
         BX["bundle export / import / push — bundle_transfer.go"] --> OPS
         BMC["bundle mcp edit — bundle_items.go:33"] --> RBME["runBundleMCPEdit :47 → editInEditor :105"]
@@ -179,7 +179,7 @@ the built-in prompt.
   the only guard is "did the content change".
 - `bundle distill` collects per-file errors into `result.Errors` and exits 0 even
   when every input file failed and nothing was written (`bundle_distill.go:111-140`).
-- `bundle hold`/`unhold` on an item not in the lockfile print to **stdout** and
+- `deps hold`/`unhold` on an item not in the lockfile print to **stdout** and
   exit 0; the "nothing happened" bool is discarded at the call site
   (`bundle_hold_cli.go:34`).
 - `fragment list --bundle nosuchbundle` prints `Fragments (0):` and exits 0 — the

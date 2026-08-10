@@ -235,10 +235,10 @@ func tsWireAndPull(w *World, url string) error {
 }
 
 // tsUpdateAndPull advances an ALREADY-INSTALLED bundle to a newly published
-// commit. Plain "remote pull" is passive by design — remote_upgrade.go's own
-// doc: "Passive 'remote pull' installs exactly what is already pinned and
+// commit. Plain "deps pull" is passive by design — remote_upgrade.go's own
+// doc: "Passive 'deps pull' installs exactly what is already pinned and
 // never advances" — so a bundle this feature already pulled once (GAP A's
-// rename, GAP B's later-added distilled form) needs 'remote update --apply'
+// rename, GAP B's later-added distilled form) needs 'deps upgrade'
 // to actually fetch+apply the new commit before a subsequent pull refreshes
 // the lockfile; verified empirically (a plain second pull silently no-ops:
 // "Skipped (kept at their locked commit)"). --force skips the interactive per-item

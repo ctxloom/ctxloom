@@ -290,7 +290,7 @@ func TestPrintRemoteResults_TableGeometry(t *testing.T) {
 		"  bundle   │ acme         │ short                │ a\n" +
 		"  bundle   │ a-very-long-remote-name │ a-name-that-is-...   │ tag-one, tag-two,...\n" +
 		"\n" +
-		"Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom remote pull\n"
+		"Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom deps pull\n"
 	assert.Equal(t, want, buf.String())
 
 	lines := strings.Split(buf.String(), "\n")

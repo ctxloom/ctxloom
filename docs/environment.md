@@ -56,7 +56,7 @@ Each is read once, at coordinator startup. An unset or empty value falls back to
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `GITHUB_TOKEN` | none | Auth token for GitHub forges (remote pull, discover, push). |
+| `GITHUB_TOKEN` | none | Auth token for GitHub forges (deps pull, discover, push). |
 | `GH_TOKEN` | none | Alternate GitHub token. Checked after `GITHUB_TOKEN`, so it wins when both are set. |
 
 These supply the token for the built-in `github` forge. A custom forge can name a different variable through its `token_env` config field; the value of that variable is then used as the clone and API token. The generic `git` forge carries no token here and relies on ambient git credentials.
@@ -67,7 +67,7 @@ These supply the token for the built-in `github` forge. A custom forge can name 
 |----------|---------|---------|
 | `VISUAL` | none | Editor used to edit bundles, fragments, prompts, and config. |
 | `EDITOR` | `nano` | Editor used when `VISUAL` is unset. |
-| `PAGER` | none | Pager used to display long content such as remote pull diffs. |
+| `PAGER` | none | Pager used to display long content such as deps pull diffs. |
 
 Editor resolution order: the `editor` setting in config, then `VISUAL`, then `EDITOR`, then `nano`.
 

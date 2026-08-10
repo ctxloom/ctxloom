@@ -70,7 +70,7 @@ tampered, and the copy that *did* verify went out of reach along with the pin
 that named it. Silent capability loss, at exactly the moment a signature stops
 verifying.
 
-That is now fixed, by a decision rather than a discovery: `remote upgrade`
+That is now fixed, by a decision rather than a discovery: `deps upgrade`
 **refuses to advance a pin onto content whose publisher signature does not
 verify**. The lockfile keeps the last commit that verified, Alice goes on
 being served that content, and the sync says so out loud — naming the bundle,
@@ -106,7 +106,7 @@ Both were predicted OK. Both are red, and for the same underlying reason: the
 nominated inspector reports on something adjacent to the hop rather than on
 the hop.
 
-`ctxloom bundle hold` genuinely works — the freeze is real, the older guidance
+`ctxloom deps hold` genuinely works — the freeze is real, the older guidance
 keeps arriving and the newer does not. But `bundle list` renders the held
 runbook as an ordinary entry at `(v1.0.0)` and says nothing about the hold. A
 deliberate freeze and a broken sync produce identical output. That distinction

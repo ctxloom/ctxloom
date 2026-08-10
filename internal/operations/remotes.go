@@ -207,7 +207,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	// or network problem surfaces now (at add time) rather than on first use —
 	// friction up front. Best-effort (CLAUDE.md): a failed clone leaves the
 	// remote registered with a warning so a transient issue doesn't block
-	// registration; `remote update` retries the clone later.
+	// registration; `deps check` retries the clone later.
 	cache := req.Cache
 	if cache == nil {
 		cache = NewRepoCache(cfg)
@@ -304,11 +304,12 @@ func defaultRemoteRegistry(cfg *config.Config, req DefaultRemoteRequest) (*remot
 	return registry, nil
 }
 
-// `ctxloom remote trust|untrust` and its SetRemoteTrust operation are DELETED,
-// not deprecated (signature-envelope spec §11). Source trust — "everything this
-// URL publishes reaches the agent unreviewed" — was hash-blind and is gone.
-// Trusting a publisher is now `ctxloom signer add <principal> --key …`, which
-// trusts a KEY and verifies the bytes. There is no parallel dormant path.
+// A REMOTE CARRIES NO TRUST, and there is no operation here that could give it
+// one (signature-envelope spec §11). Source trust — "everything this URL
+// publishes reaches the agent unreviewed" — is hash-blind: it asserts something
+// about a LOCATION while the bytes that arrive from it can change under it.
+// Trusting a publisher is `ctxloom signer trust <principal> --key …`, which
+// trusts a KEY and is verified over the bytes themselves.
 
 // DiscoverRemotesRequest contains parameters for discovering remote repositories.
 type DiscoverRemotesRequest struct {

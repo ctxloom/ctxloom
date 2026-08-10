@@ -70,8 +70,10 @@ ctxloom review --project   # Record decisions in the committable project store
 - MCP servers and hooks display as **what they run**: command, args, env,
   matcher — the exact executable surface your countersignature covers.
 
-Per item, choose **[a]ccept**, **[r]eject**, or **[s]kip**; **[A]** accepts every
-remaining item in the bundle, **[q]** quits. Just looking never changes anything.
+Per item, choose **[t]rust**, **[r]eject**, or **[s]kip**; **[T]** and **[R]**
+apply that answer to every remaining item in the bundle, **[q]** quits. The
+letters are the CLI's own verbs, so what you learn here works on the command
+line. Just looking never changes anything.
 
 Your signing key is resolved once, from `ssh-agent`, before the first item is
 shown — a review session that can't record its result shouldn't spend your
@@ -157,18 +159,25 @@ Trust a publisher only when you would run anything it publishes: the exemption
 covers every future update from that key, unreviewed. It does not un-reject
 anything you've rejected.
 
-## Accepting or rejecting one item
+## Deciding about one item
 
 `ctxloom review` is the interactive porcelain; the same decisions are scriptable
-per item:
+per item, one verb per state:
 
 ```bash
-ctxloom bundle trust <ref>       # approve one item (e.g. code-quality#fragments/solid)
-ctxloom bundle untrust <ref>   # reject one item everywhere
+ctxloom bundle trust <ref>    # approve one item (e.g. code-quality#fragments/solid)
+ctxloom bundle reject <ref>   # reject one item everywhere, always
+ctxloom bundle forget <ref>   # clear either decision — back to pending
 ```
 
-Both write the same countersignatures `ctxloom review` writes, through the same
-path, so porcelain and plumbing produce identical results on disk. Refs use the
+Reach for `forget`, not `reject`, to undo a decision. A rejection is not the
+inverse of an approval: it is sticky, it survives the content changing, and it
+overrides both a trusted publisher and your project's own content. `forget`
+removes whichever decision is on file — approval **or** rejection — and leaves
+the item exactly as it was before anyone reviewed it.
+
+All three go through the same path `ctxloom review` uses, so porcelain and
+plumbing produce identical results on disk. Refs use the
 selector syntax — `<bundle>#fragments/<name>`, `<bundle>#commands/<name>`,
 `<bundle>#mcp/<name>`, `<bundle>#hooks/<event>/<index>`, or `<bundle>#skills/<name>`.
 

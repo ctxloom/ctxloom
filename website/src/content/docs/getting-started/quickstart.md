@@ -45,7 +45,7 @@ requested fragments not found`, so do this before anything else:
 # See what is waiting, without reviewing (non-interactive)
 ctxloom review --list
 
-# Walk each pending item: [a]ccept, [r]eject, [s]kip, [A] accept all in bundle
+# Walk each pending item: [t]rust, [r]eject, [s]kip; [T]/[R] for the rest of the bundle
 ctxloom review
 ```
 

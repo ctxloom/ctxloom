@@ -20,15 +20,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// TestParseItemTrustChoice covers the menu parse: only an explicit t/b acts;
-// everything else (skip, blank, garbage, uppercase whitespace) is a no-op, so
-// merely viewing an item can never mutate trust.
+// TestParseItemTrustChoice covers the menu parse: only an explicit t/r acts —
+// the same two verbs `ctxloom bundle trust` and `ctxloom bundle reject` are
+// spelled with — and everything else (skip, blank, garbage, uppercase
+// whitespace) is a no-op, so merely viewing an item can never mutate trust.
 func TestParseItemTrustChoice(t *testing.T) {
 	cases := map[string]itemTrustChoice{
 		"t":       itemTrustGrant,
 		"  T  ":   itemTrustGrant,
-		"b":       itemTrustBlacklist,
-		"B":       itemTrustBlacklist,
+		"r":       itemTrustReject,
+		"R":       itemTrustReject,
 		"s":       itemTrustSkip,
 		"skip":    itemTrustSkip,
 		"":        itemTrustSkip,
@@ -61,10 +62,10 @@ func TestApplyItemTrustChoice_Grant(t *testing.T) {
 		"[t] must record an approval bound to the content bytes")
 }
 
-// TestApplyItemTrustChoice_Blacklist: the [b] action writes BOTH the ref-level
+// TestApplyItemTrustChoice_Reject: the [r] action writes BOTH the ref-level
 // rejected state and a content-reject countersignature, identical to
-// `ctxloom blacklist <ref>`.
-func TestApplyItemTrustChoice_Blacklist(t *testing.T) {
+// `ctxloom bundle reject <ref>`.
+func TestApplyItemTrustChoice_Reject(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)
 	noAgentEnv(t)
@@ -72,7 +73,7 @@ func TestApplyItemTrustChoice_Blacklist(t *testing.T) {
 	seedLocalFragment(t, cfg, "demo", "curl-pipe-sh", "rm -rf danger")
 
 	c, out := testCmd()
-	require.NoError(t, applyItemTrustChoice(c, cfg, "demo#fragments/curl-pipe-sh", itemTrustBlacklist))
+	require.NoError(t, applyItemTrustChoice(c, cfg, "demo#fragments/curl-pipe-sh", itemTrustReject))
 	assert.Contains(t, out.String(), "Rejected demo#fragments/curl-pipe-sh")
 
 	ref := trust.Ref{Bundle: "demo", Kind: trust.KindFragment, Name: "curl-pipe-sh", IsLocal: true}
@@ -124,7 +125,7 @@ func TestShowItem_NonInteractiveStdoutUnchanged(t *testing.T) {
 	assert.Equal(t, outPlain.String(), outInter.String(),
 		"-i must not change stdout in a non-interactive terminal")
 	assert.Contains(t, outPlain.String(), "the fragment body", "content must still be shown")
-	for _, leak := range []string{"Effective trust", "[t]rust", "[b]lacklist"} {
+	for _, leak := range []string{"Effective trust", "[t]rust", "[r]eject"} {
 		assert.NotContainsf(t, outInter.String(), leak, "trust UI %q must not leak into piped stdout", leak)
 	}
 }
@@ -198,7 +199,7 @@ func TestReviewLocalMCPTrust_RendersThroughTheCommandsErrWriter(t *testing.T) {
 
 	out := errBuf.String()
 	assert.Contains(t, out, "Effective trust (claude scope):")
-	assert.Contains(t, out, "ctxloom trust|blacklist <bundle>#mcp/<name>")
+	assert.Contains(t, out, "ctxloom bundle trust|reject <bundle>#mcp/<name>")
 }
 
 // withFailingStdin points the shared prompt reader at a terminal whose reads

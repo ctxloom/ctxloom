@@ -9,7 +9,7 @@ This page is generated from `ctxloom review --help`.
 
 ## ctxloom review
 
-Review pending items: accept or reject what the agent may see
+Review pending items: trust or reject what the agent may see
 
 ### Synopsis
 
@@ -24,10 +24,16 @@ bundles signed by a publisher key you trust (allowed_signers). Trust is keyed
 to a signing KEY, never to the remote the bytes arrived from. A rejection
 still beats every one of those exemptions.
 
-Per item: [a]ccept, [r]eject, [s]kip, [A] accept all remaining in the bundle,
-or [q]uit. Accepting COUNTERSIGNS the item's current content bytes with your
-SSH key (a later change stops the signature verifying, re-gating it);
-rejecting countersigns a permanent refusal, both by ref and by content.
+Per item: [t]rust, [r]eject, [s]kip, or [q]uit; [T] and [R] apply that answer
+to the rest of the bundle. The letters are the CLI's own verbs, so what you
+learn here works on the command line too.
+
+Trusting COUNTERSIGNS the item's current content bytes with your SSH key (a
+later change stops the signature verifying, re-gating it); rejecting
+countersigns a refusal that is sticky — it survives the content changing, and
+it beats a trusted publisher and project-local content alike. To undo either
+decision, clear it with 'ctxloom bundle forget <ref>'; do not reach for a
+rejection to withdraw an approval.
 
 --project writes to the COMMITTABLE project store (.ctxloom/approvals) instead
 of your personal one (~/.ctxloom/approvals), so a team/CI can inherit the
@@ -37,8 +43,9 @@ Non-interactive (piped, --list, or any --format but text): print the pending
 table and exit.
 
 The scriptable plumbing under this porcelain:
-  ctxloom bundle trust <ref>   accept one item
-  ctxloom bundle untrust <ref>   reject one item
+  ctxloom bundle trust <ref>   trust one item
+  ctxloom bundle reject <ref>  reject one item
+  ctxloom bundle forget <ref>  clear either decision, back to pending
 
 ```
 ctxloom review [flags]

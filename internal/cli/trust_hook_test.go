@@ -119,7 +119,7 @@ func TestApplyItemTrustChoice_HookBlacklist(t *testing.T) {
 	require.NoError(t, err)
 
 	c, _ := testCmd()
-	require.NoError(t, applyItemTrustChoice(c, cfg, "hookb#hooks/pre_tool/0", itemTrustBlacklist))
+	require.NoError(t, applyItemTrustChoice(c, cfg, "hookb#hooks/pre_tool/0", itemTrustReject))
 
 	store := userApprovalsStore(t)
 	assert.True(t, store.HasUnsignedRefReject(countersignRefFor(hookRefFor("hookb", "pre_tool/0"))),

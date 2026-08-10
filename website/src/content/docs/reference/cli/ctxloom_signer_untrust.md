@@ -17,7 +17,7 @@ Removes every entry for <principal> from your allowed_signers store (user
 store by default; --project for the committable project store). This does
 NOT reject any content that signer already published or approved — it
 means "I will review this myself from now on", not "deny". Use
-'ctxloom bundle untrust'/'ctxloom review --reject' to actually reject content.
+'ctxloom bundle reject <ref>' to actually reject content.
 
 <principal> naming ctxloom's OWN embedded release key is a special case: that
 key is compiled into the binary and cannot be deleted by this command. Instead

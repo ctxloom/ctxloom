@@ -142,8 +142,10 @@ Templating cannot smuggle content past the gate either: the signed payload is th
 ## Recording a decision
 
 `ctxloom review` is the porcelain — see [Review and trust](/concepts/review-and-trust/) for
-the ceremony. `ctxloom bundle trust <ref>` and `ctxloom bundle untrust <ref>` are the scriptable plumbing
-beneath it, writing the same countersignatures through the same path.
+the ceremony. `ctxloom bundle trust <ref>`, `ctxloom bundle reject <ref>` and
+`ctxloom bundle forget <ref>` are the scriptable plumbing beneath it — one verb per
+state, going through the same path. `forget` clears whichever decision is recorded,
+approval or rejection, and is the only way back to undecided.
 
 The normative account of all of the above — storage formats, identity rules, lifecycle, and
 every known gap — lives in

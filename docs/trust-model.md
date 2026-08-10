@@ -399,11 +399,19 @@ bytes** with the reviewer's own SSH key:
 - MCP servers and hooks display as **what they run** — command, args, env,
   matcher, install — the exact executable surface the approval countersignature
   covers.
-- Per item: **[a]ccept**, **[r]eject**, **[s]kip**; per bundle: **[A]** accept
-  all remaining. Accepting countersigns the raw bytes always, and the distilled
+- Per item: **[t]rust**, **[r]eject**, **[s]kip**; per bundle: **[T]** or
+  **[R]** applies that answer to the rest of it. The letters are the CLI's own
+  verbs, so the porcelain teaches the plumbing rather than a second vocabulary.
+  Each bulk form is its verb's uppercase and nothing else — they are the widest
+  actions offered, and that guard matters most for **[R]**, since a bulk trust
+  re-gates itself the moment any of those bytes change while every rejection is
+  sticky. A bulk answer is reset at the next bundle, so one keystroke can never
+  decide about content the reviewer was not shown.
+  Trusting countersigns the raw bytes always, and the distilled
   bytes too when a distilled form exists, then snapshots the approved bytes;
   rejecting countersigns the ref block plus a content-reject over the current
-  bytes. Viewing never mutates — only an explicit letter acts.
+  bytes. Viewing never mutates — only an explicit letter acts, and the retired
+  `a`/`A` spellings now skip rather than approve on muscle memory.
 - The countersigning key is resolved once per session, before the first item is
   shown, via the same zero-config discovery chain `ctxloom bundle sign` uses
   (`internal/signing/agentkey`): `git config user.signingkey` first, then the

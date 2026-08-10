@@ -31,7 +31,7 @@ import (
 // shared stdin reader via promptLine / promptYesNo (prompt.go) — no second
 // bufio.Reader is created (ctxloom-code-08-002).
 
-// itemTrustChoice is the parsed decision from the `[t]rust / [b]lacklist / skip`
+// itemTrustChoice is the parsed decision from the `[t]rust / [r]eject / skip`
 // menu. It is split out of the raw terminal read so the action it drives is unit
 // testable without a TTY (see TestApplyItemTrustChoice_*).
 type itemTrustChoice int
@@ -39,26 +39,30 @@ type itemTrustChoice int
 const (
 	itemTrustSkip itemTrustChoice = iota
 	itemTrustGrant
-	itemTrustBlacklist
+	itemTrustReject
 )
 
 // parseItemTrustChoice maps a raw interactive answer to an action. Only an
-// explicit "t"/"b" trusts or blacklists; anything else — including the empty
+// explicit "t"/"r" trusts or rejects; anything else — including the empty
 // line, "s", or an EOF-truncated read — is a skip, because viewing must never
 // mutate trust.
+//
+// The letters are `ctxloom bundle trust` and `ctxloom bundle reject`, the same
+// two this menu drives: every surface that offers this decision offers it in
+// one vocabulary, so what a reviewer learns here is what they can type.
 func parseItemTrustChoice(answer string) itemTrustChoice {
 	switch strings.ToLower(strings.TrimSpace(answer)) {
 	case "t":
 		return itemTrustGrant
-	case "b":
-		return itemTrustBlacklist
+	case "r":
+		return itemTrustReject
 	default:
 		return itemTrustSkip
 	}
 }
 
-// applyItemTrustChoice performs the chosen mutation through the same TR2
-// operations the standalone `ctxloom trust`/`blacklist` commands use, so there
+// applyItemTrustChoice performs the chosen mutation through the same operations
+// the standalone `ctxloom bundle trust`/`bundle reject` commands use, so there
 // is exactly one mutation path and the on-disk result is identical. Skip is a
 // no-op: viewing an item never trusts it. cfg- and cmd-injectable so a test can
 // drive each branch against a temp project and assert the written store.
@@ -66,7 +70,7 @@ func applyItemTrustChoice(cmd *cobra.Command, cfg *config.Config, ref string, ch
 	switch choice {
 	case itemTrustGrant:
 		return runItemTrust(cmd, cfg, ref)
-	case itemTrustBlacklist:
+	case itemTrustReject:
 		return runItemReject(cmd, cfg, ref)
 	default:
 		return nil // skip — viewing never trusts
@@ -91,7 +95,7 @@ func stampedTrust(res operations.EffectiveTrustResult) string {
 func offerItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	res := operations.NewTrustStamper(cfg).ForRef(ref)
 	fmt.Fprintf(cmd.ErrOrStderr(), "\nEffective trust: %s\n", stampedTrust(res))
-	answer, err := promptLine("[t]rust / [b]lacklist / skip? ")
+	answer, err := promptLine("[t]rust / [r]eject / skip? ")
 	if err != nil {
 		warnPromptFault(cmd, err)
 		return nil // unread prompt → skip; viewing never trusts
@@ -103,7 +107,7 @@ func offerItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 // <name> -i`. It prints every item's effective trust + source — fragments,
 // prompts, MCP servers, AND bundle hooks — resolved through one shared
 // TrustStamper (store + registry read once, each bundle materialized once) to
-// stderr, then offers an explicit per-hook [t]rust/[b]lacklist action. The
+// stderr, then offers an explicit per-hook [t]rust/[r]eject action. The
 // whole-bundle posture offer is gone (trust-simplify: postures no longer
 // affect exposure; the review porcelain's accept-bundle is hash-bound and
 // arrives in slice 2). The bundle body is already on stdout; only an explicit
@@ -126,16 +130,16 @@ func offerBundleTrust(cmd *cobra.Command, cfg *config.Config, name string, bundl
 	}
 
 	// Bundle hooks are arbitrary-command executables — offer an explicit
-	// per-hook [t]rust/[b]lacklist (a content-pinned acceptance / sticky
-	// rejection), routed through the same path as `ctxloom trust|blacklist
+	// per-hook [t]rust/[r]eject (a content-pinned acceptance / sticky
+	// rejection), routed through the same path as `ctxloom bundle trust|reject
 	// <bundle>#hooks/<event>/<index>`. Viewing never trusts.
 	return offerBundleHookTrust(cmd, cfg, name, bundle)
 }
 
 // offerBundleHookTrust walks the bundle's hooks in canonical identity order and
-// offers an explicit [t]rust/[b]lacklist/skip action per hook, applying the
+// offers an explicit [t]rust/[r]eject/skip action per hook, applying the
 // choice through the shared applyItemTrustChoice path so the on-disk result is
-// identical to `ctxloom trust|blacklist <bundle>#hooks/<event>/<index>`. An
+// identical to `ctxloom bundle trust|reject <bundle>#hooks/<event>/<index>`. An
 // unread answer stops the walk and leaves every remaining hook exactly as it
 // was — viewing never trusts — and the number left unreviewed is reported, so
 // an abandoned review is never mistaken for a completed one. A hookless bundle
@@ -146,10 +150,10 @@ func offerBundleHookTrust(cmd *cobra.Command, cfg *config.Config, name string, b
 		return nil
 	}
 	w := cmd.ErrOrStderr()
-	fmt.Fprintln(w, "\nBundle hooks are executable surfaces — trust or blacklist each:")
+	fmt.Fprintln(w, "\nBundle hooks are executable surfaces — trust or reject each:")
 	for i, e := range entries {
 		ref := name + "#hooks/" + e.ID()
-		answer, err := promptLine(fmt.Sprintf("  hooks/%s — [t]rust / [b]lacklist / skip? ", e.ID()))
+		answer, err := promptLine(fmt.Sprintf("  hooks/%s — [t]rust / [r]eject / skip? ", e.ID()))
 		if err != nil {
 			// The walk stops here, and every hook from this one on stays
 			// exactly as it was — viewing never trusts. What was missing is the
@@ -179,7 +183,7 @@ func warnPromptFault(cmd *cobra.Command, err error) {
 	if errors.Is(err, io.EOF) {
 		return
 	}
-	clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "could not read your answer (%v); nothing was trusted or blacklisted", err)
+	clidiag.Fwarn(cmd.ErrOrStderr(), "ctxloom", "could not read your answer (%v); nothing was trusted or rejected", err)
 }
 
 // printBundleItemTrust stamps one bundle item by its ref and writes its trust
@@ -221,6 +225,6 @@ func reviewLocalMCPTrust(cmd *cobra.Command, cfg *config.Config, entries []opera
 		fmt.Fprintf(w, "Effective trust (%s scope): %s\n", e.Backend, stampedTrust(res))
 	}
 	fmt.Fprintln(w,
-		"Configured local MCP servers are reviewed here; grant or blacklist a bundle-sourced "+
-			"MCP server with `ctxloom trust|blacklist <bundle>#mcp/<name>`.")
+		"Configured local MCP servers are reviewed here; trust or reject a bundle-sourced "+
+			"MCP server with `ctxloom bundle trust|reject <bundle>#mcp/<name>`.")
 }

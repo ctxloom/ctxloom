@@ -73,7 +73,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List configured MCP servers, or serve ctxloom as one
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)
 * [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Manage remotes and discover content
-* [ctxloom review](/reference/cli/ctxloom_review/)	 - Review pending items: accept or reject what the agent may see
+* [ctxloom review](/reference/cli/ctxloom_review/)	 - Review pending items: trust or reject what the agent may see
 * [ctxloom run](/reference/cli/ctxloom_run/)	 - Assemble context and run AI
 * [ctxloom search](/reference/cli/ctxloom_search/)	 - Search content across local and remote sources
 * [ctxloom session](/reference/cli/ctxloom_session/)	 - Browse and manage harp-named sessions

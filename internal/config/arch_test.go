@@ -257,8 +257,13 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 			"agents:\n  reviewer:\n    llm: fast\n    escalation:\n      - kinds: [TOOL_USE]\n        action: auto_accept\n      - action: relay_to_role\n        role: parent\n        timeout: 5m\n",
 		},
 		{
-			"agent coordinator + driving bindings",
-			"agents:\n  coord:\n    llm: fast\n    profiles: [review]\n    coordinator: true\n    driving: oneshot\n",
+			// `coordinator:` is deliberately absent: it was REMOVED, not
+			// renamed, and is now refused at load (agents.RetiredCoordinatorKey),
+			// so the parser no longer accepts this form and the schema is right
+			// to reject it. Delegation privilege is decided by depth against
+			// delegation.depth, not declared per binding.
+			"agent driving binding",
+			"agents:\n  coord:\n    llm: fast\n    profiles: [review]\n    driving: oneshot\n",
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {

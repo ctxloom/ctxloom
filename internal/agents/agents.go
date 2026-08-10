@@ -245,6 +245,9 @@ func ParseAgent(data []byte) (*Agent, error) {
 		if _, found := probe[RetiredLLMKey]; found {
 			return nil, ErrRetiredLLMKey
 		}
+		if _, found := probe[RetiredCoordinatorKey]; found {
+			return nil, ErrRetiredCoordinatorKey
+		}
 	}
 	if err := yamlx.DecodeStrict(data, &s); err != nil {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
@@ -277,6 +280,25 @@ const RetiredLLMKey = "engine"
 var ErrRetiredLLMKey = errors.New(
 	"agent uses the retired key 'engine:'; it is now 'llm:' — it selects an llm.configs label " +
 		"(engine + model + credentials), not an engine")
+
+// RetiredCoordinatorKey is the REMOVED per-agent delegation-privilege flag.
+//
+// Unlike RetiredLLMKey this is a removal, not a rename: whether a run may
+// delegate is now decided by its position in the tree (its depth against
+// delegation.depth), not declared per binding. It is refused for the same
+// reason all the same: internal/config decodes `agents:` leniently, so an
+// untouched `coordinator: true` would be dropped in silence, and the binding
+// that was written to delegate would quietly become one that cannot — reported
+// as success. Real configs carry it, this repo's own among them.
+const RetiredCoordinatorKey = "coordinator"
+
+// ErrRetiredCoordinatorKey says what replaced the flag rather than only that
+// it is gone, since "unknown key" leaves the reader to guess whether their
+// delegation still works.
+var ErrRetiredCoordinatorKey = errors.New(
+	"agent uses the removed key 'coordinator:'; delegation privilege is no longer declared per " +
+		"binding — a run may spawn while its depth is below delegation.depth (the session owner " +
+		"is depth 0, its subagents depth 1), so raise delegation.depth to allow deeper trees")
 
 // Loader reads agent definitions from .ctxloom/agents directories. It is
 // the directory-source half; the config-key source and the merge live in

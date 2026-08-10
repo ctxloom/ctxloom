@@ -55,9 +55,20 @@ var frameDeclarers = map[string]string{
 }
 
 // skipUninterestingDir prunes trees that hold no Go source this gate is about.
+//
+// `.claude` is pruned because agent harnesses check out NESTED WORKTREES under
+// `.claude/worktrees/agent-*/`, each a full copy of this repo. Walking into one
+// re-reads every source file under a path the allowlist cannot match — the
+// allowlist is keyed on module-relative paths like
+// "internal/agentcoord/mcpschema/xmllike.go", and the same file inside a
+// worktree arrives as ".claude/worktrees/agent-xxxx/internal/…". The gate then
+// reports the generator itself as a hand-rolled frame, once per live worktree.
+// Measured: five concurrent agents turned one clean tree into fifteen spurious
+// findings, and the failure names files whose real copies are allowlisted, so
+// it reads as a genuine regression rather than as debris.
 func skipUninterestingDir(d fs.DirEntry) error {
 	switch d.Name() {
-	case ".git", "node_modules", "website", "dist", "man":
+	case ".git", ".claude", "node_modules", "website", "dist", "man":
 		return fs.SkipDir
 	}
 	return nil

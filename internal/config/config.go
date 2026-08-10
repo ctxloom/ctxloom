@@ -443,8 +443,11 @@ func (c *Config) MarshalYAML() (any, error) {
 // discard that pre-population whenever a key was absent — the same
 // silent-no-op shape this codebase treats as its characteristic bug.
 func (c *Config) UnmarshalYAML(node *yaml.Node) error {
-	if name, found := findRetiredAgentLLMKey(node); found {
+	if name, found := findRetiredAgentKey(node, agents.RetiredLLMKey); found {
 		return fmt.Errorf("agent %q: %w", name, agents.ErrRetiredLLMKey)
+	}
+	if name, found := findRetiredAgentKey(node, agents.RetiredCoordinatorKey); found {
+		return fmt.Errorf("agent %q: %w", name, agents.ErrRetiredCoordinatorKey)
 	}
 	if mappingValue(node, retiredAgentTurnCapKey) != nil {
 		return errRetiredAgentTurnCapKey
@@ -474,15 +477,17 @@ var errRetiredAgentTurnCapKey = errors.New(
 	"config uses the retired key 'agent_turn_cap:'; it is now 'delegation.concurrency:' — " +
 		"same resource ceiling (concurrently EXECUTING delegated child turns), correctly named and grouped under 'delegation:'")
 
-// findRetiredAgentLLMKey returns the first agent carrying the retired llm key,
+// findRetiredAgentKey returns the first agent carrying the named retired key,
 // and whether one was found. It walks the NODE rather than the decoded value
 // because the decode is what loses the information: this path does not set
-// KnownFields, so an untouched `engine:` is dropped in silence and the binding
-// falls back to the profiles' llm — a different model, chosen by nobody.
+// KnownFields, so an untouched retired key is dropped in silence — `engine:`
+// leaves the binding falling back to the profiles' llm (a different model,
+// chosen by nobody), and `coordinator:` leaves a binding written to delegate
+// quietly unable to.
 //
 // Walking the tree is also what separates a KEY from the same word appearing
 // as a profile name, a model string, or prose.
-func findRetiredAgentLLMKey(node *yaml.Node) (string, bool) {
+func findRetiredAgentKey(node *yaml.Node, key string) (string, bool) {
 	agentsNode := mappingValue(node, "agents")
 	if agentsNode == nil {
 		return "", false
@@ -491,7 +496,7 @@ func findRetiredAgentLLMKey(node *yaml.Node) (string, bool) {
 	// document order, so the name reported is stable across runs.
 	for i := 0; i+1 < len(agentsNode.Content); i += 2 {
 		name := agentsNode.Content[i].Value
-		if mappingValue(agentsNode.Content[i+1], agents.RetiredLLMKey) != nil {
+		if mappingValue(agentsNode.Content[i+1], key) != nil {
 			return name, true
 		}
 	}

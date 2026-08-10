@@ -30,8 +30,8 @@ func TestGet_UnknownEngineErrorNamesTheValidSet(t *testing.T) {
 }
 
 // TestGet_UnknownEngineErrorNamesAcceptedAliases pins that the refusal also
-// covers the alias spellings, since "claude" and "agy" are accepted values a
-// user may be trying to recall and neither is any engine's Name().
+// covers the alias spellings, since "claude" is an accepted value a
+// user may be trying to recall and it is not any engine's Name().
 func TestGet_UnknownEngineErrorNamesAcceptedAliases(t *testing.T) {
 	_, err := Get("agyy")
 	require.Error(t, err)

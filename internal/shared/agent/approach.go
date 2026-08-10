@@ -133,7 +133,7 @@ type ContextWrite int
 
 const (
 	// ContextWriteUnsafeFile writes the engine's native context file (CLAUDE.md /
-	// AGENTS.md / .kiro/steering). agy/kiro's only approach; claude's and codex's
+	// AGENTS.md / .kiro/steering). kiro's only approach; claude's and codex's
 	// native-file option (codex has none — see codex's SupportedApproaches).
 	ContextWriteUnsafeFile ContextWrite = iota
 	// ContextWriteSystemPrompt writes claude's framed context to an out-of-cwd

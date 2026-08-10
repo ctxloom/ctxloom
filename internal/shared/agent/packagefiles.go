@@ -80,7 +80,7 @@ func WriteManagedPackageFiles[T any](
 	led := ledger.Ledger{FS: fs, Dir: dir, Warn: Warn}
 
 	// Remove the previous ctxloom-written set for THIS SURFACE only. A
-	// co-located surface's entries (antigravity and kiro write commands and
+	// co-located surface's entries (kiro writes commands and
 	// skills into one directory) must survive untouched — that separation used
 	// to come from two manifest FILENAMES and now comes from the surface.
 	//

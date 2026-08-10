@@ -3,9 +3,9 @@ package agent
 // This file hoists the shared body of every engine's MANAGED-COMMAND
 // delivery out of the per-backend surfaces.go files. The engines whose
 // command (slash-command) exports are reconciled files written by a
-// manifest-scoped writer — antigravity (.agents/skills/), kiro (.kiro/skills/),
+// manifest-scoped writer — kiro (.kiro/skills/)
 // and codex ($CODEX_HOME/prompts, the vendor's own directory name — codex's
-// export is still a command, not a genuine Agent Skill) — all shared one
+// export is still a command, not a genuine Agent Skill) — both shared one
 // identical Deliver: write the
 // enabled exports, then revert exactly the managed set on cleanup by re-writing
 // with none. Only WHICH writer, at WHICH path, is engine-specific; that is the
@@ -39,7 +39,7 @@ func NewManagedCommandsDelivery(name string, commands []CommandExport, write fun
 // making a managed-commands delivery self-describing when it lands in a shared cwd.
 func (s *ManagedCommandsDelivery) UnsafeInfo() string { return s.name }
 
-// Kind reports this as the commands surface (codex/antigravity/kiro all share it).
+// Kind reports this as the commands surface (codex/kiro both share it).
 func (s *ManagedCommandsDelivery) Kind() SurfaceKind { return SurfaceCommands }
 
 // Deliver writes the enabled command exports into dir via the injected writer

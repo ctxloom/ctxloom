@@ -12,7 +12,7 @@ import (
 // Backend is the LAUNCH facet of an agent — running the LLM and its session
 // lifecycle. It is deliberately separate from the SettingsWriter (settings)
 // facet so a consumer can depend on one without the other. Each agent
-// (claude/antigravity) implements both facets; ltk implements/consumes only
+// (claude) implements both facets; ltk implements/consumes only
 // SettingsWriter.
 
 // BackendConfig is the decoded, typed configuration for one labeled LLM entry.
@@ -20,7 +20,7 @@ import (
 // interface and never type-switches on the backend. It is part of the
 // engine-agnostic contract alongside Backend.
 type BackendConfig interface {
-	// BackendType returns the discriminator (claude-code / antigravity / codex)
+	// BackendType returns the discriminator (claude-code / codex)
 	// naming the backend this config drives.
 	BackendType() string
 }
@@ -115,7 +115,7 @@ type ContextProvider interface {
 // SessionHistory provides access to the LLM's conversation history and tracks
 // sessions for /clear recovery. Combines reading transcripts with tracking
 // which sessions belong to which ctxloom run.
-// Implementation varies by backend: JSONL files (Claude/Antigravity), etc.
+// Implementation varies by backend: JSONL files (Claude), etc.
 type SessionHistory interface {
 	// Reading sessions
 	// GetCurrentSession returns the current/most recent session transcript.
@@ -130,7 +130,7 @@ type SessionHistory interface {
 	// Tracking for /clear recovery
 	// TranscriptPathFromHook extracts or computes the transcript path from hook input.
 	// Claude: computes path from sessionID + workDir
-	// Antigravity/Codex: returns transcriptPath directly
+	// Codex: returns transcriptPath directly
 	TranscriptPathFromHook(workDir, sessionID, transcriptPath string) string
 
 	// Note: "which session is previous" is resolved by ctxloom from its session

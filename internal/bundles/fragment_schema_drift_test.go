@@ -52,7 +52,7 @@ func TestFragmentSchema_PermitsEveryBundleFragmentField(t *testing.T) {
 // TestFragmentSchema_LLMBlockPermitsEveryEngine is the same drift gate as
 // above, one level deeper: LLMExports (internal/bundles/loader_content.go) is
 // the Go struct backing a bundle item's `llm:` export-settings block, and it
-// already carries all five engines (claude-code, antigravity, codex, kiro,
+// already carries all four engines (claude-code, codex, kiro,
 // opencode). fragment-schema.json's own `llm` property only listed
 // claude-code and opencode — with additionalProperties:false one level down,
 // an otherwise-valid `llm: { codex: {...} }` / `kiro:` / `antigravity:` block

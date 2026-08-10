@@ -41,7 +41,7 @@ type Delivery interface {
 // deliberately NOT a dispatch key — no code branches on a surface's kind to
 // decide HOW to write it (that stays each surface's own Deliver). Engines fold
 // several concerns into one file (claude/kiro settings carry hooks; codex config
-// carries hooks + MCP; antigravity's hooks file is its settings) — those all map
+// carries hooks + MCP) — those all map
 // to SurfaceSettings, so a caller selecting Settings gets the whole folded file.
 type SurfaceKind int
 
@@ -164,7 +164,7 @@ type SurfaceSet interface {
 	// SharedRealization reports the backend's out-of-cwd, genuinely race-safe
 	// conversion for kind — claude's --append-system-prompt-file /--mcp-config /
 	// --settings scratch writers. false means the backend has no such conversion
-	// for kind (every kind on codex/antigravity/kiro; claude's commands), so a
+	// for kind (every kind on codex/kiro; claude's commands), so a
 	// SHARED-cwd delivery falls back to the loud well-known write. The returned
 	// closure, when non-nil, performs the isolated write and returns its handle.
 	SharedRealization(kind SurfaceKind) (func() (Delivered, error), bool)
@@ -232,7 +232,7 @@ type CellDelivery struct {
 	// Build maps the shared per-run inputs to the backend's SurfaceSet, targeting
 	// isolatedDir for any out-of-cwd (race-safe) surface — claude's append-flag /
 	// --mcp-config / --settings scratch. Backends that write only well-known files
-	// (codex/antigravity/kiro) ignore isolatedDir. For claude the closure also
+	// (codex/kiro) ignore isolatedDir. For claude the closure also
 	// stashes the concrete Surfaces on the backend so buildArgs can read each
 	// out-of-cwd file's Path() after delivery.
 	Build func(in SurfaceInputs, isolatedDir string) SurfaceSet
@@ -240,15 +240,15 @@ type CellDelivery struct {
 	// RawContext materializes the assembled context into the content-addressed
 	// cache file (agent.WriteContextFile) as a Setup pre-step and sets the
 	// CTXLOOM_CONTEXT_FILE env path — matching the legacy lifecycle path for the
-	// file/hook engines (codex/antigravity/kiro). claude leaves it false: its
+	// file/hook engines (codex/kiro). claude leaves it false: its
 	// context rides an out-of-cwd launch flag or a well-known CLAUDE.md, never the
 	// cache file.
 	RawContext bool
 
 	// ContextHook keys the SessionStart context-injection hook to the cache file's
 	// hash (codex — the one engine that reads context via a hook that fires at run
-	// time). antigravity/kiro divert context to AGENTS.md/steering (their context
-	// surface), so their hook hash stays "". Requires RawContext (the hook reads
+	// time). kiro diverts context to AGENTS.md/steering (its context
+	// surface), so its hook hash stays "". Requires RawContext (the hook reads
 	// the cache file). claude leaves it false (context rides the append flag).
 	ContextHook bool
 }
@@ -257,7 +257,7 @@ type CellDelivery struct {
 // CellDelivery.Build. Every surface writes its engine well-known path, so the
 // isolated dir is ignored and the constructor runs with the default (OS)
 // filesystem. It is the single source of truth for that adapter, shared by
-// codex/antigravity/kiro — whose Build bodies would otherwise be identical
+// codex/kiro — whose Build bodies would otherwise be identical
 // boilerplate. (claude is the exception: it targets the isolated dir and stashes
 // its concrete Surfaces for buildArgs, so it supplies its own Build.)
 func BuildWellKnown[S SurfaceSet](newSurfaces func(SurfaceInputs, afero.Fs) S) func(SurfaceInputs, string) SurfaceSet {
@@ -605,9 +605,9 @@ func (r *ResolvedSelection) DeliverUnder(dir string) (delivered []Delivered, kin
 // This has no PRODUCTION call site — true, but a suggested fix ("port callers
 // onto deliverOneShared directly") does not work for its actual callers:
 // deliverOneShared is unexported, and every current caller of DeliverShared
-// (claude/kiro/codex/antigravity's surfaces_test.go, selection_test.go) lives
+// (claude/kiro/codex's surfaces_test.go, selection_test.go) lives
 // in a DIFFERENT package, so it cannot reach an unexported method here.
-// DeliverShared is the sanctioned, exported seam those five packages' tests
+// DeliverShared is the sanctioned, exported seam those four packages' tests
 // use to exercise the shared-cwd "unsafe: warn and proceed" behavior end to
 // end (real UnsafeInfo() strings, real target paths) — kept deliberately, not
 // oversight.
@@ -639,7 +639,7 @@ type isolatedDelivery interface {
 
 // unsafeNamed is optionally implemented by a concrete surface Delivery to
 // self-describe for the DeliverShared warning (e.g. "claude/commands"). A surface
-// without it (the shared codex/antigravity/kiro ManagedCommandsDelivery) falls back
+// without it (the shared codex/kiro ManagedCommandsDelivery) falls back
 // to its cross-backend SurfaceKind label.
 type unsafeNamed interface {
 	UnsafeInfo() string

@@ -11,7 +11,7 @@ import (
 // readJSONLLines splits r into non-empty, trimmed lines using an UNBOUNDED
 // bufio.Reader rather than a capped bufio.Scanner. Every JSONL-per-session
 // vendor store this package's adapters read (codex's rollout-*.jsonl,
-// claude's <uuid>.jsonl, antigravity's transcript_full.jsonl) routinely
+// claude's <uuid>.jsonl) routinely
 // carries a single line running to tens of kilobytes (a base_instructions
 // blob, a large tool result/diff, an extended-thinking block, a
 // PLANNER_RESPONSE's "thinking" field) — a Scanner's default token cap would

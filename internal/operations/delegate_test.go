@@ -113,9 +113,9 @@ func TestPrepareAgentChat_EmptyWorkspaceFallsBackToProjectDefault(t *testing.T) 
 // (internal/cli/run.go's runAxes, an entirely separate call site that never
 // goes through PrepareAgentChat). This is a WORKSPACE-axis (file-level)
 // change only — it says nothing about the engine's global config/credential
-// store, which worktree isolation never touches (see EnvWorkspace's doc and
-// the antigravity fail-loud gate in isolation.go for the load-bearing
-// caveat: some engines honour a config-home env override and some do not).
+// store, which worktree isolation never touches (see EnvWorkspace's doc for
+// the load-bearing caveat: some engines honour a config-home env override and
+// some do not).
 func TestPrepareAgentChat_DelegatedDefaultsToWorktree(t *testing.T) {
 	resetStrictness(t)
 	var gotAxes isolation.Axes

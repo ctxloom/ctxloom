@@ -24,7 +24,7 @@ const (
 
 const (
 	// claudeEngineName is the agent_engine value naming claude (matched
-	// case-insensitively — see ACPConfig.AgentEngine's kiro/claude/codex/agy
+	// case-insensitively — see ACPConfig.AgentEngine's kiro/claude/codex
 	// vocabulary). It keys the automatic CLAUDECODE strip below, and mirrors
 	// the same alias other ctxloom engine-name tables use for claude (e.g.
 	// internal/ltk/engine.engineAliases).
@@ -55,7 +55,7 @@ type ACPConfig struct {
 	Command string `mapstructure:"command"`
 	// Agent selects a named agent on the target CLI via `--agent`.
 	Agent string `mapstructure:"agent"`
-	// AgentEngine names the target agent (kiro/claude/codex/agy). Drives the
+	// AgentEngine names the target agent (kiro/claude/codex). Drives the
 	// future config-materialization delegation; also passed as `--agent-engine`.
 	AgentEngine string `mapstructure:"agent_engine"`
 	// Model is passed to the spawned agent via `--model` when set.

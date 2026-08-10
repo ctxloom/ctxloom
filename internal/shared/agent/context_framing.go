@@ -2,7 +2,7 @@ package agent
 
 // Framing for the assembled project context delivered to an engine. ONE source
 // of truth: the SessionStart inject-context hook (cli.buildInjectContextOutput,
-// used by codex/antigravity and any chunked delivery) and claude's native
+// used by codex and any chunked delivery) and claude's native
 // --append-system-prompt-file delivery (FrameProjectContext) both compose from
 // these constants, so the two delivery paths can't drift.
 

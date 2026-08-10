@@ -285,7 +285,7 @@ func sessionNameArgs(env map[string]string) []string {
 // plan --disallowedTools "Bash,Edit,Write,NotebookEdit"` denied a
 // sentinel-file overwrite — byte-unchanged, model explicitly cited BOTH
 // plan mode and the missing write tools). --permission-mode plan is
-// already a genuine read-only posture on its own (unlike agy/kiro's
+// already a genuine read-only posture on its own (unlike kiro's
 // collapsed read-only, this is the LESS broken of the under-mapped
 // engines), so this is defense-in-depth, not the fix itself: if a future
 // claude release ever narrows plan's own semantics, the explicit deny

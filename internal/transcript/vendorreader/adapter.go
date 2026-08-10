@@ -1,7 +1,7 @@
 // Package vendorreader defines the shared contract every per-engine vendor
 // reader implements: parse ONE vendor-native transcript (codex's rollout
-// JSONL, kiro's session store, claude's project JSONL, antigravity's brain
-// log) into ctxloom's own canonical agent.ChatEvent stream and append it
+// JSONL, kiro's session store, claude's project JSONL) into ctxloom's own
+// canonical agent.ChatEvent stream and append it
 // through the SAME transcript.Recorder sink the live structured-chat tee
 // (internal/transcript/recorder.go's Tee/TeeAndClose) already writes
 // through. This is the point of the whole package: a session read from its

@@ -45,7 +45,7 @@ type HashedContext interface {
 	GetContextFilePath() string
 }
 
-// LaunchBackend is the shared core of a local-CLI launch agent (claude/antigravity).
+// LaunchBackend is the shared core of a local-CLI launch agent (claude).
 // It owns the capability wiring (lifecycle/commands/context/history) and the
 // generic Setup/Cleanup that every launch agent shares. A concrete agent embeds
 // it, calls InitLaunch with its constructed capabilities, and implements only
@@ -77,7 +77,7 @@ type LaunchBackend struct {
 // InitLaunch wires the constructed capabilities into the base. Call it from the
 // concrete constructor once the capabilities (which usually close over the
 // concrete backend) have been built. delivery configures cell-based surface
-// delivery (claude/codex/antigravity/kiro); pass nil for a backend that keeps
+// delivery (claude/codex/kiro); pass nil for a backend that keeps
 // the legacy lifecycle path (acp).
 func (b *LaunchBackend) InitLaunch(lifecycle ManagedLifecycle, ctxProvider HashedContext, history SessionHistory, delivery *CellDelivery) {
 	b.lifecycle = lifecycle
@@ -193,14 +193,14 @@ func (b *LaunchBackend) Setup(ctx context.Context, req *SetupRequest) error {
 // launch backend that routes delivery through the seam. It prepares the
 // engine-consumed files in three steps:
 //
-//  1. RawContext pre-step — the file/hook engines (codex/antigravity/kiro)
+//  1. RawContext pre-step — the file/hook engines (codex/kiro)
 //     materialize the content-addressed cache file (agent.WriteContextFile via
 //     Provide) and the CTXLOOM_CONTEXT_FILE env path. codex ALSO keys the
 //     SessionStart context-injection hook to that hash (ContextHook) — and because
 //     the cache file is on disk BEFORE MergeManaged runs, NewContextInjectionHooks
 //     reads it and makes its chunk decision against the actual file.
-//     antigravity/kiro divert context to AGENTS.md/steering (their context
-//     surface), so their hook hash stays "". claude leaves RawContext false: its
+//     kiro diverts context to AGENTS.md/steering (its context
+//     surface), so its hook hash stays "". claude leaves RawContext false: its
 //     context rides an out-of-cwd flag or a well-known CLAUDE.md, never the cache
 //     file.
 //  2. MergeManaged folds the host-assembled config/bundle payload into the
@@ -225,7 +225,7 @@ func (b *LaunchBackend) setupViaCells(req *SetupRequest) error {
 		return fmt.Errorf("backend delivery sets ContextHook without RawContext: the SessionStart injection hook is keyed to the RawContext cache file, so no hook can be installed")
 	}
 
-	// 1. RawContext pre-step (codex/antigravity/kiro).
+	// 1. RawContext pre-step (codex/kiro).
 	contextHash := ""
 	if d.RawContext {
 		if err := b.context.Provide(b.WorkDir(), req.Fragments); err != nil {

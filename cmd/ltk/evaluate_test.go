@@ -562,8 +562,7 @@ func TestConfirmByRepeatTinyWindowDenies(t *testing.T) {
 // the vendor ships or renames a shell/file tool, the installed PreToolUse
 // matcher can end up firing on it while Decode does not recognise the exact
 // tool name (see claudecode.go's claudeMatcher comment for when Claude Code's
-// matcher takes its regex path vs. its exact-list path; agy's matcher is
-// unconditionally regex). Decode then reads only the payload field names it
+// matcher takes its regex path vs. its exact-list path). Decode then reads only the payload field names it
 // knows (tool_input.command/file_path/notebook_path) — an unrecognized tool
 // using different field names (e.g. target_path/new_content) yields an empty
 // Request, and an empty Request used to evaluate as an unconditional allow.

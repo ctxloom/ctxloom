@@ -17,10 +17,9 @@ import (
 // ctxloom-managed stdio servers while preserving user-authored entries
 // (including remote/url servers) byte-for-byte, and tracks managed ownership
 // in a sidecar ledger so renames and removals in config/bundles propagate
-// instead of orphaning entries. Antigravity (.agents/mcp_config.json) and
-// Kiro (.kiro/settings/mcp.json) both reconcile through this one
-// implementation — the engine writers supply only paths, labels, and their
-// wire plugin key.
+// instead of orphaning entries. Kiro (.kiro/settings/mcp.json) reconciles
+// through this one implementation — the engine writers supply only paths,
+// labels, and their wire plugin key.
 type MCPFileConfig struct {
 	// FS is the engine writer's filesystem (already default-resolved).
 	FS afero.Fs

@@ -1,7 +1,7 @@
 // Package codex implements vendorreader.VendorAdapter for codex CLI's own
 // transcript store: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl. It is the
 // REFERENCE adapter (docs/transcript-schema.md §8, tough-cloud-writer-a) —
-// every other engine's reader (kiro/claude/antigravity) copies this
+// every other engine's reader (kiro/claude) copies this
 // package's shape: a small envelope/payload type set, a two-pass Convert
 // (session metadata first, then a streamed entry pass), and a colocated
 // fixture test runnable in total isolation from the rest of the module.

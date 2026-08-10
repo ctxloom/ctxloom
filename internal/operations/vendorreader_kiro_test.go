@@ -31,7 +31,7 @@ func msToTime(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
 // package's own test suite already exercises
 // (internal/transcript/vendorreader/kiro/testdata/conversation-fixture.json) —
 // reused here rather than a second hand-rolled row, same discipline as
-// vendorreader_test.go's codex/claude/antigravity fixtures.
+// vendorreader_test.go's codex/claude fixtures.
 var kiroFixturePath = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "kiro", "testdata", "conversation-fixture.json")
 
 // kiroFixtureRow mirrors kiro_test.go's own fixtureRow shape (conversations_v2

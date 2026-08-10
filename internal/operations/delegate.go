@@ -46,7 +46,7 @@ type AgentChatRequest struct {
 	Permissions agent.PermissionMode
 	// ResumeSessionID, when set, asks the backend to resume its own NATIVE
 	// session (agent.ChatRequest.ResumeSessionID — claude --resume, codex
-	// thread/resume, ACP session/load, agy --conversation --continue)
+	// thread/resume, ACP session/load)
 	// instead of starting fresh. Only meaningful on the legacy go-plugin
 	// Chat dial (Start, below) — the migrated StartRun path resumes via its
 	// own HarnessSpec/StartRun{ResumeSessionId} route (children.go's

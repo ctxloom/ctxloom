@@ -19,16 +19,18 @@ Feature: The close-out — the end of a workstream
   deliberately no top-level `cleanup` verb; that question was settled by the
   noun-verb convention and is not re-litigated here.
 
-  # NOTE ON SCOPE — THIS FEATURE STARTED AS A SPECIFICATION and is being
-  # walked down. `session worktrees`, `session purge` and doctor's new checks
-  # have since shipped. The `cleanup` routine has not, and its scenario remains
-  # its acceptance definition. Ten of the eleven scenarios pass today; the one
-  # still tagged @wip is red, and that is the deliverable rather than a defect
-  # in the file.
+  # NOTE ON SCOPE. `session worktrees`, `session purge` and doctor's checks
+  # ship. The `cleanup` routine does not, and its scenario is its acceptance
+  # definition. Ten of the eleven scenarios pass; the one tagged @wip is red,
+  # and that is the deliverable rather than a defect in the file.
+  #
+  # COMMAND SURFACES THIS FILE COVERS: `ctxloom doctor`, `session worktrees`
+  # and its `purge` leaf, `session purge` and `session transcript purge`, and
+  # `ctxloom run -r`.
   #
   # The lessons leg — four scenarios specifying
-  # `session distill --skill --to-bundle` — was REMOVED on 2026-08-08 when that
-  # surface was ruled out; see the retired-section note where they stood.
+  # `session distill --skill --to-bundle` — is gone; that surface is ruled out.
+  # See the retired-section note where those scenarios stood.
   #
   # NOTE ON WHAT THE FIXTURES BUILD. A close-out flow is defined almost
   # entirely by what it REFUSES to do, and a refusal cannot be tested against a
@@ -43,10 +45,10 @@ Feature: The close-out — the end of a workstream
   # NOTE ON THE CONFIRMATION LINE, which several scenarios enforce directly:
   # inspect always (read-only default on every leaf); additive writes proceed
   # on plain apply WITH payload assertions ("wrote 0 fragments" is
-  # exit-nonzero, never success); destruction confirms per item against
-  # evidence shown in the same invocation; and the refusal list is hard-coded —
-  # no force-remove, no dirty or unmerged or unowned trees, no live session, no
-  # undistilled `--everything` without its own flag, no touching vendor stores.
+  # exit-nonzero, never success); destruction confirms against evidence shown
+  # in the same invocation; and the refusal list is hard-coded — no
+  # force-remove, no dirty or unmerged or unowned trees, no live session, no
+  # sweeping an undistilled session, no touching vendor stores.
   #
   # NOTE ON TAGS. One of the eleven scenarios is @wip, with its own untag
   # condition. The other ten pass today; each says what closed it rather than
@@ -140,16 +142,16 @@ Feature: The close-out — the end of a workstream
   # the assertion reads the WIP file's own bytes off disk rather than checking
   # that a directory still exists.
   #
-  # `session worktrees --reap --yes` drives isolation.ReapWorktrees over
+  # `session worktrees purge <harp> --yes` drives isolation.ReapWorktrees over
   # exactly what isolation.ClassifyOrphanedWorktrees just classified, and
   # reports its outcome taxonomy (reaped/spared/skipped).
-  Scenario: Reaping removes only what it can prove is safe, and says why it left the rest
+  Scenario: Purging removes only what it can prove is safe, and says why it left the rest
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And session "amber-quiet-heron" left a clean scratch worktree whose owning process is dead
     And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
     And session "amber-quiet-heron" left a scratch worktree nothing can prove the owner of
     And session "amber-quiet-heron" left a scratch worktree whose owning process is still alive
-    When I run "ctxloom session worktrees --reap --yes"
+    When I run "ctxloom session worktrees purge amber-quiet-heron --yes"
     Then only the clean, provably-orphaned worktree is gone from disk
     And the uncommitted work is still there, spared in place
     And the report says why each spared worktree was left alone
@@ -167,7 +169,7 @@ Feature: The close-out — the end of a workstream
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And session "amber-quiet-heron" left a clean scratch worktree whose owning process is dead
     And a long-lived worktree "stale-feature" of her own, outside the sessions root, with unmerged work
-    When I run "ctxloom session worktrees --reap --yes"
+    When I run "ctxloom session worktrees purge amber-quiet-heron --yes"
     Then her own long-lived worktree is untouched and was never listed
 
   # ---- Step 3: lessons — REMOVED 2026-08-08 ------------------------------
@@ -205,12 +207,8 @@ Feature: The close-out — the end of a workstream
   # payload assertion is that the report DESTROYED NOTHING — a "report" that
   # deletes as a side effect is the worst possible version of this leaf.
   #
-  # Closed: `ctxloom session purge <harp>` ships in
-  # cli.newSessionPurgeCmd (internal/cli/session_purge_cmd.go) and reports
-  # without destroying — without `--yes` nothing on disk or in the session
-  # index changes, TTY or not. The "no purge, gc, prune, retention or forget
-  # verb exists anywhere in the CLI (boundary B11)" this row used to claim was
-  # true when it was written and has not been since.
+  # `ctxloom session purge <harp>` reports without destroying: with no `--yes`,
+  # nothing on disk or in the session index changes, on a TTY or not.
   Scenario: Purge shows its work before it destroys anything
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And a finished session "brisk-copper-moth" that was never distilled
@@ -218,50 +216,65 @@ Feature: The close-out — the end of a workstream
     Then the report lists what would be destroyed and what would be kept
     And every byte of every session is still on disk
 
-  # THE THREE CONTENT CLASSES, each treated differently, asserted separately.
-  # Machine-written bulk goes. Derived essence and the index entry stay, marked
-  # purged — a session that vanishes from the index is indistinguishable from
-  # one that never existed. Human-authored artifacts are never negotiable, and
-  # are NAMED in the report rather than silently skipped, because a file kept
-  # but never mentioned is a file nobody will ever file.
+  # WHAT "EMPTY" MEANS, and the one thing it may never take. Emptying a session
+  # sweeps every population ctxloom wrote into it — the recorded conversation
+  # AND the essence distilled from it. That is the whole point of the verb, and
+  # it is exactly why this journey's lessons leg matters: a lesson that is still
+  # sitting in a session directory on Monday is a lesson with a deadline.
   #
-  # Closed: purge implements the three-class split (machine / derived /
-  # authored), and `--yes` is what moves it from reporting to destroying.
-  Scenario: Purge destroys the bulk, keeps the meaning, and never eats authored work
+  # Two things survive regardless. The index entry stays, marked purged, because
+  # a session that vanishes from the index is indistinguishable from one that
+  # never existed. And human-authored artifacts are never negotiable — they are
+  # NAMED in the report rather than silently skipped, because a file kept but
+  # never mentioned is a file nobody will ever file.
+  #
+  # Alice's other option is on the leaf that understands one population:
+  # `session transcript purge` drops the bulk and leaves the essence standing.
+  # That leaf has its own coverage in the session spec; what this row owns is
+  # the authored file planted in a real harp directory, which a wrong
+  # implementation would really have destroyed.
+  Scenario: Emptying a session takes everything ctxloom wrote, and nothing Alice did
     Given a finished session "amber-quiet-heron" carrying design notes nobody filed
     When I run "ctxloom session purge amber-quiet-heron --yes"
     Then the machine-written bulk of "amber-quiet-heron" is gone
-    And its distilled essence and its index entry survive
+    And its distilled essence goes with the bulk, and its index entry survives
     And her unfiled design notes are still there, and were named in the report
 
-  # Maximal friction on the irreversible case. `--everything` is the
-  # offboarding, subpoena, leaked-secret day — and destroying the only record
-  # of a never-summarized session earns its own flag on top of the typed
-  # confirmation. For a structured run the canonical transcript is the ONLY
-  # copy; nothing promises `session backfill` can re-derive it.
+  # Maximal friction on the irreversible case. Emptying a session nobody ever
+  # summarised destroys the only record of what happened — for a structured run
+  # the canonical transcript is the ONLY copy, and nothing can re-derive it once
+  # the engine's own store has rotated. So the sweep refuses and names the one
+  # leaf that can do it deliberately.
   #
-  # Closed: `--everything` refuses an undistilled session, naming it, unless
-  # `--undistilled` is given alongside.
-  Scenario: Forgetting a session nobody ever summarised takes an extra deliberate flag
+  # The refusal has to carry that leaf, not merely say no. Selection flags live
+  # on the population that understands them: `--undistilled` means something
+  # precise about a transcript and nothing at all about an essence or a
+  # worktree, so the sweep has none to offer and sends her to the verb that
+  # does.
+  Scenario: Emptying a session nobody ever summarised refuses, and names the deliberate route
     Given a finished session "brisk-copper-moth" that was never distilled
-    When I run "ctxloom session purge brisk-copper-moth --everything --yes"
-    Then ctxloom refuses, naming the session that was never distilled
+    When I run "ctxloom session purge brisk-copper-moth --yes"
+    Then ctxloom refuses, naming the session that was never distilled and the leaf that can destroy it
     And every byte of every session is still on disk
 
-  # The hard boundary between the two destroyers. A purge never runs git
-  # operations — reaping is `session worktrees --reap`'s job, under safety
-  # semantics a purge does not implement. A purge that recursively removed a
-  # harp directory would take the scratch worktrees with it, including any
-  # holding work, without ever consulting an owner marker.
+  # THE SWEEP INHERITS THE SAFETY RULES, it does not outrank them. Emptying a
+  # session covers the scratch worktrees living inside it, and covering them
+  # means reaching exactly the verdicts the worktree leaf reaches on its own: a
+  # tree holding uncommitted work is spared IN PLACE — not stashed, not
+  # branched, not "recoverable from reflog" — still sitting where its author
+  # left it and still registered with git. A sweep that recursively removed a
+  # harp directory instead would take that work with it without ever consulting
+  # an owner marker.
   #
-  # Closed: purge leaves scratch worktrees registered and on disk — it never
-  # walks ephemeral/ and runs no git commands, which is `session worktrees
-  # --reap`'s job.
-  Scenario: Purging a session does not reap the worktrees living inside it
+  # This project has lost work to a force-removed worktree before. That is why
+  # the assertion reads the WIP file's own bytes off disk rather than checking
+  # that a directory still exists.
+  Scenario: Emptying a session spares the uncommitted work living inside it
     Given a finished session "amber-quiet-heron" whose work is already distilled
     And session "amber-quiet-heron" left a scratch worktree holding uncommitted work
     When I run "ctxloom session purge amber-quiet-heron --yes"
-    Then the scratch worktrees are still registered with git, untouched by the purge
+    Then the uncommitted work is still there, spared in place
+    And the scratch worktree is still registered with git
 
   # ---- The routine itself ------------------------------------------------
   # The one-thing-you-run affordance, recovered through ctxloom's own

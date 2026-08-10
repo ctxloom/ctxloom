@@ -2,11 +2,11 @@
 
 // J001300: "the close-out" (j001300_closeout.feature) — FLOWS-UNIFIED.md's U11.
 //
-// THIS JOURNEY SPECIFIES A SURFACE THAT DOES NOT EXIST. Almost every scenario
-// here is red, and that is the deliverable: `session worktrees`,
-// `session purge`, and doctor's five new checks are the C10 set FLOWS-UNIFIED
-// proposes, and this file is their acceptance specification. A red scenario
-// naming a real gap is worth more than a green one that dodged the assertion.
+// ONE SCENARIO HERE STILL SPECIFIES A SURFACE THAT DOES NOT EXIST — the
+// `cleanup` routine — and that is the deliverable rather than a defect. A red
+// scenario naming a real gap is worth more than a green one that dodged the
+// assertion. Everything else drives shipped verbs: `ctxloom doctor`,
+// `session worktrees` and its `purge` leaf, and `session purge`.
 //
 // `session distill` takes NO --skill and NO --to-bundle. That leg was
 // specified here and rejected: extraction-into-a-bundle is not a close-out
@@ -304,11 +304,10 @@ func j001300DirExists(p string) bool {
 // scenarios in this journey assert that something was NOT destroyed, NOT
 // listed, or NOT reported as success — and every one of those assertions is
 // trivially satisfied by a CLI that rejected the invocation before doing
-// anything at all. Measured while writing this file: three scenarios passed
-// green purely because `session purge` and `session worktrees --reap` do not
-// exist, so of course they destroyed nothing. A green scenario that dodged its
-// own assertion is worth less than a red one, because it reports coverage
-// where there is none.
+// anything at all. A misspelled verb or a retired flag destroys nothing, of
+// course, and every safety assertion in this file passes green against it. A
+// green scenario that dodged its own assertion is worth less than a red one,
+// because it reports coverage where there is none.
 //
 // So every negative assertion runs through here first, and a missing surface
 // is reported as a missing surface rather than as a passing safety property.
@@ -527,20 +526,25 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	ctx.Step(`^its distilled essence and its index entry survive$`, func(c context.Context) error {
+	// The sweep covers BOTH file populations, so the essence goes with the
+	// bulk. The index entry is what does not: a purged session stays listed,
+	// marked purged, because a session that vanishes from the index is
+	// indistinguishable from one that never existed. Asserting the two halves
+	// in one step keeps them from being read as alternatives — a run that
+	// destroyed the essence AND unlisted the session must not pass.
+	ctx.Step(`^its distilled essence goes with the bulk, and its index entry survives$`, func(c context.Context) error {
 		w := worldFrom(c)
 		st := j001300Of(w)
 		for _, h := range st.harps {
 			if !h.essence {
 				continue
 			}
-			body, err := os.ReadFile(filepath.Join(h.dir, "essence.md"))
-			if err != nil {
-				return fmt.Errorf("the distilled essence of %s was destroyed: %w. Essence is DERIVED and cheap to keep — "+
-					"purging it destroys the only durable record of what the session concluded", h.name, err)
-			}
-			if !strings.Contains(string(body), j001300EssenceMarker) {
-				return fmt.Errorf("%s's essence no longer carries its own bytes; it holds:\n%s", h.name, body)
+			p := filepath.Join(h.dir, "essence.md")
+			if _, err := os.Stat(p); err == nil {
+				return fmt.Errorf("the distilled essence of %s survived a sweep that reported success (exit %d). "+
+					"Emptying a session covers every population ctxloom wrote into it, and an essence left standing means the "+
+					"caller believes the session is empty while its derived half is still on disk. Output:\n%s",
+					h.name, w.env.LastExitCode(), w.env.LastOutput())
 			}
 		}
 		idx, err := w.env.ReadHomeFile(j001300SessionsRel + "/index.yaml")
@@ -581,20 +585,30 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		return fmt.Errorf("no harp carrying authored notes was seeded, so this assertion measured nothing")
 	})
 
-	ctx.Step(`^ctxloom refuses, naming the session that was never distilled$`, func(c context.Context) error {
+	// A refusal that does not name the route is only half a refusal: the caller
+	// is told no and left with nowhere to go, which is how someone ends up
+	// deleting a harp directory by hand. So this asserts the REMEDY as well as
+	// the refusal.
+	ctx.Step(`^ctxloom refuses, naming the session that was never distilled and the leaf that can destroy it$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := j001300RanRealSurface(w); err != nil {
 			return err
 		}
 		if w.env.LastExitCode() == 0 {
-			return fmt.Errorf("`--everything` proceeded against an undistilled session (exit 0). Destroying the only record of a "+
-				"never-summarized session must take maximal friction — its own flag, on top of the typed confirmation. Output:\n%s",
+			return fmt.Errorf("the sweep proceeded against an undistilled session (exit 0). With no essence the transcript is the only "+
+				"record of what happened, and destroying it must take a deliberate act on the leaf that owns it. Output:\n%s",
 				w.env.LastOutput())
 		}
-		return j001300Answered(w, "the refusal", "undistilled")
+		return j001300Answered(w, "the refusal",
+			"brisk-copper-moth", "never distilled", "session transcript purge", "--undistilled")
 	})
 
-	ctx.Step(`^the scratch worktrees are still registered with git, untouched by the purge$`, func(c context.Context) error {
+	// The sweep covers the scratch worktrees, under the worktree population's
+	// own safety rules — so a tree holding uncommitted work stays on disk AND
+	// stays registered with git. Deregistering it while leaving the directory
+	// would strand the work outside git's own view of the repository, which is
+	// the quiet half of losing it.
+	ctx.Step(`^the scratch worktree is still registered with git$`, func(c context.Context) error {
 		w := worldFrom(c)
 		if err := j001300RanRealSurface(w); err != nil {
 			return err
@@ -607,11 +621,11 @@ func registerJ001300Steps(ctx *godog.ScenarioContext) {
 		for _, h := range st.harps {
 			for _, wt := range h.worktrees {
 				if !j001300DirExists(wt) {
-					return fmt.Errorf("the purge removed the scratch worktree %s. A purge NEVER runs git operations — reaping is "+
-						"`session worktrees --reap`'s job, under the safety semantics a purge does not implement", wt)
+					return fmt.Errorf("the sweep removed the scratch worktree %s, which holds uncommitted work. A sweep reaches the same "+
+						"verdicts the worktree leaf reaches on its own, and that verdict is SPARED", wt)
 				}
 				if !strings.Contains(out, wt) {
-					return fmt.Errorf("the purge deregistered %s from git. `git worktree list` says:\n%s", wt, out)
+					return fmt.Errorf("the sweep deregistered %s from git while leaving its files on disk. `git worktree list` says:\n%s", wt, out)
 				}
 			}
 		}

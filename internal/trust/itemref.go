@@ -29,7 +29,7 @@ const BuiltinSourcePrefix = "builtin:"
 // content from, and any "@<commit>" provenance carried on the bundle ref.
 func ParseItemRef(ref string) (tRef Ref, loadRef, version string, err error) {
 	// Ingest boundary, and the sharpest one in the codebase: this ref arrives
-	// from argv (`ctxloom trust <ref>`), from an MCP argument, or from a gate
+	// from argv (`ctxloom bundle trust <ref>`), from an MCP argument, or from a gate
 	// built over bundle-authored names, and its Bundle/Name components are
 	// interpolated verbatim into the countersign preimage via countersignRef.
 	// The bare-local fallback below accepts ANY token that carries no scheme

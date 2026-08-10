@@ -57,7 +57,7 @@ ever been seen passing.
 <!-- /doc:intro -->
 
 <!-- doc:scenario: Approving the shipped item is what makes it reach the assistant -->
-Four rows, one mechanism: `ctxloom trust <ref>` is the single command that
+Four rows, one mechanism: `ctxloom bundle trust <ref>` is the single command that
 turns a pending fragment, skill, MCP server, or hook into something the
 assistant actually receives. Nothing here is item-specific — the same
 countersigned acceptance record, read by the same `EffectiveTrust` decision

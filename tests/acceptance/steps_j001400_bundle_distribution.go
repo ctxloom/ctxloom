@@ -507,7 +507,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		if err := os.WriteFile(keyPath, ssh.MarshalAuthorizedKey(st.signer.Public), 0o644); err != nil {
 			return fmt.Errorf("write Trent's public key: %w", err)
 		}
-		return runOK(w, "trust", "signer", "create", st.principal, "--key", keyPath, "--project")
+		return runOK(w, "signer", "trust", st.principal, "--key", keyPath, "--project")
 	})
 
 	// --- Given/When: publication and consumption ----------------------------

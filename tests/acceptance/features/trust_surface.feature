@@ -45,7 +45,7 @@ Feature: The trust surface — what "review" actually controls
   PROFILES ARE A DIFFERENT CASE, not a fifth row of the same table: a bundle
   profile is never trust-gated at all (no trust.ItemKind for it — see
   internal/trust/trust.go's ItemKind: fragment | prompt | mcp | hook, and
-  internal/bundles/bundles.go:46-51's comment). "ctxloom trust"/"ctxloom
+  internal/bundles/bundles.go:46-51's comment). "ctxloom bundle trust"/"ctxloom
   blacklist" cannot even parse a "#profiles/<name>" selector. The final
   scenario below proves that refusal directly, rather than asserting a
   decision that does not exist.
@@ -213,7 +213,7 @@ Feature: The trust surface — what "review" actually controls
 
   # GAP C — the DECISION THAT WAS RECORDED, not the payload that was served.
   # Every assertion above reads the downstream materialized surface. None of them
-  # ever look at what `ctxloom trust accept`/`trust reject` actually wrote, so the
+  # ever look at what `ctxloom bundle trust`/`bundle untrust` actually wrote, so the
   # write path could record a block for a form the item does not even have — or
   # silently fail to record one it does — and the whole table would stay green.
   # A rejection's content component is written PER FORM the item currently has

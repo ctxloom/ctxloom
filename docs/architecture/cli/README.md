@@ -116,14 +116,14 @@ Grouped so a reader can tell at a glance whether invoking something is safe.
 `config show`/`get`, `bundle list`/`show`/`view`, `fragment|command|skill list`/`show`,
 `profile list`/`show`/`export`, `agent list`/`show`, `llm list`, `mcp list`/`server list`/`server show`,
 `session list`/`show`/`query`/`watch`, `search`, `remote list`/`browse`/`discover`,
-`trust signer list`/`show`, `plan watch`, `acp entries`, `run --dry-run`.
+`signer list`/`show`, `plan watch`, `acp entries`, `run --dry-run`.
 
 **Mutates local state:** `init`, `config create`/`edit`, `manage install`/`uninstall`/`hooks *`/`statusline *`/`gitignore install`,
 `mcp register`/`unregister`/`server add`/`server remove`, `bundle create`/`edit`/`delete`/`move`/`hold`/`unhold`/`mcp edit`/`import`/`distill`,
 `fragment|command create`/`delete`/`edit`/`distill`, `skill create`/`sync`/`import`,
 `profile create`/`delete`/`modify`/`edit`/`import`/`materialize`, `agent set`/`default`/`remove`,
 `llm default`, `remote add`/`remove`/`default`/`pull`/`update`/`upgrade`,
-`trust accept`/`reject`/`signer add`/`signer remove`, `sign`, `review`,
+`bundle trust`/`reject`/`signer add`/`signer remove`, `sign`, `review`,
 `session rename`/`forget`/`distill`/`backfill`/`bind`, `util config-write`,
 `hook stamp-plan`.
 

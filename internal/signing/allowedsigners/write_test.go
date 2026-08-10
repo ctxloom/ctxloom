@@ -143,7 +143,7 @@ func TestFormatEntry_RequiresPrincipalAndKey(t *testing.T) {
 
 // A principal containing whitespace makes ssh.ParseAuthorizedKey
 // tokenize the tail differently, so Parse drops the entry on every subsequent
-// read — while `ctxloom trust signer create` printed a success line and a
+// read — while `ctxloom signer trust` printed a success line and a
 // fingerprint. Zero trust delivered, reported as trust granted.
 func TestFormatEntry_PrincipalWithWhitespace_IsRefused(t *testing.T) {
 	pub := testPublicKey(t)

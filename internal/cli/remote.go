@@ -29,7 +29,7 @@ Registry:
   ctxloom remote default <name>          Set the default remote
 
 A remote is just an address; its content takes the review path. To auto-trust a
-publisher's content, trust their signing key (ctxloom trust signer create) — not
+publisher's content, trust their signing key (ctxloom signer trust) — not
 the URL.
 
 Discovery:
@@ -165,7 +165,7 @@ func renderRemoteList(out io.Writer, result *operations.ListRemotesResult) error
 
 // `ctxloom remote trust|untrust` are DELETED (signature-envelope spec §11).
 // A remote no longer carries trust: it is just an address to fetch from.
-// Trusting a publisher is `ctxloom trust signer create <principal> --key <path>`, which
+// Trusting a publisher is `ctxloom signer trust <principal> --key <path>`, which
 // trusts a KEY (verified over the bytes) rather than a LOCATION (hash-blind).
 
 var remoteDefaultCmd = &cobra.Command{

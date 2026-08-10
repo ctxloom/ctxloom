@@ -130,7 +130,7 @@ func companionConsentStore() *admission.Store[CompanionKey, CompanionAdmissionRe
 }
 
 // ListCompanionConsent returns every recorded decision, sorted by path. It is
-// the read half of the user-facing `ctxloom trust companion list`.
+// the read half of the user-facing `ctxloom companion list`.
 func ListCompanionConsent() ([]CompanionConsentRecord, error) {
 	return companionConsentStore().List()
 }

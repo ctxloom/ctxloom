@@ -53,7 +53,7 @@ func GenerateTestSigner() (*TestSigner, error) {
 
 // AuthorizedKey renders this identity as a single authorized_keys/`.pub` line
 // (optionally carrying comment) — the shape `git config user.signingkey` and
-// `ctxloom trust signer add --key <path>` both accept.
+// `ctxloom signer add --key <path>` both accept.
 func (s *TestSigner) AuthorizedKey(comment string) string {
 	line := string(ssh.MarshalAuthorizedKey(s.Public)) // already newline-terminated
 	if comment == "" {

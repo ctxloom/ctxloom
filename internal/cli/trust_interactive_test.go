@@ -43,7 +43,7 @@ func TestParseItemTrustChoice(t *testing.T) {
 }
 
 // TestApplyItemTrustChoice_Grant: the [t] action records a content-pinned
-// approval, identical to `ctxloom trust <ref>`.
+// approval, identical to `ctxloom bundle trust <ref>`.
 func TestApplyItemTrustChoice_Grant(t *testing.T) {
 	appDir := t.TempDir()
 	neutralizeRefresh(t)

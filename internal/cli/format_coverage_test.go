@@ -183,7 +183,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"search":            {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
 
 	// --- exercised: canonical spine leaves ---
-	"trust signer list":      {extraArgs: noExtraArgs},
+	"signer list": {extraArgs: noExtraArgs},
 	"mcp server list":        {extraArgs: noExtraArgs},
 	"container tooling list": {extraArgs: noExtraArgs},
 
@@ -201,31 +201,31 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
 	"bundle sign":         {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
-	"trust signer create": {skip: "requires a real public key argument and (without --yes/non-interactive) a confirmation prompt; covered by signer_test.go"},
-	"trust signer show":   {skip: "needs an existing trusted principal (trust signer create's fixture cost); covered by signer_test.go"},
-	"trust signer delete": {skip: "destructive; covered by signer_test.go"},
+	"signer trust": {skip: "requires a real public key argument and (without --yes/non-interactive) a confirmation prompt; covered by signer_test.go"},
+	"signer show": {skip: "needs an existing trusted principal (signer trust's fixture cost); covered by signer_test.go"},
+	"signer untrust": {skip: "destructive; covered by signer_test.go"},
 
-	"trust accept": {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
-	"trust reject": {skip: "needs a resolvable ref; not exercised here"},
+	"bundle trust": {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
+	"bundle untrust": {skip: "needs a resolvable ref; not exercised here"},
 
 	// Read-only over ~/.ctxloom/companion_consent.yaml, which is absent in
 	// this harness — the empty-store rendering is exactly what we want the
 	// five encodings to agree on.
-	"trust companion list": {extraArgs: noExtraArgs},
+	"companion list": {extraArgs: noExtraArgs},
 	// Both mutate the personal consent record and need a real binary on PATH
 	// to resolve and hash; exercised end to end in trust_cli.feature instead.
-	"trust companion allow":  {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
-	"trust companion forget": {skip: "needs a recorded decision to remove; covered by trust_cli.feature"},
+	"companion trust":  {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
+	"companion untrust": {skip: "needs a recorded decision to remove; covered by trust_cli.feature"},
 
 	// Read-only over ~/.ctxloom/publish_remotes.yaml, the same shape as
-	// `trust companion list` above.
-	"trust publish list": {extraArgs: noExtraArgs},
+	// `companion list` above.
+	"remote trusted": {extraArgs: noExtraArgs},
 	// Both WRITE the personal publish-destination record, and this harness
 	// isolates the project root but not $HOME — running them here would edit
 	// the developer's own store. Exercised end to end (in a scenario HOME) by
 	// trust_cli.feature instead.
-	"trust publish allow":  {skip: "writes the personal publish-destination record and this harness does not isolate $HOME; covered by trust_cli.feature"},
-	"trust publish forget": {skip: "needs a recorded decision to remove and writes the personal record; covered by trust_cli.feature"},
+	"remote trust":  {skip: "writes the personal publish-destination record and this harness does not isolate $HOME; covered by trust_cli.feature"},
+	"remote untrust": {skip: "needs a recorded decision to remove and writes the personal record; covered by trust_cli.feature"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	// All four of these ARE format debt too (bundleDeleteCmd's
@@ -291,8 +291,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"manage statusline install":    {skip: "installer: writes real statusline config"},
 	"manage statusline uninstall":  {skip: "installer: removes real statusline config"},
 	"manage gitignore install":     {skip: "installer: writes .gitignore entries"},
-	"manage dirty-tree-ack grant":  {skip: "installer: writes the dirty-tree-commit admission-store file"},
-	"manage dirty-tree-ack revoke": {skip: "installer: removes the dirty-tree-commit admission-store record"},
+	"manage commit trust":  {skip: "installer: writes the dirty-tree-commit admission-store file"},
+	"manage commit untrust": {skip: "installer: removes the dirty-tree-commit admission-store record"},
 	"config edit":                  {skip: "not wired to emit() yet; also opens an editor", formatDebt: true},
 	"config create":                {skip: "not wired to emit() yet; also an installer", formatDebt: true},
 

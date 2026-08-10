@@ -152,7 +152,7 @@ var mutationTargets = []mutationTarget{
 		Features:      []string{"features/j001600_signing.feature"},
 	},
 	{
-		// `ctxloom trust signer create|show|list|delete`: AddSigner,
+		// `ctxloom signer trust|show|list|delete`: AddSigner,
 		// ListSigners, ShowSigner, RemoveSigner, and the allowed_signers
 		// line editing beneath them (appendAllowedSignersLine,
 		// removeFromAllowedSignersFile, suppressEmbeddedPrincipal) —

@@ -23,7 +23,7 @@ When a signing key is available the acceptance is COUNTERSIGNED with it, and
 that key must be trusted for the 'approve' namespace — a countersignature from
 a key you have not granted it is honoured by nothing, so recording one is
 refused rather than reported as success. Grant it with
-'ctxloom trust signer create <principal> --key <key.pub> --namespace approve,reject'.
+'ctxloom signer trust <principal> --key <key.pub> --namespace approve,reject'.
 With no signing key at all the decision is recorded unsigned in your personal
 store.
 
@@ -32,11 +32,11 @@ Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#commands/<name>,
 may be a canonical URL ref, a ctxloom:local ref, or a plain local bundle name.
 
 Examples:
-  ctxloom trust accept core#fragments/tdd
-  ctxloom trust accept ctxloom:local@bundles/dev#commands/review
-  ctxloom trust accept 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
+  ctxloom bundle trust core#fragments/tdd
+  ctxloom bundle trust ctxloom:local@bundles/dev#commands/review
+  ctxloom bundle trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
-Reject an item with 'ctxloom trust reject <ref>'.
+Reject an item with 'ctxloom bundle untrust <ref>'.
 
 ```
 ctxloom trust [flags]
@@ -55,9 +55,9 @@ ctxloom trust [flags]
 ### SEE ALSO
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
-* [ctxloom trust accept](/reference/cli/ctxloom_trust_accept/)	 - Accept an item's current content (fragment, command, MCP server, or hook)
+* [ctxloom bundle trust](/reference/cli/ctxloom_trust_accept/)	 - Accept an item's current content (fragment, command, MCP server, or hook)
 * [ctxloom trust companion](/reference/cli/ctxloom_trust_companion/)	 - Inspect and change which companion binaries ctxloom may execute
 * [ctxloom trust publish](/reference/cli/ctxloom_trust_publish/)	 - Inspect and change which remotes ctxloom may publish to
-* [ctxloom trust reject](/reference/cli/ctxloom_trust_reject/)	 - Reject an item so it is withheld from the agent
+* [ctxloom bundle untrust](/reference/cli/ctxloom_trust_reject/)	 - Reject an item so it is withheld from the agent
 * [ctxloom trust signer](/reference/cli/ctxloom_trust_signer/)	 - Manage trusted signers (allowed_signers)
 

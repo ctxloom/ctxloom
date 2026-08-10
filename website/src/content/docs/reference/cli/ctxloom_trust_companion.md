@@ -52,7 +52,7 @@ ctxloom trust companion [flags]
 ### SEE ALSO
 
 * [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept, reject, or manage the signers of item content
-* [ctxloom trust companion allow](/reference/cli/ctxloom_trust_companion_allow/)	 - Record that ctxloom may execute a companion binary
-* [ctxloom trust companion forget](/reference/cli/ctxloom_trust_companion_forget/)	 - Drop the recorded decision for a companion binary (it is asked about again)
-* [ctxloom trust companion list](/reference/cli/ctxloom_trust_companion_list/)	 - List recorded companion execution decisions
+* [ctxloom companion trust](/reference/cli/ctxloom_trust_companion_allow/)	 - Record that ctxloom may execute a companion binary
+* [ctxloom companion untrust](/reference/cli/ctxloom_trust_companion_forget/)	 - Drop the recorded decision for a companion binary (it is asked about again)
+* [ctxloom companion list](/reference/cli/ctxloom_trust_companion_list/)	 - List recorded companion execution decisions
 

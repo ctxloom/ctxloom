@@ -321,7 +321,7 @@ a repo you cloned arrive carrying pre-approved binaries. Its only authority is
 filesystem permissions — the same standing the unsigned approval markers have —
 which is another reason it never leaves your home directory.
 
-Inspect and change it with `ctxloom trust companion list | allow <path> |
+Inspect and change it with `ctxloom companion list | allow <path> |
 forget <path>`. `allow` is also the scriptable escape hatch for CI, and it
 requires a human to type it rather than inferring consent from an environment.
 
@@ -355,7 +355,7 @@ content, whose bytes crossed an intermediary. Companion loadouts — which cross
 none — are the documented exception; see "Companion loadouts".
 
 Third-party unsigned remotes default to pending; their content is reviewed like
-anything else. Signer keys are managed with `ctxloom trust signer create|list|show|remove`
+anything else. Signer keys are managed with `ctxloom signer trust|list|show|remove`
 and signatures are produced with `ctxloom bundle sign`; a hand-edited `allowed_signers`
 file is still read verbatim, so editing it by hand remains equivalent.
 Signing/verification is CLI-only and is
@@ -411,7 +411,7 @@ bytes** with the reviewer's own SSH key:
   look.
 - `init`'s interview ends with a review session when anything is pending.
 
-`ctxloom trust accept <ref>` and `ctxloom trust reject <ref>` are the scriptable plumbing
+`ctxloom bundle trust <ref>` and `ctxloom bundle untrust <ref>` are the scriptable plumbing
 beneath the porcelain — they write the same countersignatures through the same
 mutation path, so the porcelain and the plumbing produce identical on-disk
 results.
@@ -424,7 +424,7 @@ decision will be asserted in (`operations.resolveDecisionSigner` →
 `signing.NamespaceForAssertion` exactly as `VerifyCountersignature` does). A
 key with no approve grant cannot record an approval, and a key with no reject
 grant cannot record a rejection: the command fails, naming the key, the
-namespace it lacks, and the `ctxloom trust signer create … --namespace
+namespace it lacks, and the `ctxloom signer trust … --namespace
 approve,reject` that grants it, and **nothing is written**.
 
 This closes a silent no-op (taskloom `tiny-bankbook`). The gate honours a
@@ -473,8 +473,8 @@ signature body, resolves pending — never allow.
 | `.ctxloom/approvals/` | The **project (committable) countersignature store**, same shape as the personal one. `ctxloom review --project` writes here; a team/CI inherits a lead's decisions via the project's `allowed_signers`. |
 | `.ctxloom/allowed_signers` (+ `~/.ctxloom/allowed_signers`, + embedded) | The **trust root**: publisher/approver keys in OpenSSH `allowed_signers` format, verbatim. Unioned across all three locations; the `namespaces="…"` option is the role system. Committable. |
 | `<bundle>.yaml.sig` | Detached publisher signature, a sibling of each signed bundle in the same git tree at the same pinned SHA. Verified over the raw file bytes before parse. A missing `.sig` = unsigned. |
-| `~/.ctxloom/companion_consent.yaml` | The **companion exec-consent record**: one decision per companion binary, keyed on resolved absolute path + SHA-256. Mode `0600`, personal only, **no committable twin** — it answers "may ctxloom run this file on this machine", which no repo may answer for you. Plain data, not a signature; its authority is filesystem permissions. Managed with `ctxloom trust companion list\|allow\|forget`. |
-| `~/.ctxloom/publish_remotes.yaml` | The **publish-destination record**: one decision per remote you have confirmed as a destination for your signed content, keyed on the remote's normalized identity (so two spellings of one repository are one destination). Same shape, same store and same properties as the companion record above — mode `0600`, personal only, no committable twin, plain data whose authority is filesystem permissions. Managed with `ctxloom trust publish list\|allow\|forget`; `allow` is how a CI job or an agent host records a confirmation it has no terminal to be asked for. |
+| `~/.ctxloom/companion_consent.yaml` | The **companion exec-consent record**: one decision per companion binary, keyed on resolved absolute path + SHA-256. Mode `0600`, personal only, **no committable twin** — it answers "may ctxloom run this file on this machine", which no repo may answer for you. Plain data, not a signature; its authority is filesystem permissions. Managed with `ctxloom companion list\|allow\|forget`. |
+| `~/.ctxloom/publish_remotes.yaml` | The **publish-destination record**: one decision per remote you have confirmed as a destination for your signed content, keyed on the remote's normalized identity (so two spellings of one repository are one destination). Same shape, same store and same properties as the companion record above — mode `0600`, personal only, no committable twin, plain data whose authority is filesystem permissions. Managed with `ctxloom remote trusted\|allow\|forget`; `allow` is how a CI job or an agent host records a confirmation it has no terminal to be asked for. |
 | `.ctxloom/remotes.yaml` | remotes (address + custom forges only — **no** trust flag) |
 | `.ctxloom/lock.yaml` | dependency pins only: `map[canonicalRef]{sha, url, requested_version, kind, pinned, ...}` |
 | `cache/trust/objects/` | content-addressed snapshots of approved bytes, keyed by a payload hash — the diff base for update review. Pure cache: deleting it only degrades update review to a full-content display. |
@@ -681,7 +681,7 @@ never permitted in the committable project store.
 8. **ctxloom's own embedded key cannot be untrusted.** The compiled-in trust root
    is unconditionally unioned into every lookup (`config.TrustRoot`), and
    `operations.RemoveSigner` only rewrites the user/project *file*. There is no
-   negative-entry mechanism, so `ctxloom trust signer delete ben+ctxloom@abbitt.me` does
+   negative-entry mechanism, so `ctxloom signer untrust ben+ctxloom@abbitt.me` does
    not stop ctxloom-published bundles being auto-trusted. Spec §7 says the embedded
    defaults are removable; they are not. A user who wants to review ctxloom's own
    content by hand currently has no supported way to ask for that.

@@ -178,7 +178,7 @@ func TestVerifyPublisher_NilTrustRootTrustsNothing(t *testing.T) {
 // because that is the whole case VerifyPublisher cannot speak about.
 
 // The fingerprint is the signing key's own, byte-for-byte the string a user
-// sees from `ssh-keygen -lf` and from `ctxloom trust signer list`, so the
+// sees from `ssh-keygen -lf` and from `ctxloom signer list`, so the
 // out-of-band comparison this exists for is a comparison of equals.
 func TestSignatureKeyFingerprint_IsTheKeyThatMadeTheSignature(t *testing.T) {
 	signer, pub := newTestSigner(t)

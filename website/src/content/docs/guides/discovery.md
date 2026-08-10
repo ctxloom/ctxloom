@@ -128,9 +128,9 @@ review` walks the pending items and shows each one's content: `[a]ccept`,
 `[r]eject`, `[s]kip`, or `[A]` to accept everything left in a bundle.
 Accepting countersigns the exact bytes you saw with your own SSH key, so any
 later change to that content — including a version upgrade — drops it back to
-pending until you review it again. `ctxloom trust accept <ref>` and `ctxloom
+pending until you review it again. `ctxloom bundle trust <ref>` and `ctxloom
 blacklist <ref>` are the same accept/reject as scriptable one-liners, for
-scripts or CI. Trusting a publisher's key instead (`ctxloom trust signer create`)
+scripts or CI. Trusting a publisher's key instead (`ctxloom signer trust`)
 skips this per-item review for everything they sign.
 
 ### Use Content Directly

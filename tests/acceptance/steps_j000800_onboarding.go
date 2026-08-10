@@ -405,7 +405,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		// Bob's OWN project-scoped trust decision, in his own checkout — the
 		// gate opening the ordinary way, exactly like J001500's "Alice trusts the
 		// company key".
-		return runBob(w, "trust", "signer", "create", j000800CompanyPrincipal, "--key", keyPath, "--project")
+		return runBob(w, "signer", "trust", j000800CompanyPrincipal, "--key", keyPath, "--project")
 	})
 
 	ctx.Step(`^his assistant receives the company's content$`, func(c context.Context) error {

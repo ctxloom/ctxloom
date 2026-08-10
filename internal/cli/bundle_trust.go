@@ -13,15 +13,15 @@ import (
 )
 
 // Per-item trust CLI: the scriptable plumbing of the three-state review model
-// (trust-simplify). `trust accept` records accepted, `trust reject` records
+// (trust-simplify). `bundle trust` records accepted, `bundle untrust` records
 // rejected — the same states the interactive `ctxloom review` porcelain
 // (slice 2) writes.
 // Management is CLI-only: there are deliberately NO MCP tools for any of these.
 // (Source-level `remote trust/untrust` is deleted — trust is now keyed to a
 // publisher signing key, not a remote; see docs/trust-model.md.)
 
-// trustCmdLong documents `ctxloom trust accept`.
-const trustCmdLong = `Accept the currently-resolved content of an item so it is exposed to the agent.
+// bundleTrustLong documents `ctxloom bundle trust`.
+const bundleTrustLong = `Accept the currently-resolved content of an item so it is exposed to the agent.
 
 The acceptance is bound to the item's current content-hash pair (raw and, when
 one exists, distilled): a later change to either form returns the item to
@@ -31,7 +31,7 @@ When a signing key is available the acceptance is COUNTERSIGNED with it, and
 that key must be trusted for the 'approve' namespace — a countersignature from
 a key you have not granted it is honoured by nothing, so recording one is
 refused rather than reported as success. Grant it with
-'ctxloom trust signer create <principal> --key <key.pub> --namespace approve,reject'.
+'ctxloom signer trust <principal> --key <key.pub> --namespace approve,reject'.
 With no signing key at all the decision is recorded unsigned in your personal
 store.
 
@@ -40,25 +40,14 @@ Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#commands/<name>,
 may be a canonical URL ref, a ctxloom:local ref, or a plain local bundle name.
 
 Examples:
-  ctxloom trust accept core#fragments/tdd
-  ctxloom trust accept ctxloom:local@bundles/dev#commands/review
-  ctxloom trust accept 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
+  ctxloom bundle trust core#fragments/tdd
+  ctxloom bundle trust ctxloom:local@bundles/dev#commands/review
+  ctxloom bundle trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
-Reject an item with 'ctxloom trust reject <ref>'.`
+Reject an item with 'ctxloom bundle untrust <ref>'.`
 
-// trustCmd is a PURE GROUP NODE: the parent of accept|reject|signer. It used
-// to also be runnable as a bare `ctxloom trust <ref>` alias for `trust
-// accept`, which is deleted — an imperative bare noun that silently means
-// "accept" is exactly the surface a user cannot guess safely (verb-spine
-// reorg §6).
-var trustCmd = groupNode(&cobra.Command{
-	Use:   "trust",
-	Short: "Accept, reject, or manage the signers of item content",
-	Long:  trustCmdLong,
-})
-
-// runTrustAcceptCmd is trustAcceptCmd's RunE.
-func runTrustAcceptCmd(cmd *cobra.Command, args []string) error {
+// runBundleTrustCmd is bundleTrustCmd's RunE.
+func runBundleTrustCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return err
@@ -66,13 +55,13 @@ func runTrustAcceptCmd(cmd *cobra.Command, args []string) error {
 	return runItemTrust(cmd, cfg, args[0])
 }
 
-// trustAcceptCmd is the real home of `ctxloom trust <ref>`.
-var trustAcceptCmd = &cobra.Command{
-	Use:   "accept <ref>",
-	Short: "Accept an item's current content (fragment, command, MCP server, or hook)",
-	Long:  trustCmdLong,
+// bundleTrustCmd records that an item's current content may reach the agent.
+var bundleTrustCmd = &cobra.Command{
+	Use:   "trust <ref>",
+	Short: "Trust an item's current content (fragment, command, MCP server, or hook)",
+	Long:  bundleTrustLong,
 	Args:  cobra.ExactArgs(1),
-	RunE:  runTrustAcceptCmd,
+	RunE:  runBundleTrustCmd,
 }
 
 // runItemTrust records the resolved item as accepted and reports the recorded
@@ -100,8 +89,8 @@ func runItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	})
 }
 
-// blacklistLong documents `ctxloom trust reject`.
-const blacklistLong = `Reject an item, withholding it from every exposure surface, always.
+// bundleUntrustLong documents `ctxloom bundle untrust`.
+const bundleUntrustLong = `Reject an item, withholding it from every exposure surface, always.
 
 A rejection writes two companion entries: the ref-level rejected state (denies
 this ref regardless of content/version, surviving content changes) and the
@@ -112,13 +101,13 @@ can be resolved; the ref-level rejection is written regardless.
 Rejection beats every exemption: it withholds the item even from a trusted
 source and even for project-local content.
 
-Reference format matches 'ctxloom trust accept' (see its help).
+Reference format matches 'ctxloom bundle trust' (see its help).
 
 Examples:
-  ctxloom trust reject tooling#fragments/curl-pipe-sh
-  ctxloom trust reject 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
+  ctxloom bundle untrust tooling#fragments/curl-pipe-sh
+  ctxloom bundle untrust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
 
-// runBlacklistCmd is trustRejectCmd's RunE.
+// runBlacklistCmd is bundleUntrustCmd's RunE.
 func runBlacklistCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
@@ -127,11 +116,11 @@ func runBlacklistCmd(cmd *cobra.Command, args []string) error {
 	return runBlacklist(cmd, cfg, args[0])
 }
 
-// trustRejectCmd is the trust noun's `reject` decision verb.
-var trustRejectCmd = &cobra.Command{
-	Use:   "reject <ref>",
-	Short: "Reject an item so it is withheld from the agent",
-	Long:  blacklistLong,
+// bundleUntrustCmd withholds an item from every exposure surface.
+var bundleUntrustCmd = &cobra.Command{
+	Use:   "untrust <ref>",
+	Short: "Untrust an item so it is withheld from the agent",
+	Long:  bundleUntrustLong,
 	Args:  cobra.ExactArgs(1),
 	RunE:  runBlacklistCmd,
 }
@@ -221,10 +210,7 @@ func harnessApplied(ctx context.Context, cfg *config.Config) bool {
 }
 
 func init() {
-	// Top-level per-item mutations. trustCmd is a pure group node.
-	rootCmd.AddCommand(trustCmd)
-
-	trustCmd.AddCommand(trustAcceptCmd)
-	trustCmd.AddCommand(trustRejectCmd)
-	trustCmd.AddCommand(trustSignerCmd)
+	// Per-item decisions belong to the noun that owns the items.
+	bundleCmd.AddCommand(bundleTrustCmd)
+	bundleCmd.AddCommand(bundleUntrustCmd)
 }

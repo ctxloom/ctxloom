@@ -4,7 +4,7 @@ ctxloom's trust model has three CLI faces. **Signing** (`ctxloom sign`,
 `bundle sign`) countersigns bundle content with an ssh-agent or git-configured
 key. **Signer management** (`trust signer add|list|show|remove`) records which
 publisher principals are trusted, in which namespaces. **Review**
-(`ctxloom review`, `trust accept|reject`, and the interactive `-i` surfaces on
+(`ctxloom review`, `bundle trust|reject`, and the interactive `-i` surfaces on
 `bundle show` / `fragment show` / `mcp server show`) is the porcelain by which a
 human accepts or rejects pulled content before it can execute. The contract that
 matters: a trust decision is recorded durably *and* re-applied to the harness on
@@ -37,9 +37,9 @@ flowchart TD
 
     subgraph trust["trust.go"]
         TB["trust &lt;ref&gt; (bare alias) :50"] --> RTBA["runTrustBareAlias :64"]
-        TA["trust accept &lt;ref&gt; :81"] --> RIT["runItemTrust :91"]
+        TA["bundle trust &lt;ref&gt; :81"] --> RIT["runItemTrust :91"]
         RTBA --> RIT
-        TR["trust reject &lt;ref&gt; :158"] --> RB["runBlacklist :166"]
+        TR["bundle untrust &lt;ref&gt; :158"] --> RB["runBlacklist :166"]
         BL["blacklist &lt;ref&gt; (DEPRECATED) :134"] --> RB
         RIT & RB --> RMA["refreshManagedArtifacts :219"] --> HA["harnessApplied :236"] --> AH[["operations.ApplyHooks"]]
     end
@@ -79,11 +79,11 @@ flowchart TD
 | `ctxloom sign [ref]` | `sign.go:55` | Deprecated top-level alias of `bundle sign` |
 | `ctxloom bundle sign [ref]` | `sign.go:85` | `--all`, `--key`. `--all` signs every local bundle |
 | `ctxloom signer add\|list\|show\|remove` | `signer.go:30,74,184,268,308` | Deprecated tree |
-| `ctxloom trust signer add\|list\|show\|remove` | `signer.go:360,374,382,388,395` | The real home. `add` takes `--key`, `--namespaces`, `--comment`, `--project`, `--yes` |
-| `ctxloom trust <ref>` | `trust.go:50` | Bare alias for `trust accept`, with a hand-rolled deprecation pointer |
-| `ctxloom trust accept <ref>` | `trust.go:81` | Records acceptance, refreshes artifacts, prints the hash/signer report |
-| `ctxloom trust reject <ref>` | `trust.go:158` | Ref-level + content-level rejection |
-| `ctxloom blacklist <ref>` | `trust.go:134` | Deprecated alias for `trust reject` (a leaf, so it correctly uses cobra's `Deprecated`) |
+| `ctxloom signer add\|list\|show\|remove` | `signer.go:360,374,382,388,395` | The real home. `add` takes `--key`, `--namespaces`, `--comment`, `--project`, `--yes` |
+| `ctxloom bundle trust <ref>` | `trust.go:50` | Bare alias for `bundle trust`, with a hand-rolled deprecation pointer |
+| `ctxloom bundle trust <ref>` | `trust.go:81` | Records acceptance, refreshes artifacts, prints the hash/signer report |
+| `ctxloom bundle untrust <ref>` | `trust.go:158` | Ref-level + content-level rejection |
+| `ctxloom blacklist <ref>` | `trust.go:134` | Deprecated alias for `bundle untrust` (a leaf, so it correctly uses cobra's `Deprecated`) |
 | `ctxloom review` | `review.go:36` | `--list`, plus the signer flag. Interactive walk on a TTY, listing otherwise |
 
 ## The review walk

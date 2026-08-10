@@ -766,38 +766,41 @@ func runManageGitignoreInstall(cmd *cobra.Command, _ []string) error {
 	})
 }
 
-// --- manage dirty-tree-ack ---------------------------------------------------
+// --- manage commit ---------------------------------------------------
 
-// manageDirtyTreeAckCmd is the scriptable counterpart to `ctxloom init`'s
+// manageCommitCmd is the scriptable counterpart to `ctxloom init`'s
 // dirty-tree interview question: the ONLY other place allowed to write
 // paths.DirtyTreeCommitAckPath, since the record is no longer a hand-editable
 // config.yaml key (config-layer-scope design doc, "Consent leaves the
 // chain"). Both writers exist because the record must be settable without
 // re-running init on an already-initialized project.
-var manageDirtyTreeAckCmd = groupNode(&cobra.Command{
-	Use:   "dirty-tree-ack",
-	Short: "Grant or revoke ctxloom's permission to auto-commit a dirty tree on your behalf",
-	Long: `Grant or revoke the per-checkout human acknowledgement that
-dirty_tree_handler: "commit" may auto-commit THIS checkout's uncommitted
-changes onto its current branch, so a delegated agent_run child (which only
-ever sees committed state in its own worktree) can see them.
+var manageCommitCmd = groupNode(&cobra.Command{
+	Use:   "commit",
+	Short: "Trust or untrust ctxloom to auto-commit a dirty tree on your behalf",
+	Long: `Trust or untrust ctxloom, for THIS checkout, to auto-commit its uncommitted
+changes onto its current branch when dirty_tree_handler is "commit", so a
+delegated agent_run child (which only ever sees committed state in its own
+worktree) can see them.
 
 This is deliberately NOT a config.yaml key: the config chain has three
 channels an agent can reach (a home file, an environment variable, an argv),
-and this acknowledgement must come from a human, once, through one of exactly
-two surfaces — this command, or the dirty-tree question in 'ctxloom init'.`,
+and this decision must come from a human, once, through one of exactly two
+surfaces — this command, or the dirty-tree question in 'ctxloom init'.
+
+An absent decision is untrusted, and the spawn is refused rather than
+committing on your behalf.`,
 })
 
-var manageDirtyTreeAckGrantCmd = &cobra.Command{
-	Use:   "grant",
-	Short: "Acknowledge that ctxloom may auto-commit this checkout's dirty tree",
+var manageCommitTrustCmd = &cobra.Command{
+	Use:   "trust",
+	Short: "Trust ctxloom to auto-commit this checkout's dirty tree",
 	Args:  cobra.NoArgs,
 	RunE:  func(cmd *cobra.Command, _ []string) error { return runManageDirtyTreeAck(cmd, true) },
 }
 
-var manageDirtyTreeAckRevokeCmd = &cobra.Command{
-	Use:   "revoke",
-	Short: "Withdraw that acknowledgement for this checkout",
+var manageCommitUntrustCmd = &cobra.Command{
+	Use:   "untrust",
+	Short: "Withdraw that trust for this checkout",
 	Args:  cobra.NoArgs,
 	RunE:  func(cmd *cobra.Command, _ []string) error { return runManageDirtyTreeAck(cmd, false) },
 }
@@ -863,7 +866,7 @@ func init() {
 	manageGitignoreCmd.AddCommand(manageGitignoreInstallCmd)
 
 	// dirty-tree-commit acknowledgement.
-	manageCmd.AddCommand(manageDirtyTreeAckCmd)
-	manageDirtyTreeAckCmd.AddCommand(manageDirtyTreeAckGrantCmd)
-	manageDirtyTreeAckCmd.AddCommand(manageDirtyTreeAckRevokeCmd)
+	manageCmd.AddCommand(manageCommitCmd)
+	manageCommitCmd.AddCommand(manageCommitTrustCmd)
+	manageCommitCmd.AddCommand(manageCommitUntrustCmd)
 }

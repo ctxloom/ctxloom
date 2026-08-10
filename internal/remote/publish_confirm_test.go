@@ -82,7 +82,7 @@ func TestPublishConfirm_NonInteractiveRefusesAndPublishesNothing(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), f.remoteURL, "the refusal must name the remote it refused")
 	assert.Contains(t, err.Error(), "never been confirmed")
-	assert.Contains(t, err.Error(), "ctxloom trust publish allow",
+	assert.Contains(t, err.Error(), "ctxloom remote trust",
 		"the refusal must name a command a CI job or an agent host can actually run")
 	assert.Contains(t, err.Error(), f.confirmPath, "the refusal must say where the answer is recorded")
 
@@ -135,7 +135,7 @@ func TestPublishConfirm_DeclinedPublishesNothingAndIsRecordedAsDeclined(t *testi
 	assert.Equal(t, 1, asked, "a recorded decline must not be re-asked")
 	assert.Contains(t, err.Error(), "recorded as declined",
 		"a decline must not be reported as if nobody had ever been asked")
-	assert.Contains(t, err.Error(), "trust publish forget", "and must say how to undo it")
+	assert.Contains(t, err.Error(), "remote untrust", "and must say how to undo it")
 }
 
 // A question that could not be PUT — a closed stdin behind a callback — is not

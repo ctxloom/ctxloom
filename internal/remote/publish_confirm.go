@@ -59,7 +59,7 @@ const (
 	// PublishAdmissionUnconfirmed: never confirmed, and nothing could ask — a
 	// non-interactive session, or a caller that does not prompt. Fail-closed,
 	// and deliberately NOT the same answer as declined: the fix is a terminal
-	// or `ctxloom trust publish allow`, not a change of mind.
+	// or `ctxloom remote trust`, not a change of mind.
 	PublishAdmissionUnconfirmed PublishAdmissionReason = "unconfirmed"
 	// PublishAdmissionStoreFault: the confirmation record exists but cannot be
 	// read. Refuses, because "I could not read the store" must never read as
@@ -279,7 +279,7 @@ func publishRefusedError(remoteURL string, d admission.Decision[PublishAdmission
 	case PublishAdmissionDeclined:
 		return fmt.Errorf(
 			"refusing to publish to %s: it is recorded as declined as a publish destination "+
-				"(undo with 'ctxloom trust publish forget %s')", remoteURL, remoteURL)
+				"(undo with 'ctxloom remote untrust %s')", remoteURL, remoteURL)
 	case PublishAdmissionStoreFault:
 		detail := d.Detail
 		if detail == "" {
@@ -298,7 +298,7 @@ func publishRefusedError(remoteURL string, d admission.Decision[PublishAdmission
 		return fmt.Errorf(
 			"refusing to publish to %s: this remote has never been confirmed as a publish destination, "+
 				"and this session has no terminal to confirm it on (an agent, an editor, a CI job or a piped command)%s. "+
-				"Check the URL is the one you meant, then run 'ctxloom trust publish allow %s'; "+
+				"Check the URL is the one you meant, then run 'ctxloom remote trust %s'; "+
 				"the answer is recorded in %s and you will not be asked again",
 			remoteURL, detail, remoteURL, where)
 	}

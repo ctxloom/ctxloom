@@ -38,8 +38,8 @@ Running the completeness gate at `d4c7da2c` (it **passes** — the allowlist is
 accurate) yields **36 CLI leaves** and **7 MCP tools** — 43 items total.
 
 **Signing and trust (9 leaves).** `bundle sign`, `sign`, `signer list`,
-`trust accept`, `trust reject`, `trust signer add`, `trust signer list`,
-`trust signer remove`, `trust signer show`.
+`bundle trust`, `bundle untrust`, `trust signer add`, `signer list`,
+`trust signer remove`, `signer show`.
 
 **MCP server management (6).** `mcp register`, `mcp unregister`,
 `mcp server add`, `mcp server list`, `mcp server remove`, `mcp server show`.
@@ -72,11 +72,11 @@ and the corpus still drives the old spellings:
 
 | canonical leaf (uncovered) | deprecated alias (covered by) |
 |---|---|
-| `trust accept <ref>` | `ctxloom trust <ref>` — `trust_cli.feature`, `trust_surface.feature`, J001500 |
-| `trust reject <ref>` | `ctxloom blacklist <ref>` — `trust_cli.feature` |
+| `bundle trust <ref>` | `ctxloom bundle trust <ref>` — `trust_cli.feature`, `trust_surface.feature`, J001500 |
+| `bundle untrust <ref>` | `ctxloom blacklist <ref>` — `trust_cli.feature` |
 | `trust signer add` | `ctxloom signer add` — J001500 Background |
 | `trust signer remove` | `ctxloom signer remove` — J001500 scenario 6 |
-| `trust signer show` | `ctxloom signer show` — J001700 |
+| `signer show` | `ctxloom signer show` — J001700 |
 | `mcp server add/list/remove/show` | `ctxloom mcp add/list/remove/show` |
 | `mcp register` / `mcp unregister` | `manage mcp register` / `manage mcp unregister` |
 | `config get` / `config show` | `manage config get` / `manage config show` — `config.feature` |
@@ -103,7 +103,7 @@ The genuinely-untested behaviours, where no alias covers anything, are:
   the CLI. Every signed fixture in the suite is signed *in Go* by a
   `testenv.TestSigner` (`tests/integration/testenv/signing_acceptance.go`),
   bypassing key discovery, ssh-agent, and the `.sig` writer entirely.
-- **`signer list` / `trust signer list`** — the allowed_signers store has never
+- **`signer list` / `signer list`** — the allowed_signers store has never
   been *read back* through the CLI in any spelling.
 - **`bundle move`** — the signature-preserving relocation path.
 - **The four `hook` callbacks** — they run on every session and no scenario
@@ -171,7 +171,7 @@ Six new journeys, J001600–J001200 (J002300 is the highest existing number; ver
 
 | Journey | Leaves covered |
 |---|---|
-| **J001600** — A signature somebody can check | `bundle sign`, `sign`, `trust signer add`, `trust signer list`, `signer list`, `trust signer show`, `trust signer remove`, `trust accept`, `trust reject`, `bundle move` |
+| **J001600** — A signature somebody can check | `bundle sign`, `sign`, `trust signer add`, `signer list`, `signer list`, `signer show`, `trust signer remove`, `bundle trust`, `bundle untrust`, `bundle move` |
 | **J000100** — One MCP server, every engineer's assistant | `mcp server add`, `mcp server list`, `mcp server show`, `mcp server remove`, `mcp register`, `mcp unregister` |
 | **J001400** — Joining a team that does not use claude-code | `manage install --engine {codex,kiro,antigravity}`, `manage config init --engine {codex,kiro,antigravity}`, `config init` |
 | **J001900** — The four callbacks every session already depends on | `hook inject-context`, `hook session-bind`, `hook stamp-plan`, `hook hud` |
@@ -222,26 +222,26 @@ project actually publishes — because "signed everything" that signs nothing an
 exits 0 is this codebase's characteristic bug, and `--all` over an empty
 publish set is precisely where it would live.
 
-Trent distributes his trust root the way a team does: `ctxloom trust signer add
+Trent distributes his trust root the way a team does: `ctxloom signer add
 context@acme.com --key acme-publish.pub --project`, writing the **committable**
 `.ctxloom/allowed_signers` that every clone inherits — as opposed to the default
 user store at `~/.ctxloom/allowed_signers` that follows one person across
-projects. He confirms what he just wrote with `ctxloom trust signer list` and
-`ctxloom trust signer show context@acme.com`, and the entry names his key's
+projects. He confirms what he just wrote with `ctxloom signer list` and
+`ctxloom signer show context@acme.com`, and the entry names his key's
 fingerprint and the `publish` namespace it was granted.
 
 Alice clones. She never runs `signer add` — she inherits the project store, and
-her own `ctxloom trust signer list` shows *both* stores' contents distinguished
+her own `ctxloom signer list` shows *both* stores' contents distinguished
 by scope, plus ctxloom's embedded release key. She references Trent's bundle;
 its guidance reaches her assistant because a key she trusts signed it. That much
 J001500 already proves; here it holds for a signature the CLI actually made.
 
 Then Alice exercises her own authority, in the canonical spelling. There is one
 fragment in Trent's bundle she wants pinned to its current wording, so
-`ctxloom trust accept secure-coding#fragments/tdd` — and the acceptance binds to
+`ctxloom bundle trust secure-coding#fragments/tdd` — and the acceptance binds to
 the item's *current content hashes*, so when Trent edits that fragment it
 returns to pending rather than silently riding his trust. There is one hook she
-will not run at all, so `ctxloom trust reject secure-coding#hooks/PreToolUse/0`
+will not run at all, so `ctxloom bundle untrust secure-coding#hooks/PreToolUse/0`
 — and rejection beats a trusted publisher's signature, permanently and by ref,
 not merely for these bytes.
 
@@ -253,18 +253,18 @@ if the mover ever round-trips the YAML, the signature dies and the only visible
 symptom is content quietly going unsigned at the destination.
 
 Finally the withdrawal. Trent's key is compromised. Alice runs
-`ctxloom trust signer remove context@acme.com --project`. The command means "I
+`ctxloom signer remove context@acme.com --project`. The command means "I
 will review this myself from now on", not "deny" — so the content does not
 error or vanish; it falls back to the path any unsigned content takes, held for
-review. `ctxloom trust signer list` no longer names him, and — the assertion
+review. `ctxloom signer list` no longer names him, and — the assertion
 that makes the removal real rather than cosmetic — the on-disk
 `.ctxloom/allowed_signers` no longer contains his key line.
 
 **Leaves exercised.** `ctxloom bundle sign` (and its deprecated twin `ctxloom
 sign`, in one scenario, asserting the deprecation notice goes to stderr while
-the `.sig` still lands), `ctxloom trust signer add`, `ctxloom trust signer
-list` (and `ctxloom signer list`), `ctxloom trust signer show`, `ctxloom trust
-signer remove`, `ctxloom trust accept`, `ctxloom trust reject`, `ctxloom bundle
+the `.sig` still lands), `ctxloom signer add`, `ctxloom signer
+list` (and `ctxloom signer list`), `ctxloom signer show`, `ctxloom trust
+signer remove`, `ctxloom bundle trust`, `ctxloom bundle untrust`, `ctxloom bundle
 move`.
 
 **What must be asserted — payload, not exit status.**
@@ -286,13 +286,13 @@ move`.
    until a teammate's clone silently fails to trust anything.
 5. The written allowed_signers line contains the key's real fingerprint and the
    `publish` namespace. Not "the file exists".
-6. `trust signer list` output names the principal, the fingerprint, the
-   namespace, and the store it came from; `trust signer show` on a principal
+6. `signer list` output names the principal, the fingerprint, the
+   namespace, and the store it came from; `signer show` on a principal
    with entries in both stores shows both.
-7. `trust accept` writes a record bound to the item's current content-hash pair;
+7. `bundle trust` writes a record bound to the item's current content-hash pair;
    editing the fragment returns it to pending. Assert the *delivered payload* to
    the assistant, not just the review state.
-8. `trust reject` writes both the ref-level rejection and the content-hash
+8. `bundle untrust` writes both the ref-level rejection and the content-hash
    denylist entries, and the item is absent from the delivered surface even
    though the publisher signature still verifies.
 9. `bundle move`: destination bundle bytes are **byte-identical** to the source

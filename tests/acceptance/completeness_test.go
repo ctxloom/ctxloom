@@ -132,20 +132,20 @@ var knownUncoveredCLI = []string{
 	//
 	// The publisher-signing surface is now covered by J001600 (steps_j001600_signing.go,
 	// j001600_signing.feature): `ctxloom bundle sign` (bare ref, --all, an item ref,
-	// and the empty-publish-set failure), `ctxloom trust signer list`,
-	// `trust signer create|show|delete`, `trust accept`, `trust reject`, and
+	// and the empty-publish-set failure), `ctxloom signer list`,
+	// `signer trust|show|delete`, `bundle trust`, `bundle untrust`, and
 	// `bundle move` (verbatim relocation plus the refused-move path). Every one
 	// runs against a real ssh-agent (testenv.StartSSHAgent) and asserts payload:
 	// each `.sig` is verified independently against bundle bytes read fresh off
 	// disk, `--all` is counted against the publish set, and `--project`'s store
 	// location is asserted on BOTH the project and the user path.
 	//
-	// "ctxloom trust signer create"/"ctxloom trust signer delete" left this
+	// "ctxloom signer trust"/"ctxloom signer untrust" left this
 	// list earlier: J001500 (steps_j001500.go, j001500_corporate_signed.feature) drives both —
 	// the Background's "Alice trusts the company key" step runs
-	// `ctxloom trust signer create ... --project`, and scenario 6's "Alice
+	// `ctxloom signer trust ... --project`, and scenario 6's "Alice
 	// revokes her trust in the company key" runs
-	// `ctxloom trust signer delete ... --project`. "ctxloom trust signer show"
+	// `ctxloom signer untrust ... --project`. "ctxloom signer show"
 	// left it when J001700 (steps_j001700.go, j001700_incident.feature)'s
 	// irrevocable-embedded-key scenario started driving it before and after the
 	// removal attempt.

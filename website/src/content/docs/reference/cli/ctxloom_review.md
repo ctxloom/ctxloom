@@ -37,8 +37,8 @@ Non-interactive (piped, --list, or any --format but text): print the pending
 table and exit.
 
 The scriptable plumbing under this porcelain:
-  ctxloom trust accept <ref>   accept one item
-  ctxloom trust reject <ref>   reject one item
+  ctxloom bundle trust <ref>   accept one item
+  ctxloom bundle untrust <ref>   reject one item
 
 ```
 ctxloom review [flags]

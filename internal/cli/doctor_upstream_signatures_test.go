@@ -75,7 +75,7 @@ func TestDoctorCheckUpstreamSignatures_BlamesThePublisherNotTheUsersMachine(t *t
 		"an advisory that reads as a local fault is worse than none: it sends people to fix what is not broken")
 	// The local remedies of the check NEXT DOOR (n4, unsigned content) are
 	// exactly the wrong advice here and must not leak into this message.
-	assert.NotContains(t, c.Detail, "trust signer create")
+	assert.NotContains(t, c.Detail, "signer trust")
 	assert.NotContains(t, c.Detail, "ctxloom review")
 }
 

@@ -193,7 +193,7 @@ fragments:
 
 // tsRef composes the canonical item ref for this feature's seeded bundle:
 // "file://<bare>@bundles/<bundleName>#<selector>", the same shape
-// steps_j001500.go/steps_review.go drive `ctxloom trust accept`/`trust reject` with.
+// steps_j001500.go/steps_review.go drive `ctxloom bundle trust`/`bundle untrust` with.
 func tsRef(w *World, selector string) string {
 	ts := tsOf(w)
 	return ts.url + "@bundles/" + ts.bundleName + "#" + selector
@@ -301,7 +301,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
-		return runOK(w, "trust", "accept", tsRef(w, selector))
+		return runOK(w, "bundle", "trust", tsRef(w, selector))
 	})
 
 	ctx.Step(`^Alice rejects the (fragment|command|MCP server|hook)$`, func(c context.Context, element string) error {
@@ -310,7 +310,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
-		return runOK(w, "trust", "reject", tsRef(w, selector))
+		return runOK(w, "bundle", "untrust", tsRef(w, selector))
 	})
 
 	// "Alice starts a session" is steps_j000200_setup.go's existing step
@@ -327,7 +327,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice tries to approve the bundle's profile$`, func(c context.Context) error {
 		w := worldFrom(c)
-		_ = w.env.Run("trust", "accept", tsRef(w, "profiles/reviewme"))
+		_ = w.env.Run("bundle", "trust", tsRef(w, "profiles/reviewme"))
 		return nil // the refusal (non-zero exit + message) is asserted next
 	})
 
@@ -336,7 +336,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		out := w.env.LastOutput()
 		w.docStepMaterialized = out
 		if w.env.LastExitCode() == 0 {
-			return fmt.Errorf("expected 'ctxloom trust accept <ref>#profiles/...' to refuse (non-zero exit); got exit 0, output:\n%s", out)
+			return fmt.Errorf("expected 'ctxloom bundle trust <ref>#profiles/...' to refuse (non-zero exit); got exit 0, output:\n%s", out)
 		}
 		if !strings.Contains(out, "unknown item kind") {
 			return fmt.Errorf("refusal does not name profiles as an unrecognized item kind (want \"unknown item kind\"); output:\n%s", out)
@@ -579,7 +579,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice rejects the fragment, and ctxloom reports what it recorded$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return runOK(w, "trust", "reject", tsRef(w, "fragments/context"), "--format", "json")
+		return runOK(w, "bundle", "untrust", tsRef(w, "fragments/context"), "--format", "json")
 	})
 
 	ctx.Step(`^the recorded rejection covers exactly the (raw form|raw and distilled forms)$`, func(c context.Context, which string) error {
@@ -595,7 +595,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		// refuse it outright rather than silently downgrading it to a local
 		// bundle name — a local ref is auto-ALLOWED at cascade step 3, so a
 		// downgrade here is a gate bypass, not a cosmetic mislabel.
-		_ = w.env.Run("trust", "accept", "https://#fragments/context")
+		_ = w.env.Run("bundle", "trust", "https://#fragments/context")
 		return nil // the refusal is asserted next
 	})
 
@@ -664,7 +664,7 @@ func tsAssertRecordedContentRejects(w *World, dualForm bool) error {
 		recorded, tsReportedContentForms(w))
 	if len(recorded) != len(want) {
 		return fmt.Errorf("the approvals store carries content-reject records for forms %v, want exactly %v.\n"+
-			"This reads the STORE, not `trust reject --format json`'s own report of what it wrote — which said: %s",
+			"This reads the STORE, not `bundle untrust --format json`'s own report of what it wrote — which said: %s",
 			recorded, want, tsReportedContentForms(w))
 	}
 	for i := range want {
@@ -684,7 +684,7 @@ func tsReportedContentForms(w *World) string {
 	out := w.env.LastOutput()
 	start := strings.Index(out, "{")
 	if start < 0 {
-		return "(no JSON object in `trust reject --format json` output)"
+		return "(no JSON object in `bundle untrust --format json` output)"
 	}
 	var res struct {
 		Status       string   `json:"status"`
@@ -999,7 +999,7 @@ func tsSupersedeStore(w *World) error {
 // tsCountersignRef is operations.countersignRef, reached through the same
 // PRODUCTION parse the CLI performs on its own argument: trust.ParseItemRef
 // turns the "<url>@bundles/<name>#<kind>/<item>" string a scenario passes to
-// `ctxloom trust accept` into a trust.Ref, whose CanonicalURL and Key compose
+// `ctxloom bundle trust` into a trust.Ref, whose CanonicalURL and Key compose
 // the ref a countersignature actually binds to.
 func tsCountersignRef(cliRef string) (string, error) {
 	parsed, _, _, err := trust.ParseItemRef(cliRef)

@@ -26,7 +26,7 @@ Registry:
   ctxloom remote default <name>          Set the default remote
 
 A remote is just an address; its content takes the review path. To auto-trust a
-publisher's content, trust their signing key (ctxloom trust signer create) — not
+publisher's content, trust their signing key (ctxloom signer trust) — not
 the URL.
 
 Discovery:

@@ -1,5 +1,5 @@
 Feature: Trust posture CLI
-  Per-item acceptances (`trust accept`) and rejections (`trust reject`) manage
+  Per-item acceptances (`bundle trust`) and rejections (`bundle untrust`) manage
   what content the agent sees. The retired whole-bundle postures (`bundle
   trust`/`untrust`, `remote trust`/`untrust`) are DELETED commands, not
   deprecation stubs — trust is now keyed to a publisher signing key, not a
@@ -30,12 +30,12 @@ Feature: Trust posture CLI
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a fragment "guide" in bundle "demo" exists
-    When I run "ctxloom trust accept demo#fragments/guide"
+    When I run "ctxloom bundle trust demo#fragments/guide"
     Then the command succeeds
     And the output contains "Approved demo#fragments/guide"
     And the output contains "UNSIGNED"
     And the approvals store holds an acceptance of "demo#fragments/guide" over the fragment's current bytes
-    When I run "ctxloom trust reject demo#fragments/guide"
+    When I run "ctxloom bundle untrust demo#fragments/guide"
     Then the command succeeds
     And the output contains "Rejected demo#fragments/guide"
     And the output contains "rejected in form(s) raw"
@@ -55,7 +55,7 @@ Feature: Trust posture CLI
     When I run "ctxloom doctor"
     Then the output contains "never confirmed for execution"
     And the companion "ctxloom-companion-acme" was never executed
-    When I run "ctxloom trust companion allow ctxloom-companion-acme"
+    When I run "ctxloom companion trust ctxloom-companion-acme"
     Then the command succeeds
     And the output contains "ctxloom will run it"
     When I run "ctxloom doctor"
@@ -69,19 +69,19 @@ Feature: Trust posture CLI
   Scenario: Companion execution decisions are listable and revocable
     Given an initialized ctxloom project
     And a discovered companion "ctxloom-companion-acme" is on PATH, never confirmed
-    When I run "ctxloom trust companion list"
+    When I run "ctxloom companion list"
     Then the command succeeds
     And the output does not contain "ctxloom-companion-acme"
-    When I run "ctxloom trust companion allow ctxloom-companion-acme"
+    When I run "ctxloom companion trust ctxloom-companion-acme"
     Then the command succeeds
-    When I run "ctxloom trust companion list"
+    When I run "ctxloom companion list"
     Then the command succeeds
     And the output contains "allowed"
     And the output contains "ctxloom-companion-acme"
-    When I run "ctxloom trust companion forget ctxloom-companion-acme"
+    When I run "ctxloom companion untrust ctxloom-companion-acme"
     Then the command succeeds
     And the output contains "forgot 1 decision(s)"
-    When I run "ctxloom trust companion list"
+    When I run "ctxloom companion list"
     Then the command succeeds
     And the output does not contain "ctxloom-companion-acme"
 
@@ -96,25 +96,25 @@ Feature: Trust posture CLI
   # both the presence and the absence are asserted.
   Scenario: Publish destinations are listable, allowable and revocable without a terminal
     Given an initialized ctxloom project
-    When I run "ctxloom trust publish list"
+    When I run "ctxloom remote trusted"
     Then the command succeeds
     And the output contains "no publish destinations recorded"
-    When I run "ctxloom trust publish allow https://git.example.com/team/bundles"
+    When I run "ctxloom remote trust https://git.example.com/team/bundles"
     Then the command succeeds
     And the output contains "ctxloom will publish there without asking"
-    When I run "ctxloom trust publish list"
+    When I run "ctxloom remote trusted"
     Then the command succeeds
     And the output contains "allowed"
     And the output contains "https://git.example.com/team/bundles"
     # One repository is ONE destination: the ssh spelling of the URL just
     # allowed must already be recorded, never asked about a second time.
-    When I run "ctxloom trust publish forget git@git.example.com:team/bundles.git"
+    When I run "ctxloom remote untrust git@git.example.com:team/bundles.git"
     Then the command succeeds
     And the output contains "forgot 1 decision(s)"
-    When I run "ctxloom trust publish list"
+    When I run "ctxloom remote trusted"
     Then the command succeeds
     And the output contains "no publish destinations recorded"
     # Undoing something nobody recorded reports zero rather than succeeding silently.
-    When I run "ctxloom trust publish forget https://git.example.com/team/bundles"
+    When I run "ctxloom remote untrust https://git.example.com/team/bundles"
     Then the command succeeds
     And the output contains "forgot 0 decisions"

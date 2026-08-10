@@ -125,7 +125,7 @@ type j001600State struct {
 	declaredPrincipal string
 
 	// storeSnapshot is the project allowed_signers file's exact bytes,
-	// captured before a `trust signer delete` that is expected to change
+	// captured before a `signer untrust` that is expected to change
 	// nothing. "Reported no entry" and "left the trust root alone" are
 	// different claims: a remove that rewrites the store while reporting
 	// nothing removed has still edited the trust root, and only a
@@ -406,8 +406,8 @@ func j001600PublishedBundle(tddContent string) string {
 // same spelling still wins"). With both present, the item ref a consumer
 // accepts or rejects and the item the exposure path actually delivers are two
 // different things, and every per-item trust assertion silently measures
-// nothing. Measured: with the authoring copy left in place, `trust accept`
-// released nothing and `trust reject` withheld nothing, both while exiting 0.
+// nothing. Measured: with the authoring copy left in place, `bundle trust`
+// released nothing and `bundle untrust` withheld nothing, both while exiting 0.
 func j001600SeedFromDisk(w *World, name string) error {
 	st := j001600Of(w)
 	rel := j001600BundlePath(name)
@@ -506,7 +506,7 @@ func j001600Reference(w *World) error {
 }
 
 // j001600ItemRef builds the canonical item ref for a fragment of the PUBLISHED
-// bundle — the same grammar `trust accept`, `trust reject` and `bundle sign`
+// bundle — the same grammar `bundle trust`, `bundle untrust` and `bundle sign`
 // all share.
 func j001600ItemRef(w *World, fragment string) string {
 	return "file://" + j001600Of(w).bare + "@bundles/" + j001600PublishedName + "#fragments/" + fragment
@@ -896,11 +896,11 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// --- Trust store assertions ---------------------------------------------
 
 	ctx.Step(`^Trent's key is trusted in the committable project store as "([^"]*)"$`, func(c context.Context, principal string) error {
-		return runOK(worldFrom(c), "trust", "signer", "create", principal, "--key", j001600PubKeyFile, "--project", "--yes")
+		return runOK(worldFrom(c), "signer", "trust", principal, "--key", j001600PubKeyFile, "--project", "--yes")
 	})
 
 	ctx.Step(`^Trent's key is also trusted in his personal user store as "([^"]*)"$`, func(c context.Context, principal string) error {
-		return runOK(worldFrom(c), "trust", "signer", "create", principal, "--key", j001600PubKeyFile, "--yes")
+		return runOK(worldFrom(c), "signer", "trust", principal, "--key", j001600PubKeyFile, "--yes")
 	})
 
 	// A review decision recorded by someone holding a signing key is SIGNED
@@ -917,14 +917,14 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// `reviewer@…` (approve, reject) are separate grants over the same bytes.
 	//
 	// PRODUCT BUG FOUND HERE, reported not fixed — see the @wip scenario in
-	// j001600_signing.feature: WITHOUT this grant, `ctxloom trust accept` prints
+	// j001600_signing.feature: WITHOUT this grant, `ctxloom bundle trust` prints
 	// "Approved …  signed by SHA256:…", exits 0, writes a well-formed signed
 	// approval record — and the item stays withheld. The byte-identical
 	// UNSIGNED record (same ref, same payload_hash) is honoured. So on the
 	// ordinary developer setup — a key in ssh-agent — the flagship trust
 	// command is a silent no-op.
 	ctx.Step(`^Alice's own review key is trusted for approve and reject as "([^"]*)"$`, func(c context.Context, principal string) error {
-		return runOK(worldFrom(c), "trust", "signer", "create", principal, "--key", j001600PubKeyFile, "--namespace", "approve,reject", "--yes")
+		return runOK(worldFrom(c), "signer", "trust", principal, "--key", j001600PubKeyFile, "--namespace", "approve,reject", "--yes")
 	})
 
 	ctx.Step(`^the project store "([^"]*)" trusts "([^"]*)" for publishing, with Trent's own key$`, func(c context.Context, rel, principal string) error {
@@ -983,7 +983,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// --- The store as a FILE: what a removal leaves behind ------------------
 	//
 	// Every step below asserts allowed_signers CONTENT, because that file IS
-	// the trust root. `trust signer delete` reporting "removed 1 entry" is a
+	// the trust root. `signer untrust` reporting "removed 1 entry" is a
 	// claim about one line; what makes the store still a trust root is every
 	// OTHER line surviving the rewrite unchanged. The removal path rebuilds
 	// the whole file from the lines it decided to keep, so a bug there is
@@ -994,7 +994,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Trent's team trusts "([^"]*)" in the committable project store$`, func(c context.Context, principals string) error {
 		w := worldFrom(c)
 		for _, p := range strings.Split(principals, ",") {
-			if err := runOK(w, "trust", "signer", "create", strings.TrimSpace(p), "--key", j001600PubKeyFile, "--namespace", "publish", "--project", "--yes"); err != nil {
+			if err := runOK(w, "signer", "trust", strings.TrimSpace(p), "--key", j001600PubKeyFile, "--namespace", "publish", "--project", "--yes"); err != nil {
 				return err
 			}
 		}
@@ -1142,7 +1142,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		if len(j001600EmbeddedPrincipals()) == 0 {
 			return fmt.Errorf("this build has no compiled-in trust root, so there is no embedded key to withdraw trust in")
 		}
-		return runOK(w, "trust", "signer", "list")
+		return runOK(w, "signer", "list")
 	})
 
 	ctx.Step(`^the distrusted store "([^"]*)" records every principal that entry names$`, func(c context.Context, rel string) error {
@@ -1255,20 +1255,20 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return j001600SeedFromDisk(w, j001600PublishedName)
 	})
 
-	ctx.Step(`^I run "ctxloom trust accept" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
-		return runOK(worldFrom(c), "trust", "accept", j001600ItemRef(worldFrom(c), frag))
+	ctx.Step(`^I run "ctxloom bundle trust" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
+		return runOK(worldFrom(c), "bundle", "trust", j001600ItemRef(worldFrom(c), frag))
 	})
 
-	ctx.Step(`^I run "ctxloom trust reject" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
-		return runOK(worldFrom(c), "trust", "reject", j001600ItemRef(worldFrom(c), frag))
+	ctx.Step(`^I run "ctxloom bundle untrust" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
+		return runOK(worldFrom(c), "bundle", "untrust", j001600ItemRef(worldFrom(c), frag))
 	})
 
 	// "try to run", not runOK: this scenario's whole subject is a REFUSAL, so
 	// the exit code is an assertion the scenario makes explicitly rather than
 	// a precondition the step swallows.
-	ctx.Step(`^I try to run "ctxloom trust accept" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
+	ctx.Step(`^I try to run "ctxloom bundle trust" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
 		w := worldFrom(c)
-		_ = w.env.Run("trust", "accept", j001600ItemRef(w, frag))
+		_ = w.env.Run("bundle", "trust", j001600ItemRef(w, frag))
 		return nil
 	})
 
@@ -1285,7 +1285,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		for _, want := range []struct{ what, text string }{
 			{"the key it refused", fp},
 			{"the namespace that key lacks", ns},
-			{"the command that grants it", "ctxloom trust signer create"},
+			{"the command that grants it", "ctxloom signer trust"},
 			{"the namespaces to grant", "--namespace approve,reject"},
 		} {
 			if !strings.Contains(out, want.text) {
@@ -1303,7 +1303,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// so it cannot tell a refusal from the failure being fixed. Record
 	// filenames carry the assertion (`<indexHash>.<assertion>.<keyTag>.sig`
 	// / `.unsigned`), and the sidecar index carries it as a field, so both
-	// halves of what `trust accept` writes are checked.
+	// halves of what `bundle trust` writes are checked.
 	ctx.Step(`^the approvals store holds no approve record at all$`, func(c context.Context) error {
 		w := worldFrom(c)
 		dir := filepath.Join(w.env.HomeDir, paths.AppDirName, paths.ApprovalsDirName)

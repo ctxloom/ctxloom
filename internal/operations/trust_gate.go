@@ -74,7 +74,7 @@ type contentGate struct {
 //  2. WHY it is pending. EffectiveTrust resolves unsigned content and
 //     signed-by-an-untrusted-key content to the same SourcePending, correctly —
 //     both withhold. But they are different diagnoses with different fixes
-//     (`ctxloom review` vs `trust signer create`), and the surface whose job is
+//     (`ctxloom review` vs `signer trust`), and the surface whose job is
 //     helping a human decide must not collapse them. The read's Signature/Signer
 //     axes are what separate them, and they never reached the old bool gate.
 //

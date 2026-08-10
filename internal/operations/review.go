@@ -73,7 +73,7 @@ type ReviewItem struct {
 // ReasonUnsigned and ReasonUntrustedSigner stay separate reasons rather than
 // collapsing into one "pending": "pending" and "pending because I do not
 // trust who signed it" are different diagnoses with different fixes
-// (`ctxloom review` vs `trust signer create`), even though the exposure gate
+// (`ctxloom review` vs `signer trust`), even though the exposure gate
 // — correctly — treats them identically for admission.
 
 // ReviewBundle groups a bundle's pending items for the per-bundle walk.

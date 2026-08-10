@@ -94,7 +94,7 @@ func seedLocalCommand(t *testing.T, cfg *config.Config, bundle, name, body strin
 	require.NoError(t, err)
 }
 
-// TestRunItemTrust_AcceptsLocalFragment drives `ctxloom trust <ref>`: the
+// TestRunItemTrust_AcceptsLocalFragment drives `ctxloom bundle trust <ref>`: the
 // approval is countersigned (here: UNSIGNED, no agent in the test env) over
 // the item's recomputed content bytes — never an author-supplied value — and
 // lands in the real user store under the canonical (ctxloom:local) key.

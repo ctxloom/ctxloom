@@ -57,10 +57,10 @@ filesystem. Hand-editing an `allowed_signers` file is fully equivalent to using 
 it is read verbatim either way.
 
 ```bash
-ctxloom trust signer create context@acme.com --key ~/.ssh/acme-publish.pub
+ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
 ctxloom trust signer list
 ctxloom trust signer show context@acme.com
-ctxloom trust signer delete context@acme.com
+ctxloom signer untrust context@acme.com
 ```
 
 The principal (`context@acme.com`) is just a label. **The key is the trust.**
@@ -127,8 +127,8 @@ Rejections likewise survive; nothing un-rejects.
 
 :::danger[The embedded ctxloom key cannot be untrusted]
 ctxloom's compiled-in trust root is **unconditionally unioned into every lookup**, and
-`ctxloom trust signer delete` only rewrites the user or project *file*. There is no negative-entry
-mechanism. Running `ctxloom trust signer delete ben+ctxloom@abbitt.me` does **not** stop
+`ctxloom signer untrust` only rewrites the user or project *file*. There is no negative-entry
+mechanism. Running `ctxloom signer untrust ben+ctxloom@abbitt.me` does **not** stop
 ctxloom-published bundles from being auto-trusted. If you want to review ctxloom's own content
 by hand, there is currently no supported way to ask for that.
 :::

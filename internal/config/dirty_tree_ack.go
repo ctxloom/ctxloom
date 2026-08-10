@@ -90,7 +90,7 @@ func DirtyTreeCommitAcknowledged(fs afero.Fs, appPath string) bool {
 // SetDirtyTreeCommitAck records appPath's human acknowledgement (ack=true) or
 // its revocation (ack=false) that ctxloom may auto-commit a dirty tree on its
 // behalf. The scriptable write both `ctxloom init`'s interview
-// (operations.InitializeProject) and `ctxloom manage dirty-tree-ack` use,
+// (operations.InitializeProject) and `ctxloom manage commit` use,
 // since the record is no longer hand-editable in the config.yaml file people
 // already open.
 func SetDirtyTreeCommitAck(fs afero.Fs, appPath string, ack bool) error {

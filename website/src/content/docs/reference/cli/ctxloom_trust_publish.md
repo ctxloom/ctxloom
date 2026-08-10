@@ -50,7 +50,7 @@ ctxloom trust publish [flags]
 ### SEE ALSO
 
 * [ctxloom trust](/reference/cli/ctxloom_trust/)	 - Accept, reject, or manage the signers of item content
-* [ctxloom trust publish allow](/reference/cli/ctxloom_trust_publish_allow/)	 - Record that ctxloom may publish to a remote
-* [ctxloom trust publish forget](/reference/cli/ctxloom_trust_publish_forget/)	 - Drop the recorded decision for a remote (it is asked about again)
-* [ctxloom trust publish list](/reference/cli/ctxloom_trust_publish_list/)	 - List recorded publish-destination decisions
+* [ctxloom remote trust](/reference/cli/ctxloom_trust_publish_allow/)	 - Record that ctxloom may publish to a remote
+* [ctxloom remote untrust](/reference/cli/ctxloom_trust_publish_forget/)	 - Drop the recorded decision for a remote (it is asked about again)
+* [ctxloom remote trusted](/reference/cli/ctxloom_trust_publish_list/)	 - List recorded publish-destination decisions
 

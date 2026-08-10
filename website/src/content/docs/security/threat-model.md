@@ -104,7 +104,7 @@ broadly by design. Scope keys with `namespaces=`, keep reviewer keys hardware-ba
 remember that a developer can always reject unilaterally.
 
 **ctxloom's own embedded key cannot be untrusted.** The compiled-in trust root is
-unconditionally unioned into every lookup, and `ctxloom trust signer delete` only rewrites the
+unconditionally unioned into every lookup, and `ctxloom signer untrust` only rewrites the
 user or project *file*. There is no negative-entry mechanism. Removing
 `ben+ctxloom@abbitt.me` does **not** stop ctxloom-published bundles from being auto-trusted.
 If you want to review ctxloom's own content by hand, there is currently no supported way to

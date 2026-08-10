@@ -168,7 +168,7 @@ const (
 	ReasonUnsigned
 	// ReasonUntrustedSigner: REMOTE content signed by a key this machine does
 	// not trust to publish. Also pending — but with a second fix available
-	// (`trust signer create`) that "unsigned" does not have, which is exactly
+	// (`signer trust`) that "unsigned" does not have, which is exactly
 	// why the two are not one reason.
 	ReasonUntrustedSigner
 	// ReasonPending: nothing positively justified exposure — never reviewed, or

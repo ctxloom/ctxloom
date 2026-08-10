@@ -740,8 +740,8 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 	// blanket pull (no explicit version requested, e.g. `deps pull --force`)
 	// keep the entry's frozen SHA/Version too — force repairs a clone, it does
 	// not advance past a hold (see LockEntry.Pinned).
-	if hadExisting && existing.Pinned {
-		entry.Pinned = true
+	if hadExisting && existing.Held {
+		entry.Held = true
 		if requestedVersion == "" {
 			entry.SHA = existing.SHA
 			entry.Version = existing.Version

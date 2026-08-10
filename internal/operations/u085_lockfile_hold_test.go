@@ -60,6 +60,6 @@ func TestSetItemPin_PersistsToInjectedFS(t *testing.T) {
 	lock, err := mgr.Load()
 	require.NoError(t, err)
 	require.Contains(t, lock.Bundles, "r/a")
-	assert.True(t, lock.Bundles["r/a"].Pinned,
+	assert.True(t, lock.Bundles["r/a"].Held,
 		"the hold must persist to the injected fs, not the OS fs")
 }

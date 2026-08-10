@@ -137,7 +137,7 @@ func loadDepsListing(ctx context.Context, cfg *config.Config) (*depsListing, err
 			Ref:        e.Ref,
 			SHA:        e.Entry.SHA,
 			Constraint: e.Entry.RequestedVersion,
-			Held:       e.Entry.Pinned,
+			Held:       e.Entry.Held,
 			URL:        e.Entry.URL,
 		}
 		if parsed, perr := remote.ParseReference(e.Ref); perr == nil {

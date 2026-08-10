@@ -88,7 +88,7 @@ func TestUpgrade_HeldEntryDoesNotAdvance(t *testing.T) {
 
 	e1, _ := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, identity)
 	assert.Equal(t, c1, e1.SHA, "the held entry stays frozen at its locked SHA")
-	assert.True(t, e1.Pinned, "the hold survives the relock")
+	assert.True(t, e1.Held, "the hold survives the relock")
 }
 
 // TestUpgrade_PreservesInlineRootedEntry pins the canonical-root-set fix: the

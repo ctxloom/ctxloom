@@ -431,7 +431,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
 		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
 			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom",
-			Version: "v1.0.0", RequestedVersion: "v1.0.0", Pinned: true,
+			Version: "v1.0.0", RequestedVersion: "v1.0.0", Held: true,
 		})
 		require.NoError(t, lm.Save(seeded))
 
@@ -444,7 +444,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		loaded, err := lm.Load()
 		require.NoError(t, err)
 		entry := loaded.Bundles[ref]
-		assert.True(t, entry.Pinned, "hold must survive a blanket re-pull")
+		assert.True(t, entry.Held, "hold must survive a blanket re-pull")
 		assert.Equal(t, "pinnedsha", entry.SHA, "frozen SHA must not advance to HEAD")
 		assert.Equal(t, "v1.0.0", entry.Version)
 	})
@@ -461,7 +461,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		const ref = "https://github.com/alice/ctxloom@bundles/security"
 		seeded := &Lockfile{Version: 1, Bundles: make(map[string]LockEntry)}
 		seeded.AddEntry(ItemTypeBundle, ref, LockEntry{
-			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom", Pinned: true,
+			SHA: "pinnedsha", URL: "https://github.com/alice/ctxloom", Held: true,
 		})
 		require.NoError(t, lm.Save(seeded))
 
@@ -473,7 +473,7 @@ func TestPuller_UpdateLockfile(t *testing.T) {
 		loaded, err := lm.Load()
 		require.NoError(t, err)
 		entry := loaded.Bundles[ref]
-		assert.True(t, entry.Pinned, "hold must survive an explicit move")
+		assert.True(t, entry.Held, "hold must survive an explicit move")
 		assert.Equal(t, "v2sha", entry.SHA, "explicit version pull advances the SHA")
 		assert.Equal(t, "v2.0.0", entry.RequestedVersion)
 	})

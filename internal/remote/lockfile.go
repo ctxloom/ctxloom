@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -114,6 +115,20 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 			"fix or delete the file, then re-sync (a legitimate lockfile always contains at least 'version: 1')", path)
 	}
 
+	// REFUSE the retired hold key rather than letting yaml drop it. A lockfile
+	// written by an older ctxloom spells a hold `pinned`, which this struct no
+	// longer models — so it would load cleanly with every hold silently gone,
+	// and the next `deps upgrade` would advance a dependency the user
+	// deliberately froze while reporting success. Unlike the schema-version
+	// residue below, this key carries a DECISION, so it is not something a
+	// read may quietly rewrite on the user's behalf.
+	if entry, found := findRetiredHoldField(data); found {
+		return nil, fmt.Errorf("lockfile %s spells a hold %q on entry %q; it is now %q — "+
+			"delete the lockfile and re-run `ctxloom deps pull` to rebuild it, "+
+			"then re-apply the hold with `ctxloom deps hold %s`",
+			path, retiredHoldField, entry, "held", entry)
+	}
+
 	var lockfile Lockfile
 	if err := yaml.Unmarshal(data, &lockfile); err != nil {
 		return nil, fmt.Errorf("failed to parse lockfile: %w", err)
@@ -147,6 +162,39 @@ func (m *LockfileManager) Load() (*Lockfile, error) {
 // the sole content version now; an entry still carrying it is pre-removal
 // residue.
 const legacySchemaField = "ctxloom_version"
+
+// retiredHoldField is the pre-rename spelling of LockEntry.Held. A hold is a
+// user DECISION, so a file still using this key is refused by name rather than
+// read with the decision dropped.
+const retiredHoldField = "pinned"
+
+// findRetiredHoldField returns the first bundle entry carrying the retired hold
+// key as a FIELD, and whether one was found. Parsing is what separates a key
+// from a URL, a bundle path or a retraction reason that merely contains the
+// word — the same distinction hasLegacySchemaField draws, for the same reason.
+// Unparseable input reports false and leaves the loader's own yaml.Unmarshal to
+// produce the error.
+func findRetiredHoldField(data []byte) (string, bool) {
+	var doc struct {
+		Bundles map[string]map[string]any `yaml:"bundles"`
+	}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return "", false
+	}
+	// Sorted so a lockfile with several stale entries names the same one every
+	// run; map order would make the message differ between identical inputs.
+	names := make([]string, 0, len(doc.Bundles))
+	for name := range doc.Bundles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		if _, ok := doc.Bundles[name][retiredHoldField]; ok {
+			return name, true
+		}
+	}
+	return "", false
+}
 
 // hasLegacySchemaField reports whether any bundle entry in data carries the
 // retired key as a FIELD. Parsing the document is what separates a key from a

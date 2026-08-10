@@ -88,7 +88,7 @@ func stampLockState(cfg *config.Config, infos []*bundles.BundleInfo) {
 		if !ok {
 			continue
 		}
-		info.Held = entry.Pinned
+		info.Held = entry.Held
 		info.Retracted = entry.Retracted
 		info.RetractedReason = entry.RetractedReason
 	}

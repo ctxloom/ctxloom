@@ -47,7 +47,7 @@ func TestActiveLockfileHold(t *testing.T) {
 
 		active := readActive(t, cfg)
 		require.Contains(t, active.Bundles, "r/a")
-		assert.True(t, active.Bundles["r/a"].Pinned)
+		assert.True(t, active.Bundles["r/a"].Held)
 	})
 
 	t.Run("SetItemPin idempotent on repeated true", func(t *testing.T) {
@@ -70,7 +70,7 @@ func TestActiveLockfileHold(t *testing.T) {
 		assert.True(t, found)
 
 		active := readActive(t, cfg)
-		assert.False(t, active.Bundles["r/a"].Pinned)
+		assert.False(t, active.Bundles["r/a"].Held)
 	})
 
 	t.Run("SetItemPin unknown bundle returns false, no error", func(t *testing.T) {

@@ -108,7 +108,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult
 	for _, p := range proposed {
 		cur, has := active.GetEntry(p.Type, p.Identity)
 		// A held entry never advances — carry its current pin forward unchanged.
-		if has && cur.Pinned {
+		if has && cur.Held {
 			newActive.AddEntry(p.Type, p.Identity, cur)
 			continue
 		}

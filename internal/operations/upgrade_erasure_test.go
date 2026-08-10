@@ -107,7 +107,7 @@ func TestUpgrade_EmptyClosurePreservesHoldsAndRetractions(t *testing.T) {
 
 	after, ok := mustLoadActive(t, baseDir).GetEntry(remote.ItemTypeBundle, ref)
 	require.True(t, ok)
-	assert.True(t, after.Pinned, "the user's hold survives")
+	assert.True(t, after.Held, "the user's hold survives")
 	assert.True(t, after.Retracted, "the publisher's retraction survives — a wipe would silently un-retract it")
 	assert.Equal(t, "withdrawn by the publisher", after.RetractedReason)
 }

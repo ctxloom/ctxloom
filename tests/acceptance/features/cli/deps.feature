@@ -314,7 +314,7 @@ Feature: deps — the installed dependency closure, and everything that moves it
         ctxloom deps pull --force
         """
       Then the command succeeds
-      And the file ".ctxloom/lock.yaml" contains "pinned: true"
+      And the file ".ctxloom/lock.yaml" contains "held: true"
       When I run "ctxloom profile materialize dev --target out"
       Then the file "out/CLAUDE.md" contains "Demo fragment content."
       And the file "out/CLAUDE.md" does not contain "version two"

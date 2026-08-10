@@ -22,7 +22,7 @@ func TestLockfile_AllEntries_CarriesKeyTypeAndEntry(t *testing.T) {
 	lockfile := &Lockfile{
 		Version: 1,
 		Bundles: map[string]LockEntry{
-			"alice/go-tools": {SHA: "sha-a", URL: "https://github.com/alice/ctxloom", Pinned: true},
+			"alice/go-tools": {SHA: "sha-a", URL: "https://github.com/alice/ctxloom", Held: true},
 			"bob/py-tools":   {SHA: "sha-b", URL: "https://github.com/bob/ctxloom", Retracted: true, RetractedReason: "withdrawn"},
 		},
 	}
@@ -41,7 +41,7 @@ func TestLockfile_AllEntries_CarriesKeyTypeAndEntry(t *testing.T) {
 	assert.Equal(t, []string{"alice/go-tools", "bob/py-tools"}, refs,
 		"the map KEY is the ref; callers rebuild the lockfile from it")
 
-	assert.True(t, byRef["alice/go-tools"].Pinned, "a user hold must survive the round trip")
+	assert.True(t, byRef["alice/go-tools"].Held, "a user hold must survive the round trip")
 	assert.Equal(t, "sha-a", byRef["alice/go-tools"].SHA)
 	assert.True(t, byRef["bob/py-tools"].Retracted, "a publisher retraction must survive the round trip")
 	assert.Equal(t, "withdrawn", byRef["bob/py-tools"].RetractedReason)

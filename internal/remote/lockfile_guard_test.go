@@ -31,7 +31,7 @@ func populatedLockfile() *Lockfile {
 			"https://github.com/alice/repo@bundles/held": {
 				SHA:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 				URL:    "https://github.com/alice/repo",
-				Pinned: true,
+				Held: true,
 			},
 			"https://github.com/bob/repo@bundles/withdrawn": {
 				SHA:             "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
@@ -80,7 +80,7 @@ func TestSave_RefusedEmptyWritePreservesPinnedAndRetracted(t *testing.T) {
 
 	held, ok := reloaded.GetEntry(ItemTypeBundle, "https://github.com/alice/repo@bundles/held")
 	require.True(t, ok, "the held entry survives")
-	assert.True(t, held.Pinned, "the user's hold survives the refused write")
+	assert.True(t, held.Held, "the user's hold survives the refused write")
 
 	withdrawn, ok := reloaded.GetEntry(ItemTypeBundle, "https://github.com/bob/repo@bundles/withdrawn")
 	require.True(t, ok, "the retracted entry survives")

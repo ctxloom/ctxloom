@@ -197,7 +197,7 @@ func TestDepsList_ReadsAnInstalledClosureFromTheLockfile(t *testing.T) {
 	})
 	lockfile.AddEntry(remote.ItemTypeBundle, guardRef, remote.LockEntry{
 		SHA: "fedcba9876543210fedcba9876543210fedcba98",
-		URL: "https://github.com/alice/ctxloom", Pinned: true,
+		URL: "https://github.com/alice/ctxloom", Held: true,
 	})
 	require.NoError(t, manager.Save(lockfile))
 

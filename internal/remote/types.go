@@ -174,11 +174,15 @@ type LockEntry struct {
 	// FetchedAt is when the item was pulled
 	FetchedAt time.Time `yaml:"fetched_at" json:"fetched_at"`
 
-	// Pinned freezes this entry at the recorded SHA (a "hold"): `deps upgrade`
+	// Held freezes this entry at the recorded SHA (a "hold"): `deps upgrade`
 	// leaves it put even when its constraint would allow a newer commit, and a
-	// lock rebuild carries the flag forward. Toggled via `ctxloom bundle
+	// lock rebuild carries the flag forward. Toggled via `ctxloom deps
 	// hold`/`unhold`.
-	Pinned bool `yaml:"pinned,omitempty" json:"pinned,omitempty"`
+	//
+	// Serialized `held` to match what the CLI, the DTO layer and this field
+	// all call it. The retired spelling `pinned` is REFUSED at load rather
+	// than ignored — see retiredHoldField.
+	Held bool `yaml:"held,omitempty" json:"held,omitempty"`
 
 	// Retracted records that the publisher withdrew this bundle (or the exact
 	// version pinned here) — learned from the remote manifest at the last

@@ -68,7 +68,7 @@ func TestConstraintResolver_CarryForwardUnchangedConstraint(t *testing.T) {
 
 func TestConstraintResolver_HoldWinsOverChangedConstraint(t *testing.T) {
 	factory, calls := countingFactory(remote.NewMockFetcher())
-	active := activeLock(remote.LockEntry{SHA: "heldsha", RequestedVersion: "^1.0", Pinned: true})
+	active := activeLock(remote.LockEntry{SHA: "heldsha", RequestedVersion: "^1.0", Held: true})
 	resolve := newConstraintResolver(context.Background(), active, factory, remote.AuthConfig{}, false)
 
 	// Constraint changed (^2.0), but the entry is held → stays frozen.
@@ -131,7 +131,7 @@ func TestConstraintResolver_UpgradeReResolvesButHoldStays(t *testing.T) {
 
 	t.Run("held stays frozen even under upgrade", func(t *testing.T) {
 		factory2, calls2 := countingFactory(mock)
-		active := activeLock(remote.LockEntry{SHA: "frozensha", RequestedVersion: "main", Pinned: true})
+		active := activeLock(remote.LockEntry{SHA: "frozensha", RequestedVersion: "main", Held: true})
 		resolve := newConstraintResolver(context.Background(), active, factory2, remote.AuthConfig{}, true)
 		sha, _, _, ok := resolve(mustRef(t, "main"))
 		require.True(t, ok)

@@ -44,10 +44,10 @@ func SetItemPin(cfg *config.Config, ref string, pinned bool) (bool, error) {
 	if !ok {
 		return false, nil
 	}
-	if entry.Pinned == pinned {
+	if entry.Held == pinned {
 		return true, nil // idempotent
 	}
-	entry.Pinned = pinned
+	entry.Held = pinned
 	active.AddEntry(remote.ItemTypeBundle, canonical, entry)
 	if err := activeMgr.Save(active); err != nil {
 		return true, fmt.Errorf("save active lockfile: %w", err)

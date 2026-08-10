@@ -125,7 +125,7 @@ func LockDependencies(ctx context.Context, cfg *config.Config, req LockDependenc
 		// the tag a semver constraint chose, for display and satisfaction checks.
 		entry := remote.LockEntry{SHA: p.Hash, URL: p.URL, RequestedVersion: p.Constraint, Version: p.Version, Kind: p.Kind}
 		if prevEntry, ok := prevEntries[key]; ok {
-			entry.Pinned = prevEntry.Pinned
+			entry.Held = prevEntry.Held
 			entry.Retracted = prevEntry.Retracted
 			entry.RetractedReason = prevEntry.RetractedReason
 			entry.Tree = prevEntry.Tree

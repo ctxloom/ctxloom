@@ -99,7 +99,7 @@ func newConstraintResolver(ctx context.Context, active *remote.Lockfile, factory
 		//    in lock mode (upgrade re-resolves it). The kind rides along, derived
 		//    for entries locked before it was persisted.
 		if e, ok := lockEntry(ref); ok && e.SHA != "" {
-			if e.Pinned {
+			if e.Held {
 				return store(e.SHA, e.Version, e.SelectorKind())
 			}
 			if !reResolve && e.RequestedVersion == expr {

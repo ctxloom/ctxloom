@@ -56,7 +56,7 @@ func TestBareNoun_AnswersWithItsDefaultView(t *testing.T) {
 // stopped happening. Raise this number when wiring a noun; a drop is a
 // regression to explain, not a number to edit.
 func TestGroupNodeDefault_WiredCountHoldsSteady(t *testing.T) {
-	const wiredToday = 17
+	const wiredToday = 19
 
 	assert.Len(t, wiredBareNouns(t), wiredToday,
 		"namespaces answering their bare form; raise when wiring one, investigate a drop")

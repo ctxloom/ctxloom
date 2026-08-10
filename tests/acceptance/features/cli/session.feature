@@ -24,6 +24,14 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session transcript              (bare: lists)
     ctxloom session transcript list [<harp>]
     ctxloom session transcript watch <harp>
+    ctxloom session transcript purge <harp> [--undistilled] [--yes]
+    ctxloom session artifacts               (bare: lists)
+    ctxloom session artifacts list [<harp>]
+    ctxloom session artifacts purge <harp> [--yes]
+    ctxloom session worktrees               (bare: lists)
+    ctxloom session worktrees list [<harp>]
+    ctxloom session worktrees purge <harp> [--yes]
+    ctxloom session purge <harp> [--yes]
 
   Rule: Reading the record touches nothing
 
@@ -134,6 +142,112 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session watch amber-swift-owl"
       Then the command fails
       And the output contains "unknown command"
+
+  Rule: Each population owns its destroyer, and every one reports first
+
+    A session holds three separable populations: the conversation it
+    recorded, the essence ctxloom derived from it, and the scratch git
+    checkouts it left behind. Each is destroyed by the sub-noun that
+    understands it, and `session purge` sweeps all three.
+
+    None of them removes anything without `--yes`. A run without it prints
+    the plan and then says outright that it removed nothing, naming the exact
+    command that would — a plan and an outcome otherwise render identically,
+    and the difference is the whole point.
+
+    Scenario: Purging a transcript reports before it removes
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence
+      When I run "ctxloom session transcript purge amber-swift-owl"
+      Then the command succeeds
+      And the output contains "removed nothing"
+      And the output contains "ctxloom session transcript purge amber-swift-owl --yes"
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
+
+    Scenario: --yes destroys the transcript and leaves the essence
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence
+      When I run "ctxloom session transcript purge amber-swift-owl --yes"
+      Then the command succeeds
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" does not exist
+      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+
+    # With no essence, the transcript is the only record of what happened.
+    # The refusal names the flag that permits it deliberately.
+    Scenario: The only record of an undistilled session takes an extra flag
+      Given an initialized ctxloom project
+      And a finished session "brisk-copper-moth" with a transcript and no essence
+      When I run "ctxloom session transcript purge brisk-copper-moth --yes"
+      Then the command fails
+      And the output contains "never distilled"
+      And the output contains "--undistilled"
+      And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" exists
+
+    Scenario: --undistilled destroys it anyway
+      Given an initialized ctxloom project
+      And a finished session "brisk-copper-moth" with a transcript and no essence
+      When I run "ctxloom session transcript purge brisk-copper-moth --undistilled --yes"
+      Then the command succeeds
+      And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" does not exist
+
+    Scenario: Purging artifacts reports before it removes
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence
+      When I run "ctxloom session artifacts purge amber-swift-owl"
+      Then the command succeeds
+      And the output contains "removed nothing"
+      And the output contains "ctxloom session artifacts purge amber-swift-owl --yes"
+      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+
+    Scenario: --yes destroys the essence and leaves the transcript
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence
+      When I run "ctxloom session artifacts purge amber-swift-owl --yes"
+      Then the command succeeds
+      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
+
+    Scenario: The sweep reports before it removes
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence
+      When I run "ctxloom session purge amber-swift-owl"
+      Then the command succeeds
+      And the output contains "removed nothing"
+      And the output contains "ctxloom session purge amber-swift-owl --yes"
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
+      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+
+    Scenario: The sweep empties a session but does not unlist it
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence
+      When I run "ctxloom session purge amber-swift-owl --yes"
+      Then the command succeeds
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" does not exist
+      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
+      When I run "ctxloom session list --all"
+      Then the output contains "amber-swift-owl"
+
+    # Selection flags live on the leaf that understands them. The sweep has
+    # no --undistilled to give, so it refuses and names the leaf that has one.
+    Scenario: The sweep refuses an undistilled session and names the leaf that can
+      Given an initialized ctxloom project
+      And a finished session "brisk-copper-moth" with a transcript and no essence
+      When I run "ctxloom session purge brisk-copper-moth --yes"
+      Then the command fails
+      And the output contains "ctxloom session transcript purge brisk-copper-moth --undistilled --yes"
+      And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" exists
+
+    Scenario: The scratch worktrees are a population with their own listing
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence
+      When I run "ctxloom session worktrees"
+      Then the command succeeds
+
+    Scenario: The retired reap switch is gone, not hidden
+      Given an initialized ctxloom project
+      When I run "ctxloom session worktrees --reap --yes"
+      Then the command fails
+      And the output contains "unknown flag"
 
   Rule: Dropping a session from the index
 

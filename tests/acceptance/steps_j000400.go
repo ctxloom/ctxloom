@@ -1,13 +1,13 @@
 //go:build acceptance
 
-// J000400: "one shared profile, reaching four engines in their own native format"
+// J000400: "one shared profile, reaching three engines in their own native format"
 // (j000400_multi_engine.feature). Outline A materializes Carol's team profile for
-// each of the four engines and PARSES the generated file in its own format
+// each of the three engines and PARSES the generated file in its own format
 // (JSON, TOML, or markdown) to assert the fragment/server/hook/command payload
 // actually landed — never a bare file-exists or a substring-of-a-key-name.
-// Outline B (@live) plants a sentinel in a fragment and drives a real claude
-// or antigravity engine, asserting the sentinel returns through the actual
-// reply (steps_live.go's liveAgents wires exactly these two).
+// Outline B (@live) plants a sentinel in a fragment and drives a real engine,
+// asserting the sentinel returns through the actual reply (steps_live.go's
+// liveAgents wires each row).
 package acceptance
 
 import (
@@ -39,7 +39,7 @@ const (
 // j000400State is J000400's fixture state: which engine row (Outline A) is currently
 // materialized, and into which target dir.
 type j000400State struct {
-	engine string // current Examples row's backend name (claude-code/codex/kiro/antigravity)
+	engine string // current Examples row's backend name (claude-code/codex/kiro)
 	target string // profile materialize --target dir for this row (relative to project root)
 
 	// handAuthoredBytes is the EXACT content the hand-authored fixture wrote
@@ -269,7 +269,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 		return nil
 	})
 
-	// --- Outline B: live (@live, claude + antigravity only) -------------------
+	// --- Outline B: live (@live) -------------------
 	//
 	// "a real (\S+) agent is available" is steps_live.go's shared gate step,
 	// reused VERBATIM (godog rejects an ambiguous second match for the same
@@ -350,7 +350,7 @@ func j000400Excerpt(body, marker string, context int) string {
 }
 
 // engineContextRelPath returns dir-relative path to an engine's own native
-// context surface (internal/{claude,codex,kiro,antigravity}/surfaces.go).
+// context surface (internal/{claude,codex,kiro}/surfaces.go).
 // Shared engine-axis knowledge: J000400's own materialization outline uses it
 // below, and J000800's onboarding journey reuses it rather than re-deriving a
 // second copy of the same per-engine path table (steps_j000800_onboarding.go's
@@ -368,8 +368,6 @@ func engineContextRelPath(dir, engine string) (string, error) {
 		return filepath.Join(dir, "AGENTS.md"), nil
 	case "kiro":
 		return filepath.Join(dir, ".kiro", "steering", "ctxloom-context.md"), nil
-	case "antigravity":
-		return filepath.Join(dir, ".agents", "AGENTS.md"), nil
 	case "opencode":
 		// opencode's ctxloom-owned context file, referenced from
 		// opencode.json's `instructions` key (internal/opencode's
@@ -419,8 +417,8 @@ func j000400ReadTOML(w *World, rel string) (map[string]any, error) {
 }
 
 // j000400AssertMCP parses each engine's MCP registry in its own native format
-// (JSON's shared "mcpServers" table for claude/kiro/antigravity — the same
-// agent.MCPFileConfig reconciler backs all three — or codex's TOML
+// (JSON's shared "mcpServers" table for claude/kiro — the same
+// agent.MCPFileConfig reconciler backs both — or codex's TOML
 // "mcp_servers" table folded into config.toml) and asserts the shared
 // server's command landed under its name.
 func j000400AssertMCP(w *World, engine string) error {
@@ -503,8 +501,8 @@ func j000400AssertCtxloomMCPInvocation(w *World, engine, want string) error {
 }
 
 // j000400MCPRegistryFor names the file an engine keeps its MCP registry in, and the
-// table key inside it. Three engines share JSON's "mcpServers" (one
-// agent.MCPFileConfig reconciler backs all of them); codex folds "mcp_servers"
+// table key inside it. claude-code and kiro share JSON's "mcpServers" (one
+// agent.MCPFileConfig reconciler backs both); codex folds "mcp_servers"
 // into the same config.toml its hooks live in; opencode folds "mcp" into the
 // same opencode.json its `instructions` context reference lives in.
 func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
@@ -513,8 +511,6 @@ func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 		return filepath.Join(dir, ".mcp.json"), "mcpServers", nil
 	case "kiro":
 		return filepath.Join(dir, ".kiro", "settings", "mcp.json"), "mcpServers", nil
-	case "antigravity":
-		return filepath.Join(dir, ".agents", "mcp_config.json"), "mcpServers", nil
 	case "codex":
 		return filepath.Join(dir, ".codex", "config.toml"), "mcp_servers", nil
 	case "opencode":
@@ -572,9 +568,9 @@ func j000400FormatArgs(v any) string {
 
 // j000400HookCommandsFrom walks a decoded hooks event value — which is, depending
 // on the engine, either a flat list of {matcher, command} entries (kiro) or a
-// list of {matcher, hooks: [{type, command}]} groups (claude, antigravity,
-// codex) — and collects every command found, so one walker serves every
-// engine's own shape.
+// list of {matcher, hooks: [{type, command}]} groups (claude, codex) — and
+// collects every command found, so one walker serves every engine's own
+// shape.
 func j000400HookCommandsFrom(v any) []string {
 	var out []string
 	list, _ := v.([]any)
@@ -595,10 +591,10 @@ func j000400HookCommandsFrom(v any) []string {
 
 // j000400AssertHook parses each engine's own hook configuration (claude's
 // .claude/settings.json "hooks.SessionStart", kiro's agent JSON
-// "hooks.agentSpawn" — kiro diverts session_start to its own event name — antigravity's
-// separate .agents/hooks.json "hooks.SessionStart", codex's config.toml
-// "hooks.SessionStart" folded into the same file MCP lives in) and asserts
-// the shared hook's command landed under the right event.
+// "hooks.agentSpawn" — kiro diverts session_start to its own event name —
+// codex's config.toml "hooks.SessionStart" folded into the same file MCP
+// lives in) and asserts the shared hook's command landed under the right
+// event.
 func j000400AssertHook(w *World, engine string) error {
 	j000400 := j000400Of(w)
 	dir := j000400.target
@@ -617,10 +613,6 @@ func j000400AssertHook(w *World, engine string) error {
 		rel = filepath.Join(dir, ".kiro", "agents", "ctxloom.json")
 		doc, err = j000400ReadJSON(w, rel)
 		event = "agentSpawn"
-	case "antigravity":
-		rel = filepath.Join(dir, ".agents", "hooks.json")
-		doc, err = j000400ReadJSON(w, rel)
-		event = "SessionStart"
 	case "codex":
 		rel = filepath.Join(dir, ".codex", "config.toml")
 		doc, err = j000400ReadTOML(w, rel)
@@ -667,12 +659,9 @@ func j000400AssertHook(w *World, engine string) error {
 
 // j000400AssertCommand asserts the shared command's body reached each engine's own
 // command file path — claude/codex flatten the "<bundle>/<item>" export name's
-// slash to a dash (backends/commandfiles.go's exportNames), while kiro and
-// antigravity preserve it as a subdirectory (internal/{kiro,antigravity}
-// capabilities.go). antigravity's commands now render as `<name>/SKILL.md`
-// directories (G3 fix: the old flat `<name>.md` was a silent no-op agy's
-// skill scanner never discovered — see capabilities.go's WriteCommandFiles
-// doc comment), the SAME shape kiro already used.
+// slash to a dash (backends/commandfiles.go's exportNames), while kiro
+// preserves it as a subdirectory (internal/kiro/capabilities.go), rendering
+// commands as `<name>/SKILL.md` directories.
 // j000400AssertNoHookAnywhere proves a capability LOSS on the payload: it walks the
 // whole materialized tree and fails if ANY file carries the shared hook's
 // command. Used by U3's opencode row, where hooks are structurally absent —
@@ -724,8 +713,6 @@ func j000400AssertCommand(w *World, engine string) error {
 		rel = filepath.Join(dir, ".codex", "prompts", "team-onboarding.md")
 	case "kiro":
 		rel = filepath.Join(dir, ".kiro", "skills", "team", "onboarding", "SKILL.md")
-	case "antigravity":
-		rel = filepath.Join(dir, ".agents", "skills", "team", "onboarding", "SKILL.md")
 	case "opencode":
 		rel = filepath.Join(dir, ".opencode", "command", "team", "onboarding.md")
 	default:

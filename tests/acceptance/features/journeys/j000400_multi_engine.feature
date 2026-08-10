@@ -1,26 +1,25 @@
 @doc
-Feature: One shared profile, reaching four engines in their own native format
+Feature: One shared profile, reaching three engines in their own native format
 
   A team does not standardize on one assistant. Carol's team writes one shared
   profile — a fragment, a command, an MCP server, a hook — once. Alice's teammates
-  use claude-code, codex, kiro, and antigravity, and every one of them needs that
+  use claude-code, codex, and kiro, and every one of them needs that
   same profile to reach their own engine, in whatever native shape that engine
   actually reads. ctxloom's job is to be the one place the team's standard is
   authored, and to speak every engine's own dialect on the way out — nobody
-  forks the profile per engine, and nobody hand-translates a fragment into four
+  forks the profile per engine, and nobody hand-translates a fragment into
   different config formats.
 
-  The four engines do NOT converge on one shape, and this is not incidental —
+  The three engines do NOT converge on one shape, and this is not incidental —
   it is the whole point of proving it here rather than asserting it in prose.
   Verified straight from each engine's own surfaces.go (internal/{claude,codex,
-  kiro,antigravity}/surfaces.go):
+  kiro}/surfaces.go):
 
     | engine      | context lands in                                          | MCP lands in                              | hooks land in                | commands land in                   |
     |-------------|-------------------------------------------------------------|----------------------------------------------|-------------------------------|--------------------------------------|
     | claude-code | CLAUDE.md (managed markers)                                | .mcp.json                                   | .claude/settings.json          | .claude/commands/                    |
     | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | .codex/config.toml [hooks]      | $CODEX_HOME/prompts/ (global)         |
     | kiro        | .kiro/steering/ctxloom-context.md                          | .kiro/settings/mcp.json                     | .kiro/agents/<name>.json        | .kiro/skills/<name>/SKILL.md         |
-    | antigravity | .agents/AGENTS.md (managed markers)                        | .agents/mcp_config.json                     | .agents/hooks.json (separate)   | .agents/skills/<name>/SKILL.md       |
 
   codex still has NO native MCP file of its own — MCP folds into
   .codex/config.toml, the same file that carries its hooks. Its context surface
@@ -65,7 +64,6 @@ Feature: One shared profile, reaching four engines in their own native format
       | engine      |
       | claude-code |
       | kiro        |
-      | antigravity |
       | codex       |
 
   # Regression coverage for taskloom lanky-plop (P0 data loss): materializing a
@@ -88,7 +86,7 @@ Feature: One shared profile, reaching four engines in their own native format
       | claude-code | CLAUDE.md |
       | codex       | AGENTS.md |
 
-  # LOCKED — @live: claude, antigravity, kiro, and codex have a working live
+  # LOCKED — @live: claude, kiro, and codex have a working live
   # path today (kiro confirmed live: a logged-in kiro-cli genuinely reads the
   # materialized steering context and echoes the sentinel back — the
   # not-yet-authenticated gap in internal/kiro/chat.go's comment is closed).
@@ -97,7 +95,7 @@ Feature: One shared profile, reaching four engines in their own native format
   # a logged-in codex CLI genuinely reads the materialized AGENTS.md and
   # echoes the sentinel back. Each present row self-skips without
   # credentials, exactly like J000200's own @live scenario. Adding an engine here
-  # is adding a ROW, no new Go and no new steps — proven true a fourth time by
+  # is adding a ROW, no new Go and no new steps — proven true a third time by
   # codex's row below.
   @live
   Scenario Outline: A real engine actually receives the shared context and can use it
@@ -109,6 +107,5 @@ Feature: One shared profile, reaching four engines in their own native format
     Examples:
       | engine      |
       | Claude      |
-      | Antigravity |
       | Kiro        |
       | Codex       |

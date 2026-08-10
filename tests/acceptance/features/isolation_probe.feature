@@ -11,7 +11,7 @@ Feature: Isolation probe — live proof against real vendor engines
   This feature is that other half, built to be run on its own — for ONE engine and
   ONE axis at a time — because its job is not "pass once in this repo's CI" but
   "answer the same question again, unattended, every time claude-code / codex /
-  kiro / opencode / antigravity ships a new version." See
+  kiro / opencode ships a new version." See
   website/src/content/docs/security/isolation.md's "The executable probe" section
   for how to run a single row and how to read a failure (vendor regression vs
   ctxloom regression — they read differently, see below), and
@@ -31,8 +31,8 @@ Feature: Isolation probe — live proof against real vendor engines
   an isolation bug. If the response arrives but assertions b/c/d fail, isolation
   itself is the suspect: a write landed somewhere the boundary should have stopped
   it, or ctxloom's own bookkeeping (the config-home var, the container mount plan)
-  didn't do what it claims. kiro's and antigravity's rows below assert KNOWN leaks
-  positively — those are expected RED-if-fixed, not bugs; every other row's leak
+  didn't do what it claims. kiro's row below asserts a KNOWN leak
+  positively — that is expected RED-if-fixed, not a bug; every other row's leak
   assertion failing IS a bug (either a vendor regression or a ctxloom one — the
   scenario's own Then step names which half it is asserting).
 
@@ -44,8 +44,8 @@ Feature: Isolation probe — live proof against real vendor engines
   # ctxloom's own resolveEnvOrMountAuth precedence, so a cell can never claim to
   # have proven a path it did not actually take. Self-skips LOUDLY, per cell, with
   # the specific missing credential AND axis named — see isolation_probe.go's
-  # probeWorktreeAuthAvailable / probeContainerAuthAvailable for the two engines
-  # (kiro, antigravity) whose skip reason is a documented product gap rather than
+  # probeWorktreeAuthAvailable / probeContainerAuthAvailable for kiro, the one
+  # engine whose skip reason is a documented product gap rather than
   # a missing credential.
   # Each Examples block below carries its own @<engine> @<axis> tag pair —
   # not decoration, the addressing mechanism: `just isolation-probe <engine>
@@ -100,16 +100,6 @@ Feature: Isolation probe — live proof against real vendor engines
       | engine   | axis      |
       | opencode | container |
 
-    @antigravity @worktree
-    Examples:
-      | engine      | axis     |
-      | antigravity | worktree |
-
-    @antigravity @container
-    Examples:
-      | engine      | axis      |
-      | antigravity | container |
-
   # Auth-path duality: the primary sweep above reports which path it took, but a
   # dev box with subscription credentials on disk will always land on "seeded"
   # for claude/codex/opencode, never exercising the ENV-KEY BYPASS path — the
@@ -154,30 +144,6 @@ Feature: Isolation probe — live proof against real vendor engines
     Given the isolation probe targets kiro's known credential-store leak
     When the probe runs it live under --degraded, writing a unique token in one turn
     Then the probe confirms kiro's global credential store was touched, as expected
-
-  # antigravity's host-worktree FILE-WRITE leak (fatal-amino/huge-panda,
-  # 2026-07-22): `agy -p` ignores the launch working directory entirely and
-  # always writes to its own fixed global scratch,
-  # ~/.gemini/antigravity-cli/scratch/, regardless of which curated/isolated
-  # HOME it runs under (internal/lm/isolation/curatedhome.go's package doc) —
-  # so two "isolated" agy agents share ONE global scratch tree no matter how
-  # many per-agent worktrees/HOMEs are set up. ctxloom now REFUSES to start a
-  # standalone host {workspace: worktree} antigravity run at all (a3c7b205's
-  # curatedHomeRefusal) BECAUSE of this (plus the separate, non-file-write
-  # auth escape), which is the right behavior but also closes off the window
-  # this probe would otherwise use to prove the leak live — --degraded is the
-  # documented escape hatch for exactly this refusal, so this scenario
-  # deliberately passes it, mirroring the kiro-leak scenario immediately
-  # above. If this ever goes RED because the run reports NO leak, that is
-  # GOOD NEWS (agy's scratch write genuinely started honouring HOME) and the
-  # fix is to revisit curatedHomeSpecs["antigravity"].workspaceViable in
-  # auth.go/curatedhome.go and retire this scenario, not to "fix" the
-  # assertion.
-  @antigravity @antigravity-leak
-  Scenario: The isolation probe proves antigravity's global scratch-directory leak under --degraded
-    Given the isolation probe targets antigravity's known file-write leak
-    When the probe runs it live under --degraded, writing a unique token in one turn
-    Then the probe confirms antigravity's global scratch directory was touched, as expected
 
   # Back to: tests/acceptance/features/j002200_isolation.feature (the hermetic layer
   # this feature complements) · website/src/content/docs/security/isolation.md

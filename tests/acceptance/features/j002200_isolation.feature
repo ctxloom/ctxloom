@@ -59,10 +59,10 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   #
   # UPDATE (isolation-matrix task): (2)'s gap is now filled, below, WITHOUT
   # abandoning the mock's hermetic guarantee. A real registered backend name
-  # (claude-code/codex/kiro/antigravity/opencode) drives isolation.Prepare
+  # (claude-code/codex/kiro/opencode) drives isolation.Prepare
   # exactly as a live run would — but PATH is rebuilt from scratch to a
   # scratch dir plus /usr/bin:/bin, so the literal binary a backend execs
-  # ("claude"/"codex"/"kiro-cli"/"agy"/"opencode") resolves ONLY to a
+  # ("claude"/"codex"/"kiro-cli"/"opencode") resolves ONLY to a
   # recording spy script this suite writes, NEVER to a real installed engine
   # — no live credential, no network call, ever, in any scenario in this
   # file. The spy dumps its OWN os.Environ() (exactly what a real engine
@@ -159,7 +159,7 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
   # phrases were missing from the output, which an audit showed is equally
   # satisfied by a run in which the engine never launched at all.
   #
-  # This table lists THREE engines, not five, and the two absentees are the
+  # This table lists TWO engines, not four, and the two absentees are the
   # honest part. codex and opencode each have their own scenario below,
   # because for them the sentence above is not true as written — and a table
   # row that quietly asserts less than its scenario's title claims is how the
@@ -173,7 +173,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
       | engine      |
       | claude-code |
       | kiro        |
-      | antigravity |
 
   # codex is the documented EXCEPTION to the baseline above, and it belongs in
   # the feature file rather than hidden in a table row that asserts around it.
@@ -329,33 +328,6 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
     Then the run reports no isolation finding
     And the spy "kiro" process's "KIRO_HOME" env var points to an isolated per-agent directory, not the host's own
     And the spy "kiro" process's "XDG_DATA_HOME" env var points to an isolated per-agent directory, not the host's own
-
-  # UPDATED 2026-07-22 — antigravity's host-worktree posture escalated from a
-  # non-fatal warning to a REFUSAL, the same severity as kiro's credential
-  # leak above. HOME is antigravity's only lever, and pointing it at a
-  # curated scratch dir genuinely relocates config and session state (a
-  # fresh .gemini/ tree materializes there — curatedhome.go's own
-  # measurement) — but a worktree request's two ACTUAL payoffs are both
-  # absent for this engine: not authentication (an OS-session keyring reached
-  # via a UID-derived socket that ignores $HOME entirely) and, MEASURED THE
-  # SAME DAY, not file writes either (`agy -p` ignores the launch cwd
-  # entirely and always writes to its own fixed global scratch,
-  # ~/.gemini/antigravity-cli/scratch/ — see curatedhome.go's package doc).
-  # A curated HOME here isolates neither of the two things a worktree
-  # request is actually for, so ctxloom refuses instead of warning through
-  # it — the SAME ClassIsolation mechanism as kiro's leak, fatal unless
-  # --degraded. The run aborts BEFORE the engine spawns (isolation.Prepare's
-  # second gate, run.go), so — unlike the prior non-fatal version of this
-  # scenario — there is no spy process left to inspect; the HOME-override
-  # and symlink payload this used to also assert here stays proven at the Go
-  # level (curatedhome_test.go's TestWorktree_Antigravity_HomeOverrideAndSymlinks
-  # /_CuratedHomeCleanedUpOnTeardown), where PrepareWorkspace can be called
-  # directly without the CLI's fatal gate in the way.
-  Scenario: A worktree run for antigravity refuses to start — neither authentication nor file writes are isolated by a curated HOME
-    Given Alice has a git-backed project
-    When Alice runs the isolated "antigravity" agent under workspace "worktree"
-    Then the run aborts with an isolation finding naming "AUTHENTICATION escapes it"
-    And the run aborts with an isolation finding naming "FILE WRITES escape it"
 
   # ARGV/STDIN VISIBILITY (U161-F01) — the spy previously dumped only its own
   # environment; it never emitted "$@" and never read stdin, so every argv

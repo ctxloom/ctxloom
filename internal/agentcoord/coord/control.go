@@ -369,9 +369,12 @@ func (c *Coordinator) controlTarget(by ControlInitiator, harp string) (*RunRecor
 	if rec == nil {
 		return nil, fmt.Errorf("control: %q is not a child of this coordinator: %w", harp, ErrNotInjectable)
 	}
-	// Guard 2 — self-target refused. In the owner-run topology the coordinating
-	// session's own credential is depth 1 with parent == its own harp, so
-	// without this fence a session passes its own ownership check and can
+	// Guard 2 — self-target refused. In the owner-run topology the owned run
+	// reuses the coordinating session's own harp as BOTH its own harp and its
+	// journaled parent harp (StartOwnedRun, owner_run.go) — a self-loop by
+	// construction, independent of depth (the owned run is depth 0, same as
+	// the session owner it IS, not a child of it). Without this fence a
+	// session would pass its own ownership check via that self-loop and could
 	// steer, pause or question ITSELF — a loop with no floor.
 	if harp == by.Harp {
 		return nil, fmt.Errorf("control: %q cannot control itself", harp)

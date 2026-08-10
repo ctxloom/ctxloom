@@ -18,6 +18,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
+	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -38,13 +39,18 @@ const (
 	// agent holding an inbox plus a child roster can infer it has children
 	// and stall waiting for notifications that never arrive. Production
 	// sources the live value from config.Config.GetDelegationDepth
-	// (Options.Depth); <= 0 (unset) falls back to this constant, currently
-	// 1 — flat fan-out: the owner (depth 0) may spawn subagents (depth 1),
-	// and a depth-1 subagent may not itself spawn (no grandchildren).
-	// Raising this to 2 would re-enable one further level with no other
-	// code change — the property this design is meant to have, even though
-	// the value stays 1 today.
-	agentDepthCap = 1
+	// (Options.Depth); <= 0 (unset) falls back to this constant. Defined in
+	// terms of config.DefaultDelegationDepth, never a separate literal: a
+	// spawned runner resolves the SAME cap independently, from its own
+	// loaded config, with no coordinator round-trip (attachRunnerMCP,
+	// internal/cli/llm_runner_common.go) — GetDelegationDepth already
+	// applies this identical default, so the two can never drift apart.
+	// Currently 1 — flat fan-out: the owner (depth 0) may spawn subagents
+	// (depth 1), and a depth-1 subagent may not itself spawn (no
+	// grandchildren). Raising config.DefaultDelegationDepth to 2 would
+	// re-enable one further level with no other code change — the property
+	// this design is meant to have, even though the value stays 1 today.
+	agentDepthCap = config.DefaultDelegationDepth
 	// agentConcurrencyCap is the BUILT-IN DEFAULT for turnSlots' cap: the
 	// maximum number of delegated child turns EXECUTING at once (each a live
 	// engine process). NOT a correctness gate: the coordinator's own state is
@@ -270,7 +276,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	// on both sides at once, never just one.
 	depthCap := c.depthCap
 	if caller.Depth >= depthCap {
-		return nil, fmt.Errorf("agent_run: refused: spawning a child here would reach delegation depth %d, at or beyond the configured cap (delegation.depth = %d) — report the work back to your coordinator (agent_send to \"parent\") and let it fan out, or raise delegation.depth in config.yaml if a deeper tree is actually wanted", caller.Depth+1, depthCap)
+		return nil, fmt.Errorf("agent_run: refused: this session (depth %d) is already at the maximum delegation depth (delegation.depth = %d) — report the work back to your coordinator (agent_send to \"parent\") and let it fan out, or raise delegation.depth in config.yaml if a deeper tree is actually wanted", caller.Depth, depthCap)
 	}
 
 	plan, err := c.spawner.Resolve(ctx, agentName)

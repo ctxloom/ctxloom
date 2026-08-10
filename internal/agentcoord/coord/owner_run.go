@@ -124,6 +124,21 @@ func (c *Coordinator) StartOwnedRun(ctx context.Context, owner Identity, spec Ow
 	// container session able to delegate on the same terms as the
 	// plugin-hosted top-level session: both present depth 0 to the
 	// recursion guard and to the runner-side leaf computation.
+	//
+	// This also flips Identity.IsChild() (Depth > 0) to FALSE for the owned
+	// run's own credential, where it used to be true (depth was 1 before
+	// this depth parameter existed). That corrects three call sites that
+	// gate on IsChild() — peerSend's childSend/ownerSend split, AgentStop,
+	// and serveListRuns (roster) — each of which was refusing or
+	// misrouting a call the owned run's OWN engine made about ITSELF
+	// (childSend's ParentHarp resolution hit the self-loop below; AgentStop
+	// and roster both explicitly refuse an IsChild() caller). It also flips
+	// serveApproval's guard (approval.go — the OPPOSITE sense: only a
+	// caller WHERE IsChild() is true may raise one), which an owned run's
+	// EngineHost.resolveApproval reaches whenever its escalation ladder has
+	// a relay_to_role/surface_to_human rung — whether that path still
+	// resolves correctly for an owned run is UNVERIFIED as of this change;
+	// no existing test exercises an owned run's approval flow.
 	rt, token, err := c.enqueueRun(owner, plan, spec.Harp, prompt, false, make(chan struct{}), owner.Depth)
 	if err != nil {
 		return nil, err

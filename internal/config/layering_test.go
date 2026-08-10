@@ -46,11 +46,11 @@ func writeLayers(t *testing.T, homeBody, projectBody string) *Config {
 // for that closure's own dedicated test).
 func TestLoad_ProjectInheritsHomeKeys(t *testing.T) {
 	cfg := writeLayers(t,
-		"version: 6\nagent_turn_cap: 3\nruntime: container\n",
+		"version: 6\ndelegation:\n  concurrency: 3\nruntime: container\n",
 		"version: 6\ndefault_agent: dev\nagents:\n  dev:\n    profiles: [go-developer]\n",
 	)
 
-	assert.Equal(t, 3, cfg.agentTurnCap, "a home-only key must be inherited by a project that never sets it")
+	assert.Equal(t, 3, cfg.delegation.Concurrency, "a home-only key must be inherited by a project that never sets it")
 	assert.Equal(t, "container", cfg.runtime, "same for a second home-only key")
 	assert.Equal(t, "dev", cfg.defaultAgent, "the project's own key is unaffected by layering")
 }

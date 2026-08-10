@@ -136,11 +136,8 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, cfgErr error, r
 	// leaf is computed HERE, not in consumeCoordinatorReachBack: it needs the
 	// resolved delegation-depth cap, and cfg (the loaded project config) is
 	// not available yet at that earlier point — this is the first place
-	// both reach.depth and cfg exist together. depth >= cap is the SAME
-	// comparison AgentRun's server-side "may this run spawn" guard makes
-	// (children.go), on the same stamped depth, so raising delegation.depth
-	// in config re-enables deeper trees on both sides at once.
-	leaf := reach.depth >= cfg.GetDelegationDepth()
+	// both reach.depth and cfg exist together.
+	leaf := runnerIsLeaf(reach.depth, cfg)
 	endpoint, merr := serveRunnerMCP(cfg, reach.harp, h, leaf, reach.cellWorkDir)
 	if merr == nil {
 		// The child's shim reads CTXLOOM_MCP_SOCKET from THIS process's env
@@ -202,6 +199,17 @@ func parseRunDepth(raw string) int {
 		return 0
 	}
 	return d
+}
+
+// runnerIsLeaf reports whether depth is at or beyond cfg's RESOLVED
+// delegation-depth cap (config.Config.GetDelegationDepth) — the same
+// comparison AgentRun's server-side "may this run spawn" guard makes
+// (children.go's `caller.Depth >= c.depthCap`), evaluated independently here
+// from the runner's own loaded config rather than over the wire. Raising
+// delegation.depth in config therefore re-enables deeper trees on both sides
+// at once, never just one.
+func runnerIsLeaf(depth int, cfg *config.Config) bool {
+	return depth >= cfg.GetDelegationDepth()
 }
 
 // consumeCoordinatorReachBack reads the coordinator reach-back out of the

@@ -42,8 +42,8 @@ func TestRenderAgentList_EngineAndDefault(t *testing.T) {
 }
 
 // TestRenderAgentList_Driving proves a declared `driving:` value renders in
-// the list, and an unset one prints nothing (mirroring Runtime/Coordinator's
-// existing omit-when-empty convention).
+// the list, and an unset one prints nothing (mirroring Runtime's existing
+// omit-when-empty convention).
 func TestRenderAgentList_Driving(t *testing.T) {
 	list := []operations.AgentEntry{
 		{Name: "shooter", LLM: "claude-code", Driving: "oneshot"},
@@ -180,7 +180,6 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			Profiles:    []string{"p1", "p2"},
 			Runtime:     "container",
 			Permissions: "acceptEdits",
-			Coordinator: true,
 			Driving:     "oneshot",
 			Escalation: []agents.EscalationRung{
 				{Kinds: []string{"COMMAND_EXECUTION", "FILE_CHANGE"}, Action: "surface_to_human"},
@@ -203,7 +202,6 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			"Engine (declared): claude-code\n",
 			"Runtime: container\n",
 			"Permissions: acceptEdits\n",
-			"Coordinator: true\n",
 			"Driving: oneshot\n",
 			"Escalation: 2 rung(s)\n",
 			"  - COMMAND_EXECUTION,FILE_CHANGE: surface_to_human\n",
@@ -226,7 +224,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		assert.Contains(t, out, "Engine (declared): (project default)\n")
 		assert.Contains(t, out, "Resolved llm: default\n")
 		assert.Contains(t, out, "Composed fragments: 0\n")
-		for _, unwanted := range []string{"Source:", "Runtime:", "Permissions:", "Coordinator:", "Driving:", "Escalation:", "backend:", "Resolved permissions:"} {
+		for _, unwanted := range []string{"Source:", "Runtime:", "Permissions:", "Driving:", "Escalation:", "backend:", "Resolved permissions:"} {
 			assert.NotContains(t, out, unwanted)
 		}
 	})
@@ -371,7 +369,6 @@ func TestBuildSetAgentRequest_OnlySendsChangedFlags(t *testing.T) {
 	assert.Nil(t, req.LLM, "an untyped flag must stay nil so SetAgent preserves it")
 	assert.Nil(t, req.Profiles)
 	assert.Nil(t, req.Permissions)
-	assert.Nil(t, req.Coordinator)
 	assert.Nil(t, req.Driving)
 }
 
@@ -388,14 +385,13 @@ func TestBuildSetAgentRequest_ExplicitEmptyIsSentAsAClear(t *testing.T) {
 }
 
 func TestRenderAgentWritten_NamesWhichVerbRan(t *testing.T) {
-	entry := &operations.AgentEntry{Name: "dev", Profiles: []string{"a", "b"}, Runtime: "container", Coordinator: true}
+	entry := &operations.AgentEntry{Name: "dev", Profiles: []string{"a", "b"}, Runtime: "container"}
 
 	var created bytes.Buffer
 	require.NoError(t, renderAgentWritten(&created, entry, false))
 	assert.Contains(t, created.String(), `Created agent "dev"`)
 	assert.Contains(t, created.String(), "profiles: a, b")
 	assert.Contains(t, created.String(), "runtime: container")
-	assert.Contains(t, created.String(), "coordinator: true")
 
 	var edited bytes.Buffer
 	require.NoError(t, renderAgentWritten(&edited, entry, true))

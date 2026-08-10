@@ -708,6 +708,15 @@ type DelegationConfig struct {
 	Depth int `yaml:"depth,omitempty"`
 }
 
+// DefaultDelegationDepth is the built-in default for delegation.depth (flat
+// fan-out: the session owner may spawn subagents, a subagent may not spawn
+// further) — the SOLE numeric source both GetDelegationDepth (this package)
+// and coord.agentDepthCap resolve from, so a runner (which loads its own
+// *config.Config independently of the coordinator process) and the
+// coordinator itself always agree on the resolved cap without ever
+// exchanging it over the wire.
+const DefaultDelegationDepth = 1
+
 // DefaultUIPrefixKey is the default viewer prefix key (decision O2 of the
 // agent-io-observation plan: Ctrl-], explicitly not ESC).
 const DefaultUIPrefixKey = "ctrl-]"

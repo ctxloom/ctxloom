@@ -26,7 +26,7 @@ import (
 // concurrency (>= 2 children executing turns at once), not just under
 // -race's "every access already locks" guarantee.
 //
-// Shape: N children spawn via Options.TurnCap = N (so nothing serializes
+// Shape: N children spawn via Options.ConcurrencyCap = N (so nothing serializes
 // them), all block on a shared barrier mid-turn — genuine overlap, not
 // scheduler luck: no child's turn can complete until every sibling's has
 // also started — then, still mid-turn (StateExecuting), all N relay an
@@ -60,10 +60,10 @@ func TestCoordinator_ConcurrentTurnsInvariants(t *testing.T) {
 	sp := newConcurrencySpawner(agents)
 
 	c, err := New(Options{
-		ProjectDir: t.TempDir(),
-		StateDir:   t.TempDir(),
-		Spawner:    sp,
-		TurnCap:    n, // the seam under test: a resource ceiling >= the child count
+		ProjectDir:     t.TempDir(),
+		StateDir:       t.TempDir(),
+		Spawner:        sp,
+		ConcurrencyCap: n, // the seam under test: a resource ceiling >= the child count
 	})
 	require.NoError(t, err)
 	require.NoError(t, c.Serve())

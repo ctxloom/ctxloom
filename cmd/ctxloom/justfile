@@ -12,6 +12,29 @@ import "../../build/common.justfile"
 # Build ctxloom (CGO, tree-sitter) to {{TOP}}/ctxloom.
 build: (_go-build (TOP / "cmd/ctxloom") (TOP / "ctxloom") "github.com/ctxloom/ctxloom/internal/cli.Version" "treesitter" "1")
 
+# Build a COVERAGE-INSTRUMENTED ctxloom to {{TOP}}/.coverbin/ctxloom.
+#
+# Same flags as `build` plus -cover, so what gets measured is the binary that
+# ships and not a lookalike. Its own DIRECTORY, not its own filename: the
+# instrumented binary is slower and emits a counter file per exec, so it must
+# not be confused with what `just build` produced — but it must still be
+# NAMED `ctxloom`.
+#
+# The name is load-bearing, and it was measured the hard way. ctxloom writes
+# self-referencing hook commands into an engine's settings, and it spells its
+# own invocation differently depending on whether it can be found as plain
+# `ctxloom`: as the bare name when it can, and as a quoted ABSOLUTE PATH when
+# it cannot. Building to `ctxloom-cover` therefore took the absolute-path
+# branch and changed the bytes under test — one acceptance scenario asserting
+# `ctxloom hook hud` failed under coverage while passing without it. Measuring
+# a differently-named twin measures a different program.
+#
+# Coverage of a binary driven as a SUBPROCESS is what this exists for — the
+# acceptance suite execs ctxloom, and `go test -coverprofile` cannot follow an
+# exec. `go build -cover` + GOCOVERDIR (Go 1.20+) can. See the root
+# `test-acceptance-cover`.
+build-cover: (_go-build (TOP / "cmd/ctxloom") (TOP / ".coverbin/ctxloom") "github.com/ctxloom/ctxloom/internal/cli.Version" "treesitter" "1" "-cover")
+
 # Compress the built ctxloom binary with UPX.
 compress: (_compress (TOP / "ctxloom"))
 

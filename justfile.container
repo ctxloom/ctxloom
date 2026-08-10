@@ -89,6 +89,12 @@ default: build
 build: validate proto gen-schemas
     just -f justfile.container ctxloom::build
 
+# Coverage-instrumented ctxloom, to ctxloom-cover. Same codegen prerequisites
+# as `build` — a binary built against stale generated code would report
+# coverage of code that is not what the suite compiled against.
+build-cover: validate proto gen-schemas
+    just -f justfile.container ctxloom::build-cover
+
 # Build without CGO - static
 build-static:
     CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \

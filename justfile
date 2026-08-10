@@ -506,6 +506,66 @@ test-integration-run PATTERN: build _ensure-gotmpdir
 test-acceptance: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
+# Build a coverage-instrumented ctxloom.
+build-cover: dev-image
+    just _run build-cover
+
+# Run the acceptance suite against a COVERAGE-INSTRUMENTED ctxloom and report
+# what it actually executed.
+#
+# WHY THIS EXISTS. Everything else here answers "is this CLI covered?" by
+# reading TEXT — completeness_test.go credits a leaf on a literal
+# `I run "<leaf>"` string in the corpus, which is satisfied by a mention and
+# blind to whether the scenario ran. The reason it reads text is that the
+# suite drives ctxloom as a SUBPROCESS, and `go test -coverprofile` cannot
+# follow an exec.
+#
+# `go build -cover` + GOCOVERDIR (Go 1.20+) can: the instrumented binary
+# writes counters at exit, once per exec, and covdata merges them. That is the
+# standard mechanism for exactly this problem, and this repo already built
+# half of it — `_ensure-covdata` installs a version-matched covdata into
+# GOTOOLDIR. Only the instrumentation was missing.
+#
+# GOCOVERDIR reaches the binary because testenv's isolatedEnv() starts from
+# os.Environ() and scrubSessionEnv only strips CTXLOOM session keys. The dir
+# must EXIST before the first exec or the runtime has nowhere to write.
+#
+# This is deliberately NOT the commit gate: an instrumented binary is slower
+# and writes a file per exec, and the suite execs ctxloom thousands of times.
+# Run it to get a number, not on every push.
+test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
+    #!/usr/bin/env bash
+    set -euo pipefail
+    covdir="{{go_tmp}}/acceptance-cover"
+    coverbin="$(pwd)/.coverbin"
+    rm -rf "$covdir"; mkdir -p "$covdir"
+    # -count=1 so nothing is served from the test cache: a cached PASS runs no
+    # binary and would produce an empty, silently wrong coverage set.
+    set +e
+    # The instrumented binary is NAMED ctxloom and its directory leads PATH, so
+    # the product resolves itself exactly as in a normal run. Point CTXLOOM_BINARY
+    # at a differently-named twin instead and ctxloom writes its self-referencing
+    # hooks as absolute paths rather than the bare name — different bytes, so a
+    # different program measured. See cmd/ctxloom/justfile's build-cover.
+    PATH="$coverbin:$PATH" GOTMPDIR="{{go_tmp}}" GOCOVERDIR="$covdir" \
+        CTXLOOM_BINARY="$coverbin/ctxloom" \
+        go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    status=$?
+    set -e
+    files=$(find "$covdir" -name 'covcounters.*' | wc -l)
+    if [ "$files" -eq 0 ]; then
+        echo "error: the suite produced NO coverage counters — the instrumented" >&2
+        echo "       binary never ran. A coverage report of nothing must not read" >&2
+        echo "       as a clean result." >&2
+        exit 1
+    fi
+    echo
+    echo "=== coverage from $files instrumented runs ==="
+    go tool covdata percent -i="$covdir"
+    echo
+    echo "(per-function: go tool covdata func -i=$covdir)"
+    exit "$status"
+
 # Run the @container acceptance rows — the ones that actually launch an engine
 # inside a container (j002400_container.feature's differential host-vs-container
 # row). Excluded from `test-acceptance` for one measured reason: the first

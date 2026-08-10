@@ -310,7 +310,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		if err != nil {
 			return err
 		}
-		return runOK(w, "bundle", "untrust", tsRef(w, selector))
+		return runOK(w, "bundle", "reject", tsRef(w, selector))
 	})
 
 	// "Alice starts a session" is steps_j000200_setup.go's existing step
@@ -579,7 +579,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice rejects the fragment, and ctxloom reports what it recorded$`, func(c context.Context) error {
 		w := worldFrom(c)
-		return runOK(w, "bundle", "untrust", tsRef(w, "fragments/context"), "--format", "json")
+		return runOK(w, "bundle", "reject", tsRef(w, "fragments/context"), "--format", "json")
 	})
 
 	ctx.Step(`^the recorded rejection covers exactly the (raw form|raw and distilled forms)$`, func(c context.Context, which string) error {

@@ -1260,7 +1260,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^I run "ctxloom bundle reject" on the published "([^"]*)" fragment$`, func(c context.Context, frag string) error {
-		return runOK(worldFrom(c), "bundle", "untrust", j001600ItemRef(worldFrom(c), frag))
+		return runOK(worldFrom(c), "bundle", "reject", j001600ItemRef(worldFrom(c), frag))
 	})
 
 	// "try to run", not runOK: this scenario's whole subject is a REFUSAL, so

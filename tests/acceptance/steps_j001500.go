@@ -323,7 +323,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		j001500 := j001500Of(w)
 		ref := j001500.url + "@bundles/" + j001500.bundleName + "#hooks/session_start/0"
-		return runOK(w, "bundle", "untrust", ref)
+		return runOK(w, "bundle", "reject", ref)
 	})
 
 	ctx.Step(`^the MCP server appears in her assistant's configuration$`, func(c context.Context) error {

@@ -346,7 +346,7 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, "bundle", "trust", "file://"+w.remoteBare["first"]+"@bundles/"+first.bundleName+"#fragments/"+first.itemName); err != nil {
 			return err
 		}
-		return runOK(w, "bundle", "untrust", "file://"+w.remoteBare["second"]+"@bundles/"+second.bundleName+"#fragments/"+second.itemName)
+		return runOK(w, "bundle", "reject", "file://"+w.remoteBare["second"]+"@bundles/"+second.bundleName+"#fragments/"+second.itemName)
 	})
 
 	ctx.Step(`^Alice starts a new session$`, func(c context.Context) error {

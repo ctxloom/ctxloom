@@ -103,7 +103,7 @@ func TestManageStatusline_FormatJSON(t *testing.T) {
 }
 
 // TestMcpServerCreateDelete_FormatJSON pins runMCPAdd/runMCPRemove (behind
-// `mcp server create`/`delete`): --format json must render the operations
+// `mcp server create`/`remove`): --format json must render the operations
 // result struct instead of the bare fmt.Printf lines both used
 // unconditionally.
 //
@@ -113,8 +113,13 @@ func TestManageStatusline_FormatJSON(t *testing.T) {
 // command is REQUIRED by the mcpServer schema, so Machine-scoping it would
 // make mcp.servers.* impossible to populate with a working entry from the
 // project layer at all), so a unified server created in the committed
-// PROJECT file this test writes to survives the reload `mcp server delete`
-// performs internally. No --backend workaround needed.
+// PROJECT file this test writes to survives the reload `mcp server remove
+// --yes` performs internally. No --backend workaround needed.
+//
+// `remove` here is run twice: bare (--yes-less), asserting the preview
+// payload and that the server SURVIVES it, then with --yes, asserting the
+// applied payload and that the server is actually GONE — the two directions
+// of the safety posture, not just that the command exits 0.
 func TestMcpServerCreateDelete_FormatJSON(t *testing.T) {
 	testsupport.ProjectDir(t)
 
@@ -122,8 +127,30 @@ func TestMcpServerCreateDelete_FormatJSON(t *testing.T) {
 	require.Equal(t, "coverage-server", payload["name"])
 	require.Equal(t, "echo", payload["command"])
 
-	payload = runCLIJSON(t, "mcp", "server", "delete", "coverage-server")
+	preview := runCLIJSON(t, "mcp", "server", "remove", "coverage-server")
+	require.Equal(t, "preview", preview["status"])
+	require.Equal(t, false, preview["applied"])
+	require.True(t, mcpServerListedByName(t, "coverage-server"),
+		"the bare (no --yes) path must leave the server configured")
+
+	payload = runCLIJSON(t, "mcp", "server", "remove", "coverage-server", "--yes")
 	require.Equal(t, "coverage-server", payload["name"])
+	require.False(t, mcpServerListedByName(t, "coverage-server"), "--yes must actually remove the server")
+}
+
+// mcpServerListedByName reports whether `mcp server list --format json`
+// currently lists a server by that name.
+func mcpServerListedByName(t *testing.T, name string) bool {
+	t.Helper()
+	payload := runCLIJSON(t, "mcp", "server", "list")
+	servers, _ := payload["servers"].([]any)
+	for _, s := range servers {
+		row, _ := s.(map[string]any)
+		if row["name"] == name {
+			return true
+		}
+	}
+	return false
 }
 
 // TestManageInstallUninstall_FormatJSON pins runManageInstall/

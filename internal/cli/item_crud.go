@@ -13,7 +13,7 @@ import (
 )
 
 // The per-item command bodies behind `fragment|command
-// show|create|delete|edit|distill`. Each is a thin frontend over an operations
+// show|create|remove|edit|distill`. Each is a thin frontend over an operations
 // call: argument parsing, the $EDITOR round-trip, and rendering — no bundle IO.
 
 // showItem displays the content of a specific item. With interactive set AND an
@@ -100,9 +100,11 @@ func createItem(cmd *cobra.Command, bundleName, itemName string, itemType ItemTy
 	})
 }
 
-// deleteItem removes an item from a bundle. Thin wrapper over
-// operations.DeleteItem, rendered through emit() (see createItem).
-func deleteItem(cmd *cobra.Command, ref string, itemType ItemType) error {
+// removeItem removes an item from a bundle. Bare (yes == false) reports what
+// would be removed and destroys nothing, exiting 0; yes == true performs the
+// removal via operations.DeleteItem. Both paths render through emit() so the
+// report and the applied result both honour --format identically.
+func removeItem(cmd *cobra.Command, ref string, itemType ItemType, yes bool) error {
 	bundleName, itemName, err := parseItemRef(ref, itemType)
 	if err != nil {
 		return err
@@ -111,6 +113,26 @@ func deleteItem(cmd *cobra.Command, ref string, itemType ItemType) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	if !yes {
+		// Confirm the item exists before reporting: a preview naming a target
+		// that isn't there would be worse than the not-found error below.
+		if _, err := operations.GetItemContent(context.Background(), cfg, operations.GetItemRequest{
+			Bundle: bundleName, Kind: itemType, Name: itemName,
+		}); err != nil {
+			if errors.Is(err, operations.ErrItemNotFound) {
+				return fmt.Errorf("%s not found: %s", itemType, itemName)
+			}
+			return err
+		}
+
+		target := fmt.Sprintf("%s %q from bundle %q", itemType, itemName, bundleName)
+		applyCmd := fmt.Sprintf("ctxloom %s remove %s --yes", itemType, ref)
+		return emit(cmd, newRemovePreviewResult(target, nil, applyCmd), func() error {
+			printRemovePreview(cmd.OutOrStdout(), target, nil, applyCmd)
+			return nil
+		})
 	}
 
 	res, err := operations.DeleteItem(context.Background(), cfg, operations.DeleteItemRequest{
@@ -126,7 +148,7 @@ func deleteItem(cmd *cobra.Command, ref string, itemType ItemType) error {
 	}
 
 	return emit(cmd, res, func() error {
-		fmt.Fprintf(cmd.OutOrStdout(), "Deleted %s %q from bundle %q\n", itemType, itemName, bundleName)
+		fmt.Fprintf(cmd.OutOrStdout(), "Removed %s %q from bundle %q\n", itemType, itemName, bundleName)
 		return nil
 	})
 }

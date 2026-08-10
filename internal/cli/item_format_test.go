@@ -37,7 +37,7 @@ func itemFormatProject(t *testing.T) *config.Config {
 }
 
 // TestItemCommands_HonourFormatJSON pins the item half of this invariant:
-// `fragment create|delete|distill` (and their `command` twins) printed human
+// `fragment create|remove|distill` (and their `command` twins) printed human
 // text with bare fmt.Printf straight to the process's stdout and exited 0
 // whatever --format asked for: the flag was accepted and discarded, so a
 // frontend that asked for JSON got prose it could not parse and no error saying
@@ -70,10 +70,85 @@ func TestItemCommands_HonourFormatJSON(t *testing.T) {
 			assert.NotEmpty(t, distilled["reason"], "the skip reason must reach a machine reader")
 
 			cmd, out = itemFormatCmd(t, string(clifmt.FormatJSON))
-			require.NoError(t, deleteItem(cmd, ref, tc.kind))
-			deleted := decodeItemJSON(t, out())
-			assert.Equal(t, "deleted", deleted["status"])
-			assert.Equal(t, "x", deleted["name"])
+			require.NoError(t, removeItem(cmd, ref, tc.kind, false))
+			previewed := decodeItemJSON(t, out())
+			assert.Equal(t, "preview", previewed["status"])
+			assert.Equal(t, false, previewed["applied"])
+
+			cmd, out = itemFormatCmd(t, string(clifmt.FormatJSON))
+			require.NoError(t, removeItem(cmd, ref, tc.kind, true))
+			removed := decodeItemJSON(t, out())
+			assert.Equal(t, "deleted", removed["status"])
+			assert.Equal(t, "x", removed["name"])
+		})
+	}
+}
+
+// TestRemoveItem_BareReportsAndDestroysNothing pins the report side of the
+// safety posture: a bare `fragment|command remove` (yes == false) must name
+// the target, say plainly that nothing was removed, name the --yes command
+// to apply it, and — the assertion that actually catches a broken guard —
+// leave the item exactly as it was. A "preview" that quietly deletes anyway
+// passes any test that only checks exit code or output text; this one
+// re-reads the item afterward.
+func TestRemoveItem_BareReportsAndDestroysNothing(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind ItemType
+	}{
+		{"fragment", ItemTypeFragment},
+		{"command", ItemTypeCommand},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := itemFormatProject(t)
+			_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "demo"})
+			require.NoError(t, err)
+			createCmd, _ := testCmd()
+			require.NoError(t, createItem(createCmd, "demo", "x", tc.kind))
+			ref := "demo#" + itemRefPrefix(tc.kind) + "x"
+
+			cmd, buf := testCmd()
+			require.NoError(t, removeItem(cmd, ref, tc.kind, false))
+			out := buf.String()
+			assert.Contains(t, out, "Nothing was removed")
+			assert.Contains(t, out, "--yes")
+
+			_, err = operations.GetItemContent(context.Background(), cfg, operations.GetItemRequest{
+				Bundle: "demo", Kind: tc.kind, Name: "x",
+			})
+			assert.NoError(t, err, "the bare (no --yes) path must leave the item in place")
+		})
+	}
+}
+
+// TestRemoveItem_YesDestroys pins the apply side: --yes (yes == true) must
+// actually remove the item. Paired with the bare-path test above so a
+// regression in either direction — bare destroys, or --yes no-ops — is
+// caught by an assertion on the item's continued existence, not just on exit
+// code or a status string a broken implementation could still print.
+func TestRemoveItem_YesDestroys(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		kind ItemType
+	}{
+		{"fragment", ItemTypeFragment},
+		{"command", ItemTypeCommand},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := itemFormatProject(t)
+			_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "demo"})
+			require.NoError(t, err)
+			createCmd, _ := testCmd()
+			require.NoError(t, createItem(createCmd, "demo", "x", tc.kind))
+			ref := "demo#" + itemRefPrefix(tc.kind) + "x"
+
+			cmd, _ := testCmd()
+			require.NoError(t, removeItem(cmd, ref, tc.kind, true))
+
+			_, err = operations.GetItemContent(context.Background(), cfg, operations.GetItemRequest{
+				Bundle: "demo", Kind: tc.kind, Name: "x",
+			})
+			assert.ErrorIs(t, err, operations.ErrItemNotFound, "--yes must actually remove the item")
 		})
 	}
 }
@@ -94,8 +169,8 @@ func TestItemCommands_TextGoesToTheCommandsWriter(t *testing.T) {
 	assert.Contains(t, buf.String(), "Edit with: ctxloom fragment edit demo#fragments/x")
 
 	cmd, buf = testCmd()
-	require.NoError(t, deleteItem(cmd, "demo#fragments/x", ItemTypeFragment))
-	assert.Contains(t, buf.String(), `Deleted fragment "x" from bundle "demo"`)
+	require.NoError(t, removeItem(cmd, "demo#fragments/x", ItemTypeFragment, true))
+	assert.Contains(t, buf.String(), `Removed fragment "x" from bundle "demo"`)
 }
 
 func decodeItemJSON(t *testing.T, raw []byte) map[string]any {

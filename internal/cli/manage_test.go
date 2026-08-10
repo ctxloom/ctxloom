@@ -58,7 +58,7 @@ func TestMcpNamespace_SplitsRegistrationFromServerCRUD(t *testing.T) {
 
 	servers := findSub(mcp, "server")
 	require.NotNil(t, servers, "configured-server CRUD lives under mcp server")
-	assert.ElementsMatch(t, []string{"list", "show", "create", "edit", "delete"}, subNames(servers))
+	assert.ElementsMatch(t, []string{"list", "show", "create", "edit", "remove"}, subNames(servers))
 }
 
 func TestManageHooks_HasInstallUninstallCheckList(t *testing.T) {

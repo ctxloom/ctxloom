@@ -190,11 +190,11 @@ ctxloom fragment edit my-standards#fragments/testing
 ctxloom command create my-standards code-review
 ```
 
-### Delete Content
+### Remove Content
 
 ```bash
-ctxloom fragment delete my-standards#fragments/old-fragment
-ctxloom command delete my-standards#commands/old-prompt
+ctxloom fragment remove my-standards#fragments/old-fragment --yes
+ctxloom command remove my-standards#commands/old-prompt --yes
 ```
 
 ## Test Your Bundle

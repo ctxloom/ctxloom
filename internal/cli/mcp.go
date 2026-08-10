@@ -229,14 +229,24 @@ func runMCPAdd(cmd *cobra.Command, args []string) error {
 	})
 }
 
-var mcpRemoveBackend string
+var (
+	mcpRemoveBackend   string
+	mcpServerRemoveYes bool
+)
 
-// mcpServerDeleteCmd is the canonical spine's `delete` for the MCP-server noun.
-var mcpServerDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
-	Short: "Delete an MCP server configuration",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runMCPRemove,
+// mcpServerRemoveCmd is the canonical spine's `remove` for the MCP-server
+// noun. Bare invocation reports what would be removed and removes nothing
+// (exit 0); --yes applies it.
+var mcpServerRemoveCmd = &cobra.Command{
+	Use:     "remove <name>",
+	Aliases: []string{"rm", "del"},
+	Short:   "Remove an MCP server configuration",
+	Long: `Remove an MCP server configuration.
+
+Bare invocation reports what would be removed and removes nothing (exit 0).
+Pass --yes to apply it.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runMCPRemove,
 }
 
 func runMCPRemove(cmd *cobra.Command, args []string) error {
@@ -244,6 +254,29 @@ func runMCPRemove(cmd *cobra.Command, args []string) error {
 
 	if _, err := GetConfigForUpdate(); err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
+	}
+
+	applyCmd := fmt.Sprintf("ctxloom mcp server remove %s --yes", name)
+	if mcpRemoveBackend != "" {
+		applyCmd = fmt.Sprintf("ctxloom mcp server remove %s --backend %s --yes", name, mcpRemoveBackend)
+	}
+	if !mcpServerRemoveYes {
+		cfg, err := GetConfig()
+		if err != nil {
+			return fmt.Errorf("failed to load config: %w", err)
+		}
+		found, err := operations.GetMCPServer(cmd.Context(), cfg, operations.GetMCPServerRequest{Name: name})
+		if err != nil {
+			return err
+		}
+		if !found.Found {
+			return fmt.Errorf("MCP server %q not found", name)
+		}
+		target := fmt.Sprintf("MCP server %q", name)
+		return emit(cmd, newRemovePreviewResult(target, nil, applyCmd), func() error {
+			printRemovePreview(cmd.OutOrStdout(), target, nil, applyCmd)
+			return nil
+		})
 	}
 
 	result, err := operations.RemoveMCPServer(cmd.Context(), config.NewManager(), operations.RemoveMCPServerRequest{
@@ -381,7 +414,7 @@ const mcpServerRefPrefix = "mcp/"
 func splitMCPServerRef(ref string) (bundleName, serverName string, err error) {
 	hash := strings.Index(ref, "#")
 	if hash < 0 || !strings.HasPrefix(ref[hash+1:], mcpServerRefPrefix) {
-		return "", "", fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); editing a config-level server is not implemented — use `ctxloom mcp server delete` then `ctxloom mcp server create`", ref, mcpServerRefPrefix)
+		return "", "", fmt.Errorf("mcp server edit: %q is not a bundle-scoped ref (expected <bundle>#%s<name>); editing a config-level server is not implemented — use `ctxloom mcp server remove --yes` then `ctxloom mcp server create`", ref, mcpServerRefPrefix)
 	}
 	bundleName = ref[:hash]
 	serverName = strings.TrimPrefix(ref[hash+1:], mcpServerRefPrefix)
@@ -445,14 +478,15 @@ func init() {
 	mcpServerCmd.AddCommand(mcpServerShowCmd)
 	mcpServerCmd.AddCommand(mcpServerCreateCmd)
 	mcpServerCmd.AddCommand(mcpServerEditCmd)
-	mcpServerCmd.AddCommand(mcpServerDeleteCmd)
+	mcpServerCmd.AddCommand(mcpServerRemoveCmd)
 
 	mcpServerCreateCmd.Flags().StringVarP(&mcpAddCommand, "command", "c", "", "Command to run the MCP server (required)")
 	mcpServerCreateCmd.Flags().StringSliceVarP(&mcpAddArgs, "args", "a", nil, "Arguments for the command (can be repeated)")
 	mcpServerCreateCmd.Flags().StringVarP(&mcpAddBackend, "backend", "b", "", "Backend to add server for (claude-code, antigravity, or unified)")
 	_ = mcpServerCreateCmd.MarkFlagRequired("command")
 
-	mcpServerDeleteCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to delete the server from")
+	mcpServerRemoveCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to remove the server from")
+	mcpServerRemoveCmd.Flags().BoolVarP(&mcpServerRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 
 	mcpServerShowCmd.Flags().BoolVarP(&mcpShowInteractive, "interactive", "i", false, "Review the server's effective trust (interactive terminal only)")
 

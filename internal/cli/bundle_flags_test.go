@@ -28,8 +28,8 @@ func TestBundleSubcommandFlags(t *testing.T) {
 		{bundleCreateCmd, []flagSpec{
 			{"description", "d", "", "Bundle description"},
 		}},
-		{bundleDeleteCmd, []flagSpec{
-			{"force", "f", "false", "Skip confirmation prompt"},
+		{bundleRemoveCmd, []flagSpec{
+			{"yes", "y", "false", "Apply the removal this invocation would report (default: report only)"},
 		}},
 		{bundlePushCmd, []flagSpec{
 			{"pr", "", "false", "Create a pull request instead of pushing directly"},

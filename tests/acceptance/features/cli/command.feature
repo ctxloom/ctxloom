@@ -112,19 +112,33 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
       Then the resource MIME type is "text/markdown"
       And the resource contains "COMMAND-BODY-review"
 
-  Rule: Deleting a command removes it from the manifest and from every listing
+  Rule: Removing a command removes it from the manifest and from every listing
 
-    # Both halves are asserted on payload, separately: a delete that only
-    # trimmed the cached listing (leaving the YAML entry behind) and a delete
+    # Bare `remove` is a preview: it must leave the manifest untouched. A
+    # guard that quietly destroyed anyway would still pass a scenario that
+    # only checked exit code — the manifest-still-contains check is what
+    # actually catches that.
+    Scenario: Bare command remove reports and destroys nothing
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a command "review" in bundle "demo" exists
+      When I run "ctxloom command remove demo#commands/review"
+      Then the command succeeds
+      And the output contains "Nothing was removed"
+      And the output contains "--yes"
+      And the file ".ctxloom/content/bundles/demo.yaml" contains "COMMAND-BODY-review"
+
+    # Both halves are asserted on payload, separately: a remove that only
+    # trimmed the cached listing (leaving the YAML entry behind) and a remove
     # that only trimmed the YAML (leaving a stale listing) would each satisfy
     # exactly one of these three checks alone.
-    Scenario: Deleting a command removes it from the manifest, the listing, and the agent's resource
+    Scenario: Removing a command removes it from the manifest, the listing, and the agent's resource
       Given an initialized ctxloom project
       And a bundle "demo" exists
       And a command "review" in bundle "demo" exists
       When Alice removes it:
         """
-        ctxloom command delete demo#commands/review
+        ctxloom command remove demo#commands/review --yes
         """
       Then the command succeeds
       And the file ".ctxloom/content/bundles/demo.yaml" does not contain "COMMAND-BODY-review"

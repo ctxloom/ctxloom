@@ -25,7 +25,7 @@ Registry:
   ctxloom remote list                    List configured remotes
   ctxloom remote show <name>             Show one remote and its bundles
   ctxloom remote create <name> <url>     Register a remote
-  ctxloom remote delete <name>           Delete a remote
+  ctxloom remote remove <name> --yes     Remove a remote
   ctxloom remote default <name>          Set the default remote
 
 A remote is just an address; its content takes the review path. To auto-trust a
@@ -94,28 +94,62 @@ func runRemoteCreate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var remoteDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
-	Short: "Delete a remote source",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runRemoteDelete,
+var remoteRemoveYes bool
+
+var remoteRemoveCmd = &cobra.Command{
+	Use:     "remove <name>",
+	Aliases: []string{"rm", "del"},
+	Short:   "Remove a remote source",
+	Long: `Remove a remote source from the registry.
+
+Bare invocation reports what would be removed and removes nothing (exit 0).
+Pass --yes to apply it. This only unregisters the remote — it never touches
+content already pulled from it.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runRemoteRemove,
 }
 
-func runRemoteDelete(cmd *cobra.Command, args []string) error {
+func runRemoteRemove(cmd *cobra.Command, args []string) error {
+	name := args[0]
 	cfg, err := GetConfig()
 	if err != nil {
 		return err
 	}
 
+	applyCmd := fmt.Sprintf("ctxloom remote remove %s --yes", name)
+	if !remoteRemoveYes {
+		list, err := operations.ListRemotes(cmd.Context(), cfg, operations.ListRemotesRequest{})
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, r := range list.Remotes {
+			if r.Name == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("no remote named %q", name)
+		}
+		target := fmt.Sprintf("remote %q", name)
+		return emit(cmd, newRemovePreviewResult(target, nil, applyCmd), func() error {
+			printRemovePreview(cmd.OutOrStdout(), target, nil, applyCmd)
+			return nil
+		})
+	}
+
 	result, err := operations.RemoveRemote(cmd.Context(), cfg, operations.RemoveRemoteRequest{
-		Name: args[0],
+		Name: name,
 	})
 	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Deleted remote '%s'\n", result.Name)
-	return nil
+	return emit(cmd, result, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "Removed remote '%s'\n", result.Name)
+		return nil
+	})
 }
 
 var remoteListCmd = &cobra.Command{
@@ -325,13 +359,16 @@ func init() {
 	rootCmd.AddCommand(remoteCmd)
 
 	remoteCmd.AddCommand(remoteCreateCmd)
-	remoteCmd.AddCommand(remoteDeleteCmd)
+	remoteCmd.AddCommand(remoteRemoveCmd)
 	remoteCmd.AddCommand(remoteListCmd)
 	remoteCmd.AddCommand(remoteDefaultCmd)
 	remoteCmd.AddCommand(remotePullCmd)
 
 	remoteCreateCmd.Flags().StringVar(&remoteAddForge, "forge", "",
 		"Forge to bind this remote to: github, git, or a configured forges: label (default: resolve from URL host)")
+
+	remoteRemoveCmd.Flags().BoolVarP(&remoteRemoveYes, "yes", "y", false,
+		"Apply the removal this invocation would report (default: report only)")
 
 	remoteDefaultCmd.Flags().BoolVar(&remoteDefaultClear, "clear", false,
 		"Clear the default remote")

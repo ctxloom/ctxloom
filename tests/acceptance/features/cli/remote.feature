@@ -59,12 +59,26 @@ Feature: remote — registering remote sources, and pulling shared content acros
       Then the command succeeds
       And the file ".ctxloom/remotes.yaml" contains "default: origin"
 
+    # Bare `remove` is a preview: it must leave the remote registered. A guard
+    # that quietly destroyed anyway would still pass a scenario that only
+    # checked exit code — the follow-up `remote list` is what actually
+    # catches that.
+    Scenario: Bare remote remove reports and destroys nothing
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      When I run "ctxloom remote remove origin"
+      Then the command succeeds
+      And the output contains "Nothing was removed"
+      And the output contains "--yes"
+      When I run "ctxloom remote list"
+      Then the output contains "origin"
+
     Scenario: Removing a remote takes it out of the registry
       Given an initialized ctxloom project
       And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
       When Alice removes the remote:
         """
-        ctxloom remote delete origin
+        ctxloom remote remove origin --yes
         """
       Then the command succeeds
       When I run "ctxloom remote list"

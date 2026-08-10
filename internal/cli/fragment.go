@@ -19,7 +19,8 @@ Examples:
   ctxloom fragment list                              # List all fragments
   ctxloom fragment show core#fragments/tdd           # Show fragment content
   ctxloom fragment edit core#fragments/tdd           # Edit fragment content
-  ctxloom fragment create my-bundle coding-standards # Create new fragment`,
+  ctxloom fragment create my-bundle coding-standards # Create new fragment
+  ctxloom fragment remove my-bundle#fragments/old-one --yes # Remove a fragment`,
 }, "list")
 
 var fragmentListCmd = &cobra.Command{
@@ -78,21 +79,28 @@ func runFragmentCreate(cmd *cobra.Command, args []string) error {
 	return createItem(cmd, args[0], args[1], ItemTypeFragment)
 }
 
-var fragmentDeleteCmd = &cobra.Command{
-	Use:   "delete <bundle>#fragments/<name>",
-	Short: "Delete a fragment",
-	Long: `Delete a fragment from a bundle.
+var fragmentRemoveYes bool
+
+var fragmentRemoveCmd = &cobra.Command{
+	Use:     "remove <bundle>#fragments/<name>",
+	Aliases: []string{"rm", "del"},
+	Short:   "Remove a fragment",
+	Long: `Remove a fragment from a bundle.
+
+Bare invocation reports what would be removed and removes nothing (exit 0).
+Pass --yes to apply it.
 
 Reference format: bundle#fragments/name
 
 Examples:
-  ctxloom fragment delete my-bundle#fragments/old-standard`,
+  ctxloom fragment remove my-bundle#fragments/old-standard
+  ctxloom fragment remove my-bundle#fragments/old-standard --yes`,
 	Args: cobra.ExactArgs(1),
-	RunE: runFragmentDelete,
+	RunE: runFragmentRemove,
 }
 
-func runFragmentDelete(cmd *cobra.Command, args []string) error {
-	return deleteItem(cmd, args[0], ItemTypeFragment)
+func runFragmentRemove(cmd *cobra.Command, args []string) error {
+	return removeItem(cmd, args[0], ItemTypeFragment, fragmentRemoveYes)
 }
 
 var fragmentEditCmd = &cobra.Command{
@@ -147,7 +155,7 @@ func init() {
 	fragmentCmd.AddCommand(fragmentListCmd)
 	fragmentCmd.AddCommand(fragmentShowCmd)
 	fragmentCmd.AddCommand(fragmentCreateCmd)
-	fragmentCmd.AddCommand(fragmentDeleteCmd)
+	fragmentCmd.AddCommand(fragmentRemoveCmd)
 	fragmentCmd.AddCommand(fragmentEditCmd)
 	fragmentCmd.AddCommand(fragmentDistillCmd)
 
@@ -156,4 +164,5 @@ func init() {
 	fragmentShowCmd.Flags().BoolVarP(&fragmentShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
 	fragmentEditCmd.Flags().BoolVar(&fragmentEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	fragmentDistillCmd.Flags().BoolVarP(&fragmentDistillForce, "force", "f", false, "Re-distill even if unchanged")
+	fragmentRemoveCmd.Flags().BoolVarP(&fragmentRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 }

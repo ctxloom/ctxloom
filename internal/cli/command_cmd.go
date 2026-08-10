@@ -19,7 +19,8 @@ Examples:
   ctxloom command list                                 # List all commands
   ctxloom command show core#commands/code-review        # Show command content
   ctxloom command edit core#commands/code-review        # Edit command content
-  ctxloom command create my-bundle code-review          # Create new command`,
+  ctxloom command create my-bundle code-review          # Create new command
+  ctxloom command remove my-bundle#commands/old-one --yes # Remove a command`,
 }, "list")
 
 var commandListCmd = &cobra.Command{
@@ -78,21 +79,28 @@ func runCommandCreate(cmd *cobra.Command, args []string) error {
 	return createItem(cmd, args[0], args[1], ItemTypeCommand)
 }
 
-var commandDeleteCmd = &cobra.Command{
-	Use:   "delete <bundle>#commands/<name>",
-	Short: "Delete a command",
-	Long: `Delete a command from a bundle.
+var commandRemoveYes bool
+
+var commandRemoveCmd = &cobra.Command{
+	Use:     "remove <bundle>#commands/<name>",
+	Aliases: []string{"rm", "del"},
+	Short:   "Remove a command",
+	Long: `Remove a command from a bundle.
+
+Bare invocation reports what would be removed and removes nothing (exit 0).
+Pass --yes to apply it.
 
 Reference format: bundle#commands/name
 
 Examples:
-  ctxloom command delete my-bundle#commands/old-command`,
+  ctxloom command remove my-bundle#commands/old-command
+  ctxloom command remove my-bundle#commands/old-command --yes`,
 	Args: cobra.ExactArgs(1),
-	RunE: runCommandDelete,
+	RunE: runCommandRemove,
 }
 
-func runCommandDelete(cmd *cobra.Command, args []string) error {
-	return deleteItem(cmd, args[0], ItemTypeCommand)
+func runCommandRemove(cmd *cobra.Command, args []string) error {
+	return removeItem(cmd, args[0], ItemTypeCommand, commandRemoveYes)
 }
 
 var commandEditCmd = &cobra.Command{
@@ -147,7 +155,7 @@ func init() {
 	commandCmd.AddCommand(commandListCmd)
 	commandCmd.AddCommand(commandShowCmd)
 	commandCmd.AddCommand(commandCreateCmd)
-	commandCmd.AddCommand(commandDeleteCmd)
+	commandCmd.AddCommand(commandRemoveCmd)
 	commandCmd.AddCommand(commandEditCmd)
 	commandCmd.AddCommand(commandDistillCmd)
 
@@ -156,4 +164,5 @@ func init() {
 	commandShowCmd.Flags().BoolVarP(&commandShowInteractive, "interactive", "i", false, "Review effective trust and offer to trust/blacklist (interactive terminal only)")
 	commandEditCmd.Flags().BoolVar(&commandEditNoDistill, "no-distill", false, "Skip re-distillation for this edit (leaves the distilled form empty, never stale)")
 	commandDistillCmd.Flags().BoolVarP(&commandDistillForce, "force", "f", false, "Re-distill even if unchanged")
+	commandRemoveCmd.Flags().BoolVarP(&commandRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 }

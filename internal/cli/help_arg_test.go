@@ -79,9 +79,9 @@ var helpArgCommands = []struct {
 	{path: []string{"agent", "show"}, behaviour: helpAsFallback},
 	{path: []string{"agent", "create"}, behaviour: actsOnResource, exists: agentHelpExists},
 	{path: []string{"agent", "default"}, behaviour: helpAsFallback},
-	{path: []string{"agent", "delete"}, behaviour: helpAsFallback},
+	{path: []string{"agent", "remove"}, behaviour: helpAsFallback},
 	{path: []string{"profile", "create"}, behaviour: helpBeforeConfig},
-	{path: []string{"profile", "delete"}, behaviour: helpBeforeConfig},
+	{path: []string{"profile", "remove"}, behaviour: helpBeforeConfig},
 	{path: []string{"profile", "show"}, behaviour: helpBeforeConfig},
 	{path: []string{"profile", "modify"}, behaviour: helpBeforeConfig},
 }

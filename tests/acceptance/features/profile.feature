@@ -30,11 +30,25 @@ Feature: Profiles
     When the agent reads resource "ctxloom://profiles/dev"
     Then the resource contains "demo"
 
-  Scenario: Delete a profile removes its file
+  # Bare `remove` is a preview: it must name what it would destroy AND leave
+  # the profile in place. A guard that quietly destroyed anyway would still
+  # pass a scenario that only checked exit code or the report text — the
+  # file-exists check is what actually catches that.
+  Scenario: Bare profile remove reports and destroys nothing
     Given an initialized ctxloom project
     And a bundle "demo" exists
     And a profile "dev" with bundle "demo"
-    When I run "ctxloom profile delete dev"
+    When I run "ctxloom profile remove dev"
+    Then the command succeeds
+    And the output contains "Nothing was removed"
+    And the output contains "--yes"
+    And the file ".ctxloom/profiles/dev.yaml" exists
+
+  Scenario: Remove a profile removes its file
+    Given an initialized ctxloom project
+    And a bundle "demo" exists
+    And a profile "dev" with bundle "demo"
+    When I run "ctxloom profile remove dev --yes"
     Then the command succeeds
     And the file ".ctxloom/profiles/dev.yaml" does not exist
 

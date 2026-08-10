@@ -37,9 +37,6 @@ Feature: Dana in her editor
   #     same name exists, and this journey does not restate it;
   #   - `acp run` driving a real outbound session or turn — needs a live ACP
   #     agent;
-  #   - the antigravity row, which is prose-degraded by construction
-  #     (STRUCTURAL loss of tool events and permission forwarding), so there is
-  #     nothing to assert but the loss itself.
   #
   # NOTE ON TAGS. Each scenario carries its own note: an untagged one records
   # the mutation that proves it can still fail, a @wip one the product surface

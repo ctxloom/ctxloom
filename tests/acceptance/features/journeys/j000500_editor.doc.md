@@ -28,11 +28,10 @@ Most of Dana's arc needs a live editor talking to a long-running stdio server.
 That is not hermetically assertable here, and scenarios that passed without it
 would prove nothing about whether Zed can actually drive ctxloom.
 
-So three rows are recorded as unverifiable rather than faked: door equivalence
-under a real editor, `acp run` driving a real outbound turn, and the
-antigravity row, which is prose-degraded by construction and has nothing to
-assert but the loss itself. The live verify stays open and manual. The whole
-surface is EXPERIMENTAL and this file does not pretend otherwise.
+So two rows are recorded as unverifiable rather than faked: door equivalence
+under a real editor, and `acp run` driving a real outbound turn. The live
+verify stays open and manual. The whole surface is EXPERIMENTAL and this
+file does not pretend otherwise.
 
 What IS assertable is the configuration edge — everything Dana touches before
 an editor is involved. Which turns out to be where the problems are.

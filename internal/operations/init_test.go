@@ -237,14 +237,6 @@ func TestBuildInitialConfig(t *testing.T) {
 			wantFast: "claude-fast", wantFastBE: "claude-code", wantFastMod: "claude-haiku-4-5-20251001",
 		},
 		{
-			// The shipped registry pins no model for antigravity: agy's own
-			// configured default applies, and the lone role-marked entry
-			// serves both the primary and fast roles.
-			name: "antigravity wires its single role-marked entry to both roles", engine: "antigravity",
-			wantPrimary: "antigravity", wantBackend: "antigravity", wantModel: "",
-			wantFast: "antigravity", wantFastBE: "antigravity", wantFastMod: "",
-		},
-		{
 			name: "engine without role markers falls back to a single entry", engine: "codex",
 			wantPrimary: "codex", wantBackend: "codex", wantModel: "",
 			wantFast: "codex", wantFastBE: "codex", wantFastMod: "",
@@ -275,4 +267,38 @@ func TestBuildInitialConfig(t *testing.T) {
 			assert.Equal(t, tt.wantFastMod, cfg.GetCompactionModel())
 		})
 	}
+}
+
+// TestEngineRegistry_SingleRoleMarkedEntryServesBothRoles pins engineRegistry's
+// middle branch directly: an engine with a primary-role-marked registry entry
+// but no matching fast-role entry must fall the fast label back to the primary
+// one, so the lone entry serves both roles (init.go's `if fastLabel == ""
+// { fastLabel = primaryLabel }`).
+//
+// This used to ride TestBuildInitialConfig's "antigravity" case, back when the
+// shipped resources/default-config.yaml still marked an antigravity entry
+// role: primary with no fast counterpart. Now that entry is gone (antigravity
+// engine removal) and default-config.yaml marks roles for claude-code only
+// (both primary AND fast), so no surviving engine takes this branch through
+// the real shipped registry any more — repointing the old case at "codex" or
+// "kiro" would silently retest the OTHER branch (primaryLabel == "", full
+// fallbackRegistry) that the "engine without role markers" case above already
+// covers, not this one. That is exactly the kind of hole this removal keeps
+// finding: the table-driven case still passed, but for the wrong reason. This
+// test isolates engineRegistry with a synthetic single-role registry instead,
+// so the branch stays covered without depending on antigravity or on any
+// particular shipped registry shape.
+func TestEngineRegistry_SingleRoleMarkedEntryServesBothRoles(t *testing.T) {
+	registry := config.LMConfig{
+		Configs: map[string]config.LLMConfig{
+			"solo-engine": {Type: "solo-engine", Role: "primary"},
+		},
+	}
+
+	got := engineRegistry("solo-engine", registry)
+
+	assert.Equal(t, "solo-engine", got.Defaults.Primary)
+	assert.Equal(t, "solo-engine", got.Defaults.Fast, "no fast-role entry exists, so fast must fall back to primary")
+	require.Contains(t, got.Configs, "solo-engine")
+	assert.Empty(t, got.Configs["solo-engine"].Role, "role is registry-only and must be stripped")
 }

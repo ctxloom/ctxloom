@@ -118,7 +118,7 @@ func j001500EnsureReferenced(w *World) error {
 	if err := j001500WireReference(w); err != nil {
 		return err
 	}
-	return runOK(w, "remote", "pull")
+	return runOK(w, "deps", "pull")
 }
 
 // j001500StartSession is "Alice starts a session": ensure the company bundle is
@@ -426,7 +426,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 			}
 			j001500.extraMarkers = append(j001500.extraMarkers, extra.marker)
 		}
-		return runOK(w, "remote", "pull")
+		return runOK(w, "deps", "pull")
 	})
 
 	ctx.Step(`^the company key is compromised$`, func(c context.Context) error {
@@ -499,7 +499,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, "profile", "modify", "default", "--add-bundle", "bystander/bystander"); err != nil {
 			return err
 		}
-		return runOK(w, "remote", "pull")
+		return runOK(w, "deps", "pull")
 	})
 
 	ctx.Step(`^Alice tries to record a review decision into the team's shared store$`, func(c context.Context) error {

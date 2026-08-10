@@ -557,7 +557,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 		addOut := w.env.LastOutput()
 
 		st.pulled = true
-		if perr := w.env.Run("remote", "pull"); perr != nil || w.env.LastExitCode() != 0 {
+		if perr := w.env.Run("deps", "pull"); perr != nil || w.env.LastExitCode() != 0 {
 			st.pullErr = fmt.Errorf("`deps pull` exited %d", w.env.LastExitCode())
 		}
 		st.pullOutput = "profile modify said:\n" + addOut + "\ndeps pull said:\n" + w.env.LastOutput()

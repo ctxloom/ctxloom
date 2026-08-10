@@ -140,7 +140,7 @@ func addSourceAsRemote(w *World, name, profile string) error {
 	if err := runOK(w, "profile", "modify", profile, "--add-bundle", name+"/"+src.bundleName); err != nil {
 		return err
 	}
-	return runOK(w, "remote", "pull")
+	return runOK(w, "deps", "pull")
 }
 
 // buildJ000200Config renders a hermetic config.yaml carrying one LLM entry labeled

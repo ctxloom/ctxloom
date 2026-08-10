@@ -231,7 +231,7 @@ func tsWireAndPull(w *World, url string) error {
 	if err := runOK(w, "profile", "modify", "default", "--add-bundle", "trustdemo/"+ts.bundleName); err != nil {
 		return err
 	}
-	return runOK(w, "remote", "pull")
+	return runOK(w, "deps", "pull")
 }
 
 // tsUpdateAndPull advances an ALREADY-INSTALLED bundle to a newly published
@@ -244,10 +244,10 @@ func tsWireAndPull(w *World, url string) error {
 // "Skipped (kept at their locked commit)"). --force skips the interactive per-item
 // confirmation prompt (this test drives stdin-less exec.Command).
 func tsUpdateAndPull(w *World) error {
-	if err := runOK(w, "remote", "update", "--apply", "--force"); err != nil {
+	if err := runOK(w, "deps", "check", "--apply", "--force"); err != nil {
 		return err
 	}
-	return runOK(w, "remote", "pull")
+	return runOK(w, "deps", "pull")
 }
 
 func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
@@ -465,7 +465,7 @@ func registerTrustSurfaceSteps(ctx *godog.ScenarioContext) {
 		if err := w.env.AdvanceRemote(bareDir, map[string]string{".ctxloom/content/manifest.yaml": manifest}); err != nil {
 			return fmt.Errorf("advance trust-surface remote with a retraction manifest: %w", err)
 		}
-		return runOK(w, "remote", "pull")
+		return runOK(w, "deps", "pull")
 	})
 
 	// --- GAP D: a corrupted approvals store denies everything (FIXED) --------

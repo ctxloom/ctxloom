@@ -144,7 +144,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^Bob fetches the context the project draws on$`, func(c context.Context) error {
-		return runBob(worldFrom(c), "remote", "pull")
+		return runBob(worldFrom(c), "deps", "pull")
 	})
 
 	ctx.Step(`^Bob starts a session$`, func(c context.Context) error {
@@ -251,7 +251,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, "profile", "modify", j000700Profile, "--add-bundle", "upstream/"+j000800UpstreamBundle); err != nil {
 			return err
 		}
-		if err := runOK(w, "remote", "pull"); err != nil {
+		if err := runOK(w, "deps", "pull"); err != nil {
 			return err
 		}
 		// The explicit pin: `deps hold` freezes the lockfile entry's SHA/
@@ -305,7 +305,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	// reference IS re-resolved against the advanced upstream, and the hold is
 	// what has to hold it back.
 	ctx.Step(`^Bob fetches the context the project draws on, re-resolving every reference$`, func(c context.Context) error {
-		return runBob(worldFrom(c), "remote", "pull", "--force")
+		return runBob(worldFrom(c), "deps", "pull", "--force")
 	})
 
 	ctx.Step(`^he receives the pinned versions, the same ones the rest of the team has$`, func(c context.Context) error {
@@ -388,7 +388,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		if err := j000700BobPull(w); err != nil {
 			return err
 		}
-		if err := runBob(w, "remote", "pull"); err != nil {
+		if err := runBob(w, "deps", "pull"); err != nil {
 			return err
 		}
 		return assertBobMaterializedDoesNotContain(w, j000800CompanyMarker)

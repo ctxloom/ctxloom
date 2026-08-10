@@ -167,7 +167,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		// Carol's OWN first pull: her own local install, her own local
 		// lockfile — the "already installed" state her retraction-sync step
 		// re-checks later.
-		if err := runOK(w, "remote", "pull"); err != nil {
+		if err := runOK(w, "deps", "pull"); err != nil {
 			return err
 		}
 		body, err := materializeDefault(w, "out")
@@ -189,7 +189,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		if err := j000700BobPull(w); err != nil {
 			return err
 		}
-		if err := runBob(w, "remote", "pull"); err != nil {
+		if err := runBob(w, "deps", "pull"); err != nil {
 			return err
 		}
 		if err := runBob(w, "profile", "materialize", "default", "--target", "out"); err != nil {
@@ -216,7 +216,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Carol runs her next routine sync$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runOK(w, "remote", "pull"); err != nil {
+		if err := runOK(w, "deps", "pull"); err != nil {
 			return err
 		}
 		if _, err := materializeDefault(w, "out"); err != nil {
@@ -228,7 +228,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 	ctx.Step(`^Bob runs his next routine sync$`, func(c context.Context) error {
 		w := worldFrom(c)
 		j001700 := j001700Of(w)
-		if err := runBob(w, "remote", "pull"); err != nil {
+		if err := runBob(w, "deps", "pull"); err != nil {
 			return err
 		}
 		j001700.bobSyncOutput = w.j000700().bobOutput

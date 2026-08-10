@@ -260,7 +260,7 @@ func j001900PublishFromDisk(w *World) error {
 func j001900Reference(w *World) error {
 	st := j001900Of(w)
 	if st.referenced {
-		return runOK(w, "remote", "pull")
+		return runOK(w, "deps", "pull")
 	}
 	if st.url == "" {
 		return fmt.Errorf("nothing has been published to the team remote yet")
@@ -272,7 +272,7 @@ func j001900Reference(w *World) error {
 		return err
 	}
 	st.referenced = true
-	return runOK(w, "remote", "pull")
+	return runOK(w, "deps", "pull")
 }
 
 // j001900TrustCarol writes Carol's key into the committable project trust store,
@@ -531,8 +531,8 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		// `deps upgrade` is what the product's own pull output tells the user
 		// to run, so it is the ordinary sync a person actually performs when
 		// they want Monday's content.
-		_ = w.env.Run("remote", "update")
-		_ = w.env.Run("remote", "pull")
+		_ = w.env.Run("deps", "check")
+		_ = w.env.Run("deps", "pull")
 		// Read the pin BEFORE the command that would move it, so the
 		// "it did not advance" assertion compares against a captured value and
 		// not against the lockfile explaining itself.
@@ -541,7 +541,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		j001900Of(w).pinBeforeSync = pin
-		_ = w.env.Run("remote", "upgrade")
+		_ = w.env.Run("deps", "upgrade")
 		j001900Of(w).syncOutput = w.env.LastOutput()
 		j001900Of(w).syncExit = w.env.LastExitCode()
 		return nil

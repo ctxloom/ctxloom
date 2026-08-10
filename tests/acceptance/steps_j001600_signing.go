@@ -484,7 +484,7 @@ func j001600VerifyPublished(w *World, name string) error {
 func j001600Reference(w *World) error {
 	st := j001600Of(w)
 	if st.referenced {
-		return runOK(w, "remote", "pull")
+		return runOK(w, "deps", "pull")
 	}
 	if st.url == "" {
 		return fmt.Errorf("Trent has not published his bundle yet")
@@ -502,7 +502,7 @@ func j001600Reference(w *World) error {
 		return err
 	}
 	st.referenced = true
-	return runOK(w, "remote", "pull")
+	return runOK(w, "deps", "pull")
 }
 
 // j001600ItemRef builds the canonical item ref for a fragment of the PUBLISHED
@@ -1223,10 +1223,10 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	// mode impossible to re-introduce silently.
 	ctx.Step(`^Alice pulls the newly published version$`, func(c context.Context) error {
 		w := worldFrom(c)
-		if err := runOK(w, "remote", "update", "--apply", "--force"); err != nil {
+		if err := runOK(w, "deps", "check", "--apply", "--force"); err != nil {
 			return err
 		}
-		return runOK(w, "remote", "pull")
+		return runOK(w, "deps", "pull")
 	})
 
 	ctx.Step(`^her assistant no longer receives the "([^"]*)" guidance either$`, func(c context.Context, which string) error {

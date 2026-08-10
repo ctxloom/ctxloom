@@ -60,7 +60,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
-      And I run "ctxloom remote pull"
+      And I run "ctxloom deps pull"
       # The pinned third-party bundle's items are born pending: review names them…
       When I run "ctxloom review --list"
       Then the command succeeds
@@ -90,7 +90,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
-      And I run "ctxloom remote pull"
+      And I run "ctxloom deps pull"
       When I reject the pending item "demo#fragments/demo-frag" from remote "origin"
       Then the command succeeds
       And the output contains "Rejected"
@@ -124,7 +124,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
-      And I run "ctxloom remote pull"
+      And I run "ctxloom deps pull"
       # Establish the rejection, and that it is really in force.
       When I reject the pending item "demo#fragments/demo-frag" from remote "origin"
       Then the command succeeds
@@ -159,7 +159,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
-      And I run "ctxloom remote pull"
+      And I run "ctxloom deps pull"
       When I accept the pending item "demo#fragments/demo-frag" from remote "origin"
       Then the command succeeds
       When I run "ctxloom profile materialize dev --target out"
@@ -184,7 +184,7 @@ Feature: content decisions — ctxloom review, bundle trust, bundle reject, bund
       And a git remote "origin" serving a ctxloom bundle
       And I run "ctxloom remote default origin"
       And I run "ctxloom profile create dev --bundle origin/demo"
-      And I run "ctxloom remote pull"
+      And I run "ctxloom deps pull"
       When I clear the decision on the pending item "demo#fragments/demo-frag" from remote "origin"
       Then the command succeeds
       And the output contains "No decision was recorded"

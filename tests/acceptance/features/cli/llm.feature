@@ -58,6 +58,41 @@ Feature: llm — the named engine configurations, and the credentials they hold
       And the output contains "claude-code"
       And the output does not contain "Available Commands:"
 
+  Rule: Every row says whether the team wrote it or ctxloom supplied it
+
+    That union is two very different kinds of thing. A LABEL is something a
+    team authored in config.yaml and maintains; a BUILT-IN is a bare engine
+    name ctxloom fills in for a project that configured none. Printed
+    identically they read as one list of decisions somebody made, and acting on
+    that misreading is exactly how `llm remove claude-code` came to report
+    success on a project that had never written an llm.configs line. So the
+    listing marks BOTH kinds — not one, leaving the other bare, which a reader
+    would take for missing information rather than an answer.
+
+    Scenario: A label the team wrote is told apart from an engine ctxloom supplied
+      Given an initialized ctxloom project
+      And I run "ctxloom llm create big --type codex --model o1"
+      And I run "ctxloom llm default codex"
+      When Alice asks which of these engines her team actually configured:
+        """
+        ctxloom llm list
+        """
+      Then the command succeeds
+      # One listing, both kinds. Asserting either marker alone would pass just
+      # as happily against a render that stamped every row the same way.
+      And the output contains "big [configured]"
+      And the output contains "claude-code [built-in]"
+      # The origin marker does not displace the default marker: a row can be
+      # the fallback engine everything resolves to and still be one nobody
+      # configured.
+      And the output contains "codex (default) [built-in]"
+      # The marker is not decoration — it predicts what the label can DO. A
+      # name ctxloom supplied has no entry to take away, and remove says so
+      # rather than reporting a deletion that never happened.
+      When I run "ctxloom llm remove claude-code"
+      Then the command fails
+      And the output contains "not defined in config.yaml"
+
   Rule: The default is a label, and only a label the project knows
 
     Asserting only the exit code once let a show path that returned an EMPTY

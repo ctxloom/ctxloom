@@ -185,17 +185,17 @@ func TestLoadout_UnknownFormatErrors(t *testing.T) {
 	assert.Empty(t, buf.Bytes())
 }
 
-// The comment above loadout.yaml's session_start hook promises the bind lands
-// on PreToolUse for Antigravity — the only harness with no session-start
-// event. That promise is carried by exactly one bit, `pre_tool_fallback`, and
-// it is invisible in every other assertion this file makes: an edit that drops
-// it leaves a loadout that still parses, still installs, still names the right
-// command, and silently never binds a session on agy.
+// The comment above loadout.yaml's session_start hook set `pre_tool_fallback`
+// for antigravity — the harness that shipped with no session-start event and
+// needed the bind to land on PreToolUse instead. antigravity was removed in
+// 0.7.0 (no currently-registered backend has this gap), but the flag is
+// harmless to keep set: it is a no-op for every backend with a working
+// session-start event, and keeps the loadout ready for whichever future
+// engine needs it next rather than requiring every consumer to re-add it.
 //
-// This pins taskloom's END of the chain only. The rest of it is pinned where
-// it lives: the wire crossing by the total-struct parity sweep in
-// internal/lm/grpc/arch_test.go (build tag `arch`), and the divert itself by
-// TestAntigravityHookWriter_PreToolFallbackDiverts.
+// This pins taskloom's END of the chain only. The wire crossing is pinned by
+// the total-struct parity sweep in internal/lm/grpc/arch_test.go (build tag
+// `arch`).
 func TestLoadout_SessionBindKeepsPreToolFallback(t *testing.T) {
 	b, err := bundles.ParseBundle(loadoutYAML)
 	require.NoError(t, err)
@@ -204,5 +204,5 @@ func TestLoadout_SessionBindKeepsPreToolFallback(t *testing.T) {
 	h := b.Hooks.SessionStart[0]
 	require.Contains(t, h.Command, "session-bind")
 	assert.True(t, h.PreToolFallback,
-		"session-bind must keep pre_tool_fallback: without it the session never binds on Antigravity")
+		"session-bind should keep pre_tool_fallback set for the next harness that ships with no session-start event")
 }

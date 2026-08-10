@@ -205,7 +205,7 @@ func loadCuratedPrompts(pipe *bundles.Pipeline, refs []string) []*bundles.Loaded
 // export. A profile that curates a prompt is an explicit request to export it,
 // so the per-prompt opt-out flag is overridden; all other export metadata
 // (description, hints, model, …) is reused as-is. Mirrors forceExportSkill
-// (skillfiles.go), which force-enables all five engines: this used to cover
+// (skillfiles.go), which force-enables all four engines: this used to cover
 // only claude/antigravity/codex, so a profile-curated command whose bundle
 // set `kiro: {enabled: false}` or `opencode: {enabled: false}` silently
 // exported nothing for those two engines despite the explicit curation.
@@ -217,7 +217,6 @@ func loadCuratedPrompts(pipe *bundles.Pipeline, refs []string) []*bundles.Loaded
 func forceExport(c *bundles.LoadedContent) *bundles.LoadedContent {
 	on := true
 	c.LLM.ClaudeCode.Enabled = &on
-	c.LLM.Antigravity.Enabled = &on
 	c.LLM.Codex.Enabled = &on
 	c.LLM.Kiro.Enabled = &on
 	c.LLM.Opencode.Enabled = &on
@@ -261,9 +260,6 @@ func builtinCommands() []*bundles.LoadedContent {
 			Content: body,
 			LLM: bundles.LLMExports{
 				ClaudeCode: bundles.ClaudeCodeConfig{
-					Description: description,
-				},
-				Antigravity: bundles.AntigravityConfig{
 					Description: description,
 				},
 				Codex: bundles.CodexConfig{

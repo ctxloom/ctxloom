@@ -64,7 +64,7 @@ type Shells struct {
 	Force ir.Shell
 	// Host is the user's login shell, from $SHELL. It is the right dialect for
 	// engines that run commands in that shell (notably Claude Code's Bash
-	// tool); engines that force a fixed shell (Codex/Antigravity) emit a
+	// tool); an engine that forces a fixed shell instead emits a
 	// strong hint that bypasses it. Empty means "unknown", which falls through
 	// to the default rather than guessing.
 	Host ir.Shell

@@ -106,8 +106,6 @@ var claudeGatedTools = []string{"Bash", "PowerShell", "Edit", "Write", "MultiEdi
 // or a future gated name that isn't a plain identifier — puts Claude Code on
 // its unanchored-regex path, where an unrelated tool whose name contains a
 // gated one as a substring (`Edit.*` also matches `NotebookEdit`) can fire it.
-// Antigravity's matcher IS a genuine unanchored regex unconditionally (see
-// antigravityMatcher), so that collision is live there today.
 var claudeMatcher = strings.Join(claudeGatedTools, "|")
 
 // claudeGatesTool reports whether ltk recognises this tool's exact name. A
@@ -206,10 +204,10 @@ func (ClaudeCode) Uninstall(settings []byte, command string) ([]byte, bool, erro
 
 // mergePreToolUseHook adds a PreToolUse command hook to a settings document
 // without disturbing other settings. Idempotent; the returned note reports a
-// repair (empty when there was nothing to fix). Shared across engines:
-// Antigravity adopted Claude Code's nested registration shape
-// (hooks.PreToolUse[].matcher + hooks[].{type,command}) verbatim, so one merge
-// covers both — only the matcher vocabulary differs per engine.
+// repair (empty when there was nothing to fix). Shared across engines: a
+// future engine reusing Claude Code's nested registration shape
+// (hooks.PreToolUse[].matcher + hooks[].{type,command}) needs only its own
+// matcher vocabulary, not a new merge implementation.
 func mergePreToolUseHook(existing []byte, matcher, command string) ([]byte, string, error) {
 	settings, err := decodeSettings(existing)
 	if err != nil {

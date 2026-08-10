@@ -10,7 +10,6 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
@@ -20,7 +19,6 @@ import (
 // path its engine's own writer produces:
 //
 //	claude       ClaudeCodeHookWriter.MCPConfigPath  (.mcp.json)
-//	antigravity  AntigravityHookWriter.MCPConfigPath (.agents/mcp_config.json)
 //	kiro         KiroWriter.mcpPath                  (.kiro/settings/mcp.json)
 //	codex        CodexHookWriter.SettingsPath        (.codex/config.toml, which
 //	             folds [mcp_servers] in beside [hooks] — codex has no separate
@@ -33,7 +31,6 @@ import (
 // in this project) would not reach a home-scoped entry anyway.
 var doctorMCPInvocationSurfaces = []string{
 	claude.MCPFileName,
-	filepath.Join(antigravity.AgentsDir, "mcp_config.json"),
 	filepath.Join(".kiro", "settings", "mcp.json"),
 	filepath.Join(".codex", "config.toml"),
 	"opencode.json",
@@ -108,7 +105,7 @@ func doctorCheckMCPInvocation(projectDir string) doctorCheck {
 // mcpSurfaceNamesBareNoun reports whether rel's bytes carry a ctxloom MCP
 // entry invoking the bare noun.
 //
-// The five surfaces put their server table under three different keys
+// The four surfaces put their server table under three different keys
 // ("mcpServers", "mcp", "mcp_servers") at two different depths, so the search
 // is a walk for an entry NAMED ctxloom that looks like a server, rather than
 // five hand-written path lookups that would each have to be revisited the day

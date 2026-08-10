@@ -126,32 +126,6 @@ func TestManageInstall_KiroPreservesExistingServers(t *testing.T) {
 	assert.Contains(t, servers, "taskloom")
 }
 
-func TestManageInstall_PreservesExistingServers(t *testing.T) {
-	fakeHome(t)
-	proj := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".agents"), 0o755))
-	existing := `{"mcpServers": {"ctxloom": {"command": "ctxloom", "args": ["mcp"]}}}`
-	require.NoError(t, os.WriteFile(filepath.Join(proj, ".agents", "mcp_config.json"), []byte(existing), 0o644))
-
-	require.NoError(t, manageInstall("antigravity", proj, false, false, os.Stderr))
-
-	servers := readServers(t, filepath.Join(proj, ".agents", "mcp_config.json"))
-	assert.Contains(t, servers, "ctxloom", "foreign servers must survive")
-	assert.Contains(t, servers, "taskloom")
-}
-
-func TestManageUninstall_RemovesEntry(t *testing.T) {
-	fakeHome(t)
-	proj := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".agents"), 0o755))
-	require.NoError(t, manageInstall("antigravity", proj, false, false, os.Stderr))
-
-	require.NoError(t, manageUninstall("antigravity", proj, false, os.Stderr))
-
-	servers := readServers(t, filepath.Join(proj, ".agents", "mcp_config.json"))
-	assert.NotContains(t, servers, "taskloom")
-}
-
 // Having no backend to uninstall from is a legitimate empty state, so it
 // stays exit 0 — but it must SAY so. Printing nothing at all is
 // indistinguishable from a successful removal, and `manage install` in the
@@ -202,15 +176,15 @@ func TestManageUninstall_RemovesKiroEntry(t *testing.T) {
 func TestManageUninstall_NotRegisteredIsNotReportedAsRemoved(t *testing.T) {
 	fakeHome(t)
 	proj := t.TempDir()
-	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".agents"), 0o755))
-	path := filepath.Join(proj, ".agents", "mcp_config.json")
+	require.NoError(t, os.MkdirAll(filepath.Join(proj, ".kiro", "settings"), 0o755))
+	path := filepath.Join(proj, ".kiro", "settings", "mcp.json")
 	// A real config carrying somebody else's server, deliberately formatted
 	// unlike our writer's output so a rewrite is visible byte-for-byte.
 	original := "{\n  \"mcpServers\": {\n    \"other\": {\"command\": \"x\"}\n  }\n}\n"
 	require.NoError(t, os.WriteFile(path, []byte(original), 0o644))
 
 	var errOut bytes.Buffer
-	require.NoError(t, manageUninstall("antigravity", proj, false, &errOut))
+	require.NoError(t, manageUninstall("kiro", proj, false, &errOut))
 
 	assert.NotContains(t, errOut.String(), "removed MCP server",
 		"reporting a removal that never happened is a success message for a no-op")

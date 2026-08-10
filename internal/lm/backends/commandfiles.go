@@ -38,14 +38,6 @@ func claudeExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	})
 }
 
-// antigravityExports resolves the antigravity per-prompt LLM export config.
-func antigravityExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
-	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {
-		a := p.LLM.Antigravity
-		return agent.CommandExport{Enabled: a.IsEnabled(), Description: a.Description}
-	})
-}
-
 // codexExports resolves the codex per-prompt LLM export config.
 func codexExports(prompts []*bundles.LoadedContent) []agent.CommandExport {
 	return buildExports(prompts, func(p *bundles.LoadedContent) agent.CommandExport {

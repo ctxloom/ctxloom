@@ -28,7 +28,7 @@ func TestAll_RegistryMembershipIsExact(t *testing.T) {
 	for _, e := range All() {
 		names = append(names, e.Name())
 	}
-	assert.ElementsMatch(t, []string{"claude-code", "antigravity", "codex", "kiro"}, names)
+	assert.ElementsMatch(t, []string{"claude-code", "codex", "kiro"}, names)
 	assert.NotContains(t, names, "opencode",
 		"opencode's absence is a decision (no persistent MCP surface); if it gained one, update this pin and the refusal text with it")
 }

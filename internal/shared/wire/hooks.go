@@ -23,18 +23,21 @@ type Hook struct {
 	// ContextHash marks this hook as a context-injection hook for the given
 	// assembled-context hash. In-process only (never serialized): writers for
 	// agents whose harness fires SessionStart hooks ignore it and write the
-	// hook command; writers for agents that don't (Antigravity) use it to
-	// materialize the context through a channel the agent actually reads,
-	// instead of registering a hook that would never fire. A typed field so no
-	// writer ever has to recognize the injection hook by parsing its command.
+	// hook command; a writer for an agent whose harness doesn't would instead
+	// use it to materialize the context through a channel the agent actually
+	// reads, rather than registering a hook that would never fire. A typed
+	// field so no writer ever has to recognize the injection hook by parsing
+	// its command.
 	ContextHash string `yaml:"-" json:"-"`
 
 	// PreToolFallback declares a session_start hook safe to fire on PreToolUse
 	// instead (first tool call and every one after) on agents whose harness
-	// has no session-start event (Antigravity). Only meaningful for
-	// idempotent hooks — the author opts in because the hook may run many
-	// times per session rather than once. Writers for agents with a working
-	// session-start event ignore it.
+	// has no session-start event. Only meaningful for idempotent hooks — the
+	// author opts in because the hook may run many times per session rather
+	// than once. Writers for agents with a working session-start event ignore
+	// it. No currently-registered backend lacks a session-start event (the
+	// one that did, antigravity, was removed in 0.7.0); the field stays wired
+	// for whichever future engine needs it next.
 	PreToolFallback bool `yaml:"pre_tool_fallback,omitempty" json:"pre_tool_fallback,omitempty"`
 }
 

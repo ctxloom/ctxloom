@@ -10,10 +10,8 @@ import (
 // shared vocabulary, typed as --engine at both ltk and taskloom, and two tables
 // drift into one spelling resolving under one binary and erroring under the other.
 var engineAliases = map[string]string{
-	"claudecode":      "claude-code",
-	"claude":          "claude-code",
-	"agy":             "antigravity",
-	"antigravity-cli": "antigravity",
+	"claudecode": "claude-code",
+	"claude":     "claude-code",
 }
 
 // CanonicalEngineName lowercases name and resolves any declared alias. No

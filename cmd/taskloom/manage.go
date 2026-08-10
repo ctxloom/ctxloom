@@ -35,7 +35,7 @@ var manageInstallCmd = &cobra.Command{
 	Short: "Add the taskloom MCP server to backend configs",
 	Long: `Register ` + "`taskloom mcp`" + ` as an MCP server. By default every backend
 present at the chosen scope is updated (user-level: Claude Code, Codex, and
-Kiro configs under your home directory; Antigravity is project-scope only).
+Kiro configs under your home directory).
 Name one with --engine to register just that backend — creating its config
 if needed. --project writes the project-scoped config under --dir instead of
 the user-level one.`,
@@ -94,7 +94,7 @@ func manageInstall(name, dir string, global, printOnly bool, errOut io.Writer) e
 		return err
 	}
 	if len(engines) == 0 {
-		return errors.New("no agent backends detected; name one with --engine (claude-code, antigravity, codex, kiro)")
+		return errors.New("no agent backends detected; name one with --engine (claude-code, codex, kiro)")
 	}
 	server := engine.TaskloomServer()
 	// The entry about to be written names a bare command. Say so now if
@@ -247,7 +247,7 @@ func writeConfig(path string, data []byte) error {
 
 func init() {
 	for _, c := range []*cobra.Command{manageInstallCmd, manageUninstallCmd} {
-		c.Flags().StringVar(&manageEngine, "engine", "", "Backend to target: claude-code, antigravity, codex, or kiro (default: all present)")
+		c.Flags().StringVar(&manageEngine, "engine", "", "Backend to target: claude-code, codex, or kiro (default: all present)")
 		c.Flags().BoolVar(&manageProject, "project", false, "Write the project-scoped config under --dir instead of the user-level one")
 	}
 	manageInstallCmd.Flags().BoolVar(&managePrintOnly, "print-only", false, "Print the merged configs to stderr instead of writing them")

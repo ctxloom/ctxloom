@@ -51,7 +51,7 @@ ctxloom deps [flags]
 * [ctxloom deps check](/reference/cli/ctxloom_deps_check/)	 - Report which dependencies have a newer commit available
 * [ctxloom deps hold](/reference/cli/ctxloom_deps_hold/)	 - Freeze a dependency at its locked commit so `upgrade` cannot advance it
 * [ctxloom deps list](/reference/cli/ctxloom_deps_list/)	 - List the installed dependency closure
-* [ctxloom deps pull](/reference/cli/ctxloom_deps_pull/)	 - Install this project's dependency closure
+* [ctxloom deps pull](/reference/cli/ctxloom_deps_pull/)	 - Make this project's installed closure match upstream
 * [ctxloom deps unhold](/reference/cli/ctxloom_deps_unhold/)	 - Release a hold so `upgrade` can advance the dependency again
 * [ctxloom deps upgrade](/reference/cli/ctxloom_deps_upgrade/)	 - Upgrade pinned dependencies to the latest available
 

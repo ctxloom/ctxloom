@@ -17,9 +17,22 @@ var (
 
 var depsPullCmd = &cobra.Command{
 	Use:   "pull",
-	Short: "Install this project's dependency closure",
-	Long: `Fetch every remote bundle this project's profiles depend on, record each one's
-resolved commit in the lockfile, and apply hooks.
+	Short: "Make this project's installed closure match upstream",
+	Long: `Reconcile the installation with the remotes it came from: fetch every remote
+bundle this project's profiles depend on, record each one's resolved commit in
+the lockfile, apply hooks, and remove anything its remote has stopped
+publishing.
+
+BOTH DIRECTIONS, AND NEITHER ASKS. Installed remote content is a projection of
+remote state — every byte re-fetchable from the address it came from, none of it
+authored here — so removing what upstream withdrew is synchronization in exactly
+the sense installing what upstream added is. Each removal is named in the output
+after the fact.
+
+A remote that could NOT BE READ is never treated as having deleted anything.
+An unreachable host and a revoked credential both look like "nothing came back",
+so absence counts as authority only from a repository this run separately proved
+it could read; anything else is reported as unchecked and left exactly as it is.
 
 Pull installs exactly what is PINNED. It never advances an existing pin — an
 item whose upstream has moved on is kept at its locked commit and reported as
@@ -33,7 +46,7 @@ Pulling does not expose content to your assistant. Content from an untrusted
 source is withheld per item until you accept it with 'ctxloom review'.
 
 Examples:
-  ctxloom deps pull                      # Install the closure
+  ctxloom deps pull                      # Install the closure and reconcile it
   ctxloom deps pull --force              # Re-resolve every reference
   ctxloom deps pull --lock=false         # Leave the lockfile alone`,
 	RunE: runDepsPull,
@@ -57,6 +70,16 @@ func runDepsPull(cmd *cobra.Command, _ []string) error {
 	}
 
 	renderPullSummary(cmd.OutOrStdout(), result)
+
+	// Reconcile AFTER the install half, and only when the lockfile is this
+	// command's to move. --lock=false says "do not touch the lockfile", and a
+	// reconcile prunes entries from it, so honoring the install half of that
+	// flag while ignoring the removal half would be the flag not meaning what
+	// it says.
+	if depsPullLock {
+		reconcileInstalled(cmd.Context(), cfg, cmd.OutOrStdout())
+	}
+
 	return pullResultErr(result)
 }
 

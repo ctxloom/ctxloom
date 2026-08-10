@@ -777,7 +777,7 @@ func (m *Manager) RecordEngineVersion(harpName, version string) error {
 // The validation lives HERE, where the data is (the same posture as
 // SetSummary's empty-summary refusal), not in operations.RenameSession: the
 // new name becomes an index key that paths.HarpDir turns into a filesystem
-// path, and `ctxloom session rename <old> ../..` was previously a
+// path, and `ctxloom session edit <old> --name ../..` was previously a
 // pass-through all the way to MkdirAll/Symlink.
 func (m *Manager) Rename(oldName, newName string) error {
 	if err := harp.Validate(newName); err != nil {

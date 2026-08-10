@@ -223,7 +223,7 @@ func UniqueFrom(used map[string]struct{}, gen func() string) (string, error) {
 // Validate reports whether name is usable as a harp identifier — the key of a
 // session index entry and, via paths.HarpDir, a single FILESYSTEM PATH
 // COMPONENT under ~/.ctxloom/sessions/. That second role is what makes this a
-// validator rather than a style check: `ctxloom session rename <old> ../..`
+// validator rather than a style check: `ctxloom session edit <old> --name ../..`
 // otherwise reached MkdirAll/Symlink on a traversed path.
 //
 // The rule is deliberately permissive on charset — a harp is renameable to

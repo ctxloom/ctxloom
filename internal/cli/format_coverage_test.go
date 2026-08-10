@@ -345,7 +345,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"profile materialize": {skip: "wired to emit(), but needs a resolvable profile + --target fixture; not exercised here (corrected T19 audit: previously mislabeled 'not wired to emit() yet', but profileMaterializeCmd's RunE does call emit())"},
 	"profile modify":      {skip: "not wired to emit() yet", formatDebt: true},
 	"session show":        {skip: "wired to emit(), but needs an existing session fixture; not exercised here"},
-	"session rename":      {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: session_cmd.go's rename RunE is an inline closure that never calls emit()", formatDebt: true},
+	"session edit":        {skip: "wired to emit(), but needs an existing session fixture (a harp in the index) and MUTATES it; covered directly by session_edit_test.go, which drives all five decisions on a seeded harp"},
 	"session delete":      {skip: "not confirmed wired; destructive; not exercised here; T19 audit confirmed NOT wired: session_cmd.go's delete RunE is an inline closure that never calls emit()", formatDebt: true},
 	"session distill":     {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: runSessionDistill never calls emit()", formatDebt: true},
 	"session backfill":    {skip: "wired to emit(), but needs an existing session fixture; covered directly by session_backfill_test.go instead"},
@@ -531,7 +531,6 @@ var formatDebtAllowlist = map[string]string{
 	"profile modify": "profile.go: the modify RunE must route through emit()",
 
 	// --- session surface (session_cmd.go) ---
-	"session rename":  "session_cmd.go: the rename RunE (inline closure) must route through emit()",
 	"session delete":  "session_cmd.go: the delete RunE (inline closure) must route through emit()",
 	"session distill": "session_cmd.go: runSessionDistill must route through emit()",
 }

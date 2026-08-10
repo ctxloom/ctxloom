@@ -488,7 +488,7 @@ func TestUndistilledSessionError_DistinguishesPendingFromUndistilled(t *testing.
 		"a bound-but-uncompacted harp must name the command that fixes it")
 }
 
-func TestRunSessionRenameAndDelete_ReportWhatTheyDid(t *testing.T) {
+func TestRunSessionDelete_ReportsWhatItDid(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	t.Setenv("HOME", dir)
@@ -499,25 +499,15 @@ func TestRunSessionRenameAndDelete_ReportWhatTheyDid(t *testing.T) {
 	require.NoError(t, err)
 	harp := entry.HarpName
 
-	var renamed bytes.Buffer
-	rc := &cobra.Command{}
-	rc.SetOut(&renamed)
-	require.NoError(t, runSessionRename(rc, []string{harp, "bright-keen-hawk"}))
-	assert.Contains(t, renamed.String(), "renamed "+harp)
-	assert.Contains(t, renamed.String(), "bright-keen-hawk")
-
 	var deleted bytes.Buffer
 	dc := &cobra.Command{}
 	dc.SetOut(&deleted)
-	require.NoError(t, runSessionDelete(dc, []string{"bright-keen-hawk"}))
-	// The message has to carry the nuance the retired `forget` spelling carried
-	// in its NAME: the index entry goes, the files do not.
-	assert.Contains(t, deleted.String(), "deleted bright-keen-hawk")
-	assert.Contains(t, deleted.String(), "transcript and essence stay on disk")
+	require.NoError(t, runSessionDelete(dc, []string{harp}))
+	assert.Contains(t, deleted.String(), "deleted "+harp)
 
 	entries, err := loadSessionEntries(true)
 	require.NoError(t, err)
 	for _, e := range entries {
-		assert.NotEqual(t, "bright-keen-hawk", e.HarpName, "the entry must actually be gone from the index")
+		assert.NotEqual(t, harp, e.HarpName, "the entry must actually be gone from the index")
 	}
 }

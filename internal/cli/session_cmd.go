@@ -19,7 +19,7 @@ var sessionCmd = groupNodeDefault(&cobra.Command{
 	Use:   "session",
 	Short: "Browse and manage harp-named sessions",
 	Long: `Read and manage the harp-keyed session index at
-~/.ctxloom/sessions/index.yaml. Use to list/show/rename/delete
+~/.ctxloom/sessions/index.yaml. Use to list/show/edit/delete
 sessions without launching the LLM. Sessions appear here automatically
 once ` + "`ctxloom run`" + ` has been used to launch a backend.`,
 }, "list")
@@ -159,22 +159,6 @@ func undistilledSessionError(harp, sessionID string) error {
 	return fmt.Errorf("no essence for %q (run `ctxloom session distill %s` to compact this session first)", harp, harp)
 }
 
-var sessionRenameCmd = &cobra.Command{
-	Use:   "rename <old-harp> <new-harp>",
-	Short: "Rename a harp entry. The backend transcript is unaffected.",
-	Args:  cobra.ExactArgs(2),
-	RunE:  runSessionRename,
-}
-
-func runSessionRename(cmd *cobra.Command, args []string) error {
-	if err := operations.RenameSession(args[0], args[1]); err != nil {
-		return err
-	}
-	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("renamed %s → %s\n", args[0], args[1])
-	return w.Err()
-}
-
 // sessionDeleteCmd is the canonical spine's `delete` for the session noun. It
 // was spelled `forget`; the spine has one destroy verb, and the help line
 // carries the nuance `forget` used to carry in its name (verb-spine reorg §5).
@@ -209,7 +193,7 @@ func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
 	sessionListCmd.Flags().BoolVar(&sessionListDistill, "distill", false, "Distill sessions whose essence is missing or stale before listing, so every row shows a title")
 	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionRenameCmd, sessionDeleteCmd, sessionDistillCmd, sessionWatchCmd)
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionDeleteCmd, sessionDistillCmd, sessionWatchCmd)
 	rootCmd.AddCommand(sessionCmd)
 }
 

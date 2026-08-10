@@ -300,7 +300,7 @@ func SessionIndexPath() (string, error) {
 // harp-derived path is built from — essence, ephemeral, canonical transcript,
 // and the harp dir itself all layer on this one function. A harp
 // name is a user-renameable string that becomes a single path COMPONENT, so
-// `ctxloom session rename <old> ../..` otherwise reached MkdirAll/Symlink on
+// `ctxloom session edit <old> --name ../..` otherwise reached MkdirAll/Symlink on
 // a traversed path. Validating at each caller would have been seven chances
 // to forget; validating here means no harp-derived path can be built from a
 // name that escapes the sessions root.

@@ -311,7 +311,7 @@ llm:
 // runIsoMatrix is every scenario's core action: install the spy, sanitize
 // PATH (unconditionally — even a scenario expected to abort before any spawn
 // gets the same safety net), write config.yaml for engine, and run `ctxloom
-// run --agent iso --workspace <workspace> --print`. The run's own
+// run --agent iso --workspace <workspace> --one-shot`. The run's own
 // success/failure is asserted by later Then steps, not here.
 func runIsoMatrix(c context.Context, engine, workspace string) error {
 	w := worldFrom(c)
@@ -344,7 +344,7 @@ func runIsoMatrix(c context.Context, engine, workspace string) error {
 		return err
 	}
 
-	_ = w.env.Run("run", "--agent", "iso", "--workspace", workspace, "--print", "hello")
+	_ = w.env.Run("run", "--agent", "iso", "--workspace", workspace, "--one-shot", "hello")
 	return nil
 }
 

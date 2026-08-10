@@ -288,7 +288,7 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^Alice asks her (\S+) assistant to repeat the sentinel it can see$`, func(c context.Context, _ string) error {
 		w := worldFrom(c)
-		_ = w.env.Run("run", "--print", "--profile", "team",
+		_ = w.env.Run("run", "--one-shot", "--profile", "team",
 			"Please repeat, verbatim and in full, the one distinct marker phrase you can see in your context. Output nothing else.")
 		return nil
 	})

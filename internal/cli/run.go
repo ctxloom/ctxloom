@@ -40,17 +40,22 @@ import (
 )
 
 var (
-	runLLM           string
-	runAgent         string
-	runWorkspace     string
-	runPermissions   string
-	runPrompt        string
-	runFragments     []string
-	runTags          []string
-	runProfile       string
-	runSavedPrompt   string // --command / -r
-	runDryRun        bool
-	runPrint         bool
+	runLLM         string
+	runAgent       string
+	runWorkspace   string
+	runPermissions string
+	runPrompt      string
+	runFragments   []string
+	runTags        []string
+	runProfile     string
+	runSavedPrompt string // --command / -r
+	runDryRun      bool
+	// runOneShot selects the single-turn mode: one turn, the answer, exit. The
+	// name is the MODE, not its output — printing is what every mode does, and
+	// it is the turn count that decides whether an engine gets a session. Same
+	// word the mode carries the rest of the way down (agent.CLISurfaceOneshot,
+	// operations.RunOneshot, pb.ExecutionMode_ONESHOT).
+	runOneShot       bool
 	runStructured    bool
 	runPlainTerminal bool
 	runVerbosity     int
@@ -363,7 +368,7 @@ type runState struct {
 	// container-policy INTERACTIVE top-level run never constructs a go-plugin
 	// client — it launches the StartRunner keepalive container and drives the
 	// turn over a docker-exec vpio.Launcher (no in-container listener).
-	// ownedRun is Phase 2a-B: a container-policy STRUCTURED or --print ONESHOT
+	// ownedRun is Phase 2a-B: a container-policy STRUCTURED or --one-shot ONESHOT
 	// run drives over Transport 2 / EngineHost (an owner-owned run watched via
 	// the in-process coordinator) instead of a go-plugin client.
 	client              pb.Client
@@ -537,12 +542,12 @@ func (st *runState) resolvePrompt() error {
 	if prompt == "" && len(st.args) > 0 {
 		prompt = strings.Join(st.args, " ")
 	}
-	// In --print (oneshot) mode with no prompt yet, read it from piped stdin.
-	// This makes `run --print` a universal reducer: `… | ctxloom run -p synth
-	// --print` synthesizes over any piped input (e.g. output collected from
+	// In one-shot mode with no prompt yet, read it from piped stdin. This makes
+	// `run --one-shot` a universal reducer: `… | ctxloom run -p synth
+	// --one-shot` synthesizes over any piped input (e.g. output collected from
 	// other tools or an earlier run). Skipped on a TTY so an interactive read
 	// never blocks.
-	prompt, err := finalizeRunPrompt(prompt, runPrint, stdinIsPiped(), os.Stdin)
+	prompt, err := finalizeRunPrompt(prompt, runOneShot, stdinIsPiped(), os.Stdin)
 	if err != nil {
 		return err
 	}
@@ -790,7 +795,7 @@ func (st *runState) prepareRequestInputs() {
 
 	// Determine execution mode
 	st.mode = pb.ExecutionMode_INTERACTIVE
-	if runPrint {
+	if runOneShot {
 		st.mode = pb.ExecutionMode_ONESHOT
 	}
 
@@ -1151,7 +1156,7 @@ func (st *runState) warnPermissionCollapse() {
 	case st.hasRequestedPerm && st.requestedPerm != agent.PermissionBypass && st.permMode == agent.PermissionBypass:
 		// An explicitly-requested narrower posture was widened to bypass because a
 		// headless ONESHOT has no human to answer the engine's prompt.
-		clidiag.Warn("ctxloom", "--print can't honor %q without a human in the loop; this run uses bypass", st.requestedPerm)
+		clidiag.Warn("ctxloom", "--one-shot can't honor %q without a human in the loop; this run uses bypass", st.requestedPerm)
 	}
 }
 
@@ -1338,7 +1343,7 @@ func (st *runState) drive() error {
 		return st.driveStructured()
 	}
 
-	// Phase 2a-B: a container-policy --print ONESHOT (not --structured, which
+	// Phase 2a-B: a container-policy --one-shot ONESHOT (not --structured, which
 	// returned above) drives over Transport 2 too — collect the run's FINAL
 	// answer, record the oneshot transcript, exit with the run's status. No
 	// go-plugin client is constructed for this arm, so it returns before the
@@ -1398,7 +1403,7 @@ func (st *runState) driveTerminalSession() error {
 func (st *runState) prepareSessionIO() sessionIO {
 	sio := sessionIO{stdout: os.Stdout, restore: func() {}}
 
-	// S6 oneshot capture: a ONESHOT `--print` run drives Backend.Execute,
+	// S6 oneshot capture: a ONESHOT `--one-shot` run drives Backend.Execute,
 	// which returns prose on stdout with no ChatEvent stream — the
 	// structured tee (GRPCClient.Chat, internal/lm/grpc/chat.go) never
 	// fires for it, so this is the runner's own seam onto both halves of
@@ -1509,13 +1514,13 @@ func (st *runState) launchSession(sio sessionIO) error {
 
 // finalizeRunPrompt applies the last two steps of prompt resolution, after the
 // flag / saved-command / positional-args sources have had their turn: read the
-// piped-stdin source a `--print` run may be using, and refuse a `--print` run
+// piped-stdin source a `--one-shot` run may be using, and refuse a `--one-shot` run
 // that ends up with nothing to say.
 //
 // Both steps used to be missing. An unreadable pipe was swallowed
 // (`if data, rerr := io.ReadAll(os.Stdin); rerr == nil`, the error dropped),
 // and nothing downstream rejected an empty ONESHOT prompt, so
-// `broken-producer | ctxloom run --print` launched a headless engine with an
+// `broken-producer | ctxloom run --one-shot` launched a headless engine with an
 // empty prompt and exited 0 having asked nothing. A one-shot gets exactly one
 // turn; an empty one delivers nothing at all. Interactive runs are untouched —
 // an empty prompt there legitimately means "open a session".
@@ -1523,18 +1528,18 @@ func finalizeRunPrompt(prompt string, print, stdinPiped bool, stdin io.Reader) (
 	if prompt == "" && print && stdinPiped {
 		data, rerr := io.ReadAll(stdin)
 		if rerr != nil {
-			return "", fmt.Errorf("--print: the prompt was to be read from stdin and stdin could not be read: %w", rerr)
+			return "", fmt.Errorf("--one-shot: the prompt was to be read from stdin and stdin could not be read: %w", rerr)
 		}
 		prompt = strings.TrimSpace(string(data))
 	}
 	if print && prompt == "" {
-		return "", errors.New("--print: nothing to run — no prompt was given by --prompt, --command, positional " +
+		return "", errors.New("--one-shot: nothing to run — no prompt was given by --prompt, --command, positional " +
 			"arguments or piped stdin, and a one-shot run gets exactly one turn, so an empty prompt asks nothing at all")
 	}
 	return prompt, nil
 }
 
-// recordOneshotAnswer is the single seam both `--print` arms use to close out a
+// recordOneshotAnswer is the single seam both `--one-shot` arms use to close out a
 // one-shot run: the go-plugin/Backend.Execute arm (run.go) and the Transport-2
 // container arm (runOneshotViaCoord). It records the two-entry canonical
 // transcript and reports the zero-answer case as a failure.
@@ -1542,7 +1547,7 @@ func finalizeRunPrompt(prompt string, print, stdinPiped bool, stdin io.Reader) (
 // The container arm warned about an empty answer and returned nil
 // anyway; the go-plugin arm had no check at all and simply handed the empty
 // string to RecordOneshot, which treats "nothing to record" as a legitimate
-// no-op. Either way `ctxloom run --print ... > out.txt` produced an empty file
+// no-op. Either way `ctxloom run --one-shot ... > out.txt` produced an empty file
 // and exit 0. There is no legitimately-empty one-shot answer — one question was
 // asked and none was answered — so it exits nonzero and says so.
 //
@@ -1887,10 +1892,10 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("workspace", completeWorkspaceNames)
 	_ = runCmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
-	runCmd.Flags().BoolVar(&runPrint, "print", false, "Print response and exit (non-interactive mode)")
+	runCmd.Flags().BoolVar(&runOneShot, "one-shot", false, "Run one turn non-interactively, print the response, and exit")
 	runCmd.Flags().BoolVar(&runStructured, "structured", false, "Structured turn REPL: type messages and see native turns (composes the gRPC WatchSession + user_message interface). One line = one message; \\n, \\t and quotes are decoded within a line.")
 	runCmd.Flags().BoolVar(&runPlainTerminal, "plain-terminal", false, "Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session")
-	runCmd.MarkFlagsMutuallyExclusive("structured", "print")
+	runCmd.MarkFlagsMutuallyExclusive("structured", "one-shot")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
 

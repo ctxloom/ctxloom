@@ -129,7 +129,7 @@ func TestRun_SingleFragment(t *testing.T) {
 
 	writeFragment(t, env, "test-fragment", []string{"testing"}, "This is test content.")
 
-	_ = env.Run("run", "-f", "test-fragment", "--print", "test prompt")
+	_ = env.Run("run", "-f", "test-fragment", "--one-shot", "test prompt")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -146,7 +146,7 @@ func TestRun_MultipleFragments(t *testing.T) {
 	writeFragment(t, env, "frag-one", []string{"first"}, "Content from fragment one.")
 	writeFragment(t, env, "frag-two", []string{"second"}, "Content from fragment two.")
 
-	_ = env.Run("run", "-f", "frag-one", "-f", "frag-two", "--print", "combined test")
+	_ = env.Run("run", "-f", "frag-one", "-f", "frag-two", "--one-shot", "combined test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -163,7 +163,7 @@ func TestRun_WithTags(t *testing.T) {
 	writeFragment(t, env, "security-frag", []string{"security"}, "Security guidelines here.")
 	writeFragment(t, env, "style-frag", []string{"style"}, "Style guidelines here.")
 
-	_ = env.Run("run", "-t", "security", "--print", "tag test")
+	_ = env.Run("run", "-t", "security", "--one-shot", "tag test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -184,7 +184,7 @@ bundles:
   - local#fragments/profile-frag
 `)
 
-	_ = env.Run("run", "-p", "test-profile", "--print", "profile test")
+	_ = env.Run("run", "-p", "test-profile", "--one-shot", "profile test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -207,7 +207,7 @@ variables:
   version: "1.21"
 `)
 
-	_ = env.Run("run", "-p", "var-profile", "--print", "var test")
+	_ = env.Run("run", "-p", "var-profile", "--one-shot", "var test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -289,7 +289,7 @@ func TestRun_Agent_ExclusiveWithProfile(t *testing.T) {
 func TestRun_NonexistentFragment(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.Run("run", "-f", "nonexistent", "--print", "test")
+	_ = env.Run("run", "-f", "nonexistent", "--one-shot", "test")
 
 	assert.Equal(t, 1, env.LastExitCode())
 	assert.Contains(t, strings.ToLower(env.LastOutput()), "not found")
@@ -298,7 +298,7 @@ func TestRun_NonexistentFragment(t *testing.T) {
 func TestRun_NonexistentProfile(t *testing.T) {
 	env := setupTestEnv(t)
 
-	_ = env.Run("run", "-p", "nonexistent", "--print", "test")
+	_ = env.Run("run", "-p", "nonexistent", "--one-shot", "test")
 
 	assert.Equal(t, 1, env.LastExitCode())
 	assert.Contains(t, strings.ToLower(env.LastOutput()), "not found")
@@ -321,7 +321,7 @@ fragments:
 `
 	require.NoError(t, env.WriteFile(".ctxloom/content/bundles/lang.yaml", bundleContent))
 
-	_ = env.Run("run", "-f", "lang#fragments/golang", "--print", "test")
+	_ = env.Run("run", "-f", "lang#fragments/golang", "--one-shot", "test")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	recorded, _ := mockLM.GetRecordedInput()
@@ -332,10 +332,10 @@ fragments:
 // TestRun_* case in this file already proves implicitly (Run's stdin is
 // unset, so os/exec gives the child /dev/null, never a tty): a non-tty stdin
 // skips the whole terminal observation layer (surround bar + prefix-key
-// viewer). Unlike those cases, this one omits --print, so the run attempts
+// viewer). Unlike those cases, this one omits --one-shot, so the run attempts
 // INTERACTIVE mode (pb.ExecutionMode_INTERACTIVE) rather than short-circuiting
 // to ONESHOT before ever reaching run_terminal.go's interactiveTerminal —
-// proving the term.IsTerminal(stdin) gate itself, which --print bypasses
+// proving the term.IsTerminal(stdin) gate itself, which --one-shot bypasses
 // entirely, correctly declines to wrap a non-tty stdin.
 func TestRun_NonTTYStdinNeverEngagesTerminalUI(t *testing.T) {
 	env := setupTestEnv(t)

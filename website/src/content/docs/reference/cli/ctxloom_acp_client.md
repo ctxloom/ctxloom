@@ -33,7 +33,10 @@ hoc door onto it: verify a configured ACP agent actually answers before
 wiring it into an agent binding (the acp-setup skill's client branch uses
 it this way).
 
-ACP is structured/headless only (no TUI) — this is one turn, not a session.
+ACP is structured/headless only (no TUI) — this is one turn, not a session,
+which is why --one-shot is required rather than assumed: the flag states the
+mode the invocation actually runs in, the same word 'ctxloom run --one-shot'
+uses.
 
 ```
 ctxloom acp client <prompt> [flags]
@@ -43,6 +46,7 @@ ctxloom acp client <prompt> [flags]
 
 ```
       --llm string       the configured ACP-client llm label to drive (an 'llm:' entry with type: acp; required)
+      --one-shot         Run one turn non-interactively, print the response, and exit (required: this leaf has no interactive form)
       --profile string   profile to assemble context from as the lead fragment (default: none — just the prompt)
       --verbosity int    plugin transport verbosity
       --workdir string   working directory the target agent runs in (default: cwd)

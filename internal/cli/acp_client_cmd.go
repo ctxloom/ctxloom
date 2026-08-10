@@ -17,6 +17,15 @@ var (
 	acpClientProfile   string
 	acpClientWorkDir   string
 	acpClientVerbosity int
+	// acpClientOneShot is `run --one-shot`'s spelling on this leaf, and it is
+	// REQUIRED here rather than defaulted.
+	//
+	// This leaf drives exactly one turn; there is no interactive form of it.
+	// A flag that names a mode implies the other mode exists, so a bare
+	// invocation that quietly behaved as a one-shot would tell a caller they
+	// had opened a session when they had not. Requiring the word says out loud
+	// what the leaf does, without inventing a capability that is not there.
+	acpClientOneShot bool
 )
 
 // acpClientFactory is a test seam over operations.RunOneshot's plugin-client
@@ -66,7 +75,10 @@ hoc door onto it: verify a configured ACP agent actually answers before
 wiring it into an agent binding (the acp-setup skill's client branch uses
 it this way).
 
-ACP is structured/headless only (no TUI) — this is one turn, not a session.`,
+ACP is structured/headless only (no TUI) — this is one turn, not a session,
+which is why --one-shot is required rather than assumed: the flag states the
+mode the invocation actually runs in, the same word 'ctxloom run --one-shot'
+uses.`,
 	Args: cobra.ExactArgs(1),
 	RunE: runACPClient,
 }
@@ -123,6 +135,8 @@ func init() {
 	acpClientCmd.Flags().StringVar(&acpClientProfile, "profile", "", "profile to assemble context from as the lead fragment (default: none — just the prompt)")
 	acpClientCmd.Flags().StringVar(&acpClientWorkDir, "workdir", "", "working directory the target agent runs in (default: cwd)")
 	acpClientCmd.Flags().IntVar(&acpClientVerbosity, "verbosity", 0, "plugin transport verbosity")
+	acpClientCmd.Flags().BoolVar(&acpClientOneShot, "one-shot", false, "Run one turn non-interactively, print the response, and exit (required: this leaf has no interactive form)")
+	_ = acpClientCmd.MarkFlagRequired("one-shot")
 	_ = acpClientCmd.RegisterFlagCompletionFunc("llm", completeLLMNames)
 	_ = acpClientCmd.RegisterFlagCompletionFunc("profile", completeProfileNames)
 }

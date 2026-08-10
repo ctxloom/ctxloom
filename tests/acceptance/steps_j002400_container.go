@@ -120,7 +120,7 @@ func registerJ002400Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 
-		_ = w.env.Run("run", "--agent", agentName, "--print", "where-did-i-run")
+		_ = w.env.Run("run", "--agent", agentName, "--one-shot", "where-did-i-run")
 		if code := w.env.LastExitCode(); code != 0 {
 			return fmt.Errorf("run --agent %s exited %d; output:\n%s", agentName, code, w.env.LastOutput())
 		}

@@ -160,7 +160,7 @@ ctxloom run -f go-rules --dry-run
 ```
 
 `--dry-run` prints the assembled context, the fragments loaded and the token
-estimate, then stops. (It is not combined with `--print`; `--print` is the
+estimate, then stops. (It is not combined with `--one-shot`; `--one-shot` is the
 separate "run non-interactively and print the response" flag, and `--dry-run`
 returns before it is ever consulted.)
 

@@ -208,7 +208,7 @@ in scoped and global listings alike — they are never hidden.
 | `ctxloom run -p <typo>` or an unloadable bundle ref | exit 0, zero MCP servers / hooks / commands / skills delivered | strictness finding — warns always, aborts in strict mode, `--degraded` downgrades |
 | Transcript export / clipboard copy of an all-notice feed | wrote a **0-byte file** reporting `saved`; clipboard copy emitted OSC 52 **clear** while reporting `copied` | both refused |
 | A transcript export whose `kind` is unknown | wrote a file whose extension lied about its contents | refused |
-| `ctxloom run --print`, `map`, `weave`, a delegated turn or `acp client` where the engine exits 0 with **no output** | exit 0, empty report / empty `Part.Output` / empty assistant turn | non-zero, carrying the engine's stderr (in a fan this is one member's error `Part`, not the whole call) |
+| `ctxloom run --one-shot`, `map`, `weave`, a delegated turn or `acp client` where the engine exits 0 with **no output** | exit 0, empty report / empty `Part.Output` / empty assistant turn | non-zero, carrying the engine's stderr (in a fan this is one member's error `Part`, not the whole call) |
 | A `map`/`weave` member (or delegated child) whose **named profiles** assemble to nothing | ran context-free, produced plausible output | non-zero — a run naming no profile is still legitimately context-free |
 | `ctxloom manage hooks uninstall --backend <typo>` | `Status: "removed"` listing the typo, nothing removed | non-zero, naming the supported backends |
 
@@ -232,16 +232,16 @@ in scoped and global listings alike — they are never hidden.
 
 | Surface | Before | Now |
 |---|---|---|
-| A top-level container **one-shot** run (`ctxloom run --print` on `runtime: container`) with an empty composed prompt | exit 0, run launched, **zero payload delivered** | refused before the runner starts, naming the empty first turn (U023-F17) |
+| A top-level container **one-shot** run (`ctxloom run --one-shot` on `runtime: container`) with an empty composed prompt | exit 0, run launched, **zero payload delivered** | refused before the runner starts, naming the empty first turn (U023-F17) |
 | A delegated child whose `StartRun` would carry no first turn — no composed prompt, no resume session id, no queued mail | attached and sat idle in `executing`, having been told nothing | the run fails terminal with the reason (U023-F17) |
 | A child that starts and exits repeatedly **without consuming its mail** | relaunched forever at zero backoff | bounded by the same budget a failing launch gets, with backoff, then a loud give-up to the parent's mailbox (U023-F02) |
 | Retry-budget exhaustion for a cause other than `launch_failed` | silent; the child's mail stayed queued and nobody was told | the parent's mailbox and stderr both learn (U023-F02) |
 | `ctxloom remote pull` where the remote's `manifest.yaml` exists but does not parse | treated as **not retracted**, pull proceeded | non-zero: the retraction status is UNKNOWN and the pull stops, `--force` included (U150-F04) |
 | A profile using `deny_tools` | `ctxloom run` aborted in strict mode; degraded mode printed "it is IGNORED", which was false | accepted, as the loader always honoured it (U049-F01) |
-| A container `--print` one-shot that streamed **zero answer bytes** | a warning, an empty file, **exit 0** | non-zero: the engine ran and answered nothing, so there is nothing to print or record (U041-F01) |
-| A **host** (go-plugin) `--print` one-shot that produced zero answer bytes | no check at all: an empty file, **exit 0**, nothing said | non-zero, through the same seam as the container arm (U041-F02) |
-| `broken-producer \| ctxloom run --print` where stdin cannot be read | the read error was discarded and the run launched with an empty prompt, **exit 0** | non-zero, naming the read failure (U041-F03) |
-| `ctxloom run --print` with no prompt from any source (flag, `--command`, args, pipe) | launched a headless engine that asked nothing, **exit 0** | non-zero: "nothing to run" (U041-F03) |
+| A container `--one-shot` one-shot that streamed **zero answer bytes** | a warning, an empty file, **exit 0** | non-zero: the engine ran and answered nothing, so there is nothing to print or record (U041-F01) |
+| A **host** (go-plugin) `--one-shot` one-shot that produced zero answer bytes | no check at all: an empty file, **exit 0**, nothing said | non-zero, through the same seam as the container arm (U041-F02) |
+| `broken-producer \| ctxloom run --one-shot` where stdin cannot be read | the read error was discarded and the run launched with an empty prompt, **exit 0** | non-zero, naming the read failure (U041-F03) |
+| `ctxloom run --one-shot` with no prompt from any source (flag, `--command`, args, pipe) | launched a headless engine that asked nothing, **exit 0** | non-zero: "nothing to run" (U041-F03) |
 
 Two silent-loss fixes carry **no** exit-code change, only correct behaviour:
 
@@ -251,7 +251,7 @@ Two silent-loss fixes carry **no** exit-code change, only correct behaviour:
   reached the log (U023-F24).
 - The `ui:` config section (`prefix_key`, `surround`) is now actually written by
   `Save()`/`Marshal()`. It had been accepted and silently discarded (U049-F03).
-- A container `--print` one-shot's answer is no longer read across a data race. The
+- A container `--one-shot` one-shot's answer is no longer read across a data race. The
   render goroutine kept appending to the answer buffer while the main goroutine read
   it at the turn boundary, and both wrote stdout at once — so an answer could be
   truncated, or the trailing newline could land mid-answer, on a run that reported
@@ -584,6 +584,38 @@ no directory to resolve files against. A skill with a synced (authored) manifest
 is unaffected: those are hashed from the manifest and never touched the
 filesystem, so companion and remote bundles carry them exactly as before.
 
+## Two invocations are spelled differently
+
+These are the only two renames in this release, and both are hard breaks: the
+old spelling is gone rather than aliased. Carrying two names for one thing puts
+the ambiguity in help, in scripts, and in every future reader's head, and this
+project's upgrade path is re-spelling, not a shim.
+
+| What you typed | What you type now | Why |
+| --- | --- | --- |
+| `ctxloom mcp` (as the stdio MCP server) | `ctxloom mcp serve` | The bare noun now lists this project's configured MCP servers, like every other noun's bare form. One spelling per concept, symmetric with `acp serve`. |
+| `ctxloom run --print` | `ctxloom run --one-shot` | `--print` named the OUTPUT, which every mode produces. What distinguishes the mode is that it takes one turn and exits — the word the code already uses for it. |
+
+**`ctxloom mcp` is the one to act on**, because a stale entry is silent. Your
+engines' settings files still name the old invocation, and an engine launching
+it starts perfectly: the ctxloom tools simply never appear, because the client
+is waiting on a JSON-RPC handshake that a server listing cannot satisfy. Nothing
+in the session says so.
+
+Run **`ctxloom doctor`**: `DOCTOR-CHECK-MCP-INVOCATION-g7` reads the ctxloom
+entry inside every engine's own registry (`.mcp.json`,
+`.agents/mcp_config.json`, `.kiro/settings/mcp.json`, `.codex/config.toml`,
+`opencode.json`) and names any file still carrying the old spelling. Re-run
+`ctxloom init` to rewrite them.
+
+Typing the bare noun where a machine expects the protocol is caught too: off a
+terminal, `ctxloom mcp` refuses and names `mcp serve` rather than printing a
+listing into a pipe that cannot frame it.
+
+`ctxloom acp client` also takes `--one-shot`, and **requires** it. That leaf
+drives exactly one turn and has no interactive form, so the flag states the mode
+rather than leaving a bare invocation to imply a session it never opens.
+
 ## Upgrading
 
 1. **Run your CI once and read the exit codes.** Anything newly failing was already
@@ -601,7 +633,7 @@ filesystem, so companion and remote bundles carry them exactly as before.
 ## What is deliberately NOT changed
 
 - Legitimately empty results still succeed.
-- `ctxloom run` with **no** prompt and no `--print` still opens an interactive session. Only
+- `ctxloom run` with **no** prompt and no `--one-shot` still opens an interactive session. Only
   the one-shot arm, which gets exactly one turn, refuses an empty prompt.
 - Version-only bundle skeletons still publish.
 - A skill that has been through `ctxloom skill sync` hashes exactly as before, and its

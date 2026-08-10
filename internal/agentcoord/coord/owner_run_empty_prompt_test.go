@@ -19,7 +19,7 @@ import (
 // same shape as the known `runtime:container` prompt-delivery defect, and
 // ctxloom's characteristic silent no-op.
 //
-// The discriminator is Oneshot. A --print single-turn run gets exactly ONE
+// The discriminator is Oneshot. A --one-shot single-turn run gets exactly ONE
 // turn and this prompt is it, so an empty one can only ever be a delivery
 // failure. A STRUCTURED run legitimately opens with no lead and takes its
 // turns via SendOwnedRunTurn, so an empty prompt there is "nothing to do,

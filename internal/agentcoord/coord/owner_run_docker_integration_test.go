@@ -8,7 +8,7 @@
 //
 // Unlike container_direct_docker_integration_test.go (the DELEGATED path via
 // AgentRun/StartEngine), this exercises the TOP-LEVEL owner-owned path the
-// `ctxloom run --structured` / `--print` container arm wires to (run_owned.go):
+// `ctxloom run --structured` / `--one-shot` container arm wires to (run_owned.go):
 // StartOwnedRun mints the parent-less run and issues StartRun over the same
 // RunnerChannel; the container is launched through the production
 // isolation.Container.StartRunner (the identical primitive the host uses).
@@ -206,7 +206,7 @@ func TestCoordOwnerRun_StructuredAndOneshot_NoPluginNoPort(t *testing.T) {
 	}, 15*time.Second, 250*time.Millisecond, "closing the coordinator must force-remove the owner-owned run's container")
 }
 
-// TestCoordOwnerRun_Oneshot_NoPluginNoPort is the --print ONESHOT arm's
+// TestCoordOwnerRun_Oneshot_NoPluginNoPort is the --one-shot ONESHOT arm's
 // docker-gated proof: an owner-owned run marked Oneshot delivers its single
 // turn's answer over Transport 2 with the same zero-listener guarantee. The
 // Oneshot flag changes only the HOST's wait mode (runOneshotViaCoord collects

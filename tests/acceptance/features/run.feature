@@ -3,6 +3,31 @@ Feature: Run
   the mock backend the full path is observable: the assembled context reaches the
   model, and the model's reply reaches the user.
 
+  A run is either a SESSION or a single turn, and `--one-shot` is how a caller
+  says which. The flag names the mode, not its output: every mode prints, and
+  what actually differs is that a one-shot takes one turn and exits.
+
+  # THE MODE HAS ONE SPELLING. A caller reaching for it by a name it does not
+  # have must not get a run they did not ask for. An unknown flag is an error,
+  # and that error is what makes the real spelling discoverable; an alias
+  # quietly accepted alongside it would leave two names for one mode forever,
+  # in help, in scripts, and in every future reader's head.
+  Scenario: A flag that is not the mode's name is refused rather than guessed at
+    Given an initialized ctxloom project
+    When I run "ctxloom run --print hello"
+    Then the command fails
+    And the output contains "unknown flag"
+
+  # The two flags select DIFFERENT execution modes, so an invocation naming
+  # both is a caller who has not decided. Resolving that by picking one
+  # silently is the shape where an invocation reads as precise and runs as
+  # something else.
+  Scenario: Asking for both execution modes at once is refused
+    Given an initialized ctxloom project
+    When I run "ctxloom run --one-shot --structured hello"
+    Then the command fails
+    And the output contains "one-shot"
+
   # "the output contains dev" was satisfied by the dry-run header, which names
   # the profile whether or not assembly produced anything: a run that loaded
   # zero fragments and assembled an empty context passed. What a dry run is FOR
@@ -28,7 +53,7 @@ Feature: Run
     And a fragment "testing" in bundle "demo" exists
     And a profile "dev" with bundle "demo"
     And the mock LLM responds "MOCK-REPLY"
-    When I run "ctxloom run --print --profile dev unicorn-prompt"
+    When I run "ctxloom run --one-shot --profile dev unicorn-prompt"
     Then the command succeeds
     And the output contains "MOCK-REPLY"
     And the mock recorded input contains "FRAGMENT-BODY-testing"
@@ -45,7 +70,7 @@ Feature: Run
     And a bundle "demo" exists
     And a profile "guarded" with bundle "demo" and deny_tools "WebFetch"
     And the mock LLM responds "MOCK-REPLY"
-    When I run "ctxloom run --print --profile guarded unicorn-prompt"
+    When I run "ctxloom run --one-shot --profile guarded unicorn-prompt"
     Then the command succeeds
     And the mock recorded input contains "WebFetch"
 

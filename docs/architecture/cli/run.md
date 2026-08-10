@@ -98,7 +98,7 @@ flowchart TD
     end
 
     subgraph out["8. session record + exit"]
-        T1["transcript.RecordOneshot :1276-1280 (--print)"]
+        T1["transcript.RecordOneshot :1276-1280 (--one-shot)"]
         T2["convertVendorTranscriptOnExit :1292 (INTERACTIVE)"]
         T3["distillSessionOnExit :852"]
         X["status.Code != 0 → ExitError{status.Code} :1296"]
@@ -128,8 +128,8 @@ flowchart TD
 | `--workspace` | `runWorkspace` | Session workspace axis: `none`\|`worktree` |
 | `--permissions` | `runPermissions` | `default`\|`acceptEdits`\|`plan`\|`bypass` |
 | `-n, --dry-run` | `runDryRun` | Resolve everything, print the plan, touch nothing stateful |
-| `--print` | `runPrint` | Headless oneshot: print the response and exit |
-| `--structured` | `runStructured` | Structured turn REPL (NDJSON); mutually exclusive with `--print` |
+| `--one-shot` | `runOneShot` | Headless oneshot: print the response and exit |
+| `--structured` | `runStructured` | Structured turn REPL (NDJSON); mutually exclusive with `--one-shot` |
 | `--plain-terminal` | `runPlainTerminal` | Disable ctxloom's terminal layer (prefix-key viewer + surround bar) |
 | `-v, --verbose` | `runVerbosity` | Repeatable count |
 | `-y, --yes` | `runAssumeYes` | Auto-confirm the install-on-startup prompt |
@@ -231,12 +231,12 @@ The whole file has zero test coverage (`rg "ViaCoord|ownedRunSession|renderOwned
 
 ## Documented vs real
 
-- `--print` on the go-plugin arm has no zero-byte guard: `transcript.RecordOneshot`
+- `--one-shot` on the go-plugin arm has no zero-byte guard: `transcript.RecordOneshot`
   (`:1276-1280`) is called unconditionally, and that function returns `nil` for an
   empty harp or empty prompt+output. The Transport-2 arm does check
   (`run_owned.go:208-216`) but warns and still returns `nil`.
 - Piped-stdin prompt sourcing (`:432-436`) discards the `io.ReadAll` error and
-  never checks that the resulting prompt is non-empty, so `… | ctxloom run --print`
+  never checks that the resulting prompt is non-empty, so `… | ctxloom run --one-shot`
   with an empty pipe launches a headless run with nothing to do.
 - `run_owned.go:86` subscribes with `c.WatchRuns(nil)` — a nil filter means
   *every* run, on a 256-slot ring that drops on overflow, with no sequence-gap

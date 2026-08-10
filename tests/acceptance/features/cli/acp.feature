@@ -107,6 +107,24 @@ Feature: acp — the editor door, and the entries an editor is told to paste
       Then the command succeeds
       And the output contains "no hooks fire and no session history is captured"
 
+  # DRIVING AN ACP AGENT OUT IS ONE TURN, AND THE INVOCATION SAYS SO.
+  #
+  # `acp client` drives a single turn against a configured ACP agent and exits.
+  # It takes `--one-shot`, the same word `ctxloom run` uses for that mode, and
+  # the flag is REQUIRED rather than assumed: a flag that names a mode implies
+  # the other mode exists, so a bare invocation quietly behaving as a one-shot
+  # would tell a caller they had opened a session when they had not.
+  #
+  # No scenario here drives that refusal, and the omission is deliberate rather
+  # than an oversight. `acp client` is on completeness_test.go's
+  # allowlisted-uncovered list precisely because this harness cannot reach its
+  # behaviour at all (see the note at the top of this file), and a scenario
+  # whose whole content is a flag-validation error would CREDIT the leaf to the
+  # coverage gate while proving nothing about what it does — the vacuous
+  # coverage that gate exists to refuse. The refusal is pinned in internal/cli
+  # (TestACPClient_RequiresOneShotToBeStated) until the ACP client harness
+  # tracked by taskloom agile-satin makes the leaf itself reachable.
+
   Rule: The group node refuses what it cannot honour
 
     `ctxloom acp` on its own is a group, not a runnable command. A flag it

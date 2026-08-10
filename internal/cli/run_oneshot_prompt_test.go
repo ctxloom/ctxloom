@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// `--print` is a one-shot. It gets exactly one turn, and the prompt
+// `--one-shot` is a one-shot. It gets exactly one turn, and the prompt
 // is that turn — so every way of ending up without one has to be loud. Two
 // were silent: an unreadable pipe (the io.ReadAll error was dropped on the
 // floor) and an empty prompt after every source was exhausted, which launched
@@ -26,7 +26,7 @@ func (failingReader) Read([]byte) (int, error) { return 0, assert.AnError }
 func TestFinalizeRunPrompt_UnreadableStdinIsAnError(t *testing.T) {
 	_, err := finalizeRunPrompt("", true, true, failingReader{})
 
-	require.Error(t, err, "a --print run whose only prompt source could not be read must not proceed")
+	require.Error(t, err, "a --one-shot run whose only prompt source could not be read must not proceed")
 	assert.ErrorIs(t, err, assert.AnError, "the underlying read failure must be reported, not swallowed")
 }
 
@@ -38,7 +38,7 @@ func TestFinalizeRunPrompt_EmptyPrintPromptIsAnError(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			_, err := finalizeRunPrompt("", true, true, strings.NewReader(stdin))
 
-			require.Error(t, err, "a --print run with nothing to ask must not launch an engine")
+			require.Error(t, err, "a --one-shot run with nothing to ask must not launch an engine")
 			assert.Contains(t, err.Error(), "nothing to run")
 		})
 	}
@@ -67,7 +67,7 @@ func TestFinalizeRunPrompt_KeepsWorkingCases(t *testing.T) {
 	assert.Empty(t, got)
 }
 
-// TestRecordOneshotAnswer_EmptyAnswerFails pins a fix: the go-plugin --print
+// TestRecordOneshotAnswer_EmptyAnswerFails pins a fix: the go-plugin --one-shot
 // arm handed an empty capture straight to transcript.RecordOneshot, whose
 // contract is that "nothing to record" is a legitimate no-op — so a run that
 // answered nothing wrote nothing, said nothing and exited 0.

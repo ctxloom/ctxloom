@@ -372,7 +372,7 @@ nothing, so run `ctxloom review --project` locally and commit `.ctxloom/approval
 alongside the lockfile. Without it the profile still resolves but its remote
 fragments are withheld, and the assembled context comes out empty.
 
-Actually running the engine in CI (`ctxloom run -p code-reviewer --print
+Actually running the engine in CI (`ctxloom run -p code-reviewer --one-shot
 "..." > review.md`) is possible, but it is a bigger lift than it looks: `run`
 launches the configured engine as a child process, so the job must also install
 that engine's binary and supply its credentials as secrets.

@@ -174,7 +174,7 @@ ctxloom run \
   --dry-run
 ```
 
-`--dry-run` prints the assembled context and stops. (`--print` is a different
+`--dry-run` prints the assembled context and stops. (`--one-shot` is a different
 thing: it runs the engine non-interactively and prints its response. Passing
 both is pointless — `--dry-run` returns before the engine is ever launched.)
 

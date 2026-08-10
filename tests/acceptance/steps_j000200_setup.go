@@ -219,7 +219,7 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 		if !w.j000200Live {
 			return fmt.Errorf("j000200: reached this step with w.j000200Live still false -- the scenario's own live-agent Given should have skipped the whole scenario before this ran")
 		}
-		_ = w.env.Run("run", "--print", "--profile", "default",
+		_ = w.env.Run("run", "--one-shot", "--profile", "default",
 			"Please repeat, verbatim and in full, every distinct marker phrase you can see in your context. Output nothing else.")
 		return nil
 	})

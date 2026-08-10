@@ -158,7 +158,7 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 		if err := w.env.WriteHomeFile(".ctxloom/config.yaml", j002200HomeConfigYAML(recPath)); err != nil {
 			return err
 		}
-		if err := runOK(w, "run", "--agent", "mock", "--workspace", workspace, "--print", prompt); err != nil {
+		if err := runOK(w, "run", "--agent", "mock", "--workspace", workspace, "--one-shot", prompt); err != nil {
 			return err
 		}
 		body, err := os.ReadFile(recPath)
@@ -296,7 +296,7 @@ func registerJ002200Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		j002200.lastContainerRecPath = recPath
-		args := []string{"run", "--agent", "mock-container", "--print"}
+		args := []string{"run", "--agent", "mock-container", "--one-shot"}
 		if flags != "" {
 			args = append(args, strings.Fields(flags)...)
 		}

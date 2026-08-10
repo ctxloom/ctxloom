@@ -233,7 +233,7 @@ profiles:
 	// config-home (a COPY, replacing the former linkUserCodexAuth symlink).
 	//
 	// PRODUCT BUG FOUND while proving this live (2026-07-14, direct
-	// `ctxloom run --print` against a real authenticated codex, NOT via this
+	// `ctxloom run --one-shot` against a real authenticated codex, NOT via this
 	// suite — see the codex-live-proof session): codex's run-path composed
 	// context cache file (.ctxloom/cache/context/<hash>.md, written by the
 	// RawContext Setup step) carries ONLY companion-contributed fragments

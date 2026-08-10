@@ -212,13 +212,13 @@ _require-generated:
     set -euo pipefail
     missing=()
     while IFS= read -r proto; do
-        case "$proto" in ./internal/agentcoord/google/*) continue ;; esac
+        case "$proto" in internal/agentcoord/google/*) continue ;; esac
         stem="${proto%.proto}"
         [ -f "$stem.pb.go" ] || missing+=("$stem.pb.go")
         if grep -q '^service ' "$proto"; then
             [ -f "${stem}_grpc.pb.go" ] || missing+=("${stem}_grpc.pb.go")
         fi
-    done < <(find . -name '*.proto' -not -path './.git/*' | sort)
+    done < <(git ls-files '*.proto' | sort)
     if [ "${#missing[@]}" -ne 0 ]; then
         echo "error: generated protobuf missing in this worktree (*.pb.go is gitignored, so a fresh git worktree never has it):" >&2
         printf '  %s\n' "${missing[@]}" >&2

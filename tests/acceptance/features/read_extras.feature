@@ -1,5 +1,10 @@
 Feature: Additional read and configuration commands
-  Coverage for the remaining show/search/modify/registration commands.
+  Coverage for the remaining show/registration commands.
+
+  The search and profile-modify scenarios that used to live here moved into
+  the per-noun specs (cli/search.feature, cli/profile.feature) when those took
+  over their nouns. What remains is the two item-content reads and the MCP
+  auto-registration round-trip, none of which has a per-noun home yet.
 
   # "the output contains <name>" asserted nothing about the CONTENT: `show`
   # prints the item name as a header, echoed straight from the argument, so
@@ -14,20 +19,6 @@ Feature: Additional read and configuration commands
     And the output contains "testing"
     And the output contains "FRAGMENT-BODY-testing"
 
-  # See search.feature: --type is a claim about EXCLUSION, so the fixture seeds
-  # a command the same query matches by name and the scenario asserts it is
-  # gone.
-  Scenario: Search fragments by name
-    Given an initialized ctxloom project
-    And a bundle "demo" exists
-    And a fragment "testing" in bundle "demo" exists
-    And a command "testing-review" in bundle "demo" exists
-    When I run "ctxloom search --type fragment testing"
-    Then the command succeeds
-    And the output contains "Results (1):"
-    And the output contains "testing"
-    And the output does not contain "testing-review"
-
   Scenario: Show a prompt's content
     Given an initialized ctxloom project
     And a bundle "demo" exists
@@ -36,15 +27,6 @@ Feature: Additional read and configuration commands
     Then the command succeeds
     And the output contains "review"
     And the output contains "COMMAND-BODY-review"
-
-  Scenario: Modify a profile's description
-    Given an initialized ctxloom project
-    And a bundle "demo" exists
-    And a profile "dev" with bundle "demo"
-    When I run "ctxloom profile modify dev -d updated-desc"
-    Then the command succeeds
-    When I run "ctxloom profile show dev"
-    Then the output contains "updated-desc"
 
   Scenario: Disabling MCP auto-registration removes the server on re-apply
     Given an initialized ctxloom project

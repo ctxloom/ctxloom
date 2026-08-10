@@ -1,10 +1,12 @@
 Feature: Agent bindings
   Agents are LOCAL engine↔profile bindings (config `agents:`) with an optional
-  runtime axis; `init prompt` emits the interview prompt; `acp list` advertises
-  one ACP server entry per binding.
+  runtime axis; `acp list` advertises one ACP server entry per binding.
 
-  The container-image surface this file used to carry has its own per-noun
-  spec — see cli/container.feature.
+  Two surfaces this file used to carry now have per-noun specs of their own.
+  The `container tooling` / `container scaffold` / `container check` scenarios
+  moved to cli/container.feature. The `init prompt` scenario moved to
+  cli/init.feature, where it asserts the interview's phase headings rather than
+  a single token.
 
   Scenario: Agent create, list, show, edit, and remove lifecycle
     Given an initialized ctxloom project
@@ -68,12 +70,6 @@ Feature: Agent bindings
     When I run "ctxloom agent edit nosuchagent --profiles dev"
     Then the command fails
     And the output contains "no agent named"
-
-  Scenario: Init prompt emits the interview prompt
-    Given an initialized ctxloom project
-    When I run "ctxloom init prompt"
-    Then the command succeeds
-    And the output contains "SCAN"
 
   # The `container tooling`, `container scaffold` and `container check`
   # scenarios that used to live here MOVED to cli/container.feature, the

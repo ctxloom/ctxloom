@@ -46,14 +46,12 @@ func TestHomeRootedResolvers_WrapTheHomeFailure(t *testing.T) {
 	bare := withUnresolvableHome(t)
 
 	noArg := map[string]func() (string, error){
-		"HomeSessionsDir":             HomeSessionsDir,
-		"SessionIndexPath":            SessionIndexPath,
-		"HomeApprovalsPath":           HomeApprovalsPath,
-		"HomePublishRemotesPath":      HomePublishRemotesPath,
-		"HomeLegacyPublishRemotesDir": HomeLegacyPublishRemotesDir,
-		"HomeAllowedSignersPath":      HomeAllowedSignersPath,
-		"HomeDistrustedSignersPath":   HomeDistrustedSignersPath,
-		"TriggerCacheDir":             TriggerCacheDir,
+		"HomeSessionsDir":           HomeSessionsDir,
+		"SessionIndexPath":          SessionIndexPath,
+		"HomeApprovalsPath":         HomeApprovalsPath,
+		"HomeAllowedSignersPath":    HomeAllowedSignersPath,
+		"HomeDistrustedSignersPath": HomeDistrustedSignersPath,
+		"TriggerCacheDir":           TriggerCacheDir,
 	}
 	harpArg := map[string]func(string) (string, error){
 		"HarpDir":                            HarpDir,

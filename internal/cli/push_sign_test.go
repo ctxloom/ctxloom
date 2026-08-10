@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/afero"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh/agent"
@@ -71,22 +70,8 @@ remotes:
 	mgr = remote.NewPublishManager(registry, remote.AuthConfig{},
 		remote.WithPublisherFactory(func(_ string, _ remote.AuthConfig) (remote.Publisher, error) { return pub, nil }),
 		remote.WithPublishFetcherFactory(func(_ string, _ remote.AuthConfig) (remote.Fetcher, error) { return mockFetcher, nil }),
-		confirmedPublishDestination(t, "https://github.com/example/personal-bundles"),
 	)
 	return cfg, pub, mgr
-}
-
-// confirmedPublishDestination pre-records the destination confirmation these
-// fixtures need, in a throwaway store. Every publish passes that gate, so a
-// fixture about signing or about flag carrying must satisfy it explicitly
-// rather than testing it by accident. The gate itself is proven in both
-// directions in internal/remote's publish_confirm_test.go.
-func confirmedPublishDestination(t *testing.T, url string) remote.PublishManagerOption {
-	t.Helper()
-	store := remote.NewPublishRemoteStore(filepath.Join(t.TempDir(), "publish_remotes.yaml"), afero.NewOsFs())
-	_, err := store.Set(remote.NewPublishRemoteKey(url), true)
-	require.NoError(t, err)
-	return remote.WithPublishRemoteStore(store)
 }
 
 func TestPushBundleCfg_SignFlagPublishesVerifiableSig(t *testing.T) {

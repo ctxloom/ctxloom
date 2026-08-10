@@ -217,16 +217,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"companion trust":  {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
 	"companion untrust": {skip: "needs a recorded decision to remove; covered by trust_cli.feature"},
 
-	// Read-only over ~/.ctxloom/publish_remotes.yaml, the same shape as
-	// `companion list` above.
-	"remote trusted": {extraArgs: noExtraArgs},
-	// Both WRITE the personal publish-destination record, and this harness
-	// isolates the project root but not $HOME — running them here would edit
-	// the developer's own store. Exercised end to end (in a scenario HOME) by
-	// trust_cli.feature instead.
-	"remote trust":  {skip: "writes the personal publish-destination record and this harness does not isolate $HOME; covered by trust_cli.feature"},
-	"remote untrust": {skip: "needs a recorded decision to remove and writes the personal record; covered by trust_cli.feature"},
-
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
 	// Three of these ARE format debt too (bundle_hold_cli.go's hold/unhold
 	// RunEs, and runBundleMCPEdit never call emit() — confirmed absent from

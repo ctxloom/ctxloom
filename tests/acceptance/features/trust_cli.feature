@@ -2,9 +2,12 @@ Feature: Trusting and untrusting, on the noun that owns the thing
   Trust is a posture toward something, so the verb lives on the noun that owns
   it. `bundle trust`/`bundle untrust` decide about ITEM CONTENT — one fragment,
   command, MCP server or hook at a time. `companion trust`/`untrust` decide
-  which binaries may be EXECUTED. `remote trust`/`untrust` decide where signed
-  content may be PUBLISHED. `signer trust`/`untrust` decide whose signature
-  stands in for review at all.
+  which binaries may be EXECUTED. `signer trust`/`untrust` decide whose
+  signature stands in for review at all.
+
+  There is no verb for publish DESTINATIONS, and that is the model, not a gap:
+  registering a remote is the consent. `ctxloom remote create` is a deliberate
+  act naming a URL, and `bundle push` honors it.
 
   Each is proven in BOTH directions, because one direction alone proves
   nothing: a scenario that only checks the trusted path passes against a system
@@ -92,37 +95,3 @@ Feature: Trusting and untrusting, on the noun that owns the thing
     When I run "ctxloom companion list"
     Then the command succeeds
     And the output does not contain "ctxloom-companion-acme"
-
-  # Publish destinations. The first publish to a given non-GitHub remote asks
-  # once and records the answer; a session with nobody to ask REFUSES. That
-  # refusal used to be a dead end for exactly the callers it fires for: the
-  # only way to record a confirmation was to "run the same publish once from an
-  # interactive terminal", which a CI runner and an agent host cannot do. These
-  # three leaves are the provisioning path, and the assertions are on the
-  # recorded DECISION each one produces — an empty listing and a listing that
-  # never mentions the remote are the same pixels and very different facts, so
-  # both the presence and the absence are asserted.
-  Scenario: Publish destinations are listable, allowable and revocable without a terminal
-    Given an initialized ctxloom project
-    When I run "ctxloom remote trusted"
-    Then the command succeeds
-    And the output contains "no publish destinations recorded"
-    When I run "ctxloom remote trust https://git.example.com/team/bundles"
-    Then the command succeeds
-    And the output contains "ctxloom will publish there without asking"
-    When I run "ctxloom remote trusted"
-    Then the command succeeds
-    And the output contains "allowed"
-    And the output contains "https://git.example.com/team/bundles"
-    # One repository is ONE destination: the ssh spelling of the URL just
-    # allowed must already be recorded, never asked about a second time.
-    When I run "ctxloom remote untrust git@git.example.com:team/bundles.git"
-    Then the command succeeds
-    And the output contains "forgot 1 decision(s)"
-    When I run "ctxloom remote trusted"
-    Then the command succeeds
-    And the output contains "no publish destinations recorded"
-    # Undoing something nobody recorded reports zero rather than succeeding silently.
-    When I run "ctxloom remote untrust https://git.example.com/team/bundles"
-    Then the command succeeds
-    And the output contains "forgot 0 decisions"

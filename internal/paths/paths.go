@@ -59,24 +59,6 @@ const (
 	// committable) — see HomeApprovalsPath / ApprovalsPath.
 	ApprovalsDirName = "approvals"
 
-	// PublishRemotesFileName is the name (without extension) of the
-	// confirmed-publish-remote record: which remote URLs the user has
-	// explicitly confirmed as destinations for their signed content.
-	// USER-SCOPED ONLY — unlike ApprovalsDirName there is no committable twin;
-	// see HomePublishRemotesPath for why.
-	PublishRemotesFileName = "publish_remotes"
-
-	// LegacyPublishRemotesDirName is PublishRemotesFileName's PRE-ADMISSION
-	// name: the directory (~/.ctxloom/publish-remotes/, hyphenated) the
-	// confirmed-publish-remote store used to be — a MARKER DIRECTORY holding
-	// one <sha256>.confirmed file per confirmed remote, the file's EXISTENCE
-	// being the whole record. It was replaced by a single
-	// admission.Store-backed YAML file at PublishRemotesFileName, and nothing
-	// reads consent from here anymore (this project carries no compatibility
-	// shims; a user who had confirmed remotes there is simply asked once
-	// more). This constant exists ONLY so the orphaned directory can be
-	// found and swept — see remote.sweepLegacyPublishRemotesDir.
-	LegacyPublishRemotesDirName = "publish-remotes"
 	// CompanionConsentFileName is the name (without extension) of the
 	// trust-on-first-use record for EXECUTING a companion binary — see
 	// HomeCompanionConsentPath. It is deliberately a PERSONAL-only file with no
@@ -510,47 +492,6 @@ func HomeApprovalsPath() (string, error) {
 		return "", fmt.Errorf("resolve the user countersignature store ~/%s/%s: %w", AppDirName, ApprovalsDirName, err)
 	}
 	return filepath.Join(home, AppDirName, ApprovalsDirName), nil
-}
-
-// HomePublishRemotesPath returns ~/.ctxloom/publish_remotes.yaml — the record
-// of which remotes this user has explicitly confirmed as publish destinations
-// (see remote.PublishRemoteStore, an internal/shared/admission store).
-//
-// IT IS PERSONAL AND HAS NO COMMITTABLE TWIN, deliberately, and the asymmetry
-// with ApprovalsPath is the point. An approval says "these bytes are good",
-// which a team genuinely can share. A publish-remote confirmation says "I meant
-// to push MY signed content HERE" — an answer only the person at the keyboard
-// can give, about their own credentials. Committing one would ship it to
-// everyone who clones the repo and pre-answer the question for them, which is
-// exactly one of the three mistakes the confirmation exists to catch: a
-// .ctxloom/ config that arrived carrying a remote the user never chose.
-//
-// It is also, like the approvals store's unsigned markers (spec §9.5), an
-// UNSIGNED record — anything that can write the user's home can forge one. A
-// forgeable record is tolerable strictly locally and never shareable.
-func HomePublishRemotesPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the confirmed publish-remote store ~/%s/%s.yaml: %w", AppDirName, PublishRemotesFileName, err)
-	}
-	return filepath.Join(home, AppDirName, PublishRemotesFileName+".yaml"), nil
-}
-
-// HomeLegacyPublishRemotesDir returns ~/.ctxloom/publish-remotes — the
-// directory the pre-admission confirmed-publish-remote store used to live in
-// (see LegacyPublishRemotesDirName). Nothing reads consent from here anymore;
-// it exists purely so the orphaned directory can be located and swept.
-//
-// Like every other home-rooted resolver here, an unresolvable $HOME is
-// returned as an error rather than papered over — the caller (the sweep) must
-// refuse to act rather than fall back to a path relative to its own working
-// directory.
-func HomeLegacyPublishRemotesDir() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve the legacy publish-remote marker directory ~/%s/%s: %w", AppDirName, LegacyPublishRemotesDirName, err)
-	}
-	return filepath.Join(home, AppDirName, LegacyPublishRemotesDirName), nil
 }
 
 // HomeCompanionConsentPath returns ~/.ctxloom/companion_consent.yaml — the

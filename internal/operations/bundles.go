@@ -619,19 +619,6 @@ type PushBundleRequest struct {
 	// nil so a real network-backed manager is constructed from cfg.
 	PublishManager *remote.PublishManager `json:"-"`
 
-	// ConfirmRemote is the human who answers "is this the remote you meant?"
-	// the first time signed content is published to a given non-GitHub remote
-	// (remote.PublishRemoteAsk). A frontend sets it ONLY when it has an
-	// interactive terminal.
-	//
-	// LEAVING IT NIL IS THE FAIL-CLOSED DEFAULT, and it is the correct state
-	// for every non-human caller — an agent over MCP, the ACP editor bridge, a
-	// CI job, a piped command. Those get a refusal naming the remote and
-	// saying how to confirm it, rather than a prompt nobody can answer or an
-	// assumed yes. It is ignored when PublishManager is supplied, which
-	// carries its own.
-	ConfirmRemote remote.PublishRemoteAsk `json:"-"`
-
 	// Signer, when non-nil, MINTS a signature during the publish: the exact
 	// bytes of the local bundle file are signed under
 	// signing.NamespacePublish and a detached "<path>.sig" sibling is
@@ -843,8 +830,7 @@ func pushDryRunPreview(bundleName string, size int, remURL, targetPath string, c
 func runPush(ctx context.Context, cfg *config.Config, registry *remote.Registry, remoteName, absPath string, req PushBundleRequest, result *PushBundleResult) (*PushBundleResult, error) {
 	pm := req.PublishManager
 	if pm == nil {
-		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.GetAppPaths()[0]),
-			remote.WithRemoteAsk(req.ConfirmRemote))
+		pm = remote.NewPublishManager(registry, remote.LoadAuth(cfg.GetAppPaths()[0]))
 	}
 
 	opts := remote.PublishOptions{

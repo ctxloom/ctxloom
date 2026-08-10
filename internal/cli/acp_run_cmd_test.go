@@ -15,6 +15,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // resetACPRunFlags restores every acp-run package flag var (and the
@@ -349,6 +350,69 @@ func TestRunACPSession_OpensWithTheCommandLinePrompt(t *testing.T) {
 	assert.True(t, strings.HasSuffix(turns[0], "opening question"),
 		"the command-line prompt is the first turn (behind the assembled lead block), got %q", turns[0])
 	assert.Equal(t, "follow-up", turns[1])
+}
+
+// TestRunACPSession_CarriesTheProjectRuntimeAxis proves the session form does
+// not quietly answer from the host in a container project.
+//
+// The single-turn form resolves the runtime axis through
+// operations.RunOneshot, so a session that ignored it would isolate one form
+// of one verb and not the other — a difference nobody would think to look for,
+// and one that only shows up as an engine touching the host it was configured
+// to stay off.
+func TestRunACPSession_CarriesTheProjectRuntimeAxis(t *testing.T) {
+	resetACPRunFlags(t)
+	acpRunLLM = "acp-kiro"
+	stub := &acpRunStubClient{}
+	acpRunFactory = acpRunStubFactory(stub)
+
+	cfg := config.NewFixture(config.Fixture{
+		Runtime: agent.RuntimeContainer,
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp"}},
+			Defaults: config.RoleDefaults{Primary: "acp-kiro"},
+		},
+	})
+
+	cmd, _ := formatCmd(formatText)
+	require.NoError(t, runACPSessionInBackground(t, cmd, cfg, "hello", nil))
+
+	stub.mu.Lock()
+	defer stub.mu.Unlock()
+	assert.Equal(t, agent.RuntimeContainer, stub.chatReq.Runtime,
+		"the project's runtime axis rides the conversation")
+}
+
+// TestWarnACPSessionWorkspaceAxis_NamesTheAxisItCannotHonour: a conversation
+// has no carrier for the workspace axis, so a project that asked for a
+// worktree must be TOLD its session runs in the project directory. Silence
+// there is the shape of isolation loss that is only discovered by finding
+// edits in a tree that was supposed to be untouched.
+func TestWarnACPSessionWorkspaceAxis_NamesTheAxisItCannotHonour(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		workspace string
+		warn      bool
+	}{
+		{name: "a worktree project is told", workspace: "worktree", warn: true},
+		{name: "a shared project is not", workspace: "none", warn: false},
+		{name: "an unset axis is not", workspace: "", warn: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sink strings.Builder
+			restore := clidiag.SetSink(&sink)
+			t.Cleanup(restore)
+
+			warnACPSessionWorkspaceAxis(tc.workspace)
+
+			if tc.warn {
+				assert.Contains(t, sink.String(), "workspace axis")
+				assert.Contains(t, sink.String(), "--workspace worktree")
+			} else {
+				assert.Empty(t, sink.String())
+			}
+		})
+	}
 }
 
 // TestRunACPSession_AnnouncesTheOpenSessionOnlyOnATerminal drives both sides

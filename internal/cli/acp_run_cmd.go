@@ -11,8 +11,10 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/lm/isolation"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
 
@@ -199,6 +201,8 @@ func runACPSessionWithConfig(cmd *cobra.Command, cfg *config.Config, opening str
 	permission := resolvePermissionMode("", "", labelEntry.Permissions, backendName,
 		pb.ExecutionMode_INTERACTIVE, backends.EnforcesReadOnlyPlan(backendName))
 
+	warnACPSessionWorkspaceAxis(cfg.GetWorkspace())
+
 	factory := acpRunFactory
 	if factory == nil {
 		factory = pb.DefaultClientFactory()
@@ -215,6 +219,13 @@ func runACPSessionWithConfig(cmd *cobra.Command, cfg *config.Config, opening str
 		WorkDir:     workDir,
 		Model:       model,
 		Permissions: permission,
+		// The project's RUNTIME axis rides the conversation (ISO1): a
+		// container project runs the engine subprocess in a container, and
+		// internal/acp fails loudly if it cannot, rather than quietly
+		// answering from the host. The single-turn form already resolves this
+		// axis through operations.RunOneshot, and two forms of one verb that
+		// isolate differently is a difference nobody would think to look for.
+		Runtime: cfg.GetRuntime(),
 	}, chatTurns{
 		Lead:    ctxResult.Context,
 		Opening: opening,
@@ -244,6 +255,23 @@ func acpRunWorkingDir() (string, error) {
 		return "", fmt.Errorf("get working directory: %w", err)
 	}
 	return wd, nil
+}
+
+// warnACPSessionWorkspaceAxis says out loud that the session runs in the
+// project directory when the project's workspace axis asks for a worktree.
+//
+// The WORKSPACE axis has no carrier on a chat conversation, so this form
+// cannot honor it — the same limit `ctxloom acp serve` has, which is why
+// worktree isolation there is reserved for an explicitly-named agent. Left
+// silent, a project configured for worktree isolation would get a session
+// editing the live tree while every other surface gave it a worktree, and
+// nothing anywhere would name the difference. `ctxloom run --agent` is the
+// surface that isolates the files.
+func warnACPSessionWorkspaceAxis(workspace string) {
+	if isolation.WorkspaceAxis(workspace) != isolation.WorkspaceWorktree {
+		return
+	}
+	clidiag.Warn("ctxloom", "this project's workspace axis is %q, and an ACP session has no carrier for it: this conversation runs in the project directory. Use `ctxloom run --agent <name> --workspace worktree` for a session with its own worktree.", workspace)
 }
 
 // announceACPSession tells a person that the conversation is open and how to

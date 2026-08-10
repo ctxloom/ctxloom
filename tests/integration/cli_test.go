@@ -362,7 +362,7 @@ func TestMCP_Initialize(t *testing.T) {
 	env := setupTestEnv(t)
 
 	req := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
-	_ = env.RunWithStdin(req+"\n", "mcp")
+	_ = env.RunWithStdin(req+"\n", "mcp", "serve")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "protocolVersion")
@@ -375,7 +375,7 @@ func TestMCP_ToolsList(t *testing.T) {
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
 	listReq := buildMCPRequest("tools/list", "")
 	input := initReq + "\n" + listReq + "\n"
-	_ = env.RunWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp", "serve")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -397,7 +397,7 @@ func TestMCP_ListFragments(t *testing.T) {
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
 	readReq := buildMCPRequest("resources/read", `{"uri":"ctxloom://fragments"}`)
 	input := initReq + "\n" + readReq + "\n"
-	_ = env.RunWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp", "serve")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := env.LastOutput()
@@ -415,7 +415,7 @@ func TestMCP_GetFragment(t *testing.T) {
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
 	readReq := buildMCPRequest("resources/read", `{"uri":"ctxloom://fragments/get-test"}`)
 	input := initReq + "\n" + readReq + "\n"
-	_ = env.RunWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp", "serve")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "This is the fragment content")
@@ -427,7 +427,7 @@ func TestMCP_GetFragment_Nonexistent(t *testing.T) {
 	initReq := buildMCPRequest("initialize", `{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}`)
 	readReq := buildMCPRequest("resources/read", `{"uri":"ctxloom://fragments/nonexistent"}`)
 	input := initReq + "\n" + readReq + "\n"
-	_ = env.RunWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp", "serve")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, strings.ToLower(env.LastOutput()), "not found")
@@ -443,7 +443,7 @@ func TestMCP_AssembleContext_WithFragment(t *testing.T) {
 	callParams := `{"name":"assemble_context","arguments":{"bundles":["local#fragments/assemble-frag"]}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp", "serve")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "Assembled fragment content")
@@ -463,7 +463,7 @@ bundles:
 	callParams := `{"name":"assemble_context","arguments":{"profile":"test-profile"}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp", "serve")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "Profile fragment content")
@@ -485,7 +485,7 @@ variables:
 	callParams := `{"name":"assemble_context","arguments":{"profile":"var-profile"}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp", "serve")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	assert.Contains(t, env.LastOutput(), "The language is Python")
@@ -498,7 +498,7 @@ func TestMCP_UnknownTool(t *testing.T) {
 	callParams := `{"name":"unknown_tool","arguments":{}}`
 	callReq := buildMCPRequest("tools/call", callParams)
 	input := initReq + "\n" + callReq + "\n"
-	_ = env.RunWithStdin(input, "mcp")
+	_ = env.RunWithStdin(input, "mcp", "serve")
 
 	assert.Equal(t, 0, env.LastExitCode())
 	output := strings.ToLower(env.LastOutput())

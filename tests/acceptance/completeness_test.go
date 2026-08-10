@@ -297,15 +297,21 @@ var excludedLeaves = map[string]string{
 	// Remote ops needing richer state than a single-commit fixture provides. The
 	// core clone/fetch/install/sync path is covered hermetically by the @remote
 	// content scenarios (browse/install/sync/lock against a seeded file:// repo).
-	"ctxloom deps check":         "checks installed bundles for a newer SHA; needs a second remote commit. Core fetch covered by @remote scenarios",
-	"ctxloom deps upgrade":        "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
-	"ctxloom completion zsh":        "shell variant; the completion path is covered via bash",
-	"ctxloom completion fish":       "shell variant; the completion path is covered via bash",
-	"ctxloom completion powershell": "shell variant; the completion path is covered via bash",
-	"ctxloom help":                  "cobra-generated help command",
-	"ctxloom bundle push":           "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
-	"ctxloom container build":       "builds the agent container image; requires a container runtime + network pulls, out of hermetic scope",
-	"ctxloom plan watch":            "long-lived file watcher (runs until interrupted); no hermetic exit",
+	"ctxloom deps check":   "checks installed bundles for a newer SHA; needs a second remote commit. Core fetch covered by @remote scenarios",
+	"ctxloom deps upgrade": "upgrades installed bundles to latest; needs an update cycle. Core fetch covered by @remote scenarios",
+	// DELETED, not re-homed: "ctxloom completion zsh|fish|powershell" and
+	// "ctxloom help" named leaves that DO NOT EXIST in the command tree this
+	// gate walks. `completion` is a single hidden custom command that takes the
+	// shell as an ARGUMENT (internal/cli/completion.go, runCompletion) — it has
+	// no per-shell subcommands — and cobra's default `help` command is only
+	// attached by Execute(), never by the in-process cli.GetRootCmd() census.
+	// A map key that is never looked up silences nothing; it only reads as
+	// tracked debt while tracking none, which is worse than an empty line.
+	// Verified against the built tree: neither path appears among the 137
+	// leaves (visible + hidden) cli.GetRootCmd() actually produces.
+	"ctxloom bundle push":     "publishes to a remote forge (push/PR); requires a writable remote, out of hermetic scope",
+	"ctxloom container build": "builds the agent container image; requires a container runtime + network pulls, out of hermetic scope",
+	"ctxloom plan watch":      "long-lived file watcher (runs until interrupted); no hermetic exit",
 }
 
 // excludedTools are registered MCP tools no hermetic scenario reaches.

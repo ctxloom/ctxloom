@@ -21,7 +21,7 @@ var sessionCmd = groupNodeDefault(&cobra.Command{
 	Use:   "session",
 	Short: "Browse and manage harp-named sessions",
 	Long: `Read and manage the harp-keyed session index at
-~/.ctxloom/sessions/index.yaml. Use to list/show/edit/delete
+~/.ctxloom/sessions/index.yaml. Use to list/show/edit/remove
 sessions without launching the LLM. Sessions appear here automatically
 once ` + "`ctxloom run`" + ` has been used to launch a backend.`,
 }, "list")
@@ -161,56 +161,56 @@ func undistilledSessionError(harp, sessionID string) error {
 	return fmt.Errorf("no essence for %q (run `ctxloom session distill %s` to compact this session first)", harp, harp)
 }
 
-// sessionDeleteCmd is the canonical spine's `delete` for the session noun,
-// and the only verb here that removes a session ENTIRELY.
+// sessionRemoveCmd is the canonical spine's `remove` for the session noun,
+// and the only verb here that destroys a session ENTIRELY.
 //
-// It used to drop the index entry alone, leaving the transcript and the
-// essence on disk. That is a delete only from the index's point of view: the
-// bytes it was supposed to remove were all still there, and the session was
-// merely unfindable. A caller deleting a session to be rid of its contents
-// got a success message and every byte intact.
+// It removes all three artifacts, not just the index entry. Dropping the entry
+// alone leaves the transcript and the essence on disk: a removal only from the
+// index's point of view, where every byte it was supposed to destroy is still
+// there and the session is merely unfindable. Someone removing a session to be
+// rid of its contents would get a success message and lose nothing.
 //
 // The boundary with purge: purge EMPTIES a session and leaves it listed;
-// delete removes it. Authored files are outside both — never destroyed, only
+// remove destroys it. Authored files are outside both — never destroyed, only
 // named in the report.
-var sessionDeleteYes bool
+var sessionRemoveYes bool
 
-var sessionDeleteCmd = &cobra.Command{
-	Use:   "delete <harp-name>",
+var sessionRemoveCmd = &cobra.Command{
+	Use:   "remove <harp-name>",
 	Short: "Remove a session entirely: its index entry, its transcript and its essence",
 	Long: `Removes all three of a session's own artifacts — the index entry, the
 recorded transcript, and the distilled essence.
 
 Authored files in the harp directory are never destroyed; they are named in
-the report and left where they are, so deleting a session cannot take work
+the report and left where they are, so removing a session cannot take work
 nobody filed with it.
 
 Without --yes this only reports; nothing on disk or in the session index
 changes, on a TTY or not.
 
-A session that was never distilled is refused, because deleting it would
+A session that was never distilled is refused, because removing it would
 destroy the only record of what happened. To do it deliberately, destroy the
 transcript first with 'ctxloom session transcript purge <harp> --undistilled
---yes', then delete.
+--yes', then remove.
 
 To empty a session but keep it listed, use 'ctxloom session purge'.`,
 	Args: cobra.ExactArgs(1),
-	RunE: runSessionDelete,
+	RunE: runSessionRemove,
 }
 
-// sessionDeleteResult names each artifact separately. A single "deleted:true"
+// sessionRemoveResult names each artifact separately. A single "removed:true"
 // could not tell a caller that the index entry went and the files did not —
 // which is precisely the failure this command shipped with.
-type sessionDeleteResult struct {
+type sessionRemoveResult struct {
 	Harp              string                         `json:"harp"`
 	Applied           bool                           `json:"applied"`
 	IndexEntryRemoved bool                           `json:"index_entry_removed"`
 	Files             *operations.PurgeSessionResult `json:"files"`
 }
 
-func runSessionDelete(cmd *cobra.Command, args []string) error {
+func runSessionRemove(cmd *cobra.Command, args []string) error {
 	harp := args[0]
-	apply := sessionDeleteYes
+	apply := sessionRemoveYes
 
 	// Files first, index entry second. PurgeSession stamps purged_at BEFORE
 	// it unlinks anything, so a process that dies partway leaves a row that
@@ -225,19 +225,19 @@ func runSessionDelete(cmd *cobra.Command, args []string) error {
 		},
 		Apply: apply,
 	})
-	// "No file matched" is a refusal for a purge and NOT for a delete: a
+	// "No file matched" is a refusal for a purge and NOT for a removal: a
 	// session whose files are already gone still has an index entry, and that
-	// entry is the thing delete exists to remove. Refusing here would leave
+	// entry is the thing remove exists to destroy. Refusing here would leave
 	// an unremovable row behind for anyone who purged first.
 	if errors.Is(purgeErr, operations.ErrPurgeNothingToDo) {
 		purgeErr = nil
 	}
-	refusal := harpPurgeRefusal(harp, purgeErr, "ctxloom session delete")
+	refusal := harpPurgeRefusal(harp, purgeErr, "ctxloom session remove")
 	if refusal == "" && purgeErr != nil {
 		return purgeErr
 	}
 
-	out := sessionDeleteResult{Harp: harp, Applied: apply && refusal == "", Files: res}
+	out := sessionRemoveResult{Harp: harp, Applied: apply && refusal == "", Files: res}
 	if out.Applied {
 		if err := operations.ForgetSession(harp); err != nil {
 			return err
@@ -246,7 +246,7 @@ func runSessionDelete(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := emit(cmd, out, func() error {
-		return renderSessionDelete(cmd.OutOrStdout(), out)
+		return renderSessionRemove(cmd.OutOrStdout(), out)
 	}); err != nil {
 		return err
 	}
@@ -255,15 +255,15 @@ func runSessionDelete(cmd *cobra.Command, args []string) error {
 		return reportRefusal(cmd, refusal)
 	}
 	if !apply {
-		return reportPlanOnly(cmd, fmt.Sprintf("ctxloom session delete %s --yes", harp))
+		return reportPlanOnly(cmd, fmt.Sprintf("ctxloom session remove %s --yes", harp))
 	}
 	return nil
 }
 
-// renderSessionDelete is the human render: the file plan, then one line for
+// renderSessionRemove is the human render: the file plan, then one line for
 // the index entry — the artifact that has no row in the file table and would
 // otherwise go unreported.
-func renderSessionDelete(w io.Writer, out sessionDeleteResult) error {
+func renderSessionRemove(w io.Writer, out sessionRemoveResult) error {
 	if err := renderSessionPurgePlan(w, out.Files); err != nil {
 		return err
 	}
@@ -290,10 +290,10 @@ under the harp directory. Errors if the harp has no session_id bound
 func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
 	sessionListCmd.Flags().BoolVar(&sessionListDistill, "distill", false, "Distill sessions whose essence is missing or stale before listing, so every row shows a title")
-	sessionDeleteCmd.Flags().BoolVarP(&sessionDeleteYes, "yes", "y", false,
+	sessionRemoveCmd.Flags().BoolVarP(&sessionRemoveYes, "yes", "y", false,
 		"apply the plan this invocation printed (default: report only)")
 	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionDeleteCmd, sessionDistillCmd)
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionRemoveCmd, sessionDistillCmd)
 	rootCmd.AddCommand(sessionCmd)
 }
 

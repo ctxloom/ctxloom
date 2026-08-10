@@ -18,7 +18,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session list
     ctxloom session show <harp>
     ctxloom session edit <harp> --name <new>
-    ctxloom session delete <harp> [--yes]
+    ctxloom session remove <harp> [--yes]
     ctxloom session distill <harp>
     ctxloom session search <word>...
     ctxloom session transcript              (bare: lists)
@@ -280,10 +280,10 @@ Feature: session — the record of what your assistant did, and the tools to pru
     Scenario: Delete reports before it removes
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence
-      When I run "ctxloom session delete amber-swift-owl"
+      When I run "ctxloom session remove amber-swift-owl"
       Then the command succeeds
       And the output contains "removed nothing"
-      And the output contains "ctxloom session delete amber-swift-owl --yes"
+      And the output contains "ctxloom session remove amber-swift-owl --yes"
       And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
       And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
       When I run "ctxloom session list --all"
@@ -292,7 +292,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     Scenario: --yes removes the index entry, the transcript and the essence
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence
-      When I run "ctxloom session delete amber-swift-owl --yes"
+      When I run "ctxloom session remove amber-swift-owl --yes"
       Then the command succeeds
       And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" does not exist
       And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
@@ -302,7 +302,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     Scenario: Deleting a session that was never distilled is refused
       Given an initialized ctxloom project
       And a finished session "brisk-copper-moth" with a transcript and no essence
-      When I run "ctxloom session delete brisk-copper-moth --yes"
+      When I run "ctxloom session remove brisk-copper-moth --yes"
       Then the command fails
       And the output contains "--undistilled"
       And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" exists

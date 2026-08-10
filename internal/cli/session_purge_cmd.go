@@ -109,7 +109,7 @@ Without --yes this only reports; nothing on disk, in git, or in the session
 index changes, on a TTY or not.
 
 The index entry SURVIVES. Purge empties a session, it does not unlist it —
-'ctxloom session delete' is what removes a session entirely.
+'ctxloom session remove' is what removes a session entirely.
 
 A session that was never distilled is refused, because sweeping it would
 destroy the only record of what happened. The refusal names the leaf that

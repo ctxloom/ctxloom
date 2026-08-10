@@ -350,7 +350,11 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"profile modify":      {skip: "not wired to emit() yet", formatDebt: true},
 	"session show":        {skip: "wired to emit(), but needs an existing session fixture; not exercised here"},
 	"session edit":        {skip: "wired to emit(), but needs an existing session fixture (a harp in the index) and MUTATES it; covered directly by session_edit_test.go, which drives all five decisions on a seeded harp"},
-	"session delete":      {skip: "not confirmed wired; destructive; not exercised here; T19 audit confirmed NOT wired: session_cmd.go's delete RunE is an inline closure that never calls emit()", formatDebt: true},
+	// Not format debt. runSessionRemove routes its result through emit() on
+	// both branches; it is fixture-gated and destructive, like the purges
+	// below. The entry that stood here claimed an inline closure that never
+	// calls emit() and carried formatDebt:true on that basis.
+	"session remove": {skip: "wired to emit(), but needs a seeded harp fixture and is destructive under --yes; covered directly by session_remove_test.go"},
 	"session distill":     {skip: "not confirmed wired; needs an existing session fixture; not exercised here; T19 audit confirmed NOT wired: runSessionDistill never calls emit()", formatDebt: true},
 	// Every destroyer under `session` is wired to emit(), but each needs a
 	// seeded harp directory and is destructive under --yes. They are covered
@@ -541,7 +545,6 @@ var formatDebtAllowlist = map[string]string{
 	"profile modify": "profile.go: the modify RunE must route through emit()",
 
 	// --- session surface (session_cmd.go) ---
-	"session delete":  "session_cmd.go: the delete RunE (inline closure) must route through emit()",
 	"session distill": "session_cmd.go: runSessionDistill must route through emit()",
 }
 

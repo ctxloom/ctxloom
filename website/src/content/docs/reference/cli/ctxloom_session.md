@@ -14,7 +14,7 @@ Browse and manage harp-named sessions
 ### Synopsis
 
 Read and manage the harp-keyed session index at
-~/.ctxloom/sessions/index.yaml. Use to list/show/edit/delete
+~/.ctxloom/sessions/index.yaml. Use to list/show/edit/remove
 sessions without launching the LLM. Sessions appear here automatically
 once `ctxloom run` has been used to launch a backend.
 
@@ -36,11 +36,11 @@ ctxloom session [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom session artifacts](/reference/cli/ctxloom_session_artifacts/)	 - What a session produced — its distilled essence: list it, destroy it
-* [ctxloom session delete](/reference/cli/ctxloom_session_delete/)	 - Remove a session entirely: its index entry, its transcript and its essence
 * [ctxloom session distill](/reference/cli/ctxloom_session_distill/)	 - Distill a session by harp name. Distillation is on-demand: nothing distills a session automatically when it ends.
 * [ctxloom session edit](/reference/cli/ctxloom_session_edit/)	 - Assign a recorded session's fields (today: --name, which renames the harp)
 * [ctxloom session list](/reference/cli/ctxloom_session_list/)	 - List harp-named sessions (default: current project; --all for everything)
 * [ctxloom session purge](/reference/cli/ctxloom_session_purge/)	 - Empty a finished session: its transcript, its artifacts and its scratch worktrees
+* [ctxloom session remove](/reference/cli/ctxloom_session_remove/)	 - Remove a session entirely: its index entry, its transcript and its essence
 * [ctxloom session search](/reference/cli/ctxloom_session_search/)	 - Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)
 * [ctxloom session show](/reference/cli/ctxloom_session_show/)	 - Print the distilled essence of a harp-named session
 * [ctxloom session transcript](/reference/cli/ctxloom_session_transcript/)	 - The recorded conversation behind a session: list it, watch it, destroy it

@@ -68,9 +68,9 @@ func TestDoctorCheckMCPInvocation_RightState_CurrentEntryIsQuiet(t *testing.T) {
 func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 	staleFor := map[string]string{
 		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
-		filepath.Join(".agents", "mcp_config.json"): `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
+		filepath.Join(".agents", "mcp_config.json"):    `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
 		filepath.Join(".kiro", "settings", "mcp.json"): `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
-		filepath.Join(".codex", "config.toml"): "[mcp_servers.ctxloom]\ncommand = \"/bin/ctxloom\"\nargs = [\"mcp\"]\n",
+		filepath.Join(".codex", "config.toml"):         "[mcp_servers.ctxloom]\ncommand = \"/bin/ctxloom\"\nargs = [\"mcp\"]\n",
 		// opencode folds the binary and its arguments into one array, so the
 		// stale spelling there is a trailing "mcp" rather than an args list.
 		"opencode.json": `{"mcp": {"ctxloom": {"type": "local", "command": ["/bin/ctxloom", "mcp"], "enabled": true}}}`,
@@ -94,7 +94,7 @@ func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 // read as healthy, or the check is just a file-exists probe wearing a warning.
 func TestDoctorCheckMCPInvocation_RightState_CurrentEntryInEveryFormatIsQuiet(t *testing.T) {
 	currentFor := map[string]string{
-		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp", "serve"]}}}`,
+		".mcp.json":                            `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp", "serve"]}}}`,
 		filepath.Join(".codex", "config.toml"): "[mcp_servers.ctxloom]\ncommand = \"/bin/ctxloom\"\nargs = [\"mcp\", \"serve\"]\n",
 		"opencode.json":                        `{"mcp": {"ctxloom": {"type": "local", "command": ["/bin/ctxloom", "mcp", "serve"], "enabled": true}}}`,
 	}

@@ -258,7 +258,7 @@ func (r *Registry) GetOrCreateByURL(repoURL string) (*Remote, error) {
 //
 // The pointers are load-bearing for Forge, where the empty string is a VALUE
 // ("resolve by URL host") and not an omission — a plain string could not tell
-// "--forge was not passed" from "--forge ''", so clearing a binding would be
+// "--forge was not passed" from "--forge ”", so clearing a binding would be
 // unexpressible.
 type RemoteEdit struct {
 	Name  *string

@@ -29,8 +29,8 @@ func populatedLockfile() *Lockfile {
 		Version: 1,
 		Bundles: map[string]LockEntry{
 			"https://github.com/alice/repo@bundles/held": {
-				SHA:    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-				URL:    "https://github.com/alice/repo",
+				SHA:  "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				URL:  "https://github.com/alice/repo",
 				Held: true,
 			},
 			"https://github.com/bob/repo@bundles/withdrawn": {

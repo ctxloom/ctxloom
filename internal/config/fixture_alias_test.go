@@ -124,7 +124,7 @@ func aliasProbeFixture() Fixture {
 		Hooks:            wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "true"}}}},
 	}
 	f.Agents["worker"] = agents.Agent{
-		LLM:     "fast",
+		LLM:        "fast",
 		Profiles:   []string{"p"},
 		Escalation: []agents.EscalationRung{{Kinds: []string{"TOOL_USE"}, Action: "auto_accept"}},
 	}

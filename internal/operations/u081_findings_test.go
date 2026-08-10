@@ -34,7 +34,7 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:        "dev",
-		LLM:      ptr("claude-code"),
+		LLM:         ptr("claude-code"),
 		Profiles:    ptr([]string{"go-developer"}),
 		Permissions: ptr("acceptEdits"),
 		Coordinator: ptr(true),

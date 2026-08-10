@@ -140,10 +140,10 @@ func init() {
 // because they answer different questions and fail independently — a git
 // refusal on a worktree says nothing about whether the transcript went.
 type sessionSweepReport struct {
-	Harp      string                            `json:"harp"`
-	Applied   bool                              `json:"applied"`
-	Files     *operations.PurgeSessionResult    `json:"files"`
-	Worktrees sessionWorktreeReport             `json:"worktrees"`
+	Harp      string                         `json:"harp"`
+	Applied   bool                           `json:"applied"`
+	Files     *operations.PurgeSessionResult `json:"files"`
+	Worktrees sessionWorktreeReport          `json:"worktrees"`
 }
 
 func runSessionPurge(cmd *cobra.Command, args []string) error {

@@ -20,7 +20,7 @@ import (
 // agents stays cheap.
 type AgentEntry struct {
 	Name     string   `json:"name"`
-	LLM   string   `json:"llm,omitempty"`
+	LLM      string   `json:"llm,omitempty"`
 	Profiles []string `json:"profiles,omitempty"`
 	// Runtime is the agent's declared runtime axis (host | container), as
 	// written; empty inherits the project `runtime:` default.
@@ -58,7 +58,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 	for _, s := range subs {
 		out = append(out, AgentEntry{
 			Name:        s.Name,
-			LLM:      s.LLM,
+			LLM:         s.LLM,
 			Profiles:    s.Profiles,
 			Runtime:     s.Runtime,
 			Permissions: s.Permissions,
@@ -83,7 +83,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 	}
 	return &AgentEntry{
 		Name:        sub.Name,
-		LLM:      sub.LLM,
+		LLM:         sub.LLM,
 		Profiles:    sub.Profiles,
 		Runtime:     sub.Runtime,
 		Permissions: sub.Permissions,
@@ -325,7 +325,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	}
 	return &AgentEntry{
 		Name:        name,
-		LLM:      entry.LLM,
+		LLM:         entry.LLM,
 		Profiles:    entry.Profiles,
 		Runtime:     entry.Runtime,
 		Permissions: entry.Permissions,
@@ -416,7 +416,7 @@ type ResolvedAgent struct {
 	Name string `json:"name"`
 	// LLM is the agent's DECLARED llm label (may be empty); Label is the
 	// label actually resolved after applying the override precedence.
-	LLM   string   `json:"llm,omitempty"`
+	LLM      string   `json:"llm,omitempty"`
 	Profiles []string `json:"profiles"`
 	// Label is the resolved LLM config label, and Backend/Model the transport it
 	// maps to — the same (label → backend, model) resolution run/oneshot use.
@@ -564,7 +564,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	return &ResolvedAgent{
 		Name:        name,
 		Surfaces:    surfaces,
-		LLM:      sub.LLM,
+		LLM:         sub.LLM,
 		Profiles:    sub.Profiles,
 		Label:       label,
 		Backend:     backend,

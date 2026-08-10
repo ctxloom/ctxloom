@@ -65,7 +65,7 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 
 	entry, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
 		Name:     "finder",
-		LLM:   ptr("claude-fast"),
+		LLM:      ptr("claude-fast"),
 		Profiles: ptr([]string{"p1", "p2"}),
 	})
 	require.NoError(t, err)
@@ -109,7 +109,7 @@ func TestSetAgent_RejectsUnknownEngine(t *testing.T) {
 
 	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
 		Name:     "dev",
-		LLM:   ptr("bogus-engine"),
+		LLM:      ptr("bogus-engine"),
 		Profiles: ptr([]string{"default"}),
 	})
 	require.Error(t, err, "an engine no backend and no config label defines must be refused, not written")
@@ -133,7 +133,7 @@ func TestSetAgent_UnknownEngineLeavesExistingBindingIntact(t *testing.T) {
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:     "dev",
-		LLM:   ptr("claude-code"),
+		LLM:      ptr("claude-code"),
 		Profiles: ptr([]string{"default"}),
 	})
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestSetAgent_AcceptsBackendNamesAndConfigLabels(t *testing.T) {
 		require.NoError(t, err)
 		_, err = SetAgent(mgr, reloaded, SetAgentRequest{
 			Name:     "dev",
-			LLM:   ptr(engine),
+			LLM:      ptr(engine),
 			Profiles: ptr([]string{"default"}),
 		})
 		require.NoErrorf(t, err, "engine %q must be accepted", engine)
@@ -194,7 +194,7 @@ func TestSetAgent_PersistsRuntime(t *testing.T) {
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:     "developer",
-		LLM:   ptr("claude-code"),
+		LLM:      ptr("claude-code"),
 		Profiles: ptr([]string{"default"}),
 		Runtime:  ptr("container"),
 	})
@@ -225,7 +225,7 @@ func TestSetAgent_PersistsPermissions(t *testing.T) {
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:        "planner",
-		LLM:      ptr("claude-code"),
+		LLM:         ptr("claude-code"),
 		Profiles:    ptr([]string{"default"}),
 		Permissions: ptr("plan"),
 	})
@@ -258,7 +258,7 @@ func TestSetAgent_PersistsDriving(t *testing.T) {
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:     "shooter",
-		LLM:   ptr("claude-code"),
+		LLM:      ptr("claude-code"),
 		Profiles: ptr([]string{"default"}),
 		Driving:  ptr("oneshot"),
 	})
@@ -489,7 +489,7 @@ func TestSetAgent_PersistsTheSurfacePreference(t *testing.T) {
 
 	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
 		Name:     "writer",
-		LLM:   ptr("claude-code"),
+		LLM:      ptr("claude-code"),
 		Surfaces: map[string]string{"context": "system-prompt"},
 	})
 	require.NoError(t, err)
@@ -509,7 +509,7 @@ func TestSetAgent_RefusedSurfacePreferenceWritesNothing(t *testing.T) {
 
 	_, err := SetAgent(managerFor(appDir), cfg, SetAgentRequest{
 		Name:     "scout",
-		LLM:   ptr("kiro"),
+		LLM:      ptr("kiro"),
 		Surfaces: map[string]string{"context": "system-prompt"},
 	})
 	require.Error(t, err, "system-prompt is claude-only; kiro must refuse it")

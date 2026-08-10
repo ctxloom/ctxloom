@@ -176,7 +176,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		def := &operations.AgentEntry{
 			Name:        "full",
 			Source:      ".ctxloom/agents/full.yaml",
-			LLM:      "claude-code",
+			LLM:         "claude-code",
 			Profiles:    []string{"p1", "p2"},
 			Runtime:     "container",
 			Permissions: "acceptEdits",

@@ -486,4 +486,3 @@ func TestUndistilledSessionError_DistinguishesPendingFromUndistilled(t *testing.
 	assert.Contains(t, bound.Error(), "ctxloom session distill amber-swift-owl",
 		"a bound-but-uncompacted harp must name the command that fixes it")
 }
-

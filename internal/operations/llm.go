@@ -98,10 +98,10 @@ func AvailableLLMNames(cfg *config.Config) []string {
 // through exactly one path, config.Config.LabelEnv, which only the engine
 // launch path calls.
 type LLMEntry struct {
-	Label       string   `json:"label"`
-	Type        string   `json:"type,omitempty"`
-	Model       string   `json:"model,omitempty"`
-	Permissions string   `json:"permissions,omitempty"`
+	Label       string `json:"label"`
+	Type        string `json:"type,omitempty"`
+	Model       string `json:"model,omitempty"`
+	Permissions string `json:"permissions,omitempty"`
 	// EnvKeys names the env/credential keys this entry declares, sorted —
 	// presence only, never values.
 	EnvKeys []string `json:"env_keys,omitempty"`

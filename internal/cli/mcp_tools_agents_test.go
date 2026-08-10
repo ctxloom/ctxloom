@@ -64,7 +64,7 @@ func TestAgentToolHandlers_PlumbTheDelegation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, runOut)
 	assert.NotEmpty(t, runOut.Harp)
-	assert.Equal(t, "fast", runOut.Engine)
+	assert.Equal(t, "fast", runOut.LLM)
 
 	// The spawned child's engine actually received the composed agent context
 	// (the "FRAG-ONE" fragment content delegationFixture seeds into bundle

@@ -150,7 +150,7 @@ type agentRunInput struct {
 
 type agentRunResult struct {
 	Harp             string   `json:"harp"`
-	Engine           string   `json:"engine"`
+	LLM              string   `json:"llm"`
 	Profiles         []string `json:"profiles,omitempty"`
 	Runtime          string   `json:"runtime"`
 	Queued           bool     `json:"queued,omitempty"`
@@ -267,7 +267,7 @@ func (s *ctxServer) handleAgentRun(ctx context.Context, _ *mcp.CallToolRequest, 
 	}
 	return nil, &agentRunResult{
 		Harp:             out.Harp,
-		Engine:           out.Engine,
+		LLM:              out.Engine,
 		Profiles:         out.Profiles,
 		Runtime:          out.Runtime,
 		Queued:           out.Queued,

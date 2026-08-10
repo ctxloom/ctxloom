@@ -183,7 +183,7 @@ func TestResolveAgent_ExplicitEngineOverrideWins(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "fast", res.Label, "explicit override beats the declared engine")
 	assert.Equal(t, "m-fast", res.Model)
-	assert.Equal(t, "slow", res.Engine, "the DECLARED engine is still reported as written")
+	assert.Equal(t, "slow", res.LLM, "the DECLARED engine is still reported as written")
 }
 
 // TestResolveAgent_EngineUnsetFallsBackToProfileLLM proves an empty engine

@@ -81,10 +81,10 @@ func renderAgentList(out io.Writer, list []operations.AgentEntry) error {
 	w.Printf("Agents (%d):\n", len(list))
 	for _, s := range list {
 		w.Printf("  %s", s.Name)
-		if s.Engine != "" {
-			w.Printf(" (engine: %s)", s.Engine)
+		if s.LLM != "" {
+			w.Printf(" (llm: %s)", s.LLM)
 		} else {
-			w.Printf(" (engine: project default)")
+			w.Printf(" (llm: project default)")
 		}
 		w.Println()
 		if len(s.Profiles) > 0 {
@@ -194,8 +194,8 @@ func renderAgentDeclaration(w *iox.ErrWriter, def *operations.AgentEntry) {
 	if def.Source != "" {
 		w.Printf("Source: %s\n", def.Source)
 	}
-	if def.Engine != "" {
-		w.Printf("Engine (declared): %s\n", def.Engine)
+	if def.LLM != "" {
+		w.Printf("Engine (declared): %s\n", def.LLM)
 	} else {
 		w.Println("Engine (declared): (project default)")
 	}
@@ -243,10 +243,10 @@ func renderAgentEscalation(w *iox.ErrWriter, ladder []agents.EscalationRung) {
 // the new engine silently drops something the old one carried (j002000).
 func renderAgentResolution(w *iox.ErrWriter, resolved *operations.ResolvedAgent, rerr error, losses []agent.SurfaceLoss) {
 	if rerr != nil {
-		w.Printf("Resolved engine: unavailable (%v)\n", rerr)
+		w.Printf("Resolved llm: unavailable (%v)\n", rerr)
 		return
 	}
-	w.Printf("Resolved engine: %s", resolved.Label)
+	w.Printf("Resolved llm: %s", resolved.Label)
 	if resolved.Backend != "" {
 		w.Printf(" (backend: %s", resolved.Backend)
 		if resolved.Model != "" {
@@ -410,7 +410,7 @@ func checkAgentExistence(cfg *config.Config, name string, mustExist bool) error 
 func buildSetAgentRequest(cmd *cobra.Command, name string) operations.SetAgentRequest {
 	req := operations.SetAgentRequest{Name: name}
 	if cmd.Flags().Changed("engine") {
-		req.Engine = &agentSetEngine
+		req.LLM = &agentSetEngine
 	}
 	if cmd.Flags().Changed("profiles") {
 		req.Profiles = &agentSetProfiles
@@ -461,11 +461,11 @@ func renderAgentWritten(out io.Writer, entry *operations.AgentEntry, edited bool
 	if edited {
 		verb = "Updated"
 	}
-	engine := entry.Engine
-	if engine == "" {
-		engine = "project default"
+	llmLabel := entry.LLM
+	if llmLabel == "" {
+		llmLabel = "project default"
 	}
-	w.Printf("%s agent %q (engine: %s", verb, entry.Name, engine)
+	w.Printf("%s agent %q (llm: %s", verb, entry.Name, llmLabel)
 	if len(entry.Profiles) > 0 {
 		w.Printf(", profiles: %s", strings.Join(entry.Profiles, ", "))
 	}

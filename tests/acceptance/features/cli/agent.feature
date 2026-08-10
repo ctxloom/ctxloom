@@ -58,7 +58,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent list"
       Then the command succeeds
       And the output contains "developer"
-      And the output contains "engine: claude-code"
+      And the output contains "llm: claude-code"
       And the output contains "profiles: dev"
       And the output contains "runtime: container"
 
@@ -91,7 +91,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "Runtime: container"
       And the output contains "Profiles"
       And the output contains "dev"
-      And the output contains "Resolved engine:"
+      And the output contains "Resolved llm:"
       And the output contains "Composed fragments:"
 
     # Reporting nothing for a name nobody defined would be a listing of one,
@@ -180,7 +180,7 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       When I run "ctxloom agent list"
       Then the command succeeds
       And the output contains "runtime: container"
-      And the output contains "engine: claude-code"
+      And the output contains "llm: claude-code"
       And the output contains "profiles: dev, ops"
       And the output contains "permissions: plan"
 

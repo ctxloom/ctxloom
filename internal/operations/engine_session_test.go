@@ -77,7 +77,7 @@ func TestACPSessionMCPServers(t *testing.T) {
 // agent can never collide with a profile of the same name).
 func TestSessionModesFrom_ProfilesAndAgents(t *testing.T) {
 	subs := []AgentEntry{
-		{Name: "reviewer", Engine: "fast", Profiles: []string{"r1", "r2"}},
+		{Name: "reviewer", LLM: "fast", Profiles: []string{"r1", "r2"}},
 		{Name: "docs", Profiles: []string{"d"}},
 	}
 	modes := sessionModesFrom([]string{"go", "reviewer"}, subs, "", []string{"go", "base"}, "")

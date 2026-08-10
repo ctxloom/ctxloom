@@ -71,8 +71,8 @@ func configuredEngines(cfg *config.Config) []string {
 		seen[d] = true
 	}
 	for _, a := range operations.ListAgents(cfg) {
-		if a.Engine != "" {
-			seen[a.Engine] = true
+		if a.LLM != "" {
+			seen[a.LLM] = true
 		}
 	}
 	out := make([]string, 0, len(seen))

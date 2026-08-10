@@ -649,7 +649,7 @@ func sessionModesFrom(profileNames []string, subs []AgentEntry, initialProfile s
 			ID:       agentModeID(s.Name),
 			Name:     s.Name + " (agent)",
 			Profiles: s.Profiles,
-			Engine:   s.Engine,
+			Engine:   s.LLM,
 		})
 	}
 	switch {

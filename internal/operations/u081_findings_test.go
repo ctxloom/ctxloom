@@ -34,7 +34,7 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 
 	_, err := SetAgent(mgr, cfg, SetAgentRequest{
 		Name:        "dev",
-		Engine:      ptr("claude-code"),
+		LLM:      ptr("claude-code"),
 		Profiles:    ptr([]string{"go-developer"}),
 		Permissions: ptr("acceptEdits"),
 		Coordinator: ptr(true),
@@ -79,12 +79,12 @@ func TestSetAgent_ExplicitEmptyClears(t *testing.T) {
 	cfg, appDir := loadConfigDir(t, "version: 5\n")
 	mgr := managerFor(appDir)
 
-	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", Engine: ptr("claude-code"), Profiles: ptr([]string{"p"})})
+	_, err := SetAgent(mgr, cfg, SetAgentRequest{Name: "dev", LLM: ptr("claude-code"), Profiles: ptr([]string{"p"})})
 	require.NoError(t, err)
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
 
-	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", Engine: ptr("")})
+	_, err = SetAgent(mgr, reloaded, SetAgentRequest{Name: "dev", LLM: ptr("")})
 	require.NoError(t, err)
 
 	final, err := config.Load(config.WithAppDir(appDir))

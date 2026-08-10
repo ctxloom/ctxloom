@@ -20,7 +20,7 @@ import (
 // agents stays cheap.
 type AgentEntry struct {
 	Name     string   `json:"name"`
-	Engine   string   `json:"engine,omitempty"`
+	LLM   string   `json:"llm,omitempty"`
 	Profiles []string `json:"profiles,omitempty"`
 	// Runtime is the agent's declared runtime axis (host | container), as
 	// written; empty inherits the project `runtime:` default.
@@ -58,7 +58,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 	for _, s := range subs {
 		out = append(out, AgentEntry{
 			Name:        s.Name,
-			Engine:      s.LLM,
+			LLM:      s.LLM,
 			Profiles:    s.Profiles,
 			Runtime:     s.Runtime,
 			Permissions: s.Permissions,
@@ -83,7 +83,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 	}
 	return &AgentEntry{
 		Name:        sub.Name,
-		Engine:      sub.LLM,
+		LLM:      sub.LLM,
 		Profiles:    sub.Profiles,
 		Runtime:     sub.Runtime,
 		Permissions: sub.Permissions,
@@ -104,12 +104,12 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 // stored on a binding.
 type SetAgentRequest struct {
 	Name string `json:"name"`
-	// Engine is the LLM engine/label to bind. A non-empty value is REJECTED
+	// LLM is the LLM engine/label to bind. A non-empty value is REJECTED
 	// unless it names something operations.AvailableLLMNames knows (a
 	// registered backend or a config-declared label) — see checkAgentWrite.
 	// Empty CLEARS the override, falling back to the profiles' llm and then
 	// the project default.
-	Engine   *string   `json:"engine,omitempty"`
+	LLM      *string   `json:"llm,omitempty"`
 	Profiles *[]string `json:"profiles,omitempty"`
 	Runtime  *string   `json:"runtime,omitempty"`
 	// Surfaces sets the binding's delivery preference (kind -> approach). It is
@@ -198,10 +198,10 @@ func warnAgentAxisTypos(cfg *config.Config, name string, req SetAgentRequest) {
 // invocation. An explicitly empty engine stays legal: it CLEARS the override,
 // falling back to the composed profiles' llm and then the project default.
 func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) error {
-	if req.Engine != nil && *req.Engine != "" {
-		if available := AvailableLLMNames(cfg); !slices.Contains(available, *req.Engine) {
+	if req.LLM != nil && *req.LLM != "" {
+		if available := AvailableLLMNames(cfg); !slices.Contains(available, *req.LLM) {
 			return fmt.Errorf("agent %q: unknown engine %q; valid engines: %s",
-				name, *req.Engine, strings.Join(available, ", "))
+				name, *req.LLM, strings.Join(available, ", "))
 		}
 	}
 
@@ -218,8 +218,8 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 	// binding would be written already broken.
 	if len(req.Surfaces) > 0 {
 		engine := ""
-		if req.Engine != nil {
-			engine = *req.Engine
+		if req.LLM != nil {
+			engine = *req.LLM
 		} else if existing, ok := cfg.Agent(name); ok {
 			engine = existing.LLM
 		}
@@ -299,7 +299,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		if req.Profiles != nil {
 			entry.Profiles = canonicalizeProfileRefs(*req.Profiles, aliasToURLResolver(cfg))
 		}
-		entry.LLM = orKeep(req.Engine, entry.LLM)
+		entry.LLM = orKeep(req.LLM, entry.LLM)
 		// A nil map means "not named" and keeps what is stored; an EMPTY
 		// non-nil map is how a caller clears the preference back to the
 		// engine's default, matching how the pointer fields above treat an
@@ -325,7 +325,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	}
 	return &AgentEntry{
 		Name:        name,
-		Engine:      entry.LLM,
+		LLM:      entry.LLM,
 		Profiles:    entry.Profiles,
 		Runtime:     entry.Runtime,
 		Permissions: entry.Permissions,
@@ -414,9 +414,9 @@ func hasAnyProfiles(cfg *config.Config) bool {
 // provides the resolver and the entity.
 type ResolvedAgent struct {
 	Name string `json:"name"`
-	// Engine is the agent's DECLARED engine (may be empty); Label is the
-	// engine actually resolved after applying the override precedence.
-	Engine   string   `json:"engine,omitempty"`
+	// LLM is the agent's DECLARED llm label (may be empty); Label is the
+	// label actually resolved after applying the override precedence.
+	LLM   string   `json:"llm,omitempty"`
 	Profiles []string `json:"profiles"`
 	// Label is the resolved LLM config label, and Backend/Model the transport it
 	// maps to — the same (label → backend, model) resolution run/oneshot use.
@@ -564,7 +564,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	return &ResolvedAgent{
 		Name:        name,
 		Surfaces:    surfaces,
-		Engine:      sub.LLM,
+		LLM:      sub.LLM,
 		Profiles:    sub.Profiles,
 		Label:       label,
 		Backend:     backend,

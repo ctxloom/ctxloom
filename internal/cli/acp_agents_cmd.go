@@ -20,7 +20,7 @@ type acpAgentEntry struct {
 	Command  string   `json:"command"`
 	Args     []string `json:"args"`
 	Agent    string   `json:"agent,omitempty"`
-	Engine   string   `json:"engine,omitempty"`
+	LLM      string   `json:"llm,omitempty"`
 	Profiles []string `json:"profiles,omitempty"`
 }
 
@@ -75,7 +75,7 @@ func buildACPAgentEntries(subs []operations.AgentEntry, exe string) []acpAgentEn
 			Command:  exe,
 			Args:     []string{"acp", "serve", "--agent", s.Name},
 			Agent:    s.Name,
-			Engine:   s.Engine,
+			LLM:      s.LLM,
 			Profiles: s.Profiles,
 		})
 	}
@@ -96,10 +96,10 @@ func renderACPAgents(out io.Writer, entries []acpAgentEntry) error {
 	for _, e := range entries {
 		w.Printf("  %s\n", e.Name)
 		if e.Agent != "" {
-			if e.Engine != "" {
-				w.Printf("    engine: %s\n", e.Engine)
+			if e.LLM != "" {
+				w.Printf("    llm: %s\n", e.LLM)
 			} else {
-				w.Printf("    engine: (project default)\n")
+				w.Printf("    llm: (project default)\n")
 			}
 			if len(e.Profiles) > 0 {
 				w.Printf("    profiles: %s\n", strings.Join(e.Profiles, ", "))

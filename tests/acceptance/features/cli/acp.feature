@@ -67,7 +67,7 @@ Feature: acp — the editor door, the agent ctxloom talks out to, and the entrie
       Then the command succeeds
       And the output contains "ACP agent-server entries (2):"
       And the output contains "scribe"
-      And the output contains "engine: claude-code"
+      And the output contains "llm: claude-code"
       And the output contains "profiles: editorial"
 
   Rule: What gets pasted has to survive being pasted

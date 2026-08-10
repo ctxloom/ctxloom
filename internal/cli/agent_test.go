@@ -26,7 +26,7 @@ import (
 
 func TestRenderAgentList_EngineAndDefault(t *testing.T) {
 	list := []operations.AgentEntry{
-		{Name: "dev", Engine: "claude-code", Profiles: []string{"go-developer", "go-style"}, Runtime: "container"},
+		{Name: "dev", LLM: "claude-code", Profiles: []string{"go-developer", "go-style"}, Runtime: "container"},
 		{Name: "finder", Profiles: []string{"finder"}}, // no engine, no isolation
 	}
 	var buf bytes.Buffer
@@ -34,10 +34,10 @@ func TestRenderAgentList_EngineAndDefault(t *testing.T) {
 	out := buf.String()
 
 	assert.Contains(t, out, "Agents (2):")
-	assert.Contains(t, out, "dev (engine: claude-code)")
+	assert.Contains(t, out, "dev (llm: claude-code)")
 	assert.Contains(t, out, "profiles: go-developer, go-style")
 	assert.Contains(t, out, "runtime: container")
-	assert.Contains(t, out, "finder (engine: project default)", "unset engine shows the project-default hint")
+	assert.Contains(t, out, "finder (llm: project default)", "unset llm shows the project-default hint")
 	assert.Equal(t, 1, strings.Count(out, "runtime:"), "unset runtime prints nothing (inherits the project default)")
 }
 
@@ -46,8 +46,8 @@ func TestRenderAgentList_EngineAndDefault(t *testing.T) {
 // existing omit-when-empty convention).
 func TestRenderAgentList_Driving(t *testing.T) {
 	list := []operations.AgentEntry{
-		{Name: "shooter", Engine: "claude-code", Driving: "oneshot"},
-		{Name: "chatter", Engine: "claude-code"}, // driving unset
+		{Name: "shooter", LLM: "claude-code", Driving: "oneshot"},
+		{Name: "chatter", LLM: "claude-code"}, // driving unset
 	}
 	var buf bytes.Buffer
 	assert.NoError(t, renderAgentList(&buf, list))
@@ -64,7 +64,7 @@ func TestRenderAgentList_Empty(t *testing.T) {
 }
 
 func TestRenderAgentShow_Resolved(t *testing.T) {
-	def := &operations.AgentEntry{Name: "dev", Engine: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Source: "config"}
+	def := &operations.AgentEntry{Name: "dev", LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Source: "config"}
 	resolved := &operations.ResolvedAgent{
 		Name: "dev", Label: "slow", Backend: "mock", Model: "m-slow",
 		Fragments: []string{"a", "b"},
@@ -77,14 +77,14 @@ func TestRenderAgentShow_Resolved(t *testing.T) {
 	assert.Contains(t, out, "Source: config")
 	assert.Contains(t, out, "Engine (declared): slow")
 	assert.Contains(t, out, "Runtime: container")
-	assert.Contains(t, out, "Resolved engine: slow (backend: mock, model: m-slow)")
+	assert.Contains(t, out, "Resolved llm: slow (backend: mock, model: m-slow)")
 	assert.Contains(t, out, "Composed fragments: 2")
 }
 
 // TestRenderAgentShow_Driving proves a declared `driving:` value renders in
 // `agent show`.
 func TestRenderAgentShow_Driving(t *testing.T) {
-	def := &operations.AgentEntry{Name: "shooter", Engine: "slow", Driving: "oneshot", Source: "config"}
+	def := &operations.AgentEntry{Name: "shooter", LLM: "slow", Driving: "oneshot", Source: "config"}
 	resolved := &operations.ResolvedAgent{Name: "shooter", Label: "slow", Backend: "mock"}
 	var buf bytes.Buffer
 	assert.NoError(t, renderAgentShow(&buf, def, resolved, nil, nil))
@@ -99,7 +99,7 @@ func TestRenderAgentShow_ResolutionFailureStillPrintsDefinition(t *testing.T) {
 
 	assert.Contains(t, out, "Agent: dev")
 	assert.Contains(t, out, "Engine (declared): (project default)")
-	assert.Contains(t, out, "Resolved engine: unavailable (profile missing not found)")
+	assert.Contains(t, out, "Resolved llm: unavailable (profile missing not found)")
 }
 
 // TestSetupPrompt_EmitsPrompt proves the setup-prompt body — the SCAN →
@@ -125,7 +125,7 @@ func TestSetupPrompt_EmitsPrompt(t *testing.T) {
 
 // `agent show` resolves the engine fault-tolerantly: a failure (e.g. a missing
 // constituent profile) still prints the definition, with the reason. The TEXT
-// renderer says so — "Resolved engine: unavailable (…)" — but the --format json
+// renderer says so — "Resolved llm: unavailable (…)" — but the --format json
 // payload carried only `resolved` omitted, so a structured consumer saw an
 // agent with no resolution and no way to learn why. Two formats of the same
 // command must not disagree about whether anything went wrong.
@@ -153,7 +153,7 @@ func TestAgentShow_JSONCarriesTheResolutionFailure(t *testing.T) {
 	var text bytes.Buffer
 	require.NoError(t, renderAgentShow(&text, &operations.AgentEntry{Name: "broken"}, nil,
 		errors.New("no-such-profile not found"), nil))
-	assert.Contains(t, text.String(), "Resolved engine: unavailable")
+	assert.Contains(t, text.String(), "Resolved llm: unavailable")
 }
 
 // The key is absent — not present-and-empty — when resolution succeeded, so a
@@ -176,7 +176,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		def := &operations.AgentEntry{
 			Name:        "full",
 			Source:      ".ctxloom/agents/full.yaml",
-			Engine:      "claude-code",
+			LLM:      "claude-code",
 			Profiles:    []string{"p1", "p2"},
 			Runtime:     "container",
 			Permissions: "acceptEdits",
@@ -208,7 +208,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 			"Escalation: 2 rung(s)\n",
 			"  - COMMAND_EXECUTION,FILE_CHANGE: surface_to_human\n",
 			"  - all kinds: auto_accept\n",
-			"Resolved engine: claude-code (backend: claude, model: opus)\n",
+			"Resolved llm: claude-code (backend: claude, model: opus)\n",
 			"Resolved permissions: bypass\n",
 			"Composed fragments: 3\n",
 		} {
@@ -224,7 +224,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 
 		assert.Contains(t, out, "Agent: bare\n")
 		assert.Contains(t, out, "Engine (declared): (project default)\n")
-		assert.Contains(t, out, "Resolved engine: default\n")
+		assert.Contains(t, out, "Resolved llm: default\n")
 		assert.Contains(t, out, "Composed fragments: 0\n")
 		for _, unwanted := range []string{"Source:", "Runtime:", "Permissions:", "Coordinator:", "Driving:", "Escalation:", "backend:", "Resolved permissions:"} {
 			assert.NotContains(t, out, unwanted)
@@ -235,7 +235,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		var buf bytes.Buffer
 		require.NoError(t, renderAgentShow(&buf, &operations.AgentEntry{Name: "b"},
 			&operations.ResolvedAgent{Label: "l", Backend: "mock"}, nil, nil))
-		assert.Contains(t, buf.String(), "Resolved engine: l (backend: mock)\n")
+		assert.Contains(t, buf.String(), "Resolved llm: l (backend: mock)\n")
 	})
 
 	t.Run("a failed resolution stops after the declaration", func(t *testing.T) {
@@ -243,7 +243,7 @@ func TestRenderAgentShow_EveryOptionalArm(t *testing.T) {
 		require.NoError(t, renderAgentShow(&buf, &operations.AgentEntry{Name: "x", Profiles: []string{"p"}},
 			nil, errors.New("boom"), nil))
 		out := buf.String()
-		assert.Contains(t, out, "Resolved engine: unavailable (boom)\n")
+		assert.Contains(t, out, "Resolved llm: unavailable (boom)\n")
 		assert.NotContains(t, out, "Composed fragments:")
 	})
 
@@ -302,7 +302,7 @@ func TestRunAgentList_EmptyAndPopulated(t *testing.T) {
 		got := out.String()
 		assert.Contains(t, got, "Agents (1):")
 		assert.Contains(t, got, "dev")
-		assert.Contains(t, got, "engine: claude-code")
+		assert.Contains(t, got, "llm: claude-code")
 	})
 }
 
@@ -368,7 +368,7 @@ func TestBuildSetAgentRequest_OnlySendsChangedFlags(t *testing.T) {
 	assert.Equal(t, "dev", req.Name)
 	require.NotNil(t, req.Runtime, "the flag that WAS typed must be sent")
 	assert.Equal(t, "container", *req.Runtime)
-	assert.Nil(t, req.Engine, "an untyped flag must stay nil so SetAgent preserves it")
+	assert.Nil(t, req.LLM, "an untyped flag must stay nil so SetAgent preserves it")
 	assert.Nil(t, req.Profiles)
 	assert.Nil(t, req.Permissions)
 	assert.Nil(t, req.Coordinator)
@@ -383,8 +383,8 @@ func TestBuildSetAgentRequest_ExplicitEmptyIsSentAsAClear(t *testing.T) {
 	require.NoError(t, cmd.Flags().Parse([]string{"--engine", ""}))
 
 	req := buildSetAgentRequest(cmd, "dev")
-	require.NotNil(t, req.Engine, `--engine "" must be sent, not treated as unnamed`)
-	assert.Equal(t, "", *req.Engine)
+	require.NotNil(t, req.LLM, `--engine "" must be sent, not treated as unnamed`)
+	assert.Equal(t, "", *req.LLM)
 }
 
 func TestRenderAgentWritten_NamesWhichVerbRan(t *testing.T) {
@@ -407,7 +407,7 @@ func TestRenderAgentWritten_NamesWhichVerbRan(t *testing.T) {
 func TestRenderAgentWritten_BlankEngineReadsAsProjectDefault(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, renderAgentWritten(&buf, &operations.AgentEntry{Name: "dev"}, false))
-	assert.Contains(t, buf.String(), "engine: project default")
+	assert.Contains(t, buf.String(), "llm: project default")
 }
 
 func TestRenderDefaultAgent_BothArms(t *testing.T) {

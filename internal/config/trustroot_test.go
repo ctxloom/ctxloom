@@ -270,11 +270,15 @@ func TestSignerStorePaths_AllowedAndDistrustedAgreeOnShape(t *testing.T) {
 }
 
 // A distrusted_signers file that opens and then stops PART WAY THROUGH — a
-// mid-read I/O error, or a line past bufio.Scanner's 64 KiB token limit — used
-// to end the scan with no error checked anywhere: the entries above the
-// truncation point loaded, the ones below silently stopped being suppressed,
-// and nothing said so. The direction is fail-OPEN: fewer suppressions means an
-// embedded key the operator explicitly removed counts again.
+// mid-read I/O error, or a line past bufio.Scanner's 64 KiB token limit — ends
+// the scan with whatever was parsed so far. The entries below the truncation
+// point are revocations this process cannot see, so the trust root trusts no
+// first-party signer at all until the file reads in full, and says so.
+//
+// The set SuppressedEmbeddedPrincipals reports is unchanged: it answers "which
+// principals are named", a display question, and a partial answer to it is
+// still the truth about what was read. The decision built on top of it is
+// where the incompleteness has to bite.
 func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// One good entry, then a line past bufio.Scanner's token limit. The
@@ -298,9 +302,15 @@ func TestSuppressedEmbeddedPrincipals_TruncatedFile_IsLoud(t *testing.T) {
 	require.False(t, suppressed["lost@example.com"], "the fixture must actually truncate the scan")
 
 	assert.Contains(t, buf.String(), "distrusted_signers",
-		"a truncated suppression file re-trusts keys the operator removed; that must be reported")
-	assert.Contains(t, buf.String(), "trusted again this session",
-		"the report must name the fail-open direction, not just that something went wrong")
+		"a suppression file that could not be read in full must be reported, naming the file")
+	assert.Contains(t, buf.String(), "no first-party signer is trusted this session",
+		"the report must name the consequence, not just that something went wrong")
+
+	// And the consequence is real, not merely announced: a revocation below
+	// the truncation point cannot be reversed by the truncation.
+	assert.False(t,
+		cfg.TrustRoot().TrustedForNamespace(parseAuthorizedKey(t, ctxloomReleasePubkey), signing.NamespacePublish, time.Now()).Trusted,
+		"a partially-read revocation list must not leave first-party keys trusted")
 }
 
 // A malformed LINE in an otherwise-good allowed_signers file is deliberately

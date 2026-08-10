@@ -81,7 +81,13 @@ func (c *Config) TrustRoot() *allowedsigners.Store {
 // with nothing to invalidate.
 func (c *Config) embeddedSignersTrusted() *allowedsigners.Store {
 	store := EmbeddedSigners()
-	suppressed := c.SuppressedEmbeddedPrincipals()
+	suppressed, unreadable := c.suppressedEmbeddedPrincipals()
+	if unreadable {
+		// A revocation list that cannot be read cannot be shown to be empty.
+		// Trust nothing first-party rather than re-grant what may have been
+		// revoked — see readPrincipalLines.
+		return allowedsigners.NewStore()
+	}
 	if len(suppressed) == 0 {
 		return store
 	}
@@ -120,20 +126,40 @@ func filterSuppressedPrincipals(store *allowedsigners.Store, suppressed map[stri
 // project-wide trust decision (`signer remove <embedded-principal>
 // --project`).
 //
-// Never fails: a missing or unreadable file simply contributes nothing.
+// Never fails: a missing file simply contributes nothing. This reporting form
+// answers only "which principals are named", which is what ListSigners and
+// ShowSigner display; the trust root itself uses
+// Config.suppressedEmbeddedPrincipals, which also reports whether any of those
+// files was unreadable.
+//
 // Read/write of this store is written by operations.RemoveSigner (the only
 // production mutator — see docs/trust-model.md's CLI-only signer-management
 // boundary, ADR 0024); this method is the READ side TrustRoot() and
 // ListSigners/ShowSigner both consult.
 func (c *Config) SuppressedEmbeddedPrincipals() map[string]bool {
+	out, _ := c.suppressedEmbeddedPrincipals()
+	return out
+}
+
+// suppressedEmbeddedPrincipals is SuppressedEmbeddedPrincipals plus the fact a
+// display surface can ignore and a trust decision cannot: whether any
+// suppression file EXISTS but could not be read in full. A caller that sees
+// true has no evidence the set it was handed is complete, and must not treat
+// it as a complete list of what was revoked.
+func (c *Config) suppressedEmbeddedPrincipals() (map[string]bool, bool) {
 	fs := c.getFS()
 	out := map[string]bool{}
+	unreadable := false
 	for _, path := range c.distrustedSignersPaths() {
-		for principal := range readPrincipalLines(fs, path) {
+		principals, bad := readPrincipalLines(fs, path)
+		if bad {
+			unreadable = true
+		}
+		for principal := range principals {
 			out[principal] = true
 		}
 	}
-	return out
+	return out, unreadable
 }
 
 // signerStorePaths lists one signer store's on-disk locations in union order
@@ -168,28 +194,33 @@ func (c *Config) distrustedSignersPaths() []string {
 // is the overwhelmingly common shape (nobody has suppressed anything).
 //
 // A file that EXISTS but cannot be read is the mirror of
-// parseAllowedSigners' case with the DIRECTION REVERSED, and the old doc here
-// had it backwards: fewer suppressions means MORE embedded keys trusted, so
-// an unreadable file silently re-trusts a key the operator explicitly removed
-// — a human's "no" quietly reversed, the same shape as a silently-reversed
-// rejection on the reject path. It stays non-fatal (failing closed here would
-// suppress every embedded principal, i.e. withhold all first-party content
-// over a permissions problem), but it must never be silent.
+// parseAllowedSigners' case with the DIRECTION REVERSED: fewer suppressions
+// means MORE embedded keys trusted, so a partially-read file re-trusts a key
+// the operator explicitly removed — a human's "no" reversed, the same shape as
+// a silently-reversed rejection on the reject path. A revocation holds until a
+// human withdraws it; an I/O error is not a human withdrawing it. So an
+// unreadable file suppresses EVERY embedded principal, and readPrincipalLines
+// reports that as its second return rather than as an empty set.
+//
+// The cost is real and is the intended one: while the file cannot be read, no
+// first-party content is trusted. That withholds content over a permissions
+// problem, which is recoverable and loud, rather than admitting content over
+// one, which is neither.
 //
 // A file that opens and then stops PART WAY THROUGH is the same degradation
 // wearing a success's clothes: a mid-read I/O error, or a line past
 // bufio.Scanner's 64 KiB token limit, ends the scan with whatever was parsed
 // so far and no error anywhere. Every principal below the truncation point
-// stops being suppressed — the same silent re-trust as an unreadable file, on
-// a partial file — so the scan's error is checked and reported for the same
-// reason.
-func readPrincipalLines(fs afero.Fs, path string) map[string]bool {
+// would stop being suppressed, so a truncated read is treated exactly like an
+// unreadable one.
+func readPrincipalLines(fs afero.Fs, path string) (map[string]bool, bool) {
 	f, err := fs.Open(path)
 	if err != nil {
-		if !os.IsNotExist(err) {
-			clidiag.Warn("ctxloom", "distrusted_signers %s exists but cannot be read; any signer suppressed there is trusted again this session: %v", path, err)
+		if os.IsNotExist(err) {
+			return nil, false // absent: nobody suppressed anything here
 		}
-		return nil
+		clidiag.Warn("ctxloom", "distrusted_signers %s exists but cannot be read; no first-party signer is trusted this session, so that a revocation recorded there cannot be reversed by an I/O error: %v", path, err)
+		return nil, true
 	}
 	defer func() { _ = f.Close() }()
 
@@ -203,9 +234,10 @@ func readPrincipalLines(fs afero.Fs, path string) map[string]bool {
 		out[line] = true
 	}
 	if err := sc.Err(); err != nil {
-		clidiag.Warn("ctxloom", "distrusted_signers %s could only be read as far as %d entr(ies); any signer suppressed below that point is trusted again this session: %v", path, len(out), err)
+		clidiag.Warn("ctxloom", "distrusted_signers %s could only be read as far as %d entr(ies); no first-party signer is trusted this session, so that a revocation below that point cannot be reversed by a truncated read: %v", path, len(out), err)
+		return out, true
 	}
-	return out
+	return out, false
 }
 
 // allowedSignersPaths lists the on-disk trust-root files in union order.

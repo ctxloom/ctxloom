@@ -206,7 +206,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"signer untrust": {skip: "destructive; covered by signer_test.go"},
 
 	"bundle trust": {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
-	"bundle untrust": {skip: "needs a resolvable ref; not exercised here"},
+	"bundle reject": {skip: "needs a resolvable ref; not exercised here"},
+	"bundle forget": {skip: "needs a resolvable ref with a decision already recorded against it; not exercised here"},
 
 	// Read-only over ~/.ctxloom/companion_consent.yaml, which is absent in
 	// this harness — the empty-store rendering is exactly what we want the

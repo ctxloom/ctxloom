@@ -12,7 +12,7 @@ Feature: remote — registering remote sources, and pulling shared content acros
   local profile names a remote bundle by its per-remote short form
   ("<remote>/<bundle>" — a bare name is local), `remote pull` fetches and
   locks the dependency closure, and whether the pulled content ever reaches
-  the agent is decided per item by `ctxloom review` (see review.feature),
+  the agent is decided per item by `ctxloom review` (see cli/content_decision.feature),
   independent of the lockfile. To auto-trust a publisher's content, trust
   their signing key — never the URL.
 

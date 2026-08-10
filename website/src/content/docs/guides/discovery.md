@@ -124,13 +124,14 @@ ctxloom review
 `ctxloom remote pull` only fetches — it never exposes anything. Everything
 from a remote is born pending and withheld from the agent until a human
 reviews it, unless you already trust the publisher's signing key. `ctxloom
-review` walks the pending items and shows each one's content: `[a]ccept`,
-`[r]eject`, `[s]kip`, or `[A]` to accept everything left in a bundle.
-Accepting countersigns the exact bytes you saw with your own SSH key, so any
+review` walks the pending items and shows each one's content: `[t]rust`,
+`[r]eject`, `[s]kip`, or `[T]`/`[R]` to answer for everything left in a bundle.
+Trusting countersigns the exact bytes you saw with your own SSH key, so any
 later change to that content — including a version upgrade — drops it back to
 pending until you review it again. `ctxloom bundle trust <ref>` and `ctxloom
-blacklist <ref>` are the same accept/reject as scriptable one-liners, for
-scripts or CI. Trusting a publisher's key instead (`ctxloom signer trust`)
+bundle reject <ref>` are the same two decisions as scriptable one-liners, for
+scripts or CI, and `ctxloom bundle forget <ref>` clears either one — returning
+the item to pending rather than answering a mistake with its opposite. Trusting a publisher's key instead (`ctxloom signer trust`)
 skips this per-item review for everything they sign.
 
 ### Use Content Directly

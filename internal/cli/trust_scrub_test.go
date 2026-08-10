@@ -98,7 +98,7 @@ func TestTrustMutations_RefreshManagedArtifacts(t *testing.T) {
 	// Blacklisting "alpha" scrubs it from settings on the mutation; the still-
 	// trusted sibling "beta" is untouched.
 	c, _ = testCmd()
-	require.NoError(t, runBlacklist(c, cfg, "tools#mcp/alpha"))
+	require.NoError(t, runItemReject(c, cfg, "tools#mcp/alpha"))
 	after := readMCPConfig(t, root)
 	assert.NotContains(t, after, "alpha-cmd",
 		"blacklisting must scrub the now-withheld MCP server from settings")
@@ -129,7 +129,7 @@ func TestTrustMutations_RefreshFailureDoesNotBlock(t *testing.T) {
 	c, _ := testCmd()
 	c.SetContext(ctx)
 
-	require.NoError(t, runBlacklist(c, cfg, "tools#mcp/alpha"),
+	require.NoError(t, runItemReject(c, cfg, "tools#mcp/alpha"),
 		"a failed managed-artifact refresh must not fail the blacklist")
 
 	alpha := bundles.BundleMCP{Command: "alpha-cmd"}
@@ -164,7 +164,7 @@ func TestBlacklist_UnresolvableItemStatesTheRejectionIsRefOnly(t *testing.T) {
 
 	warnings := captureWarnings(t)
 	c, out := testCmd()
-	require.NoError(t, runBlacklist(c, cfg, "tools#mcp/ghost"),
+	require.NoError(t, runItemReject(c, cfg, "tools#mcp/ghost"),
 		"a rejection must still succeed when the item cannot be resolved — the sticky ref block is the durable guarantee")
 
 	assert.Contains(t, warnings.String(), "no content-reject countersignature was recorded",

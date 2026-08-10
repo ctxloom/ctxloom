@@ -203,7 +203,7 @@ Feature: A signature somebody can check
     And Alice's own review key is trusted for approve and reject as "reviewer@acme.example"
     And Trent publishes the signed bundle to his company repo, and Alice references it
     And her assistant receives the "curl-pipe-sh" guidance
-    When I run "ctxloom bundle untrust" on the published "curl-pipe-sh" fragment
+    When I run "ctxloom bundle reject" on the published "curl-pipe-sh" fragment
     Then the output contains "ref block: recorded"
     And the output contains "content:   rejected in form(s)"
     And her assistant does not receive the "curl-pipe-sh" guidance

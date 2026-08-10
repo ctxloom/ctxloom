@@ -254,7 +254,7 @@ func (s *j000700State) commandNameOrDefault() string {
 // j000700SetupTeamProject scaffolds Carol's checkout (w.env.ProjectDir) as the
 // team's shared project with the minimal fixture config (no LLM needed:
 // `bundle`/`profile create` and `profile materialize` all work against it,
-// exactly as review.feature/command.feature/fragment.feature already rely on).
+// exactly as cli/content_decision.feature, command.feature and fragment.feature already rely on).
 func j000700SetupTeamProject(w *World) error {
 	if err := j000700SetupProject(w, minimalConfig); err != nil {
 		return err

@@ -23,7 +23,7 @@ import (
 // model (S6). It walks everything pending, grouped by bundle, shows each
 // item's content (full for NEW, a unified diff against the previously
 // approved snapshot for an UPDATE, the executable surface for mcp/hooks),
-// and records the human's accept/reject decision by COUNTERSIGNING the exact
+// and records the human's trust/reject decision by COUNTERSIGNING the exact
 // reviewed bytes with their own SSH key — the signature IS the approval
 // record. Off a TTY (or with --list) it degrades to the pending table so
 // scripts and agents can see what a human still owes a look.
@@ -35,7 +35,7 @@ var (
 
 var reviewCmd = &cobra.Command{
 	Use:   "review",
-	Short: "Review pending items: accept or reject what the agent may see",
+	Short: "Review pending items: trust or reject what the agent may see",
 	Long: `Walk every item awaiting review — remote content the agent has not been
 allowed to see yet — grouped by bundle, and decide each one.
 
@@ -47,10 +47,16 @@ bundles signed by a publisher key you trust (allowed_signers). Trust is keyed
 to a signing KEY, never to the remote the bytes arrived from. A rejection
 still beats every one of those exemptions.
 
-Per item: [a]ccept, [r]eject, [s]kip, [A] accept all remaining in the bundle,
-or [q]uit. Accepting COUNTERSIGNS the item's current content bytes with your
-SSH key (a later change stops the signature verifying, re-gating it);
-rejecting countersigns a permanent refusal, both by ref and by content.
+Per item: [t]rust, [r]eject, [s]kip, or [q]uit; [T] and [R] apply that answer
+to the rest of the bundle. The letters are the CLI's own verbs, so what you
+learn here works on the command line too.
+
+Trusting COUNTERSIGNS the item's current content bytes with your SSH key (a
+later change stops the signature verifying, re-gating it); rejecting
+countersigns a refusal that is sticky — it survives the content changing, and
+it beats a trusted publisher and project-local content alike. To undo either
+decision, clear it with 'ctxloom bundle forget <ref>'; do not reach for a
+rejection to withdraw an approval.
 
 --project writes to the COMMITTABLE project store (.ctxloom/approvals) instead
 of your personal one (~/.ctxloom/approvals), so a team/CI can inherit the
@@ -60,8 +66,9 @@ Non-interactive (piped, --list, or any --format but text): print the pending
 table and exit.
 
 The scriptable plumbing under this porcelain:
-  ctxloom bundle trust <ref>   accept one item
-  ctxloom bundle untrust <ref>   reject one item`,
+  ctxloom bundle trust <ref>   trust one item
+  ctxloom bundle reject <ref>  reject one item
+  ctxloom bundle forget <ref>  clear either decision, back to pending`,
 	Args: cobra.NoArgs,
 	RunE: runReviewCmd,
 }
@@ -125,7 +132,7 @@ func runReview(cmd *cobra.Command, cfg *config.Config) error {
 	if sum.accepted+sum.rejected > 0 {
 		// One refresh for the whole session (not per item): reflect the new
 		// decisions in the managed artifacts immediately, exactly like the
-		// trust/blacklist plumbing does.
+		// trust/reject plumbing does.
 		refreshManagedArtifacts(cmd.Context(), cfg)
 	}
 	return nil
@@ -260,7 +267,8 @@ func renderReviewList(w io.Writer, res *operations.PendingReviewResult) {
 		}
 	}
 	fmt.Fprintln(w, "\nRun 'ctxloom review' in a terminal to review interactively, or use the")
-	fmt.Fprintln(w, "plumbing per item: ctxloom bundle trust <bundle-ref>#<kind>/<name> / ctxloom bundle untrust <ref>.")
+	fmt.Fprintln(w, "plumbing per item: ctxloom bundle trust <bundle-ref>#<kind>/<name>, ctxloom bundle reject <ref>,")
+	fmt.Fprintln(w, "or ctxloom bundle forget <ref> to clear a decision already made.")
 }
 
 // renderReviewPublisher prints the two lines that say WHO signed a pending
@@ -307,28 +315,41 @@ type reviewDecision int
 
 const (
 	reviewSkip reviewDecision = iota
-	reviewAccept
+	reviewTrust
 	reviewReject
-	reviewAcceptBundle
+	reviewTrustBundle
+	reviewRejectBundle
 	reviewQuit
 )
 
-// parseReviewChoice maps a raw answer to a decision. Only explicit letters
-// act; anything else — including the empty line and an unrecognized word — is
-// a skip, because viewing must never mutate trust. The accept-all shortcut is
-// the UPPERCASE 'A' only: it is the widest action offered, so it must not be
-// reachable by case-sloppy typing of the single accept.
+// parseReviewChoice maps a raw answer to a decision.
+//
+// The letters ARE the CLI's verbs — [t]rust and [r]eject spell what `ctxloom
+// bundle trust` and `ctxloom bundle reject` write — so a reviewer learns one
+// vocabulary here and can use it on the command line. The porcelain used to
+// say "accept", which is a third word for the thing the plumbing and the store
+// both call an approval.
+//
+// Each bulk form is its verb's UPPERCASE and nothing else. They are the widest
+// actions offered, so neither may be reached by case-sloppy typing of the
+// single form — and that rule matters more for [R] than for [T]: a bulk trust
+// re-gates itself the moment any of those bytes change, while every rejection
+// it writes is sticky.
+//
+// Everything else is a skip: the empty line, an unrecognized word, and the
+// retired `a`/`A` accept spellings, which land on the safe side rather than
+// silently approving on muscle memory. Viewing must never mutate trust.
 func parseReviewChoice(answer string) reviewDecision {
-	trimmed := strings.TrimSpace(answer)
-	if trimmed == "A" {
-		return reviewAcceptBundle
-	}
-	switch strings.ToLower(trimmed) {
-	case "a":
-		return reviewAccept
+	switch trimmed := strings.TrimSpace(answer); trimmed {
+	case "t":
+		return reviewTrust
+	case "T":
+		return reviewTrustBundle
 	case "r":
 		return reviewReject
-	case "q":
+	case "R":
+		return reviewRejectBundle
+	case "q", "Q":
 		return reviewQuit
 	default:
 		return reviewSkip
@@ -379,29 +400,37 @@ func (s reviewSummary) stillPending() int { return s.total - s.accepted - s.reje
 // error (EOF, closed stdin) quits the walk — reviewing must never mutate
 // without an explicit answer. Apply failures warn and count the item as
 // skipped (fault tolerance: one unresolvable item never aborts the session).
+// A bulk answer applies to the REST OF ONE BUNDLE and is reset at the next
+// bundle header, so a reviewer can never decide, in one keystroke, about
+// content they were never shown.
 func runReviewWalk(out io.Writer, prompt func(string) (string, error), res *operations.PendingReviewResult, apply reviewApplyFuncs) reviewSummary {
 	sum := reviewSummary{total: res.Total}
+	trust := func(ref string) { applyReviewDecision(out, apply.accept, ref, "trusted", &sum.accepted, &sum.skipped) }
+	reject := func(ref string) { applyReviewDecision(out, apply.reject, ref, "rejected", &sum.rejected, &sum.skipped) }
 	for _, b := range res.Bundles {
 		printReviewBundleHeader(out, b)
-		acceptRest := false
+		var rest func(string)
 		for i, item := range b.Items {
-			if acceptRest {
-				applyReviewDecision(out, apply.accept, item.Ref, "accepted", &sum.accepted, &sum.skipped)
+			if rest != nil {
+				rest(item.Ref)
 				continue
 			}
 			printReviewItem(out, i+1, len(b.Items), item)
-			answer, err := prompt("[a]ccept / [r]eject / [s]kip / [A] accept rest of bundle / [q]uit: ")
+			answer, err := prompt("[t]rust / [r]eject / [s]kip / [T] trust or [R] reject rest of bundle / [q]uit: ")
 			if err != nil {
 				return sum // EOF/read error → quit; no answer, no mutation
 			}
 			switch parseReviewChoice(answer) {
-			case reviewAccept:
-				applyReviewDecision(out, apply.accept, item.Ref, "accepted", &sum.accepted, &sum.skipped)
+			case reviewTrust:
+				trust(item.Ref)
 			case reviewReject:
-				applyReviewDecision(out, apply.reject, item.Ref, "rejected", &sum.rejected, &sum.skipped)
-			case reviewAcceptBundle:
-				acceptRest = true
-				applyReviewDecision(out, apply.accept, item.Ref, "accepted", &sum.accepted, &sum.skipped)
+				reject(item.Ref)
+			case reviewTrustBundle:
+				rest = trust
+				trust(item.Ref)
+			case reviewRejectBundle:
+				rest = reject
+				reject(item.Ref)
 			case reviewQuit:
 				return sum
 			default:
@@ -549,6 +578,6 @@ func indentBlock(text string) string {
 
 // printReviewSummary reports the session tally.
 func printReviewSummary(w io.Writer, sum reviewSummary) {
-	fmt.Fprintf(w, "\nReview complete: %d accepted, %d rejected, %d skipped — %d still pending.\n",
+	fmt.Fprintf(w, "\nReview complete: %d trusted, %d rejected, %d skipped — %d still pending.\n",
 		sum.accepted, sum.rejected, sum.skipped, sum.stillPending())
 }

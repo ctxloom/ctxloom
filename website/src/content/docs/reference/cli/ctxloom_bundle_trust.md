@@ -36,7 +36,9 @@ Examples:
   ctxloom bundle trust ctxloom:local@bundles/dev#commands/review
   ctxloom bundle trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
-Reject an item with 'ctxloom bundle untrust <ref>'.
+Reject an item with 'ctxloom bundle reject <ref>'. Withdraw this approval —
+returning the item to pending, without rejecting it — with
+'ctxloom bundle forget <ref>'.
 
 ```
 ctxloom bundle trust <ref> [flags]

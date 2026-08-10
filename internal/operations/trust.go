@@ -625,7 +625,7 @@ func (l *lockfileRetraction) Retracted(ref trust.Ref) (bool, string) {
 	return true, entry.RetractedReason
 }
 
-// --- Mutations (the plumbing under `ctxloom trust` / `ctxloom blacklist`) -----
+// --- Mutations (the plumbing under `ctxloom bundle trust|reject|forget`) ----
 
 // resolveCountersignStore picks the physical countersignature store a
 // mutation writes to: the committable PROJECT store when project is true,

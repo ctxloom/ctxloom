@@ -12,10 +12,14 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// Per-item trust CLI: the scriptable plumbing of the three-state review model
-// (trust-simplify). `bundle trust` records accepted, `bundle untrust` records
-// rejected — the same states the interactive `ctxloom review` porcelain
-// (slice 2) writes.
+// Per-item content-decision CLI: the scriptable plumbing of the three-state
+// review model. The store holds three states, so there are three verbs, each
+// named for what it writes — `bundle trust` records an approval, `bundle
+// reject` records a rejection, and `bundle forget` records NOTHING: it clears
+// whichever decision is on file and returns the item to pending. They are the
+// same states, through the same mutation path, the interactive `ctxloom
+// review` porcelain writes.
+//
 // Management is CLI-only: there are deliberately NO MCP tools for any of these.
 // (Source-level `remote trust/untrust` is deleted — trust is now keyed to a
 // publisher signing key, not a remote; see docs/trust-model.md.)
@@ -44,7 +48,9 @@ Examples:
   ctxloom bundle trust ctxloom:local@bundles/dev#commands/review
   ctxloom bundle trust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'
 
-Reject an item with 'ctxloom bundle untrust <ref>'.`
+Reject an item with 'ctxloom bundle reject <ref>'. Withdraw this approval —
+returning the item to pending, without rejecting it — with
+'ctxloom bundle forget <ref>'.`
 
 // runBundleTrustCmd is bundleTrustCmd's RunE.
 func runBundleTrustCmd(cmd *cobra.Command, args []string) error {
@@ -89,8 +95,8 @@ func runItemTrust(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	})
 }
 
-// bundleUntrustLong documents `ctxloom bundle untrust`.
-const bundleUntrustLong = `Reject an item, withholding it from every exposure surface, always.
+// bundleRejectLong documents `ctxloom bundle reject`.
+const bundleRejectLong = `Reject an item, withholding it from every exposure surface, always.
 
 A rejection writes two companion entries: the ref-level rejected state (denies
 this ref regardless of content/version, surviving content changes) and the
@@ -99,34 +105,37 @@ copy stays rejected too). The denylist entries are only recorded when the item
 can be resolved; the ref-level rejection is written regardless.
 
 Rejection beats every exemption: it withholds the item even from a trusted
-source and even for project-local content.
+source and even for project-local content. That is why this is not the way to
+undo an approval — it is a stronger, stickier statement than withdrawing one.
+To return an item to pending, decided neither way, use
+'ctxloom bundle forget <ref>'.
 
 Reference format matches 'ctxloom bundle trust' (see its help).
 
 Examples:
-  ctxloom bundle untrust tooling#fragments/curl-pipe-sh
-  ctxloom bundle untrust 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
+  ctxloom bundle reject tooling#fragments/curl-pipe-sh
+  ctxloom bundle reject 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
 
-// runBlacklistCmd is bundleUntrustCmd's RunE.
-func runBlacklistCmd(cmd *cobra.Command, args []string) error {
+// runBundleRejectCmd is bundleRejectCmd's RunE.
+func runBundleRejectCmd(cmd *cobra.Command, args []string) error {
 	cfg, err := GetConfig()
 	if err != nil {
 		return err
 	}
-	return runBlacklist(cmd, cfg, args[0])
+	return runItemReject(cmd, cfg, args[0])
 }
 
-// bundleUntrustCmd withholds an item from every exposure surface.
-var bundleUntrustCmd = &cobra.Command{
-	Use:   "untrust <ref>",
-	Short: "Untrust an item so it is withheld from the agent",
-	Long:  bundleUntrustLong,
+// bundleRejectCmd withholds an item from every exposure surface.
+var bundleRejectCmd = &cobra.Command{
+	Use:   "reject <ref>",
+	Short: "Reject an item so it is withheld from the agent, always",
+	Long:  bundleRejectLong,
 	Args:  cobra.ExactArgs(1),
-	RunE:  runBlacklistCmd,
+	RunE:  runBundleRejectCmd,
 }
 
-// runBlacklist records both rejection components and reports what was written.
-func runBlacklist(cmd *cobra.Command, cfg *config.Config, ref string) error {
+// runItemReject records both rejection components and reports what was written.
+func runItemReject(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	res, err := operations.SetBlacklist(cfg, operations.SetBlacklistRequest{Ref: ref})
 	if err != nil {
 		return err
@@ -157,6 +166,90 @@ func runBlacklist(cmd *cobra.Command, cfg *config.Config, ref string) error {
 			fmt.Fprintf(out, "  content:   rejected in form(s) %s (blocks this content even if renamed/moved)\n", strings.Join(res.ContentForms, ", "))
 		} else {
 			fmt.Fprintln(out, "  content:   not recorded (content could not be resolved)")
+		}
+		return nil
+	})
+}
+
+// bundleForgetProject targets the committable project store.
+var bundleForgetProject bool
+
+// bundleForgetLong documents `ctxloom bundle forget`.
+const bundleForgetLong = `Clear whichever decision is recorded for an item, returning it to pending.
+
+This is the inverse of BOTH other verbs: it removes an approval, and it removes
+a rejection — the ref-level block and the content block together — leaving the
+item exactly as it was before anyone reviewed it. It is what you want when a
+decision was made in error, because rejecting an item you had approved does not
+withdraw the approval, it records something stronger.
+
+It writes nothing, so it needs no signing key and no namespace grant. Removing
+your own record asserts nothing anyone else has to honour.
+
+It clears ONE store: your personal one by default, the committable project
+store with --project. A decision the other store holds still stands, and the
+command says so rather than reporting an item back to pending while it stays
+withheld.
+
+Reference format matches 'ctxloom bundle trust' (see its help).
+
+Examples:
+  ctxloom bundle forget tooling#fragments/curl-pipe-sh
+  ctxloom bundle forget --project 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
+
+// runBundleForgetCmd is bundleForgetCmd's RunE.
+func runBundleForgetCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	return runItemForget(cmd, cfg, args[0])
+}
+
+// bundleForgetCmd returns an item to pending by clearing its decision.
+var bundleForgetCmd = &cobra.Command{
+	Use:   "forget <ref>",
+	Short: "Clear an item's recorded decision (approval or rejection), back to pending",
+	Long:  bundleForgetLong,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runBundleForgetCmd,
+}
+
+// runItemForget clears the recorded decision and reports what actually went.
+//
+// The two outcomes are rendered DIFFERENTLY on purpose. "Forgot <ref>" over an
+// item that had no decision recorded would confirm a mistyped ref as a
+// success; and an item still decided by the other store is still withheld, so
+// saying only "cleared" would be the silent no-op wearing a success message.
+func runItemForget(cmd *cobra.Command, cfg *config.Config, ref string) error {
+	res, err := operations.ForgetItemDecision(cfg, operations.ForgetItemDecisionRequest{Ref: ref, Project: bundleForgetProject})
+	if err != nil {
+		return err
+	}
+	if res.StillDecided != "" {
+		clidiag.Warn("ctxloom",
+			"%q is still %s by a record in the other approvals store, so it stays withheld; "+
+				"clear that one too (add or drop --project)", ref, res.StillDecided)
+	}
+	// A cleared approval un-exposes an executable surface and a cleared
+	// rejection re-exposes one, so the managed artifacts are refreshed here for
+	// the same reason the other two verbs refresh them.
+	refreshManagedArtifacts(cmd.Context(), cfg)
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		if !res.ClearedAnything() {
+			fmt.Fprintf(out, "No decision was recorded for %s — nothing to clear.\n", res.Ref)
+			return nil
+		}
+		fmt.Fprintf(out, "Forgot %s\n", res.Ref)
+		fmt.Fprintf(out, "  repo:    %s\n", res.RepoURL)
+		fmt.Fprintf(out, "  store:   %s\n", res.Store)
+		fmt.Fprintf(out, "  cleared: %s (%d record(s)) — the item is pending review again\n",
+			strings.Join(res.Cleared, " and "), res.Records)
+		if len(res.ContentForms) > 0 {
+			fmt.Fprintf(out, "  content: cleared in form(s) %s\n", strings.Join(res.ContentForms, ", "))
+		} else if !res.ContentResolved {
+			fmt.Fprintln(out, "  content: could not be resolved, so only the ref-level record was cleared")
 		}
 		return nil
 	})
@@ -212,5 +305,8 @@ func harnessApplied(ctx context.Context, cfg *config.Config) bool {
 func init() {
 	// Per-item decisions belong to the noun that owns the items.
 	bundleCmd.AddCommand(bundleTrustCmd)
-	bundleCmd.AddCommand(bundleUntrustCmd)
+	bundleCmd.AddCommand(bundleRejectCmd)
+	bundleForgetCmd.Flags().BoolVar(&bundleForgetProject, "project", false,
+		"Clear the decision from the committable project store (.ctxloom/approvals) instead of your personal one")
+	bundleCmd.AddCommand(bundleForgetCmd)
 }

@@ -24,25 +24,39 @@ import (
 	"github.com/ctxloom/ctxloom/internal/trust"
 )
 
-// TestParseReviewChoice covers the menu parse: only explicit letters act, the
-// accept-all shortcut is the uppercase 'A' only, and everything else —
-// including the empty line and garbage — is a skip, so viewing never mutates.
+// TestParseReviewChoice covers the menu parse.
+//
+// The letters are the CLI's own verbs — [t]rust and [r]eject, the same words
+// `ctxloom bundle trust` and `ctxloom bundle reject` are spelled with — so the
+// porcelain teaches the plumbing instead of teaching a second vocabulary a
+// user then has to translate.
+//
+// Each bulk form is its verb's UPPERCASE only: they are the widest actions on
+// offer, so neither may be reached by case-sloppy typing of the single one.
+// Everything else is a skip, including the retired `a`/`A` spellings and the
+// empty line, because viewing must never mutate trust.
 func TestParseReviewChoice(t *testing.T) {
 	cases := map[string]reviewDecision{
-		"a":      reviewAccept,
-		" a ":    reviewAccept,
-		"A":      reviewAcceptBundle,
-		" A ":    reviewAcceptBundle,
-		"r":      reviewReject,
-		"R":      reviewReject,
-		"q":      reviewQuit,
-		"Q":      reviewQuit,
-		"s":      reviewSkip,
-		"":       reviewSkip,
-		"skip":   reviewSkip,
-		"accept": reviewSkip, // only single-letter shortcuts act
-		"yes":    reviewSkip,
-		"junk":   reviewSkip,
+		"t":     reviewTrust,
+		" t ":   reviewTrust,
+		"T":     reviewTrustBundle,
+		" T ":   reviewTrustBundle,
+		"r":     reviewReject,
+		" r ":   reviewReject,
+		"R":     reviewRejectBundle,
+		" R ":   reviewRejectBundle,
+		"q":     reviewQuit,
+		"Q":     reviewQuit,
+		"s":     reviewSkip,
+		"":      reviewSkip,
+		"skip":  reviewSkip,
+		"trust": reviewSkip, // only single-letter shortcuts act
+		"yes":   reviewSkip,
+		"junk":  reviewSkip,
+		// The retired accept spellings. Muscle memory must land on the SAFE
+		// side: a stale `a` skips the item rather than silently approving it.
+		"a": reviewSkip,
+		"A": reviewSkip,
 	}
 	for in, want := range cases {
 		assert.Equalf(t, want, parseReviewChoice(in), "parseReviewChoice(%q)", in)
@@ -120,13 +134,13 @@ func walkFixture() *operations.PendingReviewResult {
 	}
 }
 
-// TestRunReviewWalk_AcceptRejectSkip drives one of each single-item action and
+// TestRunReviewWalk_TrustRejectSkip drives one of each single-item action and
 // checks tallies, applied refs, and the update diff rendering.
-func TestRunReviewWalk_AcceptRejectSkip(t *testing.T) {
+func TestRunReviewWalk_TrustRejectSkip(t *testing.T) {
 	rec := &recordingApply{}
 	var out bytes.Buffer
-	// f1 accept, s1 reject, m1 skip, f2 accept, f3 skip.
-	sum := runReviewWalk(&out, scriptedPrompt("a", "r", "s", "a", ""), walkFixture(), rec.funcs())
+	// f1 trust, s1 reject, m1 skip, f2 trust, f3 skip.
+	sum := runReviewWalk(&out, scriptedPrompt("t", "r", "s", "t", ""), walkFixture(), rec.funcs())
 
 	assert.Equal(t, []string{"one#fragments/f1", "two#fragments/f2"}, rec.accepted)
 	assert.Equal(t, []string{"one#commands/s1"}, rec.rejected)
@@ -143,13 +157,13 @@ func TestRunReviewWalk_AcceptRejectSkip(t *testing.T) {
 	assert.Contains(t, text, "command: m1", "executables render what they run")
 }
 
-// TestRunReviewWalk_AcceptBundle: 'A' accepts the current item and everything
+// TestRunReviewWalk_TrustBundle: 'T' trusts the current item and everything
 // remaining in the SAME bundle, then the walk moves to the next bundle.
-func TestRunReviewWalk_AcceptBundle(t *testing.T) {
+func TestRunReviewWalk_TrustBundle(t *testing.T) {
 	rec := &recordingApply{}
 	var out bytes.Buffer
-	// f1: A (accepts f1, s1, m1 without further prompts), f2: r, f3: s.
-	sum := runReviewWalk(&out, scriptedPrompt("A", "r", "s"), walkFixture(), rec.funcs())
+	// f1: T (trusts f1, s1, m1 without further prompts), f2: r, f3: s.
+	sum := runReviewWalk(&out, scriptedPrompt("T", "r", "s"), walkFixture(), rec.funcs())
 
 	assert.Equal(t, []string{"one#fragments/f1", "one#commands/s1", "one#mcp/m1"}, rec.accepted)
 	assert.Equal(t, []string{"two#fragments/f2"}, rec.rejected)
@@ -158,12 +172,32 @@ func TestRunReviewWalk_AcceptBundle(t *testing.T) {
 	assert.Equal(t, 1, sum.skipped)
 }
 
+// TestRunReviewWalk_RejectBundle is the bulk form's other direction, and it is
+// the one that must be proven: bulk TRUST at least re-gates itself the moment
+// any of those bytes change, while every rejection it writes is sticky.
+//
+// The bulk decision must also stay inside its bundle. A 'R' that ran on to the
+// next bundle would reject content the reviewer never saw, permanently.
+func TestRunReviewWalk_RejectBundle(t *testing.T) {
+	rec := &recordingApply{}
+	var out bytes.Buffer
+	// f1: R (rejects f1, s1, m1 without further prompts), f2: t, f3: s.
+	sum := runReviewWalk(&out, scriptedPrompt("R", "t", "s"), walkFixture(), rec.funcs())
+
+	assert.Equal(t, []string{"one#fragments/f1", "one#commands/s1", "one#mcp/m1"}, rec.rejected)
+	assert.Equal(t, []string{"two#fragments/f2"}, rec.accepted,
+		"the next bundle is still decided item by item — a bulk answer covers the bundle it was given in, and no more")
+	assert.Equal(t, 3, sum.rejected)
+	assert.Equal(t, 1, sum.accepted)
+	assert.Equal(t, 1, sum.skipped)
+}
+
 // TestRunReviewWalk_Quit: 'q' ends the session immediately; nothing after it
 // is prompted or mutated, and the remainder stays pending.
 func TestRunReviewWalk_Quit(t *testing.T) {
 	rec := &recordingApply{}
 	var out bytes.Buffer
-	sum := runReviewWalk(&out, scriptedPrompt("a", "q"), walkFixture(), rec.funcs())
+	sum := runReviewWalk(&out, scriptedPrompt("t", "q"), walkFixture(), rec.funcs())
 
 	assert.Equal(t, []string{"one#fragments/f1"}, rec.accepted)
 	assert.Empty(t, rec.rejected)
@@ -189,7 +223,7 @@ func TestRunReviewWalk_EOFQuits(t *testing.T) {
 func TestRunReviewWalk_ApplyFailureCountsSkipped(t *testing.T) {
 	rec := &recordingApply{failRefs: map[string]bool{"one#fragments/f1": true}}
 	var out bytes.Buffer
-	sum := runReviewWalk(&out, scriptedPrompt("a", "q"), walkFixture(), rec.funcs())
+	sum := runReviewWalk(&out, scriptedPrompt("t", "q"), walkFixture(), rec.funcs())
 
 	assert.Empty(t, rec.accepted)
 	assert.Equal(t, 0, sum.accepted)

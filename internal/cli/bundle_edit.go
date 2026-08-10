@@ -185,16 +185,6 @@ func placeholderMCP(names []string) map[string]operations.BundleMCPInput {
 
 var bundleRemoveYes bool
 
-// bundleDeleteForce is UNDER ESCALATION, not decided: it previously meant
-// "skip the confirmation prompt" below runBundleRemove's predecessor. That
-// prompt is gone — bare `remove` now reports and only --yes applies, with no
-// interactive path at all — so --force and --yes would mean the same thing
-// on this leaf. Reconciling them (alias one to the other, deprecate, or drop)
-// is a user-visible flag decision this pass escalates rather than picks; the
-// flag stays registered and parsed, but has no effect, until that decision
-// lands.
-var bundleDeleteForce bool
-
 var bundleRemoveCmd = &cobra.Command{
 	Use:     "remove <name>",
 	Aliases: []string{"rm", "del"},
@@ -280,12 +270,14 @@ func registerBundleCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
 }
 
-// registerBundleRemoveFlags defines `bundle remove`'s flags. --force is kept
-// registered (see bundleDeleteForce's doc) but wired to nothing pending the
-// escalated --force/--yes reconciliation.
+// registerBundleRemoveFlags defines `bundle remove`'s flags. There is no
+// --force: it used to mean "skip the confirmation prompt", that prompt no
+// longer exists (bare `remove` reports, --yes applies, nothing else), and a
+// flag with no referent is refused rather than silently accepted-and-ignored
+// — a script still passing -f gets cobra's unknown-flag error, loud and
+// pointing at the exact word to remove.
 func registerBundleRemoveFlags(cmd *cobra.Command) {
 	cmd.Flags().BoolVarP(&bundleRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
-	cmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Pending reconciliation with --yes (currently has no effect)")
 }
 
 // registerBundleEditFlags defines `bundle edit`'s add/remove flag pairs and the

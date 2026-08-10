@@ -30,7 +30,6 @@ func TestBundleSubcommandFlags(t *testing.T) {
 		}},
 		{bundleRemoveCmd, []flagSpec{
 			{"yes", "y", "false", "Apply the removal this invocation would report (default: report only)"},
-			{"force", "f", "false", "Pending reconciliation with --yes (currently has no effect)"},
 		}},
 		{bundlePushCmd, []flagSpec{
 			{"pr", "", "false", "Create a pull request instead of pushing directly"},

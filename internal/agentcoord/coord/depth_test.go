@@ -13,17 +13,19 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 )
 
-// TestRunnerEnv_StampsDepth pins that runnerEnv stamps EnvRunDepth
-// UNCONDITIONALLY — unlike the reach-back trio (EnvCoordURL/EnvCoordCred/
-// EnvRunID), which is omitted whole when url == "" (a degraded launch),
-// depth must always be present: leafness must not depend on reach-back
-// being available.
+// TestRunnerEnv_StampsDepth pins that runnerEnv stamps EnvRunDepth and
+// EnvRunOneShot UNCONDITIONALLY — unlike the reach-back trio
+// (EnvCoordURL/EnvCoordCred/EnvRunID), which is omitted whole when url == ""
+// (a degraded launch), both must always be present: leafness must not depend
+// on reach-back being available.
 func TestRunnerEnv_StampsDepth(t *testing.T) {
-	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3)
+	withURL := runnerEnv("harp-1", "run-1", "tok", "http://127.0.0.1:1/mcp", 3, true)
 	assert.Equal(t, "3", withURL[EnvRunDepth])
+	assert.Equal(t, "true", withURL[EnvRunOneShot])
 
-	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0)
+	degraded := runnerEnv("harp-1", "run-1", "tok", "", 0, false)
 	assert.Equal(t, "0", degraded[EnvRunDepth], "depth is stamped even on a degraded (no reach-back) launch")
+	assert.Equal(t, "false", degraded[EnvRunOneShot], "oneshot is stamped even on a degraded (no reach-back) launch")
 	assert.NotContains(t, degraded, EnvCoordURL, "the trio is still omitted whole on a degraded launch")
 }
 
@@ -57,6 +59,25 @@ func TestEnqueueRun_DepthIncrementsFromCallerDepth(t *testing.T) {
 	})
 	require.NotNil(t, rec)
 	assert.Equal(t, 2, rec.Depth, "the journaled fact must agree with the live childRt")
+}
+
+// TestAgentRun_OneShotCallerRefusedLoudly pins that a `driving: oneshot`
+// caller may not spawn AT ALL, regardless of depth: a total, LOUD refusal
+// (a real error, no child spawned) — never a nil error with nothing
+// launched, and never silently ignoring OneShot and falling through to the
+// depth check. Depth 0 (which the depth check alone would allow) is the
+// deliberate choice here, so this cannot pass by accident via the depth
+// guard firing for an unrelated reason.
+func TestAgentRun_OneShotCallerRefusedLoudly(t *testing.T) {
+	resetStrictness(t)
+	sp := newFakeSpawner(map[string]fakeAgent{"worker": {perm: "bypass"}}, nil)
+	c := newTestCoordinator(t, sp, nil)
+	caller := Identity{Harp: "oneshot-owner", Depth: 0, OneShot: true}
+
+	_, err := c.AgentRun(context.Background(), caller, "worker", "go deeper", "", "")
+	require.Error(t, err, "a one-shot caller must be refused, not silently accepted with no child")
+	assert.Contains(t, err.Error(), "one-shot")
+	assert.Equal(t, 0, sp.spawnCount(), "no child may be launched for a refused spawn")
 }
 
 // D5 (manly-grant (4)/(5)): the depth-2 echo — parent spawns a depth-1

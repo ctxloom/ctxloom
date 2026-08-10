@@ -136,8 +136,8 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, cfgErr error, r
 	// leaf is computed HERE, not in consumeCoordinatorReachBack: it needs the
 	// resolved delegation-depth cap, and cfg (the loaded project config) is
 	// not available yet at that earlier point — this is the first place
-	// both reach.depth and cfg exist together.
-	leaf := runnerIsLeaf(reach.depth, cfg)
+	// both reach.depth/reach.oneshot and cfg exist together.
+	leaf := runnerIsLeaf(reach.depth, reach.oneshot, cfg)
 	endpoint, merr := serveRunnerMCP(cfg, reach.harp, h, leaf, reach.cellWorkDir)
 	if merr == nil {
 		// The child's shim reads CTXLOOM_MCP_SOCKET from THIS process's env
@@ -162,16 +162,20 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, cfgErr error, r
 
 // coordinatorReachBack is the per-spawn coordinator credential set a runner
 // consumes from its own environment: the dial-home config, the session harp,
-// the prepared cell workspace dir, and this run's DELEGATION DEPTH (0 for the
-// session owner, 1+ for a subagent). Depth, not a leaf bool, rides the env —
-// leafness is depth compared against the resolved delegation-depth cap
-// (config.Config.GetDelegationDepth), computed in attachRunnerMCP once cfg is
-// loaded, never stamped as its own boolean (that would reintroduce a second,
-// driftable representation of the same fact).
+// the prepared cell workspace dir, this run's DELEGATION DEPTH (0 for the
+// session owner, 1+ for a subagent), and whether this run is ONE-SHOT
+// (driving: oneshot — its engine tears down at every turn boundary, so it
+// can never hold a coordination relationship with a child). Neither rides
+// as a leaf bool — leafness is depth/oneshot compared against the resolved
+// delegation-depth cap (config.Config.GetDelegationDepth), computed in
+// attachRunnerMCP once cfg is loaded, never stamped as its own boolean
+// (that would reintroduce a second, driftable representation of the same
+// fact).
 type coordinatorReachBack struct {
-	home  coord.HomeConfig
-	harp  string
-	depth int
+	home    coord.HomeConfig
+	harp    string
+	depth   int
+	oneshot bool
 	// cellWorkDir is the prepared workspace dir stamped by the host StartRunner
 	// (fix/host-discovery-anchor); empty on workspace:none or container spawns,
 	// where serveRunnerMCP falls back to the runner's own os.Getwd().
@@ -186,6 +190,7 @@ var coordinatorEnvKeys = []string{
 	coord.EnvCoordCred,
 	coord.EnvRunID,
 	coord.EnvRunDepth,
+	coord.EnvRunOneShot,
 	coord.EnvCellWorkDir,
 }
 
@@ -201,15 +206,22 @@ func parseRunDepth(raw string) int {
 	return d
 }
 
-// runnerIsLeaf reports whether depth is at or beyond cfg's RESOLVED
+// runnerIsLeaf reports whether this run is a LEAF: either it is ONE-SHOT
+// (driving: oneshot — its effective spawn budget is zero, regardless of
+// depth: it cannot hold a coordination relationship with a child across its
+// own turn boundaries), or depth is at or beyond cfg's RESOLVED
 // delegation-depth cap (config.Config.GetDelegationDepth) — the same
 // comparison AgentRun's server-side "may this run spawn" guard makes
-// (children.go's `caller.Depth >= c.depthCap`), evaluated independently here
-// from the runner's own loaded config rather than over the wire. Raising
-// delegation.depth in config therefore re-enables deeper trees on both sides
-// at once, never just one.
-func runnerIsLeaf(depth int, cfg *config.Config) bool {
-	return depth >= cfg.GetDelegationDepth()
+// (children.go's `caller.OneShot` / `caller.Depth >= c.depthCap`),
+// evaluated independently here from the runner's own loaded config rather
+// than over the wire. Expressed as a direct OR rather than folding oneshot
+// into an "effective depth": the two are different KINDS of reason (one
+// structural-tree-position, one execution-model), and a reader should see
+// both named, not one disguised as the other via a synthetic depth value.
+// Raising delegation.depth in config re-enables deeper trees on both sides
+// at once, never just one; oneshot is never overridable by that same knob.
+func runnerIsLeaf(depth int, oneshot bool, cfg *config.Config) bool {
+	return oneshot || depth >= cfg.GetDelegationDepth()
 }
 
 // consumeCoordinatorReachBack reads the coordinator reach-back out of the
@@ -237,6 +249,12 @@ func consumeCoordinatorReachBack(backendName string, getenv func(string) string,
 		harp:        getenv("CTXLOOM_SESSION_HARP"),
 		cellWorkDir: getenv(coord.EnvCellWorkDir),
 		depth:       parseRunDepth(getenv(coord.EnvRunDepth)),
+		// Any value other than exactly "true" (unset, empty, garbage) reads
+		// as false — the SAME fail-safe-to-not-oneshot posture parseRunDepth
+		// takes for depth (fail-safe here means "assume conversational", the
+		// less restrictive reading, since oneshot ADDS a refusal rather than
+		// removing one).
+		oneshot: getenv(coord.EnvRunOneShot) == "true",
 	}
 
 	var unscrubbed []string

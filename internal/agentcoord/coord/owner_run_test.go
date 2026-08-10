@@ -2,6 +2,7 @@ package coord
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,6 +12,11 @@ import (
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
+
+// errStopBeforeDial is a test-only sentinel a starter returns to abort
+// StartOwnedRun right after handing back the spawn env, without standing up
+// a real runner — for tests that only need to inspect the stamped env.
+var errStopBeforeDial = errors.New("test: stop before dial")
 
 // ownerRunStarter builds an OwnedRunStarter that spawns an in-process runner
 // half (Home + EngineHost around a scriptedChat) dialing the coordinator's live
@@ -120,6 +126,44 @@ func TestStartOwnedRun_ParentLessOwnerRunYieldsPayload(t *testing.T) {
 	// PAYLOAD over Transport 2: the scriptedChat echoes the first-turn prompt.
 	got := collectFinalDeltas(events, outcome.RunID, 10*time.Second)
 	assert.Contains(t, got, "echo: hello owner run", "the engine's answer must reach the host over WatchRuns")
+}
+
+// TestStartOwnedRun_StampsOwnerAtDepthZero pins the regression this whole
+// depth-based leaf design exists to prevent: the container top-level owned
+// run's runner env carries EnvRunDepth "0" — the SAME depth the session
+// owner itself is — never owner.Depth+1. A wrong stamp here would make the
+// top-level session a LEAF at the built-in cap and silently strip
+// agent_run/roster/agent_stop/agent_fetch_artifact from a `ctxloom run
+// --structured`/`--print` session on runtime:container.
+func TestStartOwnedRun_StampsOwnerAtDepthZero(t *testing.T) {
+	sp := newFakeSpawner(nil, nil)
+	c := newTestCoordinator(t, sp, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	const ownerHarp = "owner-harp"
+	token, err := c.RegisterSessionOwner(ownerHarp)
+	require.NoError(t, err)
+	owner, ok := c.Identify(token)
+	require.True(t, ok)
+
+	var gotEnv map[string]string
+	starter := func(_ context.Context, spawnEnv map[string]string) (func(), error) {
+		gotEnv = spawnEnv
+		// No real runner needed for this test — it inspects the stamped
+		// env, not the run's live behavior. Fail loud rather than hanging
+		// the coordinator's await-runner budget on a Home that never dials
+		// home.
+		return func() {}, errStopBeforeDial
+	}
+
+	_, err = c.StartOwnedRun(ctx, owner, OwnerRunSpec{
+		Harp: ownerHarp, Backend: "claude-code", Label: "fast", Model: "sonnet",
+		WorkDir: "/work", Permission: agent.PermissionBypass,
+	}, starter, "hello")
+	require.ErrorIs(t, err, errStopBeforeDial)
+	require.NotNil(t, gotEnv, "the starter must have been invoked with the runner env")
+	assert.Equal(t, "0", gotEnv[EnvRunDepth], "the owner-owned run must stamp depth 0, matching the session owner it IS")
 }
 
 // TestStartOwnedRun_OwnerHarpRoleNoCollision is the §5.B2 named collision

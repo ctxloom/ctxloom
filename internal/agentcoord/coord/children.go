@@ -266,6 +266,16 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	if prompt == "" {
 		return nil, errors.New("agent_run: prompt is required (the child's briefing/first turn)")
 	}
+	// A OneShot caller may not spawn AT ALL, regardless of depth: its own
+	// engine tears down and is resumed by native session key at every turn
+	// boundary (Identity.OneShot's doc), so it cannot hold a coordination
+	// relationship across turns — a child it spawned could report back to a
+	// mailbox its parent's ended run will never drain again. Checked before
+	// the depth guard since it is a total refusal, not a depth-conditional
+	// one — a depth-0 OneShot caller is refused exactly like a depth-1 one.
+	if caller.OneShot {
+		return nil, errors.New("agent_run: refused: this session is a one-shot (driving: oneshot) run, which cannot hold a coordination relationship with a child across its own turn boundaries — report the work back to your coordinator (agent_send to \"parent\") instead")
+	}
 	// Depth derives from the CREDENTIAL, never from env: caller.Depth is
 	// resolved server-side from the authenticated Identity (Identify), so a
 	// child cannot spoof its own depth by forging an env var. A run may
@@ -372,7 +382,16 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			Runtime:     plan.Runtime,
 			CredHash:    credHash,
 			Depth:       depth,
-			Prompt:      prompt,
+			// OneShot is read straight from the run's OWN resolved plan —
+			// never threaded as a separate parameter like depth (which
+			// genuinely needs per-caller asymmetry): every enqueueRun caller
+			// already passes the run's own plan, and ResumeMode is exactly
+			// this run's own resolved mode in every case (a genuine child's
+			// own agent resolution, a resumed run's freshly re-resolved
+			// plan, or an owned run's synthetic plan, which never sets it —
+			// zero value ResumeModePersistent, correctly never OneShot).
+			OneShot: plan.ResumeMode == ResumeModeOneShot,
+			Prompt:  prompt,
 			Resume:      resume,
 			Ladder:      ladderToFact(plan.Ladder),
 			Permission:  plan.Perm.String(),
@@ -575,11 +594,15 @@ func (c *Coordinator) childEnv(harp string) map[string]string {
 // retired per-agent Coordinator flag/EnvAgentCoordinator: the runner
 // (internal/cli/standUpRunner/attachRunnerMCP) compares this depth against
 // the resolved delegation-depth cap to decide leaf-vs-not and gate the
-// coordinator-only MCP tools (mcp_runner.go).
-func runnerEnv(harp, runID, token, url string, depth int) map[string]string {
+// coordinator-only MCP tools (mcp_runner.go). oneshot is this run's own
+// SpawnPlan.ResumeMode == ResumeModeOneShot, stamped via EnvRunOneShot on
+// the SAME unconditional terms as depth: a one-shot run is a leaf
+// regardless of depth (Identity.OneShot's doc).
+func runnerEnv(harp, runID, token, url string, depth int, oneshot bool) map[string]string {
 	env := map[string]string{
 		"CTXLOOM_SESSION_HARP": harp,
 		EnvRunDepth:            strconv.Itoa(depth),
+		EnvRunOneShot:          strconv.FormatBool(oneshot),
 	}
 	if url != "" {
 		env[EnvCoordURL] = url
@@ -653,7 +676,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 
 	launch, err := c.spawner.Launch(lctx, rt.plan, rt.plan.Context, "",
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -698,7 +721,7 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // baseCtx: agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
 	engine, err := c.spawner.StartEngine(ctx, rt.plan,
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth, rt.plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -1940,7 +1963,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 		contextText = c.spawner.ResumeContext(lctx, plan, harp)
 	}
 	launch, err := c.spawner.Launch(lctx, plan, contextText, resumeSessionID,
-		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth))
+		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth, plan.ResumeMode == ResumeModeOneShot))
 	if err != nil {
 		c.failChild(rt, err)
 		return

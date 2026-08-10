@@ -35,7 +35,9 @@ type RunRecord struct {
 	Runtime     string
 	CredHash    string
 	Depth       int
-	Prompt      string
+	// OneShot mirrors Identity.OneShot — see its doc.
+	OneShot bool
+	Prompt  string
 	State       string
 	Ended       bool
 	Cause       string
@@ -132,6 +134,7 @@ func (f *runsFold) applyEnqueued(p runEnqueued, at time.Time) {
 		Runtime:      p.Runtime,
 		CredHash:     p.CredHash,
 		Depth:        p.Depth,
+		OneShot:      p.OneShot,
 		Prompt:       p.Prompt,
 		State:        StateQueued,
 		EnqueuedAt:   at,
@@ -142,7 +145,7 @@ func (f *runsFold) applyEnqueued(p runEnqueued, at time.Time) {
 	}
 	f.byHarp[p.Harp] = p.RunID
 	if p.CredHash != "" {
-		f.creds[p.CredHash] = Identity{Harp: p.Harp, RunID: p.RunID, Depth: p.Depth, Project: f.project}
+		f.creds[p.CredHash] = Identity{Harp: p.Harp, RunID: p.RunID, Depth: p.Depth, OneShot: p.OneShot, Project: f.project}
 	}
 }
 
@@ -193,7 +196,10 @@ func (f *runsFold) applySessionCred(p sessionCred, _ time.Time) {
 	if p.Project != "" {
 		f.project = p.Project
 	}
-	f.creds[p.CredHash] = Identity{Harp: p.Harp, Depth: 0, Project: p.Project}
+	// The session-owner credential is never a resolved `driving: oneshot`
+	// agent — it is the human's own top-level session — so OneShot stays
+	// the zero value (false), explicit here for parity with Depth: 0.
+	f.creds[p.CredHash] = Identity{Harp: p.Harp, Depth: 0, OneShot: false, Project: p.Project}
 }
 
 func (f *runsFold) applySessionCredRevoked(p sessionCred, _ time.Time) {

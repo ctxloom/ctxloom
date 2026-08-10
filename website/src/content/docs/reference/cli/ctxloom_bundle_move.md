@@ -17,7 +17,7 @@ Move an authored bundle out of .ctxloom/content/bundles, signature and all.
 
 The bundle's bytes are carried VERBATIM — never re-parsed, re-serialized, or
 re-signed. A detached publisher signature (<name>.yaml.sig, made by
-'ctxloom sign') therefore stays valid at the destination, because the bytes it
+'ctxloom bundle sign') therefore stays valid at the destination, because the bytes it
 covers do not change. If a signature exists but cannot be carried, the move
 FAILS: it never lands the bundle unsigned behind your back.
 
@@ -52,7 +52,6 @@ ctxloom bundle move <name> --to <remote|path> [flags]
 
 ```
   -f, --force            Overwrite an existing bundle at a local destination
-  -h, --help             help for move
   -m, --message string   Commit message (remote destination only)
       --to string        Destination: a configured remote name, or a local directory / ctxloom project checkout (a remote name wins)
 ```
@@ -63,6 +62,7 @@ ctxloom bundle move <name> --to <remote|path> [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

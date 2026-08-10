@@ -18,10 +18,8 @@ Read and manage the harp-keyed session index at
 sessions without launching the LLM. Sessions appear here automatically
 once `ctxloom run` has been used to launch a backend.
 
-### Options
-
 ```
-  -h, --help   help for session
+ctxloom session [flags]
 ```
 
 ### Options inherited from parent commands
@@ -30,6 +28,7 @@ once `ctxloom run` has been used to launch a backend.
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
@@ -40,8 +39,10 @@ once `ctxloom run` has been used to launch a backend.
 * [ctxloom session delete](/reference/cli/ctxloom_session_delete/)	 - Drop a harp entry from the index. Transcript and essence files stay on disk.
 * [ctxloom session distill](/reference/cli/ctxloom_session_distill/)	 - Distill a session by harp name. Distillation is on-demand: nothing distills a session automatically when it ends.
 * [ctxloom session list](/reference/cli/ctxloom_session_list/)	 - List harp-named sessions (default: current project; --all for everything)
+* [ctxloom session purge](/reference/cli/ctxloom_session_purge/)	 - Destroy a finished session's machine-written bulk, keeping its distilled essence and index entry
 * [ctxloom session rename](/reference/cli/ctxloom_session_rename/)	 - Rename a harp entry. The backend transcript is unaffected.
 * [ctxloom session search](/reference/cli/ctxloom_session_search/)	 - Search sessions by harp, summary, and distilled essence content (default: current project; --all for everything)
 * [ctxloom session show](/reference/cli/ctxloom_session_show/)	 - Print the distilled essence of a harp-named session
 * [ctxloom session watch](/reference/cli/ctxloom_session_watch/)	 - Stream a session's transcript as structured turns (messages, not raw bytes)
+* [ctxloom session worktrees](/reference/cli/ctxloom_session_worktrees/)	 - List ctxloom-owned scratch worktrees, and (with --reap --yes) remove the ones it can prove are safe
 

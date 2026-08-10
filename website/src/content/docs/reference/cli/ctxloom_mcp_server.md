@@ -11,10 +11,8 @@ This page is generated from `ctxloom mcp server --help`.
 
 List, show, create, edit, or delete configured MCP servers
 
-### Options
-
 ```
-  -h, --help   help for server
+ctxloom mcp server [flags]
 ```
 
 ### Options inherited from parent commands
@@ -23,6 +21,7 @@ List, show, create, edit, or delete configured MCP servers
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

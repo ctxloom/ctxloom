@@ -32,7 +32,6 @@ ctxloom profile modify <name> [flags]
   -d, --description string         New description for the profile
       --exclude-fragment strings   Fragment name(s) to exclude
       --exclude-mcp strings        MCP server name(s) to exclude
-  -h, --help                       help for modify
       --include-fragment strings   Fragment name(s) to stop excluding
       --include-mcp strings        MCP server name(s) to stop excluding
       --llm string                 Set the preferred LLM config label/backend (empty clears it)
@@ -46,6 +45,7 @@ ctxloom profile modify <name> [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

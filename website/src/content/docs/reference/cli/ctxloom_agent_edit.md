@@ -45,13 +45,13 @@ ctxloom agent edit <name> [flags]
 ### Options
 
 ```
-      --coordinator          Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf
-      --driving string       Per-turn execution axis: conversational|oneshot (empty = conversational, today's default; oneshot requires a resume-capable engine and is EXPERIMENTAL in this release — interfaces and behavior may change)
-      --engine string        LLM engine/label to bind (overrides the profiles' llm; empty = project default)
-  -h, --help                 help for edit
-      --permissions string   Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
-      --profiles strings     Comma-separated profile name(s)/ref(s) to compose
-      --runtime string       Runtime axis: where this agent's engine executes (host|container; empty = project default)
+      --coordinator           Trust this agent, when run as a delegated child, with the coordinator-only MCP tools (agent_run/roster/agent_stop/agent_fetch_artifact); default false = leaf
+      --driving string        Per-turn execution axis: conversational|oneshot (empty = conversational, today's default; oneshot requires a resume-capable engine and is EXPERIMENTAL in this release — interfaces and behavior may change)
+      --engine string         LLM engine/label to bind (overrides the profiles' llm; empty = project default)
+      --permissions string    Permission posture: default|acceptEdits|plan|bypass (empty = engine/built-in default)
+      --profiles strings      Comma-separated profile name(s)/ref(s) to compose
+      --runtime string        Runtime axis: where this agent's engine executes (host|container; empty = project default)
+      --surface stringArray   Delivery preference for this agent: kind=approach (repeatable). Validated against the agent's engine; run ctxloom profile materialize --help to see what each engine supports.
 ```
 
 ### Options inherited from parent commands
@@ -60,6 +60,7 @@ ctxloom agent edit <name> [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

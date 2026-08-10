@@ -34,7 +34,6 @@ ctxloom session search <word>... [flags]
 ```
       --all    Search sessions from every project (default: filter to cwd)
       --full   Include each matched session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)
-  -h, --help   help for search
 ```
 
 ### Options inherited from parent commands
@@ -43,6 +42,7 @@ ctxloom session search <word>... [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

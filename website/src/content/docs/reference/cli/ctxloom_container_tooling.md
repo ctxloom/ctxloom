@@ -23,10 +23,8 @@ Collection is TRUST-GATED: declarations from unreviewed bundles are withheld
 like any other gated content, and nothing is ever applied automatically on
 pull/sync — the edit is the LLM's, gated by the user.
 
-### Options
-
 ```
-  -h, --help   help for tooling
+ctxloom container tooling [flags]
 ```
 
 ### Options inherited from parent commands
@@ -35,6 +33,7 @@ pull/sync — the edit is the LLM's, gated by the user.
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
@@ -42,3 +41,4 @@ pull/sync — the edit is the LLM's, gated by the user.
 
 * [ctxloom container](/reference/cli/ctxloom_container/)	 - Manage agent container images
 * [ctxloom container tooling list](/reference/cli/ctxloom_container_tooling_list/)	 - Emit trusted bundles' agent-image tooling declarations for the LLM to apply
+

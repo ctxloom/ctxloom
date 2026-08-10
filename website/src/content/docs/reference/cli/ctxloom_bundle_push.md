@@ -20,10 +20,21 @@ a pull request instead.
 
 If no remote is specified, uses the default remote.
 
+SIGNATURES: a signature belongs to the bundle, not to the publish.
+'ctxloom bundle sign' writes a detached <name>.yaml.sig sibling, and push
+CARRIES it — so the key that signs never has to be on the machine that
+publishes, and CI can ship signed content it cannot itself forge. A
+signature that no longer covers the bundle (edited after signing) stops
+the push rather than shipping a pair every consumer reads as tampering.
+Publishing unsigned is fine and supported; consumers review it.
+
 Examples:
   ctxloom bundle push my-bundle
   ctxloom bundle push my-bundle ctxloom-default
   ctxloom bundle push my-bundle --pr
+  ctxloom bundle sign my-bundle && ctxloom bundle push my-bundle  # sign here, publish there
+  ctxloom bundle push my-bundle --sign                            # the same thing in one command
+  ctxloom bundle push my-bundle --no-sign                         # publish bare
   ctxloom bundle push my-bundle ctxloom-default --message "Add my bundle"
 
 ```
@@ -33,11 +44,10 @@ ctxloom bundle push <name> [remote] [flags]
 ### Options
 
 ```
-  -h, --help             help for push
-  -m, --message string   Commit message
-      --no-sign          don't sign, even if sign.default is true
-      --pr               Create a pull request instead of pushing directly
-      --sign             sign the published bundle (spec §3.1)
+  -m, --message string                    Commit message
+      --no-sign                           publish unsigned: do not carry an existing signature, and do not sign even if sign.default is true
+      --pr                                Create a pull request instead of pushing directly
+      --sign ctxloom bundle sign <name>   sign the bundle first, then publish that signature (same as ctxloom bundle sign <name> before pushing)
 ```
 
 ### Options inherited from parent commands
@@ -46,6 +56,7 @@ ctxloom bundle push <name> [remote] [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

@@ -62,7 +62,6 @@ ctxloom run [flags] [prompt...]
       --distill              With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)
   -n, --dry-run              Show command that would be executed
   -f, --fragment strings     Context fragment(s) to include (can be repeated)
-  -h, --help                 help for run
   -l, --llm string           config label to use (e.g. claude-code, claude-fast, antigravity); overrides the configured default
       --permissions string   Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)
       --plain-terminal       Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session
@@ -83,6 +82,7 @@ ctxloom run [flags] [prompt...]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

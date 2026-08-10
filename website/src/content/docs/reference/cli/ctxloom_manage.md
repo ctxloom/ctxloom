@@ -30,10 +30,8 @@ configuration lives at the top-level 'ctxloom config'; the duplicate
 'manage init' setup entry point was removed, root 'ctxloom init' is the sole
 bootstrap.
 
-### Options
-
 ```
-  -h, --help   help for manage
+ctxloom manage [flags]
 ```
 
 ### Options inherited from parent commands
@@ -42,6 +40,7 @@ bootstrap.
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
@@ -49,6 +48,7 @@ bootstrap.
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom manage check](/reference/cli/ctxloom_manage_check/)	 - Show what ctxloom has wired into this project
+* [ctxloom manage dirty-tree-ack](/reference/cli/ctxloom_manage_dirty-tree-ack/)	 - Grant or revoke ctxloom's permission to auto-commit a dirty tree on your behalf
 * [ctxloom manage gitignore](/reference/cli/ctxloom_manage_gitignore/)	 - Maintain ctxloom's .gitignore entries
 * [ctxloom manage hooks](/reference/cli/ctxloom_manage_hooks/)	 - Install, uninstall, or inspect ctxloom backend hooks
 * [ctxloom manage install](/reference/cli/ctxloom_manage_install/)	 - Scaffold .ctxloom and wire hooks, MCP, gitignore, and config

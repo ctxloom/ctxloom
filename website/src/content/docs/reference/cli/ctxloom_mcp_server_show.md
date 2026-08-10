@@ -18,7 +18,6 @@ ctxloom mcp server show <name> [flags]
 ### Options
 
 ```
-  -h, --help          help for show
   -i, --interactive   Review the server's effective trust (interactive terminal only)
 ```
 
@@ -28,6 +27,7 @@ ctxloom mcp server show <name> [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

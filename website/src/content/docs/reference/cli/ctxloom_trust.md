@@ -19,6 +19,14 @@ The acceptance is bound to the item's current content-hash pair (raw and, when
 one exists, distilled): a later change to either form returns the item to
 pending and forces re-review.
 
+When a signing key is available the acceptance is COUNTERSIGNED with it, and
+that key must be trusted for the 'approve' namespace — a countersignature from
+a key you have not granted it is honoured by nothing, so recording one is
+refused rather than reported as success. Grant it with
+'ctxloom trust signer create <principal> --key <key.pub> --namespace approve,reject'.
+With no signing key at all the decision is recorded unsigned in your personal
+store.
+
 Reference format: <bundle-ref>#fragments/<name>, <bundle-ref>#commands/<name>,
 <bundle-ref>#mcp/<name>, or <bundle-ref>#hooks/<event>/<index>. The bundle ref
 may be a canonical URL ref, a ctxloom:local ref, or a plain local bundle name.
@@ -30,10 +38,8 @@ Examples:
 
 Reject an item with 'ctxloom trust reject <ref>'.
 
-### Options
-
 ```
-  -h, --help   help for trust
+ctxloom trust [flags]
 ```
 
 ### Options inherited from parent commands
@@ -42,6 +48,7 @@ Reject an item with 'ctxloom trust reject <ref>'.
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
@@ -49,6 +56,8 @@ Reject an item with 'ctxloom trust reject <ref>'.
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom trust accept](/reference/cli/ctxloom_trust_accept/)	 - Accept an item's current content (fragment, command, MCP server, or hook)
+* [ctxloom trust companion](/reference/cli/ctxloom_trust_companion/)	 - Inspect and change which companion binaries ctxloom may execute
+* [ctxloom trust publish](/reference/cli/ctxloom_trust_publish/)	 - Inspect and change which remotes ctxloom may publish to
 * [ctxloom trust reject](/reference/cli/ctxloom_trust_reject/)	 - Reject an item so it is withheld from the agent
 * [ctxloom trust signer](/reference/cli/ctxloom_trust_signer/)	 - Manage trusted signers (allowed_signers)
 

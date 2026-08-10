@@ -11,10 +11,8 @@ This page is generated from `ctxloom manage hooks --help`.
 
 Install, uninstall, or inspect ctxloom backend hooks
 
-### Options
-
 ```
-  -h, --help   help for hooks
+ctxloom manage hooks [flags]
 ```
 
 ### Options inherited from parent commands
@@ -23,6 +21,7 @@ Install, uninstall, or inspect ctxloom backend hooks
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 
@@ -31,5 +30,6 @@ Install, uninstall, or inspect ctxloom backend hooks
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
 * [ctxloom manage hooks check](/reference/cli/ctxloom_manage_hooks_check/)	 - Show which backends have ctxloom hooks wired in
 * [ctxloom manage hooks install](/reference/cli/ctxloom_manage_hooks_install/)	 - Apply ctxloom hooks and regenerate context into backend config
+* [ctxloom manage hooks list](/reference/cli/ctxloom_manage_hooks_list/)	 - List the hooks that will fire, per event, in their resolved order
 * [ctxloom manage hooks uninstall](/reference/cli/ctxloom_manage_hooks_uninstall/)	 - Remove ctxloom hooks, statusline, MCP entries, and command files
 

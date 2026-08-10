@@ -23,9 +23,16 @@ codex-acp) each configured claude-code/codex engine needs for HOST-runtime
 structured chat is present; whether every configured agent resolves (profile
 composition + engine/runtime) and the roster is non-empty; the seeded
 dependency lockfile parses and a real context assembly succeeds; hooks AND
-MCP registration per configured backend; the trust store's signers; and
-companion detection + loadout probing (taskloom/ltk/...). Each line is
-prefixed with a DOCTOR-CHECK-* marker — the SAME vocabulary the
+MCP registration per configured backend; the trust store's signers;
+companion detection + loadout probing (taskloom/ltk/...); every
+paths.TierLocal path (internal/paths.Layout) this checkout is missing — the
+local-only state (the dirty-tree-commit acknowledgement, the task-log
+project-id marker, distilled sessions, review's cached diff objects) that a
+fresh clone has no way to learn it lacks anywhere else; and, always, a stated
+reminder of the one boundary no check here crosses: ctxloom can confirm it
+WROTE the assembled context onto the engine's own surface, never that the
+engine actually READ it — that happens inside a process ctxloom does not own.
+Each line is prefixed with a DOCTOR-CHECK-* marker — the SAME vocabulary the
 "ctxloom-doctor" Agent Skill uses, so a human or an LLM reading either
 surface sees one language.
 
@@ -58,7 +65,6 @@ ctxloom doctor [flags]
 
 ```
       --deps   check ONLY machine-capability dependencies (git/ssh/ssh-keygen/container runtime/configured engines' clients and ACP adapters/signing key/git identity) — skips agents/profiles/hooks/trust, for use before a project has been set up
-  -h, --help   help for doctor
 ```
 
 ### Options inherited from parent commands
@@ -67,6 +73,7 @@ ctxloom doctor [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

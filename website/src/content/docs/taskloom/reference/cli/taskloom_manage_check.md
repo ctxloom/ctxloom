@@ -35,3 +35,4 @@ taskloom manage check [flags]
 ### SEE ALSO
 
 * [taskloom manage](/taskloom/reference/cli/taskloom_manage/)	 - Register the taskloom MCP server with agent backends
+

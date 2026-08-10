@@ -22,6 +22,17 @@ The lockfile is pure dependency pinning: upgrading a pin does not expose new
 content to the agent. Any changed content from an untrusted source is withheld
 until you accept it with 'ctxloom review'.
 
+A pin is NOT advanced onto content whose publisher signature does not verify
+over its bytes: that content is withheld as tampered and cannot be reviewed, so
+advancing past the last commit that did verify would leave you with neither
+copy. The old pin is kept and the refusal is reported.
+
+A refusal EXITS 2, not 0 and not 1: the command ran fine and deliberately did
+not do part of what it was asked, so an unattended sync can tell "I refused
+something" apart from both "nothing to do" (0) and a failure (1). The refusal
+also survives the run — 'ctxloom doctor' reports it until an upgrade advances
+that pin.
+
 Mirrors apt: where 'remote update' refreshes the local clones (the index),
 'remote upgrade' advances your pins to the newest commit. Passive 'remote pull'
 installs exactly what is already pinned and never advances.
@@ -33,18 +44,13 @@ Examples:
 ctxloom remote upgrade [flags]
 ```
 
-### Options
-
-```
-  -h, --help   help for upgrade
-```
-
 ### Options inherited from parent commands
 
 ```
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

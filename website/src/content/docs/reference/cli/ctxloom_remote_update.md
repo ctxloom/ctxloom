@@ -19,7 +19,7 @@ Without arguments, checks all items in the lockfile for updates. With a
 reference, checks only that item. The reference is a canonical bundle
 reference — a full repository URL plus its bundle path, e.g.
 https://github.com/alice/ctxloom@bundles/security — not a remote name (see
-"ctxloom remote add --help" for the repository URL formats a remote itself
+"ctxloom remote create --help" for the repository URL formats a remote itself
 may take).
 
 By default this only reports what is out of date. Pass --apply to actually
@@ -43,7 +43,6 @@ ctxloom remote update [reference] [flags]
       --apply     Apply available updates
       --cleanup   Remove local files for items deleted from remote
       --force     Skip confirmation prompts when applying updates
-  -h, --help      help for update
 ```
 
 ### Options inherited from parent commands
@@ -52,6 +51,7 @@ ctxloom remote update [reference] [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

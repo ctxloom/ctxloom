@@ -66,7 +66,6 @@ ctxloom container build [backend] [flags]
       --base-image string             overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
       --devcontainer-service string   docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile
       --engines strings               engines to compose into the agent image (antigravity,claude-code,codex,kiro,opencode); empty = every known engine
-  -h, --help                          help for build
       --keep-cache                    reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)
       --no-devcontainer-base          do not auto-detect the project's .devcontainer/devcontainer.json as the base image
       --runtime string                container runtime to build with (docker|podman); auto-detected when empty
@@ -78,6 +77,7 @@ ctxloom container build [backend] [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

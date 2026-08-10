@@ -38,7 +38,6 @@ ctxloom trust signer create <principal> [flags]
 
 ```
       --comment string      override the key's own comment
-  -h, --help                help for create
       --key string          public key: a file path, '-' for stdin, or a literal authorized_keys line (required)
       --namespace strings   namespace(s) to trust this key for: publish|approve|reject (default: publish)
       --project             write to the committable project store (.ctxloom/allowed_signers) instead of the user store
@@ -51,6 +50,7 @@ ctxloom trust signer create <principal> [flags]
       --config-set stringArray   override a config value for this invocation: --config-set <dotted.path>=<value> (repeatable; e.g. --config-set llm.defaults.primary=big, --config-set agents.MyCoder.runtime=container)
       --degraded                 degrade instead of failing: downgrade fatal startup findings (broken config, unresolvable profiles/bundles, failed hook applies) to warnings and launch anyway
       --format string            Output format: json, yaml, toml, text, or markdown (default "text")
+  -h, --help                     show help for this command
       --no-companions            skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context
 ```
 

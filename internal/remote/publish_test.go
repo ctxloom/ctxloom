@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -84,6 +85,27 @@ func mockPublisherFactory(p Publisher) PublisherFactory {
 	}
 }
 
+// withConfirmedDestinations gives a fixture a throwaway confirmation store and
+// a human who confirms the destination, for tests whose subject is the publish
+// MECHANICS rather than the destination gate. Every publish passes that gate,
+// so a fixture that does not satisfy it is testing the gate by accident.
+//
+// The store is a temp file, never the real one: a test must not read or write
+// the developer's own recorded confirmations.
+//
+// The gate itself is proven in both directions in publish_confirm_test.go —
+// TestPublishConfirm_ConfirmedGitHubRemotePublishes and
+// TestPublishConfirm_UnconfirmedGitHubRemoteRefusesAndPublishesNothing.
+func withConfirmedDestinations(t *testing.T) PublishManagerOption {
+	t.Helper()
+	store := NewPublishRemoteStore(filepath.Join(t.TempDir(), "publish_remotes.yaml"), afero.NewOsFs())
+	ask := func(context.Context, PublishRemoteKey) (bool, bool, error) { return true, true, nil }
+	return func(pm *PublishManager) {
+		WithPublishRemoteStore(store)(pm)
+		WithRemoteAsk(ask)(pm)
+	}
+}
+
 func TestNewPublishManager(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	registry, _ := NewRegistry("", WithRegistryFS(fs))
@@ -137,6 +159,7 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		pm := NewPublishManager(registry, AuthConfig{},
 			WithPublishFS(fs),
+			withConfirmedDestinations(t),
 			WithPublisherFactory(mockPublisherFactory(mp)),
 			WithPublishFetcherFactory(mockFetcherFactory(mf)),
 		)
@@ -171,6 +194,7 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		pm := NewPublishManager(registry, AuthConfig{},
 			WithPublishFS(fs),
+			withConfirmedDestinations(t),
 			WithPublisherFactory(mockPublisherFactory(mp)),
 			WithPublishFetcherFactory(mockFetcherFactory(mf)),
 		)
@@ -241,6 +265,7 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		pm := NewPublishManager(registry, AuthConfig{},
 			WithPublishFS(fs),
+			withConfirmedDestinations(t),
 			WithPublisherFactory(mockPublisherFactory(mp)),
 			WithPublishFetcherFactory(mockFetcherFactory(mf)),
 		)
@@ -272,6 +297,7 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		pm := NewPublishManager(registry, AuthConfig{},
 			WithPublishFS(fs),
+			withConfirmedDestinations(t),
 			WithPublisherFactory(mockPublisherFactory(mp)),
 			WithPublishFetcherFactory(mockFetcherFactory(mf)),
 		)
@@ -300,6 +326,7 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		pm := NewPublishManager(registry, AuthConfig{},
 			WithPublishFS(fs),
+			withConfirmedDestinations(t),
 			WithPublisherFactory(mockPublisherFactory(mp)),
 			WithPublishFetcherFactory(mockFetcherFactory(mf)),
 		)
@@ -333,6 +360,7 @@ func TestPublishManager_Publish(t *testing.T) {
 
 		pm := NewPublishManager(registry, AuthConfig{},
 			WithPublishFS(fs),
+			withConfirmedDestinations(t),
 			WithPublisherFactory(mockPublisherFactory(mp)),
 			WithPublishFetcherFactory(mockFetcherFactory(mf)),
 		)
@@ -406,6 +434,7 @@ func publishOnce(t *testing.T, content string, opts ...func(*PublishOptions)) []
 
 	pm := NewPublishManager(registry, AuthConfig{},
 		WithPublishFS(fs),
+		withConfirmedDestinations(t),
 		WithPublisherFactory(mockPublisherFactory(mp)),
 		WithPublishFetcherFactory(mockFetcherFactory(mf)),
 	)
@@ -576,6 +605,7 @@ func TestPublishManager_Publish_SignPayloadWritesSiblingSig(t *testing.T) {
 
 	pm := NewPublishManager(registry, AuthConfig{},
 		WithPublishFS(fs),
+		withConfirmedDestinations(t),
 		WithPublisherFactory(mockPublisherFactory(mp)),
 		WithPublishFetcherFactory(mockFetcherFactory(mf)),
 	)
@@ -616,6 +646,7 @@ func TestPublishManager_Publish_SignPayloadFailureAbortsBeforeAnyWrite(t *testin
 
 	pm := NewPublishManager(registry, AuthConfig{},
 		WithPublishFS(fs),
+		withConfirmedDestinations(t),
 		WithPublisherFactory(mockPublisherFactory(mp)),
 		WithPublishFetcherFactory(mockFetcherFactory(mf)),
 	)
@@ -647,6 +678,7 @@ func TestPublishManager_Publish_NoSignPayloadMeansNoSigWritten(t *testing.T) {
 
 	pm := NewPublishManager(registry, AuthConfig{},
 		WithPublishFS(fs),
+		withConfirmedDestinations(t),
 		WithPublisherFactory(mockPublisherFactory(mp)),
 		WithPublishFetcherFactory(mockFetcherFactory(mf)),
 	)

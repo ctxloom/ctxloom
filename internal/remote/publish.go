@@ -337,8 +337,9 @@ func (pm *PublishManager) preparePublish(ctx context.Context, localPath, remoteN
 	// Confirm the destination BEFORE anything is created or written. Signed
 	// content is about to leave this machine, and "which remote did I just
 	// push signed content to" must have been answered by a human at least
-	// once per remote. See publish_confirm.go for the scope and the reasoning.
-	if err := pm.authorizeRemote(ctx, rem.URL, forge); err != nil {
+	// once per remote, whatever forge is behind the URL. See publish_confirm.go
+	// for why a push token is not that answer.
+	if err := pm.authorizeRemote(ctx, rem.URL); err != nil {
 		return nil, err
 	}
 

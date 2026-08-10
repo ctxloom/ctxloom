@@ -195,40 +195,89 @@ func TestPublishConfirm_OneRepositoryIsOneConfirmationAcrossSpellings(t *testing
 	}
 }
 
-// GitHub publish is deliberately OUTSIDE this gate: it goes through the forge
-// API with a token that must already carry push rights to that repository, and
-// folding it in would change an existing, acceptance-covered path as a side
-// effect of adding a new one. Pinned so widening the scope is a deliberate
-// act with a failing test attached, not an accident.
-func TestPublishConfirm_GitHubIsNotGated(t *testing.T) {
+// githubFixture is a GitHub-forge publish against mock transports, so the two
+// tests below differ in exactly one thing: whether the destination is a
+// confirmed publish remote. Same fixture shape both ways, which is what makes
+// the negative assertion capable of failing.
+type githubFixture struct {
+	pm    *PublishManager
+	mp    *mockPublisher
+	url   string
+	store *PublishRemoteStore
+}
+
+func newGitHubFixture(t *testing.T, opts ...PublishManagerOption) *githubFixture {
+	t.Helper()
 	fs := afero.NewMemMapFs()
 	require.NoError(t, fs.MkdirAll("/local", 0o755))
 	require.NoError(t, afero.WriteFile(fs, "/local/mybundle.yaml", []byte("description: gh\n"), 0o644))
 
+	const url = "https://github.com/alice/ctxloom"
 	registry, err := NewRegistry("", WithRegistryFS(fs))
 	require.NoError(t, err)
-	require.NoError(t, registry.Add("alice", "https://github.com/alice/ctxloom"))
+	require.NoError(t, registry.Add("alice", url))
 
 	mp := newMockPublisher()
 	mf := newMockFetcher()
 	mf.defaultBranch = "main"
+	store := NewPublishRemoteStore(filepath.Join(t.TempDir(), "publish_remotes.yaml"), fs)
 
-	// No asker and an UNCONFIGURED confirmation store: if GitHub were gated,
-	// this would fail closed on the store rather than publish.
-	pm := NewPublishManager(registry, AuthConfig{},
+	all := append([]PublishManagerOption{
 		WithPublishFS(fs),
 		WithPublisherFactory(mockPublisherFactory(mp)),
 		WithPublishFetcherFactory(mockFetcherFactory(mf)),
-		WithPublishRemoteStore(NewPublishRemoteStore("", fs)),
-	)
+		WithPublishRemoteStore(store),
+	}, opts...)
+	return &githubFixture{pm: NewPublishManager(registry, AuthConfig{}, all...), mp: mp, url: url, store: store}
+}
 
-	_, err = pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
+func (f *githubFixture) publish(t *testing.T) error {
+	t.Helper()
+	_, err := f.pm.Publish(context.Background(), "/local/mybundle.yaml", "alice", PublishOptions{
 		ItemType:   ItemTypeBundle,
 		RemotePath: mybundleRemotePath,
 		Branch:     "main",
 	})
-	require.NoError(t, err, "GitHub publish must be unchanged by the generic-git confirmation")
-	assert.Contains(t, mp.createdFiles, mybundleRemotePath)
+	return err
+}
+
+// TRUSTED SIDE. A GitHub remote the human confirmed publishes, and the file
+// lands at the destination. This is the test that proves the negative below is
+// capable of failing: same fixture, one record different.
+func TestPublishConfirm_ConfirmedGitHubRemotePublishes(t *testing.T) {
+	f := newGitHubFixture(t)
+	_, err := f.store.Set(NewPublishRemoteKey(f.url), true)
+	require.NoError(t, err)
+
+	require.NoError(t, f.publish(t), "a confirmed GitHub remote must publish")
+	assert.Contains(t, f.mp.createdFiles, mybundleRemotePath,
+		"the trusted side must actually write the bundle, or the untrusted side proves nothing")
+}
+
+// UNTRUSTED SIDE. A GitHub remote nobody confirmed is refused, and NOTHING is
+// pushed.
+//
+// A push token is not a confirmation. It answers "may this account write
+// here", which is not the question the gate asks — "is this the destination
+// you meant". A token with broad org rights authorises a typo'd repository
+// just as readily as the intended one, and the forge API is precisely where
+// that mistake becomes a public artifact.
+func TestPublishConfirm_UnconfirmedGitHubRemoteRefusesAndPublishesNothing(t *testing.T) {
+	f := newGitHubFixture(t) // no record, and no WithRemoteAsk: nobody to ask
+
+	err := f.publish(t)
+	require.Error(t, err, "an unconfirmed GitHub remote must be refused")
+	assert.Contains(t, err.Error(), f.url, "the refusal must name the remote it refused")
+	assert.Contains(t, err.Error(), "never been confirmed")
+	// Asserted as substrings rather than one literal so this stays a test of
+	// "the refusal is actionable" rather than a test of the current spelling.
+	assert.Contains(t, err.Error(), "ctxloom",
+		"the refusal must name a command a CI job or an agent host can actually run")
+	assert.Contains(t, err.Error(), "trust", "and that command must be the one that grants the trust")
+
+	assert.Empty(t, f.mp.createdFiles,
+		"a refused publish must leave the destination untouched, not merely return an error")
+	assert.False(t, confirmedIn(t, f.store, f.url), "a refusal must not record a confirmation")
 }
 
 // A store with no path is a MISCONFIGURATION (an unresolvable $HOME), not an
@@ -252,7 +301,7 @@ func TestPublishRemoteStore_UnconfiguredStoreRefusesRatherThanReadingTheWorkingD
 
 	// And the gate built over it REFUSES rather than admitting on the planted file.
 	pm := &PublishManager{confirmed: store}
-	gerr := pm.authorizeRemote(context.Background(), "file:///srv/bundles.git", ForgeGitGeneric)
+	gerr := pm.authorizeRemote(context.Background(), "file:///srv/bundles.git")
 	require.Error(t, gerr)
 	assert.Contains(t, gerr.Error(), "refusing to publish")
 }
@@ -290,12 +339,12 @@ func TestPublishRemoteStore_ListSetForgetAreTheProvisioningPath(t *testing.T) {
 
 	// Nothing recorded: a non-interactive gate refuses.
 	pm := &PublishManager{confirmed: store}
-	require.Error(t, pm.authorizeRemote(context.Background(), url, ForgeGitGeneric))
+	require.Error(t, pm.authorizeRemote(context.Background(), url))
 
 	// Provisioned by hand: the same gate now admits, with nobody asked.
 	_, err := store.Set(NewPublishRemoteKey(url), true)
 	require.NoError(t, err)
-	require.NoError(t, pm.authorizeRemote(context.Background(), url, ForgeGitGeneric),
+	require.NoError(t, pm.authorizeRemote(context.Background(), url),
 		"a confirmation recorded out of band must satisfy the gate exactly as a prompt would")
 
 	recs, lerr := store.List()
@@ -308,7 +357,7 @@ func TestPublishRemoteStore_ListSetForgetAreTheProvisioningPath(t *testing.T) {
 	n, ferr := store.Forget(NewPublishRemoteKey(url))
 	require.NoError(t, ferr)
 	assert.Equal(t, 1, n)
-	require.Error(t, pm.authorizeRemote(context.Background(), url, ForgeGitGeneric),
+	require.Error(t, pm.authorizeRemote(context.Background(), url),
 		"a forgotten confirmation must stop admitting")
 
 	n, ferr = store.Forget(NewPublishRemoteKey(url))
@@ -333,7 +382,7 @@ func TestPublishRemoteStore_ARecordedDeclineRefusesWithoutAsking(t *testing.T) {
 			return true, true, nil
 		},
 	}
-	gerr := pm.authorizeRemote(context.Background(), url, ForgeGitGeneric)
+	gerr := pm.authorizeRemote(context.Background(), url)
 	require.Error(t, gerr)
 	assert.Equal(t, 0, asked, "a recorded decline must not be re-put to the human")
 	assert.Contains(t, gerr.Error(), "recorded as declined")
@@ -355,7 +404,7 @@ func TestPublishRemoteStore_AnUnreadableStoreRefusesAsAFault(t *testing.T) {
 			return true, true, nil
 		},
 	}
-	gerr := pm.authorizeRemote(context.Background(), "file:///srv/bundles.git", ForgeGitGeneric)
+	gerr := pm.authorizeRemote(context.Background(), "file:///srv/bundles.git")
 	require.Error(t, gerr)
 	assert.Equal(t, 0, asked, "an unreadable store must not fall through to a prompt")
 	assert.Contains(t, gerr.Error(), "cannot tell whether")

@@ -51,11 +51,6 @@ import (
 type PublishAdmissionReason string
 
 const (
-	// PublishAdmissionForgeToken: a GitHub remote, reached through the forge
-	// API with a token that must already carry push rights to that specific
-	// repository. Not gated here — see authorizeRemote for why widening the
-	// gate to GitHub is a separate decision.
-	PublishAdmissionForgeToken PublishAdmissionReason = "forge-token"
 	// PublishAdmissionConfirmed: a recorded confirmation covers this remote.
 	PublishAdmissionConfirmed PublishAdmissionReason = "confirmed"
 	// PublishAdmissionDeclined: a recorded DECLINE covers this remote. A human
@@ -214,18 +209,17 @@ func PublishRemoteConsentPath() string {
 	return path
 }
 
-// authorizeRemote is the gate every non-GitHub publish passes before any
-// network write.
+// authorizeRemote is the gate EVERY publish passes before any network write,
+// whatever forge is behind the URL.
 //
-// SCOPE: generic-git remotes only. GitHub publish is deliberately untouched —
-// it goes through the forge API with a token that must already carry push
-// rights to that specific repository, and folding it in here would change the
-// behaviour of an existing, acceptance-covered path as a side effect of adding
-// a new one. Widening the gate to GitHub is a separate decision with its own
-// migration for everyone already publishing there.
-func (pm *PublishManager) authorizeRemote(ctx context.Context, remoteURL string, forge ForgeType) error {
+// A push token is not a confirmation. It answers "may this account write
+// here", which is not the question this gate asks — "is this the destination
+// you meant". A token carrying broad organisation rights authorises a typo'd
+// repository exactly as readily as the intended one, and the forge API is
+// where that mistake becomes a public artifact.
+func (pm *PublishManager) authorizeRemote(ctx context.Context, remoteURL string) error {
 	store := pm.publishRemoteStore()
-	d := pm.admitRemote(ctx, store, remoteURL, forge)
+	d := pm.admitRemote(ctx, store, remoteURL)
 	if d.Allow {
 		return nil
 	}
@@ -248,11 +242,8 @@ func (pm *PublishManager) publishRemoteStore() *PublishRemoteStore {
 // It is a pure function of its inputs plus the store: it renders nothing. The
 // sentence a human reads is assembled by publishRefusedError from the Reason.
 func (pm *PublishManager) admitRemote(
-	ctx context.Context, store *PublishRemoteStore, remoteURL string, forge ForgeType,
+	ctx context.Context, store *PublishRemoteStore, remoteURL string,
 ) admission.Decision[PublishAdmissionReason] {
-	if forge == ForgeGitHub {
-		return admission.Decision[PublishAdmissionReason]{Allow: true, Reason: PublishAdmissionForgeToken}
-	}
 	// Recorded BEFORE publishing, by Decide. A confirmation only written after
 	// a successful push is lost whenever the push fails, so the retry asks
 	// again — and a prompt that reappears after every hiccup is one people

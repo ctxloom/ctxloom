@@ -52,19 +52,10 @@ Feature: Profiles
     Then the command succeeds
     And the file ".ctxloom/profiles/dev.yaml" does not exist
 
-  Scenario: Manage the default agent
-    # `profile default` was RETIRED: the default context is now whatever the
-    # always-bound default AGENT composes (`ctxloom agent default`). There is
-    # no "unset" — the replacement binds a name, not a settable list.
-    Given an initialized ctxloom project
-    When I run "ctxloom agent default"
-    Then the command succeeds
-    And the output contains "No default agent set."
-    Given a bundle "demo" exists
-    And a profile "dev" with bundle "demo"
-    And I run "ctxloom agent create developer --profiles dev"
-    When I run "ctxloom agent default developer"
-    Then the command succeeds
-    When I run "ctxloom agent default"
-    Then the command succeeds
-    And the output contains "developer"
+  # `profile default` was RETIRED: the default context is now whatever the
+  # always-bound default AGENT composes (`ctxloom agent default`). There is no
+  # "unset" — the replacement binds a name, not a settable list. That verb is
+  # a leaf of the agent noun and is specified with the rest of them in
+  # cli/agent.feature, which asserts the config key the binding actually
+  # lands in; the duplicate scenario that used to sit here is gone rather
+  # than kept in two places to drift.

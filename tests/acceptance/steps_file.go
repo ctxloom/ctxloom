@@ -124,6 +124,26 @@ func registerFileSteps(ctx *godog.ScenarioContext) {
 		return fileContains(c, true, rel, want)
 	})
 
+	// The home counterpart of `the file X does not contain Y`, and the
+	// per-machine half of every "this landed in the OTHER store" assertion —
+	// `signer trust`'s project-vs-user default, `llm --env-file`'s
+	// project-vs-machine credential split. It deliberately READS the file
+	// rather than checking it away: `the home file X does not exist` passes
+	// against a harness that could never see a home file at all, so a scenario
+	// that has just written something ELSE into that same file and then
+	// asserts this is checking a live absence, not a missing fixture.
+	ctx.Step(`^the home file "([^"]*)" does not contain "([^"]*)"$`, func(c context.Context, rel, unwanted string) error {
+		w := worldFrom(c)
+		body, err := w.env.ReadHomeFile(rel)
+		if err != nil {
+			return fmt.Errorf("read home file %q: %w", rel, err)
+		}
+		if strings.Contains(body, unwanted) {
+			return fmt.Errorf("home file %q unexpectedly contains %q; content:\n%s", rel, unwanted, body)
+		}
+		return nil
+	})
+
 	ctx.Step(`^a home file matching "([^"]*)" exists$`, func(c context.Context, glob string) error {
 		w := worldFrom(c)
 		matches, err := filepath.Glob(filepath.Join(w.env.HomeDir, glob))

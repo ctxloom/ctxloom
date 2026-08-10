@@ -1,10 +1,11 @@
-Feature: Trusting and untrusting, on the noun that owns the thing
+Feature: Trusting and untrusting ITEM CONTENT, on the noun that owns it
   Trust is a posture toward something, so the verb lives on the noun that owns
   it. `bundle trust`/`bundle reject` decide about ITEM CONTENT — one fragment,
-  command, MCP server or hook at a time. `companion trust`/`untrust` decide
-  which binaries may be EXECUTED. `remote trust`/`untrust` decide where signed
-  content may be PUBLISHED. `signer trust`/`untrust` decide whose signature
-  stands in for review at all.
+  command, MCP server or hook at a time — and that is what this file covers.
+  The sibling decisions live with their own nouns: which BINARIES may be
+  executed (cli/companion.feature), whose SIGNATURE stands in for review at all
+  (cli/signer.feature), and where signed content may be PUBLISHED
+  (cli/remote.feature). See the note at the foot of this file.
 
   Each is proven in BOTH directions, because one direction alone proves
   nothing: a scenario that only checks the trusted path passes against a system
@@ -50,85 +51,20 @@ Feature: Trusting and untrusting, on the noun that owns the thing
     And the approvals store holds a rejection of "demo#fragments/guide": a sticky ref block and a content block over the same bytes
     And "demo#fragments/guide" is withheld from the agent, and the bundle's other fragment is not
 
-  # Companion EXEC consent. Companions are DISCOVERED, not configured — the
-  # shipped names plus anything called ctxloom-companion-* on $PATH — and
-  # reading one's loadout means RUNNING it. ./node_modules/.bin is on $PATH in
-  # a large share of JS projects, so without a gate an npm dependency nobody
-  # chose could earn an exec at the next session start just by picking the
-  # name. The proof below is the witness file the fake writes when it runs, not
-  # an exit code: the failure mode being closed is the silent one.
-  Scenario: A companion nobody confirmed is never executed, and says so
-    Given an initialized ctxloom project
-    And a discovered companion "ctxloom-companion-acme" is on PATH, never confirmed
-    When I run "ctxloom doctor"
-    Then the output contains "never confirmed for execution"
-    And the companion "ctxloom-companion-acme" was never executed
-    When I run "ctxloom companion trust ctxloom-companion-acme"
-    Then the command succeeds
-    And the output contains "ctxloom will run it"
-    When I run "ctxloom doctor"
-    Then the companion "ctxloom-companion-acme" was executed
-
-  # Asserted by the acme entry's PRESENCE and ABSENCE rather than by an empty
-  # listing: the scenario HOME legitimately starts with consent recorded for
-  # whatever real companions this machine has installed (testenv grants those
-  # so the suite behaves as it did before exec consent landed), and an
-  # "is it empty" assertion would be an assertion about the developer's laptop.
-  Scenario: Companion execution decisions are listable and revocable
-    Given an initialized ctxloom project
-    And a discovered companion "ctxloom-companion-acme" is on PATH, never confirmed
-    When I run "ctxloom companion list"
-    Then the command succeeds
-    And the output does not contain "ctxloom-companion-acme"
-    When I run "ctxloom companion trust ctxloom-companion-acme"
-    Then the command succeeds
-    When I run "ctxloom companion list"
-    Then the command succeeds
-    And the output contains "allowed"
-    And the output contains "ctxloom-companion-acme"
-    When I run "ctxloom companion untrust ctxloom-companion-acme"
-    Then the command succeeds
-    And the output contains "forgot 1 decision(s)"
-    When I run "ctxloom companion list"
-    Then the command succeeds
-    And the output does not contain "ctxloom-companion-acme"
-
-  # `companion show` is the read-one gap-fill: list and no way to inspect
-  # ONE binary's decision without scanning the whole listing by eye. It runs
-  # the EXACT SAME decision cascade `doctor`'s probe consults
-  # (config.AdmitCompanions), so its answer can never disagree with what
-  # actually happens at session start — proven here across the same
-  # unconfirmed -> trusted transition the listing scenario above proves.
-  Scenario: companion show answers whether ctxloom would execute one binary, and why
-    Given an initialized ctxloom project
-    And a discovered companion "ctxloom-companion-acme" is on PATH, never confirmed
-    When I run "ctxloom companion show ctxloom-companion-acme"
-    Then the command succeeds
-    And the output contains "unconfirmed"
-    When I run "ctxloom companion trust ctxloom-companion-acme"
-    Then the command succeeds
-    When I run "ctxloom companion show ctxloom-companion-acme"
-    Then the command succeeds
-    And the output contains "allowed"
-    And the output contains "consented"
-
-  # Publish destinations have no verb, and that is the model rather than a
-  # gap: registering a remote IS the consent to publish there. `remote create`
-  # names a URL deliberately, and `bundle push` honors it without asking a
-  # second time. The ledger that once recorded a separate blessing is gone.
-
-  # `signer trust` defaults to the committable PROJECT store (j001600_signing
-  # proves the in-project cases). This is the edge that default has to
-  # handle: run with no .ctxloom directory at all, there is no project store
-  # to write. It must not fail — it falls back to the user store, and the
-  # output names WHICH store it used and WHY, because silently writing
-  # somewhere other than where the user expects is exactly the defect shape
-  # this project keeps removing.
-  Scenario: Trusting a signer outside a project falls back to the user store and says so
-    Given an empty project directory
-    When I run "ctxloom signer trust solo@example.com --key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPu3qoOrcLwuHKdsczSsVcMrm+R6iPISwuP1K1/82kLr acme-fallback-test' --yes"
-    Then the command succeeds
-    And the output contains "no project"
-    And the output contains "user store"
-    And the home file ".ctxloom/allowed_signers" exists
-    And the home file ".ctxloom/allowed_signers" contains "solo@example.com"
+  # THE OTHER THREE DECISIONS MOVED, and each to the noun that owns it, now
+  # that every noun has a comprehensive spec of its own:
+  #
+  #   `companion trust`/`untrust`  → cli/companion.feature, which keeps both
+  #     directions (the witness file proving an unconfirmed binary never ran,
+  #     and that a trusted one does) and adds the provenance exemption.
+  #   `signer trust`/`untrust`     → cli/signer.feature, including the
+  #     outside-a-project fallback to the user store that used to live here.
+  #   Publish destinations have no verb at all, and that is the model rather
+  #     than a gap: registering a remote IS the consent to publish there.
+  #     `remote create` names a URL deliberately and `bundle push` honors it
+  #     without asking a second time (cli/remote.feature). The ledger that once
+  #     recorded a separate blessing is gone.
+  #
+  # What stays here is item-content trust, which is a decision about BYTES
+  # inside a bundle rather than about a key, a binary or an address — and the
+  # both-directions discipline above, which every one of those files inherits.

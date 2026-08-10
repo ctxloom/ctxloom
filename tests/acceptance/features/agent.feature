@@ -1,72 +1,15 @@
-Feature: Agent bindings and container tooling
-  Agents are LOCAL engine↔profile bindings (config `agents:`) with an optional
-  runtime axis; `init prompt` emits the interview prompt; `container tooling`
-  collects trusted bundles' agent-image tool declarations; `container scaffold`
-  makes the base Containerfile editable; `container check` is a read-only
-  capability diagnosis; `acp list` advertises one ACP server entry per binding.
+Feature: Agent-image tooling, the setup prompt, and per-binding ACP entries
+  What is left of the old catch-all `agent` feature once the agent NOUN moved
+  to its own comprehensive spec (cli/agent.feature): the surfaces that are
+  ABOUT agents without being leaves of the `agent` noun. `init prompt` emits
+  the setup interview prompt; `container tooling` collects trusted bundles'
+  agent-image tool declarations; `container scaffold` makes the base
+  Containerfile editable; `container check` is a read-only capability
+  diagnosis; `acp list` advertises one ACP server entry per binding.
 
-  Scenario: Agent create, list, show, edit, and remove lifecycle
-    Given an initialized ctxloom project
-    And a profile "dev" exists
-    When I run "ctxloom agent create developer --profiles dev --runtime container"
-    Then the command succeeds
-    When I run "ctxloom agent list"
-    Then the output contains "developer"
-    And the output contains "runtime: container"
-    When I run "ctxloom agent show developer"
-    Then the output contains "Runtime: container"
-    When I run "ctxloom agent edit developer --runtime host"
-    Then the command succeeds
-    When I run "ctxloom agent list"
-    Then the output contains "runtime: host"
-    # The profiles survived an edit that named only --runtime: `agent edit`
-    # merges per field. The upsert it replaced used to wipe every unnamed one.
-    And the output contains "profiles: dev"
-    # Bare `remove` is a preview: it must leave the agent bound. A guard that
-    # quietly destroyed anyway would still pass a scenario that only checked
-    # exit code — the follow-up `agent list` is what actually catches that.
-    When I run "ctxloom agent remove developer"
-    Then the command succeeds
-    And the output contains "Nothing was removed"
-    And the output contains "--yes"
-    When I run "ctxloom agent list"
-    Then the output contains "developer"
-    When I run "ctxloom agent remove developer --yes"
-    Then the command succeeds
-    When I run "ctxloom agent list"
-    Then the output contains "No agents defined"
-
-  # create and edit are NOT an upsert: each refuses the case the other owns.
-  # The upsert `agent set` they replaced silently minted a new agent on a
-  # typo'd name and silently overwrote a live one on a reused name.
-  #
-  # A request to make these an upsert again was REJECTED on 2026-08-08
-  # (taskloom vivacious-overlook). Recorded here because the request will
-  # recur — two verbs is real friction, and the reason to keep them is not
-  # obvious from the surface:
-  #
-  # create and edit already share ONE body (operations.SetAgent, which
-  # j002000_engine_switch.feature relies on for its --engine validation), so the
-  # refusals are the only thing that distinguishes the verbs. Making them
-  # upsert is DELETING TWO GUARDS from a shared function, not merging two
-  # implementations. And a binding carries engine, profiles, runtime and
-  # permission mode, so a silent overwrite loses whatever the invocation did
-  # not name — the exact loss the lifecycle scenario above pins with its
-  # "profiles survived an edit that named only --runtime" assertion.
-  #
-  # If the friction needs answering, an explicit `--force` on create (or a
-  # separate upsert verb) gives idempotence without removing the guards.
-  Scenario: Create refuses an existing name and edit refuses an absent one
-    Given an initialized ctxloom project
-    And a profile "dev" exists
-    When I run "ctxloom agent create developer --profiles dev"
-    Then the command succeeds
-    When I run "ctxloom agent create developer --profiles dev"
-    Then the command fails
-    And the output contains "already exists"
-    When I run "ctxloom agent edit nosuchagent --profiles dev"
-    Then the command fails
-    And the output contains "no agent named"
+  The agent binding lifecycle itself — list/show/create/edit/default/remove,
+  the non-upsert guards and the per-field merge — lives in cli/agent.feature
+  and is deliberately NOT restated here.
 
   Scenario: Init prompt emits the interview prompt
     Given an initialized ctxloom project

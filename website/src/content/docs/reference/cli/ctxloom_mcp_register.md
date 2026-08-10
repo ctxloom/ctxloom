@@ -27,5 +27,5 @@ ctxloom mcp register [flags]
 
 ### SEE ALSO
 
-* [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - Run ctxloom as an MCP server
+* [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List configured MCP servers, or serve ctxloom as one
 

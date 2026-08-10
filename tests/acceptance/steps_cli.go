@@ -125,6 +125,32 @@ func registerJSONOutputSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("JSON array %q has no object whose %q is %q; stdout:\n%s", arrayKey, field, want, w.env.LastStdout())
 		})
 
+	// Two fields of the SAME object, which one-field membership cannot express:
+	// "a check named X is present" and "a check reporting ok is present" are
+	// both satisfied by a report where X warns and something else is ok. Where
+	// the claim is about one object's verdict, both fields have to be read off
+	// that object.
+	ctx.Step(`^the JSON output array "([^"]*)" contains an object whose "([^"]*)" is "([^"]*)" and whose "([^"]*)" is "([^"]*)"$`,
+		func(c context.Context, arrayKey, keyField, keyWant, field, want string) error {
+			w := worldFrom(c)
+			entries, err := lastOutputJSONArray(w, arrayKey)
+			if err != nil {
+				return err
+			}
+			for _, e := range entries {
+				obj, ok := e.(map[string]any)
+				if !ok || fmt.Sprintf("%v", obj[keyField]) != keyWant {
+					continue
+				}
+				if got := fmt.Sprintf("%v", obj[field]); got != want {
+					return fmt.Errorf("JSON array %q object with %s=%q has %s=%q, want %q; stdout:\n%s",
+						arrayKey, keyField, keyWant, field, got, want, w.env.LastStdout())
+				}
+				return nil
+			}
+			return fmt.Errorf("JSON array %q has no object whose %q is %q; stdout:\n%s", arrayKey, keyField, keyWant, w.env.LastStdout())
+		})
+
 	ctx.Step(`^every object in the JSON output array "([^"]*)" has a non-empty "([^"]*)"$`,
 		func(c context.Context, arrayKey, field string) error {
 			w := worldFrom(c)

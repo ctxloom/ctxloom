@@ -44,11 +44,19 @@ The preference order is explicit, because it decides every borderline noun:
 A safe default beats help; help beats an error. The bare form always answers
 with something worth having.
 
-The ladder has one exception, and it applies to namespaces that carry their own
-behaviour. Those are leaves that happen to have children, and they keep acting:
-bare `ctxloom mcp` starts a stdio MCP server, and that exact invocation is
-written into users' engine settings on disk. The ladder governs containers that
-do nothing of their own.
+The ladder has no exception for a namespace that could plausibly act. `mcp` is
+the case that tests it: it holds a stdio server, which is behaviour a namespace
+could carry directly. It does not. The server is the `serve` leaf, one spelling,
+symmetric with `acp serve`, and bare `ctxloom mcp` lists the configured servers
+like every other noun.
+
+That is a deliberate cost. The machine surface a caller invokes must be a leaf
+whose whole job is that surface, because the alternative puts two audiences on
+one spelling: a person exploring, and a protocol client whose transport is the
+same stdout. Only one of them can be served, and serving the machine makes the
+noun the one place in the tree where typing it does something a person did not
+ask for. `ctxloom mcp` off a terminal therefore refuses and names `mcp serve` —
+a listing written into a JSON-RPC pipe is indistinguishable from a hang.
 
 **`--help` is a universal suffix, and it is always present.** Append it to
 anything, at any depth: `ctxloom --help`, `ctxloom bundle --help`, `ctxloom
@@ -69,10 +77,10 @@ is one the user has to model rather than simply use, and this rule's whole value
 is that it needs no model. One spelling everywhere beats one spelling plus an
 exception, even an exception in the user's favour.
 
-Nothing is exempt from the flag, including the namespaces above. `ctxloom mcp`
-keeps starting a server when bare, and `ctxloom mcp --help` still teaches. The
-exception is about what a bare invocation does; it is never an exception to
-help.
+Nothing is exempt from the flag, including the namespaces above. A noun whose
+bare form answers with a listing still teaches under `--help`: `ctxloom mcp`
+lists, `ctxloom mcp --help` teaches. The ladder is about what a bare invocation
+does; it is never an exception to help.
 
 ### Why this split
 

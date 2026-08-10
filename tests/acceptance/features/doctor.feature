@@ -32,3 +32,42 @@ Feature: ctxloom doctor — deterministic setup checks
     And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-HOOKS-TRUST-d4"
     And every object in the JSON output array "checks" has a non-empty "status"
     And every object in the JSON output array "checks" has a non-empty "detail"
+
+  # A settings file naming a ctxloom invocation that does not speak MCP is the
+  # one broken state nothing else in the system can see: the entry is PRESENT,
+  # so every wiring check reports it healthy, and the engine starts fine. What
+  # fails is invisible — the client waits on a handshake that never arrives,
+  # the session comes up with none of ctxloom's tools, and nothing says why.
+  # Reading the argv is the only way to tell a working entry from that one.
+  Scenario: Doctor names a settings file whose ctxloom entry cannot speak the protocol
+    Given an initialized ctxloom project
+    And the project already has the file ".mcp.json":
+      """
+      {
+        "mcpServers": {
+          "ctxloom": {"command": "/usr/local/bin/ctxloom", "args": ["mcp"]}
+        }
+      }
+      """
+    When I run "ctxloom doctor"
+    Then the command succeeds
+    And the output contains "DOCTOR-CHECK-MCP-INVOCATION-g7"
+    And the output contains ".mcp.json"
+    And the output contains "ctxloom init"
+
+  # The paired negative, and the one that keeps the check honest: a report that
+  # warned on every project would be indistinguishable from one that works, and
+  # would teach a user to skip the line.
+  Scenario: Doctor stays quiet about a settings file that names the protocol server
+    Given an initialized ctxloom project
+    And the project already has the file ".mcp.json":
+      """
+      {
+        "mcpServers": {
+          "ctxloom": {"command": "/usr/local/bin/ctxloom", "args": ["mcp", "serve"]}
+        }
+      }
+      """
+    When I run "ctxloom --format json doctor"
+    Then the command succeeds
+    And the JSON output array "checks" contains an object whose "marker" is "DOCTOR-CHECK-MCP-INVOCATION-g7" and whose "status" is "ok"

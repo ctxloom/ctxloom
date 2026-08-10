@@ -139,3 +139,59 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
         | kiro        |
         | antigravity |
         | codex       |
+
+  Rule: What an engine is told to launch is `mcp serve`, and nothing else
+
+    An engine reads its MCP configuration, launches the command it finds, and
+    waits for a JSON-RPC handshake. Which ctxloom SUBCOMMAND that entry names
+    is therefore the whole of whether the engine ends up with ctxloom's tools —
+    and the difference is invisible to every check that only asks whether the
+    entry is there.
+
+    # ARGV, NOT PRESENCE. Every other assertion in this file is satisfied by an
+    # entry naming any subcommand at all. This one reads the subcommand out of
+    # each engine's own native shape and pins it. opencode's shape differs (it
+    # folds the binary and its arguments into ONE `command` array rather than
+    # carrying a separate `args`); the rows below mirror the materialize
+    # outline above, and the opencode shape is pinned in the doctor check's own
+    # tests instead.
+    Scenario Outline: <engine>'s generated configuration launches the protocol server
+      Given Carol's team profile carries a shared fragment, command, MCP server, and hook
+      When Alice materializes the team profile for <engine>
+      Then the materialized <engine> MCP configuration invokes ctxloom's own server as "mcp serve"
+
+      Examples:
+        | engine      |
+        | claude-code |
+        | kiro        |
+        | antigravity |
+        | codex       |
+
+  Rule: The bare noun answers a person and refuses a protocol client
+
+    `ctxloom mcp` on its own lists this project's configured MCP servers, the
+    way every other noun answers its own bare form. A caller that is NOT a
+    person at a terminal is almost always an engine that has opened a pipe and
+    is waiting for JSON-RPC, and a server listing written into that pipe is
+    indistinguishable from a hang: nothing frames, nothing errors, the session
+    comes up with no ctxloom tools and no cause named anywhere. So off a
+    terminal the bare noun refuses, and says what to run instead.
+
+    # Every command in this suite is a subprocess on pipes, which IS the
+    # machine side — the harness has no terminal to offer. The human half, the
+    # listing itself, is driven in internal/cli's mcp_bare_test.go, where the
+    # terminal predicate can be presented either way.
+    Scenario: A client pointed at the bare noun is told which invocation speaks the protocol
+      Given an initialized ctxloom project
+      When I run "ctxloom mcp"
+      Then the command fails
+      And the output contains "ctxloom mcp serve"
+
+    # The shape a script reaches for next. Asking for JSON does not make a
+    # listing safe to hand a caller that wanted a protocol stream, so the
+    # refusal holds and names the leaf that produces the servers as data.
+    Scenario: Asking the bare noun for JSON is refused and points at the listing leaf
+      Given an initialized ctxloom project
+      When I run "ctxloom --format json mcp"
+      Then the command fails
+      And the output contains "ctxloom mcp server list"

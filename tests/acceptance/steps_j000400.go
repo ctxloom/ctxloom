@@ -20,6 +20,8 @@ import (
 
 	"github.com/cucumber/godog"
 	"github.com/pelletier/go-toml/v2"
+
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
 // Distinctive marker strings the shared "team" bundle carries, so a
@@ -153,6 +155,10 @@ func registerJ000400Steps(ctx *godog.ScenarioContext) {
 
 	ctx.Step(`^the materialized (\S+) MCP configuration carries the shared server's command, in its own native shape$`, func(c context.Context, engine string) error {
 		return j000400AssertMCP(worldFrom(c), engine)
+	})
+
+	ctx.Step(`^the materialized (\S+) MCP configuration invokes ctxloom's own server as "([^"]*)"$`, func(c context.Context, engine, want string) error {
+		return j000400AssertCtxloomMCPInvocation(worldFrom(c), engine, want)
 	})
 
 	ctx.Step(`^the materialized (\S+) hook configuration carries the shared hook's command, in its own native shape$`, func(c context.Context, engine string) error {
@@ -447,6 +453,51 @@ func j000400AssertMCP(w *World, engine string) error {
 	w.docStepMaterialized = evidence
 	if cmd != j000400MCPCommand {
 		return fmt.Errorf("%s's MCP server %q has command %q, want %q", engine, "toolserver", cmd, j000400MCPCommand)
+	}
+	return nil
+}
+
+// j000400AssertCtxloomMCPInvocation reads the engine's OWN materialized MCP
+// registry and asserts the subcommand ctxloom's auto-registered entry invokes.
+//
+// It is the argv, not the entry's presence, that decides whether the engine
+// gets ctxloom's tools: an entry naming a spelling that does not speak the
+// protocol produces a session that starts perfectly and has no ctxloom tools
+// in it. Every existence check in this suite passes against exactly that.
+//
+// The two native shapes are both the engine's own: most registries carry a
+// string `command` plus an `args` array, while opencode folds the binary and
+// its arguments into ONE `command` array.
+func j000400AssertCtxloomMCPInvocation(w *World, engine, want string) error {
+	rel, key, err := j000400MCPRegistryFor(j000400Of(w).target, engine)
+	if err != nil {
+		return err
+	}
+	doc, err := j000400ReadMCPRegistry(w, rel)
+	if err != nil {
+		return err
+	}
+	top, ok := doc[key].(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s: no %q table in the generated MCP configuration; parsed: %+v", engine, key, doc)
+	}
+	srv, ok := top[agent.MCPServerName].(map[string]any)
+	if !ok {
+		return fmt.Errorf("%s: no %q server entry under %q, so this engine's session gets none of ctxloom's tools; parsed: %+v", engine, agent.MCPServerName, key, top)
+	}
+
+	var tokens []string
+	if args := j000400FormatArgs(srv["args"]); args != "" {
+		tokens = strings.Fields(strings.Trim(args, "[]"))
+	} else if argv, ok := srv["command"].([]any); ok && len(argv) > 1 {
+		tokens = strings.Fields(strings.Trim(j000400FormatArgs(argv[1:]), "[]"))
+	}
+	got := strings.Join(tokens, " ")
+
+	w.docStepMaterialized = fmt.Sprintf("%s → %s.%s\n  command: %s\n  invokes: ctxloom %s",
+		rel, key, agent.MCPServerName, j000400ServerCommand(srv), got)
+	if got != want {
+		return fmt.Errorf("%s's ctxloom MCP entry invokes %q, want %q — an engine launching it would come up with no ctxloom tools and nothing saying why", engine, got, want)
 	}
 	return nil
 }

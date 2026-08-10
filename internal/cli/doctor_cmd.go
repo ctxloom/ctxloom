@@ -204,6 +204,7 @@ func runDoctorCmd(cmd *cobra.Command, args []string) error {
 			doctorCheckAgents(ctx, cfg, cfgErr),
 			doctorCheckVersion(),
 			doctorCheckHooksTrust(ctx, cfg, cfgErr),
+			doctorCheckMCPInvocation(doctorProjectDir(cfg)),
 			doctorCheckContentTrust(cfg, cfgErr),
 			doctorCheckUpstreamSignatures(cfg, cfgErr),
 			doctorCheckSetupLockAndAssembly(ctx, cfg, cfgErr),

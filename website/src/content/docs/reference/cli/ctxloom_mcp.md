@@ -9,32 +9,33 @@ This page is generated from `ctxloom mcp --help`.
 
 ## ctxloom mcp
 
-Run ctxloom as an MCP server
+List configured MCP servers, or serve ctxloom as one
 
 ### Synopsis
 
-Run ctxloom as an MCP (Model Context Protocol) server over stdio.
+The MCP (Model Context Protocol) noun: the servers this project hands to
+every engine, and ctxloom's own stdio server.
 
-When called without subcommands, runs ctxloom as an MCP server over stdio.
+  ctxloom mcp              List the configured MCP servers (this project's
+                           own, plus whether ctxloom auto-registers itself)
+  ctxloom mcp serve        Serve ctxloom AS an MCP server over stdio. This is
+                           the invocation an engine's settings name, and the
+                           only one that speaks the protocol.
+  ctxloom mcp server       Create, show, edit and delete configured servers
+  ctxloom mcp register     Toggle ctxloom's own auto-registration
+  ctxloom mcp unregister
 
-RUNNING AS MCP SERVER:
-  ctxloom mcp              Run as MCP server over stdio
-  ctxloom mcp serve        Alias for running as MCP server
+Tools ctxloom serves under 'mcp serve':
+  Context:  assemble_context, search_content, search_library
+  Sessions: compact_session, list_sessions, load_session, get_previous_session, recover_session
+  Agents:   agent_run, agent_send, agent_recv (delegated child sessions +
+            the in-memory coordinator/executor message bus)
 
-  Available tools when running as server:
-    Context:  assemble_context, search_content, search_library
-    Sessions: compact_session, list_sessions, load_session, get_previous_session, recover_session
-    Agents:   agent_run, agent_send, agent_recv (delegated child sessions +
-              the in-memory coordinator/executor message bus)
-
-  Read-only listings (fragments, profiles, prompts, remotes, mcp-servers,
-  sessions) are exposed as MCP resources (ctxloom://...), not tools. All
-  management (bundles, remotes, review/approve, trust, pinning) is done with
-  the ctxloom CLI, not MCP tools. Task tracking moved to the standalone
-  taskloom binary; its MCP server ('taskloom mcp') serves the task_* tools.
-
-Manage configured MCP servers under 'ctxloom mcp server' and ctxloom's own
-auto-registration under 'ctxloom mcp register'/'ctxloom mcp unregister'.
+Read-only listings (fragments, profiles, prompts, remotes, mcp-servers,
+sessions) are exposed as MCP resources (ctxloom://...), not tools. All
+management (bundles, remotes, review/approve, trust, pinning) is done with
+the ctxloom CLI, not MCP tools. Task tracking lives in the standalone
+taskloom binary; its MCP server ('taskloom mcp') serves the task_* tools.
 
 ```
 ctxloom mcp [flags]
@@ -54,7 +55,7 @@ ctxloom mcp [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom mcp register](/reference/cli/ctxloom_mcp_register/)	 - Enable auto-registration of ctxloom's own MCP server
-* [ctxloom mcp serve](/reference/cli/ctxloom_mcp_serve/)	 - Run as MCP server over stdio
+* [ctxloom mcp serve](/reference/cli/ctxloom_mcp_serve/)	 - Serve ctxloom as an MCP server over stdio
 * [ctxloom mcp server](/reference/cli/ctxloom_mcp_server/)	 - List, show, create, edit, or delete configured MCP servers
 * [ctxloom mcp unregister](/reference/cli/ctxloom_mcp_unregister/)	 - Disable auto-registration of ctxloom's own MCP server
 

@@ -9,11 +9,14 @@ This page is generated from `ctxloom mcp serve --help`.
 
 ## ctxloom mcp serve
 
-Run as MCP server over stdio
+Serve ctxloom as an MCP server over stdio
 
 ### Synopsis
 
-Run ctxloom as an MCP (Model Context Protocol) server over stdio. This is the default behavior when running 'ctxloom mcp' without subcommands.
+Serve ctxloom as an MCP (Model Context Protocol) server over stdio.
+
+This is the machine surface: the invocation ctxloom writes into every engine's
+own MCP settings, and the only spelling that speaks the protocol.
 
 ```
 ctxloom mcp serve [flags]
@@ -31,5 +34,5 @@ ctxloom mcp serve [flags]
 
 ### SEE ALSO
 
-* [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - Run ctxloom as an MCP server
+* [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List configured MCP servers, or serve ctxloom as one
 

@@ -69,7 +69,7 @@ Run 'ctxloom <command> --help' for details on any command.
 * [ctxloom init](/reference/cli/ctxloom_init/)	 - Initialize a new .ctxloom directory
 * [ctxloom llm](/reference/cli/ctxloom_llm/)	 - Manage LLM backends
 * [ctxloom manage](/reference/cli/ctxloom_manage/)	 - Install and manage ctxloom's project harness
-* [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - Run ctxloom as an MCP server
+* [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - List configured MCP servers, or serve ctxloom as one
 * [ctxloom profile](/reference/cli/ctxloom_profile/)	 - Manage profiles (named fragment collections)
 * [ctxloom remote](/reference/cli/ctxloom_remote/)	 - Manage remotes and discover content
 * [ctxloom review](/reference/cli/ctxloom_review/)	 - Review pending items: accept or reject what the agent may see

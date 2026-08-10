@@ -629,9 +629,22 @@ func execDoctor(t *testing.T, root string, args ...string) (string, error) {
 	buf := &bytes.Buffer{}
 	c := &cobra.Command{Use: "doctor", RunE: doctorCmd.RunE, SilenceErrors: true, SilenceUsage: true}
 	c.Flags().AddFlagSet(doctorCmd.Flags())
-	c.Flags().String("format", formatText, "")
-	c.Flags().Bool("degraded", false, "")
-	c.Flags().Bool("no-companions", false, "")
+	// The root's persistent flags are re-declared here because this stand-in
+	// has no parent to inherit them from — but only when they are not already
+	// present. (*Command).Flags() MERGES a command's inherited flags in the
+	// first time it is called after an Execute, so once anything in this
+	// package has driven `doctor` through the real root, the AddFlagSet above
+	// already carried them and a second declaration panics pflag ("doctor flag
+	// redefined: format"). That is a test-ordering landmine, which is the kind
+	// that lands on whoever adds an unrelated test next.
+	addFlagOnce := func(name string, declare func()) {
+		if c.Flags().Lookup(name) == nil {
+			declare()
+		}
+	}
+	addFlagOnce("format", func() { c.Flags().String("format", formatText, "") })
+	addFlagOnce("degraded", func() { c.Flags().Bool("degraded", false, "") })
+	addFlagOnce("no-companions", func() { c.Flags().Bool("no-companions", false, "") })
 	c.SetOut(buf)
 	c.SetContext(context.Background())
 	c.SetArgs(args)

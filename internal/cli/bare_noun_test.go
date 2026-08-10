@@ -22,10 +22,16 @@ import (
 // Asserting only "no help marker" passes against a command that prints
 // NOTHING, and asserting only "non-empty" passes against help. Both of those
 // failures have shipped in this project before, so both are ruled out here.
+//
+// The walk is the HUMAN half of the ladder throughout — a bare noun is what
+// somebody types while exploring — so it presents a terminal. One noun cares:
+// `ctxloom mcp` refuses a caller that is not a person, because that caller is
+// most likely an engine expecting JSON-RPC (mcpBareMachineRefusal).
 func TestBareNoun_AnswersWithItsDefaultView(t *testing.T) {
 	for _, tc := range wiredBareNouns(t) {
 		t.Run(strings.ReplaceAll(tc.path, " ", "_"), func(t *testing.T) {
 			remoteBareFixture(t)
+			presentTerminal(t, true)
 
 			bare, err := runRoot(t, tc.args...)
 			require.NoError(t, err, "bare `%s` runs", tc.path)
@@ -50,7 +56,7 @@ func TestBareNoun_AnswersWithItsDefaultView(t *testing.T) {
 // stopped happening. Raise this number when wiring a noun; a drop is a
 // regression to explain, not a number to edit.
 func TestGroupNodeDefault_WiredCountHoldsSteady(t *testing.T) {
-	const wiredToday = 13
+	const wiredToday = 14
 
 	assert.Len(t, wiredBareNouns(t), wiredToday,
 		"namespaces answering their bare form; raise when wiring one, investigate a drop")

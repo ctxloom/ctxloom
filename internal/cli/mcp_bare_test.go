@@ -62,7 +62,11 @@ func TestMcpBare_RefusesAMachineAndNamesServe(t *testing.T) {
 	out, err := runRoot(t, "mcp")
 
 	require.Error(t, err, "off a terminal the bare noun must refuse, not answer")
-	assert.Contains(t, err.Error(), "ctxloom mcp serve",
+	// Backtick-delimited, because a bare "ctxloom mcp serve" is a SUBSTRING of
+	// "ctxloom mcp server list" — which this same message also names. Measured:
+	// deleting the invocation from the message left an undelimited assertion
+	// green.
+	assert.Contains(t, err.Error(), "`ctxloom mcp serve`",
 		"the refusal names the invocation that is the stdio server")
 	assert.NotContains(t, out, "Auto-register",
 		"no part of the server listing may reach a caller framing JSON-RPC")

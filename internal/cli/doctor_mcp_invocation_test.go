@@ -131,6 +131,23 @@ func TestDoctorCheckMCPInvocation_NoSurfacesIsNotAProblem(t *testing.T) {
 		"with no project located there is nothing to inspect")
 }
 
+// TestDoctorCheckMCPInvocation_UnreadableSurfaceIsNotHealth: "I could not read
+// it" is not "it is fine". A registry that failed to parse may hold the very
+// entry this check is looking for, so reporting ok beside it would claim an
+// inspection that did not happen — and the user would be told their engines
+// are wired correctly on the strength of a file nobody could open.
+func TestDoctorCheckMCPInvocation_UnreadableSurfaceIsNotHealth(t *testing.T) {
+	root := t.TempDir()
+	writeSurface(t, root, ".mcp.json", `{"mcpServers": {`)
+
+	check := doctorCheckMCPInvocation(root)
+
+	assert.Equal(t, doctorWarn, check.Status)
+	assert.Contains(t, check.Detail, ".mcp.json", "the report names the file it could not read")
+	assert.Contains(t, check.Detail, "unverified",
+		"the report says the invocation was not checked, rather than implying it passed")
+}
+
 // TestDoctorCmd_ReportsTheMCPInvocationCheck pins that the check is actually
 // wired into the report. A check function nothing calls is a check that never
 // runs, and every assertion above would still pass.

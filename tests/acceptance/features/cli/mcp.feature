@@ -181,11 +181,15 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
     # machine side — the harness has no terminal to offer. The human half, the
     # listing itself, is driven in internal/cli's mcp_bare_test.go, where the
     # terminal predicate can be presented either way.
+    # The invocation is asserted BACKTICKED. A bare "ctxloom mcp serve" is a
+    # substring of "ctxloom mcp server list", which this same message also
+    # names, so an undelimited assertion stays green against a message that
+    # stopped naming the server at all — measured, by deleting exactly that.
     Scenario: A client pointed at the bare noun is told which invocation speaks the protocol
       Given an initialized ctxloom project
       When I run "ctxloom mcp"
       Then the command fails
-      And the output contains "ctxloom mcp serve"
+      And the output contains "`ctxloom mcp serve`"
 
     # The shape a script reaches for next. Asking for JSON does not make a
     # listing safe to hand a caller that wanted a protocol stream, so the

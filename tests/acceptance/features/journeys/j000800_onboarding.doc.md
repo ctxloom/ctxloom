@@ -105,15 +105,10 @@ reached claude-code, the claim would be quietly false for anyone whose company
 standardized on a different engine — and a brand-new hire is exactly the
 person least equipped to notice that or work around it. This outline proves
 the team's context lands in each of three engines' own native surface
-(claude-code's `CLAUDE.md`, kiro's steering file, antigravity's `AGENTS.md`),
+(claude-code's `CLAUDE.md`, kiro's steering file, codex's `AGENTS.md`),
 reusing the same per-engine proof [J000400](/journeys/j000400-multi-engine/) already
 built for materialization generally, rather than re-deriving a second copy of
-it here.
-
-It deliberately does not claim a fourth row. codex never receives a
-materialized context on this delivery path at all today — a confirmed gap J000400
-documents on its own — so asserting a codex row here would claim coverage
-that does not exist. And like J000400, this proves only that Bob's engine-native
+it here. Like J000400, this proves only that Bob's engine-native
 file was *written* correctly; it does not prove his engine has read it.
 <!-- /doc:scenario -->
 

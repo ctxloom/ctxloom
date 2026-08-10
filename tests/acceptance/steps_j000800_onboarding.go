@@ -154,9 +154,9 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 	// --- Multi-engine outline: Bob's engine may not be Alice's ------------
 	//
 	// Reuses J000400's engine-axis machinery (engineContextRelPath, steps_j000400.go)
-	// rather than re-deriving a second per-engine path table — the same three
-	// engines J000400's materialization outline proved (claude-code, kiro,
-	// antigravity). New step text throughout: "Bob starts a session" above
+	// rather than re-deriving a second per-engine path table — the same engines
+	// J000400's materialization outline proved (claude-code, kiro, codex). New
+	// step text throughout: "Bob starts a session" above
 	// already has a different meaning (materialize with NO --backend, into
 	// "out"), so reusing it verbatim for a --backend-qualified materialize
 	// would be wrong, not just ambiguous.

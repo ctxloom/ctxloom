@@ -54,14 +54,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | engine      | context_surface                 | context_marker         |
         | kiro        | .kiro/steering/ctxloom-context.md | inclusion: always    |
         | opencode    | .opencode/ctxloom-context.md    | Isolation              |
-        | antigravity | .agents/AGENTS.md               | ctxloom:context:begin  |
         | mock        | MOCK_CONTEXT.md                 | ctxloom:context:begin  |
 
-    # ONE CLAIM, FIVE SHAPES. Every engine ctxloom drives gets the SAME
+    # ONE CLAIM, FOUR SHAPES. Every engine ctxloom drives gets the SAME
     # registration — ctxloom as an MCP server, launched by the ctxloom binary
     # with the `mcp` subcommand — and each writes it into a different file in
     # a different dialect. Two engines fold it into a config file they already
-    # own; three give it a file of its own.
+    # own; two give it a file of its own.
     #
     # The marker is a field from INSIDE the server's body, never the key that
     # names it: a registration with the right key and an empty body gives the
@@ -81,7 +80,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | engine      | mcp_surface              | server_key   | launch_marker |
         | claude-code | .mcp.json                | ctxloom-auto | ${CLAUDE_PROJECT_DIR} |
         | kiro        | .kiro/settings/mcp.json  | mcpServers   | mcp           |
-        | antigravity | .agents/mcp_config.json  | mcpServers   | mcp           |
 
       Examples: folded into a config the engine already owns
         | engine   | mcp_surface        | server_key            | launch_marker |
@@ -104,7 +102,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Examples:
         | engine      | agents_file       | marker                |
         | codex       | AGENTS.md         | ctxloom:context:begin |
-        | antigravity | .agents/AGENTS.md | ctxloom:context:begin |
 
     # kiro registers ctxloom as an AGENT DEFINITION as well as an MCP server —
     # a surface no other engine has.
@@ -149,7 +146,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
       Examples: a SKILL.md package directory
         | engine      | command_surface                  |
         | kiro        | .kiro/skills/discover/SKILL.md   |
-        | antigravity | .agents/skills/discover/SKILL.md |
 
     # NOTHING IS WRITTEN UNTIL THE ARGUMENT IS UNDERSTOOD. The "does not
     # exist" checks are the load-bearing half — a wrong-but-loud message
@@ -220,13 +216,13 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
 
   Rule: A materialized hook reaches every engine in its own native shape
 
-    # ONE hook, FOUR files, FOUR formats — PARSED in its own format and
+    # ONE hook, THREE files, THREE formats — PARSED in its own format and
     # asserted on the actual command field under the right event, never a
-    # bare file-exists or a substring of a key name. Two engines fold hooks
-    # into the same config file that also carries their MCP registration
-    # (codex's config.toml); kiro and antigravity each get a hook surface of
-    # their own. kiro diverts the event name itself — session_start becomes
-    # agentSpawn — because that is kiro's own name for it, not ctxloom's.
+    # bare file-exists or a substring of a key name. codex folds hooks
+    # into the same config file that also carries its MCP registration
+    # (codex's config.toml); kiro gets a hook surface of its own. kiro
+    # diverts the event name itself — session_start becomes agentSpawn —
+    # because that is kiro's own name for it, not ctxloom's.
     Scenario Outline: A team's hook reaches every engine's own hook surface
       Given Carol's team profile carries a shared fragment, command, MCP server, and hook
       When Alice materializes the team profile for <engine>
@@ -237,7 +233,6 @@ Feature: manage — wiring ctxloom into a project, and taking it back out
         | claude-code |
         | codex       |
         | kiro        |
-        | antigravity |
 
   Rule: Hooks install, list, and genuinely uninstall
 

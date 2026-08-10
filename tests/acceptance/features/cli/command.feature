@@ -18,21 +18,21 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
   # lands in (.claude/commands/, $CODEX_HOME/prompts/, a SKILL.md package for
   # the engines with no slash-command idiom of their own) is per-engine
   # knowledge this noun owns by SUBJECT, even though the command that writes
-  # it is `profile materialize` — so the full four-engine matrix is built
+  # it is `profile materialize` — so the full three-engine matrix is built
   # HERE, never sampled down to one engine, which would prove strictly less.
   #
   # cli/manage.feature's own "shipped commands in its own idiom" scenario
   # covers a DIFFERENT claim through the same renderer: that `manage install`
-  # ships ctxloom's own first-party "discover" command, including to a fifth
+  # ships ctxloom's own first-party "discover" command, including to a fourth
   # engine (opencode) this outline does not reach. Built-in content via
   # install, a team's own authored content via materialize — two claims, not
   # one doubled.
 
   Rule: A materialized command lands in each engine's own native surface
 
-    # ONE command, FOUR files, FOUR idioms — PARSED in its own native shape,
+    # ONE command, THREE files, TWO idioms — PARSED in its own native shape,
     # never a bare file-exists. claude and codex each get a flat command
-    # file; kiro and antigravity render the SAME command through
+    # file; kiro renders the SAME command through
     # RenderCommandAsSkillFile into a `<name>/SKILL.md` package — what the
     # caller hands that renderer is always a CommandExport, never a Skill, so
     # this is a command wearing a skill's file convention, not the command
@@ -56,7 +56,6 @@ Feature: command — authoring reusable prompt templates for AI coding assistant
         | claude-code |
         | codex       |
         | kiro        |
-        | antigravity |
 
   Rule: Creating a command writes real content, and it reaches every surface
 

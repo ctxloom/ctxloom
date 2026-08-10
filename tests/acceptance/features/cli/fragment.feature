@@ -14,7 +14,7 @@ Feature: fragment — reusable context units, and the engine surface each one re
   This is the comprehensive per-noun spec: what the noun DOES, leaf by leaf,
   including the engine-surface matrix that only matters to a machine parsing
   a generated file. The narrative version — Carol's team writing one shared
-  profile once and it reaching claude-code, codex, kiro, and antigravity in
+  profile once and it reaching claude-code, codex, and kiro in
   their own native format — is journeys/j000400_multi_engine.feature, which
   asserts what a PERSON sees; MCP, hooks, and commands are that same
   journey's other three surfaces, and live in cli/mcp.feature,
@@ -110,7 +110,7 @@ Feature: fragment — reusable context units, and the engine surface each one re
     # for every engine here) and asserts the actual marker content lands
     # inside it — never a bare file-exists. codex is the interesting row:
     # AGENTS.md is its NATIVE route (managed-section markers, exactly like
-    # claude's CLAUDE.md and antigravity's AGENTS.md), but codex ALSO keeps a
+    # claude's CLAUDE.md), but codex ALSO keeps a
     # second, separate context route — a content-addressed cache file a
     # SessionStart hook reads at run time, carrying a per-invocation content
     # hash the AGENTS.md route cannot provide. That second route is keyed on
@@ -127,7 +127,6 @@ Feature: fragment — reusable context units, and the engine surface each one re
         | engine      |
         | claude-code |
         | kiro        |
-        | antigravity |
         | codex       |
 
   Rule: Materializing a profile never destroys a team's hand-authored context file

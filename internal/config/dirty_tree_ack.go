@@ -5,6 +5,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/admission"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // ===== Dirty-tree-commit human acknowledgement ===============================
@@ -76,12 +77,27 @@ func dirtyTreeAckStore(fs afero.Fs, appPath string) *admission.Store[dirtyTreeAc
 // DirtyTreeCommitAcknowledged reports whether appPath's checkout has a
 // recorded human acknowledgement that ctxloom may auto-commit a dirty tree on
 // its behalf (dirty_tree_handler: "commit") — see
-// paths.DirtyTreeCommitAckPath. An absent record, or one that could not be
-// read, is NOT acknowledged: fail closed, exactly like the config key this
-// replaces defaulting to false.
+// paths.DirtyTreeCommitAckPath. An absent record is NOT acknowledged
+// (fail closed, exactly like the config key this replaces defaulting to
+// false) and stays QUIET — most checkouts never opt in, and warning on every
+// one of them would train a user to ignore this warning.
+//
+// A record that EXISTS but could not be READ is a different fact: it may
+// hold a real acknowledgement (or a real revocation) this call cannot see,
+// so it still denies — but unlike the absent case, this is a genuine fault,
+// and it used to be swallowed here with no diagnostic at all, the only one
+// of this project's admission kinds that neither warned nor escalated
+// (violating the "a refusal is loud" rule). It now warns, naming the file,
+// the underlying error, and how to re-record the decision.
 func DirtyTreeCommitAcknowledged(fs afero.Fs, appPath string) bool {
 	rec, found, err := dirtyTreeAckStore(fs, appPath).Lookup(dirtyTreeAckKey{})
-	if err != nil || !found {
+	if err != nil {
+		clidiag.Warn("ctxloom",
+			"could not read the dirty-tree-commit acknowledgement at %s: %v — refusing to auto-commit on your behalf until it is re-recorded (`ctxloom manage commit trust`)",
+			paths.DirtyTreeCommitAckPath(appPath), err)
+		return false
+	}
+	if !found {
 		return false
 	}
 	return rec.Approved

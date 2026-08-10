@@ -527,7 +527,7 @@ func init() {
 
 	mcpServerCreateCmd.Flags().StringVarP(&mcpAddCommand, "command", "c", "", "Command to run the MCP server (required)")
 	mcpServerCreateCmd.Flags().StringSliceVarP(&mcpAddArgs, "args", "a", nil, "Arguments for the command (can be repeated)")
-	mcpServerCreateCmd.Flags().StringVarP(&mcpAddBackend, "backend", "b", "", "Backend to add server for (claude-code, antigravity, or unified)")
+	mcpServerCreateCmd.Flags().StringVarP(&mcpAddBackend, "backend", "b", "", "Backend to add server for (claude-code, codex, or unified)")
 	_ = mcpServerCreateCmd.MarkFlagRequired("command")
 
 	mcpServerRemoveCmd.Flags().StringVarP(&mcpRemoveBackend, "backend", "b", "", "Backend to remove the server from")

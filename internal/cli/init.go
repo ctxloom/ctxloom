@@ -31,7 +31,7 @@ inheriting the ctxloom-default baseline) and wires the trusted ctxloom-default
 remote so its code-review lens profiles are available.
 
 When run interactively (TTY detected), init will guide you through:
-  1. Selecting an AI engine (claude-code, antigravity, etc.)
+  1. Selecting an AI engine (claude-code, codex, etc.)
   2. Optionally adding a personal ctxloom repository as a remote
   3. Launching your AI for one setup interview: discover and configure
      profiles, then bind agents to them (a coordinator you drive, a
@@ -48,7 +48,7 @@ agent to run it) re-enters the companions/profiles/agent-binding half any time.
 Examples:
   ctxloom init                     # Interactive setup (if TTY)
   ctxloom init --home              # Initialize in ~/.ctxloom
-  ctxloom init --engine antigravity # Pre-select engine
+  ctxloom init --engine codex       # Pre-select engine
   ctxloom init --non-interactive   # Skip all prompts`,
 	// init is configured entirely by flags and reads no positional argument,
 	// so anything positional is a mistyped subcommand. Without this it was the
@@ -100,7 +100,7 @@ func init() {
 	initCmd.Flags().BoolVar(&initHome, "home", false, "Initialize in user home directory instead of current directory")
 	initCmd.Flags().BoolVar(&initNonInteractive, "non-interactive", false, "Skip interactive prompts (use defaults and flags)")
 	initCmd.Flags().BoolVar(&initSkipLaunch, "skip-launch", false, "Skip auto-launching the AI after init")
-	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, antigravity, etc.)")
+	initCmd.Flags().StringVar(&initEngine, "engine", "", "Pre-select AI engine (claude-code, codex, etc.)")
 	initCmd.Flags().StringArrayVar(&initRemotes, "remote", nil, "Personal ctxloom repo to add as a trusted remote — its bundle changes apply without review (owner/repo or URL); repeatable")
 	initCmd.Flags().StringVar(&initForge, "forge", "", "Bind every --remote to this forge (github, git, or a configured forges: label) instead of resolving by URL host")
 	initCmd.AddCommand(initPromptCmd)

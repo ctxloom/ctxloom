@@ -16,7 +16,7 @@ import (
 )
 
 // primaryEngines are shown first in the selection menu (curated list).
-var primaryEngines = []string{"claude-code", "antigravity"}
+var primaryEngines = []string{"claude-code", "codex"}
 
 // getAvailableEngines returns engines filtered by what's actually installed.
 // Primary engines come first, then secondary engines, all sorted.
@@ -196,7 +196,6 @@ func warnNoEnginesDetected() {
 	clidiag.Warn("ctxloom", "no AI engines detected")
 	fmt.Fprintln(os.Stderr, "Install one of the following to use ctxloom:")
 	fmt.Fprintln(os.Stderr, "  claude-code:  npm install -g @anthropic-ai/claude-code")
-	fmt.Fprintln(os.Stderr, "  antigravity:  curl -fsSL https://antigravity.google/cli/install.sh | bash")
 	fmt.Fprintln(os.Stderr, "  codex:        npm install -g @openai/codex")
 	fmt.Fprintln(os.Stderr, "")
 }

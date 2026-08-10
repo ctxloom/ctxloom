@@ -160,15 +160,18 @@ func evaluate(engineName, cfgPath string, forceShell ir.Shell, stdin io.Reader) 
 // denyUnknownEngine fails closed for an --engine name no adapter answers to.
 //
 // An unknown --engine in the installed hook (a manual edit or a cross-version
-// rename) would otherwise exit 1, which both hosts treat as a silent allow, and
+// rename) would otherwise exit 1, which the host treats as a silent allow, and
 // there is no adapter for the NAMED engine to deny with. Guessing claude-code
-// unconditionally was itself a bug: on an Antigravity host the deny
-// then rides claude-code's wire format, which agy does not recognize, so the
-// "fail closed" deny is invisible and the action proceeds anyway — the exact
-// failure mode this branch exists to prevent. Try every registered engine's own
-// Decode against the payload actually received; the first one that decodes
-// something meaningful (a tool name, command, or file path) is presumably the
-// real host, so fail closed in ITS wire format instead of guessing.
+// unconditionally was itself a bug: on a SECOND host (antigravity, before it
+// was removed in 0.7.0, was the case that surfaced it) the deny
+// then rode claude-code's wire format, which that host did not recognize, so
+// the "fail closed" deny was invisible and the action proceeded anyway — the
+// exact failure mode this branch exists to prevent. Try every registered
+// engine's own Decode against the payload actually received; the first one
+// that decodes something meaningful (a tool name, command, or file path) is
+// presumably the real host, so fail closed in ITS wire format instead of
+// guessing. Only one engine is registered today, but the loop stays general
+// for whichever second host arrives next.
 //
 // lookupErr is returned unchanged in the one case with nothing to deny with.
 func denyUnknownEngine(engineName string, lookupErr error, stdin io.Reader) (engine.Output, error) {
@@ -229,12 +232,13 @@ func detectEngineFromPayload(input []byte) engine.Engine {
 
 // ungatedToolDenyReason explains a deny for a payload whose tool name the
 // adapter does not recognise. ltk's tool matcher is a hand-maintained list
-// over a VENDOR-OWNED, mutating tool set (claudeGatedTools /
-// antigravityGatedTools): when the vendor ships or renames a shell/file tool,
-// the installed PreToolUse matcher can end up firing on it while Decode's
-// exact-name list does not recognise it — confirmed as agy's actual behavior
-// (its matcher is a real, unanchored regex: a tool like "safe_run_command"
-// matches the "run_command" alternative). Claude Code evaluates a matcher
+// over a VENDOR-OWNED, mutating tool set (claudeGatedTools today; a future
+// second host would add its own): when the vendor ships or renames a
+// shell/file tool, the installed PreToolUse matcher can end up firing on it
+// while Decode's exact-name list does not recognise it — confirmed live on
+// antigravity before it was removed in 0.7.0 (its matcher was a real,
+// unanchored regex: a tool like "safe_run_command" matched the
+// "run_command" alternative). Claude Code evaluates a matcher
 // built purely of plain identifiers and "|" (exactly what claudeMatcher is
 // today) as an EXACT list instead — see claudecode.go's claudeMatcher comment
 // — so this specific collision needs the matcher to contain a genuine regex
@@ -256,7 +260,7 @@ func detectEngineFromPayload(input []byte) engine.Engine {
 // installed matcher (Read, Grep, WebSearch, ...) never invokes evaluate in the
 // first place, so this exception has no effect on those — see
 // TestEvaluateDeniesUnrecognizedToolName's "recognised tool stays silent" case
-// and the claude-code/antigravity Decode tests for the matcher-miss path.
+// and the claude-code Decode tests for the matcher-miss path.
 func ungatedToolDenyReason(adapter engine.Adapter, req engine.Request) string {
 	return fmt.Sprintf(
 		"%s could not read %s tool %q's payload — it matched the installed hook but is not in "+
@@ -267,9 +271,10 @@ func ungatedToolDenyReason(adapter engine.Adapter, req engine.Request) string {
 }
 
 // failClosed renders reason as a well-formed deny decision in the engine's wire
-// format, exit 0. It exists because both hook hosts fail OPEN when a hook exits
-// non-zero — Claude Code treats exit 1 as non-blocking, and agy proceeds on any
-// crashing hook (see engine.Antigravity) — so a broken ltk installation must
+// format, exit 0. It exists because a hook host fails OPEN when a hook exits
+// non-zero — Claude Code treats exit 1 as non-blocking (antigravity, before
+// its removal in 0.7.0, proceeded on any crashing hook the same way) — so a
+// broken ltk installation must
 // never surface as an error exit on the hook path: that would silently disable
 // every rule. Explicit user-facing commands (manage, --print) keep their
 // fail-loud exit-1 behavior; only `evaluate` fails closed.

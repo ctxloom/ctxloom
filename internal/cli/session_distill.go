@@ -201,7 +201,7 @@ func compactEntry(ctx context.Context, entry *sessions.Entry, cfg *config.Config
 // degrades to the legacy-only reader rather than failing the caller
 // outright.
 //
-// A retired-scraper backend (codex/kiro/antigravity/claude-code — their
+// A retired-scraper backend (codex/kiro/claude-code — their
 // scrapers were deleted, not demoted) never gets a legacy
 // leg at all: there is no plugin-side History() left to ask, so this never
 // even spawns the plugin for that purpose. Every other backend (opencode's

@@ -21,7 +21,7 @@ import (
 // engine's backend type lands in the registry, and the output must be valid
 // YAML ending in a newline.
 func TestGenerateConfig(t *testing.T) {
-	for _, engine := range []string{"claude-code", "antigravity", "codex"} {
+	for _, engine := range []string{"claude-code", "codex"} {
 		t.Run(engine, func(t *testing.T) {
 			data, err := operations.BuildInitialConfig(engine, "")
 			require.NoError(t, err)

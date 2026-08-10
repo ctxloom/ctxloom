@@ -70,7 +70,6 @@ var doctorEngineBinaries = map[string]string{
 	"claude-code": "claude",
 	"codex":       "codex",
 	"kiro":        "kiro-cli",
-	"antigravity": "agy",
 	"opencode":    "opencode",
 }
 
@@ -82,8 +81,7 @@ var doctorEngineBinaries = map[string]string{
 // agent.ACPAdapter" instead of consulting a second, hand-maintained table
 // that could drift from what claude/codex's Chat() gates themselves check.
 // kiro/opencode declare agent.ACPNative (they speak ACP natively — no
-// separate adapter to probe) and antigravity declares agent.ACPBespoke (no
-// ACP at all) — both are correctly skipped by that Kind check, the same
+// separate adapter to probe) — correctly skipped by that Kind check, the same
 // outcome the old map's absence produced, but derived from the SAME source
 // of truth as the Chat() gate instead of a second copy of it.
 
@@ -549,7 +547,7 @@ func gitIdentityGapDetail(nameSet, emailSet bool) string {
 //
 // For every CONFIGURED engine whose declared agent.ACPTransport.Kind is
 // agent.ACPAdapter (backends.ACPTransportFor; kiro/opencode declare
-// ACPNative and antigravity ACPBespoke — none of the three need a probe),
+// ACPNative — neither needs a probe),
 // this checks the adapter resolves on PATH — reusing the SAME
 // configured-engine enumeration doctorCheckDeps uses for the client binary
 // (doctorConfiguredEngines), never re-deriving "which engines are
@@ -593,7 +591,7 @@ func acpAdapterDetail(configuredEngines []string) (ok bool, detail string) {
 		}
 	}
 	if len(applicable) == 0 {
-		return true, "no configured engine needs a separate ACP adapter (kiro/opencode speak ACP natively, antigravity has no adapter subprocess at all; claude-code/codex — the only engines that DO need one — are not configured)"
+		return true, "no configured engine needs a separate ACP adapter (kiro/opencode speak ACP natively; claude-code/codex — the only engines that DO need one — are not configured)"
 	}
 	if len(gaps) == 0 {
 		return true, fmt.Sprintf("ACP adapter present for every configured engine that needs one (%s)", strings.Join(applicable, ", "))

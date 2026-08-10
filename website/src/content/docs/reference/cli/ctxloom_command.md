@@ -24,6 +24,7 @@ Examples:
   ctxloom command show core#commands/code-review        # Show command content
   ctxloom command edit core#commands/code-review        # Edit command content
   ctxloom command create my-bundle code-review          # Create new command
+  ctxloom command remove my-bundle#commands/old-one --yes # Remove a command
 
 ```
 ctxloom command [flags]
@@ -43,9 +44,9 @@ ctxloom command [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom command create](/reference/cli/ctxloom_command_create/)	 - Create a new command
-* [ctxloom command delete](/reference/cli/ctxloom_command_delete/)	 - Delete a command
 * [ctxloom command distill](/reference/cli/ctxloom_command_distill/)	 - Distill a command
 * [ctxloom command edit](/reference/cli/ctxloom_command_edit/)	 - Edit a command
 * [ctxloom command list](/reference/cli/ctxloom_command_list/)	 - List all commands
+* [ctxloom command remove](/reference/cli/ctxloom_command_remove/)	 - Remove a command
 * [ctxloom command show](/reference/cli/ctxloom_command_show/)	 - Show command content
 

@@ -36,12 +36,12 @@ ctxloom profile [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom profile create](/reference/cli/ctxloom_profile_create/)	 - Create a new profile
-* [ctxloom profile delete](/reference/cli/ctxloom_profile_delete/)	 - Delete a profile
 * [ctxloom profile edit](/reference/cli/ctxloom_profile_edit/)	 - Edit a profile
 * [ctxloom profile export](/reference/cli/ctxloom_profile_export/)	 - Export a profile to a directory
 * [ctxloom profile import](/reference/cli/ctxloom_profile_import/)	 - Import a profile from a local file
 * [ctxloom profile list](/reference/cli/ctxloom_profile_list/)	 - List all profiles
 * [ctxloom profile materialize](/reference/cli/ctxloom_profile_materialize/)	 - Write a profile's assembled context to a dir as a launchable agent surface
 * [ctxloom profile modify](/reference/cli/ctxloom_profile_modify/)	 - Modify a profile's configuration
+* [ctxloom profile remove](/reference/cli/ctxloom_profile_remove/)	 - Remove a profile
 * [ctxloom profile show](/reference/cli/ctxloom_profile_show/)	 - Show details of a profile
 

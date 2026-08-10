@@ -44,7 +44,6 @@ ctxloom bundle [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom bundle create](/reference/cli/ctxloom_bundle_create/)	 - Create a new bundle
-* [ctxloom bundle delete](/reference/cli/ctxloom_bundle_delete/)	 - Delete a bundle
 * [ctxloom bundle distill](/reference/cli/ctxloom_bundle_distill/)	 - Distill bundle files to create token-efficient versions
 * [ctxloom bundle edit](/reference/cli/ctxloom_bundle_edit/)	 - Edit a bundle
 * [ctxloom bundle export](/reference/cli/ctxloom_bundle_export/)	 - Export a bundle to a file or directory
@@ -53,6 +52,7 @@ ctxloom bundle [flags]
 * [ctxloom bundle list](/reference/cli/ctxloom_bundle_list/)	 - List installed bundles
 * [ctxloom bundle move](/reference/cli/ctxloom_bundle_move/)	 - Move an authored bundle to a remote or another project, carrying its signature
 * [ctxloom bundle push](/reference/cli/ctxloom_bundle_push/)	 - Publish a bundle to a remote repository
+* [ctxloom bundle remove](/reference/cli/ctxloom_bundle_remove/)	 - Remove a bundle
 * [ctxloom bundle show](/reference/cli/ctxloom_bundle_show/)	 - Show bundle contents
 * [ctxloom bundle sign](/reference/cli/ctxloom_bundle_sign/)	 - Sign a local bundle for publication
 * [ctxloom bundle unhold](/reference/cli/ctxloom_bundle_unhold/)	 - Release a hold so `upgrade` can advance the item again

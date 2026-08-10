@@ -41,8 +41,8 @@ ctxloom agent [flags]
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom agent create](/reference/cli/ctxloom_agent_create/)	 - Create a local agent (engine↔profile binding)
 * [ctxloom agent default](/reference/cli/ctxloom_agent_default/)	 - Show or set the always-bound default agent
-* [ctxloom agent delete](/reference/cli/ctxloom_agent_delete/)	 - Delete a local agent from config.yaml
 * [ctxloom agent edit](/reference/cli/ctxloom_agent_edit/)	 - Edit an existing local agent (engine↔profile binding)
 * [ctxloom agent list](/reference/cli/ctxloom_agent_list/)	 - List all local agents
+* [ctxloom agent remove](/reference/cli/ctxloom_agent_remove/)	 - Remove a local agent from config.yaml
 * [ctxloom agent show](/reference/cli/ctxloom_agent_show/)	 - Show an agent and its resolved engine
 

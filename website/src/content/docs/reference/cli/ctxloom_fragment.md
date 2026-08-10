@@ -24,6 +24,7 @@ Examples:
   ctxloom fragment show core#fragments/tdd           # Show fragment content
   ctxloom fragment edit core#fragments/tdd           # Edit fragment content
   ctxloom fragment create my-bundle coding-standards # Create new fragment
+  ctxloom fragment remove my-bundle#fragments/old-one --yes # Remove a fragment
 
 ```
 ctxloom fragment [flags]
@@ -43,9 +44,9 @@ ctxloom fragment [flags]
 
 * [ctxloom](/reference/cli/ctxloom/)	 - Sophisticated Context Management
 * [ctxloom fragment create](/reference/cli/ctxloom_fragment_create/)	 - Create a new fragment
-* [ctxloom fragment delete](/reference/cli/ctxloom_fragment_delete/)	 - Delete a fragment
 * [ctxloom fragment distill](/reference/cli/ctxloom_fragment_distill/)	 - Distill a fragment
 * [ctxloom fragment edit](/reference/cli/ctxloom_fragment_edit/)	 - Edit a fragment
 * [ctxloom fragment list](/reference/cli/ctxloom_fragment_list/)	 - List all fragments
+* [ctxloom fragment remove](/reference/cli/ctxloom_fragment_remove/)	 - Remove a fragment
 * [ctxloom fragment show](/reference/cli/ctxloom_fragment_show/)	 - Show fragment content
 

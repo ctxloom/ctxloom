@@ -29,8 +29,8 @@ ctxloom mcp server [flags]
 
 * [ctxloom mcp](/reference/cli/ctxloom_mcp/)	 - Run ctxloom as an MCP server
 * [ctxloom mcp server create](/reference/cli/ctxloom_mcp_server_create/)	 - Create an MCP server configuration
-* [ctxloom mcp server delete](/reference/cli/ctxloom_mcp_server_delete/)	 - Delete an MCP server configuration
 * [ctxloom mcp server edit](/reference/cli/ctxloom_mcp_server_edit/)	 - Edit an MCP server configuration in $EDITOR
 * [ctxloom mcp server list](/reference/cli/ctxloom_mcp_server_list/)	 - List configured MCP servers
+* [ctxloom mcp server remove](/reference/cli/ctxloom_mcp_server_remove/)	 - Remove an MCP server configuration
 * [ctxloom mcp server show](/reference/cli/ctxloom_mcp_server_show/)	 - Show details of an MCP server configuration
 

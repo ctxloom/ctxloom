@@ -429,30 +429,54 @@ bytes** with the reviewer's own SSH key:
   look.
 - `init`'s interview ends with a review session when anything is pending.
 
-`ctxloom bundle trust <ref>` and `ctxloom bundle reject <ref>` are the
-scriptable plumbing beneath the porcelain — they write the same
-countersignatures through the same mutation path, so the porcelain and the
-plumbing produce identical on-disk results.
+`ctxloom bundle trust <ref>`, `ctxloom bundle reject <ref>` and `ctxloom bundle
+forget <ref>` are the scriptable plumbing beneath the porcelain — they go
+through the same mutation path, so the porcelain and the plumbing produce
+identical on-disk results.
 
-**The store holds three states and the CLI has two verbs, which is the gap.**
-Approved, rejected and undecided each need a way in, and today there is no way
-back to undecided:
+**The store holds three states, so the CLI carries three verbs — one per
+state.** Approved, rejected and undecided each have a way in, and `forget` is
+the way back to undecided:
 
 | verb | writes | effect | today |
 |---|---|---|---|
 | `bundle trust <ref>` | an approval | the item is delivered | **exists** |
 | `bundle reject <ref>` | a rejection | withheld everywhere; **overrides a trusted publisher and overrides local content** | **exists** |
-| `bundle forget <ref>` | nothing — it CLEARS | removes an approval **and** a rejection, returning the item to pending | **decided, not built** |
+| `bundle forget <ref>` | nothing — it CLEARS | removes an approval **and** a rejection, returning the item to pending | **exists** |
 
 The second verb is named for what it writes. It used to be spelled `untrust`,
 which reads as the inverse of `trust` and is not one: it writes a rejection,
 which is a stronger and stickier statement than withdrawing an approval, so
 someone who reached for it to undo a `trust` did something they did not mean.
-`forget` is the actual inverse of both — clearing whichever decision is
-recorded and leaving the item as if it had never been reviewed.
+`forget` is the actual inverse of both — it clears whichever decision is
+recorded, **approval or rejection**, and leaves the item as if it had never
+been reviewed. A decision made in error is withdrawn, not overwritten with its
+opposite.
 
-Until `forget` exists, a decision made in error can only be replaced by the
-opposite decision, never withdrawn.
+Clearing a **rejection** is the case the verb exists for. An approval
+invalidates itself the moment the bytes move; a ref-level rejection is sticky
+by design and survives every content change, so nothing else on this surface
+can lift one.
+
+Three properties make `forget` honest about what it did:
+
+- It **writes nothing**, so it resolves no signing key and asks for no
+  namespace grant. Removing your own record asserts nothing anyone else must
+  honour — and requiring a key would make the **unsigned** decisions, recorded
+  by definition by the users who have none, the only ones that could never be
+  withdrawn.
+- It clears **both components** of a rejection: the sticky ref block and the
+  ref-omitted content block, in every attestation form the item's kind can be
+  signed under — exactly the set the gate searches. A half-cleared rejection
+  still rejects the same bytes under every other name.
+- It clears **one store**: the personal one, or the committable project store
+  under `--project`. A decision the other store holds still stands, so the
+  command names it rather than reporting an item back to pending while it stays
+  withheld.
+
+A record that cannot be removed is an **error**, never a shortfall in a count,
+for the same reason: the failure this verb is built against is a success
+message over an item that is still withheld.
 
 **The namespace check runs on the WRITE side too, and refuses.** Recording a
 decision resolves the countersigning key and then asks the *same* trust root

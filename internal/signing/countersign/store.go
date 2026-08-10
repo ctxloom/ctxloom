@@ -658,7 +658,19 @@ func (s *Store) AppendIndex(e IndexEntry) error {
 	if err != nil {
 		return fmt.Errorf("refusing to rewrite the countersignature index: %w", err)
 	}
-	data, err := yaml.Marshal(append(existing, e))
+	return s.writeIndex(append(existing, e))
+}
+
+// writeIndex replaces the sidecar index with entries, atomically: the whole
+// file is marshalled, written to a temp path, and renamed into place, so a
+// crash mid-write cannot leave behind the truncated file that makes readIndex
+// (and therefore every later append) refuse.
+//
+// It is the ONE writer of this file, shared by the append and the forget path,
+// because "rewrite the whole index safely" is a single property and two
+// copies of it are two chances to lose an approval history.
+func (s *Store) writeIndex(entries []IndexEntry) error {
+	data, err := yaml.Marshal(entries)
 	if err != nil {
 		return err
 	}

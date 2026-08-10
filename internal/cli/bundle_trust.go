@@ -171,6 +171,90 @@ func runItemReject(cmd *cobra.Command, cfg *config.Config, ref string) error {
 	})
 }
 
+// bundleForgetProject targets the committable project store.
+var bundleForgetProject bool
+
+// bundleForgetLong documents `ctxloom bundle forget`.
+const bundleForgetLong = `Clear whichever decision is recorded for an item, returning it to pending.
+
+This is the inverse of BOTH other verbs: it removes an approval, and it removes
+a rejection — the ref-level block and the content block together — leaving the
+item exactly as it was before anyone reviewed it. It is what you want when a
+decision was made in error, because rejecting an item you had approved does not
+withdraw the approval, it records something stronger.
+
+It writes nothing, so it needs no signing key and no namespace grant. Removing
+your own record asserts nothing anyone else has to honour.
+
+It clears ONE store: your personal one by default, the committable project
+store with --project. A decision the other store holds still stands, and the
+command says so rather than reporting an item back to pending while it stays
+withheld.
+
+Reference format matches 'ctxloom bundle trust' (see its help).
+
+Examples:
+  ctxloom bundle forget tooling#fragments/curl-pipe-sh
+  ctxloom bundle forget --project 'https://github.com/acme/repo@bundles/tooling#mcp/postgres'`
+
+// runBundleForgetCmd is bundleForgetCmd's RunE.
+func runBundleForgetCmd(cmd *cobra.Command, args []string) error {
+	cfg, err := GetConfig()
+	if err != nil {
+		return err
+	}
+	return runItemForget(cmd, cfg, args[0])
+}
+
+// bundleForgetCmd returns an item to pending by clearing its decision.
+var bundleForgetCmd = &cobra.Command{
+	Use:   "forget <ref>",
+	Short: "Clear an item's recorded decision (approval or rejection), back to pending",
+	Long:  bundleForgetLong,
+	Args:  cobra.ExactArgs(1),
+	RunE:  runBundleForgetCmd,
+}
+
+// runItemForget clears the recorded decision and reports what actually went.
+//
+// The two outcomes are rendered DIFFERENTLY on purpose. "Forgot <ref>" over an
+// item that had no decision recorded would confirm a mistyped ref as a
+// success; and an item still decided by the other store is still withheld, so
+// saying only "cleared" would be the silent no-op wearing a success message.
+func runItemForget(cmd *cobra.Command, cfg *config.Config, ref string) error {
+	res, err := operations.ForgetItemDecision(cfg, operations.ForgetItemDecisionRequest{Ref: ref, Project: bundleForgetProject})
+	if err != nil {
+		return err
+	}
+	if res.StillDecided != "" {
+		clidiag.Warn("ctxloom",
+			"%q is still %s by a record in the other approvals store, so it stays withheld; "+
+				"clear that one too (add or drop --project)", ref, res.StillDecided)
+	}
+	// A cleared approval un-exposes an executable surface and a cleared
+	// rejection re-exposes one, so the managed artifacts are refreshed here for
+	// the same reason the other two verbs refresh them.
+	refreshManagedArtifacts(cmd.Context(), cfg)
+	return emit(cmd, res, func() error {
+		out := cmd.OutOrStdout()
+		if res.Records == 0 {
+			fmt.Fprintf(out, "No decision was recorded for %s — nothing to clear.\n", res.Ref)
+			return nil
+		}
+		fmt.Fprintf(out, "Forgot %s\n", res.Ref)
+		fmt.Fprintf(out, "  repo:    %s\n", res.RepoURL)
+		fmt.Fprintf(out, "  store:   %s\n", res.Store)
+		fmt.Fprintf(out, "  cleared: %s (%d record(s)) — the item is pending review again\n",
+			strings.Join(res.Cleared, " and "), res.Records)
+		if len(res.ContentForms) > 0 {
+			fmt.Fprintf(out, "  content: cleared in form(s) %s\n", strings.Join(res.ContentForms, ", "))
+		} else if !res.ContentResolved {
+			fmt.Fprintln(out, "  content: could not be resolved, so only the ref-level record was cleared")
+		}
+		return nil
+	})
+}
+
 // refreshManagedArtifacts re-applies the managed harness after a trust mutation so
 // the gate's new decision is reflected on disk immediately: a now-withheld bundle
 // MCP server / hook is scrubbed from backend settings (and the regenerated
@@ -222,4 +306,7 @@ func init() {
 	// Per-item decisions belong to the noun that owns the items.
 	bundleCmd.AddCommand(bundleTrustCmd)
 	bundleCmd.AddCommand(bundleRejectCmd)
+	bundleForgetCmd.Flags().BoolVar(&bundleForgetProject, "project", false,
+		"Clear the decision from the committable project store (.ctxloom/approvals) instead of your personal one")
+	bundleCmd.AddCommand(bundleForgetCmd)
 }

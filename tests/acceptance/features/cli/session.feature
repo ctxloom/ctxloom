@@ -242,6 +242,18 @@ Feature: session — the record of what your assistant did, and the tools to pru
       And a finished session "amber-swift-owl" with a transcript and an essence
       When I run "ctxloom session worktrees"
       Then the command succeeds
+      When I run "ctxloom session worktrees list"
+      Then the command succeeds
+      When I run "ctxloom session worktrees list amber-swift-owl"
+      Then the command succeeds
+
+    Scenario: Purging worktrees reports before it removes
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence
+      When I run "ctxloom session worktrees purge amber-swift-owl"
+      Then the command succeeds
+      And the output contains "removed nothing"
+      And the output contains "ctxloom session worktrees purge amber-swift-owl --yes"
 
     Scenario: The retired reap switch is gone, not hidden
       Given an initialized ctxloom project

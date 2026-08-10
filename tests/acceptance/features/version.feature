@@ -1,16 +1,10 @@
-Feature: Version and completion
-  Smoke coverage for the always-scriptable utility commands.
+Feature: Shell completion
+  Smoke coverage for the always-scriptable utility command that has no noun of
+  its own.
 
-  # The version this binary was stamped with is not knowable to the suite (the
-  # CLI is stamped by ldflags at build time, the test process is not), so the
-  # assertion is the strongest one that IS available: the printed string is
-  # version-shaped, and `ctxloom version`, `ctxloom --format json version` and
-  # `ctxloom --version` all report the SAME string. This replaces `the output
-  # matches "."` — one arbitrary character, which the literal
-  # "MUTATION-not-the-version" satisfies exactly as well as the truth does.
-  Scenario: Print the version
-    Given an initialized ctxloom project
-    Then every version surface reports the same version-shaped string
+  The version surface that used to share this file moved to
+  cli/version.feature, where all three of its spellings are cross-checked
+  against each other.
 
   Scenario: Generate a shell completion script
     Given an initialized ctxloom project

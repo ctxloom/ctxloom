@@ -1,78 +1,24 @@
-Feature: Agent-image tooling, the setup prompt, and per-binding ACP entries
-  What is left of the old catch-all `agent` feature once the agent NOUN moved
-  to its own comprehensive spec (cli/agent.feature): the surfaces that are
-  ABOUT agents without being leaves of the `agent` noun. `init prompt` emits
-  the setup interview prompt; `container tooling` collects trusted bundles'
-  agent-image tool declarations; `container scaffold` makes the base
-  Containerfile editable; `container check` is a read-only capability
-  diagnosis; `acp list` advertises one ACP server entry per binding.
+Feature: Per-binding ACP entries
+  What is left of the old catch-all `agent` feature once its subjects moved to
+  per-noun specs of their own. The agent binding lifecycle — list, show,
+  create, edit, default, remove — is cli/agent.feature. `container tooling`,
+  `container scaffold` and `container check` are cli/container.feature.
+  `init prompt` is cli/init.feature.
+
+  What lives only here is the PER-BINDING entry: that a configured agent gets
+  its own ACP server line carrying `--agent <name>`, which nothing else
+  asserts.
 
   The agent binding lifecycle itself — list/show/create/edit/default/remove,
   the non-upsert guards and the per-field merge — lives in cli/agent.feature
   and is deliberately NOT restated here.
 
-  Scenario: Init prompt emits the interview prompt
-    Given an initialized ctxloom project
-    When I run "ctxloom init prompt"
-    Then the command succeeds
-    And the output contains "SCAN"
-
-  # Absence satisfied absence: with nothing declared anywhere, "none reported"
-  # was equally consistent with the trust gate working and with collection
-  # being broken outright — a render that dropped EVERY declaration, trusted or
-  # not, left this green. So the fixture declares tooling twice: once from a
-  # bundle whose declaration has been rejected (must be withheld, and the
-  # summary line is then a fact about the GATE), and once from a bundle that is
-  # trusted (must come through — the positive control that makes "none
-  # reported" mean something).
-  #
-  # DECIDED 2026-08-08 (taskloom vivacious-overlook), NOT YET IMPLEMENTED:
-  # `container tooling` will gain a section naming what was withheld BY BUNDLE
-  # AND ITEM REF ("shady#commands/tooling") — never the publisher-authored
-  # declaration body. A ref is a ctxloom-controlled identifier; the body is
-  # attacker-controlled text, and rendering it to an operator's terminal is a
-  # confirmed hazard (taskloom delicious-goatskin: publisher content reaches
-  # the terminal with no sanitiser, measured).
-  #
-  # So the "does not contain TOOLING-DECL-SHADY" assertion below becomes MORE
-  # load-bearing when that lands, not less: it is what pins that adding the ref
-  # section did not start leaking the body.
-  Scenario: Container tooling withholds an untrusted declaration and reports none
-    Given an initialized ctxloom project
-    And a bundle "shady" declaring container tooling "TOOLING-DECL-SHADY"
-    And I run "ctxloom bundle reject shady#commands/tooling"
-    When I run "ctxloom container tooling"
-    Then the command succeeds
-    And the output contains "No trusted bundles declare container tooling"
-    And the output contains "Untrusted declarations are withheld"
-    And the output does not contain "TOOLING-DECL-SHADY"
-    Given a bundle "tooled" declaring container tooling "TOOLING-DECL-TOOLED"
-    When I run "ctxloom container tooling list"
-    Then the command succeeds
-    And the output contains "TOOLING-DECL-TOOLED"
-    And the output does not contain "TOOLING-DECL-SHADY"
-    And the output does not contain "No trusted bundles declare container tooling"
-
-  Scenario: Scaffold materializes the editable base Containerfile
-    Given an initialized ctxloom project
-    When I run "ctxloom container scaffold"
-    Then the command succeeds
-    And the file ".ctxloom/base.Containerfile" contains "FROM"
-    And the file ".ctxloom/config.yaml" contains "isolation_base_containerfile"
-
-  # DIAGNOSTIC-ONLY is a claim about what the command does NOT do, and no
-  # assertion on its own stdout can see it writing a file somewhere else: the
-  # static "Container capability" header was printed either way. The read-only
-  # half is asserted where it actually lives — the project tree, byte for byte.
-  Scenario: Container capability check is diagnostic-only
-    Given an initialized ctxloom project
-    And I record the project tree
-    When I run "ctxloom container check claude-code"
-    Then the command succeeds
-    And the output contains "Container capability (backend: claude-code)"
-    And the output contains "in a container:"
-    And the output contains "shared fs:"
-    And the project tree is unchanged
+  # The `container tooling`, `container scaffold` and `container check`
+  # scenarios that used to live here MOVED to cli/container.feature, the
+  # per-noun spec for that surface. Nothing was dropped: the withheld/trusted
+  # tooling pair, the scaffold, and the diagnostic-only project-tree assertion
+  # are all there, alongside the adoption/--force pair and the path-escape
+  # refusal this file never covered.
 
   # RESTORED 2026-08-08 after being deleted in an uncommitted working-tree
   # change. Worth stating why, because the deletion was invisible to every

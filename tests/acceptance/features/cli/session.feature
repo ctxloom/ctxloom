@@ -193,6 +193,12 @@ Feature: session — the record of what your assistant did, and the tools to pru
     Scenario: Purging artifacts reports before it removes
       Given an initialized ctxloom project
       And a finished session "amber-swift-owl" with a transcript and an essence
+      # The explicit listing spelling, driven so the leaf is credited by
+      # EXECUTION: the bare form delegates to it, and a leaf reached only by
+      # delegation reads as uncovered.
+      When I run "ctxloom session artifacts list"
+      Then the command succeeds
+      And the output contains "amber-swift-owl"
       When I run "ctxloom session artifacts purge amber-swift-owl"
       Then the command succeeds
       And the output contains "removed nothing"

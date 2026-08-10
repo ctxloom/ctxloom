@@ -900,7 +900,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 	})
 
 	ctx.Step(`^Trent's key is also trusted in his personal user store as "([^"]*)"$`, func(c context.Context, principal string) error {
-		return runOK(worldFrom(c), "signer", "trust", principal, "--key", j001600PubKeyFile, "--yes")
+		return runOK(worldFrom(c), "signer", "trust", principal, "--key", j001600PubKeyFile, "--user", "--yes")
 	})
 
 	// A review decision recorded by someone holding a signing key is SIGNED

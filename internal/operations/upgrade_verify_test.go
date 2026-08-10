@@ -50,7 +50,7 @@ func signedBundleRepo(t *testing.T, body string) (baseDir, src, ref string, sign
 
 // THE DECIDED BEHAVIOUR (taskloom unearned-cornea): a publisher edits a signed
 // bundle and pushes without re-signing, so the newest commit carries bytes the
-// signature beside them does not cover. `remote upgrade` must NOT move the pin
+// signature beside them does not cover. `deps upgrade` must NOT move the pin
 // onto it.
 //
 // What is at stake is not the new content — that was always going to be

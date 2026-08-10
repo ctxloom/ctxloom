@@ -152,7 +152,7 @@ Within an AI assistant conversation:
   ⎿ { "results": [{"name": "go-development", "pull_ref": "...", ...}] }
 ```
 
-Management requests route through the CLI instead — e.g. "pull the remotes" runs `ctxloom remote pull` in the shell.
+Management requests route through the CLI instead — e.g. "pull the remotes" runs `ctxloom deps pull` in the shell.
 
 ## Managing MCP Servers
 
@@ -198,4 +198,4 @@ When pulling from remotes:
 - **Context Items**: Risk of prompt injection
 - **Bundles**: Combine both risks
 
-Always review content before referencing it in a profile and running `ctxloom remote pull`. Trust-gating withholds unreviewed MCP servers from the agent until you accept them with `ctxloom review` (or `ctxloom bundle trust <ref>` for a single item) — or trust the publisher's key with `ctxloom signer trust <principal> --key <path> --namespace publish` so their future content skips review. A remote itself carries no trust; trust follows a signing key, not a fetch address.
+Always review content before referencing it in a profile and running `ctxloom deps pull`. Trust-gating withholds unreviewed MCP servers from the agent until you accept them with `ctxloom review` (or `ctxloom bundle trust <ref>` for a single item) — or trust the publisher's key with `ctxloom signer trust <principal> --key <path> --namespace publish` so their future content skips review. A remote itself carries no trust; trust follows a signing key, not a fetch address.

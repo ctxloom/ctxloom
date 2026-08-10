@@ -67,7 +67,7 @@ always human text or always YAML):
 | Command(s) | Where the text is written |
 |---|---|
 | `config show`, `config get`, `config edit`, `config create` (and their `manage config *` aliases) | `renderConfigYAML` (`config.go:77`) — always YAML, so `--format json` exits 0 emitting YAML a JSON parser rejects |
-| `bundle hold`, `bundle unhold` | `bundle_hold_cli.go:41,59` |
+| `deps hold`, `deps unhold` | `bundle_hold_cli.go:41,59` |
 | `bundle mcp edit` | `bundle_items.go:75,98` (package-level `fmt`, not even `cmd.OutOrStdout()`) |
 | `bundle delete` | `bundle_edit.go:199` |
 | `agent default`, `agent remove`, `agent setup` | `agent.go:330,374,195` |
@@ -126,7 +126,7 @@ falls back to the plain default rather than erroring twice.
   `"profile materialize"` is skipped as "not wired to emit() yet" although
   `profile_materialize.go:62` calls `emit`; `"remote default"` and
   `"remote remove"` are skipped as fixture gaps although neither calls `emit` at
-  all; and `bundle hold`/`unhold`/`mcp edit` carry fixture-shaped reasons
+  all; and `deps hold`/`unhold`/`mcp edit` carry fixture-shaped reasons
   ("needs an existing pin/lockfile fixture") that read as if they were wired.
 - `pkg/clifmt` renders **zero bytes** for four shapes: an all-`omitempty` struct
   in text and markdown, `[]string{}` in text, and `nil` in toml. Live in

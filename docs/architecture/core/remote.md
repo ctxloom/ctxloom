@@ -39,7 +39,7 @@ and lets `internal/trust` / `internal/config` decide.
 - Signature verification and publisher trust — `internal/trust` and
   `internal/config` (`config.verifyBundlePublisher`); see [trust.md](./trust.md).
 - Trust-state evaluation and exposure gating (`EffectiveTrust`, retraction withholding),
-  lock rebuild/upgrade orchestration, and the `remote pull`/`sync` command flows —
+  lock rebuild/upgrade orchestration, and the `deps pull`/`sync` command flows —
   `internal/operations`; see [operations.md](./operations.md).
 - Bundle parsing, item loading and skill materialization — `internal/bundles`; see
   [bundles.md](./bundles.md).
@@ -273,13 +273,13 @@ flowchart TD
    self-heal inside `Load` (`:66`) — so a `Load` can write.
    **`Save` is now a guard, not just a writer** (`fd0d87d6`). It reads the current file
    back and refuses an empty-over-populated write and any write over a corrupt one.
-   This was the review's highest data-loss finding: `remote upgrade` could erase every
+   This was the review's highest data-loss finding: `deps upgrade` could erase every
    dependency pin and print "Everything is up to date." with exit 0, because any
    config-load error produced an empty closure and the save was unconditional. It was
-   security-relevant, not merely inconvenient — `remote upgrade` clears retraction
+   security-relevant, not merely inconvenient — `deps upgrade` clears retraction
    state, so a wipe silently **un-retracted** previously withdrawn content. The guard
-   closes the class; the trigger (`remote upgrade` reading through
-   `loadConfigOrFallback`) was closed separately. **`remote update` still reads through
+   closes the class; the trigger (`deps upgrade` reading through
+   `loadConfigOrFallback`) was closed separately. **`deps check` still reads through
    that same fallback** — read-only today, so correct by accident rather than by
    construction. Within this package, `Save` is called by `Puller.updateLockfile`
    (`internal/remote/pull.go:424`, at `:462`) and `Puller.RecordRetraction`

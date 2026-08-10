@@ -302,7 +302,7 @@ func collectProfileFragments(cfg *config.Config, loader *bundles.Loader, profile
 			// a persisted one): skip it so degraded mode still assembles what's
 			// left, and let the startup choke owner abort on the finding.
 			if fromDefaults {
-				strictness.Fail(strictness.ClassRef, "fix the default agent's profiles in .ctxloom/config.yaml (agents.<name>.profiles), or install the missing content (ctxloom remote pull)",
+				strictness.Fail(strictness.ClassRef, "fix the default agent's profiles in .ctxloom/config.yaml (agents.<name>.profiles), or install the missing content (ctxloom deps pull)",
 					"skipping default profile %s: %v", pName, err)
 				continue
 			}
@@ -471,11 +471,11 @@ func warnFragmentLoadFailure(ref config.FragmentRef, err error) {
 		return
 	}
 	if ref.Version != "" {
-		strictness.Fail(strictness.ClassRef, "fix the pinned version in the referencing profile, or ctxloom remote pull",
+		strictness.Fail(strictness.ClassRef, "fix the pinned version in the referencing profile, or ctxloom deps pull",
 			"withholding %s@%s: %v", ref.Name, ref.Version, err)
 		return
 	}
-	strictness.Fail(strictness.ClassRef, "fix the fragment ref in the referencing profile, or install its bundle (ctxloom remote pull)",
+	strictness.Fail(strictness.ClassRef, "fix the fragment ref in the referencing profile, or install its bundle (ctxloom deps pull)",
 		"fragment %s failed to load (%v); skipping", ref.Name, err)
 }
 

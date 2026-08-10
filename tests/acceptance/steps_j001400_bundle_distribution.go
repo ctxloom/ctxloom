@@ -7,7 +7,7 @@
 // The publication AND consumption halves are GREEN. A directory-form bundle
 // used to be unfetchable — fetchAtLockedSHA resolved a ref to ONE file and
 // called FetchFile on it — while skills REQUIRE the directory form
-// (internal/bundles/loader.go:389). `remote pull` now probes the directory
+// (internal/bundles/loader.go:389). `deps pull` now probes the directory
 // form, walks the tree at the pinned SHA through internal/content/remotetree,
 // and installs it under the consumer's cache with the publisher's exec bit
 // intact; config.loadRemoteBundleSeed then reads the installed tree back into a
@@ -550,7 +550,7 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 				return err
 			}
 		}
-		// Adding the bundle to a profile is what makes `remote pull` fetch it;
+		// Adding the bundle to a profile is what makes `deps pull` fetch it;
 		// it may itself refuse, which is equally a symptom of the gap, so its
 		// outcome is recorded rather than fatal.
 		_ = w.env.Run("profile", "modify", "default", "--add-bundle", "company/"+name)
@@ -558,9 +558,9 @@ func registerJ001400Steps(ctx *godog.ScenarioContext) {
 
 		st.pulled = true
 		if perr := w.env.Run("remote", "pull"); perr != nil || w.env.LastExitCode() != 0 {
-			st.pullErr = fmt.Errorf("`remote pull` exited %d", w.env.LastExitCode())
+			st.pullErr = fmt.Errorf("`deps pull` exited %d", w.env.LastExitCode())
 		}
-		st.pullOutput = "profile modify said:\n" + addOut + "\nremote pull said:\n" + w.env.LastOutput()
+		st.pullOutput = "profile modify said:\n" + addOut + "\ndeps pull said:\n" + w.env.LastOutput()
 		return nil
 	})
 

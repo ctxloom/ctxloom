@@ -242,7 +242,7 @@ func listItems(cmd *cobra.Command, itemType ItemType, bundleFilter string) error
 				return nil
 			}
 			fmt.Fprintf(out, "No %ss found.\n", itemType)
-			fmt.Fprintln(out, "Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom remote pull")
+			fmt.Fprintln(out, "Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom deps pull")
 			return nil
 		}
 		printItemInfos(cmd.OutOrStdout(), filtered, itemType)

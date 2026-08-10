@@ -574,15 +574,15 @@ item kind — that path never gates ANY item, builtin or not.
 - **Steady-state sync** installs exactly the pinned set. It stages nothing and
   exposes nothing on its own — items land in whatever state their content hash
   resolves to.
-- **`remote pull`** fetches exactly what the lock already pins; it never advances
+- **`deps pull`** fetches exactly what the lock already pins; it never advances
   a SHA and never rewrites the manifest.
-- **`remote upgrade`** re-resolves each dependency to the newest commit its
+- **`deps upgrade`** re-resolves each dependency to the newest commit its
   manifest constraint allows and writes the advance **straight to the active
   lock** — no review gate at the lock layer, held (`pinned`) entries never
   advance, a hash conflict aborts with nothing written. Any changed content then
   re-hashes to pending and is withheld by the content gate until `ctxloom review`
   accepts it.
-- **`bundle hold` / `unhold`** freeze or release a dependency at its locked SHA
+- **`deps hold` / `unhold`** freeze or release a dependency at its locked SHA
   (aliases `pin` / `unpin`); a held entry never advances under `upgrade`. This is
   dependency management, not trust.
 - **Review** is the only exposure gate: `ctxloom review` (or the `trust` /

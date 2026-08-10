@@ -45,7 +45,7 @@ json, which reports the same count via "hidden_local"). Remote results are
 not capped.
 
 Use one match: add its ref to a profile (ctxloom profile create/modify),
-then ctxloom remote pull for a remote bundle, or ctxloom fragment show /
+then ctxloom deps pull for a remote bundle, or ctxloom fragment show /
 ctxloom command show / ctxloom skill show for local content.`,
 	Example: `  ctxloom search cache                    # search all sources
   ctxloom search -t golang                # search by tag
@@ -389,5 +389,5 @@ func printRemoteResults(w io.Writer, results []operations.SearchRemoteEntry) {
 	}
 
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom remote pull")
+	fmt.Fprintln(w, "Use one: add its ref to a profile (ctxloom profile create/modify), then ctxloom deps pull")
 }

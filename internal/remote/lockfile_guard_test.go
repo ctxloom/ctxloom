@@ -15,7 +15,7 @@ import (
 // retraction (Retracted); a caller that arrives at Save with an empty set has,
 // by construction, nothing to say about the entries already recorded there.
 // Writing that empty set is indistinguishable from "erase everything" and is
-// exactly how `ctxloom remote upgrade` wiped a whole lockfile while reporting
+// exactly how `ctxloom deps upgrade` wiped a whole lockfile while reporting
 // "Everything is up to date."
 //
 // These tests use the REAL OS filesystem (t.TempDir) deliberately: the guard
@@ -169,7 +169,7 @@ func TestSave_AllowEmptyStillRefusesCorruptLockfile(t *testing.T) {
 }
 
 // The escape hatch: a caller that emptied the lock DELIBERATELY, entry by
-// entry (remote update --cleanup pruning the last item), says so and writes.
+// entry (deps check --cleanup pruning the last item), says so and writes.
 func TestSave_AllowEmptyPermitsDeliberateErasure(t *testing.T) {
 	m := newGuardManager(t)
 	require.NoError(t, m.Save(populatedLockfile()))

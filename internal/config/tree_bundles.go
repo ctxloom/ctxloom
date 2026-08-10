@@ -19,7 +19,7 @@ import (
 // remote.BundleReader serves SINGLE-FILE bundles and says so
 // (ErrTreeBundleUnreadable) rather than hunting a "<name>.yaml" no publisher
 // wrote. Those refusals are not failures — they are the tree-form entries, and
-// this is where they get read, through a reader over the tree `remote pull`
+// this is where they get read, through a reader over the tree `deps pull`
 // installed. Any OTHER failure is left in the map untouched for
 // reportBundleLoadFailures.
 //
@@ -54,7 +54,7 @@ func (c *Config) treeBundleReaders(lock *remote.Lockfile, root signing.TrustRoot
 	return out
 }
 
-// treeBundleReader points a pinned-tree reader at the tree `remote pull`
+// treeBundleReader points a pinned-tree reader at the tree `deps pull`
 // installed for one lockfile entry.
 //
 // WHY THE INSTALLED TREE AND NOT THE CLONE AT THE PINNED SHA — the single-file
@@ -70,7 +70,7 @@ func (c *Config) treeBundleReaders(lock *remote.Lockfile, root signing.TrustRoot
 //     against that manifest in both directions, so an edit to the installed
 //     cache is caught. The pin cannot see the cache at all.
 //
-// The pin is not thereby abandoned: it is what `remote pull` fetched at, and it
+// The pin is not thereby abandoned: it is what `deps pull` fetched at, and it
 // still decides WHICH bytes were installed. What changed is that integrity is
 // now checked where the bytes are actually read from.
 //
@@ -92,7 +92,7 @@ func (c *Config) treeBundleReader(canonical string, entry remote.LockEntry, root
 	// reaches the user as a bug in ctxloom.
 	if ok, derr := afero.DirExists(c.getFS(), dir); derr != nil || !ok {
 		return nil, fmt.Errorf("the lockfile records %q as a directory-form bundle but its tree is not installed at %s "+
-			"(run `ctxloom remote pull`)", canonical, dir)
+			"(run `ctxloom deps pull`)", canonical, dir)
 	}
 	tree, err := content.NewAferoTreeFS(c.getFS(), filepath.Dir(dir))
 	if err != nil {
@@ -105,7 +105,7 @@ func (c *Config) treeBundleReader(canonical string, entry remote.LockEntry, root
 		bundles.WithRepoURL(entry.URL)), nil
 }
 
-// treeBundleDir resolves the directory `remote pull` installed a tree bundle
+// treeBundleDir resolves the directory `deps pull` installed a tree bundle
 // into, from its canonical lockfile key. It goes through the same
 // Reference.LocalTreePath the installer used rather than re-assembling the path,
 // so a layout change cannot make the writer and the reader disagree.

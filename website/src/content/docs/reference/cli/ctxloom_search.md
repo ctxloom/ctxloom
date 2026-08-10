@@ -27,7 +27,7 @@ json, which reports the same count via "hidden_local"). Remote results are
 not capped.
 
 Use one match: add its ref to a profile (ctxloom profile create/modify),
-then ctxloom remote pull for a remote bundle, or ctxloom fragment show /
+then ctxloom deps pull for a remote bundle, or ctxloom fragment show /
 ctxloom command show / ctxloom skill show for local content.
 
 ```

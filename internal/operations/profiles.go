@@ -350,7 +350,7 @@ func UpdateProfile(ctx context.Context, cfg *config.Config, req UpdateProfileReq
 	// seed for every later reader this run and then evaporate (Save refuses
 	// the sentinel path anyway).
 	if profiles.IsSeededPath(profile.Path) {
-		return nil, fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom remote pull'", req.Name)
+		return nil, fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom deps pull'", req.Name)
 	}
 
 	// Canonicalize-on-store (decision B): short "<remote>/<bundle>[#profiles/...]"
@@ -440,7 +440,7 @@ func applyListEdits(list, add, remove []string, label string, changes []string) 
 // requireProfilesExist returns an error for the first LOCAL name the loader
 // cannot resolve, so parent additions are validated before create/update
 // mutates or saves anything. Remote refs are skipped: in the reference-only
-// model a remote parent only exists locally after `remote pull`, and pull only
+// model a remote parent only exists locally after `deps pull`, and pull only
 // fetches what a profile references — validating remote refs here would
 // deadlock the bootstrap order. They are validated at pull/lock time.
 func requireProfilesExist(loader profiles.Source, names []string) error {

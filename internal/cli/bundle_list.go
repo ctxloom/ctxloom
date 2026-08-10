@@ -63,7 +63,7 @@ func renderBundleList(out io.Writer, infos []*bundles.BundleInfo) error {
 	w := iox.NewErrWriter(out)
 	if len(infos) == 0 {
 		w.Println("No bundles installed.")
-		w.Println("Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom remote pull")
+		w.Println("Add remote bundles to a profile (ctxloom profile create/modify), then ctxloom deps pull")
 		return w.Err()
 	}
 

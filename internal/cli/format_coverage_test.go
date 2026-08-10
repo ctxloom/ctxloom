@@ -183,7 +183,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"search":            {extraArgs: func(string) []string { return []string{"--local", "smoke"} }},
 
 	// --- exercised: canonical spine leaves ---
-	"signer list": {extraArgs: noExtraArgs},
+	"signer list":            {extraArgs: noExtraArgs},
 	"mcp server list":        {extraArgs: noExtraArgs},
 	"container tooling list": {extraArgs: noExtraArgs},
 
@@ -200,12 +200,12 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"run":           {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---
-	"bundle sign":         {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
-	"signer trust": {skip: "requires a real public key argument and (without --yes/non-interactive) a confirmation prompt; covered by signer_test.go"},
-	"signer show": {skip: "needs an existing trusted principal (signer trust's fixture cost); covered by signer_test.go"},
+	"bundle sign":    {skip: "requires a live ssh-agent/git identity to discover a signing key; unit-tested directly via runSign()'s DI seam in sign_test.go instead"},
+	"signer trust":   {skip: "requires a real public key argument and (without --yes/non-interactive) a confirmation prompt; covered by signer_test.go"},
+	"signer show":    {skip: "needs an existing trusted principal (signer trust's fixture cost); covered by signer_test.go"},
 	"signer untrust": {skip: "destructive; covered by signer_test.go"},
 
-	"bundle trust": {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
+	"bundle trust":   {skip: "needs a resolvable, signable ref and trust-store fixture; not exercised here"},
 	"bundle untrust": {skip: "needs a resolvable ref; not exercised here"},
 
 	// Read-only over ~/.ctxloom/companion_consent.yaml, which is absent in
@@ -214,7 +214,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"companion list": {extraArgs: noExtraArgs},
 	// Both mutate the personal consent record and need a real binary on PATH
 	// to resolve and hash; exercised end to end in trust_cli.feature instead.
-	"companion trust":  {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
+	"companion trust":   {skip: "needs a real companion binary on PATH to resolve+hash and writes the personal consent record; covered by trust_cli.feature"},
 	"companion untrust": {skip: "needs a recorded decision to remove; covered by trust_cli.feature"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
@@ -230,8 +230,6 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// report/--yes split — so it is skipped here for fixture cost alone, not
 	// format debt.
 	"bundle remove":   {skip: "destructive; not exercised here (needs a bundle fixture)"},
-	"bundle hold":     {skip: "needs an existing pin/lockfile fixture; not exercised here", formatDebt: true},
-	"bundle unhold":   {skip: "needs an existing held pin fixture; not exercised here", formatDebt: true},
 	"bundle move":     {skip: "needs source/dest bundle layout fixture; not exercised here"},
 	"mcp server edit": {skip: "needs an existing bundle-scoped MCP entry fixture; not exercised here", formatDebt: true},
 
@@ -246,13 +244,19 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"remote show":     {skip: "network: reads a real remote's catalog", formatDebt: true},
 	"remote default":  {skip: "needs a configured remote fixture", formatDebt: true},
 	"remote discover": {skip: "network: queries GitHub for discoverable remotes", formatDebt: true},
-	"remote pull":     {skip: "network: clones/fetches a real git remote", formatDebt: true},
 	// runRemoteRemove now calls emit() on both its report and --yes branches
 	// (it did not before) — not format debt, just fixture-gated.
-	"remote remove":  {skip: "needs a configured remote fixture"},
-	"remote update":  {skip: "network: updates pinned bundle content from a real remote", formatDebt: true},
-	"remote upgrade": {skip: "network: upgrades pinned bundle content from a real remote", formatDebt: true},
-	"bundle push":    {skip: "network: publishes to a real remote repository (covered by push_sign_test.go)"},
+	"remote remove": {skip: "needs a configured remote fixture"},
+	// The `deps` noun. `deps list` is the one leaf that reads no network at
+	// all — it is the offline lockfile view — so it is exercised for real; the
+	// rest reach a git remote.
+	"deps list":    {extraArgs: noExtraArgs},
+	"deps pull":    {skip: "network: clones/fetches a real git remote", formatDebt: true},
+	"deps check":   {skip: "network: resolves each pinned bundle against a real remote", formatDebt: true},
+	"deps upgrade": {skip: "network: re-resolves pinned bundle content from a real remote", formatDebt: true},
+	"deps hold":    {skip: "needs an existing lockfile entry fixture; not exercised here", formatDebt: true},
+	"deps unhold":  {skip: "needs an existing held entry fixture; not exercised here", formatDebt: true},
+	"bundle push":  {skip: "network: publishes to a real remote repository (covered by push_sign_test.go)"},
 
 	// --- skip: docker / container runtime required ---
 	// `container check` DOES honor format (containerCheckCmd calls
@@ -273,23 +277,23 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// commands ignore --format via bare fmt.Printf" class. `manage mcp
 	// servers show` is the one exception: it shares runMCPShow with `mcp
 	// server show`, which does call emit() — not debt, just fixture-gated.
-	"manage install":               {skip: "installer: side-effecting project bootstrap"},
-	"manage uninstall":             {skip: "installer: side-effecting project teardown"},
-	"manage hooks install":         {skip: "installer: writes real hook files"},
-	"manage hooks uninstall":       {skip: "installer: removes real hook files"},
-	"manage hooks check":           {skip: "reads the hook files the installer above would write; not fixtured here — wired to emit() (shares runManageCheck with `manage check`); registry was stale, not debt"},
-	"mcp register":                 {skip: "installer: registers ctxloom as an MCP server in editor config"},
-	"mcp unregister":               {skip: "installer: unregisters ctxloom as an MCP server"},
-	"mcp server create":            {skip: "wired to emit(); mutating, not exercised here"},
-	"mcp server remove":            {skip: "wired to emit(); mutating, not exercised here"},
-	"mcp server show":              {skip: "wired to emit(), but needs an existing server fixture; not exercised here"},
-	"manage statusline install":    {skip: "installer: writes real statusline config"},
-	"manage statusline uninstall":  {skip: "installer: removes real statusline config"},
-	"manage gitignore install":     {skip: "installer: writes .gitignore entries"},
-	"manage commit trust":  {skip: "installer: writes the dirty-tree-commit admission-store file"},
-	"manage commit untrust": {skip: "installer: removes the dirty-tree-commit admission-store record"},
-	"config edit":                  {skip: "not wired to emit() yet; also opens an editor", formatDebt: true},
-	"config create":                {skip: "not wired to emit() yet; also an installer", formatDebt: true},
+	"manage install":              {skip: "installer: side-effecting project bootstrap"},
+	"manage uninstall":            {skip: "installer: side-effecting project teardown"},
+	"manage hooks install":        {skip: "installer: writes real hook files"},
+	"manage hooks uninstall":      {skip: "installer: removes real hook files"},
+	"manage hooks check":          {skip: "reads the hook files the installer above would write; not fixtured here — wired to emit() (shares runManageCheck with `manage check`); registry was stale, not debt"},
+	"mcp register":                {skip: "installer: registers ctxloom as an MCP server in editor config"},
+	"mcp unregister":              {skip: "installer: unregisters ctxloom as an MCP server"},
+	"mcp server create":           {skip: "wired to emit(); mutating, not exercised here"},
+	"mcp server remove":           {skip: "wired to emit(); mutating, not exercised here"},
+	"mcp server show":             {skip: "wired to emit(), but needs an existing server fixture; not exercised here"},
+	"manage statusline install":   {skip: "installer: writes real statusline config"},
+	"manage statusline uninstall": {skip: "installer: removes real statusline config"},
+	"manage gitignore install":    {skip: "installer: writes .gitignore entries"},
+	"manage commit trust":         {skip: "installer: writes the dirty-tree-commit admission-store file"},
+	"manage commit untrust":       {skip: "installer: removes the dirty-tree-commit admission-store record"},
+	"config edit":                 {skip: "not wired to emit() yet; also opens an editor", formatDebt: true},
+	"config create":               {skip: "not wired to emit() yet; also an installer", formatDebt: true},
 
 	// --- skip: acp entries needing configured agents ---
 	"acp list": {skip: "wired to emit(), but needs a configured ACP agent entry fixture; not exercised here"},
@@ -479,18 +483,18 @@ var formatDebtAllowlist = map[string]string{
 	// route through emit().
 	"remote create":   "remote.go: remoteCreateCmd's inline RunE must route through emit() instead of fmt.Printf",
 	"remote default":  "remote.go: runRemoteDefault must route through emit() instead of fmt.Println/fmt.Printf",
-	"remote pull":     "remote.go: remotePullCmd's inline RunE + renderPullSummary must route through emit()",
+	"deps pull":       "deps_pull.go: runDepsPull's RunE + renderPullSummary must route through emit()",
 	"remote show":     "remote_browse.go: runRemoteBrowse must route through emit()",
 	"remote discover": "remote_discover.go: the inline RunE (interactive add flow) must route through emit()",
-	"remote update":   "remote_update.go: runRemoteUpdate must route through emit()",
-	"remote upgrade":  "remote_upgrade.go: runRemoteUpgrade must route through emit()",
+	"deps check":      "deps_check.go: runDepsCheck must route through emit()",
+	"deps upgrade":    "deps_upgrade.go: runDepsUpgrade must route through emit()",
 
 	// --- bundle destructive/fixture-gated surface (bundle_edit.go, bundle_hold_cli.go, bundle_items.go) ---
 	// `bundle remove` (runBundleRemove) was paid down alongside the report/
 	// --yes safety-posture rewrite: both its report and --yes branches now
 	// route through emit().
-	"bundle hold":     "bundle_hold_cli.go: the hold RunE must route through emit()",
-	"bundle unhold":   "bundle_hold_cli.go: the unhold RunE must route through emit()",
+	"deps hold":       "deps.go: runDepsHold must route through emit()",
+	"deps unhold":     "deps.go: runDepsUnhold must route through emit()",
 	"mcp server edit": "bundle_items.go: runBundleMCPEdit must route through emit()",
 
 	// --- container surface (container_cmd.go) ---
@@ -555,7 +559,7 @@ func TestFormatCoverage_DebtAllowlistTracksRegistry(t *testing.T) {
 	}
 }
 
-// A prior review claimed the registry misattributes `bundle hold`, `bundle
+// A prior review claimed the registry misattributes `deps hold`, `deps
 // unhold` and `mcp server edit` as FIXTURE gaps, hiding them from the "not
 // wired to emit() yet" follow-up list, while `bundle move` is correctly
 // attributed. The underlying facts still hold — those three RunEs contain
@@ -568,7 +572,7 @@ func TestFormatCoverage_DebtAllowlistTracksRegistry(t *testing.T) {
 // This pins that separation for the four commands named above, so a future
 // edit cannot quietly re-collapse the two axes and lose the debt again.
 func TestFormatCoverage_FixtureSkipAndFormatDebtAreSeparateAxes(t *testing.T) {
-	debtByFixtureSkip := []string{"bundle hold", "bundle unhold", "mcp server edit"}
+	debtByFixtureSkip := []string{"deps hold", "deps unhold", "mcp server edit"}
 	for _, path := range debtByFixtureSkip {
 		entry, ok := formatCoverageRegistry[path]
 		require.True(t, ok, "%q must stay registered", path)

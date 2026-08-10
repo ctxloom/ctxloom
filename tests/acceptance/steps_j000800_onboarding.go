@@ -122,7 +122,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		if err := w.env.WriteFile(".ctxloom/content/bundles/"+j000700Bundle+".yaml", j000700FragmentBundleYAML(j000800TeamMarker)); err != nil {
 			return err
 		}
-		// Later scenarios (2/5) have Carol run `remote pull`, which populates a
+		// Later scenarios (2/5) have Carol run `deps pull`, which populates a
 		// local git-clone cache under .ctxloom/cache/ — exclude it so a `git add
 		// -A` commit never sweeps a nested git repo into the team's history.
 		if err := w.env.WriteFile(".gitignore", ".ctxloom/cache/\n"); err != nil {
@@ -254,7 +254,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		if err := runOK(w, "remote", "pull"); err != nil {
 			return err
 		}
-		// The explicit pin: `bundle hold` freezes the lockfile entry's SHA/
+		// The explicit pin: `deps hold` freezes the lockfile entry's SHA/
 		// version so a later pull (even a FRESH one with no local cache, e.g.
 		// Bob's) restores this exact content instead of drifting to whatever
 		// the upstream branch's tip has moved to (internal/remote/pull.go's

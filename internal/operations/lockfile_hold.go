@@ -20,7 +20,7 @@ func activeLockfileManager(cfg *config.Config) *remote.LockfileManager {
 }
 
 // LoadActiveLockfile returns the active lockfile (or an empty one if not yet on
-// disk). Used by `bundle hold` to report the held SHA back to the caller.
+// disk). Used by `deps hold` to report the held SHA back to the caller.
 func LoadActiveLockfile(cfg *config.Config) (*remote.Lockfile, error) {
 	return activeLockfileManager(cfg).Load()
 }

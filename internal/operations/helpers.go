@@ -18,7 +18,7 @@ func getFS(fs afero.Fs) afero.Fs {
 }
 
 // NewRepoCache creates a RepoCache rooted at the standard cache path for cfg.
-// Exported so cmd callers (e.g. `remote update`) can pre-fetch per-URL before
+// Exported so cmd callers (e.g. `deps check`) can pre-fetch per-URL before
 // looping over many lockfile entries.
 // The cache carries a forge resolver derived from the remotes registry so the
 // github clone token-injection reads the per-forge token_env; resolver setup is

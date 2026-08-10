@@ -28,7 +28,7 @@ func TestRenderBundleList_EmptyShowsInstallHint(t *testing.T) {
 	assert.Contains(t, out, "No bundles installed.")
 	// The hint must use the reference-only vocabulary: reference from a
 	// profile, then pull. There is no `ctxloom install`.
-	assert.Contains(t, out, "ctxloom remote pull")
+	assert.Contains(t, out, "ctxloom deps pull")
 }
 
 func TestRenderBundleList_SingleBundleAllFields(t *testing.T) {

@@ -140,7 +140,7 @@ Dead in production: `HarpPlanPath` (`:317`), `VendorPath` (`:468`), `ContextPath
    alongside them `config.yaml`, `remotes.yaml`, `lock.yaml`, `profiles/`, `agents/`.
    `GetCacheDir` and everything under it (`:343,:447,:483,:492`) names regenerable state: pulled
    remote bundle copies, git clones, trust snapshots. Deleting `cache/` must lose nothing that is
-   not recoverable by `ctxloom remote pull` / `sync`.
+   not recoverable by `ctxloom deps pull` / `sync`.
 2. **`CacheBundlesPath` is never a bundle *search* dir.** Authored bundles are read only from
    `content/bundles` (`config.GetBundleDirs`, `internal/config/config.go:1632`); authored YAML found
    under `cache/bundles` raises a fatal migration finding. The doc comment on `CacheBundlesPath`

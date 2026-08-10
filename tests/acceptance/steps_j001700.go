@@ -63,7 +63,7 @@ type j001700State struct {
 	// w.env.NthLastOutput(1) / .LastOutput() at assertion time —
 	// no snapshot fields needed since nothing else runs a command between
 	// "Carol runs her next routine sync" and the Then steps below.
-	bobSyncOutput   string // Bob's own retraction-sync `remote pull` output (his own runBob-captured stream, separate from w.env — a distinct single-slot register)
+	bobSyncOutput   string // Bob's own retraction-sync `deps pull` output (his own runBob-captured stream, separate from w.env — a distinct single-slot register)
 	bobMaterialized string // Bob's own retraction-sync `profile materialize` output
 
 	embeddedShowBefore   string // `signer show <embedded principal>` output BEFORE the removal attempt
@@ -184,7 +184,7 @@ func registerJ001700Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		// Bob's OWN separate clone (j000700State.bobDir, steps_j000700_team.go) — a
 		// genuinely different checkout inheriting the committed reference and
-		// trust decision, then his OWN `remote pull`: his own local install,
+		// trust decision, then his OWN `deps pull`: his own local install,
 		// his own local lockfile, entirely independent of Carol's.
 		if err := j000700BobPull(w); err != nil {
 			return err

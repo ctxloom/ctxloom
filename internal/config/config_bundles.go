@@ -294,7 +294,7 @@ func reportBundleRefLoadFailure(bundleRef string, err error) {
 		return
 	}
 	strictness.FailOnce(strictness.ClassBundle,
-		"run `ctxloom remote pull` or fix the bundle ref, or pass --degraded",
+		"run `ctxloom deps pull` or fix the bundle ref, or pass --degraded",
 		"failed to load bundle %q; the MCP servers and hooks it ships are not applied: %v", bundleRef, err)
 }
 
@@ -312,7 +312,7 @@ func (c *Config) ResolveBundleHooks(profileNames []string) wire.UnifiedHooks {
 
 	// Built-in bundles are unconditional — they ship core ctxloom
 	// functionality (session bind, plan-stamping). No profile
-	// gating, no remote pull. Routed through c.execGate (see
+	// gating, no deps pull. Routed through c.execGate (see
 	// resolveBuiltinBundleMCPServers for why: allowed by default, but now
 	// reachable by a rejection).
 	result.Append(resolveBuiltinBundleHooks(c.execGate))

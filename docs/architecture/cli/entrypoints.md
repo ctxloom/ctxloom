@@ -102,7 +102,7 @@ flowchart LR
 
 | Function | file:line | Contract |
 |---|---|---|
-| `loadConfigOrFallback` | `:30` | On load failure, warns and returns a minimal `.ctxloom`-rooted fixture rather than aborting. Used only by `remote update`/`upgrade`. |
+| `loadConfigOrFallback` | `:30` | On load failure, warns and returns a minimal `.ctxloom`-rooted fixture rather than aborting. Used only by `deps check`/`upgrade`. |
 | `printConfigWarnings` | `:55` | Echoes each `config.Warning` to the writer **and** records it as a strictness finding. Called unconditionally from both `GetConfig` variants. *Real behaviour:* it uses the non-deduping `Record`/`Fwarn`, and `config.Load` memoizes, so a long-lived `ctxloom mcp` re-fires the same finding on every tool call. |
 | `configWarningClass` / `configWarningFixIt` | `:66`, `:75` | Map `config.WarningKind` → strictness class / human fix-it text. |
 | `failOnFindings` | `:96` | The strict gate. Prints every recorded finding since `mark` and returns `ExitError{3}`. No-op when degraded. |

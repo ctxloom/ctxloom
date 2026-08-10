@@ -240,7 +240,7 @@ func runBundleRemove(cmd *cobra.Command, args []string) error {
 
 // bundleRemoveDetail summarizes what `bundle remove`'s bare path would
 // destroy: one count per content kind the bundle carries, omitting any kind
-// the bundle holds none of so an empty bundle's report doesn't pad itself
+// the deps holds none of so an empty bundle's report doesn't pad itself
 // with "0 fragments, 0 commands, ...".
 func bundleRemoveDetail(b *bundles.Bundle) []string {
 	var parts []string

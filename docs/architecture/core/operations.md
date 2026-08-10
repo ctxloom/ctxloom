@@ -166,7 +166,7 @@ both hits and failures per URL. Consumers: `upgrade.go`, `depgraph.go`.
 | `MoveBundle` | `bundle_move.go:91` | Publish-or-copy to the destination, then remove the source — destination-before-delete ordering is the contract. |
 | `DistillBundleFile` | `bundle_distill.go:73` | File-oriented distill of one bundle; reports per-item `distilled`/`skipped`/`distill_failed` and which prior approvals it invalidated. |
 | `invalidatedByDistill` | `bundle_distill.go:145` | Items whose distilled bytes changed *and* had a prior approve countersignature — the loud path after a re-distill. |
-| `RemoveLocalItems` / `localItemPath` | `bundle_refs.go:163,117` | `remote update --cleanup`: delete stale local copies and prune the lockfile. |
+| `RemoveLocalItems` / `localItemPath` | `bundle_refs.go:163,117` | `deps check --cleanup`: delete stale local copies and prune the lockfile. |
 | `GetItemContent` / `AddItem` / `DeleteItem` / `SetItemContent` / `DistillItem` | `items.go:60,104,159,212,305` | Per-item CRUD for fragments and commands; `SetItemContent` preserves tags/notes/installation/`no_distill` and regenerates the distilled form. |
 | `GetBundleMCP` / `SetBundleMCP` | `items.go:376,410` | Bundle-scoped MCP server entries. |
 | `ListSkills` / `GetSkill` / `CreateSkill` / `SyncSkill` / `ExportSkill` / `ImportSkill` | `skills.go:57,132,218,317,413,538` | Agent Skill package CRUD and interchange. `CreateSkill` validates before registering and rolls back with `RemoveAll` on all three failure paths. `SyncSkill` recomputes the per-file manifest (path/sha/mode) in `bundle.yaml` — that manifest is the skill's trust preimage. |

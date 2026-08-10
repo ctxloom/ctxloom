@@ -121,12 +121,12 @@ recorded" are different answers, and only the first one is safe to act on.
 ### Dependencies and the lockfile
 
 `.ctxloom/lock.yaml` is the only on-disk record of your dependency pins, your holds
-(`ctxloom bundle hold`) and the publisher retractions learned at the last sync. Losing it
+(`ctxloom deps hold`) and the publisher retractions learned at the last sync. Losing it
 does not just un-pin — it silently **un-retracts** content a publisher withdrew.
 
 | Surface | Before | Now |
 |---|---|---|
-| `ctxloom remote upgrade` when `config.yaml` fails to load | ran on an empty fallback config, resolved an empty closure, **erased every entry in `lock.yaml`**, printed "Everything is up to date.", exit 0 | non-zero, naming the config error; the lockfile is untouched |
+| `ctxloom deps upgrade` when `config.yaml` fails to load | ran on an empty fallback config, resolved an empty closure, **erased every entry in `lock.yaml`**, printed "Everything is up to date.", exit 0 | non-zero, naming the config error; the lockfile is untouched |
 | Any write that would replace a populated `lock.yaml` with an empty one | written | refused, non-zero, naming how many entries it protected |
 | Any write over an **unparseable** `lock.yaml` | overwritten — every hold and retraction in it lost | refused, non-zero; the file is left intact to fix or delete |
 | A lock rebuild (startup auto-lock) over an unparseable `lock.yaml` | rewrote it with holds and retractions **cleared** | warns and leaves it alone; **exit code unchanged** (a post-sync step never fails the sync) |
@@ -135,7 +135,7 @@ does not just un-pin — it silently **un-retracts** content a publisher withdre
 | A root profile that fails to load, or an unlistable profiles directory, during a lock/upgrade | silently narrowed the closure | warns naming what dropped out; **exit code unchanged** |
 
 **A genuinely empty project is still success.** An empty write is allowed whenever the
-lockfile is absent, blank, or already empty, and `remote update --cleanup` may still prune
+lockfile is absent, blank, or already empty, and `deps check --cleanup` may still prune
 its last entry — that erasure is declared, not inferred.
 
 **Recovery from an unparseable `lock.yaml`:** delete it and re-run (`ctxloom remote lock`).
@@ -236,7 +236,7 @@ in scoped and global listings alike — they are never hidden.
 | A delegated child whose `StartRun` would carry no first turn — no composed prompt, no resume session id, no queued mail | attached and sat idle in `executing`, having been told nothing | the run fails terminal with the reason (U023-F17) |
 | A child that starts and exits repeatedly **without consuming its mail** | relaunched forever at zero backoff | bounded by the same budget a failing launch gets, with backoff, then a loud give-up to the parent's mailbox (U023-F02) |
 | Retry-budget exhaustion for a cause other than `launch_failed` | silent; the child's mail stayed queued and nobody was told | the parent's mailbox and stderr both learn (U023-F02) |
-| `ctxloom remote pull` where the remote's `manifest.yaml` exists but does not parse | treated as **not retracted**, pull proceeded | non-zero: the retraction status is UNKNOWN and the pull stops, `--force` included (U150-F04) |
+| `ctxloom deps pull` where the remote's `manifest.yaml` exists but does not parse | treated as **not retracted**, pull proceeded | non-zero: the retraction status is UNKNOWN and the pull stops, `--force` included (U150-F04) |
 | A profile using `deny_tools` | `ctxloom run` aborted in strict mode; degraded mode printed "it is IGNORED", which was false | accepted, as the loader always honoured it (U049-F01) |
 | A container `--one-shot` one-shot that streamed **zero answer bytes** | a warning, an empty file, **exit 0** | non-zero: the engine ran and answered nothing, so there is nothing to print or record (U041-F01) |
 | A **host** (go-plugin) `--one-shot` one-shot that produced zero answer bytes | no check at all: an empty file, **exit 0**, nothing said | non-zero, through the same seam as the container arm (U041-F02) |
@@ -424,7 +424,7 @@ that cannot fail is worse than no instrument, and several of its limbs could not
 - **A remote URL can no longer place a cache path outside the cache.**
   `Reference.LocalPath` derives an on-disk directory from a lockfile's remote
   URL, and none of the derivations stripped traversal — `https://x/../..`
-  cleaned to `..`. `ctxloom remote update --cleanup` against such a lockfile
+  cleaned to `..`. `ctxloom deps check --cleanup` against such a lockfile
   deleted a file outside `.ctxloom/cache/bundles`. Traversal segments are now
   rewritten to `__` (rewritten, not dropped, so two degenerate remotes cannot
   collide onto one cache directory), and the cleanup path keeps an independent
@@ -626,7 +626,7 @@ rather than leaving a bare invocation to imply a session it never opens.
 3. **Parsing `plan list` text output?** It gained two columns. Use `--format json`.
 4. **Matching on `agent_run`'s disposition?** Success is unchanged; only the
    previously-mislabelled failure case differs.
-5. **Scripting `ctxloom remote upgrade`?** It can now exit non-zero where it used to
+5. **Scripting `ctxloom deps upgrade`?** It can now exit non-zero where it used to
    print "Everything is up to date." Every such case was an upgrade that resolved
    nothing and erased your pins. If it fires, fix the config it names — do not retry.
 
@@ -651,7 +651,7 @@ rather than leaving a bare invocation to imply a session it never opens.
   changes; a repo that genuinely has no submodules is not an error.
 - An opencode session that genuinely recorded nothing still exports and exits 0.
 - A project with genuinely nothing pinned still locks and upgrades to an empty
-  `lock.yaml` and exits 0; `remote update --cleanup` may still prune its last entry.
+  `lock.yaml` and exits 0; `deps check --cleanup` may still prune its last entry.
 - A **structured** container run still opens with no lead: it takes its turns via
   follow-up sends, so an empty first prompt there is legitimate. Only the one-shot
   arm, which gets exactly one turn, is refused.

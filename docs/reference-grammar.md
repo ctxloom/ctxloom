@@ -49,7 +49,7 @@ Resolution rules:
    spellings resolve through the remote registry to the same canonical
    identity as the URL spelling; local bundle names canonicalize to
    `ctxloom:local`. A seed miss reports "bundle profile has no lockfile entry
-   — run 'ctxloom remote pull'".
+   — run 'ctxloom deps pull'".
 
 ## Bundle references
 

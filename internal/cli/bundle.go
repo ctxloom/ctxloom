@@ -49,8 +49,6 @@ func init() {
 
 	// Bundle hold/unhold — dependency management over the active lockfile.
 	// (Per-item content review lives in the top-level `ctxloom review`.)
-	bundleCmd.AddCommand(bundleHoldCmd)
-	bundleCmd.AddCommand(bundleUnholdCmd)
 
 	// Real home of the deprecated top-level `ctxloom sign` (flags registered
 	// in sign.go alongside its shared RunE).

@@ -82,7 +82,7 @@ func setupProject(t *testing.T, engine string) (root string, cfg *config.Config)
 // caller does (manage.go, init.go all pass RegenerateContext: true) so the
 // always-available, network-free SessionStart context-injection hook lands —
 // unlike the bundle-shipped hooks a profile's remote parent would otherwise
-// supply, this one needs no `ctxloom remote pull`/cache, so it's reachable on
+// supply, this one needs no `ctxloom deps pull`/cache, so it's reachable on
 // a bare host. It also pins the injected hook's exec token to "ctxloom" via
 // selfexec.SetPathForTesting (restored on cleanup): left at its `go test`
 // default, the hook would name the test binary itself, and
@@ -154,7 +154,7 @@ func TestDoctorCheckDeps_WrongState_GitMissing(t *testing.T) {
 }
 
 func TestDoctorDepBinariesRequired_IncludesGit(t *testing.T) {
-	assert.Contains(t, doctorDepBinariesRequired, "git", "worktree isolation and remote pull hard-depend on git")
+	assert.Contains(t, doctorDepBinariesRequired, "git", "worktree isolation and deps pull hard-depend on git")
 }
 
 // TestDoctorCheckDeps_WrongState_SSHKeygenMissing_IsRecommendedNotRequired

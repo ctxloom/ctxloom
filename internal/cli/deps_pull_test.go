@@ -14,7 +14,7 @@ import (
 // TestRenderPullSummary_SkippedDoesNotClaimCurrency closes a gap: `remote
 // pull` reported "Skipped (already installed)" for items whose UPSTREAM
 // CONTENT HAD CHANGED. Pull installs exactly the pinned set — moving a pin is
-// `remote upgrade`'s job — so the skip is correct, but the wording claimed
+// `deps upgrade`'s job — so the skip is correct, but the wording claimed
 // currency the tool had not established, and cost an hour's misdiagnosis.
 func TestRenderPullSummary_SkippedDoesNotClaimCurrency(t *testing.T) {
 	var out bytes.Buffer
@@ -28,7 +28,7 @@ func TestRenderPullSummary_SkippedDoesNotClaimCurrency(t *testing.T) {
 		`"already installed" reads as "you are current" when upstream may have moved`)
 	assert.Contains(t, text, "locked commit", "say what is actually true: the pin was honored")
 	assert.Contains(t, text, "upstream changes", "name the thing the user actually cares about")
-	assert.Contains(t, text, "ctxloom remote upgrade", "name the command that moves the pin")
+	assert.Contains(t, text, "ctxloom deps upgrade", "name the command that moves the pin")
 }
 
 // TestRenderPullSummary_NothingToPull keeps the empty case intact.
@@ -38,14 +38,14 @@ func TestRenderPullSummary_NothingToPull(t *testing.T) {
 	assert.Contains(t, out.String(), "No remote dependencies to pull.")
 }
 
-// `ctxloom remote pull` used to exit 0 even when a dependency FAILED to
+// `ctxloom deps pull` used to exit 0 even when a dependency FAILED to
 // fetch/apply — the failures were printed to stdout (renderPullSummary) but
 // RunE always returned nil regardless. pullResultErr is the extracted
 // decision `remotePullCmd`'s RunE defers to, so a caller scripting on exit
 // code (not scraping stdout) can actually tell. Retracted is deliberately
 // NOT a failure here (see the "retracted item does not fail the pull"
 // subtest below): it is the retraction mechanism working as designed, and
-// the acceptance journeys for it (j001500/j001700/trust_surface) require `remote pull`
+// the acceptance journeys for it (j001500/j001700/trust_surface) require `deps pull`
 // to keep exiting 0 when a dependency is withheld this way — an earlier
 // version of this fix treated Retracted as a failure too and broke exactly
 // those three scenarios.

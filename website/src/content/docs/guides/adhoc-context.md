@@ -121,7 +121,7 @@ Remote fragments are served from the copy pinned in your lockfile, so the bundle
 must be pulled before you can reference it:
 
 ```bash
-ctxloom remote pull
+ctxloom deps pull
 
 # Then reference it by bare fragment name...
 ctxloom run -f owasp-top-10 -f tdd "help me write secure tests"

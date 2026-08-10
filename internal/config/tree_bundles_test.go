@@ -43,7 +43,7 @@ func treeTrustRoot(principal string, pub ssh.PublicKey) signing.TrustRoot {
 	})
 }
 
-// stageInstalledTree writes a directory-form bundle where `remote pull` installs
+// stageInstalledTree writes a directory-form bundle where `deps pull` installs
 // one, and returns the config reading it plus the tree store for signing.
 func stageInstalledTree(t *testing.T) (*Config, *content.TreeStore, content.Bundle, afero.Fs) {
 	t.Helper()
@@ -220,7 +220,7 @@ func TestLoadTreeBundle_MissingTreeNamesThePathAndTheFix(t *testing.T) {
 	_, pub := treeTestSigner(t)
 	_, _, err := readTreeBundle(t, c, context.Background(), treeCanonical, treeEntry(), treeTrustRoot("t@x", pub))
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "remote pull")
+	assert.Contains(t, err.Error(), "deps pull")
 	assert.Contains(t, err.Error(), "atelier")
 }
 

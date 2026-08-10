@@ -154,7 +154,7 @@ func TestRemoteRefFetcher_ListItems_NotMaterializedWarns(t *testing.T) {
 
 	require.Error(t, err, "the absent remote is surfaced, not silently dropped")
 	assert.ErrorIs(t, err, errs.ErrRemoteNotMaterialized)
-	assert.Contains(t, err.Error(), "ctxloom remote pull")
+	assert.Contains(t, err.Error(), "ctxloom deps pull")
 	assert.Contains(t, err.Error(), absent)
 }
 

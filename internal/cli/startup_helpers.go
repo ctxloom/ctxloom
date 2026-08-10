@@ -41,7 +41,7 @@ import (
 // do; a run that succeeded at doing none of what was asked is not a success
 // (docs/cli-ux-principles.md §7).
 //
-// Today's sole use: `ctxloom remote upgrade` declining to advance a pin onto
+// Today's sole use: `ctxloom deps upgrade` declining to advance a pin onto
 // content whose publisher signature does not verify over its bytes. The pin it
 // kept is intact and being served; what did not happen is the advance.
 //
@@ -65,12 +65,12 @@ const exitCodeFatalFindings = 3
 // can still diagnose why their effective config is incomplete.
 //
 // Used by tools that must keep working without a fully-loaded config
-// (`ctxloom remote update`) per CLAUDE.md fault tolerance.
+// (`ctxloom deps check`) per CLAUDE.md fault tolerance.
 //
 // NEVER call this from a command that WRITES. The fallback is a minimal EMPTY
 // config: no profile definitions, no defaults, nothing to enumerate. A reader
 // handed it degrades to showing less; a writer handed it computes an empty
-// result and persists it over real state. `ctxloom remote upgrade` did exactly
+// result and persists it over real state. `ctxloom deps upgrade` did exactly
 // that — it rebuilt the lockfile from an empty closure, erased every pin, hold
 // and retraction, and reported "Everything is up to date." Destructive commands
 // call the loader directly and fail on its error (see runRemoteUpgrade).
@@ -78,7 +78,7 @@ func loadConfigOrFallback(loader func() (*config.Config, error), w io.Writer) *c
 	cfg, err := loader()
 	if err != nil {
 		// Best-effort warning. This runs in fault-tolerant startup paths
-		// (`ctxloom remote update`, `ctxloom search`) that must proceed
+		// (`ctxloom deps check`, `ctxloom search`) that must proceed
 		// regardless, so a failed warning write has nowhere to go and is
 		// intentionally dropped (captured-but-unchecked via iox.ErrWriter).
 		ew := iox.NewErrWriter(w)
@@ -257,7 +257,7 @@ func writeAndRecordSyncSummary(w io.Writer, result *operations.SyncDependenciesR
 		clidiag.Fwarn(ew, "ctxloom", "sync completed with %d errors", result.Errors)
 		for _, item := range result.Failed {
 			ew.Printf("ctxloom:   - %s (%s): %s\n", item.Reference, item.Type, item.Error)
-			strictness.Record(strictness.ClassSync, "check network/auth and retry (ctxloom remote pull), or drop the reference from its profile",
+			strictness.Record(strictness.ClassSync, "check network/auth and retry (ctxloom deps pull), or drop the reference from its profile",
 				"sync: %s (%s) is neither cached nor fetchable: %s", item.Reference, item.Type, item.Error)
 		}
 	}

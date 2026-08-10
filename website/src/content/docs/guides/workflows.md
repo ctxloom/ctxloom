@@ -39,7 +39,7 @@ ctxloom profile create go-dev \
   -d "Go development environment"
 
 # Pull the referenced content
-ctxloom remote pull
+ctxloom deps pull
 ```
 
 ### 4. Review the Pulled Content
@@ -68,8 +68,8 @@ ctxloom run -p go-dev "help with code"
 ### Morning Setup
 
 ```bash
-# Pull any remote updates your profiles reference
-ctxloom remote pull
+# Pull any deps checks your profiles reference
+ctxloom deps pull
 
 # Check your current profile
 ctxloom profile show default
@@ -158,7 +158,7 @@ ctxloom profile create my-dev \
   --parent 'https://github.com/myorg/ctxloom-team@bundles/team-standards#profiles/team-developer'
 
 # Pull the referenced team content
-ctxloom remote pull
+ctxloom deps pull
 
 # Review it — until you do, the team's fragments are withheld from the engine
 ctxloom review
@@ -268,7 +268,7 @@ ctxloom profile create security \
   -b ctxloom-default/owasp
 
 # Pull the referenced content
-ctxloom remote pull
+ctxloom deps pull
 ```
 
 ### Conducting Reviews
@@ -358,7 +358,7 @@ jobs:
       - name: Setup ctxloom
         run: |
           go install github.com/ctxloom/ctxloom/cmd/ctxloom@latest
-          ctxloom remote pull
+          ctxloom deps pull
 
       - name: Verify context assembles
         run: |
@@ -366,7 +366,7 @@ jobs:
 ```
 
 Two things make this work in a fresh checkout. The lockfile (committed, below)
-gives `remote pull` the exact revisions to fetch. And the project approvals store
+gives `deps pull` the exact revisions to fetch. And the project approvals store
 is what lets CI see the pulled content at all — a fresh machine has trusted
 nothing, so run `ctxloom review --project` locally and commit `.ctxloom/approvals`
 alongside the lockfile. Without it the profile still resolves but its remote
@@ -381,7 +381,7 @@ that engine's binary and supply its credentials as secrets.
 
 ```bash
 # Pulling updates the lockfile automatically
-ctxloom remote pull
+ctxloom deps pull
 
 # Commit lockfile
 git add .ctxloom/lock.yaml
@@ -392,7 +392,7 @@ In CI:
 
 ```bash
 # Pull the exact versions recorded in the committed lockfile
-ctxloom remote pull
+ctxloom deps pull
 ```
 
 ## Troubleshooting Workflow
@@ -426,7 +426,7 @@ ctxloom fragment list
 ctxloom remote show ctxloom-default
 
 # Pull missing dependencies
-ctxloom remote pull
+ctxloom deps pull
 ```
 
 ## Tips and Best Practices
@@ -476,8 +476,8 @@ git commit -m "Update ctxloom configuration"
 ### Regular Maintenance
 
 ```bash
-# Weekly: pull remote updates
-ctxloom remote pull
+# Weekly: pull deps checks
+ctxloom deps pull
 
 # Monthly: review and clean up profiles
 ctxloom profile list

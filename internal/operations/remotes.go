@@ -207,7 +207,7 @@ func AddRemote(ctx context.Context, cfg *config.Config, req AddRemoteRequest) (*
 	// or network problem surfaces now (at add time) rather than on first use —
 	// friction up front. Best-effort (CLAUDE.md): a failed clone leaves the
 	// remote registered with a warning so a transient issue doesn't block
-	// registration; `remote update` retries the clone later.
+	// registration; `deps check` retries the clone later.
 	cache := req.Cache
 	if cache == nil {
 		cache = NewRepoCache(cfg)

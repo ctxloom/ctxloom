@@ -168,7 +168,7 @@ func moveByDest(ctx context.Context, cfg *config.Config, fs afero.Fs, req MoveBu
 // (bundles.Loader refuses `skills:` in single-file form), so the failure lands
 // squarely on the thing the shape was created to carry.
 //
-// The check is by PAYLOAD, not by shape: a directory-form bundle holding nothing
+// The check is by PAYLOAD, not by shape: a directory-form deps holding nothing
 // but its manifest loses nothing and still moves. And it is stated as "anything
 // that is not the manifest or its signature" rather than as "skills/", so it
 // covers a tree-form bundle's fragments/ and prompts/ too — publish cannot carry

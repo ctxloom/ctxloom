@@ -202,7 +202,7 @@ override would silently destroy layer 1.
 The reasoning, both directions:
 
 - **Hard-failing is wrong.** Bundles are remote and move under the consumer.
-  `remote upgrade` dropping a hook would then break every subsequent apply for a
+  `deps upgrade` dropping a hook would then break every subsequent apply for a
   preference that no longer has a subject — a bundle author would be able to
   break a consumer's project by renaming their own command.
 - **Silence is worse.** A stale rule is a user's belief about ordering that is no

@@ -540,7 +540,7 @@ func (l *Loader) Load(name string) (*Profile, error) {
 	// found" otherwise reads as "the profile doesn't exist upstream". ('#' is
 	// reserved in local profile names, so the selector is unambiguous.)
 	if strings.Contains(name, remote.ProfileSelector) || remote.IsCanonicalRef(name) {
-		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom remote pull')", errs.ErrProfileNotFound, name)
+		return nil, fmt.Errorf("%w: %s (bundle profile has no lockfile entry — run 'ctxloom deps pull')", errs.ErrProfileNotFound, name)
 	}
 
 	// Names reach here from MCP tools and CLI args, so the local form must be
@@ -716,7 +716,7 @@ func (l *Loader) Save(profile *Profile) error {
 		return fmt.Errorf("no profiles directory configured")
 	}
 	if IsSeededPath(profile.Path) {
-		return fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom remote pull'", profile.Name)
+		return fmt.Errorf("profile %q is a remote profile and read-only; edit it at its source and run 'ctxloom deps pull'", profile.Name)
 	}
 	if err := validateProfileName(profile.Name); err != nil {
 		return err
@@ -932,7 +932,7 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 				// times per startup.
 				if _, bare, retired := remote.SplitRetiredProfileRef(parent); retired {
 					// The retired top-level @profiles/ grammar can never pull or
-					// pin, so "remote pull"/"remote upgrade" would both be wrong
+					// pin, so "deps pull"/"deps upgrade" would both be wrong
 					// advice. The load-time upgrade rewrites this parent
 					// automatically once a bundle shipping the profile is
 					// installed — so the fix is to point the parent at the
@@ -941,8 +941,8 @@ func (l *Loader) resolveProfileRecursive(name string, visited map[string]bool, d
 						"profile %q: parent %s uses the retired top-level @profiles/ grammar and no installed bundle ships profile %q; point the parent at \"<url>@bundles/<bundle>#profiles/<name>\", or install a bundle that ships it (the load-time upgrade then rewrites the parent automatically)",
 						name, parent, bare)
 				} else {
-					strictness.FailOnce(strictness.ClassRef, "ctxloom remote pull",
-						"profile %q: parent %s not installed; skipping (run `ctxloom remote pull` to install)",
+					strictness.FailOnce(strictness.ClassRef, "ctxloom deps pull",
+						"profile %q: parent %s not installed; skipping (run `ctxloom deps pull` to install)",
 						name, parent)
 				}
 			default:

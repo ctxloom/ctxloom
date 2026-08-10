@@ -93,7 +93,7 @@ Three rules make the spine load-bearing:
    | `distill <ref>` | bundle, command, fragment, session | derived-content generation; already spelled consistently across 4 nouns |
    | `export` / `import` | bundle, profile, skill | archive out / archive in; already a consistent pair across 3 nouns |
    | `sign` | bundle | a cryptographic act on existing bytes |
-   | `hold` / `unhold` | bundle | pin semantics against `remote upgrade` |
+   | `hold` / `unhold` | bundle | pin semantics against `deps upgrade` |
    | `push` / `move` | bundle | publish to a remote / signature-preserving relocation — distinct from each other and from export |
    | `sync` | skill | manifest recomputation; skills are directory trees, not blobs |
    | `materialize` | profile | write the resolved closure to disk |

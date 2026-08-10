@@ -535,7 +535,7 @@ func TestCreateProfile_WithParents(t *testing.T) {
 }
 
 // TestCreateProfile_RemoteParentSkipsLocalValidation pins the reference-only
-// bootstrap order: a remote parent can only exist locally AFTER `remote pull`,
+// bootstrap order: a remote parent can only exist locally AFTER `deps pull`,
 // and pull only fetches what a profile references — so create must accept a
 // scheme-qualified remote ref without resolving it locally. Remote refs are
 // validated at pull/lock time instead.

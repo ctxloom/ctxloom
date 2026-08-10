@@ -9,7 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// UpgradeResult is what one `remote upgrade` round did. It is a struct rather
+// UpgradeResult is what one `deps upgrade` round did. It is a struct rather
 // than a tuple because the three facts are not independent: a caller that reads
 // Advanced without reading Refused prints "Everything is up to date." over a
 // refused advance, which is the exact silence this feature exists to prevent.
@@ -134,7 +134,7 @@ func UpgradeDependencies(ctx context.Context, cfg *config.Config) (UpgradeResult
 		// A full re-resolve is NOT a fresh retraction check — only
 		// sync's installed-ref re-check (checkInstalledRetraction) or the next
 		// Pull actually reads the publisher's manifest and is entitled to lift
-		// a retraction. Without this, `ctxloom remote upgrade` silently
+		// a retraction. Without this, `ctxloom deps upgrade` silently
 		// un-retracted every non-held bundle by building a zero-valued entry
 		// here, exactly the invariant LockDependencies' prevRetracted already
 		// protects on the sibling full-rebuild path (internal/operations/lockfile.go).

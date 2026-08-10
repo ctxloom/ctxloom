@@ -4,7 +4,7 @@ title: "Bundles"
 
 Your coding standards live in one project's `CLAUDE.md` and your MCP server config lives in another repo's `.claude/settings.json`. Each project reinvents its own copy, and they drift the moment one gets updated and the others don't.
 
-A **bundle** collects that content (fragments, commands, MCP server configs, profiles, hooks) into one versioned YAML file you can commit, share through a [remote](/concepts/remotes/), and pull into any project. Update the bundle once and every project that references it can pick up the change with `ctxloom remote pull`.
+A **bundle** collects that content (fragments, commands, MCP server configs, profiles, hooks) into one versioned YAML file you can commit, share through a [remote](/concepts/remotes/), and pull into any project. Update the bundle once and every project that references it can pick up the change with `ctxloom deps pull`.
 
 ## Bundle Structure
 
@@ -187,6 +187,6 @@ instead.
 These fields serve different purposes:
 
 - `notes` - Internal documentation for humans only. Never sent to the AI.
-- `installation` - Setup instructions, surfaced when the bundle is installed via `ctxloom remote pull` so they can be followed as setup steps.
+- `installation` - Setup instructions, surfaced when the bundle is installed via `ctxloom deps pull` so they can be followed as setup steps.
 
 This allows bundle authors to include setup commands (npm install, environment variables, etc.) that the user or their agent can run after installation.

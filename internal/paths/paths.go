@@ -98,7 +98,7 @@ const (
 	// (config-layer-scope design doc, "The .ctxloom classification"). A file
 	// under here is a fact about THIS checkout on THIS machine that must never
 	// be committed (a clone would arrive carrying somebody else's answer) and
-	// that a cache wipe or a `remote pull` cannot regenerate — see Tier's doc
+	// that a cache wipe or a `deps pull` cannot regenerate — see Tier's doc
 	// for why that distinction, not mere gitignore status, is what earns a path
 	// a place in this directory instead of cache/.
 	StateDir = "state"
@@ -114,7 +114,7 @@ const (
 	ReposCacheDir = "repos"
 
 	// RefusedAdvancesFileName is the name (without extension) of the record of
-	// pin advances `ctxloom remote upgrade` DECLINED to make because the
+	// pin advances `ctxloom deps upgrade` DECLINED to make because the
 	// content at the proposed commit carried a publisher signature that does
 	// not verify over its bytes — see RefusedAdvancesPath.
 	RefusedAdvancesFileName = "refused_advances"
@@ -611,7 +611,7 @@ func TrustObjectsPath(appPath string) string {
 }
 
 // RefusedAdvancesPath returns the refused-advance record (under cache/): what
-// the last `remote upgrade` round declined to advance, and the pin it kept
+// the last `deps upgrade` round declined to advance, and the pin it kept
 // instead, so an inspector run days later can still say why a revision is not
 // here. Without it the refusal exists only in the transient stdout of the sync
 // that produced it.
@@ -624,7 +624,7 @@ func TrustObjectsPath(appPath string) string {
 // wrong one's problem in the other's directory.
 //
 // Under cache/ because it is DERIVED and regenerable: re-running `ctxloom
-// remote upgrade` reproduces it exactly, deleting it only costs the after-the-
+// deps upgrade` reproduces it exactly, deleting it only costs the after-the-
 // fact advisory (the sync still says so at the moment it refuses), and nothing
 // about it should be committed — it describes what one machine saw upstream at
 // one moment, not a decision the team shares.
@@ -718,9 +718,9 @@ func Layout() []Entry {
 		{Rel: filepath.Join(AppDirName, AllowedSignersFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, DistrustedSignersFileName), Tier: TierCommitted},
 		{Rel: filepath.Join(AppDirName, ApprovalsDirName), Tier: TierCommitted},
-		{Rel: filepath.Join(AppDirName, CacheDir, BundlesDir), Tier: TierDerived, Rebuild: "ctxloom remote pull"},
-		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom remote pull"},
-		{Rel: filepath.Join(AppDirName, CacheDir, RefusedAdvancesFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom remote upgrade"},
+		{Rel: filepath.Join(AppDirName, CacheDir, BundlesDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
+		{Rel: filepath.Join(AppDirName, CacheDir, ReposCacheDir), Tier: TierDerived, Rebuild: "ctxloom deps pull"},
+		{Rel: filepath.Join(AppDirName, CacheDir, RefusedAdvancesFileName+".yaml"), Tier: TierDerived, Rebuild: "ctxloom deps upgrade"},
 		{
 			Rel: filepath.Join(AppDirName, CacheDir, TrustFileName, TrustObjectsDir), Tier: TierLocal,
 			Lost: "the content-addressed snapshots review diffed an update against; update review degrades from a diff to a full-content dump, but committed approval signatures still verify",

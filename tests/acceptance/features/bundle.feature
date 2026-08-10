@@ -46,10 +46,10 @@ Feature: Bundles
   Scenario: Holding a local bundle reports it is not lockfile-tracked
     Given an initialized ctxloom project
     And a bundle "demo" exists
-    When I run "ctxloom bundle hold demo"
+    When I run "ctxloom deps hold demo"
     Then the command succeeds
     And the output contains "nothing to hold"
-    When I run "ctxloom bundle unhold demo"
+    When I run "ctxloom deps unhold demo"
     Then the command succeeds
 
   # Bare `remove` is a preview: it must name what it would destroy AND leave

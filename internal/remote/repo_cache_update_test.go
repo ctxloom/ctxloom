@@ -56,7 +56,7 @@ func originDefaultRev(t *testing.T, cloneDir string) string {
 // shallow-refetch bug: after a shallow clone, advancing the remote and running
 // UpdateRepo must move the remote-tracking default branch to the live remote
 // HEAD. The old Depth:1 refetch left origin/* pinned at the original shallow
-// boundary, so `remote update` never saw new commits.
+// boundary, so `deps check` never saw new commits.
 //
 // createTestRepo (in repo_cache_test.go) builds a non-bare git repo with an
 // initial commit that we clone from over a file:// URL — no network.

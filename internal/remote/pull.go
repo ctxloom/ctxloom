@@ -737,7 +737,7 @@ func (p *Puller) updateLockfile(localName string, opts PullOptions, remote *Remo
 
 	// A hold ("do not upgrade this") is a deliberate decision; a content re-pull
 	// must never silently clear it. Always carry the flag forward, and on a
-	// blanket pull (no explicit version requested, e.g. `remote pull --force`)
+	// blanket pull (no explicit version requested, e.g. `deps pull --force`)
 	// keep the entry's frozen SHA/Version too — force repairs a clone, it does
 	// not advance past a hold (see LockEntry.Pinned).
 	if hadExisting && existing.Pinned {

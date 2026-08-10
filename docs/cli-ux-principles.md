@@ -278,7 +278,7 @@ number as a worse outcome has misread this vocabulary.
 deliberate decision as a fault, sending the user to hunt for a problem on their
 machine that isn't there. `0` makes a refusal indistinguishable, to the script
 that ran it, from a run that had nothing to do — the same silence the bullets
-above forbid. The one command using it: `ctxloom remote upgrade`, declining to
+above forbid. The one command using it: `ctxloom deps upgrade`, declining to
 advance a pin onto content whose publisher signature does not verify over its
 bytes (`exitCodeRefused` in `internal/cli/startup_helpers.go`, beside
 `exitCodeFatalFindings`).

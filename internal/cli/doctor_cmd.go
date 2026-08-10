@@ -1045,7 +1045,7 @@ func doctorCheckContentTrust(cfg *config.Config, cfgErr error) doctorCheck {
 			len(unsigned), strings.Join(unsigned, ", "))}
 }
 
-// doctorCheckUpstreamSignatures names every revision `remote upgrade` REFUSED
+// doctorCheckUpstreamSignatures names every revision `deps upgrade` REFUSED
 // to advance onto because the publisher signature at that commit does not
 // verify over its bytes — and the pin it kept instead.
 //
@@ -1102,7 +1102,7 @@ func doctorCheckUpstreamSignatures(cfg *config.Config, cfgErr error) doctorCheck
 	return doctorCheck{Marker: marker, Status: doctorWarn,
 		Detail: fmt.Sprintf("%d upstream revision(s) were REFUSED because the PUBLISHER's signature does not cover the bytes it sits beside: %s. "+
 			"Nothing is wrong on this machine and nothing is withheld from your assistant — it is served the content at the kept pin. "+
-			"There is nothing to configure here: the publisher must re-sign and republish, and `ctxloom remote upgrade` picks it up "+
+			"There is nothing to configure here: the publisher must re-sign and republish, and `ctxloom deps upgrade` picks it up "+
 			"and clears this the next time it runs",
 			len(refused), strings.Join(parts, "; "))}
 }

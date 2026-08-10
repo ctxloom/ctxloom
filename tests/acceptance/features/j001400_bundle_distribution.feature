@@ -62,7 +62,7 @@ Feature: Publishing a bundle's whole surface, and a consumer receiving it intact
   # bundle. Jointly unsatisfiable, which is what taskloom task
   # `engaged-chivalry` recorded as impossible.
   #
-  # `remote pull` now probes the directory form when the single file is absent,
+  # `deps pull` now probes the directory form when the single file is absent,
   # walks the tree at the pinned SHA through internal/content/remotetree, and
   # installs it under the consumer's cache with the publisher's exec bit
   # intact. Every scenario asserting the PUBLICATION SIDE — the payload landing

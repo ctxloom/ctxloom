@@ -222,12 +222,12 @@ ctxloom remote create myremote owner/repo
 
 ### Pull Failures
 
-**Problem:** `ctxloom remote pull` fails
+**Problem:** `ctxloom deps pull` fails
 
 **Debug:**
 ```bash
 # Log every GitHub API call ctxloom makes (method + URL) to stderr
-CTXLOOM_DEBUG_HTTP=1 ctxloom remote pull
+CTXLOOM_DEBUG_HTTP=1 ctxloom deps pull
 ```
 (`CTXLOOM_VERBOSE=1` doesn't affect this command — it only changes logging
 for config/sync diagnostics and delegated-child launches.)
@@ -273,7 +273,7 @@ ctxloom bundle list
 pull so ctxloom fetches it and updates the lockfile:
 ```bash
 ctxloom profile create missing -b remote/missing-bundle
-ctxloom remote pull
+ctxloom deps pull
 ```
 
 ## Fragment Issues
@@ -414,7 +414,7 @@ time ctxloom run --dry-run
 
 1. **Check network** - ensure good connectivity to GitHub/GitLab
 2. **Use caching** - ctxloom caches remote content locally
-3. **Reduce scope** - keep your local profiles focused so `ctxloom remote pull`
+3. **Reduce scope** - keep your local profiles focused so `ctxloom deps pull`
    fetches only the bundles/profiles you actually reference
 
 ## Configuration Issues

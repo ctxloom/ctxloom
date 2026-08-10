@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -15,26 +14,30 @@ import (
 // thing the noun is about, and reading it touches nothing.
 var remoteCmd = groupNodeDefault(&cobra.Command{
 	Use:   "remote",
-	Short: "Manage remotes and discover content",
-	Long: `Manage remote sources and discover bundles/profiles.
+	Short: "Register and browse the sources content comes from",
+	Long: `Register the Git repositories (GitHub or generic git) this project draws shared
+bundles from, and browse what they publish.
 
-Remote sources are Git repositories (GitHub or generic git) containing shared
-bundles and profiles.
+A remote is an ADDRESS. Registering one is local bookkeeping over
+.ctxloom/remotes.yaml — no fetch, no credential, nothing installed.
 
 Registry:
   ctxloom remote list                    List configured remotes
-  ctxloom remote show <name>             Show one remote and its bundles
+  ctxloom remote show <name>             Show one remote and the bundles it publishes
   ctxloom remote create <name> <url>     Register a remote
   ctxloom remote remove <name> --yes     Remove a remote
   ctxloom remote default <name>          Set the default remote
 
-A remote is just an address; its content takes the review path. To auto-trust a
-publisher's content, trust their signing key (ctxloom signer trust) — not
-the URL.
-
 Discovery:
   ctxloom search <query>                 Search local and remote content
   ctxloom remote discover                Find ctxloom repositories
+
+What this project has INSTALLED from those remotes is the other noun:
+'ctxloom deps --help'.
+
+A remote carries no trust: its content takes the review path whatever address
+it came from. To auto-trust a publisher's content, trust their signing key
+('ctxloom signer trust') — a key is verified over the bytes, a URL is not.
 
 Examples:
   ctxloom remote create alice alice/ctxloom
@@ -197,10 +200,14 @@ func renderRemoteList(out io.Writer, result *operations.ListRemotesResult) error
 	return nil
 }
 
-// `ctxloom remote trust|untrust` are DELETED (signature-envelope spec §11).
-// A remote no longer carries trust: it is just an address to fetch from.
-// Trusting a publisher is `ctxloom signer trust <principal> --key <path>`, which
-// trusts a KEY (verified over the bytes) rather than a LOCATION (hash-blind).
+// A remote carries no trust of its own — it is an address to fetch from, and
+// nothing more. Trusting a publisher is `ctxloom signer trust <principal> --key
+// <path>`, which trusts a KEY, verified over the bytes, rather than a LOCATION,
+// which is hash-blind. Publishing needs no separate blessing either: registering
+// a remote is the act that names it as a destination.
+//
+// Which remotes a caller may PUBLISH to is therefore exactly which remotes are
+// registered here.
 
 var remoteDefaultCmd = &cobra.Command{
 	Use:   "default <name>",
@@ -249,112 +256,6 @@ func runRemoteDefault(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-var (
-	remotePullForce bool
-	remotePullLock  bool
-)
-
-var remotePullCmd = &cobra.Command{
-	Use:   "pull",
-	Short: "Pull dependencies from profiles",
-	Long: `Pull remote bundles and profiles referenced in your configuration.
-
-This fetches all remote dependencies declared in your profiles, updates
-the lockfile, and applies hooks.
-
-Examples:
-  ctxloom remote pull                    # Pull all dependencies
-  ctxloom remote pull --force            # Re-pull even if already installed
-  ctxloom remote pull --lock=false       # Skip lockfile update`,
-	RunE: runRemotePull,
-}
-
-func runRemotePull(cmd *cobra.Command, _ []string) error {
-	cfg, err := GetConfig()
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	fmt.Fprintln(cmd.OutOrStdout(), "Pulling dependencies...")
-
-	result, err := operations.SyncDependencies(cmd.Context(), cfg, operations.SyncDependenciesRequest{
-		Force:      remotePullForce,
-		Lock:       remotePullLock,
-		ApplyHooks: true,
-	})
-	if err != nil {
-		return err
-	}
-
-	renderPullSummary(cmd.OutOrStdout(), result)
-	return pullResultErr(result)
-}
-
-// pullResultErr fixes the bug where `remote pull` used to exit 0 even when
-// dependencies failed or were retracted — the failures were printed to
-// stdout by renderPullSummary above, but RunE always returned nil regardless,
-// so a caller scripting on exit code (not scraping stdout text) saw success.
-// Skipped items are NOT a failure (pull never moves an existing pin, by
-// design — see renderPullSummary's doc comment); Errors and Retracted are.
-func pullResultErr(result *operations.SyncDependenciesResult) error {
-	// Retracted is NOT a failure: it is the retraction mechanism working as
-	// designed — a bad dependency detected and withheld automatically while
-	// the rest of the sync proceeds (see j001500/j001700/trust_surface's acceptance
-	// journeys, whose entire narrative is "the sync still succeeds; the
-	// retracted content just never reaches the user"). Only Errors (a real
-	// fetch/apply failure) makes the pull itself fail.
-	if result.Errors == 0 {
-		return nil
-	}
-	var refs []string
-	for _, item := range result.Failed {
-		refs = append(refs, item.Reference)
-	}
-	return fmt.Errorf("remote pull: %d failed (%s)", result.Errors, strings.Join(refs, ", "))
-}
-
-// renderPullSummary prints a completed pull.
-//
-// The skipped line deliberately does NOT say "already installed".
-// Pull installs exactly the PINNED set; moving an existing pin is `remote
-// upgrade`'s job. So an item whose upstream content has changed is skipped and
-// was being reported as "already installed" — which reads as "you are current"
-// when you are not: upstream moved and you are still served the old content. A
-// human (or an agent) reasonably concludes there is nothing to do. The line now
-// says what is actually true — the pin was honored — and names the command that
-// moves it.
-func renderPullSummary(w io.Writer, result *operations.SyncDependenciesResult) {
-	if result.Total == 0 {
-		fmt.Fprintln(w, "No remote dependencies to pull.")
-		return
-	}
-
-	fmt.Fprintf(w, "\nPulled %d items:\n", result.Total)
-	if result.Installed > 0 {
-		fmt.Fprintf(w, "  Installed: %d\n", result.Installed)
-	}
-	if result.Updated > 0 {
-		fmt.Fprintf(w, "  Updated: %d\n", result.Updated)
-	}
-	if len(result.Skipped) > 0 {
-		fmt.Fprintf(w, "  Skipped (kept at their locked commit): %d\n", len(result.Skipped))
-		fmt.Fprintln(w, "    Pull never moves an existing pin, so these may have upstream changes.")
-		fmt.Fprintln(w, "    Run 'ctxloom remote upgrade' to advance them.")
-	}
-	if len(result.Retracted) > 0 {
-		fmt.Fprintf(w, "  Retracted: %d\n", len(result.Retracted))
-		for _, item := range result.Retracted {
-			fmt.Fprintf(w, "    - %s: retracted (%s)\n", item.Reference, item.Error)
-		}
-	}
-	if result.Errors > 0 {
-		fmt.Fprintf(w, "  Failed: %d\n", result.Errors)
-		for _, item := range result.Failed {
-			fmt.Fprintf(w, "    - %s: %s\n", item.Reference, item.Error)
-		}
-	}
-}
-
 func init() {
 	rootCmd.AddCommand(remoteCmd)
 
@@ -362,7 +263,6 @@ func init() {
 	remoteCmd.AddCommand(remoteRemoveCmd)
 	remoteCmd.AddCommand(remoteListCmd)
 	remoteCmd.AddCommand(remoteDefaultCmd)
-	remoteCmd.AddCommand(remotePullCmd)
 
 	remoteCreateCmd.Flags().StringVar(&remoteAddForge, "forge", "",
 		"Forge to bind this remote to: github, git, or a configured forges: label (default: resolve from URL host)")
@@ -373,8 +273,4 @@ func init() {
 	remoteDefaultCmd.Flags().BoolVar(&remoteDefaultClear, "clear", false,
 		"Clear the default remote")
 
-	remotePullCmd.Flags().BoolVarP(&remotePullForce, "force", "f", false,
-		"Re-pull even if already installed")
-	remotePullCmd.Flags().BoolVar(&remotePullLock, "lock", true,
-		"Update lockfile after pull")
 }

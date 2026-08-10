@@ -18,7 +18,7 @@ import (
 
 // THE RECORD OF WHAT UPGRADE WOULD NOT DO.
 //
-// `remote upgrade` refuses to advance a pin onto content whose publisher
+// `deps upgrade` refuses to advance a pin onto content whose publisher
 // signature does not verify (see verifyAdvance), keeps the last verified pin,
 // and says so. Because it refuses, nothing is withheld afterwards — the kept
 // pin's content verifies fine — so every after-the-fact inspector truthfully

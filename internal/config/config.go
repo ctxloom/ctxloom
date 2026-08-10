@@ -2253,14 +2253,14 @@ func reportBundleLoadFailures(failures map[string]error) {
 				"remote bundle %q was installed but withheld: %v", name, err)
 			continue
 		}
-		strictness.FailOnce(strictness.ClassBundle, "ctxloom remote pull (or remove the bundle from its profiles)",
+		strictness.FailOnce(strictness.ClassBundle, "ctxloom deps pull (or remove the bundle from its profiles)",
 			"failed to load remote bundle %q from cache: %v", name, err)
 	}
 }
 
 // remoteBundleReaders builds one pinned-tree reader per lockfile-listed bundle:
 // the bytes come from the local git clone cache at the pinned SHA (single-file
-// bundles) or from the tree `remote pull` installed (directory-form bundles),
+// bundles) or from the tree `deps pull` installed (directory-form bundles),
 // and each reader does its OWN signature checking over exactly those bytes.
 //
 // Canonical refs are the sole resolution identity: profiles author canonical
@@ -2287,7 +2287,7 @@ func (c *Config) remoteBundleReaders() []bundles.Reader {
 	}
 	lock, err := remote.NewLockfileManager(baseDir, c.lockfileFSOptions()...).Load()
 	if err != nil {
-		strictness.FailOnce(strictness.ClassBundle, "run `ctxloom remote pull` to regenerate the lockfile, or fix it by hand",
+		strictness.FailOnce(strictness.ClassBundle, "run `ctxloom deps pull` to regenerate the lockfile, or fix it by hand",
 			"failed to load the remote lockfile; no remote bundles loaded: %v", err)
 		return nil
 	}

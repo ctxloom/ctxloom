@@ -1206,11 +1206,11 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		return j001600Reference(w)
 	})
 
-	// A plain `remote pull` is PASSIVE by design — remote_upgrade.go's own doc:
-	// "Passive 'remote pull' installs exactly what is already pinned and never
+	// A plain `deps pull` is PASSIVE by design — remote_upgrade.go's own doc:
+	// "Passive 'deps pull' installs exactly what is already pinned and never
 	// advances" — so on a bundle this project already installed once it reports
 	// "Skipped (kept at their locked commit)" and Alice keeps the ORIGINAL
-	// bytes. Taking Trent's newly published commit needs `remote update
+	// bytes. Taking Trent's newly published commit needs `deps check
 	// --apply` first (--force skips the per-item confirmation prompt these
 	// stdin-less exec.Command runs cannot answer), exactly as
 	// steps_trust_surface.go's tsUpdateAndPull already documents.

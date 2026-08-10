@@ -12,7 +12,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-// `bundle hold` / `bundle unhold` flip a flag on the ACTIVE LOCKFILE entry, so
+// `deps hold` / `deps unhold` flip a flag on the ACTIVE LOCKFILE entry, so
 // when the named item has no such entry nothing is flipped and nothing is
 // persisted. That whole branch used to read as the project's signature silent
 // no-op and was made a hard error. It is really two situations the lockfile
@@ -20,7 +20,7 @@ import (
 // reportNothingToHold. These two tests pin both arms so neither can drift back
 // into the other.
 
-// A name that resolves to NOTHING — a typo, the wrong project, a `remote pull`
+// A name that resolves to NOTHING — a typo, the wrong project, a `deps pull`
 // that never ran — is the real failure case: the caller asked to freeze a
 // dependency, nothing was frozen, and exit 0 would tell them it was. No
 // acceptance scenario ever covered this arm.
@@ -29,8 +29,8 @@ func TestBundleHoldUnhold_UnknownItemFailsInsteadOfNoOpping(t *testing.T) {
 		name string
 		run  func(*cobra.Command, []string) error
 	}{
-		{"hold", bundleHoldCmd.RunE},
-		{"unhold", bundleUnholdCmd.RunE},
+		{"hold", depsHoldCmd.RunE},
+		{"unhold", depsUnholdCmd.RunE},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			setupEditProject(t) // a project with no lockfile and no bundles at all
@@ -52,7 +52,7 @@ func TestBundleHoldUnhold_UnknownItemFailsInsteadOfNoOpping(t *testing.T) {
 // A LOCAL bundle is the arm the acceptance suite has specified since the
 // command was `bundle pin` ("Holding a local bundle reports it is not
 // lockfile-tracked", which asserts BOTH hold and unhold succeed). It has no
-// upstream and no lockfile entry, so `remote upgrade` can never advance it: the
+// upstream and no lockfile entry, so `deps upgrade` can never advance it: the
 // guarantee hold exists to give already holds, and unhold has nothing to
 // release. That is a benign no-op, not a user error — exit 0.
 //
@@ -61,9 +61,9 @@ func TestBundleHoldUnhold_UnknownItemFailsInsteadOfNoOpping(t *testing.T) {
 func TestBundleHoldUnhold_LocalBundleSucceedsWithANoticeOnStderr(t *testing.T) {
 	for _, verb := range []string{"hold", "unhold"} {
 		t.Run(verb, func(t *testing.T) {
-			run := bundleHoldCmd.RunE
+			run := depsHoldCmd.RunE
 			if verb == "unhold" {
-				run = bundleUnholdCmd.RunE
+				run = depsUnholdCmd.RunE
 			}
 			cfg := setupEditProject(t)
 			_, err := operations.CreateBundle(context.Background(), cfg, operations.CreateBundleRequest{Name: "demo"})
@@ -75,7 +75,7 @@ func TestBundleHoldUnhold_LocalBundleSucceedsWithANoticeOnStderr(t *testing.T) {
 			cmd.SetErr(&errOut)
 
 			require.NoError(t, run(cmd, []string{"demo"}),
-				"a local bundle is already unadvanceable by `remote upgrade`; asking to %s it is not a user error", verb)
+				"a local bundle is already unadvanceable by `deps upgrade`; asking to %s it is not a user error", verb)
 			assert.Contains(t, errOut.String(), "nothing to "+verb,
 				"the acceptance suite asserts this wording (bundle.feature)")
 			assert.Contains(t, errOut.String(), "local bundle")

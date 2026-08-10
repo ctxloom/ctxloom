@@ -115,13 +115,13 @@ ctxloom profile create go-dev \
   --parent 'https://github.com/alice/ctxloom-golang@bundles/dev-bundle#profiles/go-developer'
 
 # Fetch everything your profiles reference and update the lockfile
-ctxloom remote pull
+ctxloom deps pull
 
 # Let a human see what came in before the agent can
 ctxloom review
 ```
 
-`ctxloom remote pull` only fetches — it never exposes anything. Everything
+`ctxloom deps pull` only fetches — it never exposes anything. Everything
 from a remote is born pending and withheld from the agent until a human
 reviews it, unless you already trust the publisher's signing key. `ctxloom
 review` walks the pending items and shows each one's content: `[a]ccept`,
@@ -212,27 +212,27 @@ Choose descriptive names that indicate the content type:
 
 ### Staying Updated
 
-`ctxloom remote pull` only installs what's already pinned in the lockfile —
+`ctxloom deps pull` only installs what's already pinned in the lockfile —
 it never advances anything. To move a dependency's pin forward to the newest
-commit its version constraint allows, use `ctxloom remote upgrade`:
+commit its version constraint allows, use `ctxloom deps upgrade`:
 
 ```bash
 # Pull exactly what's already pinned
-ctxloom remote pull
+ctxloom deps pull
 
 # Advance pins to the newest commit each constraint allows
-ctxloom remote upgrade
+ctxloom deps upgrade
 ```
 
 Content that changes under an upgraded pin re-gates to pending, even if
 you'd already reviewed the old bytes — run `ctxloom review` again afterward
 to see what changed and decide.
 
-`ctxloom remote update [ref]` is a different, narrower command: it refreshes
+`ctxloom deps check [ref]` is a different, narrower command: it refreshes
 the local clone and checks for available updates without applying them
 (`--apply` applies; `--force` skips confirmation). Its optional argument is a
 full item/bundle reference, not a remote name — a bare `golang-bundles` is
-rejected; use a canonical URL, e.g. `ctxloom remote update
+rejected; use a canonical URL, e.g. `ctxloom deps check
 'https://github.com/alice/ctxloom-golang@bundles/testing#fragments/table-driven'`,
 or omit the argument to check everything in the lockfile.
 

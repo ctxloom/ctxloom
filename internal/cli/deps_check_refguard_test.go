@@ -25,7 +25,7 @@ func TestSingleUpdateRefGuard_OneMessageForANoURLReference(t *testing.T) {
 	require.NoError(t, perr, "this input must PARSE — the point is that it parses and still has no URL")
 	require.Empty(t, parsed.URL)
 
-	_, err := parseUpdateRef(noURLRef)
+	_, err := parseCheckRef(noURLRef)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "reference has no repository URL",
 		"the no-URL rejection must name the missing URL, not report a parse failure")
@@ -35,7 +35,7 @@ func TestSingleUpdateRefGuard_OneMessageForANoURLReference(t *testing.T) {
 // A genuinely unparseable reference keeps the parser's own explanation, which
 // carries the accepted forms.
 func TestSingleUpdateRefGuard_UnparseableKeepsParserMessage(t *testing.T) {
-	_, err := parseUpdateRef("::::not-a-valid-reference")
+	_, err := parseCheckRef("::::not-a-valid-reference")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid reference")
 }
@@ -49,7 +49,7 @@ func TestDetectSingleUpdate_TakesAValidatedReference(t *testing.T) {
 	mock.Refs = map[string]string{"main": "mainsha"}
 
 	const refStr = "https://github.com/o/r@bundles/x"
-	ref, err := parseUpdateRef(refStr)
+	ref, err := parseCheckRef(refStr)
 	require.NoError(t, err)
 
 	var out strings.Builder

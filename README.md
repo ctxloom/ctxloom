@@ -35,7 +35,7 @@ ctxloom init                  # Create .ctxloom directory in current project
 
 # Reference remote content from a local profile, then pull it
 ctxloom profile create developer -b ctxloom-default/core
-ctxloom remote pull           # Fetch referenced bundles and update the lockfile
+ctxloom deps pull           # Fetch referenced bundles and update the lockfile
 
 # Search for content
 ctxloom search -t golang      # Find fragments by tag

@@ -139,7 +139,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// Build the backend's OWN SurfaceSet from the assembled pieces and deliver
 	// every native surface into the target as an isolated cell — the single,
 	// per-provider-correct delivery path (claude → CLAUDE.md + .mcp.json +
-	// .claude/settings.json + .claude/commands; antigravity → .agents/…; kiro →
+	// .claude/settings.json + .claude/commands; kiro →
 	// .kiro/…). codex opts out of a NATIVE context file, writing only its
 	// config/cache surfaces. The orchestrator holds no per-backend file knowledge:
 	// correctness comes from routing through backends.BuildSurfaces.
@@ -205,7 +205,7 @@ func MaterializeProfile(ctx context.Context, cfg *config.Config, req Materialize
 	// whole product of this command.
 	//
 	// Every engine declares unsafe-file for context, so this request is always
-	// honourable: claude, kiro, opencode and antigravity have always had it, and
+	// honourable: claude, kiro and opencode have always had it, and
 	// codex gained it when its native AGENTS.md route stopped being folded
 	// invisibly into the hook approach.
 	sel := agent.Select(set).WithEverything().WithApproach(agent.SurfaceContext, agent.ApproachUnsafeFile)

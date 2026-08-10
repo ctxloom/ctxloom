@@ -12,7 +12,7 @@
 //
 // The backend parameter controls where servers are stored:
 //   - "" or "unified": The unified servers map
-//   - "claude-code", "antigravity": Backend-specific maps
+//   - "claude-code", "codex": Backend-specific maps
 //
 // # Test Injection Patterns
 //

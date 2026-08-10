@@ -974,14 +974,12 @@ const defaultChatDialTimeout = 5 * time.Minute
 // documented, intentional cases: (a) a StructuredChat backend outside the
 // coordinator's ViaStartRun allowlist (coord/spawner.go's
 // viaStartRunBackends) — CORRECTED 2026-07-24 (fix/legacy-launch-timeout):
-// this is NOT "no production backend, only test doubles". antigravity and
-// opencode are both fully registered production backends (internal/lm/
-// backends/registry.go) that implement agent.StructuredChat and are absent
+// this is NOT "no production backend, only test doubles". opencode is a
+// fully registered production backend (internal/lm/
+// backends/registry.go) that implements agent.StructuredChat and is absent
 // from viaStartRunBackends by design (spawner.go's doc); an agent_run against
-// either rides this exact dial, unconditionally, on every ordinary
-// (non-degraded) launch — antigravity's own native-session resume explicitly
-// depends on this path (resumeCapableBackends' doc, children.go's LEGACY
-// resume branch). "mock" is the only member of the allowlist gap that is
+// it rides this exact dial, unconditionally, on every ordinary
+// (non-degraded) launch. "mock" is the only member of the allowlist gap that is
 // test-only. And (b) C1's documented degraded-mode no-reach-back spawn
 // fallback (a StartRun-eligible backend launched with CTXLOOM_DEGRADED=1 and
 // no coordinator endpoint reachable — the runner could never dial home, so

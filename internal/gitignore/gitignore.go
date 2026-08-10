@@ -37,9 +37,11 @@ var PrivateStatePatterns = []string{
 }
 
 // TransientArtifactPatterns are unambiguous generated artifacts that accumulate
-// during hook application: the per-file settings backups, the Antigravity
-// workspace directory, and Codex's project config plus the credential copy
-// that lands beside it.
+// during hook application: the per-file settings backups, the antigravity
+// workspace directory (legacy — antigravity itself was removed in 0.7.0, but
+// a pre-upgrade project may still carry its debris, and nothing else writes
+// there to reclaim the pattern), and Codex's project config plus the
+// credential copy that lands beside it.
 //
 // GRANULARITY RULE. A directory is ignored WHOLESALE only when everything
 // under it is machine-written; anywhere a project's own files share the
@@ -48,8 +50,9 @@ var PrivateStatePatterns = []string{
 // project's choice.
 //
 //   - .agents/ qualifies wholesale: besides ctxloom's generated
-//     hooks.json/mcp_config.json/skills, agy fills it with per-conversation
-//     subagent scratch that must never be committed.
+//     hooks.json/mcp_config.json/skills, agy (antigravity, removed in 0.7.0)
+//     filled it with per-conversation subagent scratch that must never be
+//     committed — kept as a legacy-debris pattern for pre-upgrade projects.
 //   - .codex/ does not, so its members are listed one by one: config.toml,
 //     which ctxloom generates, and auth.json, which
 //     internal/lm/isolation/auth.go's SeedCodexHome copies from the host's
@@ -88,8 +91,8 @@ const WorktreeComment = "# ctxloom per-agent worktree config (isolation; NEVER m
 // deletion (`git status` showed ` D CLAUDE.md`) that no skip-worktree bit
 // covered, so teardown's WIP-safety check (correctly) read the worktree as
 // dirty and refused `git worktree remove`, permanently orphaning it. agy's
-// .agents/AGENTS.md is unaffected — already covered wholesale by the ".agents/"
-// entry below.
+// (antigravity, removed in 0.7.0) .agents/AGENTS.md was unaffected — already
+// covered wholesale by the ".agents/" entry below.
 var WorktreeArtifactPatterns = []string{
 	".mcp.json",
 	".claude/",

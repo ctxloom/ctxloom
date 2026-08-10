@@ -55,8 +55,27 @@ unleash:
   tags: ""
   # Output format (empty = terminal, or "json")
   output: ""
-  # Number of workers (0 = number of CPUs)
-  workers: 0
+  # Number of workers. NOT a speed knob — it is a DISK knob, and 0 (= one per
+  # CPU) does not work on a machine with many cores and a large tree.
+  #
+  # gremlins gives every worker its OWN FULL COPY of the module: workdir.go's
+  # CachedDealer.Get walks the source tree and copies it per worker name. The
+  # walk is the raw FILESYSTEM, so it copies everything gitignored too — this
+  # tree is 4.0 GB, of which 2.7 GB is `.reprise`'s untracked cache plus
+  # `website/` (411 MB), `dist/` (95 MB) and `bin/` (42 MB). None of that is
+  # Go source and all of it gets copied.
+  #
+  # At workers: 0 on a 20-core box that is 20 x 4.0 GB = 80 GB against 57 GB
+  # free. The disk fills, Get() returns an error, and executor.go:165 turns it
+  # into `panic("error, this is temporary")` — in EVERY worker, for EVERY
+  # package, which reads as "gremlins is broken on this toolchain" and is not.
+  # Measured 2026-08-10: at workers: 2 the same run completes in 9 seconds.
+  #
+  # This is the same filesystem-scope-blindness documented above for
+  # exclude-files, applied to the workdir copy rather than to mutant
+  # discovery. Raise this number only against measured free space:
+  # peak disk is workers x the FULL tree size, not the source size.
+  workers: 4
   # CPUs per test process (0 = no limit)
   test-cpu: 0
   # Timeout multiplier applied to the BASELINE test-suite duration. It is a

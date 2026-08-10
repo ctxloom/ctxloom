@@ -184,6 +184,23 @@ Feature: agent — the bindings that decide what runs, on what context, and wher
       And the output contains "profiles: dev, ops"
       And the output contains "permissions: plan"
 
+    # --surface is the delivery-preference axis (kind=approach, repeatable):
+    # which mechanism a surface reaches the engine through, distinct from
+    # llm/profiles/runtime/permissions above. It carries no listing render
+    # (agent list never prints a "surfaces:" line), so the only honest read
+    # of the effect is the binding it was written to.
+    Scenario: Setting a surface delivery preference records it in the binding
+      Given an initialized ctxloom project
+      And a profile "dev" exists
+      And I run "ctxloom agent create developer --llm claude-code --profiles dev"
+      When Alice sets how this binding's context should be delivered:
+        """
+        ctxloom agent edit developer --surface context=system-prompt
+        """
+      Then the command succeeds
+      And the output contains "Updated agent"
+      And the file ".ctxloom/config.yaml" contains "context: system-prompt"
+
   Rule: The default agent is what a bare run binds
 
     `ctxloom run` with no --agent and no -p/-f/-t binds the DEFAULT AGENT: its

@@ -589,6 +589,41 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
         -run TestCLICoverage_EveryLeafActuallyRan ./tests/acceptance/... || status=1
     exit "$status"
 
+# Re-run the CLI coverage gate ALONE, against a profile that already exists.
+#
+# The gate is a pure function of the profile `test-acceptance-cover` writes, but
+# that recipe always does the whole lane first — instrumented build, full
+# acceptance suite, covdata conversion, ~4 minutes — before the gate runs. The
+# commonest reason to touch the gate is editing coverageExemptLeaves, which
+# changes no program behaviour at all, so paying for a full re-run to watch one
+# assertion flip is pure waste. Running the underlying `go test` by hand is
+# correctly refused by ltk, so without this there is no sanctioned fast path.
+#
+# It FAILS rather than skips when no profile exists: a gate that quietly passes
+# over absent data is this project's characteristic bug, and the gate itself
+# already fatals on an unset CTXLOOM_COVERPROFILE and on a profile that parses to
+# zero blocks — this keeps the recipe honest to the same standard.
+#
+# Run `just test-acceptance-cover` first (or after any change to what the suite
+# EXECUTES); use this only when you changed the gate, not the program.
+test-coverage-gate PROFILE="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    profile="{{ PROFILE }}"
+    if [ -z "$profile" ]; then
+        profile="{{ go_tmp }}/acceptance-cover/profile.txt"
+    fi
+    if [ ! -s "$profile" ]; then
+        echo "error: no coverage profile at $profile" >&2
+        echo "       This gate reads a profile; it cannot produce one. Run" >&2
+        echo "       \`just test-acceptance-cover\` first, or pass a path." >&2
+        exit 1
+    fi
+    echo "=== every CLI leaf's RunE actually ran? (profile: $profile) ==="
+    CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{ go_tmp }}" \
+        go test -tags "acceptance integration coveragegate" -count=1 \
+        -run TestCLICoverage_EveryLeafActuallyRan ./tests/acceptance/...
+
 # Run the @container acceptance rows — the ones that actually launch an engine
 # inside a container (j002400_container.feature's differential host-vs-container
 # row). Excluded from `test-acceptance` for one measured reason: the first

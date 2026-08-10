@@ -206,6 +206,20 @@ Feature: llm — the named engine configurations, and the credentials they hold
       And the file ".ctxloom/config.yaml" contains "o1-pro"
       And the file ".ctxloom/config.yaml" contains "codex"
 
+    # --permissions is the launch-time posture, a project-file field distinct
+    # from the credential rule below (which is about the machine-scoped env
+    # block). Read back out of the project config, not the echo.
+    Scenario: Setting the permission posture records it in the project config
+      Given an initialized ctxloom project
+      And I run "ctxloom llm create big --type codex --model o1"
+      When Alice sets the posture this label launches with:
+        """
+        ctxloom llm edit big --permissions bypass
+        """
+      Then the command succeeds
+      And the output contains "Updated llm"
+      And the file ".ctxloom/config.yaml" contains "permissions: bypass"
+
   Rule: Removing reports before it destroys, and never reaches the credential
 
     A bare `remove` prints what would go and removes nothing, naming the

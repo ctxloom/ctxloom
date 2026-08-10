@@ -334,6 +334,21 @@ Feature: profile — the composition that decides what an agent actually receive
       When I run "ctxloom profile show dev"
       Then the output contains "updated-desc"
 
+    # The engine a profile prefers to launch is its own axis, distinct from
+    # the description above — a labeled llm config, read back out of the
+    # profile file it was written to.
+    Scenario: The preferred engine can be set by flag
+      Given an initialized ctxloom project
+      And a bundle "demo" exists
+      And a profile "dev" with bundle "demo"
+      And I run "ctxloom llm create big --type codex --model o1"
+      When Alice sets which engine this profile prefers to launch:
+        """
+        ctxloom profile modify dev --llm big
+        """
+      Then the command succeeds
+      And the file ".ctxloom/profiles/dev.yaml" contains "llm: big"
+
   Rule: Export publishes the definition; materialize writes the runnable surface
 
     # Same shape as the bundle round-trip: a profile export that dropped the

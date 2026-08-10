@@ -54,9 +54,17 @@ const modulePath = "github.com/ctxloom/ctxloom"
 // gate excludes both. Coverage says their RunE runs — they reach the point of
 // refusing, which is real execution of real code. An exemption for them would
 // be describing an intent, not the program.
+// `acp serve` LEFT this list when its --workspace/--agent validation gained a
+// scenario (features/cli/acp.feature). The exemption had said it "serves the
+// protocol on stdio until the client disconnects", which is no longer the whole
+// truth: the suite drives it with stdin at /dev/null, so acpagent.Serve's
+// JSON-RPC loop reads immediate EOF and returns cleanly. That is real execution
+// of real code — the same standard by which `bundle push` and `container build`
+// are absent here — but note what it does NOT prove: no protocol exchange
+// happens, so a scenario asserting `acp serve` SUCCEEDS is asserting it got past
+// validation and exited, not that it served anything.
 var coverageExemptLeaves = map[string]string{
 	"ctxloom acp run":                  "connects OUT to a live ACP agent; no hermetic peer",
-	"ctxloom acp serve":                "serves the protocol on stdio until the client disconnects",
 	"ctxloom session transcript watch": "long-lived file watcher; no hermetic exit",
 	"ctxloom plan watch":               "long-lived file watcher; no hermetic exit",
 	"ctxloom remote discover":          "network discovery search; no deterministic fixture",

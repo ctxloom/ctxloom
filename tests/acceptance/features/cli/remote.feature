@@ -106,6 +106,20 @@ Feature: remote — registering the sources content comes from, and browsing the
       And the file ".ctxloom/remotes.yaml" contains "acceptance-moved.git"
       And the file ".ctxloom/remotes.yaml" does not contain "acceptance-remote.git"
 
+    # --forge rebinds the adapter a remote resolves through, independent of
+    # its URL. Created bound to "git", then rebound to "github" — the new
+    # label read back out of the registry is the only honest proof the
+    # rebind landed rather than the create-time binding just sitting there.
+    Scenario: Rebinding a remote's forge records the new binding
+      Given an initialized ctxloom project
+      And I run "ctxloom remote create origin file:///tmp/acceptance-remote.git --forge git"
+      When Alice rebinds the remote to a different forge:
+        """
+        ctxloom remote edit origin --forge github
+        """
+      Then the command succeeds
+      And the file ".ctxloom/remotes.yaml" contains "forge: github"
+
     # The rename must carry the default with it. The pointer is stored BY NAME,
     # so a rename that ignored it would leave `default:` naming a remote that
     # no longer exists — and every bare command reaching for a default would

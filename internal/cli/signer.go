@@ -25,6 +25,7 @@ var (
 	signerAddNamespaces []string
 	signerAddComment    string
 	signerAddProject    bool
+	signerAddUser       bool
 	signerAddYes        bool
 )
 
@@ -37,14 +38,18 @@ name, an org name ("context@acme.com"), or a pipeline identity
 ("releases@ctxloom.dev"). It has no relationship to any account; it is
 purely the label your allowed_signers file and 'ctxloom signer' display.
 
-By default this writes to your USER store (~/.ctxloom/allowed_signers),
-which follows you across every project. --project writes to the
-COMMITTABLE project store (.ctxloom/allowed_signers) instead — the way a
-team distributes "trust our lead's approval key" to everyone who clones.
+By default this writes to the COMMITTABLE PROJECT store
+(.ctxloom/allowed_signers) — the way a team distributes "trust our lead's
+approval key" to everyone who clones, without every colleague having to
+trust the publisher individually. --user writes to your PER-MACHINE USER
+store (~/.ctxloom/allowed_signers) instead, which follows you across every
+project but travels with nobody else. Run outside a project (no .ctxloom
+directory found), the default falls back to the user store automatically
+and says so.
 
 Examples:
   ctxloom signer trust context@acme.com --key ~/.ssh/acme-publish.pub
-  ctxloom signer trust lead@team.example --key lead.pub --namespace approve,reject --project`
+  ctxloom signer trust lead@team.example --key lead.pub --namespace approve,reject --user`
 
 // runSignerAddCmd is signerTrustCmd's RunE.
 func runSignerAddCmd(cmd *cobra.Command, args []string) error {
@@ -52,7 +57,19 @@ func runSignerAddCmd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
-	return runSignerAdd(cmd, cfg, args[0], signerAddKey, signerAddNamespaces, signerAddComment, signerAddProject, signerAddYes)
+	return runSignerAdd(cmd, cfg, args[0], signerAddKey, signerAddNamespaces, signerAddComment,
+		effectiveSignerAddProject(signerAddProject, signerAddUser), signerAddYes)
+}
+
+// effectiveSignerAddProject resolves signer trust's write-target flag pair —
+// --project (default true: the project store is now the default posture)
+// and --user (the inverse, for the per-machine case) — into the single
+// `project` bool AddSigner takes. --user wins when both are set, so an
+// explicit `--user` always means the user store regardless of --project's
+// default. Split out from runSignerAddCmd so this resolution is testable
+// without cobra flag parsing.
+func effectiveSignerAddProject(project, user bool) bool {
+	return project && !user
 }
 
 // runSignerAdd is the testable body of `ctxloom signer trust`: cfg is DI'd
@@ -86,7 +103,13 @@ func runSignerAdd(cmd *cobra.Command, cfg *config.Config, principal, keyArg stri
 	}
 
 	return emit(cmd, res, func() error {
-		_, err := fmt.Fprintf(cmd.OutOrStdout(), "Trusted %s for %s (%s) — wrote %s\n",
+		w := cmd.OutOrStdout()
+		if res.Fallback {
+			if _, err := fmt.Fprintf(w, "%s\n", res.FallbackReason); err != nil {
+				return err
+			}
+		}
+		_, err := fmt.Fprintf(w, "Trusted %s for %s (%s) — wrote %s\n",
 			principal, strings.Join(namespaces, ", "), res.Fingerprint, res.Path)
 		return err
 	})
@@ -362,8 +385,10 @@ func init() {
 	signerTrustCmd.Flags().StringVar(&signerAddKey, "key", "", "public key: a file path, '-' for stdin, or a literal authorized_keys line (required)")
 	signerTrustCmd.Flags().StringSliceVar(&signerAddNamespaces, "namespace", nil, "namespace(s) to trust this key for: publish|approve|reject (default: publish)")
 	signerTrustCmd.Flags().StringVar(&signerAddComment, "comment", "", "override the key's own comment")
-	signerTrustCmd.Flags().BoolVar(&signerAddProject, "project", false, "write to the committable project store (.ctxloom/allowed_signers) instead of the user store")
+	signerTrustCmd.Flags().BoolVar(&signerAddProject, "project", true, "write to the committable project store (.ctxloom/allowed_signers) — the default; falls back to the user store when no project is configured")
+	signerTrustCmd.Flags().BoolVar(&signerAddUser, "user", false, "write to your PER-MACHINE user store (~/.ctxloom/allowed_signers) instead of the project store")
 	signerTrustCmd.Flags().BoolVarP(&signerAddYes, "yes", "y", false, "skip the confirmation prompt")
+	signerTrustCmd.MarkFlagsMutuallyExclusive("project", "user")
 	_ = signerTrustCmd.MarkFlagRequired("key")
 
 	signerUntrustCmd.Flags().BoolVar(&signerRemoveProject, "project", false, "delete from the committable project store instead of the user store")

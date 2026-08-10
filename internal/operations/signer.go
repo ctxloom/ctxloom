@@ -113,11 +113,15 @@ func keyInfoFromPublicKey(pub ssh.PublicKey, comment string) SignerKeyInfo {
 	}
 }
 
-// signerStorePath resolves which allowed_signers file `signer add/remove`
-// writes to: the committable project store (.ctxloom/allowed_signers) when
-// project is true, else the user store (~/.ctxloom/allowed_signers) — spec
-// §7, locations 2 and 3. Locations are chosen explicitly, never inferred,
-// because writing to the wrong one is a trust-root mistake.
+// signerStorePath resolves which allowed_signers file `signer remove` writes
+// to: the committable project store (.ctxloom/allowed_signers) when project
+// is true, else the user store (~/.ctxloom/allowed_signers) — spec §7,
+// locations 2 and 3. Locations are chosen explicitly, never inferred,
+// because writing to the wrong one is a trust-root mistake. A project
+// request with none configured is a hard error here — unlike
+// resolveSignerAddPath below, `signer untrust --project` outside a project
+// has nothing sensible to fall back to (removing from a user store the
+// caller never asked about would be its own surprise).
 func signerStorePath(cfg *config.Config, project bool) (string, error) {
 	if project {
 		if cfg == nil || len(cfg.GetAppPaths()) == 0 {
@@ -126,6 +130,29 @@ func signerStorePath(cfg *config.Config, project bool) (string, error) {
 		return paths.AllowedSignersPath(cfg.GetAppPaths()[0]), nil
 	}
 	return paths.HomeAllowedSignersPath()
+}
+
+// resolveSignerAddPath resolves the allowed_signers file `signer trust`
+// (AddSigner) writes to. project is now the DEFAULT posture (the committable
+// project store is what makes team trust work — a colleague who clones the
+// repo inherits it, rather than every colleague trusting the publisher
+// individually), so unlike signerStorePath a project request with none
+// configured does not fail: it falls back to the user store, and says so via
+// the returned usedProject/fallbackReason — silently writing somewhere other
+// than the project store a caller asked for is exactly the defect shape this
+// project keeps removing.
+func resolveSignerAddPath(cfg *config.Config, project bool) (path string, usedProject bool, fallbackReason string, err error) {
+	if project && cfg != nil && len(cfg.GetAppPaths()) > 0 {
+		return paths.AllowedSignersPath(cfg.GetAppPaths()[0]), true, "", nil
+	}
+	path, err = paths.HomeAllowedSignersPath()
+	if err != nil {
+		return "", false, "", err
+	}
+	if project {
+		fallbackReason = "no project (.ctxloom directory) found in this checkout — falling back to your user store"
+	}
+	return path, false, fallbackReason, nil
 }
 
 // AddSignerRequest is the input to AddSigner.
@@ -146,6 +173,12 @@ type AddSignerResult struct {
 	Path        string
 	Line        string
 	Fingerprint string
+	// Fallback is true when req.Project asked for the committable project
+	// store but none was configured, so this call wrote to the user store
+	// instead of failing. The CLI must SAY SO — see FallbackReason.
+	Fallback bool
+	// FallbackReason explains why, for CLI output. Empty unless Fallback.
+	FallbackReason string
 }
 
 // AddSigner appends one allowed_signers entry, creating the file (and its
@@ -169,7 +202,7 @@ func AddSigner(cfg *config.Config, req AddSignerRequest) (*AddSignerResult, erro
 		}
 	}
 
-	path, err := signerStorePath(cfg, req.Project)
+	path, usedProject, fallbackReason, err := resolveSignerAddPath(cfg, req.Project)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +227,13 @@ func AddSigner(cfg *config.Config, req AddSignerRequest) (*AddSignerResult, erro
 		return nil, err
 	}
 
-	return &AddSignerResult{Path: path, Line: line, Fingerprint: req.Key.Fingerprint}, nil
+	return &AddSignerResult{
+		Path:           path,
+		Line:           line,
+		Fingerprint:    req.Key.Fingerprint,
+		Fallback:       req.Project && !usedProject,
+		FallbackReason: fallbackReason,
+	}, nil
 }
 
 // appendAllowedSignersLine creates dirs/file as needed and appends line,

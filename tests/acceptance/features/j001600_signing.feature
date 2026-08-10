@@ -151,6 +151,28 @@ Feature: A signature somebody can check
     Then the command succeeds
     And the listing names "context@acme.example" in the "project" store, with Trent's fingerprint and the publish namespace
 
+  # The project store is now the DEFAULT — --project above is no longer the
+  # thing that made this land where a clone inherits it, it is just still
+  # legal to type. This scenario is the same claim with the flag dropped: the
+  # only thing that changed is which store `signer trust` picks when nobody
+  # says, and a colleague who clones must inherit trust without ever having
+  # been told to type --project.
+  Scenario: Trusting a signer with no store flag lands in the project's committable store by default
+    When I run "ctxloom signer trust context@acme.example --key acme-publish.pub --yes"
+    Then the command succeeds
+    And the project store ".ctxloom/allowed_signers" trusts "context@acme.example" for publishing, with Trent's own key
+    And the user store ".ctxloom/allowed_signers" was never written
+
+  # --user is the per-machine escape hatch --project used to be the only way
+  # to avoid: this decision follows Trent across every project instead of
+  # travelling with this one clone.
+  Scenario: --user overrides the default and writes the per-machine store instead
+    When I run "ctxloom signer trust context@acme.example --key acme-publish.pub --user --yes"
+    Then the command succeeds
+    And the home file ".ctxloom/allowed_signers" exists
+    And the home file ".ctxloom/allowed_signers" contains "context@acme.example"
+    And the file ".ctxloom/allowed_signers" does not exist
+
   # A principal can hold entries in both stores at once, and `show` is the only
   # command that has to render BOTH — a listing that silently collapses them
   # hides half of what is actually trusted.

@@ -14,6 +14,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/signing"
 	"github.com/ctxloom/ctxloom/internal/signing/allowedsigners"
 )
@@ -159,6 +160,69 @@ func TestAddSigner_WrongNamespaceKeyNotTrustedForPublish(t *testing.T) {
 	principal, verr := signing.VerifyPublisher(payload, armored, store, time.Now())
 	require.NoError(t, verr)
 	assert.Empty(t, principal, "an approve-only key must not be trusted for publish")
+}
+
+// TestAddSigner_ProjectRequestedButNoneConfigured_FallsBackToUserStore is the
+// edge `signer trust`'s new project-by-default posture must handle: run
+// outside a project (cfg carries no AppPaths — nothing under .ctxloom/), the
+// call must NOT fail. It falls back to the user store and says so via the
+// result (res.Fallback/FallbackReason), which the CLI surfaces to the human —
+// writing somewhere other than where the user expects, silently, is exactly
+// the defect shape this project keeps removing.
+func TestAddSigner_ProjectRequestedButNoneConfigured_FallsBackToUserStore(t *testing.T) {
+	cfg := config.NewFixture(config.Fixture{}) // no AppPaths: outside a project
+	t.Setenv("HOME", t.TempDir())
+	fs := afero.NewOsFs()
+	_, line := testKeyLine(t)
+	keyInfo, err := ResolveSignerKey(line, fs, nil)
+	require.NoError(t, err)
+
+	res, err := AddSigner(cfg, AddSignerRequest{
+		Principal: "x@example.com",
+		Key:       keyInfo,
+		Project:   true,
+		FS:        fs,
+	})
+	require.NoError(t, err, "no project configured must fall back, never fail")
+
+	homePath, herr := paths.HomeAllowedSignersPath()
+	require.NoError(t, herr)
+	assert.Equal(t, homePath, res.Path, "the entry must land in the USER store when no project is configured")
+	assert.True(t, res.Fallback, "the result must say a fallback happened")
+	assert.NotEmpty(t, res.FallbackReason, "the result must say WHY")
+
+	data, err := afero.ReadFile(fs, homePath)
+	require.NoError(t, err)
+	assert.Contains(t, string(data), "x@example.com", "the fallback must actually write the entry, not just report one")
+}
+
+// TestAddSigner_ProjectConfigured_NoFallbackAndNeverTouchesUserStore is the
+// companion proof: WITH a project configured, requesting the project store
+// must land there — Fallback false — and must NEVER touch the user store,
+// even incidentally.
+func TestAddSigner_ProjectConfigured_NoFallbackAndNeverTouchesUserStore(t *testing.T) {
+	_, cfg := setupBundleTestDir(t)
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	fs := afero.NewOsFs()
+	_, line := testKeyLine(t)
+	keyInfo, err := ResolveSignerKey(line, fs, nil)
+	require.NoError(t, err)
+
+	res, err := AddSigner(cfg, AddSignerRequest{
+		Principal: "team@example.com",
+		Key:       keyInfo,
+		Project:   true,
+		FS:        fs,
+	})
+	require.NoError(t, err)
+	assert.False(t, res.Fallback, "a configured project must never report a fallback")
+
+	homePath, herr := paths.HomeAllowedSignersPath()
+	require.NoError(t, herr)
+	exists, eerr := afero.Exists(fs, homePath)
+	require.NoError(t, eerr)
+	assert.False(t, exists, "trusting into the project store must never create/touch the user store")
 }
 
 func TestAddSigner_AppendsWithoutClobberingExistingEntries(t *testing.T) {

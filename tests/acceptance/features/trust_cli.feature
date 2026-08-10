@@ -126,3 +126,19 @@ Feature: Trusting and untrusting, on the noun that owns the thing
     When I run "ctxloom remote untrust https://git.example.com/team/bundles"
     Then the command succeeds
     And the output contains "forgot 0 decisions"
+
+  # `signer trust` defaults to the committable PROJECT store (j001600_signing
+  # proves the in-project cases). This is the edge that default has to
+  # handle: run with no .ctxloom directory at all, there is no project store
+  # to write. It must not fail — it falls back to the user store, and the
+  # output names WHICH store it used and WHY, because silently writing
+  # somewhere other than where the user expects is exactly the defect shape
+  # this project keeps removing.
+  Scenario: Trusting a signer outside a project falls back to the user store and says so
+    Given an empty project directory
+    When I run "ctxloom signer trust solo@example.com --key 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPu3qoOrcLwuHKdsczSsVcMrm+R6iPISwuP1K1/82kLr acme-fallback-test' --yes"
+    Then the command succeeds
+    And the output contains "no project"
+    And the output contains "user store"
+    And the home file ".ctxloom/allowed_signers" exists
+    And the home file ".ctxloom/allowed_signers" contains "solo@example.com"

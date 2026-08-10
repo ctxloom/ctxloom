@@ -143,7 +143,15 @@ func signerStorePath(cfg *config.Config, project bool) (string, error) {
 // project keeps removing.
 func resolveSignerAddPath(cfg *config.Config, project bool) (path string, usedProject bool, fallbackReason string, err error) {
 	if project && cfg != nil && len(cfg.GetAppPaths()) > 0 {
-		return paths.AllowedSignersPath(cfg.GetAppPaths()[0]), true, "", nil
+		// A non-empty app path is NOT evidence of a project: outside one it
+		// resolves to the HOME app dir, and taking this branch there writes
+		// the user store while reporting the project store — the exact
+		// silent-wrong-destination this function exists to prevent. Compare
+		// against home so only a genuine project checkout qualifies.
+		candidate := paths.AllowedSignersPath(cfg.GetAppPaths()[0])
+		if home, herr := paths.HomeAllowedSignersPath(); herr != nil || candidate != home {
+			return candidate, true, "", nil
+		}
 	}
 	path, err = paths.HomeAllowedSignersPath()
 	if err != nil {

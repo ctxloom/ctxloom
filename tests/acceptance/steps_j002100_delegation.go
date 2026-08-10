@@ -107,7 +107,7 @@ func j002100RenderConfig(j002100 *j002100State) string {
 	b.WriteString("version: 4\nllm:\n  configs:\n    fast:\n      type: mock\n  defaults:\n    primary: fast\n    fast: fast\nagents:\n")
 	for _, name := range j002100.order {
 		s := j002100.specs[name]
-		fmt.Fprintf(&b, "  %s:\n    engine: fast\n    profiles:\n      - %s\n    permissions: %s\n", name, s.Profile, s.Permission)
+		fmt.Fprintf(&b, "  %s:\n    llm: fast\n    profiles:\n      - %s\n    permissions: %s\n", name, s.Profile, s.Permission)
 	}
 	return b.String()
 }

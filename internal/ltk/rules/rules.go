@@ -4,10 +4,7 @@
 package rules
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"slices"
@@ -18,6 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/ctxloom/ctxloom/internal/ltk/ir"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // Action is the outcome a rule (or default policy) selects.
@@ -671,10 +669,8 @@ func isShortCluster(tok string, shell ir.Shell) bool {
 // rejected so that typos in a rule file surface as errors instead of being
 // silently ignored.
 func Parse(data []byte) (*Config, error) {
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
 	var cfg Config
-	if err := dec.Decode(&cfg); err != nil && !errors.Is(err, io.EOF) {
+	if err := yamlx.DecodeStrict(data, &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 	if err := cfg.normalizeAndValidate(); err != nil {

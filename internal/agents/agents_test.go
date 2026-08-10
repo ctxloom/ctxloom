@@ -22,9 +22,9 @@ func writeAgentFile(t *testing.T, dir, name, body string) {
 }
 
 func TestParseAgent(t *testing.T) {
-	sub, err := ParseAgent([]byte("engine: fast\nprofiles:\n  - p1\n  - p2\n"))
+	sub, err := ParseAgent([]byte("llm: fast\nprofiles:\n  - p1\n  - p2\n"))
 	require.NoError(t, err)
-	assert.Equal(t, "fast", sub.Engine)
+	assert.Equal(t, "fast", sub.LLM)
 	assert.Equal(t, []string{"p1", "p2"}, sub.Profiles)
 	// Name/Source are not encoded in the body — callers assign them.
 	assert.Empty(t, sub.Name)
@@ -36,7 +36,7 @@ func TestParseAgent(t *testing.T) {
 // from the path.
 func TestLoader_ListReadsDirectory(t *testing.T) {
 	dir := t.TempDir()
-	writeAgentFile(t, dir, "dev.yaml", "engine: claude-code\nprofiles: [go-developer]\n")
+	writeAgentFile(t, dir, "dev.yaml", "llm: claude-code\nprofiles: [go-developer]\n")
 	writeAgentFile(t, dir, "finder.yaml", "profiles: [finder]\n")
 
 	list, err := NewLoader([]string{dir}, nil).List()
@@ -44,20 +44,20 @@ func TestLoader_ListReadsDirectory(t *testing.T) {
 	require.Len(t, list, 2)
 	// Sorted by name.
 	assert.Equal(t, "dev", list[0].Name)
-	assert.Equal(t, "claude-code", list[0].Engine)
+	assert.Equal(t, "claude-code", list[0].LLM)
 	assert.Equal(t, []string{"go-developer"}, list[0].Profiles)
 	assert.Equal(t, filepath.Join(dir, "dev.yaml"), list[0].Source)
 
 	assert.Equal(t, "finder", list[1].Name)
-	assert.Empty(t, list[1].Engine, "engine is optional")
+	assert.Empty(t, list[1].LLM, "engine is optional")
 }
 
 // TestLoader_FaultTolerantBadFile proves a malformed agent file is skipped
 // (warned, not fatal) and the valid ones still load — ctxloom fault tolerance.
 func TestLoader_FaultTolerantBadFile(t *testing.T) {
 	dir := t.TempDir()
-	writeAgentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
-	writeAgentFile(t, dir, "bad.yaml", "engine: [this, is, not, a, string\n: : :\n")
+	writeAgentFile(t, dir, "good.yaml", "llm: fast\nprofiles: [p1]\n")
+	writeAgentFile(t, dir, "bad.yaml", "llm: [this, is, not, a, string\n: : :\n")
 
 	list, err := NewLoader([]string{dir}, nil).List()
 	require.NoError(t, err, "a bad file must not fail the whole list")
@@ -74,15 +74,15 @@ func TestLoader_MissingDirectory(t *testing.T) {
 // TestParseAgent_DrivingRoundTrips proves the driving enum round-trips
 // through agent YAML: an empty/absent value, and each named enum value.
 func TestParseAgent_DrivingRoundTrips(t *testing.T) {
-	sub, err := ParseAgent([]byte("engine: fast\nprofiles: [p1]\n"))
+	sub, err := ParseAgent([]byte("llm: fast\nprofiles: [p1]\n"))
 	require.NoError(t, err)
 	assert.Equal(t, DrivingMode(""), sub.Driving, "absent driving: leaves the zero value (conversational)")
 
-	sub, err = ParseAgent([]byte("engine: fast\nprofiles: [p1]\ndriving: conversational\n"))
+	sub, err = ParseAgent([]byte("llm: fast\nprofiles: [p1]\ndriving: conversational\n"))
 	require.NoError(t, err)
 	assert.Equal(t, DrivingConversational, sub.Driving)
 
-	sub, err = ParseAgent([]byte("engine: fast\nprofiles: [p1]\ndriving: oneshot\n"))
+	sub, err = ParseAgent([]byte("llm: fast\nprofiles: [p1]\ndriving: oneshot\n"))
 	require.NoError(t, err)
 	assert.Equal(t, DrivingOneshot, sub.Driving)
 }
@@ -92,7 +92,7 @@ func TestParseAgent_DrivingRoundTrips(t *testing.T) {
 // unknown-value handling) — a typo here changes execution semantics, so it
 // must never silently resolve to the conversational default.
 func TestParseAgent_UnknownDrivingRejected(t *testing.T) {
-	_, err := ParseAgent([]byte("engine: fast\ndriving: bogus\n"))
+	_, err := ParseAgent([]byte("llm: fast\ndriving: bogus\n"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bogus")
 	assert.Contains(t, err.Error(), "conversational")
@@ -105,8 +105,8 @@ func TestParseAgent_UnknownDrivingRejected(t *testing.T) {
 // string is skipped, the rest of the directory still loads.
 func TestLoader_FaultTolerantBadDriving(t *testing.T) {
 	dir := t.TempDir()
-	writeAgentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
-	writeAgentFile(t, dir, "bad.yaml", "engine: fast\ndriving: bogus\n")
+	writeAgentFile(t, dir, "good.yaml", "llm: fast\nprofiles: [p1]\n")
+	writeAgentFile(t, dir, "bad.yaml", "llm: fast\ndriving: bogus\n")
 
 	list, err := NewLoader([]string{dir}, nil).List()
 	require.NoError(t, err, "a bad driving value must not fail the whole list")
@@ -122,7 +122,7 @@ func TestParseAgent_NoProfilesRejected(t *testing.T) {
 	cases := map[string]string{
 		"zero-byte":       "",
 		"comments-only":   "# just a comment\n",
-		"engine, no list": "engine: fast\n",
+		"engine, no list": "llm: fast\n",
 	}
 	for name, body := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -136,7 +136,7 @@ func TestParseAgent_NoProfilesRejected(t *testing.T) {
 // TestParseAgent_UnknownKeyRejected proves a typo'd top-level key
 // is caught at parse time (KnownFields) instead of being silently dropped.
 func TestParseAgent_UnknownKeyRejected(t *testing.T) {
-	_, err := ParseAgent([]byte("engine: fast\nprofils: [p1]\n"))
+	_, err := ParseAgent([]byte("llm: fast\nprofils: [p1]\n"))
 	require.Error(t, err)
 }
 
@@ -146,7 +146,7 @@ func TestParseAgent_UnknownKeyRejected(t *testing.T) {
 // directory still loads.
 func TestLoader_FaultTolerantNoProfiles(t *testing.T) {
 	dir := t.TempDir()
-	writeAgentFile(t, dir, "good.yaml", "engine: fast\nprofiles: [p1]\n")
+	writeAgentFile(t, dir, "good.yaml", "llm: fast\nprofiles: [p1]\n")
 	writeAgentFile(t, dir, "empty.yaml", "")
 
 	list, err := NewLoader([]string{dir}, nil).List()
@@ -201,7 +201,7 @@ func TestLoader_CorruptFileDoesNotShadowLaterValidAgent(t *testing.T) {
 	first := t.TempDir()
 	second := t.TempDir()
 	writeAgentFile(t, first, "reviewer.yaml", "profiles: [\n")
-	writeAgentFile(t, second, "reviewer.yaml", "engine: fast\nprofiles:\n  - review\n")
+	writeAgentFile(t, second, "reviewer.yaml", "llm: fast\nprofiles:\n  - review\n")
 
 	l := NewLoader([]string{first, second}, nil)
 	got, err := l.List()
@@ -209,7 +209,7 @@ func TestLoader_CorruptFileDoesNotShadowLaterValidAgent(t *testing.T) {
 
 	require.Len(t, got, 1, "the valid definition in the second directory must survive")
 	assert.Equal(t, "reviewer", got[0].Name)
-	assert.Equal(t, "fast", got[0].Engine)
+	assert.Equal(t, "fast", got[0].LLM)
 	assert.Equal(t, []string{"review"}, got[0].Profiles)
 }
 
@@ -219,15 +219,15 @@ func TestLoader_CorruptFileDoesNotShadowLaterValidAgent(t *testing.T) {
 func TestLoader_ValidFileStillWinsOverLaterDuplicate(t *testing.T) {
 	first := t.TempDir()
 	second := t.TempDir()
-	writeAgentFile(t, first, "reviewer.yaml", "engine: first\nprofiles:\n  - a\n")
-	writeAgentFile(t, second, "reviewer.yaml", "engine: second\nprofiles:\n  - b\n")
+	writeAgentFile(t, first, "reviewer.yaml", "llm: first\nprofiles:\n  - a\n")
+	writeAgentFile(t, second, "reviewer.yaml", "llm: second\nprofiles:\n  - b\n")
 
 	l := NewLoader([]string{first, second}, nil)
 	got, err := l.List()
 	require.NoError(t, err)
 
 	require.Len(t, got, 1)
-	assert.Equal(t, "first", got[0].Engine)
+	assert.Equal(t, "first", got[0].LLM)
 }
 
 // statErrorFs makes Stat on one exact path fail with an error that is NOT
@@ -339,7 +339,7 @@ func TestAgent_FromConfig(t *testing.T) {
 // stops the two parse-time rejections from being quietly lost in the move.
 func TestParseAgent_ValidationBoundary(t *testing.T) {
 	rejected := map[string]string{
-		"no profiles":     "engine: fast\n",
+		"no profiles":     "llm: fast\n",
 		"unknown driving": "profiles: [p]\ndriving: warm\n",
 	}
 	for name, body := range rejected {

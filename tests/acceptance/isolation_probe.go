@@ -671,7 +671,7 @@ func probeConfigYAML(backendType string, axis probeAxis) string {
 	base := agent.config
 	var b strings.Builder
 	b.WriteString(base)
-	b.WriteString("agents:\n  probe:\n    engine: ")
+	b.WriteString("agents:\n  probe:\n    llm: ")
 	b.WriteString(key)
 	b.WriteString("\n    profiles: []\n    permissions: bypass\n")
 	if axis == probeAxisContainer {

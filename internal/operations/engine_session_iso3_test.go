@@ -356,12 +356,12 @@ func TestOpenEngineSession_ContainerRuntimeAnnounces(t *testing.T) {
 	// agent to ever carry a non-host runtime through a persisted file (home's
 	// contribution is replaced wholesale the instant project also names the
 	// same agent, which it must to give the agent a real `engine` —
-	// agents.*.engine stays Shared, home-disallowed). See the report's
+	// agents.*.llm stays Shared, home-disallowed). See the report's
 	// divergence section. So this fixture is exactly what it looks like: an
 	// ordinary project-declared agent, engine and runtime both in the same
 	// (committed) file, same as before this change.
 	body := "version: 5\n" +
-		"agents:\n  builder:\n    engine: mock\n    runtime: container\n"
+		"agents:\n  builder:\n    llm: mock\n    runtime: container\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))
 
 	client := &fakeACPEngineClient{}
@@ -404,7 +404,7 @@ func TestOpenEngineSession_InitSummaryModelMatchesDelivered(t *testing.T) {
 	require.NoError(t, os.MkdirAll(appDir, 0o755))
 	body := "version: 5\n" +
 		"llm:\n  configs:\n    fast-model:\n      type: mock\n      model: mock-model-v1\n" +
-		"agents:\n  coder:\n    engine: fast-model\n"
+		"agents:\n  coder:\n    llm: fast-model\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))
 
 	client := &fakeACPEngineClient{}

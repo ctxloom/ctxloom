@@ -208,7 +208,7 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		},
 		{
 			"agent-level runtime override",
-			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    runtime: container\n",
+			"agents:\n  reviewer:\n    llm: fast\n    profiles: [review]\n    runtime: container\n",
 		},
 		{
 			"llm config entry with permissions posture",
@@ -220,7 +220,7 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		},
 		{
 			"agent-level permissions posture",
-			"agents:\n  reviewer:\n    engine: fast\n    profiles: [review]\n    permissions: bypass\n",
+			"agents:\n  reviewer:\n    llm: fast\n    profiles: [review]\n    permissions: bypass\n",
 		},
 		{
 			"per-backend isolation image overrides",
@@ -254,11 +254,11 @@ func TestArch_ConfigSchema_AcceptsParserAcceptedNestedForms(t *testing.T) {
 		},
 		{
 			"agent escalation rungs",
-			"agents:\n  reviewer:\n    engine: fast\n    escalation:\n      - kinds: [TOOL_USE]\n        action: auto_accept\n      - action: relay_to_role\n        role: parent\n        timeout: 5m\n",
+			"agents:\n  reviewer:\n    llm: fast\n    escalation:\n      - kinds: [TOOL_USE]\n        action: auto_accept\n      - action: relay_to_role\n        role: parent\n        timeout: 5m\n",
 		},
 		{
 			"agent coordinator + driving bindings",
-			"agents:\n  coord:\n    engine: fast\n    profiles: [review]\n    coordinator: true\n    driving: oneshot\n",
+			"agents:\n  coord:\n    llm: fast\n    profiles: [review]\n    coordinator: true\n    driving: oneshot\n",
 		},
 	} {
 		t.Run(c.name, func(t *testing.T) {

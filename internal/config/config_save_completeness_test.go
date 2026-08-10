@@ -40,7 +40,7 @@ func fullyPopulatedFixture() Fixture {
 		Hooks:                        wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "true"}}}},
 		MCP:                          wire.MCPConfig{Servers: map[string]wire.MCPServer{"srv": {Command: "true"}}},
 		Profiles:                     ProfilesConfig{Definitions: map[string]Profile{"p": {Description: "a profile"}}},
-		Agents:                       map[string]agents.Agent{"worker": {Engine: "fast"}},
+		Agents:                       map[string]agents.Agent{"worker": {LLM: "fast"}},
 		DefaultAgent:                 "worker",
 		Workspace:                    "worktree",
 		DirtyTreeHandler:             "commit",

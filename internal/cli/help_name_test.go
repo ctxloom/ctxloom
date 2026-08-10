@@ -92,7 +92,7 @@ func TestAgentNamedHelp_IsShowable(t *testing.T) {
 	agentsDir := filepath.Join(root, ".ctxloom", "agents")
 	require.NoError(t, os.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(agentsDir, "help.yaml"),
-		[]byte("engine: claude-code\nprofiles: [default]\n"), 0o644))
+		[]byte("llm: claude-code\nprofiles: [default]\n"), 0o644))
 	config.Invalidate()
 	t.Cleanup(config.Invalidate)
 

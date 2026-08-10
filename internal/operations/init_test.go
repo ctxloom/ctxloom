@@ -198,7 +198,7 @@ func TestInitializeProject_ScaffoldsSeedProfileAndDefaultAgent(t *testing.T) {
 	assert.Equal(t, SeedProfileName, cfg.GetDefaultAgent(), "default_agent names the seeded agent")
 	assert.Equal(t, []string{SeedProfileName}, cfg.DefaultAgentProfiles(), "the default agent composes the local seed profile")
 	require.Contains(t, cfg.GetConfiguredAgents(), SeedProfileName, "init seeds the default agent")
-	assert.Equal(t, "claude-code", cfg.GetConfiguredAgents()[SeedProfileName].Engine, "the default agent carries the selected primary engine")
+	assert.Equal(t, "claude-code", cfg.GetConfiguredAgents()[SeedProfileName].LLM, "the default agent carries the selected primary engine")
 	assert.Equal(t, "host", cfg.GetConfiguredAgents()[SeedProfileName].Runtime)
 }
 

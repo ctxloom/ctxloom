@@ -117,7 +117,7 @@ func j002300HermeticConfigYAML(specs ...*j002300AgentSpec) string {
 	var b strings.Builder
 	b.WriteString("version: 4\nworkspace: none\nllm:\n  configs:\n    fast:\n      type: mock\n  defaults:\n    primary: fast\n    fast: fast\nagents:\n")
 	for _, s := range specs {
-		fmt.Fprintf(&b, "  %s:\n    engine: fast\n    profiles:\n      - %s\n    permissions: bypass\n", s.Name, s.Profile)
+		fmt.Fprintf(&b, "  %s:\n    llm: fast\n    profiles:\n      - %s\n    permissions: bypass\n", s.Name, s.Profile)
 	}
 	return b.String()
 }
@@ -143,12 +143,12 @@ llm:
     fast: claude
 agents:
   %s:
-    engine: claude
+    llm: claude
     profiles:
       - %s
     permissions: bypass
   %s:
-    engine: codex
+    llm: codex
     profiles:
       - %s
     permissions: bypass

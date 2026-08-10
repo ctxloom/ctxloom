@@ -267,7 +267,7 @@ func TestLoad_ConfigSetPatchesOneAgentFieldWithoutWipingSiblings(t *testing.T) {
 agents:
   reviewer:
     profiles: [default]
-    engine: claude-code
+    llm: claude-code
 `), 0644))
 
 	overrides := confload.Overrides{Flags: map[string]any{"agents.reviewer.permissions": "bypass"}}
@@ -278,7 +278,7 @@ agents:
 	require.True(t, ok)
 	assert.Equal(t, "bypass", reviewer.Permissions, "the override itself must still apply")
 	assert.Equal(t, []string{"default"}, reviewer.Profiles, "a sibling field the override never touched must survive")
-	assert.Equal(t, "claude-code", reviewer.Engine, "same for a second untouched sibling field")
+	assert.Equal(t, "claude-code", reviewer.LLM, "same for a second untouched sibling field")
 }
 
 // ===== saveLocked must not leak a home-inherited Machine value into the ====

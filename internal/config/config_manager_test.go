@@ -53,7 +53,7 @@ func TestUpdate_SerializesConcurrentWritersInProcess(t *testing.T) {
 				if d.Agents == nil {
 					d.Agents = map[string]agents.Agent{}
 				}
-				d.Agents[fmt.Sprintf("agent-%02d", i)] = agents.Agent{Engine: fmt.Sprintf("engine-%02d", i)}
+				d.Agents[fmt.Sprintf("agent-%02d", i)] = agents.Agent{LLM: fmt.Sprintf("engine-%02d", i)}
 				return nil
 			})
 		}(i)
@@ -119,7 +119,7 @@ func TestUpdate_HoldsFileLockAcrossReadModifyWrite(t *testing.T) {
 			if d.Agents == nil {
 				d.Agents = map[string]agents.Agent{}
 			}
-			d.Agents["a"] = agents.Agent{Engine: "a"}
+			d.Agents["a"] = agents.Agent{LLM: "a"}
 			return nil
 		})
 		assert.NoError(t, err)
@@ -133,7 +133,7 @@ func TestUpdate_HoldsFileLockAcrossReadModifyWrite(t *testing.T) {
 		err := mgr.Update(func(d *Draft) error {
 			_, ok := d.Agents["a"]
 			bSawA <- ok
-			d.Agents["b"] = agents.Agent{Engine: "b"}
+			d.Agents["b"] = agents.Agent{LLM: "b"}
 			return nil
 		})
 		assert.NoError(t, err)
@@ -191,7 +191,7 @@ func TestConfig_SaveLockedAloneLosesConcurrentWrites(t *testing.T) {
 			if cfg.agents == nil {
 				cfg.agents = map[string]agents.Agent{}
 			}
-			cfg.agents[fmt.Sprintf("agent-%02d", i)] = agents.Agent{Engine: fmt.Sprintf("engine-%02d", i)}
+			cfg.agents[fmt.Sprintf("agent-%02d", i)] = agents.Agent{LLM: fmt.Sprintf("engine-%02d", i)}
 			configPath, perr := cfg.GetConfigFilePath()
 			if perr != nil {
 				errs[i] = perr
@@ -323,7 +323,7 @@ func TestSnapshot_CannotBeMutatedByReaders(t *testing.T) {
 	appDir := managerTestDir(t)
 	mgr := NewManager(WithAppDir(appDir))
 	require.NoError(t, mgr.Update(func(d *Draft) error {
-		d.Agents = map[string]agents.Agent{"seed": {Engine: "x"}}
+		d.Agents = map[string]agents.Agent{"seed": {LLM: "x"}}
 		return nil
 	}))
 	cfg, err := Load(WithAppDir(appDir))
@@ -336,7 +336,7 @@ func TestSnapshot_CannotBeMutatedByReaders(t *testing.T) {
 	// compile error that, by definition, cannot be expressed as a passing
 	// runtime test — see the doc comment above.
 	agentsCopy := cfg.GetConfiguredAgents()
-	agentsCopy["injected"] = agents.Agent{Engine: "should-not-appear"}
+	agentsCopy["injected"] = agents.Agent{LLM: "should-not-appear"}
 	assert.NotContains(t, cfg.GetConfiguredAgents(), "injected",
 		"mutating an accessor's returned copy must never reach the shared instance")
 }

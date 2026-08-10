@@ -76,7 +76,7 @@ func TestSetAgent_RoundTripsThroughConfig(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := reloaded.Agent("finder")
 	require.True(t, ok, "set agent must survive a reload")
-	assert.Equal(t, "claude-fast", sub.Engine)
+	assert.Equal(t, "claude-fast", sub.LLM)
 	assert.Equal(t, []string{"p1", "p2"}, sub.Profiles)
 }
 
@@ -147,7 +147,7 @@ func TestSetAgent_UnknownEngineLeavesExistingBindingIntact(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := final.Agent("dev")
 	require.True(t, ok, "the existing agent must survive a refused edit")
-	assert.Equal(t, "claude-code", sub.Engine, "a refused edit must not corrupt the binding it was editing")
+	assert.Equal(t, "claude-code", sub.LLM, "a refused edit must not corrupt the binding it was editing")
 	assert.Equal(t, []string{"default"}, sub.Profiles)
 }
 
@@ -299,7 +299,7 @@ func TestSetAgent_UpdatesExisting(t *testing.T) {
 	require.NoError(t, err)
 	sub, ok := final.Agent("dev")
 	require.True(t, ok)
-	assert.Equal(t, "codex", sub.Engine, "engine replaced")
+	assert.Equal(t, "codex", sub.LLM, "engine replaced")
 	assert.Equal(t, []string{"y", "z"}, sub.Profiles, "profiles replaced, not unioned")
 }
 
@@ -374,7 +374,7 @@ func TestRemoveAgent_NotFound(t *testing.T) {
 // errors with a clear pointer rather than silently no-op'ing.
 func TestRemoveAgent_DirectorySourceRefused(t *testing.T) {
 	_, appDir := loadConfigDir(t, "version: 5\n")
-	writeFile(t, filepath.Join(appDir, "agents", "filed.yaml"), "engine: x\nprofiles: [p]\n")
+	writeFile(t, filepath.Join(appDir, "agents", "filed.yaml"), "llm: x\nprofiles: [p]\n")
 
 	reloaded, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)

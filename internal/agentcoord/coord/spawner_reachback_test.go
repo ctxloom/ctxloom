@@ -49,7 +49,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 	}
 
 	t.Run("auto_register_ctxloom off strands the child, loudly", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nmcp:\n  auto_register_ctxloom: false\nagents:\n  dev:\n    engine: claude-code\n    permissions: bypass\n")
+		s := newSpawner(t, "version: 6\nmcp:\n  auto_register_ctxloom: false\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n")
 
 		var buf bytes.Buffer
 		restore := clidiag.SetSink(&buf)
@@ -66,7 +66,7 @@ func TestChildMCPServers_WarnsWhenTheChildGetsNoCtxloomServer(t *testing.T) {
 	})
 
 	t.Run("the default composition keeps the ctxloom server and stays silent", func(t *testing.T) {
-		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    engine: claude-code\n    permissions: bypass\n")
+		s := newSpawner(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n")
 
 		var buf bytes.Buffer
 		restore := clidiag.SetSink(&buf)

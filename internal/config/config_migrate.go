@@ -589,7 +589,7 @@ func migrateDefaultAgentV6(root *yaml.Node) {
 		if llm := upgrade.MapValue(root, "llm"); llm != nil && llm.Kind == yaml.MappingNode {
 			if roleDefaults := upgrade.MapValue(llm, "defaults"); roleDefaults != nil && roleDefaults.Kind == yaml.MappingNode {
 				if p := upgrade.MapValue(roleDefaults, "primary"); p != nil && p.Kind == yaml.ScalarNode && p.Value != "" {
-					upgrade.MapSet(entry, "engine", upgrade.ScalarNode(p.Value))
+					upgrade.MapSet(entry, "llm", upgrade.ScalarNode(p.Value))
 				}
 			}
 		}

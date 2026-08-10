@@ -184,7 +184,7 @@ Feature: config — the project's one configuration document, read and scaffolde
         """
       Then the command succeeds
       And the file ".ctxloom/config.yaml" is valid YAML
-      And the file ".ctxloom/config.yaml" contains "engine: claude-code"
+      And the file ".ctxloom/config.yaml" contains "llm: claude-code"
       And the file ".ctxloom/remotes.yaml" contains "ctxloom-default"
       And the file ".ctxloom/profiles/default.yaml" exists
       When I run "ctxloom config show"

@@ -92,7 +92,7 @@ func TestMarshalYAML_MutationDoesNotReachConfig(t *testing.T) {
 	d, ok := doc.(configDoc)
 	require.True(t, ok, "MarshalYAML must still return a configDoc, or this pin is testing nothing")
 
-	d.Agents["injected"] = agents.Agent{Engine: "fast"}
+	d.Agents["injected"] = agents.Agent{LLM: "fast"}
 	d.Profiles.Definitions["injected"] = Profile{Description: "should not land"}
 	d.IsolationImages["injected"] = "img"
 	d.LM.Configs["injected"] = LLMConfig{Type: "claude-code"}

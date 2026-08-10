@@ -291,7 +291,7 @@ llm:
     fast: iso
 agents:
   iso:
-    engine: iso
+    llm: iso
     profiles: []
 `, engineType)
 }

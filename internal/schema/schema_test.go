@@ -34,7 +34,7 @@ llm:
 default_agent: dev
 agents:
   dev:
-    engine: big
+    llm: big
     profiles: [proj/dev]
 profiles:
   definitions:

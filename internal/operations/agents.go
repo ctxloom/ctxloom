@@ -58,7 +58,7 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 	for _, s := range subs {
 		out = append(out, AgentEntry{
 			Name:        s.Name,
-			Engine:      s.Engine,
+			Engine:      s.LLM,
 			Profiles:    s.Profiles,
 			Runtime:     s.Runtime,
 			Permissions: s.Permissions,
@@ -83,7 +83,7 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 	}
 	return &AgentEntry{
 		Name:        sub.Name,
-		Engine:      sub.Engine,
+		Engine:      sub.LLM,
 		Profiles:    sub.Profiles,
 		Runtime:     sub.Runtime,
 		Permissions: sub.Permissions,
@@ -221,7 +221,7 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 		if req.Engine != nil {
 			engine = *req.Engine
 		} else if existing, ok := cfg.Agent(name); ok {
-			engine = existing.Engine
+			engine = existing.LLM
 		}
 		if engine == "" {
 			return fmt.Errorf("agent %q: a surface preference needs a known engine — set --engine in the same command, "+
@@ -299,7 +299,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		if req.Profiles != nil {
 			entry.Profiles = canonicalizeProfileRefs(*req.Profiles, aliasToURLResolver(cfg))
 		}
-		entry.Engine = orKeep(req.Engine, entry.Engine)
+		entry.LLM = orKeep(req.Engine, entry.LLM)
 		// A nil map means "not named" and keeps what is stored; an EMPTY
 		// non-nil map is how a caller clears the preference back to the
 		// engine's default, matching how the pointer fields above treat an
@@ -325,7 +325,7 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 	}
 	return &AgentEntry{
 		Name:        name,
-		Engine:      entry.Engine,
+		Engine:      entry.LLM,
 		Profiles:    entry.Profiles,
 		Runtime:     entry.Runtime,
 		Permissions: entry.Permissions,
@@ -535,7 +535,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	// Effective engine: an explicit override (a caller-level --llm) wins over the
 	// binding's declared engine; either then beats the composed profiles' llm,
 	// then the project default — the same precedence run/oneshot use.
-	engine := sub.Engine
+	engine := sub.LLM
 	if engineOverride != "" {
 		engine = engineOverride
 	}
@@ -564,7 +564,7 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 	return &ResolvedAgent{
 		Name:        name,
 		Surfaces:    surfaces,
-		Engine:      sub.Engine,
+		Engine:      sub.LLM,
 		Profiles:    sub.Profiles,
 		Label:       label,
 		Backend:     backend,

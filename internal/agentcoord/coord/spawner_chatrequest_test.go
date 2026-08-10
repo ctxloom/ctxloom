@@ -32,7 +32,7 @@ func TestSpawner_LaunchAndStartEngine_ShareOneChatRequest(t *testing.T) {
 	resetStrictness(t)
 	t.Setenv("HOME", t.TempDir())
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
-	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    engine: claude-code\n    permissions: bypass\n")
+	writeSpawnerConfig(t, appDir, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    permissions: bypass\n")
 	cfg, err := config.Load(config.WithAppDir(appDir))
 	require.NoError(t, err)
 	s := newProdSpawner(cfg, filepath.Dir(appDir), nil)

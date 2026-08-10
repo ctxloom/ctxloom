@@ -154,7 +154,7 @@ func TestLoad_UnknownKeyInAnyOfBranch_StillSuggests(t *testing.T) {
 // its old kind and its raw text: this change narrows the unknown-key case out of
 // WarnKindValidate, it does not swallow the rest.
 func TestLoad_NonUnknownKeySchemaError_StaysValidateKind(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nagents:\n  a:\n    engine: e\n    permissions: nonsense\n")
+	cfg := loadYAML(t, "version: 6\nagents:\n  a:\n    llm: e\n    permissions: nonsense\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "a bad enum is not an unknown key")
 	require.Len(t, cfg.warnings, 1)
@@ -184,7 +184,7 @@ config:
 default_agent: dev
 agents:
   dev:
-    engine: main
+    llm: main
     profiles: [work]
 profiles:
   definitions:
@@ -255,7 +255,7 @@ func TestLoad_UnknownKeyInProjectLayer_NotMaskedByValidHome(t *testing.T) {
 // IGNORED" warning even though the value was fully honored. Proves the
 // warning is gone AND the fields are actually parsed onto the Agent.
 func TestLoad_AgentCoordinatorAndDriving_NoUnknownKeyWarning(t *testing.T) {
-	cfg := loadYAML(t, "version: 6\nagents:\n  coord:\n    engine: main\n    profiles: [work]\n    coordinator: true\n    driving: oneshot\n")
+	cfg := loadYAML(t, "version: 6\nagents:\n  coord:\n    llm: main\n    profiles: [work]\n    coordinator: true\n    driving: oneshot\n")
 
 	assert.Empty(t, unknownKeyWarnings(cfg), "coordinator/driving must validate as known agent-binding keys: %+v", unknownKeyWarnings(cfg))
 	assert.Empty(t, cfg.warnings, "a config using only documented agent-binding keys must load with no warnings at all: %+v", cfg.warnings)

@@ -37,7 +37,7 @@ func TestConfig_ParsesAgentsKey(t *testing.T) {
 	writeAppConfig(t, appDir, `version: 5
 agents:
   dev:
-    engine: claude-code
+    llm: claude-code
     profiles: [go-developer, go-style]
   finder:
     profiles: [finder]
@@ -45,9 +45,9 @@ agents:
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
 	require.Len(t, cfg.agents, 2)
-	assert.Equal(t, "claude-code", cfg.agents["dev"].Engine)
+	assert.Equal(t, "claude-code", cfg.agents["dev"].LLM)
 	assert.Equal(t, []string{"go-developer", "go-style"}, cfg.agents["dev"].Profiles)
-	assert.Empty(t, cfg.agents["finder"].Engine, "engine is optional")
+	assert.Empty(t, cfg.agents["finder"].LLM, "engine is optional")
 }
 
 // TestConfig_LegacySubagentsKey_WarnsNeverErrors pins the v0.7.0 rename
@@ -67,7 +67,7 @@ func TestConfig_LegacySubagentsKey_WarnsNeverErrors(t *testing.T) {
 	writeAppConfig(t, appDir, `version: 5
 subagents:
   dev:
-    engine: claude-code
+    llm: claude-code
     profiles: [go-developer]
 `)
 	cfg, err := Load(WithAppDir(appDir))
@@ -92,7 +92,7 @@ func TestConfigSchema_AcceptsAgents(t *testing.T) {
 	require.NoError(t, err)
 	yaml := `agents:
   dev:
-    engine: claude-code
+    llm: claude-code
     profiles: [go-developer]
   finder:
     profiles: [finder]
@@ -113,13 +113,13 @@ func TestLoadAgents_MergesBothSources(t *testing.T) {
 	writeAppConfig(t, appDir, `version: 5
 agents:
   dev:
-    engine: claude-code
+    llm: claude-code
     profiles: [go-developer]
 `)
 	subDir := filepath.Join(appDir, "agents")
 	require.NoError(t, os.MkdirAll(subDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "finder.yaml"),
-		[]byte("engine: fast\nprofiles: [finder]\n"), 0644))
+		[]byte("llm: fast\nprofiles: [finder]\n"), 0644))
 
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
@@ -133,7 +133,7 @@ agents:
 
 	got, ok := cfg.Agent("finder")
 	require.True(t, ok)
-	assert.Equal(t, "fast", got.Engine)
+	assert.Equal(t, "fast", got.LLM)
 	_, ok = cfg.Agent("absent")
 	assert.False(t, ok)
 }
@@ -150,20 +150,20 @@ func TestLoadAgents_ConfigWinsOnCollision(t *testing.T) {
 	writeAppConfig(t, appDir, `version: 5
 agents:
   dev:
-    engine: from-config
+    llm: from-config
     profiles: [config-profile]
 `)
 	subDir := filepath.Join(appDir, "agents")
 	require.NoError(t, os.MkdirAll(subDir, 0755))
 	require.NoError(t, os.WriteFile(filepath.Join(subDir, "dev.yaml"),
-		[]byte("engine: from-dir\nprofiles: [dir-profile]\n"), 0644))
+		[]byte("llm: from-dir\nprofiles: [dir-profile]\n"), 0644))
 
 	cfg, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
 
 	dev, ok := cfg.Agent("dev")
 	require.True(t, ok)
-	assert.Equal(t, "from-config", dev.Engine, "config-key entry wins on collision")
+	assert.Equal(t, "from-config", dev.LLM, "config-key entry wins on collision")
 	assert.Equal(t, agents.SourceConfig, dev.Source)
 	assert.Len(t, cfg.LoadAgents(), 1, "the shadowed directory entry is not a second agent")
 }
@@ -183,7 +183,7 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 	require.NoError(t, err)
 
 	cfg.agents = map[string]agents.Agent{
-		"dev": {Engine: "claude-code", Profiles: []string{"go-developer"}},
+		"dev": {LLM: "claude-code", Profiles: []string{"go-developer"}},
 	}
 	configPath, err := cfg.GetConfigFilePath()
 	require.NoError(t, err)
@@ -192,7 +192,7 @@ func TestConfig_SaveRoundTripsAgents(t *testing.T) {
 	reloaded, err := Load(WithAppDir(appDir))
 	require.NoError(t, err)
 	require.Len(t, reloaded.agents, 1)
-	assert.Equal(t, "claude-code", reloaded.agents["dev"].Engine)
+	assert.Equal(t, "claude-code", reloaded.agents["dev"].LLM)
 	assert.Equal(t, []string{"go-developer"}, reloaded.agents["dev"].Profiles)
 }
 
@@ -291,7 +291,7 @@ func TestLoadAgents_UnreadableAgentsDirectoryIsAFinding(t *testing.T) {
 	agentsDir := paths.AgentsPath(appPath)
 	require.NoError(t, mem.MkdirAll(agentsDir, 0o755))
 	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, "dev.yaml"),
-		[]byte("engine: claude-code\nprofiles: [go-developer]\n"), 0o644))
+		[]byte("llm: claude-code\nprofiles: [go-developer]\n"), 0o644))
 
 	// Sanity: with a readable directory the agent is found. Without this the
 	// assertion below could pass because the fixture never defined an agent.
@@ -333,11 +333,11 @@ func TestLoadAgents_ShadowWarningIsEmittedOncePerProcess(t *testing.T) {
 	// test and make this pass vacuously.
 	const name = "u047f08probe"
 	require.NoError(t, afero.WriteFile(mem, filepath.Join(agentsDir, name+".yaml"),
-		[]byte("engine: claude-code\nprofiles: [from-disk]\n"), 0o644))
+		[]byte("llm: claude-code\nprofiles: [from-disk]\n"), 0o644))
 
 	cfg := NewFixture(Fixture{
 		AppPaths: []string{appPath},
-		Agents:   map[string]agents.Agent{name: {Engine: "claude-code", Profiles: []string{"from-config"}}},
+		Agents:   map[string]agents.Agent{name: {LLM: "claude-code", Profiles: []string{"from-config"}}},
 	})
 	cfg.SetFS(mem)
 

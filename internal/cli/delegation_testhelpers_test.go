@@ -87,7 +87,7 @@ func writeDelegationFile(t *testing.T, path, body string) {
 }
 
 func headlessAgent(profiles ...string) agents.Agent {
-	return agents.Agent{Engine: "fast", Profiles: profiles, Permissions: "bypass"}
+	return agents.Agent{LLM: "fast", Profiles: profiles, Permissions: "bypass"}
 }
 
 // fakeChatEngine is a minimal pb.Client for the CLI-level coordinator tests:

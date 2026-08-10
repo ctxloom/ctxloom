@@ -223,7 +223,7 @@ func TestOpenEngineSession_FragmentsAndCommandsWireThroughToSummary(t *testing.T
 
 	body := "version: 5\n" +
 		"config:\n  use_distilled: false\n" +
-		"agents:\n  reviewer:\n    engine: mock\n    profiles: [reviewer-profile]\n"
+		"agents:\n  reviewer:\n    llm: mock\n    profiles: [reviewer-profile]\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))
 
 	client := &fakeACPEngineClient{}

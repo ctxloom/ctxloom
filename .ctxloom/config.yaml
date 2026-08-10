@@ -1,25 +1,25 @@
 agents:
     coordinator:
         coordinator: true
-        engine: claude-code
+        llm: claude-code
         permissions: bypass
         profiles:
             - coordinator
         runtime: host
     default:
-        engine: claude-code
+        llm: claude-code
         profiles:
             - default
         runtime: host
     developer:
-        engine: claude-code
+        llm: claude-code
         permissions: bypass
         profiles:
             - default
             - developer-escalation
         runtime: container
     finder:
-        engine: claude-fast
+        llm: claude-fast
         permissions: plan
         profiles:
             - finder

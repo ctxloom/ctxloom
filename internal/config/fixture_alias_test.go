@@ -124,7 +124,7 @@ func aliasProbeFixture() Fixture {
 		Hooks:            wire.HooksConfig{Unified: wire.UnifiedHooks{PreTool: []wire.Hook{{Command: "true"}}}},
 	}
 	f.Agents["worker"] = agents.Agent{
-		Engine:     "fast",
+		LLM:     "fast",
 		Profiles:   []string{"p"},
 		Escalation: []agents.EscalationRung{{Kinds: []string{"TOOL_USE"}, Action: "auto_accept"}},
 	}
@@ -164,7 +164,7 @@ func TestToFixture_MutationDoesNotReachConfig(t *testing.T) {
 	cfg := NewFixture(aliasProbeFixture())
 
 	cfg.ToFixture().Profiles.Definitions["injected"] = Profile{Description: "should not land"}
-	cfg.ToFixture().Agents["injected"] = agents.Agent{Engine: "fast"}
+	cfg.ToFixture().Agents["injected"] = agents.Agent{LLM: "fast"}
 
 	assert.NotContains(t, cfg.GetProfilesConfig().Definitions, "injected",
 		"a Fixture is a copy: writing into its Definitions must not mutate the Config it came from")
@@ -179,7 +179,7 @@ func TestNewFixture_MutatingTheSourceFixtureDoesNotReachTheConfig(t *testing.T) 
 
 	cfg := NewFixture(f)
 	f.Profiles.Definitions["injected"] = Profile{Description: "should not land"}
-	f.Agents["injected"] = agents.Agent{Engine: "fast"}
+	f.Agents["injected"] = agents.Agent{LLM: "fast"}
 
 	assert.NotContains(t, cfg.GetProfilesConfig().Definitions, "injected",
 		"NewFixture must take ownership of its own containers, not the caller's")

@@ -92,10 +92,10 @@ llm:
     fast: fast
 agents:
   mock:
-    engine: fast
+    llm: fast
     profiles: []
   mock-container:
-    engine: fast
+    llm: fast
     profiles: []
     runtime: container
 `

@@ -67,7 +67,7 @@ func TestDefaultPolicy_DivergencesFromDesignDoc(t *testing.T) {
 		// Design doc: ScopeMachine. Diverges to ScopeShared: an
 		// agentBindingMergeFunc-atomic-replaced agent binding can never
 		// independently inherit a Machine-scoped runtime once the project
-		// names the same agent (as it must, since agents.*.engine is
+		// names the same agent (as it must, since agents.*.llm is
 		// ScopeShared and can only live at project/flag).
 		{[]string{"agents", "reviewer", "runtime"}, ScopeShared},
 		// Design doc: ScopeMachine. Diverges to ScopeShared: mcp.servers.*

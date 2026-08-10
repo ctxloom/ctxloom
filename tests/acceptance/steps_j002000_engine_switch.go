@@ -81,7 +81,7 @@ func j002000Config() string {
 	fmt.Fprintf(&b, "    %s:\n      type: %s\n", j002000OldEngine, j002000OldEngine)
 	fmt.Fprintf(&b, "    %s:\n      type: %s\n", j002000NewEngine, j002000NewEngine)
 	fmt.Fprintf(&b, "  defaults:\n    primary: %s\n    fast: %s\n", j002000OldEngine, j002000OldEngine)
-	fmt.Fprintf(&b, "agents:\n  %s:\n    engine: %s\n    profiles:\n      - default\n", j002000Agent, j002000OldEngine)
+	fmt.Fprintf(&b, "agents:\n  %s:\n    llm: %s\n    profiles:\n      - default\n", j002000Agent, j002000OldEngine)
 	fmt.Fprintf(&b, "default_agent: %s\n", j002000Agent)
 	return b.String()
 }
@@ -127,7 +127,7 @@ func j002000Materialize(w *World, engine string) (string, error) {
 		engine, target, w.env.LastOutput())
 }
 
-// j002000ConfigSaysEngine reads the engine actually recorded for the agent in
+// j002000ConfigSaysEngine reads the llm label actually recorded for the agent in
 // config.yaml — the on-disk payload, not the CLI's own success line.
 func j002000ConfigSaysEngine(w *World) (string, error) {
 	body, err := w.env.ReadFile(".ctxloom/config.yaml")
@@ -141,8 +141,8 @@ func j002000ConfigSaysEngine(w *World) (string, error) {
 		}
 		for _, sub := range lines[i+1:] {
 			trimmed := strings.TrimSpace(sub)
-			if strings.HasPrefix(trimmed, "engine:") {
-				return strings.TrimSpace(strings.TrimPrefix(trimmed, "engine:")), nil
+			if strings.HasPrefix(trimmed, "llm:") {
+				return strings.TrimSpace(strings.TrimPrefix(trimmed, "llm:")), nil
 			}
 			// Stop at the next agent block.
 			if trimmed != "" && !strings.HasPrefix(sub, "    ") {
@@ -150,7 +150,7 @@ func j002000ConfigSaysEngine(w *World) (string, error) {
 			}
 		}
 	}
-	return "", fmt.Errorf("config.yaml records no engine for agent %q; it holds:\n%s", j002000Agent, body)
+	return "", fmt.Errorf("config.yaml records no llm label for agent %q; it holds:\n%s", j002000Agent, body)
 }
 
 func registerJ002000Steps(ctx *godog.ScenarioContext) {

@@ -153,7 +153,7 @@ bundles:
 	existing, rerr := env.ReadFile(cfgPath)
 	require.NoError(t, rerr)
 	existing = strings.Replace(existing, "type: mock\n", "type: mock\n      model: mock-model-v1\n", 1)
-	existing += "agents:\n  reviewer:\n    engine: mock\n    profiles: [reviewer-profile]\n"
+	existing += "agents:\n  reviewer:\n    llm: mock\n    profiles: [reviewer-profile]\n"
 	require.NoError(t, env.WriteFile(cfgPath, existing))
 
 	drv := acp.NewChatDriver(acp.ACPConfig{Command: env.AppBinary + " acp serve --agent reviewer"})

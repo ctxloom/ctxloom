@@ -182,7 +182,7 @@ llm:
     fast: claude-code
 agents:
   default:
-    engine: claude-code
+    llm: claude-code
     profiles:
       - default
 default_agent: default

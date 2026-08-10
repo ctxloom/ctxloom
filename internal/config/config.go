@@ -446,11 +446,59 @@ func (c *Config) MarshalYAML() (any, error) {
 // discard that pre-population whenever a key was absent — the same
 // silent-no-op shape this codebase treats as its characteristic bug.
 func (c *Config) UnmarshalYAML(node *yaml.Node) error {
+	if name, found := findRetiredAgentLLMKey(node); found {
+		return fmt.Errorf("agent %q: %w", name, agents.ErrRetiredLLMKey)
+	}
 	doc := c.toDoc()
 	if err := node.Decode(&doc); err != nil {
 		return err
 	}
 	c.fromDoc(doc)
+	return nil
+}
+
+// findRetiredAgentLLMKey returns the first agent carrying the retired llm key,
+// and whether one was found. It walks the NODE rather than the decoded value
+// because the decode is what loses the information: this path does not set
+// KnownFields, so an untouched `engine:` is dropped in silence and the binding
+// falls back to the profiles' llm — a different model, chosen by nobody.
+//
+// Walking the tree is also what separates a KEY from the same word appearing
+// as a profile name, a model string, or prose.
+func findRetiredAgentLLMKey(node *yaml.Node) (string, bool) {
+	agentsNode := mappingValue(node, "agents")
+	if agentsNode == nil {
+		return "", false
+	}
+	// Content pairs as [key, value, key, value, ...]; agents are already in
+	// document order, so the name reported is stable across runs.
+	for i := 0; i+1 < len(agentsNode.Content); i += 2 {
+		name := agentsNode.Content[i].Value
+		if mappingValue(agentsNode.Content[i+1], agents.RetiredLLMKey) != nil {
+			return name, true
+		}
+	}
+	return "", false
+}
+
+// mappingValue returns the value node for key in a mapping node, or nil when
+// the node is not a mapping or has no such key.
+func mappingValue(node *yaml.Node, key string) *yaml.Node {
+	if node == nil {
+		return nil
+	}
+	// A document node wraps its single mapping child.
+	if node.Kind == yaml.DocumentNode && len(node.Content) == 1 {
+		node = node.Content[0]
+	}
+	if node.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == key {
+			return node.Content[i+1]
+		}
+	}
 	return nil
 }
 

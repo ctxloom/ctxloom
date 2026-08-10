@@ -238,7 +238,7 @@ func writeACPTestProject(t *testing.T, workspaceDefault string) string {
 	if workspaceDefault != "" {
 		body += "workspace: " + workspaceDefault + "\n"
 	}
-	body += "agents:\n  reviewer:\n    engine: mock\n"
+	body += "agents:\n  reviewer:\n    llm: mock\n"
 	require.NoError(t, os.WriteFile(filepath.Join(appDir, "config.yaml"), []byte(body), 0o644))
 	return repo
 }

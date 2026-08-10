@@ -341,9 +341,9 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
-          "engine": {
+          "llm": {
             "type": "string",
-            "description": "LLM config label/backend hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend)"
+            "description": "llm.configs label hoisted to this agent; overrides the composed profiles' llm (optional; empty falls back to the profiles' llm, then the project default backend). A label names an engine AND a model AND its credentials — it is not an engine, and the retired spelling 'engine' is refused at load"
           },
           "profiles": {
             "type": "array",

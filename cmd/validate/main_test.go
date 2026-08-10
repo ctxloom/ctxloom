@@ -53,7 +53,7 @@ version: 6
 default_agent: default
 agents:
   default:
-    engine: primary
+    llm: primary
     profiles: [default]
 llm:
   configs:
@@ -161,7 +161,7 @@ editor:
 default_agent: dev
 agents:
   dev:
-    engine: big
+    llm: big
     profiles:
       - development
       - testing

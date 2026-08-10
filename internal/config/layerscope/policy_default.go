@@ -12,7 +12,7 @@ func DefaultPolicy() Policy {
 
 		{Path: "default_agent", Scope: ScopeShared, Note: "which agent a bare `ctxloom run` resolves is project policy"},
 		{Path: "agents.*.profiles", Scope: ScopeShared, Note: "which context this project's roles compose"},
-		{Path: "agents.*.engine", Scope: ScopeShared, Note: "which context this project's roles compose"},
+		{Path: "agents.*.llm", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		{Path: "agents.*.driving", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		{Path: "agents.*.escalation", Scope: ScopeShared, Note: "which context this project's roles compose"},
 		// DIVERGES from the design doc's literal table (which lists this as
@@ -25,17 +25,17 @@ func DefaultPolicy() Policy {
 		// ScopeMachine here is redundant with an existing safety net, not a
 		// new one; (3) MEASURED — agentBindingMergeFunc's atomic-replace rule
 		// (D) means an agent named by the project (as any agent with a real
-		// `engine` must be, since agents.*.engine is Shared and can never
+		// `llm` must be, since agents.*.llm is Shared and can never
 		// live in home) can NEVER also inherit a home-only `runtime`: home's
 		// contribution is replaced wholesale the instant project names the
 		// same agent. Machine-scoping runtime here does not create friction,
 		// it creates a hard, unconditional dead end for every
 		// project-defined, container-isolated agent — there is no config
-		// shape that makes both engine and runtime:container stick together
+		// shape that makes both llm and runtime:container stick together
 		// outside a one-off --config-set flag. That is a functional
 		// regression far outside this fix's three named targets.
 		{Path: "agents.*.runtime", Scope: ScopeShared, Note: "which context (and posture) this project's roles compose; strictness.ClassIsolation already refuses per-machine when the runtime isn't available"},
-		// Shared, and the reasoning is the same as agents.*.engine's: which
+		// Shared, and the reasoning is the same as agents.*.llm's: which
 		// approaches EXIST is the engine's answer, so a preference is only
 		// meaningful beside the engine it was validated against. A home config
 		// filling one in for a project-defined agent would be naming a

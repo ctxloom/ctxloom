@@ -123,7 +123,7 @@ func TestConfigUpgrades_V2toV3(t *testing.T) {
 	assert.Equal(t, "default", root["default_agent"])
 	agent := root["agents"].(map[string]any)["default"].(map[string]any)
 	assert.Contains(t, agent["profiles"], "proj/dev")
-	assert.Equal(t, "claude-code", agent["engine"], "default agent engine ← llm.defaults.primary")
+	assert.Equal(t, "claude-code", agent["llm"], "default agent llm ← llm.defaults.primary")
 	assert.NotContains(t, agent, "runtime", "runtime is deliberately left unset -- empty already means \"host\" (Agent.Runtime's own doc), and writing it explicitly would trip layerscope's project-file restriction on a migrated config")
 
 	// top-level defaults bag is gone
@@ -313,7 +313,7 @@ func TestConfigUpgrades_V5toV6_DefaultAgent(t *testing.T) {
 
 	agent := root["agents"].(map[string]any)["default"].(map[string]any)
 	assert.Equal(t, []any{"dev", "go"}, agent["profiles"])
-	assert.Equal(t, "big", agent["engine"], "engine ← llm.defaults.primary")
+	assert.Equal(t, "big", agent["llm"], "llm ← llm.defaults.primary")
 	assert.NotContains(t, agent, "runtime", "runtime is deliberately left unset -- see the identical assertion above")
 
 	// profiles.defaults is gone; definitions survive.

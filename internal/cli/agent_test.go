@@ -296,7 +296,7 @@ func TestRunAgentList_EmptyAndPopulated(t *testing.T) {
 	})
 
 	t.Run("one agent", func(t *testing.T) {
-		agentProject(t, "version: 6\nagents:\n  dev:\n    engine: claude-code\n    profiles: [default]\n")
+		agentProject(t, "version: 6\nagents:\n  dev:\n    llm: claude-code\n    profiles: [default]\n")
 		cmd, out := textCmd()
 		require.NoError(t, runAgentList(cmd, nil))
 		got := out.String()

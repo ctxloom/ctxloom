@@ -65,7 +65,7 @@ func TestSetAgent_OmittedFieldsSurvive(t *testing.T) {
 	got, ok := readAgentFromDisk(t, appDir, "dev")
 	require.True(t, ok)
 	assert.Equal(t, "container", got.Runtime, "the named field must change")
-	assert.Equal(t, "claude-code", got.Engine, "engine must survive an unrelated set")
+	assert.Equal(t, "claude-code", got.LLM, "engine must survive an unrelated set")
 	assert.Equal(t, []string{"go-developer"}, got.Profiles, "profiles must survive an unrelated set")
 	assert.Equal(t, "acceptEdits", got.Permissions, "permissions must survive an unrelated set")
 	assert.True(t, got.Coordinator, "coordinator flag must survive an unrelated set")
@@ -91,7 +91,7 @@ func TestSetAgent_ExplicitEmptyClears(t *testing.T) {
 	require.NoError(t, err)
 	got, ok := final.Agent("dev")
 	require.True(t, ok)
-	assert.Empty(t, got.Engine, "an explicit empty engine clears it")
+	assert.Empty(t, got.LLM, "an explicit empty engine clears it")
 	assert.Equal(t, []string{"p"}, got.Profiles, "clearing one field does not clear another")
 }
 

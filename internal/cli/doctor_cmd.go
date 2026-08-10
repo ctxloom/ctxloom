@@ -231,7 +231,7 @@ func doctorConfiguredEngines(cfg *config.Config) []string {
 	}
 	set := map[string]bool{}
 	for _, a := range cfg.GetConfiguredAgents() {
-		backend, _ := operations.ResolveBackend(cfg, a.Engine)
+		backend, _ := operations.ResolveBackend(cfg, a.LLM)
 		if backend != "" {
 			set[backend] = true
 		}

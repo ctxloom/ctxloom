@@ -194,7 +194,7 @@ func BuildInitialConfig(engine, dirtyTreeHandler string) ([]byte, error) {
 	f.DefaultAgent = SeedProfileName
 	f.Agents = map[string]agents.Agent{
 		SeedProfileName: {
-			Engine:   primaryLabel,
+			LLM:   primaryLabel,
 			Runtime:  "host",
 			Profiles: []string{SeedProfileName},
 		},

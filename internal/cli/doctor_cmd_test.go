@@ -413,7 +413,7 @@ func TestDoctorCheckAgents_WrongState_UnresolvableProfile(t *testing.T) {
 	_, cfg := setupProject(t, "claude-code")
 	f := cfg.ToFixture()
 	f.Agents = map[string]agents.Agent{
-		"broken": {Name: "broken", Engine: "claude-code", Profiles: []string{"does-not-exist"}},
+		"broken": {Name: "broken", LLM: "claude-code", Profiles: []string{"does-not-exist"}},
 	}
 	cfg = config.NewFixture(f)
 	check := doctorCheckAgents(context.Background(), cfg, nil)
@@ -978,9 +978,9 @@ func TestDoctorCheckHooksTrust_WrongState_UnreadableProjectTrustStore(t *testing
 // engines on the host by default: a project with no container agents needs no
 // container runtime, and warning it does trains the user to ignore the report.
 func TestDoctorContainerRuntimeRequired(t *testing.T) {
-	hostAgent := agents.Agent{Engine: "claude-code", Runtime: "host"}
-	containerAgent := agents.Agent{Engine: "claude-code", Runtime: "container"}
-	inheritingAgent := agents.Agent{Engine: "claude-code"}
+	hostAgent := agents.Agent{LLM: "claude-code", Runtime: "host"}
+	containerAgent := agents.Agent{LLM: "claude-code", Runtime: "container"}
+	inheritingAgent := agents.Agent{LLM: "claude-code"}
 
 	for _, tc := range []struct {
 		name    string
@@ -1017,7 +1017,7 @@ func TestDoctorCheckDeps_NoContainerAgents_RuntimeIsRecommendedNotRequired(t *te
 	t.Setenv("PATH", dir) // no docker, no podman
 
 	check := doctorCheckDeps(config.NewFixture(config.Fixture{
-		Agents: map[string]agents.Agent{"a": {Engine: "claude-code", Runtime: "host"}},
+		Agents: map[string]agents.Agent{"a": {LLM: "claude-code", Runtime: "host"}},
 	}))
 
 	assert.Equal(t, doctorWarn, check.Status, "a missing recommended dep still warns")
@@ -1037,7 +1037,7 @@ func TestDoctorCheckDeps_ContainerAgent_RuntimeStaysRequired(t *testing.T) {
 	t.Setenv("PATH", dir) // no docker, no podman
 
 	check := doctorCheckDeps(config.NewFixture(config.Fixture{
-		Agents: map[string]agents.Agent{"a": {Engine: "claude-code", Runtime: "container"}},
+		Agents: map[string]agents.Agent{"a": {LLM: "claude-code", Runtime: "container"}},
 	}))
 
 	assert.Equal(t, doctorWarn, check.Status)

@@ -153,7 +153,7 @@ func buildJ000200Config(label, engineType string) string {
 	b.WriteString("llm:\n  configs:\n")
 	fmt.Fprintf(&b, "    %s:\n      type: %s\n", label, engineType)
 	fmt.Fprintf(&b, "  defaults:\n    primary: %s\n    fast: %s\n", label, label)
-	fmt.Fprintf(&b, "agents:\n  default:\n    engine: %s\n    profiles:\n      - default\n", label)
+	fmt.Fprintf(&b, "agents:\n  default:\n    llm: %s\n    profiles:\n      - default\n", label)
 	b.WriteString("default_agent: default\n")
 	return b.String()
 }

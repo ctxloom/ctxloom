@@ -77,7 +77,7 @@ func TestResolveAgent_ComposesAndOverridesEngine(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfig(root, map[string]agents.Agent{
-		"dev": {Engine: "slow", Profiles: []string{"p1", "p2"}},
+		"dev": {LLM: "slow", Profiles: []string{"p1", "p2"}},
 	})
 
 	res, err := ResolveAgent(context.Background(), cfg, "dev", "")
@@ -104,7 +104,7 @@ func TestResolveAgent_BareLaunchBindsDefaultAgent(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfigWithDefault(root, map[string]agents.Agent{
-		"default": {Engine: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Permissions: "plan"},
+		"default": {LLM: "slow", Profiles: []string{"p1", "p2"}, Runtime: "container", Permissions: "plan"},
 	}, "default")
 
 	// The "default profile set" every non-run consumer reads matches the agent.
@@ -151,9 +151,9 @@ func TestResolveAgent_EffectivePermissions(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfig(root, map[string]agents.Agent{
-		"claude-blank": {Engine: "primary", Profiles: []string{"p1"}},
-		"mock-plan":    {Engine: "fast", Profiles: []string{"p1"}, Permissions: "plan"},
-		"mock-blank":   {Engine: "fast", Profiles: []string{"p1"}},
+		"claude-blank": {LLM: "primary", Profiles: []string{"p1"}},
+		"mock-plan":    {LLM: "fast", Profiles: []string{"p1"}, Permissions: "plan"},
+		"mock-blank":   {LLM: "fast", Profiles: []string{"p1"}},
 	})
 	cases := map[string]string{
 		"claude-blank": "bypass",  // claude-code host stopgap made visible
@@ -176,7 +176,7 @@ func TestResolveAgent_ExplicitEngineOverrideWins(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfig(root, map[string]agents.Agent{
-		"dev": {Engine: "slow", Profiles: []string{"p1"}},
+		"dev": {LLM: "slow", Profiles: []string{"p1"}},
 	})
 
 	res, err := ResolveAgent(context.Background(), cfg, "dev", "fast")
@@ -223,11 +223,11 @@ func TestListAgents_MultipleNamedBothSources(t *testing.T) {
 	root := t.TempDir()
 	writeAgentProfileFixture(t, root)
 	cfg := agentTestConfig(root, map[string]agents.Agent{
-		"dev": {Engine: "primary", Profiles: []string{"p1"}},
+		"dev": {LLM: "primary", Profiles: []string{"p1"}},
 	})
 	// A second agent from the directory source.
 	writeFile(t, filepath.Join(root, ".ctxloom", "agents", "finder.yaml"),
-		"engine: fast\nprofiles: [p2]\n")
+		"llm: fast\nprofiles: [p2]\n")
 
 	list := ListAgents(cfg)
 	require.Len(t, list, 2)
@@ -278,7 +278,7 @@ func TestResolveAgent_Driving(t *testing.T) {
 
 	t.Run("absent driving resolves to the empty (conversational) zero value", func(t *testing.T) {
 		cfg := agentTestConfig(root, map[string]agents.Agent{
-			"dev": {Engine: "slow", Profiles: []string{"p1"}},
+			"dev": {LLM: "slow", Profiles: []string{"p1"}},
 		})
 		res, err := ResolveAgent(context.Background(), cfg, "dev", "")
 		require.NoError(t, err)
@@ -287,7 +287,7 @@ func TestResolveAgent_Driving(t *testing.T) {
 
 	t.Run("declared oneshot carries through to ResolvedAgent.Driving", func(t *testing.T) {
 		cfg := agentTestConfig(root, map[string]agents.Agent{
-			"dev": {Engine: "slow", Profiles: []string{"p1"}, Driving: agents.DrivingOneshot},
+			"dev": {LLM: "slow", Profiles: []string{"p1"}, Driving: agents.DrivingOneshot},
 		})
 		res, err := ResolveAgent(context.Background(), cfg, "dev", "")
 		require.NoError(t, err)
@@ -296,7 +296,7 @@ func TestResolveAgent_Driving(t *testing.T) {
 
 	t.Run("unknown driving value fails loud at resolve, not just at ParseAgent", func(t *testing.T) {
 		cfg := agentTestConfig(root, map[string]agents.Agent{
-			"dev": {Engine: "slow", Profiles: []string{"p1"}, Driving: agents.DrivingMode("bogus")},
+			"dev": {LLM: "slow", Profiles: []string{"p1"}, Driving: agents.DrivingMode("bogus")},
 		})
 		_, err := ResolveAgent(context.Background(), cfg, "dev", "")
 		require.Error(t, err)
@@ -328,7 +328,7 @@ func TestAgent_LocalOnly_NeverFromBundle(t *testing.T) {
 	// bundle.
 	root := t.TempDir()
 	writeFile(t, filepath.Join(root, ".ctxloom", "content", "bundles", "evil.yaml"),
-		"version: \"1.0.0\"\nagents:\n  smuggled:\n    engine: attacker\n    profiles: [x]\n")
+		"version: \"1.0.0\"\nagents:\n  smuggled:\n    llm: attacker\n    profiles: [x]\n")
 	cfg := agentTestConfig(root, nil) // no config-key, no agents dir
 
 	assert.Empty(t, ListAgents(cfg), "a bundle cannot define an agent")

@@ -27,10 +27,8 @@
 package agents
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -41,6 +39,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/shared/yamlx"
 )
 
 // SourceConfig is the Agent.Source sentinel for an agent declared under the
@@ -74,8 +73,14 @@ type Agent struct {
 	// package's to define.
 	Source string `yaml:"-"`
 
-	// Engine is the LLM config label/backend; overrides the profiles' llm.
-	Engine string `yaml:"engine,omitempty"`
+	// LLM is the llm.configs LABEL this binding selects; overrides the
+	// profiles' llm. It is not an engine: a label names an engine AND a model
+	// AND its credentials, and GLOSSARY.md reserves "engine" for what the
+	// runner drives. `--llm` is the flag that sets it.
+	//
+	// The retired spelling `engine` is REFUSED at load rather than ignored —
+	// see RetiredLLMKey.
+	LLM string `yaml:"llm,omitempty"`
 	// Surfaces is this binding's DELIVERY PREFERENCE: which approach each
 	// surface kind is delivered by, as the labels the CLI already uses
 	// ("context: system-prompt"). Empty — the usual case — takes the engine's
@@ -242,9 +247,17 @@ type EscalationRung struct {
 // not set (they are not encoded in the file); callers assign them.
 func ParseAgent(data []byte) (*Agent, error) {
 	var s Agent
-	dec := yaml.NewDecoder(bytes.NewReader(data))
-	dec.KnownFields(true)
-	if err := dec.Decode(&s); err != nil && !errors.Is(err, io.EOF) {
+	// Named before the decoder gets a chance to report it. KnownFields(true)
+	// would reject the retired key anyway, but as "field engine not found in
+	// type agents.Agent" — which says the key is wrong without saying what to
+	// type instead, and this rename is the reason it is wrong.
+	var probe map[string]any
+	if err := yaml.Unmarshal(data, &probe); err == nil {
+		if _, found := probe[RetiredLLMKey]; found {
+			return nil, ErrRetiredLLMKey
+		}
+	}
+	if err := yamlx.DecodeStrict(data, &s); err != nil {
 		return nil, fmt.Errorf("invalid YAML: %w", err)
 	}
 	if err := ValidateDriving(s.Driving); err != nil {
@@ -260,6 +273,21 @@ func ParseAgent(data []byte) (*Agent, error) {
 	}
 	return &s, nil
 }
+
+// RetiredLLMKey is the pre-rename spelling of Agent.LLM.
+//
+// It is refused rather than ignored on both decode paths. A file-sourced agent
+// meets KnownFields(true), but a CONFIG-KEY agent under `agents:` does not:
+// internal/config decodes leniently, so an untouched `engine:` there would be
+// dropped in silence and the binding would fall back to the profiles' llm —
+// a different model, chosen by nobody, reported as success.
+const RetiredLLMKey = "engine"
+
+// ErrRetiredLLMKey names the current spelling, because a rename that leaves
+// people guessing has moved the cost rather than paid it.
+var ErrRetiredLLMKey = errors.New(
+	"agent uses the retired key 'engine:'; it is now 'llm:' — it selects an llm.configs label " +
+		"(engine + model + credentials), not an engine")
 
 // Loader reads agent definitions from .ctxloom/agents directories. It is
 // the directory-source half; the config-key source and the merge live in

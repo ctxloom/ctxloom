@@ -172,7 +172,7 @@ func registerJ000200SetupSteps(ctx *godog.ScenarioContext) {
 			return godog.ErrSkip
 		}
 		w.j000200Live = true
-		cfg := a.config + "agents:\n  default:\n    engine: claude\n    profiles:\n      - default\n" + "default_agent: default\n"
+		cfg := a.config + "agents:\n  default:\n    llm: claude\n    profiles:\n      - default\n" + "default_agent: default\n"
 		if err := scaffoldProjectWithConfig(w, cfg); err != nil {
 			return err
 		}

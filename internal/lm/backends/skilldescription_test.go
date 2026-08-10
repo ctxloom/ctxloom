@@ -13,7 +13,7 @@ import (
 // makes agent.SkillExport.Description safe to delete.
 //
 // That field is write-only: buildSkillExports sets it from the skill's
-// frontmatter and no engine reads it — claude/opencode/antigravity's skill
+// frontmatter and no engine reads it — claude/opencode's skill
 // writers take Enabled, Name and Files only. Deleting a field that carries
 // user-authored text is only safe if the text still reaches the engine by
 // another route, and it does: the description lives in the authored SKILL.md's

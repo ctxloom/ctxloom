@@ -668,6 +668,46 @@ func TestWorktree_HomeVars_PerBackend(t *testing.T) {
 	}
 }
 
+// TestWorktree_ScopedLeverEngines_NoHomeOverride pins that every
+// credentialSeedSpecs-registered engine gets its OWN scoped config-home var
+// (CLAUDE_CONFIG_DIR/CODEX_HOME/KIRO_HOME/XDG_DATA_HOME) with no blanket HOME
+// override — a scoped var leaves ~/.gitconfig/~/.ssh identity untouched,
+// which a HOME override would strip. Formerly lived alongside the curated-HOME
+// mechanism (deleted with antigravity, its only registrant) as the negative
+// space proving these four engines never took that path; kept standalone now
+// that there is no second lever kind to contrast against.
+func TestWorktree_ScopedLeverEngines_NoHomeOverride(t *testing.T) {
+	for _, tc := range []struct {
+		backend string
+		envVar  string
+	}{
+		{"claude-code", "CLAUDE_CONFIG_DIR"},
+		{"codex", "CODEX_HOME"},
+		{"kiro", "KIRO_HOME"},
+		{"opencode", "XDG_DATA_HOME"},
+	} {
+		t.Run(tc.backend, func(t *testing.T) {
+			resetStrictness(t)
+			withFakeHome(t)
+			t.Setenv("ANTHROPIC_API_KEY", "sk-test")
+			t.Setenv("OPENAI_API_KEY", "sk-test")
+			t.Setenv("KIRO_API_KEY", "sk-test")
+			t.Setenv("OPENROUTER_API_KEY", "sk-test")
+
+			common := t.TempDir()
+			f := &git.Fake{CommonDirValue: common}
+			ws, err := NewWorktree(f, tc.backend).PrepareWorkspace(context.Background(), "/proj", "agent-a")
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = ws.Cleanup() })
+
+			env := WorkspaceEnv(ws)
+			require.NotNil(t, env)
+			assert.NotContains(t, env, "HOME", "%s has a scoped lever — no blanket HOME override", tc.backend)
+			assert.Contains(t, env, tc.envVar)
+		})
+	}
+}
+
 // TestWorktree_KiroTwoAgentsDisjointXDG is the headline PAYLOAD test:
 // two concurrent kiro worktree agents (KIRO_API_KEY set, so XDG isolation is
 // granted) get DISJOINT XDG_DATA_HOME roots — the assertion that would have

@@ -22,25 +22,25 @@ var allSurfaceKinds = []agent.SurfaceKind{
 }
 
 // nativeSurfaceBackends is every registered backend that builds a real
-// (non-Empty) SurfaceSet — the five whose SupportedApproaches/DefaultApproach
+// (non-Empty) SurfaceSet — the four whose SupportedApproaches/DefaultApproach
 // pair is served by the shared agent.TableDispatch carrier.
-var nativeSurfaceBackends = []string{"claude-code", "codex", "kiro", "antigravity", "opencode"}
+var nativeSurfaceBackends = []string{"claude-code", "codex", "kiro", "opencode"}
 
 // TestApproachDispatch_DefaultIsFirstSupported is the parity gate for
 // approach dispatch.
 //
-// Written per backend, SupportedApproaches and DefaultApproach come to TEN
+// Written per backend, SupportedApproaches and DefaultApproach come to EIGHT
 // bodies — once per (backend × method) — each a one-liner naming that backend's
-// own table. Ten hand-written bodies can disagree with each other and with the
+// own table. Eight hand-written bodies can disagree with each other and with the
 // contract cells.go states for them: "DefaultApproach reports the approach WithEverything
 // selects for kind — the backend's native realization. false means kind is
 // absent/folded for this backend."
 //
-// This test states that contract ONCE and holds all five backends to it, so the
+// This test states that contract ONCE and holds all four backends to it, so the
 // single shared agent.TableDispatch carrier is checked against behaviour rather
 // than against a diff. It is deliberately written against the
 // agent.SurfaceSet interface, not against any backend's concrete Surfaces, so it
-// keeps gating a sixth backend added later.
+// keeps gating a fifth backend added later.
 func TestApproachDispatch_DefaultIsFirstSupported(t *testing.T) {
 	for _, name := range nativeSurfaceBackends {
 		t.Run(name, func(t *testing.T) {

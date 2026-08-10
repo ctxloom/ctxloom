@@ -34,9 +34,9 @@ func TestExports_UseShortNamesForRemoteBundles(t *testing.T) {
 	require.Len(t, claudeEx, 1)
 	assert.Equal(t, "go-development/code-review", claudeEx[0].Name)
 
-	antigravityEx := antigravityExports(prompts)
-	require.Len(t, antigravityEx, 1)
-	assert.Equal(t, "go-development/code-review", antigravityEx[0].Name)
+	codexEx := codexExports(prompts)
+	require.Len(t, codexEx, 1)
+	assert.Equal(t, "go-development/code-review", codexEx[0].Name)
 }
 
 // When two bundles shorten to the same export name, both fall back to their
@@ -57,7 +57,7 @@ func TestExports_CollisionFallsBackToFullSanitizedName(t *testing.T) {
 }
 
 // Codex is a first-class export target: it resolves the codex per-prompt
-// enablement + metadata exactly like claude/antigravity. (The codex module ships a
+// enablement + metadata exactly like claude. (The codex module ships a
 // full WriteCommandFiles; the host dispatch falling through to nil meant codex
 // never received ctxloom slash commands.)
 func TestExports_CodexResolvesEnablementAndMetadata(t *testing.T) {

@@ -132,7 +132,6 @@ func TestGetSettingsWriter_AllBackends(t *testing.T) {
 		expected bool
 	}{
 		{"claude-code", "claude-code", true},
-		{"antigravity", "antigravity", true},
 		{"codex", "codex", true},      // config.toml hooks + MCP
 		{"unknown", "unknown", false}, // Unknown backend
 		{"empty", "", false},          // Empty string

@@ -1,6 +1,6 @@
 // Package conformance holds the cross-agent equity suite: table-driven tests
-// asserting THREE of the repo's five agent.SettingsWriter implementations —
-// claude-code, antigravity, and codex, the only ones agentCases()
+// asserting TWO of the repo's four agent.SettingsWriter implementations —
+// claude-code and codex, the only ones agentCases()
 // (conformance_test.go) currently lists — honor the shared contract:
 // fault-tolerant load (refuse rather than overwrite unparseable prior
 // settings), atomic write + backup, hook-event REACH, MCP auto-register, and
@@ -14,7 +14,7 @@
 // attachment needs per-agent format knowledge, which is exactly what this
 // suite refuses to hold, and is asserted where that knowledge lives: the
 // per-agent tests (claude/hooks_wire_test.go, claude/surfacedelivery_test.go,
-// codex/settings_test.go, antigravity/hooks_wire_test.go). This sentence used
+// codex/settings_test.go). This sentence used
 // to say "full hook-event coverage", which reads as the stronger claim.
 //
 // opencode and kiro also implement agent.SettingsWriter and are DELIBERATELY
@@ -22,7 +22,7 @@
 // definition — not because nobody got around to adding them.
 // This sentence used to read "every supported agent's SettingsWriter", which
 // was true when written but stopped being true once opencode/kiro shipped;
-// say "three" here, not "every", so this comment cannot silently drift back
+// say "two" here, not "every", so this comment cannot silently drift back
 // into overclaiming coverage the suite does not have.
 //
 // The tests are gated behind the `conformance` build tag (see

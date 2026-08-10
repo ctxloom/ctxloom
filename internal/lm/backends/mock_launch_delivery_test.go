@@ -72,7 +72,7 @@ func TestMock_Setup_DeliversContextBytesOnTheLaunchPath(t *testing.T) {
 
 // TestMock_Cleanup_ReversesTheLaunchDelivery: the turn's teardown
 // (grpc.runTurn calls Cleanup immediately after Execute) must strip what Setup
-// wrote, exactly as it does for antigravity's AGENTS.md — mock rides the shared
+// wrote, exactly as it does for claude's CLAUDE.md — mock rides the shared
 // LIFO reversal rather than leaving debris in the user's project. This is also
 // why a CLI-level assertion AFTER a run finds nothing: the file lives for the
 // duration of the turn.

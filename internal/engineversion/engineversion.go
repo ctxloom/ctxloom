@@ -279,7 +279,7 @@ func TokenAt(output string, i int) (string, error) {
 //
 // It exists only for engines whose real `--version` output this project has
 // never measured, because their binary is not installed on any dev host
-// (kiro-cli and antigravity as of 2026-08-07). Guessing a POSITION for those
+// (kiro-cli as of 2026-08-07). Guessing a POSITION for those
 // would refuse a working engine on a formatting detail nobody has checked;
 // scanning at least accepts any of the three shapes actually seen in the wild.
 // It is still a refusal when nothing on the line is semver-shaped.

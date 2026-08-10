@@ -12,10 +12,10 @@
 //	codex     --version  ->  "codex-cli 0.144.4"       name first, then version
 //	opencode  --version  ->  "1.18.4"                  bare version
 //
-// kiro-cli and antigravity are not installed anywhere this project can reach,
-// so their output shape is UNMEASURED and they use the tolerant scanner with
-// that fact stated at each site. Tighten them to a positional parser the first
-// time either is run on a real install.
+// kiro-cli is not installed anywhere this project can reach, so its output
+// shape is UNMEASURED and it uses the tolerant scanner with that fact stated
+// at its site. Tighten it to a positional parser the first time it is run on
+// a real install.
 package backends
 
 import (
@@ -95,12 +95,5 @@ func parseOpencodeVersion(output string) (string, error) {
 // engineversion.FirstSemverToken. Replace with a positional TokenAt once the
 // real output is seen.
 func parseKiroVersion(output string) (string, error) {
-	return engineversion.FirstSemverToken(output)
-}
-
-// parseAntigravityVersion reads agy's `--version` output.
-// UNMEASURED, for the same reason as parseKiroVersion — antigravity's binary
-// is not installed on any reachable host.
-func parseAntigravityVersion(output string) (string, error) {
 	return engineversion.FirstSemverToken(output)
 }

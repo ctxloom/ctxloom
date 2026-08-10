@@ -3,12 +3,12 @@ name: Engine Drift Detect
 # P0 (detect + alert) of the self-healing engine-format pipeline: polls each
 # LLM-engine CLI's release feed and compares it against the tested-version
 # lock in .github/engine-versions.env. A mismatch means a version ctxloom's
-# importer (internal/transcript/importer/{codex,claude,antigravity,kiro})
+# importer (internal/transcript/importer/{codex,claude,kiro})
 # has never been validated against has shipped, so it opens/labels a
 # tracking issue for a human. That is ALL this workflow does: no engine CLI
 # is installed, no transcript is captured, no parser is touched, and no
-# engine credential (ANTHROPIC_API_KEY / CODEX_API_KEY / KIRO_API_KEY /
-# antigravity auth) is used or needed — those belong to later phases
+# engine credential (ANTHROPIC_API_KEY / CODEX_API_KEY / KIRO_API_KEY)
+# is used or needed — those belong to later phases
 # (capture+oracle, then self-heal) per the plan. This workflow only ever
 # reads the engines' PUBLIC release feeds and writes a GitHub issue.
 #
@@ -51,8 +51,6 @@ jobs:
             lock_key: CODEX_CLI_VERSION
           - engine: claude-code
             lock_key: CLAUDE_CODE_CLI_VERSION
-          - engine: antigravity
-            lock_key: ANTIGRAVITY_CLI_VERSION
           - engine: kiro
             lock_key: KIRO_CLI_VERSION
 

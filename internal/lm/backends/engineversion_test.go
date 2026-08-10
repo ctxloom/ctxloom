@@ -55,12 +55,12 @@ func TestVersionParsers_RefuseAnotherEnginesShape(t *testing.T) {
 
 // Every engine whose vendor transcripts ctxloom READS must be askable for its
 // version — otherwise reader selection has nothing to select on and every
-// session under that engine refuses. The four are the ones
+// session under that engine refuses. The three are the ones
 // operations.vendorReaderRegistry covers (and .github/engine-versions.env
 // pins); this test states the requirement where the descriptors live so a new
 // engine cannot be added without one.
 func TestVersionCommands_DeclaredForEveryVendorReaderEngine(t *testing.T) {
-	for _, engine := range []string{"claude-code", "codex", "kiro", "antigravity"} {
+	for _, engine := range []string{"claude-code", "codex", "kiro"} {
 		cmd, ok := VersionCommandFor(engine)
 		assert.True(t, ok, "%s reads a vendor transcript, so it must declare a version command", engine)
 		if ok {

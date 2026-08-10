@@ -1,10 +1,10 @@
 //go:build conformance
 
 // The cross-agent equity suite. Gated behind the `conformance` build tag (see
-// doc.go) and kept in its own package so it composes claude/antigravity/codex without
+// doc.go) and kept in its own package so it composes claude/codex without
 // touching their per-module test files — safe alongside concurrent work. Every
 // assertion goes through the public agent.SettingsWriter interface, so it is
-// format-agnostic (claude JSON, antigravity JSON, codex TOML all pass the same suite).
+// format-agnostic (claude JSON, codex TOML both pass the same suite).
 package conformance
 
 import (
@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
@@ -42,8 +41,8 @@ type agentCase struct {
 	userMarker string // substring of userFile that must survive write + remove
 }
 
-// agentCases returns the THREE agents this suite actually covers today
-// (claude-code, antigravity, codex) — NOT every agent.SettingsWriter
+// agentCases returns the TWO agents this suite actually covers today
+// (claude-code, codex) — NOT every agent.SettingsWriter
 // implementation in the repo: opencode and kiro both implement
 // the interface (internal/opencode/settings.go:465,
 // internal/kiro/settings.go:48) and are absent, for two DIFFERENT reasons,
@@ -71,7 +70,6 @@ type agentCase struct {
 func agentCases() []agentCase {
 	return []agentCase{
 		{"claude-code", concrete[*claude.ClaudeCodeHookWriter](claude.NewWriter), `{"theme":"dark"}`, "dark"},
-		{"antigravity", concrete[*antigravity.AntigravityHookWriter](antigravity.NewWriter), `{"theme":"dark"}`, "dark"},
 		{"codex", concrete[*codex.CodexHookWriter](codex.NewWriter), "model = \"o3\"\n", "o3"},
 	}
 }
@@ -143,7 +141,7 @@ const projectDir = "/project"
 // on disk exactly as they were. This is the opposite of what this test used to
 // assert — it formerly required WriteSettings to succeed and apply hooks over
 // the corrupt file, which is precisely the silent-data-loss shape production
-// now refuses (see agent.RefuseCorrupt). claude-code and antigravity also back
+// now refuses (see agent.RefuseCorrupt). claude-code also backs
 // the corrupt bytes up to a sibling "<path>.corrupt-<unix-ts>" file before
 // refusing; that backup is asserted per-engine below since codex's writer
 // (internal/codex/settings.go loadSettings/load) returns a bare error with no
@@ -159,7 +157,6 @@ func TestConformance_RefusesToOverwriteUnparseableSettings(t *testing.T) {
 	// error with no backup file at all.
 	backsUpCorruptFile := map[string]bool{
 		"claude-code": true,
-		"antigravity": true,
 		"codex":       false,
 	}
 
@@ -287,11 +284,11 @@ func TestConformance_AtomicWriteBackup(t *testing.T) {
 // WHAT IT DOES NOT PROVE, deliberately: that a command landed under the RIGHT
 // native event. The assertion is a substring search over the file's bytes,
 // because this suite is format-agnostic by construction (claude JSON,
-// antigravity JSON, codex TOML, all through one interface), and asserting slot
+// codex TOML, both through one interface), and asserting slot
 // attachment needs per-agent format knowledge. That knowledge lives — and is
 // asserted — in the per-agent tests: claude/hooks_wire_test.go and
 // claude/surfacedelivery_test.go on "PreToolUse", codex/settings_test.go on
-// "[[hooks.PreToolUse]]", antigravity/hooks_wire_test.go likewise. doc.go used
+// "[[hooks.PreToolUse]]". doc.go used
 // to call this "full hook-event coverage", which reads as the stronger claim.
 func TestConformance_HookEventCoverage(t *testing.T) {
 	for _, a := range agentCases() {
@@ -351,8 +348,8 @@ func TestConformance_HookEventsAreEmittedIndependently(t *testing.T) {
 // Status-only assertion in both directions at once, which is the tautology
 // this suite must not rest on. Walking the filesystem is the
 // independent evidence, and it stays format-agnostic (JSON, TOML) and
-// location-agnostic (antigravity keeps its MCP registration in a different
-// file from its hooks) precisely because it looks at bytes rather than at a
+// location-agnostic (claude keeps its MCP registration in a different
+// file — .mcp.json — from its hooks) precisely because it looks at bytes rather than at a
 // path the test would have to know.
 //
 // A "<path>.ctxloom.bak" records the state BEFORE the write that produced it,

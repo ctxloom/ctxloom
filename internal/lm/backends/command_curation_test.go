@@ -37,7 +37,6 @@ func optOut() bundles.LLMExports {
 	off := false
 	var x bundles.LLMExports
 	x.ClaudeCode.Enabled = &off
-	x.Antigravity.Enabled = &off
 	x.Codex.Enabled = &off
 	return x
 }

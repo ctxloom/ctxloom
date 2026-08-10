@@ -110,9 +110,6 @@ llm:
   claude-code:
     enabled: true
     description: "Review code"
-  antigravity:
-    enabled: true
-    description: "Review code"
   codex:
     enabled: true
     description: "Review code"

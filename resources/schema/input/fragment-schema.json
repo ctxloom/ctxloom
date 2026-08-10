@@ -169,26 +169,6 @@
           },
           "additionalProperties": false
         },
-        "antigravity": {
-          "type": "object",
-          "description": "Antigravity CLI (agy) skill-file export settings. Prompts are exported by default (opt-out model) as .agents/skills/<name>/SKILL.md files, invocable as /<name> slash commands.",
-          "properties": {
-            "enabled": {
-              "type": "boolean",
-              "description": "Set to false to disable skill export. Default is true (exported).",
-              "default": true
-            },
-            "description": {
-              "type": "string",
-              "description": "Description shown in Antigravity's skill listings.",
-              "examples": [
-                "Review code for security issues",
-                "Generate unit tests"
-              ]
-            }
-          },
-          "additionalProperties": false
-        },
         "codex": {
           "type": "object",
           "description": "Codex CLI custom-prompt export settings. Prompts are exported by default (opt-out model) as $CODEX_HOME/prompts/<name>.md files, invocable as /<name> slash commands.",

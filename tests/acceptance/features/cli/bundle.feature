@@ -80,7 +80,7 @@ Feature: bundle — the container authored content lives in, and everything that
       And a bundle "demo" exists
       When Alice asks what this project has authored:
         """
-        ctxloom bundle list
+        ctxloom bundle list --no-companions
         """
       Then the command succeeds
       And the output contains "Installed bundles (1):"
@@ -98,7 +98,7 @@ Feature: bundle — the container authored content lives in, and everything that
     Scenario: Bare bundle lists what is installed
       Given an initialized ctxloom project
       And a bundle "demo" exists
-      When I run "ctxloom bundle"
+      When I run "ctxloom bundle --no-companions"
       Then the command succeeds
       And the output contains "Installed bundles (1):"
       And the output contains "demo (v1.0.0)"
@@ -483,7 +483,7 @@ Feature: bundle — the container authored content lives in, and everything that
         """
       Then the command succeeds
       And the file ".ctxloom/content/bundles/demo.yaml" does not exist
-      When I run "ctxloom bundle list"
+      When I run "ctxloom bundle list --no-companions"
       Then the output contains "No bundles installed."
 
     # The aliases are not decoration: `rm` is what a person's fingers type, and

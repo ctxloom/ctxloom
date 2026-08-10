@@ -193,7 +193,7 @@ func init() {
 	sessionListCmd.Flags().BoolVar(&sessionListAll, "all", false, "Include sessions from every project (default: filter to cwd)")
 	sessionListCmd.Flags().BoolVar(&sessionListDistill, "distill", false, "Distill sessions whose essence is missing or stale before listing, so every row shows a title")
 	sessionListCmd.Flags().BoolVar(&sessionListFull, "full", false, "Include each session's complete distilled essence body (text/markdown output pages through $PAGER on a terminal)")
-	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionDeleteCmd, sessionDistillCmd, sessionWatchCmd)
+	sessionCmd.AddCommand(sessionListCmd, sessionShowCmd, sessionEditCmd, sessionDeleteCmd, sessionDistillCmd)
 	rootCmd.AddCommand(sessionCmd)
 }
 

@@ -1,6 +1,6 @@
 // Package discover finds live coordinator endpoints on the host by scanning
 // ~/.ctxloom/coord/*/endpoint.json — the D1 consumer discovery mechanism for
-// a process with no coordinator of its own (e.g. `ctxloom session watch`, a
+// a process with no coordinator of its own (e.g. `ctxloom session transcript watch`, a
 // separate CLI invocation from whatever process hosts the coordinator for a
 // given project's session).
 //

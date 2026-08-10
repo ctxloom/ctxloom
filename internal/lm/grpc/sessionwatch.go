@@ -171,7 +171,7 @@ func WatchHistoryByPath(ctx context.Context, hist agent.SessionHistory, path str
 // WatchCanonicalTranscript streams a captured transcript.jsonl's
 // structured turns by polling transcript.ParseTranscriptFile — the canonical
 // counterpart to WatchHistoryByPath (which polls a legacy per-engine file).
-// S4: session watch prefers this over both WatchSession (backend
+// S4: session transcript watch prefers this over both WatchSession (backend
 // session id) and WatchHistoryByPath (located legacy transcript) whenever the
 // harp has a canonical transcript, since ctxloom's own capture is available
 // host-side with no plugin round-trip regardless of where the engine ran.

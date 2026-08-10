@@ -45,7 +45,7 @@ type PlansSource interface {
 // separate from SessionSource (one-shot transcript reads) so the in-process
 // adapters that satisfy SessionSource — the compactor's memoryHistorySource —
 // are not forced to implement a long-lived stream they never use; only the
-// `session watch` / structured-chat paths depend on this. *SessionReader
+// `session transcript watch` / structured-chat paths depend on this. *SessionReader
 // implements it over gRPC, keeping the plugin alive for the stream's lifetime.
 type SessionWatcher interface {
 	WatchSession(ctx context.Context, sessionID string) (<-chan *WatchEvent, <-chan error, error)

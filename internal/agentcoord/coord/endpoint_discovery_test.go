@@ -11,7 +11,7 @@ import (
 
 // endpoint.json is a seam with a writer here and a reader in
 // internal/agentcoord/discover — the D1 consumer discovery path a separate CLI
-// invocation (the TUI, `ctxloom session watch`) uses to find a live
+// invocation (the TUI, `ctxloom session transcript watch`) uses to find a live
 // coordinator. The two halves are in different packages by necessity: coord
 // imports internal/operations, which imports discover, so discover can never
 // import coord. That makes this the one contract in the package with no

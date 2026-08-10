@@ -166,6 +166,9 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// renders in all five formats. Mutating flags (--reap --yes) are
 	// deliberately not exercised here; session_worktrees_test.go covers those.
 	"session worktrees": {extraArgs: noExtraArgs},
+	// Bare, read-only listing over a fresh sessions dir: an empty report is
+	// exactly what proves the "(no sessions)" path renders in all five formats.
+	"session transcript list": {extraArgs: noExtraArgs},
 	"session search": {extraArgs: func(string) []string {
 		// A word that won't match anything in this test's empty/fresh session
 		// index; the point here is proving `session query` renders cleanly in
@@ -195,8 +198,8 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"mcp serve":  {skip: "serve: runs the stdio MCP server"},
 
 	// --- skip: streaming (own text/json-only format switch, not emit()) ---
-	"session watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
-	"plan watch":    {skip: "streaming: same shape as session watch"},
+	"session transcript watch": {skip: "streaming: renders one event at a time via its own format switch (see format.go's session/plan watch note), not a single emit() result"},
+	"plan watch":    {skip: "streaming: same shape as session transcript watch"},
 	"run":           {skip: "streaming + spawns a real engine subprocess: not a single emit() result; run.go's RunE does call emit() on at least one branch (agent-mode payload), not independently re-verified for every branch here"},
 
 	// --- skip: needs a live ssh-agent/git signing identity (non-hermetic) ---

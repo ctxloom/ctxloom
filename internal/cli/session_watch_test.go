@@ -169,7 +169,7 @@ func TestStreamWatchEvents_PropagatesStreamError(t *testing.T) {
 // failingWriter always errors on Write — pins a fix: writeWatchText's text
 // path used iox.ErrWriter's void-returning methods and never called w.Err(),
 // so a failed write silently drained the rest of the event stream to nothing
-// while `ctxloom session watch` exited 0.
+// while `ctxloom session transcript watch` exited 0.
 type failingWriter struct{ err error }
 
 func (w *failingWriter) Write(p []byte) (int, error) { return 0, w.err }
@@ -368,7 +368,7 @@ func TestRunSessionWatch_UnknownSource(t *testing.T) {
 // --- live source through the published command ---
 
 // fakeConsumerServer is a hermetic double for agentcoord.v1.ConsumerService
-// (D1/D2) — just enough to drive `ctxloom session watch`'s live path under
+// (D1/D2) — just enough to drive `ctxloom session transcript watch`'s live path under
 // test, the same level of realism the retired agentbus test used for its
 // fake TapHub-backed bus server (see internal/operations/sessionfeed_test.go
 // for the twin of this helper; duplicated rather than shared because the two
@@ -512,7 +512,7 @@ func TestRunSessionWatch_LiveTapE2E(t *testing.T) {
 	}
 }
 
-// TestWatchFeedSource pins the --source resolution `ctxloom session watch`
+// TestWatchFeedSource pins the --source resolution `ctxloom session transcript watch`
 // depends on. The lookup half matters as much as the parse half: a failed
 // flag lookup used to be discarded, and ParseFeedSource reads the resulting ""
 // as auto — so a user who asked for the live tap would silently get the store
@@ -548,7 +548,7 @@ func TestWatchFeedSource(t *testing.T) {
 }
 
 // TestStreamWatchEvents_NDJSONSurfacesWriteFailure is the json-mode twin of
-// TestStreamWatchEvents_TextSurfacesWriteFailure. `session watch --format json`
+// TestStreamWatchEvents_TextSurfacesWriteFailure. `session transcript watch --format json`
 // is the structured-frontend contract: a write failure that drained the feed
 // and exited 0 would hand a consumer a silently truncated stream that is
 // indistinguishable from a session that simply ended.

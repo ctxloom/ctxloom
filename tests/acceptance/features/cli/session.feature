@@ -21,6 +21,9 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session delete <harp>
     ctxloom session distill <harp>
     ctxloom session search <word>...
+    ctxloom session transcript              (bare: lists)
+    ctxloom session transcript list [<harp>]
+    ctxloom session transcript watch <harp>
 
   Rule: Reading the record touches nothing
 
@@ -94,6 +97,43 @@ Feature: session — the record of what your assistant did, and the tools to pru
       When I run "ctxloom session edit no-such-harp --name bright-keen-hawk"
       Then the command fails
       And the output contains "no-such-harp"
+
+  Rule: The transcript is a population of its own
+
+    A session's recorded conversation has its own listing, its own stream and
+    its own destroyer, so it gets its own sub-noun. `session transcript`
+    named alone lists — the same bare-noun answer `remote` gives.
+
+    Scenario: The bare sub-noun lists which sessions have a transcript
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session transcript"
+      Then the command succeeds
+      And the output contains "amber-swift-owl"
+
+    # A session whose transcript was never captured is listed SAYING SO.
+    # Omitting it would make "nothing was captured" read identically to
+    # "there are no sessions".
+    Scenario: A session with no captured transcript is still named
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session transcript list"
+      Then the command succeeds
+      And the output contains "amber-swift-owl"
+      And the output contains "false"
+
+    Scenario: The harp is a positional, and an unknown one fails
+      Given an initialized ctxloom project
+      When I run "ctxloom session transcript list no-such-harp"
+      Then the command fails
+      And the output contains "no-such-harp"
+
+    Scenario: Watching moved under the transcript it watches
+      Given an initialized ctxloom project
+      And a recorded session "amber-swift-owl"
+      When I run "ctxloom session watch amber-swift-owl"
+      Then the command fails
+      And the output contains "unknown command"
 
   Rule: Dropping a session from the index
 

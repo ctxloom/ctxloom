@@ -152,7 +152,7 @@ var knownUncoveredCLI = []string{
 	//
 	// Long-lived watcher with no bounded/hermetic exit in this harness yet.
 	// Backfill: task cheap-pug.
-	"ctxloom session watch",
+	"ctxloom session transcript watch",
 	// The four hidden machine callbacks LEFT this list when
 	// session_hooks.feature landed. They were uncovered for a structural
 	// reason, not an oversight: CTXLOOM_SESSION_HARP is on the ambient-session

@@ -1,16 +1,16 @@
 @doc
 Feature: Cross-engine transcript capture — every engine's native log becomes one transcript you own
 
-  You drive whichever engine you like — claude, codex, kiro, antigravity —
+  You drive whichever engine you like — claude, codex, kiro —
   through its own native TUI, and you still keep a durable memory of what
   happened. Each engine writes its conversation into its OWN private,
   version-unstable session store (claude's project JSONL, codex's rollout
-  JSONL, kiro's sqlite conversations_v2, antigravity's brain log). This journey
+  JSONL, kiro's sqlite conversations_v2). This journey
   is the promise on top of that mess: whatever engine ran, its native log
   becomes ONE canonical transcript ctxloom owns — the same on-disk schema
   (transcript.jsonl, one JSONL Record per line) a live structured/ACP session
   already tees out — so a single downstream reader (distill, resume, the VSCode
-  companion) never special-cases four vendor formats.
+  companion) never special-cases three vendor formats.
 
   AND NOBODY RUNS AN IMPORT. The conversion fires at the two moments it is
   needed and nowhere else: when an interactive run exits, and when someone
@@ -42,7 +42,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #     launching any backend. Every hermetic scenario below builds on exactly
   #     that: seed an index entry whose transcript_path points at a
   #     vendor-native fixture this repo ALREADY ships in-tree
-  #     (internal/transcript/vendorreader/{claude,codex,antigravity}/testdata/
+  #     (internal/transcript/vendorreader/{claude,codex}/testdata/
   #     *-fixture.jsonl), then ask for that session's memory. The conversion
   #     (vendorreader.VendorAdapter.Convert) is a PURE file->file transform
   #     through a transcript.Recorder — it spawns no engine — so this is
@@ -50,14 +50,14 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #
   #   * Each recall names its engine explicitly, so the read resolves through
   #     the canonical store rather than through whichever backend the fixture
-  #     project happens to default to. The four reader engines are
+  #     project happens to default to. The three reader engines are
   #     retired-scraper backends (grpc.IsRetiredScraperBackend), so a canonical
   #     miss is a clean "nothing captured" that triggers the conversion instead
   #     of a scrape attempt that would mask it.
   #
   #   * The mock backend the suite CAN drive hermetically has NO entry in
-  #     vendorreader.go's vendorReaderRegistry (only claude-code/codex/kiro/
-  #     antigravity are registered), because it has no vendor-native store to
+  #     vendorreader.go's vendorReaderRegistry (only claude-code/codex/kiro
+  #     are registered), because it has no vendor-native store to
   #     read back. That boundary is asserted as its own scenario below rather
   #     than left in this comment.
   #
@@ -68,7 +68,7 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
   #     and interactive lines must not disagree about who wrote them). So a
   #     converted CLAUDE transcript's engine reads "claude-code" (NOT the
   #     "claude" its package testdata golden happens to show); codex reads
-  #     "codex", antigravity "antigravity". The assertions below pin the
+  #     "codex". The assertions below pin the
   #     registry name deliberately.
   #
   #   * Canonical filename: transcript.jsonl
@@ -135,14 +135,11 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
     Then the canonical transcript for "queued-claude-harp" places the real answer to the first prompt after the interleaved second prompt, exactly as the vendor log ordered them
     And the canonical transcript for "queued-claude-harp" contains no trace of the removed, never-delivered prompt
 
-  # The SAME conversion holds across engines whose vendor store is a bare
-  # per-session file (locateBoundTranscript, shared by codex and antigravity).
-  # Each engine's shipped golden was checked: codex's rollout carries a session
-  # line (model gpt-5.5) then user/tool_use/... turns; antigravity's brain log
-  # carries no session id and no session line at all (it has no StructuredChat
-  # capability), starting straight at a user entry. The shared step asserts the
-  # fixture's own real turns replayed in seq order, so one engine's expectation
-  # can never satisfy another's.
+  # The SAME conversion holds for an engine whose vendor store is a bare
+  # per-session file (locateBoundTranscript). codex's shipped golden was
+  # checked: its rollout carries a session line (model gpt-5.5) then
+  # user/tool_use/... turns. The shared step asserts the fixture's own real
+  # turns replayed in seq order.
   Scenario Outline: A prior <engine> session's own log comes back as the transcript you own
     Given a recorded "<engine>" session "<harp>" bound to the shipped <engine> vendor-transcript fixture
     And the compaction LLM is a mock that never compresses
@@ -154,13 +151,12 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
     # honesty block: its conversations_v2 sqlite store is resolved via a fixed
     # $XDG_DATA_HOME path plus a best-effort enumeration heuristic, not the
     # index entry's transcript_path, so it cannot be seeded by the same
-    # file-path fixture route these two use. Its reader path is real
+    # file-path fixture route this one uses. Its reader path is real
     # (vendorreader_kiro.go) but needs a real sqlite fixture plus @live-style
     # setup this journey does not yet own.
     Examples:
       | engine      | harp                    |
       | codex       | amber-codex-harp        |
-      | antigravity | amber-antigravity-harp  |
 
   # "ONE canonical transcript you own", asserted against the failure mode that
   # would break it. A recall of a session that is still being written re-reads
@@ -229,4 +225,3 @@ Feature: Cross-engine transcript capture — every engine's native log becomes o
       | agent       | engine      |
       | Claude      | claude-code |
       | Codex       | codex       |
-      | Antigravity | antigravity |

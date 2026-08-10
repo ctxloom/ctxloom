@@ -1,12 +1,15 @@
 package cli
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/remote"
 )
 
 // One noun, one question. `remote` answers "where does content come from" —
@@ -167,4 +170,49 @@ func TestDepsList_NamesAnUnregisteredOrigin(t *testing.T) {
 
 	assert.Contains(t, b.String(), "git.example.com",
 		"with no registered remote to name, the row falls back to the URL it was pulled from")
+}
+
+// TestDepsList_ReadsAnInstalledClosureFromTheLockfile drives the whole read
+// path — lockfile load, reference parse, origin lookup — against a real
+// lockfile on disk.
+//
+// The renderer tests above are driven from a value, which proves the four facts
+// are PRINTABLE but not that any of them is ever READ. This is what fails if
+// the load stops carrying the hold flag, loses the constraint, or derives a
+// name nobody could pass back to `deps hold`.
+func TestDepsList_ReadsAnInstalledClosureFromTheLockfile(t *testing.T) {
+	root, cfg := setupProject(t, "mock")
+	t.Chdir(root)
+
+	const (
+		demoRef  = "https://github.com/alice/ctxloom@bundles/demo"
+		guardRef = "https://github.com/alice/ctxloom@bundles/guardrails"
+	)
+	manager := remote.NewLockfileManager(projectAppDir(cfg))
+	lockfile, err := manager.Load()
+	require.NoError(t, err)
+	lockfile.AddEntry(remote.ItemTypeBundle, demoRef, remote.LockEntry{
+		SHA: "0123456789abcdef0123456789abcdef01234567",
+		URL: "https://github.com/alice/ctxloom", RequestedVersion: "^1.2",
+	})
+	lockfile.AddEntry(remote.ItemTypeBundle, guardRef, remote.LockEntry{
+		SHA: "fedcba9876543210fedcba9876543210fedcba98",
+		URL: "https://github.com/alice/ctxloom", Pinned: true,
+	})
+	require.NoError(t, manager.Save(lockfile))
+
+	listing, err := loadDepsListing(context.Background(), cfg)
+	require.NoError(t, err)
+
+	require.Len(t, listing.Deps, 2)
+	assert.Equal(t, 2, listing.Count)
+	// Sorted by name, so two runs over one lockfile print the same thing —
+	// AllEntries walks a map, whose order Go deliberately randomizes.
+	assert.Equal(t, "demo", listing.Deps[0].Name, "the name is the one `deps hold` takes")
+	assert.Equal(t, "guardrails", listing.Deps[1].Name)
+
+	assert.Equal(t, "0123456789abcdef0123456789abcdef01234567", listing.Deps[0].SHA)
+	assert.Equal(t, "^1.2", listing.Deps[0].Constraint)
+	assert.False(t, listing.Deps[0].Held)
+	assert.True(t, listing.Deps[1].Held, "the hold flag survives the read; an invisible hold is an untrusted one")
 }

@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -488,26 +487,3 @@ func TestUndistilledSessionError_DistinguishesPendingFromUndistilled(t *testing.
 		"a bound-but-uncompacted harp must name the command that fixes it")
 }
 
-func TestRunSessionDelete_ReportsWhatItDid(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(dir)
-	t.Setenv("HOME", dir)
-
-	mgr, err := sessions.Open("")
-	require.NoError(t, err)
-	entry, err := mgr.AssignHarp(dir, "claude-code")
-	require.NoError(t, err)
-	harp := entry.HarpName
-
-	var deleted bytes.Buffer
-	dc := &cobra.Command{}
-	dc.SetOut(&deleted)
-	require.NoError(t, runSessionDelete(dc, []string{harp}))
-	assert.Contains(t, deleted.String(), "deleted "+harp)
-
-	entries, err := loadSessionEntries(true)
-	require.NoError(t, err)
-	for _, e := range entries {
-		assert.NotEqual(t, harp, e.HarpName, "the entry must actually be gone from the index")
-	}
-}

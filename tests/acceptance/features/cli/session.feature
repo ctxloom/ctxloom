@@ -18,7 +18,7 @@ Feature: session — the record of what your assistant did, and the tools to pru
     ctxloom session list
     ctxloom session show <harp>
     ctxloom session edit <harp> --name <new>
-    ctxloom session delete <harp>
+    ctxloom session delete <harp> [--yes]
     ctxloom session distill <harp>
     ctxloom session search <word>...
     ctxloom session transcript              (bare: lists)
@@ -249,12 +249,44 @@ Feature: session — the record of what your assistant did, and the tools to pru
       Then the command fails
       And the output contains "unknown flag"
 
-  Rule: Dropping a session from the index
+  Rule: Delete removes a session, all of it
 
-    Scenario: Delete removes the entry
+    Purge empties a session and leaves it listed. Delete removes it: the
+    index entry, the transcript AND the essence. Deleting only the index
+    entry would leave every byte on disk and the session merely unfindable,
+    which is a delete from the index's point of view and from nobody else's.
+
+    Authored files are outside both verbs. They are never destroyed, and the
+    report names them so a kept file is never silently kept.
+
+    Scenario: Delete reports before it removes
       Given an initialized ctxloom project
-      And a recorded session "amber-swift-owl"
+      And a finished session "amber-swift-owl" with a transcript and an essence
       When I run "ctxloom session delete amber-swift-owl"
       Then the command succeeds
+      And the output contains "removed nothing"
+      And the output contains "ctxloom session delete amber-swift-owl --yes"
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" exists
+      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" exists
+      When I run "ctxloom session list --all"
+      Then the output contains "amber-swift-owl"
+
+    Scenario: --yes removes the index entry, the transcript and the essence
+      Given an initialized ctxloom project
+      And a finished session "amber-swift-owl" with a transcript and an essence
+      When I run "ctxloom session delete amber-swift-owl --yes"
+      Then the command succeeds
+      And the home file ".ctxloom/sessions/amber-swift-owl/persist/transcript.jsonl" does not exist
+      And the home file ".ctxloom/sessions/amber-swift-owl/essence.md" does not exist
       When I run "ctxloom session list --all"
       Then the output does not contain "amber-swift-owl"
+
+    Scenario: Deleting a session that was never distilled is refused
+      Given an initialized ctxloom project
+      And a finished session "brisk-copper-moth" with a transcript and no essence
+      When I run "ctxloom session delete brisk-copper-moth --yes"
+      Then the command fails
+      And the output contains "--undistilled"
+      And the home file ".ctxloom/sessions/brisk-copper-moth/persist/transcript.jsonl" exists
+      When I run "ctxloom session list --all"
+      Then the output contains "brisk-copper-moth"

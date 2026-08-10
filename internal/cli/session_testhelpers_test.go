@@ -117,6 +117,19 @@ func seedEssence(t *testing.T, harp string) string {
 	return path
 }
 
+// seedAuthoredNote writes a file a HUMAN is taken to have put in the harp
+// directory. Nothing under `session` may ever destroy it, so every destroyer
+// test that claims to be safe needs one present to be safe ABOUT.
+func seedAuthoredNote(t *testing.T, harp, name string) string {
+	t.Helper()
+	dir, err := paths.HarpDir(harp)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(dir, 0o755))
+	path := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(path, []byte("# notes nobody filed\n"), 0o644))
+	return path
+}
+
 // onDisk answers the question both sides of every destructive test ask, in
 // opposite directions: the report side asserts true afterwards, the apply
 // side asserts false. A stat that fails for any reason OTHER than absence

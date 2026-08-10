@@ -283,7 +283,8 @@ ctxloom session list                    # Sessions for the current project
 ctxloom session list --all              # Sessions for every project
 ctxloom session show <harp>             # Print a session's distilled essence
 ctxloom session edit <harp> --name <new>  # Rename an index entry
-ctxloom session delete <harp>           # Drop an entry (files stay on disk)
+ctxloom session delete <harp> --yes     # Remove entry, transcript and essence
+ctxloom session purge <harp> --yes      # Empty a session, keep it listed
 ctxloom session distill <harp>          # Force-distill a session
 ```
 

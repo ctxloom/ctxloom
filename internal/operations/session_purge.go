@@ -182,14 +182,20 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	}
 	wantTranscript := req.wants(PurgePopulationTranscript)
 	wantArtifacts := req.wants(PurgePopulationArtifacts)
-	if wantTranscript && !hasEssence && !req.Undistilled {
-		return res, fmt.Errorf("%w: %q — its transcript is the only record of this session; pass --undistilled to destroy it anyway", ErrPurgeUndistilled, harp)
-	}
 
 	items, err := classifyHarpDir(harpDir, entry)
 	if err != nil {
 		return nil, err
 	}
+
+	// The undistilled guard protects a real file, so it asks whether there IS
+	// one. Firing on the request alone would refuse forever for a session
+	// whose transcript is already deliberately gone — the caller would have
+	// done exactly what the refusal asked and still be told no.
+	if wantTranscript && !hasEssence && !req.Undistilled && hasClass(items, PurgeClassMachine) {
+		return res, fmt.Errorf("%w: %q — its transcript is the only record of this session; pass --undistilled to destroy it anyway", ErrPurgeUndistilled, harp)
+	}
+
 	for _, it := range items {
 		switch it.Class {
 		case PurgeClassMachine:
@@ -253,6 +259,11 @@ func PurgeSession(harp string, req PurgeSessionRequest) (*PurgeSessionResult, er
 	res.BytesFreed = freed
 	res.Applied = true
 	return res, nil
+}
+
+// hasClass reports whether any classified item belongs to class c.
+func hasClass(items []PurgeItem, c PurgeClass) bool {
+	return slices.ContainsFunc(items, func(it PurgeItem) bool { return it.Class == c })
 }
 
 // classifyHarpDir walks harp's directory, classifying every regular file

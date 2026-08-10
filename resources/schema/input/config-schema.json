@@ -333,7 +333,7 @@
         "type": "string",
         "minLength": 1
       },
-      "description": "Selects which engine fragments compose into the shared multi-engine agent image (antigravity, claude-code, codex, kiro, opencode today \u2014 each via its OWN official installer, one independently-cacheable Containerfile layer). Empty/unset = every known engine (the biggest image, \"one instance runs any engine\"); an unrecognized name is dropped with a warning."
+      "description": "Selects which engine fragments compose into the shared multi-engine agent image (claude-code, codex, kiro, opencode today \u2014 each via its OWN official installer, one independently-cacheable Containerfile layer). Empty/unset = every known engine (the biggest image, \"one instance runs any engine\"); an unrecognized name is dropped with a warning."
     },
     "agents": {
       "type": "object",
@@ -528,55 +528,6 @@
               ],
               "default": "medium",
               "description": "Normalized reasoning/thinking-budget level, translated to claude's MAX_THINKING_TOKENS env var (off unsets it entirely; low/medium/high map to ctxloom-owned token counts, retunable without a schema break). Empty defaults to medium."
-            }
-          },
-          "additionalProperties": false
-        },
-        {
-          "title": "antigravity",
-          "properties": {
-            "type": {
-              "const": "antigravity"
-            },
-            "role": {
-              "type": "string",
-              "enum": [
-                "primary",
-                "fast"
-              ],
-              "description": "Registry-only metadata marking this entry as the backend type's default primary/fast pick in the shipped registry; stripped from persisted user configs and ignored otherwise."
-            },
-            "permissions": {
-              "type": "string",
-              "enum": [
-                "default",
-                "acceptEdits",
-                "plan",
-                "bypass"
-              ],
-              "description": "Launch-time permission posture: default (prompt) | acceptEdits | plan (read-only) | bypass (skip all prompts)."
-            },
-            "model": {
-              "type": "string",
-              "examples": [
-                "gemini-3-pro"
-              ]
-            },
-            "binary_path": {
-              "type": "string",
-              "description": "Overrides the path to the engine's own CLI binary (applied via agent.ApplyLocalCLIConfig); the engine still launches through ctxloom's built-in transport. Does not select an alternate launch mode."
-            },
-            "args": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "env": {
-              "type": "object",
-              "additionalProperties": {
-                "type": "string"
-              }
             }
           },
           "additionalProperties": false
@@ -1012,7 +963,7 @@
         },
         "pre_tool_fallback": {
           "type": "boolean",
-          "description": "Declares a session_start hook safe to fire on PreToolUse instead (first tool call and every one after) on agents whose harness has no session-start event (e.g. Antigravity). Only meaningful for idempotent hooks \u2014 the author opts in because the hook may run many times per session rather than once. Writers for agents with a working session-start event ignore it.",
+          "description": "Declares a session_start hook safe to fire on PreToolUse instead (first tool call and every one after) on agents whose harness has no session-start event. Only meaningful for idempotent hooks \u2014 the author opts in because the hook may run many times per session rather than once. Writers for agents with a working session-start event ignore it.",
           "default": false
         }
       },

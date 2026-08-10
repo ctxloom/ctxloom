@@ -39,14 +39,10 @@ skipped. A devcontainer.json declaring dockerComposeFile needs an explicit
 service pick (--devcontainer-service, or config isolation_devcontainer_service)
 since a multi-service compose project does not map to one agent container.
 
-The engine set (antigravity, claude-code, codex, kiro, opencode — each via
+The engine set (claude-code, codex, kiro, opencode — each via
 its OWN official installer, one independently-cacheable Containerfile layer)
 composes into ONE shared image by default; --engines (or config
-isolation_engines) trims it. antigravity's auth resolver seeds a host
-~/.gemini/antigravity-cli/antigravity-oauth-token file-based OAuth token into
-the container when one exists on the host; absent that captured token, it
-still degrades, so a containerized antigravity agent needs one authenticated
-first.
+isolation_engines) trims it.
 
 By default the build runs with --pull --no-cache so a rebuild picks up the most
 recent client; --keep-cache reuses layers for a fast local iteration. Runs of
@@ -65,7 +61,7 @@ ctxloom container build [backend] [flags]
       --base-containerfile string     build the shared base stage from this Containerfile (your environment; the engine's agent stage layers on top) instead of an auto-detected devcontainer / the embedded default
       --base-image string             overlay ctxloom onto this base image (must already ship the client CLI) instead of the default build sources
       --devcontainer-service string   docker-compose service to use as the base when the detected devcontainer.json declares dockerComposeFile
-      --engines strings               engines to compose into the agent image (antigravity,claude-code,codex,kiro,opencode); empty = every known engine
+      --engines strings               engines to compose into the agent image (claude-code,codex,kiro,opencode); empty = every known engine
       --keep-cache                    reuse cached layers instead of --pull --no-cache (a fresh build fetches the most recent client)
       --no-devcontainer-base          do not auto-detect the project's .devcontainer/devcontainer.json as the base image
       --runtime string                container runtime to build with (docker|podman); auto-detected when empty

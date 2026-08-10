@@ -15,7 +15,7 @@ Add the taskloom MCP server to backend configs
 
 Register `taskloom mcp` as an MCP server. By default every backend
 present at the chosen scope is updated (user-level: Claude Code, Codex, and
-Kiro configs under your home directory; Antigravity is project-scope only).
+Kiro configs under your home directory).
 Name one with --engine to register just that backend — creating its config
 if needed. --project writes the project-scoped config under --dir instead of
 the user-level one.
@@ -28,7 +28,7 @@ taskloom manage install [flags]
 
 ```
       --dir string      Project directory for project-scoped configs (default ".")
-      --engine string   Backend to target: claude-code, antigravity, codex, or kiro (default: all present)
+      --engine string   Backend to target: claude-code, codex, or kiro (default: all present)
   -h, --help            help for install
       --print-only      Print the merged configs to stderr instead of writing them
       --project         Write the project-scoped config under --dir instead of the user-level one

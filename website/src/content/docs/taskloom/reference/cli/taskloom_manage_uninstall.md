@@ -19,7 +19,7 @@ taskloom manage uninstall [flags]
 
 ```
       --dir string      Project directory for project-scoped configs (default ".")
-      --engine string   Backend to target: claude-code, antigravity, codex, or kiro (default: all present)
+      --engine string   Backend to target: claude-code, codex, or kiro (default: all present)
   -h, --help            help for uninstall
       --project         Write the project-scoped config under --dir instead of the user-level one
 ```

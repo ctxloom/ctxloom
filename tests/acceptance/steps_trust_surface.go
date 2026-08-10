@@ -244,7 +244,7 @@ func tsWireAndPull(w *World, url string) error {
 // "Skipped (kept at their locked commit)"). --force skips the interactive per-item
 // confirmation prompt (this test drives stdin-less exec.Command).
 func tsUpdateAndPull(w *World) error {
-	if err := runOK(w, "deps", "upgrade", "--force"); err != nil {
+	if err := runOK(w, "deps", "upgrade"); err != nil {
 		return err
 	}
 	return runOK(w, "deps", "pull")

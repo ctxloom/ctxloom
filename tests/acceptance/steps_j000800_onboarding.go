@@ -260,7 +260,7 @@ func registerJ000800Steps(ctx *godog.ScenarioContext) {
 		// the upstream branch's tip has moved to (internal/remote/pull.go's
 		// updateLockfile: hadExisting && existing.Pinned restores the old
 		// SHA/version regardless of what this pull just resolved/fetched).
-		if err := runOK(w, "bundle", "hold", "upstream/"+j000800UpstreamBundle); err != nil {
+		if err := runOK(w, "deps", "hold", "upstream/"+j000800UpstreamBundle); err != nil {
 			return err
 		}
 		// Record the SHA the hold froze. "The versions the team pinned" is a

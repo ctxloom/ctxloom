@@ -720,7 +720,7 @@ func registerJ001900Steps(ctx *godog.ScenarioContext) {
 		w := worldFrom(c)
 		// Held by its LOCKFILE name (remote-qualified): `deps hold` resolves
 		// against the active lockfile, and the bare name is not an entry there.
-		if err := runOK(w, "bundle", "hold", j001900LockedName()); err != nil {
+		if err := runOK(w, "deps", "hold", j001900LockedName()); err != nil {
 			return err
 		}
 		if err := j001900WriteRevised(w, j001900RevisedMarker); err != nil {

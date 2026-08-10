@@ -304,11 +304,12 @@ func defaultRemoteRegistry(cfg *config.Config, req DefaultRemoteRequest) (*remot
 	return registry, nil
 }
 
-// `ctxloom remote trust|untrust` and its SetRemoteTrust operation are DELETED,
-// not deprecated (signature-envelope spec §11). Source trust — "everything this
-// URL publishes reaches the agent unreviewed" — was hash-blind and is gone.
-// Trusting a publisher is now `ctxloom signer add <principal> --key …`, which
-// trusts a KEY and verifies the bytes. There is no parallel dormant path.
+// A REMOTE CARRIES NO TRUST, and there is no operation here that could give it
+// one (signature-envelope spec §11). Source trust — "everything this URL
+// publishes reaches the agent unreviewed" — is hash-blind: it asserts something
+// about a LOCATION while the bytes that arrive from it can change under it.
+// Trusting a publisher is `ctxloom signer trust <principal> --key …`, which
+// trusts a KEY and is verified over the bytes themselves.
 
 // DiscoverRemotesRequest contains parameters for discovering remote repositories.
 type DiscoverRemotesRequest struct {

@@ -76,7 +76,7 @@ const (
 	j001600Principal = "context@acme.example"
 	// j001600PubKeyFile is where Trent keeps the public half, inside his
 	// project — the path both `git config user.signingkey` and
-	// `trust signer add --key` are pointed at.
+	// `signer trust --key` are pointed at.
 	j001600PubKeyFile = "acme-publish.pub"
 
 	// Distinctive payload markers, so a materialized context is checked for
@@ -974,7 +974,7 @@ func registerJ001600Steps(ctx *godog.ScenarioContext) {
 		want := j001600Of(w).signer.Fingerprint()
 		for _, e := range entries {
 			if ssh.FingerprintSHA256(e.pub) == want {
-				return fmt.Errorf("the key line for %s is still in %s after `trust signer remove`; contents:\n%s", want, rel, body)
+				return fmt.Errorf("the key line for %s is still in %s after `signer untrust`; contents:\n%s", want, rel, body)
 			}
 		}
 		return nil

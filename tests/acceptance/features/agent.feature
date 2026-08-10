@@ -154,3 +154,26 @@ Feature: Agent bindings and container tooling
     And the agent_servers paste block declares a server "ctxloom" running "acp serve"
     And the agent_servers paste block declares a server "ctxloom: developer" running "acp serve --agent developer"
 
+
+  # MOVED here from features/profile.feature, which was retired when
+  # cli/profile.feature took over that noun. The scenario was never about
+  # profiles: `profile default` was RETIRED, and the default context is now
+  # whatever the always-bound default AGENT composes. It is the only place
+  # `ctxloom agent default` is driven at all, in either its reading or its
+  # setting form, which is why it moved rather than being deleted with the
+  # file it was living in.
+  #
+  # There is no "unset": the replacement binds a NAME, not a settable list.
+  Scenario: The default agent is read before it is set, and reads back after
+    Given an initialized ctxloom project
+    When I run "ctxloom agent default"
+    Then the command succeeds
+    And the output contains "No default agent set."
+    Given a bundle "demo" exists
+    And a profile "dev" with bundle "demo"
+    And I run "ctxloom agent create developer --profiles dev"
+    When I run "ctxloom agent default developer"
+    Then the command succeeds
+    When I run "ctxloom agent default"
+    Then the command succeeds
+    And the output contains "developer"

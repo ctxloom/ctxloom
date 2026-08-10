@@ -115,14 +115,21 @@ type Home struct {
 type HomeConfig struct {
 	URL     string // CTXLOOM_COORD_URL
 	Token   string // CTXLOOM_COORD_CRED (held ONLY by the runner)
-	RunID   string // CTXLOOM_RUN_ID ("" on the session-owner credential)
+	// RunID is CTXLOOM_RUN_ID. Empty on the plugin-hosted session-owner
+	// credential (that runner hosts no run of its own). NON-EMPTY on a
+	// container top-level session's owned run (StartOwnedRun mints one for
+	// it, reusing the owner's own harp as its run role) as well as on every
+	// delegated child — both are runs the coordinator tracks and can StartRun
+	// on.
+	RunID   string
 	Harness string
 	Version string
 	// Engine answers coordinator-initiated RunnerRequests on the
 	// RunnerChannel (StartRun foremost) — the runner's engine-control seam.
-	// Nil is valid: the parent-session-owner's Home (RunID == "") hosts no
-	// spawned run and never receives one; a spawned child's Home always
-	// carries one once the caller wires it (llm_serve.go).
+	// Nil when this Home hosts no run at all (a plugin-hosted session-owner's
+	// Home, RunID == ""); a Home whose RunID is set — a delegated child OR a
+	// container top-level session's owned run — always carries one once the
+	// caller wires it (llm_serve.go).
 	Engine RunnerRequestHandler
 	// Capabilities is this runner's Hello advertisement: what its hosted engine
 	// can actually execute (RunnerCapabilities). Empty advertises

@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -24,35 +25,39 @@ import (
 )
 
 const (
-	// maxAgentDepth is the recursion guard: depth 0 (the session owner)
-	// spawns depth 1; depth 1 spawns depth 2 (D5, manly-grant (4): the
-	// B-window grandchild refusal is lifted — flat-hub semantics, each hop
-	// addresses only its own direct parent via peerSend's ParentHarp lookup,
-	// generic at any depth). depth 2 may not spawn depth 3 — the guard still
-	// bottoms out somewhere; raising it further is a future, undecided
-	// change, not implied by this one.
-	maxAgentDepth = 2
-	// agentTurnCap is the BUILT-IN DEFAULT for turnSlots' cap — a
-	// configurable RESOURCE ceiling on concurrently EXECUTING child turns
-	// (live engine processes), NOT a correctness gate: the coordinator's own
-	// state is partitioned by child identity (maps keyed by harp/runID/
-	// role/credHash/msgID, decisive steps atomic inside one journal Exec or
-	// one c.mu window) and is safe under real concurrency by construction —
-	// proven by TestCoordinator_ConcurrentTurnsInvariants
-	// (turncap_concurrent_test.go), which runs children genuinely
-	// overlapping (a shared barrier forces it) under -race -count=20 and
-	// asserts run/mail/credential/slot invariants hold. Was D4's serial-1:
-	// "children execute serially until the isolation concurrency defects
-	// land" — that landed (fix/turncap-to-resource-ceiling); the cap now
-	// exists purely to bound concurrent process/resource load (this
-	// project's own history hit load 10.12 at ~200 concurrent procs), not
-	// to protect coordinator correctness. Production sources the live value
-	// from config.Config.GetAgentTurnCap (Options.TurnCap); <= 0 (unset)
-	// falls back to this constant. The cap counts EXECUTING turns only — a
-	// child parked in agent_recv or idle at a turn boundary yields its slot
-	// (turnSlots is a resource limiter: the slot is acquired before
-	// spawner.Launch/StartEngine, never a serialization primitive).
-	agentTurnCap = 4
+	// agentDepthCap is the BUILT-IN DEFAULT for the delegation tree's DEPTH
+	// cap — the single policy knob both the "may this run spawn" guard
+	// (AgentRun, below) and the runner-side leaf computation
+	// (internal/cli/attachRunnerMCP, via config.Config.GetDelegationDepth)
+	// derive from: a run may spawn iff its depth < the resolved cap, and it
+	// is a LEAF (receives none of the coordinator-only MCP tools) iff its
+	// depth >= the resolved cap. The session owner is depth 0; a spawned
+	// run's depth is always its spawner's depth + 1. THIS IS A CORRECTNESS
+	// SETTING, not a resource dial (contrast agentConcurrencyCap below):
+	// raising it gives agent_run/roster to non-root agents, and a non-root
+	// agent holding an inbox plus a child roster can infer it has children
+	// and stall waiting for notifications that never arrive. Production
+	// sources the live value from config.Config.GetDelegationDepth
+	// (Options.Depth); <= 0 (unset) falls back to this constant, currently
+	// 1 — flat fan-out: the owner (depth 0) may spawn subagents (depth 1),
+	// and a depth-1 subagent may not itself spawn (no grandchildren).
+	// Raising this to 2 would re-enable one further level with no other
+	// code change — the property this design is meant to have, even though
+	// the value stays 1 today.
+	agentDepthCap = 1
+	// agentConcurrencyCap is the BUILT-IN DEFAULT for turnSlots' cap: the
+	// maximum number of delegated child turns EXECUTING at once (each a live
+	// engine process). NOT a correctness gate: the coordinator's own state is
+	// partitioned by child identity and safe under real concurrency by
+	// construction. Production sources the live value from
+	// config.Config.GetDelegationConcurrency (Options.Concurrency); <= 0
+	// (unset) falls back to this constant. Renamed from agentTurnCap: "turn
+	// cap" read as a per-run quota, which it never was. The cap counts
+	// EXECUTING turns only — a child parked in agent_recv or idle at a turn
+	// boundary yields its slot (turnSlots is a resource limiter: the slot is
+	// acquired before spawner.Launch/StartEngine, never a serialization
+	// primitive).
+	agentConcurrencyCap = 4
 
 	// defaultEndedRunTail / defaultEndedRunMaxAge are the one-shot retention
 	// reap bounds (one-shot-resume plan, Slice 4 / Fork 2.3), overridable via
@@ -104,13 +109,24 @@ type childRt struct {
 	harp       string
 	agentName  string
 	parentHarp string
-	// parentRunID (D5) is the spawning run's run_id — empty for a depth-1
-	// child (the depth-0 session owner has no run_id of its own); set for
-	// a depth-2+ grandchild. Threaded onto the outgoing StartRun request
+	// parentRunID is the spawning run's run_id: empty when the caller has no
+	// run of its own to be a parent of, set otherwise. A child spawned
+	// directly by the plugin-hosted top-level session sees this empty (that
+	// session's own credential carries no run id); a child spawned by a
+	// container top-level session's owned run, or by any already-delegated
+	// child, sees this set — both carry a run id of their own from the
+	// moment they start. Threaded onto the outgoing StartRun request
 	// (runChildViaStartRun) so RunStarted.parent_run_id carries durable
-	// lineage on the log (manly-grant (5)) — mirrors RunRecord.ParentRunID.
+	// lineage on the log — mirrors RunRecord.ParentRunID.
 	parentRunID string
-	plan        *SpawnPlan
+	// depth is this run's own position in the delegation tree — the value
+	// stamped into its runner's env (EnvRunDepth) and journaled onto
+	// runEnqueued.Depth: 0 for the session owner's own run (StartOwnedRun,
+	// which reuses the owner's identity rather than spawning a child), and
+	// (spawning run's depth + 1) for every genuinely delegated child
+	// (AgentRun/resumeChild). Set once at enqueueRun, never mutated.
+	depth int
+	plan  *SpawnPlan
 
 	// slot is this childRt's relationship to the D4 execution-slot cap
 	// (turnSlots) — see slotState's doc for why this is a
@@ -244,12 +260,17 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 	if prompt == "" {
 		return nil, errors.New("agent_run: prompt is required (the child's briefing/first turn)")
 	}
-	// Depth derives from the CREDENTIAL, never from env. D5
-	// lifts the B-window grandchild refusal (maxAgentDepth=2): a depth-1
-	// child may now spawn a depth-2 grandchild; the guard still bottoms out
-	// at depth 2 spawning depth 3.
-	if caller.Depth >= maxAgentDepth {
-		return nil, fmt.Errorf("agent_run: refused: this session is already at the maximum delegation depth (%d) — report the work back to your coordinator (agent_send to \"parent\") and let it fan out", caller.Depth)
+	// Depth derives from the CREDENTIAL, never from env: caller.Depth is
+	// resolved server-side from the authenticated Identity (Identify), so a
+	// child cannot spoof its own depth by forging an env var. A run may
+	// spawn iff its depth is BELOW the resolved cap (config.Config.
+	// GetDelegationDepth; <= 0 falls back to agentDepthCap) — the identical
+	// comparison the runner-side leaf computation makes (>=) on the SAME
+	// stamped depth, so raising the one config key re-enables deeper trees
+	// on both sides at once, never just one.
+	depthCap := c.depthCap
+	if caller.Depth >= depthCap {
+		return nil, fmt.Errorf("agent_run: refused: spawning a child here would reach delegation depth %d, at or beyond the configured cap (delegation.depth = %d) — report the work back to your coordinator (agent_send to \"parent\") and let it fan out, or raise delegation.depth in config.yaml if a deeper tree is actually wanted", caller.Depth+1, depthCap)
 	}
 
 	plan, err := c.spawner.Resolve(ctx, agentName)
@@ -271,7 +292,7 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 		return nil, err
 	}
 
-	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}))
+	rt, token, err := c.enqueueRun(caller, plan, harp, prompt, false, make(chan struct{}), caller.Depth+1)
 	if err != nil {
 		return nil, err
 	}
@@ -309,7 +330,19 @@ func (c *Coordinator) AgentRun(ctx context.Context, caller Identity, agentName, 
 // same harp (driveQueued's StateEnded case racing terminateRun's
 // leftover-mail tail — both legitimate, "the winner delivers") can never
 // cross-close another attempt's channel.
-func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}) (*childRt, string, error) {
+//
+// depth is the EXPLICIT depth of the run being enqueued (not derived from
+// caller.Depth here — the caller decides): AgentRun passes caller.Depth+1 (a
+// genuine spawned child is one generation below its spawning run);
+// resumeChild passes the ended run's own recorded depth (a resume keeps the
+// SAME run identity, not a new generation); StartOwnedRun passes the owner's
+// own depth unchanged (the owned run reuses the owner's identity — it IS the
+// owner on a different transport, not a child of it). This is the single
+// place runEnqueued.Depth and childRt.depth are set from, so the runner-side
+// env stamp (EnvRunDepth, via runnerEnv) and the server-side recursion guard
+// (AgentRun's caller.Depth, read back from this same fact via Identify) never
+// diverge.
+func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt string, resume bool, attached chan struct{}, depth int) (*childRt, string, error) {
 	runID := newRunID()
 	token, credHash, err := mintToken()
 	if err != nil {
@@ -332,7 +365,7 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 			ParentRunID: caller.RunID,
 			Runtime:     plan.Runtime,
 			CredHash:    credHash,
-			Depth:       caller.Depth + 1,
+			Depth:       depth,
 			Prompt:      prompt,
 			Resume:      resume,
 			Ladder:      ladderToFact(plan.Ladder),
@@ -354,6 +387,7 @@ func (c *Coordinator) enqueueRun(caller Identity, plan *SpawnPlan, harp, prompt 
 		agentName:   plan.AgentName,
 		parentHarp:  caller.Harp,
 		parentRunID: caller.RunID,
+		depth:       depth,
 		plan:        plan,
 		wake:        make(chan struct{}, 1),
 		attached:    attached,
@@ -528,23 +562,23 @@ func (c *Coordinator) childEnv(harp string) map[string]string {
 // The runner consumes the trio, unsets it, and exports only the MCP socket
 // path to the harness. url may be empty (degraded launch without
 // reach-back); the trio is then omitted whole and the harness's shim falls
-// back to its local mode. coordinatorCapable threads the spawned child's
-// resolved Coordinator flag (SpawnPlan.Coordinator) via EnvAgentCoordinator —
-// the trust-boundary gate's plumbing seam, deliberately NOT the wire (untyped
-// env map, no proto change) — so the runner can compute leaf-vs-coordinator
-// and gate the coordinator-only MCP tools (internal/cli/llm_serve.go,
-// mcp_runner.go).
-func runnerEnv(harp, runID, token, url string, coordinatorCapable bool) map[string]string {
+// back to its local mode. depth is this run's OWN delegation depth (childRt.
+// depth: 0 for the session owner's own run, spawner's depth + 1 for a
+// genuine child) and is stamped UNCONDITIONALLY via EnvRunDepth — unlike the
+// trio, leafness must not depend on reach-back being present. Replaces the
+// retired per-agent Coordinator flag/EnvAgentCoordinator: the runner
+// (internal/cli/standUpRunner/attachRunnerMCP) compares this depth against
+// the resolved delegation-depth cap to decide leaf-vs-not and gate the
+// coordinator-only MCP tools (mcp_runner.go).
+func runnerEnv(harp, runID, token, url string, depth int) map[string]string {
 	env := map[string]string{
 		"CTXLOOM_SESSION_HARP": harp,
+		EnvRunDepth:            strconv.Itoa(depth),
 	}
 	if url != "" {
 		env[EnvCoordURL] = url
 		env[EnvCoordCred] = token
 		env[EnvRunID] = runID
-	}
-	if coordinatorCapable {
-		env[EnvAgentCoordinator] = "1"
 	}
 	return env
 }
@@ -613,7 +647,7 @@ func (c *Coordinator) runChild(rt *childRt, prompt, token, url string) {
 	}
 
 	launch, err := c.spawner.Launch(lctx, rt.plan, rt.plan.Context, "",
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.plan.Coordinator))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -658,7 +692,7 @@ const defaultRunnerAwaitTimeout = 5 * time.Minute
 // baseCtx: agent_stop cancels it to abort a spawn that is still in flight.
 func (c *Coordinator) runChildViaStartRun(ctx context.Context, rt *childRt, prompt, token, url, resumeSessionID, contextText string) {
 	engine, err := c.spawner.StartEngine(ctx, rt.plan,
-		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.plan.Coordinator))
+		c.childEnv(rt.harp), runnerEnv(rt.harp, rt.runID, token, url, rt.depth))
 	if err != nil {
 		c.failChild(rt, err)
 		return
@@ -1815,14 +1849,18 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 			}
 		})
 	}
-	caller := Identity{Harp: rec.ParentHarp, RunID: parentRunID, Depth: rec.Depth - 1, Project: c.projectDir}
+	caller := Identity{Harp: rec.ParentHarp, RunID: parentRunID, Project: c.projectDir}
 	// Last check before this attempt becomes a REAL run: a stop that landed
 	// while Resolve was in flight (config read, agent resolution — slow
 	// enough to matter in production) must not be overtaken here.
 	if c.launchStopped(harp) {
 		return
 	}
-	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached)
+	// A resume keeps the SAME run identity, not a new generation: pass the
+	// ended run's own recorded depth straight through rather than deriving
+	// it from caller.Depth+1 (which would need caller.Depth = rec.Depth-1,
+	// the exact reconstruction this explicit depth parameter replaces).
+	rt, token, err := c.enqueueRun(caller, plan, harp, "", true, attached, rec.Depth)
 	if errors.Is(err, errResumeLost) {
 		return // a concurrent resume claimed it; the winner delivers
 	}
@@ -1896,7 +1934,7 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 		contextText = c.spawner.ResumeContext(lctx, plan, harp)
 	}
 	launch, err := c.spawner.Launch(lctx, plan, contextText, resumeSessionID,
-		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, plan.Coordinator))
+		c.childEnv(harp), runnerEnv(harp, rt.runID, token, url, rt.depth))
 	if err != nil {
 		c.failChild(rt, err)
 		return

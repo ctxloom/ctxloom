@@ -71,21 +71,14 @@ type SpawnPlan struct {
 	// only real per-backend deltas lived in each backend's own chatACPConfig
 	// (model delivery), not in the coordinator/runner machinery.
 	ViaStartRun bool
-	// Coordinator mirrors the resolved agent's Coordinator flag: whether this
-	// child is trusted with the coordinator-only MCP tools (agent_run/
-	// roster/agent_stop/agent_fetch_artifact). False (the default, leaf) is
-	// threaded to the runner via runnerEnv's coordinatorCapable param, never
-	// the wire — see EnvAgentCoordinator (identity.go) and the gate in
-	// internal/cli/mcp_runner.go.
-	Coordinator bool
 	// ResumeMode is the per-engine resume-capability gate's outcome (one-shot
 	// + resume-key plan, Slice 2 / Fork 3's STATIC half): ResumeModeOneShot
 	// only when the resolved agent declared `driving: oneshot` AND the
 	// backend has a cheap resume-by-key primitive (resumeCapableBackends);
 	// ResumeModePersistent (the zero value) otherwise — including every
 	// conversational agent. Resolved once in
-	// Resolve() via resolveResumeMode, mirroring Coordinator/Ladder/
-	// MCPServers above: a later config edit must not retroactively change a
+	// Resolve() via resolveResumeMode, mirroring Ladder/MCPServers above: a
+	// later config edit must not retroactively change a
 	// live run. Since Slice 4, Resolve() returns ResumeModeOneShot for the
 	// WIRED backends (oneShotSupportedBackends: claude-code, codex) and the
 	// coordinator's turn loop (children.go's oneShotReady/onTurnIdle) actually
@@ -388,7 +381,6 @@ func (s *prodSpawner) Resolve(ctx context.Context, agentName string) (*SpawnPlan
 		// C3: every backend whose delegated Chat rides the shared ACP
 		// driver moves onto StartRun (see viaStartRunBackends).
 		ViaStartRun: viaStartRunBackends[rs.Backend],
-		Coordinator: rs.Coordinator,
 		ResumeMode:  resumeMode,
 		resolved:    rs,
 	}

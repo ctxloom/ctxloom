@@ -141,18 +141,15 @@ type Config struct {
 	// operations.resolveAgentBinding. The two axes are independent and meet
 	// only at launch (isolation.Axes).
 	runtime string
-	// agentTurnCap is the project-wide RESOURCE ceiling on concurrently
-	// EXECUTING delegated child turns (agentcoord/coord's turnSlots — the
-	// count of live engine processes the coordinator admits at once, not a
-	// correctness gate: the coordinator's own state is safe under
-	// concurrency by construction, proven by
-	// coord.TestCoordinator_ConcurrentTurnsInvariants). <= 0 means "use the
-	// built-in default" (coord.agentTurnCap) — a deliberately finite number
-	// well below the process-count load this project has measured pain at
-	// (~200 concurrent procs, load 10.12); this is a ceiling users tune UP
-	// for more delegation parallelism or DOWN to bound resource use, never
-	// unbounded.
-	agentTurnCap int
+	// delegation groups the two agent-delegation limits — see
+	// DelegationConfig's doc for why they are grouped (both are limits ON
+	// delegation) despite differing in kind (one a resource ceiling, the
+	// other structural/correctness). Renamed from the flat agent_turn_cap:
+	// "turn cap" read as a per-run quota, which it never was — a child
+	// parked in agent_recv yields its slot, so it bounds CONCURRENCY, not
+	// turns. The retired spelling is REFUSED at load (UnmarshalYAML), not
+	// silently ignored — see errRetiredAgentTurnCapKey.
+	delegation DelegationConfig
 	// isolationImages maps a backend name (claude-code | kiro | ...) to a
 	// USER-PROVIDED agent image for containerized runs. An entry overrides the
 	// built-in per-backend default tag and is run AS-IS: never locally built or
@@ -330,7 +327,7 @@ type configDoc struct {
 	Workspace                    string                  `yaml:"workspace,omitempty"`
 	DirtyTreeHandler             string                  `yaml:"dirty_tree_handler,omitempty"`
 	Runtime                      string                  `yaml:"runtime,omitempty"`
-	AgentTurnCap                 int                     `yaml:"agent_turn_cap,omitempty"`
+	Delegation                   DelegationConfig        `yaml:"delegation,omitempty"`
 	IsolationImages              map[string]string       `yaml:"isolation_images,omitempty"`
 	IsolationBaseContainerfile   string                  `yaml:"isolation_base_containerfile,omitempty"`
 	IsolationDevcontainerBase    *bool                   `yaml:"isolation_devcontainer_base,omitempty"`
@@ -364,7 +361,7 @@ func (c *Config) toDoc() configDoc {
 		Workspace:                    c.workspace,
 		DirtyTreeHandler:             c.dirtyTreeHandler,
 		Runtime:                      c.runtime,
-		AgentTurnCap:                 c.agentTurnCap,
+		Delegation:                   c.delegation,
 		IsolationImages:              cloneStringMap(c.isolationImages),
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
 		IsolationDevcontainerBase:    cloneBoolPtr(c.isolationDevcontainerBase),
@@ -393,7 +390,7 @@ func (c *Config) fromDoc(doc configDoc) {
 	c.workspace = doc.Workspace
 	c.dirtyTreeHandler = doc.DirtyTreeHandler
 	c.runtime = doc.Runtime
-	c.agentTurnCap = doc.AgentTurnCap
+	c.delegation = doc.Delegation
 	c.isolationImages = doc.IsolationImages
 	c.isolationBaseContainerfile = doc.IsolationBaseContainerfile
 	c.isolationDevcontainerBase = doc.IsolationDevcontainerBase
@@ -449,6 +446,9 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	if name, found := findRetiredAgentLLMKey(node); found {
 		return fmt.Errorf("agent %q: %w", name, agents.ErrRetiredLLMKey)
 	}
+	if mappingValue(node, retiredAgentTurnCapKey) != nil {
+		return errRetiredAgentTurnCapKey
+	}
 	doc := c.toDoc()
 	if err := node.Decode(&doc); err != nil {
 		return err
@@ -456,6 +456,23 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	c.fromDoc(doc)
 	return nil
 }
+
+// retiredAgentTurnCapKey is the pre-rename, flat-top-level spelling of
+// DelegationConfig.Concurrency ("turn cap" read as a per-run quota; the field
+// is a concurrency ceiling, not a turn count — see DelegationConfig's doc).
+// Refused at load rather than ignored, for the same reason agents.RetiredLLMKey
+// is: this decode path is lenient (no KnownFields), so an untouched
+// `agent_turn_cap:` would be dropped in silence and the concurrency ceiling
+// would silently fall back to the built-in default — the same silent-ignore
+// shape that has already cost real diagnosis time on a different renamed key
+// in this codebase.
+const retiredAgentTurnCapKey = "agent_turn_cap"
+
+// errRetiredAgentTurnCapKey names the current spelling, because a rename that
+// leaves people guessing has moved the cost rather than paid it.
+var errRetiredAgentTurnCapKey = errors.New(
+	"config uses the retired key 'agent_turn_cap:'; it is now 'delegation.concurrency:' — " +
+		"same resource ceiling (concurrently EXECUTING delegated child turns), correctly named and grouped under 'delegation:'")
 
 // findRetiredAgentLLMKey returns the first agent carrying the retired llm key,
 // and whether one was found. It walks the NODE rather than the decoded value
@@ -663,6 +680,32 @@ type UIConfig struct {
 	// Surround toggles the persistent bottom status bar (harp · agent · engine
 	// │ children digest │ prefix hint). Default true; nil means unset.
 	Surround *bool `mapstructure:"surround" yaml:"surround,omitempty"`
+}
+
+// DelegationConfig groups the two agent-delegation limits. They are grouped
+// under one key because both are limits ON DELEGATION — not because they
+// share a mechanism, which they do not: Concurrency is a resource ceiling,
+// Depth is a structural/correctness limit. See each field's doc.
+type DelegationConfig struct {
+	// Concurrency is the maximum number of delegated child turns EXECUTING
+	// at once (agentcoord/coord's turnSlots — each is a live engine
+	// process; a child waiting on a message yields its slot). <= 0 means
+	// "use the built-in default" (coord.agentConcurrencyCap). This bounds
+	// resource load only, not correctness — the coordinator's own state is
+	// safe under real concurrency by construction. Raise it for more
+	// delegation parallelism; lower it on a small machine.
+	Concurrency int `yaml:"concurrency,omitempty"`
+	// Depth is the maximum nesting depth of the delegation tree: the
+	// session owner is depth 0, its subagents depth 1, theirs depth 2, and
+	// so on. <= 0 means "use the built-in default" (coord.agentDepthCap,
+	// currently 1: flat fan-out, no grandchildren). A run AT the cap may not
+	// itself call agent_run, and its runner is a LEAF — it never receives
+	// the coordinator-only MCP tools (agent_run/roster/agent_stop/
+	// agent_fetch_artifact). Unlike Concurrency this IS a correctness
+	// setting: raising it above 1 gives those tools to non-root agents,
+	// which can leave an agent holding an inbox plus a child roster waiting
+	// on children it never spawned.
+	Depth int `yaml:"depth,omitempty"`
 }
 
 // DefaultUIPrefixKey is the default viewer prefix key (decision O2 of the

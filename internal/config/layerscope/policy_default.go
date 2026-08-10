@@ -43,7 +43,6 @@ func DefaultPolicy() Policy {
 		// replaces a binding wholesale, so it could not stick anyway.
 		{Path: "agents.*.surfaces.*", Scope: ScopeShared, Note: "a delivery choice validated against the binding's engine; it is only meaningful where that engine is named"},
 		{Path: "agents.*.permissions", Scope: ScopeShared, Note: "a privilege grant; a team may decide it, but a user's home config must never fill it in for a project"},
-		{Path: "agents.*.coordinator", Scope: ScopeShared, Note: "a privilege grant; a team may decide it, but a user's home config must never fill it in for a project"},
 
 		{Path: "dirty_tree_handler", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},
 		{Path: "workspace", Scope: ScopeShared, Note: "how this project's delegation behaves; same for everyone"},
@@ -53,7 +52,8 @@ func DefaultPolicy() Policy {
 		// layer's raw values regardless.
 		{Path: "dirty_tree_commit_ack", Scope: ScopeNever, Note: "prior human authorization to mutate a repo belongs in an admission store, never the config chain"},
 
-		{Path: "agent_turn_cap", Scope: ScopeMachine, Note: "a resource ceiling — a fact about the box"},
+		{Path: "delegation.concurrency", Scope: ScopeMachine, Note: "a resource ceiling — a fact about the box"},
+		{Path: "delegation.depth", Scope: ScopeMachine, Note: "a structural safety ceiling, tuned per box like a resource cap; a team's shared policy would belong in agents.*.permissions instead"},
 
 		{Path: "llm.configs.*", Scope: ScopePreference, Note: "which model a person likes; harmless in either file"},
 		{Path: "llm.configs.*.binary_path", Scope: ScopeMachine, Note: "an absolute path on this filesystem"},

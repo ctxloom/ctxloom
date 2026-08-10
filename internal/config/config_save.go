@@ -298,12 +298,14 @@ func (c *Config) applyConfigSections(existing map[string]interface{}) {
 	// DirtyTreeCommitAcknowledged/SetDirtyTreeCommitAck.
 	setOrDelete(existing, "dirty_tree_handler", c.dirtyTreeHandler != "", c.dirtyTreeHandler)
 	setOrDelete(existing, "runtime", c.runtime != "", c.runtime)
-	// Agent delegation's execution-concurrency resource ceiling; pruned when
-	// unset (<=0 means "use the built-in default" — Config.agentTurnCap's
-	// doc). Wired here so a save/Marshal() round-trip does not silently
-	// drop it (the exact bug class dirty_tree_handler's own comment above
-	// documents having hit).
-	setOrDelete(existing, "agent_turn_cap", c.agentTurnCap > 0, c.agentTurnCap)
+	// Agent delegation's two limits (concurrency resource ceiling + depth
+	// structural ceiling — see DelegationConfig's doc); pruned as a whole key
+	// when neither is set (<=0 means "use the built-in default"). Wired here
+	// so a save/Marshal() round-trip does not silently drop it (the exact bug
+	// class dirty_tree_handler's own comment above documents having hit).
+	// Renamed/regrouped from the flat agent_turn_cap — see
+	// errRetiredAgentTurnCapKey.
+	setOrDelete(existing, "delegation", c.delegation.Concurrency > 0 || c.delegation.Depth > 0, c.delegation)
 	// Per-backend user-provided agent images; pruned when empty (built-in
 	// defaults leave no key behind).
 	setOrDelete(existing, "isolation_images", len(c.isolationImages) > 0, c.isolationImages)

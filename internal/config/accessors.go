@@ -269,10 +269,21 @@ func (c *Config) GetDirtyTreeHandler() string { return c.dirtyTreeHandler }
 // container).
 func (c *Config) GetRuntime() string { return c.runtime }
 
-// GetAgentTurnCap returns the project-wide RESOURCE ceiling on concurrently
-// EXECUTING delegated child turns (0/unset means "use the built-in
-// default" — see coord.agentTurnCap and Config.agentTurnCap's doc).
-func (c *Config) GetAgentTurnCap() int { return c.agentTurnCap }
+// GetDelegationConcurrency returns delegation.concurrency: the project-wide
+// RESOURCE ceiling on concurrently EXECUTING delegated child turns (0/unset
+// means "use the built-in default" — see coord.agentConcurrencyCap and
+// DelegationConfig.Concurrency's doc). Renamed/regrouped from
+// GetAgentTurnCap.
+func (c *Config) GetDelegationConcurrency() int { return c.delegation.Concurrency }
+
+// GetDelegationDepth returns delegation.depth: the project-wide STRUCTURAL
+// ceiling on the delegation tree's depth (0/unset means "use the built-in
+// default" — see coord.agentDepthCap and DelegationConfig.Depth's doc).
+// Unlike GetDelegationConcurrency this is not a resource dial: raising it
+// restores agent_run/roster to non-root agents — see
+// DelegationConfig.Depth's doc for the stall trapdoor that guards against
+// raising it carelessly.
+func (c *Config) GetDelegationDepth() int { return c.delegation.Depth }
 
 // GetDefaultAgent returns the name of the always-bound default agent (may be
 // empty or reference an undefined agent).

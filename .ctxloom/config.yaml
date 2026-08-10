@@ -1,6 +1,5 @@
 agents:
     coordinator:
-        coordinator: true
         llm: claude-code
         permissions: bypass
         profiles:

@@ -19,12 +19,12 @@ Change an EXISTING agent's binding in the 'agents:' key of
 
 Only the flags you pass are applied; every unnamed field keeps its current
 value, so 'ctxloom agent edit dev --runtime container' does not wipe dev's
-llm, profiles, posture, coordinator trust or escalation ladder. An
-explicitly-supplied empty value (--llm "") clears that field.
+llm, profiles, posture or escalation ladder. An explicitly-supplied empty
+value (--llm "") clears that field.
 
-coordinator and driving have NO flags: they are agent DATA, authored in
-config.yaml under agents.<name>. A flag that only writes a config field is a
-second way to say the same thing, and the two spellings drift.
+driving has NO flag: it is agent DATA, authored in config.yaml under
+agents.<name>. A flag that only writes a config field is a second way to say
+the same thing, and the two spellings drift.
 
 The engine (optional) overrides the profiles' own llm; omit it to use the project
 default. Profiles compose into one assembled context. Runtime (optional:

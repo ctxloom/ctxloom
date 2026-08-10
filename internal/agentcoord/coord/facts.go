@@ -91,9 +91,14 @@ type runEnqueued struct {
 	Harp       string `json:"harp"`
 	Agent      string `json:"agent"`
 	ParentHarp string `json:"parent_harp,omitempty"`
-	// ParentRunID (D5) is the spawning run's run_id — set only when caller
-	// is itself a run (a depth-1+ child spawning a grandchild); empty for a
-	// depth-1 child spawned by the depth-0 session owner, which has none.
+	// ParentRunID is the spawning run's run_id — set only when the caller
+	// has a run of its own to be a parent of. That is true for any
+	// already-delegated child spawning a further child, AND for a container
+	// top-level session's owned run (StartOwnedRun) spawning its first
+	// child: an owned run carries a run id of its own from the moment it
+	// starts, even though it is depth 0. It is empty only for a child
+	// spawned directly by the plugin-hosted top-level session, whose own
+	// credential carries no run id at all.
 	ParentRunID string `json:"parent_run_id,omitempty"`
 	Runtime     string `json:"runtime,omitempty"` // resolved runtime axis ("", "host", "container", …)
 	CredHash    string `json:"cred_hash"`         // hex SHA-256 of the bearer token — never the token

@@ -228,10 +228,12 @@ func runnerSocketPath() (path string, dir string, kind socketKind, cleanup func(
 // a silent fallthrough.
 //
 // leaf is the trust-boundary gate's session-conditional axis (computed in
-// internal/cli/llm_serve.go: RunID != "" && !coordinatorCapable, and the
-// top-level human session — RunID == "" — is NEVER leaf): when true, the
-// coordinator-only tools (mcpschema.CoordinatorOnlyTools) are deliberately
-// withheld from THIS session's surface — see the registration loop below.
+// attachRunnerMCP, llm_runner_common.go: this run's stamped delegation depth
+// (EnvRunDepth) compared against the resolved delegation-depth cap,
+// depth >= cap; the session owner is always depth 0 and so is never leaf at
+// the built-in cap): when true, the coordinator-only tools
+// (mcpschema.CoordinatorOnlyTools) are deliberately withheld from THIS
+// session's surface — see the registration loop below.
 // resolveCellWorkDir is the DRY form of the "cellWorkDir wins over
 // os.Getwd()" fallback rule: cellWorkDir is the prepared
 // workspace dir the harness's engine process actually runs in, which can

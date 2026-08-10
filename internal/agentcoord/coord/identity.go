@@ -35,14 +35,22 @@ const (
 	// always emits a plain unix path; only that one ACP seam ever emits the
 	// tcp:// form.
 	EnvMCPSocket = "CTXLOOM_MCP_SOCKET"
-	// EnvAgentCoordinator carries the spawned child's resolved
-	// Coordinator flag (agents.Agent.Coordinator / SpawnPlan.Coordinator) to
-	// its runner process, "1" when true, otherwise absent. It rides the SAME
-	// per-spawn runnerEnv seam as the trio above — never the wire (RunnerEnv
-	// is an untyped map[string]string; no proto change) — so the runner
-	// (internal/cli/llm_serve.go) can compute whether this session is a LEAF
-	// and gate the coordinator-only MCP tools accordingly (mcp_runner.go).
-	EnvAgentCoordinator = "CTXLOOM_AGENT_COORDINATOR"
+	// EnvRunDepth carries this run's DELEGATION DEPTH to its runner process:
+	// "0" for the session owner, "1" for its directly-spawned subagents,
+	// "2" for theirs, and so on — a general counter, not an owner/child bit.
+	// It rides the SAME per-spawn runnerEnv seam as the trio above — never
+	// the wire (RunnerEnv is an untyped map[string]string; no proto change)
+	// — and is stamped UNCONDITIONALLY (unlike the trio, which is omitted
+	// whole when url == ""): leafness must not depend on reach-back. The
+	// runner (internal/cli/standUpRunner/attachRunnerMCP) reads it, defaulting
+	// unset/empty/unparseable to 0, and compares it against the resolved
+	// config.Config.GetDelegationDepth() cap to decide whether this session
+	// is a LEAF (depth >= cap) and gate the coordinator-only MCP tools
+	// accordingly (mcp_runner.go). Replaces the retired per-agent
+	// `coordinator` bool (EnvAgentCoordinator): leafness is now a STRUCTURAL
+	// property of the run (its position in the delegation tree), not a
+	// per-agent trust flag.
+	EnvRunDepth = "CTXLOOM_RUN_DEPTH"
 	// EnvCellWorkDir carries the prepared workspace directory
 	// (isolation.Workspace.Dir(), e.g. Worktree's per-agent checkout) to the
 	// runner process at spawn time. It rides the SAME per-spawn spawnEnv

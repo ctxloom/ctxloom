@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -132,7 +133,15 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, cfgErr error, r
 		}
 		return nil
 	}
-	endpoint, merr := serveRunnerMCP(cfg, reach.harp, h, reach.leaf, reach.cellWorkDir)
+	// leaf is computed HERE, not in consumeCoordinatorReachBack: it needs the
+	// resolved delegation-depth cap, and cfg (the loaded project config) is
+	// not available yet at that earlier point — this is the first place
+	// both reach.depth and cfg exist together. depth >= cap is the SAME
+	// comparison AgentRun's server-side "may this run spawn" guard makes
+	// (children.go), on the same stamped depth, so raising delegation.depth
+	// in config re-enables deeper trees on both sides at once.
+	leaf := reach.depth >= cfg.GetDelegationDepth()
+	endpoint, merr := serveRunnerMCP(cfg, reach.harp, h, leaf, reach.cellWorkDir)
 	if merr == nil {
 		// The child's shim reads CTXLOOM_MCP_SOCKET from THIS process's env
 		// (every engine spawn path builds the harness env over os.Environ), so a
@@ -155,15 +164,17 @@ func attachRunnerMCP(standup *runnerStandup, cfg *config.Config, cfgErr error, r
 }
 
 // coordinatorReachBack is the per-spawn coordinator credential set a runner
-// consumes from its own environment: the dial-home config, the session harp, the
-// prepared cell workspace dir, and whether this runner is a LEAF (a delegated
-// child that was not resolved Coordinator-capable, so it must not be served the
-// coordinator-only MCP tools; the top-level human session never sets a RunID, so
-// the human is never gated).
+// consumes from its own environment: the dial-home config, the session harp,
+// the prepared cell workspace dir, and this run's DELEGATION DEPTH (0 for the
+// session owner, 1+ for a subagent). Depth, not a leaf bool, rides the env —
+// leafness is depth compared against the resolved delegation-depth cap
+// (config.Config.GetDelegationDepth), computed in attachRunnerMCP once cfg is
+// loaded, never stamped as its own boolean (that would reintroduce a second,
+// driftable representation of the same fact).
 type coordinatorReachBack struct {
-	home coord.HomeConfig
-	harp string
-	leaf bool
+	home  coord.HomeConfig
+	harp  string
+	depth int
 	// cellWorkDir is the prepared workspace dir stamped by the host StartRunner
 	// (fix/host-discovery-anchor); empty on workspace:none or container spawns,
 	// where serveRunnerMCP falls back to the runner's own os.Getwd().
@@ -177,8 +188,20 @@ var coordinatorEnvKeys = []string{
 	coord.EnvCoordURL,
 	coord.EnvCoordCred,
 	coord.EnvRunID,
-	coord.EnvAgentCoordinator,
+	coord.EnvRunDepth,
 	coord.EnvCellWorkDir,
+}
+
+// parseRunDepth reads EnvRunDepth: unset, empty, or unparseable ALL read as
+// depth 0 (the session owner) — never an error and never "unknown". Depth is
+// a general counter with no upper bound in its own arithmetic; only the
+// resolved cap (config.Config.GetDelegationDepth) says how deep is too deep.
+func parseRunDepth(raw string) int {
+	d, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return d
 }
 
 // consumeCoordinatorReachBack reads the coordinator reach-back out of the
@@ -205,8 +228,8 @@ func consumeCoordinatorReachBack(backendName string, getenv func(string) string,
 		},
 		harp:        getenv("CTXLOOM_SESSION_HARP"),
 		cellWorkDir: getenv(coord.EnvCellWorkDir),
+		depth:       parseRunDepth(getenv(coord.EnvRunDepth)),
 	}
-	reach.leaf = reach.home.RunID != "" && getenv(coord.EnvAgentCoordinator) != "1"
 
 	var unscrubbed []string
 	for _, k := range coordinatorEnvKeys {

@@ -29,11 +29,6 @@ type AgentEntry struct {
 	// (default|acceptEdits|plan|bypass), as written; empty inherits the engine
 	// label's default and finally the built-in default.
 	Permissions string `json:"permissions,omitempty"`
-	// Coordinator is the agent's declared Coordinator flag (trust-boundary
-	// gate): whether this agent, when run as a delegated child, is trusted
-	// with the coordinator-only MCP tools (agent_run/roster/agent_stop/
-	// agent_fetch_artifact). Default false = leaf.
-	Coordinator bool `json:"coordinator,omitempty"`
 	// Driving is the agent's declared per-turn execution axis
 	// (conversational|oneshot), as written; empty means conversational (the
 	// default — see agents.Agent.Driving).
@@ -62,7 +57,6 @@ func ListAgents(cfg *config.Config) []AgentEntry {
 			Profiles:    s.Profiles,
 			Runtime:     s.Runtime,
 			Permissions: s.Permissions,
-			Coordinator: s.Coordinator,
 			Driving:     s.Driving,
 			Escalation:  s.Escalation,
 			Source:      s.Source,
@@ -87,7 +81,6 @@ func GetAgent(cfg *config.Config, name string) (*AgentEntry, error) {
 		Profiles:    sub.Profiles,
 		Runtime:     sub.Runtime,
 		Permissions: sub.Permissions,
-		Coordinator: sub.Coordinator,
 		Driving:     sub.Driving,
 		Escalation:  sub.Escalation,
 		Source:      sub.Source,
@@ -118,11 +111,6 @@ type SetAgentRequest struct {
 	// refused by the command that typed it rather than by a later session.
 	Surfaces    map[string]string `json:"surfaces,omitempty"`
 	Permissions *string           `json:"permissions,omitempty"`
-	// Coordinator sets the trust-boundary gate flag: whether this agent, when
-	// run as a delegated child, is trusted with the coordinator-only MCP
-	// tools (agent_run/roster/agent_stop/agent_fetch_artifact). Default false
-	// = leaf; set true only for an agent that itself spawns/manages children.
-	Coordinator *bool `json:"coordinator,omitempty"`
 	// Driving sets the per-turn execution axis (conversational|oneshot);
 	// empty = conversational (the default, see agents.Agent.Driving). Unlike
 	// Runtime/Permissions below, an unknown value here is REJECTED (SetAgent
@@ -248,7 +236,7 @@ func validateAgentAxes(cfg *config.Config, name string, req SetAgentRequest) err
 // name this field" and keeps whatever the existing binding holds, while an
 // explicitly-supplied empty value clears it. It used to be a whole-binding
 // REPLACE, which meant `ctxloom agent set dev --runtime container` silently
-// destroyed dev's engine, profiles, permission posture, coordinator flag and
+// destroyed dev's engine, profiles, and permission posture, and
 // — worst, because the request type cannot even express it — its approval
 // escalation ladder. Merging inside Update also keeps the read-modify-write
 // under the same lock, so a concurrent writer cannot land
@@ -313,7 +301,6 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		}
 		entry.Runtime = orKeep(req.Runtime, entry.Runtime)
 		entry.Permissions = orKeep(req.Permissions, entry.Permissions)
-		entry.Coordinator = orKeep(req.Coordinator, entry.Coordinator)
 		if req.Driving != nil {
 			entry.Driving = agents.DrivingMode(*req.Driving)
 		}
@@ -329,7 +316,6 @@ func SetAgent(mgr *config.Manager, cfg *config.Config, req SetAgentRequest) (*Ag
 		Profiles:    entry.Profiles,
 		Runtime:     entry.Runtime,
 		Permissions: entry.Permissions,
-		Coordinator: entry.Coordinator,
 		Driving:     entry.Driving,
 		Escalation:  entry.Escalation,
 		Source:      agents.SourceConfig,
@@ -451,11 +437,6 @@ type ResolvedAgent struct {
 	// so). Raw, unvalidated config; the coordinator's
 	// spawn-time ladder builder validates and converts it.
 	Escalation []agents.EscalationRung `json:"escalation,omitempty"`
-	// Coordinator mirrors agents.Agent.Coordinator: whether this agent, when
-	// run as a delegated child, is trusted with the coordinator-only MCP
-	// tools (agent_run/roster/agent_stop/agent_fetch_artifact). Default false
-	// = leaf.
-	Coordinator bool `json:"coordinator,omitempty"`
 	// Driving mirrors agents.Agent.Driving: the agent's declared per-turn
 	// execution axis (conversational|oneshot; empty = conversational). The
 	// coordinator's per-engine resume-capability gate (coord.resolveResumeMode)
@@ -579,7 +560,6 @@ func resolveAgentBinding(ctx context.Context, cfg *config.Config, name string, s
 			[]string{sub.Permissions, labelEntry.Permissions},
 			backend == config.BackendClaudeCode).String(),
 		Escalation:  sub.Escalation,
-		Coordinator: sub.Coordinator,
 		Driving:     sub.Driving,
 	}, nil
 }

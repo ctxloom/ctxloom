@@ -22,11 +22,15 @@ type RunRecord struct {
 	Harp       string
 	Agent      string
 	ParentHarp string
-	// ParentRunID is the SPAWNING run's run_id (D5/manly-grant (5) durable
-	// lineage) — empty for a depth-1 (top-level) child spawned by the
-	// session owner (depth 0 has no run_id of its own to be a parent of);
-	// set for a depth-2+ grandchild. Mirrors StartRun/RunStarted.parent_run_id
-	// (rev 5) on the read-side roster projection (D1's ListRunsResult.RunInfo).
+	// ParentRunID is the SPAWNING run's run_id — durable delegation lineage,
+	// set only when the caller has a run of its own to be a parent of. A
+	// plugin-hosted top-level session's own credential carries no run id, so
+	// a child it spawns directly leaves this empty; a container top-level
+	// session's owned run (StartOwnedRun) DOES carry a run id from the
+	// moment it starts, even at depth 0, so a child it spawns has this set —
+	// as does any child spawned by an already-delegated child. Mirrors
+	// StartRun/RunStarted.parent_run_id on the read-side roster projection
+	// (ListRunsResult.RunInfo).
 	ParentRunID string
 	Runtime     string
 	CredHash    string

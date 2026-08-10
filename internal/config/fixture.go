@@ -41,7 +41,7 @@ type Fixture struct {
 	Workspace                    string
 	DirtyTreeHandler             string
 	Runtime                      string
-	AgentTurnCap                 int
+	Delegation                   DelegationConfig
 	IsolationImages              map[string]string
 	IsolationBaseContainerfile   string
 	IsolationDevcontainerBase    *bool
@@ -83,7 +83,7 @@ func (c *Config) ToFixture() Fixture {
 		Workspace:                    c.workspace,
 		DirtyTreeHandler:             c.dirtyTreeHandler,
 		Runtime:                      c.runtime,
-		AgentTurnCap:                 c.agentTurnCap,
+		Delegation:                   c.delegation,
 		IsolationImages:              cloneStringMap(c.isolationImages),
 		IsolationBaseContainerfile:   c.isolationBaseContainerfile,
 		IsolationDevcontainerBase:    cloneBoolPtr(c.isolationDevcontainerBase),
@@ -132,7 +132,7 @@ func NewFixture(f Fixture) *Config {
 		workspace:                    f.Workspace,
 		dirtyTreeHandler:             f.DirtyTreeHandler,
 		runtime:                      f.Runtime,
-		agentTurnCap:                 f.AgentTurnCap,
+		delegation:                   f.Delegation,
 		isolationImages:              cloneStringMap(f.IsolationImages),
 		isolationBaseContainerfile:   f.IsolationBaseContainerfile,
 		isolationDevcontainerBase:    cloneBoolPtr(f.IsolationDevcontainerBase),

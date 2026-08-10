@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -61,8 +62,14 @@ type MCPClient struct {
 // StartMCP spawns the MCP server in the project directory with the isolated
 // (and session-scrubbed — see isolatedEnv) environment. extraEnv entries
 // ("KEY=VALUE") are appended last and win over the isolated environment.
+//
+// The argv is agent.CtxloomMCPArgs, the SAME value ctxloom writes into every
+// engine's own MCP settings, so this harness drives the exact invocation an
+// engine drives. Spelling it out here instead would let the two drift, and a
+// harness that speaks the protocol to a spelling no engine uses proves
+// nothing about what engines get.
 func (e *TestEnvironment) StartMCP(extraEnv ...string) (*MCPClient, error) {
-	return startMCPProcess(e.AppBinary, []string{"mcp"}, e.ProjectDir, e.isolatedEnv(), extraEnv...)
+	return startMCPProcess(e.AppBinary, agent.CtxloomMCPArgs, e.ProjectDir, e.isolatedEnv(), extraEnv...)
 }
 
 // startMCPProcess spawns bin(args...) as an MCP server over stdio in dir, with

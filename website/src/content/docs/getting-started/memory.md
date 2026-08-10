@@ -22,7 +22,7 @@ ctxloom no longer goes looking. For every engine driven through ctxloom's struct
 Two capture regimes cover ctxloom's structured usage:
 
 - **Structured / chat sessions** (the default for `ctxloom run` across codex, kiro, Claude Code, opencode, and generic ACP agents) get full-fidelity capture: every user turn, assistant message, reasoning step, tool call, and tool result, in order.
-- **Oneshot runs** (`ctxloom run --print`, `codex exec`-style one-off prompts) don't stream turn-by-turn, so capture is lower-fidelity: just the prompt you sent and the reply that came back. No tool-by-tool detail, but never nothing — a oneshot run that used to leave no memory behind now leaves at least the shape of what happened.
+- **Oneshot runs** (`ctxloom run --one-shot`, `codex exec`-style one-off prompts) don't stream turn-by-turn, so capture is lower-fidelity: just the prompt you sent and the reply that came back. No tool-by-tool detail, but never nothing — a oneshot run that used to leave no memory behind now leaves at least the shape of what happened.
 
 The one gap this release doesn't close: if you drive an engine's own interactive terminal UI directly rather than through ctxloom's structured chat, the conversation never crosses ctxloom's process, so there's nothing for ctxloom to capture — the old per-engine file scrapers that used to (unreliably) cover this case have been removed, not replaced. That path has no ctxloom memory for now; it's tracked for a future release. Everything else below assumes the structured or oneshot path, which is how `ctxloom run` operates by default.
 

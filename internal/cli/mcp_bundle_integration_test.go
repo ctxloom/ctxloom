@@ -14,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -57,7 +58,10 @@ func startMCPServer(t *testing.T, binPath, workDir string) *mcpClient {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	cmd := exec.CommandContext(ctx, binPath, "mcp")
+	// `mcp serve` is the machine surface — the same argv agent.CtxloomMCPArgs
+	// writes into every engine's settings, so this harness drives exactly what
+	// an engine drives.
+	cmd := exec.CommandContext(ctx, binPath, agent.CtxloomMCPArgs...)
 	cmd.Dir = workDir
 	// Isolate the spawned server: a fresh tempdir HOME and scrubbed session env
 	// so it never resolves a home-rooted store (tasks log, sessions index)

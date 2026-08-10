@@ -254,7 +254,7 @@ func runFreshMockSession(w *World) (string, error) {
 	// resolution entirely and runs against the project's own default LLM
 	// (internal/cli/run.go marks --agent/--profile mutually exclusive
 	// precisely because they are two different resolution paths).
-	_ = w.env.Run("run", "--print", "--agent", "default", "continue")
+	_ = w.env.Run("run", "--one-shot", "--agent", "default", "continue")
 	data, err := os.ReadFile(recordFile)
 	if err != nil {
 		return "", fmt.Errorf("mock recorded no input (run output:\n%s): %w", w.env.LastOutput(), err)

@@ -82,7 +82,7 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 		MCPSource: "internal/cli",
 		// The documented surface is the RUNNER-terminated one (NewDocMCPServer →
 		// newRunnerMCPServer): what a harness actually sees inside `ctxloom run`
-		// / `ctxloom acp`, through its stdio `ctxloom mcp` shim. Naming
+		// / `ctxloom acp`, through its stdio `ctxloom mcp serve` shim. Naming
 		// `ctxloom mcp serve` here would be a lie — that standalone server
 		// registers a REDUCED agent surface with different schemas (see mcpIntro).
 		MCPCommand: "ctxloom run",
@@ -96,7 +96,7 @@ func ctxloomProduct() (*docsgen.Product, func(), error) {
 // tasks live in taskloom).
 const mcpIntro = "Reference for the tools and resources ctxloom exposes to the agent it launches — the " +
 	"**runner-terminated** MCP surface a harness sees inside `ctxloom run` (and `ctxloom acp`), " +
-	"reached through the stdio `ctxloom mcp` shim ctxloom wires into the harness's settings. " +
+	"reached through the stdio `ctxloom mcp serve` shim ctxloom wires into the harness's settings. " +
 	"This is the surface you get in a normal ctxloom session, and it is the one generated here.\n" +
 	"\n" +
 	":::caution[A standalone `ctxloom mcp serve` is not this surface]\n" +

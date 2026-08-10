@@ -23,11 +23,11 @@ Every command accepts the global `--format text|json` flag; `json` emits machine
 
 With no `-p`/`-f`/`-t` and no default profile configured, `ctxloom run` shows an interactive picker of installed profiles (skipped when not on a terminal).
 
-With `--print` and no prompt argument, the prompt is read from **stdin** when piped — making `run --print` a universal reducer over any input (e.g. output collected from other tools or an earlier run):
+With `--one-shot` and no prompt argument, the prompt is read from **stdin** when piped — making `run --one-shot` a universal reducer over any input (e.g. output collected from other tools or an earlier run):
 
 ```bash
 # Synthesize piped input with a high-power profile:
-cat findings.txt | ctxloom run -p code-review/synthesis --print
+cat findings.txt | ctxloom run -p code-review/synthesis --one-shot
 ```
 
 A profile may declare its own preferred LLM (`llm:`); `run -l`/`--llm` overrides it. To fan a task across several agents in parallel, a running coordinator spawns them as children with the `agent_run` MCP tool and reads their reports back itself — see [Agent Delegation](/concepts/agent-delegation/).

@@ -219,7 +219,7 @@ func registerJ000300Steps(ctx *godog.ScenarioContext) {
 			return err
 		}
 		guidance := w.env.LastOutput()
-		_ = w.env.Run("run", "--print", "--profile", "default", guidance)
+		_ = w.env.Run("run", "--one-shot", "--profile", "default", guidance)
 		return nil
 	})
 

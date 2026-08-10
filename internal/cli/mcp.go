@@ -12,50 +12,94 @@ import (
 	"github.com/ctxloom/ctxloom/internal/operations"
 )
 
-var mcpCmd = &cobra.Command{
+// mcpCmd is the MCP noun. Bare `ctxloom mcp` conforms to the bare-noun ladder
+// and answers with the configured MCP servers, delegating through `mcp server`
+// to its own `list` — the collection is the one thing the noun is about, and
+// reading it touches nothing.
+//
+// The machine surface is `ctxloom mcp serve`, one spelling, symmetric with
+// `ctxloom acp serve`. mcpBareMachineRefusal is what keeps the two from
+// colliding when a caller off a terminal types the noun on its own.
+var mcpCmd = mcpBareMachineRefusal(groupNodeDefault(&cobra.Command{
 	Use:   "mcp",
-	Short: "Run ctxloom as an MCP server",
-	Long: `Run ctxloom as an MCP (Model Context Protocol) server over stdio.
+	Short: "List configured MCP servers, or serve ctxloom as one",
+	Long: `The MCP (Model Context Protocol) noun: the servers this project hands to
+every engine, and ctxloom's own stdio server.
 
-When called without subcommands, runs ctxloom as an MCP server over stdio.
+  ctxloom mcp              List the configured MCP servers (this project's
+                           own, plus whether ctxloom auto-registers itself)
+  ctxloom mcp serve        Serve ctxloom AS an MCP server over stdio. This is
+                           the invocation an engine's settings name, and the
+                           only one that speaks the protocol.
+  ctxloom mcp server       Create, show, edit and delete configured servers
+  ctxloom mcp register     Toggle ctxloom's own auto-registration
+  ctxloom mcp unregister
 
-RUNNING AS MCP SERVER:
-  ctxloom mcp              Run as MCP server over stdio
-  ctxloom mcp serve        Alias for running as MCP server
+Tools ctxloom serves under 'mcp serve':
+  Context:  assemble_context, search_content, search_library
+  Sessions: compact_session, list_sessions, load_session, get_previous_session, recover_session
+  Agents:   agent_run, agent_send, agent_recv (delegated child sessions +
+            the in-memory coordinator/executor message bus)
 
-  Available tools when running as server:
-    Context:  assemble_context, search_content, search_library
-    Sessions: compact_session, list_sessions, load_session, get_previous_session, recover_session
-    Agents:   agent_run, agent_send, agent_recv (delegated child sessions +
-              the in-memory coordinator/executor message bus)
-
-  Read-only listings (fragments, profiles, prompts, remotes, mcp-servers,
-  sessions) are exposed as MCP resources (ctxloom://...), not tools. All
-  management (bundles, remotes, review/approve, trust, pinning) is done with
-  the ctxloom CLI, not MCP tools. Task tracking moved to the standalone
-  taskloom binary; its MCP server ('taskloom mcp') serves the task_* tools.
-
-Manage configured MCP servers under 'ctxloom mcp server' and ctxloom's own
-auto-registration under 'ctxloom mcp register'/'ctxloom mcp unregister'.`,
-	// NoArgs: without it, a stale invocation like `ctxloom mcp list` would
-	// silently start a stdio MCP server that sits waiting on stdin.
-	Args: cobra.NoArgs,
-	RunE: runMCPServerSDK,
-}
+Read-only listings (fragments, profiles, prompts, remotes, mcp-servers,
+sessions) are exposed as MCP resources (ctxloom://...), not tools. All
+management (bundles, remotes, review/approve, trust, pinning) is done with
+the ctxloom CLI, not MCP tools. Task tracking lives in the standalone
+taskloom binary; its MCP server ('taskloom mcp') serves the task_* tools.`,
+}, "server"))
 
 // MCP subcommands for managing MCP server configurations
 
 var mcpServeCmd = &cobra.Command{
 	Use:   "serve",
-	Short: "Run as MCP server over stdio",
-	Long:  `Run ctxloom as an MCP (Model Context Protocol) server over stdio. This is the default behavior when running 'ctxloom mcp' without subcommands.`,
-	// NoArgs for the same reason as its bare `ctxloom mcp` twin above: this
-	// RunE is the stdio server, so a stale invocation like `ctxloom mcp serve
-	// list` would otherwise sit waiting on stdin instead of reporting the
-	// mistake.
+	Short: "Serve ctxloom as an MCP server over stdio",
+	Long: `Serve ctxloom as an MCP (Model Context Protocol) server over stdio.
+
+This is the machine surface: the invocation ctxloom writes into every engine's
+own MCP settings, and the only spelling that speaks the protocol.`,
+	// NoArgs because this RunE is the stdio server: `ctxloom mcp serve list`
+	// would otherwise sit waiting on stdin instead of reporting the mistake.
 	Args: cobra.NoArgs,
 	RunE: runMCPServerSDK,
 }
+
+// mcpBareMachineRefusal wraps the bare noun's delegation so a caller that is
+// not a person at a terminal is refused instead of answered.
+//
+// WHY A LISTING IS WORSE THAN AN ERROR HERE. A protocol client launches its
+// configured command, opens a pipe, and waits for a JSON-RPC `initialize`
+// response. Server-listing text written into that pipe cannot be framed, so
+// the client neither parses nor rejects it — it waits. Exit code 0, a running
+// engine, no ctxloom tools, and nothing anywhere naming the cause: this
+// project's characteristic silent no-op, on the one surface a machine drives.
+// An error on stderr with a non-zero status is the loud version of the same
+// event, and it names the spelling that works.
+//
+// The encoding is deliberately not consulted. `--format json` makes a listing
+// no more deliverable to a caller framing JSON-RPC, so the refusal is
+// unconditional off a terminal and points a script at the leaf that produces
+// the servers as data.
+func mcpBareMachineRefusal(cmd *cobra.Command) *cobra.Command {
+	delegate := cmd.RunE
+	cmd.RunE = func(c *cobra.Command, args []string) error {
+		if len(args) == 0 && !isInteractiveTerminal() {
+			return errMCPBareIsNotTheServer
+		}
+		return delegate(c, args)
+	}
+	return cmd
+}
+
+// errMCPBareIsNotTheServer is the refusal a non-terminal caller of the bare
+// noun earns. A sentinel rather than a formatted string per this project's
+// error-handling standard, and worded for the two readers who will see it: a
+// human reading an engine's stderr log, and whoever has to fix the settings
+// entry that produced it.
+var errMCPBareIsNotTheServer = fmt.Errorf(
+	"`ctxloom mcp` lists this project's configured MCP servers; it does not speak the protocol, " +
+		"and a listing delivered to a client waiting for JSON-RPC is indistinguishable from a hang. " +
+		"The stdio server is `ctxloom mcp serve` — point this client's configured command at it " +
+		"(`ctxloom init` rewrites every engine's settings), or run `ctxloom mcp server list` for the listing as data")
 
 // mcpServerListCmd is the canonical spine's `list` for the MCP-server noun.
 var mcpServerListCmd = &cobra.Command{
@@ -468,9 +512,10 @@ func runMCPUnregister(cmd *cobra.Command, _ []string) error {
 func init() {
 	rootCmd.AddCommand(mcpCmd)
 
-	// The bare `ctxloom mcp` (and `mcp serve`) is the runtime server, referenced
-	// by generated .mcp.json. Server-config management lives under `mcp server`;
-	// ctxloom's own auto-registration under `mcp register`/`mcp unregister`.
+	// `mcp serve` is the runtime server, and the invocation every generated
+	// engine surface names (agent.CtxloomMCPArgs). Server-config management
+	// lives under `mcp server`; ctxloom's own auto-registration under
+	// `mcp register`/`mcp unregister`.
 	mcpCmd.AddCommand(mcpServeCmd)
 
 	mcpCmd.AddCommand(mcpServerCmd)

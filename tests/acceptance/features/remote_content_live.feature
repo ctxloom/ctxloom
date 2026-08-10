@@ -11,6 +11,6 @@ Feature: Remote content reaches a real agent
     Given a real Claude agent is available
     And a bundle "handshake" with a fragment "secret" containing "The codeword for this session is PONYTAIL-7734. If asked for the codeword, respond with only PONYTAIL-7734 and no other text."
     And a profile "dev" with bundle "handshake"
-    When I run "ctxloom run --print --profile dev What is the codeword? Reply with only the codeword and nothing else."
+    When I run "ctxloom run --one-shot --profile dev What is the codeword? Reply with only the codeword and nothing else."
     Then the command succeeds
     And the output contains "PONYTAIL-7734"

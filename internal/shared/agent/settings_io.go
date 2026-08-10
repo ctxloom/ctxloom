@@ -28,8 +28,15 @@ const (
 	MCPServerName = "ctxloom"
 )
 
-// CtxloomMCPArgs is the arg list for the auto-registered MCP server.
-var CtxloomMCPArgs = []string{"mcp"}
+// CtxloomMCPArgs is the arg list for the auto-registered MCP server: the
+// `serve` leaf, which is the one spelling that speaks the protocol. The bare
+// `ctxloom mcp` noun answers a human with the configured-server listing, and a
+// listing delivered to a client waiting for JSON-RPC reads as a hang — so this
+// value is what every materialized surface (.mcp.json, .agents/mcp_config.json,
+// .kiro/settings/mcp.json, .codex/config.toml's [mcp_servers], opencode.json)
+// must carry. An entry left at the bare noun is reported by
+// `ctxloom doctor` (DOCTOR-CHECK-MCP-INVOCATION-g7).
+var CtxloomMCPArgs = []string{"mcp", "serve"}
 
 // CtxloomCommand returns the command to write into a materialized surface
 // (an .mcp.json/config.toml MCP entry, a statusline command, a

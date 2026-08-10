@@ -783,7 +783,7 @@ type probeResult struct {
 // actually resolve to that path — a cell explicitly proving the env-key
 // bypass must not silently fall back to the seeded path), seed credentials
 // accordingly, census the host before/after, run `ctxloom run --agent probe
-// --workspace worktree --print` in the background while watchScratch races
+// --workspace worktree --one-shot` in the background while watchScratch races
 // to observe the ephemeral scratch tree, and assemble the evidence. Returns
 // an error only for a HARNESS failure (bad config, can't start the process);
 // a live run that fails/times out/misbehaves is still a *result* the caller
@@ -847,7 +847,7 @@ func runProbeWorktree(w *World, backendType string, forcedPath probeAuthPath, de
 		return nil, err
 	}
 
-	args := []string{"run", "--agent", "probe", "--workspace", "worktree", "--print"}
+	args := []string{"run", "--agent", "probe", "--workspace", "worktree", "--one-shot"}
 	if degraded {
 		args = append(args, "--degraded")
 	}
@@ -949,7 +949,7 @@ func runProbeContainer(w *World, backendType, runtimeBin string) (*probeResult, 
 	_ = os.Chmod(traceDir, 0o777)
 	probeEnv := []string{isolation.ProbeTraceEnvVar + "=" + traceDir}
 
-	cmd := w.env.Command(probeEnv, "run", "--agent", "probe", "--workspace", "none", "--print", probePrompt(token))
+	cmd := w.env.Command(probeEnv, "run", "--agent", "probe", "--workspace", "none", "--one-shot", probePrompt(token))
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 

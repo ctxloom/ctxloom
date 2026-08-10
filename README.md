@@ -80,7 +80,7 @@ Learn more: [Concepts](https://ctxloom.dev/concepts/bundles)
 | `ctxloom trust reject` | Reject an item so it is withheld from the agent |
 | `ctxloom session` | Browse and manage harp-named sessions |
 | `ctxloom memory` | Manage session memory (external compaction) |
-| `ctxloom mcp` | Run ctxloom as an MCP server |
+| `ctxloom mcp` | List configured MCP servers (`ctxloom mcp serve` runs ctxloom as one) |
 | `ctxloom acp` | Serve ctxloom as an Agent Client Protocol agent (stdio) |
 | `ctxloom manage` | Install and manage ctxloom's project harness |
 | `ctxloom container` | Manage agent container images |

@@ -41,7 +41,7 @@ import (
 // session assignment, the coordinator standup, permission-posture warnings,
 // isolation.Prepare, transport selection, terminal setup and the vpio launch.
 // Those need a live engine and are covered by tests/acceptance/features/
-// run.feature's `run --print` scenarios instead.
+// run.feature's `run --one-shot` scenarios instead.
 
 // runCLIFixture writes the smallest project config the run path needs (the
 // same shape as the acceptance suite's minimalConfig) into a fresh isolated
@@ -106,13 +106,13 @@ func runCLI(t *testing.T, args ...string) cliResult {
 		llm, agent, workspace, permissions, prompt, profile, savedPrompt string
 		session, seedTask, seedStatus                                    string
 		fragments, tags                                                  []string
-		dryRun, print, structured, plain, assumeYes, distill             bool
+		dryRun, oneShot, structured, plain, assumeYes, distill           bool
 		verbosity                                                        int
 	}{
 		runLLM, runAgent, runWorkspace, runPermissions, runPrompt, runProfile, runSavedPrompt,
 		runResumeSession, runSeedTask, runSeedStatus,
 		runFragments, runTags,
-		runDryRun, runPrint, runStructured, runPlainTerminal, runAssumeYes, runResumeDistill,
+		runDryRun, runOneShot, runStructured, runPlainTerminal, runAssumeYes, runResumeDistill,
 		runVerbosity,
 	}
 	defer func() {
@@ -121,7 +121,7 @@ func runCLI(t *testing.T, args ...string) cliResult {
 		runSavedPrompt, runResumeSession = savedFlags.savedPrompt, savedFlags.session
 		runSeedTask, runSeedStatus = savedFlags.seedTask, savedFlags.seedStatus
 		runFragments, runTags = savedFlags.fragments, savedFlags.tags
-		runDryRun, runPrint, runStructured = savedFlags.dryRun, savedFlags.print, savedFlags.structured
+		runDryRun, runOneShot, runStructured = savedFlags.dryRun, savedFlags.oneShot, savedFlags.structured
 		runPlainTerminal, runAssumeYes, runResumeDistill = savedFlags.plain, savedFlags.assumeYes, savedFlags.distill
 		runVerbosity = savedFlags.verbosity
 	}()

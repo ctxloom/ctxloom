@@ -38,7 +38,7 @@ const localSigBundlePath = ".ctxloom/content/bundles/local.yaml"
 // what the language model was actually handed.
 func deliverLocalFragment(t *testing.T, env *testenv.TestEnvironment, mockLM *testenv.MockLM, fragment string) string {
 	t.Helper()
-	_ = env.Run("run", "-f", fragment, "--print", "delivery probe")
+	_ = env.Run("run", "-f", fragment, "--one-shot", "delivery probe")
 	recorded, err := mockLM.GetRecordedInput()
 	require.NoError(t, err, "mock LM recorded no input at all (command output: %s)", env.LastOutput())
 	return recorded

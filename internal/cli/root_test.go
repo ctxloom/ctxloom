@@ -25,12 +25,15 @@ func TestRootCommand_SilencesCobraErrorNoise(t *testing.T) {
 }
 
 // `ctxloom mcp <anything>` must reject unknown subcommands: cobra's legacy
-// arg handling would otherwise run the parent RunE — silently starting a
-// stdio MCP server that sits waiting on stdin.
+// arg handling would otherwise print the namespace's help and exit 0, which is
+// how a mistyped verb reads as a command that ran.
+//
+// The refusal is the groupNode guard in the RunE, not an Args validator —
+// group_node.go documents why Args cannot do this job — so it is driven here
+// rather than asserted as a field.
 func TestMCPCommand_RejectsUnknownSubcommands(t *testing.T) {
-	require.NotNil(t, mcpCmd.Args)
-	assert.Error(t, mcpCmd.Args(mcpCmd, []string{"list"}))
-	assert.NoError(t, mcpCmd.Args(mcpCmd, nil))
+	require.True(t, isGroupNode(mcpCmd), "mcp is a namespace and carries the guard")
+	assert.Error(t, mcpCmd.RunE(mcpCmd, []string{"list"}))
 }
 
 // cliemit.EmitError is Execute()'s error-printing tail, callable without the

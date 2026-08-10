@@ -186,7 +186,7 @@ silent overclaim this page exists to rule out, so it was replaced with an outrig
 names both escapes and points at `runtime: container` instead.
 
 **A second, separate gap, found live by the executable probe (2026-07-22, agy 1.1.5), not by
-inspecting `HOME`:** `agy -p` (the headless oneshot mode ctxloom's `run --print` drives) does
+inspecting `HOME`:** `agy -p` (the headless oneshot mode ctxloom's `run --one-shot` drives) does
 not honour the process's working directory for file writes AT ALL. Asked, from an empty scratch
 directory, to write a token into a file "in the current directory," it instead wrote the file
 into its own fixed global scratch path (`~/.gemini/antigravity-cli/scratch/`) and *said so*

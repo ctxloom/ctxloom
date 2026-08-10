@@ -13,7 +13,7 @@ import (
 // TestStartContainerOwnedRun_NilCoordinatorRefusesTheLaunch pins the owned-run
 // arm's refusal to start without a hosted coordinator.
 //
-// Transport 2 IS the reach-back for this arm: a structured or --print container
+// Transport 2 IS the reach-back for this arm: a structured or --one-shot container
 // run drives its whole session over the coordinator's event stream, so a run
 // launched without one has no transport at all and could only produce a
 // container that starts, answers nobody, and reports success. This must stay a

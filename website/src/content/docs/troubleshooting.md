@@ -327,7 +327,7 @@ ctxloom bundle distill .ctxloom/content/bundles/mybundle.yaml  # whole bundle
 
 2. **Use fewer fragments:**
 ```bash
-# Check what's included (--print is ignored under --dry-run; --dry-run
+# Check what's included (--one-shot is ignored under --dry-run; --dry-run
 # already prints the token estimate and the assembled context)
 ctxloom run --dry-run
 

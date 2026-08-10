@@ -7,7 +7,7 @@ title: "MCP Tools Reference"
 This page is generated from ctxloom's registered MCP tools and resources, as served by `ctxloom run`.
 :::
 
-Reference for the tools and resources ctxloom exposes to the agent it launches — the **runner-terminated** MCP surface a harness sees inside `ctxloom run` (and `ctxloom acp`), reached through the stdio `ctxloom mcp` shim ctxloom wires into the harness's settings. This is the surface you get in a normal ctxloom session, and it is the one generated here.
+Reference for the tools and resources ctxloom exposes to the agent it launches — the **runner-terminated** MCP surface a harness sees inside `ctxloom run` (and `ctxloom acp`), reached through the stdio `ctxloom mcp serve` shim ctxloom wires into the harness's settings. This is the surface you get in a normal ctxloom session, and it is the one generated here.
 
 :::caution[A standalone `ctxloom mcp serve` is not this surface]
 Registering `ctxloom mcp serve` yourself, as a plain MCP server in some other harness's config, gets you the retrieval and session-memory tools below **unchanged** — but a **reduced agent-delegation surface with different schemas**: `agent_run`, `agent_send`, `agent_recv`, and `agent_stop` only (no `roster`, no `agent_report`, no `agent_fetch_artifact`), and `agent_run`, `agent_send` and `agent_stop` take different parameters there than documented here. Agent delegation is coordinated by the runner, so drive it from `ctxloom run` / `ctxloom acp`.

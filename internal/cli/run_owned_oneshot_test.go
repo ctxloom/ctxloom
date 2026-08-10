@@ -18,7 +18,7 @@ import (
 )
 
 // These tests cover the Transport-2 container oneshot path
-// (runOneshotViaCoord): the answer a --print run prints comes off the
+// (runOneshotViaCoord): the answer a --one-shot run prints comes off the
 // coordinator's event stream, so "we got nothing" and "we got it concurrently"
 // are both this function's problem.
 
@@ -62,10 +62,10 @@ func oneshotSession(t *testing.T, evs ...*agentcoordpb.AgentEvent) *ownedRunSess
 	}
 }
 
-// TestRunOneshotViaCoord_EmptyAnswerIsAFailure pins a fix: a container --print
+// TestRunOneshotViaCoord_EmptyAnswerIsAFailure pins a fix: a container --one-shot
 // run that streamed zero answer bytes is this project's signature silent
 // no-op: the code already WARNS about it and then returns nil, so `ctxloom run
-// --print ... > out.txt` leaves an empty file and exit 0. A caller cannot tell
+// --one-shot ... > out.txt` leaves an empty file and exit 0. A caller cannot tell
 // that from a legitimately empty answer because there is no such thing —
 // a oneshot that produced nothing did not do the one job it was asked to do.
 func TestRunOneshotViaCoord_EmptyAnswerIsAFailure(t *testing.T) {

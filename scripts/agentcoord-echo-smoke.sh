@@ -129,7 +129,7 @@ coordinator_brief="Call agent_run(role:\"$AGENT\", input:{prompt:\"$prompt\"}). 
 # CTXLOOM_VERBOSE=1 turns on the CHILD-side launch diagnostics: the
 # coordinator's spawner forwards the child `llm serve` plugin's stderr (which
 # carries the ACP adapter's stderr) through its own process stderr. For the
-# --print topology that process is the parent engine's stdio `ctxloom mcp`,
+# --one-shot topology that process is the parent engine's stdio `ctxloom mcp serve`,
 # so the trail lands in the engine's MCP server logs (claude:
 # ~/.cache/claude-cli-nodejs/<project>/mcp-logs-ctxloom/).
 export CTXLOOM_VERBOSE=1
@@ -164,8 +164,8 @@ journal_candidates() {
 # runtime flag); --runtime here only names which axis this invocation is
 # accepting — the caller picks an agent whose runtime matches.
 run_start="$(($(date +%s) - 1))" # -1s: mtime-vs-date(1) granularity slack
-echo "launching: $CTXLOOM run --print <coordinator brief spawning agent=$AGENT> (child runtime axis: $RUNTIME)" >&2
-out="$("$CTXLOOM" run --print "$coordinator_brief" 2>"$work/stderr.log" || true)"
+echo "launching: $CTXLOOM run --one-shot <coordinator brief spawning agent=$AGENT> (child runtime axis: $RUNTIME)" >&2
+out="$("$CTXLOOM" run --one-shot "$coordinator_brief" 2>"$work/stderr.log" || true)"
 printf '%s\n' "$out" >"$work/stdout.log"
 
 # --- journal oracle ----------------------------------------------------------

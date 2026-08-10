@@ -11,7 +11,7 @@ import (
 )
 
 // TestRunOneshot_EmptyStdoutIsLoud pins that the launch tail every headless
-// run shares (a delegated oneshot turn, `acp client`, mirrored by run --print)
+// run shares (a delegated oneshot turn, `acp client`, mirrored by run --one-shot)
 // used to accept exit 0 with nothing on stdout as a successful run, publishing
 // Output:"" into RunOneshotResult.Output / a child's assistant entry with no
 // error anywhere. A oneshot exists ONLY to capture output, so zero bytes
@@ -63,7 +63,7 @@ func TestRunResolvedAgent_EmptyContextForNamedProfilesIsLoud(t *testing.T) {
 }
 
 // A member that names NO profile is legitimately context-free (the bare
-// `ctxloom run --print` with no profile, a defaults-only agent): it must keep
+// `ctxloom run --one-shot` with no profile, a defaults-only agent): it must keep
 // running. This is the discriminator that keeps the fix above from becoming a
 // blanket refusal.
 func TestRunResolvedAgent_NoProfilesRunsContextFree(t *testing.T) {

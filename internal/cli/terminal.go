@@ -13,7 +13,15 @@ import (
 )
 
 // isInteractiveTerminal returns true if both stdin and stdout are terminals.
-func isInteractiveTerminal() bool {
+//
+// A var rather than a plain func so a test can present EITHER side of the
+// human/machine split — the same seam technique run_terminal.go uses for
+// termIsTerminal. A test binary's stdin and stdout are never terminals, so
+// every test is otherwise permanently on the machine side. That is fine where
+// the predicate only decides whether to prompt, and not fine for `ctxloom mcp`
+// (mcpBareMachineRefusal), where the two sides are two different answers and
+// the human one would be untestable.
+var isInteractiveTerminal = func() bool {
 	return term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
 }
 

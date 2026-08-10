@@ -167,7 +167,7 @@ ls -la .ctxloom/cache/context/
 ctxloom run --dry-run
 ```
 
-`--print` is a separate flag that launches the model in non-interactive mode and prints its response — it doesn't preview context, and combining it with `--dry-run` has no additional effect since `--dry-run` never launches the model.
+`--one-shot` is a separate flag that launches the model in non-interactive mode and prints its response — it doesn't preview context, and combining it with `--dry-run` has no additional effect since `--dry-run` never launches the model.
 
 ### Verbose Mode
 

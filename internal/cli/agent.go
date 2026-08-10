@@ -561,20 +561,46 @@ func setDefaultAgent(name string) error {
 	return nil
 }
 
-// agentDeleteCmd deletes a config-key agent and persists the removal.
-var agentDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
-	Short: "Delete a local agent from config.yaml",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runAgentDelete,
+var agentRemoveYes bool
+
+// agentRemoveCmd removes a config-key agent and persists the removal. Bare
+// invocation reports what would be removed and removes nothing (exit 0);
+// --yes applies it.
+var agentRemoveCmd = &cobra.Command{
+	Use:     "remove <name>",
+	Aliases: []string{"rm", "del"},
+	Short:   "Remove a local agent from config.yaml",
+	Long: `Remove a local agent binding from config.yaml.
+
+Bare invocation reports what would be removed and removes nothing (exit 0).
+Pass --yes to apply it.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runAgentRemove,
 }
 
-func runAgentDelete(cmd *cobra.Command, args []string) error {
+func runAgentRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	cfg, err := GetConfigForUpdate()
 	if err != nil {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
+
+	applyCmd := fmt.Sprintf("ctxloom agent remove %s --yes", name)
+	if !agentRemoveYes {
+		if _, ok := cfg.Agent(name); !ok {
+			// See runAgentShow: only an ABSENT "help" is the courtesy request.
+			if name == helpArgName {
+				return cmd.Help()
+			}
+			return fmt.Errorf("agent %q is not defined", name)
+		}
+		target := fmt.Sprintf("agent %q", name)
+		return emit(cmd, newRemovePreviewResult(target, nil, applyCmd), func() error {
+			printRemovePreview(cmd.OutOrStdout(), target, nil, applyCmd)
+			return nil
+		})
+	}
+
 	if err := operations.RemoveAgent(config.NewManager(), cfg, name); err != nil {
 		// See runAgentShow: only an ABSENT "help" is the courtesy request.
 		if name == helpArgName {
@@ -582,9 +608,14 @@ func runAgentDelete(cmd *cobra.Command, args []string) error {
 		}
 		return err
 	}
-	w := iox.NewErrWriter(cmd.OutOrStdout())
-	w.Printf("Deleted agent %q\n", name)
-	return w.Err()
+	return emit(cmd, struct {
+		Status string `json:"status"`
+		Name   string `json:"name"`
+	}{Status: "removed", Name: name}, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Removed agent %q\n", name)
+		return w.Err()
+	})
 }
 
 func init() {
@@ -594,7 +625,7 @@ func init() {
 	agentCmd.AddCommand(agentCreateCmd)
 	agentCmd.AddCommand(agentEditCmd)
 	agentCmd.AddCommand(agentDefaultCmd)
-	agentCmd.AddCommand(agentDeleteCmd)
+	agentCmd.AddCommand(agentRemoveCmd)
 
 	// create and edit take the SAME axis flags against the SAME flag vars:
 	// they are one concept split by precondition, not two option sets.
@@ -604,8 +635,10 @@ func init() {
 
 	agentShowCmd.ValidArgsFunction = completeAgentNames
 	agentEditCmd.ValidArgsFunction = completeAgentNames
-	agentDeleteCmd.ValidArgsFunction = completeAgentNames
+	agentRemoveCmd.ValidArgsFunction = completeAgentNames
 	agentDefaultCmd.ValidArgsFunction = completeAgentNames
+
+	agentRemoveCmd.Flags().BoolVarP(&agentRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 }
 
 // registerAgentWriteFlags binds the agent-binding axis flags to cmd (shared by

@@ -2,11 +2,11 @@ package cli
 
 import (
 	"fmt"
-	"io"
-	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/bundles"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 )
@@ -183,23 +183,36 @@ func placeholderMCP(names []string) map[string]operations.BundleMCPInput {
 	})
 }
 
+var bundleRemoveYes bool
+
+// bundleDeleteForce is UNDER ESCALATION, not decided: it previously meant
+// "skip the confirmation prompt" below runBundleRemove's predecessor. That
+// prompt is gone — bare `remove` now reports and only --yes applies, with no
+// interactive path at all — so --force and --yes would mean the same thing
+// on this leaf. Reconciling them (alias one to the other, deprecate, or drop)
+// is a user-visible flag decision this pass escalates rather than picks; the
+// flag stays registered and parsed, but has no effect, until that decision
+// lands.
 var bundleDeleteForce bool
 
-var bundleDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
-	Short: "Delete a bundle",
-	Long: `Delete a bundle from the local .ctxloom/content/bundles directory.
+var bundleRemoveCmd = &cobra.Command{
+	Use:     "remove <name>",
+	Aliases: []string{"rm", "del"},
+	Short:   "Remove a bundle",
+	Long: `Remove a bundle from the local .ctxloom/content/bundles directory.
 
-This permanently removes the bundle file. Use --force to skip confirmation.
+Bare invocation reports what would be removed — the bundle and every
+fragment/command/mcp-server/skill/profile it carries — and removes nothing
+(exit 0). Pass --yes to apply it.
 
 Examples:
-  ctxloom bundle delete old-bundle
-  ctxloom bundle delete my-bundle --force`,
+  ctxloom bundle remove old-bundle
+  ctxloom bundle remove my-bundle --yes`,
 	Args: cobra.ExactArgs(1),
-	RunE: runBundleDelete,
+	RunE: runBundleRemove,
 }
 
-func runBundleDelete(cmd *cobra.Command, args []string) error {
+func runBundleRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 
 	cfg, err := GetConfig()
@@ -207,47 +220,59 @@ func runBundleDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
-	// Read-only load just to show the path in the confirm prompt; the actual
-	// (guarded) removal goes through operations.DeleteBundle.
+	// Read-only load: confirms the bundle exists and, for the report path,
+	// supplies the counts of what removing it would take with it.
 	bundle, err := operations.GetBundle(cfg, name)
 	if err != nil {
 		return fmt.Errorf("bundle not found: %s", name)
 	}
 
-	w := iox.NewErrWriter(cmd.OutOrStdout())
-	if !bundleDeleteForce {
-		confirm := stdinConfirmer(cmd.InOrStdin())
-		if !confirm(fmt.Sprintf("Delete bundle %q at %s? [y/N] ", name, bundle.Path)) {
-			w.Println("Cancelled.")
-			return w.Err()
-		}
+	applyCmd := fmt.Sprintf("ctxloom bundle remove %s --yes", name)
+	if !bundleRemoveYes {
+		detail := bundleRemoveDetail(bundle)
+		target := fmt.Sprintf("bundle %q", name)
+		return emit(cmd, newRemovePreviewResult(target, detail, applyCmd), func() error {
+			printRemovePreview(cmd.OutOrStdout(), target, detail, applyCmd)
+			return nil
+		})
 	}
+
 	res, err := operations.DeleteBundle(cmd.Context(), cfg, operations.DeleteBundleRequest{Name: name})
 	if err != nil {
 		return err
 	}
-	w.Printf("Deleted bundle: %s\n", res.Path)
-	return w.Err()
+	return emit(cmd, res, func() error {
+		w := iox.NewErrWriter(cmd.OutOrStdout())
+		w.Printf("Removed bundle: %s\n", res.Path)
+		return w.Err()
+	})
 }
 
-// confirmFn returns true iff the user confirms an interactive prompt.
-// The prompt text is passed in so the helper can phrase its own
-// question; the function itself owns reading input.
-type confirmFn func(prompt string) bool
-
-// stdinConfirmer builds a confirmFn that reads one line from in (defaults
-// to os.Stdin via cobra), printing prompt to os.Stderr first. Only "y"
-// or "Y" counts as confirmation; anything else (including EOF) is a no.
-func stdinConfirmer(in io.Reader) confirmFn {
-	return func(prompt string) bool {
-		fmt.Fprint(os.Stderr, prompt)
-		var answer string
-		// Scanln on a Reader requires fmt.Fscanln. EOF / read errors
-		// land here as err != nil with answer == "", which the
-		// comparison naturally treats as "no".
-		_, _ = fmt.Fscanln(in, &answer)
-		return answer == "y" || answer == "Y"
+// bundleRemoveDetail summarizes what `bundle remove`'s bare path would
+// destroy: one count per content kind the bundle carries, omitting any kind
+// the bundle holds none of so an empty bundle's report doesn't pad itself
+// with "0 fragments, 0 commands, ...".
+func bundleRemoveDetail(b *bundles.Bundle) []string {
+	var parts []string
+	if n := len(b.Fragments); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d fragment(s)", n))
 	}
+	if n := len(b.Commands); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d command(s)", n))
+	}
+	if n := len(b.MCP); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d MCP server(s)", n))
+	}
+	if n := len(b.Skills); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d skill package(s)", n))
+	}
+	if n := len(b.Profiles); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d profile(s)", n))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	return []string{strings.Join(parts, ", ")}
 }
 
 // registerBundleCreateFlags defines `bundle create`'s flags.
@@ -255,9 +280,12 @@ func registerBundleCreateFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVarP(&bundleCreateDesc, "description", "d", "", "Bundle description")
 }
 
-// registerBundleDeleteFlags defines `bundle delete`'s flags.
-func registerBundleDeleteFlags(cmd *cobra.Command) {
-	cmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Skip confirmation prompt")
+// registerBundleRemoveFlags defines `bundle remove`'s flags. --force is kept
+// registered (see bundleDeleteForce's doc) but wired to nothing pending the
+// escalated --force/--yes reconciliation.
+func registerBundleRemoveFlags(cmd *cobra.Command) {
+	cmd.Flags().BoolVarP(&bundleRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
+	cmd.Flags().BoolVarP(&bundleDeleteForce, "force", "f", false, "Pending reconciliation with --yes (currently has no effect)")
 }
 
 // registerBundleEditFlags defines `bundle edit`'s add/remove flag pairs and the

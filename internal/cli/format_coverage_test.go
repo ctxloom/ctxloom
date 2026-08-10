@@ -228,15 +228,18 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"trust publish forget": {skip: "needs a recorded decision to remove and writes the personal record; covered by trust_cli.feature"},
 
 	// --- skip: destructive / interactive confirmation, no fixture built here ---
-	// All four of these ARE format debt too (bundleDeleteCmd's
-	// runBundleDelete, bundle_hold_cli.go's hold/unhold RunEs, and
-	// runBundleMCPEdit never call emit() — confirmed absent from the global
-	// emit(cmd, ...) call-site grep), even though the reason they're skipped
-	// here is the fixture/confirmation cost, not the format bug. `bundle
+	// Three of these ARE format debt too (bundle_hold_cli.go's hold/unhold
+	// RunEs, and runBundleMCPEdit never call emit() — confirmed absent from
+	// the global emit(cmd, ...) call-site grep), even though the reason
+	// they're skipped here is the fixture cost, not the format bug. `bundle
 	// move` is the one command in the surrounding source files that DOES
 	// honor format (runBundleMove calls emit()) despite the same "needs a
-	// fixture" skip shape — verified NOT debt.
-	"bundle delete":   {skip: "destructive + interactive confirm without --force; not exercised here", formatDebt: true},
+	// fixture" skip shape — verified NOT debt. `bundle remove` (runBundleRemove)
+	// now calls emit() on both its report and --yes branches too — the
+	// interactive confirmation it used to gate on is gone, replaced by the
+	// report/--yes split — so it is skipped here for fixture cost alone, not
+	// format debt.
+	"bundle remove":   {skip: "destructive; not exercised here (needs a bundle fixture)"},
 	"bundle hold":     {skip: "needs an existing pin/lockfile fixture; not exercised here", formatDebt: true},
 	"bundle unhold":   {skip: "needs an existing held pin fixture; not exercised here", formatDebt: true},
 	"bundle move":     {skip: "needs source/dest bundle layout fixture; not exercised here"},
@@ -254,10 +257,12 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"remote default":  {skip: "needs a configured remote fixture", formatDebt: true},
 	"remote discover": {skip: "network: queries GitHub for discoverable remotes", formatDebt: true},
 	"remote pull":     {skip: "network: clones/fetches a real git remote", formatDebt: true},
-	"remote delete":   {skip: "needs a configured remote fixture", formatDebt: true},
-	"remote update":   {skip: "network: updates pinned bundle content from a real remote", formatDebt: true},
-	"remote upgrade":  {skip: "network: upgrades pinned bundle content from a real remote", formatDebt: true},
-	"bundle push":     {skip: "network: publishes to a real remote repository (covered by push_sign_test.go)"},
+	// runRemoteRemove now calls emit() on both its report and --yes branches
+	// (it did not before) — not format debt, just fixture-gated.
+	"remote remove":  {skip: "needs a configured remote fixture"},
+	"remote update":  {skip: "network: updates pinned bundle content from a real remote", formatDebt: true},
+	"remote upgrade": {skip: "network: upgrades pinned bundle content from a real remote", formatDebt: true},
+	"bundle push":    {skip: "network: publishes to a real remote repository (covered by push_sign_test.go)"},
 
 	// --- skip: docker / container runtime required ---
 	// `container check` DOES honor format (containerCheckCmd calls
@@ -286,7 +291,7 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"mcp register":                 {skip: "installer: registers ctxloom as an MCP server in editor config"},
 	"mcp unregister":               {skip: "installer: unregisters ctxloom as an MCP server"},
 	"mcp server create":            {skip: "wired to emit(); mutating, not exercised here"},
-	"mcp server delete":            {skip: "wired to emit(); mutating, not exercised here"},
+	"mcp server remove":            {skip: "wired to emit(); mutating, not exercised here"},
 	"mcp server show":              {skip: "wired to emit(), but needs an existing server fixture; not exercised here"},
 	"manage statusline install":    {skip: "installer: writes real statusline config"},
 	"manage statusline uninstall":  {skip: "installer: removes real statusline config"},
@@ -302,12 +307,12 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	// --- skip: not wired to emit() yet (pre-existing gap, outside this task's named stragglers) ---
 	"fragment show":    {skip: "not wired to emit() yet (item_helpers.go showItem)", formatDebt: true},
 	"fragment create":  {skip: "wired to emit(); mutating, exercised directly in item_format_test.go"},
-	"fragment delete":  {skip: "wired to emit(); destructive, exercised directly in item_format_test.go"},
+	"fragment remove":  {skip: "wired to emit(); destructive, exercised directly in item_format_test.go"},
 	"fragment edit":    {skip: "wired to emit(); opens $EDITOR, exercised directly in item_edit_test.go"},
 	"fragment distill": {skip: "wired to emit(); needs an LLM-backed distiller, exercised directly in item_format_test.go"},
 	"command show":     {skip: "not wired to emit() yet", formatDebt: true},
 	"command create":   {skip: "wired to emit(); mutating, exercised directly in item_format_test.go"},
-	"command delete":   {skip: "wired to emit(); destructive, exercised directly in item_format_test.go"},
+	"command remove":   {skip: "wired to emit(); destructive, exercised directly in item_format_test.go"},
 	"command edit":     {skip: "wired to emit(); opens $EDITOR, exercised directly in item_edit_test.go"},
 	"command distill":  {skip: "wired to emit(); needs an LLM-backed distiller, exercised directly in item_format_test.go"},
 	"skill show":       {skip: "wired to emit(), but needs an existing skill package fixture; not exercised here"},
@@ -318,16 +323,20 @@ var formatCoverageRegistry = map[string]formatCoverageEntry{
 	"agent show":       {skip: "wired to emit(), but needs an existing agent fixture; not exercised here"},
 	"agent create":     {skip: "wired to emit(), but mutating and needs a valid engine/profile fixture; not exercised here"},
 	"agent edit":       {skip: "wired to emit(), but mutating and needs an existing agent fixture; not exercised here"},
-	"agent delete":     {skip: "not wired to emit() yet", formatDebt: true},
-	"agent default":    {skip: "not wired to emit() yet", formatDebt: true},
-	"agent setup":      {skip: "deprecated alias for `init prompt`; not wired to emit() yet", formatDebt: true},
-	"init prompt":      {skip: "not wired to emit() yet; also an interactive interview", formatDebt: true},
-	"profile show":     {skip: "wired to emit(), but needs an existing profile fixture; not exercised here"},
-	"profile create":   {skip: "not wired to emit() yet", formatDebt: true},
-	"profile delete":   {skip: "not wired to emit() yet", formatDebt: true},
-	"profile edit":     {skip: "not wired to emit() yet", formatDebt: true},
-	"profile export":   {skip: "not wired to emit() yet", formatDebt: true},
-	"profile import":   {skip: "not wired to emit() yet", formatDebt: true},
+	// runAgentRemove now calls emit() on both its report and --yes branches
+	// (it did not before) — not format debt, just fixture-gated.
+	"agent remove":   {skip: "destructive; not exercised here (needs an agent fixture)"},
+	"agent default":  {skip: "not wired to emit() yet", formatDebt: true},
+	"agent setup":    {skip: "deprecated alias for `init prompt`; not wired to emit() yet", formatDebt: true},
+	"init prompt":    {skip: "not wired to emit() yet; also an interactive interview", formatDebt: true},
+	"profile show":   {skip: "wired to emit(), but needs an existing profile fixture; not exercised here"},
+	"profile create": {skip: "not wired to emit() yet", formatDebt: true},
+	// runProfileRemove now calls emit() on both its report and --yes
+	// branches (it did not before) — not format debt, just fixture-gated.
+	"profile remove": {skip: "destructive; not exercised here (needs a profile fixture)"},
+	"profile edit":   {skip: "not wired to emit() yet", formatDebt: true},
+	"profile export": {skip: "not wired to emit() yet", formatDebt: true},
+	"profile import": {skip: "not wired to emit() yet", formatDebt: true},
 	// This entry was WRONG — one of the registry's "known
 	// inaccuracies". profileMaterializeCmd's RunE DOES call emit() (verified
 	// via find_symbol on profile_materialize.go); it's fixture-gated like
@@ -475,8 +484,10 @@ var formatDebtAllowlist = map[string]string{
 	"config create": "config.go: runConfigCreate must route through emit() instead of a bare fmt.Fprintf",
 
 	// --- remote surface (remote.go, remote_browse.go, remote_discover.go, remote_update.go, remote_upgrade.go) ---
+	// `remote remove` (runRemoteRemove) was paid down alongside the report/
+	// --yes safety-posture rewrite: both its report and --yes branches now
+	// route through emit().
 	"remote create":   "remote.go: remoteCreateCmd's inline RunE must route through emit() instead of fmt.Printf",
-	"remote delete":   "remote.go: remoteDeleteCmd's inline RunE must route through emit() instead of fmt.Printf",
 	"remote default":  "remote.go: runRemoteDefault must route through emit() instead of fmt.Println/fmt.Printf",
 	"remote pull":     "remote.go: remotePullCmd's inline RunE + renderPullSummary must route through emit()",
 	"remote show":     "remote_browse.go: runRemoteBrowse must route through emit()",
@@ -485,7 +496,9 @@ var formatDebtAllowlist = map[string]string{
 	"remote upgrade":  "remote_upgrade.go: runRemoteUpgrade must route through emit()",
 
 	// --- bundle destructive/fixture-gated surface (bundle_edit.go, bundle_hold_cli.go, bundle_items.go) ---
-	"bundle delete":   "bundle_edit.go: runBundleDelete must route through emit()",
+	// `bundle remove` (runBundleRemove) was paid down alongside the report/
+	// --yes safety-posture rewrite: both its report and --yes branches now
+	// route through emit().
 	"bundle hold":     "bundle_hold_cli.go: the hold RunE must route through emit()",
 	"bundle unhold":   "bundle_hold_cli.go: the unhold RunE must route through emit()",
 	"mcp server edit": "bundle_items.go: runBundleMCPEdit must route through emit()",
@@ -499,15 +512,19 @@ var formatDebtAllowlist = map[string]string{
 	"command show":  "item_helpers.go: showItem (used by command show) must route through emit()",
 
 	// --- agent/init surfaces (agent.go, init.go) ---
-	"agent delete":  "agent.go: the agent-delete RunE must route through emit()",
+	// `agent remove` (runAgentRemove) was paid down alongside the report/
+	// --yes safety-posture rewrite: both its report and --yes branches now
+	// route through emit().
 	"agent default": "agent.go: the agent-default RunE must route through emit()",
 	"agent setup":   "deprecated alias of `init prompt`; shares runSetupPromptCmd — paid down by the same fix",
 	"init prompt":   "init.go: runSetupPromptCmd must route through emit() (also an interactive interview — may warrant a structural-exemption reclassification instead)",
 	"init":          "init.go: runInit must route through emit() (also an interactive bootstrap — may warrant a structural-exemption reclassification instead)",
 
 	// --- profile surface (profile.go) ---
+	// `profile remove` (runProfileRemove) was paid down alongside the
+	// report/--yes safety-posture rewrite: both its report and --yes
+	// branches now route through emit().
 	"profile create": "profile.go: the create RunE must route through emit()",
-	"profile delete": "profile.go: the delete RunE must route through emit()",
 	"profile edit":   "profile.go: the edit RunE must route through emit()",
 	"profile export": "profile.go: the export RunE must route through emit()",
 	"profile import": "profile.go: the import RunE must route through emit()",

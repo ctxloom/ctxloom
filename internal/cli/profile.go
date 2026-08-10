@@ -222,14 +222,21 @@ func printProfileCreated(w io.Writer, name, path string) {
 	fmt.Fprintf(w, "Saved to: %s\n", path)
 }
 
-var profileDeleteCmd = &cobra.Command{
-	Use:   "delete <name>",
-	Short: "Delete a profile",
-	Args:  cobra.ExactArgs(1),
-	RunE:  runProfileDelete,
+var profileRemoveYes bool
+
+var profileRemoveCmd = &cobra.Command{
+	Use:     "remove <name>",
+	Aliases: []string{"rm", "del"},
+	Short:   "Remove a profile",
+	Long: `Remove a profile.
+
+Bare invocation reports what would be removed and removes nothing (exit 0).
+Pass --yes to apply it.`,
+	Args: cobra.ExactArgs(1),
+	RunE: runProfileRemove,
 }
 
-func runProfileDelete(cmd *cobra.Command, args []string) error {
+func runProfileRemove(cmd *cobra.Command, args []string) error {
 	name := args[0]
 	if shown, err := helpShortcut(cmd, name); shown {
 		return err
@@ -240,14 +247,34 @@ func runProfileDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to load config: %w", err)
 	}
 
+	applyCmd := fmt.Sprintf("ctxloom profile remove %s --yes", name)
+	if !profileRemoveYes {
+		res, err := operations.GetProfile(cmd.Context(), cfg, operations.GetProfileRequest{Name: name})
+		if err != nil {
+			return fmt.Errorf("profile %q not found", name)
+		}
+		var detail []string
+		if n := len(res.Bundles); n > 0 {
+			detail = []string{fmt.Sprintf("%d bundle(s)", n)}
+		}
+		target := fmt.Sprintf("profile %q", name)
+		return emit(cmd, newRemovePreviewResult(target, detail, applyCmd), func() error {
+			printRemovePreview(cmd.OutOrStdout(), target, detail, applyCmd)
+			return nil
+		})
+	}
+
 	// Operations core deletes the profile AND clears it from the config
 	// defaults if it was the default — a cleanup the old CLI path skipped.
-	if _, err := operations.DeleteProfile(cmd.Context(), cfg, operations.DeleteProfileRequest{Name: name}); err != nil {
+	res, err := operations.DeleteProfile(cmd.Context(), cfg, operations.DeleteProfileRequest{Name: name})
+	if err != nil {
 		return err
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Deleted profile %q\n", name)
-	return nil
+	return emit(cmd, res, func() error {
+		fmt.Fprintf(cmd.OutOrStdout(), "Removed profile %q\n", name)
+		return nil
+	})
 }
 
 var profileShowCmd = &cobra.Command{
@@ -508,7 +535,7 @@ func init() {
 
 	profileCmd.AddCommand(profileListCmd)
 	profileCmd.AddCommand(profileCreateCmd)
-	profileCmd.AddCommand(profileDeleteCmd)
+	profileCmd.AddCommand(profileRemoveCmd)
 	profileCmd.AddCommand(profileShowCmd)
 	profileCmd.AddCommand(profileEditCmd)
 	profileCmd.AddCommand(profileUpdateCmd)
@@ -532,10 +559,11 @@ func init() {
 	profileUpdateCmd.Flags().StringSliceVar(&profileUpdateRemoveExcludeMCP, "include-mcp", nil, "MCP server name(s) to stop excluding")
 
 	profileImportCmd.Flags().BoolVarP(&profileImportForce, "force", "f", false, "Overwrite existing profile")
+	profileRemoveCmd.Flags().BoolVarP(&profileRemoveYes, "yes", "y", false, "Apply the removal this invocation would report (default: report only)")
 
 	// Register positional arg completions
 	profileShowCmd.ValidArgsFunction = completeProfileNames
-	profileDeleteCmd.ValidArgsFunction = completeProfileNames
+	profileRemoveCmd.ValidArgsFunction = completeProfileNames
 	profileEditCmd.ValidArgsFunction = completeProfileNames
 	profileUpdateCmd.ValidArgsFunction = completeProfileNames
 	profileExportCmd.ValidArgsFunction = completeProfileNames

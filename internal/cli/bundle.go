@@ -33,7 +33,7 @@ func init() {
 	bundleCmd.AddCommand(bundleViewCmd)
 	bundleCmd.AddCommand(bundleCreateCmd)
 	bundleCmd.AddCommand(bundleEditCmd)
-	bundleCmd.AddCommand(bundleDeleteCmd)
+	bundleCmd.AddCommand(bundleRemoveCmd)
 	bundleCmd.AddCommand(bundlePushCmd)
 	bundleCmd.AddCommand(bundleExportCmd)
 	bundleCmd.AddCommand(bundleImportCmd)
@@ -60,7 +60,7 @@ func init() {
 	// (the shape registerPushFlags already had); this is only the wiring, so
 	// adding a flag never means editing a file the command does not live in.
 	registerBundleCreateFlags(bundleCreateCmd)
-	registerBundleDeleteFlags(bundleDeleteCmd)
+	registerBundleRemoveFlags(bundleRemoveCmd)
 	registerBundleEditFlags(bundleEditCmd)
 	registerPushFlags(bundlePushCmd)
 	registerBundleImportFlags(bundleImportCmd)

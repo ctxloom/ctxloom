@@ -439,15 +439,43 @@ func TestRunAgentDefault_PersistsTheBinding(t *testing.T) {
 	assert.Equal(t, "dev", cfg.GetDefaultAgent())
 }
 
-func TestRunAgentDelete_RemovesAndReports(t *testing.T) {
+// TestRunAgentRemove_BareReportsAndDestroysNothing pins the report side: a
+// bare `agent remove` (agentRemoveYes == false) must say plainly that nothing
+// was removed, name the --yes command to apply it, and — the assertion that
+// actually catches a broken guard — leave the agent in config afterward. A
+// "preview" that quietly removes anyway passes a test that only checks
+// output text; this one re-reads config.
+func TestRunAgentRemove_BareReportsAndDestroysNothing(t *testing.T) {
 	agentProject(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n")
+	agentRemoveYes = false
 	cmd, out := textCmd()
-	require.NoError(t, runAgentDelete(cmd, []string{"dev"}))
-	assert.Contains(t, out.String(), `Deleted agent "dev"`)
+	require.NoError(t, runAgentRemove(cmd, []string{"dev"}))
+	assert.Contains(t, out.String(), "Nothing was removed")
+	assert.Contains(t, out.String(), "--yes")
 
 	config.Invalidate()
 	cfg, err := GetConfig()
 	require.NoError(t, err)
 	_, ok := cfg.Agent("dev")
-	assert.False(t, ok, "the agent must be gone from config, not merely reported gone")
+	assert.True(t, ok, "the bare (no --yes) path must leave the agent in config")
+}
+
+// TestRunAgentRemove_YesRemovesAndReports pins the apply side: --yes must
+// actually remove the agent from config, not just print that it did. Paired
+// with the bare-path test above so a regression in either direction — bare
+// destroys, or --yes no-ops — is caught by an assertion on the agent's
+// continued (non-)existence in config.
+func TestRunAgentRemove_YesRemovesAndReports(t *testing.T) {
+	agentProject(t, "version: 6\nagents:\n  dev:\n    profiles: [default]\n")
+	agentRemoveYes = true
+	t.Cleanup(func() { agentRemoveYes = false })
+	cmd, out := textCmd()
+	require.NoError(t, runAgentRemove(cmd, []string{"dev"}))
+	assert.Contains(t, out.String(), `Removed agent "dev"`)
+
+	config.Invalidate()
+	cfg, err := GetConfig()
+	require.NoError(t, err)
+	_, ok := cfg.Agent("dev")
+	assert.False(t, ok, "--yes must actually remove the agent from config, not merely report it gone")
 }

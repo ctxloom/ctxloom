@@ -3,12 +3,11 @@ Feature: Editing content
   editor-driven edits round-trip the content through the configured editor. With a
   marker editor the change is observable in the bundle file and across MCP.
 
-  Scenario: Edit bundle metadata via flag
-    Given an initialized ctxloom project
-    And a bundle "demo" exists
-    When I run "ctxloom bundle edit demo -d updated-desc"
-    Then the command succeeds
-    And the file ".ctxloom/content/bundles/demo.yaml" contains "updated-desc"
+  What remains here is the ITEM nouns' editor round-trip. The bundle's own
+  `edit` (flag-driven metadata and item attachment) moved to
+  cli/bundle.feature, and the profile's moved to cli/profile.feature, when
+  those per-noun specs took over: each is now asserted alongside the rest of
+  its noun's surface rather than beside an unrelated noun's.
 
   Scenario: Editing a fragment lands the change across axes
     Given a ctxloom project with a marker editor
@@ -28,20 +27,3 @@ Feature: Editing content
     Then the command succeeds
     And the file ".ctxloom/content/bundles/demo.yaml" contains "EDITED-BY-TEST"
 
-  # A profile is a structured document, so the append-a-line marker editor the
-  # scenarios above use would leave invalid YAML behind — which is why this
-  # scenario had no observable effect to assert and settled for the exit code,
-  # passing even against an edit path that returned immediately and did
-  # nothing. The description-rewriting editor keeps the document valid, so the
-  # round-trip is assertable on the file AND on the read-back surface.
-  Scenario: Edit a profile
-    Given a ctxloom project with a description-rewriting editor
-    And a bundle "demo" exists
-    And a profile "dev" with bundle "demo"
-    When I run "ctxloom profile edit dev"
-    Then the command succeeds
-    And the output contains "Updated profile"
-    And the file ".ctxloom/profiles/dev.yaml" contains "EDITED-BY-TEST"
-    When I run "ctxloom profile show dev"
-    Then the command succeeds
-    And the output contains "EDITED-BY-TEST"

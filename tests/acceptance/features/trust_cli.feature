@@ -1,6 +1,6 @@
 Feature: Trusting and untrusting, on the noun that owns the thing
   Trust is a posture toward something, so the verb lives on the noun that owns
-  it. `bundle trust`/`bundle untrust` decide about ITEM CONTENT — one fragment,
+  it. `bundle trust`/`bundle reject` decide about ITEM CONTENT — one fragment,
   command, MCP server or hook at a time. `companion trust`/`untrust` decide
   which binaries may be EXECUTED. `remote trust`/`untrust` decide where signed
   content may be PUBLISHED. `signer trust`/`untrust` decide whose signature
@@ -43,7 +43,7 @@ Feature: Trusting and untrusting, on the noun that owns the thing
     And the output contains "Approved demo#fragments/guide"
     And the output contains "UNSIGNED"
     And the approvals store holds an acceptance of "demo#fragments/guide" over the fragment's current bytes
-    When I run "ctxloom bundle untrust demo#fragments/guide"
+    When I run "ctxloom bundle reject demo#fragments/guide"
     Then the command succeeds
     And the output contains "Rejected demo#fragments/guide"
     And the output contains "rejected in form(s) raw"
@@ -112,39 +112,10 @@ Feature: Trusting and untrusting, on the noun that owns the thing
     And the output contains "allowed"
     And the output contains "consented"
 
-  # Publish destinations. The first publish to a given non-GitHub remote asks
-  # once and records the answer; a session with nobody to ask REFUSES. That
-  # refusal used to be a dead end for exactly the callers it fires for: the
-  # only way to record a confirmation was to "run the same publish once from an
-  # interactive terminal", which a CI runner and an agent host cannot do. These
-  # three leaves are the provisioning path, and the assertions are on the
-  # recorded DECISION each one produces — an empty listing and a listing that
-  # never mentions the remote are the same pixels and very different facts, so
-  # both the presence and the absence are asserted.
-  Scenario: Publish destinations are listable, allowable and revocable without a terminal
-    Given an initialized ctxloom project
-    When I run "ctxloom remote trusted"
-    Then the command succeeds
-    And the output contains "no publish destinations recorded"
-    When I run "ctxloom remote trust https://git.example.com/team/bundles"
-    Then the command succeeds
-    And the output contains "ctxloom will publish there without asking"
-    When I run "ctxloom remote trusted"
-    Then the command succeeds
-    And the output contains "allowed"
-    And the output contains "https://git.example.com/team/bundles"
-    # One repository is ONE destination: the ssh spelling of the URL just
-    # allowed must already be recorded, never asked about a second time.
-    When I run "ctxloom remote untrust git@git.example.com:team/bundles.git"
-    Then the command succeeds
-    And the output contains "forgot 1 decision(s)"
-    When I run "ctxloom remote trusted"
-    Then the command succeeds
-    And the output contains "no publish destinations recorded"
-    # Undoing something nobody recorded reports zero rather than succeeding silently.
-    When I run "ctxloom remote untrust https://git.example.com/team/bundles"
-    Then the command succeeds
-    And the output contains "forgot 0 decisions"
+  # Publish destinations have no verb, and that is the model rather than a
+  # gap: registering a remote IS the consent to publish there. `remote create`
+  # names a URL deliberately, and `bundle push` honors it without asking a
+  # second time. The ledger that once recorded a separate blessing is gone.
 
   # `signer trust` defaults to the committable PROJECT store (j001600_signing
   # proves the in-project cases). This is the edge that default has to

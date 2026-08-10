@@ -246,7 +246,7 @@ flowchart LR
 | Function | file:line | Contract |
 |---|---|---|
 | `RunOneshot` | `oneshot.go:59` | Assembles a profile's context, resolves label/backend/model/axes/gate, delegates to the launch tail. |
-| `runResolvedAgent` | `oneshot.go:315` | **The single choke point** for delegated child turns and `acp client` (mirrored by `run --one-shot`): prepare isolation, gate it, assemble the per-member managed config, floor the headless posture, run the plugin once, capture stdout, record the one-shot transcript. |
+| `runResolvedAgent` | `oneshot.go:315` | **The single choke point** for delegated child turns and `acp run --one-shot` (mirrored by `run --one-shot`): prepare isolation, gate it, assemble the per-member managed config, floor the headless posture, run the plugin once, capture stdout, record the one-shot transcript. |
 | `resolvedRunRequest` | `oneshot.go:122` | The already-resolved run; `Factory == nil` selects the isolating path. |
 | `ResolveBackend` / `resolveOneshotLabel` | `oneshot.go:490,502` | Label → (backend, model); three-level precedence: override → profile LLM → primary role. |
 | `IsolationImageConfig` / `CellKindForPolicy` / `MCPCommandOverrideForPolicy` / `RuntimeForPolicy` / `ContainerPersistDirForPolicy` | `oneshot.go:178,199,228,247,257` | Capability probes over `isolation.Policy`, declared here so `internal/lm/isolation` need not import `agent`. |
@@ -317,7 +317,7 @@ flowchart LR
    (`AddMCPServer`, `RemoveMCPServer`, `SetAgent`, `RemoveAgent`, `SetDefaultLLM`,
    `SetStatusline`, `SetMCPAutoRegister`).
 9. **`runResolvedAgent` (`oneshot.go:315`) is the single non-interactive launch tail.** Delegated
-   child turns and `acp client` funnel through it directly; `run --one-shot` mirrors the same tail.
+   child turns and `acp run --one-shot` funnel through it directly; `run --one-shot` mirrors the same tail.
 10. **Path confinement for authored bundles is `requireSafeBundlePath`** (`bundles.go:926`):
     absolute, under a configured dir, and no symlink in any component.
 11. **`AssembleContext` (`context.go:112`) is the single composition entry point.** `hooks.go`'s

@@ -38,8 +38,8 @@ subcommand:
                         client (Zed's agent panel, VS Code, Nori, ...)
                         connects IN and drives ctxloom sessions.
   ctxloom acp run       ctxloom CONNECTS OUT to an ACP-speaking agent (a
-                        third-party command that itself speaks ACP) and
-                        drives one headless turn against it.
+                        third-party command that itself speaks ACP): a
+                        session, or one turn with --one-shot.
   ctxloom acp list      Lists the ACP agent-server entries to paste into an
                         editor's config for the server direction.`,
 }, "list")

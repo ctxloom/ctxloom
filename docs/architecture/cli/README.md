@@ -129,7 +129,7 @@ Grouped so a reader can tell at a glance whether invoking something is safe.
 
 **Publishes to a remote:** `bundle push`, `fragment push`, `command push`, `bundle move --to <remote>`, `skill export`.
 
-**Spawns an engine process:** `run`, `acp server`, `acp client`,
+**Spawns an engine process:** `run`, `acp serve`, `acp run`,
 `llm serve`/`host`/`turn`, `init` (launches the vendor TUI for the setup interview),
 `bundle distill` / `fragment distill` / `command distill` (spawn an LLM for compression),
 `session distill` and the memory MCP tools (spawn a compactor).

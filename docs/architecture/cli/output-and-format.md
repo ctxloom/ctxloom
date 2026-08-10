@@ -56,7 +56,7 @@ cobra tree. The registry is the authoritative starting point — with the caveat
 **Honour `--format` through `emit()`** — the majority, including `bundle list`,
 `bundle show`, `bundle view`, `bundle export`/`import`, `bundle distill`,
 `agent list`/`show`/`set`, `profile list`/`show`/`materialize`, `skill *`,
-`llm list`/`default`, `mcp list`, `mcp server show`, `acp entries`, `acp client`,
+`llm list`/`default`, `mcp list`, `mcp server show`, `acp entries`, `acp run`,
 `session list`/`show`/`query`/`backfill`, `search`, `doctor`, `container check`/`tooling`,
 `review`, `sign`, `signer list`/`show`, `version`, `util config-write`,
 `run --dry-run`.

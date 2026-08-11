@@ -162,12 +162,11 @@ func runACPOneshotWithConfig(cmd *cobra.Command, cfg *config.Config, prompt stri
 // it. opening is the command-line prompt (empty: the session opens with the
 // first line read), and stdin supplies every turn after that.
 //
-// It drives the engine's structured-chat surface — the same substrate `run
-// --structured` and `acp serve` drive — because that is what an ACP agent
-// offers: a conversation of turns over the protocol. Permission requests are
-// answered by the posture the label configures, exactly as `run --structured`
-// answers them, rather than being forwarded to a prompt this loop has no way
-// to ask.
+// It drives the engine's structured-chat surface — the same substrate `acp
+// serve` drives — because that is what an ACP agent offers: a conversation of
+// turns over the protocol. Permission requests are answered by the posture the
+// label configures: this loop has no connected editor client to forward them
+// to (unlike `acp serve`, which does), so there is no prompt to ask.
 func runACPSessionWithConfig(cmd *cobra.Command, cfg *config.Config, opening string, stdin io.Reader) error {
 	backendName, err := acpRunBackend(cfg)
 	if err != nil {

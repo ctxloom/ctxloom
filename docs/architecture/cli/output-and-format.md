@@ -27,7 +27,7 @@ flowchart TD
     subgraph streaming["streaming commands — own text/json-only switch"]
         SW["session watch — session_watch.go:116"]
         PW["plan watch — plan_watch.go:67"]
-        RS["run --structured — run_structured.go:122"]
+        RS["acp run (session form) — run_structured.go:105"]
         UFE["unknownFormatError(format)<br/>format.go:29"]
         SW --> UFE
         PW --> UFE
@@ -56,7 +56,9 @@ cobra tree. The registry is the authoritative starting point — with the caveat
 **Honour `--format` through `emit()`** — the majority, including `bundle list`,
 `bundle show`, `bundle view`, `bundle export`/`import`, `bundle distill`,
 `agent list`/`show`/`set`, `profile list`/`show`/`materialize`, `skill *`,
-`llm list`/`default`, `mcp list`, `mcp server show`, `acp entries`, `acp run`,
+`llm list`/`default`, `mcp list`, `mcp server show`, `acp entries`,
+`acp run --one-shot` (the bare session form does not — see the streaming
+group below),
 `session list`/`show`/`query`/`backfill`, `search`, `doctor`, `container check`/`tooling`,
 `review`, `sign`, `signer list`/`show`, `version`, `util config-write`,
 `run --dry-run`.
@@ -81,10 +83,13 @@ always human text or always YAML):
 | `memory list`/`show`/`compact` (deprecated) | `memory.go` |
 
 **Use their own text/json-only switch** (five-format values are an error):
-`session watch`, `plan watch`, `run --structured`. *Real behaviour:* the two
-structured `run` arms disagree — `renderChatEvents` (`run_structured.go:105`)
-rejects an unknown format, `renderOwnedRunEvents` (`run_owned.go:251-262`)
-silently renders it as raw text.
+`session watch`, `plan watch`, `acp run`'s bare session form (`runChatSession`,
+`run_structured.go` — the driver `ctxloom run --structured` used before it was
+removed as an orphan CLI surface; `acp run` was always the OTHER caller).
+*Real behaviour:* `renderChatEvents` (`run_structured.go:105`, `acp run`'s
+session form) rejects an unknown format; `renderOwnedRunEvents`
+(`run_owned.go:251-262`, the container **oneshot** arm) silently renders it as
+raw text.
 
 ## Writer conventions
 

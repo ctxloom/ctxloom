@@ -65,7 +65,10 @@ type PTYSession struct {
 
 // RunPTY starts ctxloom attached to a real pty sized cols x rows, with the
 // same isolated HOME/XDG environment Run/RunWithStdin use, in the project
-// directory.
+// directory. extraEnv is appended on top of that isolated environment —
+// mirroring TestEnvironment.Command's extraEnv parameter — for callers that
+// need to steer an in-process fixture (e.g. CTXLOOM_MOCK_ECHO_STDIN=1) rather
+// than the target of a real pty session; nil is the common case.
 //
 // TERM is fixed to "dumb". With a real TERM value (e.g. "xterm-256color"),
 // ctxloom's startup color-profile detection (muesli/termenv, reached via
@@ -78,7 +81,7 @@ type PTYSession struct {
 // probing at all; it does not affect the surround bar/viewer's own escape
 // sequences, which internal/termui writes unconditionally and never gates on
 // TERM.
-func (e *TestEnvironment) RunPTY(cols, rows int, args ...string) (*PTYSession, error) {
+func (e *TestEnvironment) RunPTY(cols, rows int, extraEnv []string, args ...string) (*PTYSession, error) {
 	p, err := pty.New()
 	if err != nil {
 		return nil, fmt.Errorf("open pty: %w", err)
@@ -90,7 +93,7 @@ func (e *TestEnvironment) RunPTY(cols, rows int, args ...string) (*PTYSession, e
 
 	cmd := p.CommandContext(context.Background(), e.AppBinary, args...)
 	cmd.Dir = e.ProjectDir
-	cmd.Env = append(e.isolatedEnv(), "TERM=dumb")
+	cmd.Env = append(append(e.isolatedEnv(), "TERM=dumb"), extraEnv...)
 	cmd.SysProcAttr = pdeathsigSysProcAttr()
 
 	s := &PTYSession{pty: p, cmd: cmd, out: &ptyCapture{}, exited: make(chan struct{})}
@@ -114,6 +117,18 @@ func (s *PTYSession) Write(p []byte) (int, error) { return s.pty.Write(p) }
 
 // Output returns everything captured off the pty so far.
 func (s *PTYSession) Output() string { return s.out.String() }
+
+// PID returns the session's top-level ctxloom process id, valid once RunPTY
+// has returned successfully (cmd.Start already ran). Callers that need to
+// find the process's OWN children (e.g. testenv.PluginChildrenOf, to observe
+// a spawned plugin subprocess) need this — cmd itself is unexported so
+// nothing outside this file can reach *os.Process directly.
+func (s *PTYSession) PID() int {
+	if s.cmd.Process == nil {
+		return -1
+	}
+	return s.cmd.Process.Pid
+}
 
 // WaitForOutput deadline-polls (a bounded, short-interval poll — never a bare
 // sleep as the synchronization primitive itself) until cond reports true

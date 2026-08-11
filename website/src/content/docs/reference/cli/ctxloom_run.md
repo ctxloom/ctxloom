@@ -69,7 +69,6 @@ ctxloom run [flags] [prompt...]
   -p, --profile string       Profile to use (predefined fragment collection)
       --prompt string        Prompt to send to the AI (alternative to positional args)
       --session string       Resume the named harp session: folds its full recorded transcript into this run's assembled context. Combine with --distill to resume via its distilled essence instead.
-      --structured           Structured turn REPL: type messages and see native turns (composes the gRPC WatchSession + user_message interface). One line = one message; \n, \t and quotes are decoded within a line.
   -t, --tag strings          Include fragments with this tag (can be repeated)
   -v, --verbose count        Increase verbosity (can be repeated: -v, -vv, -vvv)
       --workspace string     Session workspace axis (none|worktree; empty = project default)

@@ -56,7 +56,6 @@ var (
 	// word the mode carries the rest of the way down (agent.CLISurfaceOneshot,
 	// operations.RunOneshot, pb.ExecutionMode_ONESHOT).
 	runOneShot       bool
-	runStructured    bool
 	runPlainTerminal bool
 	runVerbosity     int
 	runAssumeYes     bool
@@ -363,12 +362,12 @@ type runState struct {
 
 	// startTransport: exactly ONE of these is non-nil per run.
 	//
-	// client is the go-plugin client (host/worktree interactive, oneshot,
-	// structured). interactiveLauncher + runnerHandle are Phase 2a-A: a
+	// client is the go-plugin client (host/worktree interactive, oneshot).
+	// interactiveLauncher + runnerHandle are Phase 2a-A: a
 	// container-policy INTERACTIVE top-level run never constructs a go-plugin
 	// client — it launches the StartRunner keepalive container and drives the
 	// turn over a docker-exec vpio.Launcher (no in-container listener).
-	// ownedRun is Phase 2a-B: a container-policy STRUCTURED or --one-shot ONESHOT
+	// ownedRun is Phase 2a-B: a container-policy --one-shot ONESHOT
 	// run drives over Transport 2 / EngineHost (an owner-owned run watched via
 	// the in-process coordinator) instead of a go-plugin client.
 	client              pb.Client
@@ -445,7 +444,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 	st.seedTask()
 	st.buildRunRequest()
 
-	// Teardown: kill the go-plugin client (host/worktree/oneshot/structured
+	// Teardown: kill the go-plugin client (host/worktree/oneshot
 	// arms) OR the docker-exec keepalive container (Phase 2a-A interactive arm
 	// — RunnerHandle.Kill is Phase 1's rm -f + removeReportsGone). Exactly one
 	// is non-nil per run; the container arm never constructs a client.
@@ -1269,15 +1268,15 @@ func (st *runState) stampWorkspaceOnRequest() {
 // docker-exec instead of go-plugin. Launch the container via the SAME
 // StartRunner primitive Phase 1 uses (an `llm host` keepalive), hand the
 // RunStart off by 0600 file in the bind-mounted persist dir, and build the
-// docker-exec Launcher; NO go-plugin client is constructed. Structured/oneshot
-// container arms (Part B) and every host/worktree arm stay on SpawnClient +
+// docker-exec Launcher; NO go-plugin client is constructed. The oneshot
+// container arm (Part B) and every host/worktree arm stay on SpawnClient +
 // goplugin. The observation/injection wrap sits ABOVE the seam (untouched) —
 // the Launcher just receives the already-wrapped streams.
 //
 // Every arm assigns its handle into the state BEFORE checking its own error
 // so runRun's already-registered teardown sees it — see the per-arm notes.
 func (st *runState) startTransport() error {
-	switch runTransport(st.policy.Name(), st.mode, runStructured) {
+	switch runTransport(st.policy.Name(), st.mode) {
 	case armDockerExecInteractive:
 		handle, launcher, lerr := startContainerInteractive(st.ctx, st.policy, st.ws, st.req, st.backendName, st.label, runVerbosity, st.activeHarp, st.runnerSpawnEnv)
 		if lerr != nil {
@@ -1287,7 +1286,7 @@ func (st *runState) startTransport() error {
 		st.interactiveLauncher = launcher
 
 	case armOwnedRunContainer:
-		// Phase 2a-B: structured/oneshot container → owner-owned run on
+		// Phase 2a-B: a oneshot container → owner-owned run on
 		// Transport 2. Launched through the SAME StartRunner primitive
 		// (an `llm host` runner WITH the run-id trio → EngineHost); the
 		// host watches it via WatchRuns. No go-plugin client; no
@@ -1305,7 +1304,6 @@ func (st *runState) startTransport() error {
 			MCPServers:  st.managed.ChatMCPServers(st.backendName, st.req.Options.Env[agent.MCPCommandOverrideEnv]),
 			Permission:  st.permMode,
 			Mode:        st.mode,
-			Structured:  runStructured,
 			RunnerEnv:   st.runnerSpawnEnv,
 		})
 		// Assign BEFORE checking oerr: startContainerOwnedRun
@@ -1317,7 +1315,7 @@ func (st *runState) startTransport() error {
 		st.runnerHandle = handle
 		st.ownedRun = sess
 		if oerr != nil {
-			return fmt.Errorf("failed to start container structured/oneshot run: %w", oerr)
+			return fmt.Errorf("failed to start container oneshot run: %w", oerr)
 		}
 
 	case armGoPlugin:
@@ -1337,33 +1335,15 @@ func (st *runState) startTransport() error {
 // drive runs the session over whichever transport startTransport stood up, and
 // is the last thing runRun does.
 func (st *runState) drive() error {
-	// --structured: drive the session as a structured turn REPL (the gRPC
-	// WatchSession + user_message interface) instead of owning the terminal.
-	if runStructured {
-		return st.driveStructured()
-	}
-
-	// Phase 2a-B: a container-policy --one-shot ONESHOT (not --structured, which
-	// returned above) drives over Transport 2 too — collect the run's FINAL
-	// answer, record the oneshot transcript, exit with the run's status. No
-	// go-plugin client is constructed for this arm, so it returns before the
-	// vpio/go-plugin Run path below.
+	// Phase 2a-B: a container-policy --one-shot ONESHOT drives over Transport
+	// 2 — collect the run's FINAL answer, record the oneshot transcript, exit
+	// with the run's status. No go-plugin client is constructed for this arm,
+	// so it returns before the vpio/go-plugin Run path below.
 	if st.ownedRun != nil {
 		return runOneshotViaCoord(st.ctx, st.ownedRun, st.activeHarp, st.backendName, st.prompt, os.Stdout)
 	}
 
 	return st.driveTerminalSession()
-}
-
-// driveStructured is the --structured REPL. The Chat RPC never runs Setup, so
-// the managed MCP servers Setup would write to the engine's settings file ride
-// the session instead. A container-policy structured run drives over Transport
-// 2 (Phase 2a-B) instead of client.Chat; host/worktree stay on go-plugin.
-func (st *runState) driveStructured() error {
-	if st.ownedRun != nil {
-		return runStructuredREPLViaCoord(st.ctx, st.ownedRun, outputFormatOf(st.cmd), os.Stdin, os.Stdout)
-	}
-	return runStructuredREPL(st.ctx, st.client, st.req, st.managed.ChatMCPServers(st.backendName, st.req.Options.Env[agent.MCPCommandOverrideEnv]), outputFormatOf(st.cmd), os.Stdin, os.Stdout)
 }
 
 // sessionIO is the terminal seam set the vpio launcher is handed. It is one
@@ -1412,8 +1392,8 @@ func (st *runState) prepareSessionIO() sessionIO {
 	// half by teeing the SAME bytes already bound for the terminal into a
 	// buffer, alongside (never instead of) the user-visible stdout. Never
 	// allocated for INTERACTIVE (the pty path, out of scope — a separate,
-	// tracked gap) or when mode==ONESHOT via --structured (returns earlier,
-	// in drive).
+	// tracked gap) or when a container-policy ONESHOT drives over Transport 2
+	// instead (st.ownedRun != nil returns earlier, in drive).
 	if st.mode == pb.ExecutionMode_ONESHOT {
 		sio.capture = &bytes.Buffer{}
 		sio.stdout = io.MultiWriter(sio.stdout, sio.capture)
@@ -1623,7 +1603,7 @@ func stampHostTerminalEnv(req *pb.RunStart) {
 }
 
 // runTransportArm is the transport a top-level built-in run drives its engine
-// over. The three arms are exhaustive and mutually exclusive over the three
+// over. The three arms are exhaustive and mutually exclusive over the two
 // inputs runTransport takes, and naming the go-plugin arm is half the point:
 // as an unnamed `else` no single place stated the whole decision, so a fourth
 // input combination could only be reasoned about by reading two predicates in
@@ -1648,11 +1628,11 @@ const (
 // leaves the go-plugin arm, so a container policy NEVER reaches SpawnClient and
 // a host/worktree policy ALWAYS does — a leak either way is the regression this
 // decision exists to prevent.
-func runTransport(policyName string, mode pb.ExecutionMode, structured bool) runTransportArm {
+func runTransport(policyName string, mode pb.ExecutionMode) runTransportArm {
 	if !isolation.IsContainerPolicyName(policyName) {
 		return armGoPlugin
 	}
-	if structured || mode == pb.ExecutionMode_ONESHOT {
+	if mode == pb.ExecutionMode_ONESHOT {
 		return armOwnedRunContainer
 	}
 	return armDockerExecInteractive
@@ -1893,9 +1873,7 @@ func init() {
 	_ = runCmd.RegisterFlagCompletionFunc("permissions", completePermissionModes)
 	runCmd.Flags().BoolVarP(&runDryRun, "dry-run", "n", false, "Show command that would be executed")
 	runCmd.Flags().BoolVar(&runOneShot, "one-shot", false, "Run one turn non-interactively, print the response, and exit")
-	runCmd.Flags().BoolVar(&runStructured, "structured", false, "Structured turn REPL: type messages and see native turns (composes the gRPC WatchSession + user_message interface). One line = one message; \\n, \\t and quotes are decoded within a line.")
 	runCmd.Flags().BoolVar(&runPlainTerminal, "plain-terminal", false, "Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session")
-	runCmd.MarkFlagsMutuallyExclusive("structured", "one-shot")
 	runCmd.Flags().CountVarP(&runVerbosity, "verbose", "v", "Increase verbosity (can be repeated: -v, -vv, -vvv)")
 	runCmd.Flags().BoolVarP(&runAssumeYes, "yes", "y", false, "Assume yes for the install-on-startup prompt")
 

@@ -17,32 +17,6 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
-// runStructuredREPL drives a structured, multi-turn conversation over the
-// backend's StructuredChat capability (the Chat RPC → the ACP adapter) —
-// messages in, normalized turn events out, no pty. It composes nothing else: the
-// Chat stream is self-contained (no transcript bootstrap), so there is no harp/
-// session-id wait. Stdin lines are read as messages (one line = one message);
-// the agent's turns render to stdout as text or, with --format json, NDJSON —
-// the contract a GUI frontend consumes (stdin = messages, stdout = NDJSON turns).
-//
-// EOF on stdin (Ctrl-D) closes input so the agent completes its last turn; an
-// interrupt cancels the whole exchange.
-//
-// mcpServers is the managed MCP set composed from the run's ManagedConfig
-// (agent.ManagedConfig.ChatMCPServers): the Chat RPC never runs Setup, so the
-// servers Setup would write to the engine's settings file ride the session
-// instead.
-func runStructuredREPL(ctx context.Context, client pb.Client, req *pb.RunStart, mcpServers []agent.ChatMCPServer, format string, stdin io.Reader, stdout io.Writer) error {
-	opts := req.GetOptions()
-	return runChatSession(ctx, client, agent.ChatRequest{
-		WorkDir:     opts.GetWorkDir(),
-		Model:       opts.GetModel(),
-		Env:         opts.GetEnv(),
-		Permissions: agent.WireMode(opts.GetPermissionMode()),
-		MCPServers:  mcpServers,
-	}, chatTurns{Stdin: stdin}, format, stdout)
-}
-
 // chatTurns names where one conversation's turns come from, so a caller says
 // it once instead of threading three loose strings through the driver.
 //
@@ -63,9 +37,11 @@ type chatTurns struct {
 }
 
 // runChatSession opens the engine's structured chat and drives turns through
-// it until the conversation ends. It is the shared body of every multi-turn
-// CLI surface — `run --structured` and `acp run`'s session form — so the
-// half-close/teardown ordering below is reasoned about once.
+// it until the conversation ends. It is the driving body of `ctxloom acp
+// run`'s session form (acp_run_cmd.go) — the CLI surface that reaches an
+// engine's agent.StructuredChat capability over the Chat RPC as a multi-turn
+// conversation — so the half-close/teardown ordering below is reasoned about
+// once.
 func runChatSession(ctx context.Context, client pb.Client, req agent.ChatRequest, turns chatTurns, format string, stdout io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

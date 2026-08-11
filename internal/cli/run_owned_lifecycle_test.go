@@ -24,8 +24,9 @@ func ownedMessageCompleted(msgID string) *agentcoordpb.AgentEvent {
 // told apart from the REASONING/LOG scratchpad. The contract those ids follow
 // is started -> delta* -> completed, so a completed id is spent: nothing may
 // ever arrive under it again, and holding it costs a map entry per assistant
-// message for the whole life of a structured session, which is unbounded by
-// construction.
+// message for the whole life of the run this renderer is driving — bounded
+// for its current caller (a --print container oneshot), but the renderer
+// itself makes no such assumption, which is what this test pins.
 //
 // The observable half of "forgotten" is that a delta arriving under a spent id
 // is no longer treated as FINAL text. That is the same discipline the sibling

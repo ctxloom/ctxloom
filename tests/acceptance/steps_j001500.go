@@ -508,7 +508,7 @@ func registerJ001500Steps(ctx *godog.ScenarioContext) {
 		// REAL tty (isInteractiveTerminal()) — a plain piped Run/RunWithStdin
 		// would take the non-interactive list branch and never exercise this
 		// path at all, mirroring steps_j000200_common.go's driveDiscoverySessionViaMock.
-		sess, err := w.env.RunPTY(100, 30, "review", "--project")
+		sess, err := w.env.RunPTY(100, 30, nil, "review", "--project")
 		if err != nil {
 			return fmt.Errorf("start 'ctxloom review --project' pty: %w", err)
 		}

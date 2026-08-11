@@ -89,8 +89,8 @@ var newACPEngineClient = func(backendName, label string, verbosity int, spawnEnv
 // config for the session's cwd, assembles the context (an agent's composed
 // profiles, or the profile flow), resolves the engine label (override →
 // agent engine / profile llm → primary), records the session under a harp,
-// and opens the plugin's structured chat — the same substrate `run
-// --structured` drives. For a resume (session/load) it additionally fetches
+// and opens the plugin's structured chat — the same substrate `ctxloom acp
+// run`'s session form drives. For a resume (session/load) it additionally fetches
 // the recorded harp's history: the entries replay to the ACP client, and a
 // rendered transcript primes the fresh engine via the first-turn lead block.
 //

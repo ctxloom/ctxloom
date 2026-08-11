@@ -38,36 +38,6 @@ func TestRunPrint_IsRetiredNotAliased(t *testing.T) {
 		"--one-shot is the flag, not a deprecation wrapper around one")
 }
 
-// TestRunOneShot_StaysMutuallyExclusiveWithStructured carries the constraint
-// across the rename. The two flags select different execution modes, so an
-// invocation naming both is a caller who has not decided — and an exclusion
-// silently dropped in a rename would resolve that by picking one and saying
-// nothing.
-//
-// Driven through cobra's own validator rather than read off the annotation
-// map: the annotation is an implementation detail of MarkFlagsMutuallyExclusive
-// and asserting it proves only that a function was called, not that an
-// invocation is refused.
-func TestRunOneShot_StaysMutuallyExclusiveWithStructured(t *testing.T) {
-	flags := runCmd.Flags()
-	savedOneShot, savedStructured := runOneShot, runStructured
-	t.Cleanup(func() {
-		runOneShot, runStructured = savedOneShot, savedStructured
-		_ = flags.Set("one-shot", "false")
-		_ = flags.Set("structured", "false")
-		flags.Lookup("one-shot").Changed = false
-		flags.Lookup("structured").Changed = false
-	})
-
-	require.NoError(t, flags.Set("one-shot", "true"))
-	require.NoError(t, flags.Set("structured", "true"))
-
-	err := runCmd.ValidateFlagGroups()
-
-	require.Error(t, err, "naming both execution modes must be refused, not silently resolved")
-	assert.Contains(t, err.Error(), "one-shot")
-}
-
 // TestACPRun_DrawsTheSameModeSplitAsRun pins that the acp leaf splits its two
 // forms on the same flag, in the same word, as root `run`.
 //

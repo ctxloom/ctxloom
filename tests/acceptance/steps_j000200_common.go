@@ -284,7 +284,7 @@ const ptyWaitTimeout = 20 * time.Second
 // deleted — init-as-skill slice ④), so this just waits for the process to
 // exit. Returns the mock's full recorded-input file.
 func driveDiscoverySessionViaMock(w *World, recordFile string) (string, error) {
-	sess, err := w.env.RunPTY(100, 30, "init")
+	sess, err := w.env.RunPTY(100, 30, nil, "init")
 	if err != nil {
 		return "", fmt.Errorf("start pty session: %w", err)
 	}

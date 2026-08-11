@@ -303,9 +303,22 @@ func (m *Manager) AssignHarp(projectDir, backend string) (Entry, error) {
 // BindSession fills in the backend-native session ID and transcript path
 // for an existing harp-named entry. Called from the MCP initialize
 // handler once the backend has bootstrapped enough to know its session
-// UUID. First bind wins: once SessionID is set, subsequent calls with a
-// different ID are silently dropped so a stale binder cannot clobber a
-// fresh one through a TOCTOU race between Find and BindSession.
+// UUID.
+//
+// A repeat bind carrying the SAME session ID is a no-op (idempotent hook
+// re-runs). A DIFFERENT session ID arriving together with a transcript path
+// is a ROTATION and the index follows it: an engine can start a fresh
+// transcript file under a still-live process (claude-code's /clear does
+// exactly this, firing SessionStart again with the new UUID), and a binding
+// pinned to the first transcript a harp ever had goes on naming a file the
+// session stopped growing hours or days ago. Every reader that trusts the
+// binding — recover, resume, transcript watch, essence staleness — then reads
+// that dead file and reports success, which is the worst available outcome.
+//
+// A different ID with NO transcript path still loses to an existing binding:
+// that is the compactor's forward-bind backstop, which knows an ID but not a
+// file, and it must not displace what the SessionStart hook established. An
+// empty ID likewise never blanks a live binding.
 func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error {
 	// Both empty is a genuine no-op — the ordinary shape of a hook
 	// payload that carried no session identifier at all (session_cmd.go's
@@ -336,15 +349,20 @@ func (m *Manager) BindSession(harpName, sessionID, transcriptPath string) error 
 		if idx.Sessions[i].HarpName != harpName {
 			continue
 		}
-		// First bind wins. Same ID is a no-op (idempotent re-runs);
-		// a different ID over an already-bound entry is also a no-op
-		// — defense-in-depth for the SessionStart-vs-compact-vs-scan
-		// race the caller-side `entry.SessionID != ""` checks already
-		// guard against.
-		if idx.Sessions[i].SessionID != "" {
-			return nil
+		if cur := idx.Sessions[i].SessionID; cur != "" {
+			if sessionID == cur {
+				return nil
+			}
+			// Defense-in-depth for the SessionStart-vs-compact-vs-scan race
+			// the caller-side checks already guard against: only a binder
+			// that names a transcript file is allowed to re-point.
+			if sessionID == "" || transcriptPath == "" {
+				return nil
+			}
 		}
-		idx.Sessions[i].SessionID = sessionID
+		if sessionID != "" {
+			idx.Sessions[i].SessionID = sessionID
+		}
 		if transcriptPath != "" {
 			idx.Sessions[i].TranscriptPath = transcriptPath
 			// Drop a convenience symlink in the harp dir pointing at the

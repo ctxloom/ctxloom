@@ -122,7 +122,9 @@ func (m *MemStore) AssignHarp(projectDir, backend string) (Entry, error) {
 }
 
 // BindSession records the backend session id / transcript for harpName,
-// first-bind-wins (a bound entry is a no-op), matching *Manager.BindSession.
+// matching *Manager.BindSession's rebind rule: an identical id is a no-op, a
+// different id accompanied by a transcript path re-points the binding (engine
+// transcript rotation), and an id-only bind never displaces an existing one.
 func (m *MemStore) BindSession(harpName, sessionID, transcriptPath string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -130,10 +132,17 @@ func (m *MemStore) BindSession(harpName, sessionID, transcriptPath string) error
 		if m.sessions[i].HarpName != harpName {
 			continue
 		}
-		if m.sessions[i].SessionID != "" {
-			return nil
+		if cur := m.sessions[i].SessionID; cur != "" {
+			if sessionID == cur {
+				return nil
+			}
+			if sessionID == "" || transcriptPath == "" {
+				return nil
+			}
 		}
-		m.sessions[i].SessionID = sessionID
+		if sessionID != "" {
+			m.sessions[i].SessionID = sessionID
+		}
 		if transcriptPath != "" {
 			m.sessions[i].TranscriptPath = transcriptPath
 		}

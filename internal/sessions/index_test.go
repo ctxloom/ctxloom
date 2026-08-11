@@ -108,23 +108,43 @@ func TestReconcile_NothingDeadIsANoop(t *testing.T) {
 	assert.Equal(t, a.HarpName, survivors[0].HarpName)
 }
 
-func TestBindSession_FirstBindWinsOnDifferentID(t *testing.T) {
+// A new session ID that arrives WITH a transcript path is the engine rotating
+// its transcript under a live process — claude-code's /clear starts a fresh
+// UUID file and fires SessionStart again. The index has to follow it: pinned to
+// the first bind, the entry goes on naming a file the session stopped growing
+// hours ago, and recover/resume/watch all read that dead file and report
+// success.
+func TestBindSession_RotationRepointsTheBinding(t *testing.T) {
 	m := newManager(t)
 	entry, _ := m.AssignHarp("/proj", "claude-code")
 	require.NoError(t, m.BindSession(entry.HarpName, "first-id", "/orig"))
 
-	// Storage-layer defense-in-depth: a second bind with a different
-	// SessionID must not clobber the first. Caller-side short-circuits
-	// already guard against this, but a TOCTOU race between Find and
-	// BindSession (or a future binder that forgets the check) would
-	// otherwise let a stale ID overwrite a fresh one.
 	require.NoError(t, m.BindSession(entry.HarpName, "second-id", "/new"))
 
 	found, err := m.Find(entry.HarpName)
 	require.NoError(t, err)
 	require.NotNil(t, found)
-	assert.Equal(t, "first-id", found.SessionID, "first bind wins")
-	assert.Equal(t, "/orig", found.TranscriptPath, "transcript path also pinned to first bind")
+	assert.Equal(t, "second-id", found.SessionID, "rotation re-points the session id")
+	assert.Equal(t, "/new", found.TranscriptPath, "rotation re-points the transcript path")
+}
+
+// The counterweight to rotation: a binder that knows an ID but names no
+// transcript file (the compactor's forward-bind backstop, and any future
+// caller that forgets its own guard) must never displace a binding the
+// SessionStart hook established. Without this, a stale ID can still overwrite
+// a fresh one through a TOCTOU race between Find and BindSession.
+func TestBindSession_IDOnlyBindNeverDisplacesALiveBinding(t *testing.T) {
+	m := newManager(t)
+	entry, _ := m.AssignHarp("/proj", "claude-code")
+	require.NoError(t, m.BindSession(entry.HarpName, "first-id", "/orig"))
+
+	require.NoError(t, m.BindSession(entry.HarpName, "stale-id", ""))
+
+	found, err := m.Find(entry.HarpName)
+	require.NoError(t, err)
+	require.NotNil(t, found)
+	assert.Equal(t, "first-id", found.SessionID, "an id-only bind cannot re-point")
+	assert.Equal(t, "/orig", found.TranscriptPath, "and cannot move the transcript path")
 }
 
 func TestBindSession_UnknownHarpErrors(t *testing.T) {

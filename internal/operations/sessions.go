@@ -294,10 +294,16 @@ func SessionIndexUpgrade() (*upgrade.Pending, func() error, error) {
 	return mgr.PendingUpgrade(), mgr.CommitUpgrade, nil
 }
 
-// BindSession records the backend session_id and transcript path for harp,
-// first-bind-wins. A harp absent from the index, an empty id, or an
-// already-bound entry is a no-op — the SessionStart bind hook must never fail
-// the host backend (CLAUDE.md fault tolerance).
+// BindSession records the backend session_id and transcript path for harp.
+// A harp absent from the index or an empty id is a no-op — the SessionStart
+// bind hook must never fail the host backend (CLAUDE.md fault tolerance).
+//
+// An ALREADY-BOUND entry is deliberately not short-circuited here. The hook
+// fires again when an engine rotates its transcript under a live process
+// (claude-code's /clear), and swallowing that call at this layer is what kept
+// a harp pinned to the first transcript it ever had. sessions.Manager
+// .BindSession makes the same-vs-rotated decision under the index lock, where
+// it cannot race a concurrent binder.
 func BindSession(harp, sessionID, transcriptPath string) error {
 	if harp == "" || sessionID == "" {
 		return nil
@@ -318,7 +324,7 @@ func BindSession(harp, sessionID, transcriptPath string) error {
 		clidiag.Warn("ctxloom", "SessionStart: bind %s: read session index: %v (session id not recorded)", harp, ferr)
 		return nil
 	}
-	if entry == nil || entry.SessionID != "" {
+	if entry == nil {
 		return nil
 	}
 	return mgr.BindSession(harp, sessionID, transcriptPath)

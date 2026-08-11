@@ -29,10 +29,12 @@ func init() {
 
 // sessionBindCmd is the session-bind hook target and the sole path for
 // recording the harp → session_id mapping in the index. Claude Code (and
-// other backends with SessionStart hooks) fire this exactly once per
-// session, with the backend's session ID and transcript path already in
-// the documented hook payload — the bind is first-bind-wins, so repeat
-// firings are no-ops. The compactor also forward-binds at compact time as a
+// other backends with SessionStart hooks) fire this once per TRANSCRIPT, not
+// once per session: /clear rotates the transcript to a new UUID under the same
+// live process and the hook fires again with the new one. The payload carries
+// the backend's session ID and transcript path, so a repeat firing that names
+// a new transcript re-points the binding and one that names the same
+// transcript is a no-op. The compactor also forward-binds at compact time as a
 // backstop.
 var sessionBindCmd = &cobra.Command{
 	Use:    "session-bind",
@@ -130,7 +132,7 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 	if payload.SessionID == "" {
 		payload.SessionID = os.Getenv("KIRO_SESSION_ID")
 	}
-	// operations.BindSession applies first-bind-wins and no-ops a harp that is
-	// absent or already bound.
+	// operations.BindSession no-ops a harp that is absent from the index, and
+	// re-points one whose engine has rotated to a new transcript.
 	return operations.BindSession(harp, payload.SessionID, payload.TranscriptPath)
 }

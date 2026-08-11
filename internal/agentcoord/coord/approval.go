@@ -204,13 +204,25 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 			// Fall through to the next matching rung.
 		}
 	}
+	// THE BOTTOM IS A CANCEL, NOT A DECLINE. Reaching here means NO rung
+	// resolved: every matching rung timed out or failed (and a ladder with no
+	// matching rung at all resolved nothing by definition). Nobody decided, so
+	// nobody refused — and a DECLINE here does not stay an abstraction: it
+	// picks a reject_once option at the runner (enginehost.go's
+	// resolveApproval), which claude-code-acp reports to the model as "User
+	// refused permission to run tool". That is ctxloom's own refusal wearing
+	// the operator's face in the engine's durable transcript. A rung that
+	// genuinely declines — auto_decline, or a human/parent answering
+	// DECISION_DECLINE — returns from the loop above and is unaffected.
+	decision := &agentcoordpb.ApprovalDecision{
+		Decision: agentcoordpb.ApprovalDecision_DECISION_CANCEL,
+		Note:     "ladder exhausted with no rung resolving the request; bottoming at CANCEL",
+	}
 	c.audit("approval", caller.Harp, map[string]string{
-		"run_id": rec.RunID, "kind": approvalKindName(kind), "rung": "bottom", "resolution": "denied",
+		"run_id": rec.RunID, "kind": approvalKindName(kind), "rung": "bottom",
+		"resolution": approvalResolution(decision.GetDecision()),
 	})
-	return approvalResponse(&agentcoordpb.ApprovalDecision{
-		Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE,
-		Note:     "ladder exhausted with no rung resolving the request; bottoming at DECLINE",
-	})
+	return approvalResponse(decision)
 }
 
 // finishParkedRung is the audit-and-fall-through handling shared by the two

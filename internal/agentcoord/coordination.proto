@@ -560,7 +560,8 @@ message Heartbeat {
 //     response; also the responder-side idempotency key across reconnects.
 //   - timeout is advisory wall-clock budget; on expiry the initiator may
 //     emit a CancelRequest notice and proceed with its declared fallback
-//     (e.g. approvals fall back to DECISION_DECLINE).
+//     (e.g. approvals fall back to DECISION_CANCEL — nobody decided, so
+//     nothing is reported as a decision; only a real answerer DECLINEs).
 //   - Exactly one response per request. Errors travel in
 //     response.status, not by dropping the response.
 

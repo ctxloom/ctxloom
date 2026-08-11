@@ -177,7 +177,10 @@ func TestApproval_ReconnectDoesNotDuplicateOrFlipDecision(t *testing.T) {
 
 	// A single relay_to_role rung with a bounded timeout: on the BUGGY path the
 	// second (duplicate) ladder walk has nothing to answer it and falls to the
-	// bottom DECLINE when this elapses — the ACCEPT→DECLINE flip. On the fixed
+	// ladder bottom when this elapses — the flip the incident recorded as
+	// ACCEPT→DECLINE, which today's bottom would express as a CANCEL (wiry-judge:
+	// nobody decided). Either way the human's ACCEPT is lost, which is what this
+	// gate exists to prevent. On the fixed
 	// path there is only ONE walk and the parent's reply resolves it at once,
 	// well inside this window, so the timeout is never paid.
 	ladder := Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: 5 * time.Second}}

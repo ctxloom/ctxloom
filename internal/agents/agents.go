@@ -208,9 +208,10 @@ func ValidateDriving(d DrivingMode) error {
 // EscalationRung is one ordered entry of an agent's escalation ladder: which
 // ApprovalRequest kinds it matches, the disposition, and — for a relaying
 // disposition — how long to wait before falling through to the next
-// matching rung. The ladder bottoms at DECLINE when no rung resolves a
-// request (coord.buildLadder is the validating parser; this type is the
-// raw, hand-editable config shape).
+// matching rung. The ladder bottoms at CANCEL when no rung resolves a
+// request — nobody decided, so the engine is told the request was cancelled
+// rather than refused (coord.buildLadder is the validating parser; this type
+// is the raw, hand-editable config shape).
 type EscalationRung struct {
 	// Kinds are ApprovalRequest.ApprovalKind names, short form, e.g.
 	// "COMMAND_EXECUTION" | "FILE_CHANGE" | "TOOL_USE" |

@@ -785,12 +785,16 @@ func (eh *EngineHost) resolveApproval(ctx context.Context, home engineHome, pr *
 	)
 	switch {
 	case err != nil:
-		clidiag.Warn("ctxloom", "engine host: approval request %q: %v (declining)", pr.ID, err)
+		clidiag.Warn("ctxloom", "engine host: approval request %q: %v (cancelling)", pr.ID, err)
 		note = err.Error()
 		resolution = agentcoordpb.InteractionRecorded_RESOLUTION_TIMED_OUT
 	case resp.GetStatus().GetCode() != int32(codes.OK):
 		note = resp.GetStatus().GetMessage()
-		resolution = agentcoordpb.InteractionRecorded_RESOLUTION_DENIED
+		// CANCELLED, not DENIED: a non-OK status means the coordinator
+		// REFUSED to decide (the !caller.IsChild() guard, an unknown run),
+		// not that anyone decided against the request. The journal must
+		// record the same thing the engine is told below.
+		resolution = agentcoordpb.InteractionRecorded_RESOLUTION_CANCELLED
 	default:
 		decision = resp.GetApproval()
 		note = decision.GetNote()
@@ -799,8 +803,17 @@ func (eh *EngineHost) resolveApproval(ctx context.Context, home engineHome, pr *
 
 	allow := decision != nil &&
 		interactionResolution(decision.GetDecision()) == agentcoordpb.InteractionRecorded_RESOLUTION_GRANTED
+	// NO DECISION -> NO OPTION. An empty OptionID is the ACP
+	// {outcome:"cancelled"} reply (internal/acp/session.go's forwardPermission,
+	// internal/acpagent/server.go), which says exactly what happened: nothing
+	// answered. Running pickPermissionOption here instead would hand the engine
+	// a reject_once option, and claude-code-acp renders that to the model — and
+	// into the durable transcript — as {behavior:"deny", message:"User refused
+	// permission to run tool"}: ctxloom's own refusal, attributed to an operator
+	// who was never asked. A REAL DECISION_DECLINE (decision != nil) still picks
+	// reject_once, because then someone genuinely did refuse.
 	optionID := ""
-	if decision == nil || decision.GetDecision() != agentcoordpb.ApprovalDecision_DECISION_CANCEL {
+	if decision != nil && decision.GetDecision() != agentcoordpb.ApprovalDecision_DECISION_CANCEL {
 		optionID = pickPermissionOption(pr.Options, allow)
 	}
 	select {

@@ -29,7 +29,7 @@ flowchart TD
   DFS -->|ok| CONSUME["consume exactly once, then pa.ch <- decision"]
   CONSUME --> RLY
   RLY -->|"rung timeout / baseCtx"| NEXT["next rung"]
-  RUNG -->|"bottom of ladder"| DECLINE["DECLINE"]
+  RUNG -->|"bottom of ladder — nobody decided"| CANCEL["CANCEL"]
   SA --> AUD[("interactions.jsonl — every hop")]
   RESP --> IR["interactionResolution :739<br/>fail-closed allow-list"]
 ```
@@ -53,7 +53,7 @@ flowchart TD
 | `Ladder.matchingRungs` | `ladder.go:197` | filters rungs by kind, in declaration order |
 | `ladderToFact` / `ladderFromFact` | `ladder.go:222,244` | the durable projection and its inverse |
 | `approvalKindName` | `ladder.go:212` | inverse of the short-name table, falling back to `k.String()` |
-| `Coordinator.serveApproval` | `approval.go:59` | the plane-2 handler: caller must be a child, load the `RunRecord`, short-circuit on the for-session cache, walk matching rungs journaling every hop, bottom out at DECLINE |
+| `Coordinator.serveApproval` | `approval.go:59` | the plane-2 handler: caller must be a child, load the `RunRecord`, short-circuit on the for-session cache, walk matching rungs journaling every hop, bottom out at CANCEL (nobody decided) |
 | `Coordinator.relayApproval` | `approval.go:186` | mint a message id, **register the pending approval before queuing the mail**, queue, then wait on the channel / rung timeout / `baseCtx` |
 | `Coordinator.resolveApprovalReply` | `approval.go:256` | intercept a parent's `agent_send` with `in_reply_to`; verify the caller is the addressed target, **decode, then consume exactly once**, re-checking the map under the lock |
 | `decisionFromStructured` | `approval.go:437` | strict decode: rejects empty, unknown fields, out-of-vocabulary enum ints, and `UNSPECIFIED`. Four distinct actionable rejections; the open-enum guard at `:449` closes a real fail-open hole |

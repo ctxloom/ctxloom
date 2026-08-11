@@ -82,6 +82,13 @@ Feature: container — the images isolated agents run in, and the questions you 
     # whatever this machine has installed. Whether a runtime is reachable is a
     # fact about the developer's laptop; that the report answers the question
     # at all is a fact about ctxloom.
+    #
+    # FOLDED FROM journeys/j002400_container.feature (Phase 3, D7): that
+    # journey used to assert this same axis-completeness claim on its own,
+    # plus one line this scenario did not yet check ("runtime:", the reachable
+    # runtime name/status line) — moved down here rather than restated in two
+    # places, so the noun's own spec is the one place asserting every axis the
+    # report claims to answer.
     Scenario: The capability check is diagnostic-only
       Given an initialized ctxloom project
       And I record the project tree
@@ -92,6 +99,7 @@ Feature: container — the images isolated agents run in, and the questions you 
       Then the command succeeds
       And the output contains "Container capability (backend: claude-code)"
       And the output contains "in a container:"
+      And the output contains "runtime:"
       And the output contains "shared fs:"
       And the project tree is unchanged
 
@@ -112,6 +120,31 @@ Feature: container — the images isolated agents run in, and the questions you 
       When Alice asks about an engine that does not exist:
         """
         ctxloom container check totally-bogus-engine
+        """
+      Then the command fails
+      And the output contains "unknown backend"
+      And the output contains "totally-bogus-engine"
+      And the output contains "claude-code"
+
+  Rule: Build validates its backend before touching any daemon
+
+    `container build` needs a real container runtime to actually build an
+    image, which is why no scenario in this file drives a real build (see this
+    file's own header). But the backend name is validated BEFORE any of that —
+    the same `unknown backend` refusal `container check` uses — so a typo is
+    caught immediately rather than surfacing as a confusing daemon error two
+    steps later, or worse, resolving to whatever backend the fallback happens
+    to pick.
+
+    # FOLDED FROM journeys/j002400_container.feature (Phase 3, D7): the one
+    # claim in that file's three now-deleted generic scenarios that had no
+    # home anywhere else. Moved down rather than restated, since this is
+    # comprehensive per-noun coverage, not a narrative beat.
+    Scenario: An unknown backend is refused before any daemon is touched
+      Given an initialized ctxloom project
+      When Alice asks to build an image for an engine that does not exist:
+        """
+        ctxloom container build totally-bogus-engine
         """
       Then the command fails
       And the output contains "unknown backend"

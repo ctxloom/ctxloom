@@ -88,7 +88,7 @@ func setupPTYTestEnv(t *testing.T) *testenv.TestEnvironment {
 func TestRunPTY_SurroundBarPaints(t *testing.T) {
 	env := setupPTYTestEnv(t)
 
-	sess, err := env.RunPTY(ptyCols, ptyRows, "run", "-f", "viewer-fragment", "hello from the bar test")
+	sess, err := env.RunPTY(ptyCols, ptyRows, nil, "run", "-f", "viewer-fragment", "hello from the bar test")
 	require.NoError(t, err)
 	defer sess.Close()
 
@@ -121,7 +121,7 @@ func TestRunPTY_SurroundBarPaints(t *testing.T) {
 func TestRunPTY_CtrlBracketEngagesOverlay(t *testing.T) {
 	env := setupPTYTestEnv(t)
 
-	sess, err := env.RunPTY(ptyCols, ptyRows, "run", "-f", "viewer-fragment", "hello from the engage test")
+	sess, err := env.RunPTY(ptyCols, ptyRows, nil, "run", "-f", "viewer-fragment", "hello from the engage test")
 	require.NoError(t, err)
 	defer sess.Close()
 
@@ -159,7 +159,7 @@ func TestRunPTY_CtrlBracketEngagesOverlay(t *testing.T) {
 func TestRunPTY_PlainTerminalNeverEngages(t *testing.T) {
 	env := setupPTYTestEnv(t)
 
-	sess, err := env.RunPTY(ptyCols, ptyRows, "run", "--plain-terminal", "-f", "viewer-fragment", "hello from the plain-terminal test")
+	sess, err := env.RunPTY(ptyCols, ptyRows, nil, "run", "--plain-terminal", "-f", "viewer-fragment", "hello from the plain-terminal test")
 	require.NoError(t, err)
 	defer sess.Close()
 

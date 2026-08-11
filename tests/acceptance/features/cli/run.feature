@@ -50,16 +50,6 @@ Feature: run — assembling a project's context and handing it to an engine
       Then the command fails
       And the output contains "unknown flag"
 
-    # The two flags select DIFFERENT execution modes, so an invocation naming
-    # both is a caller who has not decided. Resolving that by picking one
-    # silently is the shape where an invocation reads as precise and runs as
-    # something else.
-    Scenario: Asking for both execution modes at once is refused
-      Given an initialized ctxloom project
-      When I run "ctxloom run --one-shot --structured hello"
-      Then the command fails
-      And the output contains "one-shot"
-
     # `--agent` names a BINDING that already carries its own composed profiles,
     # engine and runtime, so combining it with the flags that assemble context
     # by hand is a caller asking for two different answers to the same

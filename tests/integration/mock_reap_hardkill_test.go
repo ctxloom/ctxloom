@@ -3,9 +3,6 @@
 package integration
 
 import (
-	"io"
-	"strings"
-	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -14,29 +11,6 @@ import (
 
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
 )
-
-// syncBuffer is a mutex-guarded byte accumulator: cmd.Stdout/Stderr are
-// written by a background io.Copy goroutine os/exec starts internally (for
-// any non-*os.File writer) that keeps running until Wait returns, while
-// t.Cleanup may read the buffer for a failure-path debug dump — a plain
-// bytes.Buffer would race between those two goroutines whenever Wait is
-// reached only via the safety-net cleanup instead of the main flow.
-type syncBuffer struct {
-	mu sync.Mutex
-	b  strings.Builder
-}
-
-func (s *syncBuffer) Write(p []byte) (int, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.Write(p)
-}
-
-func (s *syncBuffer) String() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.b.String()
-}
 
 // hardKillPollTimeout bounds how long the test waits for the mock plugin
 // subprocess to appear as a child of the ctxloom-under-test process, and
@@ -63,75 +37,49 @@ const hardKillPollInterval = 25 * time.Millisecond
 // now an orphan") and then prove testenv.KillPids could collect it. That
 // premise is now false by construction, which is the point: the harness reap
 // (testenv.PluginChildrenOf + testenv.KillPids, still wired into
-// PTYSession.Close and MCPClient.Close and still exercised by this test's
-// safety-net cleanup) was a harness-side workaround for a product-side leak,
-// and could only ever protect processes this harness itself spawned. Nothing
-// protected `ctxloom run` in a developer's terminal — which is where 12 of
-// the 36 came from.
+// PTYSession.Close and MCPClient.Close and still exercised by this test's own
+// t.Cleanup(sess.Close)) was a harness-side workaround for a product-side
+// leak, and could only ever protect processes this harness itself spawned.
+// Nothing protected `ctxloom run` in a developer's terminal — which is where
+// 12 of the 36 came from.
 //
 // This is the payload assertion the task asked for: process-table absence,
 // not "the reap function returned without error".
 //
-// --structured keeps the run alive reading messages off an open stdin pipe
-// (run_structured.go: parks until EOF) instead of the normal interactive
-// `run`, whose mock-backed session round-trips and exits on its own on the
-// order of 10ms (viewer_pty_test.go) — far too fast to reliably observe,
-// let alone hard-kill, the plugin subprocess mid-flight. The mock backend's
-// Chat implementation (mock_chat.go) blocks on that same stdin channel, so
-// this deterministically holds BOTH the outer ctxloom process and its
-// spawned "llm serve mock" plugin subprocess open until this test acts.
+// CTXLOOM_MOCK_ECHO_STDIN keeps the run alive reading lines off an open pty
+// (internal/lm/backends/mock.go's executeInteractiveEcho: parks until "quit"
+// or EOF) instead of the normal interactive `run`, whose mock-backed session
+// round-trips and exits on its own on the order of 10ms (viewer_pty_test.go)
+// — far too fast to reliably observe, let alone hard-kill, the plugin
+// subprocess mid-flight. This is the SAME env-gated echo mode
+// dockerexec_docker_integration_test.go and
+// container_delivery_docker_integration_test.go already use to hold a real
+// engine turn open for their own pty/exec proofs; a real pty (testenv.RunPTY,
+// aymanbagabas/go-pty — the F2 binary-level harness viewer_pty_test.go
+// established) is what makes the CLI take the interactive path at all
+// (internal/cli/run_terminal.go's interactiveTerminal requires stdin to be an
+// actual tty, which a plain io.Pipe is not).
 func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 	env := setupTestEnv(t)
 	_, err := env.SetupMockLM()
 	require.NoError(t, err)
 	writeFragment(t, env, "hardkill-fragment", nil, "hard-kill reap test content")
 
-	cmd := env.Command(nil, "run", "--structured", "-f", "hardkill-fragment")
-	stdinR, stdinW := io.Pipe()
-	t.Cleanup(func() { _ = stdinW.Close() })
-	cmd.Stdin = stdinR
-	outBuf := &syncBuffer{}
-	errBuf := &syncBuffer{}
-	cmd.Stdout = outBuf
-	cmd.Stderr = errBuf
-
-	require.NoError(t, cmd.Start(), "start ctxloom run --structured")
-	parentPID := cmd.Process.Pid
-	waited := false
-	// Safety net: if an assertion below fails (require's t.FailNow ends this
-	// goroutine via runtime.Goexit before reaching the explicit Wait further
-	// down), still reap both the parent zombie and — via the same
-	// PluginChildrenOf/KillPids pair — any plugin child, so a failing run of
-	// THIS test doesn't itself leak a "llm serve mock". Registered before the
-	// debug-log cleanup so it runs first (t.Cleanup is LIFO): the log below
-	// can then report the final captured output.
-	//
-	// capturedChildren is filled in once the plugin child has been observed,
-	// and reaped unconditionally — INCLUDING after `waited`. The final
-	// assertion runs after the parent is already dead and deliberately does
-	// nothing itself; on the failing path (the fix regressed, the child
-	// outlived its parent) the child is by definition an orphan with nothing
-	// else in the world left to collect it. An earlier version of this
-	// cleanup returned early on `waited` and so leaked exactly one orphaned
-	// mock per red run — the very population it was written to protect.
-	var capturedChildren []int
-	t.Cleanup(func() {
-		defer func() { testenv.KillPids(capturedChildren) }()
-		if waited {
-			return
-		}
-		strayChildren := testenv.PluginChildrenOf(parentPID)
-		_ = cmd.Process.Kill()
-		_ = stdinW.Close() // unpark the internal stdin-copy goroutine — see below
-		_ = cmd.Wait()
-		testenv.KillPids(strayChildren)
-	})
+	sess, err := env.RunPTY(80, 24, []string{"CTXLOOM_MOCK_ECHO_STDIN=1"}, "run", "-f", "hardkill-fragment")
+	require.NoError(t, err, "start ctxloom run")
+	// Close is the harness's own safety net (SIGTERM, escalate to SIGKILL,
+	// sweep any still-living plugin child) for a failing run of THIS test —
+	// registered via t.Cleanup so it always runs, but strictly AFTER the
+	// require.Eventually below has already independently observed whether the
+	// mechanism under test (PR_SET_PDEATHSIG) worked on its own.
+	t.Cleanup(sess.Close)
 	t.Cleanup(func() {
 		if t.Failed() {
-			t.Logf("stdout: %s", outBuf.String())
-			t.Logf("stderr: %s", errBuf.String())
+			t.Logf("pty output: %s", sess.Output())
 		}
 	})
+
+	parentPID := sess.PID()
 
 	// Wait for the mock plugin subprocess ("ctxloom llm serve mock",
 	// internal/lm/grpc's self-invoking plugin path) to actually come up as
@@ -146,7 +94,6 @@ func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 		time.Sleep(hardKillPollInterval)
 	}
 	require.NotEmpty(t, childPIDs, "mock plugin subprocess never appeared as a child of pid %d", parentPID)
-	capturedChildren = childPIDs // arm the cleanup's unconditional reap
 	childPID := childPIDs[0]
 	require.True(t, processAlive(childPID), "sanity: captured plugin pid %d isn't actually alive", childPID)
 
@@ -157,17 +104,8 @@ func TestMockPluginReapedOnHardKilledParent(t *testing.T) {
 	// worktree, or an agent harness tearing the process down — the parent
 	// gets no chance to reap anything itself.
 	require.NoError(t, syscall.Kill(parentPID, syscall.SIGKILL))
-	// exec.Cmd's internal stdin-copy goroutine (spawned because Stdin is a
-	// plain io.Reader, not an *os.File) is parked reading from stdinR and
-	// never observes the child's death on its own — only EOF or a read
-	// error unparks it, and Wait() (below and in the safety-net cleanup
-	// above) blocks until it does. Close the writer now so Wait() actually
-	// returns instead of hanging — this is a test-harness-only gotcha (a
-	// plain os/exec fact about non-*os.File Stdin), unrelated to the reap
-	// mechanism under test.
-	_ = stdinW.Close()
-	_ = cmd.Wait() // reap the zombie; the (SIGKILL) exit error is expected and irrelevant
-	waited = true
+	exited, _ := sess.Wait(hardKillPollTimeout) // reap the zombie; the (SIGKILL) exit error is expected and irrelevant
+	require.True(t, exited, "parent process %d was not reaped within %s of SIGKILL", parentPID, hardKillPollTimeout)
 
 	// NOTHING IS DONE HERE ON PURPOSE. No KillPids, no signal, no sweep —
 	// the harness deliberately abandons the plugin child exactly as a dying

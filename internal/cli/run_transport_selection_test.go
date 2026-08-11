@@ -8,39 +8,29 @@ import (
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 )
 
-// transportCases is the FULL cross-product of the three inputs that decide a
+// transportCases is the FULL cross-product of the two inputs that decide a
 // top-level built-in run's transport: every policy-name class × both execution
-// modes × structured on/off. It is written out rather than derived so the
-// expected arm for each combination is stated, not computed by the same rule
-// under test.
+// modes. It is written out rather than derived so the expected arm for each
+// combination is stated, not computed by the same rule under test.
 var transportCases = []struct {
 	name       string
 	policyName string
 	mode       pb.ExecutionMode
-	structured bool
 	want       runTransportArm
 }{
-	// Container, interactive, not structured → Phase 2a-A docker-exec.
-	{"container interactive", "container", pb.ExecutionMode_INTERACTIVE, false, armDockerExecInteractive},
-	{"container-worktree interactive", "container-worktree", pb.ExecutionMode_INTERACTIVE, false, armDockerExecInteractive},
+	// Container, interactive → Phase 2a-A docker-exec.
+	{"container interactive", "container", pb.ExecutionMode_INTERACTIVE, armDockerExecInteractive},
+	{"container-worktree interactive", "container-worktree", pb.ExecutionMode_INTERACTIVE, armDockerExecInteractive},
 
-	// Container, structured or oneshot → Phase 2a-B owner-owned run.
-	{"container structured", "container", pb.ExecutionMode_INTERACTIVE, true, armOwnedRunContainer},
-	{"container oneshot print", "container", pb.ExecutionMode_ONESHOT, false, armOwnedRunContainer},
-	{"container structured oneshot", "container", pb.ExecutionMode_ONESHOT, true, armOwnedRunContainer},
-	{"container-worktree structured", "container-worktree", pb.ExecutionMode_INTERACTIVE, true, armOwnedRunContainer},
-	{"container-worktree oneshot", "container-worktree", pb.ExecutionMode_ONESHOT, false, armOwnedRunContainer},
-	{"container-worktree structured oneshot", "container-worktree", pb.ExecutionMode_ONESHOT, true, armOwnedRunContainer},
+	// Container, oneshot → Phase 2a-B owner-owned run.
+	{"container oneshot print", "container", pb.ExecutionMode_ONESHOT, armOwnedRunContainer},
+	{"container-worktree oneshot", "container-worktree", pb.ExecutionMode_ONESHOT, armOwnedRunContainer},
 
 	// Every host/worktree combination stays on go-plugin.
-	{"none interactive", "none", pb.ExecutionMode_INTERACTIVE, false, armGoPlugin},
-	{"none structured", "none", pb.ExecutionMode_INTERACTIVE, true, armGoPlugin},
-	{"none oneshot", "none", pb.ExecutionMode_ONESHOT, false, armGoPlugin},
-	{"none structured oneshot", "none", pb.ExecutionMode_ONESHOT, true, armGoPlugin},
-	{"worktree interactive", "worktree", pb.ExecutionMode_INTERACTIVE, false, armGoPlugin},
-	{"worktree structured", "worktree", pb.ExecutionMode_INTERACTIVE, true, armGoPlugin},
-	{"worktree oneshot", "worktree", pb.ExecutionMode_ONESHOT, false, armGoPlugin},
-	{"worktree structured oneshot", "worktree", pb.ExecutionMode_ONESHOT, true, armGoPlugin},
+	{"none interactive", "none", pb.ExecutionMode_INTERACTIVE, armGoPlugin},
+	{"none oneshot", "none", pb.ExecutionMode_ONESHOT, armGoPlugin},
+	{"worktree interactive", "worktree", pb.ExecutionMode_INTERACTIVE, armGoPlugin},
+	{"worktree oneshot", "worktree", pb.ExecutionMode_ONESHOT, armGoPlugin},
 }
 
 // TestRunTransport is the golden on transport-arm selection. It replaces two
@@ -50,7 +40,7 @@ var transportCases = []struct {
 func TestRunTransport(t *testing.T) {
 	for _, tc := range transportCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.want, runTransport(tc.policyName, tc.mode, tc.structured))
+			assert.Equal(t, tc.want, runTransport(tc.policyName, tc.mode))
 		})
 	}
 }
@@ -65,12 +55,10 @@ func TestRunTransport_EveryCombinationNamesAnArm(t *testing.T) {
 	seen := 0
 	for _, p := range policies {
 		for _, m := range modes {
-			for _, s := range []bool{false, true} {
-				arm := runTransport(p, m, s)
-				assert.Contains(t, []runTransportArm{armGoPlugin, armDockerExecInteractive, armOwnedRunContainer}, arm,
-					"policy=%s mode=%v structured=%v", p, m, s)
-				seen++
-			}
+			arm := runTransport(p, m)
+			assert.Contains(t, []runTransportArm{armGoPlugin, armDockerExecInteractive, armOwnedRunContainer}, arm,
+				"policy=%s mode=%v", p, m)
+			seen++
 		}
 	}
 	assert.Equal(t, len(transportCases), seen, "the golden table must cover the whole cross-product")

@@ -200,11 +200,13 @@ func TestRenderChatEvents_UnknownFormat(t *testing.T) {
 	require.Error(t, renderChatEvents(&bytes.Buffer{}, "yaml", chatEvents()))
 }
 
-// TestRunStructuredREPL_DrivesChatRPC: stdin lines reach the Chat RPC as
+// TestRunChatSession_DrivesChatRPC: stdin lines reach the Chat RPC as
 // messages, and the RPC's events render to stdout. The mock models the real
 // contract — the stream stays open until input half-closes, then emits the turn
 // and ends — so stdin reading and rendering race the way they do in production.
-func TestRunStructuredREPL_DrivesChatRPC(t *testing.T) {
+// This exercises runChatSession, the shared body `ctxloom acp run`'s session
+// form (acp_run_cmd.go) drives, through the same chatTurns entry point.
+func TestRunChatSession_DrivesChatRPC(t *testing.T) {
 	var captured []string
 	captureDone := make(chan struct{})
 	mock := &pb.MockClient{
@@ -228,7 +230,7 @@ func TestRunStructuredREPL_DrivesChatRPC(t *testing.T) {
 	}
 
 	var out bytes.Buffer
-	err := runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}}, nil, formatJSON, strings.NewReader("hello\n"), &out)
+	err := runChatSession(context.Background(), mock, agent.ChatRequest{}, chatTurns{Stdin: strings.NewReader("hello\n")}, formatJSON, &out)
 	require.NoError(t, err)
 
 	<-captureDone // the message reached the RPC's input channel
@@ -236,11 +238,10 @@ func TestRunStructuredREPL_DrivesChatRPC(t *testing.T) {
 	assert.Contains(t, out.String(), `"content":"hi back"`)
 }
 
-// TestRunStructuredREPL_InjectsManagedMCPServers: the managed MCP set composed
-// from the run's ManagedConfig — the SAME payload RunStart ships to Setup —
-// reaches the Chat RPC's ChatRequest, the structured path's counterpart of the
-// Setup settings write.
-func TestRunStructuredREPL_InjectsManagedMCPServers(t *testing.T) {
+// TestRunChatSession_InjectsMCPServers: the ChatRequest's MCPServers field
+// (acp_run_cmd.go's runACPSessionWithConfig builds it from the label's
+// managed config) reaches the Chat RPC unmodified.
+func TestRunChatSession_InjectsMCPServers(t *testing.T) {
 	var captured agent.ChatRequest
 	mock := &pb.MockClient{
 		ChatFunc: func(_ context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
@@ -263,8 +264,9 @@ func TestRunStructuredREPL_InjectsManagedMCPServers(t *testing.T) {
 		BundleMCP: map[string]wire.MCPServer{"taskloom": {Command: "taskloom", Args: []string{"mcp"}}},
 	}
 	var out bytes.Buffer
-	require.NoError(t, runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}},
-		managed.ChatMCPServers("claude-code", ""), formatJSON, strings.NewReader(""), &out))
+	require.NoError(t, runChatSession(context.Background(), mock, agent.ChatRequest{
+		MCPServers: managed.ChatMCPServers("claude-code", ""),
+	}, chatTurns{Stdin: strings.NewReader("")}, formatJSON, &out))
 
 	require.Len(t, captured.MCPServers, 2)
 	// Command names the self-exec absolute path (agent.CtxloomCommand), not
@@ -273,47 +275,11 @@ func TestRunStructuredREPL_InjectsManagedMCPServers(t *testing.T) {
 	assert.Equal(t, "taskloom", captured.MCPServers[1].Name)
 }
 
-// TestRunStructuredREPL_PropagatesSessionHarpEnv pins the tough-cloud S4
-// harp-for-structured-runs contract: run.go's AssignSession stamps
-// runEnv[CTXLOOM_SESSION_HARP] into req.Options.Env unconditionally (before
-// --structured is ever checked, run.go ~line 819-823), and this is the exact
-// seam that env has to cross to reach GRPCClient.Chat's harp-gated transcript
-// tee (chat.go: `req.Env[agent.SessionHarpEnv]`). If this ever regressed to
-// an empty Env, `ctxloom run --structured` would silently go uncaptured
-// again — the same class of bug this whole slice exists to close.
-func TestRunStructuredREPL_PropagatesSessionHarpEnv(t *testing.T) {
-	var captured agent.ChatRequest
-	mock := &pb.MockClient{
-		ChatFunc: func(_ context.Context, req agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
-			captured = req
-			in := make(chan agent.ChatMessage, 1)
-			events := make(chan agent.ChatEvent)
-			errs := make(chan error)
-			go func() {
-				for range in {
-				}
-				close(events)
-				close(errs)
-			}()
-			return in, events, errs, nil
-		},
-	}
-
-	req := &pb.RunStart{Options: &pb.RunOptions{Env: map[string]string{
-		agent.SessionHarpEnv: "structured-test-harp",
-	}}}
-	var out bytes.Buffer
-	require.NoError(t, runStructuredREPL(context.Background(), mock, req, nil, formatJSON, strings.NewReader(""), &out))
-
-	require.NotNil(t, captured.Env)
-	assert.Equal(t, "structured-test-harp", captured.Env[agent.SessionHarpEnv])
-}
-
-// TestRunStructuredREPL_StreamEndsBeforeStdinEOF: a backend that crashes/ends
+// TestRunChatSession_StreamEndsBeforeStdinEOF: a backend that crashes/ends
 // (events closed early with an error parked on errs) while stdin is still open
 // must NOT hang waiting for stdin EOF — it returns with the stream error rather
 // than blocking forever on the open pipe.
-func TestRunStructuredREPL_StreamEndsBeforeStdinEOF(t *testing.T) {
+func TestRunChatSession_StreamEndsBeforeStdinEOF(t *testing.T) {
 	streamErr := errors.New("backend died")
 	mock := &pb.MockClient{
 		ChatFunc: func(_ context.Context, _ agent.ChatRequest) (chan<- agent.ChatMessage, <-chan agent.ChatEvent, <-chan error, error) {
@@ -335,13 +301,13 @@ func TestRunStructuredREPL_StreamEndsBeforeStdinEOF(t *testing.T) {
 	done := make(chan error, 1)
 	var out bytes.Buffer
 	go func() {
-		done <- runStructuredREPL(context.Background(), mock, &pb.RunStart{Options: &pb.RunOptions{}}, nil, formatJSON, pr, &out)
+		done <- runChatSession(context.Background(), mock, agent.ChatRequest{}, chatTurns{Stdin: pr}, formatJSON, &out)
 	}()
 
 	select {
 	case err := <-done:
 		require.ErrorIs(t, err, streamErr)
 	case <-time.After(5 * time.Second):
-		t.Fatal("runStructuredREPL hung when the stream ended before stdin EOF")
+		t.Fatal("runChatSession hung when the stream ended before stdin EOF")
 	}
 }

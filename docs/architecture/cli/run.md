@@ -24,7 +24,7 @@ almost certainly inside that closure, not in a named function.
 |---|---|---|
 | `run.go` | 1,776 | The command, the `RunE` closure, and 30 helpers |
 | `run_owned.go` | 283 | Phase 2a-B: coordinator-owned container run over Transport 2 |
-| `run_structured.go` | 325 | The go-plugin structured REPL and its NDJSON wire DTOs |
+| `run_structured.go` | ~290 | `runChatSession` (the shared driver `ctxloom acp run`'s session form uses), its `renderChatEvents`/`chatEventToJSON` renderer, and the NDJSON wire DTOs |
 | `run_terminal.go` | 60 | Raw-mode acquisition + resize plumbing (see [terminal-and-prompts.md](terminal-and-prompts.md)) |
 | `run_resize_unix.go` / `run_resize_windows.go` | 59 / 23 | Build-tagged `watchResize` |
 | `run_terminal_ui.go` | ~190 | Prefix-key interceptor, surround bar, diagnostics redirect |
@@ -86,13 +86,11 @@ flowchart TD
     GATE2["failOnFindings(postStartupMark) :1083<br/>catches an isolation degrade the first gate could not see"]
 
     ARM{"transport arm"}
-    A2["docker-exec interactive — selectsDockerExecInteractive :1127<br/>startContainerInteractive :1128"]
-    A3["owner-owned run — selectsOwnedRunContainer (run_owned.go:46)<br/>startContainerOwnedRun (run_owned.go:61)"]
+    A2["docker-exec interactive — runTransport :1127<br/>startContainerInteractive :1128"]
+    A3["owner-owned run — runTransport (run_owned.go:46)<br/>startContainerOwnedRun (run_owned.go:61)"]
     A4["go-plugin — policy.SpawnClient :1156"]
 
     subgraph drive["7. drive"]
-        D1["runStructuredREPLViaCoord :1171"]
-        D2["runStructuredREPL :1173"]
         D3["runOneshotViaCoord :1182"]
         D4["interactiveTerminal :1213 → redirectDiagnosticsForTUI :1224 → setupTerminalUI :1225 → pumpResize :1265"]
     end
@@ -129,7 +127,6 @@ flowchart TD
 | `--permissions` | `runPermissions` | `default`\|`acceptEdits`\|`plan`\|`bypass` |
 | `-n, --dry-run` | `runDryRun` | Resolve everything, print the plan, touch nothing stateful |
 | `--one-shot` | `runOneShot` | Headless oneshot: print the response and exit |
-| `--structured` | `runStructured` | Structured turn REPL (NDJSON); mutually exclusive with `--one-shot` |
 | `--plain-terminal` | `runPlainTerminal` | Disable ctxloom's terminal layer (prefix-key viewer + surround bar) |
 | `-v, --verbose` | `runVerbosity` | Repeatable count |
 | `-y, --yes` | `runAssumeYes` | Auto-confirm the install-on-startup prompt |
@@ -142,14 +139,17 @@ Completions are registered for `agent`, `workspace`, `permissions`, `llm`,
 
 ## The three transport arms
 
-Selection is spread across two files as two predicates plus an implicit `else`,
-over the same three inputs (`policy.Name()`, `pb.ExecutionMode`, `runStructured`).
-Nothing enforces that they are mutually exclusive and jointly exhaustive.
+Selection is one total decision, `runTransport(policyName, mode)`, over the
+two inputs `policy.Name()` and `pb.ExecutionMode`. (It used to also take a
+`structured bool` — the `--structured` flag threaded straight through as its
+third input — but that CLI surface was an orphan: no in-tree consumer, no
+tests, and its own doc comment described a transport already retired
+elsewhere; removed outright rather than deprecated.)
 
 | Arm | Predicate | Entry | Isolation |
 |---|---|---|---|
-| docker-exec interactive | `selectsDockerExecInteractive` `:1127` — container ∧ INTERACTIVE ∧ ¬structured | `startContainerInteractive` `:1128` | Container; RunStart handed over via a file handoff read by `llm turn` |
-| Owner-owned run (Phase 2a-B) | `selectsOwnedRunContainer` `run_owned.go:46` — container ∧ (structured ∨ ONESHOT) | `startContainerOwnedRun` `run_owned.go:61` | Container; driven over Transport 2 through the coordinator, no go-plugin client |
+| docker-exec interactive | `runTransport` `:1127` — container ∧ INTERACTIVE | `startContainerInteractive` `:1128` | Container; RunStart handed over via a file handoff read by `llm turn` |
+| Owner-owned run (Phase 2a-B) | `runTransport` (run_owned.go:46) — container ∧ ONESHOT | `startContainerOwnedRun` `run_owned.go:61` | Container; driven over Transport 2 through the coordinator, no go-plugin client |
 | go-plugin | otherwise | `policy.SpawnClient` `:1156` | Host or worktree; also the container-oneshot-on-host path |
 
 An external plugin binary launch arm (`llmBinary != ""` → `pb.NewLLMRunner`,
@@ -163,22 +163,27 @@ CLI path override applied by `agent.ApplyLocalCLIConfig`.
 | Symbol | file:line | Notes |
 |---|---|---|
 | `ownedRunSession` | `:34` | `{coord, outcome, events, cancel}`. The subscription is opened **before** `StartOwnedRun` so the first turn's deltas are not missed. |
-| `startContainerOwnedRun` | `:61` | 14 positional parameters. Subscribes, mints an owner-owned run, spawns the runner. |
-| `runStructuredREPLViaCoord` | `:112` | stdin lines → `SendOwnedRunTurn`; drains pending turns at EOF. No tests. |
+| `startContainerOwnedRun` | `:61` | 13 positional parameters. Subscribes, mints an owner-owned run, spawns the runner. |
 | `runOneshotViaCoord` | `:178` | Streams the FINAL answer, records the oneshot transcript. No tests. |
 | `renderOwnedRunEvents` | `:226` | CCN 21. Filters FINAL deltas out of the run's `AgentEvent` stream to text/NDJSON. No tests. |
 
 The whole file has zero test coverage (`rg "ViaCoord|ownedRunSession|renderOwnedRunEvents" internal/cli/*_test.go` → nothing), unlike every other non-trivial function in the unit.
 
-### Structured REPL internals (`run_structured.go`)
+### Chat-session internals (`run_structured.go`)
+
+Despite the filename, this file is no longer `run`-specific: `runStructuredREPL`
+(the `--structured` flag's thin wrapper) was removed as an orphan CLI surface,
+but `runChatSession` and everything below it survive — they are the shared
+driver `ctxloom acp run`'s session form (`acp_run_cmd.go`) drives, over the
+SAME `pb.Client.Chat` door `ctxloom acp serve` uses.
 
 | Symbol | file:line | Notes |
 |---|---|---|
-| `runStructuredREPL` | `:34` | Two-goroutine race-free shutdown with an explicit `reportStreamErr` discipline |
+| `runChatSession` | `:45` | Two-goroutine race-free shutdown with an explicit `reportStreamErr` discipline |
 | `renderChatEvents` | `:105` | json/text dispatch; **rejects** an unknown format |
 | `chatEventToJSON` | `:228` | `ChatEvent` → NDJSON DTO |
 | `chatEntryJSON` / `chatCompleteJSON` / `chatMCPJSON` / `chatSessionJSON` / `chatEventJSON` | `:185`–`:221` | The camelCase NDJSON wire contract a GUI frontend consumes |
-| `readMessagesLoop` / `decodeMessageLine` | `:274`, `:293` | One line = one message; `\n`, `\t` and quotes decoded within a line |
+| `pumpTurns` / `decodeMessageLine` | `:274`, `:293` | One line = one message; `\n`, `\t` and quotes decoded within a line |
 
 ## Key helpers in `run.go`
 
@@ -242,9 +247,9 @@ The whole file has zero test coverage (`rg "ViaCoord|ownedRunSession|renderOwned
   *every* run, on a 256-slot ring that drops on overflow, with no sequence-gap
   detection. `operations.adaptConsumerFeed` (`internal/operations/sessionfeed.go:255-268`)
   does that accounting for the same stream; this renderer does not.
-- The container structured arm emits only `entry` events; the `complete` and
-  `session` halves of the documented NDJSON contract are produced only by
-  `chatEventToJSON` on the go-plugin arm.
+- The container oneshot arm's `renderOwnedRunEvents` emits only `entry` events;
+  the `complete` and `session` halves of the documented NDJSON contract are
+  produced only by `chatEventToJSON` on the go-plugin/`acp run` arm.
 - The distill-timeout message at `:220` says "it will complete on next startup";
   nothing distills on startup — recovery is a manual `ctxloom session distill <harp>`.
 - `startContainerOwnedRun` returns a live `RunnerHandle` alongside a non-nil

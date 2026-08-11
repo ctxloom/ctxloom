@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,7 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// Phase 2a-B host side: a TOP-LEVEL container run that is --structured or a
+// Phase 2a-B host side: a TOP-LEVEL container run that is a
 // --print oneshot no longer constructs a go-plugin client. It mints an
 // owner-owned run in the in-process coordinator (Coordinator.StartOwnedRun),
 // spawns the runner via the SAME StartRunner primitive Phase 1/Part A use, and
@@ -35,13 +34,6 @@ type ownedRunSession struct {
 	outcome *coord.RunOutcome
 	events  <-chan *agentcoordpb.AgentEvent
 	cancel  func()
-	// leadTurnIssued records whether the run actually opened with a turn.
-	// StartOwnedRun refuses an empty prompt only for a ONE-SHOT run; a
-	// structured run legitimately opens with no lead, and issueStartRun then
-	// attaches no Input, so no opening turn exists and no boundary for one
-	// will ever be signalled. Consumers that count turn boundaries must take
-	// their opening count from here rather than assuming one.
-	leadTurnIssued bool
 }
 
 // ownedRunLaunch is startContainerOwnedRun's request. It is a struct rather
@@ -63,7 +55,6 @@ type ownedRunLaunch struct {
 	MCPServers  []agent.ChatMCPServer
 	Permission  agent.PermissionMode
 	Mode        pb.ExecutionMode
-	Structured  bool
 	RunnerEnv   map[string]string
 }
 
@@ -74,10 +65,10 @@ type ownedRunLaunch struct {
 // AgentEvents over the RunChannel — byte-for-byte the Phase-1 delegated
 // runner). The returned RunnerHandle is the caller's teardown handle
 // (isolation `docker rm -f` by name); the ownedRunSession carries the outcome +
-// event stream the structured/oneshot consumers drive.
+// event stream the oneshot consumer drives.
 func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec ownedRunLaunch) (*isolation.RunnerHandle, *ownedRunSession, error) {
 	if c == nil {
-		return nil, nil, fmt.Errorf("container structured/oneshot run needs the hosted session coordinator, which failed to stand up")
+		return nil, nil, fmt.Errorf("container oneshot run needs the hosted session coordinator, which failed to stand up")
 	}
 	stampHostTerminalEnv(spec.Req)
 
@@ -119,97 +110,14 @@ func startContainerOwnedRun(ctx context.Context, c *coord.Coordinator, spec owne
 		Env:        spec.Req.GetOptions().GetEnv(),
 		MCPServers: spec.MCPServers,
 		Permission: spec.Permission,
-		Oneshot:    spec.Mode == pb.ExecutionMode_ONESHOT && !spec.Structured,
+		Oneshot:    spec.Mode == pb.ExecutionMode_ONESHOT,
 	}, starter, lead)
 	if err != nil {
 		cancel()
 		return handle, nil, err
 	}
 	narrow(outcome.RunID)
-	// Same condition issueStartRun applies to decide whether to attach Input
-	// at all, so this records what the run WAS started with, not what it was
-	// asked for.
-	return handle, &ownedRunSession{coord: c, outcome: outcome, events: events, cancel: cancel, leadTurnIssued: lead != ""}, nil
-}
-
-// runStructuredREPLViaCoord is the Transport 2 counterpart of runStructuredREPL
-// (plan §5.B1): instead of client.Chat, it renders the owner-owned run's event
-// stream from WatchRuns and feeds one stdin line as one SendOwnedRunTurn.
-// EOF closes input; the loop then drains any in-flight turn to its boundary
-// before returning. A terminal run event (RunCompleted) ends the exchange.
-func runStructuredREPLViaCoord(ctx context.Context, sess *ownedRunSession, format string, stdin io.Reader, stdout io.Writer) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	runID := sess.outcome.RunID
-
-	// Buffered and drained only for its arrival signal: the REPL counts turn
-	// boundaries, it does not collect the answer (capture=false, so every value
-	// is empty).
-	turnIdle := make(chan string, 256)
-	renderErr := make(chan error, 1)
-	go func() {
-		_, err := renderOwnedRunEvents(ctx, stdout, format, runID, sess.events, turnIdle, false)
-		renderErr <- err
-	}()
-
-	lines := make(chan string)
-	scanDone := make(chan error, 1)
-	go func() {
-		scanner := bufio.NewScanner(stdin)
-		scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-		for scanner.Scan() {
-			select {
-			case lines <- decodeMessageLine(scanner.Text()):
-			case <-ctx.Done():
-				scanDone <- ctx.Err()
-				return
-			}
-		}
-		scanDone <- scanner.Err()
-	}()
-
-	// Each stdin line adds a turn, each turn boundary retires one; at EOF we
-	// return once every ISSUED turn has reached its boundary. The opening
-	// count is the run's own lead turn — if there was one. A structured run
-	// may legitimately open with no lead (see ownedRunSession.leadTurnIssued),
-	// and counting a turn that was never issued parks this loop at EOF waiting
-	// for a boundary that cannot arrive.
-	pending := 0
-	if sess.leadTurnIssued {
-		pending = 1
-	}
-	stdinOpen := true
-	for {
-		if !stdinOpen && pending <= 0 {
-			return nil
-		}
-		select {
-		case <-turnIdle:
-			pending--
-		case line := <-lines:
-			// A blank line is not a turn: issuing one would wake the engine
-			// with nothing to act on (and the coordinator refuses an empty
-			// turn outright), so it is skipped rather than counted as pending.
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			if err := sess.coord.SendOwnedRunTurn(runID, line); err != nil {
-				return err
-			}
-			pending++
-		case err := <-scanDone:
-			stdinOpen = false
-			lines = nil
-			if err != nil {
-				return err
-			}
-		case err := <-renderErr:
-			// The run terminated (RunCompleted) or the stream errored.
-			return err
-		case <-ctx.Done():
-			return ctx.Err()
-		}
-	}
+	return handle, &ownedRunSession{coord: c, outcome: outcome, events: events, cancel: cancel}, nil
 }
 
 // runOneshotViaCoord drives a --print container oneshot over Transport 2: it
@@ -282,20 +190,22 @@ type ownedRenderResult struct {
 
 // renderOwnedRunEvents renders one owner-owned run's AgentEvent stream: it
 // forwards FINAL-channel message deltas (text mode → prose to out; json mode →
-// the NDJSON entry contract runStructuredREPL's frontend already consumes),
-// signals each turn boundary on turnIdle (non-blocking) carrying the answer
-// text accumulated so far, and returns that text plus nil at RunCompleted or
-// ctx.Err() on cancellation. REASONING/LOG channels are excluded — the host
-// renders the answer, not the scratchpad, exactly like accumulateFinalText.
+// the same NDJSON entry contract renderChatEvents/chatEventToJSON emit for the
+// go-plugin arm — run_structured.go), signals each turn boundary on turnIdle
+// (non-blocking) carrying the answer text accumulated so far, and returns
+// that text plus nil at RunCompleted or ctx.Err() on cancellation.
+// REASONING/LOG channels are excluded — the host renders the answer, not the
+// scratchpad, exactly like accumulateFinalText.
 //
 // The accumulator is LOCAL by construction: every read by another
 // goroutine goes through turnIdle or the return value, so there is no shared
-// buffer to race on. capture=false skips accumulation entirely for the REPL,
-// which only counts boundaries.
+// buffer to race on. capture is always true for this arm's one remaining
+// caller (runOneshotViaCoord); it stays a parameter because every test below
+// drives this renderer directly and several assert on the RETURNED text.
 func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID string, events <-chan *agentcoordpb.AgentEvent, turnIdle chan<- string, capture bool) (string, error) {
 	// Reject a format this renderer cannot honor BEFORE consuming the stream,
 	// on the same text/json pair renderChatEvents enforces (format.go). Which
-	// arm a structured run takes is an isolation-policy decision, not the
+	// arm a container run takes is an isolation-policy decision, not the
 	// user's, so a --format value must mean the same thing on both: falling
 	// through to raw prose here made an unsupported format an error on the
 	// go-plugin arm and a silent downgrade on this one.
@@ -341,7 +251,7 @@ func renderOwnedRunEvents(ctx context.Context, out io.Writer, format, runID stri
 				// The item contract is started -> delta* -> completed, so a
 				// completed id is spent: releasing it keeps this map sized to
 				// the messages currently OPEN rather than to every message the
-				// session has ever produced (a structured REPL is long-lived
+				// session has ever produced (a warm engine's run is long-lived
 				// and its message ids are monotonic, so nothing here is ever
 				// reused). Mirrors the sibling adapter over this same stream,
 				// internal/operations/sessionfeed.go, which drops its

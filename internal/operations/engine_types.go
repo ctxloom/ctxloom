@@ -188,7 +188,7 @@ type OpenRequest struct {
 	// connected editor, instead of local disk (B5, gap G14). "" means no
 	// such upstream exists (the connected editor never declared the fs
 	// capability, or this OpenRequest isn't coming from an ACP-hosted
-	// session at all — e.g. `run --structured`/oneshot Execute never set
+	// session at all — e.g. `ctxloom acp run`/oneshot Execute never set
 	// this field, and both keep reading local disk exactly as before this
 	// field existed).
 	//

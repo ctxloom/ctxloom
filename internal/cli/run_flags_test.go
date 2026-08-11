@@ -14,9 +14,9 @@ import (
 // by init() running and naming each one. A variable that loses its
 // registration -- dropped in a refactor, renamed on one side only -- does not
 // fail to compile: it silently reads as its zero value forever, which for
-// runOneShot or runStructured means an entire execution mode that can no longer
-// be selected and reports nothing wrong. That is the failure mode worth
-// guarding, and it is the one the split actually creates.
+// runOneShot means an entire execution mode that can no longer be selected and
+// reports nothing wrong. That is the failure mode worth guarding, and it is
+// the one the split actually creates.
 //
 // This asserts the registration side of every flag the command documents,
 // including the hidden seeding flags, plus the
@@ -27,7 +27,7 @@ func TestRunCmd_EveryFlagVarIsActuallyBound(t *testing.T) {
 
 	for _, name := range []string{
 		"llm", "prompt", "command", "fragment", "tag", "profile",
-		"agent", "workspace", "permissions", "dry-run", "one-shot", "structured",
+		"agent", "workspace", "permissions", "dry-run", "one-shot",
 		"plain-terminal", "verbose", "yes", "session", "distill",
 		"seed-task", "seed-status",
 	} {
@@ -47,6 +47,8 @@ func TestRunCmd_EveryFlagVarIsActuallyBound(t *testing.T) {
 
 	assert.Nil(t, flags.Lookup("run-prompt"),
 		"--run-prompt was the pre-rename alias for --command and is DELETED, not deprecated (verb-spine reorg §6: no shims)")
+	assert.Nil(t, flags.Lookup("structured"),
+		"--structured is DELETED, not deprecated: it was an orphan CLI surface (no in-tree consumer, no tests, its own doc comment described a retired transport) — no shim, no alias")
 	for _, hidden := range []string{"seed-task", "seed-status"} {
 		assert.True(t, flags.Lookup(hidden).Hidden, "--%s is internal and must stay hidden", hidden)
 	}
@@ -55,15 +57,13 @@ func TestRunCmd_EveryFlagVarIsActuallyBound(t *testing.T) {
 	// throwaway address and still Lookup fine, leaving the package variable
 	// the command actually reads stuck at its zero value. Setting the flag and
 	// watching the variable move is what proves the binding.
-	savedStructured, savedOneShot, savedProfile := runStructured, runOneShot, runProfile
+	savedOneShot, savedProfile := runOneShot, runProfile
 	savedSession, savedFragments := runResumeSession, runFragments
 	t.Cleanup(func() {
-		runStructured, runOneShot, runProfile = savedStructured, savedOneShot, savedProfile
+		runOneShot, runProfile = savedOneShot, savedProfile
 		runResumeSession, runFragments = savedSession, savedFragments
 	})
 
-	require.NoError(t, flags.Set("structured", "true"))
-	assert.True(t, runStructured, "--structured must write through to runStructured")
 	require.NoError(t, flags.Set("one-shot", "true"))
 	assert.True(t, runOneShot, "--one-shot must write through to runOneShot")
 	require.NoError(t, flags.Set("profile", "reviewer"))

@@ -202,7 +202,7 @@ plugin-list:
 
 # Build with verbose output (local, for debugging)
 build-verbose:
-    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -v -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
 
 # Regenerate the published JSON Schemas for ctxloom's JSON output into the
 # gitignored resources/schema/gen/ by reflecting their producing Go structs.
@@ -1238,7 +1238,7 @@ complexity-baseline-update: dev-image
 run *ARGS:
     #!/usr/bin/env bash
     set -euo pipefail
-    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" -o ctxloom ./cmd/ctxloom
+    go build -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" -o ctxloom ./cmd/ctxloom
     exec ./ctxloom {{ARGS}}
 
 # Build, compress, and install all three binaries to ~/go/bin (standard Go
@@ -1421,7 +1421,7 @@ container-build-minimal:
     ctx=$(mktemp -d)
     trap 'rm -rf "$ctx"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o "$ctx/ctxloom" ./cmd/ctxloom
     cp container/minimal/Containerfile "$ctx/Containerfile"
     {{container_cmd}} build -t ctxloom-agent:latest -f "$ctx/Containerfile" "$ctx"
@@ -1458,7 +1458,7 @@ _container-build-via-cli backend *engines:
     bin="./ctxloom-build-tmp-$$"
     trap 'rm -f "$bin"' EXIT
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOWORK=off go build \
-        -ldflags "-X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -ldflags "-X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o "$bin" ./cmd/ctxloom
     args=(container build {{backend}} --no-devcontainer-base)
     if [ -n "{{engines}}" ]; then args+=(--engines "{{engines}}"); fi

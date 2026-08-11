@@ -30,7 +30,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
 
   # Full build - includes memory, vectors, and tree-sitter (31MB)
   # Requires CGO and cross-compilers. Statically linked on linux/windows (see
@@ -72,7 +72,7 @@ builds:
       - goos: windows
         goarch: arm64 # /llvm-mingw aarch64 cross-compiler unavailable in build image
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
       # Static linking for linux/windows; macOS cannot fully static-link system
       # libraries, so leave darwin dynamic.
       - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'
@@ -94,7 +94,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
 
   # UPX-compressed twin of `ctxloom-full` (see the upx: block below).
   # Linux/windows only — UPX doesn't support macOS binaries well (breaks code
@@ -134,7 +134,7 @@ builds:
       - goos: windows
         goarch: arm64 # /llvm-mingw aarch64 cross-compiler unavailable in build image
     ldflags:
-      - -s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{.Version}}
+      - -s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{.Version}}
       # Static linking for linux/windows; macOS cannot fully static-link system
       # libraries, so leave darwin dynamic.
       - '{{ if ne .Os "darwin" }}-extldflags "-static"{{ end }}'

@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
+	"github.com/ctxloom/ctxloom/internal/version"
 )
 
 // NewDocMCPServer builds an MCP server with the full tool + resource surface
@@ -41,7 +42,7 @@ func NewDocMCPServer() (server *mcp.Server, closeHome func(), err error) {
 		URL:     "http://127.0.0.1:1/mcp", // never dialed successfully; docgen only reads registrations
 		Token:   "docgen",
 		Harness: "docgen",
-		Version: Version,
+		Version: version.Version,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("docgen: dead-endpoint home: %w", err)
@@ -146,7 +147,7 @@ func ListDocMCPToolContracts(ctx context.Context) ([]DocMCPToolContract, error) 
 // parameters — and nothing could check it, so the prose could only ever be
 // verified by hand and could go stale without a single test noticing.
 func NewStandaloneMCPServer() *mcp.Server {
-	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: Version}, nil)
+	server := mcp.NewServer(&mcp.Implementation{Name: "ctxloom", Version: version.Version}, nil)
 	(&ctxServer{}).registerTools(server)
 	return server
 }

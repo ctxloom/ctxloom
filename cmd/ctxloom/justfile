@@ -10,7 +10,7 @@
 import "../../build/common.justfile"
 
 # Build ctxloom (CGO, tree-sitter) to {{TOP}}/ctxloom.
-build: (_go-build (TOP / "cmd/ctxloom") (TOP / "ctxloom") "github.com/ctxloom/ctxloom/internal/cli.Version" "treesitter" "1")
+build: (_go-build (TOP / "cmd/ctxloom") (TOP / "ctxloom") "github.com/ctxloom/ctxloom/internal/version.Version" "treesitter" "1")
 
 # Build a COVERAGE-INSTRUMENTED ctxloom to {{TOP}}/.coverbin/ctxloom.
 #
@@ -33,7 +33,7 @@ build: (_go-build (TOP / "cmd/ctxloom") (TOP / "ctxloom") "github.com/ctxloom/ct
 # acceptance suite execs ctxloom, and `go test -coverprofile` cannot follow an
 # exec. `go build -cover` + GOCOVERDIR (Go 1.20+) can. See the root
 # `test-acceptance-cover`.
-build-cover: (_go-build (TOP / "cmd/ctxloom") (TOP / ".coverbin/ctxloom") "github.com/ctxloom/ctxloom/internal/cli.Version" "treesitter" "1" "-cover")
+build-cover: (_go-build (TOP / "cmd/ctxloom") (TOP / ".coverbin/ctxloom") "github.com/ctxloom/ctxloom/internal/version.Version" "treesitter" "1" "-cover")
 
 # Compress the built ctxloom binary with UPX.
 compress: (_compress (TOP / "ctxloom"))

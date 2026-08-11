@@ -13,6 +13,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/version"
 )
 
 // runnerStandup is the shared result of standUpRunner: the dialed-home runner's
@@ -244,7 +245,7 @@ func consumeCoordinatorReachBack(backendName string, getenv func(string) string,
 			Token:   getenv(coord.EnvCoordCred),
 			RunID:   getenv(coord.EnvRunID),
 			Harness: backendName,
-			Version: Version,
+			Version: version.Version,
 		},
 		harp:        getenv("CTXLOOM_SESSION_HARP"),
 		cellWorkDir: getenv(coord.EnvCellWorkDir),

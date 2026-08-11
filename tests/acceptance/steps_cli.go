@@ -210,7 +210,7 @@ func lastOutputJSONArray(w *World, key string) ([]any, error) {
 
 // versionStampRE is the shape a ctxloom version string can legitimately take:
 // the ldflags-stamped family stamp (`v<maj.min.patch>[-<sha>-<utc>]`), or the
-// literal "dev" an unstamped `go build` leaves in internal/cli.Version. Any
+// literal "dev" an unstamped `go build` leaves in internal/version.Version. Any
 // other text — notably a rendering that forgot to print the version at all —
 // is refused. A looser pattern is worthless here: `matches "."` accepts one
 // arbitrary character, which the literal "MUTATION-not-the-version" satisfies

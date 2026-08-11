@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
+	"github.com/ctxloom/ctxloom/internal/version"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -47,7 +48,7 @@ func TestVersion_TextEmitsANonEmptyVersionPayload(t *testing.T) {
 	got := runVersionCmd(t, "text")
 	assert.NotEmpty(t, strings.TrimSpace(got),
 		"`ctxloom version` must not print a bare newline and exit 0")
-	assert.Equal(t, Version, strings.TrimSpace(got))
+	assert.Equal(t, version.Version, strings.TrimSpace(got))
 }
 
 // TestVersion_UnknownFormatIsRejectedByTheSharedVocabulary pins its subject:

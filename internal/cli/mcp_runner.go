@@ -31,6 +31,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
+	"github.com/ctxloom/ctxloom/internal/version"
 )
 
 // RUNNER-TERMINATED MCP (agentcoord B1.6): the runner (`ctxloom llm serve`)
@@ -259,7 +260,7 @@ func resolveCellWorkDir(cellWorkDir string) string {
 func newRunnerMCPServer(cfg *config.Config, harp string, home *coord.Home, leaf bool, cellWorkDir string) (*mcp.Server, error) {
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
-		Version: Version,
+		Version: version.Version,
 	}, &mcp.ServerOptions{Instructions: sessionInstructions(harp)})
 
 	routes := mcpschema.Routes()

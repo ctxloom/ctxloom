@@ -11,37 +11,36 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
-// TestStartOwnedRun_ApprovalGuardRejectsInstantly_PinsDefect pins TODAY's
-// actual behaviour of an owner-owned run's approval flow, ahead of the
-// human-approval-surface change described in
-// ~/.ctxloom/sessions/ugly-icy-squid/approval-surface.plan.md ("case (B): the
-// owned run that is INSTANTLY REJECTED").
+// TestStartOwnedRun_ApprovalGuardCancels covers an owner-owned run's approval
+// flow at the !caller.IsChild() guard.
 //
-// THIS TEST DELIBERATELY PINS A DEFECT, not a feature. An owned run's
-// stamped Depth equals the OWNER's own depth (0 — see StartOwnedRun's own
-// doc comment on why), so Identity.IsChild() is FALSE for its own
-// credential. serveApproval's very first statement (approval.go) refuses
-// any !caller.IsChild() caller with codes.PermissionDenied — BEFORE it looks
-// up the run record, BEFORE it walks the escalation ladder, and BEFORE its
-// first c.audit call. EngineHost.resolveApproval (enginehost.go) then maps
-// that non-OK status to decision == nil, and pickPermissionOption(options,
-// false) silently picks a reject_once option — so the engine is told "the
-// user refused", though no human, no ladder rung, and no audit entry were
-// ever actually involved. The plan-preset ladder attached to this run would
-// normally RELAY a COMMAND_EXECUTION request to the parent (proven by
-// TestApproval_RelayRoundTrip for a delegated child) — it never gets the
-// chance here.
+// An owned run's stamped Depth equals the OWNER's own depth (0 — see
+// StartOwnedRun's own doc comment on why), so Identity.IsChild() is FALSE for
+// its own credential. serveApproval's very first statement (approval.go)
+// refuses any !caller.IsChild() caller with codes.PermissionDenied — BEFORE
+// it looks up the run record, BEFORE it walks the escalation ladder, and
+// BEFORE its first c.audit call. EngineHost.resolveApproval (enginehost.go)
+// maps that non-OK status to decision == nil: no human, no ladder rung and no
+// audit entry were ever involved, so NOBODY DECIDED.
 //
-// Assertions 2 and 3 below PASSING is the bug, captured: an approval that
-// never touched the audit journal and never reached the parent's mailbox,
-// despite silently determining the run's behaviour. A future fix is
-// expected to flip at least one of them (most plausibly by making case (B)
-// refuse loudly at startup instead of silently declining every approval —
-// see the plan's "DECIDED 2026-08-11" section — or by giving the guard's
-// affected path a real ladder walk). If a later change flips these
-// assertions, that is progress, not a broken test — update/replace this
-// test in the same change and explain why in the commit.
-func TestStartOwnedRun_ApprovalGuardRejectsInstantly_PinsDefect(t *testing.T) {
+// Assertion 1 is wiry-judge's fix, and this test was written to pin the
+// defect it replaces: resolveApproval used to run pickPermissionOption(
+// options, false) on this path and answer "reject-1", which claude-code-acp
+// renders to the model — and to the durable transcript — as
+// {behavior:"deny", message:"User refused permission to run tool"}. ctxloom's
+// own refusal, falsely attributed to the operator. The engine is now told the
+// request was CANCELLED (empty OptionID -> ACP {outcome:"cancelled"}), which
+// is the honest report of "nobody answered".
+//
+// Assertions 2 and 3 still pin a REAL, UNFIXED GAP, deliberately: this
+// approval never touched the audit journal and never reached the parent's
+// mailbox, though it determined the run's behaviour — a security-relevant
+// silent gap. wiry-judge only made the ANSWER honest; giving the guard's
+// affected path a real ladder walk (or refusing loudly at startup) is still
+// open. If a later change flips assertion 2 or 3, that is progress, not a
+// broken test — update this test in the same change and explain why in the
+// commit.
+func TestStartOwnedRun_ApprovalGuardCancels(t *testing.T) {
 	sp := newFakeSpawner(nil, nil)
 	c := newTestCoordinator(t, sp, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -77,16 +76,16 @@ func TestStartOwnedRun_ApprovalGuardRejectsInstantly_PinsDefect(t *testing.T) {
 	require.True(t, *started, "StartOwnedRun must launch the runner via the starter")
 	require.NotEmpty(t, outcome.RunID)
 
-	// 1. The engine receives the REJECT option — read straight off the
-	// scripted chat's recorded answers — though no human and no ladder rung
-	// ever decided anything.
+	// 1. The engine receives a CANCEL — no option at all — read straight off
+	// the scripted chat's recorded answers: no human and no ladder rung ever
+	// decided anything, so nothing may be reported as a decision.
 	require.Eventually(t, func() bool {
 		return len(sc.recordedAnswers()) == 1
-	}, 10*time.Second, 20*time.Millisecond, "the guard's synthetic denial must still answer the engine's permission request")
+	}, 10*time.Second, 20*time.Millisecond, "the guard's refusal must still answer the engine's permission request — never a hang")
 	ans := sc.recordedAnswers()[0]
 	assert.Equal(t, "perm-1", ans.ID)
-	assert.Equal(t, "reject-1", ans.OptionID,
-		"PINNED DEFECT: the engine is told the user refused, though the !caller.IsChild() guard fired before any ladder rung ran")
+	assert.Empty(t, ans.OptionID,
+		"the !caller.IsChild() guard fired before any ladder rung ran, so the engine is told CANCELLED — never that the user refused")
 
 	// 2. PINNED DEFECT: the approval audit journal is EMPTY for this
 	// attempt. serveApproval returns above the ladder's `for i, rung :=

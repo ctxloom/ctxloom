@@ -228,12 +228,23 @@ func TestApproval_RelayRoundTrip_BackendParity(t *testing.T) {
 	}
 }
 
-// TestApproval_TimeoutFallsThroughToDecline pins the fallback chain: a
+// TestApproval_TimeoutFallsThroughToCancel pins the fallback chain: a
 // relay_to_role rung whose parent never answers times out, and — with
-// nothing left in the ladder to catch it — bottoms at DECLINE. The audit
-// journal shows both hops: "timed_out" on the relay rung, then "denied" at
-// the bottom.
-func TestApproval_TimeoutFallsThroughToDecline(t *testing.T) {
+// nothing left in the ladder to catch it — bottoms at CANCEL. The audit
+// journal shows both hops: "timed_out" on the relay rung, then "cancelled"
+// at the bottom.
+//
+// CANCEL, not DECLINE (wiry-judge): reaching the bottom means NO rung
+// resolved — every one of them timed out or failed. Nobody decided anything,
+// so the engine is told the request was cancelled. A DECLINE here was
+// ctxloom's own refusal wearing the operator's face: claude-code-acp renders
+// a reject_once option as {behavior:"deny", message:"User refused permission
+// to run tool"} into the model's durable transcript. A rung that genuinely
+// declines (auto_decline, or a human/parent answering DECISION_DECLINE) is a
+// different fact and still says "refused" — see
+// TestApproval_PlanPresetAutoDeclinesFileChange and
+// TestApproval_SurfaceToHumanTimeout, which pin that boundary.
+func TestApproval_TimeoutFallsThroughToCancel(t *testing.T) {
 	resetStrictness(t)
 	permReq := commandExecRequest("perm-timeout")
 	ladder := Ladder{{Action: ActionRelayToRole, Role: ParentAddress, Timeout: 50 * time.Millisecond}}
@@ -255,14 +266,16 @@ func TestApproval_TimeoutFallsThroughToDecline(t *testing.T) {
 		return sc != nil && len(sc.recordedAnswers()) == 1
 	}, conformanceWait, 10*time.Millisecond, "the ladder must eventually answer, even with no reply")
 	ans := sp.chat(0).recordedAnswers()[0]
-	assert.Equal(t, "reject-1", ans.OptionID, "bottoming at DECLINE picks a reject option")
+	assert.Empty(t, ans.OptionID,
+		"bottoming with nobody having decided picks NO option — the engine's cancelled no-op, not a reject option that reads as the operator's refusal")
 
 	entries := readApprovalAudit(t, c)
-	require.Len(t, entries, 2, "one timed_out hop, then the bottom DECLINE")
+	require.Len(t, entries, 2, "one timed_out hop, then the bottom CANCEL")
 	assert.Equal(t, "timed_out", entries[0].Detail["resolution"])
 	assert.Equal(t, "relay_to_role", entries[0].Detail["action"])
 	assert.Equal(t, "bottom", entries[1].Detail["rung"])
-	assert.Equal(t, "denied", entries[1].Detail["resolution"])
+	assert.Equal(t, "cancelled", entries[1].Detail["resolution"],
+		"the audit journal must say what the engine was actually told")
 }
 
 // TestApproval_AcceptForSessionSuppressesSecondAsk pins ACCEPT_FOR_SESSION

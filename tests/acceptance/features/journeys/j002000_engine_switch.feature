@@ -57,39 +57,23 @@ Feature: Engine switch day
     Then the binding on disk names the new engine, and so does what ctxloom reports
     And the same guidance reaches the new engine's own surface, unchanged
 
-  # A VALIDATION GAP, at the exact moment it does the most damage — and the
-  # MEASURED shape of it is more interesting than the reported one. The prior
-  # finding was "`manage install --engine <unknown>` exits 0". Against an
-  # already-initialized project it does not: it exits non-zero, saying
-  # ".ctxloom already exists, and the engine is only recorded while scaffolding
-  # it", and points at `ctxloom llm default`.
+  # FOLDED (Phase 3, D-row not previously numbered): "manage install --engine
+  # <unknown>" used to have its own scenario here too, but cli/manage.feature's
+  # "A misspelled engine is refused by name, and nothing is scaffolded" already
+  # covers the identical claim with a STRONGER assertion — it checks that
+  # .ctxloom/config.yaml and .mcp.json were never written, not just that the
+  # error message named the engines. Nothing here was worth moving down; the
+  # duplicate scenario is deleted and the noun's own spec is where that leaf's
+  # coverage lives now. What remains below is the validation gap
+  # cli/manage.feature does NOT cover: the same mistake one layer up, at the
+  # `agent edit --llm` binding.
   #
-  # That refusal is INCIDENTAL. It rejects the invocation for a reason that has
-  # nothing to do with the engine name, so the one thing it never tells a user
-  # typing an engine name they have never typed before is that they typed it
-  # wrong. Feed it a perfectly valid engine and you get the same message. On
-  # migration day, when every engine name in play is unfamiliar, the error that
-  # fires is about directory state.
-  #
-  # UNTAGGED: `manage install --engine` now validates the argument BEFORE the
-  # already-exists check gets a chance to fire, so a typo is diagnosed as a
-  # typo even against an already-initialized project. The check lives in
-  # cli.checkEngineKnown (internal/cli/manage.go) and runs ahead of
-  # checkInstallEngineApplies. Its roster is backends.List(), not
-  # operations.AvailableLLMNames — unlike `agent edit --llm`, this flag
-  # ends up as the TYPE of a real `{type: engine}` LM config entry
-  # (operations.engineRegistry/fallbackRegistry) when scaffolding, so it needs
-  # no project config and applies identically whether or not .ctxloom exists
-  # yet, the same set InitializeProject already enforces via backends.Exists
-  # for the fresh-scaffold path.
-  Scenario: A typo in the engine name is caught, not reported as success
-    When I run "ctxloom manage install --engine bogus-engine"
-    Then ctxloom refuses and names the engines it knows
-
   # The same validation question one layer up, at the binding. The two commands
   # take the same kind of argument on the same day and are asserted separately,
   # because they are separate code paths and a fix to one says nothing about
-  # the other.
+  # the other. cli/agent.feature explicitly defers this leaf's `--llm`
+  # validation coverage here rather than duplicating it (see its own "create
+  # and edit are NOT an upsert" Rule comment).
   #
   # MEASURED: RED, and worse than the command above. `ctxloom agent edit dev
   # --engine bogus-engine` exits 0 and WRITES the nonexistent engine into the
@@ -106,7 +90,10 @@ Feature: Engine switch day
   # because an agent's engine is a LABEL and `--engine claude-fast` is one of
   # this command's own documented examples.
   Scenario: Binding an agent to an engine that does not exist is refused
-    When I run "ctxloom agent edit dev --llm bogus-engine"
+    When Alice types an engine name that does not exist while swapping the binding:
+      """
+      ctxloom agent edit dev --llm bogus-engine
+      """
     Then ctxloom refuses and names the engines it knows
 
   # THE PORTABILITY PAYOFF, and the reason owning a canonical transcript is

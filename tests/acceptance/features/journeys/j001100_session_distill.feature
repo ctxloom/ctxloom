@@ -44,7 +44,10 @@ Feature: Plain `session distill` drives a real transcript through the distiller 
 
   Scenario: Plain session distill sends the real transcript to the distiller and persists what comes back
     Given the mock distiller is configured to respond "J001100-DISTILLED-BODY-PERSISTED: the decision was to cache by ETag"
-    When I run "ctxloom session distill quiet-ember-forge"
+    When Alice distills the session she just left:
+      """
+      ctxloom session distill quiet-ember-forge
+      """
     Then the command succeeds
     And the mock recorded input contains "J001100-TRANSCRIPT-REACHED-DISTILLER"
     And the persisted essence for "quiet-ember-forge" contains "J001100-DISTILLED-BODY-PERSISTED: the decision was to cache by ETag"

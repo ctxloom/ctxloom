@@ -706,11 +706,14 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	// finds a canonical file already present, reads it, and returns a session
 	// frozen at the first recovery — complete-looking, confidently wrong, and
 	// indistinguishable from a working recovery by anything downstream.
+	refreshFailed := false
 	if policy.LiveTranscript {
-		if harp, _ := operations.HarpForSession(sessionID); harp != "" {
+		if harp := sessionHarpForID(sessionID); harp != "" {
 			if _, herr := healCanonicalTranscript(ctx, harp, true); herr != nil {
 				// The stored transcript may still be readable; a refresh failure
-				// costs freshness, not the recovery.
+				// costs freshness, not the recovery. It does cost the right to
+				// call the cached essence current, though — see the cache branch.
+				refreshFailed = true
 				clidiag.Warn("ctxloom", "refresh canonical transcript for %s: %v", harp, herr)
 			}
 		}
@@ -759,7 +762,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	// (~/.ctxloom/sessions/<harp>/) are read for the RIGHT session — not the
 	// active one — when distilling a previous or cross-agent session, and so the
 	// staleness check stats the harp's bound transcript.
-	harp, _ := operations.HarpForSession(sessionID)
+	harp := sessionHarpForID(sessionID)
 	transcriptPath := ""
 	if harp != "" {
 		if entry, _ := operations.GetSession(harp); entry != nil {
@@ -787,10 +790,17 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	if cached, stampedSize := loadCachedDistilledSession(sessionsDir, sessionID); cached != nil {
 		stale, known := sessions.TranscriptStale(transcriptPath, stampedSize)
 		withinBound := len(cached.Content) <= memory.MaxEssenceChars
-		if withinBound && ((known && !stale) || (!known && !policy.RedistillWhenUnknown)) {
+		// A live refresh that FAILED forfeits the cache hit. The size the
+		// essence is being compared against was measured on a canonical
+		// transcript this call could not bring up to date, so "the transcript
+		// hasn't moved" describes the stale copy, not the session — and
+		// answering was_cached=true off it is a recovery that silently covers
+		// only whatever slice the last successful refresh captured.
+		if withinBound && !refreshFailed && ((known && !stale) || (!known && !policy.RedistillWhenUnknown)) {
 			return nil, cached, nil
 		}
-		// stale, oversized, or indeterminate with a re-distill bias: fall through.
+		// stale, oversized, unrefreshable, or indeterminate with a re-distill
+		// bias: fall through.
 	}
 
 	// workDir (resolved above) feeds CompactionConfig for compatibility; the
@@ -843,6 +853,39 @@ func noCaptureMessage(sessionID, harp string, readErr, convertErr error) string 
 			"transcript reader in ctxloom, or its transcript is not where the session "+
 			"index records it.",
 		sessionID, harp, readErr)
+}
+
+// sessionHarpForID resolves an id the session tools accept in EITHER spelling
+// — a harp, or the backend-native session id bound to one — to the harp that
+// owns it, or "" when it names neither.
+//
+// grpc.CanonicalFallbackSource.GetSession already resolves both spellings, so
+// every id-keyed lookup standing beside it has to as well. Resolving only the
+// backend-native spelling (operations.HarpForSession, which matches on
+// Entry.SessionID and cannot match a harp) meant a HARP-addressed call found no
+// harp at all — and a harp is exactly what the callers hand over:
+// transcript.CanonicalHistory.ListSessions sets meta.ID to the harp, and
+// `memory list` prints it, so `memory show <that value>` and recover's own
+// mtime fallback both arrive here spelled as a harp.
+//
+// Two things then failed, silently and in opposite directions. The live
+// refresh above was skipped, so a still-growing session was served from a
+// canonical transcript nobody re-read. And transcriptPath below stayed empty,
+// which makes TranscriptStale report "can't tell" — under policyArchived's
+// RedistillWhenUnknown=false that is a permanent cache hit, so an archived
+// session's essence could never be detected as out of date at all.
+func sessionHarpForID(id string) string {
+	if id == "" {
+		return ""
+	}
+	// Harp-first, matching CanonicalFallbackSource.GetSession's own ordering:
+	// harps are ctxloom's three-word names and backend ids are engine-native
+	// UUIDs, so the two never collide and the cheap direct lookup is safe.
+	if entry, _ := operations.GetSession(id); entry != nil {
+		return id
+	}
+	harp, _ := operations.HarpForSession(id)
+	return harp
 }
 
 // loadCachedDistilledSession returns a result from an already-distilled session

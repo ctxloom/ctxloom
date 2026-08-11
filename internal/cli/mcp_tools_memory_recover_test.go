@@ -139,6 +139,109 @@ func TestLoadOrDistillSession_LiveRefreshesAnAlreadyConvertedTranscript(t *testi
 		"the turns added since the first recovery must be in the transcript the second one reads")
 }
 
+// TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp is the same live
+// refresh as above, reached by the OTHER spelling of the same session — and it
+// did not happen at all.
+//
+// The refresh was gated on operations.HarpForSession, which matches on
+// Entry.SessionID and so only ever resolves a backend-native id. A harp
+// arriving instead resolved to "", the gate closed, and the whole pre-read
+// refresh was skipped in silence. That is not an exotic call shape: it is what
+// the callers actually hand over, since transcript.CanonicalHistory.ListSessions
+// sets meta.ID to the harp and recover's own mtime fallback picks its target
+// out of exactly that list.
+//
+// Asserted on the canonical transcript's bytes, never on out.WasCached: the
+// failure mode here is a recovery that reports success while serving a
+// transcript nobody re-read, so the tool's own account of what it did is the
+// one thing that cannot be used as evidence.
+func TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	projectDir := t.TempDir()
+	entry, err := mgr.AssignHarp(projectDir, "claude-code")
+	require.NoError(t, err)
+	harp := entry.HarpName
+
+	full, err := os.ReadFile(claudeVendorFixture())
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimRight(string(full), "\n"), "\n")
+	require.Greater(t, len(lines), 4)
+	vendorPath := filepath.Join(t.TempDir(), "live-transcript.jsonl")
+	require.NoError(t, os.WriteFile(vendorPath, []byte(strings.Join(lines[:len(lines)/2], "\n")+"\n"), 0o644))
+
+	const vendorSessionID = "9b7e1c04-2f55-4d8a-a0c6-7e3b1d92f4aa"
+	require.NotEqual(t, harp, vendorSessionID)
+	require.NoError(t, mgr.BindSession(harp, vendorSessionID, vendorPath))
+	require.NoError(t, mgr.RecordEngineVersion(harp, "2.1.225"))
+
+	s := &ctxServer{
+		cfg:              config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")}),
+		compactorFactory: fixedCompactor(harp, "Distilled: first look."),
+	}
+
+	// Addressed by HARP throughout — the spelling the gate could not resolve.
+	_, first, err := s.loadOrDistillSession(context.Background(), harp, "claude-code", "", policyLive)
+	require.NoError(t, err)
+	require.True(t, first.Loaded)
+	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	afterFirst, err := os.ReadFile(canonPath)
+	require.NoError(t, err)
+
+	require.NoError(t, os.WriteFile(vendorPath, full, 0o644))
+
+	_, second, err := s.loadOrDistillSession(context.Background(), harp, "claude-code", "", policyLive)
+	require.NoError(t, err)
+	require.True(t, second.Loaded)
+	afterSecond, err := os.ReadFile(canonPath)
+	require.NoError(t, err)
+
+	assert.Greater(t, len(afterSecond), len(afterFirst),
+		"a harp-addressed live recovery must re-read the engine's store too, not just a UUID-addressed one")
+	assert.Contains(t, string(afterSecond), "[Request interrupted by user for tool use]",
+		"the turns added since the first recovery must reach the transcript the second one reads")
+}
+
+// TestSessionHarpForID pins the resolver both live recovery and the staleness
+// fingerprint depend on: it must answer for a harp AND for the backend-native
+// session id bound to it, because grpc.CanonicalFallbackSource.GetSession
+// accepts both and every lookup standing beside it has to agree.
+func TestSessionHarpForID(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	// The project must be the working directory: operations.HarpForSession
+	// resolves the backend-native spelling through the PROJECT-SCOPED listing,
+	// while the harp spelling resolves through an unscoped Find. That asymmetry
+	// is real and outlives this test — see the note on sessionHarpForID.
+	cwd, err := os.Getwd()
+	require.NoError(t, err)
+	entry, err := mgr.AssignHarp(cwd, "claude-code")
+	require.NoError(t, err)
+	harp := entry.HarpName
+
+	// A transcript that EXISTS: operations.ListSessions drops an entry whose
+	// bound transcript is gone and which has no essence (isUnrecoverable), and
+	// a dropped entry resolves to no harp for a reason that has nothing to do
+	// with the spelling under test.
+	vendorPath := filepath.Join(t.TempDir(), "live.jsonl")
+	require.NoError(t, os.WriteFile(vendorPath, []byte("{}\n"), 0o644))
+
+	const vendorSessionID = "1a4c9d77-8e21-4b6f-95c3-0af2e6b81d34"
+	require.NoError(t, mgr.BindSession(harp, vendorSessionID, vendorPath))
+
+	assert.Equal(t, harp, sessionHarpForID(harp),
+		"a harp is what CanonicalHistory.ListSessions and `memory list` hand back; it must resolve")
+	assert.Equal(t, harp, sessionHarpForID(vendorSessionID),
+		"the backend-native spelling must keep resolving")
+	assert.Empty(t, sessionHarpForID("neither-a-harp-nor-a-bound-id"))
+	assert.Empty(t, sessionHarpForID(""))
+}
+
 // TestLoadOrDistillSession_ArchivedAlsoConvertsOnDemand covers the SIBLING
 // tools — load_session and get_previous_session — which hit the same wall as
 // /recover: an interactive session they were asked to open has no canonical

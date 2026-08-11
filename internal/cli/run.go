@@ -1159,6 +1159,11 @@ func (st *runState) warnPermissionCollapse() {
 	}
 }
 
+// warnPlanOneshotCancels is a placeholder pending the real condition (task
+// shifty-scroll, red-first checkpoint).
+func (st *runState) warnPlanOneshotCancels() {
+}
+
 // warnHostBypassStopgap surfaces the claude-code host-bypass stopgap: blanket
 // auto-approval on the bare host. It's the default path, so surface it only
 // under -v to avoid warning fatigue while still making the posture

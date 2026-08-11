@@ -22,7 +22,7 @@ explicit entry.
 Only the flags you pass are applied; every unnamed field keeps its current
 value.
 
---type is the backend discriminator (claude-code|antigravity|codex|...);
+--type is the backend discriminator (claude-code|codex|kiro|...);
 omit it to keep claude-code's default. --model sets the model string. --permissions
 sets the launch-time posture (default|acceptEdits|plan|bypass).
 
@@ -51,7 +51,7 @@ ctxloom llm edit <label> [flags]
       --env-file string      read KEY=VALUE env/credential lines from this file ('-' for stdin); REPLACES the entry's whole env block
       --model string         model string
       --permissions string   permission posture: default|acceptEdits|plan|bypass
-      --type string          backend discriminator: claude-code|antigravity|codex|... (empty = claude-code)
+      --type string          backend discriminator: claude-code|codex|kiro|... (empty = claude-code)
 ```
 
 ### Options inherited from parent commands

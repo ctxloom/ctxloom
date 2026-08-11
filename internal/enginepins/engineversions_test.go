@@ -8,7 +8,7 @@
 //
 // engine-versions.env pins the last-known-good CLI version per engine that
 // ctxloom's reader (internal/transcript/vendorreader/{codex,claude,
-// antigravity,kiro}) has been validated against. It is deliberately NOT
+// kiro}) has been validated against. It is deliberately NOT
 // folded into .devcontainer/tool-versions.env / buildpins: that file pins
 // build/codegen tooling baked into the devcontainer image, and engine CLIs
 // are neither installed there nor part of that build contract (self-healing
@@ -58,8 +58,8 @@ func parseEngineVersionsEnv(t *testing.T, path string) map[string]string {
 }
 
 // TestEngineVersionsEnvIsWellFormed sanity-checks the lock file itself:
-// every value looks like a semver, and the four engines the self-healing
-// pipeline plan names (codex, claude-code, antigravity, kiro) are all
+// every value looks like a semver, and the three engines the self-healing
+// pipeline plan names (codex, claude-code, kiro) are all
 // present. A missing or malformed entry here would make every other test in
 // this package vacuously pass.
 func TestEngineVersionsEnvIsWellFormed(t *testing.T) {
@@ -68,7 +68,6 @@ func TestEngineVersionsEnvIsWellFormed(t *testing.T) {
 	wantKeys := []string{
 		"CODEX_CLI_VERSION",
 		"CLAUDE_CODE_CLI_VERSION",
-		"ANTIGRAVITY_CLI_VERSION",
 		"KIRO_CLI_VERSION",
 	}
 	for _, k := range wantKeys {

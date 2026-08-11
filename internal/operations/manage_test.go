@@ -43,8 +43,8 @@ func TestHarnessStatus_ReportsWiringAndAutoRegister(t *testing.T) {
 	assert.True(t, claude.StatusLine)
 	assert.True(t, claude.MCPPresent)
 
-	antigravity := backendWiring(t, res, "antigravity")
-	assert.False(t, antigravity.SettingsExists, "untouched backend reports nothing wired")
+	kiro := backendWiring(t, res, "kiro")
+	assert.False(t, kiro.SettingsExists, "untouched backend reports nothing wired")
 }
 
 func TestRemoveHooks_StripsWiring(t *testing.T) {

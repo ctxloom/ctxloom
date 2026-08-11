@@ -73,7 +73,7 @@ func TestProber_CachesUntilTheBinaryChanges(t *testing.T) {
 		"an upgraded binary must re-probe: a cache that survives the upgrade reports the OLD version and selects the OLD reader for a NEW format")
 }
 
-// An absent binary is an ordinary state of the world (kiro and antigravity are
+// An absent binary is an ordinary state of the world (kiro is
 // not installed on this project's dev host), so it gets its own type rather
 // than being folded into "something went wrong" — but it is still a REFUSAL,
 // never a version.

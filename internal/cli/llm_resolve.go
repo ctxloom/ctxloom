@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
@@ -37,14 +36,15 @@ func decodeBackendConfig(cfg *config.Config, label string) agent.BackendConfig {
 	bc, err := backends.DecodeLLMConfig(entry.EffectiveType(), entry.Body)
 	if err != nil {
 		clidiag.Warn("ctxloom", "LLM config %q: %v", label, err)
-		if entry.EffectiveType() == "gemini" {
-			// Removed backend with a known successor: point at the fix. The
-			// config upgrade rewrites this on load; the hint covers configs
-			// where that rewrite has not been committed yet. It rides clidiag
-			// like the line above it: that is the one channel that honours the
-			// process's structured-diagnostics wire shape and the TUI's sink
-			// redirect, both of which a bare write to os.Stderr corrupts.
-			clidiag.Warn("ctxloom", "the \"gemini\" backend was replaced by \"antigravity\" (Antigravity CLI, binary agy); update the entry's type to \"antigravity\" or re-run ctxloom to apply the config upgrade")
+		if entry.EffectiveType() == "gemini" || entry.EffectiveType() == "antigravity" {
+			// Both "gemini" (the pre-v4 name) and its v4 successor
+			// "antigravity" are removed backends with no supported
+			// replacement — 0.7.0 dropped the Antigravity CLI (agy) engine
+			// entirely, not just renamed it. It rides clidiag like the line
+			// above it: that is the one channel that honours the process's
+			// structured-diagnostics wire shape and the TUI's sink redirect,
+			// both of which a bare write to os.Stderr corrupts.
+			clidiag.Warn("ctxloom", "the %q backend is not supported in this release; point this entry's type at a currently-supported engine (claude-code, codex, kiro, opencode)", entry.EffectiveType())
 		}
 		return nil
 	}
@@ -88,8 +88,6 @@ func llmEnvFor(cfg *config.Config, label string) map[string]string {
 	bc := decodeBackendConfig(cfg, label)
 	switch c := bc.(type) {
 	case *claude.ClaudeConfig:
-		return c.Env
-	case *antigravity.AntigravityConfig:
 		return c.Env
 	case *codex.CodexConfig:
 		return c.Env

@@ -836,27 +836,6 @@ func TestNewLoader_NoReadersSeesNothing(t *testing.T) {
 	assert.ErrorIs(t, lerr, errs.ErrBundleNotFound)
 }
 
-func TestAntigravityConfig_IsEnabled(t *testing.T) {
-	trueBool := true
-	falseBool := false
-
-	tests := []struct {
-		name   string
-		config AntigravityConfig
-		want   bool
-	}{
-		{"nil enabled (default true)", AntigravityConfig{}, true},
-		{"explicitly enabled", AntigravityConfig{Enabled: &trueBool}, true},
-		{"explicitly disabled", AntigravityConfig{Enabled: &falseBool}, false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, tt.config.IsEnabled())
-		})
-	}
-}
-
 func TestLoader_Find(t *testing.T) {
 	tmpDir := t.TempDir()
 

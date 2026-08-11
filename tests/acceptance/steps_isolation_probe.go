@@ -11,7 +11,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/cucumber/godog"
@@ -117,23 +116,6 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 			// KIRO_API_KEY genuinely isolates the credential store (j002200's own
 			// hermetic proof) — there is no leak to observe on this path.
 			return probeSkip("kiro", probeAxisWorktree, authPath, "KIRO_API_KEY is set, so kiro's credential store genuinely isolates on this box (per j002200's own hermetic proof) — there is no leak to demonstrate; unset KIRO_API_KEY to exercise this scenario against the subscription-only leak path")
-		}
-		return nil
-	})
-
-	ctx.Step(`^the isolation probe targets antigravity's known file-write leak$`, func(c context.Context) error {
-		w := worldFrom(c)
-		p := probeStateOf(w)
-		p.Engine, p.Axis, p.Degraded = "antigravity", probeAxisWorktree, true
-
-		// Deliberately the PLAIN decision (probeDecideAuthPath) — antigravity
-		// has no worktree-axis-specific override in probeWorktreeAuthAvailable
-		// to bypass (unlike kiro's), and no env-key path at all, so this is
-		// simply "is antigravity probeable AT ALL" (a host
-		// antigravity-cli/antigravity-oauth-token file present).
-		authPath, reason := probeDecideAuthPath("antigravity")
-		if authPath == probeAuthNone {
-			return probeSkip("antigravity", probeAxisWorktree, authPath, "no antigravity credentials at all (no host ~/.gemini/antigravity-cli/antigravity-oauth-token) — "+reason)
 		}
 		return nil
 	})
@@ -278,46 +260,6 @@ func registerIsolationProbeSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("expected kiro's known credential-store leak (global sqlite touched even under --degraded worktree isolation) but the host census was unchanged — kiro's credential store may have become genuinely isolated; see the scenario's own doc before treating this as a probe bug")
 		}
 		printProbeReport("kiro", probeAxisWorktree, res.AuthPath, res.AuthReason, "PASSED (leak confirmed)", fmt.Sprintf(": %d path(s) touched", len(res.HostDiff)))
-		return nil
-	})
-
-	ctx.Step(`^the probe confirms antigravity's global scratch directory was touched, as expected$`, func(c context.Context) error {
-		w := worldFrom(c)
-		p := probeStateOf(w)
-		res := p.Result
-		if res == nil {
-			return fmt.Errorf("isolation probe: no result recorded — the When step never ran")
-		}
-		if res.ExitCode != 0 {
-			printProbeReport("antigravity", probeAxisWorktree, res.AuthPath, res.AuthReason, "FAILED", ": --degraded run exited nonzero")
-			return fmt.Errorf("(a) response: --degraded run exited %d, want 0; output:\n%s", res.ExitCode, res.Output)
-		}
-		if !res.Scratch.TokenFound {
-			printProbeReport("antigravity", probeAxisWorktree, res.AuthPath, res.AuthReason, "FAILED", ": token file never observed")
-			return fmt.Errorf("(b) token file never observed under --degraded (checkout tree seen: %v)", res.Scratch.CheckoutTree)
-		}
-		// THE POSITIVE LEAK ASSERTION: agy's global scratch directory
-		// (~/.gemini/antigravity-cli/scratch/, under this probe's stand-in
-		// HOST home — the SAME census root credDir=".gemini" covers) is
-		// expected to be TOUCHED under --degraded worktree isolation,
-		// regardless of the curated per-agent HOME the run set up — the FACT
-		// this scenario exists to assert (curatedhome.go's package doc,
-		// a3c7b205's curatedHomeRefusal). Asserted SPECIFICALLY against the
-		// scratch path, not merely "something in HostDiff changed" — a
-		// generic non-empty diff would not distinguish this leak from some
-		// unrelated .gemini write.
-		var scratchTouched bool
-		for _, d := range res.HostDiff {
-			if strings.Contains(d, filepath.Join("antigravity-cli", "scratch")) {
-				scratchTouched = true
-				break
-			}
-		}
-		if !scratchTouched {
-			printProbeReport("antigravity", probeAxisWorktree, res.AuthPath, res.AuthReason, "FAILED", ": expected leak did not occur")
-			return fmt.Errorf("expected antigravity's known global-scratch leak (~/.gemini/antigravity-cli/scratch/ touched even under --degraded worktree isolation) but the host census shows no write there (full diff: %v) — agy's scratch write may have started honouring HOME; see the scenario's own doc before treating this as a probe bug", res.HostDiff)
-		}
-		printProbeReport("antigravity", probeAxisWorktree, res.AuthPath, res.AuthReason, "PASSED (leak confirmed)", fmt.Sprintf(": %d path(s) touched", len(res.HostDiff)))
 		return nil
 	})
 }

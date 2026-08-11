@@ -13,7 +13,7 @@ import (
 //
 //	yamlDoubleQuoted  (skillcommandshape.go) — ALWAYS quotes, escaping via
 //	                   json.Marshal, so quotes, backslashes AND control
-//	                   characters are all handled. Serves kiro/antigravity's
+//	                   characters are all handled. Serves kiro's
 //	                   SKILL.md frontmatter.
 //	EscapeYAMLString  (commandfiles.go)      — quotes CONDITIONALLY, and
 //	                   delegates the escaping itself to yamlDoubleQuoted.

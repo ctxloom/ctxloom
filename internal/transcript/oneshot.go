@@ -1,6 +1,6 @@
 // This file (oneshot.go) captures the ONE regime the ChatEvent-driven
 // Recorder/Tee (recorder.go) structurally cannot reach: a ONESHOT
-// Backend.Execute run (agy `-p`, `kiro --no-interactive`, `codex exec`)
+// Backend.Execute run (`kiro --no-interactive`, `codex exec`)
 // returns prose on stdout with no ChatEvent stream at all, so the tee at
 // GRPCClient.Chat (internal/lm/grpc/chat.go) and coord/enginehost.startRun
 // never fires for it — the structured-capture win of S2/S3 leaves this path

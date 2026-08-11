@@ -69,32 +69,6 @@ func TestRemoveSettings_AbsentFilesAreNoOp(t *testing.T) {
 	assert.False(t, exists)
 }
 
-func TestAntigravityRemoveSettings_StripsManagedPreservesUser(t *testing.T) {
-	fs := afero.NewMemMapFs()
-	const dir = "/project"
-
-	// Seed a user-owned MCP server in agy's dedicated mcp_config.json that
-	// ctxloom must not touch.
-	require.NoError(t, fs.MkdirAll(dir+"/.agents", 0755))
-	userMCP := `{"mcpServers":{"user-server":{"command":"./user-mcp"}}}`
-	require.NoError(t, afero.WriteFile(fs, dir+"/.agents/mcp_config.json", []byte(userMCP), 0644))
-
-	deliverManagedSettings(t, "antigravity", ctxloomManagedHooks(), nil, nil, true, dir, fs)
-
-	before, err := BackendStatus("antigravity", dir, WithSettingsFS(fs))
-	require.NoError(t, err)
-	require.True(t, before.HooksPresent, "ctxloom hooks should be wired")
-
-	require.NoError(t, RemoveSettings("antigravity", dir, WithSettingsFS(fs)))
-
-	after, err := BackendStatus("antigravity", dir, WithSettingsFS(fs))
-	require.NoError(t, err)
-	assert.False(t, after.Wired())
-
-	mcp := readJSON(t, fs, dir+"/.agents/mcp_config.json")
-	assert.Contains(t, mustMarshal(t, mcp), "user-server")
-}
-
 // A settings-writer failure surfaced through RemoveSettings must
 // name the backend it came from — a caller looping over multiple backends
 // (operations.RemoveHooks) cannot otherwise attribute the failure.

@@ -139,7 +139,7 @@ func TestDeliverShared_ClaudeContextConvertsToSystemPrompt_NeverHook(t *testing.
 		"only commands and skills (no SharedRealization) warn — context/mcp/settings convert silently via SharedRealization")
 }
 
-// A backend with NO SharedRealization for any surface (codex, antigravity, kiro —
+// A backend with NO SharedRealization for any surface (codex, kiro —
 // only claude has one) falls back to the loud well-known write for EVERY
 // surface: the exact warning format survives (the substrings existing assertions
 // pin: "warning:", the surface name, "shared cwd"), and the write still proceeds.

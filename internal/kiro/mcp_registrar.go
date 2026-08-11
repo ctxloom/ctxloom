@@ -17,11 +17,11 @@ import (
 // credentials: those live in a global sqlite outside every kiro home var, which
 // is why kiro's isolation spec sets HonoursVarForCreds false — see
 // internal/lm/isolation/auth.go). Both
-// scopes use the JSON "mcpServers" table shape — identical to Claude Code's
-// and Antigravity's, so this reuses the same generic byte-level helpers
+// scopes use the JSON "mcpServers" table shape — identical to Claude Code's,
+// so this reuses the same generic byte-level helpers
 // rather than the ledger-based agent.MCPFileConfig reconciler: this
 // registrar gives an external tool (taskloom manage) single-server,
-// ledger-free registration, mirroring the other three engines' registrars.
+// ledger-free registration, mirroring the other engines' registrars.
 type MCPRegistrar struct{}
 
 var _ agent.MCPRegistrar = MCPRegistrar{}

@@ -11,7 +11,7 @@ import (
 )
 
 // These cover the shared settings-writer helpers the per-agent writer modules
-// (claude/antigravity/codex) call directly. They moved here from the host backends
+// (claude/codex) call directly. They moved here from the host backends
 // package along with the helpers themselves.
 
 // TestResolveMCPCommand pins the fix at its narrowest seam: an empty

@@ -223,7 +223,7 @@ func NewCompactor(config CompactionConfig) (*Compactor, error) {
 		// outright; distillation must never block on the canonical layer.
 		//
 		// S5: config.Backend may be a retired-scraper backend
-		// (codex/kiro/antigravity/claude-code — scraper deleted outright). Such a
+		// (codex/kiro/claude-code — scraper deleted outright). Such a
 		// backend's plugin-side History() is now nil, so `reader` used as the
 		// legacy leg would only ever error; pass nil instead so
 		// CanonicalFallbackSource serves canonical-only and never makes that

@@ -163,7 +163,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     #   |-------------|---------------------------------------------|-------------|
     #   | claude-code | .claude/skills/<name>/SKILL.md              | project     |
     #   | kiro        | .kiro/skills/<name>/SKILL.md                | project     |
-    #   | antigravity | .agents/skills/<name>/SKILL.md              | project     |
     #   | opencode    | .opencode/skill/<name>/SKILL.md             | project     |
     #   | codex       | .codex/skills/<name>/SKILL.md               | cell-scoped |
     #
@@ -201,7 +200,6 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
         | engine      |
         | claude-code |
         | kiro        |
-        | antigravity |
         | opencode    |
         | codex       |
 

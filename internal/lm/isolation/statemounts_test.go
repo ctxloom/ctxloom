@@ -47,7 +47,6 @@ func TestSessionStateMounts_PerBackendStoreRoots(t *testing.T) {
 		{"claude-code", ".claude/projects"},
 		{"codex", ".codex/sessions"},
 		{"kiro", ".kiro"},
-		{"antigravity", ".gemini/antigravity-cli/brain"},
 		{"unmapped-backend", ".claude/projects"}, // default profile is claude-oriented
 	}
 	for _, tt := range tests {

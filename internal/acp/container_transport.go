@@ -25,23 +25,24 @@ import (
 // silently leaving a containerized engine with no MCP surface.
 const mcpSocketEnvVar = "CTXLOOM_MCP_SOCKET"
 
-// containerProfileBackend maps ACPConfig.AgentEngine's kiro/claude/codex/agy
+// containerProfileBackend maps ACPConfig.AgentEngine's kiro/claude/codex
 // vocabulary (see its doc comment above) onto isolation's container-profile
-// backend-registry keys ("claude-code" / "kiro" / "codex" / "opencode" /
-// "antigravity" — see internal/lm/isolation/profile.go's containerProfileFor
-// doc): the two vocabularies were never unified. Names already shared
-// between them (kiro, codex, opencode) pass through unchanged; an
-// unrecognized/empty engine name ALSO passes through unchanged —
-// containerProfileFor treats an unrecognized key as its default
-// (claude-oriented) profile, the same fallback an unconfigured agent_engine
-// gets elsewhere in this driver (chatArgv's --agent-engine is likewise
-// only-appended-when-set).
+// backend-registry keys ("claude-code" / "kiro" / "codex" / "opencode" —
+// see internal/lm/isolation/profile.go's containerProfileFor doc): the two
+// vocabularies were never unified. Names already shared between them (kiro,
+// codex, opencode) pass through unchanged; an unrecognized/empty engine name
+// ALSO passes through unchanged — containerProfileFor treats an
+// unrecognized key as its default (claude-oriented) profile, the same
+// fallback an unconfigured agent_engine gets elsewhere in this driver
+// (chatArgv's --agent-engine is likewise only-appended-when-set). "agy" is
+// one such unrecognized name post-0.7.0: antigravity's own container profile
+// was removed with the engine, so it now falls through to the same default
+// every other unmapped name gets, rather than routing to a profile that no
+// longer exists.
 func containerProfileBackend(agentEngine string) string {
 	switch strings.ToLower(agentEngine) {
 	case claudeEngineName:
 		return "claude-code"
-	case "agy":
-		return "antigravity"
 	default:
 		return agentEngine
 	}

@@ -8,7 +8,7 @@
 //
 // SAFETY (the single load-bearing property of every step in this file):
 // config.yaml names a REAL registered backend type (claude-code/codex/kiro/
-// antigravity/opencode), which drives isolation.Prepare exactly as a live
+// opencode), which drives isolation.Prepare exactly as a live
 // run would — but PATH is rebuilt FROM SCRATCH to "<spy dir>:/usr/bin:/bin"
 // for the duration of the run (isoMatrixSanitizedPATH), never merely
 // prepended to the inherited PATH. That distinction is load-bearing: an
@@ -18,7 +18,7 @@
 // binary elsewhere on the developer's PATH and made a real (if cheap)
 // completion call — discovered by hand while building this file, not by a
 // gate. Rebuilding PATH from scratch instead means the literal binary name
-// a backend execs ("claude"/"codex"/"kiro-cli"/"agy"/"opencode") resolves
+// a backend execs ("claude"/"codex"/"kiro-cli"/"opencode") resolves
 // ONLY to the recording script this file writes, or to nothing at all
 // (ENOENT) — never to a real installed engine. No scenario in this file
 // makes a network call or touches a real credential.
@@ -29,8 +29,7 @@
 // allowlist closes) out of what a real engine process would receive, per
 // internal/shared/agent/base.go's BuildEnv (os.Environ() of the plugin
 // subprocess + the backend's own env + the request env) — plus a `cat` of
-// whatever credential file its own env vars point it at, and (for
-// antigravity) a resolved listing of its curated $HOME. This is captured
+// whatever credential file its own env vars point it at. This is captured
 // from INSIDE the spawned process because the
 // per-agent scratch config-home does NOT survive past the run: Cleanup
 // removes it unconditionally once the run exits (confirmed by hand — a
@@ -137,10 +136,6 @@ out="$CTXLOOM_ISOSPY_OUT"
   [ -n "$CLAUDE_CONFIG_DIR" ] && cat "$CLAUDE_CONFIG_DIR/.credentials.json" 2>/dev/null
   echo "===CODEX_HOME_CREDS==="
   [ -n "$CODEX_HOME" ] && cat "$CODEX_HOME/auth.json" 2>/dev/null
-  echo "===GITCONFIG_RESOLVED==="
-  [ -n "$HOME" ] && readlink -f "$HOME/.gitconfig" 2>/dev/null
-  echo "===SSH_RESOLVED==="
-  [ -n "$HOME" ] && readlink -f "$HOME/.ssh" 2>/dev/null
 } > "$out" 2>/dev/null
 echo '{"result":"ctxloom-isolation-matrix-spy","modelUsage":{"m":{"inputTokens":1,"outputTokens":1}}}'
 exit 0
@@ -154,7 +149,7 @@ const isoFixtureCredMarker = "ISO-MATRIX-FIXTURE-CREDENTIAL-NOT-A-REAL-SECRET"
 
 // isoBinaryNames maps a scenario's engine token to the literal binary
 // name(s) that engine's backend execs (internal/{claude,codex,kiro,
-// antigravity,opencode}/backend.go's BinaryPath defaults) — the name(s) the
+// opencode}/backend.go's BinaryPath defaults) — the name(s) the
 // spy script must answer to on the sanitized PATH.
 func isoBinaryNames(engine string) ([]string, error) {
 	switch engine {
@@ -164,8 +159,6 @@ func isoBinaryNames(engine string) ([]string, error) {
 		return []string{"codex"}, nil
 	case "kiro":
 		return []string{"kiro-cli"}, nil
-	case "antigravity":
-		return []string{"agy"}, nil
 	case "opencode":
 		return []string{"opencode"}, nil
 	default:
@@ -175,8 +168,7 @@ func isoBinaryNames(engine string) ([]string, error) {
 
 // isoAPIKeyEnvVar maps an engine to the env var whose presence bypasses
 // credential seeding (auth.go's credentialSeedSpecs[...].envTrigger /
-// kiroAuthEnvVars). Antigravity has none — HOME is its only lever and it
-// carries no API-key bypass at all (curatedhome.go).
+// kiroAuthEnvVars).
 func isoAPIKeyEnvVar(engine string) (string, error) {
 	switch engine {
 	case "claude-code":
@@ -732,27 +724,6 @@ func registerJ002200MatrixSteps(ctx *godog.ScenarioContext) {
 			return fmt.Errorf("host %s credential file content changed by the run — the seed path must be a COPY, never a mutation of the host original; got:\n%s", engine, got)
 		}
 		w.docStepMaterialized = fmt.Sprintf("host %s credential file (%s), unchanged after the run:\n%s", engine, rel, strings.TrimSpace(got))
-		return nil
-	})
-
-	ctx.Step(`^the curated antigravity HOME symlinks the host's "([^"]*)" and "([^"]*)" rather than copying them$`, func(c context.Context, gitconfig, ssh string) error {
-		w := worldFrom(c)
-		j := isoMatrixOf(w)
-		body, err := isoReadSpyOut(j)
-		if err != nil {
-			return err
-		}
-		gitResolved := isoParseSpySection(body, "===GITCONFIG_RESOLVED===")
-		sshResolved := isoParseSpySection(body, "===SSH_RESOLVED===")
-		wantGit := filepath.Join(w.env.HomeDir, gitconfig)
-		wantSSH := filepath.Join(w.env.HomeDir, ssh)
-		if gitResolved != wantGit {
-			return fmt.Errorf("%s inside the curated HOME resolved to %q, want the host original %q (absent, a dangling link, or a COPY rather than a symlink); full spy dump:\n%s", gitconfig, gitResolved, wantGit, body)
-		}
-		if sshResolved != wantSSH {
-			return fmt.Errorf("%s inside the curated HOME resolved to %q, want the host original %q; full spy dump:\n%s", ssh, sshResolved, wantSSH, body)
-		}
-		w.docStepMaterialized = fmt.Sprintf("curated HOME %s -> %s\ncurated HOME %s -> %s", gitconfig, gitResolved, ssh, sshResolved)
 		return nil
 	})
 }

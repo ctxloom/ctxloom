@@ -56,15 +56,18 @@ func TestChat_ContainerRuntimeUnavailable_FailsLoud(t *testing.T) {
 }
 
 // TestContainerProfileBackend_MapsKnownAliases pins the ACPConfig.AgentEngine
-// (kiro/claude/codex/agy) -> isolation container-profile-key (claude-code/
-// antigravity/kiro/codex/opencode) translation: the two vocabularies were
+// (kiro/claude/codex) -> isolation container-profile-key (claude-code/
+// kiro/codex/opencode) translation: the two vocabularies were
 // never unified (see the function's doc), so a drift here would silently
-// route a claude or antigravity agent onto the WRONG image/auth profile.
+// route a claude agent onto the WRONG image/auth profile. "agy" is
+// deliberately in the unmapped set below: antigravity's container profile
+// was removed in 0.7.0, so it now falls through like any other unrecognized
+// name.
 func TestContainerProfileBackend_MapsKnownAliases(t *testing.T) {
 	cases := map[string]string{
 		"claude":      "claude-code",
 		"Claude":      "claude-code", // case-insensitive
-		"agy":         "antigravity",
+		"agy":         "agy",
 		"kiro":        "kiro",
 		"codex":       "codex",
 		"opencode":    "opencode",

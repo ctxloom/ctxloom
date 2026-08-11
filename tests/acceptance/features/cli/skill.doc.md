@@ -121,7 +121,6 @@ itself owns.
 |---|---|
 | claude-code | `.claude/skills/<name>/SKILL.md` |
 | kiro | `.kiro/skills/<name>/SKILL.md` |
-| antigravity | `.agents/skills/<name>/SKILL.md` |
 | opencode | `.opencode/skill/<name>/SKILL.md` |
 | codex | `.codex/skills/<name>/SKILL.md` |
 

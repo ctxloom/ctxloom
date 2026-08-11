@@ -9,10 +9,12 @@
 // CanonicalHistory is engine-agnostic by construction: every structured
 // engine's frames already folded through internal/acp/mapping.go before the
 // Recorder (recorder.go) ever wrote a line, so there is exactly one reader
-// for codex/kiro/claude/opencode/acp/antigravity instead of the four
+// for codex/kiro/claude/opencode/acp instead of the three
 // per-engine scrapers this package supersedes (internal/claude,
-// internal/codex, internal/kiro, internal/antigravity — retirement is S5,
-// not this slice).
+// internal/codex, internal/kiro — retirement is S5,
+// not this slice). It also still reads canonical transcripts captured under
+// backend=antigravity before that engine was removed in 0.7.0 — the reader
+// makes no assumption that its engine name is currently registered.
 //
 // Deliberately NOT imported here: internal/lm/grpc (aliased `pb` elsewhere),
 // whose pb.SessionSource interface this type's method set structurally

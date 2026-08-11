@@ -21,9 +21,9 @@ var engineNameCorpus = []struct {
 	{"claudecode", "claude-code"},
 	{"claude", "claude-code"},
 	{"CLAUDE", "claude-code"},
-	{"antigravity", "antigravity"},
-	{"agy", "antigravity"},
-	{"antigravity-cli", "antigravity"},
+	{"antigravity", ""}, // removed engine (0.7.0): no longer resolves anywhere
+	{"agy", ""},         // its former alias, also removed
+	{"antigravity-cli", ""},
 	{"", ""},
 	{"claude-", ""},
 	{"clau", ""},
@@ -34,8 +34,8 @@ var engineNameCorpus = []struct {
 // TestEngineNameVocabularyParity pins the two engine registries to ONE spelling
 // vocabulary. The engine names are shared vocabulary — a user types the same
 // --engine at ltk and at taskloom — and each registry asserting its own list
-// independently is how "antigravity-cli" came to resolve under one and error
-// under the other.
+// independently is how a spelling used to resolve under one and error under
+// the other.
 func TestEngineNameVocabularyParity(t *testing.T) {
 	for _, tc := range engineNameCorpus {
 		assert.Equal(t, tc.want, canonicalOrEmpty(tc.in), "agent.CanonicalEngineName(%q)", tc.in)

@@ -23,7 +23,7 @@ func registerLiveSteps(ctx *godog.ScenarioContext) {
 	// engine skips (rather than fails) UNLESS CTXLOOM_LIVE_REQUIRE names it —
 	// see checkRequiredEngines, enforced once up front in TestAcceptance. The
 	// agent token comes from the Scenario Outline Examples table ("Claude",
-	// "Antigravity", "Kiro").
+	// "Kiro").
 	ctx.Step(`^a real (\S+) agent is available$`, func(c context.Context, name string) error {
 		key := strings.ToLower(name)
 		a, ok := liveAgents[key]

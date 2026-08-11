@@ -17,7 +17,7 @@ import (
 // iteration path over a backend's surfaces.
 //
 // agent.SurfaceSet deliberately mandates no raw, unresolved Deliveries(): that
-// is a second path, hand-maintained as a slice literal by five backends and
+// is a second path, hand-maintained as a slice literal by four backends and
 // called by no production code, for a materialized tree measured to be
 // byte-identical to the one the launch path produces through
 // agent.Select(set).WithEverything().Build().Deliveries().

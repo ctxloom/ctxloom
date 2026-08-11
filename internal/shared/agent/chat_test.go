@@ -147,7 +147,7 @@ func TestACPTransport_RequireOnHost_ContainerRuntimeExempt(t *testing.T) {
 func TestACPTransport_RequireOnHost_NativeAndBespokeNeverGate(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	assert.NoError(t, ACPTransport{Kind: ACPNative}.RequireOnHost("", "kiro"))
-	assert.NoError(t, ACPTransport{Kind: ACPBespoke}.RequireOnHost("", "antigravity"))
+	assert.NoError(t, ACPTransport{Kind: ACPBespoke}.RequireOnHost("", "testengine"))
 }
 
 // TestChatEvent_ExactlyOneVariant documents that a ChatEvent carries exactly one

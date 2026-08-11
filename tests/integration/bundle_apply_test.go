@@ -4,10 +4,8 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
@@ -36,9 +34,9 @@ hooks:
 // applyHooksForProfile lays out an .ctxloom app dir with the demo bundle and the
 // given profiles, makes defaultProfile the active default, runs operations.ApplyHooks
 // against a fresh project dir, and returns the written settings files
-// (Claude's .mcp.json, Antigravity's hooks.json + mcp_config.json, and
-// Claude's settings.json).
-func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, agyHooksJSON, agyMCPJSON, claudeJSON string) {
+// (Claude's .mcp.json, Kiro's .kiro/settings/mcp.json, and Claude's
+// settings.json).
+func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[string]string) (mcpJSON, kiroMCPJSON, claudeJSON string) {
 	t.Helper()
 
 	// This helper runs IN-PROCESS against the developer's real PATH and real
@@ -77,8 +75,7 @@ func applyHooksForProfile(t *testing.T, defaultProfile string, profiles map[stri
 	require.NoError(t, err)
 
 	return readOrEmpty(t, filepath.Join(projectDir, ".mcp.json")),
-		readOrEmpty(t, filepath.Join(projectDir, ".agents", "hooks.json")),
-		readOrEmpty(t, filepath.Join(projectDir, ".agents", "mcp_config.json")),
+		readOrEmpty(t, filepath.Join(projectDir, ".kiro", "settings", "mcp.json")),
 		readOrEmpty(t, filepath.Join(projectDir, ".claude", "settings.json"))
 }
 
@@ -93,23 +90,23 @@ func readOrEmpty(t *testing.T, path string) string {
 }
 
 // assertBundleApplied checks the demo bundle's MCP server reached the Claude
-// (.mcp.json) and Antigravity (.agents/mcp_config.json) stores, and its hook
+// (.mcp.json) and Kiro (.kiro/settings/mcp.json) stores, and its hook
 // reached the Claude settings.
-func assertBundleApplied(t *testing.T, mcpJSON, agyMCPJSON, claudeJSON string) {
+func assertBundleApplied(t *testing.T, mcpJSON, kiroMCPJSON, claudeJSON string) {
 	t.Helper()
 	assert.Contains(t, mcpJSON, "demo-server", "MCP server must land in .mcp.json")
 	assert.Contains(t, mcpJSON, "demo-mcp", "MCP server command must land in .mcp.json")
-	assert.Contains(t, agyMCPJSON, "demo-server", "MCP server must land in .agents/mcp_config.json")
+	assert.Contains(t, kiroMCPJSON, "demo-server", "MCP server must land in .kiro/settings/mcp.json")
 	assert.Contains(t, claudeJSON, "demo-hook", "bundle hook must land in .claude/settings.json")
 }
 
 // TestBundleApply_DirectProfile: the demo bundle is referenced directly by the
 // default profile. Baseline that MCP + hooks flow through apply.
 func TestBundleApply_DirectProfile(t *testing.T) {
-	mcpJSON, _, agyMCPJSON, claudeJSON := applyHooksForProfile(t, "base", map[string]string{
+	mcpJSON, kiroMCPJSON, claudeJSON := applyHooksForProfile(t, "base", map[string]string{
 		"base": "name: base\nbundles:\n  - demo\n",
 	})
-	assertBundleApplied(t, mcpJSON, agyMCPJSON, claudeJSON)
+	assertBundleApplied(t, mcpJSON, kiroMCPJSON, claudeJSON)
 }
 
 // TestBundleApply_InheritedProfile: the demo bundle is referenced only by a
@@ -117,60 +114,9 @@ func TestBundleApply_DirectProfile(t *testing.T) {
 // spotty-unstirred-anatomist regression driven end-to-end through ApplyHooks:
 // before the fix, inherited bundles' MCP servers and hooks were silently dropped.
 func TestBundleApply_InheritedProfile(t *testing.T) {
-	mcpJSON, _, agyMCPJSON, claudeJSON := applyHooksForProfile(t, "child", map[string]string{
+	mcpJSON, kiroMCPJSON, claudeJSON := applyHooksForProfile(t, "child", map[string]string{
 		"parent": "name: parent\nbundles:\n  - demo\n",
 		"child":  "name: child\nparents:\n  - parent\n",
 	})
-	assertBundleApplied(t, mcpJSON, agyMCPJSON, claudeJSON)
-}
-
-// TestBundleApply_AntigravityHookNestedSchema drives ApplyHooks end-to-end and
-// asserts bundle hooks reach .agents/hooks.json in agy's required nested shape
-// (event → [{hooks:[{type:"command", command}]}]). A flat {command} object is
-// silently ignored by agy, so this is the contract that makes Antigravity
-// hooks actually fire. The built-in `hook session-bind` (the recovery
-// producer) declares pre_tool_fallback, so on agy it must land under
-// PreToolUse with a catch-all matcher — agy never fires SessionStart, and a
-// SessionStart registration would be a dead entry.
-func TestBundleApply_AntigravityHookNestedSchema(t *testing.T) {
-	_, agyHooksJSON, _, _ := applyHooksForProfile(t, "base", map[string]string{
-		"base": "name: base\nbundles:\n  - demo\n",
-	})
-	require.NotEmpty(t, agyHooksJSON, ".agents/hooks.json must be written")
-
-	var settings struct {
-		Hooks map[string][]struct {
-			Matcher string `json:"matcher"`
-			Hooks   []struct {
-				Type    string `json:"type"`
-				Command string `json:"command"`
-			} `json:"hooks"`
-		} `json:"hooks"`
-	}
-	require.NoError(t, json.Unmarshal([]byte(agyHooksJSON), &settings))
-
-	var sawBundleHook bool
-	for _, g := range settings.Hooks["SessionStart"] {
-		require.NotEmpty(t, g.Hooks, "each group must carry a nested hooks[] array")
-		for _, e := range g.Hooks {
-			assert.Equal(t, "command", e.Type, "every Antigravity hook entry needs type:command")
-			if strings.Contains(e.Command, "demo-hook") {
-				sawBundleHook = true
-			}
-			assert.NotContains(t, e.Command, "session-bind",
-				"session-bind must not register under SessionStart on agy (it would never fire)")
-		}
-	}
-	assert.True(t, sawBundleHook, "bundle session_start hook must reach .agents/hooks.json in nested form")
-
-	var sawSessionBind bool
-	for _, g := range settings.Hooks["PreToolUse"] {
-		for _, e := range g.Hooks {
-			if strings.Contains(e.Command, "session-bind") {
-				sawSessionBind = true
-				assert.Equal(t, ".*", g.Matcher, "the diverted bind fires on every tool (first one binds)")
-			}
-		}
-	}
-	assert.True(t, sawSessionBind, "built-in `hook session-bind` must divert to PreToolUse on agy (pre_tool_fallback)")
+	assertBundleApplied(t, mcpJSON, kiroMCPJSON, claudeJSON)
 }

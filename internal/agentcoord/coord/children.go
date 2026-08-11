@@ -1265,12 +1265,12 @@ func (c *Coordinator) handleChildEvent(rt *childRt, ev agent.ChatEvent) {
 		// already records this via StartRunResult/runchannel's
 		// ctxloom/harness_session custom event (runChildViaStartRun above);
 		// this is the only place a legacy go-plugin Chat dial's native
-		// session id (antigravity's agy conversation id, any future
-		// StructuredChat backend outside viaStartRunBackends) reaches the
-		// journal at all — previously silently dropped by this switch
-		// having no case for it. recordHarnessSession is idempotent, so the
-		// repeat emission antigravity's Chat sends when its conversation id
-		// first resolves (chat.go's post-first-turn Session event) is safe.
+		// session id (any StructuredChat backend outside
+		// viaStartRunBackends) reaches the journal at all — previously
+		// silently dropped by this switch having no case for it.
+		// recordHarnessSession is idempotent, so a repeat emission a legacy
+		// backend's Chat sends when its conversation id first resolves is
+		// safe.
 		if ev.Session.SessionID != "" {
 			c.recordHarnessSession(rt.runID, ev.Session.SessionID)
 			c.recordResumable(rt.runID, ev.Session.Resumable)
@@ -1953,11 +1953,11 @@ func (c *Coordinator) resumeChild(harp string, attached chan struct{}, delay tim
 	}
 
 	// LEGACY resume (Slice 0): mirror the ViaStartRun branch
-	// above — a captured native session id (antigravity's agy conversation
-	// id, journaled via handleChildEvent's ev.Session case) resumes the
-	// backend's OWN session (agy --conversation <id> --continue) with no
-	// rendered-transcript re-priming needed; only a prior run that never
-	// reported a session id falls back to the lossy ResumeContext replay.
+	// above — a captured native session id (journaled via
+	// handleChildEvent's ev.Session case) resumes the backend's OWN session
+	// with no rendered-transcript re-priming needed; only a prior run that
+	// never reported a session id falls back to the lossy ResumeContext
+	// replay.
 	contextText := ""
 	if !haveResumeKey {
 		contextText = c.spawner.ResumeContext(lctx, plan, harp)

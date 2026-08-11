@@ -18,7 +18,7 @@ version: 6
 #   configs:
 #     big:   { type: claude-code, model: claude-opus-4-8 }         # label is arbitrary...
 #     quick: { type: claude-code, model: claude-haiku-4-5-20251001 } # ...two claude-code backends
-#     g:     { type: antigravity }                                  # Antigravity CLI (agy); model optional
+#     c:     { type: codex }                                        # Codex CLI; model optional
 #   defaults:
 #     primary: big     # coding/interactive role → label
 #     fast:    quick    # compression role (distill, compaction) → label

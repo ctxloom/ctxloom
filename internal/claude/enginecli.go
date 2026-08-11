@@ -33,8 +33,8 @@ import (
 // The test applied is "is there exactly one place that knows this fact", not
 // "is it a struct literal".
 //
-// CLAUDE.md ONLY. claude does not read AGENTS.md — that file belongs to codex
-// and antigravity. The divergence is deliberate and is most of why this
+// CLAUDE.md ONLY. claude does not read AGENTS.md — that file belongs to
+// codex. The divergence is deliberate and is most of why this
 // contract is worth having: a fake that reported reading an AGENTS.md the real
 // binary ignores would go green on fiction.
 

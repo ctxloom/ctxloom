@@ -258,7 +258,7 @@ func TestKiro_BuildArgs(t *testing.T) {
 		{
 			// SkipSetup (minimal/distill) always maps to the read-only allowlist,
 			// overriding a requested bypass and also suppressing agent selection
-			// — matching codex's/agy's identical SkipSetup-wins switch shape.
+			// — matching codex's identical SkipSetup-wins switch shape.
 			name: "skip setup forces read-only trust-tools even over requested bypass",
 			req:  &agent.ExecuteRequest{Mode: agent.ModeOneshot, SkipSetup: true, Permissions: agent.PermissionBypass, Prompt: &agent.Fragment{Content: "x"}},
 			want: []string{"chat", "--trust-tools=fs_read", "--no-interactive", "x"},

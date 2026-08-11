@@ -38,12 +38,6 @@ llm:
         claude-sonnet:
             model: claude-sonnet-5
             type: claude-code
-        gemini-code:
-            model: gemini-2.5-pro
-            type: antigravity
-        gemini-fast:
-            model: gemini-2.5-flash
-            type: antigravity
     defaults:
         fast: claude-fast
         primary: claude-code

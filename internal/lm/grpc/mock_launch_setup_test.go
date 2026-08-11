@@ -64,7 +64,7 @@ func (s *blockingStdin) Read(p []byte) (int, error) {
 //
 // The assertion is on BYTES observed mid-turn. Asserting after RunTurn returns
 // would be vacuous in the opposite direction: the shared LIFO Cleanup strips
-// the managed section at teardown (same as antigravity's AGENTS.md), so the
+// the managed section at teardown (same as claude's CLAUDE.md), so the
 // file is legitimately gone by then — which the second half of this test pins
 // as well, so "nothing on disk afterwards" can never be mistaken for "nothing
 // was ever delivered".

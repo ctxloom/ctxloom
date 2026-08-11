@@ -26,7 +26,7 @@ type MCPConfig struct {
 	Servers map[string]MCPServer `yaml:"servers,omitempty" json:"servers,omitempty"`
 
 	// Plugins holds backend-specific MCP server overrides (passthrough).
-	// Keys are backend names (e.g., "claude-code", "antigravity").
+	// Keys are backend names (e.g., "claude-code", "codex").
 	Plugins map[string]map[string]MCPServer `yaml:"plugins,omitempty" json:"plugins,omitempty"`
 }
 

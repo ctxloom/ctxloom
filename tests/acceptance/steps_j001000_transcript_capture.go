@@ -60,9 +60,8 @@ func j001000From(w *World) *j001000State {
 // production — the same file each package's own _test.go golden-compares
 // against, never a hand-rolled duplicate.
 var j001000FixtureFile = map[string]string{
-	"claude":      filepath.Join("internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl"),
-	"codex":       filepath.Join("internal", "transcript", "vendorreader", "codex", "testdata", "rollout-fixture.jsonl"),
-	"antigravity": filepath.Join("internal", "transcript", "vendorreader", "antigravity", "testdata", "transcript_full-fixture.jsonl"),
+	"claude": filepath.Join("internal", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl"),
+	"codex":  filepath.Join("internal", "transcript", "vendorreader", "codex", "testdata", "rollout-fixture.jsonl"),
 }
 
 // j001000RepoRoot resolves the repo root relative to THIS source file via
@@ -109,8 +108,6 @@ func j001000SeededEngineVersion(backend string) string {
 		return "2.1.214"
 	case "codex":
 		return "0.144.6"
-	case "antigravity":
-		return "1.1.4"
 	case "kiro":
 		return "2.13.0"
 	default:
@@ -232,10 +229,10 @@ type j001000EngineTurnCheck struct {
 
 // j001000EngineTurnChecks pins the Scenario Outline's per-<engine> real-turn
 // assertions, grounded in each package's own shipped golden
-// (internal/transcript/vendorreader/{codex,antigravity}/testdata/): codex's
+// (internal/transcript/vendorreader/codex/testdata/): codex's
 // exec_command call/result/reply carry the real "HELLO_FROM_TOOL_CALL_42"
-// sentinel; antigravity's carry the real "XXX-OVERWRITTEN-XXX" one. kiro is
-// deliberately absent — see the feature file's own deferral note.
+// sentinel. kiro is deliberately absent — see the feature file's own
+// deferral note.
 var j001000EngineTurnChecks = map[string][]j001000EngineTurnCheck{
 	"codex": {
 		{"the real user prompt", func(e transcript.EntryPayload) bool {
@@ -249,17 +246,6 @@ var j001000EngineTurnChecks = map[string][]j001000EngineTurnCheck{
 		}},
 		{"the real final reply", func(e transcript.EntryPayload) bool {
 			return e.Type == "assistant" && strings.Contains(e.Content, "HELLO_FROM_TOOL_CALL_42")
-		}},
-	},
-	"antigravity": {
-		{"the real user request", func(e transcript.EntryPayload) bool {
-			return e.Type == "user" && strings.Contains(e.Content, "XXX-OVERWRITTEN-XXX")
-		}},
-		{"the real first assistant step", func(e transcript.EntryPayload) bool {
-			return e.Type == "assistant" && strings.Contains(e.Content, "I will start by checking the current permissions")
-		}},
-		{"the real final assistant summary", func(e transcript.EntryPayload) bool {
-			return e.Type == "assistant" && strings.Contains(e.Content, "I have successfully written the exact text")
 		}},
 	},
 }

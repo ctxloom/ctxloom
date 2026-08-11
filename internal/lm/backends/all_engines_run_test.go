@@ -44,7 +44,7 @@ type launcherInjector interface {
 //     (Interactive: true) and names a binary to spawn (BinaryPath != "").
 //
 // A fake launcher captures the LaunchSpec instead of exec'ing the real
-// binary, so this never depends on claude/codex/kiro-cli/agy/opencode
+// binary, so this never depends on claude/codex/kiro-cli/opencode
 // actually being installed — it stays hermetic and fast. Registering a new
 // engine without wiring SetLauncher, without declaring ModeInteractive, or
 // whose buildArgs collapses interactive mode onto a headless flag is exactly

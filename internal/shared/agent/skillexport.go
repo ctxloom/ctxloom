@@ -4,7 +4,7 @@ package agent
 // skill — the SurfaceSkills sibling of CommandExport. Unlike a command (a
 // single rendered file), a skill is a whole TREE: SKILL.md plus whatever
 // sibling files (scripts/, assets/, references/) its package carries. The
-// per-agent skill writers (currently claude only — codex/opencode/kiro/agy are
+// per-agent skill writers (currently claude only — codex/opencode/kiro are
 // the next parallel wave) consume this without importing ctxloom's bundle
 // types, mirroring how CommandExport decouples the writers from
 // bundles.LoadedContent.
@@ -22,7 +22,7 @@ type SkillExport struct {
 	//
 	// No such engine exists yet, so this field is WRITE-ONLY. It is set once, by
 	// lm/backends/skillfiles.go's buildSkillExports, and read by no engine —
-	// claude/opencode/antigravity's skill writers take Enabled, Name and Files
+	// claude/opencode's skill writers take Enabled, Name and Files
 	// only; the sole read anywhere is one assertion in skillfiles_test.go.
 	// Nothing is lost by deleting it: the description an engine actually reads
 	// travels verbatim inside the authored SKILL.md, which is one of Files

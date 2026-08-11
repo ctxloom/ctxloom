@@ -136,18 +136,6 @@ func (c ClaudeCodeConfig) IsEnabled() bool {
 	return c.Enabled == nil || *c.Enabled
 }
 
-// AntigravityConfig holds configuration for exporting commands as Antigravity
-// CLI (agy) skill files.
-type AntigravityConfig struct {
-	Enabled     *bool  `yaml:"enabled"`     // nil = true (opt-out model)
-	Description string `yaml:"description"` // For skill listings
-}
-
-// IsEnabled returns true unless explicitly disabled (opt-out model).
-func (c AntigravityConfig) IsEnabled() bool {
-	return c.Enabled == nil || *c.Enabled
-}
-
 // CodexConfig holds configuration for exporting prompts as Codex CLI custom prompts.
 type CodexConfig struct {
 	Enabled      *bool  `yaml:"enabled"`       // nil = true (opt-out model)
@@ -188,11 +176,10 @@ func (c OpencodeConfig) IsEnabled() bool {
 // LLMExports holds per-LLM export settings for a fragment/prompt — e.g. how it
 // surfaces as a slash command in each backend — keyed by backend name.
 type LLMExports struct {
-	ClaudeCode  ClaudeCodeConfig  `yaml:"claude-code"`
-	Antigravity AntigravityConfig `yaml:"antigravity"`
-	Codex       CodexConfig       `yaml:"codex"`
-	Kiro        KiroConfig        `yaml:"kiro"`
-	Opencode    OpencodeConfig    `yaml:"opencode"`
+	ClaudeCode ClaudeCodeConfig `yaml:"claude-code"`
+	Codex      CodexConfig      `yaml:"codex"`
+	Kiro       KiroConfig       `yaml:"kiro"`
+	Opencode   OpencodeConfig   `yaml:"opencode"`
 }
 
 // ContentInfo provides metadata about a fragment or prompt for listing.

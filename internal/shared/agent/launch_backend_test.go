@@ -352,7 +352,7 @@ func TestSetup_IsolatedCell_UsesWellKnownSet(t *testing.T) {
 	require.Len(t, b.delivered, 5, "all five surfaces collected")
 }
 
-// ---- cell path: RawContext (codex/agy/kiro) ---------------------------------
+// ---- cell path: RawContext (codex/kiro) ---------------------------------
 
 // TestSetup_RawContext_WritesCacheFileAndKeysHook proves the RawContext pre-step:
 // the content-addressed cache file is materialized (setting the env path), and for
@@ -691,7 +691,7 @@ func TestSetup_ContextHookWithoutRawContext_IsRefused(t *testing.T) {
 }
 
 // The two LEGAL pairings are unchanged — the characterization half, green before
-// and after. RawContext without ContextHook (antigravity/kiro: context rides
+// and after. RawContext without ContextHook (kiro: context rides
 // AGENTS.md/steering, hash stays "") and both false (claude: context rides the
 // append flag) both still Setup cleanly.
 func TestSetup_LegalContextHookPairingsStillSucceed(t *testing.T) {

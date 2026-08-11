@@ -18,15 +18,11 @@ func TestMock_History(t *testing.T) {
 // TestEnforcesReadOnlyPlan pins which backends map PermissionPlan to a genuine
 // read-only, non-prompting mode. claude-code (--permission-mode plan), codex
 // (--sandbox read-only --ask-for-approval never), and kiro (--trust-tools=
-// fs_read, LIVE VERIFIED 2026-07-15) do; antigravity's --mode plan flag EXISTS
-// but was LIVE VERIFIED (same date) to NOT enforce read-only headlessly, so it
-// stays false deliberately rather than trusting a proven-inert flag; acp only
-// distinguishes bypass.
+// fs_read, LIVE VERIFIED 2026-07-15) do; acp only distinguishes bypass.
 func TestEnforcesReadOnlyPlan(t *testing.T) {
 	assert.True(t, EnforcesReadOnlyPlan("claude-code"), "claude enforces read-only plan")
 	assert.True(t, EnforcesReadOnlyPlan("codex"), "codex enforces read-only plan")
 	assert.True(t, EnforcesReadOnlyPlan("kiro"), "kiro --trust-tools=fs_read is a live-verified genuine read-only posture")
-	assert.False(t, EnforcesReadOnlyPlan("antigravity"), "agy's --mode plan is live-verified NOT to enforce read-only headlessly")
 	assert.False(t, EnforcesReadOnlyPlan("acp"), "acp only distinguishes bypass")
 	assert.False(t, EnforcesReadOnlyPlan("unknown"), "unregistered backend cannot enforce anything")
 }
@@ -37,10 +33,9 @@ func TestEnforcesReadOnlyPlan(t *testing.T) {
 // literal each engine's own chat.go const carries, plus Zed Industries
 // provenance derived from the adapter's own npm scope — see registry.go's
 // claudeACPTransport/codexACPTransport docs); kiro/opencode speak ACP
-// natively (ACPNative, the zero value, no adapter fields); antigravity has
-// no ACP transport at all, only its bespoke `agy -p` prose driver
-// (ACPBespoke); an unregistered name reports the zero value (ACPNative,
-// everything else empty) — "needs nothing" is the safe default.
+// natively (ACPNative, the zero value, no adapter fields); an unregistered
+// name reports the zero value (ACPNative, everything else empty) — "needs
+// nothing" is the safe default.
 func TestACPTransportFor(t *testing.T) {
 	claudeT := ACPTransportFor("claude-code")
 	assert.Equal(t, agent.ACPAdapter, claudeT.Kind, "claude-code has no native ACP mode")
@@ -64,10 +59,6 @@ func TestACPTransportFor(t *testing.T) {
 	opencodeT := ACPTransportFor("opencode")
 	assert.Equal(t, agent.ACPNative, opencodeT.Kind, "opencode acp is native")
 	assert.Empty(t, opencodeT.Binary)
-
-	antigravityT := ACPTransportFor("antigravity")
-	assert.Equal(t, agent.ACPBespoke, antigravityT.Kind, "agy -p is a bespoke prose driver, not ACP")
-	assert.Empty(t, antigravityT.Binary, "bespoke transport has no adapter binary either")
 
 	assert.Equal(t, agent.ACPTransport{}, ACPTransportFor("unknown"), "unregistered backend reports the zero value")
 }

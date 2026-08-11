@@ -61,9 +61,10 @@ func confirmByRepeat(resp engine.Response, command, stateFile string, delay, win
 // resolved config: next to the config when it already lives in a .ltk
 // directory, otherwise in a .ltk/ beside the config file (legacy flat configs,
 // custom --config paths). Anchoring to the config — never the cwd — keeps
-// confirm-by-repeat working when the host varies the hook cwd (agy runs hooks
-// in <workspace>/.agents; the config search walks up, so the resolved path is
-// the stable anchor). Runtime state always lives inside a .ltk directory,
+// confirm-by-repeat working when the host varies the hook cwd (antigravity,
+// before it was removed in 0.7.0, ran hooks in <workspace>/.agents; the
+// config search walks up, so the resolved path is the stable anchor).
+// Runtime state always lives inside a .ltk directory,
 // never loose in the project root, so .gitignore's ".ltk/state.json" entry
 // covers it.
 //

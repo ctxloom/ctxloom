@@ -108,11 +108,8 @@ func NewContainerWorktree(rt Runtime, image string, g git.Git) Container {
 	// wrapped Worktree's Env()/credential-seeding never runs here anyway (see
 	// the package doc above: the unified containerWorkspace never implements
 	// EnvWorkspace), but passing "" keeps NewWorktree's contract explicit at
-	// every call site rather than special-casing this one. forContainer()
-	// marks it container-wrapped regardless — see Worktree.containerWrapped's
-	// doc — so a curatedHomeSpecs-registered backend (were one ever threaded
-	// here) would never wrongly hit the standalone-host fatal refusal.
-	c.base = worktreeBase{wt: NewWorktree(g, "").forContainer()}
+	// every call site rather than special-casing this one.
+	c.base = worktreeBase{wt: NewWorktree(g, "")}
 	return c
 }
 
@@ -128,11 +125,7 @@ func NewContainerWorktreeFor(rt Runtime, backend string, img ImageConfig, g git.
 	// unified containerWorkspace never implements EnvWorkspace (see the
 	// package doc above), so the wrapped Worktree's Env()/credential-seeding
 	// is dead code in this composition — auth flows through the surrounding
-	// Container's resolveContainerAuth mounts instead. forContainer() is the
-	// load-bearing part for a curatedHomeSpecs-registered backend
-	// (antigravity): it keeps this composition on curatedHomeAuthFinding's
-	// pre-existing warn-only posture instead of the STANDALONE host path's
-	// fatal curatedHomeRefusal — see Worktree.containerWrapped's doc.
-	c.base = worktreeBase{wt: NewWorktree(g, backend).forContainer()}
+	// Container's resolveContainerAuth mounts instead.
+	c.base = worktreeBase{wt: NewWorktree(g, backend)}
 	return c
 }

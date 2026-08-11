@@ -53,8 +53,8 @@ import (
 //     session start — no hook needed — via CodexHookWriter.WriteContext
 //     (agent.ContextWriter), which merges into managed-section markers
 //     (agent.WriteManagedContext), preserving hand-authored content outside
-//     them byte-for-byte, exactly like claude's CLAUDE.md and antigravity's
-//     AGENTS.md. It is keyed on the assembled context STRING
+//     them byte-for-byte, exactly like claude's CLAUDE.md.
+//     It is keyed on the assembled context STRING
 //     (SurfaceInputs.Context), because the STATIC materialize/init path only
 //     ever has that string, never resolved Fragment objects — so before
 //     agentsMDSurface existed, materialize's codex output silently carried NO
@@ -138,7 +138,7 @@ func (s *contextSurface) UnsafeInfo() string { return "codex/context" }
 // session start — no hook required — and CodexHookWriter now implements
 // agent.ContextWriter to write it with managed-section markers
 // (agent.WriteManagedContext), preserving hand-authored content outside them
-// byte-for-byte, exactly like claude's CLAUDE.md and antigravity's AGENTS.md.
+// byte-for-byte, exactly like claude's CLAUDE.md.
 // This route is keyed on the assembled context STRING (SurfaceInputs.Context),
 // because the STATIC materialize/init path only ever has that string, never
 // resolved Fragment objects (AssembleContext returns a flattened string) — so
@@ -154,8 +154,8 @@ type agentsMDSurface struct {
 // Deliver merges the context into AGENTS.md and returns a handle whose Cleanup
 // strips the managed section (removing the file when nothing user-authored
 // remains) by writing empty context. This is the shared
-// agent.DeliverManagedContext shape — the SAME one antigravity's and claude's
-// own native-file ContextWriter surfaces use — not contextSurface's hash-file
+// agent.DeliverManagedContext shape — the SAME one claude's
+// own native-file ContextWriter surface uses — not contextSurface's hash-file
 // precision (where empty content genuinely creates nothing, so IT reports a
 // nil handle): WriteContext("") on an absent file is a harmless no-op report
 // (Removed with nothing to remove), not a call worth special-casing.

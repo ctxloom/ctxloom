@@ -15,8 +15,7 @@ import (
 // contract), then stream every line in order, checking ctx cancellation
 // before each one and handing the line to dispatch to decode and route it,
 // then call flush once every line has been processed (a vendor with no
-// pending-boundary merge to do, like antigravity, simply passes a flush that
-// does nothing).
+// pending-boundary merge to do simply passes a flush that does nothing).
 //
 // dispatch and flush carry everything genuinely vendor-specific — the
 // envelope shape a line decodes into and which handler each discriminator

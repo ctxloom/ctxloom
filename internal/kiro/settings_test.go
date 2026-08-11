@@ -154,8 +154,8 @@ func TestKiroWriter_Status(t *testing.T) {
 	_ = fs
 }
 
-// TestKiroWriter_Status_CorruptAgentJSONIsAnError pins the invariant codex's and
-// antigravity's Status already state in prose ("an unreadable config is an
+// TestKiroWriter_Status_CorruptAgentJSONIsAnError pins the invariant codex's
+// Status already states in prose ("an unreadable config is an
 // error, not a 'not configured' report" / "reported status must never be a
 // guess"): a materialized-but-corrupt .kiro/agents/<name>.json means the answer
 // is UNKNOWN, which is not the same fact as "no managed hooks are wired". Kiro

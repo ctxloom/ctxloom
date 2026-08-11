@@ -45,7 +45,7 @@ func TestWriteThenRead_RoundTripsTheNames(t *testing.T) {
 	assert.Equal(t, []string{"ctxloom", "taskloom"}, names)
 }
 
-// THE REGRESSION THIS PACKAGE EXISTS TO PREVENT. antigravity and kiro write
+// THE REGRESSION THIS PACKAGE EXISTS TO PREVENT. kiro writes
 // COMMANDS and SKILLS into the same directory, and before this type they
 // relied on two separate manifest FILENAMES to stop one surface's cleanup
 // deleting the other's content. One file with typed entries has to give the

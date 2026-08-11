@@ -131,11 +131,11 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
   Rule: A server registered once reaches every engine in its own native configuration file
 
     # PAYLOAD, NOT EXISTENCE. Every row PARSES the generated file in its own
-    # format (JSON for claude/kiro/antigravity, TOML for codex) and asserts
+    # format (JSON for claude/kiro, TOML for codex) and asserts
     # the actual command field under the actual server name — never a bare
     # file-exists and never a substring of a key name (the vacuousness a
-    # ".mcp.json" contains "ctxloom" check would carry). claude, kiro, and
-    # antigravity share one JSON "mcpServers" table shape; codex has no MCP
+    # ".mcp.json" contains "ctxloom" check would carry). claude and kiro
+    # share one JSON "mcpServers" table shape; codex has no MCP
     # file of its own — its servers fold into the same .codex/config.toml
     # that carries its hooks, under "mcp_servers".
     #
@@ -151,7 +151,6 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
         | engine      |
         | claude-code |
         | kiro        |
-        | antigravity |
         | codex       |
 
   Rule: What an engine is told to launch is `mcp serve`, and nothing else
@@ -178,7 +177,6 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
         | engine      |
         | claude-code |
         | kiro        |
-        | antigravity |
         | codex       |
 
   Rule: The bare noun answers a person and refuses a protocol client

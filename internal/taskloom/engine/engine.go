@@ -1,7 +1,7 @@
 // Package engine is taskloom's registry of agent MCP registrars, so
 // `taskloom manage` can register the `taskloom mcp` server without ctxloom.
 // The implementations are the agent modules' own agent.MCPRegistrar types
-// (claude/antigravity/codex/kiro) — engine-specific details (config paths,
+// (claude/codex/kiro) — engine-specific details (config paths,
 // on-disk format) live entirely in each agent's module, never here.
 package engine
 
@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/kiro"
@@ -60,7 +59,7 @@ func VerifyCommandResolvable() error {
 // fresh slice each call, so a caller mutating its result never corrupts the
 // registry.
 func All() []Engine {
-	return []Engine{claude.MCPRegistrar{}, antigravity.MCPRegistrar{}, codex.MCPRegistrar{}, kiro.MCPRegistrar{}}
+	return []Engine{claude.MCPRegistrar{}, codex.MCPRegistrar{}, kiro.MCPRegistrar{}}
 }
 
 // Get returns the engine for a name: the canonical name or a declared alias,

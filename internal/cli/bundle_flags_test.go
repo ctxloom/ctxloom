@@ -74,7 +74,7 @@ func TestBundleSubcommandFlags(t *testing.T) {
 		{bundleDistillCmd, []flagSpec{
 			{"force", "f", "false", "Re-distill even if unchanged"},
 			{"dry-run", "n", "false", "Preview what would be distilled"},
-			{"llm", "l", "", "config label to use (e.g. claude-code, claude-fast, antigravity); overrides the configured default"},
+			{"llm", "l", "", "config label to use (e.g. claude-code, claude-fast, codex); overrides the configured default"},
 		}},
 	} {
 		t.Run(tc.cmd.Name(), func(t *testing.T) {

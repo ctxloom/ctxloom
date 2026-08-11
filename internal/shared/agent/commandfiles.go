@@ -11,7 +11,7 @@ import (
 )
 
 // CommandExport is the agent-agnostic slash-command export spec for one command.
-// It is the abstraction the per-agent command writers (claude, antigravity) consume,
+// It is the abstraction the per-agent command writers (claude) consume,
 // so they never import ctxloom's bundle types: ctxloom maps each
 // bundles.LoadedContent to a CommandExport for the target agent (resolving that
 // agent's enablement + metadata) at the wiring boundary. Fields beyond
@@ -22,9 +22,9 @@ type CommandExport struct {
 	Content      string   // The command body
 	Enabled      bool     // Resolved enablement for the target agent
 	Description  string   // For /help display
-	ArgumentHint string   // Autocomplete hint (unused by antigravity)
-	AllowedTools []string // Tool restrictions (unused by antigravity)
-	Model        string   // Override model (unused by antigravity)
+	ArgumentHint string   // Autocomplete hint
+	AllowedTools []string // Tool restrictions
+	Model        string   // Override model
 }
 
 // CommandFileOption configures command file writing.
@@ -92,8 +92,8 @@ func SafeCommandRelPath(dir, name string) (string, bool) {
 }
 
 // ResolveCommandFS applies the options and returns the filesystem to use,
-// defaulting to the OS filesystem. Per-agent command writers (in the claude and
-// antigravity packages) call this so they can honor WithCommandFS without reaching
+// defaulting to the OS filesystem. Per-agent command writers (in the claude
+// package) call this so they can honor WithCommandFS without reaching
 // the unexported option struct.
 func ResolveCommandFS(opts ...CommandFileOption) afero.Fs {
 	options := &commandFileOptions{fs: afero.NewOsFs()}
@@ -121,7 +121,7 @@ func WithDedupHomeDir(dir string) ManagedWriteOption {
 }
 
 // WriteManagedCommandFiles is the manifest-scoped slash-command/skill file
-// writer shared by the per-agent command writers (claude, codex, antigravity).
+// writer shared by the per-agent command writers (claude, codex).
 // dir is shared territory with user-authored files, so it is never wiped
 // wholesale: ctxloom tracks the files it wrote in the shared managed-content
 // ledger under the commands surface

@@ -25,9 +25,10 @@ func WriteCommandFiles(workDir string, cmds []agent.CommandExport, opts ...agent
 }
 
 // renderSkillFile renders one command export as a Kiro SKILL.md via the
-// shared agent.RenderCommandAsSkillFile (identical shape antigravity's writer
-// uses — reprise flagged the two as byte-for-byte duplicates when each carried
-// its own copy). Kept as a named wrapper (rather than passing the shared func
+// shared agent.RenderCommandAsSkillFile (reprise flagged kiro's and
+// antigravity's copies as byte-for-byte duplicates before antigravity was
+// removed in 0.7.0; kept shared rather than inlined back). Kept as a named
+// wrapper (rather than passing the shared func
 // directly to WriteManagedCommandFiles) so existing call sites/tests that name
 // "kiro's own renderer" keep reading naturally.
 func renderSkillFile(c agent.CommandExport) (string, []byte, error) {

@@ -234,7 +234,7 @@ func TestCredentialSeedSpecs_ClaudeCodeRegistered(t *testing.T) {
 // place to read them from) but carries NO sourceFiles: its creds live in a
 // global sqlite no per-agent HomeVar relocates, so HonoursVarForCreds is
 // false and its XDG_DATA_HOME entry is gated instead of seeded (see
-// gateHomeVars in worktree.go). antigravity has no entry at all (no lever).
+// gateHomeVars in worktree.go).
 func TestCredentialSeedSpecs_CodexRegisteredKiroCredlessButHomed(t *testing.T) {
 	codexSpec, codexOK := credentialSeedSpecs["codex"]
 	require.True(t, codexOK, "codex now rides this registry's copy-seed, replacing linkUserCodexAuth's symlink")
@@ -248,9 +248,6 @@ func TestCredentialSeedSpecs_CodexRegisteredKiroCredlessButHomed(t *testing.T) {
 	assert.Nil(t, kiroSpec.sourceFiles, "kiro's creds live in a global sqlite no HomeVar relocates — nothing to seed")
 	assert.False(t, kiroSpec.HonoursVarForCreds)
 	require.Len(t, kiroSpec.HomeVars, 2)
-
-	_, agyOK := credentialSeedSpecs["antigravity"]
-	assert.False(t, agyOK, "antigravity has no config-home lever at all (vast-rut)")
 }
 
 // TestHostCredentialSeed_SkipsWhenEnvTriggerSet: ANTHROPIC_API_KEY present →
@@ -656,101 +653,6 @@ func TestHostCredentialSeed_OpencodeNoSourceReturnsNoSourceNotError(t *testing.T
 	result, err := hostCredentialSeed(credentialSeedSpecs["opencode"], dest)
 	require.NoError(t, err)
 	assert.Equal(t, seedNoSource, result)
-}
-
-// =============================================================================
-// antigravity container credential seeding (2026-07-22) --------------------
-//
-// resolveAntigravityContainerAuth seeds agy's file-based OAuth token
-// (~/.gemini/antigravity-cli/antigravity-oauth-token — CONFIRMED the real
-// fallback path, NOT the earlier wrong oauth_creds.json guess) into a
-// containerized run, mirroring claudeCredentialCopyMounts' copy-then-mount-rw
-// shape because the token carries a refresh_token that self-renews.
-// =============================================================================
-
-// writeAntigravityToken writes a host ~/.gemini/antigravity-cli/antigravity-oauth-token
-// under home, standing in for the real 503-byte captured token (auth_method +
-// a token object with access_token/refresh_token/token_type/expiry).
-func writeAntigravityToken(t *testing.T, home string) {
-	t.Helper()
-	dir := filepath.Join(home, ".gemini", "antigravity-cli")
-	require.NoError(t, os.MkdirAll(dir, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "antigravity-oauth-token"),
-		[]byte(`{"auth_method":"oauth","token":{"access_token":"a","refresh_token":"r","token_type":"Bearer","expiry":"2026-08-01T00:00:00Z"}}`),
-		0o600))
-}
-
-// TestAntigravityCredentialCopyMounts_PresentAndAbsent: absent host token →
-// not ok; when present, the mount is a COPY of the token under scratchDir,
-// mounted READ-WRITE (the refresh_token self-renews — a read-only bind would
-// collide with that write-back exactly like claude's OAuth token), at the
-// IDENTICAL ~/.gemini/antigravity-cli/antigravity-oauth-token relative path
-// inside the container HOME, byte-identical to the host original.
-func TestAntigravityCredentialCopyMounts_PresentAndAbsent(t *testing.T) {
-	home := withFakeHome(t)
-	scratch := t.TempDir()
-
-	_, ok := antigravityCredentialCopyMounts("/root", scratch)
-	assert.False(t, ok, "no host antigravity-oauth-token → cannot credential-mount")
-
-	writeAntigravityToken(t, home)
-	mounts, ok := antigravityCredentialCopyMounts("/root", scratch)
-	require.True(t, ok)
-	require.Len(t, mounts, 1)
-	assert.Equal(t, filepath.Join("/root", ".gemini", "antigravity-cli", "antigravity-oauth-token"), mounts[0].Container,
-		"container dest must be the EXACT path agy itself reads under the isolated HOME")
-	assert.False(t, mounts[0].ReadOnly, "rw so agy's refresh_token-driven renewal can write back into the scratch copy")
-	assert.NotEqual(t, filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"), mounts[0].Host,
-		"the mount targets a SCRATCH COPY, never the host original")
-
-	wantHost := filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token")
-	gotBytes, err := os.ReadFile(mounts[0].Host)
-	require.NoError(t, err)
-	wantBytes, err := os.ReadFile(wantHost)
-	require.NoError(t, err)
-	assert.Equal(t, wantBytes, gotBytes, "the scratch copy is byte-identical to the host source")
-
-	info, err := os.Stat(mounts[0].Host)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "seeded credential copy is owner-only (mode 0600)")
-}
-
-// TestResolveAntigravityContainerAuth_CredsThenDegrades: no env-var trigger
-// of its own — the token file is the ONLY path — and it never authenticates
-// off ANTHROPIC_API_KEY (the wrong-provider security edge the resolver
-// deliberately refuses).
-func TestResolveAntigravityContainerAuth_CredsThenDegrades(t *testing.T) {
-	home := withFakeHome(t)
-	scratch := t.TempDir()
-
-	// No token, no other lever → degrade.
-	_, ok := resolveAntigravityContainerAuth("/root", scratch)
-	assert.False(t, ok, "no resolvable auth → degrade to none")
-
-	// ANTHROPIC_API_KEY must NOT authenticate an antigravity container — the
-	// wrong provider entirely.
-	t.Setenv("ANTHROPIC_API_KEY", "sk-test")
-	_, ok = resolveAntigravityContainerAuth("/root", scratch)
-	assert.False(t, ok, "ANTHROPIC_API_KEY must never authenticate a containerized antigravity run")
-
-	// Token present → credential-mount, no env passthrough at all.
-	writeAntigravityToken(t, home)
-	auth, ok := resolveAntigravityContainerAuth("/root", scratch)
-	require.True(t, ok)
-	assert.Equal(t, authCredentialMount, auth.mode)
-	require.Len(t, auth.mounts, 1)
-	assert.Equal(t, filepath.Join("/root", ".gemini", "antigravity-cli", "antigravity-oauth-token"), auth.mounts[0].Container)
-	assert.Empty(t, auth.envPassthrough, "credential-mount injects no env")
-}
-
-// TestCredentialSeedSpecs_AntigravityNotRegistered: antigravity has no
-// credentialSeedSpecs entry — HOME is not a
-// scoped isolation var it honours for creds, so its container auth mount is
-// built directly (antigravityCredentialCopyMounts) rather than through this
-// registry, and its host+worktree axis stays on curatedHomeSpecs.
-func TestCredentialSeedSpecs_AntigravityNotRegistered(t *testing.T) {
-	_, ok := credentialSeedSpecs["antigravity"]
-	assert.False(t, ok, "antigravity has no config-home lever — its container auth mount is built directly, not via this registry")
 }
 
 // TestFileExists pins this package's copy of the "existing regular file"

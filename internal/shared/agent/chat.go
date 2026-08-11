@@ -149,7 +149,8 @@ const RuntimeContainer = "container"
 // adapter binary wraps a CLI that has no ACP mode of its own (ACPAdapter —
 // claude-code-acp wrapping `claude`, codex-acp wrapping `codex`), or the
 // backend speaks no ACP at all and drives its own bespoke protocol instead
-// (ACPBespoke — antigravity's `agy -p` prose driver). This is the single
+// (ACPBespoke — no current registrant; reserved for an engine whose CLI has
+// neither a native ACP mode nor a third-party adapter). This is the single
 // per-engine declaration every ACP-transport consumer (a Chat() PATH gate, a
 // doctor/init readiness probe, an image-build install fragment) reads instead
 // of re-deriving "is this an adapter engine" from a hardcoded name switch.

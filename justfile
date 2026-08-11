@@ -428,14 +428,9 @@ test-conformance:
 # already part of `go test ./...`, but named here so a release-monitoring job
 # can point at exactly this engine's parser against a fresh vendor transcript
 # without pulling in the rest of the suite). Add a sibling target per engine
-# as internal/transcript/vendorreader/<engine> lands (kiro/claude/antigravity).
+# as internal/transcript/vendorreader/<engine> lands (kiro/claude).
 test-vendor-codex:
     go test -race ./internal/transcript/vendorreader/codex/...
-
-# Validate the antigravity vendor-transcript reader in isolation — see
-# test-vendor-codex's comment above, same rationale, one target per engine.
-test-vendor-antigravity:
-    go test -race ./internal/transcript/vendorreader/antigravity/...
 
 # Validate the kiro vendor-transcript reader in isolation. Its own fixture
 # is a sqlite db built at test time (see

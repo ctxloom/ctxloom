@@ -62,7 +62,7 @@ ctxloom run [flags] [prompt...]
       --distill              With --session, resume via the harp's distilled essence instead of its full transcript (distills on demand first if not yet distilled)
   -n, --dry-run              Show command that would be executed
   -f, --fragment strings     Context fragment(s) to include (can be repeated)
-  -l, --llm string           config label to use (e.g. claude-code, claude-fast, antigravity); overrides the configured default
+  -l, --llm string           config label to use (e.g. claude-code, claude-fast, codex); overrides the configured default
       --one-shot             Run one turn non-interactively, print the response, and exit
       --permissions string   Permission posture: default|acceptEdits|plan|bypass (overrides the agent/config default)
       --plain-terminal       Disable ctxloom's terminal layer (the prefix-key agent viewer and the surround status bar) for this session

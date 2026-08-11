@@ -534,7 +534,7 @@ message Hook {
   string scm = 7;
   // pre_tool_fallback mirrors wire.Hook.PreToolFallback: this session_start
   // hook is safe to fire on PreToolUse instead, on an engine whose harness has
-  // no session-start event (Antigravity). It had no proto field, so the flag —
+  // no session-start event. It had no proto field, so the flag —
   // documented on the website and in the config schema — arrived false at every
   // backend and the fallback was dead. SIGNING: the hook exec preimage
   // (bundles.BundleHook.ContentPayload, `ctxloom-exec/1`) already includes

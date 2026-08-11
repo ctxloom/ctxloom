@@ -868,7 +868,7 @@ func init() {
 		"Resolve against these profiles instead of the configured defaults (repeatable)")
 	manageHooksInstallCmd.Flags().BoolVar(&manageHooksForce, "force", false, "Proceed even if the resolved project directory would write Claude Code's user-global settings (not inside a project / $HOME)")
 	for _, c := range []*cobra.Command{manageHooksInstallCmd, manageHooksUninstallCmd} {
-		c.Flags().StringVar(&manageHooksBackend, "backend", "all", "Backend to target (claude-code, antigravity, or all)")
+		c.Flags().StringVar(&manageHooksBackend, "backend", "all", "Backend to target (claude-code, codex, or all)")
 	}
 
 	// statusline opt-out.

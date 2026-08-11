@@ -48,7 +48,7 @@ func ResolveModelFor(name, model string) (resolved string, ok bool) {
 // config.toml/prompts/skills home, kiro's whole agents/settings/steering home
 // (see each one's hookGlobalScopePaths wiring in registry.go for the
 // collision class itself). A backend with no hookGlobalScopePaths hook
-// (antigravity, opencode, acp, mock — audited as unable to hit this
+// (opencode, acp, mock — audited as unable to hit this
 // collision; see each descriptor's comment) or an unregistered name is a
 // no-op: nothing to guard.
 //

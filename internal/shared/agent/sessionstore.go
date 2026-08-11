@@ -19,10 +19,7 @@ import (
 //
 // The claude/codex/antigravity SessionHistory readers that
 // used to embed this were deleted outright (proven broken, see each
-// package's backend.go doc). opencode's native reader still embeds it, as
-// does antigravity's agyConversationMap (conversationmap.go) — a live
-// continuation lookup, not a transcript reader, that only wants the
-// FS/HomeDir test-injection seam.
+// package's backend.go doc). opencode's native reader still embeds it.
 type SessionStore struct {
 	// FS is the filesystem transcripts are read through (test injection
 	// point). Nil falls back to the OS filesystem.
@@ -89,8 +86,8 @@ func GetCurrentSessionViaGetSession(workDir string, list func(string) ([]Session
 // degrades to a partial transcript rather than an error.
 //
 // The loop uses an unbounded bufio.Reader instead of a capped bufio.Scanner:
-// agents embed whole file contents in single JSONL lines (e.g. agy's
-// write_to_file CodeContent, Claude's large tool results), and a Scanner cap
+// agents embed whole file contents in single JSONL lines (e.g. Claude's
+// large tool results), and a Scanner cap
 // would hard-fail the entire session on the first oversized line, breaking
 // the degrade-to-partial contract.
 func (s *SessionStore) ParseSessionFile(path, sessionID string, parseLine func(line []byte) []SessionEntry) (*Session, error) {

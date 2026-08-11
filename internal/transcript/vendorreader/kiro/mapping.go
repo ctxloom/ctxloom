@@ -33,7 +33,7 @@ type converter struct {
 // vendor format this build parses no longer matches the document, and a
 // silently empty transcript would permanently block a later, better import.
 // The per-turn Complete boundary deliberately does not count toward the floor;
-// see converter.entries above. Mirrors claude/codex/antigravity's
+// see converter.entries above. Mirrors claude/codex's
 // identically-motivated floor check.
 func (c *converter) checkFloor(conversationID string, turns int) error {
 	if turns > 0 && c.entries == 0 {

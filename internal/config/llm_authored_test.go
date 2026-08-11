@@ -13,7 +13,7 @@ import (
 // TestIsLLMUserAuthored_EmptyRegistry_DefaultLabelsAreNotUserAuthored pins
 // the defect `llm remove`/`llm edit`'s CRUD relies on: mergeDefaultConfig
 // (LMConfig's own doc, "not a per-key overlay") fills a COMPLETELY EMPTY
-// llm.configs with the WHOLE shipped registry (claude-code, antigravity,
+// llm.configs with the WHOLE shipped registry (claude-code,
 // codex, ...) so a project with none configured still resolves an engine.
 // That merge happens on the READ side cfg.lm.Configs reflects — so a naive
 // "is label in cfg.lm.Configs" check would see "claude-code" as already

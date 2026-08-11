@@ -7,14 +7,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/memory"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // stampPlanCmd reads a PostToolUse file-edit hook payload on stdin
-// (Claude Code's Edit|Write shape or Antigravity's
-// write_to_file|replace_file_content shape) and, when the edited file
+// (Claude Code's Edit|Write shape) and, when the edited file
 // matches the plan-file pattern, stamps the active session's harp name
 // into the file's YAML frontmatter. No-op when CTXLOOM_SESSION_HARP is
 // unset or the edited file isn't a plan file.
@@ -70,9 +68,7 @@ func init() {
 }
 
 // parseEditPayload extracts the edited file's path from a file-edit hook
-// payload: Claude Code's tool_input.file_path (wrapped or bare) or
-// Antigravity's toolCall.args.TargetFile (decoded via the antigravity
-// module's wire types, the contract's single source of truth).
+// payload: Claude Code's tool_input.file_path (wrapped or bare).
 func parseEditPayload(raw []byte) (string, error) {
 	type input struct {
 		FilePath string `json:"file_path"`
@@ -90,9 +86,6 @@ func parseEditPayload(raw []byte) (string, error) {
 	}
 	if w.FilePath != "" {
 		return w.FilePath, nil
-	}
-	if p, err := antigravity.DecodeHookPayload(raw); err == nil {
-		return p.ToolCall.Args.FilePath(), nil
 	}
 	return "", nil
 }

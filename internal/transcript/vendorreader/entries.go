@@ -37,7 +37,7 @@ func nonEmptyRaw(raw json.RawMessage) json.RawMessage {
 
 // TextEntry wraps non-empty text as a single-element ChatEvent slice typed
 // entryType, or nil for empty text — the "zero or one canonical entries from
-// this buffered/joined text" shape codex, claude, antigravity, and kiro all
+// this buffered/joined text" shape codex, claude, and kiro all
 // repeat for user/assistant/thinking content: a turn with no visible text
 // (an empty reasoning.summary, a step whose wrapper wasn't recognized, a
 // content array with no text block) contributes nothing, never a

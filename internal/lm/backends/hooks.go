@@ -46,5 +46,5 @@ func BackendsWithSettings() []string {
 
 // The per-agent settings-writer helpers (hook-hash, managed-command detection,
 // fs/atomic-write, ctxloom binary/args) now live in shared/agent and are used
-// directly by the claude/antigravity/codex writer modules — the transitional wrappers
+// directly by the claude/codex writer modules — the transitional wrappers
 // that used to bridge them here are gone.

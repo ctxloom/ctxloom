@@ -198,8 +198,8 @@ func (w *KiroWriter) mapHooks(u wire.UnifiedHooks, plugins wire.BackendHooks) (c
 //     concrete WriteSettings on every delivery, so the method is live
 //     repo-wide. Pinned by TestConfigSurface_IsTheOneProductionWriteSettingsCaller.
 //   - internal/lm/conformance drives WriteSettings through the INTERFACE for
-//     claude/antigravity/codex; removing it from agent.SettingsWriter deletes
-//     five conformance assertions, which is a wider change than a deletion.
+//     claude/codex; removing it from agent.SettingsWriter deletes
+//     conformance assertions, which is a wider change than a deletion.
 //   - kiro must satisfy agent.SettingsWriter regardless: uninstall.go reaches it
 //     via GetSettingsWriter for RemoveSettings and Status, both live.
 //
@@ -315,7 +315,7 @@ func (w *KiroWriter) writeSteering(projectDir, content string) (agent.ContextRep
 // kiroMCPServer is the stdio server shape ctxloom writes. Remote (url) servers
 // are user-authored and pass through raw.
 // mcpFile binds the shared MCP-registry reconciler (agent.MCPFileConfig —
-// load/save/ledger/reconcile live there, shared with antigravity) to this
+// load/save/ledger/reconcile live there) to this
 // project's settings/mcp.json + sidecar ledger.
 func (w *KiroWriter) mcpFile(projectDir string) agent.MCPFileConfig {
 	return agent.MCPFileConfig{
@@ -355,8 +355,8 @@ func (w *KiroWriter) RemoveSettings(projectDir string) error {
 
 // Status implements SettingsWriter for Kiro CLI.
 //
-// A reported status is never a guess (the same invariant codex's and
-// antigravity's Status state): an ABSENT agent config or steering file is the
+// A reported status is never a guess (the same invariant codex's
+// Status states): an ABSENT agent config or steering file is the
 // legitimate "not configured" answer, but a file that exists and cannot be read
 // or parsed means the answer is UNKNOWN — which is a different fact from "no
 // managed hooks are wired" and must not be reported as one.

@@ -68,7 +68,6 @@ func TestDoctorCheckMCPInvocation_RightState_CurrentEntryIsQuiet(t *testing.T) {
 func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 	staleFor := map[string]string{
 		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
-		filepath.Join(".agents", "mcp_config.json"):    `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
 		filepath.Join(".kiro", "settings", "mcp.json"): `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
 		filepath.Join(".codex", "config.toml"):         "[mcp_servers.ctxloom]\ncommand = \"/bin/ctxloom\"\nargs = [\"mcp\"]\n",
 		// opencode folds the binary and its arguments into one array, so the

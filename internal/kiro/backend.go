@@ -202,7 +202,7 @@ func (b *Kiro) buildArgs(req *agent.ExecuteRequest, model string) []string {
 	// --trust-all-tools flags (this used to be bypass-only — read-only
 	// silently collapsed to kiro's own prompting, the worst-collapsed engine
 	// of the three under-mapped ones). SkipSetup forces the read-only arm
-	// regardless of a requested bypass, matching codex's and agy's identical
+	// regardless of a requested bypass, matching codex's identical
 	// SkipSetup-wins switch shape (a distillation run must never widen to
 	// bypass just because the label's configured posture happens to be
 	// bypass).

@@ -9,9 +9,8 @@ import (
 // per-agent settings writers all share this translation skeleton — only the
 // native event vocabulary, default matchers, and route order differ — so each
 // declares its routes as data and RouteUnifiedHooks does the walk. Hooks that
-// need per-agent special handling (e.g. antigravity's SessionStart context /
-// PreToolUse-fallback diversion) are handled by the agent before routing and
-// simply omitted from its route table.
+// need per-agent special handling are handled by the agent before routing
+// and simply omitted from its route table.
 type HookRoute struct {
 	// Hooks is the unified slice this route emits (e.g. unified.PreShell).
 	Hooks []wire.Hook

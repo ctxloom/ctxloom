@@ -186,7 +186,7 @@ type AddMCPServerRequest struct {
 	Name         string   `json:"name"`
 	Command      string   `json:"command"`
 	Args         []string `json:"args"`
-	Backend      string   `json:"backend"`      // unified, claude-code, antigravity
+	Backend      string   `json:"backend"`      // unified, claude-code, codex
 	Notes        string   `json:"notes"`        // Human-readable notes, not sent to AI
 	Installation string   `json:"installation"` // Setup/installation instructions, not sent to AI
 }
@@ -285,7 +285,7 @@ func addBackendServer(d *config.Draft, backend, name string, server wire.MCPServ
 // RemoveMCPServerRequest contains parameters for removing an MCP server.
 type RemoveMCPServerRequest struct {
 	Name    string `json:"name"`
-	Backend string `json:"backend"` // unified, claude-code, antigravity, or empty for all
+	Backend string `json:"backend"` // unified, claude-code, codex, or empty for all
 }
 
 // RemoveMCPServerResult contains the result of removing an MCP server.

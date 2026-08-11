@@ -323,7 +323,7 @@ func (e *TestEnvironment) Setup() error {
 // It exists to remove a machine dependency, not to add one. Before exec
 // consent landed, a locally-installed `ltk` or `taskloom` was simply executed
 // by every ctxloom the suite spawned; several tests quietly rely on that (the
-// `session-bind` hook the Antigravity apply tests assert on ships in
+// `session-bind` hook the bundle apply tests assert on ships in
 // TASKLOOM's loadout, not in an embedded bundle). Without this, the same
 // binaries would instead be skipped as unconfirmed — and on a real pty, where
 // the session IS interactive, ctxloom would correctly stop and ASK, hanging

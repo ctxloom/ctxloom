@@ -28,7 +28,7 @@ ctxloom mcp server create <name> [flags]
 
 ```
   -a, --args strings     Arguments for the command (can be repeated)
-  -b, --backend string   Backend to add server for (claude-code, antigravity, or unified)
+  -b, --backend string   Backend to add server for (claude-code, codex, or unified)
   -c, --command string   Command to run the MCP server (required)
 ```
 

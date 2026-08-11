@@ -9,8 +9,8 @@ import (
 )
 
 // Byte-level MCP registration helpers for the JSON "mcpServers" table shape
-// that Claude Code (.mcp.json / ~/.claude.json) and Antigravity
-// (.agents/mcp_config.json) share. Unlike the SettingsWriter path — which
+// that Claude Code (.mcp.json / ~/.claude.json) and Kiro
+// (.kiro/settings/mcp.json) share. Unlike the SettingsWriter path — which
 // reconciles the ctxloom-managed server set against a config file — these
 // operate on raw config bytes and register a single named server, preserving
 // every foreign key. They are the seam external registrars (taskloom manage)

@@ -29,7 +29,7 @@ var (
 
 // llmWriteLong is the shared body for `llm create`/`llm edit`: the fields an
 // entry carries are identical either way.
-const llmWriteLong = `--type is the backend discriminator (claude-code|antigravity|codex|...);
+const llmWriteLong = `--type is the backend discriminator (claude-code|codex|kiro|...);
 omit it to keep claude-code's default. --model sets the model string. --permissions
 sets the launch-time posture (default|acceptEdits|plan|bypass).
 
@@ -49,7 +49,7 @@ var llmCreateCmd = &cobra.Command{
 	Short: "Create a new LLM engine config",
 	Long: `Create a NEW labeled LLM engine config under the 'llm.configs' key of
 .ctxloom/config.yaml. Refuses a label that already names a config entry OR a
-registered backend (claude-code, antigravity, codex, ...) — change an
+registered backend (claude-code, codex, kiro, ...) — change an
 existing one with 'ctxloom llm edit'.
 
 ` + llmWriteLong + `
@@ -246,7 +246,7 @@ func init() {
 // registerLLMWriteFlags binds the entry-axis flags to cmd (shared by `llm
 // create` and `llm edit`).
 func registerLLMWriteFlags(cmd *cobra.Command) {
-	cmd.Flags().StringVar(&llmSetType, "type", "", "backend discriminator: claude-code|antigravity|codex|... (empty = claude-code)")
+	cmd.Flags().StringVar(&llmSetType, "type", "", "backend discriminator: claude-code|codex|kiro|... (empty = claude-code)")
 	cmd.Flags().StringVar(&llmSetModel, "model", "", "model string")
 	cmd.Flags().StringVar(&llmSetPermissions, "permissions", "", "permission posture: default|acceptEdits|plan|bypass")
 	cmd.Flags().StringVar(&llmSetEnvFile, "env-file", "", "read KEY=VALUE env/credential lines from this file ('-' for stdin); REPLACES the entry's whole env block")

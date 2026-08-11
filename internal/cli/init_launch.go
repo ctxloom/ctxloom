@@ -138,7 +138,6 @@ const authPingTask = "Reply with exactly: ok"
 // fallback rather than blocking on a missing entry.
 var engineAuthFix = map[string]string{
 	"claude-code": "run `claude login` (or set ANTHROPIC_API_KEY)",
-	"antigravity": "run `agy` and complete its sign-in flow (OAuth only — no API-key path)",
 	"codex":       "run `codex login` (or set OPENAI_API_KEY)",
 	"kiro":        "run `kiro-cli login` (or set KIRO_API_KEY)",
 	"opencode":    "authenticate opencode (see its `auth` subcommand) or set OPENROUTER_API_KEY",

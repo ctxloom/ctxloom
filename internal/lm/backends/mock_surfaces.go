@@ -22,7 +22,7 @@ import (
 //
 // mock's context surface writes the managed section of MOCK_CONTEXT.md at the
 // target dir's root — a plain, single well-known file, exactly the shape
-// antigravity's .agents/AGENTS.md and claude's CLAUDE.md already use — via the
+// claude's CLAUDE.md already uses — via the
 // SAME shared marker-merge core (agent.WriteManagedContext /
 // agent.ReadManagedContext) rather than a second implementation of the
 // marker split. It additionally implements agent.StateReader, which nothing
@@ -32,7 +32,7 @@ import (
 // mock's SKILLS surface is that same reuse argument applied to a TREE: the
 // shared agent.ManagedSkillPackagesDelivery bound to the shared
 // agent.WriteManagedSkillPackages writer — byte-for-byte the machinery
-// claude's .claude/skills/, antigravity's .agents/skills/ and opencode's
+// claude's .claude/skills/ and opencode's
 // .opencode/skill/ go through, differing only in the directory it targets. A
 // second skill-materializing path in the mock would prove the mock, not the
 // seam.
@@ -55,7 +55,7 @@ func mockContextPath(dir string) string {
 // mockContextWriter implements agent.ContextWriter for the mock engine: it
 // merges the assembled context into MOCK_CONTEXT.md's ctxloom-managed section,
 // preserving anything a user hand-wrote outside the markers. This is the exact
-// shape antigravity's AGENTS.md and claude's CLAUDE.md writers use — the same
+// shape claude's CLAUDE.md writer uses — the same
 // shared core, a different filename.
 type mockContextWriter struct {
 	FS afero.Fs
@@ -123,7 +123,7 @@ func mockSkillsPath(dir string) string {
 // newMockSkillsSurface builds mock's skills surface: the SHARED
 // agent.ManagedSkillPackagesDelivery bound to the SHARED
 // agent.WriteManagedSkillPackages writer, exactly as claude's newSkillsSurface
-// and opencode's/kiro's/antigravity's do. Everything that makes a skill
+// and opencode's/kiro's do. Everything that makes a skill
 // package land correctly — the per-skill directory prefix, the DECLARED mode
 // on each file, the manifest-scoped reversal — lives in that shared body, not
 // here; this function contributes a directory and a manifest name.
@@ -135,7 +135,7 @@ func newMockSkillsSurface(skills []agent.SkillExport, fs afero.Fs) *agent.Manage
 
 // mockApproaches is mock's declared per-surface approach table: context and
 // skills, each at its native well-known path — mock has no out-of-cwd redirect
-// and no SharedRealization, matching antigravity/kiro/codex/opencode (claude
+// and no SharedRealization, matching kiro/codex/opencode (claude
 // is the one backend with an out-of-cwd scratch conversion).
 var mockApproaches = agent.ApproachTable{
 	agent.SurfaceContext: {agent.ApproachUnsafeFile},

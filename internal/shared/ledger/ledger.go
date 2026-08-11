@@ -17,7 +17,7 @@
 // ledger removes the need for the copy: content nobody claims is never touched.
 //
 // THE CO-LOCATION INVARIANT, which is load-bearing. Two surfaces can share one
-// directory — antigravity and kiro both write COMMANDS and SKILLS into the same
+// directory — kiro writes COMMANDS and SKILLS into the same
 // skills dir — and before this package they depended on two separate manifest
 // FILENAMES so one surface's cleanup could not delete the other's files. One
 // marker with SURFACE-TYPED entries preserves that separation without

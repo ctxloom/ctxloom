@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/kiro"
 )
@@ -22,12 +21,6 @@ const claudeFixture = `{
       "command": "ctxloom",
       "cwd": "${CLAUDE_PROJECT_DIR}"
     }
-  }
-}`
-
-const antigravityFixture = `{
-  "mcpServers": {
-    "ctxloom": {"args": ["mcp"], "command": "ctxloom"}
   }
 }`
 
@@ -72,7 +65,6 @@ func TestEngines_InstallIntoEmpty_CreatesEntry(t *testing.T) {
 func TestEngines_Install_PreservesForeignContent(t *testing.T) {
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
-		"antigravity": antigravityFixture,
 		"codex":       codexFixture,
 		"kiro":        kiroFixture,
 	}
@@ -116,7 +108,6 @@ func TestEngines_Install_Idempotent(t *testing.T) {
 func TestEngines_Uninstall_RemovesOnlyOurs(t *testing.T) {
 	fixtures := map[string]string{
 		"claude-code": claudeFixture,
-		"antigravity": antigravityFixture,
 		"codex":       codexFixture,
 		"kiro":        kiroFixture,
 	}
@@ -154,27 +145,13 @@ func TestGet_AliasesAndUnknown(t *testing.T) {
 		require.NoError(t, err, alias)
 		assert.Equal(t, "claude-code", e.Name())
 	}
-	for _, alias := range []string{"agy", "antigravity", "ANTIGRAVITY"} {
-		e, err := Get(alias)
-		require.NoError(t, err, alias)
-		assert.Equal(t, "antigravity", e.Name())
-	}
 	_, err := Get("cluade")
 	assert.Error(t, err, "typos must error, not guess")
 }
 
-// TestAntigravity_GlobalScopeUnsupported pins the verified agy v1.0.7
-// behavior: no global MCP config is read, so global scope must error rather
-// than write a dead file.
-func TestAntigravity_GlobalScopeUnsupported(t *testing.T) {
-	_, err := (antigravity.MCPRegistrar{}).ConfigPath("/proj", true)
-	assert.ErrorIs(t, err, antigravity.ErrNoGlobalMCPConfig)
-	assert.False(t, (antigravity.MCPRegistrar{}).Present("/proj", true))
-}
-
 // TestKiro_RegisteredInEngineRegistry is the direct regression test for
-// snowy-worst: kiro shipped no agent.MCPRegistrar while claude/antigravity/
-// codex each did, so `engine.All()` (what `taskloom manage install` walks
+// snowy-worst: kiro shipped no agent.MCPRegistrar while claude/codex each
+// did, so `engine.All()` (what `taskloom manage install` walks
 // when no --engine is named) silently never touched kiro's
 // .kiro/settings/mcp.json — no error, no mention, just an absent entry.
 // This pins kiro into the registry going forward (both by direct lookup and
@@ -193,8 +170,8 @@ func TestKiro_RegisteredInEngineRegistry(t *testing.T) {
 	assert.True(t, found, "kiro must appear in All() for the auto-register (no --engine) path")
 }
 
-// TestKiro_GlobalScopeSupported pins kiro's global MCP config path: unlike
-// antigravity, kiro-cli DOES read a home-rooted config
+// TestKiro_GlobalScopeSupported pins kiro's global MCP config path: kiro-cli
+// DOES read a home-rooted config
 // ($KIRO_HOME/settings/mcp.json, default ~/.kiro/settings/mcp.json — the
 // same home that holds agents/settings/skills/steering, per
 // internal/kiro/session.go's storeDir), so global scope must succeed rather
@@ -219,7 +196,6 @@ func TestConfigPath_Scopes(t *testing.T) {
 	}{
 		{"claude-code", false, ".mcp.json"},
 		{"claude-code", true, ".claude.json"},
-		{"antigravity", false, ".agents/mcp_config.json"},
 		{"codex", false, ".codex/config.toml"},
 		{"codex", true, ".codex/config.toml"},
 		{"kiro", false, ".kiro/settings/mcp.json"},

@@ -9,7 +9,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -17,7 +16,7 @@ import (
 )
 
 // The `ctxloom hook session-bind` machinery: a machine callback fired by an
-// engine's SessionStart (or, on Antigravity, PreToolUse) hook. It is NOT part
+// engine's SessionStart hook. It is NOT part
 // of the user-facing `session` command tree — it registers under the hidden
 // `hook` namespace — and it answers to a different contract: stdout carries
 // hook output only, and nothing here may ever fail the host engine's startup.
@@ -32,10 +31,9 @@ func init() {
 // recording the harp → session_id mapping in the index. Claude Code (and
 // other backends with SessionStart hooks) fire this exactly once per
 // session, with the backend's session ID and transcript path already in
-// the documented hook payload. Antigravity has no session-start event, so
-// there the hook is installed with pre_tool_fallback and fires on
-// PreToolUse — the bind is first-bind-wins, so repeat firings are no-ops.
-// The compactor also forward-binds at compact time as a backstop.
+// the documented hook payload — the bind is first-bind-wins, so repeat
+// firings are no-ops. The compactor also forward-binds at compact time as a
+// backstop.
 var sessionBindCmd = &cobra.Command{
 	Use:    "session-bind",
 	Short:  "Bind the current backend session to the active harp (internal — used by the SessionStart hook)",
@@ -54,13 +52,7 @@ func runSessionBind(cmd *cobra.Command, args []string) error {
 	// project context (inject-context) is configured. Best-effort: a hook must
 	// never fail the host backend's startup, so failures past this point only
 	// skip the index bind — the marker is already on stdout.
-	//
-	// Skipped for Antigravity payloads: there this command runs as a
-	// PreToolUse hook, where stdout is reserved for decision JSON — the
-	// SessionStart additionalContext envelope would be junk at best.
-	if !isAntigravityHookPayload(raw) {
-		emitHarpMarker(cmd.OutOrStdout(), harp)
-	}
+	emitHarpMarker(cmd.OutOrStdout(), harp)
 	if err := bindSessionFromPayload(bytes.NewReader(raw), harp); err != nil {
 		clidiag.Warn("ctxloom", "session bind failed: %v", err)
 	}
@@ -124,19 +116,10 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 		clidiag.Warn("ctxloom", "session-bind: harp %q: SessionStart hook payload did not parse as JSON: %v — harp<->session_id bind skipped", harp, err)
 		return nil
 	}
-	// Antigravity fires this as a PreToolUse hook with its own payload shape
-	// (camelCase, decoded via the agy module's wire types): the conversation
-	// ID is the session ID and the transcript path comes on every payload.
-	if payload.SessionID == "" {
-		if p, err := antigravity.DecodeHookPayload(raw); err == nil && p.ConversationID != "" {
-			payload.SessionID = p.ConversationID
-			payload.TranscriptPath = p.TranscriptPath
-		}
-	}
 	// Confirmed live 2026-07-21 against real kiro-cli 2.12.1:
 	// kiro's agentSpawn hook stdin payload carries NO session identifier at
 	// all ({"hook_event_name":"agentSpawn","cwd":...,"prompt":...} — no
-	// session_id/conversation_id field), unlike Claude/Codex/Antigravity's
+	// session_id/conversation_id field), unlike Claude/Codex's
 	// payloads. It DOES set KIRO_SESSION_ID in the hook subprocess's OWN
 	// environment, confirmed (by direct sqlite query against the real
 	// conversations_v2 table) to equal that conversation's actual
@@ -150,12 +133,4 @@ func bindSessionFromPayload(in io.Reader, harp string) error {
 	// operations.BindSession applies first-bind-wins and no-ops a harp that is
 	// absent or already bound.
 	return operations.BindSession(harp, payload.SessionID, payload.TranscriptPath)
-}
-
-// isAntigravityHookPayload reports whether raw is an Antigravity hook payload
-// (identified structurally by its conversationId field — Claude payloads
-// carry session_id instead).
-func isAntigravityHookPayload(raw []byte) bool {
-	p, err := antigravity.DecodeHookPayload(raw)
-	return err == nil && p.ConversationID != ""
 }

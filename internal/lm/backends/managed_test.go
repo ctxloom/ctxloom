@@ -273,8 +273,8 @@ func TestCommandExportsFor(t *testing.T) {
 	c.LLM.ClaudeCode.Enabled = &enabled
 	c.LLM.ClaudeCode.Description = "claude desc"
 	c.LLM.ClaudeCode.ArgumentHint = "hint"
-	c.LLM.Antigravity.Enabled = &enabled
-	c.LLM.Antigravity.Description = "antigravity desc"
+	c.LLM.Codex.Enabled = &enabled
+	c.LLM.Codex.Description = "codex desc"
 	prompts := []*bundles.LoadedContent{c}
 
 	claudeEx := CommandExportsFor("claude-code", prompts)
@@ -283,9 +283,9 @@ func TestCommandExportsFor(t *testing.T) {
 	assert.Equal(t, "hint", claudeEx[0].ArgumentHint)
 	assert.True(t, claudeEx[0].Enabled)
 
-	antigravityEx := CommandExportsFor("antigravity", prompts)
-	require.Len(t, antigravityEx, 1)
-	assert.Equal(t, "antigravity desc", antigravityEx[0].Description)
+	codexEx := CommandExportsFor("codex", prompts)
+	require.Len(t, codexEx, 1)
+	assert.Equal(t, "codex desc", codexEx[0].Description)
 
 	assert.Nil(t, CommandExportsFor("unknown-backend", prompts))
 }

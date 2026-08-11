@@ -18,7 +18,7 @@ ctxloom manage hooks uninstall [flags]
 ### Options
 
 ```
-      --backend string   Backend to target (claude-code, antigravity, or all) (default "all")
+      --backend string   Backend to target (claude-code, codex, or all) (default "all")
 ```
 
 ### Options inherited from parent commands

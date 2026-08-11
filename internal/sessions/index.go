@@ -409,10 +409,12 @@ func linkTranscriptIntoHarpDir(harpName, transcriptPath string) {
 // hook, so the normal BindSession path (which records TranscriptPath) never
 // fires — but with the mount, the transcript physically lives in the harp's
 // session dir, so location IS the binding. Engines nest their stores
-// (claude: <encoded-project>/<uuid>.jsonl; antigravity:
-// <uuid>/.system_generated/logs/transcript_full.jsonl), hence the recursive
-// walk. The newest .jsonl wins (claude/codex/antigravity transcripts); .json
-// is the kiro-store fallback considered only when no .jsonl exists.
+// (claude: <encoded-project>/<uuid>.jsonl; antigravity, before it was
+// removed in 0.7.0: <uuid>/.system_generated/logs/transcript_full.jsonl),
+// hence the recursive walk. The newest .jsonl wins (claude/codex
+// transcripts, and any older antigravity ones a pre-upgrade harp still
+// carries); .json is the kiro-store fallback considered only when no .jsonl
+// exists.
 func LocateTranscript(harpName string) (string, bool) {
 	if harpName == "" {
 		return "", false

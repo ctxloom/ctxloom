@@ -13,11 +13,10 @@
 # Grounding table):
 #   codex        -> npm view @openai/codex version
 #   claude-code  -> npm view @anthropic-ai/claude-code version
-#   antigravity  -> GitHub Releases API, google-antigravity/antigravity-cli
 #   kiro         -> kiro.dev/changelog/cli/ scrape (no releases API exists)
 set -euo pipefail
 
-engine="${1:?usage: detect-engine-version.sh <codex|claude-code|antigravity|kiro>}"
+engine="${1:?usage: detect-engine-version.sh <codex|claude-code|kiro>}"
 
 case "$engine" in
 codex)
@@ -25,12 +24,6 @@ codex)
   ;;
 claude-code)
   npm view @anthropic-ai/claude-code version
-  ;;
-antigravity)
-  # google-antigravity/antigravity-cli's releases use bare-version tags (no
-  # `v` prefix, binary name `agy`) -- confirmed by inspecting the live
-  # releases feed -- so tag_name IS the version, no stripping needed.
-  gh api repos/google-antigravity/antigravity-cli/releases/latest --jq .tag_name
   ;;
 kiro)
   # kirodotdev/Kiro has zero GitHub releases (no releases API to poll) --

@@ -18,7 +18,7 @@
 //   - TestArch_Operations_DoesNotImportEnginePlugins is the layering gate: it
 //     re-catches the confirmed violation the moment a future change
 //     reintroduces a direct internal/operations -> internal/{claude,codex,
-//     kiro,antigravity,opencode,acp} import edge, by the same AST-parse
+//     kiro,opencode,acp} import edge, by the same AST-parse
 //     technique TestArch_NonTestPackages_DoNotImportTestSupport already uses
 //     in this package (production (non-_test.go) imports only, so a test
 //     double importing an engine package for fixture purposes never trips
@@ -68,7 +68,6 @@ var enginePluginImportPaths = []string{
 	modulePath + "/internal/claude",
 	modulePath + "/internal/codex",
 	modulePath + "/internal/kiro",
-	modulePath + "/internal/antigravity",
 	modulePath + "/internal/opencode",
 	modulePath + "/internal/acp",
 }

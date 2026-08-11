@@ -143,7 +143,7 @@ func llmEnvKeys(body map[string]any) []string {
 // mirroring SetAgentRequest's contract.
 type SetLLMRequest struct {
 	Label string `json:"label"`
-	// Type is the backend discriminator (claude-code|antigravity|codex|...).
+	// Type is the backend discriminator (claude-code|codex|kiro|...).
 	// A non-empty value is REJECTED unless backends.Exists names it — an
 	// unknown type leaves EffectiveType silently degrading to DefaultLLM at
 	// resolve time, exactly the "written already broken" defect

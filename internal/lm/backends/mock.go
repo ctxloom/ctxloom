@@ -62,7 +62,7 @@ func (MockConfig) BackendType() string { return "mock" }
 // well-known-file Build adapter every non-claude launch backend uses, over
 // mock's context-only SurfaceSet (mock_surfaces.go). RawContext stays FALSE:
 // mock has no SessionStart hook and no CTXLOOM_CONTEXT_FILE consumer, so its
-// context rides MOCK_CONTEXT.md exactly as antigravity's rides AGENTS.md, and
+// context rides MOCK_CONTEXT.md as its own native well-known file, and
 // ContextHook (which requires RawContext) stays false with it. History is the
 // same NilSessionHistory the backend has always reported — mock keeps no
 // transcripts.

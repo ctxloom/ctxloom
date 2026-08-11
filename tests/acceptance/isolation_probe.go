@@ -14,7 +14,7 @@
 // is the live counterpart, and it is built to be invoked on its own, for one
 // engine and one axis at a time, because its real job is not "pass once in
 // this repo's CI" — it is "answer the same question again, unattended, every
-// time claude-code/codex/kiro/opencode/antigravity ship a new version." A
+// time claude-code/codex/kiro/opencode ship a new version." A
 // scenario welded into j002200's own feature file could not serve that; see
 // features/isolation_probe.feature and website/src/content/docs/security/
 // isolation.md's "The executable probe" section for how to invoke it for a
@@ -209,8 +209,8 @@ func probeCensusDiff(before, after map[string]probeCensusEntry) []string {
 }
 
 // probeCensusRoots returns the host-census roots (relative to HOME) for the
-// named REGISTERED backend type (claude-code/codex/kiro/opencode/
-// antigravity) — reusing liveAgents[...].credDir, the SAME root copyCreds
+// named REGISTERED backend type (claude-code/codex/kiro/opencode)
+// — reusing liveAgents[...].credDir, the SAME root copyCreds
 // already knows to copy from, rather than re-declaring the path a second
 // time. claude-code carries one extra sibling file (.claude.json, the
 // onboarding-state file copyClaudeCredentials also copies).
@@ -642,7 +642,7 @@ func probePrompt(token string) string {
 // liveAgents config (model pinned cheap) plus a "probe" agent bound to it,
 // permissions bypass (the file-write action needs it — every backend maps
 // agent.PermissionBypass to its own skip-prompts flag, see
-// internal/{claude,codex,kiro,opencode,antigravity}/backend.go), and,
+// internal/{claude,codex,kiro,opencode}/backend.go), and,
 // for the container axis only, runtime: container.
 func probeConfigYAML(backendType string, axis probeAxis) string {
 	key := backendTypeToLiveKey(backendType)
@@ -710,21 +710,9 @@ func probeWorktreeAuthAvailable(backendType string) (probeAuthPath, string) {
 //     credential-mount fallback at all) — the host's subscription sqlite
 //     that authenticates the WORKTREE axis cannot authenticate a
 //     containerized kiro today.
-//   - antigravity: a mounted host credential file ONLY, no env-key path at
-//     all (2026-07-22: resolveAntigravityContainerAuth has no
-//     known ANTIGRAVITY_*/AGY_* trigger of its own, and deliberately never
-//     accepts ANTHROPIC_API_KEY — the wrong-provider security edge). The
-//     file it mounts is ~/.gemini/antigravity-cli/antigravity-oauth-token —
-//     the SAME path copyAntigravityCredentials now seeds and
-//     authCheckAntigravity now reads (both corrected off an earlier wrong
-//     oauth_creds.json guess) — so probeDecideAuthPath answers correctly
-//     here too, exactly like claude/codex/opencode above. Before this
-//     resolver existed, this case unconditionally reported probeAuthNone
-//     regardless of credentials, a hardcoded "no resolver" skip rather than
-//     a real check.
 func probeContainerAuthAvailable(backendType string) (probeAuthPath, string) {
 	switch backendType {
-	case "claude-code", "codex", "opencode", "antigravity":
+	case "claude-code", "codex", "opencode":
 		return probeDecideAuthPath(backendType)
 	case "kiro":
 		if os.Getenv("KIRO_API_KEY") != "" {

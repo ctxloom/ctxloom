@@ -29,7 +29,7 @@ func thisDir() string {
 	return filepath.Dir(file)
 }
 
-// codexFixturePath, claudeFixturePath, antigravityFixturePath resolve to the
+// codexFixturePath, claudeFixturePath resolve to the
 // REAL vendor-native fixture files each reader package's own test suite
 // already exercises (internal/transcript/vendorreader/<engine>/testdata) — this
 // suite reuses them rather than inventing a second, parallel set, per the
@@ -37,9 +37,8 @@ func thisDir() string {
 // assert on real payload content, not a hand-rolled minimal stub that could
 // never expose a real parse bug).
 var (
-	codexFixturePath       = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "codex", "testdata", "rollout-fixture.jsonl")
-	claudeFixturePath      = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
-	antigravityFixturePath = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "antigravity", "testdata", "transcript_full-fixture.jsonl")
+	codexFixturePath  = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "codex", "testdata", "rollout-fixture.jsonl")
+	claudeFixturePath = filepath.Join(thisDir(), "..", "transcript", "vendorreader", "claude", "testdata", "transcript-fixture.jsonl")
 )
 
 // canonicalLines reads harp's canonical transcript.jsonl back and returns
@@ -102,22 +101,6 @@ func TestConvertVendorTranscript_CodexBoundPath(t *testing.T) {
 		Backend:        "codex",
 		TranscriptPath: codexFixturePath,
 		EngineVersion:  "0.144.4",
-	}
-
-	converted, err := ConvertVendorTranscript(context.Background(), e)
-	require.NoError(t, err)
-	assert.True(t, converted)
-	assert.NotEmpty(t, canonicalLines(t, harp))
-}
-
-func TestConvertVendorTranscript_AntigravityBoundPath(t *testing.T) {
-	testsupport.Isolate(t)
-	harp := "convert-antigravity-harp"
-	e := sessions.Entry{
-		HarpName:       harp,
-		Backend:        "antigravity",
-		TranscriptPath: antigravityFixturePath,
-		EngineVersion:  "1.1.4",
 	}
 
 	converted, err := ConvertVendorTranscript(context.Background(), e)
@@ -257,15 +240,15 @@ func TestConvertVendorTranscript_EmptyHarp(t *testing.T) {
 	assert.False(t, converted)
 }
 
-// TestVendorReaderRegistry_CoversFourEngines locks in exactly which backend
+// TestVendorReaderRegistry_CoversThreeEngines locks in exactly which backend
 // names carry a vendor reader — a change here (adding/removing an engine) should
 // be a deliberate, visible edit to this test, not a silent registry drift.
-func TestVendorReaderRegistry_CoversFourEngines(t *testing.T) {
+func TestVendorReaderRegistry_CoversThreeEngines(t *testing.T) {
 	got := make([]string, 0, len(vendorReaderRegistry))
 	for name := range vendorReaderRegistry {
 		got = append(got, name)
 	}
-	assert.ElementsMatch(t, []string{config.BackendClaudeCode, "codex", "antigravity", "kiro"}, got)
+	assert.ElementsMatch(t, []string{config.BackendClaudeCode, "codex", "kiro"}, got)
 }
 
 // TestLocateBoundTranscript exercises the shared locate func directly

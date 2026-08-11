@@ -135,9 +135,9 @@ func (f DeliveredFunc) Cleanup() error { return f() }
 // ContextWriter that owns a human-editable managed-marker file: write content,
 // then wrap the reversal (re-writing with empty content, which strips the
 // managed section) in a Delivered handle. Every native-file ContextWriter
-// context surface — antigravity's .agents/AGENTS.md, claude's CLAUDE.md, and
-// codex's AGENTS.md — shares this exact shape, so it lives here once rather
-// than as three (and counting) copy-pasted Deliver methods.
+// context surface — claude's CLAUDE.md and codex's AGENTS.md — shares this
+// exact shape, so it lives here once rather
+// than as two (and counting) copy-pasted Deliver methods.
 func DeliverManagedContext(w ContextWriter, dir, content string) (Delivered, error) {
 	if _, err := w.WriteContext(ContextWriteRequest{ProjectDir: dir, Context: content}); err != nil {
 		return nil, err

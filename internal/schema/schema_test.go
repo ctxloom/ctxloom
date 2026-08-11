@@ -27,7 +27,7 @@ version: 6
 llm:
   configs:
     big: { type: claude-code, model: opus }
-    g:   { type: antigravity, model: gemini-3-pro }
+    c:   { type: codex }
   defaults:
     primary: big
     fast: big

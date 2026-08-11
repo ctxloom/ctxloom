@@ -432,7 +432,7 @@ func TestCanonicalFallbackSource_ListSessions_IndexReadsDoNotScale(t *testing.T)
 // A red for this could not be shown: the defect is the shape of the API, so the
 // test only compiles once the accessors exist.
 func TestRetiredScraperRoster_IsClosedAndImmutable(t *testing.T) {
-	assert.Equal(t, []string{"antigravity", "claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
+	assert.Equal(t, []string{"claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
 
 	for _, name := range RetiredScraperBackendNames() {
 		assert.True(t, IsRetiredScraperBackend(name), "%s must be reported as retired", name)
@@ -445,7 +445,7 @@ func TestRetiredScraperRoster_IsClosedAndImmutable(t *testing.T) {
 	// roster itself.
 	got := RetiredScraperBackendNames()
 	got[0] = "tampered"
-	assert.Equal(t, []string{"antigravity", "claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
+	assert.Equal(t, []string{"claude-code", "codex", "kiro"}, RetiredScraperBackendNames())
 	assert.False(t, IsRetiredScraperBackend("tampered"))
 }
 

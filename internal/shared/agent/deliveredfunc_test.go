@@ -9,8 +9,8 @@ import (
 )
 
 // TestDeliveredFuncParity is the contract gate for agent.DeliveredFunc, the one
-// exported type that six packages would otherwise each retype privately as
-// `deliveredFunc func() error` (claude ×2, codex, kiro, antigravity, opencode,
+// exported type that five packages would otherwise each retype privately as
+// `deliveredFunc func() error` (claude ×2, codex, kiro, opencode,
 // and this package's own managed_commands.go). Those copies are unexported in
 // packages that already import this one, so no compiler-checked parity
 // assertion can reach them — a private retype is a divergence nothing catches.

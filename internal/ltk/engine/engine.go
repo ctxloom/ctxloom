@@ -1,7 +1,6 @@
-// Package engine adapts the various LLM hook protocols (Claude Code,
-// Antigravity, ...) to a single internal Request/Response shape. The core
-// never speaks a specific engine's wire format; an Adapter does the
-// translation at the edge.
+// Package engine adapts LLM hook protocols (Claude Code, ...) to a single
+// internal Request/Response shape. The core never speaks a specific engine's
+// wire format; an Adapter does the translation at the edge.
 package engine
 
 import (
@@ -129,8 +128,7 @@ func (r Response) Message() string {
 // to each stream and the process exit code. This covers every engine's protocol
 // without changing the interface:
 //
-//   - Claude Code / Antigravity / Codex: deny → JSON on Stdout, ExitCode 0;
-//     allow → empty.
+//   - Claude Code: deny → JSON on Stdout, ExitCode 0; allow → empty.
 //
 // A zero Output (no bytes, exit 0) means "write nothing" — pass-through.
 type Output struct {
@@ -178,9 +176,9 @@ type Engine interface {
 }
 
 // engines is the registry of known engines. Order matters for Detect ties:
-// earlier wins, so Claude Code outranks Antigravity when both score equally.
+// earlier wins.
 func engines() []Engine {
-	return []Engine{ClaudeCode{}, Antigravity{}}
+	return []Engine{ClaudeCode{}}
 }
 
 // All returns every registered engine, in the same order engines() and Detect

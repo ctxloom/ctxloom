@@ -46,7 +46,7 @@ type AgentChatRequest struct {
 	Permissions agent.PermissionMode
 	// ResumeSessionID, when set, asks the backend to resume its own NATIVE
 	// session (agent.ChatRequest.ResumeSessionID — claude --resume, codex
-	// thread/resume, ACP session/load, agy --conversation --continue)
+	// thread/resume, ACP session/load)
 	// instead of starting fresh. Only meaningful on the legacy go-plugin
 	// Chat dial (Start, below) — the migrated StartRun path resumes via its
 	// own HarnessSpec/StartRun{ResumeSessionId} route (children.go's
@@ -280,8 +280,7 @@ func warnOnEmptyLeadContext(rs *ResolvedAgent, lead string) {
 // child's blast radius on the PROJECT CHECKOUT — it does NOT isolate the
 // engine's global config/credential/conversation store, which some engines
 // keep outside any per-agent config-home env lever entirely (see
-// EnvWorkspace's doc and the antigravity fail-loud gate in isolation.go). Do
-// not read a worktree default as "delegated children are now sandboxed from
+// EnvWorkspace's doc). Do not read a worktree default as "delegated children are now sandboxed from
 // the user's engine state" — they are not.
 //
 // The RUNTIME axis carries the agent's own resolved choice through untouched:
@@ -945,7 +944,7 @@ func (p *PreparedAgentChat) StartEngine(ctx context.Context) (*AgentEngineProces
 // for this path, StartEngine's for that one) and both are bounding "process/
 // container comes up and finishes a handshake" under the same possible
 // contention (loaded docker daemon, DinD nesting, a busy bridge network).
-// Absent evidence the legacy path's engines (today: antigravity, opencode,
+// Absent evidence the legacy path's engines (today: opencode,
 // mock, or any StartRun-eligible backend launched --degraded) are faster or
 // slower to spawn, matching the sibling path's just-tuned number is the
 // defensible choice — not a copy-paste, an independent application of the
@@ -975,14 +974,12 @@ const defaultChatDialTimeout = 5 * time.Minute
 // documented, intentional cases: (a) a StructuredChat backend outside the
 // coordinator's ViaStartRun allowlist (coord/spawner.go's
 // viaStartRunBackends) — CORRECTED 2026-07-24 (fix/legacy-launch-timeout):
-// this is NOT "no production backend, only test doubles". antigravity and
-// opencode are both fully registered production backends (internal/lm/
-// backends/registry.go) that implement agent.StructuredChat and are absent
+// this is NOT "no production backend, only test doubles". opencode is a
+// fully registered production backend (internal/lm/
+// backends/registry.go) that implements agent.StructuredChat and is absent
 // from viaStartRunBackends by design (spawner.go's doc); an agent_run against
-// either rides this exact dial, unconditionally, on every ordinary
-// (non-degraded) launch — antigravity's own native-session resume explicitly
-// depends on this path (resumeCapableBackends' doc, children.go's LEGACY
-// resume branch). "mock" is the only member of the allowlist gap that is
+// it rides this exact dial, unconditionally, on every ordinary
+// (non-degraded) launch. "mock" is the only member of the allowlist gap that is
 // test-only. And (b) C1's documented degraded-mode no-reach-back spawn
 // fallback (a StartRun-eligible backend launched with CTXLOOM_DEGRADED=1 and
 // no coordinator endpoint reachable — the runner could never dial home, so

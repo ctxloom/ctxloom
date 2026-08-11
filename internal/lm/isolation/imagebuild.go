@@ -264,8 +264,8 @@ type buildSourcesOptions struct {
 
 // buildSources orders a profile's local-build sources. An explicit base-IMAGE
 // override wins outright (the caller asserts the client lives there). A
-// COMPOSABLE profile (engineInstall != nil — antigravity/claude-code/codex/
-// kiro/opencode) then builds the SAME composed multi-engine Containerfile
+// COMPOSABLE profile (engineInstall != nil — claude-code/codex/kiro/
+// opencode) then builds the SAME composed multi-engine Containerfile
 // (composeAgentContainerfile) onto, in order: the explicit user base
 // Containerfile, the auto-detected project devcontainer, and the embedded
 // default base — precedence locked decision 8 (explicit beats auto-detect

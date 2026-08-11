@@ -23,7 +23,7 @@ func modeFromPOSIX(mode uint32) os.FileMode {
 // This file is the skills analog of commands.go/commandfiles.go: the
 // single skill-export assembly (LoadSkillExports) and the per-engine mapping
 // from a resolved bundle skill to that engine's agent.SkillExport. claude
-// (Part B3-seam, the reference engine), codex, opencode, antigravity (Part
+// (Part B3-seam, the reference engine), codex, opencode (Part
 // B4), and kiro (Part B5, the collision case) are wired. kiro's mapping here
 // is ordinary — its distinctiveness (sharing .kiro/skills/ with the renamed
 // command surface, and the D6 skill-wins collision rule) lives entirely in
@@ -130,7 +130,6 @@ func loadCuratedSkills(pipe *bundles.Pipeline, refs []string) []*bundles.LoadedS
 func forceExportSkill(ls *bundles.LoadedSkill) *bundles.LoadedSkill {
 	on := true
 	ls.LLM.ClaudeCode.Enabled = &on
-	ls.LLM.Antigravity.Enabled = &on
 	ls.LLM.Codex.Enabled = &on
 	ls.LLM.Kiro.Enabled = &on
 	ls.LLM.Opencode.Enabled = &on
@@ -170,11 +169,6 @@ func codexSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 // opencodeSkillExports resolves opencode's per-skill enablement (Part B4).
 func opencodeSkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
 	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Opencode.IsEnabled() })
-}
-
-// antigravitySkillExports resolves antigravity's per-skill enablement (Part B4).
-func antigravitySkillExports(skills []*bundles.LoadedSkill) []agent.SkillExport {
-	return buildSkillExports(skills, func(s *bundles.LoadedSkill) bool { return s.LLM.Antigravity.IsEnabled() })
 }
 
 // mockSkillExports resolves the mock engine's per-skill enablement: every

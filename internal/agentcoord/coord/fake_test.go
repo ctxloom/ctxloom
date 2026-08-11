@@ -31,12 +31,11 @@ type fakeEngine struct {
 	// parent-mailbox "result" bridge) without a real backend.
 	oneshot bool
 	// sessionID, when set, scripts this fake as a LEGACY (non-viaStartRun)
-	// backend that emits a native ChatEvent.Session on its first turn —
-	// mirroring antigravity's Chat (internal/antigravity/chat.go), the
-	// production shape Slice 0 (wooly-stove) fixes handleChildEvent to stop
-	// dropping. Lets a test prove the coordinator CAPTURES a legacy
-	// backend's native session id (previously silently discarded — no
-	// ev.Session case existed).
+	// backend that emits a native ChatEvent.Session on its first turn — the
+	// production shape a legacy go-plugin-dial backend can take, which Slice 0
+	// (wooly-stove) fixes handleChildEvent to stop dropping. Lets a test
+	// prove the coordinator CAPTURES a legacy backend's native session id
+	// (previously silently discarded — no ev.Session case existed).
 	sessionID string
 }
 
@@ -79,9 +78,9 @@ func (f *fakeEngine) launch(ctx context.Context, contextText, resumeSessionID st
 	// wrapper (internal/lm/grpc/chat.go's GRPCClient.Chat) decouples a
 	// backend's event emission from the caller's sendTurn/driveChild
 	// ordering via its own independent in-pump/events-pump goroutines plus
-	// gRPC's own stream buffering — a backend that emits a pre-loop Session
-	// event before ever reading `in` (antigravity.Chat does exactly this)
-	// does not deadlock in production because of that slack. This fake
+	// gRPC's own stream buffering — a legacy backend that emits a pre-loop
+	// Session event before ever reading `in` does not deadlock in production
+	// because of that slack. This fake
 	// wires straight to bare channels with none of that slack, so it needs
 	// its own small buffer to avoid an artificial deadlock that has nothing
 	// to do with the behavior under test.
@@ -93,8 +92,8 @@ func (f *fakeEngine) launch(ctx context.Context, contextText, resumeSessionID st
 		defer close(errs)
 		defer close(events)
 		if f.sessionID != "" {
-			// Mirror antigravity's Chat: a Session event rides BEFORE the
-			// first turn's entries — this fakeEngine's stand-in for a
+			// Mirror a legacy backend's Chat: a Session event rides BEFORE
+			// the first turn's entries — this fakeEngine's stand-in for a
 			// legacy (non-viaStartRun) backend's native session id.
 			select {
 			case events <- agent.ChatEvent{Session: &agent.ChatSessionInfo{SessionID: f.sessionID}}:

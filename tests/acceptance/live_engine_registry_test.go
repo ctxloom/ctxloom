@@ -104,12 +104,11 @@ func TestProbeEngine_CarriesName(t *testing.T) {
 func TestFormatLiveEngineReport(t *testing.T) {
 	report := []engineStatus{
 		{name: "claude", available: true},
-		{name: "antigravity", available: true},
 		{name: "kiro", available: true},
 		{name: "codex", available: false, reason: "binary not found"},
 	}
 	got := formatLiveEngineReport(report)
-	assert.Equal(t, "live engines: claude ✓ · antigravity ✓ · kiro ✓ · codex ✗ (binary not found)", got)
+	assert.Equal(t, "live engines: claude ✓ · kiro ✓ · codex ✗ (binary not found)", got)
 }
 
 // TestComputeLiveEngineReport_OrderAndCoverage is computeLiveEngineReport's
@@ -146,7 +145,7 @@ func TestParseRequiredEngines(t *testing.T) {
 		{name: "empty is nil (floor off by default)", raw: "", want: nil},
 		{name: "whitespace-only is nil", raw: "   ", want: nil},
 		{name: "single engine", raw: "claude", want: []string{"claude"}},
-		{name: "comma separated, trimmed, lowercased", raw: " Claude, KIRO ,antigravity", want: []string{"claude", "kiro", "antigravity"}},
+		{name: "comma separated, trimmed, lowercased", raw: " Claude, KIRO ,codex", want: []string{"claude", "kiro", "codex"}},
 		{name: "empty entries between commas are dropped", raw: "claude,,kiro", want: []string{"claude", "kiro"}},
 	}
 	for _, tc := range cases {
@@ -163,7 +162,6 @@ func TestParseRequiredEngines(t *testing.T) {
 func TestCheckRequiredEngines_Floor(t *testing.T) {
 	report := []engineStatus{
 		{name: "claude", available: true},
-		{name: "antigravity", available: true},
 		{name: "kiro", available: true},
 		{name: "codex", available: false, reason: "binary not found on PATH"},
 	}
@@ -181,7 +179,7 @@ func TestCheckRequiredEngines_Floor(t *testing.T) {
 		},
 		{
 			name:     "all required engines available: passes",
-			required: []string{"claude", "kiro", "antigravity"},
+			required: []string{"claude", "kiro"},
 			wantErr:  false,
 		},
 		{
@@ -272,7 +270,7 @@ func TestMatchedEnvAndEnvSet(t *testing.T) {
 }
 
 // TestBackendTypeToLiveKey guards the one mapping the hermetic j002200 matrix's
-// backend-type vocabulary (claude-code/codex/kiro/opencode/antigravity) and
+// backend-type vocabulary (claude-code/codex/kiro/opencode) and
 // the live isolation probe (tests/acceptance/isolation_probe.go, behind the
 // acceptance tag) both resolve through to reach this registry's own liveAgents
 // keys — kept here, untagged, so `just lint`'s default (no build-tag) pass
@@ -283,7 +281,6 @@ func TestBackendTypeToLiveKey(t *testing.T) {
 		{"codex", "codex"},
 		{"kiro", "kiro"},
 		{"opencode", "opencode"},
-		{"antigravity", "antigravity"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.backendType, func(t *testing.T) {
@@ -323,7 +320,7 @@ func TestCodexRegistryEntry_IsWiredNotStub(t *testing.T) {
 // copy*Credentials function used to succeed silently while copying zero
 // bytes — continuing/returning past a missing source with no signal at
 // all — so a caller that seeded no credentials was indistinguishable from
-// one that seeded correctly. All five now return an error when nothing was
+// one that seeded correctly. All four now return an error when nothing was
 // copied.
 func TestCopyCredentials_ZeroFilesCopiedIsAnError(t *testing.T) {
 	cases := []struct {
@@ -331,7 +328,6 @@ func TestCopyCredentials_ZeroFilesCopiedIsAnError(t *testing.T) {
 		fn   func(realHome, fakeHome string) error
 	}{
 		{"claude", copyClaudeCredentials},
-		{"antigravity", copyAntigravityCredentials},
 		{"kiro", copyKiroCredentials},
 		{"codex", copyCodexCredentials},
 		{"opencode", copyOpencodeCredentials},
@@ -593,13 +589,11 @@ func TestSeedLiveCredentials_NoMechanismIsLoud(t *testing.T) {
 // internal/lm/isolation/auth.go's credentialSeedSpecs records as
 // HonoursVarForCreds TRUE, so all three must be MAPPED. kiro
 // (HonoursVarForCreds FALSE — its subscription auth is a global sqlite no
-// HomeVar relocates) and antigravity (no credentialSeedSpecs entry at all —
-// HOME is its only lever and HOME does not carry its credentials) cannot be
-// mapped this way; they keep the copier until the human decides, and this
-// pins that so a future edit cannot quietly map them at a directory their
-// engine never reads.
+// HomeVar relocates) cannot be mapped this way; it keeps the copier until
+// the human decides, and this pins that so a future edit cannot quietly map
+// it at a directory the engine never reads.
 func TestLiveAgents_MappableEnginesAreMappedUnmappableOnesAreNot(t *testing.T) {
-	mappable := map[string]bool{"claude": true, "codex": true, "opencode": true, "kiro": false, "antigravity": false}
+	mappable := map[string]bool{"claude": true, "codex": true, "opencode": true, "kiro": false}
 	for _, name := range liveAgentOrder {
 		a := liveAgents[name]
 		want, known := mappable[name]

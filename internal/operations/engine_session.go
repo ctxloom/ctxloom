@@ -822,7 +822,7 @@ type acpWorkspace struct {
 // oneshot.go's runResolvedAgent and delegate.go's PrepareAgentChat run over
 // the package's shared prepareIsolation/isolationGateErr seams: a
 // ClassIsolation finding (e.g. a worktree's no-host-credentials-to-seed
-// case, or antigravity's no-config-home-lever case) refuses the session open
+// case) refuses the session open
 // in strict mode exactly like a fan member would refuse itself — rather
 // than silently launching an unseeded/logged-out engine — and the
 // already-prepared (but refused) workspace is torn down before returning the

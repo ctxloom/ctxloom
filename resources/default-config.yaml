@@ -20,9 +20,6 @@ llm:
       type: claude-code
       model: claude-haiku-4-5-20251001
       role: fast
-    antigravity:
-      type: antigravity
-      role: primary
   defaults:
     primary: claude-code
     fast: claude-fast

@@ -1,5 +1,5 @@
-// This file wires the four per-engine vendorreader.VendorAdapter implementations
-// (internal/transcript/vendorreader/{codex,claude,antigravity,kiro}) into the two
+// This file wires the three per-engine vendorreader.VendorAdapter implementations
+// (internal/transcript/vendorreader/{codex,claude,kiro}) into the two
 // call sites that actually need a converted transcript: the interactive-pty
 // exit seam (internal/cli/run.go, right where transcript.RecordOneshot hooks
 // the oneshot exit) and the recover_session MCP tool (mcp_tools_memory.go),
@@ -21,7 +21,6 @@ import (
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/transcript"
 	"github.com/ctxloom/ctxloom/internal/transcript/vendorreader"
-	antigravityreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/antigravity"
 	claudereader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/claude"
 	codexreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/codex"
 	kiroreader "github.com/ctxloom/ctxloom/internal/transcript/vendorreader/kiro"
@@ -50,11 +49,11 @@ type vendorReaderEntry struct {
 
 // vendorReaderRegistry maps a backend registry name — the SAME name
 // backends.descriptors registers it under (agent.NewBaseBackend's first arg:
-// config.BackendClaudeCode "claude-code", "codex", "kiro", "antigravity"),
+// config.BackendClaudeCode "claude-code", "codex", "kiro"),
 // the plugin's own Info RPC reports, and transcript.RecordOneshot's engine
 // param already carries — to its VendorAdapter + locate pair. This is
 // deliberately the REGISTRY name, not the reader packages' own short test
-// names ("claude"/"codex"/"kiro"/"antigravity" in their _test.go fixtures):
+// names ("claude"/"codex"/"kiro" in their _test.go fixtures):
 // using anything else would make a harp's oneshot-mode entries (Engine:
 // "claude-code") and its interactive-mode entries (this file) disagree about
 // which engine wrote a canonical transcript's Engine field.
@@ -64,19 +63,18 @@ type vendorReaderEntry struct {
 // separately (docs/transcript-schema.md §8's explicit carve-out); acp/mock
 // have no vendor-native transcript store of their own to import from.
 //
-// Three of the four engines PREFER the already-bound transcript path
-// (locateBoundTranscript): the SessionStart bind hook (claude/codex) or the
-// PreToolUse fallback (antigravity) already resolved the vendor file for
-// ctxloom's OWN index — see sessions.Manager.BindSession — so there is no
-// path-derivation logic to duplicate here, and no chance of resurrecting the
-// deleted reader's claude cwd→slug bug (docs/transcript-schema.md §8). kiro
-// is the one exception, wired separately in vendorreader_kiro.go: its bind
-// (on the rare path where one lands at all) is a session_id, not a file
-// path, because a single sqlite db holds every conversation.
+// Two of the three engines PREFER the already-bound transcript path
+// (locateBoundTranscript): the SessionStart bind hook (claude/codex) already
+// resolved the vendor file for ctxloom's OWN index — see
+// sessions.Manager.BindSession — so there is no path-derivation logic to
+// duplicate here, and no chance of resurrecting the deleted reader's claude
+// cwd→slug bug (docs/transcript-schema.md §8). kiro is the one exception,
+// wired separately in vendorreader_kiro.go: its bind (on the rare path where
+// one lands at all) is a session_id, not a file path, because a single
+// sqlite db holds every conversation.
 var vendorReaderRegistry = map[string]vendorReaderEntry{
 	config.BackendClaudeCode: {adapters: claudereader.VersionedAdapters, locate: locateBoundTranscript},
 	"codex":                  {adapters: codexreader.VersionedAdapters, locate: locateBoundTranscript},
-	"antigravity":            {adapters: antigravityreader.VersionedAdapters, locate: locateBoundTranscript},
 	"kiro":                   {adapters: kiroreader.VersionedAdapters, locate: locateKiroConversation},
 }
 
@@ -98,11 +96,10 @@ func VendorReaderEngineNames() []string {
 }
 
 // locateBoundTranscript is the locate func shared by every JSONL-per-session
-// engine (claude/codex/antigravity): sessions.Entry.TranscriptPath already
-// carries the vendor file's path (bound forward by the SessionStart hook or
-// its PreToolUse-fallback equivalent), so this only stats it — a stale or
-// since-removed bind degrades to "not found" rather than handing Convert a
-// dead path to fail on.
+// engine (claude/codex): sessions.Entry.TranscriptPath already carries the
+// vendor file's path (bound forward by the SessionStart hook), so this only
+// stats it — a stale or since-removed bind degrades to "not found" rather
+// than handing Convert a dead path to fail on.
 func locateBoundTranscript(_ context.Context, e sessions.Entry) (string, bool) {
 	if e.TranscriptPath == "" {
 		return "", false

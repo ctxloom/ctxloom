@@ -328,104 +328,6 @@ func opencodeCredentialMounts(containerHome string) ([]Mount, bool) {
 	}}, true
 }
 
-// antigravityOAuthTokenRel is the path, relative to a HOME, of agy's
-// file-based OAuth token — ~/.gemini/antigravity-cli/antigravity-oauth-token
-// — the WRONG file. A prior measurement here (see the RESOLVED note below)
-// guessed ~/.gemini/oauth_creds.json instead; that guess is dead. VALIDATED
-// (2026-07-22 live investigation): when agy has no reachable OS-session
-// keyring — true inside a container's fresh mount/PID namespace, since the
-// D-Bus Secret Service socket is addressed at the fixed, UID-derived
-// /run/user/<uid>/bus which does not exist inside the box — it falls back to
-// THIS file. Its contents are auth_method plus a token object (access_token,
-// refresh_token, token_type, expiry); the refresh_token is what lets a seeded
-// copy self-renew instead of expiring mid-run, exactly like claude's OAuth
-// token (claudeCredentialCopyMounts' doc below).
-const antigravityOAuthTokenRel = "antigravity-cli/antigravity-oauth-token"
-
-// resolveAntigravityContainerAuth builds the auth plan for a containerized
-// antigravity run whose fresh HOME is containerHome: it seeds the host's
-// file-based OAuth token (antigravityOAuthTokenRel, under ~/.gemini) into
-// scratchDir and mounts the COPY read-write into the container HOME at the
-// identical ~/.gemini/antigravity-cli/antigravity-oauth-token path agy itself
-// reads — mirroring claudeCredentialCopyMounts' copy-then-mount-rw shape
-// exactly (antigravityCredentialCopyMounts below), because this token also
-// carries a refresh_token: a plain read-only bind would collide with a
-// refresh writing back to that same file, same as claude's case. It
-// deliberately does NOT fall back to resolveClaudeContainerAuth or accept any
-// ANTHROPIC_* trigger: that would be a security edge (a
-// containerized antigravity run silently authenticating with the user's
-// ANTHROPIC_* credentials — the wrong provider entirely). There is no known
-// env-var trigger of agy's own (no ANTIGRAVITY_*/AGY_* var is documented or
-// observed), so the credential mount is the ONLY path here — ok=false when
-// the host has no such token file, so the caller degrades rather than
-// launching an unauthenticated engine.
-//
-// RESOLVED (2026-07-22, superseding this function's own prior "PARTIALLY
-// MEASURED"/"RECONCILED" notes): those notes recorded the keyring-severed
-// trigger as confirmed but the fallback's end-to-end success as unverified,
-// and separately recorded one failed attempt mounting
-// ~/.gemini/oauth_creds.json ("You are not logged into Antigravity") as
-// INCONCLUSIVE — chalked up to a stale token in that file. Both threads
-// converge on the same resolution: oauth_creds.json was simply the WRONG
-// file. agy's real file-based fallback reads/writes
-// ~/.gemini/antigravity-cli/antigravity-oauth-token, not oauth_creds.json —
-// so the prior "failure" was never a test of the real fallback mechanism at
-// all. A real captured token at that correct path is what this resolver now
-// seeds. What stays open is purely operational, not mechanical: this
-// resolver has not itself been driven through a live container `agy -p` call
-// (agy is TUI-only, needs docker + a real binary + the token to actually
-// authenticate — out of band for this change, see the probe/CI follow-up).
-func resolveAntigravityContainerAuth(containerHome, scratchDir string) (containerAuth, bool) {
-	mounts, ok := antigravityCredentialCopyMounts(containerHome, scratchDir)
-	if !ok {
-		return containerAuth{mode: authNone}, false
-	}
-	return containerAuth{mode: authCredentialMount, mounts: mounts}, true
-}
-
-// antigravityCredentialCopyMounts builds the READ-WRITE credential mount that
-// authenticates a containerized antigravity: the host's
-// ~/.gemini/antigravity-cli/antigravity-oauth-token is COPIED into scratchDir
-// (mode 0600, via copyCredentialFile) and the copy is mapped into
-// containerHome at the IDENTICAL relative path, read-write — the same
-// copy-then-mount-rw shape claudeCredentialCopyMounts uses and for the same
-// reason: the token carries a refresh_token, so a plain read-only bind of the
-// host original would collide with a refresh writing back to that exact
-// file. The copy is ephemeral scratch, discarded at teardown along with the
-// rest of the scratch root; the host's own token file is never touched.
-// antigravity has no credentialSeedSpecs entry (see that registry's own doc)
-// — HOME is not a scoped isolation var here, so this hardcodes the host path
-// directly rather than consulting that registry, matching
-// opencodeCredentialMounts' shape (which does the same for the same reason)
-// more closely than codexCredentialMounts' registry-reuse. Returns ok=false
-// when the host token file is absent (nothing to copy) or the scratch copy
-// cannot be written.
-func antigravityCredentialCopyMounts(containerHome, scratchDir string) ([]Mount, bool) {
-	home, err := hostHomeDir()
-	if err != nil || home == "" {
-		return nil, false
-	}
-	token := filepath.Join(home, ".gemini", antigravityOAuthTokenRel)
-	if !fileExists(token) {
-		return nil, false
-	}
-	dir := filepath.Join(scratchDir, "antigravity-auth")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		warnCredentialCopyFailed("antigravity", token, err)
-		return nil, false
-	}
-	tokenCopy := filepath.Join(dir, "antigravity-oauth-token")
-	if err := copyCredentialFile(token, tokenCopy); err != nil {
-		warnCredentialCopyFailed("antigravity", token, err)
-		return nil, false
-	}
-	return []Mount{{
-		Host:      tokenCopy,
-		Container: filepath.Join(containerHome, ".gemini", antigravityOAuthTokenRel),
-		ReadOnly:  false,
-	}}, true
-}
-
 // resolveMockContainerAuth builds the (trivial) auth plan for a containerized
 // mock run: mock authenticates against NO vendor at all. internal/lm/backends'
 // Mock is compiled directly into ctxloom and calls no external AI service (see
@@ -657,13 +559,9 @@ type seedFile struct {
 // which the same keys already drive). It is now the SINGLE per-engine
 // isolation-home descriptor (per-engine-isolation-home plan §6): every
 // entry's HomeVars drives worktreeWorkspace.Env() in addition to whatever
-// credential-seed behaviour HonoursVarForCreds selects. antigravity has NO
-// entry here: this registry copies CREDENTIAL material into a scoped subdir
-// that an engine's own isolation var points at, and antigravity has no such
-// var — HOME itself is its only lever, and HOME does not carry its
-// credentials. It is handled by the SEPARATE curatedHomeSpecs registry
-// (curatedhome.go), whose package doc holds the measurements behind that
-// split and is the ONE place they are written down.
+// credential-seed behaviour HonoursVarForCreds selects. A backend absent from
+// this registry has no known host isolation lever at all and keeps the
+// pre-fix, config-only-isolation no-op.
 //
 //   - claude: HonoursVarForCreds true — CLAUDE_CONFIG_DIR relocates both
 //     config AND credentials, so seeding copies .credentials.json (+

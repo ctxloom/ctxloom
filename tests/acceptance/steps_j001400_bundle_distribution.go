@@ -161,7 +161,7 @@ func j001400BundleRel(rel string) string {
 // and the only backend that both materializes real surfaces and needs nothing
 // on the host is "mock" (internal/lm/backends/mock_surfaces.go: a context
 // surface at MOCK_CONTEXT.md and a skills tree at .mock/skills/, both through
-// the SAME shared writers claude/kiro/opencode/antigravity go through).
+// the SAME shared writers claude/kiro/opencode go through).
 // Hardcoding a single claude-code engine here is what previously kept every
 // matrix row away from that route.
 //

@@ -1,7 +1,7 @@
 // Package vendorreader defines the shared contract every per-engine vendor
 // reader implements: parse ONE vendor-native transcript (codex's rollout
-// JSONL, kiro's session store, claude's project JSONL, antigravity's brain
-// log) into ctxloom's own canonical agent.ChatEvent stream and append it
+// JSONL, kiro's session store, claude's project JSONL) into ctxloom's own
+// canonical agent.ChatEvent stream and append it
 // through the SAME transcript.Recorder sink the live structured-chat tee
 // (internal/transcript/recorder.go's Tee/TeeAndClose) already writes
 // through. This is the point of the whole package: a session read from its
@@ -48,7 +48,7 @@ import (
 // canonical schema by appending to rec.
 //
 // src is an engine-specific locator for the transcript to convert. For a
-// JSONL-per-session engine (codex today; claude and antigravity are the same
+// JSONL-per-session engine (codex today; claude is the same
 // shape) this is simply the transcript file's path. A database-backed store
 // (kiro's v2 sqlite conversations_v2, per docs/transcript-schema.md §2b)
 // cannot be located by a bare path alone — that engine's adapter will need a

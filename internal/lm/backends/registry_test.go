@@ -1,13 +1,12 @@
 // Backend registry tests verify that all supported LM backends are registered
 // and accessible. The registry enables ctxloom to work with multiple AI coding
-// assistants (Claude Code, Antigravity CLI, Codex) through a unified interface.
+// assistants (Claude Code, Codex) through a unified interface.
 package backends
 
 import (
 	"sort"
 	"testing"
 
-	"github.com/ctxloom/ctxloom/internal/antigravity"
 	"github.com/ctxloom/ctxloom/internal/claude"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +21,6 @@ func TestRegistry_GetBuiltinBackends(t *testing.T) {
 	// Every supported backend must be registered for `ctxloom run` to work
 	builtinNames := []string{
 		"claude-code",
-		"antigravity",
 		"codex",
 		"mock",
 	}
@@ -145,18 +143,6 @@ func TestDecodeLLMConfig(t *testing.T) {
 		cc, ok := bc.(*claude.ClaudeConfig)
 		require.True(t, ok, "decoder must yield *ClaudeConfig")
 		assert.Equal(t, "/custom/claude", cc.BinaryPath)
-	})
-
-	t.Run("antigravity decodes its fields", func(t *testing.T) {
-		bc, err := DecodeLLMConfig("antigravity", map[string]interface{}{
-			"model":       "gemini-3-pro",
-			"binary_path": "/custom/agy",
-		})
-		require.NoError(t, err)
-		ac, ok := bc.(*antigravity.AntigravityConfig)
-		require.True(t, ok, "decoder must yield *AntigravityConfig")
-		assert.Equal(t, "gemini-3-pro", ac.Model)
-		assert.Equal(t, "/custom/agy", ac.BinaryPath)
 	})
 
 	t.Run("unknown type errors", func(t *testing.T) {

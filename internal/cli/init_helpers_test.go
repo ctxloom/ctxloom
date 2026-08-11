@@ -71,7 +71,7 @@ func TestSelectSoleEngine(t *testing.T) {
 func TestWriteInitialConfig(t *testing.T) {
 	appDir := filepath.Join(t.TempDir(), ".ctxloom")
 
-	if err := writeInitialConfig(appDir, "antigravity", "copy", false); err != nil {
+	if err := writeInitialConfig(appDir, "codex", "copy", false); err != nil {
 		t.Fatalf("writeInitialConfig: %v", err)
 	}
 
@@ -88,7 +88,7 @@ func TestWriteInitialConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
-	if !strings.Contains(string(cfg), "antigravity") {
+	if !strings.Contains(string(cfg), "codex") {
 		t.Errorf("config.yaml should mention chosen engine; got:\n%s", cfg)
 	}
 	if !strings.Contains(string(cfg), "dirty_tree_handler: copy") {
@@ -149,15 +149,15 @@ func TestWriteInitialConfig_IsIdempotent(t *testing.T) {
 	if err := writeInitialConfig(appDir, "claude-code", "", false); err != nil {
 		t.Fatalf("first write: %v", err)
 	}
-	if err := writeInitialConfig(appDir, "antigravity", "", false); err != nil {
+	if err := writeInitialConfig(appDir, "codex", "", false); err != nil {
 		t.Fatalf("second write should succeed: %v", err)
 	}
 	cfg, err := os.ReadFile(paths.ConfigPath(appDir))
 	if err != nil {
 		t.Fatalf("read config.yaml: %v", err)
 	}
-	if !strings.Contains(string(cfg), "antigravity") {
-		t.Errorf("second write should have overwritten engine to antigravity; got:\n%s", cfg)
+	if !strings.Contains(string(cfg), "codex") {
+		t.Errorf("second write should have overwritten engine to codex; got:\n%s", cfg)
 	}
 }
 

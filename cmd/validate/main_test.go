@@ -148,7 +148,7 @@ config:
 llm:
   configs:
     big:    { type: claude-code, model: opus }
-    g:      { type: antigravity, model: gemini-3-pro }
+    g:      { type: codex, model: gpt-5-codex }
   defaults:
     primary: big
     fast: big

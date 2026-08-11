@@ -498,8 +498,18 @@ test-integration-run PATTERN: build _ensure-gotmpdir
 # failure — which had silently made every green CI run of this suite mute.
 # The report exists specifically so a run tells you what it covered even when
 # it passes; that only works if it is actually visible.
+# -timeout 30m: go test's 600s DEFAULT is a language default, not a budget
+# chosen for this suite. At 515 scenarios the run lands either side of 600s
+# depending on ambient machine load — measured, on one box, twice: 493 of 515
+# scenarios reached before the alarm on a lightly loaded run and 327 on a
+# heavily loaded one. That made a green/red verdict a function of what else the
+# machine happened to be doing, which is worse than a slow gate: it produces
+# confident false reds that cost hours to chase. The suite is not hanging when
+# this fires. If it ever does hang, 30m still bounds it.
+# WATCH THE WALL TIME rather than trusting the ceiling — a real slowdown can
+# hide under a larger timeout, so re-measure when the box is quiet.
 test-acceptance: build _ensure-gotmpdir
-    GOTMPDIR="{{go_tmp}}" go test -v -tags "acceptance integration" -count=1 ./tests/acceptance/...
+    GOTMPDIR="{{go_tmp}}" go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 
 # Build a coverage-instrumented ctxloom.
 build-cover: dev-image
@@ -633,7 +643,7 @@ test-coverage-gate PROFILE="":
 # machine without one has nothing to say about it. The longer timeout is the
 # image build, not a slow test.
 test-acceptance-container: build _ensure-gotmpdir
-    ACCEPTANCE_PATHS=features/j002400_container.feature \
+    ACCEPTANCE_PATHS=features/j002400_container.feature,features/j001400_bundle_distribution.feature \
     ACCEPTANCE_TAGS="@container" \
     GOTMPDIR="{{go_tmp}}" \
     go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...

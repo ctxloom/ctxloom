@@ -103,6 +103,13 @@ const (
 	// a place in this directory instead of cache/.
 	StateDir = "state"
 
+	// EnginesDir is the StateDir subdirectory grouping the per-engine config
+	// homes ctxloom points a project-scoped engine at — see EngineStateHome.
+	// One segment per engine hangs off it so two home-keyed engines can never
+	// share a home (and so a future engine plugs into one named place rather
+	// than inventing a location of its own).
+	EnginesDir = "engines"
+
 	// RepoContentPrefix is the repo-relative path prefix under which a remote
 	// repo's authored content lives: .ctxloom/content/<kind>/<name>.yaml. It is
 	// the canonical (non-local) counterpart to LocalPath — every fetcher/
@@ -643,6 +650,30 @@ func StatePath(appPath string) string {
 	return filepath.Join(appPath, StateDir)
 }
 
+// EngineStateHome is the project-scoped config home for engines whose project
+// delivery is HOME-KEYED rather than cwd-keyed — codex today, whose
+// config.toml/prompts/skills/auth.json all hang off $CODEX_HOME rather than the
+// working directory. An engine that reads its project surfaces from the cwd
+// (claude's CLAUDE.md/.claude, kiro's .kiro, opencode's opencode.json, the
+// shared AGENTS.md) is NOT relocated here: those live where the engine natively
+// looks, and ctxloom does not get a vote.
+//
+// State tier, deliberately (see StateDir): the directory holds seeded
+// credentials and a user's own hand-edited engine config, so it is gitignored
+// AND unrebuildable — no `deps pull` or cache wipe reconstructs it, which is
+// exactly what disqualifies cache/ and what makes the single .ctxloom/state/
+// ignore rule cover a seeded auth.json.
+//
+// It is the ONE owner of the location: codex's run path
+// (resolveCodexProjectDir's in-tree arm) and every static writer
+// (CodexHookWriter, MCPRegistrar, the hook-scope collision check, doctor's MCP
+// surface list) resolve through it via internal/codex.StateHome, so the run and
+// the materialize can never target different roots — the writer split this
+// helper exists to close.
+func EngineStateHome(appPath, engine string) string {
+	return filepath.Join(StatePath(appPath), EnginesDir, engine)
+}
+
 // DirtyTreeCommitAckPath returns the record that a human authorized ctxloom to
 // commit on their behalf in THIS checkout (see DirtyTreeCommitAckFileName). It
 // is an internal/shared/admission.Store file, the same mechanism
@@ -734,5 +765,9 @@ func Layout() []Entry {
 			Lost: "this machine's distilled session records",
 		},
 		{Rel: filepath.Join(AppDirName, StateDir), Tier: TierLocal, Lost: "local-only checkout state, e.g. the dirty-tree-commit acknowledgement — see DirtyTreeCommitAckPath"},
+		{
+			Rel: filepath.Join(AppDirName, StateDir, EnginesDir), Tier: TierLocal,
+			Lost: "the project-scoped config homes ctxloom points home-keyed engines at (codex's CODEX_HOME today — see EngineStateHome): the credentials seeded from this machine's host login, plus whatever the user hand-edited into the engine's own config there. Nothing rebuilds it; a fresh clone re-seeds from the host on the next run, and any hand-edits are simply gone",
+		},
 	}
 }

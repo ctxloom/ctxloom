@@ -1272,7 +1272,7 @@ func TestSwitchProfile_FailedModeNotificationFailsTheRequest(t *testing.T) {
 
 // TestInitialize_AgentInfoVersionIsTheBuildStamp pins that agentVersion
 // used to be the constant "1.0.0", reported to every connected editor as
-// agentInfo.version: not the build stamp internal/cli.Version carries, never
+// agentInfo.version: not the build stamp internal/version.Version carries, never
 // bumped, and naming a release ctxloom has never made — so the one field the
 // ACP handshake reserves for "which build am I talking to" answered with a
 // number identifying nothing.

@@ -53,15 +53,23 @@ func TestSessionStoreContract(t *testing.T) {
 				t.Fatal("Find of a missing harp should be nil")
 			}
 
-			// First-bind-wins.
+			// Rebind rule, identical for both adapters: a new id WITH a
+			// transcript path is engine rotation and re-points; an id-only
+			// bind never displaces a live binding.
 			if err := s.BindSession(e1.HarpName, "sid-1", "/t1"); err != nil {
 				t.Fatalf("BindSession: %v", err)
 			}
 			if err := s.BindSession(e1.HarpName, "sid-2", "/t2"); err != nil {
 				t.Fatalf("BindSession (second): %v", err)
 			}
-			if got, _ := s.Find(e1.HarpName); got.SessionID != "sid-1" {
-				t.Fatalf("first-bind-wins violated: SessionID = %q", got.SessionID)
+			if got, _ := s.Find(e1.HarpName); got.SessionID != "sid-2" || got.TranscriptPath != "/t2" {
+				t.Fatalf("rotation did not re-point: SessionID = %q, TranscriptPath = %q", got.SessionID, got.TranscriptPath)
+			}
+			if err := s.BindSession(e1.HarpName, "sid-3", ""); err != nil {
+				t.Fatalf("BindSession (id-only): %v", err)
+			}
+			if got, _ := s.Find(e1.HarpName); got.SessionID != "sid-2" {
+				t.Fatalf("id-only bind displaced a live binding: SessionID = %q", got.SessionID)
 			}
 
 			// Project filtering (membership, not order — timestamps may tie).

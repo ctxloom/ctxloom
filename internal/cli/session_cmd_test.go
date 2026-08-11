@@ -220,17 +220,52 @@ func TestBindSessionFromPayload(t *testing.T) {
 		assert.NoError(t, err, "stale CTXLOOM_SESSION_HARP env shouldn't crash the hook")
 	})
 
-	t.Run("already_bound_is_idempotent", func(t *testing.T) {
+	t.Run("already_bound_and_payload_names_no_transcript_is_noop", func(t *testing.T) {
 		mgr, entry := seedHomeSession(t)
 		require.NoError(t, mgr.BindSession(entry.HarpName, "first-id", "/orig"))
 
-		// Re-running the hook with a different session_id must NOT
-		// overwrite the existing binding — once bound, we trust the
-		// first writer.
+		// A payload carrying an id but NO transcript_path cannot establish
+		// that the engine rotated, so it must not displace a live binding.
 		err := bindSessionFromPayload(strings.NewReader(`{"session_id":"second-id"}`), entry.HarpName)
 		require.NoError(t, err)
 		got, _ := mgr.Find(entry.HarpName)
-		assert.Equal(t, "first-id", got.SessionID, "first bind wins; second is no-op")
+		assert.Equal(t, "first-id", got.SessionID, "an id-only payload never re-points")
+		assert.Equal(t, "/orig", got.TranscriptPath, "and never moves the transcript path")
+	})
+
+	// The /clear rotation, end to end through the hook target. claude-code
+	// starts a NEW transcript UUID under the same live process and fires
+	// SessionStart again; the harp's binding must follow, or every reader that
+	// trusts it (recover, resume, transcript watch, essence staleness) goes on
+	// reading a transcript the session abandoned.
+	t.Run("rotated_transcript_repoints_the_binding", func(t *testing.T) {
+		mgr, entry := seedHomeSession(t)
+
+		first := `{"session_id":"pre-clear-uuid","transcript_path":"/t/pre-clear.jsonl","hook_event_name":"SessionStart"}`
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(first), entry.HarpName))
+
+		second := `{"session_id":"post-clear-uuid","transcript_path":"/t/post-clear.jsonl","hook_event_name":"SessionStart"}`
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(second), entry.HarpName))
+
+		got, err := mgr.Find(entry.HarpName)
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		assert.Equal(t, "post-clear-uuid", got.SessionID,
+			"the harp must name the transcript the session is actually growing")
+		assert.Equal(t, "/t/post-clear.jsonl", got.TranscriptPath,
+			"a binding left on the pre-clear file makes every downstream read confidently wrong")
+	})
+
+	t.Run("repeat_hook_firing_with_the_same_transcript_is_idempotent", func(t *testing.T) {
+		mgr, entry := seedHomeSession(t)
+
+		payload := `{"session_id":"same-uuid","transcript_path":"/t/same.jsonl","hook_event_name":"SessionStart"}`
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
+		require.NoError(t, bindSessionFromPayload(strings.NewReader(payload), entry.HarpName))
+
+		got, _ := mgr.Find(entry.HarpName)
+		assert.Equal(t, "same-uuid", got.SessionID)
+		assert.Equal(t, "/t/same.jsonl", got.TranscriptPath)
 	})
 }
 

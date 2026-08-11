@@ -56,6 +56,11 @@ type PendingApproval struct {
 	Title     string // the tool name
 	Payload   json.RawMessage
 	Since     time.Time
+	// Deadline is when this rung's park times out (Since + the rung's
+	// resolved timeout — rung.Timeout, falling back to defaultRelayTimeout
+	// exactly like the select below). Slice 3's "expires in Xm" reads this;
+	// nothing outside coord can otherwise compute it.
+	Deadline time.Time
 }
 
 // PendingApprovals lists approvals currently parked for a human, oldest
@@ -392,6 +397,15 @@ func (c *Coordinator) surfaceApprovalToHuman(rec RunRecord, req *agentcoordpb.Ap
 		payload = raw
 	}
 
+	// Resolved up front (not just before the select, as relayApproval does)
+	// because Deadline needs it too: Since+timeout must describe the SAME
+	// timeout the select below actually waits on, not a value recomputed
+	// later that could in principle drift from it.
+	timeout := rung.Timeout
+	if timeout <= 0 {
+		timeout = defaultRelayTimeout
+	}
+
 	// REGISTER BEFORE PUBLISHING — the same discipline relayApproval documents
 	// (pulpy-whiff), applied to this rung's own publish moment: a human
 	// answering the INSTANT they observe the OnPendingApproval callback must
@@ -401,13 +415,15 @@ func (c *Coordinator) surfaceApprovalToHuman(rec RunRecord, req *agentcoordpb.Ap
 	// inserted into c.approvals BEFORE notifyPendingApproval (this rung's
 	// "publish") is ever called.
 	msgID := newMessageID()
+	since := c.now()
 	pending := PendingApproval{
 		MessageID: msgID,
 		Harp:      rec.Harp,
 		Kind:      req.GetKind(),
 		Title:     req.GetTitle(),
 		Payload:   payload,
-		Since:     c.now(),
+		Since:     since,
+		Deadline:  since.Add(timeout),
 	}
 	pa := &pendingApproval{targetHarp: targetHarp, ch: make(chan *agentcoordpb.ApprovalDecision, 1), human: &pending}
 	c.mu.Lock()
@@ -440,10 +456,6 @@ func (c *Coordinator) surfaceApprovalToHuman(rec RunRecord, req *agentcoordpb.Ap
 		hook(msgID)
 	}
 
-	timeout := rung.Timeout
-	if timeout <= 0 {
-		timeout = defaultRelayTimeout
-	}
 	timer := time.NewTimer(timeout)
 	defer timer.Stop()
 	select {

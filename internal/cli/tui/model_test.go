@@ -17,11 +17,21 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/termui"
 )
+
+// answerCall records one AnswerApproval invocation, for asserting the exact
+// (messageID, harp, decision, note) a key drove.
+type answerCall struct {
+	messageID string
+	harp      string
+	decision  agentcoordpb.ApprovalDecision_Decision
+	note      string
+}
 
 // fakeSources records watches/cancels/injects and lets tests push feed
 // events and script the inject outcome.
@@ -41,6 +51,10 @@ type fakeSources struct {
 	injected   [][2]string // {harp, text} per inject call
 	injectMode string      // "" defaults to DeliveryQueued
 	injectErr  error
+
+	approvals []coord.PendingApproval // scripted PendingApprovals() return
+	answered  []answerCall            // AnswerApproval calls, in order
+	answerErr error                   // scripted AnswerApproval error
 }
 
 func newFakeSources(dir string, rows ...RosterRow) *fakeSources {
@@ -87,6 +101,18 @@ func (f *fakeSources) sources() Sources {
 				return coord.DeliveryQueued, nil
 			}
 			return f.injectMode, nil
+		},
+		PendingApprovals: func() []coord.PendingApproval {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			return append([]coord.PendingApproval(nil), f.approvals...)
+		},
+		AnswerApproval: func(messageID, harp string, decision agentcoordpb.ApprovalDecision_Decision, note string) error {
+			f.mu.Lock()
+			f.answered = append(f.answered, answerCall{messageID: messageID, harp: harp, decision: decision, note: note})
+			err := f.answerErr
+			f.mu.Unlock()
+			return err
 		},
 	}
 }

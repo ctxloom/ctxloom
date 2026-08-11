@@ -198,5 +198,59 @@ func TestSurround_BusyEngineDefersToFlush(t *testing.T) {
 }
 
 func TestRosterDigest_Empty(t *testing.T) {
-	assert.Equal(t, "no agents", rosterDigest([]RosterEntry{}))
+	assert.Equal(t, "no agents", rosterDigest([]RosterEntry{}, 0))
+}
+
+// TestRosterDigest_ShowsApprovalWarningWhenPending pins the "⚠N " prefix:
+// present (and leading) when approvals > 0, absent when 0 — including on an
+// otherwise-empty roster, where the digest still owes the human a warning.
+func TestRosterDigest_ShowsApprovalWarningWhenPending(t *testing.T) {
+	assert.Equal(t, "no agents", rosterDigest(nil, 0), "no warning prefix when nothing is pending")
+	assert.Equal(t, "⚠2 no agents", rosterDigest(nil, 2), "the warning leads even an empty roster")
+
+	withRoster := []RosterEntry{{Harp: "kid", State: "executing"}}
+	assert.NotContains(t, rosterDigest(withRoster, 0), "⚠")
+	assert.True(t, strings.HasPrefix(rosterDigest(withRoster, 3), "⚠3 "), "the warning is the LEADING element")
+}
+
+// TestSurround_ApprovalsBellOnZeroToNTransitionOnly pins the BEL discipline:
+// exactly once on 0→N, never on a later N→N tick reporting the same nonzero
+// count, and never on N→0.
+func TestSurround_ApprovalsBellOnZeroToNTransitionOnly(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	s.SetSize(24, 80)
+	tty.Reset()
+
+	s.SetApprovals(2)
+	assert.Equal(t, 1, strings.Count(tty.String(), "\a"), "0→N rings the bell exactly once")
+
+	tty.Reset()
+	s.SetApprovals(2) // N→N: same nonzero count again
+	assert.NotContains(t, tty.String(), "\a", "a repeated tick at the same count must not ring again")
+
+	tty.Reset()
+	s.SetApprovals(0) // N→0
+	assert.NotContains(t, tty.String(), "\a", "clearing to zero must not ring")
+
+	tty.Reset()
+	s.SetApprovals(3) // 0→N again
+	assert.Contains(t, tty.String(), "\a", "a fresh 0→N transition rings again")
+}
+
+// TestSurround_ApprovalsPaintsWarningPrefix confirms the count actually
+// reaches the painted bar row, not just rosterDigest in isolation.
+func TestSurround_ApprovalsPaintsWarningPrefix(t *testing.T) {
+	var tty bytes.Buffer
+	s := newTestSurround(&tty, BarInfo{Harp: "h"})
+	s.lastEngineWrite = func() int64 { return 0 } // engine idle forever
+	s.SetSize(24, 80)
+	tty.Reset()
+
+	s.SetApprovals(2)
+	assert.Contains(t, tty.String(), "⚠2 ", "the painted bar carries the approval warning")
+
+	tty.Reset()
+	s.SetApprovals(0)
+	assert.NotContains(t, tty.String(), "⚠", "clearing to zero clears the warning from the bar")
 }

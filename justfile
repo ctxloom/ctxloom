@@ -562,9 +562,16 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     # at a differently-named twin instead and ctxloom writes its self-referencing
     # hooks as absolute paths rather than the bare name — different bytes, so a
     # different program measured. See cmd/ctxloom/justfile's build-cover.
+    # -timeout 30m for the same reason test-acceptance carries it, only more so:
+    # this lane runs the SAME 515 scenarios through a coverage-instrumented
+    # binary, so it is strictly slower than the 1200s the plain suite measured.
+    # Under go test's 600s default this lane died mid-suite and still emitted a
+    # profile — a TRUNCATED one, which is worse than none: every leaf and flag
+    # the run never reached reads as "not exercised", so a gate seeded from it
+    # bakes in exemptions for code that is in fact covered.
     PATH="$coverbin:$PATH" GOTMPDIR="{{go_tmp}}" GOCOVERDIR="$covdir" \
         CTXLOOM_BINARY="$coverbin/ctxloom" \
-        go test -tags "acceptance integration" -count=1 ./tests/acceptance/...
+        go test -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
     status=$?
     set -e
     files=$(find "$covdir" -name 'covcounters.*' | wc -l)

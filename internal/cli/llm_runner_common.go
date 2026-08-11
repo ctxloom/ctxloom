@@ -104,7 +104,7 @@ func loadAndConfigureBackend(backend agent.Backend, backendName, label string) (
 	if cfg == nil {
 		return nil, cfgErr
 	}
-	printAndRecordConfigWarnings(os.Stderr, cfg.GetWarnings())
+	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
 	if bc := serveBackendConfig(cfg, backendName, label); bc != nil {
 		if c, ok := backend.(backends.Configurable); ok {
 			c.Configure(bc)

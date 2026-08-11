@@ -4,6 +4,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
@@ -63,7 +64,7 @@ type SessionRow struct {
 // so the badge that used to live in renderSessionTable's text-only path now
 // rides in the row itself and shows up in every format, not just text.
 // EssencePath is resolved the same way `session show` resolves it
-// (sessionEssenceInfo, defined in session_cmd.go) and left "" when the
+// (operations.SessionEssenceInfo) and left "" when the
 // session isn't distilled yet; appDir is only needed for that legacy
 // <sessionsDir>/<sessionID>.md fallback lookup.
 func newSessionRow(e sessions.Entry, appDir string) SessionRow {
@@ -87,7 +88,7 @@ func newSessionRow(e sessions.Entry, appDir string) SessionRow {
 		end := sessionTime(*e.EndedAt)
 		row.End = &end
 	}
-	if path, distilled := sessionEssenceInfo(e.HarpName, &e, appDir); distilled {
+	if path, distilled := operations.SessionEssenceInfo(e.HarpName, &e, appDir); distilled {
 		row.EssencePath = path
 	}
 	return row

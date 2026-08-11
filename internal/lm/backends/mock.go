@@ -56,6 +56,15 @@ type MockConfig struct {
 // BackendType identifies the backend this config drives.
 func (MockConfig) BackendType() string { return "mock" }
 
+// GetEnv returns the labeled entry's env map. Lets shared code (see
+// operations.LLMEnvFor) reach a decoded config's Env through an interface
+// assertion instead of a concrete-type switch — internal/operations may not
+// import engine plugin packages directly (ADR-0026), and MockConfig lives in
+// internal/lm/backends itself (the injected seam), not an engine plugin, but
+// keeps the same accessor shape as ClaudeConfig/CodexConfig for one uniform
+// call in LLMEnvFor.
+func (c MockConfig) GetEnv() map[string]string { return c.Env }
+
 // NewMock creates a new Mock backend.
 //
 // The InitLaunch wiring is deliberately the plainest one in the tree — the

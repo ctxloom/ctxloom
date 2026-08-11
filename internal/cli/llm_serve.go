@@ -10,6 +10,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
@@ -28,7 +29,7 @@ var llmServeCmd = &cobra.Command{
 func runLLMServe(cmd *cobra.Command, args []string) error {
 	// Fail-loudly gate: checkpoint before standUpRunner's config
 	// load, so a fatal-class finding it records (a corrupted/malformed
-	// config.yaml, via printAndRecordConfigWarnings) aborts this process-owning
+	// config.yaml, via config.RecordWarningsTo) aborts this process-owning
 	// entry point below instead of silently serving an empty/partial
 	// context. Degraded mode (--degraded / CTXLOOM_DEGRADED=1) is the
 	// escape hatch, same as `ctxloom run`/`ctxloom mcp`.
@@ -90,7 +91,7 @@ var llmServeLabel string
 func serveBackendConfig(cfg *config.Config, backendName, label string) agent.BackendConfig {
 	if label != "" {
 		if entry, ok := cfg.GetLLMEntry(label); ok && entry.EffectiveType() == backendName {
-			if bc := decodeBackendConfig(cfg, label); bc != nil {
+			if bc := operations.DecodeBackendConfig(cfg, label); bc != nil {
 				return bc
 			}
 		}

@@ -287,7 +287,7 @@ func runCarryCase(t *testing.T, tc carryCase) {
 		sentSig = s
 	}
 	post := readSidecar(t, cfg)
-	sourceGone := !fileExists(localBundlePath(cfg))
+	sourceGone := !regularFileExists(localBundlePath(cfg))
 
 	assert.Equal(t, tc.wantSigRelation.String(), classifyPublishedSig(sentSig, pre, post).String(),
 		"what reached the remote as a signature")

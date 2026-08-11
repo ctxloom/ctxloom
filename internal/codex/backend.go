@@ -47,6 +47,12 @@ type CodexConfig struct {
 // BackendType identifies the backend this config drives.
 func (CodexConfig) BackendType() string { return "codex" }
 
+// GetEnv returns the labeled entry's env map. Lets shared code (see
+// operations.LLMEnvFor) reach a decoded config's Env through an interface
+// assertion instead of a concrete-type switch — internal/operations may not
+// import engine plugin packages directly (ADR-0026).
+func (c CodexConfig) GetEnv() map[string]string { return c.Env }
+
 // Codex implements the Backend interface for OpenAI Codex CLI. The shared launch
 // core (capability wiring, accessors, Setup/Cleanup) lives in the embedded
 // agent.LaunchBackend; Codex adds only the Codex-specific Configure/Execute.

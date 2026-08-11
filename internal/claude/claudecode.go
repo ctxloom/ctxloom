@@ -37,6 +37,12 @@ type ClaudeConfig struct {
 // BackendType identifies the backend this config drives.
 func (ClaudeConfig) BackendType() string { return "claude-code" }
 
+// GetEnv returns the labeled entry's env map. Lets shared code (see
+// operations.LLMEnvFor) reach a decoded config's Env through an interface
+// assertion instead of a concrete-type switch — internal/operations may not
+// import engine plugin packages directly (ADR-0026).
+func (c ClaudeConfig) GetEnv() map[string]string { return c.Env }
+
 // ClaudeCode implements the Backend interface for Claude Code CLI. The shared
 // launch core (capability wiring, accessors, Setup/Cleanup) lives in the embedded
 // agent.LaunchBackend; ClaudeCode adds only the Claude-specific Configure/Execute.

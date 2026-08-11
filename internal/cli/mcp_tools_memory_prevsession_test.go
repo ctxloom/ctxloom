@@ -80,19 +80,3 @@ func TestPreviousSessionByHarp_UnknownHarpDegrades(t *testing.T) {
 	assert.False(t, out.Loaded)
 	assert.Contains(t, out.Message, "No previous session")
 }
-
-// TestCompactEntry_ModelOverrideBeatsConfig closes sour-scoop: an explicit
-// caller-supplied model reached the backend distill path but NOT the
-// canonical/harp one, which always used cfg.GetCompactionModel(). The caller
-// got a distill from a model it did not ask for, silently. compactEntry now
-// takes the override directly, with "" meaning "use the configured model" —
-// the same shape distillSession already uses.
-func TestCompactEntry_ModelOverrideBeatsConfig(t *testing.T) {
-	cfg := &config.Config{}
-	configured := cfg.GetCompactionModel()
-
-	assert.Equal(t, "sonnet-override", compactionModelFor(cfg, "sonnet-override"),
-		"an explicit override must win over the configured model")
-	assert.Equal(t, configured, compactionModelFor(cfg, ""),
-		"an empty override must fall back to the configured model")
-}

@@ -299,7 +299,7 @@ func resumedEssenceForInjection(part int, source, resumedFrom, resumedParts stri
 	if !resumePartsIncludeSession(resumedParts) {
 		return ""
 	}
-	data, err := readHarpEssence(resumedFrom)
+	data, err := operations.ReadHarpEssence(resumedFrom)
 	if err != nil {
 		return ""
 	}

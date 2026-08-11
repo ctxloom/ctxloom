@@ -185,8 +185,10 @@ func runACPSessionWithConfig(cmd *cobra.Command, cfg *config.Config, opening str
 	}
 	// Naming a profile and delivering none of its context is never what the
 	// caller asked for, and the session would still open, still answer, and
-	// still look right — the same refusal operations.runResolvedAgent makes
-	// for the single-turn form.
+	// still look right. This check is a hand-copied duplicate of
+	// operations.runResolvedAgent's analogous empty-context refusal for the
+	// single-turn form, not shared code — the two forms do not run through a
+	// common choke point, so a change to one is not a change to the other.
 	if acpRunProfile != "" && strings.TrimSpace(ctxResult.Context) == "" {
 		return fmt.Errorf("empty context: profile %q assembled to nothing — refusing to open the session unspecialised (check the profile's fragments/bundles resolve, or drop --profile to open it context-free)", acpRunProfile)
 	}
@@ -199,6 +201,22 @@ func runACPSessionWithConfig(cmd *cobra.Command, cfg *config.Config, opening str
 	// what must NOT happen to an interactive turn loop.
 	permission := resolvePermissionMode("", "", labelEntry.Permissions, backendName,
 		pb.ExecutionMode_INTERACTIVE, backends.EnforcesReadOnlyPlan(backendName))
+	// A session with no channel to render or answer a permission prompt
+	// (there is no connected editor client here, unlike `acp serve`) must
+	// refuse a posture that would block on one, rather than open a
+	// conversation where every gated call silently gets reject_once with
+	// nobody asked. SafeHeadless is exactly the right predicate even though
+	// this is an interactive session, not a headless run: true for bypass
+	// (nothing prompts) and for plan (but acp cannot enforce a genuine
+	// read-only plan, so CollapsePlanIfUnenforced already turned a
+	// configured plan into default above — refusing that too is correct);
+	// false for default/acceptEdits, precisely the silently-rejecting
+	// postures. This is INTERIM: the follow-up that lifts it is rendering
+	// and answering permission prompts in runChatSession.
+	if !permission.SafeHeadless() {
+		return fmt.Errorf("acp run: permission posture %q cannot open this session — this session has no channel to render or answer an engine permission prompt (not built yet), so every gated call would be silently rejected with nobody asked; set llm %q's permissions to %q, the only posture acp can run headless-safe here",
+			permission, acpRunLLM, agent.PermissionBypass)
+	}
 
 	warnACPSessionWorkspaceAxis(cfg.GetWorkspace())
 

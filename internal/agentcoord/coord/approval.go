@@ -26,15 +26,85 @@ import (
 // without a live consumer.
 
 // pendingApproval is one outstanding relay-to-role/surface-to-human rung,
-// parked on the mailbox message id it was relayed as — the correlation the
-// parent's agent_send in_reply_to answers.
+// parked on a message id — the correlation the answering agent_send's
+// in_reply_to answers. For ActionRelayToRole that id is a real mailbox
+// message (relayApproval). For ActionSurfaceToHuman there is no mail; the id
+// is minted the same way but nothing is queued (surfaceApprovalToHuman).
 type pendingApproval struct {
 	// targetHarp is the ONLY identity allowed to resolve this approval (the
-	// role the mail was addressed to) — defense in depth beyond "the id
-	// exists": a foreign session's in_reply_to guess cannot answer someone
-	// else's approval.
+	// role the mail was addressed to, or — for a human-surfaced rung — the
+	// run's parent harp, the identity a human answers as) — defense in depth
+	// beyond "the id exists": a foreign session's in_reply_to guess cannot
+	// answer someone else's approval.
 	targetHarp string
 	ch         chan *agentcoordpb.ApprovalDecision // buffered(1)
+	// human, when non-nil, is this entry's PendingApprovals()-visible
+	// projection — set only for an ActionSurfaceToHuman rung (a
+	// relay_to_role entry has no human-observable shape; PendingApprovals
+	// skips any entry with human == nil).
+	human *PendingApproval
+}
+
+// PendingApproval is one approval currently parked on an ActionSurfaceToHuman
+// rung, awaiting a human decision — see Coordinator.PendingApprovals /
+// OnPendingApproval. A relay_to_role rung (parked on a PARENT ROLE, not a
+// human) never appears here.
+type PendingApproval struct {
+	MessageID string
+	Harp      string // the run asking
+	Kind      agentcoordpb.ApprovalRequest_ApprovalKind
+	Title     string // the tool name
+	Payload   json.RawMessage
+	Since     time.Time
+}
+
+// PendingApprovals lists approvals currently parked for a human, oldest
+// first. Snapshot semantics: the slice is a copy, safe to range over after
+// the lock is released, and may be stale the instant it returns (an approval
+// can resolve or time out concurrently) — callers that need to react to a
+// change should use OnPendingApproval instead of polling this in a loop.
+func (c *Coordinator) PendingApprovals() []PendingApproval {
+	c.mu.Lock()
+	out := make([]PendingApproval, 0, len(c.approvals))
+	for _, pa := range c.approvals {
+		if pa != nil && pa.human != nil {
+			out = append(out, *pa.human)
+		}
+	}
+	c.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool { return out[i].Since.Before(out[j].Since) })
+	return out
+}
+
+// OnPendingApproval registers fn to be called every time a human-surfaced
+// approval parks (parked=true) or leaves the parked set — answered, timed
+// out, or the coordinator shutting down (parked=false). Nil clears it.
+//
+// The callback runs OUTSIDE c.mu — surfaceApprovalToHuman captures the
+// current fn under the lock, releases it, THEN calls fn, so fn may safely
+// call back into the coordinator (e.g. PendingApprovals) without
+// deadlocking. It must not block: it runs synchronously on the approval's
+// own goroutine (serveApproval's, one per in-flight approval — see
+// serveApproval's doc comment), so a slow callback delays that approval's
+// own park/resolve accounting, not just the observer.
+func (c *Coordinator) OnPendingApproval(fn func(PendingApproval, bool)) {
+	c.mu.Lock()
+	c.onPendingApproval = fn
+	c.mu.Unlock()
+}
+
+// notifyPendingApproval invokes the registered OnPendingApproval callback,
+// if any, OUTSIDE c.mu (capture under the lock, unlock, then call) — never
+// invoked while c.mu is held, so a callback that reads back into the
+// coordinator (PendingApprovals, another approval) cannot deadlock against
+// the goroutine that is notifying it.
+func (c *Coordinator) notifyPendingApproval(p PendingApproval, parked bool) {
+	c.mu.Lock()
+	fn := c.onPendingApproval
+	c.mu.Unlock()
+	if fn != nil {
+		fn(p, parked)
+	}
 }
 
 // sessionAcceptKey is the ACCEPT_FOR_SESSION cache key: (harp, kind).
@@ -101,9 +171,9 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 				Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE,
 				Note:     fmt.Sprintf("rung %s: auto_decline", rungLabel),
 			})
-		case ActionRelayToRole, ActionSurfaceToHuman:
-			// Yield the child's ceiling slot while the relay parks on a
-			// human/parent decision (one-shot-resume plan, Slice 4 / Fork 1's
+		case ActionRelayToRole:
+			// Yield the child's ceiling slot while the relay parks on the
+			// parent's decision (one-shot-resume plan, Slice 4 / Fork 1's
 			// companion — now load-bearing since the turn cap is a finite
 			// resource ceiling, not 1). A child blocked on an approval consumes
 			// no compute, so it must not hold an executing slot and starve
@@ -117,22 +187,20 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 			c.onRolePark(rec.Harp)
 			decision, timedOut := c.relayApproval(rec, req, rung)
 			c.onRoleUnpark(rec.Harp)
-			if !timedOut {
-				resolution := approvalResolution(decision.GetDecision())
-				c.audit("approval", caller.Harp, map[string]string{
-					"run_id": rec.RunID, "kind": approvalKindName(kind), "rung": rungLabel,
-					"action": string(rung.Action), "role": rung.Role,
-					"resolution": resolution, "decision": decision.GetDecision().String(),
-				})
-				if decision.GetDecision() == agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION {
-					c.cacheSessionAccept(rec.Harp, kind)
-				}
-				return approvalResponse(decision)
+			if resp, done := c.finishParkedRung(caller, rec, kind, rungLabel, rung, decision, timedOut); done {
+				return resp
 			}
-			c.audit("approval", caller.Harp, map[string]string{
-				"run_id": rec.RunID, "kind": approvalKindName(kind), "rung": rungLabel,
-				"action": string(rung.Action), "role": rung.Role, "resolution": "timed_out",
-			})
+			// Fall through to the next matching rung.
+		case ActionSurfaceToHuman:
+			// Same slot-yield discipline as ActionRelayToRole above — a child
+			// parked waiting for a HUMAN (rather than a parent role) is exactly
+			// as idle, and must yield its slot the same way.
+			c.onRolePark(rec.Harp)
+			decision, timedOut := c.surfaceApprovalToHuman(rec, req, rung)
+			c.onRoleUnpark(rec.Harp)
+			if resp, done := c.finishParkedRung(caller, rec, kind, rungLabel, rung, decision, timedOut); done {
+				return resp
+			}
 			// Fall through to the next matching rung.
 		}
 	}
@@ -143,6 +211,34 @@ func (c *Coordinator) serveApproval(caller Identity, req *agentcoordpb.ApprovalR
 		Decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE,
 		Note:     "ladder exhausted with no rung resolving the request; bottoming at DECLINE",
 	})
+}
+
+// finishParkedRung is the audit-and-fall-through handling shared by the two
+// PARKING rung actions (ActionRelayToRole/relayApproval and
+// ActionSurfaceToHuman/surfaceApprovalToHuman) — same (decision, timedOut)
+// contract, same audit keys, same ACCEPT_FOR_SESSION caching and
+// fall-through-on-timeout, regardless of which park mechanism produced the
+// result. done=false tells serveApproval's loop to fall through to the next
+// matching rung; done=true carries the CoordinatorResponse to return
+// immediately.
+func (c *Coordinator) finishParkedRung(caller Identity, rec RunRecord, kind agentcoordpb.ApprovalRequest_ApprovalKind, rungLabel string, rung LadderRung, decision *agentcoordpb.ApprovalDecision, timedOut bool) (resp *agentcoordpb.CoordinatorResponse, done bool) {
+	if !timedOut {
+		resolution := approvalResolution(decision.GetDecision())
+		c.audit("approval", caller.Harp, map[string]string{
+			"run_id": rec.RunID, "kind": approvalKindName(kind), "rung": rungLabel,
+			"action": string(rung.Action), "role": rung.Role,
+			"resolution": resolution, "decision": decision.GetDecision().String(),
+		})
+		if decision.GetDecision() == agentcoordpb.ApprovalDecision_DECISION_ACCEPT_FOR_SESSION {
+			c.cacheSessionAccept(rec.Harp, kind)
+		}
+		return approvalResponse(decision), true
+	}
+	c.audit("approval", caller.Harp, map[string]string{
+		"run_id": rec.RunID, "kind": approvalKindName(kind), "rung": rungLabel,
+		"action": string(rung.Action), "role": rung.Role, "resolution": "timed_out",
+	})
+	return nil, false
 }
 
 // approvalResolution maps a decision onto the audit journal's resolution
@@ -242,6 +338,107 @@ func (c *Coordinator) relayApproval(rec RunRecord, req *agentcoordpb.ApprovalReq
 	case d := <-pa.ch:
 		return d, false
 	case <-timer.C:
+		return nil, true
+	case <-c.baseCtx.Done():
+		return nil, true
+	}
+}
+
+// surfaceApprovalToHuman is ActionSurfaceToHuman's sibling to relayApproval:
+// SAME register-before-publish discipline (pulpy-whiff), SAME (decision,
+// timedOut) contract, SAME audit keys (finishParkedRung handles those,
+// identically for both). The difference is what it parks ON and how it
+// becomes observable: relayApproval addresses a parent ROLE and its
+// publish moment is the mail becoming visible in that role's mailbox
+// (queueMailPayloadID); this addresses a HUMAN and its publish moment is
+// notifyPendingApproval's callback — there is no mailbox message, so
+// PendingApprovals()/OnPendingApproval are the only way anything outside
+// this coordinator learns the approval exists.
+//
+// Resolution still rides resolveApprovalReply/peerSend unchanged: the human
+// answers with AgentSend(caller, to, "", body, structured, inReplyTo=msgID),
+// exactly as a parent answers a relayed approval, and the SAME targetHarp
+// check (pa.targetHarp == caller.Harp) gates who may answer — the run's
+// parent harp today (the identity the interactive owner session — the
+// eventual CLI surface, slice 3 — answers as; there is no separate "human"
+// identity in this window). Timeout still comes from rung.Timeout (the SAME
+// defaultRelayTimeout fallback as a relay rung with no explicit timeout).
+func (c *Coordinator) surfaceApprovalToHuman(rec RunRecord, req *agentcoordpb.ApprovalRequest, rung LadderRung) (decision *agentcoordpb.ApprovalDecision, timedOut bool) {
+	targetHarp := rec.ParentHarp
+	if targetHarp == "" {
+		clidiag.Warn("ctxloom", "coord: surface approval for %s: no parent harp on the run record", rec.Harp)
+		return nil, true
+	}
+
+	var payload json.RawMessage
+	if p := req.GetPayload(); p != nil {
+		raw, err := protojson.MarshalOptions{UseProtoNames: true}.Marshal(p)
+		if err != nil {
+			clidiag.Warn("ctxloom", "coord: surface approval for %s: encode payload: %v", rec.Harp, err)
+			return nil, true
+		}
+		payload = raw
+	}
+
+	// REGISTER BEFORE PUBLISHING — the same discipline relayApproval documents
+	// (pulpy-whiff), applied to this rung's own publish moment: a human
+	// answering the INSTANT they observe the OnPendingApproval callback must
+	// find the pendingApproval already registered, or the reply falls through
+	// to ordinary mail and this rung sits until its timeout. So both the
+	// pendingApproval AND the PendingApproval it carries are built and
+	// inserted into c.approvals BEFORE notifyPendingApproval (this rung's
+	// "publish") is ever called.
+	msgID := newMessageID()
+	pending := PendingApproval{
+		MessageID: msgID,
+		Harp:      rec.Harp,
+		Kind:      req.GetKind(),
+		Title:     req.GetTitle(),
+		Payload:   payload,
+		Since:     c.now(),
+	}
+	pa := &pendingApproval{targetHarp: targetHarp, ch: make(chan *agentcoordpb.ApprovalDecision, 1), human: &pending}
+	c.mu.Lock()
+	if c.approvals == nil {
+		c.approvals = make(map[string]*pendingApproval)
+	}
+	c.approvals[msgID] = pa
+	c.mu.Unlock()
+	// Cleanup ALWAYS deletes the entry and THEN notifies parked=false, on
+	// every exit path (answered, timed out, or shutting down) — deletion
+	// first so a callback that immediately calls PendingApprovals() never
+	// observes an entry this call is already leaving.
+	defer func() {
+		c.mu.Lock()
+		if c.approvals[msgID] == pa {
+			delete(c.approvals, msgID)
+		}
+		c.mu.Unlock()
+		c.notifyPendingApproval(pending, false)
+	}()
+
+	clidiag.Warn("ctxloom", "coord: approval %q for %s (%s) is waiting for a human decision — no relay, no engine progress until it is answered or times out", req.GetTitle(), rec.Harp, approvalKindName(req.GetKind()))
+	c.notifyPendingApproval(pending, true)
+	if hook := c.onApprovalMailQueued; hook != nil {
+		// Reuses relayApproval's test seam (its own doc explains why only a
+		// hook fired at THIS instant can assert register-before-publish
+		// deterministically) — the seam's contract is "called once the
+		// approval is observable to whatever answers it", which is equally
+		// true here even though nothing was mailed.
+		hook(msgID)
+	}
+
+	timeout := rung.Timeout
+	if timeout <= 0 {
+		timeout = defaultRelayTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case d := <-pa.ch:
+		return d, false
+	case <-timer.C:
+		clidiag.Warn("ctxloom", "coord: approval %q for %s (%s) timed out after %s waiting for a human — falling through", req.GetTitle(), rec.Harp, approvalKindName(req.GetKind()), timeout)
 		return nil, true
 	case <-c.baseCtx.Done():
 		return nil, true

@@ -206,6 +206,11 @@ type Coordinator struct {
 	// deterministically rather than by racing an Eventually. Nil in
 	// production.
 	onApprovalMailQueued func(msgID string)
+	// onPendingApproval (C2/human-surface) is the OnPendingApproval callback,
+	// nil until a caller registers one. Read/written under c.mu; ALWAYS
+	// invoked outside it (notifyPendingApproval captures, unlocks, calls) —
+	// see OnPendingApproval's doc comment for why.
+	onPendingApproval func(PendingApproval, bool)
 	// sessionAccepts (C2) is the ACCEPT_FOR_SESSION cache, keyed (run, kind).
 	sessionAccepts map[sessionAcceptKey]*agentcoordpb.ApprovalDecision
 	// launchArmed pre-registers the "attached" signal for a harp's NEXT

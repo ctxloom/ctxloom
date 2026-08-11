@@ -415,6 +415,67 @@ func TestWarnACPSessionWorkspaceAxis_NamesTheAxisItCannotHonour(t *testing.T) {
 	}
 }
 
+// TestRunACPSessionWithConfig_SilentlyRejectingPostureProceedsUnrefused pins
+// unroasted-spinning's SESSION ARM as it behaves TODAY, before any refusal
+// guard exists: `acp run` registers no --permissions/--agent flag, so
+// posture comes solely from the llm label. An unset label posture resolves
+// (via resolvePermissionMode) to PermissionDefault, which is not
+// SafeHeadless — every gated call in the conversation that follows would get
+// reject_once with nobody asked. Yet nothing between resolvePermissionMode
+// and the plugin factory call ever consults the resolved posture, so the
+// session opens anyway. This is the pin of that silent-reject defect; it
+// flips into a refusal assertion once the guard lands (same task, red then
+// green).
+func TestRunACPSessionWithConfig_SilentlyRejectingPostureProceedsUnrefused(t *testing.T) {
+	resetACPRunFlags(t)
+	acpRunLLM = "acp-kiro"
+	cfg := config.NewFixture(config.Fixture{
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp"}}, // no permissions declared
+			Defaults: config.RoleDefaults{Primary: "acp-kiro"},
+		},
+	})
+	stub := &acpRunStubClient{}
+	acpRunFactory = acpRunStubFactory(stub)
+
+	cmd, _ := formatCmd(formatText)
+	err := runACPSessionInBackground(t, cmd, cfg, "hello", strings.NewReader(""))
+	require.NoError(t, err, "today: an unsafe-headless posture does not stop the session from opening")
+
+	_, chats := stub.doorCounts()
+	assert.Equal(t, 1, chats, "the chat door was reached despite the unsafe posture")
+}
+
+// TestRunACPOneshotWithConfig_UnenforceablePlanSilentlyElevatesToBypass pins
+// unroasted-spinning's ONE-SHOT ARM as it behaves TODAY: a user who
+// configures the acp label with permissions: plan is asking for read-only.
+// acp cannot enforce a read-only plan (backends.EnforcesReadOnlyPlan("acp")
+// is false), so CollapsePlanIfUnenforced turns it into default, which is not
+// SafeHeadless — and operations.effectiveMemberPermission floors that
+// straight up to bypass, silently, with no warning anywhere. The user asked
+// for read-only and got full bypass. This is the pin of that silent-
+// elevation defect (the security bug); it flips into a refusal assertion
+// once effectiveMemberPermission's floor is replaced with an error.
+func TestRunACPOneshotWithConfig_UnenforceablePlanSilentlyElevatesToBypass(t *testing.T) {
+	resetACPRunFlags(t)
+	acpRunLLM = "acp-kiro"
+	cfg := config.NewFixture(config.Fixture{
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp", Permissions: "plan"}},
+			Defaults: config.RoleDefaults{Primary: "acp-kiro"},
+		},
+	})
+	stub := &acpRunStubClient{out: "ok"}
+	acpRunFactory = acpRunStubFactory(stub)
+
+	cmd, _ := formatCmd(formatText)
+	require.NoError(t, runACPOneshotWithConfig(cmd, cfg, "ping"))
+
+	require.NotNil(t, stub.gotReq.Options)
+	assert.Equal(t, agent.PermissionBypass.String(), stub.gotReq.Options.PermissionMode,
+		"today: permissions: plan on an acp label silently elevates to bypass instead of refusing")
+}
+
 // TestRunACPSession_AnnouncesTheOpenSessionOnlyOnATerminal drives both sides
 // of the human/machine split through the isInteractiveTerminal seam.
 //

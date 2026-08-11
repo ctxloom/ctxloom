@@ -234,8 +234,10 @@ func TestAgentsMDSurface_DeliverPreservesHandWrittenAGENTSmd(t *testing.T) {
 
 // ---- config surface (folded settings + hooks + MCP) ------------------------
 
-// config Delivery writes .codex/config.toml (hooks + mcp_servers) into dir via
-// the reused WriteSettings; Cleanup reverts the ctxloom-managed entries.
+// config Delivery writes config.toml (hooks + mcp_servers) under the
+// project-scoped codex home derived from dir (ProjectHome — the engine-home
+// policy's single owner, NOT a bare <dir>/.codex) via the reused WriteSettings;
+// Cleanup reverts the ctxloom-managed entries.
 func TestConfigSurface_DeliverWritesConfigTOML(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
@@ -244,7 +246,7 @@ func TestConfigSurface_DeliverWritesConfigTOML(t *testing.T) {
 	handle, err := s.Config.Deliver(dir)
 	require.NoError(t, err)
 
-	cfgPath := filepath.Join(dir, ".codex", "config.toml")
+	cfgPath := filepath.Join(ProjectHome(dir), ConfigFileName)
 	cfg := readConfig(t, fs, cfgPath)
 	servers := asMap(cfg["mcp_servers"])
 	require.NotNil(t, servers, "config surface carries the MCP servers")
@@ -261,9 +263,11 @@ func TestConfigSurface_DeliverWritesConfigTOML(t *testing.T) {
 
 // ---- commands surface (cell-scoped $CODEX_HOME) ----------------------------
 
-// commands Delivery writes prompts under the CELL-SCOPED $CODEX_HOME derived from
-// dir (<dir>/.codex/prompts) — NOT the global ~/.codex/prompts — so a
-// DirectoryIsolatedCell isolates them. Cleanup reverts the manifest-tracked set.
+// commands Delivery writes prompts under the CELL-SCOPED $CODEX_HOME derived
+// from dir — NOT the global ~/.codex/prompts — so a DirectoryIsolatedCell
+// isolates them. On this static path the cell-scoping is applied to the
+// project-scoped state home (ProjectHome), the same root the run path's in-tree
+// arm resolves. Cleanup reverts the manifest-tracked set.
 func TestCommandsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
@@ -272,12 +276,12 @@ func TestCommandsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 	handle, err := s.Commands.Deliver(dir)
 	require.NoError(t, err)
 
-	promptPath := filepath.Join(dir, ".codex", "prompts", "review.md")
+	promptPath := filepath.Join(ProjectHome(dir), PromptsDirName, "review.md")
 	exists, _ := afero.Exists(fs, promptPath)
-	assert.True(t, exists, "the prompt lands under the cell-scoped $CODEX_HOME (<dir>/.codex/prompts)")
-	assert.Equal(t, filepath.Join(dir, ".codex", "prompts"), cellScopedPromptsDir(dir))
-	assert.Equal(t, filepath.Join(dir, ".codex"), cellScopedCodexHome(dir),
-		"CODEX_HOME is <dir>/.codex, so the launched codex reads these prompts")
+	assert.True(t, exists, "the prompt lands under the cell-scoped $CODEX_HOME (<ProjectHome>/prompts)")
+	assert.Equal(t, filepath.Join(ProjectHome(dir), PromptsDirName), cellScopedPromptsDir(StateHome(dir)))
+	assert.Equal(t, ProjectHome(dir), cellScopedCodexHome(StateHome(dir)),
+		"CODEX_HOME is <StateHome>/.codex, so the launched codex reads these prompts")
 
 	require.NoError(t, handle.Cleanup())
 	exists, _ = afero.Exists(fs, promptPath)
@@ -287,9 +291,10 @@ func TestCommandsSurface_DeliverWritesCellScopedPrompts(t *testing.T) {
 // ---- skills surface (cell-scoped $CODEX_HOME) ------------------------------
 
 // skills Delivery writes Agent Skill packages under the CELL-SCOPED $CODEX_HOME
-// derived from dir (<dir>/.codex/skills) — NOT the global ~/.codex/skills — so a
-// DirectoryIsolatedCell isolates them, mirroring the commands surface. Cleanup
-// reverts the manifest-tracked set.
+// derived from dir — NOT the global ~/.codex/skills — so a
+// DirectoryIsolatedCell isolates them, mirroring the commands surface (and,
+// like it, cell-scoping the project-scoped state home on this static path).
+// Cleanup reverts the manifest-tracked set.
 func TestSkillsSurface_DeliverWritesCellScopedSkills(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	dir := "/proj"
@@ -298,21 +303,21 @@ func TestSkillsSurface_DeliverWritesCellScopedSkills(t *testing.T) {
 	handle, err := s.Skills.Deliver(dir)
 	require.NoError(t, err)
 
-	skillMD := filepath.Join(dir, ".codex", "skills", "humanize", "SKILL.md")
+	skillMD := filepath.Join(ProjectHome(dir), SkillsDirName, "humanize", "SKILL.md")
 	exists, _ := afero.Exists(fs, skillMD)
-	assert.True(t, exists, "the skill lands under the cell-scoped $CODEX_HOME (<dir>/.codex/skills)")
-	assert.Equal(t, filepath.Join(dir, ".codex", "skills"), cellScopedSkillsDir(dir))
+	assert.True(t, exists, "the skill lands under the cell-scoped $CODEX_HOME (<ProjectHome>/skills)")
+	assert.Equal(t, filepath.Join(ProjectHome(dir), SkillsDirName), cellScopedSkillsDir(StateHome(dir)))
 
 	data, err := afero.ReadFile(fs, skillMD)
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "Body.")
 
-	scriptPath := filepath.Join(dir, ".codex", "skills", "humanize", "scripts", "run.sh")
+	scriptPath := filepath.Join(ProjectHome(dir), SkillsDirName, "humanize", "scripts", "run.sh")
 	info, err := fs.Stat(scriptPath)
 	require.NoError(t, err, "scripts/run.sh must be materialized")
 	assert.Equal(t, os.FileMode(0755), info.Mode().Perm(), "the exec bit on scripts/run.sh survives codex's skills surface")
 
-	exists, _ = afero.Exists(fs, filepath.Join(dir, ".codex", "skills", "disabled-skill", "SKILL.md"))
+	exists, _ = afero.Exists(fs, filepath.Join(ProjectHome(dir), SkillsDirName, "disabled-skill", "SKILL.md"))
 	assert.False(t, exists, "a skill with Enabled == false must not be written")
 
 	require.NoError(t, handle.Cleanup())
@@ -346,7 +351,7 @@ func TestUnsafe_WarnsAndProceeds(t *testing.T) {
 	assert.Contains(t, stderr, "shared cwd")
 
 	// It PROCEEDED: the well-known write lands under the shared cwd.
-	exists, _ := afero.Exists(fs, filepath.Join(cwd, ".codex", "prompts", "review.md"))
+	exists, _ := afero.Exists(fs, filepath.Join(ProjectHome(cwd), PromptsDirName, "review.md"))
 	assert.True(t, exists, "the well-known write proceeded into the shared cwd")
 	require.NoError(t, delivered[0].Cleanup())
 }
@@ -383,11 +388,11 @@ func TestDirectoryIsolatedCell_AcceptsAllCodexSurfaces(t *testing.T) {
 	contextFile(t, fs, dir) // asserts exactly one context file exists in the cell
 	exists, _ := afero.Exists(fs, filepath.Join(dir, "AGENTS.md"))
 	assert.True(t, exists, "the native AGENTS.md context route also landed")
-	exists, _ = afero.Exists(fs, filepath.Join(dir, ".codex", "config.toml"))
+	exists, _ = afero.Exists(fs, filepath.Join(ProjectHome(dir), ConfigFileName))
 	assert.True(t, exists)
-	exists, _ = afero.Exists(fs, filepath.Join(dir, ".codex", "prompts", "review.md"))
+	exists, _ = afero.Exists(fs, filepath.Join(ProjectHome(dir), PromptsDirName, "review.md"))
 	assert.True(t, exists)
-	exists, _ = afero.Exists(fs, filepath.Join(dir, ".codex", "skills", "humanize", "SKILL.md"))
+	exists, _ = afero.Exists(fs, filepath.Join(ProjectHome(dir), SkillsDirName, "humanize", "SKILL.md"))
 	assert.True(t, exists)
 }
 

@@ -25,11 +25,16 @@ import (
 // requires a private cwd (worktree) or container cell; a SHARED-cwd delivery
 // falls back to the loud well-known write.
 //
+// The two cwd-keyed surfaces sit at the project root, where codex natively
+// looks; the three CODEX_HOME-keyed ones sit under the home ctxloom relocates
+// (StateHome for a project-scoped run — see statehome.go — or the worktree/
+// container home for an isolated one):
+//
 //	surface   | well-known target                       | also a SharedRealization?
 //	----------|------------------------------------------|-----------------------
 //	context   | .ctxloom/cache/context/<hash>.md (hook) | ❌ no flag
 //	agentsMD  | AGENTS.md (native, managed markers)     | ❌ no flag
-//	config    | .codex/config.toml (hooks + MCP)        | ❌ no flag
+//	config    | $CODEX_HOME/config.toml (hooks + MCP)   | ❌ no flag
 //	commands  | $CODEX_HOME/prompts/<name>.md           | ❌ no flag
 //	skills    | $CODEX_HOME/skills/<name>/SKILL.md      | ❌ no flag
 //
@@ -179,19 +184,21 @@ type configSurface struct {
 	fs        afero.Fs
 	// homeOverride, when non-empty, is the project-dir-equivalent config.toml
 	// (and, via the sibling commands/skills surfaces, prompts/skills) is
-	// written under INSTEAD of the dir Deliver receives — the isolation-
-	// provided CODEX_HOME's virtual project dir (white-dawn §2.2A; see
+	// written under INSTEAD of the dir Deliver receives — the run path's
+	// already-resolved CODEX_HOME virtual project dir (white-dawn §2.2A; see
 	// backend.go's resolveCodexProjectDir). Empty for the static
 	// materialize/apply path (registry.go's NewSurfaces caller has no
-	// isolation context), which keeps deriving from Deliver's dir exactly as
-	// before this field existed.
+	// isolation context), where codexHomeUnder derives the project-scoped
+	// state home from Deliver's dir instead — the SAME root the run path's
+	// in-tree arm resolves, which is the whole point of the helper.
 	homeOverride string
 	// trustAbsPath, when non-empty, pre-seeds `[projects."<trustAbsPath>"]
 	// trust_level = "trusted"` into the written config.toml (white-dawn
-	// §2.2A's trust pre-seed) — set ONLY alongside homeOverride, and only for
-	// the two EPHEMERAL, never-committed homes (isolation-provided CODEX_HOME,
-	// container-fresh $HOME) that are safe to auto-trust into (see
-	// WriteSettingsWithTrust's doc).
+	// §2.2A's trust pre-seed) — set alongside homeOverride for every axis the
+	// run path resolves, all of which are homes ctxloom provisioned and codex
+	// has never seen (see WriteSettingsWithTrust's doc and
+	// docs/trust-model.md). Empty on the static materialize/apply path, which
+	// has no run to answer a prompt for.
 	trustAbsPath string
 	// mcpCommandOverride mirrors agent.SurfaceInputs.MCPCommandOverride: when
 	// non-empty, replaces agent.CtxloomCommand() as the ctxloom-managed
@@ -209,15 +216,25 @@ type configSurface struct {
 // reviewed divergence from their shape, not a missed update.
 // reprise:accept-drift
 func (s *configSurface) Deliver(dir string) (agent.Delivered, error) {
-	target := dir
-	if s.homeOverride != "" {
-		target = s.homeOverride
-	}
+	target := codexHomeUnder(s.fs, dir, s.homeOverride)
 	w := &CodexHookWriter{FS: s.fs, MCPCommandOverride: s.mcpCommandOverride}
-	if err := w.WriteSettingsWithTrust(s.hooks, s.mcp, s.bundleMCP, target, s.trustAbsPath); err != nil {
+	if err := w.writeSettingsIn(s.hooks, s.mcp, s.bundleMCP, target, s.trustAbsPath); err != nil {
 		return nil, err
 	}
-	return agent.DeliveredFunc(func() error { return w.RemoveSettings(target) }), nil
+	return agent.DeliveredFunc(func() error { return w.removeSettingsIn(target) }), nil
+}
+
+// codexHomeUnder resolves the codex home parent one surface delivery writes
+// into: the run path's already-resolved homeOverride when set, otherwise the
+// project-scoped state home derived from the delivery dir (which, on the static
+// materialize/apply path, IS the project root). Both arms land on the same root
+// as CodexHookWriter.SettingsPath for the same project — the agreement
+// TestCodexHome_RunPathAndStaticWritersAgree exists to keep true.
+func codexHomeUnder(fsys afero.Fs, dir, homeOverride string) string {
+	if homeOverride != "" {
+		return homeOverride
+	}
+	return resolveInTreeHome(fsys, dir)
 }
 
 // UnsafeInfo returns codex's config identity for the DeliverShared fallback's
@@ -282,31 +299,23 @@ type Surfaces struct {
 // commands/skills surfaces' homeOverride: when non-empty (the live
 // run/launch path, wired from Codex.buildSurfaces — see backend.go's
 // resolveCodexProjectDir), they write under it INSTEAD of whatever dir a
-// later Deliver call receives, making the isolation-provided CODEX_HOME the
+// later Deliver call receives, making the run path's resolved CODEX_HOME the
 // single owner (white-dawn §2.2A). Empty (the static materialize/apply path,
-// via registry.go's backends.BuildSurfaces) keeps every surface deriving
-// from Deliver's dir, unchanged from before homeOverride existed.
+// via registry.go's backends.BuildSurfaces) resolves the project-scoped state
+// home from Deliver's dir via codexHomeUnder — the SAME root, so the static
+// writers and the run path cannot target different trees.
 // trustAbsPath, when non-empty, pre-seeds config.toml's project trust (see
-// WriteSettingsWithTrust) — passed through to the config surface only; it is
-// meaningless without homeOverride (the in-tree path never sets it).
+// WriteSettingsWithTrust) — passed through to the config surface only.
 func NewSurfaces(in agent.SurfaceInputs, homeOverride, trustAbsPath string, fs afero.Fs) Surfaces {
 	fs = agent.GetFS(fs)
 	ctxSurf := &contextSurface{fragments: in.Fragments, fs: fs}
 	mdSurf := &agentsMDSurface{context: in.Context, fs: fs}
 	config := &configSurface{hooks: in.Hooks, mcp: in.MCP, bundleMCP: in.BundleMCP, fs: fs, homeOverride: homeOverride, trustAbsPath: trustAbsPath, mcpCommandOverride: in.MCPCommandOverride}
 	commands := agent.NewManagedCommandsDelivery("codex/commands (global $CODEX_HOME)", in.Commands, func(dir string, commands []agent.CommandExport) error {
-		target := dir
-		if homeOverride != "" {
-			target = homeOverride
-		}
-		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(target), commands, codexPromptFile)
+		return agent.WriteManagedCommandFiles(fs, cellScopedPromptsDir(codexHomeUnder(fs, dir, homeOverride)), commands, codexPromptFile)
 	})
 	skills := agent.NewManagedSkillPackagesDelivery("codex/skills (global $CODEX_HOME)", in.Skills, func(dir string, skills []agent.SkillExport) error {
-		target := dir
-		if homeOverride != "" {
-			target = homeOverride
-		}
-		return writeCodexSkillPackages(fs, cellScopedSkillsDir(target), skills)
+		return writeCodexSkillPackages(fs, cellScopedSkillsDir(codexHomeUnder(fs, dir, homeOverride)), skills)
 	})
 	routes := agent.ComposedDelivery{
 		Parts:       []agent.Delivery{ctxSurf, mdSurf},

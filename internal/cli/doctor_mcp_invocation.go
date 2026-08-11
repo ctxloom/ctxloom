@@ -11,6 +11,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -20,11 +21,19 @@ import (
 //
 //	claude       ClaudeCodeHookWriter.MCPConfigPath  (.mcp.json)
 //	kiro         KiroWriter.mcpPath                  (.kiro/settings/mcp.json)
-//	codex        CodexHookWriter.SettingsPath        (.codex/config.toml, which
-//	             folds [mcp_servers] in beside [hooks] — codex has no separate
-//	             MCP file, which is why this list is paths and not writers)
+//	codex        CodexHookWriter.SettingsPath        (config.toml under the
+//	             project-scoped CODEX_HOME, which folds [mcp_servers] in beside
+//	             [hooks] — codex has no separate MCP file, which is why this
+//	             list is paths and not writers)
 //	opencode     OpencodeWriter.SettingsPath         (opencode.json, likewise
 //	             folded, under its own "mcp" key)
+//
+// codex's entry is COMPUTED from its own writer rather than spelled out, and
+// that is the point: codex is the one engine whose home ctxloom relocates
+// (internal/codex.StateHome), so a literal here would be a second opinion about
+// where the file is — exactly the run-path/static-path split the shared helper
+// exists to close. Passing an empty project root yields the project-relative
+// path this list wants.
 //
 // A user-global surface (~/.claude.json) is deliberately absent: this check
 // reports what THIS project materialized, and a fix it names ('ctxloom init'
@@ -32,7 +41,7 @@ import (
 var doctorMCPInvocationSurfaces = []string{
 	claude.MCPFileName,
 	filepath.Join(".kiro", "settings", "mcp.json"),
-	filepath.Join(".codex", "config.toml"),
+	(&codex.CodexHookWriter{}).SettingsPath(""),
 	"opencode.json",
 }
 

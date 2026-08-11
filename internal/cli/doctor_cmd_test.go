@@ -536,14 +536,15 @@ func TestDoctorCheckLocalTierState_WrongState_NoMarkerDir(t *testing.T) {
 // EXCEPT one must name exactly that one, and no other.
 func TestDoctorCheckLocalTierState_PartialState_NamesOnlyWhatsMissing(t *testing.T) {
 	root, cfg := setupProject(t, "claude-code")
-	skipRel := filepath.Join(paths.AppDirName, paths.StateDir)
+	// The skipped entry must be a LEAF of the layout: skipping a path other
+	// entries nest inside would make them absent too, and the report would name
+	// more than one.
+	skipRel := filepath.Join(paths.AppDirName, paths.ProjectIDFileName)
 	for _, entry := range paths.Layout() {
 		if entry.Tier != paths.TierLocal || entry.Rel == skipRel {
 			continue
 		}
-		full := filepath.Join(root, entry.Rel)
-		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-		require.NoError(t, os.WriteFile(full, []byte("x"), 0o644))
+		materializeLayoutEntry(t, root, entry.Rel)
 	}
 
 	check := doctorCheckLocalTierState(cfg)
@@ -740,11 +741,29 @@ func scaffoldLocalTierState(t *testing.T, root string) {
 		if entry.Tier != paths.TierLocal {
 			continue
 		}
-		// entry.Rel already carries the ".ctxloom/" prefix, relative to root.
-		full := filepath.Join(root, entry.Rel)
-		require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
-		require.NoError(t, os.WriteFile(full, []byte("test-fixture placeholder\n"), 0o644))
+		materializeLayoutEntry(t, root, entry.Rel)
 	}
+}
+
+// materializeLayoutEntry creates one Layout path under root as the KIND it
+// really is. Every TierLocal path is a DIRECTORY except the project-id marker,
+// which is a single file — so that is the one this names, and everything else
+// is a directory.
+//
+// Writing a file for all of them used to work and stopped the moment the layout
+// grew a nested entry (.ctxloom/state now holds state/engines): the fixture
+// turned real directories into files, and the damage surfaced two checks later
+// as an ENOTDIR from doctor's MCP reader rather than as "this fixture is
+// wrong".
+func materializeLayoutEntry(t *testing.T, root, rel string) {
+	t.Helper()
+	full := filepath.Join(root, rel)
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o755))
+	if rel == filepath.Join(paths.AppDirName, paths.ProjectIDFileName) {
+		require.NoError(t, os.WriteFile(full, []byte("test-fixture placeholder\n"), 0o644))
+		return
+	}
+	require.NoError(t, os.MkdirAll(full, 0o755))
 }
 
 // TestDoctorCmd_DepsFlag_ScopesToDepsAlone proves `ctxloom doctor --deps`

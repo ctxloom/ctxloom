@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/testsupport"
 )
 
@@ -110,7 +111,13 @@ func TestManageInstall_EngineScopesWrites(t *testing.T) {
 	_, err := runCLIErr(t, "manage", "install", "--print=false", "--engine", "codex")
 	require.NoError(t, err)
 
-	assert.DirExists(t, filepath.Join(dir, ".codex"), "the named engine's surface must be written")
+	// codex's surface is the project-scoped config home ctxloom relocates
+	// (internal/codex.ProjectHome), NOT a bare <project>/.codex — asked of the
+	// engine's own resolver so this assertion cannot drift from where the write
+	// lands.
+	assert.DirExists(t, codex.ProjectHome(dir), "the named engine's surface must be written")
+	assert.NoDirExists(t, filepath.Join(dir, ".codex"),
+		"and never at the pre-relocation location, which the engine-home policy retired")
 	for _, other := range []string{".claude", ".kiro", ".opencode", ".agents"} {
 		_, statErr := os.Stat(filepath.Join(dir, other))
 		assert.True(t, os.IsNotExist(statErr), "%s must NOT be written when --engine codex was asked for", other)
@@ -135,9 +142,12 @@ func TestManageInstall_NoEngineFlagAppliesAllBackends(t *testing.T) {
 	_, err := runCLIErr(t, "manage", "install", "--print=false")
 	require.NoError(t, err)
 
-	for _, backend := range []string{".claude", ".codex", ".kiro", ".opencode"} {
+	for _, backend := range []string{".claude", ".kiro", ".opencode"} {
 		assert.DirExists(t, filepath.Join(dir, backend), "omitting --engine must still wire %s", backend)
 	}
+	// codex's home is relocated out of the project root, so it is named through
+	// its own resolver rather than as a sibling dot-dir.
+	assert.DirExists(t, codex.ProjectHome(dir), "omitting --engine must still wire codex")
 }
 
 // TestCheckInstallEngineApplies covers the decision itself, free of the cobra

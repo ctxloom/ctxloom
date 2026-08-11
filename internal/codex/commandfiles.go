@@ -31,10 +31,19 @@ func codexHome() (string, error) {
 // analog of prim-guy's claude $HOME-collision guard).
 func GlobalHome() (string, error) { return codexHome() }
 
-// ProjectHome returns the cell-scoped $CODEX_HOME the static apply/materialize
-// path targets for workDir (cellScopedCodexHome), exported for the same
-// external collision check as GlobalHome.
-func ProjectHome(workDir string) string { return cellScopedCodexHome(workDir) }
+// ProjectHome returns the project-scoped $CODEX_HOME both the static
+// apply/materialize path and the run path's in-tree arm target for workDir —
+// cellScopedCodexHome under StateHome — exported for the same external
+// collision check as GlobalHome.
+//
+// Since the home moved into the state tier that collision (workDir == $HOME,
+// making the project home resolve onto codex's global one) is no longer
+// REACHABLE: $HOME/.ctxloom/state/engines/codex/.codex is never $HOME/.codex.
+// The guard stays wired anyway — it is a check on what these two functions
+// return, not an assumption about what they cannot return, and the day a
+// future engine's home resolves differently is not the day to discover the
+// check was deleted.
+func ProjectHome(workDir string) string { return cellScopedCodexHome(StateHome(workDir)) }
 
 // codexPromptFile maps one command export to its Codex prompt file: a flat
 // `<name>.md` (slashes flattened to dashes, since Codex scans only top-level

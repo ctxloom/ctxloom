@@ -65,13 +65,13 @@ type Codex struct {
 	// where CODEX_HOME points. See resolveCodexProjectDir.
 	resolvedProjectDir string
 	// resolvedTrustAbsPath is the absolute WorkDir to pre-seed
-	// `[projects."<path>"] trust_level = "trusted"` for, set for BOTH
-	// EPHEMERAL axes resolveCodexProjectDir can land on — an isolation-provided
-	// CODEX_HOME and a container cell's own fresh $HOME (codexHomeSource's
-	// non-in-tree members). Each is a per-run home that is never committed, so
-	// a machine-specific absolute path baked into it is harmless. "" for the
-	// in-tree/None path, whose config.toml lives in the user's own tree and so
-	// never pre-seeds trust.
+	// `[projects."<path>"] trust_level = "trusted"` for. Set on ALL THREE axes
+	// resolveCodexProjectDir can land on, because each of them points codex at
+	// a home CTXLOOM provisioned rather than one codex built up itself: the
+	// isolation-provided CODEX_HOME, a container cell's fresh $HOME, and — since
+	// the engine-home policy moved it out of the project root — the in-tree
+	// state home. None is committed, so a machine-specific absolute path baked
+	// into one is harmless. See docs/trust-model.md.
 	resolvedTrustAbsPath string
 	// credentialErr is set by Setup (ensureCodexCredentials) when this run's
 	// CODEX_HOME has no usable codex credentials AND Setup could not seed/
@@ -161,9 +161,12 @@ func NewCodex() *Codex {
 //     (this used to fall through to the WorkDir case
 //     below, landing on the bind-mounted PROJECT dir instead — empty, no
 //     auth.json, hence the 401 mismatch).
-//   - anything else (None/shared-cwd, or no backend context) falls back to
-//     today's default: WorkDir itself, in-tree — a relocation codex has
-//     always silently performed but never seeded.
+//   - anything else (None/shared-cwd, or no backend context) resolves to the
+//     project-scoped state home, StateHome(WorkDir) — the uniform engine-home
+//     policy's one location for a home ctxloom relocates (it used to be a bare
+//     <WorkDir>/.codex, which every static writer had to re-derive by hand and
+//     which sat in the project root as if it were one of codex's cwd-keyed
+//     surfaces). Nothing upstream prepares it, so Setup seeds it.
 func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agent.CellKind) (dir string, source codexHomeSource) {
 	if home := env[CodexHomeEnv]; home != "" {
 		if stripped := strings.TrimSuffix(home, string(filepath.Separator)+ConfigDirName); stripped != home {
@@ -192,9 +195,9 @@ func resolveCodexProjectDir(env map[string]string, workDir string, cellKind agen
 		// unverified home.
 	}
 	if workDir == "" {
-		return ".", codexHomeInTree
+		return StateHome("."), codexHomeInTree
 	}
-	return workDir, codexHomeInTree
+	return StateHome(workDir), codexHomeInTree
 }
 
 // codexHomeSource classifies WHY resolveCodexProjectDir landed on the
@@ -205,9 +208,10 @@ type codexHomeSource int
 
 const (
 	// codexHomeInTree: plain host run, no isolation-provided CODEX_HOME, not
-	// a container cell — <WorkDir>/.codex. NOTHING upstream ever prepared
-	// this directory, so Setup must ACTIVELY COPY host credentials into it
-	// Never trust-pre-seeded (today's behavior, unchanged).
+	// a container cell — the project-scoped state home, StateHome(WorkDir).
+	// NOTHING upstream ever prepared this directory, so Setup must ACTIVELY
+	// COPY host credentials into it, and (since it is a home codex has never
+	// seen) pre-seed workspace trust for the WorkDir as well.
 	codexHomeInTree codexHomeSource = iota
 	// codexHomeIsolationProvided: env["CODEX_HOME"] came from the isolation
 	// package (worktree.go's Env(), gated through credentialSeedSpecs
@@ -244,14 +248,31 @@ func (b *Codex) buildSurfaces(in agent.SurfaceInputs, _ string) agent.SurfaceSet
 // Setup's delivery and Execute's env agree by construction, not convention.
 func (b *Codex) Setup(ctx context.Context, req *agent.SetupRequest) error {
 	dir, source := resolveCodexProjectDir(req.Env, req.WorkDir, req.CellKind)
+	if source == codexHomeInTree {
+		// The in-tree home moved out of the project root into the state tier,
+		// so a checkout that ran an older ctxloom still has its config.toml,
+		// prompts, skills and auth.json at <WorkDir>/.codex. Bring them along
+		// before anything reads or seeds the new home (one-way, one-time).
+		resolveInTreeHome(nil, req.WorkDir)
+	}
 	b.resolvedProjectDir = dir
-	b.resolvedTrustAbsPath = ""
-	if source != codexHomeInTree {
-		if abs, err := filepath.Abs(req.WorkDir); err == nil {
-			b.resolvedTrustAbsPath = abs
-		} else {
-			b.resolvedTrustAbsPath = req.WorkDir
-		}
+	// EVERY axis pre-seeds trust for the WORKING DIRECTORY, because every axis
+	// now points codex at a home ctxloom itself provisioned and codex has
+	// therefore never seen. The in-tree arm used to be excluded on the reasoning
+	// that its config.toml was the user's own file, carrying codex's own
+	// accumulated `[projects."<abs WorkDir>"]` entry from a real prior run —
+	// true of <WorkDir>/.codex, false of the relocated state home, which starts
+	// empty. Without the pre-seed codex re-prompts for workspace trust, or (under
+	// `codex exec`, which has nobody to ask) runs silently untrusted. See
+	// WriteSettingsWithTrust and docs/trust-model.md.
+	//
+	// The path is abs(WorkDir), NEVER the home directory: codex keys trust by
+	// the cwd it runs in, so an entry naming the state home would answer a
+	// question codex never asks.
+	if abs, err := filepath.Abs(req.WorkDir); err == nil {
+		b.resolvedTrustAbsPath = abs
+	} else {
+		b.resolvedTrustAbsPath = req.WorkDir
 	}
 	// FAIL-LOUD credential check: resolved and
 	// stashed here (Setup errors are fault-tolerantly warned-and-ignored by

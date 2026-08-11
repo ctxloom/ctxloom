@@ -23,7 +23,8 @@ func TestMCPRegistrar_ConfigPath(t *testing.T) {
 	t.Setenv("CODEX_HOME", "")
 	p, err := (MCPRegistrar{}).ConfigPath("/proj", false)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/proj", ".codex", "config.toml"), p)
+	assert.Equal(t, filepath.Join(ProjectHome("/proj"), "config.toml"), p,
+		"project scope resolves through the engine-home policy's single owner (StateHome), not a bare <workDir>/.codex")
 
 	g, err := (MCPRegistrar{}).ConfigPath("/proj", true)
 	require.NoError(t, err)
@@ -45,7 +46,7 @@ func TestMCPRegistrar_ConfigPath_CodexHome(t *testing.T) {
 
 	p, err := (MCPRegistrar{}).ConfigPath("/proj", false)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/proj", ".codex", "config.toml"), p,
+	assert.Equal(t, filepath.Join(ProjectHome("/proj"), "config.toml"), p,
 		"project scope ignores CODEX_HOME")
 }
 
@@ -121,15 +122,21 @@ func TestCodexPathVocabularyIsSingleSourced(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, filepath.Join(envHome, ConfigFileName), global, "MCPRegistrar.ConfigPath (global)")
 
+	// The project-scoped consumers all hang off StateHome (the engine-home
+	// policy's one location) with the SAME vocabulary constants layered on top
+	// — the relocation moved the root, it did not give codex a second set of
+	// names.
+	stateHome := StateHome("/proj")
 	project, err := (MCPRegistrar{}).ConfigPath("/proj", false)
 	require.NoError(t, err)
-	assert.Equal(t, filepath.Join("/proj", ConfigDirName, ConfigFileName), project, "MCPRegistrar.ConfigPath (project)")
+	assert.Equal(t, filepath.Join(stateHome, ConfigDirName, ConfigFileName), project, "MCPRegistrar.ConfigPath (project)")
 
-	assert.Equal(t, filepath.Join("/proj", ConfigDirName, ConfigFileName),
+	assert.Equal(t, filepath.Join(stateHome, ConfigDirName, ConfigFileName),
 		(&CodexHookWriter{}).SettingsPath("/proj"), "CodexHookWriter.SettingsPath")
-	assert.Equal(t, filepath.Join("/proj", ConfigDirName), cellScopedCodexHome("/proj"))
-	assert.Equal(t, filepath.Join("/proj", ConfigDirName, PromptsDirName), cellScopedPromptsDir("/proj"))
-	assert.Equal(t, filepath.Join("/proj", ConfigDirName, SkillsDirName), cellScopedSkillsDir("/proj"))
+	assert.Equal(t, filepath.Join(stateHome, ConfigDirName), ProjectHome("/proj"), "codex.ProjectHome")
+	assert.Equal(t, filepath.Join(stateHome, ConfigDirName), cellScopedCodexHome(stateHome))
+	assert.Equal(t, filepath.Join(stateHome, ConfigDirName, PromptsDirName), cellScopedPromptsDir(stateHome))
+	assert.Equal(t, filepath.Join(stateHome, ConfigDirName, SkillsDirName), cellScopedSkillsDir(stateHome))
 }
 
 func TestMCPRegistrar_InstallPreservesForeignTables(t *testing.T) {

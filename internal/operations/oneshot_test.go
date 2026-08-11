@@ -62,8 +62,13 @@ func oneshotTestConfig() *config.Config {
 		AppPaths: []string{testBaseDir},
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
-				"claude-fast": {Type: "claude-code"},
-				"agy-code":    {Type: "antigravity"},
+				// bypass: these are the generic profile/context/output-flow
+				// tests, not permission-resolution tests — headless-safe so
+				// effectiveMemberPermission's refusal doesn't collide with
+				// unrelated coverage (see TestRunOneshot_ResolvesHeadlessPosture
+				// for the dedicated permission-resolution cases).
+				"claude-fast": {Type: "claude-code", Permissions: "bypass"},
+				"agy-code":    {Type: "antigravity", Permissions: "bypass"},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
 		},
@@ -120,9 +125,14 @@ func TestRunOneshot_ProfileLLMAndContextFlow(t *testing.T) {
 		"a none-isolation member's RunStart must be SkipSetup — this is the exact request shape dire-petal's fragments-under-SkipSetup fix targets")
 }
 
-// TestRunOneshot_ResolvesHeadlessPosture pins fix C: a headless oneshot/fan member
-// honors a declared read-only plan on a backend that enforces it, but floors a
-// would-block or unenforceable posture up to bypass so the member can't hang.
+// TestRunOneshot_ResolvesHeadlessPosture pins fix C as it now reads: a
+// headless oneshot/fan member honors a declared read-only plan on a backend
+// that enforces it, but REFUSES a would-block or unenforceable posture
+// instead of floor it up to bypass — a member cannot hang (there is no human
+// to answer the engine's prompt), and silently elevating to bypass is worse
+// than refusing. Floor-to-bypass was the ORIGINAL fix C; unroasted-spinning
+// replaced the floor with an error once it was recognised as the same
+// silent-elevation shape as the ACP one-shot arm bug.
 func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 	_, loader := setupContextTestFS(t)
 	cfg := config.NewFixture(config.Fixture{
@@ -141,14 +151,23 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 			"collapse-agy":  {LLM: "agy-plan"},
 		}},
 	})
+	t.Run("enforcing backend keeps declared plan", func(t *testing.T) {
+		stub := &stubClient{out: "ok"}
+		factory := func(string, string, int) (pb.Client, error) { return stub, nil }
+		_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
+			Profile: "keep-plan", Task: "t", Pipeline: opPipe(cfg, loader), Factory: factory,
+		})
+		require.NoError(t, err)
+		require.NotNil(t, stub.gotReq.Options)
+		assert.Equal(t, agent.PermissionPlan.String(), stub.gotReq.Options.PermissionMode)
+	})
+
 	cases := []struct {
 		name    string
 		profile string
-		want    string
 	}{
-		{"enforcing backend keeps declared plan", "keep-plan", agent.PermissionPlan.String()},
-		{"no posture floors to bypass", "floor-default", agent.PermissionBypass.String()},
-		{"unenforceable plan collapses then floors to bypass", "collapse-agy", agent.PermissionBypass.String()},
+		{"no posture is refused, not floored to bypass", "floor-default"},
+		{"unenforceable plan collapses then is refused, not floored to bypass", "collapse-agy"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -157,9 +176,9 @@ func TestRunOneshot_ResolvesHeadlessPosture(t *testing.T) {
 			_, err := RunOneshot(context.Background(), cfg, RunOneshotRequest{
 				Profile: tc.profile, Task: "t", Pipeline: opPipe(cfg, loader), Factory: factory,
 			})
-			require.NoError(t, err)
-			require.NotNil(t, stub.gotReq.Options)
-			assert.Equal(t, tc.want, stub.gotReq.Options.PermissionMode)
+			require.Error(t, err, "a would-block/unenforceable posture must refuse, not silently run at bypass")
+			assert.Contains(t, err.Error(), `"default"`, "the error names the resolved (collapsed) posture")
+			assert.Nil(t, stub.gotReq, "the engine must never have run")
 		})
 	}
 }

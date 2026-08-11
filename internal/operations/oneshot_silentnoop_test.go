@@ -71,10 +71,11 @@ func TestRunResolvedAgent_NoProfilesRunsContextFree(t *testing.T) {
 	factory := func(string, string, int) (pb.Client, error) { return stub, nil }
 
 	res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-		Task:    "just answer",
-		Label:   "claude-fast",
-		Backend: "claude-code",
-		Factory: factory,
+		Task:        "just answer",
+		Label:       "claude-fast",
+		Backend:     "claude-code",
+		Permissions: "bypass", // headless-safe: this test is about the context-free path, not permission resolution
+		Factory:     factory,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "fine", res.Output)

@@ -81,13 +81,14 @@ func TestRunResolvedAgent_ContainerDegradeFailsMemberInStrict(t *testing.T) {
 		stubPrepareIsolation(t, map[string]bool{"m1": true}, func() pb.Client { return stub })
 
 		res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-			Task:    "t",
-			WorkDir: t.TempDir(),
-			Label:   "claude-fast",
-			Backend: "claude-code",
-			Axes:    isolation.Axes{Runtime: isolation.RuntimeContainer},
-			AgentID: "m1",
-			Factory: nil, // the isolation path — the seam under test
+			Task:        "t",
+			WorkDir:     t.TempDir(),
+			Label:       "claude-fast",
+			Backend:     "claude-code",
+			Permissions: "bypass", // headless-safe: this test is about the isolation gate, not permission resolution
+			Axes:        isolation.Axes{Runtime: isolation.RuntimeContainer},
+			AgentID:     "m1",
+			Factory:     nil, // the isolation path — the seam under test
 		})
 		require.Error(t, err, "a member whose requested container degraded must FAIL in strict mode")
 		assert.Nil(t, res)
@@ -103,13 +104,14 @@ func TestRunResolvedAgent_ContainerDegradeFailsMemberInStrict(t *testing.T) {
 		stubPrepareIsolation(t, map[string]bool{"m1": true}, func() pb.Client { return stub })
 
 		res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-			Task:    "t",
-			WorkDir: t.TempDir(),
-			Label:   "claude-fast",
-			Backend: "claude-code",
-			Axes:    isolation.Axes{Runtime: isolation.RuntimeContainer},
-			AgentID: "m1",
-			Factory: nil,
+			Task:        "t",
+			WorkDir:     t.TempDir(),
+			Label:       "claude-fast",
+			Backend:     "claude-code",
+			Permissions: "bypass", // headless-safe: this test is about the isolation gate, not permission resolution
+			Axes:        isolation.Axes{Runtime: isolation.RuntimeContainer},
+			AgentID:     "m1",
+			Factory:     nil,
 		})
 		require.NoError(t, err, "--degraded keeps the old warn-and-continue host fallback")
 		assert.Equal(t, "ran on host", res.Output)

@@ -33,11 +33,12 @@ func TestRunResolvedAgent_OneshotCapture_WritesTwoEntryTranscript(t *testing.T) 
 	factory := func(string, string, int) (pb.Client, error) { return stub, nil }
 
 	res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-		Task:     "the user's request prompt",
-		Label:    "codex-fast",
-		Backend:  "codex",
-		ExtraEnv: map[string]string{agent.SessionHarpEnv: harp},
-		Factory:  factory,
+		Task:        "the user's request prompt",
+		Label:       "codex-fast",
+		Backend:     "codex",
+		Permissions: "bypass", // headless-safe: this test is about transcript capture, not permission resolution
+		ExtraEnv:    map[string]string{agent.SessionHarpEnv: harp},
+		Factory:     factory,
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "the assistant's captured stdout", res.Output)
@@ -68,10 +69,11 @@ func TestRunResolvedAgent_OneshotCapture_NoHarpWritesNothing(t *testing.T) {
 	factory := func(string, string, int) (pb.Client, error) { return stub, nil }
 
 	res, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-		Task:    "a prompt",
-		Label:   "codex-fast",
-		Backend: "codex",
-		Factory: factory,
+		Task:        "a prompt",
+		Label:       "codex-fast",
+		Backend:     "codex",
+		Permissions: "bypass", // headless-safe: this test is about transcript capture, not permission resolution
+		Factory:     factory,
 		// ExtraEnv deliberately unset — no harp.
 	})
 	require.NoError(t, err)

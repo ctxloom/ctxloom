@@ -205,6 +205,63 @@ func TestLoadOrDistillSession_LiveRefreshesWhenAddressedByHarp(t *testing.T) {
 		"the turns added since the first recovery must reach the transcript the second one reads")
 }
 
+// TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache closes the
+// silent-staleness hole the refresh left open.
+//
+// A live recovery re-reads the engine's store before loading. When that
+// re-read FAILS, the canonical transcript on disk is whatever the last
+// successful refresh left behind — so its byte size still matches the size
+// stamped into the cached essence, the staleness check reports "hasn't moved",
+// and recovery hands back that essence with was_cached=true. Every part of
+// that is a true statement about a file this call could not bring up to date,
+// and none of it is a true statement about the session.
+//
+// The assertion is that a SECOND distillation actually ran (the swapped-in
+// compactor's text comes back), not that was_cached went false: the bug is a
+// tool misreporting its own freshness, so its self-report cannot be the proof.
+func TestLoadOrDistillSession_FailedLiveRefreshDoesNotServeTheCache(t *testing.T) {
+	testsupport.Isolate(t)
+
+	mgr, err := sessions.Open("")
+	require.NoError(t, err)
+	projectDir := t.TempDir()
+	entry, err := mgr.AssignHarp(projectDir, "claude-code")
+	require.NoError(t, err)
+	harp := entry.HarpName
+
+	const vendorSessionID = "5d0e8b31-7c94-4a12-b8e5-6f1a2c9d3e70"
+	require.NoError(t, mgr.BindSession(harp, vendorSessionID, claudeVendorFixture()))
+	require.NoError(t, mgr.RecordEngineVersion(harp, "2.1.225"))
+
+	s := &ctxServer{
+		cfg:              config.NewFixture(config.Fixture{AppDir: filepath.Join(projectDir, ".ctxloom")}),
+		compactorFactory: fixedCompactor(vendorSessionID, "Distilled: first look."),
+	}
+
+	_, first, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
+	require.NoError(t, err)
+	require.True(t, first.Loaded)
+	require.Contains(t, first.Content, "first look")
+
+	// Break the refresh, and ONLY the refresh: the conversion writes through a
+	// temp sibling inside the harp's persist dir, so a read-only dir fails the
+	// re-read while leaving the already-captured canonical transcript perfectly
+	// readable — exactly the state that makes the stale cache look current.
+	canonPath, err := paths.HarpCanonicalTranscriptPath(harp)
+	require.NoError(t, err)
+	persistDir := filepath.Dir(canonPath)
+	require.NoError(t, os.Chmod(persistDir, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(persistDir, 0o700) })
+
+	s.compactorFactory = fixedCompactor(vendorSessionID, "Distilled: second look.")
+
+	_, second, err := s.loadOrDistillSession(context.Background(), vendorSessionID, "claude-code", "", policyLive)
+	require.NoError(t, err)
+	require.True(t, second.Loaded)
+	assert.Contains(t, second.Content, "second look",
+		"a recovery whose live re-read failed must re-distill, not serve an essence it cannot vouch for")
+}
+
 // TestSessionHarpForID pins the resolver both live recovery and the staleness
 // fingerprint depend on: it must answer for a harp AND for the backend-native
 // session id bound to it, because grpc.CanonicalFallbackSource.GetSession

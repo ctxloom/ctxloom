@@ -1114,6 +1114,7 @@ func (st *runState) buildRunRequest() {
 	st.requestedPerm, st.hasRequestedPerm = requestedPermission(runPermissions, st.agentPermissions, st.labelPerm)
 	st.warnPermissionCollapse()
 	st.warnHostBypassStopgap()
+	st.warnPlanOneshotCancels()
 
 	st.managed = backends.AssembleManagedConfig(st.backendName, st.workDir, execGate.Authorizer(), st.ctxResult.Profiles)
 	// The binding's delivery preference rides the managed payload to the
@@ -1159,9 +1160,19 @@ func (st *runState) warnPermissionCollapse() {
 	}
 }
 
-// warnPlanOneshotCancels is a placeholder pending the real condition (task
-// shifty-scroll, red-first checkpoint).
+// warnPlanOneshotCancels surfaces that a --one-shot run has no human to answer
+// a gated call. After resolvePermissionMode's ONESHOT floor, plan is the ONLY
+// posture that can still reach here without having been widened to bypass
+// (SafeHeadless: bypass never asks; default/acceptEdits already floored up to
+// bypass) — so plan surviving into a ONESHOT run means read-only intent is
+// real, but so is the empty chair: any gated (mutating) call has nobody to ask.
+// The engine-side answer to an unanswerable gate is to CANCEL it outright, not
+// deny it (wiry-judge, merge 6a8eb2d5), so mutating steps silently do not run
+// unless this is called out loudly up front.
 func (st *runState) warnPlanOneshotCancels() {
+	if st.mode == pb.ExecutionMode_ONESHOT && st.permMode == agent.PermissionPlan {
+		clidiag.Warn("ctxloom", "--one-shot with plan permissions has no human to approve a gated call; the engine cancels every gated call, so mutating steps will not run")
+	}
 }
 
 // warnHostBypassStopgap surfaces the claude-code host-bypass stopgap: blanket

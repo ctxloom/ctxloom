@@ -63,6 +63,31 @@ const (
 	AgentsDirName = "agents"
 )
 
+// The claude ISOLATION vocabulary. Unlike the block above (facts the writers
+// and probe declarations both build paths from), these three describe how
+// claude relocates its home and where its OWN credential/transcript state
+// lives — facts internal/lm/isolation's credentialSeedSpecs/containerProfile
+// tables duplicate as literals today (isolation cannot import this package in
+// production: claude -> internal/acp -> internal/lm/isolation is a real
+// cycle), so tests/arch's engine-layout gate cross-checks those literals
+// against these instead.
+const (
+	// ConfigDirEnv is the environment variable claude honors to relocate its
+	// config home away from the default ~/.claude — CLAUDE_CONFIG_DIR.
+	// ctxloom's per-agent isolation points this at a private home per run so
+	// settings/commands/skills and credentials resolve from an isolated
+	// location instead of the shared one.
+	ConfigDirEnv = "CLAUDE_CONFIG_DIR"
+	// CredentialsFileName is the OAuth/API credential file claude reads and
+	// refreshes inside its config home (ConfigDirName, or a
+	// CLAUDE_CONFIG_DIR-relocated equivalent) — seeded per-agent by
+	// internal/lm/isolation's credentialSeedSpecs.
+	CredentialsFileName = ".credentials.json"
+	// TranscriptsDirName is the subdirectory of ConfigDirName claude stores
+	// its native per-project session transcripts under (~/.claude/projects).
+	TranscriptsDirName = "projects"
+)
+
 // relSettings, relCommands, relSkills, relAgents are the ConfigDirName-relative
 // paths, shared by the writers and the probe declarations.
 var (

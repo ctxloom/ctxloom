@@ -9,6 +9,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/codex"
+	"github.com/ctxloom/ctxloom/internal/kiro"
+	"github.com/ctxloom/ctxloom/internal/opencode"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/containerprobe"
 )
@@ -146,8 +150,29 @@ func (b *Mock) Execute(ctx context.Context, req *agent.ExecuteRequest, stdout, s
 
 // configHomeEnvKeys are the per-agent config-home env vars isolation.EnvWorkspace
 // threads into RunOptions.Env (see internal/lm/isolation.EnvWorkspace) — each
-// engine's own global-config isolation knob.
-var configHomeEnvKeys = []string{"CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIRO_HOME"}
+// engine's own global-config isolation knob. Sourced from each engine
+// package's own exported env-var constant (this package already imports
+// claude/codex/kiro/opencode directly in registry.go, so no cycle) rather
+// than re-typed literals, so a roster gap like the one this doc used to
+// carry — opencode's XDG_CONFIG_HOME/XDG_DATA_HOME were missing despite this
+// comment claiming to mirror EnvWorkspace — cannot recur silently.
+// tests/arch's engine-layout gate (TestArch_EngineLayoutAgreement) pins this
+// roster equal to the full set of env vars internal/lm/isolation's
+// credentialSeedSpecs HomeVars name across every engine.
+var configHomeEnvKeys = []string{
+	claude.ConfigDirEnv,
+	codex.CodexHomeEnv,
+	kiro.HomeEnv,
+	kiro.XDGDataHomeEnv,
+	opencode.XDGConfigHomeEnv,
+}
+
+// ConfigHomeEnvKeys returns a copy of configHomeEnvKeys, exported read-only
+// so tests/arch's engine-layout gate can check this roster without this
+// package exporting the mutable var itself.
+func ConfigHomeEnvKeys() []string {
+	return append([]string(nil), configHomeEnvKeys...)
+}
 
 // recordMockInput writes the assembled request to recordFile when one is set
 // (via CTXLOOM_MOCK_RECORD_FILE), returning the write error (if any) so the

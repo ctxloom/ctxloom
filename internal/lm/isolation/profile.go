@@ -556,3 +556,27 @@ func containerProfileFor(backend string) containerProfile {
 		}
 	}
 }
+
+// ContainerOverlayDirsFor returns a copy of containerProfileFor(backend)'s
+// overlayDirs — the project-relative managed-config directories a
+// containerized run of backend shadows. Exported read-only so tests/arch's
+// engine-layout gate (TestArch_EngineLayoutAgreement) can check this
+// package's defaultOverlayDirs/kiroOverlayDirs/codexOverlayDirs/
+// opencodeOverlayDirs/mockOverlayDirs literals against each owning engine
+// package's own ConfigDirName constant, the same import-cycle reasoning as
+// ComposableEngines/CredentialSeedEngineNames above applies here too.
+func ContainerOverlayDirsFor(backend string) []string {
+	dirs := containerProfileFor(backend).overlayDirs
+	out := make([]string, len(dirs))
+	copy(out, dirs)
+	return out
+}
+
+// ContainerTranscriptStoreRelFor returns containerProfileFor(backend)'s
+// transcriptStoreRel — the engine's native transcript-store root, relative to
+// the container HOME (empty when the engine keeps no transcripts, e.g.
+// mock). Exported for the same engine-layout gate as
+// ContainerOverlayDirsFor.
+func ContainerTranscriptStoreRelFor(backend string) string {
+	return containerProfileFor(backend).transcriptStoreRel
+}

@@ -13,13 +13,16 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
-// codexAuthFileName is the credential file codex reads from $CODEX_HOME —
-// the SAME literal internal/lm/isolation/auth.go's credentialSeedSpecs
-// registry and codexCredentialMounts use for the host-seed and
-// container-mount destinations respectively (not imported from there to
-// avoid a reverse dependency from this package's isolation-registry callers
-// onto one specific engine package).
-const codexAuthFileName = "auth.json"
+// AuthFileName is the credential file codex reads from $CODEX_HOME — the
+// SAME literal internal/lm/isolation/auth.go's credentialSeedSpecs registry
+// and codexCredentialMounts use for the host-seed and container-mount
+// destinations respectively. Exported so tests/arch's engine-layout gate
+// (TestArch_EngineLayoutAgreement) can check those isolation-owned literals
+// against this package's own fact instead of the two staying independently
+// hand-maintained; isolation itself still cannot import this package in
+// production (codex -> internal/acp -> internal/lm/isolation is a real
+// cycle), so its copy of "auth.json" stays a literal.
+const AuthFileName = "auth.json"
 
 // backend.go wires codex onto the shared launch core and the surfaces × cells
 // delivery seam.
@@ -338,7 +341,7 @@ func ensureCodexCredentials(dir string, source codexHomeSource, apiKey string) e
 		return nil // codex's envTrigger — auth rides the env, nothing to seed/verify
 	}
 	if source == codexHomeContainerFresh {
-		authPath := filepath.Join(cellScopedCodexHome(dir), codexAuthFileName)
+		authPath := filepath.Join(cellScopedCodexHome(dir), AuthFileName)
 		if !codexFileExists(authPath) {
 			return fmt.Errorf("codex: no OPENAI_API_KEY and no credentials at %s — this container's codex auth mount did not land; authenticate with `codex login` on the host (or set OPENAI_API_KEY), or check the container runtime/image", authPath)
 		}

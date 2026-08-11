@@ -248,7 +248,7 @@ func saveOpencodeConfig(fs afero.Fs, path string, cfg map[string]json.RawMessage
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
 	out = append(out, '\n')
-	return agent.AtomicWriteFile(fs, path, out, opencodeConfigFile)
+	return agent.AtomicWriteFile(fs, path, out, ConfigFileName)
 }
 
 // writeOpencodeConfig is the ONE opencode.json read-modify-write entry point. It
@@ -257,7 +257,7 @@ func saveOpencodeConfig(fs afero.Fs, path string, cfg map[string]json.RawMessage
 // (model + mcp + read-only permission) and the settings writer / surfaces
 // (mcp + instructions) go through it.
 func writeOpencodeConfig(fs afero.Fs, workDir string, m managedConfig) error {
-	path := filepath.Join(workDir, opencodeConfigFile)
+	path := filepath.Join(workDir, ConfigFileName)
 	cfg, err := loadOpencodeConfig(fs, path)
 	if err != nil {
 		return err
@@ -274,7 +274,7 @@ func writeOpencodeConfig(fs afero.Fs, workDir string, m managedConfig) error {
 // run's read-only `permission` behind to silently lock the project. The returned
 // closure restores the original bytes, or removes the file if we created it.
 func snapshotOpencodeConfig(fs afero.Fs, workDir string) (func() error, error) {
-	path := filepath.Join(workDir, opencodeConfigFile)
+	path := filepath.Join(workDir, ConfigFileName)
 	exists, _ := afero.Exists(fs, path)
 	if !exists {
 		return func() error {
@@ -289,7 +289,7 @@ func snapshotOpencodeConfig(fs afero.Fs, workDir string) (func() error, error) {
 		return nil, fmt.Errorf("snapshot %s: %w", path, err)
 	}
 	return func() error {
-		return agent.AtomicWriteFile(fs, path, data, opencodeConfigFile)
+		return agent.AtomicWriteFile(fs, path, data, ConfigFileName)
 	}, nil
 }
 
@@ -402,7 +402,7 @@ func stripManagedSkillPath(cfg map[string]json.RawMessage, path string) bool {
 // for why this is explicitness rather than a load-bearing discovery
 // requirement.
 func registerSkillsPath(fs afero.Fs, projectDir string) error {
-	path := filepath.Join(projectDir, opencodeConfigFile)
+	path := filepath.Join(projectDir, ConfigFileName)
 	cfg, err := loadOpencodeConfig(fs, path)
 	if err != nil {
 		return err
@@ -417,7 +417,7 @@ func registerSkillsPath(fs afero.Fs, projectDir string) error {
 // opencode.json's `skills.paths`, leaving any other registered path (and any
 // absent config file) untouched.
 func unregisterSkillsPath(fs afero.Fs, projectDir string) error {
-	path := filepath.Join(projectDir, opencodeConfigFile)
+	path := filepath.Join(projectDir, ConfigFileName)
 	exists, _ := afero.Exists(fs, path)
 	if !exists {
 		return nil
@@ -488,7 +488,7 @@ func (w *OpencodeWriter) getFS() afero.Fs { return agent.GetFS(w.FS) }
 
 // SettingsPath returns the path to opencode's project-local opencode.json.
 func (w *OpencodeWriter) SettingsPath(projectDir string) string {
-	return filepath.Join(projectDir, opencodeConfigFile)
+	return filepath.Join(projectDir, ConfigFileName)
 }
 
 func (w *OpencodeWriter) contextFilePath(projectDir string) string {
@@ -553,7 +553,7 @@ func (w *OpencodeWriter) WriteContext(req agent.ContextWriteRequest) (agent.Cont
 				if err := saveOpencodeConfig(fs, cfgPath, cfg); err != nil {
 					return report, err
 				}
-				report.Removed = append(report.Removed, opencodeConfigFile)
+				report.Removed = append(report.Removed, ConfigFileName)
 			}
 		}
 		return report, nil
@@ -575,7 +575,7 @@ func (w *OpencodeWriter) WriteContext(req agent.ContextWriteRequest) (agent.Cont
 	if err := saveOpencodeConfig(fs, cfgPath, cfg); err != nil {
 		return agent.ContextReport{}, err
 	}
-	return agent.ContextReport{Wrote: []string{opencodeContextFile, opencodeConfigFile}}, nil
+	return agent.ContextReport{Wrote: []string{opencodeContextFile, ConfigFileName}}, nil
 }
 
 // removeMCP strips only the managed MCP servers (and clears the ledger), leaving

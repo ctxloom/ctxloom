@@ -133,21 +133,30 @@ func TestCLICoverage_EveryChangedFlagWasPassed(t *testing.T) {
 
 	for _, s := range sites {
 		k := s.key()
-		if prev, dup := seen[k]; dup {
-			// Two sites sharing a key would share one exemption, so exempting
-			// either would silence both.
-			t.Errorf("%s names two distinct sites (%s and %s). The exemption map is keyed by "+
-				"file and flag, so it cannot speak about one without the other.",
-				k, prev.where(), s.where())
-			continue
-		}
-		seen[k] = s
 
+		// Unmeasurable sites never consult flagCoverageExempt, so two of them
+		// (or one unmeasurable and one guarded) sharing a key is not the
+		// "one exemption speaks for two sites" hazard the dup check below
+		// exists to catch — e.g. manage.go's --engine is read once as a value
+		// (line 93, unmeasurable) and re-checked as an `if` guard later in the
+		// same function (line 153, measurable) for an unrelated, independently
+		// documented reason. Report it and move on without touching `seen`, so
+		// the guarded sibling can still claim the key for itself below.
 		if !s.Guarded {
 			unmeasurable = append(unmeasurable,
 				fmt.Sprintf("%s (%s): %s", k, s.where(), s.unmeasurable))
 			continue
 		}
+
+		if prev, dup := seen[k]; dup {
+			// Two GUARDED sites sharing a key would share one exemption, so
+			// exempting either would silence both.
+			t.Errorf("%s names two distinct guarded sites (%s and %s). The exemption map is "+
+				"keyed by file and flag, so it cannot speak about one without the other.",
+				k, prev.where(), s.where())
+			continue
+		}
+		seen[k] = s
 		measured++
 
 		exercised, found := flagSiteExercised(s, blocks)

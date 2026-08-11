@@ -415,18 +415,16 @@ func TestWarnACPSessionWorkspaceAxis_NamesTheAxisItCannotHonour(t *testing.T) {
 	}
 }
 
-// TestRunACPSessionWithConfig_SilentlyRejectingPostureProceedsUnrefused pins
-// unroasted-spinning's SESSION ARM as it behaves TODAY, before any refusal
-// guard exists: `acp run` registers no --permissions/--agent flag, so
-// posture comes solely from the llm label. An unset label posture resolves
-// (via resolvePermissionMode) to PermissionDefault, which is not
-// SafeHeadless — every gated call in the conversation that follows would get
-// reject_once with nobody asked. Yet nothing between resolvePermissionMode
-// and the plugin factory call ever consults the resolved posture, so the
-// session opens anyway. This is the pin of that silent-reject defect; it
-// flips into a refusal assertion once the guard lands (same task, red then
-// green).
-func TestRunACPSessionWithConfig_SilentlyRejectingPostureProceedsUnrefused(t *testing.T) {
+// TestRunACPSessionWithConfig_RefusesSilentlyRejectingPosture is
+// unroasted-spinning's SESSION ARM: `acp run` registers no
+// --permissions/--agent flag, so posture comes solely from the llm label. An
+// unset label posture resolves (via resolvePermissionMode) to
+// PermissionDefault, which is not SafeHeadless — every gated call in the
+// conversation that follows would get reject_once with nobody asked, since
+// this session has no channel to render or answer a permission prompt yet.
+// It must refuse loudly, up front, instead of opening a session that would
+// silently reject everything.
+func TestRunACPSessionWithConfig_RefusesSilentlyRejectingPosture(t *testing.T) {
 	resetACPRunFlags(t)
 	acpRunLLM = "acp-kiro"
 	cfg := config.NewFixture(config.Fixture{
@@ -440,23 +438,23 @@ func TestRunACPSessionWithConfig_SilentlyRejectingPostureProceedsUnrefused(t *te
 
 	cmd, _ := formatCmd(formatText)
 	err := runACPSessionInBackground(t, cmd, cfg, "hello", strings.NewReader(""))
-	require.NoError(t, err, "today: an unsafe-headless posture does not stop the session from opening")
+	require.Error(t, err, "an unsafe-headless posture must refuse to open the session")
+	assert.Contains(t, err.Error(), `"default"`, "the error names the resolved posture")
+	assert.Contains(t, err.Error(), "acp-kiro", "the error names the llm label")
 
 	_, chats := stub.doorCounts()
-	assert.Equal(t, 1, chats, "the chat door was reached despite the unsafe posture")
+	assert.Zero(t, chats, "the chat door must never be reached when the posture is refused")
 }
 
-// TestRunACPOneshotWithConfig_UnenforceablePlanSilentlyElevatesToBypass pins
-// unroasted-spinning's ONE-SHOT ARM as it behaves TODAY: a user who
-// configures the acp label with permissions: plan is asking for read-only.
-// acp cannot enforce a read-only plan (backends.EnforcesReadOnlyPlan("acp")
-// is false), so CollapsePlanIfUnenforced turns it into default, which is not
-// SafeHeadless — and operations.effectiveMemberPermission floors that
-// straight up to bypass, silently, with no warning anywhere. The user asked
-// for read-only and got full bypass. This is the pin of that silent-
-// elevation defect (the security bug); it flips into a refusal assertion
-// once effectiveMemberPermission's floor is replaced with an error.
-func TestRunACPOneshotWithConfig_UnenforceablePlanSilentlyElevatesToBypass(t *testing.T) {
+// TestRunACPOneshotWithConfig_RefusesUnenforceablePlanInsteadOfElevating is
+// unroasted-spinning's ONE-SHOT ARM: a user who configures the acp label
+// with permissions: plan is asking for read-only. acp cannot enforce a
+// read-only plan (backends.EnforcesReadOnlyPlan("acp") is false), so
+// CollapsePlanIfUnenforced turns it into default, which is not SafeHeadless.
+// A headless oneshot has no human to answer the engine's prompt, so it must
+// refuse rather than silently elevate to bypass — the user asked for
+// read-only and must never get full bypass instead with no warning.
+func TestRunACPOneshotWithConfig_RefusesUnenforceablePlanInsteadOfElevating(t *testing.T) {
 	resetACPRunFlags(t)
 	acpRunLLM = "acp-kiro"
 	cfg := config.NewFixture(config.Fixture{
@@ -469,11 +467,11 @@ func TestRunACPOneshotWithConfig_UnenforceablePlanSilentlyElevatesToBypass(t *te
 	acpRunFactory = acpRunStubFactory(stub)
 
 	cmd, _ := formatCmd(formatText)
-	require.NoError(t, runACPOneshotWithConfig(cmd, cfg, "ping"))
-
-	require.NotNil(t, stub.gotReq.Options)
-	assert.Equal(t, agent.PermissionBypass.String(), stub.gotReq.Options.PermissionMode,
-		"today: permissions: plan on an acp label silently elevates to bypass instead of refusing")
+	err := runACPOneshotWithConfig(cmd, cfg, "ping")
+	require.Error(t, err, "an unenforceable plan posture must refuse, not silently elevate to bypass")
+	assert.Contains(t, err.Error(), `"default"`, "the error names the collapsed posture")
+	assert.Contains(t, err.Error(), "acp-kiro", "the error names the member")
+	assert.Nil(t, stub.gotReq, "the engine must never have run")
 }
 
 // TestRunACPSession_AnnouncesTheOpenSessionOnlyOnATerminal drives both sides

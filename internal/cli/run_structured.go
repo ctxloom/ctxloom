@@ -18,7 +18,7 @@ import (
 )
 
 // runStructuredREPL drives a structured, multi-turn conversation over the
-// backend's StructuredChat capability (the Chat RPC → claude-code stream-json) —
+// backend's StructuredChat capability (the Chat RPC → the ACP adapter) —
 // messages in, normalized turn events out, no pty. It composes nothing else: the
 // Chat stream is self-contained (no transcript bootstrap), so there is no harp/
 // session-id wait. Stdin lines are read as messages (one line = one message);

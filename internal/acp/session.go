@@ -20,7 +20,7 @@ import (
 )
 
 // This file drives one ACP conversation and implements the StructuredChat
-// capability (see internal/shared/agent/chat.go). It is the ACP analog of the
+// capability (see internal/shared/agent/chat.go). It REPLACED the bespoke
 // claude stream-json driver: initialize → session/new → per-message
 // session/prompt, consuming the agent's session/update stream (mapped in
 // mapping.go) until each turn ends, and answering the agent→client callbacks

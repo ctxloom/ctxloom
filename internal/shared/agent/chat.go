@@ -11,8 +11,8 @@ import (
 // structured conversation over the backend's NATIVE programmatic protocol — not
 // a pty/TUI. A backend implements it only if it can speak such a protocol; the
 // host discovers support via a type assertion (backend.(StructuredChat)) and
-// reports the feature unavailable otherwise. claude-code implements it over its
-// `--input-format stream-json` mode; other backends may not yet.
+// reports the feature unavailable otherwise. claude-code implements it through
+// the claude-code-acp adapter (internal/acp); other backends may not yet.
 //
 // This is deliberately separate from the core Backend interface: adding a
 // required method would break every backend, and structured chat is a capability

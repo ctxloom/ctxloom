@@ -17,7 +17,7 @@ import (
 )
 
 // This file carries the structured-chat transport: a bidirectional stream that
-// drives a backend's StructuredChat capability (claude-code's stream-json mode)
+// drives a backend's StructuredChat capability (claude-code rides the ACP adapter)
 // — user messages in, normalized turn events out, no pty. The capability is
 // OPTIONAL: the server type-asserts it and returns UNIMPLEMENTED when absent.
 

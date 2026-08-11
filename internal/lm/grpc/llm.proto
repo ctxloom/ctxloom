@@ -34,7 +34,7 @@ service LLM {
   rpc WatchSession(WatchSessionRequest) returns (stream WatchEvent);
 
   // Chat runs a structured, multi-turn conversation over the backend's NATIVE
-  // programmatic protocol (e.g. claude-code's stream-json mode) — messages in,
+  // programmatic protocol (claude-code rides the claude-code-acp adapter) — messages in,
   // normalized turn events out, no pty/TUI. It is OPTIONAL: the server checks
   // whether the backend implements the StructuredChat capability and returns
   // UNIMPLEMENTED if not. The first ChatInput MUST carry `start`; subsequent

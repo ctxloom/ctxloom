@@ -129,7 +129,7 @@
 //   runtime (coordinator)
 //     └─ spawns RUNNERS, talks to each over one RunnerChannel
 //          └─ each runner drives agent harnesses DIRECTLY via their CLIs
-//             (Claude Code stream-json over stdio, Codex app-server
+//             (Claude Code via the claude-code-acp adapter, Codex app-server
 //             JSON-RPC, Kiro via ACP) and adapts native protocols onto
 //             this one; it opens one RunChannel per run it hosts.
 //
@@ -142,7 +142,7 @@
 //
 // Coordinator->agent requests (steer, pause, cancel...) are *executed*
 // by the runner using its direct CLI control of the harness: steering
-// becomes stream-json input injection or a turn/start, pause/cancel
+// becomes an ACP session/prompt or a turn/start, pause/cancel
 // become interrupts or turn/interrupt, resume becomes `--resume` /
 // thread-resume with the recorded harness session id.
 //

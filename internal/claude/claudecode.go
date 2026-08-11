@@ -272,8 +272,8 @@ const sessionHarpEnv = agent.SessionHarpEnv
 
 // sessionNameArgs returns the `--name <harp>` flag pair that labels the launched
 // claude session with ctxloom's harp name, or nil when no harp is set. claude's
-// /rename slash command is interactive-only and cannot be injected over
-// stream-json or as an initial prompt, so --name is the only launch-time way to
+// /rename slash command is interactive-only and cannot be injected
+// programmatically or as an initial prompt, so --name is the only launch-time way to
 // set the session's display name (prompt box, /resume picker, terminal title).
 func sessionNameArgs(env map[string]string) []string {
 	if harp := env[sessionHarpEnv]; harp != "" {

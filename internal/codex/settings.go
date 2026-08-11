@@ -126,12 +126,18 @@ func (w *CodexHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCo
 // pre-seed: when trustAbsPath is non-empty, it appends
 // `[projects."<trustAbsPath>"] trust_level = "trusted"` to the written
 // config.toml so codex does not re-prompt for trust the FIRST time it reads a
-// config.toml it has never seen before. That covers every home ctxloom itself
-// provisions — the isolation-provided per-run CODEX_HOME, a container cell's
-// fresh $HOME, and the durable project state home — none of which is ever
-// committed, so a machine-specific absolute path baked into one is harmless.
-// See docs/trust-model.md ("Engine workspace-trust prompts") for the decision
-// and its boundary; internal/codex/backend.go's Setup is what fills the value.
+// config.toml it has never seen before — and, under `codex exec`, does not
+// silently proceed untrusted because there is nobody to prompt. That covers
+// every home ctxloom itself provisions — the isolation-provided per-run
+// CODEX_HOME, a container cell's fresh $HOME, and the durable project state
+// home — none of which is ever committed, so a machine-specific absolute path
+// baked into one is harmless.
+//
+// docs/trust-model.md, "Engine workspace-trust prompts", is the NORMATIVE
+// statement of this decision and its boundary (ctxloom answers only for homes
+// it created, only for the directory the run was asked for). It used to live
+// only in this comment, which is why the boundary was easy to widen by
+// accident; internal/codex/backend.go's Setup is what fills the value.
 //
 // projectDir is a PROJECT ROOT, relocated through resolveInTreeHome (which also
 // performs the one-time legacy-home migration). The surfaces call

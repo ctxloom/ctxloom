@@ -21,6 +21,7 @@ import (
 	"github.com/cucumber/godog"
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 )
 
@@ -505,6 +506,12 @@ func j000400AssertCtxloomMCPInvocation(w *World, engine, want string) error {
 // agent.MCPFileConfig reconciler backs both); codex folds "mcp_servers"
 // into the same config.toml its hooks live in; opencode folds "mcp" into the
 // same opencode.json its `instructions` context reference lives in.
+//
+// codex's path comes from codex's own writer rather than a literal: it is the
+// one engine whose config home ctxloom RELOCATES (internal/codex.StateHome),
+// so a spelled-out path here would be a second opinion about where the file is
+// — and a journey asserting the wrong location would pass or fail for reasons
+// that have nothing to do with the journey.
 func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 	switch engine {
 	case "claude-code":
@@ -512,7 +519,7 @@ func j000400MCPRegistryFor(dir, engine string) (rel, key string, err error) {
 	case "kiro":
 		return filepath.Join(dir, ".kiro", "settings", "mcp.json"), "mcpServers", nil
 	case "codex":
-		return filepath.Join(dir, ".codex", "config.toml"), "mcp_servers", nil
+		return (&codex.CodexHookWriter{}).SettingsPath(dir), "mcp_servers", nil
 	case "opencode":
 		return filepath.Join(dir, "opencode.json"), "mcp", nil
 	default:
@@ -614,7 +621,7 @@ func j000400AssertHook(w *World, engine string) error {
 		doc, err = j000400ReadJSON(w, rel)
 		event = "agentSpawn"
 	case "codex":
-		rel = filepath.Join(dir, ".codex", "config.toml")
+		rel = (&codex.CodexHookWriter{}).SettingsPath(dir)
 		doc, err = j000400ReadTOML(w, rel)
 		event = "SessionStart"
 	default:
@@ -710,7 +717,7 @@ func j000400AssertCommand(w *World, engine string) error {
 	case "claude-code":
 		rel = filepath.Join(dir, ".claude", "commands", "team-onboarding.md")
 	case "codex":
-		rel = filepath.Join(dir, ".codex", "prompts", "team-onboarding.md")
+		rel = filepath.Join(codex.ProjectHome(dir), "prompts", "team-onboarding.md")
 	case "kiro":
 		rel = filepath.Join(dir, ".kiro", "skills", "team", "onboarding", "SKILL.md")
 	case "opencode":

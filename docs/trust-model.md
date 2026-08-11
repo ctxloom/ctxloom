@@ -601,6 +601,55 @@ item kind — that path never gates ANY item, builtin or not.
 - **Profiles** — a profile definition is orchestration, never gated; its
   constituent items still gate at their own chokes.
 
+## Engine workspace-trust prompts
+
+Everything above is about *ctxloom's* trust decision: may this content reach the
+agent. This section is about a different question that ctxloom answers on your
+behalf, and it is written down here because until now it lived only in a code
+comment: **when ctxloom provisions an engine's config home, it pre-answers that
+engine's own "do you trust this workspace?" prompt for the directory the engine
+is about to run in.**
+
+Only codex has such a prompt today. It records the answer as
+`[projects."<abs cwd>"] trust_level = "trusted"` in the `config.toml` inside
+`$CODEX_HOME`, and it keys that entry by the **working directory**, never by the
+home. So a home codex has never seen carries no answer, and an unanswered prompt
+is not harmless: `codex exec` is non-interactive and has nobody to ask, so it
+proceeds in an untrusted posture instead of stopping.
+
+ctxloom points `$CODEX_HOME` somewhere it provisioned on every axis a run can
+take:
+
+| Axis | Home | Lifetime |
+|------|------|----------|
+| plain host run | `<WorkDir>/.ctxloom/state/engines/codex/.codex` | durable, gitignored |
+| per-agent worktree | `~/.ctxloom/sessions/<harp>/ephemeral/…/.codex` | one run |
+| container cell | the container's own fresh `$HOME/.codex` | one run |
+
+All three get the pre-seed, for the working directory ctxloom is launching the
+run in. The scope is deliberate and narrow:
+
+- **ctxloom auto-answers only for homes ctxloom itself created.** It never
+  writes a trust entry into a codex home a human maintains — your real
+  `~/.codex/config.toml` is never touched.
+- **It grants trust only for the directory you asked ctxloom to run in.** You
+  already chose that project by running the command there; ctxloom is not
+  widening the answer, it is carrying an answer you would otherwise have to
+  retype into a throwaway home on every single run.
+- **The file is never committed.** Each of the three homes is gitignored or
+  ephemeral, so the machine-specific absolute path baked into the entry cannot
+  reach a teammate's checkout.
+
+This was previously true of the two ephemeral homes only. The durable
+project-scoped home joined them when the engine-home policy moved codex's
+project config out of `<WorkDir>/.codex` into the state tier
+(`internal/paths.EngineStateHome`): that relocation deliberately leaves behind
+the trust entry codex had accumulated in the old in-tree file, so without the
+pre-seed the first run after the move would re-prompt or silently downgrade.
+
+If you would rather answer for yourself, run codex directly — outside ctxloom it
+reads its own global home, which ctxloom never writes to.
+
 ## Lifecycle
 
 - **Steady-state sync** installs exactly the pinned set. It stages nothing and

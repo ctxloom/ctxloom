@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/claude"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/lm/backends"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
@@ -191,6 +192,14 @@ type deliverySpec struct {
 	disagreement string
 }
 
+// codexHomeRel is the delivery-root-relative path to codex's CODEX_HOME —
+// codex is the ONE engine whose config home ctxloom relocates out of the
+// project root (internal/codex.StateHome, the uniform engine-home policy), so
+// its home-keyed surfaces do not sit where every other engine's do. Asked of
+// codex's own resolver with an empty root, because a literal here would be this
+// file's private opinion about a location codex's writers own.
+var codexHomeRel = codex.ProjectHome("")
+
 // matrixSpecs is the expected destination for every DECLARED pair.
 // TestDeliveryApproach_DeclaredPairsAreExhaustive holds these keys equal to the
 // derived matrix, so a new pair cannot be added to a backend's ApproachTable
@@ -233,10 +242,12 @@ var matrixSpecs = map[string]deliverySpec{
 	// Deliberately NO alsoFile — a cache file riding along would make this a
 	// second spelling of hook, and would hand someone asking for a portable
 	// document a file that means nothing without ctxloom.
-	"codex/context/unsafe-file":  {wantFile: "AGENTS.md", wantSlot: slotContext},
-	"codex/settings/unsafe-file": {wantFile: ".codex/config.toml", wantSlot: slotHook},
-	"codex/commands/unsafe-file": {wantFile: ".codex/prompts/ctxsentinelcmd.md", wantSlot: slotCommand},
-	"codex/skills/unsafe-file":   {wantFile: ".codex/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
+	"codex/context/unsafe-file": {wantFile: "AGENTS.md", wantSlot: slotContext},
+	// The three CODEX_HOME-keyed surfaces land under the home ctxloom
+	// relocates, not at the project root beside AGENTS.md — see codexHomeRel.
+	"codex/settings/unsafe-file": {wantFile: codexHomeRel + "/config.toml", wantSlot: slotHook},
+	"codex/commands/unsafe-file": {wantFile: codexHomeRel + "/prompts/ctxsentinelcmd.md", wantSlot: slotCommand},
+	"codex/skills/unsafe-file":   {wantFile: codexHomeRel + "/skills/ctxsentinelskill/SKILL.md", wantSlot: slotSkill},
 
 	// ---- kiro --------------------------------------------------------------
 	"kiro/context/unsafe-file":  {wantFile: ".kiro/steering/ctxloom-context.md", wantSlot: slotContext},

@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/agents"
+	"github.com/ctxloom/ctxloom/internal/codex"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/tests/integration/testenv"
@@ -100,7 +101,10 @@ func TestHookApproach_PayloadReachesTheInjectedContext(t *testing.T) {
 	// stale or empty hash reads a file that is not there and injects nothing.
 	for _, tc := range []struct{ name, path string }{
 		{"claude-code", filepath.Join(projectDir, ".claude", "settings.json")},
-		{"codex", filepath.Join(projectDir, ".codex", "config.toml")},
+		// codex's config home is the one ctxloom relocates, so its path is
+		// asked of codex's own writer (internal/codex.StateHome) rather than
+		// spelled out here.
+		{"codex", (&codex.CodexHookWriter{}).SettingsPath(projectDir)},
 	} {
 		t.Run("hook registered/"+tc.name, func(t *testing.T) {
 			b, err := os.ReadFile(tc.path)

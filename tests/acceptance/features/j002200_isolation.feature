@@ -176,13 +176,17 @@ Feature: Bounding what the agent can reach, even with permissions bypassed
 
   # codex is the documented EXCEPTION to the baseline above, and it belongs in
   # the feature file rather than hidden in a table row that asserts around it.
-  # codex relocates CODEX_HOME to <WorkDir>/.codex on EVERY axis including
-  # none — its own in-tree fallback, not ctxloom's isolation policy (see
+  # codex relocates CODEX_HOME on EVERY axis including none — its own project
+  # fallback, not ctxloom's isolation policy (see
   # internal/lm/isolation.SeedCodexHome's doc and internal/codex/backend.go's
-  # resolveCodexProjectDir). That relocated home starts empty, so ctxloom
-  # seeds the host's credentials into it, and with neither OPENAI_API_KEY nor
-  # ~/.codex/auth.json there is nothing to seed. ctxloom then refuses rather
-  # than launching a codex that would silently 401.
+  # resolveCodexProjectDir). On the none axis that home is the project-scoped
+  # state home, <WorkDir>/.ctxloom/state/engines/codex/.codex
+  # (internal/codex.StateHome — the uniform engine-home policy's one location
+  # for a home ctxloom relocates, replacing the old bare <WorkDir>/.codex).
+  # That relocated home starts empty, so ctxloom seeds the host's credentials
+  # into it, and with neither OPENAI_API_KEY nor ~/.codex/auth.json there is
+  # nothing to seed. ctxloom then refuses rather than launching a codex that
+  # would silently 401.
   #
   # So "workspace none touches no config-home machinery" is FALSE for codex,
   # and this scenario says so out loud. Note the failure is a plain backend

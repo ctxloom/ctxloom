@@ -18,11 +18,18 @@ Feature: One shared profile, reaching three engines in their own native format
     | engine      | context lands in                                          | MCP lands in                              | hooks land in                | commands land in                   |
     |-------------|-------------------------------------------------------------|----------------------------------------------|-------------------------------|--------------------------------------|
     | claude-code | CLAUDE.md (managed markers)                                | .mcp.json                                   | .claude/settings.json          | .claude/commands/                    |
-    | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | .codex/config.toml [hooks]      | $CODEX_HOME/prompts/ (global)         |
+    | codex       | AGENTS.md (managed markers, native) + a hook-read cache file | NO native file — folded into config.toml   | $CODEX_HOME/config.toml [hooks] | $CODEX_HOME/prompts/ (global)         |
     | kiro        | .kiro/steering/ctxloom-context.md                          | .kiro/settings/mcp.json                     | .kiro/agents/<name>.json        | .kiro/skills/<name>/SKILL.md         |
 
-  codex still has NO native MCP file of its own — MCP folds into
-  .codex/config.toml, the same file that carries its hooks. Its context surface
+  codex's rows name $CODEX_HOME rather than a project-root .codex, and that is
+  the second divergence worth stating: codex is the one engine whose config
+  home ctxloom RELOCATES, to
+  <WorkDir>/.ctxloom/state/engines/codex/.codex (internal/codex.StateHome — the
+  uniform engine-home policy). Its cwd-keyed surface, AGENTS.md, stays at the
+  project root where codex natively reads it; the home-keyed ones move.
+
+  codex still has NO native MCP file of its own — MCP folds into that same
+  config.toml, the file that carries its hooks. Its context surface
   is the one that used to be the honest gap this feature existed to show: codex
   now writes AGENTS.md natively too (managed-section markers, taskloom
   lanky-plop/tiny-ooze), alongside the SessionStart-hook cache file the live

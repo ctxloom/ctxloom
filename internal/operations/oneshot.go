@@ -31,6 +31,17 @@ type RunOneshotRequest struct {
 	WorkDir   string // working directory for the run
 	Verbosity int
 
+	// Permissions is an explicit posture override, in the same string
+	// vocabulary agent.ParsePermissionMode accepts (agent.PermissionBypass.
+	// String(), etc.). It wins over the resolved label's configured
+	// permissions — for a caller whose intent about gating does not come
+	// from an llm label at all (the init auth-ping is the first such caller:
+	// a fixed trivial probe that wants no permission gating, unrelated to
+	// whatever posture the chosen engine's label happens to declare). Empty
+	// defers to the label's configured posture, unchanged from before this
+	// field existed.
+	Permissions string
+
 	// Pipeline is an optional pre-configured process stage (test seam).
 	Pipeline *bundles.Pipeline
 	// Factory builds the plugin client; nil self-invokes the compiled-in
@@ -68,6 +79,10 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 	label := resolveOneshotLabel(cfg, req.LLM, ctxResult.ProfileLLM)
 	backendName, model := ResolveBackend(cfg, label)
 	labelEntry, _ := cfg.GetLLMEntry(label)
+	permissions := req.Permissions
+	if permissions == "" {
+		permissions = labelEntry.Permissions
+	}
 
 	// The single-profile oneshot's axes: the session-level workspace default
 	// (cfg.Workspace) x the project runtime default (cfg.Runtime — a bare
@@ -108,9 +123,10 @@ func RunOneshot(ctx context.Context, cfg *config.Config, req RunOneshotRequest) 
 		Label:     label,
 		Backend:   backendName,
 		Model:     model,
-		// A bare-profile oneshot has no agent binding; its posture is the engine
-		// label's configured permissions (if any), resolved for headless below.
-		Permissions: labelEntry.Permissions,
+		// A bare-profile oneshot has no agent binding; its posture is the
+		// caller's explicit override if it gave one, else the engine label's
+		// configured permissions (if any) — resolved for headless below.
+		Permissions: permissions,
 		// AgentID scopes a per-agent workspace by the profile name.
 		Axes:           axes,
 		IsolationImage: IsolationImageConfig(cfg, backendName),
@@ -336,17 +352,24 @@ func memberLabel(req resolvedRunRequest) string {
 // effectiveMemberPermission resolves the posture a fan member actually launches
 // with. Fan-out is ALWAYS non-interactive ONESHOT: there is no human to answer
 // the engine's prompt. An honorable read-only plan (on a backend that enforces
-// it) is kept; a would-block posture (default/acceptEdits, or plan on a backend
-// with no read-only tier) floors up to bypass so a member cannot hang, and an
-// empty/unset posture floors the same way, preserving the always-bypass
-// behaviour for members that declare nothing.
+// it) is kept; any posture that is not SafeHeadless — default/acceptEdits, an
+// unset/empty declaration, or plan on a backend with no read-only tier —
+// REFUSES rather than hanging. It used to floor a would-block posture up to
+// bypass instead: a member that declared nothing, or declared a plan its
+// backend cannot enforce, silently ran at full bypass with no warning
+// anywhere — the same silent-elevation shape as the ONE-SHOT ARM bug this
+// refusal closes, just reached through the fan/delegated-child path instead
+// of `acp run --one-shot`. Elevating to the most permissive setting because a
+// posture could not be honoured headless is worse than refusing.
 //
 // A posture the parser does not RECOGNISE is a different input from an unset
 // one, even though both parse to PermissionDefault. Unset declares that nothing
-// was declared; a misspelling is a declaration that MISSED, and flooring it
-// would silently hand the member the most permissive setting its author was
-// trying to constrain. LLMEntry.Permissions arrives straight from a hand-edited
-// config.yaml with no validation on the way in, so that input is reachable.
+// was declared; a misspelling is a declaration that MISSED. Both are refused
+// now, but with distinct error text, so a misspelling that would have silently
+// become the most permissive setting is still named as what it is (a typo),
+// not folded into the generic headless refusal. LLMEntry.Permissions arrives
+// straight from a hand-edited config.yaml with no validation on the way in, so
+// that input is reachable.
 func effectiveMemberPermission(req resolvedRunRequest) (agent.PermissionMode, error) {
 	mode, known := agent.ParsePermissionMode(req.Permissions)
 	if !known && strings.TrimSpace(req.Permissions) != "" {
@@ -355,7 +378,8 @@ func effectiveMemberPermission(req resolvedRunRequest) (agent.PermissionMode, er
 	}
 	mode = mode.CollapsePlanIfUnenforced(backends.EnforcesReadOnlyPlan(req.Backend))
 	if !mode.SafeHeadless() {
-		return agent.PermissionBypass, nil
+		return mode, fmt.Errorf("permission mode %q for %q cannot run headless: a oneshot has no human to answer an engine permission prompt, so honouring it would hang — and silently elevating it to %q instead would be worse; declare %q or a backend-enforced %q",
+			mode, memberLabel(req), agent.PermissionBypass, agent.PermissionBypass, agent.PermissionPlan)
 	}
 	return mode, nil
 }

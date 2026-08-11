@@ -132,7 +132,12 @@ func acpRunTestConfig() *config.Config {
 	return config.NewFixture(config.Fixture{
 		LM: config.LMConfig{
 			Configs: map[string]config.LLMConfig{
-				"acp-kiro":    {Type: "acp"},
+				// bypass: this config backs the door-counting/turn-loop/backend
+				// tests below, not permission-resolution tests — headless-safe
+				// so the unroasted-spinning refusals don't collide with
+				// unrelated coverage (see acp_run_cmd_test.go's dedicated
+				// permission-pin tests for the unset/unenforceable cases).
+				"acp-kiro":    {Type: "acp", Permissions: "bypass"},
 				"claude-fast": {Type: "claude-code"},
 			},
 			Defaults: config.RoleDefaults{Primary: "claude-fast"},
@@ -369,7 +374,7 @@ func TestRunACPSession_CarriesTheProjectRuntimeAxis(t *testing.T) {
 	cfg := config.NewFixture(config.Fixture{
 		Runtime: agent.RuntimeContainer,
 		LM: config.LMConfig{
-			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp"}},
+			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp", Permissions: "bypass"}}, // headless-safe: this test is about the runtime axis, not permission resolution
 			Defaults: config.RoleDefaults{Primary: "acp-kiro"},
 		},
 	})
@@ -413,6 +418,65 @@ func TestWarnACPSessionWorkspaceAxis_NamesTheAxisItCannotHonour(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestRunACPSessionWithConfig_RefusesSilentlyRejectingPosture is
+// unroasted-spinning's SESSION ARM: `acp run` registers no
+// --permissions/--agent flag, so posture comes solely from the llm label. An
+// unset label posture resolves (via resolvePermissionMode) to
+// PermissionDefault, which is not SafeHeadless — every gated call in the
+// conversation that follows would get reject_once with nobody asked, since
+// this session has no channel to render or answer a permission prompt yet.
+// It must refuse loudly, up front, instead of opening a session that would
+// silently reject everything.
+func TestRunACPSessionWithConfig_RefusesSilentlyRejectingPosture(t *testing.T) {
+	resetACPRunFlags(t)
+	acpRunLLM = "acp-kiro"
+	cfg := config.NewFixture(config.Fixture{
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp"}}, // no permissions declared
+			Defaults: config.RoleDefaults{Primary: "acp-kiro"},
+		},
+	})
+	stub := &acpRunStubClient{}
+	acpRunFactory = acpRunStubFactory(stub)
+
+	cmd, _ := formatCmd(formatText)
+	err := runACPSessionInBackground(t, cmd, cfg, "hello", strings.NewReader(""))
+	require.Error(t, err, "an unsafe-headless posture must refuse to open the session")
+	assert.Contains(t, err.Error(), `"default"`, "the error names the resolved posture")
+	assert.Contains(t, err.Error(), "acp-kiro", "the error names the llm label")
+
+	_, chats := stub.doorCounts()
+	assert.Zero(t, chats, "the chat door must never be reached when the posture is refused")
+}
+
+// TestRunACPOneshotWithConfig_RefusesUnenforceablePlanInsteadOfElevating is
+// unroasted-spinning's ONE-SHOT ARM: a user who configures the acp label
+// with permissions: plan is asking for read-only. acp cannot enforce a
+// read-only plan (backends.EnforcesReadOnlyPlan("acp") is false), so
+// CollapsePlanIfUnenforced turns it into default, which is not SafeHeadless.
+// A headless oneshot has no human to answer the engine's prompt, so it must
+// refuse rather than silently elevate to bypass — the user asked for
+// read-only and must never get full bypass instead with no warning.
+func TestRunACPOneshotWithConfig_RefusesUnenforceablePlanInsteadOfElevating(t *testing.T) {
+	resetACPRunFlags(t)
+	acpRunLLM = "acp-kiro"
+	cfg := config.NewFixture(config.Fixture{
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{"acp-kiro": {Type: "acp", Permissions: "plan"}},
+			Defaults: config.RoleDefaults{Primary: "acp-kiro"},
+		},
+	})
+	stub := &acpRunStubClient{out: "ok"}
+	acpRunFactory = acpRunStubFactory(stub)
+
+	cmd, _ := formatCmd(formatText)
+	err := runACPOneshotWithConfig(cmd, cfg, "ping")
+	require.Error(t, err, "an unenforceable plan posture must refuse, not silently elevate to bypass")
+	assert.Contains(t, err.Error(), `"default"`, "the error names the collapsed posture")
+	assert.Contains(t, err.Error(), "acp-kiro", "the error names the member")
+	assert.Nil(t, stub.gotReq, "the engine must never have run")
 }
 
 // TestRunACPSession_AnnouncesTheOpenSessionOnlyOnATerminal drives both sides

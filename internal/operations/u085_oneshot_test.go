@@ -80,7 +80,17 @@ func withheldOneshotProject(t *testing.T) *config.Config {
 		trust.Ref{Bundle: "mcp-bundle", Kind: trust.KindMCP, Name: "noisy-server", IsLocal: true},
 		signing.FormRaw, mcpPayloadOf(bundles.BundleMCP{Command: "npx", Args: []string{"-y", "noisy"}}))
 
-	return config.NewFixture(config.Fixture{AppPaths: []string{appDir}, Workspace: "worktree"})
+	return config.NewFixture(config.Fixture{
+		AppPaths:  []string{appDir},
+		Workspace: "worktree",
+		// bypass: this test is about the withheld-executable warning, not
+		// permission resolution — headless-safe so effectiveMemberPermission's
+		// refusal doesn't collide with unrelated coverage.
+		LM: config.LMConfig{
+			Configs:  map[string]config.LLMConfig{config.DefaultLLM: {Type: config.DefaultLLM, Permissions: "bypass"}},
+			Defaults: config.RoleDefaults{Primary: config.DefaultLLM},
+		},
+	})
 }
 
 // TestRunOneshot_SurfacesWithheldExecutable pins that RunOneshot builds an
@@ -104,11 +114,15 @@ func TestRunOneshot_SurfacesWithheldExecutable(t *testing.T) {
 
 // TestRunResolvedAgent_RejectsUnknownPermissionPosture pins that the ok
 // bool from agent.ParsePermissionMode was discarded, so a MISSPELLED posture
-// was indistinguishable from an unset one. Both parsed to PermissionDefault,
-// which is not SafeHeadless, so both floored to PermissionBypass — a member
-// whose author wrote "plna" for "plan" ran with the MOST permissive setting.
-// LLMEntry.Permissions comes straight out of a hand-edited config.yaml and is
-// validated nowhere on the way in, so the typo is reachable.
+// was indistinguishable from an unset one. Both parse to PermissionDefault,
+// which is not SafeHeadless, so both are refused (unroasted-spinning: this
+// used to be "both floored to PermissionBypass" — a member whose author
+// wrote "plna" for "plan" ran with the MOST permissive setting; the floor
+// was itself the silent-elevation bug and was replaced with a refusal). The
+// two refusals stay distinctly worded: a misspelling names the exact text
+// that did not parse, an unset posture does not — LLMEntry.Permissions comes
+// straight out of a hand-edited config.yaml and is validated nowhere on the
+// way in, so both the typo and the unset case are reachable.
 func TestRunResolvedAgent_RejectsUnknownPermissionPosture(t *testing.T) {
 	run := func(t *testing.T, perms string) (*stubClient, *RunOneshotResult, error) {
 		t.Helper()
@@ -132,11 +146,13 @@ func TestRunResolvedAgent_RejectsUnknownPermissionPosture(t *testing.T) {
 		assert.Nil(t, stub.gotReq, "the engine must never have run")
 	})
 
-	t.Run("an unset posture still floors to bypass", func(t *testing.T) {
-		stub, _, err := run(t, "")
-		require.NoError(t, err, "unset is a legitimate input and keeps the headless floor")
-		require.NotNil(t, stub.gotReq)
-		assert.Equal(t, agent.PermissionBypass.String(), stub.gotReq.Options.PermissionMode)
+	t.Run("an unset posture is refused too, distinctly from a misspelled one", func(t *testing.T) {
+		stub, res, err := run(t, "")
+		require.Error(t, err, "unset is not SafeHeadless either; it must refuse, not silently run at bypass")
+		assert.Nil(t, res)
+		assert.Contains(t, err.Error(), `"default"`, "the error names the resolved posture, not a quoted typo")
+		assert.NotContains(t, err.Error(), "expected one of", "unset must not be reported as an unrecognised posture")
+		assert.Nil(t, stub.gotReq, "the engine must never have run")
 	})
 
 	t.Run("a recognised headless-safe posture is honoured", func(t *testing.T) {
@@ -162,12 +178,13 @@ func TestRunResolvedAgent_ScalesVerbosityToWireLevel(t *testing.T) {
 	}{{0, 0}, {1, 16}, {2, 32}, {3, 48}} {
 		stub := &stubClient{out: "ran"}
 		_, err := runResolvedAgent(context.Background(), resolvedRunRequest{
-			Task:      "t",
-			WorkDir:   t.TempDir(),
-			Label:     "claude-fast",
-			Backend:   "claude-code",
-			Verbosity: tc.vCount,
-			Factory:   func(string, string, int) (pb.Client, error) { return stub, nil },
+			Task:        "t",
+			WorkDir:     t.TempDir(),
+			Label:       "claude-fast",
+			Backend:     "claude-code",
+			Permissions: "bypass", // headless-safe: this test is about verbosity scaling, not permission resolution
+			Verbosity:   tc.vCount,
+			Factory:     func(string, string, int) (pb.Client, error) { return stub, nil },
 		})
 		require.NoError(t, err)
 		require.NotNil(t, stub.gotReq)

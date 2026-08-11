@@ -16,6 +16,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/operations"
+	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/vpio"
 	"github.com/ctxloom/ctxloom/internal/vpio/goplugin"
@@ -173,7 +174,16 @@ func pingEngineAuth(ctx context.Context, cfg *config.Config, engine, workDir str
 		Task:    authPingTask,
 		LLM:     engine,
 		WorkDir: workDir,
-		Factory: authPingFactory,
+		// The ping is a throwaway auth-liveness probe with a fixed trivial
+		// prompt — it wants no permission gating at all, regardless of
+		// whatever posture the chosen engine's llm label declares (or
+		// doesn't). That intent used to ride silently on
+		// effectiveMemberPermission's now-removed floor (an unset posture
+		// ran at bypass with no one saying so); the floor's removal requires
+		// every caller of an ask-capable posture to say what it wants out
+		// loud, so this one does.
+		Permissions: agent.PermissionBypass.String(),
+		Factory:     authPingFactory,
 	})
 	if err != nil {
 		return fmt.Errorf("%s isn't ready to launch (auth check failed: %v) — %s", engine, err, engineAuthFixHint(engine))

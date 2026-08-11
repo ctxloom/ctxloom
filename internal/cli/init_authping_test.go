@@ -77,6 +77,32 @@ func TestPingEngineAuth_Succeeds(t *testing.T) {
 	assert.Equal(t, pb.ExecutionMode_ONESHOT, stub.gotReq.Options.Mode)
 }
 
+// TestPingEngineAuth_RequestsBypassPermissionExplicitly pins that the ping
+// asks for permissions: bypass on its RunOneshot request explicitly, rather
+// than riding whatever the chosen engine's llm label declares (or doesn't).
+// authPingTestConfig declares no llm permissions at all, so before
+// pingEngineAuth carried this override, its request depended entirely on
+// operations.effectiveMemberPermission's floor for an unset posture — a
+// floor unroasted-spinning replaced with a refusal. This is a PAYLOAD
+// assertion on the actual wire request (Options.PermissionMode), not just
+// "the ping succeeded": a caller-side fallback that quietly caught a
+// refusal and retried some other way could still pass a success-only
+// assertion without this request ever carrying bypass.
+func TestPingEngineAuth_RequestsBypassPermissionExplicitly(t *testing.T) {
+	stub := &stubPingClient{exitCode: 0}
+	orig := authPingFactory
+	authPingFactory = func(string, string, int) (pb.Client, error) { return stub, nil }
+	t.Cleanup(func() { authPingFactory = orig })
+
+	err := pingEngineAuth(context.Background(), authPingTestConfig(t), "claude-code", t.TempDir())
+	require.NoError(t, err)
+
+	require.NotNil(t, stub.gotReq)
+	require.NotNil(t, stub.gotReq.Options)
+	assert.Equal(t, agent.PermissionBypass.String(), stub.gotReq.Options.PermissionMode,
+		"the ping must carry an explicit bypass posture on the request, not rely on the label's configured (or unset) permissions")
+}
+
 // TestPingEngineAuth_FailsLoud_NamesTheFix: a dead engine (nonzero exit, as a
 // real backend reports when auth is missing) fails the ping with an error
 // naming BOTH the engine and its specific fix — never a bare "failed."

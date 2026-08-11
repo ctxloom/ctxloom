@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/config"
 	pb "github.com/ctxloom/ctxloom/internal/lm/grpc"
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
+	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 )
 
 // TestResolvePermissionMode pins the top-level run's permission-posture resolver:
@@ -89,4 +91,41 @@ func TestValidatePermissionFlag(t *testing.T) {
 	assert.NoError(t, validatePermissionFlag("BYPASS"), "case-insensitive")
 	assert.Error(t, validatePermissionFlag("plann"), "typo is rejected, not silently widened")
 	assert.Error(t, validatePermissionFlag("yolo"))
+}
+
+// TestWarnPlanOneshotCancels pins task shifty-scroll: after resolvePermissionMode's
+// ONESHOT floor, plan is the only SafeHeadless posture that still gates a
+// mutating call on a human (bypass never asks; default/acceptEdits already
+// floored up to bypass by this point) — so a --one-shot run that resolved to
+// plan must warn loudly at startup that no human is reachable, since the engine
+// cancels any gated call outright (wiry-judge, merge 6a8eb2d5) rather than
+// hanging or running it. bypass+ONESHOT (nothing gates) and plan+INTERACTIVE (a
+// human IS reachable) must both stay silent.
+func TestWarnPlanOneshotCancels(t *testing.T) {
+	cases := []struct {
+		name     string
+		mode     pb.ExecutionMode
+		permMode agent.PermissionMode
+		wantWarn bool
+	}{
+		{"plan + oneshot warns", pb.ExecutionMode_ONESHOT, agent.PermissionPlan, true},
+		{"bypass + oneshot stays silent", pb.ExecutionMode_ONESHOT, agent.PermissionBypass, false},
+		{"plan + interactive stays silent", pb.ExecutionMode_INTERACTIVE, agent.PermissionPlan, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			restore := clidiag.SetSink(&buf)
+			defer restore()
+
+			st := &runState{mode: tc.mode, permMode: tc.permMode}
+			st.warnPlanOneshotCancels()
+
+			if tc.wantWarn {
+				assert.Contains(t, buf.String(), "--one-shot with plan permissions has no human to approve a gated call")
+			} else {
+				assert.Empty(t, buf.String(), "must stay silent for %s", tc.name)
+			}
+		})
+	}
 }

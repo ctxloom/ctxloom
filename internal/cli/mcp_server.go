@@ -22,6 +22,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/version"
 	"github.com/ctxloom/ctxloom/resources"
 )
 
@@ -157,7 +158,7 @@ func runMCPServerSDK(_ *cobra.Command, _ []string) error {
 	opts := &mcp.ServerOptions{Instructions: sessionInstructions(s.self.Harp)}
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
-		Version: Version,
+		Version: version.Version,
 	}, opts)
 	s.registerTools(server)
 	s.registerResources(server)

@@ -27,6 +27,7 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/agent"
 	"github.com/ctxloom/ctxloom/internal/shared/iox"
 	"github.com/ctxloom/ctxloom/internal/signing/agentkey"
+	"github.com/ctxloom/ctxloom/internal/version"
 )
 
 // doctorDepBinariesRequired are the non-engine binaries ctxloom's own
@@ -648,7 +649,7 @@ func doctorCheckAgents(ctx context.Context, cfg *config.Config, cfgErr error) do
 // ctxloom-doctor skill (or a human) rather than faking a currency verdict.
 func doctorCheckVersion() doctorCheck {
 	return doctorCheck{Marker: "DOCTOR-CHECK-VERSION-c3", Status: doctorInfo,
-		Detail: fmt.Sprintf("running %s; comparing against the newest remote tag is best-effort/skill-guided (no --check-version yet)", Version)}
+		Detail: fmt.Sprintf("running %s; comparing against the newest remote tag is best-effort/skill-guided (no --check-version yet)", version.Version)}
 }
 
 // doctorCheckHooksTrust cross-references doctorConfiguredEngines (every

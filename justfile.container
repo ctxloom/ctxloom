@@ -98,19 +98,19 @@ build-cover: validate proto gen-schemas
 # Build without CGO - static
 build-static:
     CGO_ENABLED=0 go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o ctxloom ./cmd/ctxloom
 
 # Build with tree-sitter code compression - static linked
 build-treesitter:
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}} {{static_ldflags}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}} {{static_ldflags}}" \
         -o ctxloom ./cmd/ctxloom
 
 # Build with all CGO features
 build-full: validate proto
     CGO_ENABLED=1 go build {{buildvcs}} {{trimpath}} -tags "treesitter" \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o ctxloom ./cmd/ctxloom
 
 # Build the ltk companion into bin/ltk — delegated to the ltk module
@@ -173,35 +173,35 @@ release-snapshot: validate proto gen-schemas
 build-linux-amd64:
     GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o ctxloom-linux-amd64 ./cmd/ctxloom
 
 # Build for Linux arm64
 build-linux-arm64:
     GOOS=linux GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o ctxloom-linux-arm64 ./cmd/ctxloom
 
 # Build for Windows amd64
 build-windows-amd64:
     GOOS=windows GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o ctxloom-windows-amd64.exe ./cmd/ctxloom
 
 # Build for macOS amd64
 build-darwin-amd64:
     GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o ctxloom-darwin-amd64 ./cmd/ctxloom
 
 # Build for macOS arm64
 build-darwin-arm64:
     GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 \
         go build {{buildvcs}} {{trimpath}} \
-        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/cli.Version={{version}}" \
+        -ldflags "-s -w -X github.com/ctxloom/ctxloom/internal/version.Version={{version}}" \
         -o ctxloom-darwin-arm64 ./cmd/ctxloom
 
 # Build all platforms

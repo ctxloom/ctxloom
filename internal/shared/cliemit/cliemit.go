@@ -16,6 +16,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
 	"github.com/ctxloom/ctxloom/pkg/clifmt"
 )
 
@@ -56,6 +57,20 @@ func EmitError(w io.Writer, cmd *cobra.Command, err error) error {
 		format = clifmt.FormatText
 	}
 	return clifmt.RenderError(w, err, format)
+}
+
+// EmitVersion is the shared body behind every family binary's `version`
+// command (ctxloom, ltk, taskloom): build the cross-binary {name,version}
+// payload and route it through emitFn, with text printing the bare version
+// string. emitFn is injected rather than hard-coded to Emit because ctxloom's
+// own version command routes through a package-local wrapper that also
+// marks a test-only "format was honored" flag before delegating to Emit;
+// ltk and taskloom pass Emit itself.
+func EmitVersion(cmd *cobra.Command, emitFn func(cmd *cobra.Command, data any, text func() error) error, name, version string) error {
+	return emitFn(cmd, cliversion.Info{Name: name, Version: version}, func() error {
+		_, err := fmt.Fprintln(cmd.OutOrStdout(), version)
+		return err
+	})
 }
 
 // Resolve reads the inherited global --format value and parses it via clifmt.

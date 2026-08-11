@@ -15,11 +15,8 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
 	"github.com/ctxloom/ctxloom/internal/shared/confload"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
+	"github.com/ctxloom/ctxloom/internal/version"
 )
-
-// Version is set at build time via ldflags
-// Example: go build -ldflags "-X ctxloom/cmd.Version=v1.0.0"
-var Version = "dev"
 
 // degradedFlag backs the persistent --degraded flag: the fail-loudly escape
 // hatch ("things may be broken, get me an agent"). Strict is the default;
@@ -241,7 +238,7 @@ func exitCodeFor(err error) (int, bool) {
 
 func init() {
 	// Enable --version flag
-	rootCmd.Version = Version
+	rootCmd.Version = version.Version
 
 	// The fail-loudly escape hatch, on every command (startup chokes gate on
 	// it; management commands simply ignore it). Env fallback: CTXLOOM_DEGRADED=1.
@@ -256,15 +253,15 @@ func init() {
 		"skip companion loadout discovery: do not execute companion binaries (ltk, taskloom, ...) or contribute their commands, hooks, MCP servers and context")
 
 	// The isolation layer bakes this stamp into agent images (ctxloom.version
-	// label) and compares it against present images to rebuild stale ones; it
-	// cannot import this package to read Version itself.
-	isolation.SetBinaryVersion(Version)
+	// label) and compares it against present images to rebuild stale ones.
+	// isolation could import internal/version directly (it's a leaf), but
+	// this stays a Set* push for now rather than churning that wiring too.
+	isolation.SetBinaryVersion(version.Version)
 
 	// `ctxloom acp` reports this as agentInfo.version in the ACP initialize
 	// handshake — the field an editor reads to identify the build it is
-	// talking to. Same reason as the line above: that package cannot import
-	// this one to read Version itself.
-	acpagent.SetAgentVersion(Version)
+	// talking to. Same reasoning as the line above.
+	acpagent.SetAgentVersion(version.Version)
 
 	// --config-set is the ONLY source of CLI-layer config overrides (see
 	// confload.ConfigSetFlagName's doc): a dedicated, repeatable, PERSISTENT flag

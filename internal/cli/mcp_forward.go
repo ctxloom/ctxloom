@@ -13,6 +13,7 @@ import (
 
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/mcpsocket"
+	"github.com/ctxloom/ctxloom/internal/version"
 )
 
 // FORWARD MODE (agentcoord B1.6, runner-terminated MCP): when a `ctxloom mcp`
@@ -52,7 +53,7 @@ func dialReachBackSocket(ctx context.Context, socketPath string) (net.Conn, erro
 // is cancelled. An unreachable runner socket is a hard startup error: a
 // silently-empty toolset would be a wrong-context session.
 func runMCPForward(ctx context.Context, socketPath string) error {
-	client := mcp.NewClient(&mcp.Implementation{Name: "ctxloom-forward", Version: Version}, nil)
+	client := mcp.NewClient(&mcp.Implementation{Name: "ctxloom-forward", Version: version.Version}, nil)
 	transport := &mcp.StreamableClientTransport{
 		// The endpoint host is nominal — the transport dials socketPath via
 		// dialReachBackSocket, either a unix socket (the default) or a TCP
@@ -89,7 +90,7 @@ func buildForwardServer(ctx context.Context, cs *mcp.ClientSession) (*mcp.Server
 	}
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "ctxloom",
-		Version: Version,
+		Version: version.Version,
 	}, &mcp.ServerOptions{Instructions: instructions})
 
 	n, err := forwardTools(ctx, cs, server)

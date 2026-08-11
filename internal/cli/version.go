@@ -1,11 +1,10 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
-	"github.com/ctxloom/ctxloom/internal/shared/cliversion"
+	"github.com/ctxloom/ctxloom/internal/shared/cliemit"
+	"github.com/ctxloom/ctxloom/internal/version"
 )
 
 var versionCmd = &cobra.Command{
@@ -15,13 +14,7 @@ var versionCmd = &cobra.Command{
 }
 
 func runVersion(cmd *cobra.Command, _ []string) error {
-	return emit(cmd,
-		cliversion.Info{Name: "ctxloom", Version: Version},
-		func() error {
-			_, err := fmt.Fprintln(cmd.OutOrStdout(), Version)
-			return err
-		},
-	)
+	return cliemit.EmitVersion(cmd, emit, "ctxloom", version.Version)
 }
 
 func init() {

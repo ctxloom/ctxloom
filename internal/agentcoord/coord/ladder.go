@@ -16,8 +16,10 @@ import (
 // ORDER: auto_accept/auto_decline resolve immediately; relay_to_role/
 // surface_to_human park the request as mail to the target role and wait up
 // to the rung's timeout — a timeout FALLS THROUGH to the next matching
-// rung. Running off the end of the ladder bottoms at DECLINE (never a hang,
-// never a silent human-shaped gap). ACCEPT_FOR_SESSION caches (run, kind) at
+// rung. Running off the end of the ladder bottoms at CANCEL — nobody
+// decided, so nothing is reported as a decision (never a hang, never a
+// silent human-shaped gap, and never a refusal attributed to an operator who
+// was never asked). ACCEPT_FOR_SESSION caches (run, kind) at
 // the coordinator (coordinator.go) and short-circuits the whole walk on a
 // later like-kind request.
 

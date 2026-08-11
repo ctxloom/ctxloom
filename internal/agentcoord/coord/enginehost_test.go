@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
@@ -78,6 +80,22 @@ func (f *fakeEngineHome) requestedApprovals() []*agentcoordpb.ApprovalRequest {
 	for _, r := range f.requests {
 		if a := r.GetApproval(); a != nil {
 			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// interactions returns every InteractionRecorded the host journaled, in emit
+// order — the same accessor shape as requestedApprovals, so a test can assert
+// what the RESOLUTION journal says without hand-rolling the lock + type switch
+// at each call site.
+func (f *fakeEngineHome) interactions() []*agentcoordpb.InteractionRecorded {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []*agentcoordpb.InteractionRecorded
+	for _, ev := range f.events {
+		if ir := ev.GetInteraction(); ir != nil {
+			out = append(out, ir)
 		}
 	}
 	return out
@@ -738,18 +756,24 @@ func TestEngineHost_ForwardsPermissionAsApprovalRequest(t *testing.T) {
 	assert.Contains(t, interaction.GetDetail().GetFields()["note"].GetStringValue(), "rung 2/2")
 }
 
-// TestEngineHost_ApprovalDeclineCancels pins the DECLINE/CANCEL translation:
-// a DECLINE picks a reject option; a CANCEL picks NO option at all (the
-// engine's safe cancelled no-op — neither approves nor commits a remembered
-// rejection).
+// TestEngineHost_ApprovalDeclineCancels pins the DECLINE/CANCEL translation
+// for a decision a REAL ANSWERER made: a DECLINE picks a reject option and
+// journals DENIED; a CANCEL picks NO option at all (the engine's safe
+// cancelled no-op — neither approves nor commits a remembered rejection) and
+// journals CANCELLED.
+//
+// The decline arm is the boundary TestEngineHost_NoAnswererCancels must never
+// erode: "nobody decided" answers cancelled, but a genuine decline — a human,
+// or an auto_decline rung — still says "refused", because it really was.
 func TestEngineHost_ApprovalDeclineCancels(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		decision   agentcoordpb.ApprovalDecision_Decision
-		wantOption string
+		name           string
+		decision       agentcoordpb.ApprovalDecision_Decision
+		wantOption     string
+		wantResolution agentcoordpb.InteractionRecorded_Resolution
 	}{
-		{name: "decline", decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, wantOption: "reject-1"},
-		{name: "cancel", decision: agentcoordpb.ApprovalDecision_DECISION_CANCEL, wantOption: ""},
+		{name: "decline", decision: agentcoordpb.ApprovalDecision_DECISION_DECLINE, wantOption: "reject-1", wantResolution: agentcoordpb.InteractionRecorded_RESOLUTION_DENIED},
+		{name: "cancel", decision: agentcoordpb.ApprovalDecision_DECISION_CANCEL, wantOption: "", wantResolution: agentcoordpb.InteractionRecorded_RESOLUTION_CANCELLED},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := &fakeEngineHome{}
@@ -774,6 +798,99 @@ func TestEngineHost_ApprovalDeclineCancels(t *testing.T) {
 
 			require.Eventually(t, func() bool { return len(sc.recordedAnswers()) == 1 }, 5*time.Second, 10*time.Millisecond)
 			assert.Equal(t, tc.wantOption, sc.recordedAnswers()[0].OptionID)
+
+			require.Eventually(t, func() bool { return len(home.interactions()) == 1 }, 5*time.Second, 10*time.Millisecond,
+				"an InteractionRecorded event must be emitted")
+			assert.Equal(t, tc.wantResolution, home.interactions()[0].GetResolution(),
+				"the journal must record what the answerer actually decided")
+		})
+	}
+}
+
+// TestEngineHost_NoAnswererCancels is wiry-judge's runner-side half: when the
+// coordinator refuses or fails to produce a decision AT ALL — the
+// !caller.IsChild() guard's PermissionDenied, an unknown-run NotFound, or a
+// transport failure — NO real answerer decided anything, so the engine must be
+// told the request was CANCELLED (empty OptionID -> ACP {outcome:"cancelled"}),
+// never handed a reject_once option.
+//
+// The defect this replaces: pickPermissionOption(options, allow=false) picked
+// "reject-1" on every one of these paths, which claude-code-acp renders to the
+// model — and to the durable transcript — as {behavior:"deny", message:"User
+// refused permission to run tool"}. A refusal ctxloom itself made, falsely
+// attributed to the operator. "Nobody decided" is not "the user said no".
+//
+// The JOURNAL half matters as much as the wire half: a non-OK status resolves
+// as CANCELLED so the InteractionRecorded item agrees with the answer the
+// engine actually got. The transport-error arm keeps TIMED_OUT — that one is
+// honest about WHY nobody decided, and is a different fact from a refusal.
+func TestEngineHost_NoAnswererCancels(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		respond        func(*agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error)
+		wantResolution agentcoordpb.InteractionRecorded_Resolution
+	}{
+		{
+			// The owned-run / non-child guard: serveApproval's first
+			// statement, refusing before any ladder rung runs.
+			name: "guard_refusal",
+			respond: func(*agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+				return &agentcoordpb.CoordinatorResponse{
+					Status: statusErr(codes.PermissionDenied, "approval requests: only a delegated child's run asks the coordinator for a decision"),
+				}, nil
+			},
+			wantResolution: agentcoordpb.InteractionRecorded_RESOLUTION_CANCELLED,
+		},
+		{
+			// An unknown run id: the coordinator has no record to walk a
+			// ladder for, so again nobody decided.
+			name: "unknown_run",
+			respond: func(*agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+				return &agentcoordpb.CoordinatorResponse{
+					Status: statusErr(codes.NotFound, `approval: unknown run "run-gone"`),
+				}, nil
+			},
+			wantResolution: agentcoordpb.InteractionRecorded_RESOLUTION_CANCELLED,
+		},
+		{
+			// The request never reached an answerer at all.
+			name: "transport_error",
+			respond: func(*agentcoordpb.AgentRequest) (*agentcoordpb.CoordinatorResponse, error) {
+				return nil, errors.New("plane 2: stream closed")
+			},
+			wantResolution: agentcoordpb.InteractionRecorded_RESOLUTION_TIMED_OUT,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			home := &fakeEngineHome{}
+			home.requestFn = tc.respond
+			sc := &scriptedChat{permission: &agent.PermissionRequest{
+				ID: "perm-x", ToolName: "bash", Kind: "execute",
+				Options: []agent.PermissionOption{
+					{ID: "allow-1", Kind: "allow_once"},
+					{ID: "reject-1", Kind: "reject_once"},
+				},
+			}}
+			eh := NewEngineHost(context.Background(), sc, "claude-code", "run-1")
+			t.Cleanup(eh.Close)
+			eh.BindHome(home)
+			resp := eh.Handle(&agentcoordpb.RunnerRequest{Kind: &agentcoordpb.RunnerRequest_StartRun{StartRun: testStartRun("run-1")}})
+			require.Equal(t, int32(0), resp.GetStatus().GetCode())
+
+			require.Eventually(t, func() bool { return len(sc.recordedAnswers()) == 1 }, 5*time.Second, 10*time.Millisecond,
+				"the engine must still be answered — a refusal is never a hang")
+			ans := sc.recordedAnswers()[0]
+			assert.Equal(t, "perm-x", ans.ID)
+			assert.Empty(t, ans.OptionID,
+				"no answerer decided, so the engine is told CANCELLED — never handed a reject option that reads as the operator's refusal")
+
+			require.Eventually(t, func() bool { return len(home.interactions()) == 1 }, 5*time.Second, 10*time.Millisecond,
+				"an InteractionRecorded event must be emitted")
+			ir := home.interactions()[0]
+			assert.Equal(t, tc.wantResolution, ir.GetResolution(),
+				"the journal must agree with the answer the engine actually received")
+			assert.Empty(t, ir.GetDetail().GetFields()["option_id"].GetStringValue(),
+				"the journaled option_id is the one that crossed the wire")
 		})
 	}
 }

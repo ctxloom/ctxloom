@@ -62,5 +62,6 @@
 // approvals; the "never prompts" guarantee becomes "never prompts a HUMAN
 // unless a ladder rung says so" (relay_to_role / surface_to_human) — every
 // other path (auto_accept, auto_decline, a relay's timeout fallback) still
-// resolves without a human anywhere in the loop, bottoming at DECLINE.
+// resolves without a human anywhere in the loop, bottoming at CANCEL when no
+// rung resolved anything at all.
 package coord

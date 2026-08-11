@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	agentcoordpb "github.com/ctxloom/ctxloom/internal/agentcoord"
 	"github.com/ctxloom/ctxloom/internal/agentcoord/coord"
 	"github.com/ctxloom/ctxloom/internal/config"
 	"github.com/ctxloom/ctxloom/internal/paths"
@@ -74,6 +75,34 @@ func TestSurroundRoster_NilCoordinatorIsEmptyNotError(t *testing.T) {
 	rows, err := surroundRoster(nil)
 	require.NoError(t, err)
 	assert.Nil(t, rows, "the bar shows just this session, not an error, when no coordinator is hosted")
+}
+
+// Slice 3: PendingApprovals/AnswerApproval/FetchApprovals get the SAME
+// nil-coordinator degradation discipline as Roster/Inject above — a run with
+// no hosted coordinator must never let the approvals surface reach a
+// nil-pointer panic. The payload-level contract (the wiring closure's
+// marshalled shape actually resolving a live park) is pinned in
+// internal/agentcoord/coord/surface_to_human_test.go's
+// TestApproval_SurfaceToHumanClosureShapeMirrorsCLIWiring — building an
+// equivalent live-coordinator harness FROM this package proved impractical
+// (coord.Spawner's test double is ~600 unexported lines local to the coord
+// package; see that test's doc comment for the full reasoning), so these
+// stay scoped to what only this package can pin: the nil-coordinator seams.
+
+func TestTerminalUISources_NilCoordinatorPendingApprovalsIsEmptyNotPanic(t *testing.T) {
+	src := terminalUISources(nil, "/irrelevant", "self-harp")
+	assert.Nil(t, src.PendingApprovals(), "no coordinator hosted: an empty pending list, not a nil-pointer panic")
+}
+
+func TestTerminalUISources_NilCoordinatorAnswerApprovalIsNotAPanic(t *testing.T) {
+	src := terminalUISources(nil, "/irrelevant", "self-harp")
+	err := src.AnswerApproval("m-1", "child-1", agentcoordpb.ApprovalDecision_DECISION_ACCEPT, "")
+	require.Error(t, err, "no coordinator hosted: a typed refusal, not a nil-pointer panic")
+}
+
+func TestSurroundFetchApprovals_NilCoordinatorDisablesTheIndicator(t *testing.T) {
+	assert.Nil(t, surroundFetchApprovals(nil),
+		"no coordinator hosted: nil disables the indicator, matching FetchApprovals' own documented contract")
 }
 
 // TestRedirectDiagnosticsForTUI_AnnouncesTheOutcome pins both halves of the

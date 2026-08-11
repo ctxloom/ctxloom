@@ -76,6 +76,13 @@ type Options struct {
 	FetchRoster    func() ([]RosterEntry, error)
 	RosterInterval time.Duration
 
+	// FetchApprovals returns how many approvals are currently parked for the
+	// human (coord.Coordinator.PendingApprovals, adapted to a count so this
+	// dependency-light package never sees a coord type — see doc.go). Polled
+	// on the SAME cadence as FetchRoster (RosterInterval), inside the same
+	// poller goroutine — no separate ticker. nil disables the indicator.
+	FetchApprovals func() int
+
 	// Warn streams UI-layer degradation notices (never fatal). nil = silent.
 	Warn func(format string, args ...any)
 
@@ -361,12 +368,16 @@ func (c *Controller) pollRoster() {
 	}
 }
 
-// rosterFetch performs one FetchRoster call. On success it feeds the bar and
-// resets the consecutive-failure streak. On failure it keeps the last-good
+// rosterFetch performs one FetchRoster call (and, on the same tick, one
+// FetchApprovals call — the plan's "poll on the existing roster cadence",
+// not a separate ticker). On success FetchRoster feeds the bar and resets
+// the consecutive-failure streak. On failure it keeps the last-good
 // snapshot (documented intent, unchanged) but counts the streak and warns
 // exactly once when it reaches rosterFailWarnThreshold — silence
 // beyond that point used to make a permanently broken coordinator connection
-// indistinguishable from a stable roster.
+// indistinguishable from a stable roster. FetchApprovals has no error return
+// (PendingApprovals is an in-process call, not a dial) so it has no failure
+// path to count.
 func (c *Controller) rosterFetch() {
 	roster, err := c.opts.FetchRoster()
 	if err != nil {
@@ -374,8 +385,11 @@ func (c *Controller) rosterFetch() {
 		if c.rosterFails == rosterFailWarnThreshold {
 			c.warn("roster poll: %d consecutive failures, most recent: %v", c.rosterFails, err)
 		}
-		return
+	} else {
+		c.rosterFails = 0
+		c.sur.SetRoster(roster)
 	}
-	c.rosterFails = 0
-	c.sur.SetRoster(roster)
+	if c.opts.FetchApprovals != nil {
+		c.sur.SetApprovals(c.opts.FetchApprovals())
+	}
 }

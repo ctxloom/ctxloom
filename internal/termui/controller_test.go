@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -359,6 +360,33 @@ func TestController_CloseWhileEngagedFlushesHeldOutput(t *testing.T) {
 	h.c.Close()
 	assert.Contains(t, h.tty.String(), "FINAL-WORDS",
 		"held engine output must not vanish when the run ends mid-engagement")
+}
+
+// TestController_ApprovalPollFeedsBarAndRingsBellOnce wires FetchApprovals
+// through the SAME poller FetchRoster already runs on (no separate ticker)
+// and pins the observable end-to-end effect: the bar shows the "⚠N " prefix,
+// and the bell rings exactly once for the 0→N transition even though the
+// poller ticks several more times at the same nonzero count.
+func TestController_ApprovalPollFeedsBarAndRingsBellOnce(t *testing.T) {
+	var n atomic.Int32
+	h := newCtlHarness(t, func(o *Options) {
+		o.RosterInterval = 5 * time.Millisecond
+		o.FetchRoster = func() ([]RosterEntry, error) { return nil, nil }
+		o.FetchApprovals = func() int { return int(n.Load()) }
+	})
+	h.src <- &pb.WindowSize{Rows: 24, Cols: 80}
+	_ = h.drainTranslated(t)
+	waitFor(t, "surround establish", func() bool { return strings.Contains(h.tty.String(), "\x1b[1;23r") })
+
+	n.Store(2)
+	waitFor(t, "approval indicator on the bar", func() bool { return strings.Contains(h.tty.String(), "⚠2") })
+	// Give the poller (5ms interval) several more ticks at the SAME count —
+	// only the 0→N transition may have rung.
+	waitFor(t, "settles at one bell", func() bool { return strings.Contains(h.tty.String(), "⚠2") })
+	time.Sleep(30 * time.Millisecond)
+	assert.Equal(t, 1, strings.Count(h.tty.String(), "\a"), "bell rings exactly once for the 0→N transition")
+
+	h.c.Close()
 }
 
 func TestController_RosterPollFeedsBar(t *testing.T) {

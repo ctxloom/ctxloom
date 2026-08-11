@@ -78,8 +78,14 @@ type surround struct {
 	restored   bool // Restore ran: terminal handed back, never paint again
 	roster     []RosterEntry
 	hasRoster  bool
-	dirty      atomic.Bool
-	buf        []byte // render scratch, reused (guarded by mu)
+	// approvals is the last known count of approvals parked for the human
+	// (Controller.Options.FetchApprovals). Tracked separately from roster so
+	// SetApprovals can detect the 0→N transition that rings the bell without
+	// caring whether SetRoster has ever been called.
+	approvals    int
+	hasApprovals bool
+	dirty        atomic.Bool
+	buf          []byte // render scratch, reused (guarded by mu)
 }
 
 // newSurround builds the bar renderer. mu is the tty lock shared with the
@@ -213,6 +219,27 @@ func (s *surround) SetRoster(roster []RosterEntry) {
 	s.RequestPaint()
 }
 
+// SetApprovals stores the latest pending-approval count and requests a
+// repaint, exactly like SetRoster. On a 0→N transition — ONLY that
+// transition, never a later N→N tick reporting the same nonzero count — it
+// also writes one BEL byte directly under the shared tty lock so a
+// disengaged human hears it (the surround bar is the one surface visible
+// while the overlay isn't engaged, per the slice 3 plan's two-surface
+// reality). The bell is a standalone C0 control byte, not part of any
+// escape/CSI sequence the output gate's guard tracks, so it is safe to write
+// unconditionally under mu rather than routing through paintSafe.
+func (s *surround) SetApprovals(n int) {
+	s.mu.Lock()
+	bell := n > 0 && s.approvals == 0
+	s.approvals = n
+	s.hasApprovals = true
+	if bell && s.active && !s.suspended && !s.restored {
+		_, _ = s.w.Write([]byte{'\a'})
+	}
+	s.mu.Unlock()
+	s.RequestPaint()
+}
+
 // RequestPaint repaints now if the engine is idle, else marks the bar dirty
 // for the gate's next afterWrite flush.
 func (s *surround) RequestPaint() {
@@ -321,10 +348,10 @@ func (s *surround) appendBarBody(b []byte) []byte {
 }
 
 func (s *surround) rosterDigestLocked() string {
-	if !s.hasRoster {
+	if !s.hasRoster && !s.hasApprovals {
 		return ""
 	}
-	return rosterDigest(s.roster)
+	return rosterDigest(s.roster, s.approvals)
 }
 
 // appendBarContent renders ` harp · agent · engine/model │ digest │ hint `
@@ -379,8 +406,21 @@ func fitWidth(b []byte, start, width int) []byte {
 
 // rosterDigest summarizes orchestrator-held children for the bar: counts by
 // state glyph (● executing, ◐ waiting: queued/parked/idle, ✓ ended) plus the
-// latest transition. Empty roster reads "no agents".
-func rosterDigest(roster []RosterEntry) string {
+// latest transition, prefixed with a "⚠N " approval warning when N (the
+// human's pending-approval count) is greater than zero — always the LEADING
+// element, since it names the thing most likely to need the human's
+// attention right now. Empty roster reads "no agents".
+func rosterDigest(roster []RosterEntry, approvals int) string {
+	body := rosterDigestBody(roster)
+	if approvals <= 0 {
+		return body
+	}
+	return "⚠" + strconv.Itoa(approvals) + " " + body
+}
+
+// rosterDigestBody is the roster-only half of rosterDigest, unchanged from
+// before the approvals warning was added.
+func rosterDigestBody(roster []RosterEntry) string {
 	if len(roster) == 0 {
 		return "no agents"
 	}

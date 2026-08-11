@@ -498,16 +498,22 @@ test-integration-run PATTERN: build _ensure-gotmpdir
 # failure — which had silently made every green CI run of this suite mute.
 # The report exists specifically so a run tells you what it covered even when
 # it passes; that only works if it is actually visible.
-# -timeout 30m: go test's 600s DEFAULT is a language default, not a budget
-# chosen for this suite. At 515 scenarios the run lands either side of 600s
-# depending on ambient machine load — measured, on one box, twice: 493 of 515
-# scenarios reached before the alarm on a lightly loaded run and 327 on a
-# heavily loaded one. That made a green/red verdict a function of what else the
-# machine happened to be doing, which is worse than a slow gate: it produces
-# confident false reds that cost hours to chase. The suite is not hanging when
-# this fires. If it ever does hang, 30m still bounds it.
-# WATCH THE WALL TIME rather than trusting the ceiling — a real slowdown can
-# hide under a larger timeout, so re-measure when the box is quiet.
+# -timeout 30m is HEADROOM FOR MACHINE LOAD, not evidence the suite is slow.
+# Measured on one box, same 515 scenarios, same commit:
+#     IDLE            179s   (0.35 s/scenario)
+#     load avg 12-16  1200s  (2.33 s/scenario)   — 6.7x penalty
+# So the suite fits inside go test's 600s DEFAULT with room to spare when the
+# machine is quiet, and blows through it when the machine is busy. That made a
+# green/red verdict a function of what else the desktop happened to be doing —
+# worse than a slow gate, because it produces confident FALSE REDS that cost
+# hours to chase. It is not hanging when the alarm fires; if it ever does hang,
+# 30m still bounds it.
+#
+# 179s IS THE BASELINE TO WATCH. A raised budget hides a real slowdown, and
+# this repo has been burned by that exact move before (taskloom stark-dose:
+# five "budgets too tight" diagnoses, two of which were real defects the budget
+# was concealing). Re-measure on a QUIET box and compare against 179s; do not
+# infer anything from a run taken under load.
 test-acceptance: build _ensure-gotmpdir
     GOTMPDIR="{{go_tmp}}" go test -v -timeout 30m -tags "acceptance integration" -count=1 ./tests/acceptance/...
 

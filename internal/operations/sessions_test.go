@@ -262,3 +262,38 @@ func TestBindSession_TransientIndexReadFailureWarnsRatherThanFailingSilently(t *
 	assert.Contains(t, buf.String(), "some-harp", "the failure must be warned, naming the harp")
 	assert.Contains(t, buf.String(), "session index", "the warning must say what failed")
 }
+
+// The sibling of the case above, and the reason both need a test: BindSession
+// distinguishes "the index could not be read" (warn, above) from "this harp has
+// no entry" (silent no-op, here), and the two used to be the same branch. A
+// mutation run found this one NOT COVERED — no test executed the `entry == nil`
+// guard at all, so nothing would have noticed it inverting and letting an
+// unknown harp through to mgr.BindSession.
+//
+// Asserts the EFFECT rather than the nil error: a no-op that still wrote a
+// binding would satisfy `require.NoError` perfectly well.
+func TestBindSession_UnknownHarpWritesNothing(t *testing.T) {
+	home := testsupport.Isolate(t)
+
+	indexPath := filepath.Join(home, ".ctxloom", "sessions", "index.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(indexPath), 0o755))
+	// A VALID index that simply does not mention the harp being bound — so
+	// mgr.Find returns (nil, nil), the branch under test, rather than an error.
+	require.NoError(t, os.WriteFile(indexPath, []byte("sessions: []\n"), 0o644))
+
+	before, err := os.ReadFile(indexPath)
+	require.NoError(t, err)
+	require.NotEmpty(t, before, "a zero-length fixture would make the comparison below vacuous")
+
+	require.NoError(t, BindSession("absent-harp", "sess-1", "/tmp/transcript.jsonl"),
+		"the SessionStart hook must never fail the host backend")
+
+	after, err := os.ReadFile(indexPath)
+	require.NoError(t, err)
+	assert.Equal(t, string(before), string(after),
+		"binding a harp with no index entry must write nothing at all")
+	assert.NotContains(t, string(after), "absent-harp",
+		"no entry may be minted for a harp the index never knew")
+	assert.NotContains(t, string(after), "sess-1",
+		"and no session id may be recorded against one")
+}

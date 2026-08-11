@@ -273,22 +273,29 @@ func TestCodex_buildArgs_NoModelWhenEmpty(t *testing.T) {
 // (container fresh-$HOME) for the two axes the isolation package never sees.
 // =============================================================================
 
-// TestResolveCodexProjectDir_NoIsolation_FallsBackToWorkDir pins today's
-// default (None/shared-cwd, or no backend context): no isolation-provided
-// CODEX_HOME in env, not a container cell → the virtual project dir is
-// WorkDir itself, in-tree, exactly as before this fix — codexHomeInTree (no
-// trust pre-seed).
-func TestResolveCodexProjectDir_NoIsolation_FallsBackToWorkDir(t *testing.T) {
+// TestResolveCodexProjectDir_NoIsolation_UsesTheProjectStateHome pins the
+// in-tree default (None/shared-cwd, or no backend context): no
+// isolation-provided CODEX_HOME in env, not a container cell → the virtual
+// project dir is the project-scoped state home, StateHome(WorkDir), NOT WorkDir
+// itself. That is the engine-home policy: a home ctxloom RELOCATES lives in the
+// gitignored, unrebuildable tier, one root for the run path and every static
+// writer alike.
+func TestResolveCodexProjectDir_NoIsolation_UsesTheProjectStateHome(t *testing.T) {
 	dir, source := resolveCodexProjectDir(nil, "/proj", agent.CellKindShared)
-	assert.Equal(t, "/proj", dir)
+	assert.Equal(t, StateHome("/proj"), dir)
+	assert.Equal(t, "/proj/.ctxloom/state/engines/codex", dir,
+		"spelled out once, so a change to the policy's location cannot pass by agreeing with itself")
 	assert.Equal(t, codexHomeInTree, source)
 }
 
 // TestResolveCodexProjectDir_EmptyWorkDir mirrors cellCodexHomeEnv's old
-// "" → "." fallback.
+// "" → "." fallback: the relative form of the same state home, so an empty
+// WorkDir still lands somewhere self-consistent rather than at the filesystem
+// root.
 func TestResolveCodexProjectDir_EmptyWorkDir(t *testing.T) {
 	dir, source := resolveCodexProjectDir(nil, "", agent.CellKindShared)
-	assert.Equal(t, ".", dir)
+	assert.Equal(t, StateHome("."), dir)
+	assert.Equal(t, ".ctxloom/state/engines/codex", dir)
 	assert.Equal(t, codexHomeInTree, source)
 }
 
@@ -345,7 +352,7 @@ func TestResolveCodexProjectDir_ProcessIsolated_UsesHomeEnv(t *testing.T) {
 func TestResolveCodexProjectDir_ProcessIsolated_NoHomeFallsBackToWorkDir(t *testing.T) {
 	t.Setenv("HOME", "")
 	dir, source := resolveCodexProjectDir(nil, "/workspace/proj", agent.CellKindProcessIsolated)
-	assert.Equal(t, "/workspace/proj", dir)
+	assert.Equal(t, StateHome("/workspace/proj"), dir)
 	assert.Equal(t, codexHomeInTree, source)
 }
 
@@ -540,14 +547,16 @@ func TestCodex_SetupExecute_AgreeOnIsolatedCodexHome(t *testing.T) {
 	assert.Equal(t, isolatedHome, execEnv["CODEX_HOME"], "Execute's CODEX_HOME matches exactly what Setup delivered into")
 }
 
-// TestCodex_SetupExecute_NoneCellUnchanged pins the deliberately-scoped
-// residual: with NO isolation-provided CODEX_HOME (None/shared-cwd), Setup
-// and Execute both still land on <WorkDir>/.codex — today's behavior,
-// unchanged by this fix's dir RESOLUTION. Credential SEEDING is new: the
-// in-tree axis now actively calls seedCodexHomeFn, stubbed here to keep the
-// test hermetic (never touches the real host's ~/.codex or writes into the
-// fake "/proj").
-func TestCodex_SetupExecute_NoneCellUnchanged(t *testing.T) {
+// TestCodex_SetupExecute_NoneCellAgreesOnTheProjectStateHome is the in-tree
+// axis's end-to-end agreement: with NO isolation-provided CODEX_HOME
+// (None/shared-cwd), Setup's delivery target, the credential seed's
+// destination and Execute's CODEX_HOME all land on the project-scoped state
+// home. Trust IS pre-seeded here now — the relocated home is one codex has
+// never seen, so its own accumulated `[projects."<abs WorkDir>"]` entry is not
+// in it (see docs/trust-model.md). seedCodexHomeFn is stubbed to keep the test
+// hermetic (never touches the real host's ~/.codex or writes into the fake
+// "/proj").
+func TestCodex_SetupExecute_NoneCellAgreesOnTheProjectStateHome(t *testing.T) {
 	var seededDir string
 	restoreSeed := stubSeedCodexHomeFn(t, func(dir string) (bool, error) {
 		seededDir = dir
@@ -558,13 +567,18 @@ func TestCodex_SetupExecute_NoneCellUnchanged(t *testing.T) {
 	b := NewCodex()
 	setupReq := &agent.SetupRequest{WorkDir: "/proj"}
 	_ = b.Setup(context.Background(), setupReq)
-	assert.Equal(t, "/proj", b.resolvedProjectDir)
-	assert.Empty(t, b.resolvedTrustAbsPath, "in-tree config.toml is never trust-pre-seeded")
-	assert.Equal(t, "/proj", seededDir, "Setup actively seeds the in-tree CODEX_HOME (warm-yodel)")
+	assert.Equal(t, StateHome("/proj"), b.resolvedProjectDir)
+	wantTrust, err := filepath.Abs("/proj")
+	require.NoError(t, err)
+	assert.Equal(t, wantTrust, b.resolvedTrustAbsPath,
+		"the relocated in-tree home is one codex has never seen, so trust is pre-seeded for the WORKING DIRECTORY")
+	assert.NotEqual(t, b.resolvedProjectDir, b.resolvedTrustAbsPath,
+		"codex keys trust by the cwd it runs in, NEVER by its home")
+	assert.Equal(t, StateHome("/proj"), seededDir, "Setup actively seeds the in-tree CODEX_HOME (warm-yodel)")
 	assert.NoError(t, b.credentialErr)
 
 	execEnv := b.cellCodexHomeEnv(&agent.ExecuteRequest{WorkDir: "/proj"})
-	assert.Equal(t, filepath.Join("/proj", ".codex"), execEnv["CODEX_HOME"])
+	assert.Equal(t, ProjectHome("/proj"), execEnv["CODEX_HOME"])
 }
 
 // TestCodex_SetupExecute_ProcessIsolatedUsesContainerHome is the

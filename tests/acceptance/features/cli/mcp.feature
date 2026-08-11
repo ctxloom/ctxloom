@@ -136,8 +136,9 @@ Feature: mcp — registering MCP servers ctxloom hands to every engine
     # file-exists and never a substring of a key name (the vacuousness a
     # ".mcp.json" contains "ctxloom" check would carry). claude and kiro
     # share one JSON "mcpServers" table shape; codex has no MCP
-    # file of its own — its servers fold into the same .codex/config.toml
-    # that carries its hooks, under "mcp_servers".
+    # file of its own — its servers fold into the same config.toml
+    # that carries its hooks, under "mcp_servers", inside the project-scoped
+    # $CODEX_HOME ctxloom points it at (internal/codex.StateHome).
     #
     # EVERY ROW IS UNTAGGED because materializing a profile only WRITES
     # files; it never launches an engine, so no credential is needed and

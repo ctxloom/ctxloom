@@ -7,7 +7,34 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/ctxloom/ctxloom/internal/codex"
 )
+
+// codexMCPSurfaceRel is the project-relative path to codex's MCP registry —
+// resolved through codex's own writer, exactly as doctorMCPInvocationSurfaces
+// does. codex is the one engine whose config home ctxloom relocates
+// (internal/codex.StateHome), so a literal here would be a second opinion about
+// where that file is, and a test carrying its own copy is how the run-path /
+// static-path split went unnoticed in the first place.
+func codexMCPSurfaceRel() string { return (&codex.CodexHookWriter{}).SettingsPath("") }
+
+// TestDoctorMCPSurfaces_CodexEntryTracksItsWriter is the cross-package half of
+// the codex writer-agreement gate (internal/codex's
+// TestCodexHome_RunPathAndStaticWritersAgree covers the rest): doctor reads the
+// file codex's writer WRITES, not a path spelled out beside it.
+func TestDoctorMCPSurfaces_CodexEntryTracksItsWriter(t *testing.T) {
+	const root = "/proj"
+	var found string
+	for _, rel := range doctorMCPInvocationSurfaces {
+		if filepath.Ext(rel) == ".toml" {
+			found = rel
+		}
+	}
+	require.NotEmpty(t, found, "doctor must still list a codex surface at all")
+	assert.Equal(t, (&codex.CodexHookWriter{}).SettingsPath(root), filepath.Join(root, found),
+		"doctor's codex surface must resolve to the same config.toml codex's writer produces")
+}
 
 // writeSurface materializes one engine's MCP registry under root, creating the
 // directories the engine would have created itself.
@@ -69,7 +96,7 @@ func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 	staleFor := map[string]string{
 		".mcp.json": `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
 		filepath.Join(".kiro", "settings", "mcp.json"): `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp"]}}}`,
-		filepath.Join(".codex", "config.toml"):         "[mcp_servers.ctxloom]\ncommand = \"/bin/ctxloom\"\nargs = [\"mcp\"]\n",
+		codexMCPSurfaceRel():         "[mcp_servers.ctxloom]\ncommand = \"/bin/ctxloom\"\nargs = [\"mcp\"]\n",
 		// opencode folds the binary and its arguments into one array, so the
 		// stale spelling there is a trailing "mcp" rather than an args list.
 		"opencode.json": `{"mcp": {"ctxloom": {"type": "local", "command": ["/bin/ctxloom", "mcp"], "enabled": true}}}`,
@@ -94,7 +121,7 @@ func TestDoctorCheckMCPInvocation_ReadsEveryEngineNativeFormat(t *testing.T) {
 func TestDoctorCheckMCPInvocation_RightState_CurrentEntryInEveryFormatIsQuiet(t *testing.T) {
 	currentFor := map[string]string{
 		".mcp.json":                            `{"mcpServers": {"ctxloom": {"command": "/bin/ctxloom", "args": ["mcp", "serve"]}}}`,
-		filepath.Join(".codex", "config.toml"): "[mcp_servers.ctxloom]\ncommand = \"/bin/ctxloom\"\nargs = [\"mcp\", \"serve\"]\n",
+		codexMCPSurfaceRel(): "[mcp_servers.ctxloom]\ncommand = \"/bin/ctxloom\"\nargs = [\"mcp\", \"serve\"]\n",
 		"opencode.json":                        `{"mcp": {"ctxloom": {"type": "local", "command": ["/bin/ctxloom", "mcp", "serve"], "enabled": true}}}`,
 	}
 

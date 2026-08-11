@@ -26,8 +26,8 @@ func contextCacheHash(t *testing.T, work string) string {
 // TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook drives codex Setup in an
 // isolated cell and asserts the full cell package: the raw context cache file, the
 // config.toml carrying the SessionStart inject-context hook KEYED TO the delivered
-// context hash, the cell-scoped prompts under <work>/.codex/prompts, and the
-// CODEX_HOME env pointing there.
+// context hash, the cell-scoped prompts under <ProjectHome(work)>/prompts, and
+// the CODEX_HOME env pointing there.
 func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 	work := t.TempDir()
 	b := NewCodex()
@@ -50,21 +50,21 @@ func TestCodex_Setup_DirectoryIsolated_ArtifactsAndHook(t *testing.T) {
 	hash := contextCacheHash(t, work)
 
 	// config.toml carries the inject-context SessionStart hook keyed to that hash.
-	cfg, err := os.ReadFile(filepath.Join(work, ".codex", "config.toml"))
-	require.NoError(t, err, "the config surface must write .codex/config.toml")
+	cfg, err := os.ReadFile(filepath.Join(ProjectHome(work), ConfigFileName))
+	require.NoError(t, err, "the config surface must write config.toml under the project-scoped codex home")
 	config := string(cfg)
 	assert.Contains(t, config, "inject-context", "codex fires the SessionStart context-injection hook")
 	assert.Contains(t, config, hash, "the injection hook is keyed to the delivered context hash")
 	assert.Contains(t, config, "run-srv", "the managed MCP server is written to config.toml")
 
-	// Cell-scoped prompts live under <work>/.codex/prompts (NOT the global ~/.codex).
-	assert.FileExists(t, filepath.Join(work, ".codex", "prompts", "demo.md"),
+	// Cell-scoped prompts live under the project-scoped home (NOT the global ~/.codex).
+	assert.FileExists(t, filepath.Join(ProjectHome(work), PromptsDirName, "demo.md"),
 		"commands are delivered to the cell-scoped prompts dir")
 
 	// CODEX_HOME points codex at the cell-scoped home so it discovers those prompts.
 	env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: agent.CellKindDirectoryIsolated})
-	assert.Equal(t, filepath.Join(work, ".codex"), env["CODEX_HOME"],
-		"an isolated cell scopes CODEX_HOME to <WorkDir>/.codex")
+	assert.Equal(t, ProjectHome(work), env["CODEX_HOME"],
+		"an isolated cell scopes CODEX_HOME to the project-scoped state home")
 }
 
 // TestCodex_Setup_WritesAGENTSmd proves the LIVE RUN/LAUNCH path — not just
@@ -102,17 +102,18 @@ func TestCodex_Setup_WritesAGENTSmd(t *testing.T) {
 }
 
 // TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup proves CODEX_HOME is scoped to
-// <WorkDir>/.codex in every NON-container cell (including SharedCell, so codex
-// finds the cell-scoped prompts in the live cwd), and is left unset for a
-// minimal/distill (SkipSetup) run so codex keeps its global ~/.codex home. A
-// ProcessIsolated (container) cell is asserted separately below
-// (TestCodex_CodexHomeEnv_ProcessIsolated_UsesContainerHome, dense-amaze): it
-// scopes to the container's own fresh $HOME instead, since <WorkDir>/.codex is
-// the bind-mounted PROJECT dir, where the isolation layer never mounts creds.
+// the project-scoped state home (ProjectHome) in every NON-container cell
+// (including SharedCell, so codex finds the cell-scoped prompts for the live
+// cwd), and is left unset for a minimal/distill (SkipSetup) run so codex keeps
+// its global ~/.codex home. A ProcessIsolated (container) cell is asserted
+// separately below (TestCodex_CodexHomeEnv_ProcessIsolated_UsesContainerHome,
+// dense-amaze): it scopes to the container's own fresh $HOME instead, since the
+// project tree there is the bind-mounted PROJECT dir, where the isolation layer
+// never mounts creds.
 func TestCodex_CodexHomeEnv_AllCellsExceptSkipSetup(t *testing.T) {
 	b := NewCodex()
 	work := "/proj"
-	want := filepath.Join(work, ".codex")
+	want := ProjectHome(work)
 
 	for _, cell := range []agent.CellKind{agent.CellKindShared, agent.CellKindDirectoryIsolated} {
 		env := b.ExecuteEnv(&agent.ExecuteRequest{WorkDir: work, CellKind: cell})
@@ -139,10 +140,17 @@ func TestCodex_CodexHomeEnv_ProcessIsolated_UsesContainerHome(t *testing.T) {
 
 // TestCodex_Setup_ConfigByteIdenticalToDirectWrite pins byte-identity: the
 // config.toml the cell path's config surface writes is exactly what a direct
-// MergeManaged + CodexHookWriter.WriteSettings on the merged state produces for
-// the same workDir — same [hooks] (incl. the inject-context hook keyed to the
-// same hash) and [mcp_servers]. Both run in the SAME workDir so the inject-context
-// hook's --project path matches.
+// MergeManaged + CodexHookWriter write on the merged state produces for the
+// same workDir — same [hooks] (incl. the inject-context hook keyed to the same
+// hash), same [mcp_servers], same [projects] trust pre-seed. Both run in the
+// SAME workDir so the inject-context hook's --project path matches.
+//
+// The direct half calls WriteSettingsWithTrust, not the bare WriteSettings,
+// because the RUN path pre-seeds workspace trust on every axis (the home is one
+// ctxloom provisioned and codex has never seen — see docs/trust-model.md).
+// Comparing against a trust-less write would not be a weaker assertion, it
+// would be a false one: the two writes genuinely differ, and the run path's
+// version is the correct one.
 func TestCodex_Setup_ConfigByteIdenticalToDirectWrite(t *testing.T) {
 	managed := &agent.ManagedConfig{
 		Hooks: &wire.HooksConfig{Unified: wire.UnifiedHooks{
@@ -152,7 +160,7 @@ func TestCodex_Setup_ConfigByteIdenticalToDirectWrite(t *testing.T) {
 	}
 	fragments := []*agent.Fragment{{Content: "project rules"}}
 	work := t.TempDir()
-	configPath := filepath.Join(work, ".codex", "config.toml")
+	configPath := filepath.Join(ProjectHome(work), ConfigFileName)
 
 	// New path: the cell delivery writes config.toml via the config surface.
 	b := NewCodex()
@@ -172,7 +180,9 @@ func TestCodex_Setup_ConfigByteIdenticalToDirectWrite(t *testing.T) {
 	require.NoError(t, os.Remove(configPath))
 	life := agent.NewBaseLifecycle("codex")
 	life.MergeManaged(managed, work, hash)
-	require.NoError(t, (&CodexHookWriter{}).WriteSettings(life.GetHooks(), life.GetMCP(), nil, work))
+	absWork, err := filepath.Abs(work)
+	require.NoError(t, err)
+	require.NoError(t, (&CodexHookWriter{}).WriteSettingsWithTrust(life.GetHooks(), life.GetMCP(), nil, work, absWork))
 	directCfg, err := os.ReadFile(configPath)
 	require.NoError(t, err)
 

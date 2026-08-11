@@ -164,15 +164,17 @@ Feature: skill — authoring an Agent Skill package, curating it, and shipping i
     #   | claude-code | .claude/skills/<name>/SKILL.md              | project     |
     #   | kiro        | .kiro/skills/<name>/SKILL.md                | project     |
     #   | opencode    | .opencode/skill/<name>/SKILL.md             | project     |
-    #   | codex       | .codex/skills/<name>/SKILL.md               | cell-scoped |
+    #   | codex       | .ctxloom/state/engines/codex/.codex/skills/<name>/SKILL.md | cell-scoped |
     #
     # codex's OWN skills directory is documented GLOBAL ($CODEX_HOME/skills —
     # internal/codex/skillfiles.go), but that path only fires on the LIVE
     # run/launch path. `profile materialize` binds codex's Skills surface
     # through NewSurfaces' inline closure with no homeOverride, which — just
     # like its Commands surface (j000400_multi_engine.feature's own codex row) —
-    # cell-scopes under --target instead. A naive Outline redirecting
-    # $CODEX_HOME here would assert a file that never gets written.
+    # cell-scopes the PROJECT-SCOPED home derived from --target instead
+    # (codex.ProjectHome, the engine-home policy's single owner). A naive
+    # Outline redirecting $CODEX_HOME here would assert a file that never gets
+    # written.
 
     Background:
       Given Alice's project has a directory-form bundle "ops"

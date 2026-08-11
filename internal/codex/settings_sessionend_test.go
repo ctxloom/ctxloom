@@ -33,7 +33,7 @@ func TestWriteSettings_SessionEndIsAnnounced(t *testing.T) {
 
 	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
 
-	cfg := readConfig(t, fs, "/proj/.codex/config.toml")
+	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	hookTbl := asMap(cfg["hooks"])
 	require.NotNil(t, hookTbl)
 	assert.NotEmpty(t, asSlice(hookTbl["SessionStart"]), "SessionStart still routes")

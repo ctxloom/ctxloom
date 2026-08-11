@@ -12,6 +12,15 @@ import (
 	"github.com/ctxloom/ctxloom/internal/shared/wire"
 )
 
+// codexConfigPath is the config.toml a STATIC write for projectDir lands at.
+// Resolved through the writer itself rather than re-spelled, so these tests
+// follow the engine-home policy's single owner (internal/codex.StateHome) the
+// same way production does — a test carrying its own copy of the path is
+// exactly how the run-path/static-path split went unnoticed.
+func codexConfigPath(projectDir string) string {
+	return (&CodexHookWriter{}).SettingsPath(projectDir)
+}
+
 func readConfig(t *testing.T, fs afero.Fs, path string) map[string]any {
 	t.Helper()
 	data, err := afero.ReadFile(fs, path)
@@ -29,7 +38,7 @@ func TestWriteSettings_CompanionHookIdempotent(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// User's own ltk registration (different args) predates ctxloom's.
 	existing := "[hooks]\n[[hooks.PreToolUse]]\nmatcher = 'Bash'\n[[hooks.PreToolUse.hooks]]\ncommand = 'ltk evaluate --config .ltk/config.yaml'\ntype = 'command'\n"
-	require.NoError(t, afero.WriteFile(fs, "/proj/.codex/config.toml", []byte(existing), 0644))
+	require.NoError(t, afero.WriteFile(fs, codexConfigPath("/proj"), []byte(existing), 0644))
 
 	w := NewWriter(agent.SettingsOptions{FS: fs})
 	hooks := &wire.HooksConfig{
@@ -39,7 +48,7 @@ func TestWriteSettings_CompanionHookIdempotent(t *testing.T) {
 	}
 
 	countLtk := func() (exact, variant int) {
-		cfg := readConfig(t, fs, "/proj/.codex/config.toml")
+		cfg := readConfig(t, fs, codexConfigPath("/proj"))
 		for _, g := range asSlice(asMap(cfg["hooks"])["PreToolUse"]) {
 			for _, e := range asSlice(asMap(g)["hooks"]) {
 				switch asMap(e)["command"] {
@@ -82,7 +91,7 @@ func TestWriteSettings_SameCommandDistinctMatchersCoexist(t *testing.T) {
 	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
 
 	byMatcher := map[string]int{}
-	cfg := readConfig(t, fs, "/proj/.codex/config.toml")
+	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	for _, g := range asSlice(asMap(cfg["hooks"])["PreToolUse"]) {
 		gm := asMap(g)
 		m, _ := gm["matcher"].(string)
@@ -102,7 +111,7 @@ func TestWriteSettings_SameCommandDistinctMatchersCoexist(t *testing.T) {
 func TestWriteSettings_HooksAndMCP(t *testing.T) {
 	fs := afero.NewMemMapFs()
 	// Pre-existing user config the writer must preserve.
-	require.NoError(t, afero.WriteFile(fs, "/proj/.codex/config.toml", []byte("model = \"o3\"\n"), 0644))
+	require.NoError(t, afero.WriteFile(fs, codexConfigPath("/proj"), []byte("model = \"o3\"\n"), 0644))
 
 	w := NewWriter(agent.SettingsOptions{FS: fs})
 	hooks := &wire.HooksConfig{
@@ -117,7 +126,7 @@ func TestWriteSettings_HooksAndMCP(t *testing.T) {
 
 	require.NoError(t, w.WriteSettings(hooks, mcp, nil, "/proj"))
 
-	cfg := readConfig(t, fs, "/proj/.codex/config.toml")
+	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	assert.Equal(t, "o3", cfg["model"], "user key preserved")
 
 	hookTbl := asMap(cfg["hooks"])
@@ -145,7 +154,7 @@ func TestWriteSettings_HooksAndMCP(t *testing.T) {
 func TestWriteSettings_MCPCommandOverride(t *testing.T) {
 	command := func(t *testing.T, fs afero.Fs) string {
 		t.Helper()
-		cfg := readConfig(t, fs, "/proj/.codex/config.toml")
+		cfg := readConfig(t, fs, codexConfigPath("/proj"))
 		servers := asMap(cfg["mcp_servers"])
 		require.NotNil(t, servers)
 		entry := asMap(servers[agent.MCPServerName])
@@ -196,7 +205,7 @@ func TestWriteSettings_MCPServerEnvPreserved(t *testing.T) {
 
 	require.NoError(t, w.WriteSettings(&wire.HooksConfig{}, mcp, bundleMCP, "/proj"))
 
-	cfg := readConfig(t, fs, "/proj/.codex/config.toml")
+	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	servers := asMap(cfg["mcp_servers"])
 	require.NotNil(t, servers)
 
@@ -228,17 +237,17 @@ func TestRemoveSettings(t *testing.T) {
 	require.NoError(t, w.WriteSettings(hooks, nil, nil, "/proj"))
 
 	// A user-authored hook the writer must not touch.
-	cfg := readConfig(t, fs, "/proj/.codex/config.toml")
+	cfg := readConfig(t, fs, codexConfigPath("/proj"))
 	hookTbl := asMap(cfg["hooks"])
 	hookTbl["Stop"] = []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "/usr/bin/mine"}}}}
 	var buf []byte
 	buf, err := toml.Marshal(cfg)
 	require.NoError(t, err)
-	require.NoError(t, afero.WriteFile(fs, "/proj/.codex/config.toml", buf, 0644))
+	require.NoError(t, afero.WriteFile(fs, codexConfigPath("/proj"), buf, 0644))
 
 	require.NoError(t, w.RemoveSettings("/proj"))
 
-	got := readConfig(t, fs, "/proj/.codex/config.toml")
+	got := readConfig(t, fs, codexConfigPath("/proj"))
 	gotHooks := asMap(got["hooks"])
 	assert.NotContains(t, gotHooks, "SessionStart", "ctxloom hook removed")
 	assert.Contains(t, gotHooks, "Stop", "user hook preserved")

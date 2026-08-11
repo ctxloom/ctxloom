@@ -64,9 +64,22 @@ type CodexHookWriter struct {
 
 func (w *CodexHookWriter) getFS() afero.Fs { return agent.GetFS(w.FS) }
 
-// SettingsPath returns the path to Codex's project-level config.toml.
+// SettingsPath returns the path to Codex's project-scoped config.toml for a
+// PROJECT ROOT: <projectDir>/.ctxloom/state/engines/codex/.codex/config.toml.
+// It resolves through StateHome for the same reason WriteSettings does — the
+// two must name one file for one argument, which is what makes the conformance
+// suite's write-then-read-back at this path meaningful.
 func (w *CodexHookWriter) SettingsPath(projectDir string) string {
-	return filepath.Join(projectDir, ConfigDirName, ConfigFileName)
+	return w.settingsPathIn(StateHome(projectDir))
+}
+
+// settingsPathIn joins config.toml under an ALREADY-RESOLVED codex home parent
+// — the "virtual project dir" cellScopedCodexHome derives CODEX_HOME from. The
+// run path's three axes each resolve their own (an isolation-provided worktree
+// home, a container's fresh $HOME, the in-tree state home), so the surfaces
+// hand this one a finished directory rather than a project root to relocate.
+func (w *CodexHookWriter) settingsPathIn(codexProjectDir string) string {
+	return filepath.Join(codexProjectDir, ConfigDirName, ConfigFileName)
 }
 
 // AgentsMDFile is the workspace-fixed file codex reads NATIVELY at session
@@ -113,22 +126,36 @@ func (w *CodexHookWriter) WriteSettings(hooks *wire.HooksConfig, mcp *wire.MCPCo
 // pre-seed: when trustAbsPath is non-empty, it appends
 // `[projects."<trustAbsPath>"] trust_level = "trusted"` to the written
 // config.toml so codex does not re-prompt for trust the FIRST time it reads a
-// config.toml it has never seen before (either EPHEMERAL home — an
-// isolation-provided per-run CODEX_HOME, or a container cell's own fresh
-// $HOME; see internal/codex/backend.go's resolveCodexProjectDir). Safe ONLY
-// there: the file is ephemeral and never committed, so a
-// machine-specific absolute path baked in is harmless — unlike the in-tree
-// materialize/apply path, which never passes trustAbsPath and stays exactly
-// as WriteSettings behaved before this method existed (the trust key that
-// lands there is legitimately codex's own, appended on ITS first real run,
-// not ctxloom's).
+// config.toml it has never seen before — and, under `codex exec`, does not
+// silently proceed untrusted because there is nobody to prompt. That covers
+// every home ctxloom itself provisions — the isolation-provided per-run
+// CODEX_HOME, a container cell's fresh $HOME, and the durable project state
+// home — none of which is ever committed, so a machine-specific absolute path
+// baked into one is harmless.
+//
+// docs/trust-model.md, "Engine workspace-trust prompts", is the NORMATIVE
+// statement of this decision and its boundary (ctxloom answers only for homes
+// it created, only for the directory the run was asked for). It used to live
+// only in this comment, which is why the boundary was easy to widen by
+// accident; internal/codex/backend.go's Setup is what fills the value.
+//
+// projectDir is a PROJECT ROOT, relocated through resolveInTreeHome (which also
+// performs the one-time legacy-home migration). The surfaces call
+// writeSettingsIn instead: they have already resolved their axis's own home and
+// must not have a second relocation applied on top of it.
 func (w *CodexHookWriter) WriteSettingsWithTrust(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, projectDir, trustAbsPath string) error {
+	return w.writeSettingsIn(hooks, mcp, bundleMCP, resolveInTreeHome(w.FS, projectDir), trustAbsPath)
+}
+
+// writeSettingsIn is WriteSettingsWithTrust against an ALREADY-RESOLVED codex
+// home parent — see settingsPathIn.
+func (w *CodexHookWriter) writeSettingsIn(hooks *wire.HooksConfig, mcp *wire.MCPConfig, bundleMCP map[string]wire.MCPServer, codexProjectDir, trustAbsPath string) error {
 	if hooks == nil {
 		hooks = &wire.HooksConfig{}
 	}
 
 	fs := w.getFS()
-	settingsPath := w.SettingsPath(projectDir)
+	settingsPath := w.settingsPathIn(codexProjectDir)
 
 	if err := fs.MkdirAll(filepath.Dir(settingsPath), 0755); err != nil {
 		return fmt.Errorf("failed to create .codex directory: %w", err)
@@ -227,9 +254,20 @@ func (w *CodexHookWriter) save(path string, cfg map[string]any, allowEmpty bool)
 // hooks and MCP servers from config.toml, leaving an absent file absent. A file
 // that cannot be STATTED is neither: reporting a clean removal from a file
 // nobody could look at leaves ctxloom's hooks and servers live in it.
+//
+// projectDir is a PROJECT ROOT, resolved through StateHome — deliberately NOT
+// through resolveInTreeHome: an uninstall must not move a user's files as a
+// side effect, and anything left at the pre-relocation <projectDir>/.codex is
+// inert once CODEX_HOME no longer points there.
 func (w *CodexHookWriter) RemoveSettings(projectDir string) error {
+	return w.removeSettingsIn(StateHome(projectDir))
+}
+
+// removeSettingsIn is RemoveSettings against an ALREADY-RESOLVED codex home
+// parent — the form configSurface's delivery handle reverts through.
+func (w *CodexHookWriter) removeSettingsIn(codexProjectDir string) error {
 	fs := w.getFS()
-	settingsPath := w.SettingsPath(projectDir)
+	settingsPath := w.settingsPathIn(codexProjectDir)
 	exists, err := afero.Exists(fs, settingsPath)
 	if err != nil {
 		return fmt.Errorf("cannot determine whether %s exists: %w", settingsPath, err)
@@ -249,6 +287,9 @@ func (w *CodexHookWriter) RemoveSettings(projectDir string) error {
 // Status implements SettingsWriter for Codex CLI. An unreadable config.toml is
 // an error, not a "not configured" report: the two look identical to a caller
 // and only one of them is a fact about the file.
+//
+// projectDir is a PROJECT ROOT, resolved through StateHome — a read never
+// migrates, for the reason RemoveSettings gives.
 func (w *CodexHookWriter) Status(projectDir string) (agent.SettingsStatus, error) {
 	fs := w.getFS()
 	var status agent.SettingsStatus

@@ -24,7 +24,7 @@ formats and lets them drift the moment anyone forgets to update all three.
 ctxloom's answer is to let the team author the standard exactly once — as a
 profile — and materialize it into each engine's own native surface on demand.
 Nobody forks the profile per engine. Nobody hand-writes a `.mcp.json` next to
-a `.codex/config.toml` next to a `.kiro/settings/mcp.json` and prays they stay
+codex's `config.toml` next to a `.kiro/settings/mcp.json` and prays they stay
 in sync. One profile in, three genuinely different file layouts out, each one
 exactly the shape its own engine already expects.
 
@@ -69,7 +69,8 @@ purpose: it documents a real product gap this journey found while proving
 the other three engines, rather than hiding it.
 
 codex's MCP, hook, and skill surfaces materialize correctly — the same
-`.codex/config.toml` and prompt files land with the shared server's command,
+`config.toml` and prompt files land, under the project-scoped `$CODEX_HOME`
+ctxloom points codex at, with the shared server's command,
 the shared hook's command, and the shared skill's body, exactly like the
 other two engines. But codex's *context* does not reach its target at all.
 codex has no native context file by design (its only delivery mechanism is a

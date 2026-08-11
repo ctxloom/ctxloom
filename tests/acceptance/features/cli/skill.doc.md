@@ -122,7 +122,12 @@ itself owns.
 | claude-code | `.claude/skills/<name>/SKILL.md` |
 | kiro | `.kiro/skills/<name>/SKILL.md` |
 | opencode | `.opencode/skill/<name>/SKILL.md` |
-| codex | `.codex/skills/<name>/SKILL.md` |
+| codex | `.ctxloom/state/engines/codex/.codex/skills/<name>/SKILL.md` |
+
+codex's row is the long one because codex is the only engine whose config home
+ctxloom relocates: its skills hang off `$CODEX_HOME`, and ctxloom points that at
+a project-scoped directory in the gitignored state tier rather than at a
+`.codex` in your project root.
 
 Note `opencode` uses `skill/`, singular, where everyone else uses `skills/`.
 That is the kind of detail that costs an afternoon when you are placing files by

@@ -275,15 +275,16 @@ func TestEngineCLI_PromptDeliveryMatchesDriver(t *testing.T) {
 // ctxloom's writers actually target, so the declaration cannot describe a file
 // nothing writes. codex's probes resolve against TWO different roots — the cwd
 // (AGENTS.md, the context cache) and CODEX_HOME (config.toml, prompts, skills)
-// — and cellScopedCodexHome(dir) is what ctxloom points CODEX_HOME at, so the
-// env-dir probes are checked against that join.
+// — and ProjectHome(dir) is what ctxloom points CODEX_HOME at for a
+// project-scoped run (cellScopedCodexHome under the engine-home policy's
+// StateHome), so the env-dir probes are checked against that join.
 func TestEngineCLI_ProbesMatchTheWriters(t *testing.T) {
 	clis := CodexEngineCLIs()
 	cli := mustCLI(t, clis, agent.CLISurfaceInteractive)
 	require.NoError(t, cli.Validate())
 
 	const dir = "/work"
-	home := cellScopedCodexHome(dir)
+	home := ProjectHome(dir)
 	w := &CodexHookWriter{}
 
 	byKindScope := func(kind agent.ProbeKind, scope agent.ProbeScope) agent.CLIProbe {
@@ -304,11 +305,11 @@ func TestEngineCLI_ProbesMatchTheWriters(t *testing.T) {
 
 	commands := byKindScope(agent.ProbeKindCommands, agent.ScopeEnvDir)
 	assert.True(t, commands.Dir)
-	assert.Equal(t, cellScopedPromptsDir(dir), filepath.Join(home, commands.Rel))
+	assert.Equal(t, cellScopedPromptsDir(StateHome(dir)), filepath.Join(home, commands.Rel))
 
 	skills := byKindScope(agent.ProbeKindSkills, agent.ScopeEnvDir)
 	assert.True(t, skills.Dir)
-	assert.Equal(t, cellScopedSkillsDir(dir), filepath.Join(home, skills.Rel))
+	assert.Equal(t, cellScopedSkillsDir(StateHome(dir)), filepath.Join(home, skills.Rel))
 
 	// cwd-rooted context: AGENTS.md is the native read.
 	contexts := cli.ProbesFor(agent.ProbeKindContext)

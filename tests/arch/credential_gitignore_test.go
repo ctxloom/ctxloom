@@ -11,21 +11,29 @@ import (
 
 // ctxloom seeds real engine credentials into the working tree so a vendor CLI
 // can authenticate: codex reads auth.json from $CODEX_HOME, and ctxloom points
-// CODEX_HOME at <project>/.codex. There is no vendor surface that separates the
-// credential from the rest of CODEX_HOME (checked against codex-cli 0.144.4:
-// no auth-path flag, no auth-path env var), so the file genuinely lands in the
-// tree and .gitignore is the ONLY thing keeping it out of a commit.
+// CODEX_HOME at a project-scoped home. There is no vendor surface that
+// separates the credential from the rest of CODEX_HOME (checked against
+// codex-cli 0.144.4: no auth-path flag, no auth-path env var), so the file
+// genuinely lands in the tree and .gitignore is the ONLY thing keeping it out
+// of a commit.
 //
 // A lone .gitignore line is one careless edit away from gone, and the failure is
 // silent and unrecoverable — a leaked credential cannot be un-pushed. This gate
 // makes the ignore rule load-bearing in the test suite instead of by convention.
+//
+// BOTH the current and the legacy location are listed. The engine-home policy
+// moved the home to .ctxloom/state/engines/codex (paths.EngineStateHome), where
+// the single ".ctxloom/state/" rule covers it — but ctxloom's one-time
+// migration only runs in checkouts somebody actually opens, so a pre-migration
+// tree still holds the old file and still needs its rule.
 //
 // Add a row here whenever a new engine seeds a credential in-tree.
 var credentialPaths = []struct {
 	path string
 	why  string
 }{
-	{".codex/auth.json", "codex OAuth/API credential, seeded from the host's ~/.codex/auth.json by isolation.SeedCodexHome"},
+	{".ctxloom/state/engines/codex/.codex/auth.json", "codex OAuth/API credential at the CURRENT project-scoped home (paths.EngineStateHome), seeded from the host's ~/.codex/auth.json by isolation.SeedCodexHome"},
+	{".codex/auth.json", "codex OAuth/API credential at the LEGACY pre-migration home; a checkout that never runs ctxloom again keeps this file forever"},
 }
 
 func TestArch_SeededCredentialsAreGitignored(t *testing.T) {

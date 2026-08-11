@@ -25,6 +25,8 @@ import (
 	"path/filepath"
 
 	"github.com/cucumber/godog"
+
+	"github.com/ctxloom/ctxloom/internal/codex"
 )
 
 // doctorSkillMD is the "ctxloom-doctor" skill's authored SKILL.md: frontmatter
@@ -134,14 +136,15 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 	// WriteSkillFiles, used by the LIVE run/launch path), but on the STATIC
 	// `profile materialize` CLI path codex.NewSurfaces binds Skills to an
 	// inline closure that — with no homeOverride, exactly like its Commands
-	// closure — falls back to `target := dir` and writes cell-scoped under
-	// cellScopedSkillsDir(dir) (internal/codex/surfaces.go's NewSurfaces),
-	// landing at <target>/.codex/skills/, the SAME cell-scoping its commands
-	// surface already uses (j000400_multi_engine.feature's own codex row:
-	// <target>/.codex/prompts/). Confirmed live (a real `profile materialize
-	// --backend codex` run, with $CODEX_HOME redirected to a fixture dir,
-	// wrote NOTHING there and wrote the skill under --target instead) —
-	// globality is realized only on the live run/launch path, not here.
+	// closure — cell-scopes the PROJECT-SCOPED home derived from the target
+	// dir (codex.ProjectHome, the engine-home policy's single owner), landing
+	// at <target>/.ctxloom/state/engines/codex/.codex/skills/ — the SAME
+	// cell-scoping its commands surface already uses
+	// (j000400_multi_engine.feature's own codex row, likewise under
+	// ProjectHome). Confirmed live (a real `profile materialize --backend
+	// codex` run, with $CODEX_HOME redirected to a fixture dir, wrote NOTHING
+	// there and wrote the skill under --target instead) — globality is
+	// realized only on the live run/launch path, not here.
 	engineSkillMDPath := func(w *World) (string, error) {
 		j000600 := j000600Of(w)
 		switch j000600.engine {
@@ -152,7 +155,7 @@ func registerJ000600Steps(ctx *godog.ScenarioContext) {
 		case "opencode":
 			return filepath.Join(j000600.target, ".opencode", "skill", "ctxloom-doctor", "SKILL.md"), nil
 		case "codex":
-			return filepath.Join(j000600.target, ".codex", "skills", "ctxloom-doctor", "SKILL.md"), nil
+			return filepath.Join(codex.ProjectHome(j000600.target), "skills", "ctxloom-doctor", "SKILL.md"), nil
 		default:
 			return "", fmt.Errorf("j000600: unknown engine %q for the skill surface", j000600.engine)
 		}

@@ -82,9 +82,18 @@ var coverageExemptLeaves = map[string]string{
 
 // coverBlock is one entry of a textfmt coverage profile: the statements
 // between two positions in a file, and how many times they ran.
+//
+// startCol is carried because a LINE does not identify a block. Consecutive
+// `if` statements produce two blocks that start on the same line: the one
+// reaching the `if` (which runs whenever control gets that far, whatever the
+// condition says) and the guarded body itself, starting at the `{`. Keying by
+// line alone would let the first vouch for the second — a block that ran
+// standing in for one that did not. leafRan does not need the column and
+// ignores it; cli_flag_gate_test.go cannot be correct without it.
 type coverBlock struct {
 	file      string
 	startLine int
+	startCol  int
 	count     int
 }
 
@@ -257,11 +266,26 @@ func readCoverProfile(path string) (map[string][]coverBlock, error) {
 		// runtime reports an absolute filesystem path. Strip the module prefix
 		// so the two can be matched by suffix.
 		file := strings.TrimPrefix(fields[0][:colon], modulePath+"/")
-		startLine, err := strconv.Atoi(strings.SplitN(fields[0][colon+1:], ".", 2)[0])
+		// "<startLine>.<startCol>,<endLine>.<endCol>" — take the start pair.
+		start, _, ok := strings.Cut(fields[0][colon+1:], ",")
+		if !ok {
+			continue
+		}
+		lineStr, colStr, ok := strings.Cut(start, ".")
+		if !ok {
+			continue
+		}
+		startLine, err := strconv.Atoi(lineStr)
 		if err != nil {
 			continue
 		}
-		out[file] = append(out[file], coverBlock{file: file, startLine: startLine, count: count})
+		startCol, err := strconv.Atoi(colStr)
+		if err != nil {
+			continue
+		}
+		out[file] = append(out[file], coverBlock{
+			file: file, startLine: startLine, startCol: startCol, count: count,
+		})
 	}
 	if err := sc.Err(); err != nil {
 		return nil, fmt.Errorf("scan %s: %w", path, err)

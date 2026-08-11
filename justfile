@@ -595,21 +595,23 @@ test-acceptance-cover: build-cover _ensure-gotmpdir _ensure-covdata
     profile="$covdir/profile.txt"
     go tool covdata textfmt -i="$covdir" -o="$profile"
     echo
-    echo "=== every CLI leaf's RunE actually ran? ==="
+    echo "=== every CLI leaf's RunE ran, and every Changed() flag was passed? ==="
     CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{go_tmp}}" \
-        go test -tags "acceptance integration coveragegate" -count=1 \
-        -run TestCLICoverage_EveryLeafActuallyRan ./tests/acceptance/... || status=1
+        go test -v -tags "acceptance integration coveragegate" -count=1 \
+        -run 'TestCLICoverage_' ./tests/acceptance/... || status=1
     exit "$status"
 
-# Re-run the CLI coverage gate ALONE, against a profile that already exists.
+# Re-run the CLI coverage gates ALONE, against a profile that already exists.
 #
-# The gate is a pure function of the profile `test-acceptance-cover` writes, but
-# that recipe always does the whole lane first — instrumented build, full
-# acceptance suite, covdata conversion, ~4 minutes — before the gate runs. The
-# commonest reason to touch the gate is editing coverageExemptLeaves, which
-# changes no program behaviour at all, so paying for a full re-run to watch one
-# assertion flip is pure waste. Running the underlying `go test` by hand is
-# correctly refused by ltk, so without this there is no sanctioned fast path.
+# Both gates (`TestCLICoverage_*`: every leaf's RunE ran, every Changed() flag
+# was passed) are pure functions of the profile `test-acceptance-cover` writes,
+# but that recipe always does the whole lane first — instrumented build, full
+# acceptance suite, covdata conversion, ~4 minutes — before the gates run. The
+# commonest reason to touch one is editing coverageExemptLeaves or
+# flagCoverageExempt, which changes no program behaviour at all, so paying for a
+# full re-run to watch one assertion flip is pure waste. Running the underlying
+# `go test` by hand is correctly refused by ltk, so without this there is no
+# sanctioned fast path.
 #
 # It FAILS rather than skips when no profile exists: a gate that quietly passes
 # over absent data is this project's characteristic bug, and the gate itself
@@ -631,10 +633,10 @@ test-coverage-gate PROFILE="":
         echo "       \`just test-acceptance-cover\` first, or pass a path." >&2
         exit 1
     fi
-    echo "=== every CLI leaf's RunE actually ran? (profile: $profile) ==="
+    echo "=== CLI coverage gates (profile: $profile) ==="
     CTXLOOM_COVERPROFILE="$profile" GOTMPDIR="{{ go_tmp }}" \
-        go test -tags "acceptance integration coveragegate" -count=1 \
-        -run TestCLICoverage_EveryLeafActuallyRan ./tests/acceptance/...
+        go test -v -tags "acceptance integration coveragegate" -count=1 \
+        -run 'TestCLICoverage_' ./tests/acceptance/...
 
 # Run the @container acceptance rows — the ones that actually launch an engine
 # inside a container (j002400_container.feature's differential host-vs-container

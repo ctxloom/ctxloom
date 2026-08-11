@@ -89,6 +89,12 @@ func TestApproval_SurfaceToHumanRoundTrip(t *testing.T) {
 			assert.Equal(t, "bash", p.Title)
 			assert.NotEmpty(t, p.MessageID, "the message id IS the correlation the human's reply answers")
 			assert.False(t, p.Since.IsZero())
+			// Slice 3: Deadline is the SAME timeout the rung actually waits on
+			// (conformanceWait, threaded through surfaceLadderSpawner), anchored
+			// to the same Since the callback reported — not independently
+			// recomputed (which could drift under a slow scheduler).
+			assert.Equal(t, p.Since.Add(conformanceWait), p.Deadline,
+				"Deadline must be Since + the rung's resolved timeout")
 
 			// LOUD: the park itself must warn, naming the harp and the tool —
 			// not just become observable to a caller that happens to be
@@ -198,4 +204,82 @@ func TestApproval_SurfaceToHumanTimeout(t *testing.T) {
 	// to see this happened — naming the harp and the tool.
 	assert.Contains(t, sink.String(), "timed out", "the expiry must warn, not just journal silently")
 	assert.Contains(t, sink.String(), "bash", "the warning must name the tool that was waiting")
+}
+
+// TestApproval_SurfaceToHumanClosureShapeMirrorsCLIWiring pins the exact
+// marshalled shape internal/cli/run_terminal_ui.go's terminalUISources wires
+// as tui.Sources.AnswerApproval:
+//
+//	structured, _ := json.Marshal(map[string]any{"decision": d.String(), "note": note})
+//	sessionCoord.AgentSend(coord.Identity{Harp: selfHarp, Depth: 0, Project: workDir},
+//	    childHarp, "", "approval decision", structured, messageID)
+//
+// Slice 3's brief asked for this as a cli-package test (terminalUISources
+// built against a real test coordinator). That harness could not be built:
+// coord.Spawner's five methods (Resolve/AssignSession/Launch/StartEngine/
+// ResumeContext/MarkSessionEnded) require the same machinery fake_test.go
+// implements in ~600 unexported lines local to THIS package
+// (fakeAgent/scriptedChat/fakeEngine/fakeSpawner) — cli can only see the
+// exported Spawner interface, not those helpers, so reproducing the harness
+// there would mean forking fake_test.go wholesale, not reusing it. This test
+// lives here instead and drives the WIRING CLOSURE's own marshalled shape
+// byte-for-byte against a real surface-to-human round trip, so the payload
+// assertion the wiring needs (the engine receiving the allow option — not
+// merely a nil error from AgentSend) is not silently skipped.
+func TestApproval_SurfaceToHumanClosureShapeMirrorsCLIWiring(t *testing.T) {
+	resetStrictness(t)
+
+	permReq := commandExecRequest("perm-1")
+	sp := surfaceLadderSpawner(func() *scriptedChat { return &scriptedChat{permission: permReq} }, conformanceWait)
+	c := newTestCoordinator(t, sp, nil)
+
+	parked := make(chan PendingApproval, 1)
+	c.OnPendingApproval(func(p PendingApproval, isParked bool) {
+		if isParked {
+			select {
+			case parked <- p:
+			default:
+			}
+		}
+	})
+
+	out, err := c.AgentRun(context.Background(), ownerIdentity(), "worker", "run a command", "", "")
+	require.NoError(t, err)
+
+	var p PendingApproval
+	select {
+	case p = <-parked:
+	case <-time.After(conformanceWait):
+		t.Fatal("OnPendingApproval never fired for a parked human-surfaced approval")
+	}
+
+	// The wiring closure's own body, reproduced verbatim (not coord's
+	// decisionFromStructured helper — the point is to prove the CLOSURE's
+	// output, as terminalUISources actually builds it, decodes and resolves).
+	d := agentcoordpb.ApprovalDecision_DECISION_ACCEPT
+	note := "reviewed by a human, via the wiring closure"
+	structured, err := json.Marshal(map[string]any{"decision": d.String(), "note": note})
+	require.NoError(t, err)
+	selfHarp, workDir := ownerIdentity().Harp, "/tmp/does-not-matter"
+	caller := Identity{Harp: selfHarp, Depth: 0, Project: workDir}
+
+	disp, err := c.AgentSend(caller, out.Harp, "", "approval decision", structured, p.MessageID)
+	require.NoError(t, err)
+	assert.Contains(t, disp, "DECISION_ACCEPT")
+
+	// The park RESOLVES: PendingApprovals() empties.
+	require.Eventually(t, func() bool { return len(c.PendingApprovals()) == 0 },
+		conformanceWait, 10*time.Millisecond, "the closure's send must resolve the park")
+
+	// The child's engine receives the matching ALLOW option — the payload the
+	// wiring exists to deliver, asserted directly rather than trusting a nil
+	// error.
+	require.Eventually(t, func() bool {
+		sc := sp.chat(0)
+		return sc != nil && len(sc.recordedAnswers()) == 1
+	}, conformanceWait, 10*time.Millisecond, "the child must receive the coordinator's decision")
+	ans := sp.chat(0).recordedAnswers()[0]
+	assert.Equal(t, "perm-1", ans.ID)
+	assert.Equal(t, "allow-1", ans.OptionID,
+		"the wiring closure's marshalled shape must resolve to the ACCEPT option, not just a nil error")
 }

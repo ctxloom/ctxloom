@@ -1,6 +1,8 @@
 package config
 
 import (
+	"io"
+
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
 	"github.com/ctxloom/ctxloom/internal/shared/strictness"
 )
@@ -97,9 +99,36 @@ type Warning struct {
 // every session, and recording unconditionally would turn one broken file into
 // N copies of one finding inside a single refusal. The finding still re-fires
 // in the next window, so an unfixed config refuses the next session too.
+//
+// A thin call against the ambient sink (clidiag.Warn) — see RecordWarningsTo
+// for the writer-taking variant every `ctxloom run`/`ctxloom mcp`/GetConfig
+// startup path uses instead, so both surfaces share ONE recording loop.
 func RecordWarnings(warnings []Warning) {
+	recordWarnings(warnings, func(format string, args ...any) {
+		clidiag.Warn("ctxloom", format, args...)
+	})
+}
+
+// RecordWarningsTo is RecordWarnings for a caller that owns an explicit
+// writer instead of the ambient sink — `ctxloom run`, `ctxloom mcp`, and the
+// GetConfig-based command entrypoints, none of which may assume stderr is
+// safe to write to directly (a session that owns the terminal redirects the
+// sink for its own lifetime; a caller with its own writer already chose
+// where these lines belong). Same recording/dedup contract as RecordWarnings.
+func RecordWarningsTo(w io.Writer, warnings []Warning) {
+	recordWarnings(warnings, func(format string, args ...any) {
+		clidiag.Fwarn(w, "ctxloom", format, args...)
+	})
+}
+
+// recordWarnings is the ONE warning-recording loop both RecordWarnings and
+// RecordWarningsTo run — each supplies only where the "ctxloom: warning: ..."
+// line goes (the ambient sink vs. a caller's writer); the RecordOnce dedup
+// and class/fix-it lookup live here exactly once so the two entry points
+// cannot drift.
+func recordWarnings(warnings []Warning, warn func(format string, args ...any)) {
 	for _, w := range warnings {
-		clidiag.Warn("ctxloom", "%s", w.Text)
+		warn("%s", w.Text)
 		strictness.RecordOnce(w.Kind.StrictnessClass(), w.Kind.FixIt(), "%s", w.Text)
 	}
 }

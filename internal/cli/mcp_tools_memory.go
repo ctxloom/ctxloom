@@ -280,7 +280,7 @@ func (s *ctxServer) handleListSessions(ctx context.Context, _ *mcp.CallToolReque
 	rows := make([]sessionSummary, 0, len(entries))
 	for i := range entries {
 		e := &entries[i]
-		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
+		_, distilled := operations.SessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
 		last := e.LastActivity
 		if last.IsZero() {
 			last = sessions.ActivityTime(*e)
@@ -306,7 +306,7 @@ func (s *ctxServer) distillMissingForList(ctx context.Context, entries []session
 	defer cancel()
 	for i := range entries {
 		e := &entries[i]
-		_, distilled := sessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
+		_, distilled := operations.SessionEssenceInfo(e.HarpName, e, s.cfg.GetAppDir())
 		stale, known := e.SourceStale()
 		knownStale := known && stale
 		if distilled && !knownStale {
@@ -401,9 +401,9 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 		// unbound (the SessionStart bind hook never fired) or its bound backend
 		// doesn't match the one being read from.
 		activeEntry, _ := operations.GetSession(s.self.Harp)
-		targetSessionID = recoverTargetSessionID(activeEntry, backendName, nil, fileExists)
+		targetSessionID = recoverTargetSessionID(activeEntry, backendName, nil, regularFileExists)
 		if targetSessionID == "" {
-			source, _, serr := resolveSessionSource(s.cfg, backendName, workDir)
+			source, _, serr := operations.ResolveSessionSource(s.cfg, backendName, workDir)
 			if serr != nil {
 				return nil, nil, serr
 			}
@@ -414,7 +414,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 			if len(sessionsList) == 0 {
 				return nil, &loadSessionResult{Loaded: false, Message: "No sessions found."}, nil
 			}
-			targetSessionID = recoverTargetSessionID(nil, backendName, sessionsList, fileExists)
+			targetSessionID = recoverTargetSessionID(nil, backendName, sessionsList, regularFileExists)
 		}
 	}
 
@@ -435,7 +435,7 @@ func (s *ctxServer) handleRecoverSession(ctx context.Context, _ *mcp.CallToolReq
 // trusting a dead id would skip the mtime listing and return an id nothing
 // can load, so a stale binding degrades to the mtime fallback exactly like an
 // unbound harp. transcriptExists is injected (production passes
-// fileExists) so this stays pure for testability; mtimeSessions is assumed
+// regularFileExists) so this stays pure for testability; mtimeSessions is assumed
 // most-recent-first (every backend's ListSessions ordering). Called twice by
 // the handler: first with mtimeSessions=nil (identity-only probe, so the —
 // potentially subprocess-spawning — mtime listing is skipped whenever
@@ -451,6 +451,18 @@ func recoverTargetSessionID(activeEntry *sessions.Entry, backendName string, mti
 		return mtimeSessions[0].ID
 	}
 	return ""
+}
+
+// regularFileExists reports whether p is an existing regular file (not a
+// directory) — recoverTargetSessionID's production transcriptExists
+// predicate. Deliberately NOT the same function as
+// operations.SessionEssenceInfo's inlined existence check (identical logic,
+// different call site, different reason to exist): unifying file-existence
+// predicates across unrelated call sites is exactly the drift wave-brief §4
+// warns about when the semantics might quietly diverge later.
+func regularFileExists(p string) bool {
+	info, err := os.Stat(p)
+	return err == nil && !info.IsDir()
 }
 
 func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToolRequest, in getPreviousSessionInput) (*mcp.CallToolResult, *loadSessionResult, error) {
@@ -497,7 +509,7 @@ func (s *ctxServer) handleGetPreviousSession(ctx context.Context, _ *mcp.CallToo
 	// session by mtime and shift every position by one, so a blind index-1 pick
 	// can return the active session itself or an unrelated foreign transcript.
 	if sessionID == "" {
-		source, _, serr := resolveSessionSource(s.cfg, backendName, workDir)
+		source, _, serr := operations.ResolveSessionSource(s.cfg, backendName, workDir)
 		if serr != nil {
 			return nil, nil, serr
 		}
@@ -562,7 +574,7 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 	// the size stamped at distill time. SourceStale compares against the
 	// canonical transcript (enriched onto the entry by operations.GetSession/
 	// Find), the same file compactEntry distills from.
-	if data, rerr := readHarpEssence(harp); rerr == nil {
+	if data, rerr := operations.ReadHarpEssence(harp); rerr == nil {
 		stale, known := entry.SourceStale()
 		knownStale := known && stale
 		if !knownStale {
@@ -585,13 +597,13 @@ func (s *ctxServer) previousSessionByHarp(ctx context.Context, harp, model strin
 	// DIFFERENT models must not collapse into one distill and hand both callers
 	// a result from whichever model happened to win.
 	res, err := s.singleflightDistill(harp+"\x00canonical\x00"+model, func() (*loadSessionResult, error) {
-		if _, derr := compactEntry(ctx, entry, s.cfg, model, io.Discard); derr != nil {
+		if _, derr := operations.CompactEntry(ctx, entry, s.cfg, model, io.Discard); derr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
 				Message: fmt.Sprintf("Couldn't distill previous session %s: %v", harp, derr),
 			}, nil
 		}
-		data, rerr := readHarpEssence(harp)
+		data, rerr := operations.ReadHarpEssence(harp)
 		if rerr != nil {
 			return &loadSessionResult{
 				Loaded:  false,
@@ -690,7 +702,7 @@ func (s *ctxServer) loadOrDistillSession(ctx context.Context, sessionID, backend
 	if err != nil {
 		return nil, nil, fmt.Errorf("get working directory: %w", err)
 	}
-	source, backendName, err := resolveSessionSource(s.cfg, backendName, workDir)
+	source, backendName, err := operations.ResolveSessionSource(s.cfg, backendName, workDir)
 	if err != nil {
 		return nil, nil, err
 	}

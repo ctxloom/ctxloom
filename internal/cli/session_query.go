@@ -121,13 +121,13 @@ func sessionMetadataHaystack(e *sessions.Entry) string {
 
 // readEssenceForQuery reads a session's distilled essence body for the
 // content-search fallback, resolving it the same way `session show` does
-// (sessionEssenceInfo: harp-dir layout first, then the legacy
+// (operations.SessionEssenceInfo: harp-dir layout first, then the legacy
 // <sessionsDir>/<sessionID>.md path). ok is false when the session was never
 // distilled or the file can't be read — the query fallback is best-effort,
 // never an error, matching this codebase's fault-tolerance convention (a
 // dead or unreadable essence just doesn't contribute a content match).
 func readEssenceForQuery(e *sessions.Entry, appDir string) (string, bool) {
-	path, distilled := sessionEssenceInfo(e.HarpName, e, appDir)
+	path, distilled := operations.SessionEssenceInfo(e.HarpName, e, appDir)
 	if !distilled {
 		return "", false
 	}

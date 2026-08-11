@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/ctxloom/ctxloom/internal/config"
+	"github.com/ctxloom/ctxloom/internal/operations"
 	"github.com/ctxloom/ctxloom/internal/paths"
 	"github.com/ctxloom/ctxloom/internal/sessions"
 	"github.com/ctxloom/ctxloom/internal/shared/clidiag"
@@ -373,7 +374,7 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 		seedLegacyEssence(t, appDir, "sess-1", "legacy body\n")
 		e := sessions.Entry{HarpName: harp, SessionID: "sess-1"}
 
-		gotPath, distilled := sessionEssenceInfo(harp, &e, appDir)
+		gotPath, distilled := operations.SessionEssenceInfo(harp, &e, appDir)
 		body, found := readSessionEssence(harp, &e)
 
 		assert.True(t, distilled)
@@ -388,7 +389,7 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 		legacyPath := seedLegacyEssence(t, appDir, "sess-2", "legacy body\n")
 		e := sessions.Entry{HarpName: harp, SessionID: "sess-2"}
 
-		gotPath, distilled := sessionEssenceInfo(harp, &e, appDir)
+		gotPath, distilled := operations.SessionEssenceInfo(harp, &e, appDir)
 		body, found := readSessionEssence(harp, &e)
 
 		assert.True(t, distilled)
@@ -401,7 +402,7 @@ func TestSessionEssenceResolution_SharedLookupOrder(t *testing.T) {
 		appDir := seedProjectConfig(t)
 		e := sessions.Entry{HarpName: "never-distilled-harp", SessionID: "sess-3"}
 
-		gotPath, distilled := sessionEssenceInfo("never-distilled-harp", &e, appDir)
+		gotPath, distilled := operations.SessionEssenceInfo("never-distilled-harp", &e, appDir)
 		body, found := readSessionEssence("never-distilled-harp", &e)
 
 		assert.False(t, distilled)
@@ -432,7 +433,7 @@ func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
 	restore := clidiag.SetSink(&diag)
 	t.Cleanup(restore)
 
-	gotPath, distilled := sessionEssenceInfo(harp, &e, appDir)
+	gotPath, distilled := operations.SessionEssenceInfo(harp, &e, appDir)
 	body, found := readSessionEssence(harp, &e)
 
 	assert.True(t, distilled, "the listing side sees the file and reports its path")
@@ -443,22 +444,24 @@ func TestReadSessionEssence_UnreadableEssenceIsReported(t *testing.T) {
 		"an essence that EXISTS but cannot be read must be reported, not silently reported as never-distilled")
 }
 
-// TestFileExists pins this package's copy of the "existing regular file"
-// predicate. Three packages carry a verbatim copy of it — internal/cli
-// (fileExists), internal/lm/isolation (fileExists) and internal/codex
-// (codexFileExists) — so no parity test between them can be red (wave-brief §4
-// DUPLICATE, verbatim case). Each is pinned separately instead, with the same
-// three cases, so that the behaviour any future collapse must preserve is
-// stated, and so that a divergence introduced in one of the three shows up
-// where it happens.
-func TestFileExists(t *testing.T) {
+// TestRegularFileExists pins this package's surviving "existing regular file"
+// predicate (recoverTargetSessionID's production transcriptExists — the
+// former cli fileExists was inlined into operations.SessionEssenceInfo and
+// deleted, see internal/operations's own coverage of that check). Other
+// packages carry their own verbatim copies — internal/lm/isolation
+// (fileExists) and internal/codex (codexFileExists) — deliberately NOT
+// unified with this one (wave-brief §4 DUPLICATE, verbatim case), so each is
+// pinned separately with the same three cases: the behaviour any future
+// collapse must preserve is stated, and a divergence introduced in one of
+// them shows up where it happens.
+func TestRegularFileExists(t *testing.T) {
 	dir := t.TempDir()
 	regular := filepath.Join(dir, "essence.md")
 	require.NoError(t, os.WriteFile(regular, []byte("x"), 0o644))
 
-	assert.True(t, fileExists(regular), "an existing regular file exists")
-	assert.False(t, fileExists(dir), "a DIRECTORY is not a file — the whole point of the IsDir check")
-	assert.False(t, fileExists(filepath.Join(dir, "absent.md")), "a missing path does not exist")
+	assert.True(t, regularFileExists(regular), "an existing regular file exists")
+	assert.False(t, regularFileExists(dir), "a DIRECTORY is not a file — the whole point of the IsDir check")
+	assert.False(t, regularFileExists(filepath.Join(dir, "absent.md")), "a missing path does not exist")
 }
 
 // --- Phase 2: direct tests for the extracted `session` RunE bodies ----------

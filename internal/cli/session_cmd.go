@@ -137,7 +137,7 @@ func runSessionShow(cmd *cobra.Command, args []string) error {
 	essence, distilled := readSessionEssence(harp, entry)
 	essencePath := ""
 	if distilled {
-		essencePath, _ = sessionEssenceInfo(harp, entry, sessionAppDir())
+		essencePath, _ = operations.SessionEssenceInfo(harp, entry, sessionAppDir())
 	}
 	return emit(cmd, sessionEssence{Harp: harp, Distilled: distilled, Essence: essence, EssencePath: essencePath}, func() error {
 		if !distilled {
@@ -353,7 +353,7 @@ func runSessionDistill(cmd *cobra.Command, args []string) error {
 	} else {
 		progress.Printf("ctxloom: distilling %s (by transcript path, no session_id bound)...\n", harpName)
 	}
-	result, err := compactEntry(cmd.Context(), entry, cfg, "", progress)
+	result, err := operations.CompactEntry(cmd.Context(), entry, cfg, "", progress)
 	if err != nil {
 		return err
 	}

@@ -52,7 +52,7 @@ func newLLMDistillerForLabel(cfg *config.Config, label string) operations.Distil
 	return &llmDistiller{
 		llmName:  backend,
 		llmLabel: label,
-		llmEnv:   llmEnvFor(cfg, label),
+		llmEnv:   operations.LLMEnvFor(cfg, label),
 		model:    model,
 		prompt:   loadDistillPrompt(),
 	}

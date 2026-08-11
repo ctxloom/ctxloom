@@ -179,9 +179,9 @@ func resumeFullContext(existing, harp string, entriesFn func(string) ([]agent.Se
 // "tasks" — task restoration was removed along with the picker and is not
 // coming back here) so resumePartsIncludeSession's essence gate opens.
 //
-// essenceFn/distillFn are injected (production: readHarpEssence/
+// essenceFn/distillFn are injected (production: operations.ReadHarpEssence/
 // shellOutDistill — the `session distill` compactor path, session_cmd.go's
-// runSessionDistill/compactEntry/memory.NewCompactor) so distill-on-demand
+// runSessionDistill/operations.CompactEntry/memory.NewCompactor) so distill-on-demand
 // is unit-testable
 // without shelling out. A distill failure warns rather than blocking launch;
 // the SessionStart hook's own readHarpEssence call then simply finds nothing
@@ -511,7 +511,7 @@ func (st *runState) loadConfig() error {
 	// config.Load downgrades unreadable/malformed/schema-invalid files to
 	// warnings (CLAUDE.md fault tolerance) — surface them so a corrupted
 	// config.yaml never silently launches an empty-context session.
-	printAndRecordConfigWarnings(os.Stderr, cfg.GetWarnings())
+	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
 	// If loading upgraded an older config schema in memory, offer to persist
 	// it (interactive + consented only; never a silent rewrite).
 	confirmUpgrade(cfg.GetPendingUpgrade(), cfg.CommitUpgrade)
@@ -588,14 +588,14 @@ func (st *runState) runStartupTasks() {
 				strictness.Fail(strictness.ClassSync, "check the remote/network, or pass --degraded to launch anyway", "sync failed: %v", syncErr)
 			}
 		} else {
-			writeAndRecordSyncSummary(os.Stderr, result)
+			operations.WriteAndRecordSyncSummary(os.Stderr, result)
 		}
 	}
 
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`.
 	if !runDryRun {
-		reportCompanions(os.Stderr)
+		operations.ReportCompanions(os.Stderr)
 	}
 
 	// Startup reaper: sweep any per-agent worktree checkout left behind by a
@@ -603,7 +603,7 @@ func (st *runState) runStartupTasks() {
 	// WIP-safe removal only ever fires on a graceful Cleanup(), so nothing
 	// else ever reaps these. Best-effort, silent unless it found something.
 	if !runDryRun {
-		sweepOrphanedWorktrees(st.ctx, os.Stderr)
+		operations.SweepOrphanedWorktrees(st.ctx, os.Stderr)
 	}
 }
 
@@ -756,7 +756,7 @@ func (st *runState) gateStartup() error {
 // axis, the assembled context (including a full resume folded into it), the
 // execution mode, the prompt fragment, and the work directory.
 func (st *runState) prepareRequestInputs() {
-	st.llmEnv = llmEnvFor(st.cfg, st.label)
+	st.llmEnv = operations.LLMEnvFor(st.cfg, st.label)
 
 	// The session's WORKSPACE axis: the invocation flag wins, else the
 	// project `workspace:` default. A session trait — never read from the
@@ -963,7 +963,7 @@ func (st *runState) openSession() func() {
 func (st *runState) applyResumeEnv() {
 	switch {
 	case runResumeSession != "" && runResumeDistill:
-		for k, v := range resumeDistillEnv(runResumeSession, readHarpEssence, shellOutDistill) {
+		for k, v := range resumeDistillEnv(runResumeSession, operations.ReadHarpEssence, shellOutDistill) {
 			st.runEnv[k] = v
 		}
 		fmt.Fprintf(os.Stderr, "ctxloom: resuming distilled essence from %s\n", runResumeSession)

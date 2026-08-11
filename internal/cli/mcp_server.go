@@ -190,13 +190,13 @@ func (s *ctxServer) startup(ctx context.Context) error {
 	// Log which companion binaries (taskloom, ltk) this session is wired
 	// with, version-probed via `<bin> version --format json`. The wiring itself
 	// happens in applyStartupHooks below via the built-in bundles.
-	reportCompanions(os.Stderr)
+	operations.ReportCompanions(os.Stderr)
 
 	// Startup reaper (bony-carry bug #2): sweep any per-agent worktree
 	// checkout left behind by a crashed/killed prior run — see
-	// sweepOrphanedWorktrees's doc. Best-effort, silent unless it found
-	// something.
-	sweepOrphanedWorktrees(ctx, os.Stderr)
+	// operations.SweepOrphanedWorktrees's doc. Best-effort, silent unless it
+	// found something.
+	operations.SweepOrphanedWorktrees(ctx, os.Stderr)
 
 	purgeLegacyBundles(cfg)
 
@@ -234,13 +234,13 @@ func loadStartupConfigWith(load func(...config.LoadOption) (*config.Config, erro
 	if err != nil {
 		cfg = fallbackConfigForLoadFailure(err)
 	}
-	printAndRecordConfigWarnings(os.Stderr, cfg.GetWarnings())
+	config.RecordWarningsTo(os.Stderr, cfg.GetWarnings())
 	return cfg
 }
 
 // fallbackConfigForLoadFailure builds the minimal config a failed load degrades
 // to. The failure rides as the config's single Warning, which is the ONE report
-// of it: printAndRecordConfigWarnings both prints that warning and records it as a
+// of it: config.RecordWarningsTo both prints that warning and records it as a
 // strictness finding, so warning about it here too would put the identical
 // sentence on stderr twice.
 func fallbackConfigForLoadFailure(err error) *config.Config {
@@ -282,7 +282,7 @@ func runStartupSync(ctx context.Context, cfg *config.Config) {
 		}
 		return
 	}
-	writeAndRecordSyncSummary(os.Stderr, result)
+	operations.WriteAndRecordSyncSummary(os.Stderr, result)
 }
 
 // applyStartupHooks runs the ApplyHooks startup phase against the active
